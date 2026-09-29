@@ -170,7 +170,21 @@ normalization. The existing exports in `pcb/modules/track-commands.js` remain
 editor adapters. Batch edits apply every via's state before rendering any of them,
 then refresh derived state once; compound batching and drag-time overlay deferral
 are preserved. Via moves retain caller-owned connectivity and pour refresh timing.
-Track/placement commands and entity-level render state remain separate boundaries.
+Track coupling during compound gestures remains caller-owned.
+
+Track add/remove/scalar-edit/node-move/graph-edit operations live in
+`core/pcb-track-commands.js`. Collection commands take `PcbDocument`; edits
+operate on its `Track` entities. Route creation owns a copy of its associated-via
+list and installs the complete route before the editor renders it. Undo removes
+the listed vias; removing an existing track alone leaves standalone vias intact.
+Graph commands deeply own full-precision snapshots, including topology, edge
+attributes, node radii, pad connections and source-shape metadata. Node moves
+resolve the current node by ID on every operation, so they survive graph undo
+recreating node objects. Missing targets throw explicitly rather than recording
+a successful no-op. Geometry edits invalidate existing entity bounds without
+rendering; connectivity, clearance, selection and SVG work remain in the
+`pcb/modules/track-commands.js` adapters. Placement/outline-setup commands and
+entity-level render/derived state remain open boundaries.
 
 Copper-fill add/remove/modify operations live in `core/pcb-fill-commands.js`.
 Collection commands use the model's existing `boardShapes` array; modification

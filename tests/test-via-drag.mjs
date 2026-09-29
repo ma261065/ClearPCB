@@ -25,9 +25,11 @@ globalThis.document = {
 
 const { Via } = await import('../src/shapes/via.js');
 const { Track } = await import('../src/shapes/track.js');
+const { setPcbSelection, getPcbSelection } = await import('../src/pcb/modules/selection-registry.js');
 const { collectBondedCopper, reconcileRatsnest } = await import('../src/pcb/modules/track-draw.js');
 const { AddTrackCommand, RemoveTrackCommand, AddViaCommand, RemoveViaCommand, MoveViaCommand,
-    ModifyViaCommand, ModifyViasCommand, CompoundCommand } = await import('../src/pcb/modules/track-commands.js');
+    ModifyViaCommand, ModifyViasCommand, ModifyTrackCommand, ModifyTrackGraphCommand,
+    MoveVertexCommand, CompoundCommand } = await import('../src/pcb/modules/track-commands.js');
 const {
     FlipPlacementCommand,
     MovePlacementCommand,
@@ -66,7 +68,7 @@ function appFor(via) {
     const crosshairs = [];
     return {
         pcbDocument,
-        tracks: [],
+        tracks: pcbDocument.tracks,
         vias: pcbDocument.vias,
         placements: new Map(),
         netlist: [],
@@ -90,11 +92,12 @@ function appFor(via) {
 
 function trackAppFor(track, previousDeferral = false) {
     const pcbDocument = new PcbDocument();
+    pcbDocument.tracks.push(track);
     let fillRefreshes = 0;
     let clearanceRefreshes = 0;
     return {
         pcbDocument,
-        tracks: [track],
+        tracks: pcbDocument.tracks,
         vias: pcbDocument.vias,
         placements: new Map(),
         netlist: [],
@@ -386,6 +389,75 @@ for (const previousDeferral of [false, true]) {
     assert.deepEqual(vias, [second, first]);
     assert.equal(layer.children.length, 4, 'Undo addition removes only the newly added via SVG');
     assert.equal(app.vias, app.pcbDocument.vias);
+}
+
+{
+    const app = appFor(new Via({ x: 50, y: 50 }));
+    const quietVia = app.vias[0];
+    const route = new Track({ points: [{ x: 0, y: 0 }, { x: 10, y: 0 }] });
+    const routeVia = new Via({ x: 10, y: 0 });
+    const layer = () => ({ children: [], appendChild(element) {
+        this.children.push(element);
+        element.parentNode = this;
+    } });
+    const copper = layer(), holes = layer();
+    const observedOwnership = [];
+    let reconciles = 0, propertyClears = 0;
+    app._clearProperties = () => { propertyClears++; };
+    app._getLayerGroup = id => {
+        if (id === 'ratlines') reconciles++;
+        if (id !== 'top-copper' && id !== 'vias') return null;
+        observedOwnership.push([app.tracks.includes(route), app.vias.includes(routeVia)]);
+        return id === 'top-copper' ? copper : holes;
+    };
+    const associated = [routeVia];
+    const add = new AddTrackCommand(app, route, associated);
+    associated.length = 0;
+    add.execute();
+    assert.deepEqual(observedOwnership[0], [true, true], 'The complete route is in the model before rendering');
+    assert.equal(copper.children.length, 1);
+    assert.equal(holes.children.length, 2, 'Associated vias use the command-owned membership during rendering');
+    assert.equal(app.tracks, app.pcbDocument.tracks);
+    assert.equal(app.vias, app.pcbDocument.vias);
+    setPcbSelection(app, [{ kind: 'track', object: route }]);
+    const graphBefore = route.captureState();
+    const graphAfter = structuredClone(graphBefore);
+    graphAfter.nodes.n0.x = -2.123456;
+    graphAfter.edges.e0.bulge = 0.25;
+    graphAfter.edges.e0.width = 0.456789;
+    for (const command of [
+        new MoveVertexCommand(app, route, 'n0', 0, 0, 3.123456, -4.123456),
+        new ModifyTrackGraphCommand(app, route, graphBefore, graphAfter),
+        new ModifyTrackCommand(app, route, { net: '' }, { net: 'POWER' }),
+    ]) {
+        const counts = [app.clearanceRefreshes(), app.fillRefreshes(), reconciles];
+        command.execute();
+        assert.equal(copper.children.length, route._svgElements.length, 'Track redraw replaces its old SVG');
+        const path = copper.children.find(element => element.getAttribute('class') === 'pcb-track');
+        if (command instanceof MoveVertexCommand) assert.ok(path.getAttribute('points').startsWith('3.123456,-4.123456 '));
+        if (command instanceof ModifyTrackGraphCommand) assert.equal(path.getAttribute('stroke-width'), '0.456789');
+        if (command instanceof ModifyTrackCommand) assert.equal(path.dataset.net, 'POWER');
+        command.undo();
+        assert.deepEqual(route.captureState(), graphBefore);
+        assert.equal(app.clearanceRefreshes() - counts[0], 2);
+        assert.equal(app.fillRefreshes() - counts[1], 2);
+        assert.equal(reconciles - counts[2], 2);
+    }
+    const remove = new RemoveTrackCommand(app, route);
+    remove.execute();
+    assert.deepEqual(app.tracks, []);
+    assert.deepEqual(getPcbSelection(app, 'track'), []);
+    assert.equal(propertyClears, 1);
+    assert.equal(copper.children.length, 0);
+    assert.equal(holes.children.length, 2, 'Track deletion leaves standalone via SVG intact');
+    remove.undo();
+    assert.equal(app.tracks[0], route);
+    assert.equal(copper.children.length, 1);
+    add.undo();
+    assert.deepEqual(app.tracks, []);
+    assert.deepEqual(app.vias, [quietVia]);
+    assert.equal(copper.children.length, 0);
+    assert.equal(holes.children.length, 0);
 }
 
 if (failures) process.exitCode = 1;

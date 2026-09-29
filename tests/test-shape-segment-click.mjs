@@ -1,10 +1,11 @@
 import assert from 'node:assert/strict';
 import { PcbDocument } from '../src/core/PcbDocument.js';
 
-function shapeModel(shapes = []) {
+function shapeModel(shapes = [], tracks = []) {
     const pcbDocument = new PcbDocument();
     pcbDocument.boardShapes.push(...shapes);
-    return { pcbDocument, boardShapes: pcbDocument.boardShapes };
+    pcbDocument.tracks.push(...tracks);
+    return { pcbDocument, boardShapes: pcbDocument.boardShapes, tracks: pcbDocument.tracks, vias: pcbDocument.vias };
 }
 
 globalThis.window = { addEventListener() {} };
@@ -51,7 +52,7 @@ for (const kinds of [['line'], ['polygon'], ['line', 'polygon']]) {
             points: [{ x: 0, y: 0 }, { x: 10, y: 0 }, { x: 10, y: 10 }] }));
         const before = structuredClone(shapes);
         const track = new Track({ points: [{ x: 20, y: 0 }, { x: 30, y: 0 }] });
-        const app = { ...shapeModel(shapes), tracks: [track], vias: [], placements: new Map(), texts: new Map(),
+        const app = { ...shapeModel(shapes, [track]), placements: new Map(), texts: new Map(),
             _shapeElements: new Map(), _getLayerGroup() { return null; }, viewport: { scale: 20 } };
         setPcbSelection(app, [...shapes.map(shape => ({ kind: 'shape', object: shape })),
             ...(keepTrack ? [{ kind: 'track', object: track }] : [])]);
@@ -132,7 +133,7 @@ for (const commit of [true, false]) {
     const before = track.captureState();
     const refreshes = { clearance: 0, fills: 0, board: 0 };
     const commands = [];
-    const app = { tracks: [track], ...shapeModel(), vias: [], placements: new Map(), texts: new Map(),
+    const app = { ...shapeModel([], [track]), placements: new Map(), texts: new Map(),
         _getLayerGroup() { return null; }, viewport: { scale: 100, shiftHeld: true },
         _refreshClearanceHalos() { refreshes.clearance++; },
         _refreshFills() { refreshes.fills++; },
@@ -181,8 +182,8 @@ for (const kind of ['line', 'track']) {
         const commands = [];
         let title = '';
         const items = { innerHTML: '' };
-        const app = { ...shapeModel(kind === 'track' ? [] : [object]), tracks: kind === 'track' ? [object] : [],
-            vias: [], placements: new Map(), texts: new Map(), _shapeElements: new Map(), _shapeIdCounter: 1,
+        const app = { ...shapeModel(kind === 'track' ? [] : [object], kind === 'track' ? [object] : []),
+            placements: new Map(), texts: new Map(), _shapeElements: new Map(), _shapeIdCounter: 1,
             _getLayerGroup() { return null; }, _snapToGrid(point) { return point; },
             _pcbPropsItems() { return items; }, _setPcbPropsTitle(value) { title = value; },
             viewport: { scale: 100, setCrosshair() {}, hideCrosshair() {} },
@@ -247,8 +248,8 @@ for (const kind of ['line', 'polygon', 'rect', 'track']) {
         : [{ x: 0, y: 0 }, { x: 10, y: 0 }, { x: 10, y: 10 }, { x: 0, y: 10 }];
     const object = kind === 'track' ? new Track({ points })
         : { id: `node-gesture-${kind}`, kind, layer: 'top-silk', lineWidth: 0.2, points };
-    const app = { ...shapeModel(kind === 'track' ? [] : [object]), tracks: kind === 'track' ? [object] : [],
-        vias: [], placements: new Map(), texts: new Map(), _shapeElements: new Map(),
+    const app = { ...shapeModel(kind === 'track' ? [] : [object], kind === 'track' ? [object] : []),
+        placements: new Map(), texts: new Map(), _shapeElements: new Map(),
         _getLayerGroup() { return null; }, _snapToGrid(point) { return point; },
         viewport: { scale: 100, setCrosshair() {}, hideCrosshair() {} },
         history: { execute(command) { command.execute(); } } };
@@ -277,8 +278,8 @@ for (const kind of ['line', 'track']) {
         const object = kind === 'track' ? new Track({ points })
             : { id: `midpoint-${action}`, kind, layer: 'top-silk', lineWidth: 0.2, points };
         const commands = [];
-        const app = { ...shapeModel(kind === 'track' ? [] : [object]), tracks: kind === 'track' ? [object] : [],
-            vias: [], placements: new Map(), texts: new Map(), _shapeElements: new Map(),
+        const app = { ...shapeModel(kind === 'track' ? [] : [object], kind === 'track' ? [object] : []),
+            placements: new Map(), texts: new Map(), _shapeElements: new Map(),
             _getLayerGroup() { return null; }, _snapToGrid(point) { return point; },
             viewport: { scale: 100, setCrosshair() {}, hideCrosshair() {} },
             history: { execute(command) { commands.push(command); command.execute(); } } };
@@ -317,8 +318,8 @@ for (const kind of ['line', 'polygon', 'rect', 'arc', 'circle', 'track']) {
             start: { x: 0, y: 0 }, end: { x: 10, y: 0 }, bulge: { x: 5, y: 2 } }
         : kind === 'circle' ? { id: 'magnet-circle', kind, layer: 'top-silk', lineWidth: 0.2, x: 0, y: 0, radius: 5 }
         : { id: `magnet-${kind}`, kind, layer: 'top-silk', lineWidth: 0.2, points };
-    const app = { ...shapeModel(kind === 'track' ? [] : [object]), tracks: kind === 'track' ? [object] : [],
-        vias: [], placements: new Map(), texts: new Map(), _shapeElements: new Map(),
+    const app = { ...shapeModel(kind === 'track' ? [] : [object], kind === 'track' ? [object] : []),
+        placements: new Map(), texts: new Map(), _shapeElements: new Map(),
         _getLayerGroup() { return null; },
         viewport: { scale: 100, gridSize: 1, gridVisible: true, snapToGrid: true, shiftHeld: false,
             setCrosshair() {}, hideCrosshair() {} },
@@ -350,7 +351,7 @@ for (const layer of ['top-silk', 'board-outline']) {
                 points: [{ x: 0, y: 0 }, { x: fixed, y: 0 }, { x: fixed + 2, y: 5 },
                     { x: fixed, y: 10 }, { x: 0, y: 10 }].map(orient),
                 segmentBulges: { 1: 0.25 } };
-            const app = { ...shapeModel([shape]), tracks: [], vias: [], placements: new Map(), texts: new Map(),
+            const app = { ...shapeModel([shape]), placements: new Map(), texts: new Map(),
                 _shapeElements: new Map(), _getLayerGroup() { return null; },
                 viewport: { scale: 100, gridSize: 1, gridVisible: true, shiftHeld: false,
                     setCrosshair() {}, hideCrosshair() {} } };
@@ -506,7 +507,7 @@ for (const overall of [2, 3]) {
     track.setNodeCornerRadius(nodeId, 0);
     track.setEdgeAttr(edgeId, 'width', 4);
     const commands = [];
-    const app = { tracks: [track], vias: [], ...shapeModel(), placements: new Map(), texts: new Map(),
+    const app = { ...shapeModel([], [track]), placements: new Map(), texts: new Map(),
         viewport: { scale: 100 }, _getLayerGroup() { return null; },
         _pcbPropsItems() { return { innerHTML: '' }; },
         history: { execute(command) { commands.push(command); command.execute(); } } };
@@ -549,7 +550,7 @@ for (const overall of [2, 3]) {
         points: [{ x: 0, y: 0 }, { x: 10, y: 0 }] };
     const items = { innerHTML: '' };
     let title = '';
-    const app = { ...shapeModel([shape]), placements: new Map(), tracks: [], vias: [], texts: new Map(),
+    const app = { ...shapeModel([shape]), placements: new Map(), texts: new Map(),
         _shapeElements: new Map(), _getLayerGroup() { return null; },
         viewport: { scale: 100, setCrosshair() {}, hideCrosshair() {} }, _snapToGrid(point) { return point; },
         _pcbPropsItems() { return items; }, _setPcbPropsTitle(value) { title = value; },
@@ -600,7 +601,7 @@ for (const overall of [2, 3]) {
 
 {
     const track = new Track({ points: [{ x: 0, y: 0 }, { x: 10, y: 0 }] });
-    const app = { tracks: [track], vias: [], ...shapeModel(), placements: new Map(), texts: new Map(),
+    const app = { ...shapeModel([], [track]), placements: new Map(), texts: new Map(),
         viewport: { scale: 100 }, _getLayerGroup() { return null; } };
     selectTrackOrVia(app, { type: 'track', track });
     const overlay = document.createElementNS();
@@ -617,7 +618,7 @@ for (const overall of [2, 3]) {
 for (const guideClick of [false, true]) {
     const shape = { id: 'rounded-segment', kind: 'rect', layer: 'top-copper', lineWidth: 0.2, cornerRadius: 8,
         points: [{ x: 0, y: 0 }, { x: 40, y: 0 }, { x: 40, y: 30 }, { x: 0, y: 30 }] };
-    const app = { ...shapeModel([shape]), placements: new Map(), tracks: [], vias: [], texts: new Map(),
+    const app = { ...shapeModel([shape]), placements: new Map(), texts: new Map(),
         _shapeElements: new Map(), _getLayerGroup() { return null; },
         viewport: { scale: 100, setCrosshair() {}, hideCrosshair() {} }, _snapToGrid(point) { return point; },
         history: { execute(command) { command.execute(); } } };
@@ -652,7 +653,7 @@ for (const kind of ['line', 'polygon']) {
         const shape = { id: 'curved-segment', kind, layer: 'top-silk', lineWidth: 0.2,
             points: [{ x: 0, y: 0 }, { x: 10, y: 0 }, { x: 20, y: 10 }], segmentBulges: { 0: 0.25 } };
         let title = '';
-        const app = { ...shapeModel([shape]), placements: new Map(), tracks: [], vias: [], texts: new Map(),
+        const app = { ...shapeModel([shape]), placements: new Map(), texts: new Map(),
             _shapeElements: new Map(), _getLayerGroup() { return null; },
             viewport: { scale: 100, setCrosshair() {}, hideCrosshair() {} }, _snapToGrid(point) { return point; },
             _pcbPropsItems() { return { innerHTML: '' }; }, _setPcbPropsTitle(value) { title = value; },
@@ -734,7 +735,7 @@ for (const [kind, zeroOffset] of ['arc', 'line', 'polygon'].flatMap(kind =>
     };
     const originalGetElementById = document.getElementById;
     document.getElementById = id => id === 'pcbPropShapeBulge' ? input : null;
-    const app = { ...shapeModel([shape]), placements: new Map(), tracks: [], vias: [], texts: new Map(),
+    const app = { ...shapeModel([shape]), placements: new Map(), texts: new Map(),
         _shapeElements: new Map(), _getLayerGroup() { return null; },
         viewport: { scale: 100, setCrosshair() {}, hideCrosshair() {} }, _snapToGrid(point) { return point; },
         _pcbPropsItems() { return items; }, _setPcbPropsTitle(value) { title = value; },

@@ -1,9 +1,8 @@
 /**
- * Command classes for PCB Track/Via undo/redo.
+ * Editor adapters for core Track/Via commands, plus placement/outline commands.
  *
- * Each command owns enough state to fully reverse itself. Render/SVG
- * updates run inside execute()/undo() so the visible board state always
- * matches the model.
+ * Render/SVG updates and derived refreshes stay here; authored Track/Via
+ * changes and undo snapshots belong to the neutral core commands.
  */
 
 import {
@@ -17,6 +16,13 @@ import { clearTrackSelection, refreshTrackSelectionHalo } from './track-select.j
 import { getPcbSelection, togglePcbSelection } from './selection-registry.js';
 import { batchDerivedUpdates, deferDerivedUpdate } from '../../core/DerivedUpdates.js';
 import { getBoardOutline, rectangleBoardOutline } from './board-outline.js';
+import {
+    AddTrackCommand as ModelAddTrackCommand,
+    RemoveTrackCommand as ModelRemoveTrackCommand,
+    ModifyTrackCommand as ModelModifyTrackCommand,
+    MoveVertexCommand as ModelMoveVertexCommand,
+    ModifyTrackGraphCommand as ModelModifyTrackGraphCommand,
+} from '../../core/pcb-track-commands.js';
 import {
     AddViaCommand as ModelAddViaCommand,
     RemoveViaCommand as ModelRemoveViaCommand,
@@ -177,17 +183,15 @@ export function applyPlacementPose(app, compId) {
 /** Add a freshly-built Track to app.tracks and render it. Optionally
  *  also add associated standalone Vias (e.g. at layer-change nodes)
  *  in the same atomic undo step. */
-export class AddTrackCommand {
+export class AddTrackCommand extends ModelAddTrackCommand {
     constructor(app, track, vias = []) {
+        super(app.pcbDocument, track, vias);
         this.app = app;
-        this.track = track;
-        this.vias = Array.isArray(vias) ? vias : [];
     }
     execute() {
-        if (!this.app.tracks.includes(this.track)) this.app.tracks.push(this.track);
+        super.execute();
         renderTrack(this.track, (id) => this.app._getLayerGroup(id), _opts(this.app, this.track));
         for (const v of this.vias) {
-            if (!this.app.vias.includes(v)) this.app.vias.push(v);
             renderVia(v, (id) => this.app._getLayerGroup(id));
         }
         refreshEditedTrackClearance(this.app);
@@ -197,33 +201,29 @@ export class AddTrackCommand {
         deselectRemovedTrack(this.app, this.track);
         for (const v of this.vias) {
             removeViaElements(v);
-            const j = this.app.vias.indexOf(v);
-            if (j >= 0) this.app.vias.splice(j, 1);
         }
         removeTrackElements(this.track);
-        const i = this.app.tracks.indexOf(this.track);
-        if (i >= 0) this.app.tracks.splice(i, 1);
+        super.undo();
         refreshEditedTrackClearance(this.app);
         reconcileRatsnest(this.app);
     }
 }
 
 /** Remove an existing Track from app.tracks and its SVG. */
-export class RemoveTrackCommand {
+export class RemoveTrackCommand extends ModelRemoveTrackCommand {
     constructor(app, track) {
+        super(app.pcbDocument, track);
         this.app = app;
-        this.track = track;
     }
     execute() {
         deselectRemovedTrack(this.app, this.track);
         removeTrackElements(this.track);
-        const i = this.app.tracks.indexOf(this.track);
-        if (i >= 0) this.app.tracks.splice(i, 1);
+        super.execute();
         refreshEditedTrackClearance(this.app);
         reconcileRatsnest(this.app);
     }
     undo() {
-        if (!this.app.tracks.includes(this.track)) this.app.tracks.push(this.track);
+        super.undo();
         renderTrack(this.track, (id) => this.app._getLayerGroup(id), _opts(this.app, this.track));
         refreshEditedTrackClearance(this.app);
         reconcileRatsnest(this.app);
@@ -234,44 +234,32 @@ export class RemoveTrackCommand {
  * Change one or more scalar properties of a Track (e.g. width). Both
  * snapshots are plain {key: value} objects.
  */
-export class ModifyTrackCommand {
+export class ModifyTrackCommand extends ModelModifyTrackCommand {
     constructor(app, track, before, after) {
+        super(track, before, after);
         this.app = app;
-        this.track = track;
-        this.before = { ...before };
-        this.after = { ...after };
     }
     _apply(state) {
-        Object.assign(this.track, state);
+        super._apply(state);
         renderTrack(this.track, (id) => this.app._getLayerGroup(id), _opts(this.app, this.track));
         refreshEditedTrackClearance(this.app);
         reconcileRatsnest(this.app);
     }
-    execute() { this._apply(this.after); }
-    undo() { this._apply(this.before); }
 }
 
 /** Move a single Track node from (fromX, fromY) to (toX, toY). */
-export class MoveVertexCommand {
+export class MoveVertexCommand extends ModelMoveVertexCommand {
     constructor(app, track, nodeId, fromX, fromY, toX, toY) {
+        super(track, nodeId, fromX, fromY, toX, toY);
         this.app = app;
-        this.track = track;
-        this.nodeId = nodeId;
-        this.from = { x: fromX, y: fromY };
-        this.to = { x: toX, y: toY };
     }
     _set(pt) {
-        const n = this.track.nodes.get(this.nodeId);
-        if (!n) return;
-        n.x = pt.x;
-        n.y = pt.y;
+        super._set(pt);
         renderTrack(this.track, (id) => this.app._getLayerGroup(id), _opts(this.app, this.track));
         refreshEditedTrackClearance(this.app);
         reconcileRatsnest(this.app);
         refreshTrackSelectionHalo(this.app);
     }
-    execute() { this._set(this.to); }
-    undo() { this._set(this.from); }
 }
 
 /**
@@ -280,22 +268,18 @@ export class MoveVertexCommand {
  * segment drag that pins a via and grows a bridging segment. `before`
  * and `after` are `track.captureState()` snapshots.
  */
-export class ModifyTrackGraphCommand {
+export class ModifyTrackGraphCommand extends ModelModifyTrackGraphCommand {
     constructor(app, track, before, after) {
+        super(track, before, after);
         this.app = app;
-        this.track = track;
-        this.before = before;
-        this.after = after;
     }
     _apply(state) {
-        this.track.applyState(state);
+        super._apply(state);
         renderTrack(this.track, (id) => this.app._getLayerGroup(id), _opts(this.app, this.track));
         refreshEditedTrackClearance(this.app);
         reconcileRatsnest(this.app);
         refreshTrackSelectionHalo(this.app);
     }
-    execute() { this._apply(this.after); }
-    undo() { this._apply(this.before); }
 }
 
 export class AddViaCommand extends ModelAddViaCommand {

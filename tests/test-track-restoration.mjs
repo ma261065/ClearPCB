@@ -38,9 +38,10 @@ function expect(name, condition) {
 
 function appFor(track) {
     const pcbDocument = new PcbDocument();
+    if (track) pcbDocument.tracks.push(track);
     const app = {
         pcbDocument,
-        tracks: [track],
+        tracks: pcbDocument.tracks,
         boardShapes: pcbDocument.boardShapes,
         _shapeIdCounter: 1,
         _shapeElements: new Map(),
@@ -102,7 +103,7 @@ function appFor(track) {
         points: [{ x: 0, y: 1 }, { x: 6, y: 1 }],
     };
     const app = appFor(null);
-    app.tracks = [];
+    app.tracks.length = 0;
     app.boardShapes.push(line);
     const properties = { innerHTML: '' };
     let propertiesTitle = 'Line';
@@ -176,7 +177,7 @@ function appFor(track) {
         copperMode: 'add', points: [{ x: 0, y: 0 }, { x: 8, y: 0 }, { x: 8, y: 8 }],
         segmentWidths: { 1: 0.6 }, segmentBulges: { 0: -0.4 }, cornerRadius: 2, nodeCornerRadii: { 1: 0.7 } };
     const app = appFor(null);
-    app.tracks = [];
+    app.tracks.length = 0;
     app.boardShapes.push(line);
     const track = convertBoardLineToTrack(app, line, 'N');
     expect('Line conversion carries widths and bulges', track.getEdgeWidth('e1') === 0.6 && track.edges.get('e0').bulge === -0.4);
