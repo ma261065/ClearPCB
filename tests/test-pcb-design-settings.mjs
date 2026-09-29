@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { PcbDesignSettings } from '../src/core/PcbDesignSettings.js';
 import { ProjectDocument } from '../src/core/ProjectDocument.js';
+import { defaultPcbStackup } from '../src/core/project-format.js';
 import { formatNumberInput } from '../src/core/number-inputs.js';
 
 assert.equal(typeof document, 'undefined');
@@ -26,7 +27,8 @@ assert.equal(model.getRoutingParams().clearance, 0.123456, 'File rounding does n
 globalThis.window = { addEventListener() {} };
 const { default: PCBApp } = await import('../src/ui/PCBApp.js');
 const { bindPcbControls } = await import('../src/pcb/modules/controls.js');
-const { applyProjectDesignParams, serializePcb, preparePcb } = await import('../src/pcb/modules/project-state.js');
+const { serializePcb, preparePcb } = await import('../src/pcb/modules/project-state.js');
+const { refreshDesignSettings } = await import('../src/pcb/modules/design-settings.js');
 const { normalizePcbSection } = await import('../src/core/project-field-aliases.js');
 const ids = ['pcbTrackWidth', 'pcbClearance', 'pcbViaDiameter', 'pcbViaDrill'];
 const html = readFileSync(new URL('../index.html', import.meta.url), 'utf8');
@@ -71,10 +73,19 @@ for (const id of ids) {
     formatNumberInput(elements.get(id));
     assert.equal(elements.get(id).value, '0.1234');
 }
-applyProjectDesignParams(app, precise);
+app.pcbDocument.load({ stackup: defaultPcbStackup(), design: precise });
+refreshDesignSettings(app);
 assert.equal(elements.get('pcbClearance').value, '0.123', 'Existing display precision is preserved');
 assert.equal(app._getRoutingParams().clearance, 0.1234, 'Routing uses exact loaded data, not displayed text');
 assert.equal(changes.dirty, 0, 'Loading is not an edit');
+const updateDesign = app.designSettings.update;
+app.designSettings.update = () => assert.fail('Presentation refresh must not adopt or rewrite model data');
+refreshDesignSettings(app);
+app.designSettings.update = updateDesign;
+assert.equal(elements.get('pcbClearance').value, '0.123');
+assert.deepEqual(JSON.parse(storage.get('clearpcb_pcb_design_params')), precise,
+    'Post-load presentation keeps exact settings as local defaults');
+assert.deepEqual(changes, { dirty: 0, fills: 0, halos: 0, board3d: 0 });
 const lookup = document.getElementById;
 document.getElementById = () => assert.fail('Routing and serialization must not read the DOM');
 assert.deepEqual(app._getRoutingParams(), expectedRouting);
@@ -112,7 +123,8 @@ elements.get('pcbRouterMode').value = 'maze';
 elements.get('pcbRouterMode').fire('change');
 assert.equal(app._getRouterMode(), 'maze');
 assert.equal(changes.dirty, 102);
-applyProjectDesignParams(app, { ...precise, units: 'inch' });
+app.pcbDocument.load({ stackup: defaultPcbStackup(), design: { ...precise, units: 'inch' } });
+refreshDesignSettings(app);
 assert.equal(elements.get('pcbTrackWidth').value, '0.0079');
 assert.equal(app._getRoutingParams().trackWidth, 0.2, 'Loading inch display must not change 0.2 mm to 0.20066 mm');
 assert.equal(changes.dirty, 102);
@@ -126,7 +138,8 @@ assert.throws(() => preparePcb({ ...serializePcb(legacy), design: { ...precise, 
 console.log('PASS canonical PCB design settings, load/save/unit precision, legacy defaults, validation and dirty/refresh routing');
 
 const { app: tools, elements: ribbon } = fixture();
-applyProjectDesignParams(tools, { ...precise, units: 'inch' });
+tools.pcbDocument.load({ stackup: defaultPcbStackup(), design: { ...precise, units: 'inch' } });
+refreshDesignSettings(tools);
 const width = inputElement('0.2'), diameter = inputElement('0.6'), drill = inputElement('0.3');
 const toolInputs = new Map([['#pcbPropTrackToolWidth', width],
     ['#pcbPropViaToolDiameter', diameter], ['#pcbPropViaToolDrill', drill]]);

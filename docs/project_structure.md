@@ -139,12 +139,17 @@ by commands; constructing an editor does not clear a preloaded model.
 `prepare()` normalizes a PCB section and checks its required stackup, validates
 board outlines, panelization and design settings, and constructs all entities
 without a DOM. The adapter's `preparePcb()` delegates to this model operation.
-`loadEntities()` adopts prepared entities, preserves collection identity and
-restores the board-shape, via/pad and fill ID counters.
+`load()` restores authored PCB data without an editor, DOM or local storage.
+It uses two shared phases: `loadContent()` adopts prepared entities, restores
+dimensions and ID counters, merges design settings and loads saved placements;
+`loadPanelization()` installs the prepared panel settings. The editor uses these
+same phases around rendering rather than implementing its own data adoption.
 `serializeEntities()` returns the entity collections using the existing
 entity serializers, preserving topology, metadata and save-boundary precision.
-`clearEntities()` empties those collections without replacing them. These are
-entity operations, not yet full headless PCB persistence.
+`clear()` empties entity collections and placement overrides in place, resets
+dimensions and panelization, and retains the last-used design settings, matching
+existing New behavior. Missing design sections also retain those settings; partial
+sections merge without rounding. Collection and submodel identities are preserved.
 
 `serialize(settings)` assembles the complete authored PCB section: stackup,
 dimensions, design settings, optional panelization, entities and saved placements.
@@ -152,9 +157,9 @@ It applies the existing compact aliases and save-boundary precision, returning a
 detached snapshot without rounding live data. Viewport preferences are an explicit
 optional argument; the adapter's `serializePcb()` supplies them from the viewport,
 but no editor-owned authored aliases are read. Headless callers can supply saved
-preferences or omit them without inventing defaults. Loading remains phased in
-the adapter; design/placement application and late panel installation are not yet
-a single model load operation.
+preferences or omit them without inventing defaults. Full project-level dispatch
+still relies on a registered PCB view; using the PCB model automatically when
+that view is absent remains separate work.
 
 Saved board dimensions live in `PcbDocument.board`. The editor's `_boardWidth`,
 `_boardHeight` and `_boardRadius` access that object, including during live resize,
@@ -171,15 +176,18 @@ data-only helpers in `core/pcb-panelization.js`; the existing geometry module
 re-exports them for compatibility. Preparation validates saved settings before
 live content is replaced. `loadPanelization()` and `serializePanelization()`
 produce detached normalized settings without additional rounding, preserving
-`noteCreated`. Entity clearing resets panelization, but entity loading does not
+`noteCreated`. Clearing resets panelization, but `loadContent()` does not
 install prepared panel settings: the adapter installs them after artwork and
 pours are restored, before the final active preview. Hidden loads install the
-settings without rendering. Existing panel commands still create ordinary
+settings without rendering; a headless `load()` performs both phases without
+rendering. Existing panel commands still create ordinary
 authored note texts and retain their undo/redo behavior; model operations do not
 generate notes. Preview SVG and its lifecycle remain editor-owned.
 
 The editor adapter still removes old SVG and selection before replacing entities,
 renders only when active, and refreshes derived geometry after loading.
+Its design-settings refresh only updates controls and local defaults from adopted
+model data; it neither adopts data nor marks the document dirty.
 Drawing and Net-edit contexts explicitly retain the inherited collections when
 spreading the editor into a temporary object; otherwise copper could silently
 disappear from connectivity checks.
@@ -216,8 +224,8 @@ presentation updates, and notify the editor's dirty hook after recording.
 
 The live `placements` map and automatic layout slots remain editor-owned:
 they contain generated footprint geometry, presentation caches and temporary
-gesture state, not a second authoritative saved-placement store. PCB load
-orchestration and viewport settings still depend on the PCB adapter.
+gesture state, not a second authoritative saved-placement store. PCB presentation
+during loading and viewport settings remain in the PCB adapter.
 
 PCB design settings now live in `ProjectDocument.pcbDocument.designSettings`
 (`core/PcbDesignSettings.js`). Track width, clearance, via diameter and drill

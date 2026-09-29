@@ -76,7 +76,7 @@ const textMap = reloaded.texts;
 const shapeArray = reloaded.boardShapes;
 for (const input of [compact, normalizePcbSection(compact)]) {
     const prepared = PcbDocument.prepare(input);
-    reloaded.loadEntities(input, prepared);
+    reloaded.load(input, prepared);
     assert.equal(reloaded.tracks[0], prepared.tracks[0], 'Loading adopts prepared entities without cloning');
     assert.equal(reloaded.vias[0], prepared.vias[0]);
     assert.equal(reloaded.pads[0], prepared.pads[0]);
@@ -96,11 +96,11 @@ for (const input of [compact, normalizePcbSection(compact)]) {
 assert.equal(new Via({ x: 0, y: 0, diameter: 0.6, drill: 0.3 }).id, 'via_81');
 assert.equal(new Pad().id, 'pad_91', 'Loading restores ID reservations after clearing');
 const before = reloaded.serializeEntities();
-assert.throws(() => reloaded.loadEntities({ stackup: defaultPcbStackup(), tracks: [{ type: 'circle' }] }), /Invalid PCB track/);
+assert.throws(() => reloaded.load({ stackup: defaultPcbStackup(), tracks: [{ type: 'circle' }] }), /Invalid PCB track/);
 assert.deepEqual(reloaded.serializeEntities(), before, 'Invalid input is rejected before replacing live entities');
-assert.throws(() => reloaded.loadEntities({ stackup: defaultPcbStackup(), texts: [null] }), TypeError);
+assert.throws(() => reloaded.load({ stackup: defaultPcbStackup(), texts: [null] }), TypeError);
 assert.deepEqual(reloaded.serializeEntities(), before, 'Invalid text preparation cannot clear live entities');
-assert.throws(() => reloaded.loadEntities({ stackup: {
+assert.throws(() => reloaded.load({ stackup: {
     copperLayers: ['top-copper', 'inner-copper-1', 'inner-copper-2', 'bottom-copper'],
 } }), /two-layer/);
 assert.deepEqual(reloaded.serializeEntities(), before);
@@ -109,7 +109,7 @@ for (const boardShapes of [
     [{ kind: 'line', layer: 'board-outline', points: [{ x: 0, y: 0 }, { x: 2, y: 0 }] }],
     [1, 2].map(index => ({ id: `outline-${index}`, kind: 'circle', layer: 'board-outline', x: 0, y: 0, radius: 2 })),
 ]) {
-    assert.throws(() => reloaded.loadEntities({ stackup: defaultPcbStackup(), boardShapes }),
+    assert.throws(() => reloaded.load({ stackup: defaultPcbStackup(), boardShapes }),
         /Unknown board shape|one closed/);
     assert.deepEqual(reloaded.serializeEntities(), before, 'Invalid shape/outline preparation cannot replace live entities');
     assert.equal(reloaded.shapeIdCounter, 44);
@@ -120,7 +120,7 @@ assert.equal(reloaded.vias[0].x, 5, 'Loaded data does not alias its input');
 saved.texts[0].x = 999;
 assert.equal(text.x, 1.234567);
 assert.equal(reloaded.texts.get(text.id).x, 1.2346, 'Loaded text does not alias its input');
-reloaded.clearEntities();
+reloaded.clear();
 assert.deepEqual(reloaded.serializeEntities(), { boardShapes: [], tracks: [], vias: [], pads: [], texts: [] });
 assert.equal(reloaded.tracks, arrays[0], 'Clearing retains collection identity');
 assert.equal(reloaded.texts, textMap);
@@ -134,7 +134,7 @@ const dimensions = dimensionsModel.board;
 const preciseDimensions = { width: 37.123456, height: 21.234567, radius: 2.345678 };
 const legacyBoard = { stackup: defaultPcbStackup(), board: preciseDimensions };
 for (const data of [legacyBoard, compactProjectAliases({ pcb: legacyBoard }).pcb]) {
-    dimensionsModel.loadEntities(data);
+    dimensionsModel.load(data);
     assert.equal(dimensionsModel.board, dimensions, 'Loading retains dimension-object identity');
     assert.deepEqual(dimensions, preciseDimensions, 'Legacy dimensions load without an editor or outline');
     const savedDimensions = dimensionsModel.serializeBoardDimensions();
@@ -152,18 +152,18 @@ for (const [outline, expected] of [
     [{ id: 'board-outline', kind: 'circle', layer: 'board-outline', x: 3, y: 7, radius: 4 },
         { width: 8, height: 8, radius: 0 }],
 ]) {
-    dimensionsModel.loadEntities({ ...legacyBoard, boardShapes: [outline] });
+    dimensionsModel.load({ ...legacyBoard, boardShapes: [outline] });
     assert.deepEqual(dimensions, expected, 'Actual outline bounds override saved dimension metadata');
     assert.deepEqual(dimensionsModel.serializeBoardDimensions(), expected);
 }
 for (const data of [null, { stackup: defaultPcbStackup() },
     { stackup: defaultPcbStackup(), board: { width: 0, height: 25, radius: 2 } }]) {
-    dimensionsModel.loadEntities(data);
+    dimensionsModel.load(data);
     assert.deepEqual(dimensions, { width: 100, height: 80, radius: 0 },
         'Missing or incomplete legacy dimensions keep the existing New-board defaults');
 }
 Object.assign(dimensions, preciseDimensions);
-dimensionsModel.clearEntities();
+dimensionsModel.clear();
 assert.equal(dimensionsModel.board, dimensions);
 assert.deepEqual(dimensions, { width: 100, height: 80, radius: 0 });
 console.log('PASS headless board dimensions, outline precedence, default restoration, geometry queries and save precision');
@@ -190,27 +190,27 @@ for (const invalid of [{ rows: 0 }, { rows: 20, columns: 20 }, { verticalTabOffs
 const panelData = { stackup: defaultPcbStackup(), panelization: expectedPanel };
 const preparedPanel = PcbDocument.prepare(compactProjectAliases({ pcb: panelData }).pcb);
 assert.deepEqual(preparedPanel.panelization, expectedPanel);
-panelModel.loadEntities(panelData, preparedPanel);
-assert.equal(panelModel.panelization, null, 'Entity restoration leaves panel installation to the explicit load phase');
+panelModel.loadContent(panelData, preparedPanel);
+assert.equal(panelModel.panelization, null, 'Content restoration leaves panel installation to the explicit load phase');
 panelModel.loadPanelization(preparedPanel.panelization);
 preparedPanel.panelization.rows = 8;
 assert.deepEqual(panelModel.serializePanelization(), expectedPanel);
-assert.throws(() => panelModel.loadEntities({ ...panelData, panelization: { rows: 0 } }), /whole numbers/);
+assert.throws(() => panelModel.load({ ...panelData, panelization: { rows: 0 } }), /whole numbers/);
 assert.deepEqual(panelModel.panelization, expectedPanel, 'Preflight rejects invalid settings before document replacement');
 panelModel.loadPanelization(null);
 assert.equal(panelModel.serializePanelization(), null);
 panelModel.loadPanelization({});
 assert.deepEqual(panelModel.serializePanelization(), PANEL_DEFAULTS, 'Legacy panels retain defaults without inventing noteCreated');
-panelModel.loadEntities({ stackup: defaultPcbStackup(), boardShapes: [rectangleBoardOutline(20, 10)] });
+panelModel.load({ stackup: defaultPcbStackup(), boardShapes: [rectangleBoardOutline(20, 10)] });
 panelModel.loadPanelization(PANEL_DEFAULTS);
 assert.equal(buildPanelLayout(panelModel).instances.length, 4, 'Panel layout can be derived directly from the headless model');
 assert.equal(panelModel.texts.size, 0, 'Layout derivation does not create authored note texts');
-panelModel.clearEntities();
+panelModel.clear();
 assert.equal(panelModel.panelization, null);
 console.log('PASS headless panel settings, validation, snapshots, precision and explicit installation');
 
 const snapshotModel = new PcbDocument();
-snapshotModel.loadEntities({ stackup: defaultPcbStackup(), ...model.serializeEntities() });
+snapshotModel.load({ stackup: defaultPcbStackup(), ...model.serializeEntities() });
 Object.assign(snapshotModel.board, preciseDimensions);
 snapshotModel.designSettings.update({ clearance: 0.123456, units: 'inch', router: 'pathfinder' });
 snapshotModel.placementState.record('U1', { x: 3.123456, y: -4.234567, rotation: 90,
@@ -245,15 +245,20 @@ assert.equal(grid.gridSize, 0.123456);
 for (const input of [expectedSnapshot, normalizePcbSection(expectedSnapshot)]) {
     const prepared = PcbDocument.prepare(input);
     const copy = new PcbDocument();
-    copy.loadEntities(input, prepared);
-    copy.designSettings.update(prepared.data.design);
-    copy.placementState.load(prepared.data.placements);
-    copy.loadPanelization(prepared.panelization);
+    copy.load(input);
+    assert.deepEqual(copy.serialize(prepared.data.settings), expectedSnapshot, 'Complete load prepares its own input');
+    copy.load(input, prepared);
     assert.deepEqual(copy.serialize(prepared.data.settings), expectedSnapshot, 'Both field formats round-trip headlessly');
+    assert.equal(copy.tracks[0], prepared.tracks[0], 'Complete load adopts prepared objects');
+    assert.equal(copy.texts.size, prepared.texts.length, 'Complete load does not generate panel notes');
+    prepared.data.placements.U1.x = 999;
+    prepared.data.design.clearance = 999;
+    prepared.panelization.rows = 9;
+    assert.deepEqual(copy.serialize(grid), expectedSnapshot, 'Design, placements and panels do not alias prepared data');
     for (const design of [{ clearance: 0 }, { viaDiameter: Infinity }, { units: 'unknown' }, { router: 'unknown' }]) {
         const invalid = { ...input, design };
         assert.throws(() => PcbDocument.prepare(invalid), /positive finite|units|router/);
-        assert.throws(() => snapshotModel.loadEntities(invalid), /positive finite|units|router/);
+        assert.throws(() => snapshotModel.load(invalid), /positive finite|units|router/);
         assert.deepEqual(snapshotModel.serialize(grid), expectedSnapshot, 'Design preflight cannot replace live data');
     }
 }
@@ -261,6 +266,46 @@ assert.equal(PcbDocument.prepare(null).data, null);
 snapshotModel.loadPanelization(null);
 assert.equal('panelization' in snapshotModel.serialize(), false);
 console.log('PASS headless authored PCB snapshots, compact field shape, detached state, round-trips and design preflight');
+
+const loadingModel = new PcbDocument();
+const designState = loadingModel.designSettings;
+const placementState = loadingModel.placementState;
+const overrideMap = placementState.overrides;
+const contentArrays = [loadingModel.tracks, loadingModel.vias, loadingModel.pads, loadingModel.boardShapes];
+const loadingTexts = loadingModel.texts;
+const loadingBoard = loadingModel.board;
+const loadedDesign = normalizePcbSection(expectedSnapshot).design;
+for (const empty of [null, { stackup: defaultPcbStackup() }]) {
+    loadingModel.load(expectedSnapshot);
+    loadingModel.load(empty);
+    assert.deepEqual(loadingModel.designSettings.values, loadedDesign,
+        'New and missing design retain last-used settings, matching the editor');
+    assert.equal(loadingModel.placementState.overrides.size, 0, 'Missing placements remove previous overrides');
+    assert.equal(loadingModel.panelization, null);
+    assert.deepEqual(loadingModel.board, { width: 100, height: 80, radius: 0 });
+    assert.deepEqual(loadingModel.serializeEntities(), { boardShapes: [], tracks: [], vias: [], pads: [], texts: [] });
+}
+loadingModel.load(expectedSnapshot);
+loadingModel.load({ stackup: defaultPcbStackup(), design: { trackWidth: 0.345678 } });
+assert.deepEqual(loadingModel.designSettings.values, { ...loadedDesign, trackWidth: 0.345678 },
+    'Partial design sections retain the existing merge semantics without rounding');
+loadingModel.load(expectedSnapshot);
+loadingModel.clear();
+assert.equal(loadingModel.designSettings, designState);
+assert.equal(loadingModel.placementState, placementState);
+assert.equal(loadingModel.placementState.overrides, overrideMap);
+assert.equal(overrideMap.size, 0);
+assert.deepEqual(loadingModel.designSettings.values, loadedDesign, 'Explicit clearing also retains design preferences');
+for (const [index, field] of ['tracks', 'vias', 'pads', 'boardShapes'].entries()) {
+    assert.equal(loadingModel[field], contentArrays[index], 'Load and clear retain editor collection aliases');
+    assert.equal(loadingModel[field].length, 0);
+}
+assert.equal(loadingModel.texts, loadingTexts);
+assert.equal(loadingModel.texts.size, 0);
+assert.equal(loadingModel.board, loadingBoard);
+assert.equal(typeof document, 'undefined');
+assert.equal(typeof localStorage, 'undefined', 'Model loading has no preferences-storage side effects');
+console.log('PASS headless full load, clear, partial design, retained defaults and stable model identities');
 
 globalThis.window = { addEventListener() {} };
 globalThis.document = {

@@ -32,10 +32,8 @@ export function renderDesignSettings(app) {
     }
 }
 
-/** Loading changes data/display/defaults, but is not a user edit. */
-export function applyDesignSettings(app, design) {
-    if (!design) return;
-    app.designSettings.update(design);
+/** Refresh controls and local defaults after model adoption, without editing data. */
+export function refreshDesignSettings(app) {
     renderDesignSettings(app);
     saveDefaults(app);
 }

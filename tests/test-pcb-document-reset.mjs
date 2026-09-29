@@ -89,7 +89,7 @@ function fixture(active) {
         _updateCopperCuts() {}, _clearFillGroups() {}, _closeDRCPanel() {}, _clearDRCMarker() {},
         _refreshBoardShapeClearance() {}, _setPcbStatus() {}, _syncClipboardButtons() {}, _scheduleRemovalHatchRender() {},
         _updateCursorForTool() {}, _syncPcbHomeToolHighlight() {}, _hideToolOptions() {},
-        _applyProjectDesignParams() {}, _refreshClearanceHalos() {}, _refreshFills() {},
+        _refreshClearanceHalos() {}, _refreshFills() {},
     });
     const host = {
         project, fileManager: project.fileManager, selection: { clearSelection() {} },

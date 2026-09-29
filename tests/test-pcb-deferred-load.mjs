@@ -5,8 +5,7 @@ import { PANEL_DEFAULTS } from '../src/core/pcb-panelization.js';
 
 const source = readFileSync(new URL('../src/pcb/modules/project-state.js', import.meta.url), 'utf8');
 const start = source.indexOf('export function loadPcb(');
-const end = source.indexOf('export function applyProjectDesignParams(', start);
-assert.ok(start >= 0 && end > start);
+assert.ok(start >= 0);
 const calls = [];
 const previews = [];
 const record = name => () => calls.push(name);
@@ -24,10 +23,14 @@ const dependencies = {
         calls.push('shape');
     },
     reconcileRatsnest: record('ratsnest'), restoreGridSettings: record('grid'), getSelectedTrack: () => null,
+    refreshDesignSettings(app) {
+        assert.deepEqual(app.designSettings.values, data.design, 'Presentation reads settings already adopted by the model');
+        assert.equal(app._placementOverrides.get('U1').rotation, 90, 'Content adoption includes saved placements');
+    },
     REF_DEFAULT_SIZE: 0.9, REF_DEFAULT_STROKE: 0.15,
 };
 const loadPcb = new Function(...Object.keys(dependencies),
-    `${source.slice(start, end).replace('export function', 'function')}\nreturn loadPcb;`)(...Object.values(dependencies));
+    `${source.slice(start).replace('export function', 'function')}\nreturn loadPcb;`)(...Object.values(dependencies));
 const data = {
     stackup: { copperLayers: ['top-copper', 'bottom-copper'] },
     design: { trackWidth: 0.25, clearance: 0.2, viaDiameter: 0.6, viaDrill: 0.3, units: 'mm', router: 'pathfinder' },
@@ -59,7 +62,6 @@ const makeApp = active => {
     placementState, _placementOverrides: placementState.overrides, history: { clear() {} },
     _ensureViewport: record('viewport'), _getLayerGroup: () => null,
     _drawBoardOutline: record('outline'), _applyPlacementOverrides: record('placements'),
-    _applyProjectDesignParams(design) { this.designSettings.update(design); },
     _renderText: record('text'), _refreshClearanceHalos: record('clearance'), _refreshFills: record('fills'),
     _updateCopperCuts() { this.cutRefreshes = (this.cutRefreshes || 0) + 1; },
     markSectionClean() { this._isDirty = false; },
@@ -90,6 +92,7 @@ assert.equal(hidden.texts.get('text'), prepared.texts[0]);
 assert.equal(hidden._placementOverrides.get('U1').rotation, 90);
 assert.equal(hidden._placementOverrides.get('U1').locked, true);
 assert.equal(hidden._isDirty, false);
+assert.deepEqual(hidden.designSettings.values, data.design);
 assert.equal(hidden.cutRefreshes, 1, 'Hidden loading only clears the previous document cuts');
 
 calls.length = 0;
@@ -121,6 +124,8 @@ for (const active of [true, false]) {
         'The final preview sees restored model settings');
     loadPcb(paneApp, null, { tracks: [], vias: [], pads: [], texts: [], boardShapes: [], shapeIdCounter: 1 });
     assert.equal(paneApp.pcbDocument.panelization, null, 'New removes saved panelization in active and hidden editors');
+    assert.deepEqual(paneApp.designSettings.values, data.design, 'New retains last-used design settings');
+    assert.equal(paneApp._placementOverrides.size, 0);
 }
 
 calls.length = 0;

@@ -8,7 +8,7 @@ import { serializeGridSettings, restoreGridSettings } from '../../ui/modules/vie
 import { renderPanelPreview, resetPanelPreview } from './panelization-ui.js';
 import { resetPcbSelection, syncPcbSelection } from './selection-registry.js';
 import { clearPcbSelectionAnchors } from './selection-anchors.js';
-import { applyDesignSettings } from './design-settings.js';
+import { refreshDesignSettings } from './design-settings.js';
 import { PcbDocument } from '../../core/PcbDocument.js';
 
 /** @param {any} app */
@@ -43,7 +43,7 @@ export function loadPcb(app, data, prepared = preparePcb(data)) {
     for (const pad of app.pads) removePadElements(pad);
     for (const id of app._textElements.keys()) app._removeTextElement(id);
     for (const id of app._shapeElements.keys()) removeBoardShapeElement(app, id);
-    app.pcbDocument.clearEntities();
+    app.pcbDocument.clear();
     app._hoveredShape = null;
     app._shapeDraw = null;
     app._shapeDrag = null;
@@ -67,11 +67,6 @@ export function loadPcb(app, data, prepared = preparePcb(data)) {
         ?.querySelector('.pcb-board-outline')?.remove();
     app._boardOutlineDrawn = false;
 
-    // Restore manual footprint position overrides. These are applied when
-    // _placeFootprints rebuilds the placements from the schematic; if
-    // placements already exist (sync ran first), re-apply immediately.
-    app._placementOverrides.clear();
-
     if (!data) {
         app.placements.clear();
         app.netlist = [];
@@ -81,11 +76,9 @@ export function loadPcb(app, data, prepared = preparePcb(data)) {
         return;
     }
 
-    // Restore per-project design parameters (track/clearance/via sizes,
-    // units, router) onto the ribbon inputs.
-    app._applyProjectDesignParams(data.design);
+    app.pcbDocument.loadContent(data, prepared);
+    if (data.design) refreshDesignSettings(app);
     restoreGridSettings(app, data.settings);
-    app.pcbDocument.loadEntities(data, prepared);
 
     // Restore the saved board outline so it survives save/reopen and
     // autosave-recovery (the dimensions are part of the document).
@@ -95,7 +88,6 @@ export function loadPcb(app, data, prepared = preparePcb(data)) {
     }
 
     if (data.placements && typeof data.placements === 'object') {
-        app.placementState.load(data.placements);
         if (render && app.placements.size) app._applyPlacementOverrides();
     }
 
@@ -133,9 +125,4 @@ export function loadPcb(app, data, prepared = preparePcb(data)) {
     syncPcbSelection(app);
     if (render) renderPanelPreview(app);
     app._isDirty = false;
-}
-
-/** @param {any} app */
-export function applyProjectDesignParams(app, design) {
-    applyDesignSettings(app, design);
 }

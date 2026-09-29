@@ -1,7 +1,7 @@
 // @ts-nocheck — PCBApp uses loosely-typed Maps and nullable viewport access throughout
 // PCBApp.js - PCB Editor Application
 
-import { serializePcb, preparePcb, loadPcb, applyProjectDesignParams } from '../pcb/modules/project-state.js';
+import { serializePcb, preparePcb, loadPcb } from '../pcb/modules/project-state.js';
 import { bindPcbControls } from '../pcb/modules/controls.js';
 import { Viewport } from '../core/Viewport.js';
 import { PcbDocument } from '../core/PcbDocument.js';
@@ -2880,17 +2880,6 @@ export default class PCBApp {
      */
     loadFromData(data) {
         return loadPcb(this, data);
-    }
-
-    /**
-     * Apply per-project design parameters (canonical mm) onto the ribbon
-     * inputs, converting to the document's saved display unit. Lives in this
-     * module (alongside serialize/loadFromData) so the save and restore halves
-     * can't fall out of sync if controls.js reloads independently.
-     * @param {any} design
-     */
-    _applyProjectDesignParams(design) {
-        return applyProjectDesignParams(this, design);
     }
 
     /**

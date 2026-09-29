@@ -66,7 +66,8 @@ export class PcbDocument {
         return prepared;
     }
 
-    clearEntities() {
+    /** New retains last-used design settings; authored content is cleared in place. */
+    clear() {
         this.tracks.length = 0;
         this.vias.length = 0;
         this.pads.length = 0;
@@ -77,10 +78,12 @@ export class PcbDocument {
         resetPadIdCounter();
         Object.assign(this.board, DEFAULT_BOARD_DIMENSIONS);
         this.panelization = null;
+        this.placementState.overrides.clear();
     }
 
-    loadEntities(data, prepared = PcbDocument.prepare(data)) {
-        this.clearEntities();
+    /** Load authored content, leaving panel installation to the final load phase. */
+    loadContent(data, prepared = PcbDocument.prepare(data)) {
+        this.clear();
         for (const track of prepared.tracks) this.tracks.push(track);
         for (const via of prepared.vias) {
             updateViaIdCounter(via.id);
@@ -96,7 +99,10 @@ export class PcbDocument {
             this.boardShapes.push(shape);
             if (shape.type === 'fill') updateFillIdCounter(shape.id);
         }
-        const board = (prepared.data || data)?.board;
+        const loaded = prepared.data || data;
+        if (loaded?.design) this.designSettings.update(loaded.design);
+        this.placementState.load(loaded?.placements);
+        const board = loaded?.board;
         const outline = getBoardOutline(this);
         if (outline || (board && board.width > 0 && board.height > 0)) {
             this.board.width = board?.width || DEFAULT_BOARD_DIMENSIONS.width;
@@ -109,6 +115,12 @@ export class PcbDocument {
                 this.board.radius = outline.cornerRadius || 0;
             }
         }
+    }
+
+    /** Complete data-only load; editors may use the two phases around rendering. */
+    load(data, prepared = PcbDocument.prepare(data)) {
+        this.loadContent(data, prepared);
+        this.loadPanelization(prepared.panelization);
     }
 
     serializeBoardDimensions() {
