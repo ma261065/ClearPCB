@@ -58,10 +58,12 @@ const { CommandHistory } = await import('../src/core/CommandHistory.js');
 function fixture(active) {
     const layers = new Map();
     const lifecycle = [];
+    const project = new ProjectDocument();
     const app = Object.assign(Object.create(PCBApp.prototype), {
         _active: active, currentTool: 'select', activeLayer: 'top-silk',
         tracks: [], vias: [], pads: [], boardShapes: [], texts: new Map(), placements: new Map(),
-        _shapeElements: new Map(), _textElements: new Map(), _placementOverrides: new Map(),
+        _shapeElements: new Map(), _textElements: new Map(),
+        placementState: project.pcbPlacementState, _placementOverrides: project.pcbPlacementState.overrides,
         history: new CommandHistory(), netlist: [],
         viewport: { scale: 10, shiftHeld: true, hideCrosshair() {},
             gridSize: 1, getGridOptions: () => [{ value: 1, label: '1 mm' }], fitToBounds() {} },
@@ -87,7 +89,6 @@ function fixture(active) {
         _updateCursorForTool() {}, _syncPcbHomeToolHighlight() {}, _hideToolOptions() {},
         _applyProjectDesignParams() {}, _refreshClearanceHalos() {}, _refreshFills() {},
     });
-    const project = new ProjectDocument();
     const host = {
         project, fileManager: project.fileManager, selection: { clearSelection() {} },
         shapes: [], components: [],

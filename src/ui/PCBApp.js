@@ -4,6 +4,7 @@
 import { serializePcb, preparePcb, loadPcb, applyProjectDesignParams } from '../pcb/modules/project-state.js';
 import { bindPcbControls } from '../pcb/modules/controls.js';
 import { Viewport } from '../core/Viewport.js';
+import { PcbPlacementState } from '../core/PcbPlacementState.js';
 import { loadAndApplyTheme, toggleTheme as toggleSharedTheme, syncThemeToggleButtons } from '../shared/ui/theme.js';
 import { extractNetlist, extractComponents } from '../core/netlist.js';
 import { generateFootprint, renderFootprint, applyRefGeometry, REF_DEFAULT_SIZE, REF_DEFAULT_STROKE } from '../pcb/modules/footprint.js';
@@ -198,7 +199,10 @@ export default class PCBApp {
         return (this.boardShapes || []).filter((shape) => shape?.type === 'fill');
     }
 
-    constructor() {
+    /** @param {import('../core/ProjectDocument.js').ProjectDocument} [project] */
+    constructor(project) {
+        this.project = project || null;
+        this.placementState = project ? project.pcbPlacementState : new PcbPlacementState();
         this.ribbon = document.getElementById('ribbonPCB');
         this.themeToggle = document.getElementById('pcbThemeToggle');
         this.canvasContainer = document.getElementById('pcbCanvasContainer');
@@ -242,9 +246,10 @@ export default class PCBApp {
          * (grid auto-layout), so manual moves must be remembered here and
          * persisted, otherwise a moved footprint snaps back to its grid slot
          * after autosave + reload.
-         * @type {Map<string, {x:number, y:number, rotation:number}>}
+         * This aliases the project-owned saved placement state.
+         * @type {Map<string, import('../core/PcbPlacementState.js').PlacementOverride>}
          */
-        this._placementOverrides = new Map();
+        this._placementOverrides = this.placementState.overrides;
         /**
          * Stable auto-grid positions for components that have NOT been
          * manually moved, keyed by component id. The grid slot is computed
@@ -4953,20 +4958,7 @@ export default class PCBApp {
     _recordPlacementOverride(compId) {
         const pl = this.placements.get(compId);
         if (!pl) return;
-        this._placementOverrides.set(compId, {
-            x: pl.x,
-            y: pl.y,
-            rotation: pl.rotation || 0,
-            locked: !!pl.locked,
-            mirror: !!pl.mirror,
-            side: pl.side === 'bottom' ? 'bottom' : 'top',
-            refVisible: pl.refVisible !== false,
-            refDx: pl.refDx || 0,
-            refDy: pl.refDy || 0,
-            refRot: ((pl.refRot || 0) % 360 + 360) % 360,
-            refSize: pl.refSize || REF_DEFAULT_SIZE,
-            refStrokeWidth: pl.refStrokeWidth || REF_DEFAULT_STROKE,
-        });
+        this.placementState.record(compId, pl);
         this._markDirty();
     }
 

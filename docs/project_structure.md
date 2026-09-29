@@ -90,8 +90,8 @@ aggregate title/dirty indicators. PCB edits keep their section dirty flag separa
 from `FileManager.isDirty`, avoiding schematic-to-PCB refresh notifications.
 
 `AppBootstrap` stores its schematic instance directly; there is no `window.app`
-alias. PCB file commands resolve their own `app.project`, including after controls
-are bound during startup. `window.bootstrap` remains only a console-inspection
+alias. Both editor constructors receive their project owner. PCB file commands
+resolve their own `app.project` at invocation time. `window.bootstrap` remains only a console-inspection
 handle, not a runtime service lookup.
 
 Storage reports autosave failures through `FileManager.onAutoSaveError`; the UI
@@ -130,6 +130,21 @@ schematic adapter to invalidate/render. PCB retains its dialogs, preview, histor
 entry and derived-display updates. The model can load, rename/undo, derive
 connectivity and serialize without either editor or a DOM. Pure connectivity
 queries remain in `core/netlist.js`.
+
+Saved PCB placement/reference settings live in
+`ProjectDocument.pcbPlacementState` (`core/PcbPlacementState.js`). The PCB editor's
+`_placementOverrides` aliases its map. Recording copies only the persisted pose,
+side, lock and reference-style fields, never generated pads/SVG/caches.
+Loading and clearing preserve map identity; serialization retains the existing
+four-decimal precision and default-field omission. These operations work without
+an editor or DOM. Placement commands still own their existing undo/redo and
+presentation updates, and notify the editor's dirty hook after recording.
+
+The live `placements` map and automatic layout slots remain editor-owned:
+they contain generated footprint geometry, presentation caches and temporary
+gesture state, not a second authoritative saved-placement store. This slice
+does not move tracks, vias, board shapes, free-standing text or design settings,
+nor make full PCB document load/serialization independent of the PCB adapter.
 
 This is an intermediate migration: existing entities still contain rendering
 methods/state, general schematic commands still mix data and presentation, and

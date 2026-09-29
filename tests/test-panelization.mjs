@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { pointInPolygon } from '../src/core/geometry.js';
 import { Via } from '../src/shapes/via.js';
+import { PcbPlacementState } from '../src/core/PcbPlacementState.js';
 
 globalThis.window = { addEventListener() {} };
 globalThis.document = { getElementById: () => null };
@@ -87,8 +88,9 @@ for (const axis of ['horizontal', 'vertical']) {
     assert.equal(JSON.stringify([source, expanded]), original, 'Preview filtering does not mutate manufacturing geometry');
 }
 
+const placementState = new PcbPlacementState();
 const app = {
-    placements: new Map(), _placementOverrides: new Map(), tracks: [], vias: [], texts: new Map(),
+    placementState, placements: new Map(), _placementOverrides: placementState.overrides, tracks: [], vias: [], texts: new Map(),
     copperFills: [], boardShapes: [rectangleBoardOutline(20, 10)],
     _boardWidth: 20, _boardHeight: 10, _boardRadius: 0,
     _getRoutingParams: () => ({ clearance: 0.2, trackWidth: 0.25, viaDiameter: 0.6, viaDrill: 0.3 }),

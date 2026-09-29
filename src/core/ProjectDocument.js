@@ -2,6 +2,7 @@ import { FileManager } from './FileManager.js';
 import { validateEditableProject } from './project-format.js';
 import { compactProjectAliases } from './project-field-aliases.js';
 import { SchematicDocument } from './SchematicDocument.js';
+import { PcbPlacementState } from './PcbPlacementState.js';
 
 /** @typedef {{id: string, reference: string, locked: boolean, footprintShapes: string[]}} ComponentInfo */
 
@@ -37,6 +38,7 @@ export class ProjectDocument {
         /** The single source of truth for the file on disk. */
         this.fileManager = new FileManager();
         this.schematicDocument = new SchematicDocument();
+        this.pcbPlacementState = new PcbPlacementState();
         /** @type {Map<string, any>} Registered editor views by name. */
         this.views = new Map();
         /** View that owns canvas-level UI (prompts, toasts, title). */

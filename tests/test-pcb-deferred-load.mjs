@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
+import { PcbPlacementState } from '../src/core/PcbPlacementState.js';
 
 const source = readFileSync(new URL('../src/pcb/modules/project-state.js', import.meta.url), 'utf8');
 const start = source.indexOf('export function loadPcb(');
@@ -35,17 +36,20 @@ const prepared = {
     texts: [{ id: 'text' }], shapeIdCounter: 3,
     boardShapes: [{ id: 'image', kind: 'image' }, { id: 'fill', type: 'fill' }],
 };
-const makeApp = active => ({
+const makeApp = active => {
+    const placementState = new PcbPlacementState();
+    return {
     _active: active, _stale: false, tracks: [], vias: [], pads: [], boardShapes: [], texts: new Map(),
     placements: new Map([['U1', {}]]), _shapeElements: new Map(), _textElements: new Map(),
-    _placementOverrides: new Map(), history: { clear() {} },
+    placementState, _placementOverrides: placementState.overrides, history: { clear() {} },
     _ensureViewport: record('viewport'), _getLayerGroup: () => null,
     _drawBoardOutline: record('outline'), _applyPlacementOverrides: record('placements'),
     _applyProjectDesignParams() {},
     _renderText: record('text'), _refreshClearanceHalos: record('clearance'), _refreshFills: record('fills'),
     _updateCopperCuts() { this.cutRefreshes = (this.cutRefreshes || 0) + 1; },
     markSectionClean() { this._isDirty = false; },
-});
+    };
+};
 
 const hidden = makeApp(false);
 loadPcb(hidden, data, prepared);

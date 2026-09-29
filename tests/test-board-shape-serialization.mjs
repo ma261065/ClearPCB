@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { CopperFill } from '../src/shapes/copper-fill.js';
+import { PcbPlacementState } from '../src/core/PcbPlacementState.js';
 
 globalThis.window = { addEventListener() {} };
 const { serializeBoardShapes, loadBoardShapes } = await import('../src/pcb/modules/board-shapes.js');
@@ -212,8 +213,10 @@ const placement = { x: 27.939999999999998, y: -38.10000000000001, rotation: 45.1
     mirror: true, side: 'bottom', refVisible: false };
 const beforeText = structuredClone(text);
 const beforePlacement = structuredClone(placement);
+const placementState = new PcbPlacementState();
+placementState.overrides.set('comp_4', placement);
 const app = { tracks: [], vias: [], boardShapes: [], texts: new Map([[text.id, text]]),
-    _placementOverrides: new Map([['comp_4', placement]]),
+    placementState, _placementOverrides: placementState.overrides,
     _boardWidth: 100.123456, _boardHeight: 80.00000000000001, _boardRadius: 1.234567,
     _getRoutingParams: () => ({ trackWidth: 0.20000000000000004, clearance: 0.123456,
         viaDiameter: 0.6000000000000001, viaDrill: 0.30000000000000004 }),

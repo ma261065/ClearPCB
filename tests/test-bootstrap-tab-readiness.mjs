@@ -52,6 +52,10 @@ function fixture() {
         McpBridge: class {},
         createMcpSessionUi() {},
         PCBApp: class {
+            constructor(project) {
+                assert.ok(project instanceof dependencies.ProjectDocument, 'PCB receives its model owner at construction');
+                this.project = project;
+            }
             _active = false;
             _stale = true;
             initialize() { events.push('pcb-ready'); }

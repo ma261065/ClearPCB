@@ -39,10 +39,9 @@ class AppBootstrap {
         installNumberInputFormatting();
         this._registerServiceWorker();
 
-        this.pcbApp = new PCBApp();
+        this.pcbApp = new PCBApp(this.project);
         this.pcbApp.initialize();
         // Register the PCB editor as a project view (contributes doc.pcb).
-        this.pcbApp.project = this.project;
         this.project.registerView('pcb', this.pcbApp);
         this.mcpBridge = new McpBridge(this.project);
         this.mcpSessionUi = createMcpSessionUi(this.mcpBridge);

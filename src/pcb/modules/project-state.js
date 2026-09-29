@@ -1,4 +1,3 @@
-import { REF_DEFAULT_SIZE, REF_DEFAULT_STROKE } from './footprint.js';
 import { renderTrack, renderVia, removeTrackElements, removeViaElements } from './track-render.js';
 import { reconcileRatsnest } from './track-draw.js';
 import { clearTrackSelection, getSelectedTrack } from './track-select.js';
@@ -24,20 +23,6 @@ const round4 = value => Number.isFinite(value) ? Math.round(value * 10000) / 100
 
 /** @param {any} app */
 export function serializePcb(app) {
-    /** @type {Record<string, {x:number, y:number, rotation:number, locked?:boolean, mirror?:boolean, side?:string, refVisible?:boolean, refDx?:number, refDy?:number, refRot?:number, refSize?:number, refStrokeWidth?:number}>} */
-    const placements = {};
-    for (const [id, p] of app._placementOverrides) {
-        placements[id] = { x: round4(p.x), y: round4(p.y), rotation: round4(p.rotation || 0) };
-        if (p.locked) placements[id].locked = true;
-        if (p.mirror) placements[id].mirror = true;
-        if (p.side === 'bottom') placements[id].side = 'bottom';
-        if (p.refVisible === false) placements[id].refVisible = false;
-        if (p.refDx) placements[id].refDx = round4(p.refDx);
-        if (p.refDy) placements[id].refDy = round4(p.refDy);
-        if (p.refRot) placements[id].refRot = round4(p.refRot);
-        if (p.refSize && p.refSize !== REF_DEFAULT_SIZE) placements[id].refSize = round4(p.refSize);
-        if (p.refStrokeWidth && p.refStrokeWidth !== REF_DEFAULT_STROKE) placements[id].refStrokeWidth = round4(p.refStrokeWidth);
-    }
     // Per-project design rules (track/clearance/via sizes are canonical mm;
     // units/router record the user's display + routing preferences).
     const routing = app._getRoutingParams();
@@ -68,7 +53,7 @@ export function serializePcb(app) {
             return { ...saved, x: round4(saved.x), y: round4(saved.y), size: round4(saved.size),
                 rotation: round4(saved.rotation), strokeWidth: round4(saved.strokeWidth) };
         }),
-        placements,
+        placements: app.placementState.serialize(),
     };
     return compactProjectAliases({ pcb }).pcb;
 }
@@ -193,23 +178,7 @@ export function loadPcb(app, data, prepared = preparePcb(data)) {
     }
 
     if (data.placements && typeof data.placements === 'object') {
-        for (const [id, p] of Object.entries(data.placements)) {
-            if (!p) continue;
-            app._placementOverrides.set(id, {
-                x: Number(p.x) || 0,
-                y: Number(p.y) || 0,
-                rotation: Number(p.rotation) || 0,
-                locked: !!p.locked,
-                mirror: !!p.mirror,
-                side: p.side === 'bottom' ? 'bottom' : 'top',
-                refVisible: p.refVisible !== false,
-                refDx: Number(p.refDx) || 0,
-                refDy: Number(p.refDy) || 0,
-                refRot: ((Number(p.refRot) || 0) % 360 + 360) % 360,
-                refSize: Number(p.refSize) || REF_DEFAULT_SIZE,
-                refStrokeWidth: Number(p.refStrokeWidth) || REF_DEFAULT_STROKE,
-            });
-        }
+        app.placementState.load(data.placements);
         if (render && app.placements.size) app._applyPlacementOverrides();
     }
 

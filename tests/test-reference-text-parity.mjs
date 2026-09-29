@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { layoutReferenceText, referenceAnchor, resolveReferenceText } from '../src/pcb/modules/reference-text.js';
 import { applyRefGeometry } from '../src/pcb/modules/footprint.js';
+import { PcbPlacementState } from '../src/core/PcbPlacementState.js';
 
 const element = () => ({ attributes: {}, children: [],
     setAttribute(name, value) { this.attributes[name] = value; },
@@ -59,6 +60,11 @@ for (const outline of [null, { x: 2, y: -4, width: 6 }]) {
         const placement = { reference: 'R12', outline, x: 30, y: -30, side, mirror, rotation,
             refRot: rotation, refSize: 1.2, refStrokeWidth: 0.2, refDx: 3, refDy: -2 };
         const reference = resolveReferenceText(placement);
+        const state = new PcbPlacementState();
+        state.record('ref', placement);
+        state.load(state.serialize());
+        assert.deepEqual(resolveReferenceText({ ...placement, ...state.overrides.get('ref') }), reference,
+            'Saved placement/reference settings preserve rendering and export geometry');
         const endpoints = reference.polylines.flatMap(poly => poly.slice(1).flatMap((point, index) => [poly[index], point]));
         const paths = canvasStrokes(placement, side);
         assert.equal(paths.length, 1);
@@ -92,3 +98,35 @@ for (const outline of [null, { x: 2, y: -4, width: 6 }]) {
     }
 }
 console.log('PASS Canvas, 3D and Gerber reference positions, sides, visibility and stroke extents');
+
+const { default: PCBApp } = await import('../src/ui/PCBApp.js');
+const { ProjectDocument } = await import('../src/core/ProjectDocument.js');
+const { CommandHistory } = await import('../src/core/CommandHistory.js');
+const { MovePlacementCommand } = await import('../src/pcb/modules/track-commands.js');
+const owner = new ProjectDocument();
+document.getElementById = () => null;
+const constructed = new PCBApp(owner);
+assert.equal(constructed._placementOverrides, owner.pcbPlacementState.overrides,
+    'PCB construction aliases the project-owned map');
+assert.notEqual(new PCBApp()._placementOverrides, constructed._placementOverrides,
+    'Standalone editors retain an independent placement model');
+const moved = { x: 1, y: 2, rotation: 37, refDx: 3, refDy: -2, refRot: 90, refVisible: false };
+let dirtyNotifications = 0;
+const editor = {
+    placementState: owner.pcbPlacementState, _placementOverrides: owner.pcbPlacementState.overrides,
+    placements: new Map([['part', moved]]),
+    _recordPlacementOverride: PCBApp.prototype._recordPlacementOverride,
+    _markDirty() { dirtyNotifications++; },
+};
+const history = new CommandHistory();
+history.execute(new MovePlacementCommand(editor, 'part', 1, 2, 10, 20));
+assert.equal(owner.pcbPlacementState.overrides.get('part').x, 10);
+history.undo();
+assert.equal(owner.pcbPlacementState.overrides.get('part').x, 1);
+history.redo();
+assert.equal(owner.pcbPlacementState.overrides.get('part').x, 10);
+assert.equal(owner.pcbPlacementState.overrides.get('part').refRot, 90);
+assert.equal(owner.pcbPlacementState.overrides.get('part').refVisible, false);
+assert.equal(editor.placements.get('part'), moved, 'Undo/redo preserves the generated placement identity');
+assert.equal(dirtyNotifications, 3, 'The editor still marks each execute/undo/redo dirty');
+console.log('PASS placement commands persist into project state through execute/undo/redo');

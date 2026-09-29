@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { PcbPlacementState } from '../src/core/PcbPlacementState.js';
 
 globalThis.window = { addEventListener() {} };
 globalThis.requestAnimationFrame = callback => { callback(); return 1; };
@@ -15,7 +16,8 @@ app.tracks = [{ net: 'GND' }];
 app.vias = [{ net: 'GND' }];
 app.pads = [];
 app.placements = new Map();
-app._placementOverrides = new Map();
+app.placementState = new PcbPlacementState();
+app._placementOverrides = app.placementState.overrides;
 app.boardShapes = [];
 app.netlist = [];
 app._pcbPropsItems = () => items;
