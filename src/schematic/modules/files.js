@@ -366,31 +366,15 @@ export async function loadVersion(app) {
     }
 }
 
-/**
- * Creates a new blank document, clearing all shapes/components and resetting
- * title block defaults. Prompts if there are unsaved changes.
- * @param {object} app - Application state.
- */
-export async function newFile(app) {
-    if (!canReplaceDocument(app)) return;
-    if (app.project?.isDirty ?? app.fileManager.isDirty) {
-        if (!await app._confirm('You have unsaved changes. Create new document anyway?', { title: 'Unsaved Changes', okText: 'Yes', cancelText: 'No', defaultCancel: true })) {
-            return;
-        }
-    }
-
-    if (!canReplaceDocument(app)) return;
+/** Clear only the schematic section, retaining paper/grid preferences. */
+export function clearDocument(app) {
     app.selection.clearSelection();
     if (app.textEdit?.shape) app._endTextEdit(false);
     app._clearAllShapes();
     app._clearAllComponents();
     resetWireLabelCounter();
     resetNetNameCounter();
-    app.fileManager.newDocument();
     app.viewport.resetView();
-
-    // New must clear this project's PCB, not a view from a global bootstrap.
-    app.project?.pcb?.clearSection?.();
 
     // Reset title block to defaults (preserve persisted user-identity fields)
     app.viewport.setTitleBlockData({
@@ -401,11 +385,31 @@ export async function newFile(app) {
         company: localStorage.getItem('clearpcb_tb_company') || '',
         drawnBy: localStorage.getItem('clearpcb_tb_drawnBy') || ''
     });
+}
 
-    app._updateTitle();
-    app.invalidate?.();
-    app._notifyDocumentReplaced?.('new');
-    console.log('New document created');
+/** Confirm New in the UI, then let the project coordinate both editors. */
+export async function newFile(app) {
+    if (!canReplaceDocument(app)) return;
+    if (app.project?.isDirty ?? app.fileManager.isDirty) {
+        if (!await app._confirm('You have unsaved changes. Create new document anyway?', { title: 'Unsaved Changes', okText: 'Yes', cancelText: 'No', defaultCancel: true })) {
+            return;
+        }
+    }
+    if (!canReplaceDocument(app)) return;
+    try {
+        if (app.project) await app.project.reset();
+        else {
+            clearDocument(app);
+            app.fileManager.newDocument(serializeDocument(app));
+        }
+        app._updateTitle();
+        app.invalidate?.();
+        app._notifyDocumentReplaced?.('new');
+        console.log('New document created');
+    } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        app._alert('Failed to create new document: ' + message, { title: 'New Failed' });
+    }
 }
 
 /**

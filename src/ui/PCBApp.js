@@ -2832,6 +2832,12 @@ export default class PCBApp {
         this._isDirty = false;
     }
 
+    /** @param {boolean} dirty */
+    restoreSectionDirty(dirty) {
+        if (dirty) this._markDirty();
+        else this.markSectionClean();
+    }
+
     /**
      * Flag the PCB section as having unsaved changes AND refresh the host
      * title so the unsaved-changes dot (`•`) appears for PCB-only edits.

@@ -1421,6 +1421,10 @@ export default class SchematicApp {
         await FileTools.loadDocument(this, data);
     }
 
+    clearSection() {
+        FileTools.clearDocument(this);
+    }
+
     /**
      * Report whether this editor has unsaved changes beyond the file
      * manager's own dirty flag. The schematic's edits already drive the

@@ -242,14 +242,17 @@ assert.equal(owner.fileManager.loading, false);
 assert.deepEqual(loadingStates, [true, false]);
 pcb.prepareSection = () => ({});
 let rejectPcbLoad = false;
+let restoredPcbDirty;
+pcb.restoreSectionDirty = dirty => { restoredPcbDirty = dirty; };
 pcb.loadSection = (data) => {
-    if (rejectPcbLoad) throw new Error('Render failure');
+    if (rejectPcbLoad && data) throw new Error('Render failure');
     pcbState = data;
 };
 rejectPcbLoad = true;
 await assert.rejects(owner.load({ ...project(), pcb: pcbSection() }), /Render failure/);
 assert.deepEqual(current, project());
 assert.equal(pcbState, null);
+assert.equal(restoredPcbDirty, true, 'Rollback restores dirtiness through the public view hook');
 assert.equal(owner.fileManager.loading, false);
 assert.deepEqual(loadingStates, [true, false, true, false]);
 window.addEventListener = () => {};
@@ -298,4 +301,45 @@ await openFile(guardedApp);
 await openRecentFile(guardedApp, 'ignored.cpcb');
 await importEasyEDA(guardedApp);
 assert.equal(prompts, 4);
-console.log('PASS: project validation, save snapshots, dirty state, and load rollback');
+
+const resetOwner = new ProjectDocument();
+const resetOrder = [];
+const resetDocument = project();
+resetDocument.schematic.settings = { gridSize: 0.127 };
+resetOwner.registerView('pcb', {
+    clearSection() { resetOrder.push('pcb'); },
+});
+resetOwner.registerView('schematic', {
+    clearSection() {
+        resetOrder.push('schematic');
+        resetDocument.schematic.shapes = [];
+        resetDocument.schematic.components = [];
+    },
+    serializeSection: () => structuredClone(resetDocument),
+});
+let initialRecovery;
+resetOwner.fileManager.autoSaveToStorage = data => {
+    resetOrder.push('recovery');
+    initialRecovery = data;
+};
+await resetOwner.reset();
+assert.deepEqual(resetOrder, ['schematic', 'pcb', 'recovery']);
+assert.deepEqual(initialRecovery, resetOwner.serialize(), 'Recovery includes retained editor settings');
+assert.equal(resetOwner.fileManager.fileName, 'untitled.cpcb');
+assert.equal(resetOwner.fileManager.loading, false);
+resetOwner.fileManager.saving = true;
+await assert.rejects(resetOwner.reset(), /in progress/);
+resetOwner.fileManager.saving = false;
+let finishClear;
+resetOwner.schematic.clearSection = () => new Promise(resolve => { finishClear = resolve; });
+resetOwner.pcb.clearSection = () => { throw new Error('Clear failed'); };
+resetOwner.fileManager.fileName = 'original.cpcb';
+const pendingReset = resetOwner.reset();
+assert.equal(resetOwner.fileManager.loading, true);
+await assert.rejects(resetOwner.reset(), /in progress/);
+finishClear();
+await assert.rejects(pendingReset, /Clear failed/);
+assert.equal(resetOwner.fileManager.loading, false, 'Failed clear releases the operation guard');
+assert.equal(resetOwner.fileManager.fileName, 'original.cpcb', 'Do not adopt an untitled file after failed clear');
+assert.deepEqual(resetOrder, ['schematic', 'pcb', 'recovery']);
+console.log('PASS: project validation, save snapshots, dirty state, load rollback, and reset ownership');

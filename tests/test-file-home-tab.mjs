@@ -15,11 +15,17 @@ function fixture(outcome = 'success') {
     const app = {
         project: {
             isDirty: outcome === 'declined',
+            serialize: ProjectDocument.prototype.serialize,
+            async reset() {
+                if (outcome === 'reset-error') throw new Error('Reset failed');
+                await ProjectDocument.prototype.reset.call(this);
+            },
             async load() {
                 if (outcome === 'load-error') throw new Error('Invalid project');
                 events.push('loaded');
             },
             pcb: {
+                clearSection() {},
                 onDocumentReplaced: PCBApp.prototype.onDocumentReplaced,
                 _setActiveRibbonTab(tab) { tabs.pcb = tab; events.push('pcb-home'); },
             },
@@ -36,6 +42,9 @@ function fixture(outcome = 'success') {
             clearAutoSave() {}, newDocument() { events.push('new'); },
         },
         _loadDocument: SchematicApp.prototype._loadDocument,
+        clearSection: SchematicApp.prototype.clearSection,
+        serializeSection: SchematicApp.prototype.serializeSection,
+        shapes: [], components: [],
         _notifyDocumentReplaced: SchematicApp.prototype._notifyDocumentReplaced,
         onDocumentReplaced: SchematicApp.prototype.onDocumentReplaced,
         _setActiveRibbonTab(tab) { tabs.schematic = tab; events.push('schematic-home'); },
@@ -44,6 +53,8 @@ function fixture(outcome = 'success') {
         selection: { clearSelection() {} }, _clearAllShapes() {}, _clearAllComponents() {},
         viewport: { resetView() {}, setTitleBlockData() {} },
     };
+    app.project.fileManager = app.fileManager;
+    app.project.schematic = app;
     app.project.views = new Map([['schematic', app], ['pcb', app.project.pcb]]);
     return { app, tabs, events };
 }
@@ -90,13 +101,14 @@ for (const open of [openFile, app => openRecentFile(app, 'example.cpcb')]) {
     assert.deepEqual(tabs, { schematic: 'home', pcb: 'pcb-home' });
 }
 
-for (const outcome of ['success', 'declined', 'busy']) {
+for (const outcome of ['success', 'declined', 'busy', 'reset-error']) {
     const { app, tabs, events } = fixture(outcome);
     await newFile(app);
     assert.deepEqual(tabs, outcome === 'success'
         ? { schematic: 'home', pcb: 'pcb-home' } : { schematic: 'file', pcb: 'pcb-file' });
     if (outcome === 'success') assert.ok(events.indexOf('new') < events.indexOf('schematic-home'));
     else assert.equal(events.includes('new'), false);
+    if (outcome === 'reset-error') assert.ok(events.includes('alert'));
 }
 
 {

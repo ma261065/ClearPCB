@@ -78,8 +78,16 @@ clearpcb/
 views' `onDocumentReplaced(reason)` hooks (`new`, `open`, or `import`). Each editor
 owns its own Home-tab navigation; the PCB view also owns new-board setup timing
 and disposal of its dimensions dialog. Completion is not emitted for cancelled
-or failed file actions. Full New/reset transaction ownership is still being
-consolidated; the remaining work is tracked in
+or failed file actions. The UI host confirms New; `ProjectDocument.reset()` clears
+the schematic and then the PCB through each view's `clearSection()` hook.
+`FileManager` adopts the new identity and stores the cleared project's actual
+settings for recovery. Reset guards section clearing, not the entire asynchronous
+confirmation/picker/adoption lifetime, and does not promise atomic recovery.
+
+Open retains the existing best-effort serialized rollback. It can round or
+normalize geometry and does not preserve Undo or selection. The experimental
+live-session checkpoint system was removed as disproportionate to this failure
+mode; it is not a release requirement. Remaining ownership work is tracked in
 [review-fixes.md](review-fixes.md#release-readiness-tracker).
 
 ## Extracted Services

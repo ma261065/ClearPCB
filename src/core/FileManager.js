@@ -1090,16 +1090,16 @@ export class FileManager {
     // ==================== New Document ====================
     
     /**
-     * Start a new document
+     * Adopt a new file identity and save the supplied cleared document for recovery.
      */
-    newDocument() {
+    newDocument(data = { version: '1.0', type: 'clearpcb-project', schematic: { shapes: [], components: [] } }) {
         this.touch();
         this.fileHandle = null;
         this.setFileName('untitled.cpcb');
         this.setFilePath(null);
         this.setDirty(false);
         // Immediately autosave the new document
-        this.autoSaveToStorage({ version: '1.0', type: 'clearpcb-project', schematic: { shapes: [], components: [] } });
-        return { version: '1.0', type: 'clearpcb-project', schematic: { shapes: [], components: [] } };
+        this.autoSaveToStorage(data);
+        return data;
     }
 }

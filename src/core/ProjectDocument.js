@@ -18,6 +18,7 @@ import { compactProjectAliases } from './project-field-aliases.js';
  *   - `loadSection(data)`   → restore the view from its slice.
  *   - `clearSection()`      → reset the view to empty (used by New).
  *   - `isSectionDirty()`    → unsaved-changes flag for autosave/beforeunload.
+ *   - `restoreSectionDirty(dirty)` → restore section dirtiness after a failed load.
  *   - `onDocumentReplaced(reason)` → local UI reset after a successful file action.
  *
  * The schematic view additionally acts as the *UI host* (it owns the
@@ -144,12 +145,27 @@ export class ProjectDocument {
                 await this.schematic?.loadSection?.(previous);
                 await this.pcb?.loadSection?.(previous.pcb || null);
                 this.fileManager.setDirty(dirty);
-                if (pcbDirty) this.pcb?._markDirty?.();
+                if (pcbDirty) this.pcb?.restoreSectionDirty?.(true);
                 throw error;
             }
         } finally {
             this.fileManager.loading = false;
             await this.onLoadingChange?.(false);
+        }
+    }
+
+    /** Clear editor sections before adopting a new file identity. */
+    async reset() {
+        if (this.fileManager.saving || this.fileManager.loading) {
+            throw new Error('A file operation is already in progress.');
+        }
+        this.fileManager.loading = true;
+        try {
+            await this.schematic?.clearSection();
+            await this.pcb?.clearSection();
+            this.fileManager.newDocument(this.serialize());
+        } finally {
+            this.fileManager.loading = false;
         }
     }
 
