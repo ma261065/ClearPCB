@@ -377,7 +377,7 @@ function circlePath(C, cx, cy, r, enclose = true) {
     return path;
 }
 
-/** Expand the same conservative pad outline used by DRC. */
+/** Expand a conservative enclosure of the physical pad outline measured by DRC. */
 function padObstaclePaths(C, pad, clearance) {
     return offsetClosedPath(C, pad.outline || padCopperOutline(pad), clearance);
 }

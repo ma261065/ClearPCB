@@ -324,7 +324,8 @@ export function resolveSilk(placements, side = null) {
     return out;
 }
 
-export function padFlashOutline(flash, tolerance = 0.001) {
+/** Sample a pad flash; enclosing outlines are conservative pour obstacles. */
+export function padFlashOutline(flash, tolerance = 0.001, enclose = false) {
     const halfWidth = flash.w / 2;
     const halfHeight = flash.h / 2;
     const cosine = Math.cos(flash.rad || 0), sine = Math.sin(flash.rad || 0);
@@ -337,13 +338,29 @@ export function padFlashOutline(flash, tolerance = 0.001) {
     const radius = Math.min(halfWidth, halfHeight);
     const maxRadius = Math.max(halfWidth, halfHeight);
     const steps = Math.max(16, Math.ceil(Math.PI / Math.acos(1 - Math.min(tolerance / maxRadius, 1)) / 4) * 4);
+    const enclosure = enclose ? 1 / Math.cos(Math.PI / steps) : 1;
+    if (flash.shape === 'oval' && halfWidth !== halfHeight) {
+        const horizontal = halfWidth > halfHeight;
+        const offset = maxRadius - radius;
+        const start = horizontal ? -Math.PI / 2 : 0;
+        const points = [];
+        // Include both endpoints of each semicircle so the straight sides meet
+        // the caps at their tangencies, rather than cutting across the joins.
+        for (const side of [1, -1]) {
+            const centreX = horizontal ? side * offset : 0;
+            const centreY = horizontal ? 0 : side * offset;
+            for (let index = 0; index <= steps / 2; index++) {
+                const angle = start + (side === 1 ? 0 : Math.PI) + index * 2 * Math.PI / steps;
+                points.push(transform(centreX + radius * enclosure * Math.cos(angle),
+                    centreY + radius * enclosure * Math.sin(angle)));
+            }
+        }
+        return points;
+    }
     return Array.from({ length: steps }, (_, index) => {
         const angle = index * 2 * Math.PI / steps;
         const horizontal = Math.cos(angle), vertical = Math.sin(angle);
-        return flash.shape === 'oval'
-            ? transform(Math.sign(horizontal) * (halfWidth - radius) + radius * horizontal,
-                Math.sign(vertical) * (halfHeight - radius) + radius * vertical)
-            : transform(halfWidth * horizontal, halfHeight * vertical);
+        return transform(halfWidth * enclosure * horizontal, halfHeight * enclosure * vertical);
     });
 }
 
