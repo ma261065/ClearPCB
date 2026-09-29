@@ -1,4 +1,5 @@
 /** Headless regression tests for board-shape group-drag geometry snapshots. */
+import { PcbDocument } from '../src/core/PcbDocument.js';
 
 globalThis.window = { addEventListener() {} };
 const timers = new Map();
@@ -370,8 +371,10 @@ for (const shape of [
 }
 
 function topologyApp(shapes) {
+    const pcbDocument = new PcbDocument();
+    pcbDocument.boardShapes.push(...shapes);
     return {
-        boardShapes: shapes, placements: new Map(), tracks: [], vias: [], texts: new Map(),
+        pcbDocument, boardShapes: pcbDocument.boardShapes, placements: new Map(), tracks: [], vias: [], texts: new Map(),
         _shapeElements: new Map(), _shapeIdCounter: 1, _deferDragOverlays: false,
         _getLayerGroup() { return null; }, _snapToGrid(point) { return point; },
         viewport: { scale: 100, snapToGrid: false, setCrosshair() {}, hideCrosshair() {} },

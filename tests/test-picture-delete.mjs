@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { PcbDocument } from '../src/core/PcbDocument.js';
 import { pictureShape } from '../src/pcb/modules/picture-raster.js';
 
 const element = () => ({
@@ -19,7 +20,9 @@ const image = { ...pictureShape({ width: 2, height: 2, rectangles: [{ x: 0, y: 0
     { widthMm: 2, layer: 'top-copper' }), id: 'pshape_1' };
 const layer = element();
 const overlay = element();
-const app = { boardShapes: [image], placements: new Map(), tracks: [], vias: [], texts: new Map(),
+const pcbDocument = new PcbDocument();
+pcbDocument.boardShapes.push(image);
+const app = { pcbDocument, boardShapes: pcbDocument.boardShapes, placements: new Map(), tracks: [], vias: [], texts: new Map(),
     _shapeElements: new Map(), _boardShapeClearanceCache: new Map(), viewport: { scale: 10 },
     _getLayerGroup(id) { return id === 'top-copper' ? layer : null; } };
 setPcbSelection(app, [{ kind: 'shape', object: image }]);
@@ -34,6 +37,7 @@ assert.equal(layer.children.length, 1);
 const deletion = new RemoveBoardShapeCommand(app, image);
 deletion.execute();
 assert.equal(app.boardShapes.length, 0);
+assert.equal(app.boardShapes, pcbDocument.boardShapes, 'Deletion retains the canonical model array');
 assert.equal(layer.children.length, 0);
 assert.equal(overlay.children.length, 0);
 assert.equal(app._boardShapeClearanceCache.has(image.id), false);
@@ -43,6 +47,7 @@ setBoardShapeHover(app, null);
 assert.equal(layer.children.length, 0, 'Pointer movement cannot resurrect a deleted image');
 deletion.undo();
 assert.equal(app.boardShapes.length, 1);
+assert.equal(pcbDocument.boardShapes[0], image, 'Undo retains model entity identity');
 assert.equal(layer.children.length, 1, 'Undo restores exactly one image');
 setBoardShapeHover(app, image);
 deletion.execute();

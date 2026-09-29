@@ -1,9 +1,7 @@
 /**
  * Undoable commands for free-standing PCB board shapes (rectangle, polygon, arc).
  *
- * Operates on the generic `app.boardShapes` array. Geometry-specific behaviour
- * lives in board-shapes.js; these commands only push/splice the shape and
- * trigger re-render + fill refresh so history is the single source of truth.
+ * Editor adapters for the neutral board-shape commands in core.
  * Copper-mode changes refresh connectivity immediately rather than waiting
  * for the live-geometry edit debounce.
  */
@@ -11,16 +9,19 @@
 import {
     renderBoardShape,
     removeBoardShapeElement,
-    applyShapeGeometry,
-    applyShapeSnapshot,
     refreshBoardShapeProperties,
     renderBoardShapeSegmentSelection,
 } from './board-shapes.js';
 import { renderPcbSelectionAnchors } from './selection-anchors.js';
 import { getPcbSelectionEntries, setPcbSelection } from './selection-registry.js';
 import { cancelPictureCopperRefresh, schedulePictureCopperRefresh } from './picture-refresh.js';
-import { validBoardOutline } from './board-outline.js';
 import { normalizeShapeCopperMode } from './board-shape-geometry.js';
+import {
+    AddBoardShapeCommand as ModelAddBoardShapeCommand,
+    RemoveBoardShapeCommand as ModelRemoveBoardShapeCommand,
+    MoveBoardShapeCommand as ModelMoveBoardShapeCommand,
+    ModifyBoardShapeCommand as ModelModifyBoardShapeCommand,
+} from '../../core/pcb-shape-commands.js';
 
 function deselectRemovedShape(app, shape) {
     const selected = getPcbSelectionEntries(app);
@@ -30,15 +31,15 @@ function deselectRemovedShape(app, shape) {
     renderPcbSelectionAnchors(app);
 }
 
-export class AddBoardShapeCommand {
+export class AddBoardShapeCommand extends ModelAddBoardShapeCommand {
     constructor(app, shape) {
+        super(app.pcbDocument, shape);
         this.app = app;
-        this.shape = shape;
     }
 
     execute() {
         if (this.shape.layer === 'board-outline') return;
-        if (!this.app.boardShapes.includes(this.shape)) this.app.boardShapes.push(this.shape);
+        super.execute();
         renderBoardShape(this.app, this.shape);
         this.app._refreshFills?.();
         this.app._updateRatsnest?.();
@@ -49,8 +50,7 @@ export class AddBoardShapeCommand {
         if (this.shape.layer === 'board-outline') return;
         deselectRemovedShape(this.app, this.shape);
         removeBoardShapeElement(this.app, this.shape.id);
-        const i = this.app.boardShapes.indexOf(this.shape);
-        if (i >= 0) this.app.boardShapes.splice(i, 1);
+        super.undo();
         this.app._updateCopperCuts?.();
         this.app._refreshFills?.();
         this.app._updateRatsnest?.();
@@ -58,18 +58,17 @@ export class AddBoardShapeCommand {
     }
 }
 
-export class RemoveBoardShapeCommand {
+export class RemoveBoardShapeCommand extends ModelRemoveBoardShapeCommand {
     constructor(app, shape) {
+        super(app.pcbDocument, shape);
         this.app = app;
-        this.shape = shape;
     }
 
     execute() {
         if (this.shape.layer === 'board-outline') return;
         deselectRemovedShape(this.app, this.shape);
         removeBoardShapeElement(this.app, this.shape.id);
-        const i = this.app.boardShapes.indexOf(this.shape);
-        if (i >= 0) this.app.boardShapes.splice(i, 1);
+        super.execute();
         this.app._updateCopperCuts?.();
         this.app._refreshFills?.();
         this.app._updateRatsnest?.();
@@ -78,7 +77,7 @@ export class RemoveBoardShapeCommand {
 
     undo() {
         if (this.shape.layer === 'board-outline') return;
-        if (!this.app.boardShapes.includes(this.shape)) this.app.boardShapes.push(this.shape);
+        super.undo();
         renderBoardShape(this.app, this.shape);
         this.app._refreshFills?.();
         this.app._updateRatsnest?.();
@@ -86,51 +85,36 @@ export class RemoveBoardShapeCommand {
     }
 }
 
-export class MoveBoardShapeCommand {
+export class MoveBoardShapeCommand extends ModelMoveBoardShapeCommand {
     constructor(app, shape, before, after) {
+        super(app.pcbDocument, shape, before, after);
         this.app = app;
-        this.shape = shape;
-        this.before = before;
-        this.after = after;
     }
 
     _apply(geometry) {
-        const previous = this.shape.layer === 'board-outline' ? structuredClone(this.shape) : null;
-        applyShapeGeometry(this.shape, geometry);
-        if (previous && !validBoardOutline(this.shape)) Object.assign(this.shape, previous);
+        const applied = super._apply(geometry);
         schedulePictureCopperRefresh(this.app);
         renderBoardShape(this.app, this.shape);
         if (this.shape.layer === 'board-outline' || ['circle', 'image', 'arc'].includes(this.shape.kind)) refreshBoardShapeProperties(this.app, this.shape);
         renderBoardShapeSegmentSelection(this.app);
         renderPcbSelectionAnchors(this.app);
-    }
-
-    execute() {
-        this._apply(this.after);
-    }
-
-    undo() {
-        this._apply(this.before);
+        return applied;
     }
 }
 
-export class ModifyBoardShapeCommand {
+export class ModifyBoardShapeCommand extends ModelModifyBoardShapeCommand {
     constructor(app, shape, before, after) {
+        super(app.pcbDocument, shape, before, after);
         this.app = app;
-        this.shape = shape;
-        this.before = before;
-        this.after = after;
     }
 
     _apply(state) {
-        const previous = this.shape.layer === 'board-outline' ? structuredClone(this.shape) : null;
         const affectsCopper = this.shape.kind !== 'image'
             || this.shape.layer.endsWith('copper') || state.layer.endsWith('copper');
         const geometryEdit = this.shape.layer === state.layer && (this.shape.net || '') === (state.net || '')
             && normalizeShapeCopperMode(this.shape.copperMode) === normalizeShapeCopperMode(state.copperMode);
         if (affectsCopper && !geometryEdit) cancelPictureCopperRefresh(this.app);
-        applyShapeSnapshot(this.shape, state);
-        if (previous && !validBoardOutline(this.shape)) Object.assign(this.shape, previous);
+        const applied = super._apply(state);
         if (affectsCopper && geometryEdit) schedulePictureCopperRefresh(this.app, this.shape);
         renderBoardShape(this.app, this.shape, {
             skipCopperUpdate: !affectsCopper,
@@ -146,13 +130,6 @@ export class ModifyBoardShapeCommand {
         refreshBoardShapeProperties(this.app, this.shape);
         renderBoardShapeSegmentSelection(this.app);
         renderPcbSelectionAnchors(this.app);
-    }
-
-    execute() {
-        this._apply(this.after);
-    }
-
-    undo() {
-        this._apply(this.before);
+        return applied;
     }
 }

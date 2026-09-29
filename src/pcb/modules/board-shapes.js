@@ -22,8 +22,10 @@ import { joinPaths, remapPathNodes, splitPathSegmentMetadata, deletePathVertex, 
 import { validBoardOutline } from './board-outline.js';
 import { shapeFromPoints, shapePreviewPath, advanceShapeDrawing, canFinishShapeAtPoint } from '../../shapes/shape-drawing.js';
 import { CopperFill } from '../../shapes/copper-fill.js';
-import { SHAPE_KINDS, loadBoardShapeData } from '../../core/pcb-board-shapes.js';
-export { serializeBoardShapes } from '../../core/pcb-board-shapes.js';
+import { SHAPE_KINDS, loadBoardShapeData, cloneShapeGeometry, applyShapeGeometry,
+    applyShapeSnapshot, captureBoardShapeState as shapeSnapshot } from '../../core/pcb-board-shapes.js';
+export { serializeBoardShapes, cloneShapeGeometry, applyShapeGeometry,
+    applyShapeSnapshot, captureBoardShapeState } from '../../core/pcb-board-shapes.js';
 import {
     isLayerLocked,
     isLayerVisible,
@@ -321,34 +323,6 @@ function normalizeStraightArc(shape, segment = null) {
 }
 
 // ── Geometry clone / translate (shared by drag + commands) ───────────────────
-
-/** Snapshot just the geometry (for move/modify undo). */
-export function cloneShapeGeometry(shape) {
-    if (shape.kind === 'arc') {
-        return { start: { ...shape.start }, end: { ...shape.end }, bulge: { ...shape.bulge } };
-    }
-    if (shape.kind === 'circle') return { x: shape.x, y: shape.y, radius: shape.radius };
-    return { points: (shape.points || []).map((p) => ({ x: p.x, y: p.y })) };
-}
-
-/** Write a geometry snapshot back onto a shape. */
-export function applyShapeGeometry(shape, geom) {
-    if (shape.kind === 'arc') {
-        delete shape.points;
-        shape.start = { ...geom.start };
-        shape.end = { ...geom.end };
-        shape.bulge = { ...geom.bulge };
-    } else if (shape.kind === 'circle') {
-        shape.x = geom.x;
-        shape.y = geom.y;
-        shape.radius = geom.radius;
-    } else {
-        delete shape.start;
-        delete shape.end;
-        delete shape.bulge;
-        shape.points = (geom.points || []).map((p) => ({ x: p.x, y: p.y }));
-    }
-}
 
 function geomAnchor(geom) {
     return geom.points ? geom.points[0] : geom.start || { x: geom.x, y: geom.y };
@@ -1689,29 +1663,6 @@ function syncNetMenuSelection(menu, input) {
     }
 }
 
-/** Snapshot of everything ModifyBoardShapeCommand can change. */
-function shapeSnapshot(shape) {
-    return {
-        kind: shape.kind,
-        ...(shape.kind === 'image' ? { artwork: shape.artwork } : {}),
-        geom: cloneShapeGeometry(shape),
-        cornerRadius: shape.kind === 'rect' ? rectCornerRadius(shape) : polygonCornerRadius(shape),
-        nodeCornerRadii: { ...(shape.nodeCornerRadii || {}) },
-        layer: shape.layer,
-        lineWidth: Math.max(0.05, Number(shape.lineWidth) || 0.2),
-        segmentWidths: { ...(shape.segmentWidths || {}) },
-        segmentBulges: { ...(shape.segmentBulges || {}) },
-        filled: !!shape.filled,
-        copperMode: normalizeShapeCopperMode(shape.copperMode),
-        plated: !!shape.plated,
-        net: String(shape.net || ''),
-    };
-}
-
-export function captureBoardShapeState(shape) {
-    return shapeSnapshot(shape);
-}
-
 /**
  * Show Properties-tab controls for the active board-shape tool. These edit
  * creation defaults (and an unfinished draw), rather than a saved shape.
@@ -1823,25 +1774,6 @@ export function showBoardShapeToolProperties(app, kind) {
         });
         syncAvailability();
         app._setActiveRibbonTab?.('pcb-properties');
-}
-
-/** Write a full snapshot back onto a shape (used by ModifyBoardShapeCommand). */
-export function applyShapeSnapshot(shape, state) {
-    if (state.kind) shape.kind = state.kind;
-    if (shape.kind === 'image' && state.artwork) shape.artwork = state.artwork;
-    applyShapeGeometry(shape, state.geom);
-    if (['line', 'rect', 'polygon'].includes(shape.kind)) {
-        shape.cornerRadius = Math.max(0, Number(state.cornerRadius) || 0);
-        shape.nodeCornerRadii = { ...(state.nodeCornerRadii || {}) };
-    }
-    shape.layer = state.layer;
-    shape.lineWidth = state.lineWidth;
-    shape.segmentWidths = { ...(state.segmentWidths || {}) };
-    shape.segmentBulges = { ...(state.segmentBulges || {}) };
-    shape.filled = !!state.filled;
-    shape.copperMode = normalizeShapeCopperMode(state.copperMode);
-    shape.plated = !!state.plated;
-    shape.net = String(state.net || '');
 }
 
 function showImageProperties(app, shape, items) {

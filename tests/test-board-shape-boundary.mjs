@@ -1,4 +1,12 @@
 import assert from 'node:assert/strict';
+import { PcbDocument } from '../src/core/PcbDocument.js';
+
+function shapeModel(...shapes) {
+    const pcbDocument = new PcbDocument();
+    pcbDocument.boardShapes.push(...shapes);
+    pcbDocument.syncBoardOutlineDimensions();
+    return { pcbDocument, boardShapes: pcbDocument.boardShapes };
+}
 
 globalThis.window = { addEventListener() {} };
 globalThis.requestAnimationFrame = callback => { callback(); return 1; };
@@ -40,8 +48,10 @@ const { updateSelectionInteraction, finishSelectionInteraction, placeFloatingSel
     const { pointInPolygon } = await import('../src/core/geometry.js');
     const { exportGerbers } = await import('../src/pcb/modules/gerber.js');
     const shape = rectangleBoardOutline(20, 10, 1);
+    const pcbDocument = new PcbDocument();
+    pcbDocument.boardShapes.push(shape);
     const commands = [];
-    const app = { boardShapes: [shape], _shapeElements: new Map(), tracks: [], vias: [], placements: new Map(),
+    const app = { pcbDocument, boardShapes: pcbDocument.boardShapes, _shapeElements: new Map(), tracks: [], vias: [], placements: new Map(),
         texts: new Map(), viewport: { scale: 20, hideCrosshair() {}, setCrosshair() {} },
         _getLayerGroup() { return null; }, _snapToGrid(point) { return point; },
         history: { execute(command) { commands.push(command); command.execute(); } } };
@@ -120,7 +130,7 @@ const { updateSelectionInteraction, finishSelectionInteraction, placeFloatingSel
         element.remove = () => { this.children.splice(this.children.indexOf(element), 1); };
     } };
     const app = {
-        boardShapes: [shape, remote], placements: new Map(), tracks: [], vias: [], texts: new Map(), netlist: [],
+        ...shapeModel(shape, remote), placements: new Map(), tracks: [], vias: [], texts: new Map(), netlist: [],
         _shapeElements: new Map(), viewport: { scale: 20, setCrosshair() {}, hideCrosshair() {} },
         _getLayerGroup(layer) { return layer === 'ratlines' ? ratLayer : null; },
         _pcbPropsItems() { return { innerHTML: '' }; }, _setPcbPropsTitle(value) { title = value; },
@@ -227,7 +237,7 @@ console.log('PASS standalone conversion uses native shape kinds, menus, properti
         return elements[0].getAttribute('d');
     };
     const app = {
-        boardShapes: [shape], placements: new Map(), tracks: [], vias: [], texts: new Map(),
+        ...shapeModel(shape), placements: new Map(), tracks: [], vias: [], texts: new Map(),
         _shapeElements: new Map(), viewport: { scale: 20, setCrosshair() {}, hideCrosshair() {} },
         _getLayerGroup(layer) { return layer === 'selection-overlay' ? overlay : null; },
         _pcbPropsItems() { return { innerHTML: '' }; }, _setPcbPropsTitle(value) { title = value; },
@@ -327,7 +337,7 @@ console.log('PASS line and polygon segments support undoable curved geometry and
 
 {
     const makeApp = shape => ({
-        boardShapes: [shape], _shapeElements: new Map(), tracks: [], vias: [], placements: new Map(), texts: new Map(),
+        ...shapeModel(shape), _shapeElements: new Map(), tracks: [], vias: [], placements: new Map(), texts: new Map(),
         viewport: { scale: 20, shiftHeld: true, setCrosshair() {}, hideCrosshair() {} },
         _getLayerGroup() { return null; },
         history: { commands: [], execute(command) { this.commands.push(command); command.execute(); } },
@@ -427,7 +437,7 @@ for (const cornerRadius of [0, 2]) {
     const before = cloneShapeGeometry(shape);
     const listeners = new Map();
     const input = { value: '5', valueAsNumber: 5, addEventListener(type, listener) { listeners.set(type, listener); } };
-    const app = { boardShapes: [shape], _shapeElements: new Map(), _getLayerGroup() { return null; },
+    const app = { ...shapeModel(shape), _shapeElements: new Map(), _getLayerGroup() { return null; },
         _pcbPropsItems() { return { innerHTML: '' }; } };
     document.getElementById = id => id === 'pcbPropShapeLineWidth' ? input : null;
     showBoardShapeProperties(app, shape);
@@ -486,7 +496,7 @@ for (const commit of [false, true]) {
         points: [{ x: 0, y: 0 }, { x: 20, y: 0 }, { x: 20, y: 16 }, { x: 0, y: 16 }] };
     const before = cloneShapeGeometry(shape);
     const commands = [];
-    const app = { boardShapes: [shape], _shapeElements: new Map(), _getLayerGroup() { return null; },
+    const app = { ...shapeModel(shape), _shapeElements: new Map(), _getLayerGroup() { return null; },
         viewport: { scale: 100, setCrosshair() {}, hideCrosshair() {} }, _snapToGrid(point) { return point; },
         history: { execute(command) { commands.push(command); command.execute(); } } };
     startBoardShapeDrag(app, shape, { x: 10, y: 0 }, 'mid:0');
@@ -536,7 +546,7 @@ for (const reversed of [false, true]) {
     if (reversed) points.reverse();
     const shape = { id: 'crossing-direction', kind: 'rect', layer: 'top-copper', lineWidth: 1, points };
     const commands = [];
-    const app = { boardShapes: [shape], _shapeElements: new Map(), _getLayerGroup() { return null; },
+    const app = { ...shapeModel(shape), _shapeElements: new Map(), _getLayerGroup() { return null; },
         viewport: { scale: 100, setCrosshair() {}, hideCrosshair() {} }, _snapToGrid(point) { return point; },
         history: { execute(command) { commands.push(command); command.execute(); } } };
     const midpoint = getBoardShapeAnchors(shape).find(anchor => anchor.midpoint && anchor.y === 0);

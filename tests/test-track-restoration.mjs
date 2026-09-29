@@ -1,4 +1,5 @@
 /** Headless regression tests for Track-to-Line restoration on Net clearing. */
+import { PcbDocument } from '../src/core/PcbDocument.js';
 
 globalThis.window = { addEventListener() {} };
 globalThis.document = {
@@ -36,9 +37,11 @@ function expect(name, condition) {
 }
 
 function appFor(track) {
+    const pcbDocument = new PcbDocument();
     const app = {
+        pcbDocument,
         tracks: [track],
-        boardShapes: [],
+        boardShapes: pcbDocument.boardShapes,
         _shapeIdCounter: 1,
         _shapeElements: new Map(),
         _getLayerGroup() { return null; },
@@ -100,7 +103,7 @@ function appFor(track) {
     };
     const app = appFor(null);
     app.tracks = [];
-    app.boardShapes = [line];
+    app.boardShapes.push(line);
     const properties = { innerHTML: '' };
     let propertiesTitle = 'Line';
     let activeTab = null;
@@ -109,6 +112,8 @@ function appFor(track) {
     app._setActiveRibbonTab = tab => { activeTab = tab; };
     const track = convertBoardLineToTrack(app, line, 'N');
     expect('a property-assigned Line converts to a Track', !!track && app.tracks[0] === track);
+    expect('conversion removes the Line from the canonical shape array',
+        app.boardShapes === app.pcbDocument.boardShapes && app.boardShapes.length === 0);
     expect('conversion immediately shows Track properties without reselection', propertiesTitle === 'Track'
         && properties.innerHTML.includes('id="pcbPropTrackNet"')
         && properties.innerHTML.includes('id="pcbPropTrackWidth"')
@@ -172,7 +177,7 @@ function appFor(track) {
         segmentWidths: { 1: 0.6 }, segmentBulges: { 0: -0.4 }, cornerRadius: 2, nodeCornerRadii: { 1: 0.7 } };
     const app = appFor(null);
     app.tracks = [];
-    app.boardShapes = [line];
+    app.boardShapes.push(line);
     const track = convertBoardLineToTrack(app, line, 'N');
     expect('Line conversion carries widths and bulges', track.getEdgeWidth('e1') === 0.6 && track.edges.get('e0').bulge === -0.4);
     expect('Line conversion carries both radius levels', track.cornerRadius === 2 && track.nodeCornerRadius('n1') === 0.7);

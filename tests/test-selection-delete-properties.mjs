@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { PcbDocument } from '../src/core/PcbDocument.js';
 
 globalThis.window = { addEventListener() {} };
 globalThis.document = {
@@ -29,8 +30,10 @@ for (const layer of ['hole', 'top-copper', 'top-silk']) {
         let clearCount = 0;
         let activeTab = 'pcb-properties';
         let tabChanges = 0;
+        const pcbDocument = new PcbDocument();
+        pcbDocument.boardShapes.push(...shapes);
         const app = {
-            boardShapes: [...shapes], placements: new Map(), tracks: [], vias: [], texts: new Map(),
+            pcbDocument, boardShapes: pcbDocument.boardShapes, placements: new Map(), tracks: [], vias: [], texts: new Map(),
             _shapeElements: new Map(), _getLayerGroup() { return null; },
             history: { execute(command) { command.execute(); } },
             _clearProperties() {

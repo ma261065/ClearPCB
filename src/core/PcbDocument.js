@@ -115,13 +115,15 @@ export class PcbDocument {
             this.board.width = board?.width || DEFAULT_BOARD_DIMENSIONS.width;
             this.board.height = board?.height || DEFAULT_BOARD_DIMENSIONS.height;
             this.board.radius = board?.radius || 0;
-            if (outline) {
-                const bounds = boardBoundary(this);
-                this.board.width = bounds.w;
-                this.board.height = bounds.h;
-                this.board.radius = outline.cornerRadius || 0;
-            }
+            if (outline) this.syncBoardOutlineDimensions();
         }
+    }
+
+    syncBoardOutlineDimensions() {
+        const bounds = boardBoundary(this);
+        this.board.width = bounds.w;
+        this.board.height = bounds.h;
+        this.board.radius = getBoardOutline(this)?.cornerRadius || 0;
     }
 
     /** Complete data-only load; editors may use the two phases around rendering. */

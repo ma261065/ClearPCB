@@ -170,6 +170,21 @@ retain synchronous pour refresh, drag deferral, property controls and selection
 anchors. The existing entity-level derived caches remain a separate model/view
 boundary to resolve.
 
+Generic board-shape add/remove/move/modify operations live in
+`core/pcb-shape-commands.js` and take `PcbDocument`, retaining its collection and
+shape identities. Geometry and property snapshot/apply helpers live alongside
+persistence in `core/pcb-board-shapes.js`; the rendering module re-exports them
+for existing callers. Commands own their full-precision geometry and nested
+property snapshots, while imported image artwork remains shared read-only.
+Generic add/remove commands retain the protected-outline no-op behavior.
+Move/modify validate existing outline edits before mutation and return `false`
+for rejected edits, leaving no partial geometry behind. Accepted outline edits
+synchronize model-owned dimension metadata without rendering, including undo.
+The editor adapters preserve selection cleanup, rendering, property controls,
+3D refresh and immediate versus deferred copper updates. Live preview rendering
+still synchronizes outline dimensions; that remaining presentation-side mutation
+is not removed by the command separation.
+
 `serialize(settings)` assembles the complete authored PCB section: stackup,
 dimensions, design settings, optional panelization, entities and saved placements.
 It applies the existing compact aliases and save-boundary precision, returning a

@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { CommandHistory } from '../src/core/CommandHistory.js';
+import { PcbDocument } from '../src/core/PcbDocument.js';
 import { rasterizePicture, pictureShape } from '../src/pcb/modules/picture-raster.js';
 import { pointInPolygon } from '../src/core/geometry.js';
 
@@ -74,7 +75,9 @@ for (const layer of ['top-silk', 'bottom-silk', 'top-copper', 'bottom-copper']) 
     const original = { ...shapes[0], id: 'original' };
     let fills = 0;
     let views = 0;
-    const app = { boardShapes: [original], placements: new Map(), tracks: [], vias: [], texts: new Map(),
+    const pcbDocument = new PcbDocument();
+    pcbDocument.boardShapes.push(original);
+    const app = { pcbDocument, boardShapes: pcbDocument.boardShapes, placements: new Map(), tracks: [], vias: [], texts: new Map(),
         _shapeElements: new Map(), _getLayerGroup() { return null; }, viewport: { scale: 10 },
         _refreshFills() { fills++; }, _board3d: { refresh() { views++; } } };
     setPcbSelection(app, [{ kind: 'shape', object: original }]);
