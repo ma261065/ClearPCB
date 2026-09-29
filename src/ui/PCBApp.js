@@ -9,7 +9,7 @@ import { commitDesignInput, renderDesignSettings } from '../pcb/modules/design-s
 import { loadAndApplyTheme, toggleTheme as toggleSharedTheme, syncThemeToggleButtons } from '../shared/ui/theme.js';
 import { extractNetlist, extractComponents } from '../core/netlist.js';
 import { generateFootprint, renderFootprint, applyRefGeometry, REF_DEFAULT_SIZE, REF_DEFAULT_STROKE } from '../pcb/modules/footprint.js';
-import { updateGridDropdown } from './modules/viewport.js';
+import { updateGridDropdown, restoreGridSettings } from './modules/viewport.js';
 import { setToolCursor } from './modules/cursor.js';
 import { isUnmodifiedPrimaryDoublePress } from './modules/inline-edit-activation.js';
 import {
@@ -1003,6 +1003,8 @@ export default class PCBApp {
         // Push any restored eye/lock state (from a prior session) into the
         // freshly-created render groups so the artwork matches the panel.
         this._applyLayerPrefsToRender();
+
+        restoreGridSettings(this, this.pcbDocument.settings || {});
 
         // Apply current theme to the viewport
         this.viewport.updateTheme();
@@ -2786,7 +2788,7 @@ export default class PCBApp {
             || this.boardShapes?.length
             || this.texts?.size || this._placementOverrides.size
             || this._boardOutlineDrawn || this.viewport;
-        return hasContent ? this.serialize() : null;
+        return hasContent ? this.serialize() : this.pcbDocument.serializeSection();
     }
 
     /**

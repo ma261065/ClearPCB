@@ -7,6 +7,9 @@ import { formatNumberInput } from '../src/core/number-inputs.js';
 
 assert.equal(typeof document, 'undefined');
 const model = new PcbDesignSettings();
+assert.equal(model.hasAppliedSettings, false);
+assert.throws(() => model.update({ clearance: 0 }), /positive finite/);
+assert.equal(model.hasAppliedSettings, false, 'Rejected settings must not suppress startup defaults');
 const precise = { trackWidth: 0.2, clearance: 0.1234, viaDiameter: 0.6, viaDrill: 0.3,
     units: 'mm', router: 'pathfinder' };
 const expectedRouting = { trackWidth: 0.2, clearance: 0.1234, viaDiameter: 0.6, viaDrill: 0.3 };
@@ -48,12 +51,13 @@ function inputElement(value = '') {
         fire(event) { handlers.get(event)?.(); },
     };
 }
-function fixture() {
+function fixture(prepareModel = () => {}) {
     const elements = new Map([...ids, 'pcbRouteUnits', 'pcbRouterMode'].map(id =>
         [id, inputElement(id === 'pcbRouteUnits' ? 'mm' : id === 'pcbRouterMode' ? 'maze' : '')]));
     globalThis.document = { getElementById: id => elements.get(id) || null,
         addEventListener() {}, querySelectorAll: () => [] };
     const project = new ProjectDocument();
+    prepareModel(project.pcbDocument);
     const app = new PCBApp(project);
     const changes = { dirty: 0, fills: 0, halos: 0, board3d: 0 };
     app._markDirty = () => { changes.dirty++; };
@@ -64,6 +68,29 @@ function fixture() {
     bindPcbControls(app);
     assert.equal(app.designSettings, project.pcbDocument.designSettings);
     return { app, changes, elements };
+}
+{
+    const loadedDesign = { ...precise, clearance: 0.123456, units: 'inch' };
+    const savedGrid = { gridSize: 0.123456, units: 'inch', gridStyle: 'dots', gridVisible: false, snapToGrid: false };
+    storage.set('clearpcb_pcb_design_params', JSON.stringify({ ...precise, clearance: 0.9 }));
+    for (const prepareModel of [
+        model => model.load({ stackup: defaultPcbStackup(), design: loadedDesign, settings: savedGrid }),
+        model => model.designSettings.update(loadedDesign),
+        model => { model.designSettings.update(loadedDesign); model.clear(); },
+    ]) {
+        const attached = fixture(prepareModel);
+        assert.deepEqual(attached.app.designSettings.values, loadedDesign,
+            'Binding controls must not replace already supplied model settings with local defaults');
+        assert.equal(attached.elements.get('pcbRouteUnits').value, 'inch');
+        assert.equal(attached.elements.get('pcbClearance').value, '0.0049');
+        assert.deepEqual(attached.changes, { dirty: 0, fills: 0, halos: 0, board3d: 0 });
+        if (attached.app.pcbDocument.settings) {
+            assert.equal(attached.app.viewport, null);
+            assert.deepEqual(attached.app.serializeSection(), attached.app.pcbDocument.serialize(),
+                'A newly attached editor preserves a loaded metadata-only section before viewport creation');
+        }
+    }
+    storage.clear();
 }
 const { app, changes, elements } = fixture();
 for (const id of ids) {

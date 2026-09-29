@@ -173,6 +173,19 @@ make a section persistable; retained design defaults alone do not. The project
 saves current model state rather than caching a serialized PCB. Existing
 best-effort serialized recovery remains unchanged in scope, not exact rollback.
 
+Attaching a PCB editor preserves already supplied design settings rather than
+replacing them with local defaults. `PcbDesignSettings.hasAppliedSettings` records
+successful updates; rejected updates do not suppress default restoration, and
+New retains the marker with the last-used values. A fresh model still accepts
+local defaults, including the legacy display-unit format. Binding always displays
+the model's values without reading rounded controls back.
+The first viewport restores the model's loaded grid preferences. Controls bound
+before or after viewport creation synchronize from the live viewport without
+snapping a custom grid size to a dropdown option. Later viewport checks do not
+reapply the loaded snapshot. Initial control edits capture the requested value
+before viewport creation can refresh the controls. A metadata-only loaded PCB
+also remains serializable through an attached editor before a viewport exists.
+
 Saved board dimensions live in `PcbDocument.board`. The editor's `_boardWidth`,
 `_boardHeight` and `_boardRadius` access that object, including during live resize,
 cancel and undo/redo. Loading restores legacy dimension-only boards, while an

@@ -25,12 +25,18 @@ export function restoreGridSettings(app, settings) {
     if (typeof settings.gridVisible === 'boolean') viewport.setGridVisible(settings.gridVisible);
     if (typeof settings.snapToGrid === 'boolean') viewport.snapToGrid = settings.snapToGrid;
     if (!viewport.gridVisible) viewport.snapToGrid = false;
+    syncGridSettings(app);
+}
+
+export function syncGridSettings(app) {
+    const viewport = app.viewport;
+    if (!viewport) return;
     const ui = app.ui || {};
     if (ui.units) ui.units.value = viewport.units;
     if (ui.gridStyle) ui.gridStyle.value = viewport.gridStyle;
     if (ui.showGrid) ui.showGrid.checked = viewport.gridVisible;
     if (ui.snapToGrid) {
-        ui.snapToGrid.checked = viewport.snapToGrid;
+        ui.snapToGrid.checked = viewport.snapToGrid && viewport.gridVisible;
         ui.snapToGrid.disabled = !viewport.gridVisible;
     }
     if (ui.gridSize) updateGridDropdown(app, true);

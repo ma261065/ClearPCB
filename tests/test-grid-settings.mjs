@@ -1,7 +1,10 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import { serializeGridSettings, restoreGridSettings, bindViewportControls } from '../src/ui/modules/viewport.js';
 import { Viewport } from '../src/core/Viewport.js';
 import { snapToGridLines } from '../src/core/grid-snap.js';
+import { PcbDocument } from '../src/core/PcbDocument.js';
+import { defaultPcbStackup } from '../src/core/project-format.js';
 
 globalThis.window = { addEventListener() {} };
 globalThis.document = {
@@ -110,3 +113,84 @@ magnetViewport.gridVisible = false;
 assert.deepEqual(snap(closeToGrid), closeToGrid, 'Hidden grid does not attract movement');
 
 console.log('PASS grid settings, screen-space grid magnet, controls, and autosave dirtiness');
+
+const { bindPcbControls } = await import('../src/pcb/modules/controls.js');
+const source = readFileSync(new URL('../src/ui/PCBApp.js', import.meta.url), 'utf8');
+const start = source.indexOf('    _ensureViewport() {');
+const end = source.indexOf('\n    }', start) + '\n    }'.length;
+assert.ok(start >= 0 && end > start);
+let creations = 0;
+class TestViewport {
+    constructor() {
+        creations++;
+        Object.assign(this, editor().viewport);
+        this.svg = { addEventListener() {} };
+    }
+    updateTheme() {}
+}
+const ensureViewport = new Function('Viewport', 'restoreGridSettings',
+    `return ({${source.slice(start, end)}})._ensureViewport;`)(TestViewport, restoreGridSettings);
+for (const controlsFirst of [true, false]) {
+    const controls = new Map(['pcbGridSize', 'pcbGridStyle', 'pcbUnits', 'pcbShowGrid', 'pcbSnapToGrid']
+        .map(id => [id, control()]));
+    document.getElementById = id => controls.get(id) || null;
+    document.addEventListener = () => {};
+    const pcbDocument = new PcbDocument();
+    const settings = { gridSize: 0.123456, gridStyle: 'dots', units: 'inch', gridVisible: false, snapToGrid: false };
+    pcbDocument.load({ stackup: defaultPcbStackup(), settings });
+    let dirty = 0;
+    const attached = { pcbDocument, viewport: null, canvasContainer: {}, _ensureViewport: ensureViewport,
+        _bindMouseEvents() {}, _createLayerGroups() {}, _applyLayerPrefsToRender() {}, _updateViewportStatus() {},
+        _markDirty() { dirty++; } };
+    if (controlsFirst) bindPcbControls(attached);
+    attached._ensureViewport();
+    assert.deepEqual(serializeGridSettings(attached.viewport), settings,
+        'The first viewport restores preloaded model preferences instead of constructor defaults');
+    if (!controlsFirst) {
+        attached.viewport.gridSize = 0.456789;
+        bindPcbControls(attached);
+    }
+    const expectedSize = controlsFirst ? 0.123456 : 0.456789;
+    assert.equal(attached.ui.gridSize.value, String(expectedSize), 'Binding reflects live precision without snapping to an option');
+    assert.equal(attached.ui.units.value, 'inch');
+    assert.equal(attached.ui.gridStyle.value, 'dots');
+    assert.equal(attached.ui.showGrid.checked, false);
+    assert.equal(attached.ui.snapToGrid.checked, false);
+    assert.equal(attached.ui.snapToGrid.disabled, true);
+    const count = creations;
+    attached.viewport.gridSize = 0.789123;
+    attached._ensureViewport();
+    assert.equal(creations, count);
+    assert.equal(attached.viewport.gridSize, 0.789123, 'Repeated ensure calls do not overwrite subsequent live edits');
+    assert.deepEqual(pcbDocument.settings, settings, 'Restoring controls does not mutate the loaded preference snapshot');
+    assert.equal(dirty, 0, 'View attachment is not a user edit');
+}
+console.log('PASS preloaded PCB viewport settings and control synchronization in either initialization order');
+
+for (const [id, property, value, field] of [
+    ['pcbGridSize', 'value', '0.456789', 'gridSize'],
+    ['pcbGridStyle', 'value', 'dots', 'gridStyle'],
+    ['pcbUnits', 'value', 'inch', 'units'],
+    ['pcbShowGrid', 'checked', false, 'gridVisible'],
+    ['pcbSnapToGrid', 'checked', true, 'snapToGrid'],
+]) {
+    const controls = new Map(['pcbGridSize', 'pcbGridStyle', 'pcbUnits', 'pcbShowGrid', 'pcbSnapToGrid']
+        .map(id => [id, control()]));
+    document.getElementById = id => controls.get(id) || null;
+    const pcbDocument = new PcbDocument();
+    pcbDocument.load({ stackup: defaultPcbStackup(),
+        settings: { gridSize: 0.123456, gridStyle: 'lines', units: 'mm', gridVisible: true, snapToGrid: false } });
+    let dirty = 0;
+    const attached = { pcbDocument, viewport: null, canvasContainer: {}, _ensureViewport: ensureViewport,
+        _bindMouseEvents() {}, _createLayerGroups() {}, _applyLayerPrefsToRender() {}, _updateViewportStatus() {},
+        _markDirty() { dirty++; } };
+    bindPcbControls(attached);
+    const target = controls.get(id);
+    target[property] = value;
+    target.change();
+    assert.equal(attached.viewport[field], field === 'gridSize' ? Number(value) : value,
+        'A user change that creates the first viewport must win over restored preferences');
+    assert.equal(target[property], value, 'Controls must still display the committed user change');
+    assert.equal(dirty, 1);
+}
+console.log('PASS initial grid-control edits survive lazy viewport restoration');

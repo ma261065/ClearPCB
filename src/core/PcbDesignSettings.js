@@ -3,6 +3,7 @@ export const PCB_ROUTING_FIELDS = ['trackWidth', 'clearance', 'viaDiameter', 'vi
 /** Canonical project design settings; numeric dimensions are always millimetres. */
 export class PcbDesignSettings {
     constructor() {
+        this.hasAppliedSettings = false;
         this._values = { trackWidth: 0.2, clearance: 0.1, viaDiameter: 0.3, viaDrill: 0.15,
             units: 'mm', router: 'maze' };
     }
@@ -21,6 +22,7 @@ export class PcbDesignSettings {
         if (!['maze', 'pathfinder'].includes(next.router)) throw new Error('Invalid PCB router mode.');
         const changed = Object.keys(this._values).some(key => this._values[key] !== next[key]);
         this._values = next;
+        this.hasAppliedSettings = true;
         return changed;
     }
 

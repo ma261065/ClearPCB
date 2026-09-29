@@ -43,7 +43,8 @@ export function bindDesignSettings(app) {
     const units = input('pcbRouteUnits'), router = input('pcbRouterMode');
     if (!units && !router && !Object.values(INPUTS).some(id => input(id))) return;
     try {
-        const stored = JSON.parse(localStorage.getItem(STORAGE_KEY) || 'null');
+        const stored = app.designSettings.hasAppliedSettings
+            ? null : JSON.parse(localStorage.getItem(STORAGE_KEY) || 'null');
         if (stored) {
             const restored = { units: stored.units || 'mm', router: stored.router || 'maze' };
             const factor = restored.units === 'inch' ? 25.4 : 1;
@@ -52,11 +53,11 @@ export function bindDesignSettings(app) {
                 else if (stored[id] != null && stored[id] !== '') restored[key] = Number(stored[id]) * factor;
             }
             app.designSettings.update(restored);
-            renderDesignSettings(app);
         }
     } catch (error) {
         console.warn('Could not restore PCB design defaults:', error);
     }
+    renderDesignSettings(app);
 
     units?.addEventListener('change', () => {
         if (!app.designSettings.update({ units: units.value })) return;

@@ -1,4 +1,4 @@
-import { updateGridDropdown } from '../../ui/modules/viewport.js';
+import { syncGridSettings } from '../../ui/modules/viewport.js';
 import { PCB_LAYERS, buildLayerPanel } from './layers.js';
 import { bindRecentsDropdown } from '../../ui/modules/recents.js';
 import { showPictureImport } from './picture-import.js';
@@ -301,9 +301,9 @@ export function bindPcbControls(app) {
     });
 
     showGridInput?.addEventListener('change', (e) => {
+        const gridOn = !!e.target.checked;
         const vp = ensureViewport();
         if (!vp) return;
-        const gridOn = !!e.target.checked;
         vp.setGridVisible(gridOn);
         if (!gridOn) {
             if (snapToGridInput) snapToGridInput.checked = false;
@@ -314,9 +314,10 @@ export function bindPcbControls(app) {
     });
 
     snapToGridInput?.addEventListener('change', (e) => {
+        const enabled = !!e.target.checked;
         const vp = ensureViewport();
         if (!vp || !vp.gridVisible) return;
-        vp.snapToGrid = !!e.target.checked;
+        vp.snapToGrid = enabled;
         syncViewToggles();
         app._markDirty?.();
     });
@@ -334,28 +335,35 @@ export function bindPcbControls(app) {
     };
 
     gridSizeSelect?.addEventListener('change', (e) => {
+        const size = parseFloat(/** @type {HTMLSelectElement} */ (e.target).value);
         const vp = ensureViewport();
         if (!vp) return;
-        vp.setGridSize(parseFloat(/** @type {HTMLSelectElement} */ (e.target).value));
+        vp.setGridSize(size);
+        syncGridSettings(app);
         app._markDirty?.();
     });
 
     gridStyleSelect?.addEventListener('change', (e) => {
+        const style = /** @type {HTMLSelectElement} */ (e.target).value;
         const vp = ensureViewport();
         if (!vp) return;
-        vp.setGridStyle(/** @type {HTMLSelectElement} */ (e.target).value);
+        vp.setGridStyle(style);
+        syncGridSettings(app);
         app._markDirty?.();
     });
 
     unitsSelect?.addEventListener('change', (e) => {
+        const units = /** @type {HTMLSelectElement} */ (e.target).value;
         const vp = ensureViewport();
         if (!vp) return;
-        vp.setUnits(/** @type {HTMLSelectElement} */ (e.target).value);
+        vp.setUnits(units);
         app._updateGridDropdown?.();
+        syncGridSettings(app);
         app._markDirty?.();
     });
 
     app.syncPcbViewToggles = syncViewToggles;
+    syncGridSettings(app);
 
     bindPcbFileMenu(app);
 }
