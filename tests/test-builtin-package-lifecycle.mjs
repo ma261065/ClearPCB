@@ -37,6 +37,8 @@ const { createComponentFromData, serializeDocument } = await import('../src/sche
 const { FileManager, readProjectFile } = await import('../src/core/FileManager.js');
 const { validateProject } = await import('../src/core/project-format.js');
 const { extractComponents } = await import('../src/core/netlist.js');
+const { createPcbFootprint } = await import('../src/core/pcb-footprint.js');
+const { ProjectDocument } = await import('../src/core/ProjectDocument.js');
 const { generateFootprint, REF_DEFAULT_SIZE, REF_DEFAULT_STROKE } = await import('../src/pcb/modules/footprint.js');
 const { hasAny3DModel } = await import('../src/components/model3d-source.js');
 const { parseObjModel } = await import('../src/shared/3d/model-rendering.js');
@@ -201,9 +203,13 @@ assert.equal(resistor.packageId, '0805');
 const pcbSource = readFileSync(new URL('../src/ui/PCBApp.js', import.meta.url), 'utf8');
 const placeStart = pcbSource.indexOf('    _placeFootprints(components) {');
 const placeEnd = pcbSource.indexOf('\n    /**', placeStart);
-const place = new Function('generateFootprint', 'renderFootprint', 'REF_DEFAULT_SIZE', 'REF_DEFAULT_STROKE',
+const renderedFootprints = new Map();
+const place = new Function('createPcbFootprint', 'renderFootprint', 'REF_DEFAULT_SIZE', 'REF_DEFAULT_STROKE',
     `return ({${pcbSource.slice(placeStart, placeEnd)}})._placeFootprints;`)(
-    generateFootprint, () => new Map(), REF_DEFAULT_SIZE, REF_DEFAULT_STROKE);
+    createPcbFootprint, (geometry, reference) => { renderedFootprints.set(reference, geometry); return new Map(); },
+    REF_DEFAULT_SIZE, REF_DEFAULT_STROKE);
+const pcbProject = new ProjectDocument();
+pcbProject.schematicDocument.components.push(resistor);
 const board = {
     placements: new Map(), _autoSlots: new Map(),
     _placementOverrides: new Map([[resistor.id, { x: 23, y: -17 }]]),
@@ -213,6 +219,10 @@ for (const packageId of ['default', '0603', '0805']) {
     resistor.packageId = packageId;
     place.call(board, extractComponents(app));
     const placement = board.placements.get(resistor.id);
+    const footprint = pcbProject.getPcbFootprint(resistor.id);
+    assert.deepEqual(renderedFootprints.get(resistor.reference), footprint.geometry, 'Rendering receives the same geometry as headless resolution');
+    assert.deepEqual(placement.padOffsets, footprint.padOffsets, 'Live placement and model resolution use the same current package');
+    assert.deepEqual(placement.pasteOffsets, footprint.pasteOffsets);
     assert.equal(placement.x, 23);
     assert.equal(placement.y, -17);
     assert.equal(placement.model3dObj, resistor.definition.model3dObj);
@@ -222,6 +232,23 @@ for (const packageId of ['default', '0603', '0805']) {
         ? pad.layer === 'both' && pad.drill > 0 && !pad.paste
         : pad.layer === 'top' && pad.drill === 0 && pad.paste));
 }
+
+const duplicateComponent = new Component({
+    name: 'DuplicateStencil', _source: 'KiCad', symbol: { pins: [] },
+    footprintShapes: ['PAD~RECT~-2~0~1~1~1~top~1~0', 'PAD~RECT~2~0~1~1~1~both~1~0~0.5',
+        'PASTE~RECT~0~0~0.5~0.5~top'],
+}, { reference: 'J1' });
+pcbProject.schematicDocument.components.push(duplicateComponent);
+place.call(board, extractComponents({ components: [duplicateComponent] }));
+const duplicatePlacement = board.placements.get(duplicateComponent.id);
+const duplicateFootprint = pcbProject.getPcbFootprint(duplicateComponent.id);
+assert.deepEqual(duplicatePlacement.padOffsets, duplicateFootprint.padOffsets);
+assert.deepEqual(duplicatePlacement.pasteOffsets, duplicateFootprint.pasteOffsets);
+assert.deepEqual([...duplicatePlacement.pads], [
+    ['1', { x: 8, y: -10, number: '1' }],
+    ['1#2', { x: 12, y: -10, number: '1' }],
+], 'Live placement retains separate physical pads and excludes stencil apertures from routing');
+assert.deepEqual(renderedFootprints.get(duplicateComponent.reference), duplicateFootprint.geometry);
 
 const board3dSource = readFileSync(new URL('../src/pcb/modules/board3d.js', import.meta.url), 'utf8');
 const meshStart = board3dSource.indexOf('function objModelToMesh(');

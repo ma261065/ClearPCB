@@ -390,8 +390,22 @@ of rendering. Bond compatibility uses physical pad IDs, not potentially repeated
 logical pad numbers, so duplicate through-hole pads retain compatible bonds.
 These operations consume current geometry rather than capturing footprint
 definitions in history: footprint re-sync can replace geometry while retaining
-commands. Physical command ownership still needs a model-side source of that
-current geometry; extracting these mutations does not complete that boundary.
+commands.
+
+`ProjectDocument.getPcbFootprint(id)` resolves the current schematic component's
+selected package through `core/pcb-footprint.js`, without consulting a view.
+The shared factory returns detached footprint artwork data, physical pad
+descriptors and separate paste-only apertures; live placement generation uses
+the same conversion. Duplicate pad IDs, layers, mask/paste flags, drills, slots
+and live precision retain their existing representation. Resolution reads the
+current definition on every call, including in-place edits or component
+replacement, rather than retaining a geometry snapshot in history or adding
+another cache. It does not create placement overrides or a saved PCB section.
+Missing/non-physical components return null; physical components with no
+footprint data retain the existing empty geometry result. The existing pure
+parser remains in `pcb/modules/footprint.js` alongside its rendering exports.
+Physical commands still need to adopt this model-side source; they have not yet
+been moved into core.
 
 The live `placements` map and automatic layout slots remain editor-owned:
 they contain generated footprint geometry, presentation caches and temporary

@@ -8,7 +8,8 @@ import { PcbDocument } from '../core/PcbDocument.js';
 import { commitDesignInput, renderDesignSettings } from '../pcb/modules/design-settings.js';
 import { loadAndApplyTheme, toggleTheme as toggleSharedTheme, syncThemeToggleButtons } from '../shared/ui/theme.js';
 import { extractNetlist, extractComponents } from '../core/netlist.js';
-import { generateFootprint, renderFootprint, applyRefGeometry, REF_DEFAULT_SIZE, REF_DEFAULT_STROKE } from '../pcb/modules/footprint.js';
+import { renderFootprint, applyRefGeometry, REF_DEFAULT_SIZE, REF_DEFAULT_STROKE } from '../pcb/modules/footprint.js';
+import { createPcbFootprint } from '../core/pcb-footprint.js';
 import { updateGridDropdown, restoreGridSettings } from './modules/viewport.js';
 import { setToolCursor } from './modules/cursor.js';
 import { isUnmodifiedPrimaryDoublePress } from './modules/inline-edit-activation.js';
@@ -4266,11 +4267,7 @@ export default class PCBApp {
             }
 
             // Generate footprint geometry (use real pad data when available)
-            const fpGeom = generateFootprint(
-                comp.footprint, comp.pins,
-                comp.footprintShapes, comp.footprintBBox,
-                comp.source
-            );
+            const { geometry: fpGeom, padOffsets, pasteOffsets } = createPcbFootprint(comp);
 
             // Render SVG (returns Map<layerId, SVGGElement>)
             const fpLayers = renderFootprint(fpGeom, comp.reference, cx, cy, rot);
@@ -4285,32 +4282,8 @@ export default class PCBApp {
 
             // Build pad world-position map for ratsnest
             const padMap = new Map();
-            /** @type {Array<{number: string, padId: string, dx: number, dy: number, width: number, height: number, layer: string, shape: string}>} */
-            const padOffsets = [];
-            // Some footprints carry several physical pads that share one pad
-            // number (e.g. the four shell/shield pads of a USB connector, or a
-            // QFN's exposed thermal pad). A Map keyed purely by number would
-            // collapse them, leaving all but one unselectable / unroutable. So
-            // each pad gets a unique padId: the first of a number keeps
-            // padId === number (net-side lookups by number still resolve), and
-            // duplicates get a "#k" suffix. Every pad entry also stores its
-            // original number for net resolution.
-            const numCount = new Map();
-            for (const pad of fpGeom.pads) {
-                const num = String(pad.number);
-                const seen = numCount.get(num) || 0;
-                numCount.set(num, seen + 1);
-                const padId = seen === 0 ? num : `${num}#${seen + 1}`;
-                padMap.set(padId, { x: cx + pad.x, y: cy + pad.y, number: num });
-                padOffsets.push({ number: num, padId, dx: pad.x, dy: pad.y, width: pad.width, height: pad.height, drill: pad.drill || 0, slotLength: pad.slotLength || 0, slotAngle: pad.slotAngle || 0, layer: pad.layer, shape: pad.shape || 'rect', mask: pad.mask !== false, paste: pad.paste !== false });
-            }
-            // Paste-only stencil apertures (no copper) — e.g. a QFN exposed
-            // pad's windowpane matrix. Carried separately so they reach the
-            // paste gerber without polluting copper/ratsnest/netlist.
-            /** @type {Array<{dx: number, dy: number, width: number, height: number, shape: string, side: string}>} */
-            const pasteOffsets = [];
-            for (const ap of (fpGeom.pasteApertures || [])) {
-                pasteOffsets.push({ dx: ap.x, dy: ap.y, width: ap.width, height: ap.height, shape: ap.shape || 'rect', side: ap.side || 'top' });
+            for (const pad of padOffsets) {
+                padMap.set(pad.padId, { x: cx + pad.dx, y: cy + pad.dy, number: pad.number });
             }
 
             this.placements.set(comp.id, {

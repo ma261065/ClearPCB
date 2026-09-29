@@ -3,6 +3,8 @@ import { validateEditableProject } from './project-format.js';
 import { compactProjectAliases } from './project-field-aliases.js';
 import { SchematicDocument } from './SchematicDocument.js';
 import { PcbDocument } from './PcbDocument.js';
+import { extractComponents } from './netlist.js';
+import { createPcbFootprint } from './pcb-footprint.js';
 
 /** @typedef {{id: string, reference: string, locked: boolean, footprintShapes: string[]}} ComponentInfo */
 
@@ -78,6 +80,14 @@ export class ProjectDocument {
      */
     getComponentInfo(id) {
         return this.schematicDocument.getComponentInfo(id);
+    }
+
+    /** Resolve the current physical footprint; missing/non-physical components return null. */
+    getPcbFootprint(id) {
+        const component = this.schematicDocument.components.find(item => item.id === id);
+        if (!component) return null;
+        const [summary] = extractComponents({ components: [component] });
+        return summary ? createPcbFootprint(summary) : null;
     }
 
     /**

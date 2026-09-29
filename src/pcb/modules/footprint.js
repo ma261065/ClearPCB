@@ -57,7 +57,7 @@ export function applyRefGeometry(refGroup, ref, cxRef, baseY, size, strokeWidth)
  * @param {string[]|null} [footprintShapes] - Real pad data (PAD~TYPE~x~y~w~h~num)
  * @param {object|null} [footprintBBox] - Bounding box {x, y, width, height}
  * @param {string} [source] - Component source ('EasyEDA', 'LCSC', 'KiCad', 'Built-in')
- * @returns {{pads: Array, silks: Array, outline: object|null, courtyard: object|null}}
+ * @returns {{pads: Array, silks: Array, outline: object|null, courtyard: object|null, pasteApertures?: Array, model3d?: {dx:number, dy:number, rotation:number, z:number}|null}}
  */
 export function generateFootprint(_footprintName, _pins, footprintShapes, footprintBBox, source) {
     if (!Array.isArray(footprintShapes) || footprintShapes.length === 0) {
@@ -85,7 +85,7 @@ export function generateFootprint(_footprintName, _pins, footprintShapes, footpr
  * @param {string[]} shapes - Array of PAD~ strings
  * @param {object|null} bbox - Optional bounding box from source
  * @param {string} [source] - Component source ('EasyEDA', 'LCSC', 'KiCad', 'Built-in')
- * @returns {{pads: Array, silks: Array, outline: object|null, courtyard: object|null}}
+ * @returns {{pads: Array, silks: Array, outline: object|null, courtyard: object|null, pasteApertures?: Array, model3d?: {dx:number, dy:number, rotation:number, z:number}|null}}
  */
 function generateFromShapes(shapes, bbox, source) {
     const pads = [];
