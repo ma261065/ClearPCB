@@ -284,8 +284,6 @@ export default class PCBApp {
         this._stale = true;
         /** Debounce timer for live rebuilds while PCB pane is active */
         this._syncTimer = null;
-        /** Whether change listeners have been installed on the schematic */
-        this._listening = false;
         /** True after the first sync (governs fitToBounds) */
         this._hasContent = false;
         /** Whether the board outline has been drawn */
@@ -445,7 +443,6 @@ export default class PCBApp {
         if (this._active || !this._stale) return false;
         this.initialize();
         this._ensureViewport();
-        this._hookSchematicChanges();
         this._active = true;
         try {
             this._syncFromSchematic();
@@ -462,7 +459,6 @@ export default class PCBApp {
 
         this._retainRibbonHeight?.();
         this._ensureViewport();
-        this._hookSchematicChanges();
         this._updateCursorForTool();
         this._syncPcbHomeToolHighlight?.();
         this.viewport?._onResize?.();
@@ -4040,42 +4036,11 @@ export default class PCBApp {
     // ── Schematic → PCB sync ──────────────────────────────────────
 
     /**
-     * Install listeners on the schematic app so every mutation
-     * (add/remove shape, undo/redo, file load) marks the PCB stale.
-     * Safe to call multiple times — only hooks once.
-     */
-    _hookSchematicChanges() {
-        if (this._listening) return;
-        const schematicApp = this.project?.schematic;
-        if (!schematicApp) return;
-
-        // Wrap the history callback to also mark PCB stale
-        const origOnChanged = schematicApp.history?.onChanged;
-        if (schematicApp.history) {
-            schematicApp.history.onChanged = (...args) => {
-                origOnChanged?.(...args);
-                this._markStale();
-            };
-        }
-
-        // Also catch file-open / new-document (dirty flag resets)
-        const origDirty = schematicApp.fileManager?.onDirtyChanged;
-        if (schematicApp.fileManager) {
-            schematicApp.fileManager.onDirtyChanged = (...args) => {
-                origDirty?.(...args);
-                this._markStale();
-            };
-        }
-
-        this._listening = true;
-    }
-
-    /**
      * Mark the PCB as needing a rebuild.  If the PCB pane is currently
      * active the rebuild is scheduled via a short debounce so rapid
      * schematic edits don't cause per-keystroke rebuilds.
      */
-    _markStale() {
+    onSchematicChanged() {
         this._stale = true;
         if (!this._active) return;
 
@@ -4095,8 +4060,8 @@ export default class PCBApp {
         }
         clearTimeout(this._syncTimer);
 
-        const schematicApp = this.project?.schematic;
-        if (!schematicApp) {
+        const schematic = this.project?.schematicDocument;
+        if (!schematic) {
             this._stale = true;
             return;
         }
@@ -4104,8 +4069,8 @@ export default class PCBApp {
 
         this._ensureViewport();
 
-        const components = extractComponents(schematicApp);
-        const netlist = extractNetlist(schematicApp);
+        const components = extractComponents(schematic);
+        const netlist = extractNetlist(schematic);
         this.netlist = netlist;
 
         // Clear previous PCB content

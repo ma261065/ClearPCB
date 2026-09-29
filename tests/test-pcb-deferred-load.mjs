@@ -100,10 +100,10 @@ for (const withComponents of [false, true]) {
     components = withComponents ? [{ id: 'U1' }] : [];
     const app = makeApp(false);
     Object.assign(app, {
-        project: { schematic: {} },
+        project: { schematicDocument: {} },
         activate: method('activate'), preload: method('preload'), _syncFromSchematic: method('_syncFromSchematic'),
         _renderPersistentObjects: method('_renderPersistentObjects'),
-        initialize() {}, _hookSchematicChanges() {}, _updateCursorForTool() {}, _updateViewportStatus() {},
+        initialize() {}, _updateCursorForTool() {}, _updateViewportStatus() {},
         _retainRibbonHeight: record('ribbon-height'),
         viewport: { _onResize: record('viewport-resize') },
         _setPcbStatus() {}, _setStatus() {}, _fitToPlacedContent() {},
@@ -254,35 +254,43 @@ Object.defineProperty(window, 'app', {
 });
 const { default: PCBApp } = await import('../src/ui/PCBApp.js');
 const { ProjectDocument } = await import('../src/core/ProjectDocument.js');
+globalThis.HTMLElement = class {};
+const { default: SchematicApp } = await import('../src/ui/SchematicApp.js');
+const { CommandHistory } = await import('../src/core/CommandHistory.js');
 const project = new ProjectDocument();
 let syncs = 0, placed = [];
 const pcb = Object.assign(Object.create(PCBApp.prototype), {
-    project, _active: true, _stale: true, boardShapes: [],
+    project: null, _active: true, _stale: true, boardShapes: [],
     _ensureViewport() { syncs++; }, _clearPCBContent() {}, _renderPersistentObjects() {},
     _placeFootprints(items) { placed = items; }, _getLayerGroup: () => null,
     _refreshClearanceHalos() {}, _updateRatsnest() {}, _fitToPlacedContent() {}, _setStatus() {},
 });
-pcb._hookSchematicChanges();
 pcb._syncFromSchematic();
-assert.notEqual(pcb._listening, true, 'Wait for the registered schematic before subscribing');
-assert.equal(pcb._stale, true, 'Missing registration must not acknowledge a pending sync');
+assert.equal(pcb._stale, true, 'Missing project must not acknowledge a pending sync');
 assert.equal(syncs, 0);
 const notifications = [];
-const schematic = {
-    history: { onChanged: event => notifications.push(event) },
-    fileManager: project.fileManager,
-    components: [{ id: 'owned', reference: 'U1', definition: { name: 'Part' } }],
-    shapes: [{ type: 'wire', net: 'OWNED', pinConnections: new Map([
-        ['node', { componentId: 'owned', pinNumber: '1' }],
-    ]) }],
-};
-project.fileManager.onDirtyChanged = dirty => notifications.push(dirty);
+project.schematicDocument.components = [{ id: 'owned', reference: 'U1', definition: { name: 'Part' } }];
+project.schematicDocument.shapes = [{ type: 'wire', net: 'OWNED', pinConnections: new Map([
+    ['node', { componentId: 'owned', pinNumber: '1' }],
+]) }];
+pcb.project = project;
+project.registerView('pcb', pcb);
+Object.defineProperty(project, 'schematic', {
+    get() { assert.fail('PCB sync must not discover or inspect the schematic editor'); },
+});
+pcb._syncFromSchematic();
+assert.equal(placed[0].reference, 'U1', 'Model synchronization works without a schematic view');
+assert.equal(pcb._stale, false);
+syncs = 0;
+const schematic = Object.assign(Object.create(SchematicApp.prototype), {
+    project, document: project.schematicDocument,
+    _updateUndoRedoButtons: () => notifications.push('history'),
+    _updateTitle: () => notifications.push('title'),
+});
+schematic.history = new CommandHistory({ onChanged: () => schematic._onHistoryChanged() });
+project.fileManager.onDirtyChanged = () => schematic._onDirtyChanged();
 project.registerView('schematic', schematic);
-pcb._hookSchematicChanges();
 const historyListener = schematic.history.onChanged, dirtyListener = project.fileManager.onDirtyChanged;
-pcb._hookSchematicChanges();
-assert.equal(schematic.history.onChanged, historyListener);
-assert.equal(project.fileManager.onDirtyChanged, dirtyListener);
 const timers = new Map();
 let timerId = 0;
 const originalTimers = { setTimeout: globalThis.setTimeout, clearTimeout: globalThis.clearTimeout };
@@ -296,23 +304,23 @@ try {
     const flush = () => { const work = [...timers.values()]; timers.clear(); work.forEach(callback => callback()); };
     pcb._active = false;
     pcb._stale = false;
-    schematic.history.onChanged('hidden edit');
+    schematic.history.execute({ execute() {}, undo() {} });
     assert.equal(pcb._stale, true);
     assert.equal(timers.size, 0);
     pcb._active = true;
-    schematic.history.onChanged('edit');
-    schematic.history.onChanged('undo');
+    schematic.history.undo();
+    schematic.history.redo();
     project.fileManager.setDirty(true);
-    assert.deepEqual(notifications, ['hidden edit', 'edit', 'undo', true], 'Existing listeners run exactly once');
+    assert.deepEqual(notifications, ['history', 'history', 'history', 'title'], 'Owning editor UI callbacks run exactly once');
     assert.equal(timers.size, 1, 'Active changes coalesce into one pending sync');
-    schematic.components[0].reference = 'U2';
+    project.schematicDocument.components[0].reference = 'U2';
     flush();
     assert.equal(syncs, 1);
-    assert.equal(placed[0].reference, 'U2', 'Sync consumes the latest registered view data');
+    assert.equal(placed[0].reference, 'U2', 'Sync consumes the latest project model data');
     assert.equal(pcb.netlist[0].net, 'OWNED');
     assert.equal(pcb._stale, false);
     project.fileManager.setDirty(false);
-    assert.equal(notifications.at(-1), false, 'Dirty resets retain the existing subscription');
+    assert.equal(notifications.at(-1), 'title', 'Dirty resets still update the editor title');
     pcb._active = false;
     flush();
     assert.equal(syncs, 1, 'A queued rebuild must not render after the PCB is hidden');
@@ -321,7 +329,17 @@ try {
     pcb._syncFromSchematic();
     assert.equal(syncs, 2);
     assert.equal(pcb._stale, false);
+    const revision = project.fileManager.revision;
+    pcb.onDocumentChanged();
+    assert.equal(project.fileManager.revision, revision + 1);
+    assert.equal(project.fileManager.isDirty, false, 'PCB-only edits do not raise schematic dirty events');
+    assert.equal(pcb._stale, false);
+    assert.equal(timers.size, 0, 'PCB-only edits must not schedule a schematic-driven rebuild');
+    new ProjectDocument().notifySchematicChanged();
+    assert.equal(timers.size, 0, 'Other projects cannot notify this PCB');
+    assert.equal(schematic.history.onChanged, historyListener, 'PCB never replaces the history callback');
+    assert.equal(project.fileManager.onDirtyChanged, dirtyListener, 'PCB never replaces the dirty callback');
 } finally {
     Object.assign(globalThis, originalTimers);
 }
-console.log('PASS: project-scoped schematic sync, listener ownership, debounce and hidden deferral');
+console.log('PASS: model-driven PCB sync, explicit project notifications, debounce, hidden deferral and PCB-only edit isolation');

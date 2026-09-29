@@ -108,12 +108,10 @@ export default class SchematicApp {
         /** @type {any} */ (this.viewport)._app = this; // back-reference for state-aware pan suppression
         this.eventBus = globalEventBus;
         this.history = new CommandHistory({
-            onChanged: () => {
-                this._updateUndoRedoButtons();
-            }
+            onChanged: () => this._onHistoryChanged(),
         });
         // fileManager already created above
-        this.fileManager.onDirtyChanged = () => this._updateTitle();
+        this.fileManager.onDirtyChanged = () => this._onDirtyChanged();
         this.fileManager.onFileNameChanged = () => this._updateTitle();
         this.fileManager.onAutoSaveChanged = () => this._updateTitle();
         this.fileManager.onAutoSaveError = () => this.onAutoSaveError();
@@ -1406,6 +1404,16 @@ export default class SchematicApp {
 
     onProjectChanged() {
         this._updateTitle();
+    }
+
+    _onHistoryChanged() {
+        this._updateUndoRedoButtons();
+        this.project?.notifySchematicChanged();
+    }
+
+    _onDirtyChanged() {
+        this._updateTitle();
+        this.project?.notifySchematicChanged();
     }
 
     onAutoSaveError() {

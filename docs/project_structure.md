@@ -87,7 +87,7 @@ confirmation/picker/adoption lifetime, and does not promise atomic recovery.
 Registered editors report changes through `onDocumentChanged()`. The project
 advances the revision and calls its UI host's `onProjectChanged()` to refresh
 aggregate title/dirty indicators. PCB edits keep their section dirty flag separate
-from `FileManager.isDirty`, avoiding the schematic-to-PCB stale-sync listener.
+from `FileManager.isDirty`, avoiding schematic-to-PCB refresh notifications.
 
 `AppBootstrap` stores its schematic instance directly; there is no `window.app`
 alias. PCB file commands resolve their own `app.project`, including after controls
@@ -101,10 +101,14 @@ and notification failures are logged; error reporting no longer discovers editor
 through globals. The existing autosave-success indicator still renders from
 FileManager and remains a separate UI-boundary cleanup.
 
-PCB synchronization subscribes to and reads the project's registered schematic,
-not the global app. Existing history/dirty listeners are preserved and wrapped
-once; active edits retain the 300 ms debounce, while hidden boards defer rebuilds.
-A missing schematic registration leaves synchronization pending.
+Schematic history/dirty callbacks update their own UI, then call
+`ProjectDocument.notifySchematicChanged()`. The project calls the registered
+PCB's `onSchematicChanged()`; PCB never replaces another editor's callbacks.
+Active edits retain the 300 ms debounce, while hidden boards defer rebuilds.
+Synchronization reads `project.schematicDocument`, not a schematic editor.
+A missing project leaves synchronization pending; a project-owned model can
+synchronize even without a registered schematic view. PCB-only edits do not
+send schematic-change notifications.
 
 PCB reference editing and footprint inspection use the project's narrow component
 interface: `getComponentInfo()`, `validateComponentReference()`,
@@ -128,8 +132,8 @@ methods/state, general schematic commands still mix data and presentation, and
 PCB geometry is still editor-owned. SVG preparation/attachment, derived Net text,
 label layout and current viewport settings remain editor responsibilities.
 Headless serialization preserves loaded settings; editor serialization supplies
-current viewport settings. The PCB synchronization subscription still depends on
-the registered schematic.
+current viewport settings. Schematic editing callbacks explicitly notify the
+project; the model itself does not introduce an automatic change-observer system.
 
 PDF, Gerber, BOM and pick-and-place naming share
 `projectBaseName()` from `pcb/modules/pcb-export.js`, using the owning project's

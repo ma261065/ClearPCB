@@ -25,6 +25,7 @@ import { SchematicDocument } from './SchematicDocument.js';
  *   - `onDocumentReplaced(reason)` → local UI reset after a successful file action.
  *   - `onProjectChanged()` → UI host refreshes aggregate project status.
  *   - `onComponentReferenceChanged(id)` → schematic refreshes reference presentation.
+ *   - `onSchematicChanged()` → PCB schedules a model-driven refresh.
  *
  * The schematic view additionally acts as the *UI host* (it owns the
  * canvas-level prompts/toasts/title), and injects the file-lifecycle
@@ -105,6 +106,11 @@ export class ProjectDocument {
     /** @returns {import('./netlist.js').NetlistEntry[]} */
     getNetlist() {
         return this.schematicDocument.getNetlist();
+    }
+
+    /** Route schematic edit/lifecycle notifications without exposing editor callbacks. */
+    notifySchematicChanged() {
+        this.pcb?.onSchematicChanged?.();
     }
 
     /**

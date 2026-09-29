@@ -67,7 +67,7 @@ function fixture(active) {
         viewport: { scale: 10, shiftHeld: true, hideCrosshair() {},
             gridSize: 1, getGridOptions: () => [{ value: 1, label: '1 mm' }], fitToBounds() {} },
         ui: { gridSize: element('select') },
-        initialize() {}, _retainRibbonHeight() {}, _hookSchematicChanges() {},
+        initialize() {}, _retainRibbonHeight() {},
         _updateViewportStatus() {}, syncPcbViewToggles() {},
         _syncFromSchematic() { this._stale = false; },
         _setActiveRibbonTab(tab) { lifecycle.push(tab); },
