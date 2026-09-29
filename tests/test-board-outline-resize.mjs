@@ -12,6 +12,7 @@ const dimensionPrototype = Object.create(null, Object.fromEntries(['_boardWidth'
 const { boardOutlineHandles, renderBoardOutlineHandles, beginBoardOutlineResize, updateBoardOutlineResize, endBoardOutlineResize } =
     await import('../src/pcb/modules/board-outline-resize.js');
 const { PCB_LAYERS } = await import('../src/pcb/modules/layers.js');
+const { prepareFabricationSnapshot } = await import('../src/pcb/modules/fabrication-snapshot.js');
 const commands = [];
 const source = readFileSync(new URL('../src/ui/PCBApp.js', import.meta.url), 'utf8');
 const syncStart = source.indexOf('    _syncBoardOutlineInputs() {');
@@ -91,6 +92,8 @@ updateBoardOutlineResize(app, { x: 110.2, y: -85.2 });
 assert.deepEqual([app._boardWidth, app._boardHeight, app._boardRadius], [110, 85, 3]);
 assert.deepEqual(app.pcbDocument.board, { width: 110, height: 85, radius: 3 },
     'Live resize writes into the project model before committing');
+await assert.rejects(prepareFabricationSnapshot(app, { computeFills: false }),
+    /Finish the current edit before exporting/, 'Export must not capture uncommitted model dimensions');
 assert.deepEqual([...inputs.values()].map(input => input.value), ['110.00', '85.00'], 'Spinners update before mouse-up');
 assert.equal(commands.length, 0, 'Updating spinners must not commit the active drag');
 assert.equal(app._suspendBoardViewRefresh, true);

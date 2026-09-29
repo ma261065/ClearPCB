@@ -13,7 +13,9 @@ export function hasFabricationContent(app) {
 
 export async function prepareFabricationSnapshot(app, { computeFills = true } = {}) {
     if (app._deferDragOverlays || app._suspendFillRefresh || app._rotationHandleDrag || app._shapeDrag
-        || app._vertexDrag || app._viaDrag) throw new Error('Finish the current edit before exporting.');
+        || app._vertexDrag || app._viaDrag || app._textEdit || app._boardOutlineResize) {
+        throw new Error('Finish the current edit before exporting.');
+    }
     const params = { ...app._getRoutingParams?.() };
     const placements = new Map([...app.placements].map(([id, placement]) => [id,
         structuredClone(Object.fromEntries(placementFields.map(key => [key, placement[key]]))),
@@ -25,7 +27,7 @@ export async function prepareFabricationSnapshot(app, { computeFills = true } = 
         }]));
         return { id: track.id, net: track.net, width: track.width, layer: track.layer, nodes, edges,
             cornerRadius: track.cornerRadius, nodeCornerRadii: { ...track.nodeCornerRadii },
-            padConnections: new Map(track.padConnections),
+            padConnections: new Map([...track.padConnections].map(([id, connection]) => [id, { ...connection }])),
             getEdgeWidth: id => edges.get(id).width, getEdgeLayer: id => edges.get(id).layer };
     });
     const fills = app.copperFills.map(fill => ({ id: fill.id, type: 'fill', layer: fill.layer, net: fill.net,

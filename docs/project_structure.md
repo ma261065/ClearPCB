@@ -255,6 +255,11 @@ unrounded geometry options. SVG, selection, copper-cut/pour caches and command
 presentation stay in the editor. Legacy saved board dimensions still create a
 model-owned outline without a later entity adoption clearing it.
 
+Manufacturing capture rejects active inline text edits and board-outline resizes,
+as well as deferred geometry drags, rather than exporting cancellable previews.
+Track-to-pad connection records are copied along with their maps before any
+asynchronous pour preparation; snapshot and live metadata cannot mutate each other.
+
 Free-standing text creation, defaults/layer rules and full-precision snapshots
 live in `core/pcb-text.js`. Undo and clipboard use these snapshots without file
 rounding; `PcbDocument.serializeEntities()` rounds text position, size, rotation

@@ -28,10 +28,16 @@ const fillProgress = [];
 await prepareSnapshotFills(deferred, (done, total) => fillProgress.push([done, total]));
 assert.ok(deferred.fills[0]._computed.length > 0);
 assert.deepEqual(fillProgress, [[0, 1], [1, 1]]);
-await assert.rejects(prepareFabricationSnapshot({ ...app, _deferDragOverlays: true }), /Finish/);
+for (const state of ['_deferDragOverlays', '_suspendFillRefresh', '_rotationHandleDrag', '_shapeDrag',
+    '_vertexDrag', '_viaDrag', '_textEdit', '_boardOutlineResize']) {
+    await assert.rejects(prepareFabricationSnapshot({ ...app, [state]: {} }),
+        /Finish the current edit before exporting/, `${state} must not leak preview state into manufacturing output`);
+}
 assert.equal(hasFabricationContent({ placements: new Map(), tracks: [], vias: [], texts: new Map(),
     boardShapes: [{ kind: 'image', layer: 'top-silk' }] }), true);
 const track = new Track({ points: [{ x: 2, y: -2 }, { x: 18, y: -2 }], width: 0.6 });
+const connectedNode = [...track.nodes.keys()][0];
+track.padConnections.set(connectedNode, { componentId: 'pad', pinNumber: '1' });
 app.tracks.push(track);
 app.placements.set('pad', { x: 5, y: -5, padOffsets: [{ dx: 0, dy: 0, width: 2, height: 1, layer: 'top' }],
     element: { uncloneable() {} }, model3d: { uncloneable() {} } });
@@ -40,11 +46,16 @@ app.boardShapes.push({ id: 'image', kind: 'image', layer: 'top-copper', filled: 
     points: [{ x: 6, y: -6 }, { x: 7, y: -6 }, { x: 7, y: -7 }, { x: 6, y: -7 }],
     artwork: { width: 1, height: 1, rectangles: [{ x: 0, y: 0, width: 1, height: 1 }] } });
 const pendingGeometry = prepareFabricationSnapshot(app);
+track.padConnections.get(connectedNode).componentId = 'changed-after-capture';
 track.width = 2;
 app.placements.get('pad').padOffsets[0].width = 5;
 app.vias[0].diameter = 3;
 app.boardShapes[1].points[0].x = 15;
 const geometry = await pendingGeometry;
+assert.deepEqual(geometry.tracks[0].padConnections.get(connectedNode), { componentId: 'pad', pinNumber: '1' },
+    'Connection records are detached before asynchronous fill preparation');
+geometry.tracks[0].padConnections.get(connectedNode).pinNumber = '2';
+assert.equal(track.padConnections.get(connectedNode).pinNumber, '1', 'Snapshot edits cannot change live connections');
 assert.equal(geometry.tracks[0].getEdgeWidth([...track.edges.keys()][0]), 0.6);
 assert.equal(geometry.placements.get('pad').padOffsets[0].width, 2);
 assert.equal(geometry.vias[0].diameter, 1);
@@ -101,6 +112,10 @@ globalThis.Worker = class {
     terminate() { workerTerminated = true; }
 };
 try {
+    for (const state of ['_textEdit', '_boardOutlineResize']) {
+        await assert.rejects(generateGerberArchive({ ...app, [state]: {} }, () => {}),
+            /Finish the current edit before exporting/, 'Worker exports enforce the same edit guard');
+    }
     const archive = await generateGerberArchive(app, (...progress) => workerProgress.push(progress));
     assert.equal(archive.fileCount, 10);
     assert.ok(archive.blob instanceof Blob);
