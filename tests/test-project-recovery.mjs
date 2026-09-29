@@ -7,12 +7,14 @@ import { resetIdCounter } from '../src/shapes/shape.js';
 const project = () => ({ type: 'clearpcb-project', version: '1.0', schematic: { shapes: [], components: [] } });
 const owner = new ProjectDocument();
 let current = project();
+let projectChanges = 0;
 const view = {
+    onProjectChanged() { projectChanges++; },
     serializeSection: () => structuredClone(current),
     prepareSection: () => ({}),
     loadSection(data) { current = structuredClone(data); },
 };
-owner.registerView('schematic', view);
+owner.registerView('schematic', view, { isUiHost: true });
 await owner.load(project());
 assert.equal(owner.fileManager.loading, false);
 assert.equal(owner.fileManager.isDirty, false);
@@ -22,6 +24,7 @@ const loadedRevision = owner.fileManager.revision;
 view.onDocumentChanged();
 view.onDocumentChanged();
 assert.equal(owner.fileManager.revision, loadedRevision + 2);
+assert.equal(projectChanges, 2, 'Registered view changes notify this project UI host');
 owner.fileManager.setDirty(false);
 assert.equal(owner.fileManager.revision, loadedRevision + 2);
 assert.equal(owner.isDirty, false);

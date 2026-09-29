@@ -20,6 +20,7 @@ import { compactProjectAliases } from './project-field-aliases.js';
  *   - `isSectionDirty()`    → unsaved-changes flag for autosave/beforeunload.
  *   - `restoreSectionDirty(dirty)` → restore section dirtiness after a failed load.
  *   - `onDocumentReplaced(reason)` → local UI reset after a successful file action.
+ *   - `onProjectChanged()` → UI host refreshes aggregate project status.
  *
  * The schematic view additionally acts as the *UI host* (it owns the
  * canvas-level prompts/toasts/title), and injects the file-lifecycle
@@ -49,7 +50,10 @@ export class ProjectDocument {
      */
     registerView(name, view, opts = {}) {
         this.views.set(name, view);
-        view.onDocumentChanged = () => this.fileManager.touch();
+        view.onDocumentChanged = () => {
+            this.fileManager.touch();
+            this.uiHost?.onProjectChanged?.();
+        };
         if (opts.isUiHost) this.uiHost = view;
         if (opts.lifecycle) this._lifecycle = { ...this._lifecycle, ...opts.lifecycle };
         return view;

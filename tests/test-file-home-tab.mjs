@@ -119,4 +119,36 @@ for (const outcome of ['success', 'declined', 'busy', 'reset-error']) {
     assert.equal(tabs.schematic, 'home', 'Standalone schematic loads also return Home');
     assert.ok(events.indexOf('standalone-loaded') < events.indexOf('schematic-home'));
 }
-console.log('PASS New/Open/Recent return both editors Home after success, with no tab change on cancellation or failure');
+{
+    const project = new ProjectDocument();
+    const pcbTitle = {};
+    globalThis.document = { getElementById: id => id === 'pcbDocTitle' ? pcbTitle : null };
+    window.app = { _updateTitle() { assert.fail('PCB edits must not update an unrelated global schematic'); } };
+    const host = {
+        project, fileManager: project.fileManager, ui: { docTitle: {} },
+        onProjectChanged: SchematicApp.prototype.onProjectChanged,
+        _updateTitle: SchematicApp.prototype._updateTitle,
+    };
+    const pcb = Object.assign(Object.create(PCBApp.prototype), {
+        _refreshClearanceHalos() {}, _scheduleDRC() {},
+    });
+    project.registerView('schematic', host, { isUiHost: true });
+    project.registerView('pcb', pcb);
+    project.fileManager.setFileName('owned.cpcb');
+    project.fileManager.onDirtyChanged = () => assert.fail('PCB edits must not trigger schematic dirty/stale listeners');
+    const revision = project.fileManager.revision;
+    for (let edit = 1; edit <= 2; edit++) {
+        pcb._markDirty();
+        assert.equal(project.fileManager.revision, revision + edit);
+        assert.equal(project.fileManager.isDirty, false);
+        assert.equal(project.isDirty, true);
+        assert.equal(host.ui.docTitle.textContent, '\u2022owned.cpcb');
+        assert.equal(pcbTitle.textContent, '\u2022owned.cpcb');
+        assert.equal(document.title, 'ClearPCB (\u2022owned.cpcb)');
+        project.markAllSectionsClean();
+        host._updateTitle();
+        assert.equal(host.ui.docTitle.textContent, 'owned.cpcb');
+        assert.equal(pcbTitle.textContent, 'owned.cpcb');
+    }
+}
+console.log('PASS file completion navigation and project-owned PCB dirty/title notifications');

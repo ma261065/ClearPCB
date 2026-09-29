@@ -2839,16 +2839,12 @@ export default class PCBApp {
     }
 
     /**
-     * Flag the PCB section as having unsaved changes AND refresh the host
-     * title so the unsaved-changes dot (`•`) appears for PCB-only edits.
-     * The dot reflects the aggregate project dirty state, but only the
-     * schematic host renders the title, so it must be poked here.
+     * Flag PCB edits and notify the project; its UI host owns the shared title.
      */
     _markDirty() {
         this._isDirty = true;
         renderPanelPreview(this);
         this.onDocumentChanged?.();
-        /** @type {any} */ (window).app?._updateTitle?.();
         // Keep the clearance overlay in sync after any committed edit (e.g. an
         // undo/redo that relocates a via leaves orphaned halos otherwise).
         this._refreshClearanceHalos?.();

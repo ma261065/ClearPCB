@@ -84,6 +84,11 @@ the schematic and then the PCB through each view's `clearSection()` hook.
 settings for recovery. Reset guards section clearing, not the entire asynchronous
 confirmation/picker/adoption lifetime, and does not promise atomic recovery.
 
+Registered editors report changes through `onDocumentChanged()`. The project
+advances the revision and calls its UI host's `onProjectChanged()` to refresh
+aggregate title/dirty indicators. PCB edits keep their section dirty flag separate
+from `FileManager.isDirty`, avoiding the schematic-to-PCB stale-sync listener.
+
 Open retains the existing best-effort serialized rollback. It can round or
 normalize geometry and does not preserve Undo or selection. The experimental
 live-session checkpoint system was removed as disproportionate to this failure

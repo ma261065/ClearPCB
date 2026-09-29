@@ -1403,6 +1403,10 @@ export default class SchematicApp {
         this._setActiveRibbonTab?.('home');
     }
 
+    onProjectChanged() {
+        this._updateTitle();
+    }
+
     /**
      * Serialize just this editor's slice of the document (the schematic
      * envelope). Called by ProjectDocument.serialize().
