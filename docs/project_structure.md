@@ -521,6 +521,14 @@ writing saved placement overrides. Pending frame movement is discarded on
 cancel but flushed on commit. Ctrl+Z cancels the live preview before undoing
 the previous committed command; ordinary drops retain model-owned undo/redo.
 
+Both component pointer paths use the same live pose updater. If magnetic snapping
+produces the current coordinates, it skips footprint transforms, pad/bond updates
+and incremental ratsnest work. The comparison is exact: distinct positions in the
+free region still update immediately, without rounding or additional throttling.
+The legacy event handler updates Shift before delegation and now shares the
+adapter's placement-lock guard. Drop/cancel processing still runs even if the
+last pointer update did not change the pose.
+
 Side changes retain the established snapshot of all existing track bond records
 at each execute/redo. The command owns copies and restores them into the current
 connection maps on undo, then checks compatibility against the current footprint.

@@ -5032,6 +5032,7 @@ export default class PCBApp {
         const pl = this.placements.get(this._drag.compId);
         if (!pl || pl.locked) return;
         const snap = this._snapToGrid({ x: newX, y: newY });
+        if (pl.x === snap.x && pl.y === snap.y) return;
         pl.x = snap.x;
         pl.y = snap.y;
         applyPlacementPose(this, this._drag.compId);
@@ -5118,12 +5119,8 @@ export default class PCBApp {
     /**
      * Coalesce footprint-drag updates to one per animation frame.
      *
-     * Each move re-applies the placement pose and rebuilds the WHOLE board's
-     * ratsnest (reconcileRatsnest is O(tracks+pads+vias)). Running that on
-     * every raw mousemove backs up the event queue on dense boards, so the
-     * component visibly lags the cursor — even for a part with no tracks
-     * attached, because the rebuild cost is board-wide, not per-component.
-     * Stash the latest pointer event and process a single pass per frame.
+     * Stash the latest pointer event so pose, bonded-track and incremental
+     * ratsnest updates run at most once per frame on this pointer path.
      * @param {MouseEvent} e
      */
     _scheduleDragUpdate(e) {
@@ -5149,28 +5146,7 @@ export default class PCBApp {
         // only runs after this handler, so reading it here would lag a frame).
         this.viewport.shiftHeld = e.shiftKey;
 
-        const worldPos = this._screenToWorld(e);
-        const dx = worldPos.x - this._drag.startWorld.x;
-        const dy = worldPos.y - this._drag.startWorld.y;
-        const newX = this._drag.startPos.x + dx;
-        const newY = this._drag.startPos.y + dy;
-
-        const snap = this._snapToGrid({ x: newX, y: newY });
-
-        const pl = this.placements.get(this._drag.compId);
-        if (!pl) return;
-
-        // Update placement position, then re-apply the full pose (so any
-        // rotation is preserved) — this moves the SVG, LOD placeholder and
-        // pad halos, recomputes pad world positions and re-glues bonded
-        // track endpoints.
-        pl.x = snap.x;
-        pl.y = snap.y;
-        applyPlacementPose(this, this._drag.compId);
-
-        // Rebuild ratsnest in real-time — restricted to the dragged
-        // component's nets (incremental); the rest of the board is untouched.
-        this._updateRatsnest({ nets: this._drag.nets });
+        this._updateComponentDrag(this._screenToWorld(e));
     }
 
     /**

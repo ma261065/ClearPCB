@@ -39,6 +39,7 @@ function fixture(saved = true) {
         querySelectorAll: () => [], querySelector: () => null }];
     let dirty = 0;
     let clearanceRefreshes = 0;
+    const ratsnestUpdates = [];
     const app = {
         project, pcbDocument: project.pcbDocument, tracks: project.pcbDocument.tracks,
         placements: new Map([['part', placement]]), history: new CommandHistory(),
@@ -47,7 +48,8 @@ function fixture(saved = true) {
         _layerGroups: new Map([['clearance-overlay', overlay]]),
         viewport: { svg: { style: {} }, snapToGrid: false, gridVisible: true, hideCrosshair() {} },
         _getLayerGroup: () => null, _hoverComponent() {}, _hideNetTooltip() {},
-        _netsForComponent: () => new Set(['GND']), _updateRatsnest() {},
+        _netsForComponent: () => new Set(['GND']),
+        _updateRatsnest: options => ratsnestUpdates.push(options),
         _screenToWorld: event => ({ x: event.clientX, y: event.clientY }),
         _markDirty: () => dirty++,
         _refreshClearanceHalos() {
@@ -70,7 +72,7 @@ function fixture(saved = true) {
         assert.equal(adapter.beginMove({ x: 0, y: 0 }), true);
         if (shared) app._pcbSelectionInteraction = { mode: 'move-adapter', entry: adapter };
     };
-    return { app, adapter, placement, track, snapshot, begin, renders, padHalo, trackHalo, overlay,
+    return { app, adapter, placement, track, snapshot, begin, renders, padHalo, trackHalo, overlay, ratsnestUpdates,
         dirty: () => dirty, clearanceRefreshes: () => clearanceRefreshes };
 }
 
@@ -161,8 +163,67 @@ for (const shared of [true, false]) {
     assert.equal(f.app.history.canUndo(), false);
 }
 
+for (const legacy of [false, true]) {
+    const f = fixture();
+    const original = f.snapshot();
+    Object.assign(f.app.viewport, {
+        snapToGrid: true, scale: 4, gridSize: 1, getEffectiveGridSize: () => 10,
+    });
+    f.begin(false);
+    const moveTo = (x, y, shift = false) => {
+        const point = { x: x - original.x, y: y - original.y };
+        if (legacy) f.app._handleDrag({ clientX: point.x, clientY: point.y, shiftKey: shift });
+        else {
+            f.app.viewport.shiftHeld = shift;
+            f.adapter.updateMove(point);
+        }
+    };
+    for (let index = 0; index < 100; index++) moveTo(20 + index / 1000, 30 + index / 1000);
+    assert.deepEqual([f.placement.x, f.placement.y], [20, 30]);
+    assert.equal(f.renders.length, 1, '100 events attracted to one point apply the footprint pose once');
+    assert.equal(f.ratsnestUpdates.length, 1, 'Unchanged poses do not repeat incremental ratsnest work');
+    assert.deepEqual(f.ratsnestUpdates[0], { nets: new Set(['GND']) });
+    assert.equal(f.app.history.canUndo(), false, 'Preview remains separate from committed history');
+    assert.deepEqual(f.snapshot().saved, original.saved);
+    const pad = f.placement.pads.get('1');
+    assert.deepEqual({ x: f.track.nodes.get('n0').x, y: f.track.nodes.get('n0').y }, { x: pad.x, y: pad.y });
+    const bounds = f.track.getBounds();
+    moveTo(20.1, 30.1);
+    assert.equal(f.track.getBounds(), bounds, 'Unchanged movement retains bonded-track bounds');
+    assert.equal(f.renders.length, 1);
+
+    for (let index = 0; index < 100; index++) {
+        const x = 24 + index / 1000, y = 34 + index / 1000;
+        moveTo(x, y);
+        assert.ok(Math.abs(f.placement.x - x) < 1e-12 && Math.abs(f.placement.y - y) < 1e-12,
+            'Every distinct position outside the grid magnet stays free');
+    }
+    assert.equal(f.renders.length, 101, 'Free movement is not quantized or throttled');
+    assert.equal(f.ratsnestUpdates.length, 101);
+    moveTo(20.1, 30.1, true);
+    assert.ok(Math.abs(f.placement.x - 20.1) < 1e-12, 'Shift releases the magnet immediately');
+    assert.ok(Math.abs(f.placement.y - 30.1) < 1e-12);
+    moveTo(20.1, 30.1);
+    assert.deepEqual([f.placement.x, f.placement.y], [20, 30], 'Releasing Shift restores attraction');
+
+    f.placement.locked = true;
+    const beforeLocked = f.renders.length;
+    moveTo(24, 34);
+    assert.equal(f.renders.length, beforeLocked, 'Both paths honor a newly locked placement');
+    assert.deepEqual([f.placement.x, f.placement.y], [20, 30]);
+    f.placement.locked = false;
+    moveTo(24.123456, 34.234567);
+    f.adapter.endMove(true);
+    const committed = f.snapshot();
+    assert.equal(f.app.history.undoStack.length, 1);
+    f.app.history.undo();
+    assert.deepEqual(f.snapshot(), original);
+    f.app.history.redo();
+    assert.deepEqual(f.snapshot(), committed);
+}
+
 delete globalThis.window;
 delete globalThis.CSS;
 delete globalThis.requestAnimationFrame;
 delete globalThis.cancelAnimationFrame;
-console.log('PASS component drag cancellation, bonded geometry, pending moves, overlays and model-owned history');
+console.log('PASS component drag cancellation, unchanged-pose reuse, free movement, bonded geometry and history');
