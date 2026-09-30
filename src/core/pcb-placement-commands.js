@@ -1,4 +1,5 @@
 import { capturePlacementOverride } from './PcbPlacementState.js';
+import { updatePlacementPadPositions, repositionPadConnectedNodes } from './pcb-placement-geometry.js';
 
 /** @typedef {import('./PcbPlacementState.js').PcbPlacementState} PcbPlacementState */
 /** @typedef {Partial<import('./PcbPlacementState.js').PlacementOverride> & {x:number, y:number}} PlacementSeed */
@@ -12,6 +13,66 @@ function initialPlacement(placementState, compId, initial) {
 function applyPatch(command, patch) {
     const current = command.placementState.overrides.get(command.compId) || command.initial;
     return command.placementState.record(command.compId, { ...current, ...patch });
+}
+
+function applyPose(command, patch) {
+    const footprint = command.project.getPcbFootprint(command.compId);
+    if (!footprint) throw new Error(`PCB footprint is no longer available: ${command.compId}`);
+    const current = command.placementState.overrides.get(command.compId) || command.initial;
+    const pose = capturePlacementOverride({ ...current, ...patch });
+    const pads = new Map();
+    updatePlacementPadPositions({ ...pose, padOffsets: footprint.padOffsets, pads });
+    const tracks = repositionPadConnectedNodes(command.project.pcbDocument.tracks, command.compId, pads);
+    return { pose: command.placementState.record(command.compId, pose), pads, tracks };
+}
+
+export class MovePlacementCommand {
+    /** @param {import('./ProjectDocument.js').ProjectDocument} project @param {PlacementSeed} [initial] */
+    constructor(project, compId, fromX, fromY, toX, toY, initial) {
+        this.project = project;
+        this.placementState = project.pcbDocument.placementState;
+        this.compId = compId;
+        this.initial = initialPlacement(this.placementState, compId, initial);
+        this.from = { x: fromX, y: fromY };
+        this.to = { x: toX, y: toY };
+    }
+    _apply(point) { return applyPose(this, point); }
+    execute() { this._apply(this.to); }
+    undo() { this._apply(this.from); }
+}
+
+export class RotatePlacementCommand {
+    /** @param {import('./ProjectDocument.js').ProjectDocument} project @param {PlacementSeed} [initial] */
+    constructor(project, compId, fromDeg, toDeg, initial) {
+        this.project = project;
+        this.placementState = project.pcbDocument.placementState;
+        this.compId = compId;
+        this.initial = initialPlacement(this.placementState, compId, initial);
+        this.from = ((fromDeg % 360) + 360) % 360;
+        this.to = ((toDeg % 360) + 360) % 360;
+    }
+    _apply(rotation) { return applyPose(this, { rotation }); }
+    execute() { this._apply(this.to); }
+    undo() { this._apply(this.from); }
+}
+
+export class FlipPlacementCommand {
+    /** @param {import('./ProjectDocument.js').ProjectDocument} project @param {PlacementSeed} [initial] */
+    constructor(project, compId, axis, initial) {
+        this.project = project;
+        this.placementState = project.pcbDocument.placementState;
+        this.compId = compId;
+        this.initial = initialPlacement(this.placementState, compId, initial);
+        const rotation = ((this.initial.rotation % 360) + 360) % 360;
+        this.before = { rotation, mirror: this.initial.mirror };
+        this.after = {
+            rotation: axis === 'V' ? (180 - rotation + 360) % 360 : (360 - rotation) % 360,
+            mirror: !this.initial.mirror,
+        };
+    }
+    _apply(pose) { return applyPose(this, pose); }
+    execute() { this._apply(this.after); }
+    undo() { this._apply(this.before); }
 }
 
 export class SetPlacementLockedCommand {

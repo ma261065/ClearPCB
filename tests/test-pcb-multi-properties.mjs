@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
-import { PcbDocument } from '../src/core/PcbDocument.js';
+import { ProjectDocument } from '../src/core/ProjectDocument.js';
+import { Component } from '../src/components/Component.js';
 
 globalThis.window = { addEventListener() {} };
 globalThis.requestAnimationFrame = callback => { callback(); return 1; };
@@ -12,7 +13,8 @@ globalThis.document = {
 const { default: PCBApp } = await import('../src/ui/PCBApp.js');
 const { setPcbSelection } = await import('../src/pcb/modules/selection-registry.js');
 const app = Object.create(PCBApp.prototype);
-app.pcbDocument = new PcbDocument();
+app.project = new ProjectDocument();
+app.pcbDocument = app.project.pcbDocument;
 app.tracks = [{ net: 'GND' }];
 app.vias = [{ net: 'GND' }];
 app.pads = [];
@@ -125,13 +127,18 @@ for (const property of ['layer', 'size', 'rotation', 'lineWidth', 'border']) {
 }
 
 app.placements.set('U1', {
+   x: 0, y: 0, pads: new Map(),
    side: 'top', rotation: 0, locked: false, refVisible: true,
    refSize: 1, refRot: 0, refStrokeWidth: 0.1,
 });
 app.placements.set('U2', {
+   x: 10, y: 0, pads: new Map(),
    side: 'bottom', rotation: 90, locked: false, refVisible: false,
    refSize: 2, refRot: 90, refStrokeWidth: 0.2,
 });
+for (const id of ['U1', 'U2']) {
+   app.project.schematicDocument.components.push(new Component({ name: 'EmptyFootprint', symbol: { pins: [] } }, { id }));
+}
 app._showPcbMultiSelectionProperties([
    { kind: 'component', object: 'U1' },
    { kind: 'component', object: 'U2' },

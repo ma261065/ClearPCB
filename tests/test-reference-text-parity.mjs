@@ -104,6 +104,8 @@ const { ProjectDocument } = await import('../src/core/ProjectDocument.js');
 const { CommandHistory } = await import('../src/core/CommandHistory.js');
 const { MovePlacementCommand } = await import('../src/pcb/modules/track-commands.js');
 const owner = new ProjectDocument();
+const { Component } = await import('../src/components/Component.js');
+owner.schematicDocument.components.push(new Component({ name: 'EmptyFootprint', symbol: { pins: [] } }, { id: 'part' }));
 document.getElementById = () => null;
 const constructed = new PCBApp(owner);
 assert.equal(constructed._placementOverrides, owner.pcbDocument.placementState.overrides,
@@ -113,6 +115,7 @@ assert.notEqual(new PCBApp()._placementOverrides, constructed._placementOverride
 const moved = { x: 1, y: 2, rotation: 37, refDx: 3, refDy: -2, refRot: 90, refVisible: false };
 let dirtyNotifications = 0;
 const editor = {
+    project: owner,
     placementState: owner.pcbDocument.placementState, _placementOverrides: owner.pcbDocument.placementState.overrides,
     placements: new Map([['part', moved]]),
     _recordPlacementOverride: PCBApp.prototype._recordPlacementOverride,

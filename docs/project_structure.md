@@ -364,7 +364,7 @@ Loading and clearing preserve map identity; serialization retains the existing
 four-decimal precision and default-field omission. These operations work without
 an editor or DOM.
 
-`core/pcb-placement-commands.js` owns lock and reference visibility, offset,
+The metadata commands in `core/pcb-placement-commands.js` own lock and reference visibility, offset,
 rotation and style edits directly against `PcbPlacementState`. Commands patch
 the latest canonical record without replacing unrelated pose fields. An explicit
 authored baseline can be supplied for an automatic placement with no saved
@@ -373,13 +373,26 @@ model is not changed until execution. First-edit undo retains that baseline
 override, matching the existing editor's recording behavior. Missing placements
 without either a saved record or an explicit baseline fail immediately.
 
-The existing editor command names remain adapters. They project only edited
+The existing metadata editor command names remain adapters. They project only edited
 fields into the current generated placement, then retain transform/glyph,
 selection, overlay and 3D updates and notify the dirty hook. They no longer
 re-record the whole generated placement to persist metadata edits. Authored
-undo/redo works without a currently rendered placement. Physical movement,
-rotation, flipping and side-change commands remain editor-coupled because they
-resolve current generated footprint geometry and update bonded track nodes.
+undo/redo works without a currently rendered placement.
+
+The same core module now owns `MovePlacementCommand`, `RotatePlacementCommand`
+and `FlipPlacementCommand`. These take the project document, resolve its current
+footprint on every execute/undo, patch only the requested canonical pose fields,
+and reposition bonded track nodes by physical pad ID. History captures authored
+pose values, not footprint geometry or rendered placements. Automatic placements
+use the same detached, lazy baseline mechanism as metadata commands.
+Their editor subclasses project the resulting pose and world pads into the
+current placement and render touched tracks; they do not repeat model movement
+using potentially stale view offsets or re-record the generated placement.
+Dirty, clearance, ratsnest, fill and 3D notifications remain editor-owned.
+Model undo and track updates also work when there is no rendered placement.
+An unavailable model footprint fails before pose or graph mutation.
+`CommandHistory` transfers an undo/redo entry only after that operation succeeds,
+so such failures retain the entry for retry; this is not general mutation rollback.
 
 `core/pcb-placement-geometry.js` owns renderer-free world-pad updates, bonded
 track-node movement, side-dependent pad/paste layers and incompatible-bond
@@ -404,8 +417,9 @@ another cache. It does not create placement overrides or a saved PCB section.
 Missing/non-physical components return null; physical components with no
 footprint data retain the existing empty geometry result. The existing pure
 parser remains in `pcb/modules/footprint.js` alongside its rendering exports.
-Physical commands still need to adopt this model-side source; they have not yet
-been moved into core.
+Movement, rotation and flipping use this source. `SetPlacementSideCommand`
+still owns bond-disconnection/restoration history in the editor and remains
+the next physical command boundary.
 
 The live `placements` map and automatic layout slots remain editor-owned:
 they contain generated footprint geometry, presentation caches and temporary

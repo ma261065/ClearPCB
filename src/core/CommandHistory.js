@@ -40,8 +40,9 @@ export class CommandHistory {
     undo() {
         if (this.undoStack.length === 0) return false;
         
-        const command = this.undoStack.pop();
+        const command = this.undoStack[this.undoStack.length - 1];
         command.undo();
+        this.undoStack.pop();
         this.redoStack.push(command);
         
         this._notifyChanged();
@@ -55,8 +56,9 @@ export class CommandHistory {
     redo() {
         if (this.redoStack.length === 0) return false;
         
-        const command = this.redoStack.pop();
+        const command = this.redoStack[this.redoStack.length - 1];
         command.execute();
+        this.redoStack.pop();
         this.undoStack.push(command);
         
         this._notifyChanged();

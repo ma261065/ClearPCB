@@ -1,6 +1,8 @@
 /** Headless regression tests for via-drag derived-overlay deferral. */
 import assert from 'node:assert/strict';
 import { PcbDocument } from '../src/core/PcbDocument.js';
+import { ProjectDocument } from '../src/core/ProjectDocument.js';
+import { Component } from '../src/components/Component.js';
 
 globalThis.window = { addEventListener() {} };
 globalThis.document = {
@@ -93,11 +95,13 @@ function appFor(via) {
 }
 
 function trackAppFor(track, previousDeferral = false) {
-    const pcbDocument = new PcbDocument();
+    const project = new ProjectDocument();
+    const pcbDocument = project.pcbDocument;
     pcbDocument.tracks.push(track);
     let fillRefreshes = 0;
     let clearanceRefreshes = 0;
     return {
+        project,
         pcbDocument,
         placementState: pcbDocument.placementState,
         tracks: pcbDocument.tracks,
@@ -287,6 +291,8 @@ function trackAppFor(track, previousDeferral = false) {
     const track = new Track({ points: [{ x: 0, y: 0 }, { x: 10, y: 0 }], net: 'GND' });
     const app = trackAppFor(track);
     app.placements.set('component', { x: 0, y: 0, rotation: 0, pads: new Map(), padOffsets: [] });
+    app.project.schematicDocument.components.push(new Component({ name: 'EmptyFootprint', symbol: { pins: [] } },
+        { id: 'component' }));
     for (const command of [new MovePlacementCommand(app, 'component', 0, 0, 3, 4),
         new RotatePlacementCommand(app, 'component', 0, 90), new FlipPlacementCommand(app, 'component', 'H'),
         new SetPlacementSideCommand(app, 'component', 'bottom')]) {
@@ -461,6 +467,90 @@ for (const previousDeferral of [false, true]) {
     assert.deepEqual(app.vias, [quietVia]);
     assert.equal(copper.children.length, 0);
     assert.equal(holes.children.length, 0);
+}
+
+{
+    const component = new Component({
+        name: 'PoseFixture', _source: 'KiCad', symbol: { pins: [{ number: '1' }] },
+        footprintShapes: ['PAD~RECT~-2~0~1~1~1~both~1~0~0.5', 'PAD~RECT~2~0~1~1~1~both~1~0~0.5'],
+    }, { id: 'pose-part' });
+    const track = new Track({ points: [{ x: -2, y: 0 }, { x: 2, y: 0 }],
+        padConnections: { n0: { componentId: component.id, pinNumber: '1' },
+            n1: { componentId: component.id, pinNumber: '1#2' } } });
+    const app = trackAppFor(track);
+    app.project.schematicDocument.components.push(component);
+    const group = { children: [], appendChild(child) { this.children.push(child); child.parentNode = this; } };
+    app._getLayerGroup = id => id === 'top-copper' ? group : null;
+    const stages = [];
+    const attributes = new Map();
+    const placement = {
+        x: 0, y: 0, rotation: 0, pads: new Map([['unrelated', { x: 100, y: 100 }]]),
+        // Deliberately stale projection geometry must not re-apply movement after the model command.
+        padOffsets: [{ padId: '1', dx: -999, dy: 0 }, { padId: '1#2', dx: 999, dy: 0 }],
+        elements: [{
+            setAttribute(name, value) {
+                assert.equal(app.placementState.overrides.get(component.id).x, app.placements.get(component.id).x,
+                    'Canonical pose precedes rendering');
+                attributes.set(name, value);
+                stages.push('pose');
+            },
+            querySelectorAll() { return []; },
+        }],
+    };
+    const pads = placement.pads;
+    app.placements.set(component.id, placement);
+    app._recordPlacementOverride = () => assert.fail('Physical adapters must not re-record generated placements');
+    app._refreshClearanceHalos = () => stages.push('clearance');
+    app._markDirty = () => stages.push('dirty');
+    app._updateRatsnest = () => stages.push('ratsnest');
+    app._refreshFills = () => stages.push('fills');
+    app._board3d = { refresh() { stages.push('3d'); } };
+    const verify = () => {
+        const pose = app.placementState.overrides.get(component.id);
+        const radians = pose.rotation * Math.PI / 180;
+        const sign = pose.mirror !== (pose.side === 'bottom') ? -1 : 1;
+        const projected = app.placements.get(component.id);
+        for (const [id, padId, dx] of [['n0', '1', -2], ['n1', '1#2', 2]]) {
+            const node = track.nodes.get(id);
+            assert.ok(Math.abs(node.x - pose.x - sign * dx * Math.cos(radians)) < 1e-12);
+            assert.ok(Math.abs(node.y - pose.y - sign * dx * Math.sin(radians)) < 1e-12);
+            if (projected) assert.deepEqual(projected.pads.get(padId), { ...node, number: '1' });
+        }
+        assert.equal(group.children.length, 1, 'Each redraw replaces the previous track SVG');
+        assert.equal(group.children[0].getAttribute('points'),
+            [...track.nodes.values()].map(node => `${node.x},${node.y}`).join(' '));
+        assert.equal(stages.filter(stage => stage === 'dirty').length, 1);
+    };
+    for (const create of [
+        () => new MovePlacementCommand(app, component.id, 0, 0, 3.123456, 4.234567),
+        () => new RotatePlacementCommand(app, component.id, 0, 90),
+        () => new FlipPlacementCommand(app, component.id, 'H'),
+        () => new FlipPlacementCommand(app, component.id, 'V'),
+    ]) {
+        const command = create();
+        for (const action of ['execute', 'undo', 'execute']) {
+            stages.length = 0;
+            command[action]();
+            verify();
+            assert.deepEqual(stages, ['pose', 'clearance', 'dirty', 'ratsnest', 'fills', '3d']);
+            assert.equal(placement.pads, pads);
+            assert.deepEqual(pads.get('unrelated'), { x: 100, y: 100 });
+        }
+    }
+    assert.match(attributes.get('transform'), /^translate\(3\.123456, 4\.234567\)/);
+    const current = app.placementState.overrides.get(component.id);
+    const pending = new MovePlacementCommand(app, component.id, current.x, current.y, 10, 20);
+    app.placements.set(component.id, { ...placement, x: 999, pads: new Map() });
+    stages.length = 0;
+    pending.execute();
+    verify();
+    assert.equal(app.placements.get(component.id).x, 10, 'The current projection receives the model result');
+    app.placements.delete(component.id);
+    stages.length = 0;
+    pending.undo();
+    verify();
+    assert.deepEqual(stages, ['clearance', 'dirty', 'ratsnest', 'fills', '3d'],
+        'Undo updates model bonds and presentation even with no rendered footprint');
 }
 
 {

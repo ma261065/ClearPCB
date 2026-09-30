@@ -25,6 +25,9 @@ import {
 } from '../../core/pcb-placement-geometry.js';
 import { SetBoardOutlineCommand as ModelSetBoardOutlineCommand } from '../../core/pcb-outline-commands.js';
 import {
+    MovePlacementCommand as ModelMovePlacementCommand,
+    RotatePlacementCommand as ModelRotatePlacementCommand,
+    FlipPlacementCommand as ModelFlipPlacementCommand,
     SetPlacementLockedCommand as ModelSetPlacementLockedCommand,
     SetPlacementRefVisibleCommand as ModelSetPlacementRefVisibleCommand,
     MoveRefTextCommand as ModelMoveRefTextCommand,
@@ -119,13 +122,20 @@ export function placementTransform(pl) {
 export function applyPlacementPose(app, compId) {
     const pl = app.placements?.get(compId);
     if (!pl) return;
+    updatePlacementPadPositions(pl);
+    renderPlacementPose(app, compId);
+    repositionPadConnectedNodes(app, compId);
+    refreshEditedTrackClearance(app);
+}
+
+function renderPlacementPose(app, compId) {
+    const pl = app.placements.get(compId);
     const transform = placementTransform(pl);
     for (const el of (pl.elements || [])) el.setAttribute('transform', transform);
     if (pl.lodEl) pl.lodEl.setAttribute('transform', transform);
     const halo = app._padHaloGroups?.get(compId);
     if (halo) halo.setAttribute('transform', transform);
     const mirrored = isPlacementMirrored(pl);
-    updatePlacementPadPositions(pl);
     // Counter-mirror text inside the (possibly mirrored) footprint group:
     //  • Pad numbers stay readable in every orientation → counter the full
     //    visual mirror (`mirrored` = user-flip XOR bottom-side).
@@ -158,8 +168,6 @@ export function applyPlacementPose(app, compId) {
             }
         }
     }
-    repositionPadConnectedNodes(app, compId);
-    refreshEditedTrackClearance(app);
 }
 
 /** Add a freshly-built Track to app.tracks and render it. Optionally
@@ -341,28 +349,33 @@ export class MoveViaCommand extends ModelMoveViaCommand {
     }
 }
 
-export class MovePlacementCommand {
+function presentPlacementPose(app, compId, result) {
+    const pl = app.placements?.get(compId);
+    if (pl) {
+        for (const key of ['x', 'y', 'rotation', 'mirror', 'side']) pl[key] = result.pose[key];
+        for (const [id, pad] of result.pads) pl.pads.set(id, pad);
+        renderPlacementPose(app, compId);
+    }
+    for (const track of result.tracks) {
+        renderTrack(track, id => app._getLayerGroup(id), _opts(app, track));
+    }
+    refreshEditedTrackClearance(app);
+    app._markDirty?.();
+    app._updateRatsnest?.();
+    app._refreshFills?.();
+    app._board3d?.refresh?.();
+}
+
+export class MovePlacementCommand extends ModelMovePlacementCommand {
     constructor(app, compId, fromX, fromY, toX, toY) {
+        super(app.project, compId, fromX, fromY, toX, toY, app.placements?.get(compId));
         this.app = app;
-        this.compId = compId;
-        this.from = { x: fromX, y: fromY };
-        this.to = { x: toX, y: toY };
     }
     _apply(pt) {
-        const pl = this.app.placements.get(this.compId);
-        if (!pl) return;
-        pl.x = pt.x;
-        pl.y = pt.y;
-        applyPlacementPose(this.app, this.compId);
-        // Remember the new position so it survives schematic re-syncs / reload.
-        this.app._recordPlacementOverride?.(this.compId);
-        this.app._updateRatsnest?.();
-        // Pads moved — recompute copper-pour clearances around them.
-        this.app._refreshFills?.();
-        this.app._board3d?.refresh?.();
+        const result = super._apply(pt);
+        presentPlacementPose(this.app, this.compId, result);
+        return result;
     }
-    execute() { this._apply(this.to); }
-    undo() { this._apply(this.from); }
 }
 
 /**
@@ -370,26 +383,16 @@ export class MovePlacementCommand {
  * Re-orients the footprint SVG, re-glues pad-bonded tracks, persists the
  * pose override, reconciles the ratsnest and refreshes any open 3D view.
  */
-export class RotatePlacementCommand {
+export class RotatePlacementCommand extends ModelRotatePlacementCommand {
     constructor(app, compId, fromDeg, toDeg) {
+        super(app.project, compId, fromDeg, toDeg, app.placements?.get(compId));
         this.app = app;
-        this.compId = compId;
-        this.from = ((fromDeg % 360) + 360) % 360;
-        this.to = ((toDeg % 360) + 360) % 360;
     }
     _apply(deg) {
-        const pl = this.app.placements.get(this.compId);
-        if (!pl) return;
-        pl.rotation = deg;
-        applyPlacementPose(this.app, this.compId);
-        this.app._recordPlacementOverride?.(this.compId);
-        this.app._updateRatsnest?.();
-        // Pads rotated — recompute copper-pour clearances around them.
-        this.app._refreshFills?.();
-        this.app._board3d?.refresh?.();
+        const result = super._apply(deg);
+        presentPlacementPose(this.app, this.compId, result);
+        return result;
     }
-    execute() { this._apply(this.to); }
-    undo() { this._apply(this.from); }
 }
 
 /** Toggle whether a PCB placement can be transformed or have its reference edited. */
@@ -420,33 +423,16 @@ export class SetPlacementLockedCommand extends ModelSetPlacementLockedCommand {
  * visual is a pure mirror across the chosen world axis (H = vertical axis,
  * V = horizontal axis), regardless of current orientation.
  */
-export class FlipPlacementCommand {
+export class FlipPlacementCommand extends ModelFlipPlacementCommand {
     constructor(app, compId, axis) {
+        super(app.project, compId, axis, app.placements?.get(compId));
         this.app = app;
-        this.compId = compId;
-        const pl = app.placements?.get(compId);
-        const rot = ((pl?.rotation || 0) % 360 + 360) % 360;
-        const mir = !!pl?.mirror;
-        this.before = { rotation: rot, mirror: mir };
-        const nextRot = axis === 'V'
-            ? (180 - rot + 360) % 360
-            : (360 - rot) % 360;
-        this.after = { rotation: nextRot, mirror: !mir };
     }
     _apply(state) {
-        const pl = this.app.placements.get(this.compId);
-        if (!pl) return;
-        pl.rotation = state.rotation;
-        pl.mirror = state.mirror;
-        applyPlacementPose(this.app, this.compId);
-        this.app._recordPlacementOverride?.(this.compId);
-        this.app._updateRatsnest?.();
-        // Pads mirrored — recompute copper-pour clearances around them.
-        this.app._refreshFills?.();
-        this.app._board3d?.refresh?.();
+        const result = super._apply(state);
+        presentPlacementPose(this.app, this.compId, result);
+        return result;
     }
-    execute() { this._apply(this.after); }
-    undo() { this._apply(this.before); }
 }
 
 /**
