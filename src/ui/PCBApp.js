@@ -2592,6 +2592,7 @@ export default class PCBApp {
             }
             finishSelectionInteraction(this, false);
             if (this._drag) this._endDrag(false);
+            if (this._refDrag) this._endRefDrag(false);
             if (this._vertexDrag) { cancelVertexDrag(this); this.viewport.hideCrosshair(); }
             if (this._viaDrag) cancelViaDrag(this);
             if (this._shapeDrag) {
@@ -2638,6 +2639,11 @@ export default class PCBApp {
             }
             if (this._drag) {
                 this._endDrag(false);
+                this._clearCursorCrosshair();
+                return true;
+            }
+            if (this._refDrag) {
+                this._endRefDrag(false);
                 this._clearCursorCrosshair();
                 return true;
             }
@@ -5717,8 +5723,8 @@ export default class PCBApp {
         this._updateRefTextDrag(this._screenToWorld(e));
     }
 
-    /** End a ref-text drag, pushing a MoveRefTextCommand if it actually moved. */
-    _endRefDrag() {
+    /** Commit reference offsets through history, or restore the preview on cancel. */
+    _endRefDrag(commit = true) {
         if (!this._refDrag) return;
         const { compId, startDx, startDy } = this._refDrag;
         this._refDrag = null;
@@ -5729,12 +5735,13 @@ export default class PCBApp {
             this._drawRefOverlay(compId, false);
             return;
         }
-        // Roll back, then execute so the command is the single source of truth.
-        const tx = pl.refDx || 0, ty = pl.refDy || 0;
-        pl.refDx = startDx; pl.refDy = startDy;
-        applyPlacementPose(this, compId);
-        this.history.execute(new MoveRefTextCommand(this, compId, startDx, startDy, tx, ty));
-        this._drawRefOverlay(compId, false);
+        if (commit) {
+            this.history.execute(new MoveRefTextCommand(this, compId, startDx, startDy, pl.refDx || 0, pl.refDy || 0));
+        } else {
+            pl.refDx = startDx; pl.refDy = startDy;
+            applyPlacementPose(this, compId);
+            this._drawRefOverlay(compId, false);
+        }
     }
 
     /** Rotate the selected reference designator by 90° (through history). */

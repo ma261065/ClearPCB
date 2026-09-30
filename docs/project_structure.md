@@ -498,6 +498,15 @@ selection, overlay and 3D updates and notify the dirty hook. They no longer
 re-record the whole generated placement to persist metadata edits. Authored
 undo/redo works without a currently rendered placement.
 
+Reference-label drag completion uses explicit original/final local offsets.
+Commit passes them directly to `MoveRefTextCommand`, without repainting a
+temporary rollback or repeating the command's final overlay refresh.
+Cancellation restores only the live reference offsets, without recording
+history, dirtying the project or creating a saved placement override. Shared
+selection and legacy Escape/Undo paths both finish the drag; physical pad and
+bonded-track positions are unchanged. Local-frame magnetic snapping and
+placement rotation/mirroring remain the same.
+
 The same core module now owns `MovePlacementCommand`, `RotatePlacementCommand`,
 `FlipPlacementCommand` and `SetPlacementSideCommand`. These take the project document, resolve its current
 footprint on every execute/undo, patch only the requested canonical pose fields,
