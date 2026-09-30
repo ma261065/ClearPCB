@@ -205,7 +205,7 @@ export function buildTrackLayerRuns(track) {
     // then any remaining nodes (handles ring topologies).
     const startOrder = [];
     for (const [nid, list] of adj) if (list.length === 1) startOrder.push(nid);
-    for (const nid of adj.keys()) if (!startOrder.includes(nid)) startOrder.push(nid);
+    for (const [nid, list] of adj) if (list.length !== 1) startOrder.push(nid);
 
     for (const startNid of startOrder) {
         // From this start node, follow each unvisited outgoing edge.
