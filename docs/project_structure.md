@@ -218,12 +218,15 @@ objects, and synchronizes dimension metadata from the actual boundary.
 without replacing an existing outline. Setup and undo therefore work without a
 renderer, including restoration of offset circles and curved polygons. As in the
 existing editor, undoing initial setup retains a rectangle at the previous
-dimensions rather than removing the board. Loading dimensions alone still does
-not automatically synthesize geometry.
-The editor command retains draw/input/pour refresh ordering. First draw still
-requests `ensureBoardOutline()` for fresh or legacy boards and retains its
-viewport-fit behavior; this remaining view-triggered initialization is explicit,
-not a claim that rendering is entirely free of model mutations.
+dimensions rather than removing the board. Preparing a legacy PCB section with
+explicit dimensions but no outline now creates and validates a rectangle in the
+model, reserving a unique ID if needed. Existing explicit outlines take precedence.
+Normalization leaves caller data untouched and works before editor activation.
+New/clear still leaves the outline absent and retains the dimensions prompt;
+accepting defaults explicitly initializes the model before drawing.
+The editor command retains draw/input/pour refresh ordering and first-draw
+viewport fitting. Drawing alone no longer creates geometry. Render-triggered
+dimension synchronization during live previews remains a separate boundary.
 
 `serialize(settings)` assembles the complete authored PCB section: stackup,
 dimensions, design settings, optional panelization, entities and saved placements.
@@ -429,7 +432,7 @@ Missing/non-physical components return null; physical components with no
 footprint data retain the existing empty geometry result. The existing pure
 parser remains in `pcb/modules/footprint.js` alongside its rendering exports.
 All four physical placement commands use this source. Entity/render and derived
-cache coupling, view-triggered outline initialization/preview writes and the
+cache coupling, render-triggered outline dimension/preview writes and the
 explicit viewport-preference boundary still need closure review; physical command
 separation does not imply that all model boundaries or application decomposition
 are complete.

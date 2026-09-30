@@ -3281,6 +3281,7 @@ export default class PCBApp {
                 // Dimensions unchanged from defaults, so no command runs — but
                 // the outline still needs its first draw, and the document must
                 // be flagged dirty so the autosave captures the new board.
+                this.pcbDocument.ensureBoardOutline();
                 this._drawBoardOutline();
                 this._markDirty();
             }
@@ -3300,7 +3301,11 @@ export default class PCBApp {
         const layer = this._getLayerGroup('board-outline');
         const old = layer.querySelector('.pcb-board-outline');
         if (old) old.remove();
-        const shape = this.pcbDocument.ensureBoardOutline();
+        const shape = getBoardOutline(this.pcbDocument);
+        if (!shape) {
+            this._boardOutlineDrawn = false;
+            return;
+        }
         renderBoardShape(this, shape);
         const wasDrawn = this._boardOutlineDrawn;
         this._boardOutlineDrawn = true;

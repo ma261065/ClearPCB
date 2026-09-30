@@ -133,17 +133,22 @@ const dimensionsModel = new PcbDocument();
 const dimensions = dimensionsModel.board;
 const preciseDimensions = { width: 37.123456, height: 21.234567, radius: 2.345678 };
 const legacyBoard = { stackup: defaultPcbStackup(), board: preciseDimensions };
+Object.assign(dimensions, preciseDimensions);
+assert.deepEqual(boardBoundary(dimensionsModel), { x: 0, y: -preciseDimensions.height,
+    w: preciseDimensions.width, h: preciseDimensions.height, r: preciseDimensions.radius, points: null },
+    'Geometry queries recognize neutral model dimensions before an outline is initialized');
 for (const data of [legacyBoard, compactProjectAliases({ pcb: legacyBoard }).pcb]) {
     dimensionsModel.load(data);
     assert.equal(dimensionsModel.board, dimensions, 'Loading retains dimension-object identity');
-    assert.deepEqual(dimensions, preciseDimensions, 'Legacy dimensions load without an editor or outline');
+    assert.deepEqual(dimensions, preciseDimensions, 'Legacy dimensions load without an editor');
     const savedDimensions = dimensionsModel.serializeBoardDimensions();
     assert.deepEqual(savedDimensions, { width: 37.1235, height: 21.2346, radius: 2.3457 });
     savedDimensions.width = 999;
     assert.deepEqual(dimensions, preciseDimensions, 'Save snapshots neither alias nor round live dimensions');
-    assert.deepEqual(boardBoundary(dimensionsModel), { x: 0, y: -preciseDimensions.height,
-        w: preciseDimensions.width, h: preciseDimensions.height, r: preciseDimensions.radius, points: null },
-        'Geometry queries recognize neutral model dimensions without legacy editor fields');
+    const expected = rectangleBoardOutline(preciseDimensions.width, preciseDimensions.height, preciseDimensions.radius);
+    assert.deepEqual(dimensionsModel.boardShapes, [expected], 'Both field formats normalize legacy dimensions into one outline');
+    assert.deepEqual(boardBoundary(dimensionsModel), boardBoundary({ boardShapes: [expected] }),
+        'Geometry queries use the normalized rounded outline');
 }
 for (const [outline, expected] of [
     [rectangleBoardOutline(12, 7, 1), { width: 12, height: 7, radius: 1 }],
@@ -212,6 +217,7 @@ console.log('PASS headless panel settings, validation, snapshots, precision and 
 const snapshotModel = new PcbDocument();
 snapshotModel.load({ stackup: defaultPcbStackup(), ...model.serializeEntities() });
 Object.assign(snapshotModel.board, preciseDimensions);
+snapshotModel.ensureBoardOutline();
 snapshotModel.designSettings.update({ clearance: 0.123456, units: 'inch', router: 'pathfinder' });
 snapshotModel.placementState.record('U1', { x: 3.123456, y: -4.234567, rotation: 90,
     side: 'bottom', refVisible: false, refDx: 0.123456 });

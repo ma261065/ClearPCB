@@ -240,6 +240,8 @@ delete globalThis.bootstrap;
     assert.equal(app._boardOutlineDrawn, false, 'A stale dialog cannot change the replacement document');
     second.querySelector('#boardDlgOk').dispatchEvent({ type: 'click' });
     assert.equal(app._boardOutlineDrawn, true, 'Accepting defaults creates the new board outline');
+    assert.equal(app.pcbDocument.boardShapes.filter(shape => shape.layer === 'board-outline').length, 1,
+        'Default setup explicitly authors one model outline');
     assert.equal(project.isDirty, true, 'The newly created outline is eligible for saving');
     assert.equal(app._boardDimensionsOverlay, null);
     assert.equal(document.body.children.length, 0);

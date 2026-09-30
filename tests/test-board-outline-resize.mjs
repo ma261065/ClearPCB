@@ -253,13 +253,19 @@ console.log('PASS board resize handles, snapping, minimum dimensions, undo/redo,
         _getLayerGroup(id) { return id === 'board-outline' ? outlineLayer : null; },
     });
     PCBApp.prototype._drawBoardOutline.call(view);
-    const outline = getBoardOutline(pcbDocument);
+    assert.equal(getBoardOutline(pcbDocument), null, 'Drawing an empty model must not create authored geometry');
+    assert.equal(outlineLayer.children.length, 0);
+    assert.equal(view._boardOutlineDrawn, false);
+    assert.equal(fitCalls.length, 0);
+    const outline = pcbDocument.ensureBoardOutline();
     assert.deepEqual(outline, rectangleBoardOutline(47.123456, 29.234567));
+    pcbDocument.ensureBoardOutline = () => assert.fail('Rendering must not invoke model initialization');
+    PCBApp.prototype._drawBoardOutline.call(view);
     const bounds = boardBoundary(pcbDocument);
     assert.deepEqual(fitCalls, [[bounds.x, bounds.y, bounds.x + bounds.w, bounds.y + bounds.h, 5]]);
     PCBApp.prototype._drawBoardOutline.call(view);
     assert.equal(pcbDocument.boardShapes.length, 1);
     assert.equal(outlineLayer.children.length, 1);
-    assert.equal(fitCalls.length, 1, 'Legacy/default initialization remains idempotent');
+    assert.equal(fitCalls.length, 1, 'Explicit initialization and subsequent redraw remain idempotent');
 }
-console.log('PASS model-owned outline setup, actual draw/undo/redo, viewport fitting and first-draw initialization');
+console.log('PASS model-owned outline setup, actual draw/undo/redo, viewport fitting and read-only outline lookup');

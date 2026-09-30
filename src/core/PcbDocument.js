@@ -52,6 +52,11 @@ export class PcbDocument {
         }
         const stage = { boardShapes: [], shapeIdCounter: 1 };
         loadBoardShapeData(stage, data?.boardShapes, { strict: true });
+        if (!getBoardOutline(stage) && data?.board?.width > 0 && data.board.height > 0) {
+            const outline = rectangleBoardOutline(data.board.width, data.board.height, data.board.radius || 0);
+            if (stage.boardShapes.some(shape => shape.id === outline.id)) outline.id = `pshape_${stage.shapeIdCounter++}`;
+            stage.boardShapes.push(outline);
+        }
         const outlines = stage.boardShapes.filter(shape => shape.layer === 'board-outline');
         if (outlines.length > 1 || outlines.some(shape => !validBoardOutline(shape))) {
             throw new Error('The board outline must be one closed rectangle, polygon, or circle.');
