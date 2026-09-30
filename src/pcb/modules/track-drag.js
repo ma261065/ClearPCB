@@ -1767,8 +1767,8 @@ function startTerminalDrag(app, via, worldPos, kind) {
     const attached = []; // [{track, nodeId, startX, startY}]
     for (const t of app.tracks || []) {
         for (const [nid, n] of t.nodes) {
-            if (!t.incidentEdges(nid).some(edge => layers.includes(t.getEdgeLayer(edge.edgeId)))) continue;
             if (Math.abs(n.x - via.x) < EPS && Math.abs(n.y - via.y) < EPS) {
+                if (!t.incidentEdges(nid).some(edge => layers.includes(t.getEdgeLayer(edge.edgeId)))) continue;
                 attached.push({ track: t, nodeId: nid, startX: n.x, startY: n.y });
             }
         }
