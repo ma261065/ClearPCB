@@ -42,6 +42,7 @@ import {
     ModifyTrackGraphCommand,
     ModifyViaCommand,
     ModifyViasCommand,
+    canonicalVia, displayedVia, beginViaPropertyPreview, finishViaPropertyPreview,
 } from './track-commands.js';
 import {
     PCB_HOVER_HIGHLIGHT_OPACITY,
@@ -293,8 +294,8 @@ export function createTrackSelectionAdapter(app, track, id) {
 registerPcbSelectionAdapter('track', createTrackSelectionAdapter);
 
 export function createViaSelectionAdapter(app, via, id) {
-    if (app._viaDrag?.via === via) via = app._viaDrag.original;
-    const current = () => app._viaDrag?.original === via ? app._viaDrag.via : via;
+    via = canonicalVia(app, via);
+    const current = () => displayedVia(app, via);
     return {
         id,
         kind: 'via',
@@ -319,7 +320,10 @@ export function createViaSelectionAdapter(app, via, id) {
         getBounds() { return viaBounds(current()); },
         hitTest(point, tolerance) { return viaHitTest(current(), point, tolerance); },
         getPosition() { const via = current(); return { x: via.x, y: via.y }; },
-        beginMove(worldPos) { return startViaDrag(app, via, worldPos); },
+        beginMove(worldPos) {
+            app._viaPropertyBinding?.commit();
+            return startViaDrag(app, via, worldPos);
+        },
         updateMove(worldPos) { updateViaDrag(app, worldPos); },
         endMove(commit) { if (commit) finishViaDrag(app); else cancelViaDrag(app); },
         invalidate() { renderVia(current(), (layerId) => app._getLayerGroup(layerId)); },
@@ -541,6 +545,10 @@ export function refreshTrackSelectionHalo(app) {
  * net receives hover halos.
  */
 export function setHoverHighlight(app, hit) {
+    if (hit?.type === 'via') {
+        const via = displayedVia(app, hit.via);
+        if (via !== hit.via) hit = { ...hit, via };
+    }
     const selectedTrack = getSelectedTrack(app);
     const selectedVia = getSelectedVia(app);
     const selectedPad = getPcbSelection(app, 'pad')[0] || null;
@@ -1577,14 +1585,18 @@ export function applyNetToCopperSelection(app, entries, v, additionalCommands = 
 export function showViaProperties(app, via) {
     const items = app._pcbPropsItems?.() || document.getElementById('pcbPropsItems');
     if (!items) return;
-    const selectedVias = getPcbSelection(app, 'via');
+    via = canonicalVia(app, via);
+    const selectedVias = getPcbSelection(app, 'via').map(target => canonicalVia(app, target));
     const vias = selectedVias.includes(via) && selectedVias.length ? selectedVias : [via];
+    let preview = null;
+    let activeProperty = null;
+    let disposed = false;
     const mixedDiameter = vias.some((target) => target.diameter !== via.diameter);
     const mixedDrill = vias.some((target) => target.drill !== via.drill);
     const mixedNet = vias.some((target) => (target.net || '') !== (via.net || ''));
     const limits = () => ({
-        minDiameter: Math.max(...vias.map((target) => target.drill)),
-        maxDrill: Math.min(...vias.map((target) => target.diameter)),
+        minDiameter: Math.max(...vias.map(target => (preview?.copies.get(target) || target).drill)),
+        maxDrill: Math.min(...vias.map(target => (preview?.copies.get(target) || target).diameter)),
     });
     const { minDiameter, maxDrill } = limits();
     app._setPcbPropsTitle?.('Via');
@@ -1599,7 +1611,7 @@ export function showViaProperties(app, via) {
         if (renderFrame !== null) return;
         renderFrame = requestAnimationFrame(() => {
             renderFrame = null;
-            for (const target of vias) renderVia(target, (id) => app._getLayerGroup(id));
+            for (const target of preview?.copies.values() || []) renderVia(target, (id) => app._getLayerGroup(id));
             // renderVia replaces the circles that the existing selection halo
             // was painted above, so rebuild that overlay after the redraw.
             refreshTrackSelectionHalo(app);
@@ -1610,11 +1622,6 @@ export function showViaProperties(app, via) {
         cancelAnimationFrame(renderFrame);
         renderFrame = null;
     };
-    const baseline = new Map(vias.map((target) => [target, {
-        diameter: target.diameter,
-        drill: target.drill,
-        net: target.net || '',
-    }]));
     const validValue = (key, value) => {
         const current = limits();
         return key === 'diameter'
@@ -1626,55 +1633,95 @@ export function showViaProperties(app, via) {
         if (diaEl) diaEl.min = String(current.minDiameter);
         if (drlEl) drlEl.max = String(current.maxDrill);
     };
+    const resetFields = () => {
+        if (diaEl) diaEl.value = vias.some(target => target.diameter !== via.diameter) ? '' : String(via.diameter);
+        if (drlEl) drlEl.value = vias.some(target => target.drill !== via.drill) ? '' : String(via.drill);
+    };
+    const finish = commit => {
+        if (!preview) return;
+        preview = null;
+        activeProperty = null;
+        cancelLiveRender();
+        let committed = false;
+        try {
+            finishViaPropertyPreview(app, commit ? changes => {
+                app.history.execute(changes.length === 1
+                    ? new ModifyViaCommand(app, changes[0].via, changes[0].before, changes[0].after)
+                    : new ModifyViasCommand(app, changes));
+            } : undefined);
+            committed = commit;
+        } finally {
+            if (!committed) resetFields();
+            updateLimits();
+            refreshTrackSelectionHalo(app);
+        }
+    };
+    const editable = () => !disposed && app._active !== false && !isViaLocked() && isViaVisible()
+        && vias.every(target => !target.locked && target.visible !== false);
+    const binding = {
+        get active() { return preview !== null; },
+        commit: () => finish(editable()),
+        cancel: () => finish(false),
+        dispose: () => {
+            disposed = true;
+            finish(false);
+            cancelLiveRender();
+        },
+    };
+    app._viaPropertyBinding = binding;
     const live = (key) => (e) => {
+        if (!editable()) {
+            binding.cancel();
+            return;
+        }
         const input = /** @type {HTMLInputElement} */ (e.target);
         const raw = parseFloat(input.value);
         const v = validValue(key, raw);
         if (Number.isFinite(v) && v > 0) {
-            input.value = String(v);
-            for (const target of vias) target[key] = v;
+            if (Number(input.value) !== v) input.value = String(v);
+            if (preview && activeProperty !== key) binding.commit();
+            if (vias.every(target => (preview?.copies.get(target) || target)[key] === v)) return;
+            preview ??= beginViaPropertyPreview(app, vias);
+            activeProperty = key;
+            for (const target of preview.copies.values()) target[key] = v;
             updateLimits();
             reRender();
         }
     };
-    const commit = (key) => (e) => {
-        const input = /** @type {HTMLInputElement} */ (e.target);
-        const v = validValue(key, parseFloat(input.value));
-        if (!Number.isFinite(v) || v <= 0) return;
-        input.value = String(v);
-        const changes = [];
-        for (const target of vias) {
-            const beforeValue = baseline.get(target)[key];
-            if (v === beforeValue) continue;
-            changes.push({ via: target, before: { [key]: beforeValue }, after: { [key]: v } });
-            target[key] = beforeValue;
-        }
-        if (!changes.length) return;
-        cancelLiveRender();
-        app.history?.execute(changes.length === 1
-            ? new ModifyViaCommand(app, changes[0].via, changes[0].before, changes[0].after)
-            : new ModifyViasCommand(app, changes));
-        for (const target of vias) baseline.get(target)[key] = v;
-        updateLimits();
-    };
     const diaEl = document.getElementById('pcbPropViaDia');
-    diaEl?.addEventListener('input', live('diameter'));
-    diaEl?.addEventListener('change', commit('diameter'));
     const drlEl = document.getElementById('pcbPropViaDrill');
-    drlEl?.addEventListener('input', live('drill'));
-    drlEl?.addEventListener('change', commit('drill'));
+    for (const [input, key] of [[diaEl, 'diameter'], [drlEl, 'drill']]) {
+        const onInput = live(key);
+        input?.addEventListener('input', onInput);
+        input?.addEventListener('change', event => {
+            onInput(event);
+            binding.commit();
+        });
+        input?.addEventListener('keydown', event => {
+            if (disposed || event.key !== 'Escape') return;
+            binding.cancel();
+            event.preventDefault();
+            event.stopPropagation();
+        });
+    }
     const netEl = /** @type {HTMLInputElement|null} */ (document.getElementById('pcbPropViaNet'));
     const netMenuEl = /** @type {HTMLDetailsElement|null} */ (document.querySelector('.prop-net-menu'));
     netEl?.addEventListener('change', () => {
-        const v = netEl.value.trim();
-        if (vias.every((target) => (target.net || '') === v)) return;
-        if (_applyNetToSelectedVias(app, vias, v)) {
-            for (const target of vias) baseline.get(target).net = target.net || '';
-        } else {
-            netEl.value = mixedNet ? '' : baseline.get(via).net; // refused — restore the field
+        if (!editable()) {
+            binding.cancel();
+            return;
+        }
+        let applied = false;
+        try {
+            binding.commit();
+            const v = netEl.value.trim();
+            applied = vias.every(target => (target.net || '') === v) || _applyNetToSelectedVias(app, vias, v);
+        } finally {
+            if (!applied) netEl.value = vias.some(target => target.net !== via.net) ? '' : via.net || '';
         }
     });
     netMenuEl?.addEventListener('click', (event) => {
+        if (disposed) return;
         const option = /** @type {HTMLButtonElement|null} */ (event.target instanceof Element ? event.target.closest('button[data-net]') : null);
         if (!option) return;
         netEl.value = option.dataset.net || '';
@@ -1682,7 +1729,7 @@ export function showViaProperties(app, via) {
         netMenuEl.open = false;
     });
     netMenuEl?.addEventListener('toggle', () => {
-        if (!netMenuEl.open || !netEl) return;
+        if (disposed || !netMenuEl.open || !netEl) return;
         const current = netEl.value.trim();
         for (const option of netMenuEl.querySelectorAll('button[data-net]')) {
             option.toggleAttribute('aria-current', option.dataset.net === current);

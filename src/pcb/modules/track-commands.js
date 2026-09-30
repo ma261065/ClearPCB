@@ -26,6 +26,7 @@ import {
 } from '../../core/pcb-placement-geometry.js';
 import { SetBoardOutlineCommand as ModelSetBoardOutlineCommand } from '../../core/pcb-outline-commands.js';
 import { Track } from '../../shapes/track.js';
+import { Via } from '../../shapes/via.js';
 import {
     MovePlacementCommand as ModelMovePlacementCommand,
     RotatePlacementCommand as ModelRotatePlacementCommand,
@@ -53,6 +54,75 @@ import {
 } from '../../core/pcb-via-commands.js';
 
 const placementPreviews = new WeakMap();
+const viaPropertyPreviews = new WeakMap();
+
+export function getViaPropertyPreview(app) {
+    return viaPropertyPreviews.get(app);
+}
+
+export function canonicalVia(app, via) {
+    if (app._viaDrag?.via === via) return app._viaDrag.original;
+    return viaPropertyPreviews.get(app)?.originals.get(via) || via;
+}
+
+export function displayedVia(app, via) {
+    via = canonicalVia(app, via);
+    if (app._viaDrag?.original === via) return app._viaDrag.via;
+    return viaPropertyPreviews.get(app)?.copies.get(via) || via;
+}
+
+/** Numeric via fields reuse one fixed-selection projection from first change. */
+export function beginViaPropertyPreview(app, vias) {
+    if (viaPropertyPreviews.has(app) || app._viaDrag) {
+        throw new Error('Finish the current via preview before editing via properties.');
+    }
+    const available = new Set(app.pcbDocument.vias);
+    if (vias.some(via => !available.has(via))) throw new Error('Cannot edit a missing via.');
+    const before = new Map(vias.map(via => [via, via.captureState()]));
+    const copies = new Map(vias.map(via => [via, Object.assign(new Via({ id: via.id }), before.get(via))]));
+    const preview = {
+        before, copies, originals: new Map([...copies].map(([via, copy]) => [copy, via])),
+        vias: app.pcbDocument.vias.map(via => copies.get(via) || via),
+    };
+    viaPropertyPreviews.set(app, preview);
+    for (const via of vias) removeViaElements(via);
+    return preview;
+}
+
+/** Model commands receive canonical targets only, after all preview SVG is removed. */
+export function finishViaPropertyPreview(app, commit) {
+    const preview = viaPropertyPreviews.get(app);
+    if (!preview) return;
+    viaPropertyPreviews.delete(app);
+    const changes = [];
+    for (const [via, copy] of preview.copies) {
+        removeViaElements(copy);
+        const before = {}, after = {};
+        for (const key of ['diameter', 'drill']) {
+            if (preview.before.get(via)[key] === copy[key]) continue;
+            before[key] = preview.before.get(via)[key];
+            after[key] = copy[key];
+        }
+        if (Object.keys(after).length) changes.push({ via, before, after });
+    }
+    let committed = false;
+    try {
+        if (commit && changes.length) {
+            const available = new Set(app.pcbDocument.vias);
+            if ([...preview.copies.keys()].some(via => !available.has(via))) {
+                throw new Error('Cannot edit a missing via.');
+            }
+            commit(changes);
+            committed = true;
+        }
+    } finally {
+        const changed = new Set(committed ? changes.map(change => change.via) : []);
+        const available = new Set(app.pcbDocument.vias);
+        for (const via of preview.copies.keys()) {
+            if (available.has(via) && !changed.has(via)) renderVia(via, id => app._getLayerGroup(id));
+        }
+    }
+}
 
 /** @returns {Track[]|undefined} */
 export function getPlacementPreviewTracks(app) {

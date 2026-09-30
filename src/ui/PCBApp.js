@@ -67,6 +67,7 @@ import {
     previewPlacementPose,
     finishPlacementPreview,
     getPlacementPreviewTracks,
+    getViaPropertyPreview,
     renderPlacementPose,
     renderPlacementSide,
     applyPlacementRefVisible,
@@ -211,7 +212,7 @@ const PCB_CROSSHAIR_TOOLS = new Set([
 export default class PCBApp {
     get tracks() { return getPlacementPreviewTracks(this) || this._viaDrag?.preview?.tracks || this.pcbDocument.tracks; }
     set tracks(value) { this.pcbDocument.tracks = value; }
-    get vias() { return this._viaDrag?.preview?.vias || this.pcbDocument.vias; }
+    get vias() { return this._viaDrag?.preview?.vias || getViaPropertyPreview(this)?.vias || this.pcbDocument.vias; }
     set vias(value) { this.pcbDocument.vias = value; }
     get pads() {
         return this._viaDrag?.preview?.pads || getPadRotationPreview(this)?.pads
@@ -2845,7 +2846,7 @@ export default class PCBApp {
             || this._pasteDrop || this._textEdit || this._boardOutlineResize
             || this._pcbSelectionInteraction || this._rotationHandleDrag
             || this._deferDragOverlays || this._suspendFillRefresh || this._textPropertyBinding?.active
-            || this._padPropertyBinding?.active);
+            || this._padPropertyBinding?.active || this._viaPropertyBinding?.active);
     }
 
     /**
@@ -3027,6 +3028,7 @@ export default class PCBApp {
      * @param {boolean} visible
      */
     _onLayerVisibilityChanged(layerId, visible) {
+        if (!visible && layerId === 'vias') this._viaPropertyBinding?.dispose();
         if (!visible && this._padPropertyBinding?.pads.some(pad => padLayers(pad).includes(layerId))) {
             this._padPropertyBinding.dispose();
         }
@@ -3096,6 +3098,7 @@ export default class PCBApp {
      * @param {boolean} locked
      */
     _onLayerLockChanged(layerId, locked) {
+        if (locked && layerId === 'vias') this._viaPropertyBinding?.cancel();
         if (locked && this._textPropertyBinding?.model.layer === layerId) this._textPropertyBinding.cancel();
         if (locked && this._padPropertyBinding?.pads.some(pad => padLayers(pad).includes(layerId))) {
             this._padPropertyBinding.cancel();
@@ -3506,6 +3509,8 @@ export default class PCBApp {
         this._textPropertyBinding = null;
         this._padPropertyBinding?.dispose();
         this._padPropertyBinding = null;
+        this._viaPropertyBinding?.dispose();
+        this._viaPropertyBinding = null;
         const el = document.querySelector('#pcbPropsContent .ribbon-group-title');
         if (el) el.textContent = title || 'Properties';
     }
@@ -5203,6 +5208,7 @@ export default class PCBApp {
     _cancelPosePreviews() {
         this._textPropertyBinding?.cancel();
         this._padPropertyBinding?.cancel();
+        this._viaPropertyBinding?.cancel();
         const state = this._pcbSelectionInteraction;
         if (['component', 'text', 'pad'].includes(state?.adapter?.kind)
             || (state?.mode === 'move-adapter' && ['component', 'text', 'via', 'pad'].includes(state.entry.kind))) finishSelectionInteraction(this, false);

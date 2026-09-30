@@ -279,6 +279,13 @@ pours or update connectivity. The `pcb/modules/copper-fill-commands.js` adapters
 retain synchronous pour refresh, drag deferral, property controls and selection
 anchors.
 
+`commitFillEdit` in `pcb/modules/copper-fill-edit.js` stages geometry changes on
+a detached `CopperFill` supplied to each mutation callback. It constructs and
+validates the command snapshot without replacing canonical geometry references
+or changing the authored fill/cache; throwing callbacks cannot leave partial
+authored edits behind. Only the existing command applies accepted changes.
+This is command preparation isolation, not fill pointer/group preview isolation.
+
 Live computed pour polygons belong to `pcb/modules/computed-fill-cache.js`,
 an identity-keyed weak map outside authored `CopperFill` entities. SVG, flat 2D,
 3D, DRC, routing contacts, net propagation and ratsnest consumers read the same
@@ -874,8 +881,25 @@ or a document is loaded. Pending render frames are cancelled on every exit.
 Save and fabrication-export guards include active numeric pad edits. Pad
 collection precedence is terminal movement, rotation handle, numeric properties,
 then canonical state; starting a pad move or rotation commits pending numeric
-properties first. Via properties, groups containing terminals and directly
-selected track previews retain their existing paths and remain ownership work.
+properties first.
+
+Via diameter/drill properties use the corresponding fixed-selection projection
+in `track-commands.js`, exposed through `PCBApp.vias` after movement previews.
+First-change snapshots replace the old panel-open baseline, so edits after
+undo/redo use current authored values. Copies and collection identity are reused,
+unchanged values schedule no frames, and live edits preserve the existing policy
+of rendering SVG/selection halos without refreshing fills or clearance geometry.
+The existing largest-drill/smallest-diameter constraints remain in force.
+Completion removes copies before `ModifyViaCommand` or `ModifyViasCommand`,
+preflights every target and retains the batch command's single derived refresh.
+Net changes stay discrete, commit any pending numeric field first, and retain
+bonded-copper propagation and schematic-assigned net rejection. Selection and
+hover resolve displayed copies without losing canonical command identity;
+starting a via drag commits pending properties before movement pickup.
+Panel replacement, Escape, deactivation, loading, locks and visibility changes
+clean up previews and queued frames, and save/export readiness includes them.
+Groups containing terminals and direct track properties/node/segment/arc previews
+retain their existing paths and remain ownership work.
 
 Both component pointer paths use the same live pose updater. If magnetic snapping
 produces the current coordinates, it skips footprint transforms, pad/bond updates
