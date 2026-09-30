@@ -311,16 +311,29 @@ uses a detached snapshot retained during loading, preserving absent settings
 without inventing defaults. Live viewport edits still belong to the view; the
 loaded snapshot is a persistence fallback, not a second live viewport.
 
-`ProjectDocument` uses the PCB model for preparation, load, serialization,
-serialized recovery and reset when no PCB view is registered. This works both
-with neither editor and with only the schematic editor. Registered adapters keep
-their existing dispatch, including an explicit null section result.
+`ProjectDocument` always serializes authored PCB state from `PcbDocument`.
+A registered PCB view contributes only `getViewSettings()`: current grid/view
+preferences, or undefined before viewport creation so loaded preferences remain
+the fallback. A view cannot suppress or replace authored PCB data by returning
+its own serialized section. The direct editor `serialize()` and
+`serializeSection()` APIs remain available and delegate to the model.
+Schematic serialization still uses its registered adapter when available.
+
+For preparation, load and reset, `ProjectDocument` uses the PCB model directly
+when no PCB view is registered; registered adapters retain their existing
+model-adoption and presentation dispatch without double loading/clearing.
+This works both with neither editor and with only the schematic editor.
 `PcbDocument.serializeSection()` omits a genuinely absent/cleared PCB, but
 preserves an explicitly loaded section even if it only contains metadata.
 Fresh authored entities, placements, panelization or nondefault dimensions also
-make a section persistable; retained design defaults alone do not. The project
-saves current model state rather than caching a serialized PCB. Existing
-best-effort serialized recovery remains unchanged in scope, not exact rollback.
+make a section persistable; retained design defaults alone do not. Supplying
+current view preferences retains the existing settings-only section behavior
+for an empty board whose viewport has been created, including after New.
+Saving neither creates a viewport nor writes current preferences back into the
+loaded fallback. The project saves current model state rather than caching a
+serialized PCB. Existing best-effort serialized recovery uses the same
+model-owned snapshot and captured view preferences; it remains serialized
+recovery, not exact rollback.
 
 Attaching a PCB editor preserves already supplied design settings rather than
 replacing them with local defaults. `PcbDesignSettings.hasAppliedSettings` records

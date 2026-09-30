@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { ProjectDocument } from '../src/core/ProjectDocument.js';
+import { PcbDocument } from '../src/core/PcbDocument.js';
 import { compactProjectAliases, normalizeProjectAliases } from '../src/core/project-field-aliases.js';
 import { defaultPcbStackup, validateEditableProject } from '../src/core/project-format.js';
 import { PANEL_DEFAULTS } from '../src/core/pcb-panelization.js';
@@ -134,18 +135,24 @@ assert.equal(edited.serialize().pcb.board.w, 55);
 const registered = new ProjectDocument();
 registered.pcbDocument.load(input.pcb);
 const calls = [];
+const registeredLoad = registered.pcbDocument.load.bind(registered.pcbDocument);
+const registeredClear = registered.pcbDocument.clear.bind(registered.pcbDocument);
+const modelCalls = [];
+registered.pcbDocument.load = (...args) => { modelCalls.push('load'); registeredLoad(...args); };
+registered.pcbDocument.clear = () => { modelCalls.push('clear'); registeredClear(); };
 registered.registerView('pcb', {
-    serializeSection() { calls.push('serialize'); return null; },
-    prepareSection(data) { calls.push('prepare'); return data; },
-    loadSection() { calls.push('load'); },
-    clearSection() { calls.push('clear'); },
+    serializeSection() { assert.fail('PCB view serialization must not hide authored model data'); },
+    prepareSection(data) { calls.push('prepare'); return PcbDocument.prepare(data); },
+    loadSection(data, prepared) { calls.push('load'); registered.pcbDocument.load(data, prepared); },
+    clearSection() { calls.push('clear'); registered.pcbDocument.clear(); },
 });
-registered.pcbDocument.load = () => assert.fail('A registered view must not be loaded twice');
-registered.pcbDocument.clear = () => assert.fail('A registered view must not be cleared twice');
-assert.equal('pcb' in registered.serialize(), false, 'A registered adapter can explicitly omit its section');
+assert.deepEqual(registered.serialize().pcb, registered.pcbDocument.serialize(),
+    'A registered adapter cannot omit authored model state');
 await registered.load(blank());
+assert.deepEqual(modelCalls, ['load', 'clear'], 'The view loads its model once, including the load-time clear');
 registered.fileManager.autoSaveToStorage = () => {};
 await registered.reset();
+assert.deepEqual(modelCalls, ['load', 'clear', 'clear'], 'Reset clears once through the registered view');
 assert.equal(calls.filter(call => call === 'prepare').length, 1);
 assert.equal(calls.filter(call => call === 'load').length, 1);
 assert.equal(calls.filter(call => call === 'clear').length, 1);

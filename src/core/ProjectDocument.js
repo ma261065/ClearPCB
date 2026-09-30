@@ -16,11 +16,12 @@ import { createPcbFootprint } from './pcb-footprint.js';
  * which forced the PCB editor to reach sideways into the schematic for
  * every File operation. `ProjectDocument` makes ownership explicit and
  * symmetric: it holds the single {@link FileManager}, document models, and
- * registered *views*. View settings remain
- * editor-owned during the incremental model migration.
+ * registered *views*. Live view settings remain editor-owned;
+ * models retain loaded preferences for use without a view.
  *
  * Views implement a small duck-typed interface:
- *   - `serializeSection()` → the view's slice of the document (or null).
+ *   - Schematic `serializeSection()` → the schematic envelope.
+ *   - PCB `getViewSettings()` → current grid preferences, or undefined before viewport creation.
  *   - `loadSection(data)`   → restore the view from its slice.
  *   - `clearSection()`      → reset the view to empty (used by New).
  *   - `isSectionDirty()`    → unsaved-changes flag for autosave/beforeunload.
@@ -167,14 +168,15 @@ export class ProjectDocument {
     }
 
     /**
-     * Assemble the combined document using views where registered, otherwise models.
-     * Adapters supply current viewport settings; models retain loaded preferences.
+     * Assemble the combined document. Authored PCB state always comes from its model;
+     * the PCB view contributes only current preferences, with loaded model fallback.
+     * Schematic serialization still uses its registered adapter when available.
      * Neither view reaches into the other — the project coordinates them.
      * @returns {object} The serialized project document.
      */
     serialize() {
         const doc = this.schematic?.serializeSection?.() || this.schematicDocument.serialize();
-        const pcbSection = this.pcb ? this.pcb.serializeSection?.() : this.pcbDocument.serializeSection();
+        const pcbSection = this.pcbDocument.serializeSection(this.pcb?.getViewSettings?.());
         if (pcbSection) doc.pcb = pcbSection;
         else delete doc.pcb;
         return compactProjectAliases(doc);

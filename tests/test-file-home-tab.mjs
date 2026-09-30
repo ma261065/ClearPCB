@@ -5,6 +5,7 @@ globalThis.localStorage = { getItem() { return null; } };
 const { default: SchematicApp } = await import('../src/ui/SchematicApp.js');
 const { default: PCBApp } = await import('../src/ui/PCBApp.js');
 const { ProjectDocument } = await import('../src/core/ProjectDocument.js');
+const { PcbDocument } = await import('../src/core/PcbDocument.js');
 const { newFile, openFile, openRecentFile } = await import('../src/schematic/modules/files.js');
 
 function fixture(outcome = 'success') {
@@ -14,6 +15,7 @@ function fixture(outcome = 'success') {
         : { success: true, data: {}, fileName: 'example.cpcb' };
     const app = {
         project: {
+            pcbDocument: new PcbDocument(),
             isDirty: outcome === 'declined',
             serialize: ProjectDocument.prototype.serialize,
             async reset() {

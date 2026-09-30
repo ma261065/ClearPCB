@@ -10,7 +10,7 @@ import { loadAndApplyTheme, toggleTheme as toggleSharedTheme, syncThemeToggleBut
 import { extractNetlist, extractComponents } from '../core/netlist.js';
 import { renderFootprint, applyRefGeometry, REF_DEFAULT_SIZE, REF_DEFAULT_STROKE } from '../pcb/modules/footprint.js';
 import { createPcbFootprint } from '../core/pcb-footprint.js';
-import { updateGridDropdown, restoreGridSettings } from './modules/viewport.js';
+import { updateGridDropdown, restoreGridSettings, serializeGridSettings } from './modules/viewport.js';
 import { setToolCursor } from './modules/cursor.js';
 import { isUnmodifiedPrimaryDoublePress } from './modules/inline-edit-activation.js';
 import {
@@ -2760,17 +2760,19 @@ export default class PCBApp {
     }
 
     /**
-     * Serialise the PCB state (tracks, vias) to a JSON-friendly object.
-     * Board outline is derived from the schematic. Footprint placements are
-     * re-derived from the schematic too, so only the positions the user has
-     * manually moved are persisted (as overrides) — untouched components keep
-     * following the auto grid-layout.
+     * Serialize authored PCB model state with current view preferences.
+     * Generated footprint presentation is not persisted.
      */
     serialize() {
         return serializePcb(this);
     }
 
     // ── ProjectDocument view interface ────────────────────────────────
+
+    /** Current preferences only; an uncreated viewport leaves loaded model preferences intact. */
+    getViewSettings() {
+        return serializeGridSettings(this.viewport);
+    }
 
     /** @param {'new'|'open'|'import'} reason */
     onDocumentReplaced(reason) {
@@ -2781,17 +2783,13 @@ export default class PCBApp {
     }
 
     /**
-     * Serialize this editor's slice of the document for the project owner.
+     * Retained direct-editor API; ProjectDocument serializes the PCB model itself.
      * Returns null when there is nothing to persist so the combined
      * document omits an empty `pcb` section.
      * @returns {object|null}
      */
     serializeSection() {
-        const hasContent = this.tracks?.length || this.vias?.length || this.pads?.length
-            || this.boardShapes?.length
-            || this.texts?.size || this._placementOverrides.size
-            || this._boardOutlineDrawn || this.viewport;
-        return hasContent ? this.serialize() : this.pcbDocument.serializeSection();
+        return this.pcbDocument.serializeSection(this.getViewSettings());
     }
 
     /**

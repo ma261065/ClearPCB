@@ -187,12 +187,17 @@ export class PcbDocument {
         } }).pcb;
     }
 
-    /** Retained design defaults alone do not create an otherwise absent PCB section. */
-    serializeSection() {
+    /**
+     * Retained design defaults alone do not create an otherwise absent PCB section.
+     * Current view preferences preserve a settings-only section for an empty viewed board.
+     * @param {object} [settings] Current view preferences, or loaded preferences by default.
+     */
+    serializeSection(settings = this.settings) {
         const hasContent = this._loadedSection || this.tracks.length || this.vias.length || this.pads.length
             || this.boardShapes.length || this.texts.size || this.placementState.overrides.size || this.panelization
-            || Object.keys(DEFAULT_BOARD_DIMENSIONS).some(key => this.board[key] !== DEFAULT_BOARD_DIMENSIONS[key]);
-        return hasContent ? this.serialize() : null;
+            || Object.keys(DEFAULT_BOARD_DIMENSIONS).some(key => this.board[key] !== DEFAULT_BOARD_DIMENSIONS[key])
+            || settings !== undefined;
+        return hasContent ? this.serialize(settings) : null;
     }
 
     serializeEntities() {
