@@ -1,6 +1,7 @@
 import { resolveBoardShapeGeometry, boardShapeArcGeometry, normalizeShapeCopperMode } from './board-shape-geometry.js';
 import { pcbTextSegments } from './pcb-text.js';
 import { pictureRegions } from './picture-raster.js';
+import { getComputedFill } from './computed-fill-cache.js';
 
 export function collectCopperArtwork(app, { pictureBounds = false } = {}) {
     const segments = [], areas = [], circles = [], arcs = [];
@@ -62,7 +63,7 @@ export function collectCopperArtwork(app, { pictureBounds = false } = {}) {
     const fills = app.copperFills || (app.boardShapes || []).filter((shape) => shape.type === 'fill');
     for (const fill of fills) {
         if (!isCopper(fill.layer)) continue;
-        for (const [index, polygon] of (fill._computed || []).entries()) {
+        for (const [index, polygon] of (getComputedFill(fill) || []).entries()) {
             if (!polygon.outer?.length) continue;
             areas.push({ kind: 'area', uid: `fill:${fill.id}:${index}`, keyId: `fill:${fill.id}`,
                 label: 'Copper pour', net: fill.net || '', layer: layerName(fill.layer),

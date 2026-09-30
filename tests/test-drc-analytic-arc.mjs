@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { getComputedFill, setComputedFill } from '../src/pcb/modules/computed-fill-cache.js';
 import { closestPointOnSegment } from '../src/core/geometry.js';
 
 globalThis.window = { addEventListener() {} };
@@ -115,8 +116,8 @@ for (const radius of [5, 100]) {
             const pour = new CopperFill({ net: 'GND', outline: rectangle(-radius * 2, -radius * 2, radius * 2, radius * 2) });
             const target = { placements: new Map(), tracks: [], vias: [], texts: new Map(),
                 boardShapes: [shape], copperFills: [pour], _getRoutingParams: () => ({ clearance: 0.5 }) };
-            pour._computed = computeFillPolygons(pour, buildFillContext(target));
-            assert.ok(pour._computed.length);
+            setComputedFill(pour, computeFillPolygons(pour, buildFillContext(target)));
+            assert.ok(getComputedFill(pour).length);
             const result = runDRC(target, { clearance: 0.5 });
             assert.equal(result.ok, true, `Arc pour radius ${radius}, sweep ${sweep}, filled ${filled}: ${JSON.stringify(result.violations)}`);
             for (const point of [shape.start, shape.end, shape.bulge]) point.x += 0.5;

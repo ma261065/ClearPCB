@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { setComputedFill } from '../src/pcb/modules/computed-fill-cache.js';
 
 globalThis.window = { addEventListener() {} };
 globalThis.document = { createElementNS: () => ({
@@ -113,13 +114,13 @@ for (const kind of ['pad', 'via']) {
 {
     const app = board({ pads: [pad('left', -1), pad('right', 3)], copperFills: [{
         id: 'pour', net: 'Net0002', layer: 'top-copper',
-        _computed: [{ outer: rectangle(-0.1, -0.5, 2.1, 0.5), holes: [] }],
     }] });
+    setComputedFill(app.copperFills[0], [{ outer: rectangle(-0.1, -0.5, 2.1, 0.5), holes: [] }]);
     check(app, 0, 'a pour touching only pad rims bridges them');
-    app.copperFills[0]._computed = [
+    setComputedFill(app.copperFills[0], [
         { outer: rectangle(-0.1, -0.5, 0.5, 0.5), holes: [] },
         { outer: rectangle(1.5, -0.5, 2.1, 0.5), holes: [] },
-    ];
+    ]);
     check(app, 1, 'separate islands of one pour do not bridge pads');
     app.pads = [];
     check(app, 0, 'isolated pour islands do not introduce standalone ratline targets');

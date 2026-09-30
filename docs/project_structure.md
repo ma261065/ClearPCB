@@ -201,8 +201,20 @@ applies authored state to a `CopperFill`. Undo snapshots deeply copy outline
 points, per-node radii and per-segment curvature. These commands do not calculate
 pours or update connectivity. The `pcb/modules/copper-fill-commands.js` adapters
 retain synchronous pour refresh, drag deferral, property controls and selection
-anchors. The existing entity-level derived caches remain a separate model/view
-boundary to resolve.
+anchors.
+
+Live computed pour polygons belong to `pcb/modules/computed-fill-cache.js`,
+an identity-keyed weak map outside authored `CopperFill` entities. SVG, flat 2D,
+3D, DRC, routing contacts, net propagation and ratsnest consumers read the same
+results. Null means pending/failed; an empty array means a successfully computed
+empty pour. Existing deferred-refresh timing is unchanged: previews can retain
+the previous result until their scheduled recomputation. Failed computations
+clear that result and log the error, while DRC retains its pending-pour report.
+Clones and loaded replacements do not inherit results, even with equal IDs.
+Detached fabrication snapshots intentionally retain their own `_computed`
+transfer field and recompute from captured authored geometry rather than using
+the live preview cache. This does not remove the remaining inherited shape
+presentation methods or other entity-level derived caches.
 
 Generic board-shape add/remove/move/modify operations live in
 `core/pcb-shape-commands.js` and take `PcbDocument`, retaining its collection and

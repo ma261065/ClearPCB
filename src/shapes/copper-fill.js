@@ -89,8 +89,6 @@ export class CopperFill {
         this.y = Number(options.y) || 0;
         this.radius = Math.max(0.05, Number(options.radius) || 1);
         if (options.kind === undefined) normalizeCopperFillKind(this);
-        /** Last-computed poured geometry: [{outer:[{x,y}], holes:[[{x,y}]]}] */
-        this._computed = null;
     }
 
     /** Move the whole region by (dx, dy) in world units. */

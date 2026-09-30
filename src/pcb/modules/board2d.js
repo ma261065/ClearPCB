@@ -28,6 +28,7 @@ import { boardShapeFilledRemovalOutlines, resolveBoardShapeGeometry } from './bo
 import { pcbTextSegments } from './pcb-text.js';
 import { drawPictureCached } from './picture-raster.js';
 import { paintViewerBackground } from './viewer-background.js';
+import { getComputedFill } from './computed-fill-cache.js';
 
 function traceBoardShape(context, geometry) {
     context.beginPath();
@@ -708,7 +709,7 @@ export class Board2D {
         for (const fill of (d.fills || [])) {
             if (fill?.visible === false) continue;
             if (fill?.layer !== copperLayer) continue;
-            const polys = fill?._computed;
+            const polys = getComputedFill(fill);
             if (!Array.isArray(polys) || polys.length === 0) continue;
             cctx.beginPath();
             for (const ex of polys) {

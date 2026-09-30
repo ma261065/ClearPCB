@@ -1,4 +1,5 @@
 import { buildCopperClusters, unionCoincidentClusters } from './copper-connectivity.js';
+import { getComputedFill } from './computed-fill-cache.js';
 import { deferDerivedUpdate } from '../../core/DerivedUpdates.js';
 import { GRID_SNAP_PX, snapToGridLines } from '../../core/grid-snap.js';
 /**
@@ -458,7 +459,7 @@ export function resolveTrackDrawSnap(app, worldPos, options = {}) {
     const geometry = new Map(shapes.filter((shape) => shape.type !== 'fill')
         .map((shape) => [shape, resolveTrackContactGeometry(shape)]));
     const contactsAt = (point) => shapes.filter((shape) => shape.type === 'fill'
-        ? (shape._computed || []).some((polygon) => pointInPolygon(point, polygon.outer)
+        ? (getComputedFill(shape) || []).some((polygon) => pointInPolygon(point, polygon.outer)
             && !(polygon.holes || []).some((hole) => pointInPolygon(point, hole)))
         : shapeCopperContains(geometry.get(shape), point));
     const hardSnap = snap.snapType === 'pad' || snap.snapType === 'track-node';
@@ -853,7 +854,7 @@ export function reconcileRatsnest(app, opts) {
     for (const fill of app.copperFills || []) {
         const net = fill.net || '';
         if (!net || (onlyNets && !onlyNets.has(net))) continue;
-        for (const region of fill._computed || []) {
+        for (const region of getComputedFill(fill) || []) {
             if (!region.outer || region.outer.length < 3) continue;
             clusters.push({ net, layer: fill.layer, points: [], source: fill,
                 copperShape: copperRegionShape({ ...region, holes: region.holes || [] }) });
@@ -952,7 +953,7 @@ export function collectBondedCopper(app, seed, { includeShapes = false, newTrack
             if (!TOGGLE_LAYERS.includes(shape.layer)
                 || (shape.type !== 'fill' && normalizeShapeCopperMode(shape.copperMode) !== 'add')) continue;
             const geometries = shape.type === 'fill'
-                ? (shape._computed || []).map(region => copperRegionShape({ ...region, holes: region.holes || [] }))
+                ? (getComputedFill(shape) || []).map(region => copperRegionShape({ ...region, holes: region.holes || [] }))
                 : [shape];
             for (const geometry of geometries) {
                 clusters.push({ kind: 'shape', shape, geometry, net: shape.net || '',
@@ -1373,7 +1374,7 @@ export function nearestPointOnNet(app, net, from, opts = {}) {
             || !['top-copper', 'bottom-copper'].includes(shape.layer) || !compatible(shape.layer)) continue;
         if (shape.type !== 'fill' && normalizeShapeCopperMode(shape.copperMode) !== 'add') continue;
         if (shape.type === 'fill') {
-            const regions = shape._computed || [];
+            const regions = getComputedFill(shape) || [];
             for (const region of regions) {
                 const holes = region.holes || [];
                 if (pointInCopperRegion(from, { outer: region.outer, holes })) consider(from.x, from.y);

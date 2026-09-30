@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { getComputedFill, setComputedFill } from '../src/pcb/modules/computed-fill-cache.js';
 
 globalThis.window = { addEventListener() {} };
 globalThis.document = { createElementNS: () => ({ setAttribute() {}, appendChild() {},
@@ -41,7 +42,7 @@ function board() {
             this._fillRefreshPending = false;
             counts.pours++;
             const context = buildFillContext(this);
-            for (const fill of this.copperFills) fill._computed = computeFillPolygons(fill, context);
+            for (const fill of this.copperFills) setComputedFill(fill, computeFillPolygons(fill, context));
             reconcileRatsnest(this, { skipFillRefresh: true });
         },
     };
@@ -67,7 +68,7 @@ try {
     assert.equal(app.counts.rebuilds, 1);
     assert.equal(app.counts.halos, 0, 'Pour and connectivity updates do not own clearance rendering');
     assert.equal(app.counts.lines, 0);
-    assert.ok(app.copperFills[0]._computed.length);
+    assert.ok(getComputedFill(app.copperFills[0]).length);
 
     batchDerivedUpdates(app, () => {
         reconcileRatsnest(app);

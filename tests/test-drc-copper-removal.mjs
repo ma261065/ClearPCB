@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { setComputedFill } from '../src/pcb/modules/computed-fill-cache.js';
 
 globalThis.window = { addEventListener() {} };
 const { runDRC } = await import('../src/pcb/modules/drc.js');
@@ -49,8 +50,11 @@ for (const kind of ['pad', 'via', 'pour', 'circle', 'polygon']) {
         ] });
         target.netlist = [{ net: 'GND', pins: [{ componentId: 'U1', pinNumber: '1' }] }];
     } else if (kind === 'via') target.vias.push({ id: 'via', x: 0, y: 0, diameter: 2, drill: 0.4, net: 'GND' });
-    else if (kind === 'pour') target.boardShapes.push({ id: 'pour', type: 'fill', layer: 'top-copper', net: 'GND',
-        _computed: [{ outer: rectangle(-1, -1, 1, 1), holes: [] }] });
+    else if (kind === 'pour') {
+        const fill = { id: 'pour', type: 'fill', layer: 'top-copper', net: 'GND' };
+        setComputedFill(fill, [{ outer: rectangle(-1, -1, 1, 1), holes: [] }]);
+        target.boardShapes.push(fill);
+    }
     else target.boardShapes.push({ id: 'copper', kind, layer: 'top-copper', net: 'GND', copperMode: 'add',
         filled: true, lineWidth: 0.05, x: 0, y: 0, radius: 1, points: rectangle(-1, -1, 1, 1) });
     assert.ok(clearanceErrors(target).length, `${kind} initially violates clearance`);

@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { getComputedFill } from '../src/pcb/modules/computed-fill-cache.js';
 import { PcbDocument } from '../src/core/PcbDocument.js';
 import { CommandHistory } from '../src/core/CommandHistory.js';
 import { CopperFill } from '../src/shapes/copper-fill.js';
@@ -69,7 +70,8 @@ assert.deepEqual(shapes, [graphic], 'Removing an absent fill cannot remove anoth
 remove.undo();
 remove.undo();
 assert.deepEqual(shapes, [graphic, fill], 'Repeated undo does not duplicate a fill');
-assert.equal(fill._computed, null, 'Authored commands do not compute derived pours');
+assert.equal('_computed' in fill, false, 'Authored commands do not attach derived pours');
+assert.equal(getComputedFill(fill), null, 'Authored commands do not compute cached pours');
 assert.deepEqual(other.boardShapes, [], 'Collection operations remain scoped to their model');
 assert.equal(typeof document, 'undefined');
 assert.equal(typeof window, 'undefined');

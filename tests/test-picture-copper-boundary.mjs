@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { getComputedFill, setComputedFill } from '../src/pcb/modules/computed-fill-cache.js';
 import { distanceToSegment, pointInPolygon } from '../src/core/geometry.js';
 import { pictureShape, pictureContours } from '../src/pcb/modules/picture-raster.js';
 
@@ -104,9 +105,9 @@ for (const source of artwork) for (const degrees of [0, 37, 90]) {
     app.vias = [];
     const fill = new CopperFill({ net: 'SIGNAL', layer: 'top-copper', outline: rectangle(0, -50, 40, -10) });
     app.copperFills = [fill];
-    fill._computed = computeFillPolygons(fill, buildFillContext(app));
-    assert.ok(fill._computed.length);
-    assert.ok(!fill._computed.some(region => pointInPolygon(pose(0, 0), region.outer)
+    setComputedFill(fill, computeFillPolygons(fill, buildFillContext(app)));
+    assert.ok(getComputedFill(fill).length);
+    assert.ok(!getComputedFill(fill).some(region => pointInPolygon(pose(0, 0), region.outer)
         && !region.holes.some(hole => pointInPolygon(pose(0, 0), hole))), 'pour keeps the whole picture frame clear');
     assert.equal(runDRC(app, { clearance: 0.2 }).ok, true, 'pour and DRC agree on picture clearance');
     assert.ok(boardShapeClearanceOutlines(image, 0.2).some(points => pointInPolygon(pose(0, 0), points)),

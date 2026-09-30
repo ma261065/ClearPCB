@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { getComputedFill, setComputedFill } from '../src/pcb/modules/computed-fill-cache.js';
 import { readFileSync } from 'node:fs';
 import * as layers from '../src/pcb/modules/layers.js';
 import { lockPositionOutsideOutline } from '../src/pcb/modules/selection-anchors.js';
@@ -310,7 +311,7 @@ document.createElementNS = () => svgElement();
 try {
     const group = svgElement();
     const getGroup = id => id === 'top-fill' ? group : null;
-    visibleFill._computed = [{ outer: points, holes: [] }];
+    setComputedFill(visibleFill, [{ outer: points, holes: [] }]);
     renderCopperFill(visibleFill, getGroup);
     group.setAttribute('clip-path', 'url(#old-group-clip)');
     setCopperFillClip(group, 'pcb-copper-cut-top');
@@ -330,7 +331,7 @@ try {
     renderCopperFill(visibleFill, getGroup);
     checkClip(null);
     const overlappingFill = new CopperFill({ outline: points });
-    overlappingFill._computed = visibleFill._computed;
+    setComputedFill(overlappingFill, getComputedFill(visibleFill));
     renderCopperFill(overlappingFill, getGroup);
     const copper = group.querySelector('.pcb-fill-copper-layer');
     assert.equal(group.querySelectorAll('.pcb-fill-copper-layer').length, 1);

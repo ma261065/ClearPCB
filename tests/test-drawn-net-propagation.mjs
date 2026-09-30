@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { getComputedFill, setComputedFill } from '../src/pcb/modules/computed-fill-cache.js';
 import { PcbDocument } from '../src/core/PcbDocument.js';
 
 const element = () => ({ setAttribute() {}, appendChild() {}, remove() {}, classList: { add() {} } });
@@ -52,12 +53,12 @@ for (const gap of [0.001, 0.025, 0.1, 0.5]) {
             const pin = app.placements.get('U1').pads.get('1');
             pin.width = pin.height = 1.2;
             const ground = new CopperFill({ layer: 'top-copper', net: 'GND' });
-            ground._computed = nearPadOnly
+            setComputedFill(ground, nearPadOnly
                 ? [{ outer: rectangle(pin.x + pin.width / 2 + gap, -2, 25, 2).points, holes: [] }]
                 : [{ outer: rectangle(-5, -5, 25, 5).points, holes: [
                     rectangle(-1, -1, 1, 1).points,
                     rectangle(19, -1, 21, 1).points,
-                ] }];
+                ] }]);
             app.boardShapes.push(ground);
             app.vias.push(via);
             startTrackDraw(app, { x: reverse ? 20 : 0, y: 0 });
@@ -93,10 +94,10 @@ for (const clearance of [0.025, 0.1, 0.3, 0.5]) {
     app._refreshFills = () => {
         const context = buildFillContext(app);
         assert.equal(context.params.clearance, clearance);
-        ground._computed = computeFillPolygons(ground, context);
+        setComputedFill(ground, computeFillPolygons(ground, context));
         return false;
     };
-    const hasCopper = point => ground._computed.some(region => pointInCopperRegion(point, region));
+    const hasCopper = point => getComputedFill(ground).some(region => pointInCopperRegion(point, region));
     app._refreshFills();
     assert.ok(hasCopper({ x: 10, y: 0 }), 'GND copper initially occupies the future route');
     startTrackDraw(app, { x: 20, y: 0 });
@@ -242,8 +243,8 @@ for (const reverse of [false, true]) {
 {
     const app = fixture();
     const fill = new CopperFill({ layer: 'top-copper', net: '' });
-    fill._computed = [{ outer: rectangle(-10, -2, 1, 2).points,
-        holes: [rectangle(-8, -1, -6, 1).points] }];
+    setComputedFill(fill, [{ outer: rectangle(-10, -2, 1, 2).points,
+        holes: [rectangle(-8, -1, -6, 1).points] }]);
     const holeVia = new Via({ x: -7, y: 0, diameter: 0.6 });
     const connectedVia = new Via({ x: -4, y: 0 });
     app.boardShapes.push(fill);

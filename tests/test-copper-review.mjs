@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { getComputedFill, setComputedFill } from '../src/pcb/modules/computed-fill-cache.js';
 import { resolveCopperPads } from '../src/pcb/modules/copper-model.js';
 import { buildCopperClusters, unionCoincidentClusters } from '../src/pcb/modules/copper-connectivity.js';
 import { spatialPairs } from '../src/core/spatial-pairs.js';
@@ -88,8 +89,8 @@ for (const fixture of clearanceCases) {
         const moveObstacle = fixture.populate(target);
         const pour = new CopperFill({ net: 'GND', outline: rectangle(-10, -10, 10, 10) });
         target.copperFills = [pour];
-        pour._computed = computeFillPolygons(pour, buildFillContext(target), clipper);
-        assert.ok(pour._computed.length, `${fixture.name}: pour must not be empty`);
+        setComputedFill(pour, computeFillPolygons(pour, buildFillContext(target), clipper));
+        assert.ok(getComputedFill(pour).length, `${fixture.name}: pour must not be empty`);
         const result = runDRC(target, { clearance });
         assert.equal(result.ok, true, `${fixture.name}, clearance ${clearance}: ${JSON.stringify(result.violations)}`);
         moveObstacle();
@@ -108,10 +109,10 @@ for (const clearance of [0.1, 0.5, 1.67]) {
         target.boardShapes = [circle];
         const pour = new CopperFill({ net: 'GND', layer, outline: rectangle(10, -90, 80, -20) });
         target.copperFills = [pour];
-        pour._computed = computeFillPolygons(pour, buildFillContext(target), clipper);
-        assert.equal(contains(pour._computed, { x: circle.x, y: circle.y }), true,
+        setComputedFill(pour, computeFillPolygons(pour, buildFillContext(target), clipper));
+        assert.equal(contains(getComputedFill(pour), { x: circle.x, y: circle.y }), true,
             'A hollow circle must retain copper poured inside its ring');
-        assert.equal(contains(pour._computed, { x: 12, y: -55.88 }), true,
+        assert.equal(contains(getComputedFill(pour), { x: 12, y: -55.88 }), true,
             'A hollow circle must retain copper poured outside its ring');
         const result = runDRC(target, { clearance });
         assert.equal(result.ok, true, `Hollow circle ${layer}, clearance ${clearance}: ${JSON.stringify(result.violations)}`);
@@ -140,13 +141,14 @@ drcApp.boardShapes.push({ id: 'plane', kind: 'rect', filled: true, copperMode: '
 drcApp.vias.push({ id: 'v1', net: 'VCC', x: 0, y: 0, diameter: 0.6, drill: 0.3 });
 assert.equal(runDRC(drcApp).ok, false);
 drcApp.boardShapes = [];
-drcApp.copperFills = [{ id: 'f1', layer: 'top-copper', net: 'GND', _computed: [
+drcApp.copperFills = [{ id: 'f1', layer: 'top-copper', net: 'GND' }];
+setComputedFill(drcApp.copperFills[0], [
     { outer: rectangle(-5, -5, 5, 5), holes: [rectangle(-2, -2, 2, 2)] },
-] }];
+]);
 assert.equal(runDRC(drcApp).ok, true);
-drcApp.copperFills[0]._computed[0].holes = [];
+getComputedFill(drcApp.copperFills[0])[0].holes = [];
 assert.equal(runDRC(drcApp).ok, false);
-drcApp.copperFills[0]._computed = null;
+setComputedFill(drcApp.copperFills[0], null);
 assert.equal(runDRC(drcApp).violations.some((violation) => violation.id === 'drc:fill-pending|f1'), true);
 drcApp.copperFills = [];
 drcApp.texts = fillApp.texts;

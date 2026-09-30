@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { getComputedFill } from '../src/pcb/modules/computed-fill-cache.js';
 import { PcbDocument } from '../src/core/PcbDocument.js';
 
 globalThis.window = { addEventListener() {} };
@@ -174,7 +175,7 @@ try {
         for (const action of ['execute', 'undo', 'execute']) {
             const previous = recomputes;
             edit[action]();
-            if (edited.copperFills.length) assert.ok(fill._computed.length, 'Fill edits remain synchronous');
+            if (edited.copperFills.length) assert.ok(getComputedFill(fill).length, 'Fill edits remain synchronous');
             const expected = edited.copperFills.some(pour => pour.net === 'GND') ? 0 : 1;
             assert.equal(ratlines.children.length, expected, 'Connectivity immediately follows fill add/remove/net changes');
             edited._scheduleDRC();

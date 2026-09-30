@@ -33,6 +33,7 @@
 import { resolveCopperPads } from './copper-model.js';
 import { resolveTrackSegments } from './board-geometry.js';
 import { collectCopperArtwork } from './copper-artwork.js';
+import { getComputedFill } from './computed-fill-cache.js';
 import { subtractCopperArtwork } from './copper-removal.js';
 import { spatialPairs } from '../../core/spatial-pairs.js';
 import { pointInPolygon } from '../../core/geometry.js';
@@ -330,7 +331,7 @@ export function runDRC(app, rules = {}) {
     const { pads, segments, vias, areas, circles, arcs } = collectCopper(app);
     const violations = [];
     for (const fill of app.copperFills || (app.boardShapes || []).filter((shape) => shape.type === 'fill')) {
-        if (fill._computed != null) continue;
+        if (getComputedFill(fill) != null) continue;
         const point = (fill.getOutline?.() || fill.outline)?.[0] || { x: 0, y: 0 };
         violations.push(makeViolation('fill', 'error', 'Copper pour has not been computed.',
             point.x, point.y, null, `fill-pending|${fill.id}`));

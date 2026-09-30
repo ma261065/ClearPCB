@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { setComputedFill } from '../src/pcb/modules/computed-fill-cache.js';
 import { PcbDocument } from '../src/core/PcbDocument.js';
 
 globalThis.window = { addEventListener() {} };
@@ -123,10 +124,10 @@ for (const kind of ['via', 'pad', 'component']) {
 {
     const { app, track, terminal, nodeId } = fixture();
     const ground = new CopperFill({ net: 'GND', layer: 'top-copper' });
-    ground._computed = [{
+    setComputedFill(ground, [{
         outer: [{ x: 11, y: -5 }, { x: 25, y: -5 }, { x: 25, y: 5 }, { x: 11, y: 5 }],
         holes: [[{ x: 19, y: -1 }, { x: 21, y: -1 }, { x: 21, y: 1 }, { x: 19, y: 1 }]],
-    }];
+    }]);
     app.boardShapes.push(ground);
     startVertexDrag(app, track, { x: 10, y: 0 }, { nodeId });
     updateVertexDrag(app, { x: 19.98, y: 0 });

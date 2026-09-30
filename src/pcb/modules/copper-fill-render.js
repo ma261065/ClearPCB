@@ -12,6 +12,7 @@
  */
 
 import { pcbLayerSelectionColor } from './layers.js';
+import { getComputedFill } from './computed-fill-cache.js';
 
 const NS = 'http://www.w3.org/2000/svg';
 
@@ -59,7 +60,7 @@ export function renderCopperFill(fill, getLayerGroup, opts = {}) {
     const color = layerColor(fill.layer);
 
     // ── Poured copper polygons (outer + holes, even-odd) ──
-    const d = opts.outlineOnly ? '' : computedPathD(fill._computed);
+    const d = opts.outlineOnly ? '' : computedPathD(getComputedFill(fill));
     if (d) {
         let copper = group.querySelector('.pcb-fill-copper-layer');
         if (!copper) {

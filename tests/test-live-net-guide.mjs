@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { setComputedFill } from '../src/pcb/modules/computed-fill-cache.js';
 
 function element() {
     return {
@@ -54,13 +55,13 @@ const rect = (extra = {}) => ({
 }
 {
     const app = board();
-    const fill = { type: 'fill', layer: 'top-copper', net: 'GND',
-        _computed: [{ outer: square(0, 20), holes: [square(5, 15)] }] };
+    const fill = { type: 'fill', layer: 'top-copper', net: 'GND' };
+    setComputedFill(fill, [{ outer: square(0, 20), holes: [square(5, 15)] }]);
     app.copperFills = [fill];
     const target = nearestPointOnNet(app, 'GND', { x: 10, y: 10 });
     assert.equal(Math.hypot(target.x - 10, target.y - 10), 5,
         'guide from a fill hole targets real poured copper, not the empty hole');
-    fill._computed = [];
+    setComputedFill(fill, []);
     assert.equal(nearestPointOnNet(app, 'GND', { x: 10, y: 10 }), null);
 }
 {

@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { setComputedFill } from '../src/pcb/modules/computed-fill-cache.js';
 import { closestPointOnSegment, pointInPolygon } from '../src/core/geometry.js';
 
 globalThis.window = { addEventListener() {} };
@@ -163,8 +164,8 @@ assert.equal(edgeBuilds, 2);
 
 const app = { placements: new Map(), tracks: [], texts: new Map(), boardShapes: [],
     vias: [{ id: 'via_1', x: 0, y: 0, diameter: 1, drill: 0.3, net: 'VCC' }],
-    copperFills: [{ id: 'fill_1', layer: 'top-copper', net: 'GND',
-        _computed: [{ outer: pour.outer, holes: pour.holes }] }] };
+    copperFills: [{ id: 'fill_1', layer: 'top-copper', net: 'GND' }] };
+setComputedFill(app.copperFills[0], [{ outer: pour.outer, holes: pour.holes }]);
 assert.equal(runDRC(app, { clearance: 0.2 }).ok, true);
 app.vias[0].x = 2.4;
 assert.ok(runDRC(app, { clearance: 0.2 }).violations.some((violation) => violation.rule === 'clearance'));

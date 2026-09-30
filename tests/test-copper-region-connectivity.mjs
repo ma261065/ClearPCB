@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { setComputedFill } from '../src/pcb/modules/computed-fill-cache.js';
 import { pictureShape } from '../src/pcb/modules/picture-raster.js';
 
 globalThis.window = { addEventListener() {} };
@@ -24,8 +25,7 @@ const islands = pictureShape({ width: 10, height: 10, rectangles: [
     { x: 0, y: 0, width: 1, height: 1 }, { x: 9, y: 9, width: 1, height: 1 },
 ] }, { widthMm: 10, layer: 'top-copper', net: 'GND' });
 assert.equal(ratlines({ boardShapes: [islands] }), 0, 'a picture never creates ratlines between its own dots');
-assert.equal(ratlines({ vias: [via('inside', 20, -20), via('outside', 16, -16)],
-    copperFills: [{ id: 'pour', net: 'GND', layer: 'top-copper', _computed: [{
-        outer: rectangle(10, -10, 30, -30), holes: [rectangle(18, -18, 22, -22)],
-    }] }] }), 1);
+const pour = { id: 'pour', net: 'GND', layer: 'top-copper' };
+setComputedFill(pour, [{ outer: rectangle(10, -10, 30, -30), holes: [rectangle(18, -18, 22, -22)] }]);
+assert.equal(ratlines({ vias: [via('inside', 20, -20), via('outside', 16, -16)], copperFills: [pour] }), 1);
 console.log('PASS pictures are solid logical rectangles while pour holes remain electrically separate');

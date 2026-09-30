@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { getComputedFill, setComputedFill } from '../src/pcb/modules/computed-fill-cache.js';
 import { distanceToSegment, pointInPolygon } from '../src/core/geometry.js';
 import { padFlashOutline } from '../src/pcb/modules/board-geometry.js';
 import { padCopperOutline } from '../src/pcb/modules/copper-model.js';
@@ -20,8 +21,8 @@ const board = clearance => ({
 });
 const pour = app => {
     const fill = app.copperFills[0];
-    fill._computed = computeFillPolygons(fill, buildFillContext(app));
-    assert.ok(fill._computed.length, 'the fixture must contain actual poured copper');
+    setComputedFill(fill, computeFillPolygons(fill, buildFillContext(app)));
+    assert.ok(getComputedFill(fill).length, 'the fixture must contain actual poured copper');
 };
 const checkGeneratedGap = (app, clearance, label) => {
     pour(app);

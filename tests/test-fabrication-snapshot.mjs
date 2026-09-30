@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { getComputedFill } from '../src/pcb/modules/computed-fill-cache.js';
 import fs from 'node:fs';
 import { Worker as NodeWorker } from 'node:worker_threads';
 import { inflateRawSync } from 'node:zlib';
@@ -20,7 +21,8 @@ fill.outline[0].x = 5;
 const snapshot = await pending;
 assert.equal(snapshot.fills[0].outline[0].x, 1, 'Snapshot captured before asynchronous loading');
 assert.ok(snapshot.fills[0]._computed.length > 0, 'Uncomputed pours are prepared for export');
-assert.equal(fill._computed, null, 'Export does not mutate the preview cache');
+assert.equal(getComputedFill(fill), null, 'Export does not mutate the preview cache');
+assert.equal('_computed' in fill, false, 'Live authored fills do not own export or preview results');
 assert.equal(snapshot.boardShapes.length, 0);
 const deferred = await prepareFabricationSnapshot(app, { computeFills: false });
 assert.equal(deferred.fills[0]._computed, null, 'Worker snapshots defer expensive pour calculations');

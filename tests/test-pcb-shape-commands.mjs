@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { getComputedFill } from '../src/pcb/modules/computed-fill-cache.js';
 import { PcbDocument } from '../src/core/PcbDocument.js';
 import { CommandHistory } from '../src/core/CommandHistory.js';
 import { CopperFill } from '../src/shapes/copper-fill.js';
@@ -109,7 +110,8 @@ for (const variant of variants) {
     remove.undo();
     remove.undo();
     assert.deepEqual(shapes, [fill, shape]);
-    assert.equal(fill._computed, null);
+    assert.equal('_computed' in fill, false);
+    assert.equal(getComputedFill(fill), null);
     assert.deepEqual(other.boardShapes, []);
 }
 

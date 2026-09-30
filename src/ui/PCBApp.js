@@ -125,6 +125,7 @@ import { AddPadCommand, ModifyPadCommand } from '../pcb/modules/pad-commands.js'
 import '../pcb/modules/pad-selection.js';
 import { CopperFill } from '../shapes/copper-fill.js';
 import { computeFillPolygons, loadClipper, isClipperReady, boardShapeClearanceOutlines, pcbTextClearanceOutlines } from '../pcb/modules/copper-fill-geom.js';
+import { setComputedFill } from '../pcb/modules/computed-fill-cache.js';
 import { bindPictureRefreshHold, schedulePictureCopperRefresh } from '../pcb/modules/picture-refresh.js';
 import { PICTURE_LAYERS } from '../pcb/modules/picture-raster.js';
 import { renderCopperFill, fillGroupId, setCopperFillClip } from '../pcb/modules/copper-fill-render.js';
@@ -8660,7 +8661,7 @@ export default class PCBApp {
     /**
      * Re-render existing pour geometry (e.g. to reflect selection state)
      * without recomputing polygons. Selection/highlight changes don't alter
-     * geometry, so reuse each fill's cached `_computed` instead of re-running
+     * geometry, so reuse the cached fill results instead of re-running
      * Clipper across every pour.
      */
     _rerenderFills() {
@@ -8706,9 +8707,10 @@ export default class PCBApp {
         this._clearFillGroups();
         for (const fill of this.copperFills) {
             try {
-                fill._computed = computeFillPolygons(fill, ctx);
-            } catch (_) {
-                fill._computed = null;
+                setComputedFill(fill, computeFillPolygons(fill, ctx));
+            } catch (error) {
+                setComputedFill(fill, null);
+                console.error(`Failed to compute copper fill ${fill.id}:`, error);
             }
             renderCopperFill(fill, (id) => this._getLayerGroup(id), {
                 selected: isPcbSelected(this, 'fill', fill),
@@ -8724,7 +8726,7 @@ export default class PCBApp {
         reconcileRatsnest(this, { skipFillRefresh: true });
         this._scheduleDRC();
         // Pours just recomputed — let any open 3D/2D view pick up the fresh
-        // geometry (its rebuild reads fill._computed).
+        // geometry from the shared computed-fill cache.
         this._board3d?.refresh?.();
         return true;
     }

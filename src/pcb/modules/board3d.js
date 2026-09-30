@@ -2,6 +2,7 @@ export { punchHolesInFlatMesh } from './board3d-mesh-ops.js';
 import { pictureTriangles, pictureCirclesDisjoint, picturePoints } from './picture-raster.js';
 import { ArcballController } from '../../shared/3d/ArcballController.js';
 import { createBoardViewSync } from './board-view-sync.js';
+import { getComputedFill } from './computed-fill-cache.js';
 import { createSurfaceBuilder } from './board3d-surface-client.js?v=8';
 import { parseObjModel, meshToGeometry, makeMaterial, makeComponentMaterial, makeComponentGroupMaterials, COLOR_COMPONENT } from '../../shared/3d/model-rendering.js';
 export { ArcballController } from '../../shared/3d/ArcballController.js';
@@ -1768,11 +1769,11 @@ function buildMaskFaceMesh(outline, y, reverse = false) {
  * @param {Array} fills  app.copperFills
  * @returns {{verts:Array, faces:Array}}
  */
-function buildFillMesh(fills) {
+export function buildFillMesh(fills) {
     const mesh = emptyMesh();
     for (const fill of fills || []) {
         if (fill?.visible === false) continue;
-        const polys = fill?._computed;
+        const polys = getComputedFill(fill);
         if (!Array.isArray(polys) || polys.length === 0) continue;
         const bottom = fill.layer === 'bottom-copper';
         const y = bottom ? Y_BOT - COPPER_EPS : Y_TOP + COPPER_EPS;
