@@ -3,7 +3,7 @@ import { applyBoardShapeVertexResize, getBoardShapeAnchors,
 import { shapePathD } from './board-shape-geometry.js';
 import { validBoardOutline } from './board-outline.js';
 import { ModifyFillCommand, RemoveFillCommand } from './copper-fill-commands.js';
-import { renderCopperFill } from './copper-fill-render.js';
+import { renderCopperFill, removeCopperFillElements } from './copper-fill-render.js';
 import { renderPcbSelectionAnchors } from './selection-anchors.js';
 import { isPcbSelected, setPcbSelection } from './selection-registry.js';
 import { isCopperFillLocked, isCopperFillVisible, isLayerLocked } from './layers.js';
@@ -65,10 +65,12 @@ export function beginFillEdit(app, fill, point, anchor = null, segment = null) {
     const before = fill.captureState();
     const previousFocus = app._fillEdit;
     const midpoint = /^mid:(\d+)$/.exec(String(anchor));
+    const original = fill;
     if (midpoint) {
         const index = Number(midpoint[1]);
         const start = fill.outline[index], end = fill.outline[(index + 1) % fill.outline.length];
         if (!start || !end) return false;
+        fill = new CopperFill(before);
         fill.kind = 'polygon';
         splitBoardShapeSegmentMetadata(fill, index);
         remapBoardShapeNodeRadii(fill, index + 1, 1);
@@ -78,8 +80,8 @@ export function beginFillEdit(app, fill, point, anchor = null, segment = null) {
     const bulge = /^bulge:(\d+)$/.exec(String(anchor));
     app._fillEdit = { fillId: fill.id, node: typeof anchor === 'number' ? anchor : null,
         segment: bulge ? Number(bulge[1]) : segment };
-    app._fillDrag = { fill, before, editBefore: fill.captureState(), anchor, segment,
-        start: { ...point }, previousFocus, previousDeferDragOverlays: !!app._deferDragOverlays };
+    app._fillDrag = { original, fill, before, editBefore: fill.captureState(), anchor, segment,
+        start: { ...point }, lastPoint: { ...point }, previousFocus, previousDeferDragOverlays: !!app._deferDragOverlays };
     app._deferDragOverlays = true;
     updateFillHandleCrosshair(app, fill, anchor);
     return true;
@@ -88,6 +90,8 @@ export function beginFillEdit(app, fill, point, anchor = null, segment = null) {
 export function updateFillEdit(app, point) {
     const drag = app._fillDrag;
     if (!drag) return;
+    if (point.x === drag.lastPoint.x && point.y === drag.lastPoint.y) return;
+    if (drag.fill === drag.original) drag.fill = new CopperFill(drag.before);
     const { fill, editBefore, anchor, segment, start } = drag;
     fill.applyState(editBefore);
     if (anchor != null) {
@@ -110,6 +114,7 @@ export function updateFillEdit(app, point) {
             }
         } else fill.move(delta.x, delta.y);
     }
+    drag.lastPoint = { ...point };
     renderCopperFill(fill, id => app._getLayerGroup(id), { selected: true, outlineOnly: true });
     renderPcbSelectionAnchors(app);
 }
@@ -120,19 +125,29 @@ export function endFillEdit(app, commit) {
     app._fillDrag = null;
     if (drag.anchor != null) app.viewport?.hideCrosshair?.();
     app._deferDragOverlays = drag.previousDeferDragOverlays;
-    const { fill, before } = drag;
-    if (drag.anchor != null || drag.segment != null) normalizeCopperFillKind(fill);
+    const { original, fill, before } = drag;
+    if (fill !== original && (drag.anchor != null || drag.segment != null)) normalizeCopperFillKind(fill);
     const after = fill.captureState();
-    const valid = commit && validFill(fill);
+    const valid = commit && canEditFill(original) && validFill(fill);
     if (!valid) app._fillEdit = drag.previousFocus;
-    fill.applyState(before);
-    if (valid && JSON.stringify(before) !== JSON.stringify(after)) {
-        app.history.execute(new ModifyFillCommand(app, fill, before, after));
-    } else {
-        renderCopperFill(fill, id => app._getLayerGroup(id), { selected: isPcbSelected(app, 'fill', fill) });
-        app._refreshFillProperties?.(fill);
+    const changed = valid && JSON.stringify(before) !== JSON.stringify(after);
+    let committed = false;
+    try {
+        if (changed) {
+            if (!app.pcbDocument.boardShapes.includes(original)) throw new Error('Cannot edit a missing copper fill.');
+            app.history.execute(new ModifyFillCommand(app, original, before, after));
+            committed = true;
+        }
+    } finally {
+        if (!committed) {
+            if (changed) app._fillEdit = drag.previousFocus;
+            if (app.pcbDocument.boardShapes.includes(original)) {
+                renderCopperFill(original, id => app._getLayerGroup(id), { selected: isPcbSelected(app, 'fill', original) });
+                app._refreshFillProperties?.(original);
+            } else removeCopperFillElements(original, id => app._getLayerGroup(id));
+        }
+        renderPcbSelectionAnchors(app);
     }
-    renderPcbSelectionAnchors(app);
 }
 
 export function startFillEditAt(app, fill, point) {

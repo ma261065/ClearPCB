@@ -128,11 +128,14 @@ globalThis.document = { getElementById: id => id === 'pcbPropTrackCornerRadius' 
     querySelector: () => null };
 const previewTrack = new Track({ points: [{ x: -10, y: 10 }, { x: 0, y: 0 }, { x: 10, y: 10 }] });
 const previewApp = { tracks: [previewTrack], vias: [], pads: [], boardShapes: [], texts: new Map(), placements: new Map(),
+    pcbDocument: { tracks: [previewTrack] },
     viewport: { scale: 10 }, _pcbPropsItems: () => ({}), _getLayerGroup: () => null };
 selectTrackOrVia(previewApp, { type: 'track', track: previewTrack });
 const previewBefore = previewTrack.getBounds();
 radiusInput.listeners.get('input')({ type: 'input' });
-assertResolvedBounds(previewTrack);
-assert.ok(previewTrack.getBounds().minY > previewBefore.minY, 'Whole-track radius preview invalidates cached bounds');
+const previewAdapter = createTrackSelectionAdapter(previewApp, previewTrack, previewTrack.id);
+assertResolvedBounds(previewAdapter.object);
+assert.ok(previewAdapter.getBounds().minY > previewBefore.minY, 'Whole-track radius preview invalidates display bounds');
+assert.equal(previewTrack.getBounds(), previewBefore, 'Property preview preserves canonical cached bounds');
 delete globalThis.document;
 console.log('PASS headless copper widths, rounded paths, arcs, topology, history and selection bounds');

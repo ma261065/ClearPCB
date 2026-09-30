@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { CopperFill } from '../src/shapes/copper-fill.js';
+import { PcbDocument } from '../src/core/PcbDocument.js';
 
 globalThis.window = { addEventListener() {} };
 globalThis.document = {};
@@ -56,16 +57,22 @@ const app = { viewport: { scale: 10, shiftHeld: true,
     tracks: [], vias: [], texts: new Map(), boardShapes: [],
     _getLayerGroup() { return null; }, _refreshFillProperties() {},
     history: { execute(command) { commands.push(command); command.execute(); } } };
+app.pcbDocument = new PcbDocument();
+Object.defineProperty(app, 'boardShapes', {
+    get() { return this.pcbDocument.boardShapes; },
+    set(value) { this.pcbDocument.boardShapes = value; },
+});
 const fill = new CopperFill({ outline, cornerRadius: 1, nodeCornerRadii: { 2: 2 }, segmentBulges: { 2: 0.25 } });
 app.boardShapes.push(fill);
 const before = fill.captureState();
 assert.equal(beginFillEdit(app, fill, { x: 10, y: -2 }, 'mid:0'), true);
 assert.deepEqual(crosshair, { x: 10, y: -2 }, 'Midpoint pickup shows the crosshair');
-assert.equal(fill.outline.length, 5);
-assert.equal(fill.segmentBulges[3], 0.25);
-assert.equal(fill.nodeCornerRadii[3], 2);
+assert.equal(app._fillDrag.fill.outline.length, 5);
+assert.equal(app._fillDrag.fill.segmentBulges[3], 0.25);
+assert.equal(app._fillDrag.fill.nodeCornerRadii[3], 2);
+assert.deepEqual(fill.captureState(), before, 'Midpoint insertion is not authored during pickup');
 updateFillEdit(app, { x: 10, y: -1 });
-assert.deepEqual(crosshair, fill.outline[1], 'Crosshair follows the inserted vertex');
+assert.deepEqual(crosshair, app._fillDrag.fill.outline[1], 'Crosshair follows the inserted vertex');
 endFillEdit(app, false);
 assert.equal(crosshair, null, 'Cancel hides the crosshair');
 assert.deepEqual(fill.captureState(), before, 'Cancel restores vertices and metadata');
@@ -127,9 +134,10 @@ for (const [region, anchor, point] of [
     [circle, 'radius', { x: 13, y: -6 }],
 ]) {
     const handlePoint = () => {
-        const handle = getBoardShapeAnchors(region).find(item => item.id === anchor);
+        const handle = getBoardShapeAnchors(app._fillDrag?.fill || region).find(item => item.id === anchor);
         return { x: handle.x, y: handle.y };
     };
+    app.boardShapes = [region];
     beginFillEdit(app, region, handlePoint(), anchor);
     assert.deepEqual(crosshair, handlePoint(), `${anchor} pickup shows the actual handle position`);
     updateFillEdit(app, point);
@@ -154,6 +162,7 @@ copperLayer.visible = previousVisible;
 const clipper = await loadClipper();
 const context = { tracks: [], vias: [], pads: [], texts: [], fills: [], boardShapes: [], holes: [], params: { clearance: 0.1 } };
 for (const region of [rounded, circle, new CopperFill({ outline, segmentBulges: { 0: 0.25 } })]) {
+    app.boardShapes = [region];
     assert.deepEqual(computeFillPolygons(region, context, clipper),
         computeFillPolygons({ layer: region.layer, net: region.net, outline: region.getOutline() }, context, clipper),
         'Pour uses sampled curves rather than the control polygon');

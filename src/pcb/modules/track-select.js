@@ -43,6 +43,7 @@ import {
     ModifyViaCommand,
     ModifyViasCommand,
     canonicalVia, displayedVia, beginViaPropertyPreview, finishViaPropertyPreview,
+    canonicalTrack, displayedTrack, beginTrackPropertyPreview, finishTrackPropertyPreview,
 } from './track-commands.js';
 import {
     PCB_HOVER_HIGHLIGHT_OPACITY,
@@ -126,6 +127,8 @@ function trackHitTest(track, point, tolerance) {
 
 /** Adapter bridge for the graph-based Track model. */
 export function createTrackSelectionAdapter(app, track, id) {
+    track = canonicalTrack(app, track);
+    const current = () => displayedTrack(app, track);
     let bulgeDrag = null;
     const beginDrag = (worldPos, options) => {
         const started = startVertexDrag(app, track, worldPos, options);
@@ -174,8 +177,8 @@ export function createTrackSelectionAdapter(app, track, id) {
     return {
         id,
         kind: 'track',
-        object: track,
-        get visible() { return trackIsVisible(track); },
+        get object() { return current(); },
+        get visible() { return trackIsVisible(current()); },
         get locked() { return !trackIsSelectable(track); },
         unlock() {
             for (const [edgeId] of track.edges || []) {
@@ -184,6 +187,7 @@ export function createTrackSelectionAdapter(app, track, id) {
             }
         },
         getLockPosition(pointer, scale) {
+            const track = current();
             const paths = [...resolveTrackEdgePaths(track).entries()];
             return lockPositionOutsideOutline(
                 paths.map(([, points]) => points),
@@ -193,12 +197,13 @@ export function createTrackSelectionAdapter(app, track, id) {
                 paths.map(([edgeId]) => Math.max(0, Number(track.getEdgeWidth?.(edgeId) ?? track.width) || 0) / 2),
             );
         },
-        getBounds() { return track.getBounds(); },
-        hitTest(point, tolerance) { return trackHitTest(track, point, tolerance); },
+        getBounds() { return current().getBounds(); },
+        hitTest(point, tolerance) { return trackHitTest(current(), point, tolerance); },
         getAnchors() {
-            const visibleEdges = [...track.edges.entries()].filter(([edgeId]) => isLayerVisible(track.getEdgeLayer(edgeId)));
+            const display = current();
+            const visibleEdges = [...display.edges.entries()].filter(([edgeId]) => isLayerVisible(display.getEdgeLayer(edgeId)));
             const visibleNodes = new Set(visibleEdges.flatMap(([, edge]) => [edge.from, edge.to]));
-            const nodes = [...track.nodes.entries()].filter(([nodeId]) => visibleNodes.has(nodeId)).map(([nodeId, point]) => ({
+            const nodes = [...display.nodes.entries()].filter(([nodeId]) => visibleNodes.has(nodeId)).map(([nodeId, point]) => ({
                 id: nodeId,
                 ...point,
                 fill: HALO_COLOR,
@@ -209,8 +214,8 @@ export function createTrackSelectionAdapter(app, track, id) {
                 cursor: 'nwse-resize',
             }));
             const midpoints = visibleEdges.flatMap(([edgeId, edge]) => {
-                const start = track.nodes.get(edge.from);
-                const end = track.nodes.get(edge.to);
+                const start = display.nodes.get(edge.from);
+                const end = display.nodes.get(edge.to);
                 if (start && end && edge.bulge) {
                     const arc = arcFromBulge(start, end, edge.bulge);
                     return arc ? [{ id: `bulge:${edgeId}`, ...arc.bulgePoint, round: true, fill: '#33dd77', cursor: 'grab' }] : [];
@@ -228,6 +233,7 @@ export function createTrackSelectionAdapter(app, track, id) {
             return [...nodes, ...midpoints];
         },
         beginAnchorDrag(anchorId, worldPos) {
+            app._trackPropertyBinding?.commit();
             if (String(anchorId).startsWith('bulge:')) {
                 const edgeId = String(anchorId).slice(6);
                 if (!track.edges.has(edgeId)) return false;
@@ -276,7 +282,7 @@ export function createTrackSelectionAdapter(app, track, id) {
         // The selecting click must not split a midpoint. The legacy flow
         // requires a deliberate second click on the insertion handle.
         ...pathMoveInteraction({
-            segmentAt: point => hitTestTrackEdge(app, track, point)?.edgeId ?? null,
+            segmentAt: point => hitTestTrackEdge(app, current(), point)?.edgeId ?? null,
             selectedSegment: () => app._trackEdit?.track === track ? app._trackEdit.edgeId : null,
             selectSegment: edgeId => selectTrackSegment(app, track, edgeId),
             begin: (point, edgeId) => {
@@ -286,8 +292,8 @@ export function createTrackSelectionAdapter(app, track, id) {
             update: updateDrag,
             end: commit => finishNodeMove(commit, { moved: true }),
         }),
-        invalidate() { renderTrack(track, (layerId) => app._getLayerGroup(layerId)); },
-        render() { renderTrack(track, (layerId) => app._getLayerGroup(layerId)); },
+        invalidate() { renderTrack(current(), (layerId) => app._getLayerGroup(layerId)); },
+        render() { renderTrack(current(), (layerId) => app._getLayerGroup(layerId)); },
     };
 }
 
@@ -413,6 +419,7 @@ function _pointSegDist(p, a, b) {
  * @param {{type:'track', track:object}|{type:'via', via:object}|null} hit
  */
 export function selectTrackOrVia(app, hit) {
+    if (hit?.type === 'track') hit = { ...hit, track: canonicalTrack(app, hit.track) };
     clearTrackSelection(app);
     // Clear any hover halo for the now-selected item so the two highlights
     // don't stack.
@@ -448,6 +455,7 @@ export function selectTrackOrVia(app, hit) {
  * @param {string} edgeId
  */
 export function selectTrackSegment(app, track, edgeId) {
+    track = canonicalTrack(app, track);
     clearTrackSelection(app);
     _removeHalos(app, HOVER_CLASS);
     app._hoveredTrackOrVia = null;
@@ -467,6 +475,7 @@ export function selectTrackSegment(app, track, edgeId) {
 }
 
 export function selectTrackNode(app, track, nodeId) {
+    track = canonicalTrack(app, track);
     if (!track.nodes.has(nodeId)) return;
     app._trackEdit = { track, nodeId };
     _showTrackNodeProperties(app, track, nodeId);
@@ -475,6 +484,7 @@ export function selectTrackNode(app, track, nodeId) {
 }
 
 export function showTrackSelectionProperties(app, track) {
+    track = canonicalTrack(app, track);
     const edit = app._trackEdit;
     if (edit?.track === track && track.nodes.has(edit.nodeId)) {
         _showTrackNodeProperties(app, track, edit.nodeId);
@@ -485,6 +495,7 @@ export function showTrackSelectionProperties(app, track) {
 
 /** Remove any track/via selection halos and clear stored references. */
 export function clearTrackSelection(app) {
+    app._trackPropertyBinding?.dispose();
     const prev = getSelectedTrack(app);
     app._trackEdit = null;
     _removeHalos(app, HALO_CLASS);
@@ -523,13 +534,13 @@ export function refreshTrackSelectionHalo(app) {
     if (getPcbSelection(app).length === 1) _removeHalos(app, VIA_BATCH_HALO_CLASS);
     const selectedTrack = getSelectedTrack(app);
     const selectedVia = getSelectedVia(app);
-    const selectedNode = selectedTrack === app._trackEdit?.track
+    const selectedNode = canonicalTrack(app, selectedTrack) === app._trackEdit?.track
         && selectedTrack?.nodes.has(app._trackEdit.nodeId);
-    if (app._trackEdit?.edgeId && selectedTrack === app._trackEdit.track) {
-        _drawSegmentHalo(app, app._trackEdit.track, app._trackEdit.edgeId);
+    if (app._trackEdit?.edgeId && canonicalTrack(app, selectedTrack) === app._trackEdit.track) {
+        _drawSegmentHalo(app, selectedTrack, app._trackEdit.edgeId);
     } else if (selectedTrack && !selectedNode) _drawTrackHalo(app, selectedTrack, HALO_CLASS, HALO_OPACITY_SELECTED);
     else if (selectedVia) _drawViaHalo(app, selectedVia, HALO_CLASS, HALO_OPACITY_SELECTED);
-    if (selectedTrack && app._trackEdit?.track === selectedTrack) {
+    if (selectedTrack && app._trackEdit?.track === canonicalTrack(app, selectedTrack)) {
         const node = selectedTrack.nodes.get(app._trackEdit.nodeId);
         for (const axis of ['x', 'y']) {
             const field = document.getElementById(`pcbPropTrackNode${axis.toUpperCase()}`);
@@ -545,6 +556,10 @@ export function refreshTrackSelectionHalo(app) {
  * net receives hover halos.
  */
 export function setHoverHighlight(app, hit) {
+    if (hit?.type === 'track') {
+        const track = displayedTrack(app, canonicalTrack(app, hit.track));
+        if (track !== hit.track) hit = { ...hit, track };
+    }
     if (hit?.type === 'via') {
         const via = displayedVia(app, hit.via);
         if (via !== hit.via) hit = { ...hit, via };
@@ -817,6 +832,7 @@ export function removeHalosByClass(app, cls) {
  * and update the properties panel.
  */
 export function deleteSelectedTrack(app) {
+    app._trackPropertyBinding?.cancel();
     // A single highlighted segment deletes just that edge (the rest of the
     // track survives as its remaining connected pieces). The focused edge is
     // explicit edit state, so verify its Track is still registry-selected.
@@ -856,6 +872,8 @@ export function deleteSelectedTrack(app) {
  * remaining connected pieces. Runs as one undoable compound command.
  */
 export function deleteTrackSegmentAt(app, track, edgeId) {
+    track = canonicalTrack(app, track);
+    app._trackPropertyBinding?.cancel();
     if (!track || !edgeId) return;
     const parts = deleteTrackSegment(track, edgeId);
     clearTrackSelection(app);
@@ -884,6 +902,10 @@ export function dismissTrackContextMenu() {
  *   target a specific segment for "Delete segment".
  */
 export function showTrackContextMenu(app, hit, clientX, clientY, worldPos) {
+    if (hit.type === 'track') {
+        hit = { ...hit, track: canonicalTrack(app, hit.track) };
+        app._trackPropertyBinding?.commit();
+    }
     dismissTrackContextMenu();
     selectTrackOrVia(app, hit);
     if (hit.type === 'via') return showPathContextMenu('pcbTrackContextMenu',
@@ -923,7 +945,7 @@ export function showTrackContextMenu(app, hit, clientX, clientY, worldPos) {
 
 function _drawTrackHalo(app, track, cls = HALO_CLASS, opacity = HALO_OPACITY_SELECTED) {
     if (!trackIsVisible(track)) return;
-    if (getPcbSelection(app).length === 1 && app._trackEdit?.track === track
+    if (getPcbSelection(app).length === 1 && app._trackEdit?.track === canonicalTrack(app, track)
         && track.nodes.has(app._trackEdit.nodeId)) return;
     // Lay a translucent white overlay along each layer-run, at the same
     // width as the trace itself, so it brightens the copper in place
@@ -1103,39 +1125,152 @@ function trackCornerRadiusProperty(track, nodeId = null) {
     return `<div class="prop-row"><label>Corner Radius (mm)</label><input type="number" id="pcbPropTrackCornerRadius" min="0" step="0.5" value="${formatNumberInputValue(radius)}"></div>`;
 }
 
-function bindTrackCornerRadius(app, track, nodeId = null) {
-    const input = /** @type {HTMLInputElement|null} */ (document.getElementById('pcbPropTrackCornerRadius'));
-    let before = null;
-    const preview = () => {
-        if (!input || !Number.isFinite(input.valueAsNumber)) return;
-        const radius = Math.max(0, input.valueAsNumber);
-        const current = nodeId == null ? track.cornerRadius : track.nodeCornerRadius(nodeId);
-        if (Math.abs(current - radius) < 1e-9
-            && (nodeId != null || !Object.keys(track.nodeCornerRadii || {}).length)) return;
-        before ||= track.captureState();
-        if (nodeId == null) {
-            track.cornerRadius = radius;
-            track.nodeCornerRadii = {};
-            track.invalidate();
+function createTrackPropertyBinding(app, track, scope = {}) {
+    app._trackPropertyBinding?.dispose();
+    let preview = null;
+    let field = null;
+    let disposed = false;
+    const fields = [];
+    const layers = () => [...track.edges].filter(([id, edge]) => scope.edgeId != null
+        ? id === scope.edgeId : scope.nodeId == null || edge.from === scope.nodeId || edge.to === scope.nodeId)
+        .map(([id]) => track.getEdgeLayer(id));
+    const editable = () => !disposed && app._active !== false
+        && layers().every(layer => isLayerVisible(layer) && !isLayerLocked(layer));
+    const resetFields = () => {
+        for (const { input, spec } of fields) {
+            const value = spec.read(track);
+            input.value = Number.isFinite(value) ? String(value) : '';
         }
-        else track.setNodeCornerRadius(nodeId, radius);
-        renderTrack(track, id => app._getLayerGroup(id), { hideNetLabel: true });
-        refreshTrackSelectionHalo(app);
-        app._refreshClearanceHalos?.();
-        app._refreshFills?.();
     };
-    const commit = (event) => {
-        if (event.type === 'change') preview();
-        if (!before) return;
-        const original = before;
-        before = null;
-        const after = track.captureState();
-        track.applyState(original);
-        app.history?.execute(new ModifyTrackGraphCommand(app, track, original, after));
+    const finish = commit => {
+        if (!preview) return;
+        const refreshFills = field.spec.fills;
+        preview = null;
+        field = null;
+        let committed = false;
+        try {
+            finishTrackPropertyPreview(app, commit ? (before, after) => {
+                app.history.execute(new ModifyTrackGraphCommand(app, track, before, after));
+                committed = true;
+            } : null);
+        } finally {
+            if (!committed) resetFields();
+            refreshTrackSelectionHalo(app);
+            if (!committed) {
+                app._refreshClearanceHalos?.();
+                if (refreshFills) app._refreshFills?.();
+            }
+        }
     };
-    input?.addEventListener('input', preview);
-    input?.addEventListener('change', commit);
-    input?.addEventListener('blur', commit);
+    const binding = {
+        track,
+        get active() { return !!preview; },
+        affectsLayer(layerId) { return layers().includes(layerId); },
+        commit() { finish(editable()); },
+        cancel() { finish(false); },
+        dispose() {
+            if (disposed) return;
+            disposed = true;
+            finish(false);
+            if (app._trackPropertyBinding === binding) app._trackPropertyBinding = null;
+        },
+        prepare() {
+            if (disposed) return false;
+            binding.commit();
+            return true;
+        },
+        bind(id, spec) {
+            const input = document.getElementById(id);
+            if (!input) return;
+            const entry = { input, spec };
+            fields.push(entry);
+            const update = () => {
+                if (!editable()) { binding.cancel(); return; }
+                const value = spec.parse(input);
+                if (!Number.isFinite(value)) return;
+                if (field && field !== entry) {
+                    const text = input.value;
+                    binding.commit();
+                    input.value = text;
+                }
+                const current = preview?.track || track;
+                if (!spec.changed(current, value)) return;
+                preview ||= beginTrackPropertyPreview(app, track, scope);
+                field = entry;
+                spec.apply(preview.track, value, preview.before);
+                renderTrack(preview.track, layerId => app._getLayerGroup(layerId), { hideNetLabel: true });
+                refreshTrackSelectionHalo(app);
+                app._refreshClearanceHalos?.();
+                if (spec.fills) app._refreshFills?.();
+            };
+            const commit = event => {
+                if (disposed) return;
+                if (event.type === 'change') update();
+                const changed = !!preview;
+                binding.commit();
+                if (changed && spec.rebuild) showTrackSelectionProperties(app, track);
+            };
+            input.addEventListener('input', update);
+            input.addEventListener('change', commit);
+            if (spec.blur) input.addEventListener('blur', commit);
+            input.addEventListener('keydown', event => {
+                if (disposed || event.key !== 'Escape') return;
+                binding.cancel();
+                event.preventDefault();
+                event.stopPropagation();
+            });
+        },
+    };
+    app._trackPropertyBinding = binding;
+    return binding;
+}
+
+function bindTrackCornerRadius(binding, nodeId = null) {
+    binding.bind('pcbPropTrackCornerRadius', {
+        read: track => nodeId == null ? track.cornerRadius : track.nodeCornerRadius(nodeId),
+        parse: input => Math.max(0, input.valueAsNumber),
+        changed: (track, radius) => Math.abs((nodeId == null ? track.cornerRadius : track.nodeCornerRadius(nodeId)) - radius) >= 1e-9
+            || (nodeId == null && Object.keys(track.nodeCornerRadii || {}).length > 0),
+        apply: (track, radius, before) => {
+            if (nodeId == null) {
+                track.cornerRadius = radius;
+                track.nodeCornerRadii = {};
+                track.invalidate();
+            } else if (radius === (before.nodeCornerRadii[nodeId] ?? before.cornerRadius)) {
+                if (Object.hasOwn(before.nodeCornerRadii, nodeId)) track.nodeCornerRadii[nodeId] = before.nodeCornerRadii[nodeId];
+                else delete track.nodeCornerRadii[nodeId];
+                track.invalidate();
+            } else track.setNodeCornerRadius(nodeId, radius);
+        },
+        fills: true, blur: true,
+    });
+}
+
+function bindTrackWidth(binding, edgeId = null) {
+    binding.bind('pcbPropTrackWidth', {
+        read: track => edgeId == null ? track.width : track.getEdgeWidth(edgeId),
+        parse: input => {
+            const value = parseFloat(input.value);
+            return value > 0 ? value : NaN;
+        },
+        changed: (track, width) => edgeId == null
+            ? track.width !== width || [...track.edges.keys()].some(id => track.getEdgeWidth(id) !== width)
+            : track.getEdgeWidth(edgeId) !== width,
+        apply: (track, width, before) => {
+            const setWidth = id => {
+                const edge = track.edges.get(id), original = before.edges[id];
+                if (width === (original.width ?? before.width)) {
+                    if (Object.hasOwn(original, 'width')) edge.width = original.width;
+                    else delete edge.width;
+                    track.invalidate();
+                } else track.setEdgeAttr(id, 'width', width);
+            };
+            if (edgeId == null) {
+                track.width = width;
+                for (const id of track.edges.keys()) setWidth(id);
+            } else setWidth(edgeId);
+        },
+    });
 }
 
 function _showTrackNodeProperties(app, track, nodeId) {
@@ -1148,7 +1283,8 @@ function _showTrackNodeProperties(app, track, nodeId) {
         <div class="prop-row"><label>Y (mm)</label><span id="pcbPropTrackNodeY">${formatNumberInputValue(node.y)}</span></div>
         ${trackCornerRadiusProperty(track, nodeId)}
     `;
-    bindTrackCornerRadius(app, track, nodeId);
+    const binding = createTrackPropertyBinding(app, track, { nodeId });
+    bindTrackCornerRadius(binding, nodeId);
     app._setActiveRibbonTab?.('pcb-properties');
 }
 
@@ -1171,52 +1307,16 @@ function _showTrackProperties(app, track) {
         <div class="prop-row"><label>Width (mm)</label><input type="number" id="pcbPropTrackWidth" value="${formatNumberInputValue(track.width)}" min="0.05" step="0.05"></div>
         ${trackCornerRadiusProperty(track)}
     `;
-    bindTrackCornerRadius(app, track);
-    // Apply a width to the whole track: the track-wide default AND every
-    // edge (render/export read per-edge widths).
-    const applyWidthAll = (w) => {
-        track.width = w;
-        for (const eid of track.edges.keys()) track.setEdgeAttr(eid, 'width', w);
-    };
-    const wEl = /** @type {HTMLInputElement|null} */ (document.getElementById('pcbPropTrackWidth'));
-    const baseline = { width: track.width, net: track.net || '' };
-    let widthBefore = null;
-    wEl?.addEventListener('input', () => {
-        const v = parseFloat(wEl.value);
-        if (!Number.isFinite(v) || v <= 0) return;
-        widthBefore ||= track.captureState();
-        // Live preview — mutate directly so the user sees the change
-        // immediately. The committed value lands on the history stack
-        // when the input loses focus or 'change' fires.
-        applyWidthAll(v);
-        import('./track-render.js').then(({ renderTrack }) => {
-            renderTrack(track, (id) => app._getLayerGroup(id), {
-                viaDiameter: app._getRoutingParams?.()?.viaDiameter,
-                viaDrill: app._getRoutingParams?.()?.viaDrill,
-            });
-            clearTrackSelection(app);
-            setPcbSelection(app, [{ kind: 'track', object: track }]);
-            _drawTrackHalo(app, track);
-            app._refreshClearanceHalos?.();
-        });
-    });
-    wEl?.addEventListener('change', () => {
-        const v = parseFloat(wEl.value);
-        if (!Number.isFinite(v) || v <= 0) return;
-        const before = widthBefore || track.captureState();
-        widthBefore = null;
-        applyWidthAll(v);
-        const after = track.captureState();
-        if (JSON.stringify(before) === JSON.stringify(after)) return;
-        track.applyState(before);
-        app.history?.execute(new ModifyTrackGraphCommand(app, track, before, after));
-        baseline.width = v;
-    });
+    const binding = createTrackPropertyBinding(app, track);
+    bindTrackCornerRadius(binding);
+    bindTrackWidth(binding);
+    const baseline = { net: track.net || '' };
     const netEl = /** @type {HTMLInputElement|null} */ (document.getElementById('pcbPropTrackNet'));
     const netMenuEl = /** @type {HTMLDetailsElement|null} */ (document.querySelector('.prop-net-menu'));
     const netSeedEdgeId = hitTestTrackEdge(app, track, app._lastPointerWorld || {})?.edgeId
         || track.edges.keys().next().value;
     netEl?.addEventListener('change', () => {
+        if (!binding.prepare()) return;
         const v = netEl.value.trim();
         if (v === baseline.net) return;
         if (!v && canRestoreTrackToSourceBoardShape(track)) {
@@ -1254,6 +1354,7 @@ function _showTrackProperties(app, track) {
     });
     const layerEl = /** @type {HTMLSelectElement|null} */ (document.getElementById('pcbPropTrackLayer'));
     layerEl?.addEventListener('change', () => {
+        if (!binding.prepare()) return;
         const v = layerEl.value;
         if (!v) return; // the "Multiple" placeholder
         const before = track.captureState();
@@ -1304,63 +1405,21 @@ function _showTrackSegmentProperties(app, track, edgeId) {
         <div class="prop-row"><label>Width (mm)</label><input type="number" id="pcbPropTrackWidth" value="${formatNumberInputValue(segWidth)}" min="0.05" step="0.05"></div>
         ${track.edges.get(edgeId)?.bulge ? `<div class="prop-row"><label>Bulge</label><input type="number" id="pcbPropTrackBulge" min="-1" max="1" step="0.05" value="${formatNumberInputValue(track.edges.get(edgeId).bulge)}"></div>` : ''}
     `;
-    const bulgeInput = document.getElementById('pcbPropTrackBulge');
-    let bulgeBefore = null;
-    const previewBulge = () => {
-        if (!Number.isFinite(bulgeInput.valueAsNumber)) return;
-        bulgeBefore ||= track.captureState();
-        const value = Math.max(-1, Math.min(1, bulgeInput.valueAsNumber));
-        track.setEdgeAttr(edgeId, 'bulge', Number(formatNumberInputValue(value)));
-        renderTrack(track, layer => app._getLayerGroup(layer));
-        refreshTrackSelectionHalo(app);
-        app._refreshClearanceHalos?.();
-        app._refreshFills?.();
-    };
-    const commitBulge = event => {
-        if (event.type === 'change') previewBulge();
-        if (!bulgeBefore) return;
-        const before = bulgeBefore;
-        bulgeBefore = null;
-        const after = track.captureState();
-        track.applyState(before);
-        app.history.execute(new ModifyTrackGraphCommand(app, track, before, after));
-        showTrackSelectionProperties(app, track);
-    };
-    bulgeInput?.addEventListener('input', previewBulge);
-    bulgeInput?.addEventListener('change', commitBulge);
-    bulgeInput?.addEventListener('blur', commitBulge);
-    const baseline = { width: segWidth, net: track.net || '' };
-    const wEl = /** @type {HTMLInputElement|null} */ (document.getElementById('pcbPropTrackWidth'));
-    wEl?.addEventListener('input', () => {
-        const v = parseFloat(wEl.value);
-        if (!Number.isFinite(v) || v <= 0) return;
-        // Live preview — set just this edge's width.
-        track.setEdgeAttr(edgeId, 'width', v);
-        import('./track-render.js').then(({ renderTrack }) => {
-            renderTrack(track, (id) => app._getLayerGroup(id), {
-                viaDiameter: app._getRoutingParams?.()?.viaDiameter,
-                viaDrill: app._getRoutingParams?.()?.viaDrill,
-            });
-            refreshTrackSelectionHalo(app);
-            app._refreshClearanceHalos?.();
-        });
+    const binding = createTrackPropertyBinding(app, track, { edgeId });
+    bindTrackWidth(binding, edgeId);
+    binding.bind('pcbPropTrackBulge', {
+        read: track => track.edges.get(edgeId)?.bulge || 0,
+        parse: input => Number.isFinite(input.valueAsNumber)
+            ? Number(formatNumberInputValue(Math.max(-1, Math.min(1, input.valueAsNumber)))) : NaN,
+        changed: (track, bulge) => (track.edges.get(edgeId)?.bulge || 0) !== bulge,
+        apply: (track, bulge) => track.setEdgeAttr(edgeId, 'bulge', bulge),
+        fills: true, blur: true, rebuild: true,
     });
-    wEl?.addEventListener('change', () => {
-        const v = parseFloat(wEl.value);
-        if (!Number.isFinite(v) || v <= 0 || v === baseline.width) return;
-        // Roll back the live preview, then commit a graph snapshot so the
-        // per-edge width change is captured for undo/redo.
-        track.setEdgeAttr(edgeId, 'width', baseline.width);
-        const before = track.captureState();
-        track.setEdgeAttr(edgeId, 'width', v);
-        const after = track.captureState();
-        track.applyState(before);
-        app.history?.execute(new ModifyTrackGraphCommand(app, track, before, after));
-        baseline.width = v;
-    });
+    const baseline = { net: track.net || '' };
     const netEl = /** @type {HTMLInputElement|null} */ (document.getElementById('pcbPropTrackNet'));
     const netMenuEl = /** @type {HTMLDetailsElement|null} */ (document.querySelector('.prop-net-menu'));
     netEl?.addEventListener('change', () => {
+        if (!binding.prepare()) return;
         const v = netEl.value.trim();
         if (v === baseline.net) return;
         if (!v && canRestoreTrackToSourceBoardShape(track)) {
@@ -1395,6 +1454,7 @@ function _showTrackSegmentProperties(app, track, edgeId) {
     });
     const layerEl = /** @type {HTMLSelectElement|null} */ (document.getElementById('pcbPropSegLayer'));
     layerEl?.addEventListener('change', () => {
+        if (!binding.prepare()) return;
         const v = layerEl.value;
         if (!v) return;
         const before = track.captureState();

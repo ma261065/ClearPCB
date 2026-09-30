@@ -8,6 +8,7 @@ import { resizePicturePoints, pictureContours } from '../src/pcb/modules/picture
 import { CommandHistory } from '../src/core/CommandHistory.js';
 import { distanceToSegment } from '../src/core/geometry.js';
 import { CORNER_CHORD_TOLERANCE } from '../src/shapes/rounded-path.js';
+import { PcbDocument } from '../src/core/PcbDocument.js';
 
 globalThis.window = { addEventListener() {} };
 globalThis.document = {
@@ -90,8 +91,10 @@ for (const rotation of [0, 17.3, 30, 45, 89.999, 90, 137.5, 180, 270, 359.9999])
 }
 
 function appFor(shape) {
+    const pcbDocument = new PcbDocument();
+    pcbDocument.boardShapes.push(shape);
     return {
-        boardShapes: [shape], shapes: [shape], components: [], _shapeElements: new Map(),
+        pcbDocument, boardShapes: pcbDocument.boardShapes, shapes: [shape], components: [], _shapeElements: new Map(),
         placements: new Map(), tracks: [], vias: [], texts: new Map(),
         history: new CommandHistory(), _getLayerGroup() { return null; }, renderShapes() {},
         _refreshFills() {}, _refreshFillProperties() {},
@@ -161,7 +164,8 @@ for (const rotation of [30, 90, 137.5]) {
             const { target } = resizeTarget(points, index, 1.7, 0.65);
             beginFillEdit(fillApp, fill, points[index], index);
             updateFillEdit(fillApp, target);
-            nearPoints(fill.outline, resizeRectanglePoints(points, index, target));
+            nearPoints(fillApp._fillDrag.fill.outline, resizeRectanglePoints(points, index, target));
+            assert.deepEqual(fill.captureState(), before, 'Resize does not author fill geometry before drop');
             endFillEdit(fillApp, false);
             assert.deepEqual(fill.captureState(), before);
             beginFillEdit(fillApp, fill, points[index], index);

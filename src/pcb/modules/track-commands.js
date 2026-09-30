@@ -55,6 +55,66 @@ import {
 
 const placementPreviews = new WeakMap();
 const viaPropertyPreviews = new WeakMap();
+const trackPropertyPreviews = new WeakMap();
+
+export function getTrackPropertyPreview(app) {
+    return trackPropertyPreviews.get(app);
+}
+
+export function canonicalTrack(app, track) {
+    const preview = trackPropertyPreviews.get(app);
+    return preview?.track === track ? preview.original : track;
+}
+
+export function displayedTrack(app, track) {
+    const preview = trackPropertyPreviews.get(app);
+    return preview?.original === track ? preview.track : track;
+}
+
+function assertTrackPropertyTarget(app, track, { edgeId, nodeId }) {
+    if (!app.pcbDocument.tracks.includes(track)
+        || (edgeId != null && !track.edges.has(edgeId))
+        || (nodeId != null && !track.nodes.has(nodeId))) {
+        throw new Error('Cannot edit a missing track, segment or node.');
+    }
+}
+
+/** Keep one exact graph copy for the active numeric track property field. */
+export function beginTrackPropertyPreview(app, original, scope) {
+    if (trackPropertyPreviews.has(app) || placementPreviews.has(app) || app._viaDrag || app._vertexDrag) {
+        throw new Error('Finish the current track preview before editing track properties.');
+    }
+    assertTrackPropertyTarget(app, original, scope);
+    const before = original.captureState();
+    const track = new Track({ id: original.id });
+    track.applyState(before);
+    const preview = { original, track, before, scope,
+        tracks: app.pcbDocument.tracks.map(item => item === original ? track : item) };
+    trackPropertyPreviews.set(app, preview);
+    removeTrackElements(original);
+    return preview;
+}
+
+/** Drop display ownership before the existing graph command applies authored state. */
+export function finishTrackPropertyPreview(app, commit) {
+    const preview = trackPropertyPreviews.get(app);
+    if (!preview) return;
+    trackPropertyPreviews.delete(app);
+    removeTrackElements(preview.track);
+    let committed = false;
+    try {
+        const after = preview.track.captureState();
+        if (commit && JSON.stringify(after) !== JSON.stringify(preview.before)) {
+            assertTrackPropertyTarget(app, preview.original, preview.scope);
+            commit(preview.before, after);
+            committed = true;
+        }
+    } finally {
+        if (!committed && app.pcbDocument.tracks.includes(preview.original)) {
+            renderTrack(preview.original, id => app._getLayerGroup(id), _opts(app, preview.original));
+        }
+    }
+}
 
 export function getViaPropertyPreview(app) {
     return viaPropertyPreviews.get(app);
@@ -387,10 +447,11 @@ export class AddTrackCommand extends ModelAddTrackCommand {
 /** Remove an existing Track from app.tracks and its SVG. */
 export class RemoveTrackCommand extends ModelRemoveTrackCommand {
     constructor(app, track) {
-        super(app.pcbDocument, track);
+        super(app.pcbDocument, canonicalTrack(app, track));
         this.app = app;
     }
     execute() {
+        if (this.app._trackPropertyBinding?.track === this.track) this.app._trackPropertyBinding.dispose();
         deselectRemovedTrack(this.app, this.track);
         removeTrackElements(this.track);
         super.execute();
@@ -411,7 +472,7 @@ export class RemoveTrackCommand extends ModelRemoveTrackCommand {
  */
 export class ModifyTrackCommand extends ModelModifyTrackCommand {
     constructor(app, track, before, after) {
-        super(track, before, after);
+        super(canonicalTrack(app, track), before, after);
         this.app = app;
     }
     _apply(state) {
@@ -445,7 +506,7 @@ export class MoveVertexCommand extends ModelMoveVertexCommand {
  */
 export class ModifyTrackGraphCommand extends ModelModifyTrackGraphCommand {
     constructor(app, track, before, after) {
-        super(track, before, after);
+        super(canonicalTrack(app, track), before, after);
         this.app = app;
     }
     _apply(state) {

@@ -13,10 +13,12 @@ import { lockPositionOutsideOutline } from './selection-anchors.js';
 import { pathMoveInteraction } from './path-edit.js';
 
 export function createCopperFillSelectionAdapter(app, fill, id) {
+    if (app._fillDrag?.fill === fill) fill = app._fillDrag.original;
+    const current = () => app._fillDrag?.original === fill ? app._fillDrag.fill : fill;
     return {
         id,
         kind: 'fill',
-        object: fill,
+        get object() { return current(); },
         get visible() {
             return fill.visible !== false && isCopperFillVisible(fill.layer);
         },
@@ -30,22 +32,24 @@ export function createCopperFillSelectionAdapter(app, fill, id) {
             this.invalidate();
         },
         getLockPosition(pointer, scale) {
-            return lockPositionOutsideOutline(fill.getOutline(), pointer, scale);
+            return lockPositionOutsideOutline(current().getOutline(), pointer, scale);
         },
-        getBounds() { return fill.getBounds() || { minX: 0, minY: 0, maxX: 0, maxY: 0 }; },
+        getBounds() { return current().getBounds() || { minX: 0, minY: 0, maxX: 0, maxY: 0 }; },
         hitTest(point, tolerance) {
+            const fill = current();
             return fill.distanceToEdge(point.x, point.y) <= Math.max(0.6, tolerance)
                 || (isPcbSelected(app, 'fill', fill) && fillSegmentAt(fill, point, tolerance) != null);
         },
         getPosition() {
-            const bounds = fill.getBounds();
+            const bounds = current().getBounds();
             return bounds ? { x: (bounds.minX + bounds.maxX) / 2, y: (bounds.minY + bounds.maxY) / 2 } : { x: 0, y: 0 };
         },
         getAnchors() {
-            return getBoardShapeAnchors(fill).map(anchor => ({ ...anchor,
-                selected: anchor.id === fillEditFocus(app, fill).node }));
+            const target = current();
+            return getBoardShapeAnchors(target).map(anchor => ({ ...anchor,
+                selected: anchor.id === fillEditFocus(app, target).node }));
         },
-        getEditPath() { return fillEditPath(app, fill); },
+        getEditPath() { return fillEditPath(app, current()); },
         anchorColor: '#3399ff',
         beginAnchorDrag(anchorId, worldPos) { return beginFillEdit(app, fill, worldPos, anchorId); },
         updateAnchorDrag(worldPos) { updateFillEdit(app, worldPos); },
@@ -53,8 +57,8 @@ export function createCopperFillSelectionAdapter(app, fill, id) {
             endFillEdit(app, commit);
         },
         ...pathMoveInteraction({
-            segmentAt: point => fillSegmentAt(fill, point, 8 / Math.max(0.01, app.viewport?.scale || 1)),
-            selectedSegment: () => fillEditFocus(app, fill).segment ?? null,
+            segmentAt: point => fillSegmentAt(current(), point, 8 / Math.max(0.01, app.viewport?.scale || 1)),
+            selectedSegment: () => fillEditFocus(app, current()).segment ?? null,
             selectSegment: segment => {
                 app._fillEdit = { fillId: fill.id, segment };
                 app._refreshFillProperties?.(fill);
@@ -64,8 +68,9 @@ export function createCopperFillSelectionAdapter(app, fill, id) {
             end: commit => endFillEdit(app, commit),
         }),
         invalidate() {
-            renderCopperFill(fill, (layerId) => app._getLayerGroup(layerId), {
+            renderCopperFill(current(), (layerId) => app._getLayerGroup(layerId), {
                 selected: isPcbSelected(app, 'fill', fill),
+                outlineOnly: app._fillDrag?.original === fill && app._fillDrag.fill !== fill,
             });
         },
         render() { this.invalidate(); },

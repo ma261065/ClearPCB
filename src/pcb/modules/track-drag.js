@@ -44,7 +44,7 @@ import {
     collectBondedCopper,
 } from './track-draw.js';
 import { refreshTrackSelectionHalo } from './track-select.js';
-import { MoveVertexCommand, MoveViaCommand, CompoundCommand, ModifyTrackGraphCommand, RemoveTrackCommand, AddViaCommand, AddTrackCommand, ModifyTrackCommand, ModifyViaCommand } from './track-commands.js';
+import { MoveVertexCommand, MoveViaCommand, CompoundCommand, ModifyTrackGraphCommand, RemoveTrackCommand, AddViaCommand, AddTrackCommand, ModifyTrackCommand, ModifyViaCommand, canonicalTrack } from './track-commands.js';
 import { pointsCollinear, collinearSnap } from '../../core/geometry.js';
 import { showAlert } from '../../ui/modules/modal.js';
 import { Via, viaHitTest } from '../../shapes/via.js';
@@ -407,6 +407,8 @@ export function commitCollinearCleanup(app, track) {
  * @returns {boolean}
  */
 export function splitTrackNodeAndDrag(app, track, nodeId) {
+    track = canonicalTrack(app, track);
+    app._trackPropertyBinding?.commit();
     if (!track?.nodes?.has(nodeId) || track.degree(nodeId) < 2) return false;
     const pos = track.nodes.get(nodeId);
     if (!pos) return false;
@@ -445,6 +447,8 @@ export function splitTrackNodeAndDrag(app, track, nodeId) {
  * @returns {boolean} true if an insertion drag was started.
  */
 export function startMidpointInsertDrag(app, track, edgeId) {
+    track = canonicalTrack(app, track);
+    app._trackPropertyBinding?.commit();
     if (!track?.edges?.has(edgeId)) return false;
     const e = track.edges.get(edgeId);
     const a = track.nodes.get(e.from);
@@ -1022,6 +1026,8 @@ function _tryMergeDroppedNode(app, drag, netCommand = null) {
  *   a separate, deliberate second click.
  */
 export function startVertexDrag(app, track, worldPos, opts = {}) {
+    track = canonicalTrack(app, track);
+    app._trackPropertyBinding?.commit();
     if (opts.whole) {
         app._vertexDrag = { track, mode: 'move', graphBefore: track.captureState(),
             grabX: worldPos.x, grabY: worldPos.y,
@@ -1761,6 +1767,7 @@ export function startPadDrag(app, pad, worldPos) {
 }
 
 function startTerminalDrag(app, via, worldPos, kind) {
+    app._trackPropertyBinding?.commit();
     const layers = kind === 'pad' ? padLayers(via) : ['top-copper', 'bottom-copper'];
     // Find every Track node at the via's current (x, y). Track endpoints
     // and layer-change nodes commonly sit exactly on a via.

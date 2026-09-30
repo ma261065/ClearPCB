@@ -284,7 +284,19 @@ a detached `CopperFill` supplied to each mutation callback. It constructs and
 validates the command snapshot without replacing canonical geometry references
 or changing the authored fill/cache; throwing callbacks cannot leave partial
 authored edits behind. Only the existing command applies accepted changes.
-This is command preparation isolation, not fill pointer/group preview isolation.
+This helper isolates command preparation independently of pointer previews.
+
+Single-fill pointer gestures now keep the canonical target and a lazy reusable
+`CopperFill` copy in `_fillDrag`. Move, segment, vertex, bulge, center and radius
+updates change only that copy; midpoint insertion creates it immediately to
+stage topology. The selection adapter dynamically resolves displayed identity,
+bounds, hits, anchors and paths. `boardShapes` and the computed-pour weak map
+remain canonical, and the existing overlay deferral suppresses fill rerenders.
+Completion clears gesture ownership before the existing `ModifyFillCommand`;
+cancellation, no-op, invalid edits and command rejection restore canonical
+artwork without authored rollback. Missing targets remove orphan preview SVG.
+Shared lifecycle cancellation handles fill adapters and orphaned `_fillDrag`
+state on deactivation/load. Grouped fill previews remain outside this isolation.
 
 Live computed pour polygons belong to `pcb/modules/computed-fill-cache.js`,
 an identity-keyed weak map outside authored `CopperFill` entities. SVG, flat 2D,
@@ -898,8 +910,31 @@ hover resolve displayed copies without losing canonical command identity;
 starting a via drag commits pending properties before movement pickup.
 Panel replacement, Escape, deactivation, loading, locks and visibility changes
 clean up previews and queued frames, and save/export readiness includes them.
-Groups containing terminals and direct track properties/node/segment/arc previews
-retain their existing paths and remain ownership work.
+
+Direct track numeric properties now have a single-track projection in
+`track-commands.js`: whole-track/selected-edge width, whole-track/node corner
+radius and the existing arc bulge field. The first changed value captures exact
+graph state and creates one track copy/collection; subsequent values reuse both,
+including graph-map identity. Canonical geometry, metadata, serialization and
+bounds caches remain untouched. The track collection getter prefers component
+and terminal-movement previews before numeric properties. Selection adapters
+retain canonical identity while resolving displayed bounds, hits, lock outlines,
+anchors and hover geometry. Repeated values skip SVG and derived refresh work;
+changed values render immediately without the old delayed width-import callback.
+Existing width/radius/bulge normalization and derived refresh policies remain.
+
+The disposable track panel binding clears the projection before the existing
+graph command, using first-change rather than panel-open snapshots. Exact
+attribute fallbacks survive a return to the original value without consuming
+redo. Numeric-to-net/layer, node/midpoint/split/arc pickup and terminal pickup
+finish pending properties before using canonical targets. Cancellation,
+replaced panels, deactivation, loading, relevant layer locks/visibility, missing
+targets and command rejection remove preview artwork without authored rollback.
+Save/export readiness includes active track properties. Direct track pointer
+node/segment/arc gestures, groups and other entity preview families retain their
+existing paths; this slice does not isolate them. Shared pose cancellation also
+dispatches fill adapters and orphaned fill drags through `endFillEdit(false)`;
+it does not replace the canonical fill collection or pour cache.
 
 Both component pointer paths use the same live pose updater. If magnetic snapping
 produces the current coordinates, it skips footprint transforms, pad/bond updates

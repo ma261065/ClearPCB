@@ -68,6 +68,8 @@ import {
     finishPlacementPreview,
     getPlacementPreviewTracks,
     getViaPropertyPreview,
+    getTrackPropertyPreview,
+    canonicalTrack,
     renderPlacementPose,
     renderPlacementSide,
     applyPlacementRefVisible,
@@ -210,7 +212,10 @@ const PCB_CROSSHAIR_TOOLS = new Set([
 ]);
 
 export default class PCBApp {
-    get tracks() { return getPlacementPreviewTracks(this) || this._viaDrag?.preview?.tracks || this.pcbDocument.tracks; }
+    get tracks() {
+        return getPlacementPreviewTracks(this) || this._viaDrag?.preview?.tracks
+            || getTrackPropertyPreview(this)?.tracks || this.pcbDocument.tracks;
+    }
     set tracks(value) { this.pcbDocument.tracks = value; }
     get vias() { return this._viaDrag?.preview?.vias || getViaPropertyPreview(this)?.vias || this.pcbDocument.vias; }
     set vias(value) { this.pcbDocument.vias = value; }
@@ -519,7 +524,7 @@ export default class PCBApp {
                 && ['line', 'rect', 'polygon'].includes(selectedShape[0]?.kind)
                 && this._selectedBoardShapeSegment?.shapeId !== selectedShape[0]?.id
                 && this._selectedBoardShapeNode?.shapeId !== selectedShape[0]?.id)
-                || (selectedTrack.length === 1 && this._trackEdit?.track !== selectedTrack[0]));
+                || (selectedTrack.length === 1 && this._trackEdit?.track !== canonicalTrack(this, selectedTrack[0])));
         const showHoleTip = rawTool === 'circle' && layer === 'hole';
         const showOverlapTip = rawTool === 'select' && this._overlapHitCount > 1;
         const showTrackTip = rawTool === 'track';
@@ -2611,6 +2616,7 @@ export default class PCBApp {
             return true;
         }
         if (e.key === 'Delete' || e.key === 'Backspace') {
+            this._trackPropertyBinding?.cancel();
             if (deleteFocusedBoardShape(this)) return true;
             const focusedFill = getPcbSelection(this, 'fill')[0];
             if (focusedFill && canEditFill(focusedFill) && deleteFocusedFillPart(this, focusedFill)) return true;
@@ -2632,6 +2638,10 @@ export default class PCBApp {
             return deleted;
         }
         if (e.key === 'Escape') {
+            if (this._trackPropertyBinding?.active) {
+                this._trackPropertyBinding.cancel();
+                return true;
+            }
             if (this._boardOutlineResize) {
                 endBoardOutlineResize(this, false);
                 this.viewport.svg.style.cursor = 'default';
@@ -2846,7 +2856,8 @@ export default class PCBApp {
             || this._pasteDrop || this._textEdit || this._boardOutlineResize
             || this._pcbSelectionInteraction || this._rotationHandleDrag
             || this._deferDragOverlays || this._suspendFillRefresh || this._textPropertyBinding?.active
-            || this._padPropertyBinding?.active || this._viaPropertyBinding?.active);
+            || this._padPropertyBinding?.active || this._viaPropertyBinding?.active
+            || this._trackPropertyBinding?.active);
     }
 
     /**
@@ -3028,6 +3039,7 @@ export default class PCBApp {
      * @param {boolean} visible
      */
     _onLayerVisibilityChanged(layerId, visible) {
+        if (!visible && this._trackPropertyBinding?.affectsLayer(layerId)) this._trackPropertyBinding.dispose();
         if (!visible && layerId === 'vias') this._viaPropertyBinding?.dispose();
         if (!visible && this._padPropertyBinding?.pads.some(pad => padLayers(pad).includes(layerId))) {
             this._padPropertyBinding.dispose();
@@ -3098,6 +3110,7 @@ export default class PCBApp {
      * @param {boolean} locked
      */
     _onLayerLockChanged(layerId, locked) {
+        if (locked && this._trackPropertyBinding?.affectsLayer(layerId)) this._trackPropertyBinding.cancel();
         if (locked && layerId === 'vias') this._viaPropertyBinding?.cancel();
         if (locked && this._textPropertyBinding?.model.layer === layerId) this._textPropertyBinding.cancel();
         if (locked && this._padPropertyBinding?.pads.some(pad => padLayers(pad).includes(layerId))) {
@@ -3511,6 +3524,8 @@ export default class PCBApp {
         this._padPropertyBinding = null;
         this._viaPropertyBinding?.dispose();
         this._viaPropertyBinding = null;
+        this._trackPropertyBinding?.dispose();
+        this._trackPropertyBinding = null;
         const el = document.querySelector('#pcbPropsContent .ribbon-group-title');
         if (el) el.textContent = title || 'Properties';
     }
@@ -5209,9 +5224,10 @@ export default class PCBApp {
         this._textPropertyBinding?.cancel();
         this._padPropertyBinding?.cancel();
         this._viaPropertyBinding?.cancel();
+        this._trackPropertyBinding?.cancel();
         const state = this._pcbSelectionInteraction;
-        if (['component', 'text', 'pad'].includes(state?.adapter?.kind)
-            || (state?.mode === 'move-adapter' && ['component', 'text', 'via', 'pad'].includes(state.entry.kind))) finishSelectionInteraction(this, false);
+        if (['component', 'text', 'pad', 'fill'].includes(state?.adapter?.kind)
+            || (state?.mode === 'move-adapter' && ['component', 'text', 'via', 'pad', 'fill'].includes(state.entry.kind))) finishSelectionInteraction(this, false);
         if (this._groupDrag?.posePreview) {
             if (state?.mode === 'move') finishSelectionInteraction(this, false);
             else cancelGroupDrag(this);
@@ -5219,6 +5235,7 @@ export default class PCBApp {
         if (this._drag) this._endDrag(false);
         if (this._textDrag) this._endTextDrag(false);
         if (this._viaDrag) cancelViaDrag(this);
+        if (this._fillDrag) endFillEdit(this, false);
         finishPadRotationPreview(this);
     }
 
