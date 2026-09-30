@@ -117,7 +117,11 @@ const mixed = merge([resistor, new Component(definitions.get('PMOS'))]).find(ite
 assert.ok(mixed.options.length > 0);
 assert.ok(!mixed.options.some(option => option.value === '0603'), 'Only mutually supported packages appear');
 
-const project = serializeDocument({ ...app, components: instances.concat(app.components) });
+const { SchematicDocument } = await import('../src/core/SchematicDocument.js');
+const saveModel = new SchematicDocument();
+saveModel.components = instances.concat(app.components);
+saveModel.shapes = app.shapes;
+const project = serializeDocument({ document: saveModel, viewport: app.viewport });
 assert.equal(project.schematic.defs, undefined, 'Different packages of the same symbol need no embedded definitions');
 assert.ok(JSON.stringify(project).length < 12000, 'Saving bundled models must not bloat the project');
 const manager = new FileManager();

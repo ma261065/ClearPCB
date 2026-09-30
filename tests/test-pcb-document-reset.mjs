@@ -92,10 +92,12 @@ function fixture(active) {
         _refreshClearanceHalos() {}, _refreshFills() {},
     });
     const host = {
+        document: project.schematicDocument,
         project, fileManager: project.fileManager, selection: { clearSelection() {} },
         shapes: [], components: [],
         clearSection: SchematicApp.prototype.clearSection,
         serializeSection: SchematicApp.prototype.serializeSection,
+        getViewSettings: SchematicApp.prototype.getViewSettings,
         _clearAllShapes() { this.shapes = []; }, _clearAllComponents() { this.components = []; },
         viewport: { resetView() {}, setTitleBlockData() {} }, _updateTitle() {},
         _notifyDocumentReplaced: SchematicApp.prototype._notifyDocumentReplaced,

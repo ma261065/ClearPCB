@@ -10,9 +10,11 @@ let current = project();
 let projectChanges = 0;
 const view = {
     onProjectChanged() { projectChanges++; },
-    serializeSection: () => structuredClone(current),
-    prepareSection: () => ({}),
-    loadSection(data) { current = structuredClone(data); },
+    prepareSection: data => owner.schematicDocument.prepare(data),
+    loadSection(data, prepared) {
+        owner.schematicDocument.load(data, prepared);
+        current = structuredClone(data);
+    },
 };
 owner.registerView('schematic', view, { isUiHost: true });
 await owner.load(project());
@@ -57,7 +59,7 @@ assert.notEqual(repaired.data.pcb.tracks[1].id, 'shape_1');
 assert.notEqual(repaired.data.pcb.tracks[1].id, 'shape_65');
 assert.deepEqual({ ...repaired.data.pcb.tracks[1], id: 'shape_65' }, damaged.pcb.tracks[1],
     'Repair preserves every track field except the duplicate ID');
-view.prepareSection = () => ({});
+view.prepareSection = data => owner.schematicDocument.prepare(data);
 await owner.load(repaired.data);
 assert.deepEqual(current, repaired.data);
 assert.equal(repairDuplicateTrackIds(repaired.data).count, 0, 'Recovery repair is idempotent');

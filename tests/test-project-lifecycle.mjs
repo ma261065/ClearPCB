@@ -216,9 +216,12 @@ let loads = 0;
 const loadingStates = [];
 owner.onLoadingChange = loading => { loadingStates.push(loading); };
 owner.registerView('schematic', {
-    serializeSection: () => structuredClone(current),
-    prepareSection: () => ({}),
-    loadSection: (data) => { current = structuredClone(data); loads++; },
+    prepareSection: data => owner.schematicDocument.prepare(data),
+    loadSection: (data, prepared) => {
+        owner.schematicDocument.load(data, prepared);
+        current = structuredClone(data);
+        loads++;
+    },
 });
 const pcb = {
     serializeSection: () => pcbState,
@@ -250,7 +253,7 @@ pcb.loadSection = (data) => {
 };
 rejectPcbLoad = true;
 await assert.rejects(owner.load({ ...project(), pcb: pcbSection() }), /Render failure/);
-assert.deepEqual(current, project());
+assert.deepEqual(current.schematic, { settings: {}, shapes: [], components: [] });
 assert.equal(pcbState, null);
 assert.equal(restoredPcbDirty, true, 'Rollback restores dirtiness through the public view hook');
 assert.equal(owner.fileManager.loading, false);
@@ -304,18 +307,16 @@ assert.equal(prompts, 4);
 
 const resetOwner = new ProjectDocument();
 const resetOrder = [];
-const resetDocument = project();
-resetDocument.schematic.settings = { gridSize: 0.127 };
+const resetPreferences = { gridSize: 0.127 };
 resetOwner.registerView('pcb', {
     clearSection() { resetOrder.push('pcb'); },
 });
 resetOwner.registerView('schematic', {
     clearSection() {
         resetOrder.push('schematic');
-        resetDocument.schematic.shapes = [];
-        resetDocument.schematic.components = [];
+        resetOwner.schematicDocument.clear();
     },
-    serializeSection: () => structuredClone(resetDocument),
+    getViewSettings: () => resetPreferences,
 });
 let initialRecovery;
 resetOwner.fileManager.autoSaveToStorage = data => {
@@ -324,7 +325,8 @@ resetOwner.fileManager.autoSaveToStorage = data => {
 };
 await resetOwner.reset();
 assert.deepEqual(resetOrder, ['schematic', 'pcb', 'recovery']);
-assert.deepEqual(initialRecovery, resetOwner.serialize(), 'Recovery includes retained editor settings');
+assert.deepEqual(initialRecovery.schematic, resetOwner.serialize().schematic, 'Recovery includes retained editor settings');
+assert.equal(initialRecovery.schematic.settings.gs, resetPreferences.gridSize);
 assert.equal(resetOwner.fileManager.fileName, 'untitled.cpcb');
 assert.equal(resetOwner.fileManager.loading, false);
 resetOwner.fileManager.saving = true;

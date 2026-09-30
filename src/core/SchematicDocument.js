@@ -38,7 +38,7 @@ export function setComponentReference(component, reference) {
     if (component.refText) component.refText.text = reference;
 }
 
-/** Serialize existing entities; settings are supplied by the editor until their own migration. */
+/** Serialize authored entities with detached preferences and deduplicated definitions. */
 export function serializeSchematicDocument({ shapes, components, settings = {} }) {
     const serializedComponents = components.map(component => component.toJSON());
     const serializedShapes = shapes
@@ -122,8 +122,9 @@ export class SchematicDocument {
         this.settings = {};
     }
 
-    serialize() {
-        return serializeSchematicDocument(this);
+    /** Current view preferences override the loaded fallback for this snapshot only. */
+    serialize(settings = this.settings) {
+        return serializeSchematicDocument({ shapes: this.shapes, components: this.components, settings });
     }
 
     /** @returns {import('./ProjectDocument.js').ComponentInfo|null} */

@@ -1437,9 +1437,14 @@ export default class SchematicApp {
         this.renderShapes(true);
     }
 
+    /** Current view preferences only; authored state is serialized by the project model. */
+    getViewSettings() {
+        return FileTools.serializeViewSettings(this.viewport);
+    }
+
     /**
-     * Serialize just this editor's slice of the document (the schematic
-     * envelope). Called by ProjectDocument.serialize().
+     * Retained direct-editor API for the schematic envelope.
+     * ProjectDocument serializes the model itself.
      * @returns {Object}
      */
     serializeSection() {

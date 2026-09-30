@@ -20,8 +20,7 @@ import { createPcbFootprint } from './pcb-footprint.js';
  * models retain loaded preferences for use without a view.
  *
  * Views implement a small duck-typed interface:
- *   - Schematic `serializeSection()` → the schematic envelope.
- *   - PCB `getViewSettings()` → current grid preferences, or undefined before viewport creation.
+ *   - `getViewSettings()` → current view preferences, or undefined before viewport creation.
  *   - `loadSection(data)`   → restore the view from its slice.
  *   - `clearSection()`      → reset the view to empty (used by New).
  *   - `isSectionDirty()`    → unsaved-changes flag for autosave/beforeunload.
@@ -168,14 +167,13 @@ export class ProjectDocument {
     }
 
     /**
-     * Assemble the combined document. Authored PCB state always comes from its model;
-     * the PCB view contributes only current preferences, with loaded model fallback.
-     * Schematic serialization still uses its registered adapter when available.
+     * Assemble authored content from the project-owned models.
+     * Views contribute only current preferences, with loaded model fallback.
      * Neither view reaches into the other — the project coordinates them.
      * @returns {object} The serialized project document.
      */
     serialize() {
-        const doc = this.schematic?.serializeSection?.() || this.schematicDocument.serialize();
+        const doc = this.schematicDocument.serialize(this.schematic?.getViewSettings?.());
         const pcbSection = this.pcbDocument.serializeSection(this.pcb?.getViewSettings?.());
         if (pcbSection) doc.pcb = pcbSection;
         else delete doc.pcb;

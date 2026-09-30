@@ -40,7 +40,7 @@ for (const schematicView of [false, true]) {
     if (schematicView) {
         const model = project.schematicDocument;
         project.registerView('schematic', {
-            serializeSection: () => model.serialize(),
+            getViewSettings: () => undefined,
             prepareSection: data => model.prepare(data),
             loadSection: (data, prepared) => model.load(data, prepared),
             clearSection: () => model.clear(),

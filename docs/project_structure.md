@@ -311,13 +311,19 @@ uses a detached snapshot retained during loading, preserving absent settings
 without inventing defaults. Live viewport edits still belong to the view; the
 loaded snapshot is a persistence fallback, not a second live viewport.
 
-`ProjectDocument` always serializes authored PCB state from `PcbDocument`.
-A registered PCB view contributes only `getViewSettings()`: current grid/view
-preferences, or undefined before viewport creation so loaded preferences remain
-the fallback. A view cannot suppress or replace authored PCB data by returning
-its own serialized section. The direct editor `serialize()` and
-`serializeSection()` APIs remain available and delegate to the model.
-Schematic serialization still uses its registered adapter when available.
+`ProjectDocument` always serializes schematic entities from `SchematicDocument`
+and authored PCB state from `PcbDocument`. Registered views contribute only
+`getViewSettings()`: current persisted view settings, or undefined before viewport
+creation so loaded settings remain the fallback. A view cannot suppress or replace
+model content by returning its own serialized section. The direct editor
+serialization APIs remain available and delegate to their models.
+
+The schematic model assembles shapes, components and deduplicated embedded
+definitions. Its view-settings adapter captures grid, paper size/orientation and
+title-block settings, including detached title-block data. Current settings
+override the loaded fallback only for the saved snapshot; saving does not mutate
+either the fallback or live entities. Direct schematic serialization and combined
+project serialization use the same model codec.
 
 For preparation, load and reset, `ProjectDocument` uses the PCB model directly
 when no PCB view is registered; registered adapters retain their existing
@@ -553,8 +559,8 @@ This is an intermediate migration: existing entities still contain rendering
 methods/state, and general commands still mix data and presentation.
 SVG preparation/attachment, derived Net
 text, label layout and current viewport settings remain editor responsibilities.
-Headless serialization preserves loaded settings; editor serialization supplies
-current viewport settings. Schematic editing callbacks explicitly notify the
+Headless serialization preserves loaded settings; registered editors supply
+current viewport settings to model-owned project serialization. Schematic editing callbacks explicitly notify the
 project; the model itself does not introduce an automatic change-observer system.
 
 PDF, Gerber, BOM and pick-and-place naming share

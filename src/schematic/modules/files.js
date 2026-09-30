@@ -2,7 +2,7 @@ import { resetWireLabelCounter, resetNetNameCounter } from '../../shapes/index.j
 import { createNetText } from './shape-management.js';
 import { attachLabelToTarget } from '../../ui/modules/label-attachment.js';
 import { importEasyEDASchematic } from '../../easyeda/schematic-importer.js';
-import { deserializeComponent, serializeSchematicDocument } from '../../core/SchematicDocument.js';
+import { deserializeComponent } from '../../core/SchematicDocument.js';
 import { serializeGridSettings, restoreGridSettings } from '../../ui/modules/viewport.js';
 
 function canReplaceDocument(app) {
@@ -18,19 +18,22 @@ function canReplaceDocument(app) {
  * @returns {object} Serialized document object.
  */
 export function serializeDocument(app) {
-    return serializeSchematicDocument({
-        shapes: app.shapes, components: app.components,
-        settings: {
-            ...serializeGridSettings(app.viewport),
-            paperSize: app.viewport.paperSizeKey || null,
-            paperOrientation: app.viewport.paperSize
-                ? (app.viewport.paperSize.width >= app.viewport.paperSize.height ? 'landscape' : 'portrait')
-                : null,
-            titleBlock: app.viewport.showTitleBlock || false,
-            titleBlockInfo: app.viewport.showTitleBlockInfo || false,
-            titleBlockData: app.viewport.titleBlockData || {}
-        },
-    });
+    return app.document.serialize(serializeViewSettings(app.viewport));
+}
+
+/** Capture view preferences without accessing authored content or creating a viewport. */
+export function serializeViewSettings(viewport) {
+    if (!viewport) return undefined;
+    return {
+        ...serializeGridSettings(viewport),
+        paperSize: viewport.paperSizeKey || null,
+        paperOrientation: viewport.paperSize
+            ? (viewport.paperSize.width >= viewport.paperSize.height ? 'landscape' : 'portrait')
+            : null,
+        titleBlock: viewport.showTitleBlock || false,
+        titleBlockInfo: viewport.showTitleBlockInfo || false,
+        titleBlockData: structuredClone(viewport.titleBlockData || {}),
+    };
 }
 
 /**

@@ -6,6 +6,7 @@ const { default: SchematicApp } = await import('../src/ui/SchematicApp.js');
 const { default: PCBApp } = await import('../src/ui/PCBApp.js');
 const { ProjectDocument } = await import('../src/core/ProjectDocument.js');
 const { PcbDocument } = await import('../src/core/PcbDocument.js');
+const { SchematicDocument } = await import('../src/core/SchematicDocument.js');
 const { newFile, openFile, openRecentFile } = await import('../src/schematic/modules/files.js');
 
 function fixture(outcome = 'success') {
@@ -16,6 +17,7 @@ function fixture(outcome = 'success') {
     const app = {
         project: {
             pcbDocument: new PcbDocument(),
+            schematicDocument: new SchematicDocument(),
             isDirty: outcome === 'declined',
             serialize: ProjectDocument.prototype.serialize,
             async reset() {
@@ -46,6 +48,7 @@ function fixture(outcome = 'success') {
         _loadDocument: SchematicApp.prototype._loadDocument,
         clearSection: SchematicApp.prototype.clearSection,
         serializeSection: SchematicApp.prototype.serializeSection,
+        getViewSettings: SchematicApp.prototype.getViewSettings,
         shapes: [], components: [],
         _notifyDocumentReplaced: SchematicApp.prototype._notifyDocumentReplaced,
         onDocumentReplaced: SchematicApp.prototype.onDocumentReplaced,
@@ -56,6 +59,7 @@ function fixture(outcome = 'success') {
         viewport: { resetView() {}, setTitleBlockData() {} },
     };
     app.project.fileManager = app.fileManager;
+    app.document = app.project.schematicDocument;
     app.project.schematic = app;
     app.project.views = new Map([['schematic', app], ['pcb', app.project.pcb]]);
     return { app, tabs, events };
