@@ -10,7 +10,7 @@ import { isCopperFillLocked, isCopperFillVisible, isLayerLocked } from './layers
 import { snapPathPoint, snapPathTranslation, pathContextActions, showPathContextMenu } from './path-edit.js';
 import { distanceToArcEdge, arcEdgePathD } from '../../shapes/arc-edge.js';
 import { formatNumberInputValue } from '../../core/number-inputs.js';
-import { normalizeCopperFillKind } from '../../shapes/copper-fill.js';
+import { CopperFill, normalizeCopperFillKind } from '../../shapes/copper-fill.js';
 
 export function canEditFill(fill) {
     return fill && !fill.locked && fill.visible !== false && !isLayerLocked(fill.layer)
@@ -45,10 +45,10 @@ function validFill(fill) {
 export function commitFillEdit(app, fill, mutate) {
     if (!canEditFill(fill)) return false;
     const before = fill.captureState();
-    mutate();
-    const after = fill.captureState();
-    const valid = validFill(fill);
-    fill.applyState(before);
+    const candidate = new CopperFill(before);
+    mutate(candidate);
+    const after = candidate.captureState();
+    const valid = validFill(candidate);
     if (!valid || JSON.stringify(before) === JSON.stringify(after)) return false;
     app.history.execute(new ModifyFillCommand(app, fill, before, after));
     return true;
@@ -147,7 +147,7 @@ export function startFillEditAt(app, fill, point) {
 export function deleteFillNode(app, fill, index) {
     if (fill.kind === 'circle' || fill.outline.length <= 3 || !Number.isInteger(index)
         || index < 0 || index >= fill.outline.length) return false;
-    return commitFillEdit(app, fill, () => {
+    return commitFillEdit(app, fill, fill => {
         const count = fill.outline.length;
         const previous = (index + count - 1) % count;
         fill.segmentBulges = Object.fromEntries(Object.entries(fill.segmentBulges)
@@ -180,7 +180,7 @@ export function showFillContextMenu(app, fill, clientX, clientY, point) {
     const items = pathContextActions({ node: node != null, segment: segment != null, curved,
         deleteNode: fill.outline.length > 3 ? () => deleteFillNode(app, fill, node) : null,
         deleteSegment: fill.outline.length > 3 ? () => deleteFillNode(app, fill, (segment + 1) % fill.outline.length) : null,
-        convert: () => commitFillEdit(app, fill, () => {
+        convert: () => commitFillEdit(app, fill, fill => {
             fill.kind = 'polygon';
             if (curved) delete fill.segmentBulges[segment];
             else fill.segmentBulges[segment] = 0.25;
@@ -219,20 +219,20 @@ export function addFillGeometryProperties(app, fill, items) {
         input?.addEventListener('change', () => {
             const value = input.valueAsNumber;
             if (!Number.isFinite(value) || value < min || value > max) return;
-            commitFillEdit(app, fill, () => mutate(value));
+            commitFillEdit(app, fill, candidate => mutate(candidate, value));
         });
     };
-    bind('pcbPropFillNodeRadius', value => { fill.nodeCornerRadii[node] = value; }, 0);
-    bind('pcbPropFillBulge', value => {
+    bind('pcbPropFillNodeRadius', (fill, value) => { fill.nodeCornerRadii[node] = value; }, 0);
+    bind('pcbPropFillBulge', (fill, value) => {
         fill.kind = 'polygon';
         if (Math.abs(value) < 1e-4) delete fill.segmentBulges[segment];
         else fill.segmentBulges[segment] = value;
         normalizeCopperFillKind(fill);
     }, -1, 1);
-    bind('pcbPropFillCornerRadius', value => { fill.cornerRadius = value; fill.nodeCornerRadii = {}; }, 0);
-    bind('pcbPropFillDiameter', value => { fill.radius = value / 2; }, 0.1);
+    bind('pcbPropFillCornerRadius', (fill, value) => { fill.cornerRadius = value; fill.nodeCornerRadii = {}; }, 0);
+    bind('pcbPropFillDiameter', (fill, value) => { fill.radius = value / 2; }, 0.1);
     for (const [id, axis, minimum, maximum] of [['pcbPropFillWidth', 'x', 'minX', 'maxX'], ['pcbPropFillHeight', 'y', 'minY', 'maxY']]) {
-        bind(id, value => {
+        bind(id, (fill, value) => {
             const current = fill.getBounds();
             const factor = value / (current[maximum] - current[minimum]);
             fill.outline = fill.outline.map(point => ({ ...point, [axis]: current[minimum] + (point[axis] - current[minimum]) * factor }));
@@ -242,7 +242,7 @@ export function addFillGeometryProperties(app, fill, items) {
     kindInput?.addEventListener('change', () => {
         const kind = kindInput.value;
         if (!bounds || kind === fill.kind || !['rect', 'polygon', 'circle'].includes(kind)) return;
-        commitFillEdit(app, fill, () => {
+        commitFillEdit(app, fill, fill => {
             if (kind === 'polygon' && fill.kind !== 'circle') { fill.kind = kind; return; }
             const contour = fill.getOutline();
             fill.kind = kind;

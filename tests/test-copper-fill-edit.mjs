@@ -93,13 +93,13 @@ app._fillEdit = { fillId: fill.id, node: 1 };
 assert.equal(deleteFocusedFillPart(app, fill), true, 'Blocked node deletion must not delete the entire fill');
 
 const plain = new CopperFill({ outline });
-assert.equal(commitFillEdit(app, plain, () => { plain.segmentBulges[0] = 0.2; }), true);
+assert.equal(commitFillEdit(app, plain, candidate => { candidate.segmentBulges[0] = 0.2; }), true);
 assert.ok(plain.getOutline().length > plain.outline.length);
 commands.at(-1).undo();
 assert.deepEqual(plain.segmentBulges, {});
 const state = plain.captureState();
-assert.equal(commitFillEdit(app, plain, () => {
-    plain.outline = [outline[0], outline[2], outline[1], outline[3]];
+assert.equal(commitFillEdit(app, plain, candidate => {
+    candidate.outline = [outline[0], outline[2], outline[1], outline[3]];
 }), false, 'Reject self-intersection');
 assert.deepEqual(plain.captureState(), state);
 assert.equal(startFillEditAt(app, plain, { x: 100, y: 100 }), false, 'Unrelated clicks must not begin a fill drag');
