@@ -68,7 +68,7 @@ import { resolveTrackEdgePaths, resolveTrackSegments } from './board-geometry.js
 import { arcFromBulge } from '../../shapes/arc-edge.js';
 import { bulgeRatio } from '../../core/geometry.js';
 import { pathMoveInteraction, pathContextActions, showPathContextMenu, dismissPathContextMenu, snapPathPoint } from './path-edit.js';
-import { padOutline } from './pad.js';
+import { padOutline } from '../../shapes/pad-geometry.js';
 import { beginPcbAnchorInteraction } from './selection-interaction.js';
 
 const NS = 'http://www.w3.org/2000/svg';

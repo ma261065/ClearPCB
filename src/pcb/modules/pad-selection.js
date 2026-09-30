@@ -1,5 +1,6 @@
 import { isLayerLocked, isLayerVisible, unlockPcbLayer } from './layers.js';
-import { padBounds, padHitTest, padLayers, padOutline, renderPad, updatePadHighlightGeometry } from './pad.js';
+import { padLayers } from '../../shapes/pad-geometry.js';
+import { renderPad, updatePadHighlightGeometry } from './pad.js';
 import { registerPcbSelectionAdapter } from './selection-registry.js';
 import { lockPositionOutsideOutline } from './selection-anchors.js';
 import { rotationHandleAnchor, pointerRotation } from './rotation-handle.js';
@@ -14,19 +15,19 @@ export function createPadSelectionAdapter(app, pad, id) {
         get visible() { return pad.visible !== false && layers().some(isLayerVisible); },
         get locked() { return pad.locked || layers().some(isLayerLocked); },
         unlock() { for (const layer of layers()) unlockPcbLayer(app, layer); },
-        getBounds() { return padBounds(pad); },
+        getBounds() { return pad.getBounds(); },
         getLockPosition(pointer, scale) {
             return lockPositionOutsideOutline(
-                padOutline(pad),
+                pad.getOutline(),
                 pointer || { x: pad.x, y: pad.y },
                 scale,
             );
         },
-        hitTest(point) { return padHitTest(pad, point); },
+        hitTest(point) { return pad.hitTest(point); },
         getPosition() { return { x: pad.x, y: pad.y }; },
         getAnchors() {
             return pad.shape === 'round'
-                ? [] : [rotationHandleAnchor(padBounds(pad), app.viewport?.scale)];
+                ? [] : [rotationHandleAnchor(pad.getBounds(), app.viewport?.scale)];
         },
         beginMove(worldPos) {
             return startPadDrag(app, pad, worldPos);

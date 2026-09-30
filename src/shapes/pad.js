@@ -1,3 +1,5 @@
+import { padOutline, padBounds, padHitTest } from './pad-geometry.js';
+
 let padIdCounter = 0;
 const round4 = value => Math.round(value * 10000) / 10000;
 
@@ -41,6 +43,19 @@ export class Pad {
 
     get height() {
         return this.size;
+    }
+
+    getOutline() {
+        return padOutline(this);
+    }
+
+    getBounds() {
+        return padBounds(this);
+    }
+
+    /** Test the outer pad area, including the drill centre for selection. */
+    hitTest(point) {
+        return padHitTest(this, point);
     }
 
     move(dx, dy) {

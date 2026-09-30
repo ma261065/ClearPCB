@@ -206,6 +206,24 @@ stroke extents rather than a separate centreline-only box. Whole-track radius
 previews and pad-bond removal/restoration explicitly invalidate bounds: a bond
 change can enable or suppress rounding without moving any node.
 
+Standalone `Pad` exposes `getOutline()`, `getBounds()` and `hitTest()` through
+the pure helpers in `shapes/pad-geometry.js`. These helpers accept both model
+instances and detached plain pad data, do not mutate entities or cache geometry,
+and retain the existing rotation, sampling and drill-centre selection behavior.
+The pad selection adapter delegates geometric queries to the model while keeping
+layer visibility, locks, handles and drag interactions in the editor.
+Existing helper exports from `pcb/modules/pad.js` and
+`pcb/modules/board-geometry.js` remain available.
+
+Shared physical geometry is not shared output conversion. The model owns
+authored data; neutral helpers calculate physical outlines and bounds.
+SVG paths and drill cutouts remain in the SVG renderer, Canvas drawing remains
+in the 2D viewer, mesh construction remains in the 3D viewer, and aperture/region
+encoding and manufacturing coordinates remain in the Gerber exporter.
+The geometry helper's existing `padFlash` name denotes only a geometric aperture
+descriptor in millimetres, not a Gerber instruction. Consumer-specific sampling
+tolerances, mask expansion and drill treatment are unchanged.
+
 The PCB track, via and standalone-pad renderers keep their SVG references in
 module-private weak maps keyed by entity identity, not in `_svgElements` fields
 on model objects. Rendering, redraw and removal work with frozen entities.

@@ -1,4 +1,5 @@
-import { padFlashOutline } from './board-geometry.js';
+import { padLayers, padOutline } from '../../shapes/pad-geometry.js';
+export { padLayers, padOutline, padBounds, padHitTest, padFlash } from '../../shapes/pad-geometry.js';
 import { textColorForLayer } from './pcb-text.js';
 import { renderDrillBore } from './drill-bore.js';
 
@@ -6,64 +7,6 @@ const NS = 'http://www.w3.org/2000/svg';
 
 /** @type {WeakMap<object, SVGElement[]>} */
 const padElements = new WeakMap();
-
-function flashShape(pad) {
-    if (pad.shape === 'round') return 'circle';
-    if (pad.shape === 'oval') return 'ellipse';
-    if (pad.shape === 'stadium') return 'oval';
-    return 'rect';
-}
-
-export function padLayers(pad) {
-    if (pad.layers === 'both') return ['top-copper', 'bottom-copper'];
-    return [pad.layers];
-}
-
-export function padOutline(pad) {
-    const ratio = ['stadium', 'rectangle', 'oval'].includes(pad.shape) ? pad.ratio || 2 : 1;
-    const width = Number.isFinite(pad.width) ? pad.width : pad.size * ratio;
-    const height = Number.isFinite(pad.height) ? pad.height : pad.size;
-    return padFlashOutline({
-        x: pad.x,
-        y: pad.y,
-        w: width,
-        h: height,
-        shape: flashShape(pad),
-        rad: -(pad.rotation || 0) * Math.PI / 180,
-    });
-}
-
-export function padBounds(pad) {
-    const points = padOutline(pad);
-    const radius = pad.drill / 2;
-    return {
-        minX: Math.min(pad.x - radius, ...points.map(point => point.x)),
-        minY: Math.min(pad.y - radius, ...points.map(point => point.y)),
-        maxX: Math.max(pad.x + radius, ...points.map(point => point.x)),
-        maxY: Math.max(pad.y + radius, ...points.map(point => point.y)),
-    };
-}
-
-export function padHitTest(pad, point) {
-    const angle = (pad.rotation || 0) * Math.PI / 180;
-    const dx = point.x - pad.x;
-    const dy = point.y - pad.y;
-    const x = dx * Math.cos(angle) - dy * Math.sin(angle);
-    const y = dx * Math.sin(angle) + dy * Math.cos(angle);
-    const ratio = ['stadium', 'rectangle', 'oval'].includes(pad.shape) ? pad.ratio || 2 : 1;
-    const halfWidth = (Number.isFinite(pad.width) ? pad.width : pad.size * ratio) / 2;
-    const halfHeight = (Number.isFinite(pad.height) ? pad.height : pad.size) / 2;
-    if (pad.shape === 'round' || pad.shape === 'oval') {
-        return (x / halfWidth) ** 2 + (y / halfHeight) ** 2 <= 1;
-    }
-    if (pad.shape === 'stadium') {
-        const radius = halfHeight;
-        const straight = Math.max(0, halfWidth - radius);
-        const nearestX = Math.max(-straight, Math.min(straight, x));
-        return Math.hypot(x - nearestX, y) <= radius;
-    }
-    return Math.abs(x) <= halfWidth && Math.abs(y) <= halfHeight;
-}
 
 export function updatePadHighlightGeometry(pad, root) {
     if (!root?.querySelectorAll) return;
@@ -116,15 +59,4 @@ export function renderPad(pad, getLayerGroup, strokeOverride = null) {
         if (drill) elements.push(drill);
     }
     padElements.set(pad, elements);
-}
-
-export function padFlash(pad) {
-    const ratio = ['stadium', 'rectangle', 'oval'].includes(pad.shape) ? pad.ratio || 2 : 1;
-    return {
-        x: pad.x, y: pad.y,
-        w: Number.isFinite(pad.width) ? pad.width : pad.size * ratio,
-        h: Number.isFinite(pad.height) ? pad.height : pad.size,
-        shape: flashShape(pad), rotation: pad.rotation,
-        rad: -(pad.rotation || 0) * Math.PI / 180,
-    };
 }

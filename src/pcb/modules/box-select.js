@@ -49,7 +49,8 @@ import { MoveBoardShapeCommand, RemoveBoardShapeCommand } from './shape-commands
 import { MoveTextCommand, RemoveTextCommand } from './text-commands.js';
 import { ModifyFillCommand, RemoveFillCommand } from './copper-fill-commands.js';
 import { ModifyPadCommand, RemovePadCommand } from './pad-commands.js';
-import { padBounds, padHitTest, renderPad } from './pad.js';
+import { padBounds, padHitTest } from '../../shapes/pad-geometry.js';
+import { renderPad } from './pad.js';
 import { pcbTextBounds, pcbTextHitTest } from './pcb-text.js';
 import { clearPcbSelectionAnchors, renderPcbSelectionAnchors } from './selection-anchors.js';
 import {
