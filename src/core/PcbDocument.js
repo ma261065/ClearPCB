@@ -93,6 +93,7 @@ export class PcbDocument {
         Object.assign(this.board, DEFAULT_BOARD_DIMENSIONS);
         this.panelization = null;
         this.placementState.overrides.clear();
+        this.placementState.autoSlots.clear();
         this.settings = undefined;
         this._loadedSection = false;
     }

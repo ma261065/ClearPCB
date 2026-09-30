@@ -8,9 +8,7 @@ import { snapToViewportGrid } from '../core/grid-snap.js';
 import { PcbDocument } from '../core/PcbDocument.js';
 import { commitDesignInput, renderDesignSettings } from '../pcb/modules/design-settings.js';
 import { loadAndApplyTheme, toggleTheme as toggleSharedTheme, syncThemeToggleButtons } from '../shared/ui/theme.js';
-import { extractNetlist, extractComponents } from '../core/netlist.js';
 import { renderFootprint, applyRefGeometry, REF_DEFAULT_SIZE, REF_DEFAULT_STROKE } from '../pcb/modules/footprint.js';
-import { createPcbFootprint } from '../core/pcb-footprint.js';
 import { updateGridDropdown, restoreGridSettings, serializeGridSettings } from './modules/viewport.js';
 import { setToolCursor } from './modules/cursor.js';
 import { isUnmodifiedPrimaryDoublePress } from './modules/inline-edit-activation.js';
@@ -68,6 +66,7 @@ import {
     ModifyViaCommand,
     applyPlacementPose,
     renderPlacementPose,
+    repositionPadConnectedNodes,
     applyPlacementSide,
     applyPlacementRefVisible,
     placementTransform,
@@ -279,15 +278,6 @@ export default class PCBApp {
          * @type {Map<string, import('../core/PcbPlacementState.js').PlacementOverride>}
          */
         this._placementOverrides = this.placementState.overrides;
-        /**
-         * Stable auto-grid positions for components that have NOT been
-         * manually moved, keyed by component id. The grid slot is computed
-         * once (the first time a component is seen) and remembered, so that
-         * deleting a component does not reflow the others — each un-moved
-         * footprint keeps the exact spot it was first assigned.
-         * @type {Map<string, {x:number, y:number}>}
-         */
-        this._autoSlots = new Map();
         /** Cached netlist from last sync */
         this.netlist = [];
 
@@ -4126,8 +4116,7 @@ export default class PCBApp {
 
         this._ensureViewport();
 
-        const components = extractComponents(schematic);
-        const netlist = extractNetlist(schematic);
+        const { placements, netlist } = this.project.resolvePcbLayout();
         this.netlist = netlist;
 
         // Clear previous PCB content
@@ -4140,9 +4129,9 @@ export default class PCBApp {
         // BEFORE the components-empty early-return below, otherwise a
         // component-less board (e.g. test board) leaves recovered tracks
         // in the model — they hit-test on hover but stay invisible.
-        this._renderPersistentObjects({ renderShapes: components.length === 0 });
+        this._renderPersistentObjects({ renderShapes: placements.size === 0 });
 
-        if (components.length === 0) {
+        if (placements.size === 0) {
             // Persistent copper shapes can carry nets without any schematic
             // components. Their SVG was restored above, so rebuild their
             // ratlines before this component-less-board early return.
@@ -4157,7 +4146,7 @@ export default class PCBApp {
         this._ratsnestGroup = this._getLayerGroup('ratlines');
 
         // Place footprints (elements distributed to correct layer groups)
-        this._placeFootprints(components);
+        this._placeFootprints(placements);
 
         // Keep free-standing board shapes above freshly placed footprint
         // artwork after a schematic-driven rebuild.
@@ -4179,7 +4168,7 @@ export default class PCBApp {
         }
 
         const netCount = netlist.length;
-        this._setStatus(`${components.length} component(s), ${netCount} net(s)`);
+        this._setStatus(`${placements.size} component(s), ${netCount} net(s)`);
 
         // A schematic-driven rebuild (e.g. a component added or deleted) does
         // not pass through the PCB history, so refresh any open 3D view here.
@@ -4272,68 +4261,14 @@ export default class PCBApp {
     }
 
     /**
-     * Place footprints in a grid arrangement on the PCB canvas.
-     * @param {Array} components - Components from extractComponents()
+     * Render model-resolved footprints on the PCB canvas.
+     * @param {Map} placements - Resolved physical placements and footprint geometry.
      */
-    _placeFootprints(components) {
-        const SPACING_X = 20;  // mm between component centres (horizontal)
-        const SPACING_Y = 20;  // mm between component centres (vertical)
-        const COLS = Math.max(1, Math.ceil(Math.sqrt(components.length)));
-        // Offset to place components inside the board outline
-        // Y is flipped: positive user-Y = negative SVG-Y
-        const MARGIN = 10;  // mm from board edge
-        const offsetX = MARGIN;
-        const offsetY = -(MARGIN);  // start near top of board in SVG coords
-
-        // Assign a stable auto-grid slot to every component that has no manual
-        // override. Slots are remembered per component id (in _autoSlots) so
-        // that deleting one component does NOT reflow the others: each un-moved
-        // footprint keeps the exact spot it was first given. A grid cell is
-        // computed only for components seen for the first time, scanning for
-        // the lowest cell not already taken by an override or an existing slot.
-        const slotPos = (i) => ({
-            x: offsetX + (i % COLS) * SPACING_X,
-            y: offsetY - Math.floor(i / COLS) * SPACING_Y,
-        });
-        const posKey = (x, y) => `${Math.round(x * 100)},${Math.round(y * 100)}`;
-        const occupied = new Set();
-        for (const comp of components) {
-            const ov = this._placementOverrides.get(comp.id);
-            if (ov) { occupied.add(posKey(ov.x, ov.y)); continue; }
-            const slot = this._autoSlots.get(comp.id);
-            if (slot) occupied.add(posKey(slot.x, slot.y));
-        }
-        for (const comp of components) {
-            if (this._placementOverrides.has(comp.id) || this._autoSlots.has(comp.id)) continue;
-            let i = 0, pos = slotPos(0);
-            while (occupied.has(posKey(pos.x, pos.y))) { i++; pos = slotPos(i); }
-            occupied.add(posKey(pos.x, pos.y));
-            this._autoSlots.set(comp.id, pos);
-        }
-
-        for (let i = 0; i < components.length; i++) {
-            const comp = components[i];
-            let rot = 0;
-            // Honour a remembered manual position so a moved footprint stays
-            // put across schematic re-syncs and reloads; otherwise use the
-            // component's stable auto-grid slot.
-            const override = this._placementOverrides.get(comp.id);
-            let cx, cy;
-            if (override) {
-                cx = override.x;
-                cy = override.y;
-                rot = override.rotation || 0;
-            } else {
-                const slot = this._autoSlots.get(comp.id);
-                cx = slot.x;
-                cy = slot.y;
-            }
-
-            // Generate footprint geometry (use real pad data when available)
-            const { geometry: fpGeom, padOffsets, pasteOffsets } = createPcbFootprint(comp);
-
+    _placeFootprints(placements) {
+        for (const [compId, resolved] of placements) {
+            const { geometry: fpGeom, ...placement } = resolved;
             // Render SVG (returns Map<layerId, SVGGElement>)
-            const fpLayers = renderFootprint(fpGeom, comp.reference, cx, cy, rot);
+            const fpLayers = renderFootprint(fpGeom, placement.reference, placement.x, placement.y, placement.rotation);
 
             // Distribute each layer's group to the correct SVG layer
             /** @type {SVGGElement[]} */
@@ -4343,58 +4278,27 @@ export default class PCBApp {
                 elements.push(layerGroup);
             }
 
-            // Build pad world-position map for ratsnest
-            const padMap = new Map();
-            for (const pad of padOffsets) {
-                padMap.set(pad.padId, { x: cx + pad.dx, y: cy + pad.dy, number: pad.number });
-            }
-
-            this.placements.set(comp.id, {
-                x: cx,
-                y: cy,
-                pads: padMap,
-                padOffsets,
-                pasteOffsets,
-                elements,
+            this.placements.set(compId, {
+                ...placement, elements,
                 bounds: fpGeom.courtyard || fpGeom.outline,
-                outline: fpGeom.outline || null,
-                reference: comp.reference,
-                value: comp.value || '',
-                footprint: comp.footprint || '',
-                source: comp.source || '',
-                model3dObj: comp.model3dObj || null,
-                model3dUrl: comp.model3dUrl || null,
                 model3dPlacement: fpGeom.model3d || null,
-                silks: fpGeom.silks || [],
-                rotation: rot,
-                locked: !!override?.locked,
-                mirror: !!override?.mirror,
-                side: override?.side === 'bottom' ? 'bottom' : 'top',
-                refVisible: override?.refVisible !== false,
-                refDx: override?.refDx || 0,
-                refDy: override?.refDy || 0,
-                refRot: ((override?.refRot || 0) % 360 + 360) % 360,
-                refSize: override?.refSize || REF_DEFAULT_SIZE,
-                refStrokeWidth: override?.refStrokeWidth || REF_DEFAULT_STROKE,
             });
-            this._buildLodPlaceholder(comp.id);
+            this._buildLodPlaceholder(compId);
         }
 
         // Apply mirror / bottom-side overrides now that all elements exist
         // (rotation and position were baked into renderFootprint above).
-        for (const comp of components) {
-            const pl = this.placements.get(comp.id);
+        for (const compId of placements.keys()) {
+            const pl = this.placements.get(compId);
             if (!pl) continue;
-            if (pl.side === 'bottom') applyPlacementSide(this, comp.id, 'bottom');
-            if (pl.refVisible === false) applyPlacementRefVisible(this, comp.id, false);
-            // padMap above is built from the un-rotated local offsets
-            // (cx+dx, cy+dy); a rotation, mirror or bottom-side placement must
-            // recompute the pads' world positions so the ratsnest (and routed
-            // track re-gluing) follow the footprint's true orientation. The SVG
-            // already carries the same translate+rotate transform, so this only
-            // corrects the pad geometry — it does not double-rotate the render.
-            if (pl.mirror || pl.side === 'bottom' || pl.rotation || pl.refDx || pl.refDy || pl.refRot) applyPlacementPose(this, comp.id);
-            if (pl.refSize !== REF_DEFAULT_SIZE || pl.refStrokeWidth !== REF_DEFAULT_STROKE) this._rerenderRef(comp.id);
+            if (pl.side === 'bottom') applyPlacementSide(this, compId, 'bottom');
+            if (pl.refVisible === false) applyPlacementRefVisible(this, compId, false);
+            // Pads are already resolved; only update presentation and bonded tracks here.
+            if (pl.mirror || pl.side === 'bottom' || pl.rotation || pl.refDx || pl.refDy || pl.refRot) {
+                renderPlacementPose(this, compId);
+                repositionPadConnectedNodes(this, compId);
+            }
+            if (pl.refSize !== REF_DEFAULT_SIZE || pl.refStrokeWidth !== REF_DEFAULT_STROKE) this._rerenderRef(compId);
         }
     }
 

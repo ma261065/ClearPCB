@@ -91,6 +91,13 @@ export class ProjectDocument {
         return summary ? createPcbFootprint(summary) : null;
     }
 
+    /** Resolve physical placements and matching connectivity from the current models. */
+    resolvePcbLayout() {
+        const components = extractComponents(this.schematicDocument);
+        const netlist = this.getNetlist();
+        return { placements: this.pcbDocument.placementState.resolve(components), netlist };
+    }
+
     /**
      * @param {string} id
      * @param {string} reference

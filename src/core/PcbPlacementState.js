@@ -1,4 +1,6 @@
 import { REF_DEFAULT_SIZE, REF_DEFAULT_STROKE } from '../pcb/modules/reference-text.js';
+import { createPcbFootprint } from './pcb-footprint.js';
+import { applyPlacementSide, updatePlacementPadPositions } from './pcb-placement-geometry.js';
 
 /**
  * @typedef {{x:number, y:number, rotation:number, locked:boolean, mirror:boolean,
@@ -31,6 +33,8 @@ export class PcbPlacementState {
     constructor() {
         /** @type {Map<string, PlacementOverride>} */
         this.overrides = new Map();
+        /** @type {Map<string, {x:number, y:number}>} Stable derived positions, not serialized. */
+        this.autoSlots = new Map();
     }
 
     /**
@@ -44,9 +48,50 @@ export class PcbPlacementState {
         return snapshot;
     }
 
+    /** Resolve physical placements without rendering or changing authored overrides. */
+    resolve(components) {
+        const columns = Math.max(1, Math.ceil(Math.sqrt(components.length)));
+        const slotPosition = index => ({ x: 10 + (index % columns) * 20,
+            y: -10 - Math.floor(index / columns) * 20 });
+        const positionKey = (x, y) => `${Math.round(x * 100)},${Math.round(y * 100)}`;
+        const occupied = new Set();
+        const newSlots = new Map();
+        for (const component of components) {
+            const position = this.overrides.get(component.id) || this.autoSlots.get(component.id);
+            if (position) occupied.add(positionKey(position.x, position.y));
+        }
+        // Retain existing slots across deletion/reordering; only new components scan for a free cell.
+        for (const component of components) {
+            if (this.overrides.has(component.id) || this.autoSlots.has(component.id) || newSlots.has(component.id)) continue;
+            let index = 0, position = slotPosition(0);
+            while (occupied.has(positionKey(position.x, position.y))) position = slotPosition(++index);
+            occupied.add(positionKey(position.x, position.y));
+            newSlots.set(component.id, position);
+        }
+        const placements = new Map();
+        for (const component of components) {
+            const pose = this.overrides.get(component.id) || this.autoSlots.get(component.id) || newSlots.get(component.id);
+            const { geometry, padOffsets, pasteOffsets } = createPcbFootprint(component);
+            const placement = {
+                ...capturePlacementOverride(pose),
+                geometry, padOffsets, pasteOffsets, pads: new Map(),
+                outline: geometry.outline || null, silks: geometry.silks || [],
+                reference: component.reference, value: component.value || '',
+                footprint: component.footprint || '', source: component.source || '',
+                model3dObj: component.model3dObj || null, model3dUrl: component.model3dUrl || null,
+            };
+            if (placement.side === 'bottom') applyPlacementSide(placement, 'bottom');
+            updatePlacementPadPositions(placement);
+            placements.set(component.id, placement);
+        }
+        for (const [id, position] of newSlots) this.autoSlots.set(id, position);
+        return placements;
+    }
+
     /** Restore saved values in place so editor aliases remain valid. */
     load(placements) {
         this.overrides.clear();
+        this.autoSlots.clear();
         if (!placements || typeof placements !== 'object') return;
         for (const [id, placement] of Object.entries(placements)) {
             if (!placement) continue;

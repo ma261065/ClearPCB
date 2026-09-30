@@ -601,6 +601,25 @@ Loading and clearing preserve map identity; serialization retains the existing
 four-decimal precision and default-field omission. These operations work without
 an editor or DOM.
 
+`ProjectDocument.resolvePcbLayout()` resolves physical placements and their matching
+netlist from the schematic and PCB models, without a registered view. Placement
+state owns the stable automatic grid slots and neutral footprint generation,
+including full-precision world-pad positions, duplicate physical pad IDs and
+bottom-side/mirror/rotation handling. Existing automatic slots survive ordinary
+component deletion/reordering; New/load/reset clear them in place. Slots are
+derived, never serialized or marked dirty, and failed resolution does not retain
+partially allocated slots.
+
+The PCB editor consumes these resolved placements, adding SVG, LOD bounds and 3D
+presentation metadata. Rebuilds retain existing side/reference rendering and
+bonded-track refreshes, without recalculating the already resolved pad map.
+Clearances and ratsnest refresh after the complete rebuild. Headless consumers
+can pass `{ pcbDocument: project.pcbDocument, ...project.resolvePcbLayout() }`
+to fabrication snapshot preparation. The layout query itself does not move
+track nodes or change bonds. Fabrication does not automatically replace a live
+editor's supplied placements/netlist: general preview isolation remains open,
+and mixing committed poses with preview-mutated tracks would be inconsistent.
+
 The metadata commands in `core/pcb-placement-commands.js` own lock and reference visibility, offset,
 rotation and style edits directly against `PcbPlacementState`. Commands patch
 the latest canonical record without replacing unrelated pose fields. An explicit

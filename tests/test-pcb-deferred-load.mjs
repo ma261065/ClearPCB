@@ -156,7 +156,7 @@ console.log('PASS: hidden PCB loading restores models and settings without rende
 const pcbSource = readFileSync(new URL('../src/ui/PCBApp.js', import.meta.url), 'utf8');
 let components = [];
 const methodDependencies = {
-    ...dependencies, extractComponents: () => components, extractNetlist: () => [],
+    ...dependencies,
     getPcbSelection: () => [], refreshBoxSelectionHighlights() {}, updateGridDropdown() {},
     setInlineTextInputActive() {},
 };
@@ -171,7 +171,8 @@ for (const withComponents of [false, true]) {
     components = withComponents ? [{ id: 'U1' }] : [];
     const app = makeApp(false);
     Object.assign(app, {
-        project: { schematicDocument: {} },
+        project: { schematicDocument: {},
+            resolvePcbLayout: () => ({ placements: new Map(components.map(component => [component.id, component])), netlist: [] }) },
         activate: method('activate'), preload: method('preload'), _syncFromSchematic: method('_syncFromSchematic'),
         _renderPersistentObjects: method('_renderPersistentObjects'),
         initialize() {}, _updateCursorForTool() {}, _updateViewportStatus() {},
@@ -233,7 +234,8 @@ for (const pcb of [
         if (pcb) pcbDocument.load({ ...pcb, stackup: data.stackup });
         const before = pcbDocument.serializeSection();
         const outline = dependencies.getBoardOutline(pcbDocument);
-        const app = new PCBApp({ pcbDocument, schematicDocument: {} });
+        const app = new PCBApp({ pcbDocument, schematicDocument: {},
+            resolvePcbLayout: () => ({ placements: new Map(components.map(component => [component.id, component])), netlist: [] }) });
         assert.equal(app._boardOutlineDrawn, !!outline, 'Editor attachment recognizes an existing model outline');
         components = withComponents ? [{ id: 'U1' }] : [];
         Object.assign(app, {
@@ -376,7 +378,7 @@ globalThis.HTMLElement = class {};
 const { default: SchematicApp } = await import('../src/ui/SchematicApp.js');
 const { CommandHistory } = await import('../src/core/CommandHistory.js');
 const project = new ProjectDocument();
-let syncs = 0, placed = [];
+let syncs = 0, placed = new Map();
 const pcb = Object.assign(Object.create(PCBApp.prototype), {
     pcbDocument: project.pcbDocument,
     project: null, _active: true, _stale: true, boardShapes: [],
@@ -398,7 +400,7 @@ Object.defineProperty(project, 'schematic', {
     get() { assert.fail('PCB sync must not discover or inspect the schematic editor'); },
 });
 pcb._syncFromSchematic();
-assert.equal(placed[0].reference, 'U1', 'Model synchronization works without a schematic view');
+assert.equal(placed.get('owned').reference, 'U1', 'Model synchronization works without a schematic view');
 assert.equal(pcb._stale, false);
 syncs = 0;
 const schematic = Object.assign(Object.create(SchematicApp.prototype), {
@@ -435,7 +437,7 @@ try {
     project.schematicDocument.components[0].reference = 'U2';
     flush();
     assert.equal(syncs, 1);
-    assert.equal(placed[0].reference, 'U2', 'Sync consumes the latest project model data');
+    assert.equal(placed.get('owned').reference, 'U2', 'Sync consumes the latest project model data');
     assert.equal(pcb.netlist[0].net, 'OWNED');
     assert.equal(pcb._stale, false);
     project.fileManager.setDirty(false);

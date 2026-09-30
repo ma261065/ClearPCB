@@ -37,7 +37,6 @@ const { createComponentFromData, serializeDocument } = await import('../src/sche
 const { FileManager, readProjectFile } = await import('../src/core/FileManager.js');
 const { validateProject } = await import('../src/core/project-format.js');
 const { extractComponents } = await import('../src/core/netlist.js');
-const { createPcbFootprint } = await import('../src/core/pcb-footprint.js');
 const { ProjectDocument } = await import('../src/core/ProjectDocument.js');
 const { generateFootprint, REF_DEFAULT_SIZE, REF_DEFAULT_STROKE } = await import('../src/pcb/modules/footprint.js');
 const { hasAny3DModel } = await import('../src/components/model3d-source.js');
@@ -205,23 +204,23 @@ assert.equal(pasteCommand.components[0].reference, 'R2');
 assert.equal(resistor.packageId, '0805');
 
 const pcbSource = readFileSync(new URL('../src/ui/PCBApp.js', import.meta.url), 'utf8');
-const placeStart = pcbSource.indexOf('    _placeFootprints(components) {');
+const placeStart = pcbSource.indexOf('    _placeFootprints(placements) {');
 const placeEnd = pcbSource.indexOf('\n    /**', placeStart);
 const renderedFootprints = new Map();
-const place = new Function('createPcbFootprint', 'renderFootprint', 'REF_DEFAULT_SIZE', 'REF_DEFAULT_STROKE',
+const place = new Function('renderFootprint', 'REF_DEFAULT_SIZE', 'REF_DEFAULT_STROKE',
     `return ({${pcbSource.slice(placeStart, placeEnd)}})._placeFootprints;`)(
-    createPcbFootprint, (geometry, reference) => { renderedFootprints.set(reference, geometry); return new Map(); },
+    (geometry, reference) => { renderedFootprints.set(reference, geometry); return new Map(); },
     REF_DEFAULT_SIZE, REF_DEFAULT_STROKE);
 const pcbProject = new ProjectDocument();
 pcbProject.schematicDocument.components.push(resistor);
+pcbProject.pcbDocument.placementState.record(resistor.id, { x: 23, y: -17 });
 const board = {
-    placements: new Map(), _autoSlots: new Map(),
-    _placementOverrides: new Map([[resistor.id, { x: 23, y: -17 }]]),
+    placements: new Map(),
     _buildLodPlaceholder() {},
 };
 for (const packageId of ['default', '0603', '0805']) {
     resistor.packageId = packageId;
-    place.call(board, extractComponents(app));
+    place.call(board, pcbProject.resolvePcbLayout().placements);
     const placement = board.placements.get(resistor.id);
     const footprint = pcbProject.getPcbFootprint(resistor.id);
     assert.deepEqual(renderedFootprints.get(resistor.reference), footprint.geometry, 'Rendering receives the same geometry as headless resolution');
@@ -243,7 +242,7 @@ const duplicateComponent = new Component({
         'PASTE~RECT~0~0~0.5~0.5~top'],
 }, { reference: 'J1' });
 pcbProject.schematicDocument.components.push(duplicateComponent);
-place.call(board, extractComponents({ components: [duplicateComponent] }));
+place.call(board, pcbProject.resolvePcbLayout().placements);
 const duplicatePlacement = board.placements.get(duplicateComponent.id);
 const duplicateFootprint = pcbProject.getPcbFootprint(duplicateComponent.id);
 assert.deepEqual(duplicatePlacement.padOffsets, duplicateFootprint.padOffsets);
