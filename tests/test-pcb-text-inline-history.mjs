@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { PcbDocument } from '../src/core/PcbDocument.js';
 import { CommandHistory } from '../src/core/CommandHistory.js';
 import { createPcbText, serializePcbText } from '../src/core/pcb-text.js';
-import { AddTextCommand, EditTextCommand } from '../src/pcb/modules/text-commands.js';
+import { AddTextCommand, EditTextCommand, beginTextContentPreview, getTextPosePreviewTexts } from '../src/pcb/modules/text-commands.js';
 import { cancelPictureCopperRefresh } from '../src/pcb/modules/picture-refresh.js';
 import { setPcbSelection, getPcbSelection } from '../src/pcb/modules/selection-registry.js';
 
@@ -18,7 +18,7 @@ function fixture({ isNew = false, content = 'Original' } = {}) {
     const renders = [], removals = [], clearances = [];
     let destroyed = 0, inputRemoved = 0, cleared = 0, exited = 0;
     const app = {
-        pcbDocument, texts: pcbDocument.texts, history: new CommandHistory(),
+        pcbDocument, history: new CommandHistory(),
         _renderText: current => renders.push({ ...current }),
         _refreshText(id) { const current = this.texts.get(id); if (current) this._renderText(current); },
         _removeTextElement: id => removals.push(id),
@@ -26,20 +26,26 @@ function fixture({ isNew = false, content = 'Original' } = {}) {
         _clearProperties: () => cleared++, _exitTextTool: () => exited++,
         _selectText: PCBApp.prototype._selectText,
     };
+    Object.defineProperty(app, 'texts', Object.getOwnPropertyDescriptor(PCBApp.prototype, 'texts'));
     if (isNew) app.history.execute(new AddTextCommand(app, text));
     else app.texts.set(text.id, text);
     setPcbSelection(app, [{ kind: 'text', object: text }]);
     const state = {
-        text, originalContent: text.content, isNewPlacement: isNew, options: {},
+        text: beginTextContentPreview(app, text.id), originalContent: text.content, isNewPlacement: isNew, options: {},
         input: { value: text.content, parentNode: { removeChild: () => inputRemoved++ } },
         overlay: { destroy: () => destroyed++ },
     };
     app._textEdit = state;
     renders.length = 0;
-    const preview = value => { text.content = value; state.input.value = value; };
+    const preview = value => {
+        state.text.content = value;
+        state.input.value = value;
+        assert.equal(text.content, original.content, 'Typing never authors content before commit');
+    };
     const finish = commit => PCBApp.prototype._endTextInlineEdit.call(app, commit);
     const verifyTeardown = () => {
         assert.equal(app._textEdit, null);
+        assert.equal(getTextPosePreviewTexts(app), undefined);
         assert.equal(state.committed, true);
         assert.equal(destroyed, 1);
         assert.equal(inputRemoved, 1);
@@ -84,6 +90,18 @@ for (const commit of [false, true]) {
         f.verifyTeardown();
         f.app.history.undo();
         assert.deepEqual(f.text, f.original);
+    } finally { cancelPictureCopperRefresh(f.app); }
+}
+
+{
+    const f = fixture();
+    try {
+        f.preview('Failed content');
+        f.app.history.execute = () => { throw new Error('Injected history failure'); };
+        assert.throws(() => f.finish(true), /Injected history failure/);
+        assert.deepEqual(f.text, f.original);
+        assert.deepEqual(f.renders.at(-1), f.original);
+        f.verifyTeardown();
     } finally { cancelPictureCopperRefresh(f.app); }
 }
 

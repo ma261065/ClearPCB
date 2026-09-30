@@ -54,6 +54,7 @@ const app = {
 };
 const text = { content: 'R12', size: 1.2, strokeWidth: 0.15, layer: 'top-silk' };
 PCBApp.prototype._startTextInlineEdit.call(app, text, null, {
+    componentId: 'reference',
     select() {}, render() {}, transform: () => 'translate(0,0)',
 });
 try {

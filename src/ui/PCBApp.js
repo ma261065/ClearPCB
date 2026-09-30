@@ -85,6 +85,8 @@ import {
     getTextPosePreviewTexts,
     previewTextPose,
     finishTextPosePreview,
+    beginTextContentPreview,
+    syncTextContentPreview,
 } from '../pcb/modules/text-commands.js';
 import { shapeDrawClick, updateShapeDrawPreview, cancelShapeDraw, finishPolygonDraw, finishLineDraw, finishShapeDrawAtPoint, hitTestBoardShape, setBoardShapeHover, selectBoardShape, startBoardShapeDrag, handleBoardShapeDrag, endBoardShapeDrag, showBoardShapeProperties, showBoardShapeToolProperties, refreshBoardShapeToolLayer, resolveShapeDrawLayer, boardShapeCopperCuts, renderBoardShape, hitTestBoardShapeVertex, showBoardShapeContextMenu, dismissBoardShapeContextMenu, captureBoardShapeState, applyShapeSnapshot } from '../pcb/modules/board-shapes.js';
 import { ModifyBoardShapeCommand } from '../pcb/modules/shape-commands.js';
@@ -5766,6 +5768,9 @@ export default class PCBApp {
      * undo collapses each edit into one entry.
      */
     _showTextProperties(text) {
+        if (this._textEdit?.text?.id === text.id && !this._textEdit.options?.componentId) {
+            text = this.pcbDocument.texts.get(text.id);
+        }
         const items = this._pcbPropsItems();
         if (!items) return;
         this._setPcbPropsTitle('Text');
@@ -5806,7 +5811,8 @@ export default class PCBApp {
             const wasBottom = typeof model.layer === 'string' && model.layer.startsWith('bottom-');
             const willBottom = typeof v === 'string' && v.startsWith('bottom-');
             if (wasBottom !== willBottom) {
-                const w = measureStrokeText(model.content, model.size);
+                const content = this._textEdit?.text?.id === model.id ? this._textEdit.text.content : model.content;
+                const w = measureStrokeText(content, model.size);
                 const sign = willBottom ? 1 : -1; // top→bottom: +w; bottom→top: -w
                 const rot = (model.rotation || 0) * Math.PI / 180;
                 // SVG-Y-down with rotate(-rot): dx,dy in local frame map
@@ -5833,7 +5839,10 @@ export default class PCBApp {
                 { id: 'pcbPropTextRot', field: 'rotation', parse: rotParse, wrap: true },
                 { id: 'pcbPropTextLW', field: 'strokeWidth', parse: num(0.01) },
             ],
-            preview: (t) => this._refreshText(t.id),
+            preview: (t) => {
+                syncTextContentPreview(this, t.id);
+                this._refreshText(t.id);
+            },
             commit: (t, snap) => {
                 const before = {};
                 const after = {};
@@ -5901,7 +5910,7 @@ export default class PCBApp {
             const v = f.parse(el ? el.value : '');
             if (v === null || v === undefined) return;
             if (f.apply) f.apply(model, v); else model[f.field] = v;
-            if (typeof model.content === 'string') schedulePictureCopperRefresh(this, model);
+            if (typeof model.content === 'string') schedulePictureCopperRefresh(this, this.texts?.get(model.id) || model);
             spec.preview(model);
         };
         const onCommit = () => {
@@ -6019,6 +6028,7 @@ export default class PCBApp {
 
         const svg = this.viewport?.svg;
         if (!svg) return;
+        if (!opts.componentId) text = beginTextContentPreview(this, text.id);
 
         // Hidden input captures keystrokes / selection / IME / clipboard.
         // Its visual is irrelevant; we draw our own caret as an SVG line
@@ -6120,9 +6130,11 @@ export default class PCBApp {
                     break;
                 }
             }
-            text.content = input.value;
-            if (opts.render) opts.render();
-            else this._refreshText(text.id);
+            if (text.content !== input.value) {
+                text.content = input.value;
+                if (opts.render) opts.render();
+                else this._refreshText(text.id);
+            }
             updateCaret();
             keepVisible();
         };
@@ -6295,8 +6307,8 @@ export default class PCBApp {
         state.overlay?.destroy();
         if (input.parentNode) input.parentNode.removeChild(input);
 
-        text.content = originalContent;
         if (state.options?.finish) {
+            text.content = originalContent;
             state.options.finish(commit ? finalContent : originalContent, commit);
             return;
         }
@@ -6307,45 +6319,40 @@ export default class PCBApp {
         // the text outright. For a freshly-created text (originalContent
         // was already empty), this avoids the undo stack growing for
         // an aborted placement; use Remove instead of Edit.
-        if (effective.trim() === '') {
-            const wasSelected = isPcbSelected(this, 'text', text);
-            if (isNewPlacement) {
-                // Surgically remove the AddTextCommand for THIS text
-                // from the undo stack — it may not be at the top if
-                // committing a previous inline-edit pushed an
-                // EditTextCommand on top (e.g. click-elsewhere flow).
-                const stack = this.history.undoStack;
-                for (let i = stack.length - 1; i >= 0; i--) {
-                    const cmd = stack[i];
-                    if (cmd?.constructor?.name === 'AddTextCommand' && cmd.text?.id === text.id) {
-                        stack.splice(i, 1);
-                        break;
+        const blank = effective.trim() === '';
+        const wasSelected = isPcbSelected(this, 'text', text);
+        try {
+            finishTextPosePreview(this, () => {
+                if (blank) {
+                    if (isNewPlacement) {
+                        // An intervening style edit may sit above this placement in history.
+                        const stack = this.history.undoStack;
+                        for (let i = stack.length - 1; i >= 0; i--) {
+                            const cmd = stack[i];
+                            if (cmd?.constructor?.name === 'AddTextCommand' && cmd.text?.id === text.id) {
+                                stack.splice(i, 1);
+                                break;
+                            }
+                        }
+                        this.history.redoStack = [];
+                        this._removeTextElement(text.id);
+                        this.pcbDocument.texts.delete(text.id);
+                    } else {
+                        this.history.execute(new RemoveTextCommand(this, text.id));
                     }
+                } else if (commit && finalContent !== originalContent) {
+                    this.history.execute(new EditTextCommand(this, text.id, { content: finalContent }));
+                } else {
+                    this._refreshText(text.id);
                 }
-                this.history.redoStack = [];
-                // Remove the model + SVG for the cancelled placement.
-                this._removeTextElement(text.id);
-                this.texts.delete(text.id);
-            } else {
-                this.history.execute(new RemoveTextCommand(this, text.id));
-            }
-            if (wasSelected) {
+            });
+        } finally {
+            if (!blank || wasSelected) {
                 this._selectText(null);
                 this._clearProperties?.();
             }
             this._exitTextTool();
-            return;
         }
-
-        if (commit && finalContent !== originalContent) {
-            this.history.execute(new EditTextCommand(this, text.id, { content: finalContent }));
-        } else {
-            this._refreshText(text.id);
-        }
-        // Always deselect after exiting inline edit and return to home.
-        this._selectText(null);
-        this._clearProperties?.();
-        this._exitTextTool();
     }
 
     /**

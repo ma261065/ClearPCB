@@ -47,6 +47,26 @@ export function previewTextPoses(app, poses) {
     for (const [id, pose] of poses) Object.assign(preview.copies.get(id), pose);
 }
 
+/** Inline typing shares the stable text projection but owns only its content. */
+export function beginTextContentPreview(app, id) {
+    const text = app.pcbDocument.texts.get(id);
+    if (!text) throw new Error(`PCB text is no longer available: ${id}`);
+    previewTextPose(app, id, { content: text.content });
+    const preview = textPosePreviews.get(app);
+    preview.contentId = id;
+    return preview.copies.get(id);
+}
+
+/** Keep separately edited style/pose fields current without overwriting typed content. */
+export function syncTextContentPreview(app, id) {
+    const preview = textPosePreviews.get(app);
+    if (preview?.contentId !== id) return;
+    const text = app.pcbDocument.texts.get(id);
+    if (!text) throw new Error(`PCB text is no longer available: ${id}`);
+    const copy = preview.copies.get(id);
+    Object.assign(copy, text, { content: copy.content });
+}
+
 /** Switch back to canonical text before executing a model command or restoring artwork. */
 export function finishTextPosePreview(app, commit) {
     const preview = textPosePreviews.get(app);
@@ -130,6 +150,7 @@ export class MoveTextCommand extends ModelMoveTextCommand {
     }
     _set(x, y) {
         super._set(x, y);
+        syncTextContentPreview(this.app, this.id);
         schedulePictureCopperRefresh(this.app);
         this.app._refreshText(this.id);
     }
@@ -147,8 +168,9 @@ export class EditTextCommand extends ModelEditTextCommand {
     }
     _apply(patch) {
         super._apply(patch);
+        syncTextContentPreview(this.app, this.id);
         const t = this.document.texts.get(this.id);
-        schedulePictureCopperRefresh(this.app, t);
+        schedulePictureCopperRefresh(this.app, getTextPosePreviewTexts(this.app)?.get(this.id) || t);
         this.app._refreshText(this.id);
         if ('layer' in patch && isPcbSelected(this.app, 'text', t)) {
             refreshTextLayerProperties(this.app);

@@ -6,6 +6,7 @@ import { PCB_LAYERS } from '../src/pcb/modules/layers.js';
 import { createPcbTextSelectionAdapter } from '../src/pcb/modules/pcb-text-selection.js';
 import { setPcbSelection } from '../src/pcb/modules/selection-registry.js';
 import { cancelPictureCopperRefresh } from '../src/pcb/modules/picture-refresh.js';
+import { beginTextContentPreview } from '../src/pcb/modules/text-commands.js';
 
 globalThis.window = { addEventListener() {} };
 globalThis.document = {
@@ -111,8 +112,9 @@ for (const layerId of TEXT_LAYERS) {
             assert.equal(app.history.canUndo(), false);
         }
 
-        text.content = 'Preview';
-        app._textEdit = { text, originalContent: original.content, input: { value: 'Preview' }, options: {} };
+        const contentPreview = beginTextContentPreview(app, text.id);
+        contentPreview.content = 'Preview';
+        app._textEdit = { text: contentPreview, originalContent: original.content, input: { value: 'Preview' }, options: {} };
         app._onLayerLockChanged(layerId, true);
         assert.equal(app._textEdit, null, 'Locking cancels a standalone inline preview too');
         assert.deepEqual(text, original);

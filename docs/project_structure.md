@@ -556,7 +556,7 @@ gestures through the shared pose-preview lifecycle hook. Terminal selection
 interactions clear their state even if completion throws, while intentional
 floating-anchor interactions remain active. Errors still propagate.
 Groups containing directly selected tracks, vias, pads, shapes or fills, along
-with inline-content and property previews, are not yet generally isolated,
+with property previews, are not yet generally isolated,
 so existing save/export readiness guards remain.
 
 Text property previews still update the live model while typing. On commit, the
@@ -567,13 +567,23 @@ reapplies the final values and refreshes presentation and derived copper data.
 Content and border edits have separate commands and are not folded into a style
 edit. This corrects the history handoff, not general live-preview ownership.
 
-Standalone inline-text completion restores the original content in memory for
-command snapshot capture, without repainting it before a changed-content commit
-or deletion. Cancel and unchanged-content completion still render the restored
-text. Blank-content deletion captures selection before the remove command clears
-it, so completion also clears the deleted text's properties panel. Existing
-new-placement history cleanup, unrelated style edits and deferred clearance
-updates retain their behavior.
+Standalone inline text uses one reusable editor-owned text copy and map from
+entry to completion. Typing changes only that copy's content; canonical content,
+geometry snapshots and serialization remain unchanged. No map or text copy is
+created per keystroke. Changed input renders once; repeated unchanged input
+updates caret/selection geometry without rebuilding glyph SVG.
+
+Property edits made during inline typing still use their existing independent
+model commands and preview policy. Their style/pose changes synchronize into
+the same content projection without overwriting pending input, including
+undo/redo. Layer-side compensation uses the displayed content width.
+Completion removes the projection before a content edit or deletion command;
+there is no temporary authored-content rollback. Cancel restores presentation
+from the current model, preserving independently committed property changes.
+Blank-content deletion and cancelled new-placement cleanup retain their prior
+history behavior. Failed completion restores canonical artwork and tears down
+the input, caret, keyboard listener and properties state before propagating.
+Reference inline editing retains its existing separate model-command path.
 
 Standalone text property panels, including the multi-selection intersection and
 inline symbol insertion, are read-only on locked layers. Drag/rotation handlers
