@@ -28,6 +28,7 @@ import {
     finishViaDrag,
     cancelViaDrag,
     startVertexDrag,
+    startTrackBulgeDrag,
     updateVertexDrag,
     finishVertexDrag,
     cancelVertexDrag,
@@ -68,8 +69,7 @@ import { lockPositionOutsideOutline, renderPcbSelectionAnchors } from './selecti
 import { formatNumberInputValue } from '../../core/number-inputs.js';
 import { resolveTrackEdgePaths, resolveTrackSegments } from './board-geometry.js';
 import { arcFromBulge } from '../../shapes/arc-edge.js';
-import { bulgeRatio } from '../../core/geometry.js';
-import { pathMoveInteraction, pathContextActions, showPathContextMenu, dismissPathContextMenu, snapPathPoint } from './path-edit.js';
+import { pathMoveInteraction, pathContextActions, showPathContextMenu, dismissPathContextMenu } from './path-edit.js';
 import { padOutline } from '../../shapes/pad-geometry.js';
 import { viaBounds, viaHitTest } from '../../shapes/via.js';
 import { beginPcbAnchorInteraction } from './selection-interaction.js';
@@ -129,7 +129,6 @@ function trackHitTest(track, point, tolerance) {
 export function createTrackSelectionAdapter(app, track, id) {
     track = canonicalTrack(app, track);
     const current = () => displayedTrack(app, track);
-    let bulgeDrag = null;
     const beginDrag = (worldPos, options) => {
         const started = startVertexDrag(app, track, worldPos, options);
         if (started && app._vertexDrag) app._vertexDrag.userDragged = false;
@@ -138,6 +137,7 @@ export function createTrackSelectionAdapter(app, track, id) {
     };
     const updateDrag = (worldPos) => {
         const drag = app._vertexDrag;
+        if (drag?.original !== track) return;
         if (drag && !drag.floating) {
             const threshold = 3 / Math.max(0.01, app.viewport?.scale || 1);
             if (Math.hypot(worldPos.x - drag.grabX, worldPos.y - drag.grabY) > threshold) {
@@ -148,9 +148,10 @@ export function createTrackSelectionAdapter(app, track, id) {
         app._updateVertexDragCrosshair?.();
     };
     const finishNodeMove = (commit, options = {}) => {
+        if (app._vertexDrag?.original !== track) return;
         if (!commit) {
             cancelVertexDrag(app);
-            showTrackSelectionProperties(app, track);
+            if ((app.pcbDocument?.tracks || app.tracks).includes(track)) showTrackSelectionProperties(app, track);
             app._setPcbStatus?.();
             return;
         }
@@ -237,47 +238,25 @@ export function createTrackSelectionAdapter(app, track, id) {
             if (String(anchorId).startsWith('bulge:')) {
                 const edgeId = String(anchorId).slice(6);
                 if (!track.edges.has(edgeId)) return false;
-                bulgeDrag = { edgeId, before: track.captureState(),
-                    previousDeferDragOverlays: !!app._deferDragOverlays,
-                    previousSuspendBoardViewRefresh: !!app._suspendBoardViewRefresh };
-                app._deferDragOverlays = true;
-                app._suspendBoardViewRefresh = true;
                 selectTrackSegment(app, track, edgeId);
-                return true;
+                return startTrackBulgeDrag(app, track, edgeId);
             }
-            const started = beginDrag(worldPos, { nodeId: track.nodes.has(anchorId) ? anchorId : null,
+            const started = beginDrag(worldPos, { nodeId: current().nodes.has(anchorId) ? anchorId : null,
                 allowMidpointInsert: String(anchorId).startsWith('mid:') });
             return started;
         },
         updateAnchorDrag(worldPos) {
-            if (!bulgeDrag) return updateDrag(worldPos);
-            const edge = track.edges.get(bulgeDrag.edgeId);
-            const snap = snapPathPoint(app, worldPos, [], true);
-            edge.bulge = Math.max(-1, Math.min(1, bulgeRatio(track.nodes.get(edge.from), track.nodes.get(edge.to), snap)));
-            track.invalidate();
-            renderTrack(track, layer => app._getLayerGroup(layer));
-            refreshTrackSelectionHalo(app);
-            const input = document.getElementById('pcbPropTrackBulge');
-            if (input) input.value = formatNumberInputValue(edge.bulge);
+            updateDrag(worldPos);
         },
         endAnchorDrag(commit, options = {}) {
-            if (!bulgeDrag) return finishNodeMove(commit, options);
-            const { before, edgeId, previousDeferDragOverlays, previousSuspendBoardViewRefresh } = bulgeDrag;
-            bulgeDrag = null;
-            app._deferDragOverlays = previousDeferDragOverlays;
-            app._suspendBoardViewRefresh = previousSuspendBoardViewRefresh;
-            const edge = track.edges.get(edgeId);
-            if (Number(formatNumberInputValue(edge.bulge)) === 0) edge.bulge = 0;
-            const after = track.captureState();
-            track.applyState(before);
-            if (commit && JSON.stringify(before) !== JSON.stringify(after)) app.history.execute(new ModifyTrackGraphCommand(app, track, before, after));
-            else renderTrack(track, layer => app._getLayerGroup(layer));
-            refreshTrackSelectionHalo(app);
-            reconcileRatsnest(app);
-            app._refreshClearanceHalos?.();
-            app._refreshFills?.();
-            app._board3d?.refresh?.();
-            showTrackSelectionProperties(app, track);
+            if (app._vertexDrag?.original !== track) return;
+            if (app._vertexDrag?.mode !== 'bulge') return finishNodeMove(commit, options);
+            try {
+                if (commit) finishVertexDrag(app);
+                else cancelVertexDrag(app);
+            } finally {
+                if ((app.pcbDocument?.tracks || app.tracks).includes(track)) showTrackSelectionProperties(app, track);
+            }
         },
         // The selecting click must not split a midpoint. The legacy flow
         // requires a deliberate second click on the insertion handle.

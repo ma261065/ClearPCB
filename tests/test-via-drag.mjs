@@ -170,7 +170,8 @@ for (const commit of [false, true]) {
     const adapter = createTrackSelectionAdapter(app, track, track.id);
     adapter.beginAnchorDrag('bulge:e0', { x: 5, y: 0 });
     adapter.updateAnchorDrag({ x: 5, y: 4 });
-    assert.notDeepEqual(track.getBounds(), before);
+    assert.notDeepEqual(adapter.getBounds(), before);
+    assert.equal(track.getBounds(), before, 'Canonical bounds remain cached during bulge preview');
     adapter.endAnchorDrag(false);
     assert.deepEqual(track.getBounds(), before);
     app._pasteDrop = { anchorWorld: { x: 0, y: 0 },

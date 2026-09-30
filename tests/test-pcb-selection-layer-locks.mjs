@@ -226,8 +226,13 @@ console.log('PASS visible fill selection and dragging are independent of copper 
 const visibilityStart = source.indexOf('    _onLayerVisibilityChanged(layerId, visible) {');
 const visibilityEnd = source.indexOf('\n    /**', visibilityStart);
 assert.ok(visibilityStart >= 0 && visibilityEnd > visibilityStart);
+const { trackPointerTouchesLayer, cancelVertexDrag } = await import('../src/pcb/modules/track-drag.js');
+const { finishSelectionInteraction } = await import('../src/pcb/modules/selection-interaction.js');
+const { getBoardShapeRotationPreview, finishBoardShapeRotationPreview } = await import('../src/pcb/modules/board-shapes.js');
 const visibilityDependencies = {
     ...layers, getPcbSelection, saveLayerPrefs() {},
+    trackPointerTouchesLayer, cancelVertexDrag, finishSelectionInteraction,
+    getBoardShapeRotationPreview, finishBoardShapeRotationPreview,
     getSelectedTrack() { return null; }, getSelectedVia() { return null; },
     hasBoxSelection() { return false; }, setHoverHighlight() {},
 };

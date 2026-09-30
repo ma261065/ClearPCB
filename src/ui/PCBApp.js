@@ -30,12 +30,13 @@ import { savePcbPdf, printPcb, projectBaseName } from '../pcb/modules/pcb-export
 import { renderTrack, renderVia, removeTrackElements, removeViaElements, viaCopperPathD } from '../pcb/modules/track-render.js';
 import { startTrackDraw, updateTrackDraw, refreshTrackDrawPreview, addTrackWaypoint, finishTrackDraw, cancelTrackDraw, toggleTrackLayer, resolveTrackDrawSnap, resolveTrackSnap, showTrackSnapMarker, clearTrackSnapMarker, reconcileRatsnest } from '../pcb/modules/track-draw.js';
 import { hitTestTrack, hitTestLockedTrack, selectTrackOrVia, clearTrackSelection, deleteSelectedTrack, setHoverHighlight, showTrackContextMenu, refreshTrackSelectionHalo, getSelectedTrack, getSelectedVia, selectTrackSegment, dismissTrackContextMenu, applyNetToCopperSelection, trackIsSelectable } from '../pcb/modules/track-select.js';
-import { deleteFocusedBoardShape } from '../pcb/modules/board-shapes.js';
+import { deleteFocusedBoardShape, getBoardShapeRotationPreview, finishBoardShapeRotationPreview } from '../pcb/modules/board-shapes.js';
 import {
     startVertexDrag,
     updateVertexDrag,
     finishVertexDrag,
     cancelVertexDrag,
+    trackPointerTouchesLayer,
     startViaDrag,
     updateViaDrag,
     finishViaDrag,
@@ -214,7 +215,7 @@ const PCB_CROSSHAIR_TOOLS = new Set([
 export default class PCBApp {
     get tracks() {
         return getPlacementPreviewTracks(this) || this._viaDrag?.preview?.tracks
-            || getTrackPropertyPreview(this)?.tracks || this.pcbDocument.tracks;
+            || this._vertexDrag?.preview?.tracks || getTrackPropertyPreview(this)?.tracks || this.pcbDocument.tracks;
     }
     set tracks(value) { this.pcbDocument.tracks = value; }
     get vias() { return this._viaDrag?.preview?.vias || getViaPropertyPreview(this)?.vias || this.pcbDocument.vias; }
@@ -226,7 +227,7 @@ export default class PCBApp {
     set pads(value) { this.pcbDocument.pads = value; }
     get texts() { return getTextPosePreviewTexts(this) || this.pcbDocument.texts; }
     set texts(value) { this.pcbDocument.texts = value; }
-    get boardShapes() { return this.pcbDocument.boardShapes; }
+    get boardShapes() { return getBoardShapeRotationPreview(this)?.boardShapes || this.pcbDocument.boardShapes; }
     set boardShapes(value) { this.pcbDocument.boardShapes = value; }
     get _shapeIdCounter() { return this.pcbDocument.shapeIdCounter; }
     set _shapeIdCounter(value) { this.pcbDocument.shapeIdCounter = value; }
@@ -2403,6 +2404,7 @@ export default class PCBApp {
         const cache = this._copperCutCache
             || (this._copperCutCache = { top: undefined, bottom: undefined });
         const geometryCache = this._copperCutGeometry || (this._copperCutGeometry = {});
+        const deferGeometry = this._deferDragOverlays || getBoardShapeRotationPreview(this);
         let any = false;
         for (const side of ['top', 'bottom']) {
             const copperLayer = `${side}-copper`;
@@ -2410,7 +2412,7 @@ export default class PCBApp {
             const clipId = `pcb-copper-cut-${side}`;
             // Keep cutouts aligned with deferred pours until the drag commits or cancels.
             // Viewport changes can still resize the outer clip without moving its holes.
-            const shapeCuts = (!geometryChanged || this._deferDragOverlays) && geometryCache[side]
+            const shapeCuts = (!geometryChanged || deferGeometry) && geometryCache[side]
                 ? geometryCache[side]
                 : (geometryCache[side] = boardShapeCopperCuts(this, copperLayer));
             const existing = defs.querySelector(`#${clipId}`);
@@ -2612,6 +2614,9 @@ export default class PCBApp {
             return true;
         }
         if (ctrl && ((e.key === 'y' || e.key === 'Y') || ((e.key === 'z' || e.key === 'Z') && e.shiftKey))) {
+            if (getBoardShapeRotationPreview(this)) {
+                if (!finishSelectionInteraction(this, false)) finishBoardShapeRotationPreview(this);
+            }
             this.history.redo();
             return true;
         }
@@ -3039,6 +3044,12 @@ export default class PCBApp {
      * @param {boolean} visible
      */
     _onLayerVisibilityChanged(layerId, visible) {
+        if (!visible && this._vertexDrag && trackPointerTouchesLayer(this, layerId)) {
+            if (!finishSelectionInteraction(this, false)) cancelVertexDrag(this);
+        }
+        if (!visible && getBoardShapeRotationPreview(this)?.original.layer === layerId) {
+            if (!finishSelectionInteraction(this, false)) finishBoardShapeRotationPreview(this);
+        }
         if (!visible && this._trackPropertyBinding?.affectsLayer(layerId)) this._trackPropertyBinding.dispose();
         if (!visible && layerId === 'vias') this._viaPropertyBinding?.dispose();
         if (!visible && this._padPropertyBinding?.pads.some(pad => padLayers(pad).includes(layerId))) {
@@ -3110,6 +3121,12 @@ export default class PCBApp {
      * @param {boolean} locked
      */
     _onLayerLockChanged(layerId, locked) {
+        if (locked && this._vertexDrag && trackPointerTouchesLayer(this, layerId)) {
+            if (!finishSelectionInteraction(this, false)) cancelVertexDrag(this);
+        }
+        if (locked && getBoardShapeRotationPreview(this)?.original.layer === layerId) {
+            if (!finishSelectionInteraction(this, false)) finishBoardShapeRotationPreview(this);
+        }
         if (locked && this._trackPropertyBinding?.affectsLayer(layerId)) this._trackPropertyBinding.cancel();
         if (locked && layerId === 'vias') this._viaPropertyBinding?.cancel();
         if (locked && this._textPropertyBinding?.model.layer === layerId) this._textPropertyBinding.cancel();
@@ -3518,6 +3535,9 @@ export default class PCBApp {
      * @param {string} title
      */
     _setPcbPropsTitle(title) {
+        if (getBoardShapeRotationPreview(this)) {
+            if (!finishSelectionInteraction(this, false)) finishBoardShapeRotationPreview(this);
+        }
         this._textPropertyBinding?.dispose();
         this._textPropertyBinding = null;
         this._padPropertyBinding?.dispose();
@@ -5221,6 +5241,16 @@ export default class PCBApp {
     }
 
     _cancelPosePreviews() {
+        const trackInteraction = this._pcbSelectionInteraction;
+        if (trackInteraction?.adapter?.kind === 'track'
+            || (trackInteraction?.mode === 'move-adapter' && trackInteraction.entry.kind === 'track')) {
+            finishSelectionInteraction(this, false);
+        }
+        if (this._vertexDrag) cancelVertexDrag(this);
+        if (getBoardShapeRotationPreview(this) && this._pcbSelectionInteraction?.adapter?.kind === 'shape') {
+            finishSelectionInteraction(this, false);
+        }
+        finishBoardShapeRotationPreview(this);
         this._textPropertyBinding?.cancel();
         this._padPropertyBinding?.cancel();
         this._viaPropertyBinding?.cancel();

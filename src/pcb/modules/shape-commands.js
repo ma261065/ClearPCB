@@ -11,9 +11,13 @@ import {
     removeBoardShapeElement,
     refreshBoardShapeProperties,
     renderBoardShapeSegmentSelection,
+    canonicalBoardShape,
+    getBoardShapeRotationPreview,
+    finishBoardShapeRotationPreview,
 } from './board-shapes.js';
 import { renderPcbSelectionAnchors } from './selection-anchors.js';
 import { getPcbSelectionEntries, setPcbSelection } from './selection-registry.js';
+import { finishSelectionInteraction } from './selection-interaction.js';
 import { cancelPictureCopperRefresh, schedulePictureCopperRefresh } from './picture-refresh.js';
 import { normalizeShapeCopperMode } from './board-shape-geometry.js';
 import {
@@ -60,12 +64,15 @@ export class AddBoardShapeCommand extends ModelAddBoardShapeCommand {
 
 export class RemoveBoardShapeCommand extends ModelRemoveBoardShapeCommand {
     constructor(app, shape) {
-        super(app.pcbDocument, shape);
+        super(app.pcbDocument, canonicalBoardShape(app, shape));
         this.app = app;
     }
 
     execute() {
         if (this.shape.layer === 'board-outline') return;
+        if (getBoardShapeRotationPreview(this.app)?.original === this.shape) {
+            if (!finishSelectionInteraction(this.app, false)) finishBoardShapeRotationPreview(this.app);
+        }
         deselectRemovedShape(this.app, this.shape);
         removeBoardShapeElement(this.app, this.shape.id);
         super.execute();
@@ -87,7 +94,7 @@ export class RemoveBoardShapeCommand extends ModelRemoveBoardShapeCommand {
 
 export class MoveBoardShapeCommand extends ModelMoveBoardShapeCommand {
     constructor(app, shape, before, after) {
-        super(app.pcbDocument, shape, before, after);
+        super(app.pcbDocument, canonicalBoardShape(app, shape), before, after);
         this.app = app;
     }
 
@@ -104,7 +111,7 @@ export class MoveBoardShapeCommand extends ModelMoveBoardShapeCommand {
 
 export class ModifyBoardShapeCommand extends ModelModifyBoardShapeCommand {
     constructor(app, shape, before, after) {
-        super(app.pcbDocument, shape, before, after);
+        super(app.pcbDocument, canonicalBoardShape(app, shape), before, after);
         this.app = app;
     }
 

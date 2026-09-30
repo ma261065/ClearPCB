@@ -35,7 +35,8 @@ class Element {
 globalThis.window = { addEventListener() {} };
 globalThis.document = { createElementNS: (_, tag) => new Element(tag), getElementById: () => null };
 const { default: PCBApp } = await import('../src/ui/PCBApp.js');
-const { renderBoardShape, boardShapeCopperCuts, startBoardShapeDrag, handleBoardShapeDrag, endBoardShapeDrag } =
+const { renderBoardShape, boardShapeCopperCuts, startBoardShapeDrag, handleBoardShapeDrag, endBoardShapeDrag,
+    createBoardShapeSelectionAdapter, getBoardShapeRotationPreview } =
     await import('../src/pcb/modules/board-shapes.js');
 const { beginGroupDrag, updateGroupDrag, endGroupDrag, cancelGroupDrag } =
     await import('../src/pcb/modules/box-select.js');
@@ -126,8 +127,71 @@ try {
             assert.equal(timers.size, 0);
         }
     }
+    for (const side of ['top', 'bottom']) for (const copperMode of ['remove-copper', 'remove-copper-mask']) {
+        for (const commit of [false, true]) {
+            const pcbDocument = new PcbDocument();
+            const shape = {
+                id: 'image-cut', kind: 'image', layer: `${side}-copper`, copperMode, filled: true, lineWidth: 0.05,
+                points: [{ x: 5, y: 5 }, { x: 9, y: 5 }, { x: 9, y: 7 }, { x: 5, y: 7 }],
+                artwork: { width: 4, height: 2, rectangles: [{ x: 0, y: 0, width: 4, height: 2 }] },
+            };
+            pcbDocument.boardShapes.push(shape);
+            const before = pcbDocument.serialize();
+            const defs = new Element('defs');
+            const groups = new Map([`${side}-copper`, `${side}-fill`, `${side}-copper-knockout`]
+                .map(id => [id, new Element()]));
+            const app = {
+                pcbDocument, get boardShapes() { return getBoardShapeRotationPreview(this)?.boardShapes || pcbDocument.boardShapes; },
+                history: new CommandHistory(), _shapeElements: new Map(), _layerGroups: groups,
+                _ensureSvgDefs: () => defs, _getLayerGroup: id => groups.get(id),
+                _updateCopperCuts: PCBApp.prototype._updateCopperCuts,
+                viewport: { scale: 10, getVisibleBounds: () => ({ minX: 0, minY: 0, maxX: 40, maxY: 40 }) },
+            };
+            const fill = new CopperFill({ layer: `${side}-copper`, outline: [
+                { x: 0, y: 0 }, { x: 40, y: 0 }, { x: 40, y: 40 }, { x: 0, y: 40 },
+            ] });
+            setComputedFill(fill, [{ outer: fill.outline, holes: [] }]);
+            renderCopperFill(fill, app._getLayerGroup);
+            renderBoardShape(app, shape);
+            const initial = boardShapeCopperCuts(app, shape.layer).d;
+            const clipId = `pcb-copper-cut-${side}`;
+            const path = defs.querySelector(`#${clipId}`).firstChild;
+            const assertCut = expected => {
+                assert.ok(defs.querySelector(`#${clipId}`).firstChild.getAttribute('d').endsWith(` ${expected}`));
+                assert.equal(groups.get(`${side}-fill`).querySelector('.pcb-fill-copper').getAttribute('clip-path'), `url(#${clipId})`);
+            };
+            const adapter = createBoardShapeSelectionAdapter(app, shape, `shape:${shape.id}`);
+            adapter.beginAnchorDrag('rotate', { x: 12, y: 6 });
+            for (let angle = 5; angle <= 90; angle += 5) {
+                const radians = -angle * Math.PI / 180;
+                adapter.updateAnchorDrag({ x: 7 + 5 * Math.cos(radians), y: 6 + 5 * Math.sin(radians) });
+                assertCut(initial);
+                assert.equal(defs.querySelector(`#${clipId}`).firstChild, path, 'Rotation retains the settled copper clip');
+                assert.deepEqual(pcbDocument.serialize(), before);
+            }
+            const rotated = boardShapeCopperCuts(app, shape.layer).d;
+            assert.notEqual(rotated, initial);
+            flush();
+            app._updateCopperCuts({ geometryChanged: false });
+            app._updateCopperCuts();
+            assertCut(initial);
+            adapter.endAnchorDrag(commit);
+            assertCut(initial);
+            flush();
+            assertCut(commit ? rotated : initial);
+            if (commit) {
+                app.history.undo();
+                flush();
+                assertCut(initial);
+                app.history.redo();
+                flush();
+                assertCut(rotated);
+            }
+            assert.equal(timers.size, 0);
+        }
+    }
 } finally {
     globalThis.setTimeout = originalSetTimeout;
     globalThis.clearTimeout = originalClearTimeout;
 }
-console.log('PASS stable copper cutouts during single/group drags, viewport changes, drop, cancellation and history');
+console.log('PASS stable copper cutouts during single/group drags and image rotation, viewport changes, drop, cancellation and history');

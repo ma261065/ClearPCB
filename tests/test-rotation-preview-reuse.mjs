@@ -167,19 +167,20 @@ for (const layer of ['top-silk', 'bottom-copper']) {
     try {
         assert.equal(adapter.beginAnchorDrag('rotate', start), true);
         adapter.updateAnchorDrag(pointFor(37));
-        const retainedPoints = shape.points;
+        const retainedPoints = adapter.object.points;
         const retainedElement = app._shapeElements.get(shape.id);
         for (let index = 1; index < 100; index++) adapter.updateAnchorDrag(pointFor(37 + index / 1000));
         assert.equal(renders, 1, '100 image events resolving to one angle render once');
         assert.equal(inputWrites, 1);
         assert.equal(clearanceRequests, 1);
         assert.equal(input.value, '37');
-        assert.equal(shape.points, retainedPoints, 'Unchanged image angles retain geometry identity');
+        assert.equal(adapter.object.points, retainedPoints, 'Unchanged image angles retain geometry identity');
+        assert.deepEqual(shape.points, initialPoints, 'Image rotation leaves authored points unchanged');
         assert.equal(app._shapeElements.get(shape.id), retainedElement, 'Unchanged image angles retain the SVG node');
         assert.equal(app.history.canUndo(), false);
         for (let angle = 90; angle < 190; angle++) {
             adapter.updateAnchorDrag(pointFor(angle));
-            assert.deepEqual(shape.points, rotatedImagePoints(initialPoints, center, angle - startingRotation),
+            assert.deepEqual(adapter.object.points, rotatedImagePoints(initialPoints, center, angle - startingRotation),
                 'Each preview is calculated from the original points without accumulating drift');
             assert.equal(input.value, String(angle));
         }
@@ -193,7 +194,7 @@ for (const layer of ['top-silk', 'bottom-copper']) {
         assert.equal(input.value, '190');
         adapter.updateAnchorDrag(pointFor(359.6));
         assert.equal(input.value, '0');
-        const committedPoints = structuredClone(shape.points);
+        const committedPoints = structuredClone(adapter.object.points);
         adapter.endAnchorDrag(true);
         assert.equal(app._rotationHandleDrag, false);
         assert.equal(app.history.undoStack.length, 1);
@@ -205,12 +206,12 @@ for (const layer of ['top-silk', 'bottom-copper']) {
         assert.equal(renders, beforeCenter, 'Centre events at pickup leave unchanged image geometry alone');
         adapter.updateAnchorDrag(pointFor(90));
         adapter.updateAnchorDrag(center);
-        assert.deepEqual(shape.points, initialPoints, 'Returning to the centre restores original points exactly');
-        const returnedPoints = shape.points;
+        assert.deepEqual(adapter.object.points, initialPoints, 'Returning to the centre restores original points exactly');
+        const returnedPoints = adapter.object.points;
         const afterCenter = renders;
         for (let index = 0; index < 100; index++) adapter.updateAnchorDrag(center);
         assert.equal(renders, afterCenter);
-        assert.equal(shape.points, returnedPoints);
+        assert.equal(adapter.object.points, returnedPoints);
         adapter.endAnchorDrag(true);
         assert.equal(app.history.undoStack.length, 0, 'Returning to the original angle records no image history');
         assert.equal(app.history.canRedo(), true);

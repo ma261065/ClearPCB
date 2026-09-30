@@ -57,11 +57,12 @@ for (const scale of [1, 10, 100, 1000]) {
     assert.ok(!track.padConnections.has(nodeId), 'dragging does not bond outside the Pad');
     assert.ok(!app._trackSnapMarker);
     updateVertexDrag(app, inside);
-    assert.deepEqual(track.nodes.get(nodeId), { x: 10, y: 10 });
-    assert.deepEqual(track.padConnections.get(nodeId), { componentId: 'U1', pinNumber: '1:2' });
+    assert.deepEqual(app._vertexDrag.track.nodes.get(nodeId), { x: 10, y: 10 });
+    assert.deepEqual(app._vertexDrag.track.padConnections.get(nodeId), { componentId: 'U1', pinNumber: '1:2' });
+    assert.deepEqual(track.nodes.get(nodeId), { x: -30, y: -10 }, 'Canonical node is not snapped during preview');
     assert.ok(app._trackSnapMarker);
     updateVertexDrag(app, outside);
-    assert.ok(!track.padConnections.has(nodeId), 'leaving the Pad releases the snap');
+    assert.ok(!app._vertexDrag.track.padConnections.has(nodeId), 'leaving the Pad releases the snap');
     assert.ok(!app._trackSnapMarker);
     cancelVertexDrag(app);
 }

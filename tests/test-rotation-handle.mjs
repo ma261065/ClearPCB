@@ -80,7 +80,8 @@ try {
             }
             const pcbDocument = new PcbDocument();
             if (kind === 'text') pcbDocument.texts.set(object.id, object);
-            const app = { pcbDocument, boardShapes: kind === 'image' ? [object] : [],
+            else pcbDocument.boardShapes.push(object);
+            const app = { pcbDocument, boardShapes: pcbDocument.boardShapes,
                 get texts() { return getTextPosePreviewTexts(this) || pcbDocument.texts; },
                 tracks: [], vias: [], placements: new Map(), _shapeElements: new Map(),
                 viewport: { scale: 10, svg: element('svg') }, history: new CommandHistory(), _getLayerGroup() { return null; },

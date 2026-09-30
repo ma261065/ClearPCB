@@ -44,21 +44,24 @@ import {
     collectBondedCopper,
 } from './track-draw.js';
 import { refreshTrackSelectionHalo } from './track-select.js';
-import { MoveVertexCommand, MoveViaCommand, CompoundCommand, ModifyTrackGraphCommand, RemoveTrackCommand, AddViaCommand, AddTrackCommand, ModifyTrackCommand, ModifyViaCommand, canonicalTrack } from './track-commands.js';
+import { MoveVertexCommand, MoveViaCommand, CompoundCommand, ModifyTrackGraphCommand, RemoveTrackCommand, AddViaCommand, AddTrackCommand, ModifyTrackCommand, ModifyViaCommand, canonicalTrack, getPlacementPreviewTracks } from './track-commands.js';
 import { pointsCollinear, collinearSnap } from '../../core/geometry.js';
 import { showAlert } from '../../ui/modules/modal.js';
 import { Via, viaHitTest } from '../../shapes/via.js';
 import { Track } from '../../shapes/track.js';
 import { Pad } from '../../shapes/pad.js';
-import { isLayerLocked } from './layers.js';
-import { getPcbSelection } from './selection-registry.js';
+import { isLayerLocked, isLayerVisible } from './layers.js';
+import { bulgeRatio } from '../../core/geometry.js';
+import { formatNumberInputValue } from '../../core/number-inputs.js';
+import { arcFromBulge } from '../../shapes/arc-edge.js';
+import { getPcbSelection, syncPcbSelection } from './selection-registry.js';
 import { padLayers } from '../../shapes/pad-geometry.js';
 import { renderPad, removePadElements } from './pad.js';
 import { MovePadCommand, ModifyPadCommand } from './pad-commands.js';
 import { captureBoardShapeState } from './board-shapes.js';
 import { ModifyBoardShapeCommand } from './shape-commands.js';
 import { ModifyFillCommand } from './copper-fill-commands.js';
-import { snapPathTranslation, beginPathSplit } from './path-edit.js';
+import { snapPathTranslation, snapPathPoint, beginPathSplit } from './path-edit.js';
 import { createTrackSelectionAdapter } from './track-select.js';
 import { closestPointOnArcEdge } from '../../shapes/arc-edge.js';
 
@@ -77,10 +80,68 @@ function _beginVertexDragOverlayDeferral(app) {
     return previous;
 }
 
-function _endVertexDragOverlayDeferral(app, drag, refresh) {
+function _endVertexDragOverlayDeferral(app, drag) {
     app._deferDragOverlays = drag.previousDeferDragOverlays;
     if (!app._deferDragOverlays) app._refreshClearanceHalos?.();
-    if (refresh) reconcileRatsnest(app);
+}
+
+function prepareTrackPointer(app, track) {
+    track = canonicalTrack(app, track);
+    app._trackPropertyBinding?.commit();
+    app._viaPropertyBinding?.commit();
+    app._padPropertyBinding?.commit();
+    if (app._viaDrag) finishViaDrag(app);
+    if (app._vertexDrag || getPlacementPreviewTracks(app)) return null;
+    return track;
+}
+
+function beginTrackPointer(app, track, details) {
+    const nodes = new Set(details.nodes.map(node => node.nodeId));
+    const layers = new Set([...track.edges].filter(([id, edge]) => details.mode === 'move'
+        || (details.mode === 'bulge' ? id === details.edgeId : nodes.has(edge.from) || nodes.has(edge.to)))
+        .map(([id]) => track.getEdgeLayer(id)));
+    if (app._active === false || [...layers].some(layer => isLayerLocked(layer) || !isLayerVisible(layer))) return null;
+    const drag = { ...details, original: track, track, layers, lastDx: 0, lastDy: 0,
+        previousDeferDragOverlays: _beginVertexDragOverlayDeferral(app),
+        previousSuspendBoardViewRefresh: !!app._suspendBoardViewRefresh };
+    app._vertexDrag = drag;
+    app._suspendBoardViewRefresh = true;
+    return drag;
+}
+
+function beginTrackPointerPreview(app, drag) {
+    if (drag.preview) return drag.track;
+    const originals = app.pcbDocument?.tracks || app.tracks;
+    if (!originals.includes(drag.original)) {
+        cancelVertexDrag(app);
+        throw new Error('Cannot edit a missing track.');
+    }
+    drag.before = drag.original.captureState();
+    const copy = new Track({ id: drag.original.id });
+    copy.applyState(drag.before);
+    drag.track = copy;
+    drag.preview = { tracks: originals.map(track => track === drag.original ? copy : track) };
+    if (drag.snapTargetNode?.track === drag.original) drag.snapTargetNode.track = copy;
+    drag.guideExclude?.excludeTracks?.add(copy);
+    for (const { nodeId, attrs } of drag.bridges || []) {
+        const node = copy.nodes.get(nodeId);
+        const bridgeId = copy.addNode(node.x, node.y);
+        copy.addEdge(bridgeId, nodeId, attrs);
+    }
+    removeTrackElements(drag.original);
+    return copy;
+}
+
+export function trackPointerTouchesLayer(app, layerId) {
+    return app._vertexDrag?.layers?.has(layerId) || false;
+}
+
+export function startTrackBulgeDrag(app, track, edgeId) {
+    track = prepareTrackPointer(app, track);
+    if (!track?.edges.has(edgeId)) return false;
+    const edge = track.edges.get(edgeId), a = track.nodes.get(edge.from), b = track.nodes.get(edge.to);
+    return !!beginTrackPointer(app, track, { mode: 'bulge', edgeId, nodes: [], initialBulge: edge.bulge || 0,
+        bulgeOrigin: arcFromBulge(a, b, edge.bulge)?.bulgePoint || { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 } });
 }
 
 /** True if any standalone Via sits on `(x, y)`. */
@@ -407,28 +468,32 @@ export function commitCollinearCleanup(app, track) {
  * @returns {boolean}
  */
 export function splitTrackNodeAndDrag(app, track, nodeId) {
-    track = canonicalTrack(app, track);
-    app._trackPropertyBinding?.commit();
+    track = prepareTrackPointer(app, track);
     if (!track?.nodes?.has(nodeId) || track.degree(nodeId) < 2) return false;
     const pos = track.nodes.get(nodeId);
     if (!pos) return false;
 
-    const before = track.captureState();
     const inc = track.incidentEdges(nodeId);
     if (inc.length < 2) return false;
-    const newNodeId = track.splitNode(nodeId, [inc[0].edgeId]);
-    if (!newNodeId) return false;
-    track.setNodeCornerRadius(newNodeId, track.nodeCornerRadius(nodeId));
+    const drag = beginTrackPointer(app, track, { mode: 'node', topology: true, preparingSplit: true,
+        grabX: pos.x, grabY: pos.y, nodes: [{ nodeId, startX: pos.x, startY: pos.y, padLink: null }] });
+    if (!drag) return false;
+    const copy = beginTrackPointerPreview(app, drag);
+    const newNodeId = copy.splitNode(nodeId, [inc[0].edgeId]);
+    if (!newNodeId) { cancelVertexDrag(app); return false; }
+    copy.setNodeCornerRadius(newNodeId, copy.nodeCornerRadius(nodeId));
+    drag.nodes[0].nodeId = newNodeId;
+    drag.splitNodeId = newNodeId;
+    renderTrack(copy, id => app._getLayerGroup(id), _opts(app));
 
     // Float the freshly-detached node under the cursor. The whole split
-    // (topology + move) commits atomically via the graphBefore branch in
+    // (topology + move) commits atomically via the topology branch in
     // finishVertexDrag; dropping it in place discards the split.
     const adapter = createTrackSelectionAdapter(app, track, track.id);
     const started = beginPathSplit(app, adapter, newNodeId, () => {
-        app._vertexDrag.graphBefore = before;
-        app._vertexDrag.splitNodeId = newNodeId;
+        drag.preparingSplit = false;
     });
-    if (!started) track.applyState(before);
+    if (!started) cancelVertexDrag(app);
     return started;
 }
 
@@ -437,7 +502,7 @@ export function splitTrackNodeAndDrag(app, track, nodeId) {
  * dragging it — the schematic Wire "+ in circle" midpoint-anchor model.
  * The edge is split (both halves inherit its copper layer) and the new
  * node is set up as a normal press-drag; the topology change + move
- * commit atomically through finishVertexDrag's `graphBefore` branch.
+ * commit atomically through finishVertexDrag's topology branch.
  * Dropping in place leaves the node collinear, so finishVertexDrag's
  * collapse pass removes it again (net no-op).
  *
@@ -447,8 +512,7 @@ export function splitTrackNodeAndDrag(app, track, nodeId) {
  * @returns {boolean} true if an insertion drag was started.
  */
 export function startMidpointInsertDrag(app, track, edgeId) {
-    track = canonicalTrack(app, track);
-    app._trackPropertyBinding?.commit();
+    track = prepareTrackPointer(app, track);
     if (!track?.edges?.has(edgeId)) return false;
     const e = track.edges.get(edgeId);
     const a = track.nodes.get(e.from);
@@ -456,25 +520,21 @@ export function startMidpointInsertDrag(app, track, edgeId) {
     if (!a || !b) return false;
     const mid = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
 
-    const before = track.captureState();
-    const res = track.splitEdge(edgeId, mid);
-    if (!res) return false;
+    const drag = beginTrackPointer(app, track, { mode: 'node', topology: true,
+        grabX: mid.x, grabY: mid.y,
+        nodes: [{ nodeId: e.from }, { nodeId: e.to }] });
+    if (!drag) return false;
+    const copy = beginTrackPointerPreview(app, drag);
+    const res = copy.splitEdge(edgeId, mid);
+    if (!res) { cancelVertexDrag(app); return false; }
     // splitEdge copies the source edge's attributes (layer/width) onto both
     // halves, so no manual carry-over is needed.
 
-    app._vertexDrag = {
-        track,
-        mode: 'node',
-        graphBefore: before,
-        grabX: mid.x,
-        grabY: mid.y,
-        nodes: [{ nodeId: res.newNodeId, startX: mid.x, startY: mid.y, padLink: null }],
-        previousDeferDragOverlays: _beginVertexDragOverlayDeferral(app),
-    };
+    drag.nodes = [{ nodeId: res.newNodeId, startX: mid.x, startY: mid.y, padLink: null }];
     // Freeze 3D board-view sync for the drag; it rebuilds once on commit
     // rather than live from the in-flight (uncommitted) node positions.
     app._suspendBoardViewRefresh = true;
-    renderTrack(track, (id) => app._getLayerGroup(id), _opts(app));
+    renderTrack(copy, (id) => app._getLayerGroup(id), _opts(app));
     refreshTrackSelectionHalo(app);
     reconcileRatsnest(app);
     return true;
@@ -922,16 +982,16 @@ function _droppedNodeTarget(app, drag) {
 /**
  * Same-layer drops fuse nodes; cross-layer drops keep distinct coincident
  * nodes joined by a Via, preserving the single-layer graph-node invariant.
- * Returns true when merged or rejected, false to fall through to a move.
+ * Builds canonical commands from the detached graph, or null for a plain move.
  */
-function _tryMergeDroppedNode(app, drag, netCommand = null) {
+function droppedNodeCommands(app, view, drag) {
     const nd = drag.nodes[0];
     const track = drag.track;
     const n = track.nodes.get(nd.nodeId);
-    if (!n) return false;
+    if (!n) return null;
     let dropX = n.x, dropY = n.y;
-    const target = _droppedNodeTarget(app, drag);
-    if (!target) return false;
+    const target = _droppedNodeTarget(view, drag);
+    if (!target) return null;
     // Pull the dragged node exactly onto the target so the fused geometry is
     // bit-coincident regardless of the release position.
     const tp = target.track.nodes.get(target.nodeId);
@@ -940,18 +1000,11 @@ function _tryMergeDroppedNode(app, drag, netCommand = null) {
     const netA = track.net || '';
     const netB = target.track.net || '';
     if (netA && netB && netA !== netB) {
-        // Net conflict: revert the node and warn.
-        n.x = nd.startX;
-        n.y = nd.startY;
-        track.invalidate();
-        renderTrack(track, (id) => app._getLayerGroup(id), _opts(app));
-        refreshTrackSelectionHalo(app);
-        reconcileRatsnest(app);
         showAlert(
             `Cannot merge nodes on different nets: "${netA}" and "${netB}".`,
             { title: 'Net Conflict' }
         );
-        return true;
+        return [];
     }
 
     // Does the merge span copper layers? The dragged node and target node
@@ -965,11 +1018,6 @@ function _tryMergeDroppedNode(app, drag, netCommand = null) {
     const needsVia = crossLayer && !_hasViaAt(app, dropX, dropY);
     const mergedNet = netA || netB;
 
-    // Snapshot the dragged track in its pre-drop state for undo.
-    n.x = nd.startX;
-    n.y = nd.startY;
-    const before = track.captureState();
-
     const cmds = [];
     if (crossLayer) {
         // CROSS-LAYER: do NOT fuse the nodes. Place the dragged node exactly
@@ -980,8 +1028,7 @@ function _tryMergeDroppedNode(app, drag, netCommand = null) {
         if (dn) { dn.x = dropX; dn.y = dropY; }
         if (!track.net && netB) track.net = netB;
         const after = track.captureState();
-        track.applyState(before);
-        cmds.push(new ModifyTrackGraphCommand(app, track, before, after));
+        cmds.push(new ModifyTrackGraphCommand(app, drag.original, drag.before, after));
         if (needsVia) {
             cmds.push(new AddViaCommand(app, _makeViaAt(app, dropX, dropY, mergedNet)));
         }
@@ -989,8 +1036,7 @@ function _tryMergeDroppedNode(app, drag, netCommand = null) {
         // Same track, same layer: collapse the two nodes (keep the target).
         track.mergeNodes(target.nodeId, nd.nodeId);
         const after = track.captureState();
-        track.applyState(before);
-        cmds.push(new ModifyTrackGraphCommand(app, track, before, after));
+        cmds.push(new ModifyTrackGraphCommand(app, drag.original, drag.before, after));
     } else {
         // Cross-track, same layer: pull the other track's graph in, fuse the
         // shared node into one continuous trace, inherit its net if we had
@@ -1002,15 +1048,10 @@ function _tryMergeDroppedNode(app, drag, netCommand = null) {
         if (absorbedNid) track.mergeNodes(nd.nodeId, absorbedNid);
         if (!track.net && netB) track.net = netB;
         const after = track.captureState();
-        track.applyState(before);
-        cmds.push(new RemoveTrackCommand(app, target.track));
-        cmds.push(new ModifyTrackGraphCommand(app, track, before, after));
+        cmds.push(new RemoveTrackCommand(app, canonicalTrack(app, target.track)));
+        cmds.push(new ModifyTrackGraphCommand(app, drag.original, drag.before, after));
     }
-    if (netCommand) cmds.push(netCommand);
-    app.history.execute(cmds.length === 1 ? cmds[0] : new CompoundCommand(cmds));
-    refreshTrackSelectionHalo(app);
-    reconcileRatsnest(app);
-    return true;
+    return cmds;
 }
 
 /**
@@ -1026,16 +1067,16 @@ function _tryMergeDroppedNode(app, drag, netCommand = null) {
  *   a separate, deliberate second click.
  */
 export function startVertexDrag(app, track, worldPos, opts = {}) {
-    track = canonicalTrack(app, track);
-    app._trackPropertyBinding?.commit();
+    if (app._vertexDrag?.preparingSplit
+        && canonicalTrack(app, track) === app._vertexDrag.original
+        && opts.nodeId === app._vertexDrag.splitNodeId) return true;
+    track = prepareTrackPointer(app, track);
+    if (!track) return false;
     if (opts.whole) {
-        app._vertexDrag = { track, mode: 'move', graphBefore: track.captureState(),
+        return !!beginTrackPointer(app, track, { mode: 'move', topology: true,
             grabX: worldPos.x, grabY: worldPos.y,
             nodes: [...track.nodes].map(([nodeId, point]) => ({ nodeId, startX: point.x, startY: point.y,
-                padLink: track.padConnections.get(nodeId) || null })),
-            previousDeferDragOverlays: _beginVertexDragOverlayDeferral(app) };
-        app._suspendBoardViewRefresh = true;
-        return true;
+                padLink: track.padConnections.get(nodeId) || null })) });
     }
     const allowMidpointInsert = opts.allowMidpointInsert !== false;
     const nodeId = opts.edgeId ? null : opts.nodeId ?? hitTestTrackNode(app, track, worldPos);
@@ -1043,8 +1084,8 @@ export function startVertexDrag(app, track, worldPos, opts = {}) {
     // Grabbing a node: drag that single node (snaps to grid/pad/node).
     if (nodeId) {
         const n = track.nodes.get(nodeId);
-        app._vertexDrag = {
-            track,
+        if (!n) return false;
+        const drag = beginTrackPointer(app, track, {
             mode: 'node',
             grabX: worldPos.x,
             grabY: worldPos.y,
@@ -1060,8 +1101,8 @@ export function startVertexDrag(app, track, worldPos, opts = {}) {
             // the drag moves anything), so the live net-guide line never
             // points back at copper the dragged end already connects to.
             guideExclude: track.net ? bondedExclusion(app, track) : null,
-            previousDeferDragOverlays: _beginVertexDragOverlayDeferral(app),
-        };
+        });
+        if (!drag) return false;
         // Freeze 3D board-view sync for the drag; it rebuilds once on commit
         // rather than live from the in-flight (uncommitted) node positions.
         app._suspendBoardViewRefresh = true;
@@ -1087,7 +1128,7 @@ export function startVertexDrag(app, track, worldPos, opts = {}) {
     // orientation, while the adjacent segments stretch to stay connected
     // (they share the endpoint nodes, so they follow automatically).
     const hit = opts.edgeId ? { edgeId: opts.edgeId, edge: track.edges.get(opts.edgeId) } : hitTestTrackEdge(app, track, worldPos);
-    if (!hit) return false;
+    if (!hit?.edge) return false;
     const e = hit.edge;
     const a = track.nodes.get(e.from);
     const b = track.nodes.get(e.to);
@@ -1096,41 +1137,36 @@ export function startVertexDrag(app, track, worldPos, opts = {}) {
     // If an endpoint of the dragged segment sits on a via, keep the via
     // anchored where it is and grow a new "bridge" segment from the via
     // to the moving endpoint, so the trace stays connected through the
-    // via instead of tearing away from it. This is a topology change, so
-    // snapshot the graph up-front for an atomic undo.
+    // via instead of tearing away from it. Remember the pins now; the first
+    // changed preview stages the bridge geometry for an atomic undo.
     const segAttrs = track._cloneEdge(track.edges.get(hit.edgeId));
-    let graphBefore = null;
+    const bridges = [];
     for (const epId of [e.from, e.to]) {
         const n = track.nodes.get(epId);
         if (!_viaAtPoint(app, n.x, n.y)) continue;
-        if (!graphBefore) graphBefore = track.captureState();
-        const bridgeId = track.addNode(n.x, n.y);
-        // The bridge segment inherits the dragged segment's layer + width.
-        track.addEdge(bridgeId, epId, segAttrs);
+        bridges.push({ nodeId: epId, attrs: segAttrs });
         // NOTE: the other layer's copper at this via lives on a SEPARATE
         // coincident node (model invariant: one node per layer at a via),
         // so it is not an endpoint of the dragged segment and stays pinned
         // to the via automatically — no edge re-pointing needed here.
     }
 
-    app._vertexDrag = {
-        track,
+    const drag = beginTrackPointer(app, track, {
         mode: 'segment',
         grabX: worldPos.x,
         grabY: worldPos.y,
-        graphBefore,
+        bridges, topology: bridges.length > 0,
         edgeId: hit.edgeId,
         nodes: [
             { nodeId: e.from, startX: a.x, startY: a.y, padLink: track.padConnections.get(e.from) || null },
             { nodeId: e.to, startX: b.x, startY: b.y, padLink: track.padConnections.get(e.to) || null },
         ],
-        previousDeferDragOverlays: _beginVertexDragOverlayDeferral(app),
-    };
+    });
+    if (!drag) return false;
     // Freeze 3D board-view sync for the drag; it rebuilds once on commit
     // rather than live from the in-flight (uncommitted) node positions.
     app._suspendBoardViewRefresh = true;
     app.viewport?.setCrosshair({ x: a.x, y: a.y });
-    if (graphBefore) renderTrack(track, (id) => app._getLayerGroup(id), _opts(app));
     return true;
 }
 
@@ -1138,6 +1174,28 @@ export function startVertexDrag(app, track, worldPos, opts = {}) {
 export function updateVertexDrag(app, worldPos) {
     const drag = app._vertexDrag;
     if (!drag) return;
+    if (!Number.isFinite(worldPos?.x) || !Number.isFinite(worldPos?.y)) {
+        cancelVertexDrag(app);
+        throw new Error('Track drag requires a finite position.');
+    }
+    if ([...drag.layers].some(layer => isLayerLocked(layer) || !isLayerVisible(layer))) {
+        cancelVertexDrag(app);
+        return;
+    }
+    if (drag.mode === 'bulge') {
+        const edge = drag.track.edges.get(drag.edgeId);
+        const snap = snapPathPoint(app, worldPos, [], true);
+        const bulge = snap.x === drag.bulgeOrigin.x && snap.y === drag.bulgeOrigin.y ? drag.initialBulge
+            : Math.max(-1, Math.min(1, bulgeRatio(drag.track.nodes.get(edge.from), drag.track.nodes.get(edge.to), snap)));
+        if ((edge.bulge || 0) === bulge) return;
+        const copy = beginTrackPointerPreview(app, drag);
+        copy.setEdgeAttr(drag.edgeId, 'bulge', bulge);
+        renderTrack(copy, layer => app._getLayerGroup(layer), _opts(app));
+        refreshTrackSelectionHalo(app);
+        const input = document.getElementById('pcbPropTrackBulge');
+        if (input) input.value = formatNumberInputValue(bulge);
+        return;
+    }
 
     if (drag.mode === 'segment' || drag.mode === 'move') {
         // Translate both endpoints by the cursor delta. The dragged segment
@@ -1146,20 +1204,35 @@ export function updateVertexDrag(app, worldPos) {
         // lands on an H/V/45° axis or becomes collinear with its far edge.
         const rawDx = worldPos.x - drag.grabX;
         const rawDy = worldPos.y - drag.grabY;
-        const movedIds = new Set(drag.nodes.map(node => node.nodeId));
-        const constraints = drag.mode === 'segment' ? drag.nodes.map((node, index) => ({ index,
-            neighbours: drag.track.incidentEdges(node.nodeId).filter(edge => !movedIds.has(edge.otherNode))
-                .map(edge => drag.track.nodes.get(edge.otherNode)),
-        })) : [];
-        const delta = snapPathTranslation(app, drag.nodes.map(node => ({ x: node.startX, y: node.startY })),
-            { x: rawDx, y: rawDy }, drag.mode === 'move' ? [{ x: drag.nodes[0].startX, y: drag.nodes[0].startY }] : [], constraints);
+        if (!drag.translationPoints) {
+            drag.translationPoints = drag.nodes.map(node => ({ x: node.startX, y: node.startY }));
+            const movedIds = new Set(drag.nodes.map(node => node.nodeId));
+            drag.constraints = drag.mode === 'segment' ? drag.nodes.map((node, index) => ({
+                index,
+                neighbours: [
+                    ...drag.track.incidentEdges(node.nodeId).filter(edge => !movedIds.has(edge.otherNode))
+                        .map(edge => drag.track.nodes.get(edge.otherNode)),
+                    ...(drag.bridges.some(bridge => bridge.nodeId === node.nodeId)
+                        ? [{ x: node.startX, y: node.startY }] : []),
+                ],
+            })) : [];
+        }
+        const delta = snapPathTranslation(app, drag.translationPoints,
+            { x: rawDx, y: rawDy }, drag.mode === 'move' ? [drag.translationPoints[0]] : [], drag.constraints);
         const { x: dx, y: dy } = delta;
+        if (dx === drag.lastDx && dy === drag.lastDy) return;
+        beginTrackPointerPreview(app, drag);
+        drag.lastDx = dx;
+        drag.lastDy = dy;
         for (const nd of drag.nodes) {
             const n = drag.track.nodes.get(nd.nodeId);
             if (!n) continue;
             n.x = nd.startX + dx;
             n.y = nd.startY + dy;
-            if (nd.padLink) drag.track.padConnections.delete(nd.nodeId);
+            if (nd.padLink) {
+                if (dx === 0 && dy === 0) drag.track.padConnections.set(nd.nodeId, { ...nd.padLink });
+                else drag.track.padConnections.delete(nd.nodeId);
+            }
         }
         const anchor = drag.track.nodes.get(drag.nodes[0]?.nodeId);
         drag.track.invalidate();
@@ -1182,23 +1255,19 @@ export function updateVertexDrag(app, worldPos) {
     // its directly-connected neighbours (snapping onto an adjacent node would
     // collapse that edge to zero length).
     const draggedId = nd.nodeId;
-    const neighborIds = new Set();
-    for (const [, e] of drag.track.edges) {
-        if (e.from === draggedId) neighborIds.add(e.to);
-        else if (e.to === draggedId) neighborIds.add(e.from);
-    }
+    const neighborIds = drag.neighborIds ||= new Set(drag.track.incidentEdges(draggedId).map(edge => edge.otherNode));
     const snap = resolveTrackSnap(app, worldPos, {
         layer: drag.track.getEdgeLayer(drag.track.incidentEdges(draggedId)[0]?.edgeId) || drag.track.layer,
         excludeNode: (track, nid) =>
-            track === drag.track && (nid === draggedId || neighborIds.has(nid)),
+            canonicalTrack(app, track) === drag.original && (nid === draggedId || neighborIds.has(nid)),
     });
-    const n = drag.track.nodes.get(nd.nodeId);
-    if (!n) return;
+    const current = drag.track.nodes.get(nd.nodeId);
+    if (!current) return;
     const snapVia = app.viewport?.shiftHeld
         || snap.snapType === 'pad' || snap.snapType === 'track-node'
         ? null : _findNearbyVia(app, worldPos);
-    n.x = snapVia ? snapVia.x : snap.x;
-    n.y = snapVia ? snapVia.y : snap.y;
+    const n = { x: snapVia ? snapVia.x : snap.x, y: snapVia ? snapVia.y : snap.y };
+    const previousTarget = drag.snapTargetNode, previousVia = drag.snapTargetVia;
     drag.snapTargetVia = snapVia || snap.pad?.standalonePad || null;
     drag.snapTargetKind = snap.pad?.standalonePad ? 'pad' : 'via';
 
@@ -1208,13 +1277,6 @@ export function updateVertexDrag(app, worldPos) {
     drag.snapTargetNode = snap.snapType === 'track-node' && snap.trackNode
         ? { track: snap.trackNode.track, nodeId: snap.trackNode.nodeId }
         : null;
-
-    // Yellow target circle when locked onto a hard snap (pad / track node).
-    if (snap.snapType === 'pad' || snap.snapType === 'track-node' || snapVia) {
-        showTrackSnapMarker(app, { x: n.x, y: n.y });
-    } else {
-        clearTrackSnapMarker(app);
-    }
 
     // Axis snap: when an incident segment falls within the alignment-glow
     // band, lock the node exactly onto that H/V/45° axis so a drop matches
@@ -1254,14 +1316,26 @@ export function updateVertexDrag(app, worldPos) {
         n.y = snapped.y;
     }
 
-    app.viewport?.setCrosshair({ x: n.x, y: n.y });
+    const connection = snap.snapType === 'pad' && snap.pad?.componentId
+        ? { componentId: snap.pad.componentId, pinNumber: snap.pad.pinNumber }
+        : n.x === nd.startX && n.y === nd.startY ? nd.padLink : null;
+    const currentConnection = drag.track.padConnections.get(nd.nodeId);
+    const changed = n.x !== current.x || n.y !== current.y
+        || currentConnection?.componentId !== connection?.componentId
+        || currentConnection?.pinNumber !== connection?.pinNumber;
+    const targetChanged = previousTarget?.track !== drag.snapTargetNode?.track
+        || previousTarget?.nodeId !== drag.snapTargetNode?.nodeId || previousVia !== drag.snapTargetVia;
+    if (!changed && !targetChanged) return;
+    if (snap.snapType === 'pad' || snap.snapType === 'track-node' || snapVia) showTrackSnapMarker(app, n);
+    else clearTrackSnapMarker(app);
+    app.viewport?.setCrosshair(n);
+    if (!changed) return;
+    beginTrackPointerPreview(app, drag);
+    Object.assign(drag.track.nodes.get(nd.nodeId), n);
 
     // If the user landed on a pad, record/replace the pad connection.
-    if (snap.snapType === 'pad' && snap.pad?.componentId) {
-        drag.track.padConnections.set(nd.nodeId, {
-            componentId: snap.pad.componentId,
-            pinNumber: snap.pad.pinNumber,
-        });
+    if (connection) {
+        drag.track.padConnections.set(nd.nodeId, { ...connection });
     } else {
         drag.track.padConnections.delete(nd.nodeId);
     }
@@ -1536,33 +1610,58 @@ function _snapNodeAcrossNeighbour(track, nodeId, pos, threshold) {
 export function finishVertexDrag(app) {
     const drag = app._vertexDrag;
     if (!drag) return;
-    app._vertexDrag = null;
-    app.viewport?.hideCrosshair();
-    // Re-enable 3D board-view sync and schedule one catch-up rebuild from the
-    // final state. The commit below fires its own (debounced) sync too; both
-    // collapse into a single rebuild, and no-op drops still re-sync here.
-    app._suspendBoardViewRefresh = false;
-    app._board3d?.refresh?.();
-    clearTrackAxisGlow(app);
-    clearTrackSnapMarker(app);
-    clearNetGuideLine(app);
-
-    // Did any dragged node actually move?
-    let moved = false;
-    for (const nd of drag.nodes) {
-        const n = drag.track.nodes.get(nd.nodeId);
-        if (n && (Math.abs(n.x - nd.startX) > 1e-6 || Math.abs(n.y - nd.startY) > 1e-6)) {
-            moved = true;
-            break;
+    let committed = false;
+    try {
+        if (app._active === false || [...drag.layers].some(layer => isLayerLocked(layer) || !isLayerVisible(layer))) return;
+        if (!drag.preview && drag.snapTargetNode) beginTrackPointerPreview(app, drag);
+        if (!drag.preview) return;
+        const tracks = app.pcbDocument?.tracks || app.tracks;
+        if (!tracks.includes(drag.original)
+            || Object.keys(drag.before.nodes).some(id => !drag.original.nodes.has(id))
+            || Object.keys(drag.before.edges).some(id => !drag.original.edges.has(id))) {
+            throw new Error('Cannot finish a drag of a missing track, node or segment.');
         }
+        const target = drag.snapTargetNode;
+        const originalTarget = target && canonicalTrack(app, target.track);
+        if (target && (!tracks.includes(originalTarget) || !originalTarget.nodes.has(target.nodeId))) {
+            throw new Error('Cannot finish a drag onto a missing track node.');
+        }
+        if (drag.snapTargetVia && !(drag.snapTargetKind === 'pad' ? app.pads : app.vias)?.includes(drag.snapTargetVia)) {
+            throw new Error('Cannot finish a drag onto a missing terminal.');
+        }
+        const view = { ...app, tracks: tracks.map(track => track === drag.original ? drag.track : track),
+            vias: app.vias, pads: app.pads, boardShapes: app.boardShapes, texts: app.texts };
+        const commands = trackPointerCommands(app, view, drag);
+        app._vertexDrag = null;
+        removeTrackElements(drag.track);
+        if (commands.length) {
+            app.history.execute(commands.length === 1 ? commands[0] : new CompoundCommand(commands));
+            committed = true;
+        }
+    } finally {
+        endTrackPointer(app, drag, committed);
     }
+}
 
+function trackPointerCommands(app, view, drag) {
+    if (drag.mode === 'bulge') {
+        const edge = drag.track.edges.get(drag.edgeId);
+        if (Number(formatNumberInputValue(edge.bulge)) === 0) edge.bulge = 0;
+        const after = drag.track.captureState();
+        return JSON.stringify(after) === JSON.stringify(drag.before) ? []
+            : [new ModifyTrackGraphCommand(app, drag.original, drag.before, after)];
+    }
+    const moved = drag.nodes.some(nd => {
+        const n = drag.track.nodes.get(nd.nodeId);
+        return n && (Math.abs(n.x - nd.startX) > 1e-6 || Math.abs(n.y - nd.startY) > 1e-6);
+    });
+    if (!moved && (drag.topology || !drag.snapTargetNode)) return [];
     let netCommand = null;
     if (drag.mode === 'node' && drag.nodes.length === 1 && (moved || drag.snapTargetNode)) {
         const nodeId = drag.nodes[0].nodeId;
-        const target = _droppedNodeTarget(app, drag);
-        let prospectiveApp = app;
-        if (target && !drag.graphBefore) {
+        const target = _droppedNodeTarget(view, drag);
+        let prospectiveApp = view;
+        if (target && !drag.topology) {
             const fromLayers = _incidentLayers(drag.track, nodeId);
             const toLayers = _incidentLayers(target.track, target.nodeId);
             const point = target.track.nodes.get(target.nodeId);
@@ -1570,7 +1669,7 @@ export function finishVertexDrag(app) {
                 && !_hasViaAt(app, point.x, point.y)) {
                 // Validate the connection the merge will create across layers,
                 // including the transition Via that is not on the board yet.
-                prospectiveApp = { ...app, tracks: app.tracks, pads: app.pads, boardShapes: app.boardShapes,
+                prospectiveApp = { ...view,
                     vias: [...(app.vias || []), _makeViaAt(app, point.x, point.y, '')] };
             }
         }
@@ -1578,44 +1677,18 @@ export function finishVertexDrag(app) {
             { includeShapes: true, newTracks: new Set([drag.track]) });
         const nets = _bondedNets(bonded);
         if (nets.size > 1) {
-            if (drag.graphBefore) drag.track.applyState(drag.graphBefore);
-            else for (const nd of drag.nodes) {
-                const n = drag.track.nodes.get(nd.nodeId);
-                if (n) { n.x = nd.startX; n.y = nd.startY; }
-                if (nd.padLink) drag.track.padConnections.set(nd.nodeId, { ...nd.padLink });
-                else drag.track.padConnections.delete(nd.nodeId);
-            }
-            drag.track.invalidate();
-            renderTrack(drag.track, (id) => app._getLayerGroup(id), _opts(app));
-            refreshTrackSelectionHalo(app);
-            reconcileRatsnest(app);
-            _endVertexDragOverlayDeferral(app, drag, false);
             const terminalNet = drag.snapTargetVia?.net;
             if (drag.track.net && terminalNet && drag.track.net !== terminalNet) {
                 _showTrackViaNetConflict(app, drag.track.net, terminalNet, drag.snapTargetKind);
             } else _showBondedNetConflict(app, nets);
-            return;
+            return [];
         }
         const net = [...nets][0];
-        if (net) netCommand = new AdoptDroppedCopperNetCommand(app, drag.track,
+        if (net) netCommand = new AdoptDroppedCopperNetCommand(app, drag.original,
             bonded.trackNodes.get(drag.track), net);
     }
-    const commit = command => app.history.execute(netCommand
-        ? new CompoundCommand([command, netCommand]) : command);
-
-    // Segment drag that pinned a via grew bridge geometry on start —
-    // commit the whole graph change (topology + positions) atomically.
-    if (drag.graphBefore) {
-        if (!moved) {
-            // No real move: discard the bridge geometry added on start.
-            drag.track.applyState(drag.graphBefore);
-            renderTrack(drag.track, (id) => app._getLayerGroup(id), _opts(app, drag.track));
-            refreshTrackSelectionHalo(app);
-            reconcileRatsnest(app);
-            _endVertexDragOverlayDeferral(app, drag, false);
-            return;
-        }
-        // Dissolve any waypoints the drag made redundant before snapshotting.
+    const withNet = commands => netCommand && commands.length ? [...commands, netCommand] : commands;
+    if (drag.topology) {
         if (drag.mode !== 'move') collapseCollinearTrackNodes(app, drag.track);
         if (drag.splitNodeId) {
             const components = drag.track.connectedComponents();
@@ -1626,20 +1699,14 @@ export function finishVertexDrag(app) {
                 const remainder = components.filter(nodes => nodes !== movingNodes)
                     .map(nodes => drag.track.extractSubgraph(nodes));
                 const after = movingPart.captureState();
-                drag.track.applyState(drag.graphBefore);
-                commit(new CompoundCommand([
-                    new ModifyTrackGraphCommand(app, drag.track, drag.graphBefore, after),
+                return withNet([
+                    new ModifyTrackGraphCommand(app, drag.original, drag.before, after),
                     ...remainder.map(track => new AddTrackCommand(app, track)),
-                ]));
-                _endVertexDragOverlayDeferral(app, drag, true);
-                return;
+                ]);
             }
         }
         const after = drag.track.captureState();
-        drag.track.applyState(drag.graphBefore);
-        commit(new ModifyTrackGraphCommand(app, drag.track, drag.graphBefore, after));
-        _endVertexDragOverlayDeferral(app, drag, true);
-        return;
+        return withNet([new ModifyTrackGraphCommand(app, drag.original, drag.before, after)]);
     }
 
     // Single-node drop onto another node → merge into one (schematic-style).
@@ -1650,14 +1717,10 @@ export function finishVertexDrag(app) {
     // displacement when one is dragged onto the other, so a `moved`-only gate
     // would never fuse them.
     if (drag.mode === 'node' && drag.nodes.length === 1 && (moved || drag.snapTargetNode)) {
-        if (_tryMergeDroppedNode(app, drag, netCommand)) {
-            _endVertexDragOverlayDeferral(app, drag, true);
-            return;
-        }
+        const merged = droppedNodeCommands(app, view, drag);
+        if (merged) return withNet(merged);
     }
 
-    // Collect the moved nodes and snap the model back so each command's
-    // execute() re-applies the move from the original position.
     const moves = [];
     for (const nd of drag.nodes) {
         const n = drag.track.nodes.get(nd.nodeId);
@@ -1665,76 +1728,57 @@ export function finishVertexDrag(app) {
         if (Math.abs(n.x - nd.startX) > 1e-6 || Math.abs(n.y - nd.startY) > 1e-6) {
             moves.push({ nodeId: nd.nodeId, fromX: nd.startX, fromY: nd.startY, toX: n.x, toY: n.y });
         }
-        n.x = nd.startX;
-        n.y = nd.startY;
     }
-    drag.track.invalidate();
-    if (!moves.length) {
-        _endVertexDragOverlayDeferral(app, drag, false);
-        return;
-    }
-
-    // Build a 'before' snapshot at the original positions, re-apply the
-    // move, then dissolve any waypoints the move made redundant (collinear
-    // with their neighbours). If a node was dissolved the topology changed,
-    // so commit move + cleanup together as one atomic snapshot; otherwise
-    // fall back to lightweight per-node MoveVertexCommands.
-    const before = drag.track.captureState();
-    for (const m of moves) {
-        const n = drag.track.nodes.get(m.nodeId);
-        if (n) { n.x = m.toX; n.y = m.toY; }
-    }
+    if (!moves.length) return [];
     const collapsed = collapseCollinearTrackNodes(app, drag.track);
-    if (collapsed) {
-        const after = drag.track.captureState();
-        drag.track.applyState(before);
-        commit(new ModifyTrackGraphCommand(app, drag.track, before, after));
-        _endVertexDragOverlayDeferral(app, drag, true);
-        return;
+    const after = drag.track.captureState();
+    if (collapsed || JSON.stringify(after.padConnections) !== JSON.stringify(drag.before.padConnections)) {
+        return withNet([new ModifyTrackGraphCommand(app, drag.original, drag.before, after)]);
     }
-    drag.track.applyState(before);
-
     const moveCmds = moves.map((m) =>
-        new MoveVertexCommand(app, drag.track, m.nodeId, m.fromX, m.fromY, m.toX, m.toY));
-    commit(moveCmds.length === 1 ? moveCmds[0] : new CompoundCommand(moveCmds));
-    _endVertexDragOverlayDeferral(app, drag, true);
+        new MoveVertexCommand(app, drag.original, m.nodeId, m.fromX, m.fromY, m.toX, m.toY));
+    return withNet(moveCmds);
 }
 
-/** Abort the in-progress drag and restore the original node position(s). */
+/** Discard the in-progress drag and restore canonical artwork. */
 export function cancelVertexDrag(app) {
     const drag = app._vertexDrag;
     if (!drag) return;
+    endTrackPointer(app, drag, false);
+}
+
+function endTrackPointer(app, drag, committed) {
+    const interaction = app._pcbSelectionInteraction;
+    if (interaction?.adapter?.kind === 'track'
+        || (interaction?.mode === 'move-adapter' && interaction.entry.kind === 'track')) {
+        app._pcbSelectionInteraction = null;
+    }
     app._vertexDrag = null;
-    app.viewport?.hideCrosshair();
-    // Re-enable 3D board-view sync and re-sync to the restored state.
-    app._suspendBoardViewRefresh = false;
-    app._board3d?.refresh?.();
-    clearTrackAxisGlow(app);
-    clearTrackSnapMarker(app);
-    clearNetGuideLine(app);
-    if (drag.graphBefore) {
-        // Roll back any bridge geometry plus the node moves in one step.
-        drag.track.applyState(drag.graphBefore);
-        renderTrack(drag.track, (id) => app._getLayerGroup(id), _opts(app, drag.track));
-        refreshTrackSelectionHalo(app);
-        reconcileRatsnest(app);
-        _endVertexDragOverlayDeferral(app, drag, false);
-        return;
-    }
-    for (const nd of (drag.nodes || [])) {
-        const n = drag.track.nodes.get(nd.nodeId);
-        if (n) {
-            n.x = nd.startX;
-            n.y = nd.startY;
+    try {
+        if (drag.mode !== 'bulge') app.viewport?.hideCrosshair();
+        clearTrackAxisGlow(app);
+        clearTrackSnapMarker(app);
+        clearNetGuideLine(app);
+        const present = (app.pcbDocument?.tracks || app.tracks).includes(drag.original);
+        if (!present) {
+            removeTrackElements(drag.original);
+            if (app._trackEdit?.track === drag.original) app._trackEdit = null;
+            syncPcbSelection(app);
+            app._clearProperties?.();
         }
-        if (nd.padLink) drag.track.padConnections.set(nd.nodeId, { ...nd.padLink });
-        else drag.track.padConnections.delete(nd.nodeId);
+        if (drag.preview) {
+            removeTrackElements(drag.track);
+            if (!committed && present) {
+                renderTrack(drag.original, id => app._getLayerGroup(id), _opts(app, drag.original));
+            }
+            refreshTrackSelectionHalo(app);
+        }
+    } finally {
+        app._suspendBoardViewRefresh = drag.previousSuspendBoardViewRefresh;
+        _endVertexDragOverlayDeferral(app, drag);
+        if (drag.preview) reconcileRatsnest(app, { skipFillRefresh: !committed });
+        if (!app._suspendBoardViewRefresh && drag.preview) app._board3d?.refresh?.();
     }
-    drag.track.invalidate();
-    renderTrack(drag.track, (id) => app._getLayerGroup(id), _opts(app, drag.track));
-    refreshTrackSelectionHalo(app);
-    reconcileRatsnest(app);
-    _endVertexDragOverlayDeferral(app, drag, false);
 }
 
 /* ──────────────────────────── via drag ──────────────────────────── */
@@ -1767,6 +1811,7 @@ export function startPadDrag(app, pad, worldPos) {
 }
 
 function startTerminalDrag(app, via, worldPos, kind) {
+    if (app._vertexDrag) finishVertexDrag(app);
     app._trackPropertyBinding?.commit();
     const layers = kind === 'pad' ? padLayers(via) : ['top-copper', 'bottom-copper'];
     // Find every Track node at the via's current (x, y). Track endpoints
@@ -1805,17 +1850,19 @@ function beginTerminalPreview(app, drag) {
     const copy = drag.kind === 'pad' ? new Pad({ id: drag.original.id }) : new Via({ id: drag.original.id });
     copy.applyState(drag.original.captureState());
     const copies = new Map();
+    const originals = new Map();
     for (const { track } of drag.attached) {
         if (copies.has(track)) continue;
         const copy = new Track({ id: track.id });
         copy.applyState(track.captureState());
         copies.set(track, copy);
+        originals.set(copy, track);
     }
     const collection = drag.kind === 'pad' ? 'pads' : 'vias';
     const preview = {
         tracks: app.pcbDocument.tracks.map(track => copies.get(track) || track),
         [collection]: app.pcbDocument[collection].map(item => item === drag.original ? copy : item),
-        copies,
+        copies, originals,
     };
     drag.attached = drag.attached.map(item => ({
         ...item, originalTrack: item.track, track: copies.get(item.track),

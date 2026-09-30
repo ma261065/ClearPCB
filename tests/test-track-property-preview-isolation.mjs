@@ -338,7 +338,7 @@ for (const next of ['width', 'net', 'move', 'midpoint', 'split', 'bulge', 'delet
                 : splitTrackNodeAndDrag(app, copy, nodeId);
         assert.equal(started, true);
         assert.equal(track.cornerRadius, 2);
-        assert.equal(app._vertexDrag.track, track);
+        assert.equal(app._vertexDrag.original, track);
         assert.equal(getTrackPropertyPreview(app), undefined);
         cancelVertexDrag(app);
         assert.equal(track.cornerRadius, 2);

@@ -52,6 +52,7 @@ import {
     ModifyViasCommand as ModelModifyViasCommand,
     MoveViaCommand as ModelMoveViaCommand,
 } from '../../core/pcb-via-commands.js';
+import { cancelVertexDrag } from './track-drag.js';
 
 const placementPreviews = new WeakMap();
 const viaPropertyPreviews = new WeakMap();
@@ -62,11 +63,20 @@ export function getTrackPropertyPreview(app) {
 }
 
 export function canonicalTrack(app, track) {
+    if (app._vertexDrag?.track === track) return app._vertexDrag.original || track;
     const preview = trackPropertyPreviews.get(app);
-    return preview?.track === track ? preview.original : track;
+    if (preview?.track === track) return preview.original;
+    return app._viaDrag?.preview?.originals.get(track)
+        || placementPreviews.get(app)?.originals.get(track) || track;
 }
 
 export function displayedTrack(app, track) {
+    track = canonicalTrack(app, track);
+    const placement = placementPreviews.get(app)?.copiesByOriginal.get(track);
+    if (placement) return placement;
+    if (app._vertexDrag?.original === track) return app._vertexDrag.track;
+    const terminal = app._viaDrag?.preview?.copies.get(track);
+    if (terminal) return terminal;
     const preview = trackPropertyPreviews.get(app);
     return preview?.original === track ? preview.track : track;
 }
@@ -221,7 +231,8 @@ export function previewPlacementPoses(app, poses) {
             originals.set(copy, track);
             return copy;
         });
-        preview = { tracks, copies: [...originals.keys()], originals, rendered: new Set(),
+        preview = { tracks, copies: [...originals.keys()], originals,
+            copiesByOriginal: new Map([...originals].map(([copy, original]) => [original, copy])), rendered: new Set(),
             before, changed: new Set() };
         placementPreviews.set(app, preview);
     }
@@ -433,6 +444,7 @@ export class AddTrackCommand extends ModelAddTrackCommand {
         reconcileRatsnest(this.app);
     }
     undo() {
+        if (this.app._vertexDrag?.original === this.track) cancelVertexDrag(this.app);
         deselectRemovedTrack(this.app, this.track);
         for (const v of this.vias) {
             removeViaElements(v);
@@ -451,6 +463,7 @@ export class RemoveTrackCommand extends ModelRemoveTrackCommand {
         this.app = app;
     }
     execute() {
+        if (this.app._vertexDrag?.original === this.track) cancelVertexDrag(this.app);
         if (this.app._trackPropertyBinding?.track === this.track) this.app._trackPropertyBinding.dispose();
         deselectRemovedTrack(this.app, this.track);
         removeTrackElements(this.track);
@@ -476,6 +489,7 @@ export class ModifyTrackCommand extends ModelModifyTrackCommand {
         this.app = app;
     }
     _apply(state) {
+        if (this.app._vertexDrag?.original === this.track) cancelVertexDrag(this.app);
         super._apply(state);
         renderTrack(this.track, (id) => this.app._getLayerGroup(id), _opts(this.app, this.track));
         refreshEditedTrackClearance(this.app);
@@ -486,10 +500,11 @@ export class ModifyTrackCommand extends ModelModifyTrackCommand {
 /** Move a single Track node from (fromX, fromY) to (toX, toY). */
 export class MoveVertexCommand extends ModelMoveVertexCommand {
     constructor(app, track, nodeId, fromX, fromY, toX, toY) {
-        super(track, nodeId, fromX, fromY, toX, toY);
+        super(canonicalTrack(app, track), nodeId, fromX, fromY, toX, toY);
         this.app = app;
     }
     _set(pt) {
+        if (this.app._vertexDrag?.original === this.track) cancelVertexDrag(this.app);
         super._set(pt);
         renderTrack(this.track, (id) => this.app._getLayerGroup(id), _opts(this.app, this.track));
         refreshEditedTrackClearance(this.app);
@@ -510,6 +525,7 @@ export class ModifyTrackGraphCommand extends ModelModifyTrackGraphCommand {
         this.app = app;
     }
     _apply(state) {
+        if (this.app._vertexDrag?.original === this.track) cancelVertexDrag(this.app);
         super._apply(state);
         renderTrack(this.track, (id) => this.app._getLayerGroup(id), _opts(this.app, this.track));
         refreshEditedTrackClearance(this.app);

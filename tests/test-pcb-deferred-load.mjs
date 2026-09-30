@@ -289,7 +289,7 @@ assert.deepEqual(snapshot.placements, expectedSaved.placements);
 assert.deepEqual(restored.boardShapes[0].artwork, artwork);
 console.log('PASS: image geometry, board dimensions, and placements survive save before first activation');
 
-const { boardShapeCopperCuts } = await import('../src/pcb/modules/board-shapes.js');
+const { boardShapeCopperCuts, getBoardShapeRotationPreview } = await import('../src/pcb/modules/board-shapes.js');
 function clipNode() {
     return {
         attributes: new Map(), children: [], parent: null,
@@ -305,6 +305,7 @@ function clipNode() {
 const clipDefs = clipNode();
 let geometryCalls = 0;
 const clipDependencies = {
+    getBoardShapeRotationPreview,
     document: { createElementNS: () => clipNode() },
     boardShapeCopperCuts(app, layer) { geometryCalls++; return boardShapeCopperCuts(app, layer); },
     setCopperFillClip(group, id) { group.clipId = id; },

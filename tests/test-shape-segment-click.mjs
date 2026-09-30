@@ -147,12 +147,14 @@ for (const commit of [true, false]) {
     assert.equal(app._suspendBoardViewRefresh, true);
     adapter.updateAnchorDrag({ x: 5, y: 2 });
     adapter.updateAnchorDrag({ x: 5, y: 3 });
-    assert.notDeepEqual(track.captureState(), before, 'Bulge geometry updates immediately');
+    assert.notDeepEqual(adapter.object.captureState(), before, 'Displayed bulge geometry updates immediately');
+    assert.deepEqual(track.captureState(), before, 'Authored bulge stays unchanged during the gesture');
     assert.deepEqual(refreshes, initialRefreshes, 'Bulge motion does not request expensive derived refreshes');
     adapter.endAnchorDrag(commit);
     assert.equal(app._deferDragOverlays, false);
     assert.equal(app._suspendBoardViewRefresh, false);
-    for (const key of Object.keys(refreshes)) assert.ok(refreshes[key] > initialRefreshes[key]);
+    for (const key of ['clearance', 'board']) assert.ok(refreshes[key] > initialRefreshes[key]);
+    assert.equal(refreshes.fills > initialRefreshes.fills, commit, 'Cancellation does not repour unchanged copper');
     assert.equal(commands.length, commit ? 1 : 0);
     if (commit) commands[0].undo();
     assert.deepEqual(track.captureState(), before, 'Cancel and undo restore the original arc');
@@ -283,7 +285,7 @@ for (const kind of ['line', 'track']) {
             _getLayerGroup() { return null; }, _snapToGrid(point) { return point; },
             viewport: { scale: 100, setCrosshair() {}, hideCrosshair() {} },
             history: { execute(command) { commands.push(command); command.execute(); } } };
-        const positions = () => kind === 'track' ? [...object.nodes.values()] : object.points;
+        const positions = () => kind === 'track' ? [...(app._vertexDrag?.track || object).nodes.values()] : object.points;
         if (kind === 'track') selectTrackOrVia(app, { type: 'track', track: object });
         else selectBoardShape(app, object);
         assert.ok(beginSelectionInteraction(app, { x: 5, y: 0 }, false));

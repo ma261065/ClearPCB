@@ -642,6 +642,25 @@ only for changed previews. Commit/cancel refreshes and exact fractional-angle
 history restoration retain their existing behavior.
 Individual commands remain synchronous; no additional timer is introduced.
 
+Image rotation handles keep their gesture state in a weak map in
+`board-shapes.js`. The first changed angle allocates one shallow image copy
+and one `boardShapes` projection; artwork remains shared read-only and only
+the copy's points change. Unrelated shapes and fills retain canonical identity.
+Selection adapters and rendering resolve displayed geometry, including rebuilt
+adapters, bounds, hits, anchors and lock outlines. Completion removes projection
+ownership before the existing canonical shape command; cancellation restores
+artwork without writing authored points. Missing targets and rejected commands
+clean up previews. Panel replacement, deselection, layer locking/hiding,
+deactivation/loading and orphan cancellation terminate rotation, while pointer
+handoff commits rotation before starting an ordinary shape drag. Save/export
+readiness retains the existing rotation guard.
+
+Copper-cut geometry stays on its settled cache during image rotation, including
+explicit refresh and viewport updates, so old pour holes remain until drop.
+Discarded rotations do not repour unchanged copper. Numeric image properties,
+ordinary board-shape movement/resizing and shape groups remain separate preview
+ownership work; this rotation slice does not isolate those paths.
+
 Single-text dragging skips projection writes, SVG rebuilds and crosshair updates when
 the snapped position has not changed. Changed positions still render immediately;
 there is no new frame scheduler or throttling. Drop passes the explicit original
@@ -930,11 +949,28 @@ redo. Numeric-to-net/layer, node/midpoint/split/arc pickup and terminal pickup
 finish pending properties before using canonical targets. Cancellation,
 replaced panels, deactivation, loading, relevant layer locks/visibility, missing
 targets and command rejection remove preview artwork without authored rollback.
-Save/export readiness includes active track properties. Direct track pointer
-node/segment/arc gestures, groups and other entity preview families retain their
-existing paths; this slice does not isolate them. Shared pose cancellation also
+Save/export readiness includes active track properties. Shared pose cancellation also
 dispatches fill adapters and orphaned fill drags through `endFillEdit(false)`;
 it does not replace the canonical fill collection or pour cache.
+
+Direct track pointer gestures use `_vertexDrag` to retain the canonical target
+and a reusable graph copy/collection projection. Whole-track, segment, node and
+bulge movement allocate on the first changed geometry; midpoint and split
+gestures copy immediately to stage topology. Pinned-via bridge nodes belong to
+the copy. Selection and hover resolve displayed geometry, while commands target
+the canonical graph after projection removal. Authored graph maps, metadata,
+pad attachments, bounds caches and serialization remain unchanged during edits.
+Snapping and connection resolution use the projected graph; merge, layer
+transition, net propagation and split commands preserve exact undo/redo.
+
+Repeated resolved pointer positions skip SVG and derived work. Translation
+constraints and starting points are reused within each gesture. Cancel, no-op,
+locked/hidden layers, deactivation/loading, missing targets and command failures
+clean up artwork without authored rollback, restoring outer overlay/3D deferral
+state. Discarded previews do not repour unchanged copper. Property/terminal
+handoffs finish pending edits before canonical pickup; save/export guards remain.
+Grouped-track moves and ordinary board-shape pointer/property previews are still
+separate ownership work.
 
 Both component pointer paths use the same live pose updater. If magnetic snapping
 produces the current coordinates, it skips footprint transforms, pad/bond updates

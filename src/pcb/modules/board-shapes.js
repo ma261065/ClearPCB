@@ -59,7 +59,7 @@ import {
 } from './selection-registry.js';
 import { clearPcbSelectionAnchors, lockPositionOutsideOutline, renderPcbSelectionAnchors } from './selection-anchors.js';
 import { appendSegmentSelection } from '../../core/ui-helpers.js';
-import { beginPcbAnchorInteraction, showPcbSelectionProperties } from './selection-interaction.js';
+import { beginPcbAnchorInteraction, finishSelectionInteraction, showPcbSelectionProperties } from './selection-interaction.js';
 import { pathMoveInteraction, beginPathSplit, snapPathPoint, snapPathTranslation, pathContextActions, showPathContextMenu, dismissPathContextMenu } from './path-edit.js';
 import {
     canDrawPictureCircles,
@@ -96,6 +96,62 @@ import {
 const NS = 'http://www.w3.org/2000/svg';
 const HOLE_BORDER_WIDTH = 0.05;
 const REMOVAL_OUTLINE_WIDTH_PX = 1;
+const boardShapeRotationPreviews = new WeakMap();
+
+export function getBoardShapeRotationPreview(app) {
+    return boardShapeRotationPreviews.get(app);
+}
+
+export function canonicalBoardShape(app, shape) {
+    const preview = boardShapeRotationPreviews.get(app);
+    return preview && preview.shape === shape ? preview.original : shape;
+}
+
+function displayedBoardShape(app, shape) {
+    const preview = boardShapeRotationPreviews.get(app);
+    return preview && (preview.original === shape || preview.shape === shape) ? preview.shape : shape;
+}
+
+/** Release displayed geometry before handing the canonical image to history. */
+export function finishBoardShapeRotationPreview(app, commit = false) {
+    const preview = boardShapeRotationPreviews.get(app);
+    if (!preview) return false;
+    boardShapeRotationPreviews.delete(app);
+    app._rotationHandleDrag = false;
+    const { original, shape, before } = preview;
+    const present = app.pcbDocument.boardShapes.includes(original);
+    let committed = false;
+    try {
+        if (commit && !present) throw new Error('Cannot rotate a missing board shape.');
+        if (commit && isLayerVisible(original.layer) && !isLayerLocked(original.layer) && shape !== original) {
+            const after = shapeSnapshot(shape);
+            if (JSON.stringify(before) !== JSON.stringify(after)) {
+                schedulePictureCopperRefresh(app, original);
+                app.history.execute(new ModifyBoardShapeCommand(app, original, before, after));
+                committed = true;
+            }
+        }
+    } finally {
+        if (!present) {
+            removeBoardShapeElement(app, original.id);
+            if (shape !== original) cancelPictureCopperRefresh(app);
+        } else if (shape !== original && !committed) {
+            schedulePictureCopperRefresh(app, original);
+            renderBoardShape(app, original, { liveDrag: true });
+            cancelPictureCopperRefresh(app);
+            showBoardShapeProperties(app, original);
+        }
+        if (!present || shape !== original) renderPcbSelectionAnchors(app);
+        const input = /** @type {HTMLInputElement|null} */ (document.getElementById('pcbPropImageRot'));
+        if (input && present) {
+            const points = original.points;
+            const rotation = ((-Math.atan2(points[1].y - points[0].y,
+                points[1].x - points[0].x) * 180 / Math.PI) % 360 + 360) % 360;
+            input.value = String(Math.round(rotation) % 360);
+        }
+    }
+    return committed;
+}
 
 /** Round to 4 dp for compact, stable path/serialisation output. */
 const r4 = (n) => Math.round(n * 10000) / 10000;
@@ -452,6 +508,7 @@ function bindPropertyPreviewCancel(input, preview, refreshPanel) {
 }
 
 export function renderBoardShape(app, shape, opts = {}) {
+    shape = displayedBoardShape(app, shape);
     removeBoardShapeElement(app, shape.id, { skipHatchUpdate: true, preserveInteraction: true });
     const selectedSegment = app._selectedBoardShapeSegment?.shapeId === shape.id
         && isPcbSelected(app, 'shape', shape)
@@ -585,7 +642,7 @@ export function hitTestBoardShape(app, worldPos) {
 
 export function setBoardShapeHover(app, shape) {
     const prev = app._hoveredShape || null;
-    const next = shape || null;
+    const next = canonicalBoardShape(app, shape) || null;
     if (prev === next || (prev && next && prev.id === next.id)) return;
     app._hoveredShape = next;
     if (prev) renderBoardShape(app, prev, { interactionOnly: true, skipCopperUpdate: true });
@@ -606,6 +663,11 @@ export function setBoardShapeNetHover(app, shapes) {
 }
 
 export function selectBoardShape(app, shape) {
+    shape = canonicalBoardShape(app, shape);
+    const rotation = boardShapeRotationPreviews.get(app);
+    if (rotation && rotation.original !== shape) {
+        if (!finishSelectionInteraction(app, false)) finishBoardShapeRotationPreview(app);
+    }
     const previousShapes = getPcbSelection(app, 'shape');
     const prev = previousShapes[0] || null;
     const next = shape || null;
@@ -694,15 +756,17 @@ export function moveBoardShapeAnchor(app, shape, anchorId, worldPos) {
 
 /** Full SelectionManager adapter for rectangle, polygon, and arc objects. */
 export function createBoardShapeSelectionAdapter(app, shape, id) {
-    let rotationDrag = null;
+    shape = canonicalBoardShape(app, shape);
+    const displayed = () => displayedBoardShape(app, shape);
     return {
         id,
         kind: 'shape',
-        object: shape,
+        get object() { return displayed(); },
         get visible() { return isLayerVisible(shape.layer); },
         get locked() { return isLayerLocked(shape.layer); },
         unlock() { unlockPcbLayer(app, shape.layer); },
         getLockPosition(pointer, scale) {
+            const shape = displayed();
             const geometry = resolveBoardShapeGeometry(shape);
             if (['rect', 'polygon'].includes(shape.kind) && geometry.physicalContours?.length) {
                 return lockPositionOutsideOutline(
@@ -729,8 +793,9 @@ export function createBoardShapeSelectionAdapter(app, shape, id) {
                 true,
             );
         },
-        getBounds() { return boardShapeBounds(shape); },
+        getBounds() { return boardShapeBounds(displayed()); },
         hitTest(point, tolerance) {
+            const shape = displayed();
             if (boardShapeHitTest(shape, point, tolerance)) return true;
             if (!isPcbSelected(app, 'shape', shape) || !['line', 'rect', 'polygon'].includes(shape.kind)) return false;
             const points = shape.points || [];
@@ -739,10 +804,12 @@ export function createBoardShapeSelectionAdapter(app, shape, id) {
                 distanceToSegment(point, start, points[(index + 1) % points.length]) <= tolerance);
         },
         getEditPath() {
+            const shape = displayed();
             if (app._selectedBoardShapeNode?.shapeId === shape.id) return '';
             return shapePathD({ ...shape, cornerRadius: 0, nodeCornerRadii: {} });
         },
         getAnchors() {
+            const shape = displayed();
             const anchors = getBoardShapeAnchors(shape).map(anchor => ({ ...anchor,
                 selected: app._selectedBoardShapeNode?.shapeId === shape.id
                     && app._selectedBoardShapeNode.index === anchor.id,
@@ -753,46 +820,50 @@ export function createBoardShapeSelectionAdapter(app, shape, id) {
         moveAnchor(anchorId, x, y) { moveBoardShapeAnchor(app, shape, anchorId, { x, y }); },
         beginAnchorDrag(anchorId, worldPos) {
             if (anchorId !== 'rotate' || shape.kind !== 'image') return startBoardShapeDrag(app, shape, worldPos, anchorId);
+            if (isLayerLocked(shape.layer) || !isLayerVisible(shape.layer)) return false;
+            if (boardShapeRotationPreviews.has(app) || app._rotationHandleDrag || app._shapeDrag) {
+                throw new Error('Finish the current shape preview before rotating an image.');
+            }
+            if (!app.pcbDocument.boardShapes.includes(shape)) throw new Error('Cannot rotate a missing board shape.');
             const center = { x: (shape.points[0].x + shape.points[2].x) / 2,
                 y: (shape.points[0].y + shape.points[2].y) / 2 };
             const rotation = ((-Math.atan2(shape.points[1].y - shape.points[0].y,
                 shape.points[1].x - shape.points[0].x) * 180 / Math.PI) % 360 + 360) % 360;
-            rotationDrag = { before: shapeSnapshot(shape), points: shape.points.map(point => ({ ...point })),
-                center, start: { ...worldPos }, rotation, currentRotation: rotation };
+            const before = shapeSnapshot(shape);
+            boardShapeRotationPreviews.set(app, {
+                original: shape, shape, before, points: before.geom.points,
+                center, start: { ...worldPos }, rotation, currentRotation: rotation,
+            });
             app._rotationHandleDrag = true;
-            schedulePictureCopperRefresh(app, shape);
             return true;
         },
         updateAnchorDrag(worldPos) {
-            if (!rotationDrag) return handleBoardShapeDrag(app, worldPos);
+            const rotationDrag = boardShapeRotationPreviews.get(app);
+            if (!rotationDrag || rotationDrag.original !== shape) return handleBoardShapeDrag(app, worldPos);
             const { center, start, rotation, points } = rotationDrag;
             const next = pointerRotation(center, start, worldPos, rotation);
             if (next === rotationDrag.currentRotation) return;
-            shape.points = next === rotation
+            if (!rotationDrag.boardShapes) {
+                if (!app.pcbDocument.boardShapes.includes(shape)) {
+                    if (!finishSelectionInteraction(app, false)) finishBoardShapeRotationPreview(app);
+                    throw new Error('Cannot rotate a missing board shape.');
+                }
+                rotationDrag.shape = { ...shape };
+                rotationDrag.boardShapes = app.pcbDocument.boardShapes.map(
+                    original => original === shape ? rotationDrag.shape : original);
+            }
+            const displayed = rotationDrag.shape;
+            displayed.points = next === rotation
                 ? points.map(point => ({ ...point }))
                 : rotatedImagePoints(points, center, next - rotation);
-            schedulePictureCopperRefresh(app, shape);
-            renderBoardShape(app, shape, { liveDrag: true });
+            schedulePictureCopperRefresh(app, displayed);
+            renderBoardShape(app, displayed, { liveDrag: true });
             const input = /** @type {HTMLInputElement|null} */ (document.getElementById('pcbPropImageRot'));
             if (input) input.value = String(Math.round(next) % 360);
             rotationDrag.currentRotation = next;
         },
         endAnchorDrag(commit, options = {}) {
-            if (rotationDrag) {
-                const before = rotationDrag.before;
-                const after = shapeSnapshot(shape);
-                rotationDrag = null;
-                app._rotationHandleDrag = false;
-                applyShapeSnapshot(shape, before);
-                schedulePictureCopperRefresh(app, shape);
-                if (commit && JSON.stringify(before) !== JSON.stringify(after)) {
-                    app.history.execute(new ModifyBoardShapeCommand(app, shape, before, after));
-                } else {
-                    renderBoardShape(app, shape, { liveDrag: true });
-                    showBoardShapeProperties(app, shape);
-                }
-                return;
-            }
+            if (boardShapeRotationPreviews.get(app)?.original === shape) return finishBoardShapeRotationPreview(app, commit);
             const drag = app._shapeDrag;
             if (commit && drag && !options.moved && !options.place
                 && typeof drag.sourceAnchorId === 'number'
@@ -832,7 +903,7 @@ export function createBoardShapeSelectionAdapter(app, shape, id) {
         }),
         anchorColor: shapeSelectionColor(shape),
         getPosition() {
-            const bounds = boardShapeBounds(shape);
+            const bounds = boardShapeBounds(displayed());
             return { x: (bounds.minX + bounds.maxX) / 2, y: (bounds.minY + bounds.maxY) / 2 };
         },
         invalidate() { renderBoardShape(app, shape); },
@@ -1105,7 +1176,11 @@ export function setBoardShapeSegmentType(app, shape, segment, type, { floating =
 // ── Drag (move whole shape) ──────────────────────────────────────────────────
 
 export function startBoardShapeDrag(app, shape, worldPos, anchorId = null, options = {}) {
+    shape = canonicalBoardShape(app, shape);
     if (!shape || isLayerLocked(shape.layer)) return false;
+    if (boardShapeRotationPreviews.has(app)) {
+        if (!finishSelectionInteraction(app, true)) finishBoardShapeRotationPreview(app, true);
+    }
     const before = cloneShapeGeometry(shape);
     const beforeState = shapeSnapshot(shape);
     let handle = anchorId != null ? anchorId : options.whole ? null : hitTestBoardShapeVertex(app, shape, worldPos);
@@ -1930,6 +2005,7 @@ function showImageProperties(app, shape, items) {
 }
 
 export function showBoardShapeProperties(app, shape) {
+    shape = canonicalBoardShape(app, shape);
     const items = app._pcbPropsItems?.();
     if (!items || !shape) return;
     syncPcbSelection(app);
