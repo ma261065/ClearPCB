@@ -86,7 +86,8 @@ import {
     previewTextPose,
     finishTextPosePreview,
     beginTextContentPreview,
-    syncTextContentPreview,
+    beginTextPropertyPreview,
+    finishTextPropertyPreview,
 } from '../pcb/modules/text-commands.js';
 import { shapeDrawClick, updateShapeDrawPreview, cancelShapeDraw, finishPolygonDraw, finishLineDraw, finishShapeDrawAtPoint, hitTestBoardShape, setBoardShapeHover, selectBoardShape, startBoardShapeDrag, handleBoardShapeDrag, endBoardShapeDrag, showBoardShapeProperties, showBoardShapeToolProperties, refreshBoardShapeToolLayer, resolveShapeDrawLayer, boardShapeCopperCuts, renderBoardShape, hitTestBoardShapeVertex, showBoardShapeContextMenu, dismissBoardShapeContextMenu, captureBoardShapeState, applyShapeSnapshot } from '../pcb/modules/board-shapes.js';
 import { ModifyBoardShapeCommand } from '../pcb/modules/shape-commands.js';
@@ -2831,13 +2832,13 @@ export default class PCBApp {
         return !!this._isDirty;
     }
 
-    /** Live pointer previews can mutate model geometry before history commits it. */
+    /** Pending previews must finish before a user-visible save/export snapshot. */
     isSectionEditing() {
         return !!(this._drag || this._refDrag || this._textDrag || this._groupDrag
             || this._shapeDrag || this._vertexDrag || this._viaDrag || this._fillDrag
             || this._pasteDrop || this._textEdit || this._boardOutlineResize
             || this._pcbSelectionInteraction || this._rotationHandleDrag
-            || this._deferDragOverlays || this._suspendFillRefresh);
+            || this._deferDragOverlays || this._suspendFillRefresh || this._textPropertyBinding?.active);
     }
 
     /**
@@ -3085,6 +3086,7 @@ export default class PCBApp {
      * @param {boolean} locked
      */
     _onLayerLockChanged(layerId, locked) {
+        if (locked && this._textPropertyBinding?.model.layer === layerId) this._textPropertyBinding.cancel();
         const draggingReference = this.placements?.get(this._refDrag?.compId);
         if (locked && draggingReference
             && (draggingReference.side === 'bottom' ? 'bottom-silk' : 'top-silk') === layerId) {
@@ -3487,6 +3489,8 @@ export default class PCBApp {
      * @param {string} title
      */
     _setPcbPropsTitle(title) {
+        this._textPropertyBinding?.dispose();
+        this._textPropertyBinding = null;
         const el = document.querySelector('#pcbPropsContent .ribbon-group-title');
         if (el) el.textContent = title || 'Properties';
     }
@@ -5135,6 +5139,7 @@ export default class PCBApp {
     }
 
     _cancelPosePreviews() {
+        this._textPropertyBinding?.cancel();
         const state = this._pcbSelectionInteraction;
         if (['component', 'text'].includes(state?.adapter?.kind)
             || (state?.mode === 'move-adapter' && ['component', 'text'].includes(state.entry.kind))) finishSelectionInteraction(this, false);
@@ -5250,6 +5255,7 @@ export default class PCBApp {
         this._syncClipboardButtons?.();
         if (prev && (!next || prev.id !== next.id)) this._refreshText(prev.id);
         if (next) this._refreshText(next.id);
+        else renderPcbSelectionAnchors(this);
     }
 
     _beginTextDrag(text, worldPos) {
@@ -5768,9 +5774,7 @@ export default class PCBApp {
      * undo collapses each edit into one entry.
      */
     _showTextProperties(text) {
-        if (this._textEdit?.text?.id === text.id && !this._textEdit.options?.componentId) {
-            text = this.pcbDocument.texts.get(text.id);
-        }
+        text = this.pcbDocument.texts.get(text.id);
         const items = this._pcbPropsItems();
         if (!items) return;
         this._setPcbPropsTitle('Text');
@@ -5832,30 +5836,25 @@ export default class PCBApp {
             if (!Number.isFinite(n)) return null;
             return ((Math.round(n) % 360) + 360) % 360;
         };
-        this._bindStrokeTextProps(items, text, {
+        this._textPropertyBinding = this._bindStrokeTextProps(items, text, {
             fields: [
                 { id: 'pcbPropTextLayer', field: 'layer', parse: (v) => TEXT_LAYERS.includes(v) ? v : null, apply: layerApply },
                 { id: 'pcbPropTextSize', field: 'size', parse: num(0.1) },
                 { id: 'pcbPropTextRot', field: 'rotation', parse: rotParse, wrap: true },
                 { id: 'pcbPropTextLW', field: 'strokeWidth', parse: num(0.01) },
             ],
-            preview: (t) => {
-                syncTextContentPreview(this, t.id);
-                this._refreshText(t.id);
-            },
+            begin: (t) => beginTextPropertyPreview(this, t.id),
+            cancel: () => finishTextPropertyPreview(this),
+            preview: (t) => this._refreshText(t.id),
             commit: (t, snap) => {
-                const before = {};
                 const after = {};
                 for (const k of ['layer', 'size', 'rotation', 'strokeWidth', 'x', 'y']) {
                     if (snap[k] !== t[k]) {
-                        before[k] = snap[k];
                         after[k] = t[k];
                     }
                 }
-                if (Object.keys(after).length === 0) return;
-                // Let the command capture pre-preview values without repainting the rollback.
-                Object.assign(t, before);
-                this.history.execute(new EditTextCommand(this, t.id, after));
+                finishTextPropertyPreview(this, Object.keys(after).length
+                    ? () => this.history.execute(new EditTextCommand(this, t.id, after)) : undefined);
             },
         });
         const borderEl = /** @type {HTMLInputElement|null} */ (items.querySelector('#pcbPropTextBorder'));
@@ -5894,30 +5893,51 @@ export default class PCBApp {
     /**
      * Shared field-binding machinery for the stroke-text style panels (Text
      * objects and reference designators). For each spec field it wires the
-     * input/change events so edits update the model live (via spec.preview)
+     * input/change events so edits update the selected preview (via spec.preview)
      * and collapse into a single undo entry on commit (via spec.commit). A
      * snapshot of the model is taken on the first keystroke so spec.commit
      * can diff against the pre-edit state.
      * @param {Element} items container holding the inputs
      * @param {any} model object whose fields the inputs drive
-     * @param {{fields: Array<{id:string, field:string, parse:(v:string)=>any, apply?:(m:any,v:any)=>void, wrap?:boolean}>, preview:(m:any)=>void, commit:(m:any, snap:any)=>void}} spec
+     * @param {{fields: Array<{id:string, field:string, parse:(v:string)=>any, apply?:(m:any,v:any)=>void, wrap?:boolean}>, begin?:(m:any)=>any, cancel?:()=>void, preview:(m:any)=>void, commit:(m:any, snap:any)=>void}} spec
      */
     _bindStrokeTextProps(items, model, spec) {
         let snapshot = null;
+        let target = model;
+        let disposed = false;
+        const resetFields = () => {
+            for (const f of spec.fields) {
+                const el = /** @type {HTMLInputElement|HTMLSelectElement|null} */ (items.querySelector('#' + f.id));
+                if (el) el.value = String(f.wrap ? Math.round(model[f.field]) % 360 : model[f.field]);
+            }
+        };
         const onInput = (f) => () => {
-            if (!snapshot) snapshot = { ...model };
+            if (disposed) return;
             const el = /** @type {HTMLInputElement|HTMLSelectElement|null} */ (items.querySelector('#' + f.id));
             const v = f.parse(el ? el.value : '');
             if (v === null || v === undefined) return;
-            if (f.apply) f.apply(model, v); else model[f.field] = v;
-            if (typeof model.content === 'string') schedulePictureCopperRefresh(this, this.texts?.get(model.id) || model);
-            spec.preview(model);
+            if (target[f.field] === v) return;
+            if (!snapshot) {
+                target = spec.begin ? spec.begin(model) : model;
+                snapshot = { ...target };
+            }
+            if (f.apply) f.apply(target, v); else target[f.field] = v;
+            if (typeof target.content === 'string') schedulePictureCopperRefresh(this, target);
+            spec.preview(target);
         };
         const onCommit = () => {
-            if (!snapshot) return;
+            if (disposed || !snapshot) return;
             const snap = snapshot;
             snapshot = null;
-            spec.commit(model, snap);
+            const edited = target;
+            target = model;
+            let committed = false;
+            try {
+                spec.commit(edited, snap);
+                committed = true;
+            } finally {
+                if (!committed) resetFields();
+            }
         };
         for (const f of spec.fields) {
             const el = /** @type {HTMLInputElement|HTMLSelectElement|null} */ (items.querySelector('#' + f.id));
@@ -5938,6 +5958,23 @@ export default class PCBApp {
                 el.addEventListener('change', wrapDeg);
             }
         }
+        const binding = {
+            model,
+            get active() { return snapshot !== null; },
+            commit: onCommit,
+            cancel: () => {
+                if (!snapshot) return;
+                snapshot = null;
+                target = model;
+                spec.cancel?.();
+                resetFields();
+            },
+            dispose: () => {
+                binding.cancel();
+                disposed = true;
+            },
+        };
+        return binding;
     }
 
     /**
@@ -6296,6 +6333,8 @@ export default class PCBApp {
     _endTextInlineEdit(commit) {
         const state = this._textEdit;
         if (!state) return;
+        if (commit) this._textPropertyBinding?.commit();
+        else this._textPropertyBinding?.cancel();
         if (commit && state.options?.validate && !state.options.validate(state.input.value)) return false;
         state.committed = true;
         this._textEdit = null;

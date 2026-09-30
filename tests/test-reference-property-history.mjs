@@ -75,8 +75,8 @@ for (const saved of [false, true]) for (const selected of [false, true]) {
         const committed = capturePlacementOverride(f.placement);
         assert.ok(f.renders.slice(beforeCommit).every(pose => pose[field] === final),
             'Commit must never regenerate glyphs at the temporary rollback value');
-        assert.equal(f.renders.length - beforeCommit, 2, 'Only change preview and command redraw, with no rollback redraw');
-        assert.equal(f.overlays.length - beforeCommitOverlays, selected ? 2 : 1);
+        assert.equal(f.renders.length - beforeCommit, 1, 'Commit redraws once; an unchanged change event does not repeat the preview');
+        assert.equal(f.overlays.length - beforeCommitOverlays, 1);
         assert.ok(f.overlays.slice(beforeCommitOverlays).every(overlay => overlay.pose[field] === final),
             'Overlay updates must not display the temporary rollback');
         assert.equal(f.app.history.undoStack.length, 1);
@@ -92,7 +92,7 @@ for (const saved of [false, true]) for (const selected of [false, true]) {
         assert.deepEqual(f.renders.at(-1), committed);
         assert.equal(f.dirty(), 3);
         assert.equal(f.boardRefreshes(), 3);
-        assert.equal(f.overlays.length, selected ? 6 : 3, 'Only previews and commands refresh the overlay');
+        assert.equal(f.overlays.length, selected ? 5 : 3, 'Only changed previews and commands refresh the overlay');
     }
 }
 

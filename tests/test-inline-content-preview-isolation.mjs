@@ -118,6 +118,7 @@ for (const layer of TEXT_LAYERS) for (const finish of ['commit', 'cancel', 'deac
 
         fields.get('pcbPropTextSize').fire('input', 2.5);
         assert.equal(draft.size, 2.5, 'Separate live style edits reach the reusable content projection');
+        assert.equal(text.size, original.size, 'Inline property input also remains outside the document');
         assert.equal(draft.content, state.input.value);
         fields.get('pcbPropTextSize').fire('change', 2.5);
         app.history.undo();
@@ -170,6 +171,29 @@ for (const layer of TEXT_LAYERS) for (const finish of ['commit', 'cancel', 'deac
         if (app._textEdit) app._endTextInlineEdit(false);
         cancelPictureCopperRefresh(app);
     }
+}
+
+for (const commit of [false, true]) {
+    const { app, text } = fixture('top-silk');
+    const original = { ...text };
+    try {
+        app._startTextInlineEdit(text);
+        app._textEdit.input.fire('input', 'Pending content');
+        fields.get('pcbPropTextSize').fire('input', 3);
+        assert.deepEqual(text, original);
+        app._endTextInlineEdit(commit);
+        assert.equal(getTextPosePreviewTexts(app), undefined);
+        if (commit) {
+            assert.equal(text.content, 'Pending content');
+            assert.equal(text.size, 3);
+            assert.equal(app.history.undoStack.length, 2, 'Enter commits the pending style and content as independent edits');
+            app.history.undo();
+            assert.equal(text.content, original.content);
+            assert.equal(text.size, 3);
+            app.history.undo();
+        } else assert.equal(app.history.canUndo(), false);
+        assert.deepEqual(text, original, 'Cancellation restores uncommitted content and style without authored rollback');
+    } finally { cancelPictureCopperRefresh(app); }
 }
 
 {

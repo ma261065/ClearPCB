@@ -556,16 +556,21 @@ gestures through the shared pose-preview lifecycle hook. Terminal selection
 interactions clear their state even if completion throws, while intentional
 floating-anchor interactions remain active. Errors still propagate.
 Groups containing directly selected tracks, vias, pads, shapes or fills, along
-with property previews, are not yet generally isolated,
+with other entity/property previews, are not yet generally isolated,
 so existing save/export readiness guards remain.
 
-Text property previews still update the live model while typing. On commit, the
-editor restores only changed style fields (including layer-dependent anchor
-coordinates) before constructing the model command, so undo captures the
-pre-preview values. This temporary restoration is not rendered; the command
-reapplies the final values and refreshes presentation and derived copper data.
-Content and border edits have separate commands and are not folded into a style
-edit. This corrects the history handoff, not general live-preview ownership.
+Text property inputs now edit the same reusable editor projection, never the
+canonical text. A property preview owns only layer, size, rotation, stroke width
+and layer-dependent anchor coordinates. It can coexist with independently owned
+inline content; other committed fields synchronize without overwriting either
+pending edit. Commit ends property ownership before executing the existing model
+command, with no temporary authored rollback. Cancellation restores current model
+values and controls. Panel replacement disposes old field bindings so late events
+cannot restart an edit on the previous text. Layer locking, tab deactivation and
+loading cancel pending property edits. Save/export readiness includes pending
+text properties rather than silently capturing older values than those displayed.
+Unchanged input/change values skip both redraw and clearance scheduling; changed
+values update immediately. Content and border commands remain independent.
 
 Standalone inline text uses one reusable editor-owned text copy and map from
 entry to completion. Typing changes only that copy's content; canonical content,
@@ -573,8 +578,8 @@ geometry snapshots and serialization remain unchanged. No map or text copy is
 created per keystroke. Changed input renders once; repeated unchanged input
 updates caret/selection geometry without rebuilding glyph SVG.
 
-Property edits made during inline typing still use their existing independent
-model commands and preview policy. Their style/pose changes synchronize into
+Property edits made during inline typing use their existing independent model
+commands. Their style/pose changes synchronize into
 the same content projection without overwriting pending input, including
 undo/redo. Layer-side compensation uses the displayed content width.
 Completion removes the projection before a content edit or deletion command;
@@ -584,6 +589,10 @@ Blank-content deletion and cancelled new-placement cleanup retain their prior
 history behavior. Failed completion restores canonical artwork and tears down
 the input, caret, keyboard listener and properties state before propagating.
 Reference inline editing retains its existing separate model-command path.
+Native property-field blur still commits a field before focus returns to the
+hidden inline input; Enter/Escape retain that browser event ordering. Programmatic
+cancellation discards any still-uncommitted field first. Text deselection also
+clears its rotation anchors, including after inline completion.
 
 Standalone text property panels, including the multi-selection intersection and
 inline symbol insertion, are read-only on locked layers. Drag/rotation handlers

@@ -14,6 +14,7 @@ import { schedulePictureCopperRefresh } from './picture-refresh.js';
 import { deferDerivedUpdate } from '../../core/DerivedUpdates.js';
 
 const textPosePreviews = new WeakMap();
+const TEXT_STYLE_FIELDS = ['layer', 'size', 'rotation', 'strokeWidth', 'x', 'y'];
 
 export function getTextPosePreviewTexts(app) {
     return textPosePreviews.get(app)?.texts;
@@ -60,11 +61,51 @@ export function beginTextContentPreview(app, id) {
 /** Keep separately edited style/pose fields current without overwriting typed content. */
 export function syncTextContentPreview(app, id) {
     const preview = textPosePreviews.get(app);
-    if (preview?.contentId !== id) return;
+    if (!preview || (preview.contentId !== id && preview.propertyId !== id)) return;
     const text = app.pcbDocument.texts.get(id);
     if (!text) throw new Error(`PCB text is no longer available: ${id}`);
     const copy = preview.copies.get(id);
-    Object.assign(copy, text, { content: copy.content });
+    const pending = {};
+    if (preview.contentId === id) pending.content = copy.content;
+    if (preview.propertyId === id) for (const key of TEXT_STYLE_FIELDS) pending[key] = copy[key];
+    Object.assign(copy, text, pending);
+}
+
+export function beginTextPropertyPreview(app, id) {
+    previewTextPose(app, id, {});
+    const preview = textPosePreviews.get(app);
+    preview.propertyId = id;
+    return preview.copies.get(id);
+}
+
+/** Finish style editing without ending an independent inline-content preview. */
+export function finishTextPropertyPreview(app, commit) {
+    const preview = textPosePreviews.get(app);
+    const id = preview?.propertyId;
+    if (!id) return;
+    delete preview.propertyId;
+    if (!preview.contentId) textPosePreviews.delete(app);
+    let committed = false;
+    try {
+        if (commit) {
+            commit();
+            committed = true;
+        }
+    } finally {
+        const text = app.pcbDocument.texts.get(id);
+        if (!text) {
+            textPosePreviews.delete(app);
+            app._removeTextElement(id);
+        } else {
+            const copy = preview.copies.get(id);
+            const changed = TEXT_STYLE_FIELDS.some(key => copy[key] !== text[key]);
+            syncTextContentPreview(app, id);
+            if (!committed) {
+                schedulePictureCopperRefresh(app, getTextPosePreviewTexts(app)?.get(id) || text);
+                if (commit || changed) app._refreshText(id);
+            }
+        }
+    }
 }
 
 /** Switch back to canonical text before executing a model command or restoring artwork. */

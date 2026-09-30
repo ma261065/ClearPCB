@@ -4,10 +4,10 @@ import { CommandHistory } from '../src/core/CommandHistory.js';
 import { createPcbText } from '../src/core/pcb-text.js';
 import { measureText } from '../src/pcb/modules/stroke-font.js';
 import { cancelPictureCopperRefresh } from '../src/pcb/modules/picture-refresh.js';
-import { EditTextCommand } from '../src/pcb/modules/text-commands.js';
+import { EditTextCommand, getTextPosePreviewTexts } from '../src/pcb/modules/text-commands.js';
 
 globalThis.window = { addEventListener() {} };
-globalThis.document = { getElementById: () => null };
+globalThis.document = { getElementById: () => null, querySelector: () => null };
 const { default: PCBApp } = await import('../src/ui/PCBApp.js');
 
 class Input {
@@ -35,12 +35,13 @@ function fixture(options = {}) {
     const renders = [];
     const clearances = [];
     const app = {
-        pcbDocument, texts: pcbDocument.texts, history: new CommandHistory(),
+        pcbDocument, history: new CommandHistory(),
         _pcbPropsItems: () => items, _setPcbPropsTitle() {}, _layerLabel: layer => layer,
         _bindStrokeTextProps: PCBApp.prototype._bindStrokeTextProps,
-        _refreshText: () => renders.push({ ...text }),
-        _refreshBoardShapeClearance: () => clearances.push({ ...text }),
+        _refreshText: () => renders.push({ ...app.texts.get(text.id) }),
+        _refreshBoardShapeClearance: current => clearances.push({ ...current }),
     };
+    Object.defineProperty(app, 'texts', Object.getOwnPropertyDescriptor(PCBApp.prototype, 'texts'));
     PCBApp.prototype._showTextProperties.call(app, text);
     return { app, text, inputs, renders, clearances };
 }
@@ -56,7 +57,8 @@ for (const [id, field, intermediate, final] of [
         const input = inputs.get(id);
         input.fire('input', intermediate);
         input.fire('input', final);
-        assert.equal(text[field], final, 'Input previews immediately');
+        assert.equal(app.texts.get(text.id)[field], final, 'Input previews immediately');
+        assert.deepEqual(text, original, 'Property input leaves authored text unchanged');
         assert.equal(app.history.undoStack.length, 0, 'Keystrokes do not create commands');
         const beforeCommitRenders = renders.length;
         input.fire('change');
@@ -93,7 +95,8 @@ for (const rotation of [0, 37, 90]) {
             const expected = { ...original, layer: next,
                 x: original.x + shift * Math.cos(rotation * Math.PI / 180),
                 y: original.y - shift * Math.sin(rotation * Math.PI / 180) };
-            assert.deepEqual(text, expected, 'Layer preview retains the existing anchor compensation');
+            assert.deepEqual(app.texts.get(text.id), expected, 'Layer preview retains the existing anchor compensation');
+            assert.deepEqual(text, original);
             input.fire('change');
             assert.deepEqual(text, expected, 'Repeated change handler must not shift the anchor again');
             app.history.undo();
@@ -135,6 +138,10 @@ for (const rotation of [0, 37, 90]) {
         const originalSize = text.size;
         inputs.get('pcbPropTextSize').fire('input', 2);
         app.history.execute(new EditTextCommand(app, text.id, { content: 'Separate content edit', border: true }));
+        assert.equal(text.size, originalSize);
+        assert.equal(app.texts.get(text.id).size, 2, 'Independent commands retain the pending property field');
+        assert.equal(app.texts.get(text.id).content, 'Separate content edit');
+        assert.equal(app.texts.get(text.id).border, true);
         inputs.get('pcbPropTextSize').fire('change');
         app.history.undo();
         assert.equal(text.size, originalSize);
@@ -143,6 +150,88 @@ for (const rotation of [0, 37, 90]) {
         app.history.undo();
         assert.equal(text.content, 'R12');
         assert.equal(text.border, false);
+    } finally { cancelPictureCopperRefresh(app); }
+}
+
+for (const finish of ['commit', 'cancel', 'panel-change', 'deactivate', 'failure']) {
+    const { app, text, inputs, renders } = fixture();
+    const original = { ...text }, serialized = app.pcbDocument.serialize(), geometry = app.pcbDocument.captureGeometry();
+    let mapCopies = 0;
+    let clearanceRequests = 0;
+    app.pcbDocument.texts[Symbol.iterator] = function () { mapCopies++; return this.entries(); };
+    app._pendingShapeClearances = new Map();
+    app._pendingShapeClearances.set = function (id, value) {
+        clearanceRequests++;
+        return Map.prototype.set.call(this, id, value);
+    };
+    const input = inputs.get('pcbPropTextSize');
+    try {
+        for (let index = 0; index < 100; index++) input.fire('input', 2);
+        const map = app.texts, copy = map.get(text.id);
+        assert.notEqual(copy, text);
+        assert.equal(PCBApp.prototype.isSectionEditing.call(app), true, 'Save/export must not mistake an uncommitted property preview for the displayed model');
+        assert.equal(renders.length, 1, 'Repeated property values do not redraw or reschedule clearance');
+        assert.equal(clearanceRequests, 1);
+        for (let index = 1; index <= 100; index++) {
+            input.fire('input', 2 + index / 1000);
+            assert.equal(app.texts, map);
+            assert.equal(app.texts.get(text.id), copy);
+        }
+        assert.equal(renders.length, 101, 'Each distinct property value redraws once');
+        assert.equal(clearanceRequests, 101);
+        assert.equal(mapCopies, 1, 'Property input reuses the initial map and text copy');
+        assert.deepEqual(text, original);
+        assert.deepEqual(app.pcbDocument.serialize(), serialized);
+        assert.deepEqual(app.pcbDocument.captureGeometry(), geometry);
+        const beforeFinish = renders.length;
+        if (finish === 'commit') {
+            input.fire('change');
+            assert.equal(text.size, 2.1);
+            assert.equal(renders.length - beforeFinish, 1, 'Commit has one canonical repaint, no duplicate input repaint');
+            app.history.undo();
+            assert.deepEqual(text, original);
+            app.history.redo();
+            assert.equal(text.size, 2.1);
+        } else {
+            if (finish === 'cancel') app._textPropertyBinding.cancel();
+            else if (finish === 'panel-change') PCBApp.prototype._setPcbPropsTitle.call(app, 'Component');
+            else if (finish === 'deactivate') {
+                app._cancelPosePreviews = PCBApp.prototype._cancelPosePreviews;
+                app._cancelDrawingMode = () => {};
+                PCBApp.prototype.deactivate.call(app);
+            } else {
+                app.history.execute = () => { throw new Error('Injected property failure'); };
+                assert.throws(() => input.fire('change'), /Injected property failure/);
+            }
+            assert.deepEqual(text, original);
+            assert.deepEqual(renders.at(-1), original);
+            assert.equal(input.value, String(original.size), 'Cancellation/failure restores displayed property values');
+            assert.equal(app.history.canUndo(), false);
+            if (finish !== 'failure') {
+                input.fire('change');
+                assert.equal(app.history.canUndo(), false, 'A late change event cannot recommit the cancelled value');
+                if (finish === 'panel-change') {
+                    input.fire('change', 99);
+                    assert.deepEqual(text, original, 'Removed property controls cannot start a new edit through stale events');
+                }
+            }
+        }
+        assert.equal(getTextPosePreviewTexts(app), undefined);
+        assert.equal(PCBApp.prototype.isSectionEditing.call(app), false);
+    } finally { cancelPictureCopperRefresh(app); }
+}
+
+{
+    const { app, text, inputs, renders } = fixture();
+    try {
+        inputs.get('pcbPropTextSize').fire('input', '');
+        inputs.get('pcbPropTextSize').fire('change', '');
+        assert.equal(getTextPosePreviewTexts(app), undefined, 'Invalid input does not allocate a preview');
+        assert.equal(renders.length, 0);
+        Object.freeze(text);
+        inputs.get('pcbPropTextSize').fire('input', 3);
+        app._textPropertyBinding.cancel();
+        assert.equal(app.texts.get(text.id), text, 'Cancelling a property edit does not write even to a frozen model');
     } finally { cancelPictureCopperRefresh(app); }
 }
 

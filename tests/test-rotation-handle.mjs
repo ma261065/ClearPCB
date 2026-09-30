@@ -222,9 +222,10 @@ try {
     const methodsEnd = source.indexOf('\n    //', source.indexOf('    _endTextDrag(commit = true) {', methodsStart));
     assert.ok(methodsStart >= 0 && methodsEnd > methodsStart);
     const textPrototype = new Function('getPcbSelection', 'setPcbSelection', 'MoveTextCommand', 'isLayerLocked', 'isLayerVisible',
-        'previewTextPose', 'finishTextPosePreview',
+        'previewTextPose', 'finishTextPosePreview', 'renderPcbSelectionAnchors',
         `return (class { ${source.slice(methodsStart, methodsEnd)} }).prototype;`)(
-        getPcbSelection, setPcbSelection, MoveTextCommand, isLayerLocked, isLayerVisible, previewTextPose, finishTextPosePreview);
+        getPcbSelection, setPcbSelection, MoveTextCommand, isLayerLocked, isLayerVisible, previewTextPose, finishTextPosePreview,
+        renderPcbSelectionAnchors);
     const textMethods = Object.fromEntries(Object.getOwnPropertyNames(textPrototype)
         .filter(name => name !== 'constructor').map(name => [name, textPrototype[name]]));
     const movingText = { id: 'moving-text', content: 'Move', x: 0, y: 0, size: 2, strokeWidth: 0.2,
@@ -264,7 +265,9 @@ try {
         assert.equal(movingApp.history.undoStack.length, dragIndex + 1);
         cancelPictureCopperRefresh(movingApp);
     }
-    console.log('PASS repeated text drags retain selection and keep the rotation handle at the moving text');
+    movingApp._selectText(null);
+    assert.equal(movingOverlay.children.length, 0, 'Text deselection removes stale rotation handles');
+    console.log('PASS repeated text drags retain selection, move rotation handles, and remove them on deselection');
 } finally {
     globalThis.setTimeout = originalTimeout;
     globalThis.clearTimeout = originalClearTimeout;
