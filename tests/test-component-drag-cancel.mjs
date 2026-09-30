@@ -41,7 +41,8 @@ function fixture(saved = true) {
     let clearanceRefreshes = 0;
     const ratsnestUpdates = [];
     const app = {
-        project, pcbDocument: project.pcbDocument, tracks: project.pcbDocument.tracks,
+        project, pcbDocument: project.pcbDocument,
+        get tracks() { return Object.getOwnPropertyDescriptor(PCBApp.prototype, 'tracks').get.call(this); },
         placements: new Map([['part', placement]]), history: new CommandHistory(),
         _active: true, currentTool: 'select',
         _clearancesVisible: true, _padHaloGroups: new Map([['part', padHalo]]),
@@ -90,8 +91,10 @@ for (const saved of [false, true]) for (const shared of [true, false]) {
     assert.equal(f.trackHalo.style.display, 'none');
     adapter.updateMove({ x: 4.234567, y: -5.345678 });
     assert.notEqual(placement.x, original.x);
-    assert.notDeepEqual(track.captureState(), original.graph, 'Live preview moves bonded tracks');
+    assert.notDeepEqual(app.tracks[0].captureState(), original.graph, 'Live preview moves projected bonded tracks');
+    assert.deepEqual(track.captureState(), original.graph, 'Live preview leaves authored copper untouched');
     track.getBounds();
+    const cachedBounds = track._bounds;
     const beforeCancelRenders = f.renders.length;
     app._scheduleDragUpdate({ clientX: 100, clientY: 200, shiftKey: false });
     assert.equal(frames.size, 1);
@@ -99,7 +102,7 @@ for (const saved of [false, true]) for (const shared of [true, false]) {
     assert.equal(app._drag, null, 'Escape must end the component drag, not only its selection interaction');
     assert.equal(app._pcbSelectionInteraction || null, null);
     assert.deepEqual(f.snapshot(), original, 'Cancel restores pose, pads and bonded nodes without saving preview data');
-    assert.equal(track._bounds, null, 'Restoring bonded nodes invalidates cached bounds');
+    assert.equal(track._bounds, cachedBounds, 'Discarding a preview does not invalidate authored track bounds');
     assert.deepEqual(f.renders.slice(beforeCancelRenders), [{ x: original.x, y: original.y }],
         'Cancel discards the pending move and presents only the restored pose');
     assert.equal(frames.size, 0);
@@ -186,10 +189,13 @@ for (const legacy of [false, true]) {
     assert.equal(f.app.history.canUndo(), false, 'Preview remains separate from committed history');
     assert.deepEqual(f.snapshot().saved, original.saved);
     const pad = f.placement.pads.get('1');
-    assert.deepEqual({ x: f.track.nodes.get('n0').x, y: f.track.nodes.get('n0').y }, { x: pad.x, y: pad.y });
-    const bounds = f.track.getBounds();
+    const displayedTrack = f.app.tracks[0];
+    assert.deepEqual({ x: displayedTrack.nodes.get('n0').x, y: displayedTrack.nodes.get('n0').y }, { x: pad.x, y: pad.y });
+    assert.deepEqual(f.track.captureState(), original.graph, 'All pointer updates leave authored track geometry unchanged');
+    const bounds = displayedTrack.getBounds();
     moveTo(20.1, 30.1);
-    assert.equal(f.track.getBounds(), bounds, 'Unchanged movement retains bonded-track bounds');
+    assert.equal(f.app.tracks[0], displayedTrack, 'Repeated updates reuse one projection');
+    assert.equal(displayedTrack.getBounds(), bounds, 'Unchanged movement retains preview track bounds');
     assert.equal(f.renders.length, 1);
 
     for (let index = 0; index < 100; index++) {
@@ -220,6 +226,20 @@ for (const legacy of [false, true]) {
     assert.deepEqual(f.snapshot(), original);
     f.app.history.redo();
     assert.deepEqual(f.snapshot(), committed);
+}
+
+for (const shared of [true, false]) {
+    const f = fixture();
+    const original = f.snapshot();
+    f.app._cancelComponentPreview = PCBApp.prototype._cancelComponentPreview;
+    f.app._cancelDrawingMode = () => false;
+    f.begin(shared);
+    f.adapter.updateMove({ x: 4, y: 5 });
+    PCBApp.prototype.deactivate.call(f.app);
+    assert.deepEqual(f.snapshot(), original, 'Leaving the PCB tab discards component movement previews');
+    assert.equal(f.app.tracks, f.app.pcbDocument.tracks);
+    assert.equal(f.app._drag, null);
+    assert.equal(f.app._active, false);
 }
 
 delete globalThis.window;

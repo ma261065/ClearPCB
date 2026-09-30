@@ -31,6 +31,7 @@ export function loadPcb(app, data, prepared = preparePcb(data)) {
     // groups (autosave-recovery may call this before the user has
     // ever activated the PCB tab).
     app._ensureViewport();
+    app._cancelComponentPreview?.();
     app._cancelDrawingMode?.();
     app._closeBoardDimensionsDialog?.();
     // Deselection can redraw old objects, so do it before removing their SVG.

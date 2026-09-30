@@ -64,10 +64,11 @@ import {
     SetRefStyleCommand,
     SetBoardOutlineCommand,
     ModifyViaCommand,
-    applyPlacementPose,
+    previewPlacementPose,
+    finishPlacementPreview,
+    getPlacementPreviewTracks,
     renderPlacementPose,
     renderPlacementSide,
-    applyPlacementSide,
     applyPlacementRefVisible,
     placementTransform,
     isPlacementMirrored,
@@ -199,7 +200,7 @@ const PCB_CROSSHAIR_TOOLS = new Set([
 ]);
 
 export default class PCBApp {
-    get tracks() { return this.pcbDocument.tracks; }
+    get tracks() { return getPlacementPreviewTracks(this) || this.pcbDocument.tracks; }
     set tracks(value) { this.pcbDocument.tracks = value; }
     get vias() { return this.pcbDocument.vias; }
     set vias(value) { this.pcbDocument.vias = value; }
@@ -478,6 +479,7 @@ export default class PCBApp {
 
     deactivate() {
         setInlineTextInputActive(this._textEdit?.input, false);
+        this._cancelComponentPreview();
         this._cancelDrawingMode();
         this._active = false;
     }
@@ -4852,31 +4854,17 @@ export default class PCBApp {
     }
 
     /**
-     * Reposition already-built placements to their remembered override
-     * positions. Used when overrides are restored after the placements were
-     * already created (otherwise _placeFootprints applies them at build time).
+     * Restore saved placement models, then replace only their footprint artwork.
+     * Used when overrides are loaded after footprints were already rendered.
      */
     _applyPlacementOverrides() {
-        for (const [compId, o] of this._placementOverrides) {
+        const placements = this.project.restorePcbPlacementOverrides(this.placements.keys());
+        for (const compId of placements.keys()) {
             const pl = this.placements.get(compId);
-            if (!pl) continue;
-            pl.x = o.x;
-            pl.y = o.y;
-            pl.rotation = o.rotation || 0;
-            pl.locked = !!o.locked;
-            pl.mirror = !!o.mirror;
-            pl.refDx = o.refDx || 0;
-            pl.refDy = o.refDy || 0;
-            pl.refRot = ((o.refRot || 0) % 360 + 360) % 360;
-            pl.refSize = o.refSize || REF_DEFAULT_SIZE;
-            pl.refStrokeWidth = o.refStrokeWidth || REF_DEFAULT_STROKE;
-            applyPlacementSide(this, compId, o.side === 'bottom' ? 'bottom' : 'top');
-            applyPlacementRefVisible(this, compId, o.refVisible !== false);
-            applyPlacementPose(this, compId);
-            if (pl.refSize !== REF_DEFAULT_SIZE || pl.refStrokeWidth !== REF_DEFAULT_STROKE) {
-                this._rerenderRef(compId);
-            }
+            for (const element of pl.elements || []) element.remove();
+            pl.lodEl?.remove();
         }
+        this._placeFootprints(placements);
         this._updateRatsnest?.();
     }
 
@@ -4988,9 +4976,7 @@ export default class PCBApp {
         if (!pl || pl.locked) return;
         const snap = this._snapToGrid({ x: newX, y: newY });
         if (pl.x === snap.x && pl.y === snap.y) return;
-        pl.x = snap.x;
-        pl.y = snap.y;
-        applyPlacementPose(this, this._drag.compId);
+        previewPlacementPose(this, this._drag.compId, { x: snap.x, y: snap.y });
         this._updateRatsnest({ nets: this._drag.nets });
     }
 
@@ -5122,11 +5108,6 @@ export default class PCBApp {
         const { compId, startPos } = this._drag;
         const pl = this.placements.get(compId);
         this._drag = null;
-        if (!commit && pl && (pl.x !== startPos.x || pl.y !== startPos.y)) {
-            pl.x = startPos.x;
-            pl.y = startPos.y;
-            applyPlacementPose(this, compId);
-        }
         // Restore overlays before the placement command refreshes clearance.
         this._deferDragOverlays = false;
         // Drop the GPU-layer promotion applied during the drag so the overlay
@@ -5137,12 +5118,22 @@ export default class PCBApp {
         }
         this.viewport.svg.style.cursor = getPcbSelection(this, 'component').length ? 'grab' : 'default';
         if (commit && pl && (pl.x !== startPos.x || pl.y !== startPos.y)) {
-            const cmd = new MovePlacementCommand(this, compId, startPos.x, startPos.y, pl.x, pl.y);
-            this.history.execute(cmd);
+            finishPlacementPreview(this, () => {
+                const cmd = new MovePlacementCommand(this, compId, startPos.x, startPos.y, pl.x, pl.y);
+                this.history.execute(cmd);
+            });
         } else {
+            finishPlacementPreview(this);
             this._refreshClearanceHalos();
             this._updateRatsnest();
         }
+    }
+
+    _cancelComponentPreview() {
+        const state = this._pcbSelectionInteraction;
+        if (state?.adapter?.kind === 'component'
+            || (state?.mode === 'move-adapter' && state.entry.kind === 'component')) finishSelectionInteraction(this, false);
+        if (this._drag) this._endDrag(false);
     }
 
     // ── Text annotations ─────────────────────────────────────────

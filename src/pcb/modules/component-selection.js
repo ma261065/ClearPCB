@@ -1,7 +1,7 @@
 import { registerPcbSelectionAdapter, getComponentSelectionHit } from './selection-registry.js';
 import { lockPositionOutsideOutline } from './selection-anchors.js';
 import { rotationHandleAnchor, pointerRotation } from './rotation-handle.js';
-import { applyPlacementPose, RotatePlacementCommand } from './track-commands.js';
+import { previewPlacementPose, restorePlacementPosePreview, finishPlacementPreview, RotatePlacementCommand } from './track-commands.js';
 
 function outlineForPlacement(placement) {
     const bounds = placement?.bounds;
@@ -80,8 +80,7 @@ export function createComponentSelectionAdapter(app, componentId, id) {
             // Footprint transforms use SVG's clockwise-positive angles.
             const rotation = pointerRotation(rotationDrag.center, rotationDrag.start, worldPos, rotationDrag.rotation, true);
             if ((placement.rotation || 0) === rotation) return;
-            placement.rotation = rotation;
-            applyPlacementPose(app, componentId);
+            previewPlacementPose(app, componentId, { rotation });
             app._updateRatsnest?.({ nets: rotationDrag.nets, skipFillRefresh: true });
         },
         endAnchorDrag(commit) {
@@ -90,15 +89,20 @@ export function createComponentSelectionAdapter(app, componentId, id) {
             const before = rotationDrag.rotation;
             rotationDrag = null;
             app._rotationHandleDrag = false;
-            if (!placement) return;
+            if (!placement) {
+                finishPlacementPreview(app);
+                return;
+            }
             const after = placement.rotation || 0;
             if (commit && !placement.locked && after !== before) {
                 // Seed automatic-placement history from the original pose, without repainting it.
                 placement.rotation = before;
-                app.history.execute(new RotatePlacementCommand(app, componentId, before, after));
+                finishPlacementPreview(app, () => app.history.execute(new RotatePlacementCommand(app, componentId, before, after)));
             } else if (after !== before) {
                 placement.rotation = before;
-                applyPlacementPose(app, componentId);
+                restorePlacementPosePreview(app);
+                app._updateRatsnest?.();
+            } else if (finishPlacementPreview(app)) {
                 app._updateRatsnest?.();
             }
         },

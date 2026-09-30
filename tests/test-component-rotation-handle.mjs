@@ -91,7 +91,8 @@ function fixture(saved = true, side = 'top', mirror = false) {
     placement.elements = [footprintElement];
     const app = {
         project, pcbDocument: project.pcbDocument, placementState: project.pcbDocument.placementState,
-        tracks: project.pcbDocument.tracks, vias: [], texts: new Map(), boardShapes: [],
+        get tracks() { return Object.getOwnPropertyDescriptor(PCBApp.prototype, 'tracks').get.call(this); },
+        vias: [], texts: new Map(), boardShapes: [],
         placements: new Map([['part', placement]]), history: new CommandHistory(),
         viewport: { scale: 10, svg: element('svg'), hideCrosshair() {} }, _active: true, currentTool: 'select',
         _getLayerGroup: id => id === 'selection-overlay' ? overlay : id === 'top-copper' ? copper : null,
@@ -113,8 +114,9 @@ function fixture(saved = true, side = 'top', mirror = false) {
         return { x: center.x + 10 * Math.cos(radians), y: center.y + 10 * Math.sin(radians) };
     };
     const verifyBonds = () => {
+        const displayedTrack = app.tracks.find(item => item.id === track.id);
         for (const [nodeId, pin] of [['n0', '1'], ['n2', '1#2']]) {
-            const node = track.nodes.get(nodeId), pad = placement.pads.get(pin);
+            const node = displayedTrack.nodes.get(nodeId), pad = placement.pads.get(pin);
             assert.equal(node.x, pad.x);
             assert.equal(node.y, pad.y);
         }
@@ -124,7 +126,7 @@ function fixture(saved = true, side = 'top', mirror = false) {
         if (line) {
             const points = line.getAttribute('points').split(' ');
             for (const id of ['n0', 'n2']) {
-                const node = track.nodes.get(id);
+                const node = displayedTrack.nodes.get(id);
                 assert.ok(points.includes(`${node.x},${node.y}`), 'Rendered wire ends follow the component pads');
             }
         }
@@ -308,5 +310,19 @@ for (const saved of [false, true]) {
     f.adapter.endAnchorDrag(true);
     assert.equal(f.app.history.canUndo(), false, 'An implicit zero angle needs no no-op command');
     assert.equal(f.app.placementState.overrides.size, 0);
+}
+{
+    const f = fixture();
+    const original = f.track.captureState();
+    f.app._cancelComponentPreview = PCBApp.prototype._cancelComponentPreview;
+    f.app._cancelDrawingMode = () => false;
+    beginSelectionInteraction(f.app, f.anchor(), false);
+    updateSelectionInteraction(f.app, f.pointFor(90));
+    assert.deepEqual(f.track.captureState(), original, 'Rotation never edits authored copper');
+    PCBApp.prototype.deactivate.call(f.app);
+    assertPose(capturePlacementOverride(f.placement), f.original);
+    assert.equal(f.app.tracks, f.app.pcbDocument.tracks);
+    assert.equal(f.app._rotationHandleDrag, false);
+    assert.equal(f.app.history.canUndo(), false);
 }
 console.log('PASS singleton component rotation, live one-degree spinner, bonded tracks, mirrored sides, history and cancellation');

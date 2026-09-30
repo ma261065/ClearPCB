@@ -115,6 +115,23 @@ export class ProjectDocument {
     }
 
     /**
+     * Restore saved poses and their track bonds using current model-owned footprints.
+     * @param {Iterable<string>} [componentIds]
+     */
+    restorePcbPlacementOverrides(componentIds = this.pcbDocument.placementState.overrides.keys()) {
+        const ids = new Set(componentIds);
+        const state = this.pcbDocument.placementState;
+        const components = extractComponents({ components: this.schematicDocument.components
+            .filter(component => ids.has(component.id) && state.overrides.has(component.id)) });
+        const placements = state.resolve(components);
+        for (const [id, placement] of placements) {
+            disconnectIncompatiblePadNodes(this.pcbDocument.tracks, id, placement.padOffsets);
+            repositionPadConnectedNodes(this.pcbDocument.tracks, id, placement.pads);
+        }
+        return placements;
+    }
+
+    /**
      * @param {string} id
      * @param {string} reference
      * @returns {{message: string, title: string}|null}

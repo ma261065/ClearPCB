@@ -9,6 +9,7 @@ import {
     renderTrack,
     renderVia,
     removeTrackElements,
+    hasTrackElements,
     removeViaElements,
 } from './track-render.js';
 import { reconcileRatsnest } from './track-draw.js';
@@ -24,6 +25,7 @@ import {
     disconnectIncompatiblePadNodes as disconnectIncompatiblePadNodesData,
 } from '../../core/pcb-placement-geometry.js';
 import { SetBoardOutlineCommand as ModelSetBoardOutlineCommand } from '../../core/pcb-outline-commands.js';
+import { Track } from '../../shapes/track.js';
 import {
     MovePlacementCommand as ModelMovePlacementCommand,
     RotatePlacementCommand as ModelRotatePlacementCommand,
@@ -49,6 +51,93 @@ import {
     ModifyViasCommand as ModelModifyViasCommand,
     MoveViaCommand as ModelMoveViaCommand,
 } from '../../core/pcb-via-commands.js';
+
+const placementPreviews = new WeakMap();
+
+/** @returns {Track[]|undefined} */
+export function getPlacementPreviewTracks(app) {
+    return placementPreviews.get(app)?.tracks;
+}
+
+/**
+ * Move connected copper in an editor-owned projection, never in the document.
+ * @param {any} app
+ * @param {string} compId
+ * @param {Partial<{x:number, y:number, rotation:number}>} pose
+ */
+export function previewPlacementPose(app, compId, pose) {
+    const pl = app.placements?.get(compId);
+    if (!pl) return;
+    let preview = placementPreviews.get(app);
+    if (!preview) {
+        const originals = new Map();
+        const tracks = (app.pcbDocument?.tracks || app.tracks || []).map(track => {
+            if (![...(track.padConnections?.values() || [])].some(connection => connection?.componentId === compId)) return track;
+            const copy = new Track({ id: track.id });
+            copy.applyState(track.captureState());
+            originals.set(copy, track);
+            return copy;
+        });
+        preview = { compId, tracks, copies: [...originals.keys()], originals, rendered: new Set(),
+            before: { x: pl.x, y: pl.y, rotation: pl.rotation }, changed: false };
+        placementPreviews.set(app, preview);
+    }
+    if (preview.compId !== compId) throw new Error('Finish the current placement preview before starting another.');
+    Object.assign(pl, pose);
+    preview.changed = pl.x !== preview.before.x || pl.y !== preview.before.y || pl.rotation !== preview.before.rotation;
+    updatePlacementPadPositions(pl);
+    renderPlacementPose(app, compId);
+    for (const track of repositionPadConnectedNodesData(preview.copies, compId, pl.pads)) {
+        if (!preview.rendered.has(track)) removeTrackElements(preview.originals.get(track));
+        renderTrack(track, id => app._getLayerGroup(id), _opts(app, track));
+        preview.rendered.add(track);
+    }
+    refreshEditedTrackClearance(app);
+}
+
+/**
+ * End the projection before a command runs; failures restore canonical track artwork.
+ * @param {any} app
+ * @param {() => void} [commit]
+ */
+export function finishPlacementPreview(app, commit) {
+    const preview = placementPreviews.get(app);
+    placementPreviews.delete(app);
+    let committed = false;
+    try {
+        if (commit) {
+            commit();
+            committed = true;
+        }
+    } finally {
+        if (preview && !committed) {
+            const pl = app.placements?.get(preview.compId);
+            if (pl) {
+                Object.assign(pl, preview.before);
+                updatePlacementPadPositions(pl);
+                if (preview.changed) renderPlacementPose(app, preview.compId);
+            }
+        }
+        for (const track of preview?.rendered || []) {
+            removeTrackElements(track);
+            const original = preview.originals.get(track);
+            if (!committed || !hasTrackElements(original)) {
+                renderTrack(original, id => app._getLayerGroup(id), _opts(app, original));
+            }
+        }
+        if (preview && commit && !committed) {
+            refreshEditedTrackClearance(app);
+            app._updateRatsnest?.();
+        }
+    }
+    return !!preview;
+}
+
+/** Discard preview copper and restore clearance after a cancelled pose gesture. */
+export function restorePlacementPosePreview(app) {
+    finishPlacementPreview(app);
+    refreshEditedTrackClearance(app);
+}
 
 function deselectRemovedTrack(app, track) {
     if (!getPcbSelection(app, 'track').includes(track)) return;

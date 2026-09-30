@@ -70,6 +70,8 @@ const makeApp = active => {
 };
 
 const hidden = makeApp(false);
+let cancelledComponentPreview = false;
+hidden._cancelComponentPreview = () => { cancelledComponentPreview = true; };
 const textMap = hidden.pcbDocument.texts;
 const oldText = { id: 'old-text' };
 hidden.texts.set(oldText.id, oldText);
@@ -79,6 +81,7 @@ hidden._removeTextElement = id => {
     hidden._textElements.delete(id);
 };
 loadPcb(hidden, data, prepared);
+assert.equal(cancelledComponentPreview, true, 'Loading ends component projections before replacing their model');
 assert.equal(hidden.texts, textMap, 'Loading preserves the project-owned text map');
 assert.equal(textMap.has(oldText.id), false);
 assert.deepEqual(calls, ['viewport', 'grid'], 'hidden load does not render objects or compute derived copper');

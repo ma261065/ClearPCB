@@ -40,7 +40,8 @@ function fixture() {
         padConnections: { n0: { componentId: 'part', pinNumber: '1' } } });
     project.pcbDocument.tracks.push(track);
     const app = {
-        project, pcbDocument: project.pcbDocument, tracks: project.pcbDocument.tracks,
+        project, pcbDocument: project.pcbDocument,
+        get tracks() { return Object.getOwnPropertyDescriptor(PCBApp.prototype, 'tracks').get.call(this); },
         placements: new Map([['part', placement]]), history: new CommandHistory(),
         isSectionEditing: PCBApp.prototype.isSectionEditing,
         _getLayerGroup: () => null, _markDirty: () => project.fileManager.touch(),
@@ -55,7 +56,8 @@ function fixture() {
         adapter.beginAnchorDrag('rotate', { x: 20, y: 10 });
         adapter.updateAnchorDrag({ x: 10, y: 20 });
         assert.equal(placement.rotation, 90);
-        assert.equal(track.nodes.get('n0').y, 12);
+        assert.equal(app.tracks[0].nodes.get('n0').y, 12);
+        assert.equal(track.nodes.get('n0').y, 10, 'The authored endpoint is isolated from the rotation preview');
     };
     return { project, app, adapter, track, tick, key, begin };
 }

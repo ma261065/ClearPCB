@@ -149,6 +149,11 @@ export function removeTrackElements(track) {
     trackElements.delete(track);
 }
 
+/** Whether this track has a registered render, including an empty hidden-layer render. */
+export function hasTrackElements(track) {
+    return trackElements.has(track);
+}
+
 /** Remove every SVG element this Via previously created. */
 export function removeViaElements(via) {
     for (const el of viaElements.get(via) || []) el.remove();

@@ -635,11 +635,25 @@ after the complete rebuild. Headless consumers
 can pass `{ pcbDocument: project.pcbDocument, ...project.resolvePcbLayout() }`
 to fabrication snapshot preparation. The layout query itself does not move
 track nodes or change bonds; consumers needing rebuild-time track updates call
-the explicit synchronization operation first. Existing override-restoration and
-live-preview adapters remain separate migration boundaries.
+the explicit synchronization operation first. General live-preview isolation
+remains a separate migration boundary.
 Fabrication does not automatically replace a live
 editor's supplied placements/netlist: general preview isolation remains open,
 and mixing committed poses with preview-mutated tracks would be inconsistent.
+
+`ProjectDocument.restorePcbPlacementOverrides()` handles saved-pose restoration
+independently of an editor. It resolves current physical footprints for saved
+overrides, optionally restricted to supplied component IDs, before changing any
+track. Unlike the legacy rebuild eligibility rules, restoration always repositions
+compatible endpoints and disconnects incompatible SMD bonds on either side.
+Missing/non-physical components and automatic placements are not restored; saved
+records are retained unchanged and no automatic grid slots are allocated.
+The load adapter requests only currently rendered IDs, replaces their footprint
+artwork and LOD nodes with model-resolved geometry, and leaves unrelated layers
+and placements intact. It never reads cached rendered pad geometry. Fresh artwork
+also restores default reference styling after a custom style. Persistent tracks
+are rendered afterward by the existing load sequence; hidden loading remains
+deferred until activation.
 
 The metadata commands in `core/pcb-placement-commands.js` own lock and reference visibility, offset,
 rotation and style edits directly against `PcbPlacementState`. Commands patch
@@ -748,13 +762,25 @@ An unavailable model footprint fails before pose or graph mutation.
 `CommandHistory` transfers an undo/redo entry only after that operation succeeds,
 so such failures retain the entry for retry; this is not general mutation rollback.
 
-Component drag completion distinguishes commit from cancellation in both the
-shared selection adapter and legacy pointer path. Escape restores the starting
-placement, world pads and bonded track nodes using the existing pose helper,
-then restores clearance/ratsnest presentation without recording history or
-writing saved placement overrides. Pending frame movement is discarded on
-cancel but flushed on commit. Ctrl+Z cancels the live preview before undoing
-the previous committed command; ordinary drops retain model-owned undo/redo.
+Single-component movement and rotation use editor-owned track projections.
+The first changed pointer position copies only tracks bonded to that component,
+preserving their IDs, full-precision topology and physical pad connections.
+Further movement reuses those objects. During the gesture, the editor's `tracks`
+getter exposes the projected list for rendering, clearance and ratsnest queries;
+`PcbDocument.tracks`, its bounds caches, serialization and geometry capture remain
+unchanged. Unrelated tracks retain their original identity.
+
+Commit ends the projection before the existing model command runs. Preview SVG
+is replaced by canonical SVG without duplicate tracks, including endpoints that
+already match the final target and need no command-side movement. Cancellation
+discards the projection and restores the starting placement/pads and canonical
+track artwork without rewriting authored copper or recording history. Command
+failure also removes preview state and restores presentation before propagating
+the error. Tab deactivation and document loading cancel these component gestures.
+Pending frame movement is discarded on cancel but flushed on commit. Ctrl+Z
+cancels the live preview before undoing the previous committed command.
+Save/export readiness guards remain in place: grouped moves and direct
+entity/property previews are not yet generally isolated.
 
 Both component pointer paths use the same live pose updater. If magnetic snapping
 produces the current coordinates, it skips footprint transforms, pad/bond updates
