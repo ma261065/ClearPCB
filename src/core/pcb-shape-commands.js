@@ -28,6 +28,8 @@ export class AddBoardShapeCommand {
     execute() {
         if (this.shape.layer === 'board-outline') return;
         if (!this.document.boardShapes.includes(this.shape)) this.document.boardShapes.push(this.shape);
+        const number = /pshape_(\d+)/.exec(this.shape.id);
+        if (number) this.document.shapeIdCounter = Math.max(this.document.shapeIdCounter, Number(number[1]) + 1);
     }
 
     undo() {

@@ -4,6 +4,9 @@ import { resolveCopperPads } from '../src/pcb/modules/copper-model.js';
 import { buildCopperClusters, unionCoincidentClusters } from '../src/pcb/modules/copper-connectivity.js';
 import { spatialPairs } from '../src/core/spatial-pairs.js';
 import { pointInPolygon } from '../src/core/geometry.js';
+import { ProjectDocument } from '../src/core/ProjectDocument.js';
+import { Component } from '../src/components/Component.js';
+import { Via } from '../src/shapes/via.js';
 
 globalThis.window = { addEventListener() {} };
 globalThis.document = { createElementNS: () => ({ setAttribute() {}, appendChild() {} }) };
@@ -11,9 +14,10 @@ const { buildFillContext } = await import('../src/pcb/modules/fill-context.js');
 const { computeFillPolygons, loadClipper } = await import('../src/pcb/modules/copper-fill-geom.js');
 const { CopperFill } = await import('../src/shapes/copper-fill.js');
 const { collectCopper, runDRC } = await import('../src/pcb/modules/drc.js');
-const { CompoundCommand } = await import('../src/pcb/modules/track-commands.js');
+const { CompoundCommand, getPlacementPreviewTracks } = await import('../src/pcb/modules/track-commands.js');
 const { deferDerivedUpdate } = await import('../src/core/DerivedUpdates.js');
-const { cancelGroupDrag } = await import('../src/pcb/modules/box-select.js');
+const { beginGroupDrag, updateGroupDrag, cancelGroupDrag, getGroupPreview } = await import('../src/pcb/modules/box-select.js');
+const { setPcbSelection } = await import('../src/pcb/modules/selection-registry.js');
 const { Track } = await import('../src/shapes/track.js');
 
 const rectangle = (left, top, right, bottom) => [
@@ -178,26 +182,42 @@ assert.equal(refreshes, 2);
 assert.throws(() => new CompoundCommand([command(), { app: owner, execute() { throw new Error('failed'); } }]).execute(), /failed/);
 assert.equal(edits, 0);
 assert.equal(refreshes, 3);
-const dragApp = board();
+const project = new ProjectDocument(), model = project.pcbDocument;
+project.schematicDocument.components.push(new Component({
+    name: 'CopperGroup', _source: 'KiCad', symbol: { pins: [{ number: '1' }] },
+    footprintShapes: ['PAD~RECT~2~1~1~1~1~both~1~0~0.5'],
+}, { id: 'U1' }));
+model.placementState.record('U1', { x: 0, y: 0, rotation: 0 });
+const dragApp = {
+    ...board(), project, pcbDocument: model, placements: project.resolvePcbLayout().placements,
+    get tracks() { return getGroupPreview(this)?.tracks || getPlacementPreviewTracks(this) || model.tracks; },
+    get vias() { return getGroupPreview(this)?.vias || model.vias; },
+};
 dragApp._getLayerGroup = () => null;
 dragApp._layerGroups = new Map();
-dragApp.placements.set('U1', { x: 10, y: 20, pads: new Map(), padOffsets: [] });
 const draggedTrack = new Track({ net: 'GND', points: [{ x: 0, y: 0 }, { x: 3, y: 0 }] });
 const originalTrack = draggedTrack.captureState();
-for (const node of draggedTrack.nodes.values()) node.x += 10;
-dragApp.tracks.push(draggedTrack);
-const draggedVia = { x: 12, y: 23, diameter: 0.6, drill: 0.3 };
-dragApp.vias.push(draggedVia);
+model.tracks.push(draggedTrack);
+const draggedVia = new Via({ x: 2, y: 3, diameter: 0.6, drill: 0.3 });
+model.vias.push(draggedVia);
+const before = model.serialize();
 let fillRefreshes = 0;
 dragApp._refreshFills = () => { fillRefreshes++; };
-dragApp._groupDrag = { previousDeferDragOverlays: false,
-    comps: [{ id: 'U1', x: 0, y: 0 }], vias: [{ via: draggedVia, x: 2, y: 3 }],
-    tracks: [{ track: draggedTrack, before: originalTrack }], shapes: [], texts: [], fills: [] };
+setPcbSelection(dragApp, [
+    { kind: 'component', object: 'U1' }, { kind: 'track', object: draggedTrack }, { kind: 'via', object: draggedVia },
+]);
+beginGroupDrag(dragApp, { x: 0, y: 0 });
+updateGroupDrag(dragApp, { x: 10, y: 20 }, { snap: false });
+assert.deepEqual([dragApp.vias[0].x, dragApp.vias[0].y], [12, 23]);
+assert.equal(dragApp.tracks[0].nodes.values().next().value.x, 10);
+assert.deepEqual(model.serialize(), before, 'Group preview does not author copper or component placements');
+assert.deepEqual(draggedTrack.captureState(), originalTrack);
 cancelGroupDrag(dragApp);
 assert.equal(dragApp._groupDrag, null);
 assert.equal(dragApp._deferDragOverlays, false);
 assert.equal(dragApp.placements.get('U1').x, 0);
 assert.deepEqual([draggedVia.x, draggedVia.y], [2, 3]);
 assert.deepEqual(draggedTrack.captureState(), originalTrack);
-assert.equal(fillRefreshes, 1);
+assert.deepEqual(model.serialize(), before);
+assert.equal(fillRefreshes, 0, 'Discarding an isolated preview retains settled fills without repouring');
 console.log('PASS: copper layers, pad identities, pours, DRC, spatial pairs, and derived-update batching');

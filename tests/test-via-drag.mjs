@@ -41,7 +41,7 @@ const {
     SetPlacementSideCommand,
     applyPlacementPose,
 } = await import('../src/pcb/modules/track-commands.js');
-const { cancelGroupDrag, endGroupDrag } = await import('../src/pcb/modules/box-select.js');
+const { beginGroupDrag, updateGroupDrag, cancelGroupDrag, endGroupDrag } = await import('../src/pcb/modules/box-select.js');
 const {
     startVertexDrag,
     updateVertexDrag,
@@ -366,17 +366,19 @@ for (const commit of [false, true]) {
 
 for (const previousDeferral of [false, true]) {
     const track = new Track({ points: [{ x: 0, y: 0 }, { x: 10, y: 0 }], net: 'GND' });
-    const app = trackAppFor(track);
+    const app = trackAppFor(track, previousDeferral);
+    Object.defineProperty(app, 'tracks', Object.getOwnPropertyDescriptor(PCBApp.prototype, 'tracks'));
     const before = track.captureState();
-    app._groupDrag = { comps: [], vias: [], tracks: [{ track, before }], previousDeferDragOverlays: previousDeferral };
-    app._deferDragOverlays = true;
-    track.nodes.get('n0').x = 3;
+    setPcbSelection(app, [{ kind: 'track', object: track }]);
+    beginGroupDrag(app, { x: 0, y: 0 });
+    updateGroupDrag(app, { x: 3, y: 0 }, { snap: false });
+    expect('group track display follows movement', app.tracks[0].nodes.get('n0').x === 3);
+    assert.deepEqual(track.captureState(), before, 'Group movement leaves canonical track geometry unchanged');
     cancelGroupDrag(app);
-    expect('group cancellation restores track geometry', track.nodes.get('n0').x === 0);
+    expect('group cancellation restores canonical track presentation', app.tracks[0] === track && track.nodes.get('n0').x === 0);
     expect(`group cancellation respects existing deferral (${previousDeferral})`, app.clearanceRefreshes() === (previousDeferral ? 0 : 1));
     const count = app.clearanceRefreshes();
-    app._groupDrag = { comps: [], vias: [], tracks: [{ track, before }], previousDeferDragOverlays: previousDeferral };
-    app._deferDragOverlays = true;
+    beginGroupDrag(app, { x: 0, y: 0 });
     endGroupDrag(app);
     expect(`unchanged group drop restores clearance (${previousDeferral})`, app.clearanceRefreshes() === count + (previousDeferral ? 0 : 1));
 }

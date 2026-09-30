@@ -103,13 +103,42 @@ export function getBoardShapeRotationPreview(app) {
 }
 
 export function canonicalBoardShape(app, shape) {
+    if (app._shapeDrag?.shape === shape) return app._shapeDrag.original;
     const preview = boardShapeRotationPreviews.get(app);
     return preview && preview.shape === shape ? preview.original : shape;
 }
 
 function displayedBoardShape(app, shape) {
+    const drag = app._shapeDrag;
+    if (drag && (drag.original === shape || drag.shape === shape)) return drag.shape;
     const preview = boardShapeRotationPreviews.get(app);
     return preview && (preview.original === shape || preview.shape === shape) ? preview.shape : shape;
+}
+
+export function getBoardShapePointerPreview(app) {
+    return app._shapeDrag?.preview;
+}
+
+function copyBoardShape(shape) {
+    const copy = { ...shape };
+    applyShapeGeometry(copy, cloneShapeGeometry(shape));
+    for (const key of ['nodeCornerRadii', 'segmentWidths', 'segmentBulges']) {
+        if (shape[key]) copy[key] = { ...shape[key] };
+    }
+    return copy;
+}
+
+function beginBoardShapePointerPreview(app, drag) {
+    if (!drag.preview) {
+        const originals = app.pcbDocument?.boardShapes || app.boardShapes;
+        if (!originals.includes(drag.original)) {
+            endBoardShapeDrag(app, false);
+            throw new Error('Cannot edit a missing board shape.');
+        }
+        drag.shape = copyBoardShape(drag.original);
+        drag.preview = { boardShapes: originals.map(shape => shape === drag.original ? drag.shape : shape) };
+    }
+    return drag.shape;
 }
 
 /** Release displayed geometry before handing the canonical image to history. */
@@ -329,7 +358,7 @@ function findBoardLineJoinTarget(app, shape, handle, worldPos) {
     const tolerance = 8 / Math.max(0.01, app.viewport?.scale || 1);
     let best = null;
     for (const candidate of app.boardShapes || []) {
-        if (candidate === shape || candidate.kind !== 'line'
+        if (candidate.id === shape.id || candidate.kind !== 'line'
             || candidate.layer !== shape.layer
             || normalizeShapeCopperMode(candidate.copperMode) !== normalizeShapeCopperMode(shape.copperMode)) continue;
         for (const endpoint of [0, candidate.points.length - 1]) {
@@ -664,6 +693,7 @@ export function setBoardShapeNetHover(app, shapes) {
 
 export function selectBoardShape(app, shape) {
     shape = canonicalBoardShape(app, shape);
+    if (app._shapeDrag && app._shapeDrag.original !== shape) endBoardShapeDrag(app, false);
     const rotation = boardShapeRotationPreviews.get(app);
     if (rotation && rotation.original !== shape) {
         if (!finishSelectionInteraction(app, false)) finishBoardShapeRotationPreview(app);
@@ -915,6 +945,7 @@ registerPcbSelectionAdapter('shape', createBoardShapeSelectionAdapter);
 
 /** Draw the resize handles for the selected shape on the overlay layer. */
 export function renderBoardShapeHandles(app, shape) {
+    shape = displayedBoardShape(app, shape);
     if (!shape || isLayerLocked(shape.layer) || !isLayerVisible(shape.layer)) return;
     const selectedNode = app._selectedBoardShapeNode;
     const node = selectedNode?.shapeId === shape.id ? shape.points?.[selectedNode.index] : null;
@@ -938,7 +969,7 @@ export function renderBoardShapeSegmentSelection(app) {
     if (!overlay) return;
     for (const element of [...overlay.querySelectorAll('.pcb-shape-segment-selection')]) element.remove();
     const selected = app._selectedBoardShapeSegment;
-    const shape = selected && app.boardShapes?.find(shape => shape.id === selected.shapeId);
+    const shape = selected && displayedBoardShape(app, app.boardShapes?.find(shape => shape.id === selected.shapeId));
     if (!shape || !isPcbSelected(app, 'shape', shape)) return;
     const path = document.createElementNS(NS, 'path');
     path.setAttribute('class', 'pcb-shape-segment-selection');
@@ -1118,12 +1149,15 @@ export function deleteSelectedBoardShape(app) {
 }
 
 export function setBoardShapeSegmentType(app, shape, segment, type, { floating = false } = {}) {
+    shape = canonicalBoardShape(app, shape);
+    const original = shape;
     const standalone = shape?.kind === 'arc' || (shape?.kind === 'line' && shape.points?.length === 2);
     const count = shape?.kind === 'line' ? shape.points?.length - 1
         : ['polygon', 'rect'].includes(shape?.kind) ? shape.points?.length : shape?.kind === 'arc' ? 1 : 0;
     if (!Number.isInteger(segment) || segment < 0 || segment >= count
         || !['line', 'arc'].includes(type) || isLayerLocked(shape.layer)) return false;
     const before = shapeSnapshot(shape);
+    shape = copyBoardShape(shape);
     if (shape.kind === 'rect') shape.kind = 'polygon';
     if (standalone) {
         if (shape.kind === 'line' && type === 'arc') {
@@ -1142,33 +1176,34 @@ export function setBoardShapeSegmentType(app, shape, segment, type, { floating =
         shape.segmentWidths = {};
         shape.segmentBulges = {};
     } else if (!setPathSegmentType(shape, segment, type)) {
-        applyShapeSnapshot(shape, before);
         return false;
     }
     const merged = type === 'line' && collapseCollinearPolylinePoints(shape);
     const after = shapeSnapshot(shape);
-    applyShapeSnapshot(shape, before);
     app._selectedBoardShapeSegment = merged ? null : { shapeId: shape.id, segment };
     app._selectedBoardShapeNode = null;
     if (floating && type === 'arc') {
-        applyShapeSnapshot(shape, after);
-        if (shape.layer === 'board-outline') syncBoardOutlineDimensions(app);
-        const adapter = createBoardShapeSelectionAdapter(app, shape, shape.id);
         const anchorId = shape.kind === 'arc' ? 'bulge' : `bulge:${segment}`;
+        const stagedAnchor = getBoardShapeAnchors(shape).find(item => item.id === anchorId);
+        if (!stagedAnchor || !startBoardShapeDrag(app, original, stagedAnchor, anchorId)) return false;
+        const drag = app._shapeDrag;
+        applyShapeSnapshot(beginBoardShapePointerPreview(app, drag), after);
+        app._selectedBoardShapeSegment = { shapeId: original.id, segment };
+        drag.editBefore = after.geom;
+        drag.editKind = after.kind;
+        drag.vertexBefore = cloneShapeGeometry(drag.shape);
+        drag.preparing = true;
+        const adapter = createBoardShapeSelectionAdapter(app, original, original.id);
         const anchor = adapter.getAnchors().find(item => item.id === anchorId);
         if (!anchor || !beginPcbAnchorInteraction(app, adapter, anchor, anchor, true)) {
-            applyShapeSnapshot(shape, before);
-            if (shape.layer === 'board-outline') syncBoardOutlineDimensions(app);
-            renderBoardShape(app, shape);
-            renderBoardShapeHandles(app, shape);
-            renderBoardShapeSegmentSelection(app);
+            endBoardShapeDrag(app, false);
             return false;
         }
-        app._shapeDrag.beforeState = before;
-        app._shapeDrag.before = before.geom;
-    } else app.history.execute(new ModifyBoardShapeCommand(app, shape, before, after));
-    showBoardShapeProperties(app, shape);
-    renderBoardShapeHandles(app, shape);
+        drag.preparing = false;
+        renderBoardShape(app, drag.shape, { liveDrag: true });
+    } else app.history.execute(new ModifyBoardShapeCommand(app, original, before, after));
+    showBoardShapeProperties(app, original);
+    renderBoardShapeHandles(app, original);
     renderBoardShapeSegmentSelection(app);
     return true;
 }
@@ -1177,7 +1212,9 @@ export function setBoardShapeSegmentType(app, shape, segment, type, { floating =
 
 export function startBoardShapeDrag(app, shape, worldPos, anchorId = null, options = {}) {
     shape = canonicalBoardShape(app, shape);
-    if (!shape || isLayerLocked(shape.layer)) return false;
+    if (!shape || isLayerLocked(shape.layer) || !isLayerVisible(shape.layer)) return false;
+    if (app._shapeDrag?.preparing && app._shapeDrag.original === shape) return true;
+    if (app._shapeDrag) throw new Error('Finish the current shape drag before starting another.');
     if (boardShapeRotationPreviews.has(app)) {
         if (!finishSelectionInteraction(app, true)) finishBoardShapeRotationPreview(app, true);
     }
@@ -1188,9 +1225,15 @@ export function startBoardShapeDrag(app, shape, worldPos, anchorId = null, optio
     if (midpointMatch) app._selectedBoardShapeNode = null;
     let mode = handle != null ? 'vertex' : 'move';
     let segment = null;
+    const drag = {
+        original: shape, shape, id: shape.id, before, beforeState,
+        startWorld: { x: worldPos.x, y: worldPos.y }, sourceAnchorId: anchorId,
+        previousDeferDragOverlays: !!app._deferDragOverlays,
+    };
     if (['line', 'polygon', 'rect'].includes(shape.kind) && midpointMatch) {
         segment = Number(midpointMatch[1]);
         if (segment >= 0 && segment < shape.points.length) {
+            shape = beginBoardShapePointerPreview(app, drag);
             const next = shape.points[(segment + 1) % shape.points.length];
             const point = shape.points[segment];
             if (shape.kind === 'rect') {
@@ -1209,7 +1252,6 @@ export function startBoardShapeDrag(app, shape, worldPos, anchorId = null, optio
             app._selectedBoardShapeSegment = { shapeId: shape.id, segment };
         }
     }
-    if (shape.layer === 'board-outline') syncBoardOutlineDimensions(app);
     const bulgeMatch = typeof handle === 'string' ? /^bulge:(\d+)$/.exec(handle) : null;
     if (bulgeMatch || shape.kind === 'arc' && handle === 'bulge') {
         app._selectedBoardShapeNode = null;
@@ -1223,19 +1265,13 @@ export function startBoardShapeDrag(app, shape, worldPos, anchorId = null, optio
         && normalizeShapeCopperMode(shape.copperMode) === 'add'
         ? new Set([net])
         : null;
-    app._shapeDrag = {
-        id: shape.id,
+    app._shapeDrag = Object.assign(drag, {
         mode,
         handle,
         segment,
         vertexBefore: cloneShapeGeometry(shape),
-        startWorld: { x: worldPos.x, y: worldPos.y },
-        before,
-        beforeState,
-        sourceAnchorId: anchorId,
         ratsnestNets,
-        previousDeferDragOverlays: !!app._deferDragOverlays,
-    };
+    });
     app._setPcbStatus?.();
     app._deferDragOverlays = true;
     if (mode === 'vertex' || mode === 'segment') schedulePictureCopperRefresh(app, shape);
@@ -1249,23 +1285,36 @@ export function startBoardShapeDrag(app, shape, worldPos, anchorId = null, optio
 export function handleBoardShapeDrag(app, worldPos) {
     const d = app._shapeDrag;
     if (!d) return;
-    const s = app.boardShapes.find((x) => x.id === d.id);
-    if (!s) return;
+    if (!Number.isFinite(worldPos?.x) || !Number.isFinite(worldPos?.y)) {
+        endBoardShapeDrag(app, false);
+        throw new Error('Shape drag requires a finite position.');
+    }
+    if (isLayerLocked(d.original.layer) || !isLayerVisible(d.original.layer)) {
+        endBoardShapeDrag(app, false);
+        return;
+    }
+    if (!d.preview && worldPos.x === d.startWorld.x && worldPos.y === d.startWorld.y) return;
+    const modifiers = `${!!app.viewport?.shiftHeld}:${!!app.viewport?.gridVisible}:${app.viewport?.gridSize}:${app.viewport?.scale}:${app.viewport?.snapToGrid}:${app._snapActive?.()}`;
+    if (d.lastPoint?.x === worldPos.x && d.lastPoint?.y === worldPos.y && d.lastModifiers === modifiers) return;
+    d.lastPoint = { ...worldPos };
+    d.lastModifiers = modifiers;
+    const s = beginBoardShapePointerPreview(app, d);
+    const before = d.editBefore || d.before, beforeKind = d.editKind || d.beforeState.kind;
     if (d.mode === 'vertex' || d.mode === 'segment') schedulePictureCopperRefresh(app, s);
     if (d.mode === 'vertex') {
-        const polylineDrag = (['line', 'polygon'].includes(d.beforeState.kind) && typeof d.handle === 'number')
+        const polylineDrag = (['line', 'polygon'].includes(beforeKind) && typeof d.handle === 'number')
             || (typeof d.sourceAnchorId === 'string' && d.sourceAnchorId.startsWith('mid:'));
         const editingSegmentBulge = typeof d.handle === 'string' && d.handle.startsWith('bulge:');
         const editingArcEndpoint = s.kind === 'arc' && (d.handle === 'start' || d.handle === 'end');
         let snap = editingSegmentBulge ? snapPathPoint(app, worldPos, [], true) : polylineDrag && typeof d.handle === 'number'
-            ? polygonVertexSnap(app, d.vertexBefore || d.before, d.handle, worldPos, d.beforeState.kind !== 'line',
+            ? polygonVertexSnap(app, d.vertexBefore || before, d.handle, worldPos, beforeKind !== 'line',
                 app._snapActive?.() ?? app.viewport?.snapToGrid !== false, s.segmentBulges || [])
             : editingArcEndpoint
-                ? polygonVertexSnap(app, { points: [d.before.start, d.before.end] }, d.handle === 'start' ? 0 : 1,
+                ? polygonVertexSnap(app, { points: [before.start, before.end] }, d.handle === 'start' ? 0 : 1,
                     worldPos, false, app._snapActive?.() ?? app.viewport?.snapToGrid !== false)
-            : d.beforeState.kind === 'rect' && typeof d.handle === 'number'
-                ? snapPathPoint(app, worldPos, [d.before.points[(d.handle + 2) % 4]], true)
-            : snapPathPoint(app, worldPos, d.before.points || [], true);
+            : beforeKind === 'rect' && typeof d.handle === 'number'
+                ? snapPathPoint(app, worldPos, [before.points[(d.handle + 2) % 4]], true)
+            : snapPathPoint(app, worldPos, before.points || [], true);
         if (!app.viewport?.shiftHeld && (editingSegmentBulge || s.kind === 'arc' && d.handle === 'bulge')) {
             const segment = editingSegmentBulge ? Number(d.handle.slice(6)) : null;
             const start = segment == null ? s.start : s.points[segment];
@@ -1274,9 +1323,9 @@ export function handleBoardShapeDrag(app, worldPos) {
         }
         if (polylineDrag) {
             s.points = d.vertexBefore.points.map((point, index) => index === d.handle ? { ...snap } : { ...point });
-            s.kind = d.beforeState.kind === 'line' ? 'line' : 'polygon';
+            s.kind = beforeKind === 'line' ? 'line' : 'polygon';
         } else {
-            applyBoardShapeVertexResize(s, d, snap);
+            applyBoardShapeVertexResize(s, d.editBefore ? { ...d, before } : d, snap);
         }
         if (s.kind === 'polygon') normalizeBoardPolylineKind(s);
         else if (s.kind === 'line' && !d.splitBeforeState) closeBoardLineIfCoincident(s, d.handle);
@@ -1287,7 +1336,6 @@ export function handleBoardShapeDrag(app, worldPos) {
         }
         const handle = shapeHandlePoints(s).find((point) => point.key === d.handle);
         app.viewport?.setCrosshair(handle || snap);
-        if (s.layer === 'board-outline') syncBoardOutlineDimensions(app);
         renderBoardShape(app, s, { liveDrag: true });
         renderBoardShapeHandles(app, s);
         renderBoardShapeSegmentSelection(app);
@@ -1307,7 +1355,6 @@ export function handleBoardShapeDrag(app, worldPos) {
         s.points[secondIndex] = { x: points[secondIndex].x + dx, y: points[secondIndex].y + dy };
         app.viewport?.setCrosshair({ x: d.startWorld.x + dx, y: d.startWorld.y + dy });
         normalizeBoardPolylineKind(s);
-        if (s.layer === 'board-outline') syncBoardOutlineDimensions(app);
         renderBoardShape(app, s, { liveDrag: true });
         renderBoardShapeHandles(app, s);
         renderBoardShapeSegmentSelection(app);
@@ -1324,7 +1371,6 @@ export function handleBoardShapeDrag(app, worldPos) {
     const delta = snapPathTranslation(app, d.before.points || [anchor], { x: dx, y: dy }, [anchor]);
     const snapped = { x: anchor.x + delta.x, y: anchor.y + delta.y };
     applyShapeGeometry(s, translateShapeGeometry(d.before, delta.x, delta.y));
-    if (s.layer === 'board-outline') syncBoardOutlineDimensions(app);
     app.viewport?.setCrosshair(snapped);
     renderBoardShape(app, s, { liveDrag: true });
     renderBoardShapeHandles(app, s);
@@ -1334,85 +1380,89 @@ export function handleBoardShapeDrag(app, worldPos) {
 
 export function endBoardShapeDrag(app, commit) {
     const d = app._shapeDrag;
+    if (!d) return;
     app._shapeDrag = null;
+    const interaction = app._pcbSelectionInteraction;
+    if (interaction?.adapter?.kind === 'shape'
+        || (interaction?.mode === 'move-adapter' && interaction.entry.kind === 'shape')) app._pcbSelectionInteraction = null;
     app._setPcbStatus?.();
     app.viewport?.hideCrosshair();
     clearPolygonAxisIndicators(app);
-    if (!d) return;
     app._deferDragOverlays = d.previousDeferDragOverlays;
-    const s = app.boardShapes.find((x) => x.id === d.id);
-    if (d.mode === 'vertex' || d.mode === 'segment') schedulePictureCopperRefresh(app, s);
-    if (!s) return;
-    if (d.splitBeforeState) {
-        const first = s.points[0];
-        const last = d.splitOrigin || s.points.at(-1);
-        if (Math.hypot(first.x - last.x, first.y - last.y) < 1e-9) commit = false;
-        d.beforeState = d.splitBeforeState;
-        d.before = d.splitBeforeState.geom;
-        if (!commit) app._selectedBoardShapeNode = null;
-        if (d.splitRemainder) {
-            const remainderIndex = app.boardShapes.indexOf(d.splitRemainder);
-            if (remainderIndex >= 0) app.boardShapes.splice(remainderIndex, 1);
-            removeBoardShapeElement(app, d.splitRemainder.id);
+    const s = d.shape, original = d.original;
+    const originals = app.pcbDocument?.boardShapes || app.boardShapes;
+    const present = originals.includes(original);
+    if (d.splitRemainder) removeBoardShapeElement(app, d.splitRemainder.id);
+    let committed = false;
+    try {
+        if (commit && !present) throw new Error('Cannot finish a drag of a missing board shape.');
+        if (!commit || !d.preview || isLayerLocked(original.layer) || !isLayerVisible(original.layer)) return;
+        if (d.splitBeforeState) {
+            const first = s.points[0], last = d.splitOrigin || s.points.at(-1);
+            if (Math.hypot(first.x - last.x, first.y - last.y) < 1e-9) return;
         }
+        const target = d.splitBeforeState ? null : d.joinTarget?.shape;
+        if (s.kind === 'line' && target) {
+            if (!originals.includes(target)) throw new Error('Cannot join a missing board shape.');
+            if (isLayerLocked(target.layer) || !isLayerVisible(target.layer)) return;
+            const merged = mergeBoardLines(app, s, d.handle, target, d.joinTarget.endpoint);
+            selectBoardShape(app, null);
+            app.history.execute(new CompoundCommand([
+                new RemoveBoardShapeCommand(app, original),
+                new RemoveBoardShapeCommand(app, target),
+                new AddBoardShapeCommand(app, merged),
+            ]));
+            committed = true;
+            selectBoardShape(app, merged);
+            return;
+        }
+        const closedOpenLine = d.beforeState.kind === 'line' && s.kind !== 'line';
+        const bulgeHandle = typeof d.handle === 'string' ? /^bulge:(\d+)$/.exec(d.handle) : null;
+        if ((d.mode === 'vertex' || d.mode === 'segment') && !closedOpenLine && !bulgeHandle && !d.splitBeforeState
+            && JSON.stringify(cloneShapeGeometry(s)) !== JSON.stringify(d.before)) collapseCollinearPolylinePoints(s);
+        if (d.mode === 'vertex') normalizeStraightArc(s, bulgeHandle ? Number(bulgeHandle[1]) : null);
+        const after = cloneShapeGeometry(s);
+        if (!d.editBefore && ['rect', 'polygon'].includes(d.beforeState.kind)
+            && ['rect', 'polygon'].includes(s.kind) && JSON.stringify(after) === JSON.stringify(d.before)) {
+            s.kind = d.beforeState.kind;
+        }
+        const afterState = shapeSnapshot(s);
+        if (JSON.stringify(afterState) === JSON.stringify(d.beforeState)
+            || (s.layer === 'board-outline' && !validBoardOutline(s))) return;
+        const metadataChanged = ['kind', 'segmentWidths', 'segmentBulges', 'nodeCornerRadii'].some(
+            key => JSON.stringify(afterState[key]) !== JSON.stringify(d.beforeState[key]));
+        const command = d.splitBeforeState || metadataChanged || after.points?.length !== d.before.points?.length
+            ? new ModifyBoardShapeCommand(app, original, d.beforeState, afterState)
+            : new MoveBoardShapeCommand(app, original, d.before, after);
+        app.history.execute(d.splitRemainder ? new CompoundCommand([command, new AddBoardShapeCommand(app, d.splitRemainder)]) : command);
+        committed = true;
+    } finally {
+        if (!committed) {
+            if (d.splitBeforeState) app._selectedBoardShapeNode = null;
+            if (present) {
+                schedulePictureCopperRefresh(app, app._pendingShapeClearances?.has(original.id) ? original : undefined);
+                renderBoardShape(app, original, { liveDrag: true });
+                showBoardShapeProperties(app, original);
+            } else {
+                removeBoardShapeElement(app, original.id);
+                syncPcbSelection(app);
+                renderPcbSelectionAnchors(app);
+            }
+            cancelPictureCopperRefresh(app);
+        }
+        if (originals.includes(original)) {
+            renderBoardShapeHandles(app, original);
+            renderBoardShapeSegmentSelection(app);
+            syncCircleDiameterProperty(app, original);
+            syncShapeBulgeProperty(app, original);
+        }
+        if (d.ratsnestNets) app._updateRatsnest?.({ nets: d.ratsnestNets, skipFillRefresh: !committed });
     }
-    const target = d.splitBeforeState ? null : d.joinTarget?.shape;
-    if (commit && s.kind === 'line' && target && app.boardShapes.includes(target)) {
-        const merged = mergeBoardLines(app, s, d.handle, target, d.joinTarget.endpoint);
-        applyShapeSnapshot(s, d.beforeState);
-        renderBoardShape(app, s);
-        selectBoardShape(app, null);
-        app.history.execute(new CompoundCommand([
-            new RemoveBoardShapeCommand(app, s),
-            new RemoveBoardShapeCommand(app, target),
-            new AddBoardShapeCommand(app, merged),
-        ]));
-        selectBoardShape(app, merged);
-        return;
-    }
-    const closedOpenLine = d.beforeState.kind === 'line' && s.kind !== 'line';
-    const bulgeHandle = typeof d.handle === 'string' ? /^bulge:(\d+)$/.exec(d.handle) : null;
-    if ((d.mode === 'vertex' || d.mode === 'segment') && !closedOpenLine && !bulgeHandle && !d.splitBeforeState
-        && JSON.stringify(cloneShapeGeometry(s)) !== JSON.stringify(d.before)) {
-        collapseCollinearPolylinePoints(s);
-    }
-    if (commit && d.mode === 'vertex') normalizeStraightArc(s, bulgeHandle ? Number(bulgeHandle[1]) : null);
-    const after = cloneShapeGeometry(s);
-    const afterState = shapeSnapshot(s);
-    const moved = JSON.stringify(afterState) !== JSON.stringify(d.beforeState);
-    // Roll back first, then commit through history so undo is exact.
-    if (d.mode === 'move') applyShapeGeometry(s, d.before);
-    else applyShapeSnapshot(s, d.beforeState);
-    if (s.layer === 'board-outline') syncBoardOutlineDimensions(app);
-    renderBoardShape(app, s);
-    if (!moved || !commit) {
-        if (d.splitBeforeState || !commit) showBoardShapeProperties(app, s);
-        renderBoardShapeHandles(app, s);
-        renderBoardShapeSegmentSelection(app);
-        syncCircleDiameterProperty(app, s);
-        syncShapeBulgeProperty(app, s);
-        cancelPictureCopperRefresh(app);
-        app._refreshFills?.();
-        return;
-    }
-    const kindChanged = afterState.kind !== d.beforeState.kind;
-    const segmentWidthsChanged = JSON.stringify(afterState.segmentWidths || {})
-        !== JSON.stringify(d.beforeState.segmentWidths || {});
-    const segmentBulgesChanged = JSON.stringify(afterState.segmentBulges || {})
-        !== JSON.stringify(d.beforeState.segmentBulges || {});
-    const topologyChanged = after.points?.length !== d.before.points?.length;
-    const command = d.splitBeforeState || kindChanged || topologyChanged || segmentWidthsChanged || segmentBulgesChanged
-        ? new ModifyBoardShapeCommand(app, s, d.beforeState, afterState)
-        : new MoveBoardShapeCommand(app, s, d.before, after);
-    app.history.execute(d.splitRemainder ? new CompoundCommand([command, new AddBoardShapeCommand(app, d.splitRemainder)]) : command);
-    renderBoardShapeHandles(app, s);
-    renderBoardShapeSegmentSelection(app);
-    syncCircleDiameterProperty(app, s);
-    syncShapeBulgeProperty(app, s);
 }
 
 /** Split a closed shape at a node and float one of the coincident endpoints. */
 export function openBoardShape(app, shape, vertexIndex = 0) {
+    shape = canonicalBoardShape(app, shape);
     if (shape?.layer === 'board-outline') return false;
     if (!shape || !['line', 'polygon', 'rect'].includes(shape.kind) || isLayerLocked(shape.layer)) return false;
     const points = shape.points || [];
@@ -1422,24 +1472,26 @@ export function openBoardShape(app, shape, vertexIndex = 0) {
     const split = splitPathAtNode(shape, start);
     if (!split) return false;
     const remainder = split.remainder;
-    if (remainder) remainder.id = `pshape_${app._shapeIdCounter++}`;
-    Object.assign(shape, split.moving);
-    if (remainder) { app.boardShapes.push(remainder); renderBoardShape(app, remainder); }
+    if (remainder) remainder.id = `pshape_${app._shapeIdCounter}`;
     selectBoardShape(app, shape);
+    if (!startBoardShapeDrag(app, shape, split.moving.points[0], 0)) return false;
+    const drag = app._shapeDrag;
+    Object.assign(beginBoardShapePointerPreview(app, drag), split.moving);
+    drag.editBefore = cloneShapeGeometry(drag.shape);
+    drag.editKind = drag.shape.kind;
+    drag.vertexBefore = drag.editBefore;
+    drag.preparing = true;
+    Object.assign(drag, { splitBeforeState: before, splitRemainder: remainder, splitOrigin: { ...points[start] } });
+    if (remainder) { drag.preview.boardShapes.push(remainder); renderBoardShape(app, remainder); }
     const adapter = createBoardShapeSelectionAdapter(app, shape, shape.id);
     if (!beginPathSplit(app, adapter, 0, () => {
-        Object.assign(app._shapeDrag, { splitBeforeState: before, splitRemainder: remainder, splitOrigin: { ...points[start] } });
+        drag.preparing = false;
     })) {
-        if (remainder) {
-            app.boardShapes.splice(app.boardShapes.indexOf(remainder), 1);
-            removeBoardShapeElement(app, remainder.id);
-        }
-        applyShapeSnapshot(shape, before);
+        endBoardShapeDrag(app, false);
         app._selectedBoardShapeNode = null;
-        renderBoardShape(app, shape);
-        showBoardShapeProperties(app, shape);
         return false;
     }
+    renderBoardShape(app, drag.shape, { liveDrag: true });
     return true;
 }
 
@@ -1468,7 +1520,7 @@ export function deleteBoardShapeSegment(app, shape, segment) {
 export function deleteFocusedBoardShape(app) {
     const selected = getPcbSelection(app, 'shape');
     if (selected.length !== 1 || getPcbSelection(app).length !== 1) return false;
-    const shape = selected[0];
+    const shape = canonicalBoardShape(app, selected[0]);
     const node = app._selectedBoardShapeNode?.shapeId === shape.id ? app._selectedBoardShapeNode.index : null;
     const segment = app._selectedBoardShapeSegment?.shapeId === shape.id ? app._selectedBoardShapeSegment.segment : null;
     if (node == null && segment == null) return false;
@@ -1493,6 +1545,7 @@ export function deleteFocusedBoardShape(app) {
 
 /** Delete a polyline vertex; a triangle reduces to an open two-point Line. */
 export function deleteBoardShapeVertex(app, shape, vertexIndex) {
+    shape = canonicalBoardShape(app, shape);
     if (!shape || !['line', 'polygon', 'rect'].includes(shape.kind) || isLayerLocked(shape.layer)) return false;
     const points = shape.points || [];
     if (shape.layer === 'board-outline' && points.length <= 3) return false;
@@ -1503,10 +1556,10 @@ export function deleteBoardShapeVertex(app, shape, vertexIndex) {
         return true;
     }
     const before = shapeSnapshot(shape);
-    deletePathVertex(shape, vertexIndex);
-    normalizeBoardPolylineKind(shape);
-    const after = shapeSnapshot(shape);
-    applyShapeSnapshot(shape, before);
+    const candidate = copyBoardShape(shape);
+    deletePathVertex(candidate, vertexIndex);
+    normalizeBoardPolylineKind(candidate);
+    const after = shapeSnapshot(candidate);
     app.history.execute(new ModifyBoardShapeCommand(app, shape, before, after));
     app._selectedBoardShapeNode = null;
     app._selectedBoardShapeSegment = null;
@@ -2006,6 +2059,7 @@ function showImageProperties(app, shape, items) {
 
 export function showBoardShapeProperties(app, shape) {
     shape = canonicalBoardShape(app, shape);
+    if (app._shapeDrag?.original === shape) shape = app._shapeDrag.shape;
     const items = app._pcbPropsItems?.();
     if (!items || !shape) return;
     syncPcbSelection(app);

@@ -138,6 +138,7 @@ const { updateSelectionInteraction, finishSelectionInteraction, placeFloatingSel
         _updateRatsnest(options) { reconcileRatsnest(this, options); },
         history: { execute(command) { commands.push(command); command.execute(); } },
     };
+    Object.defineProperty(app, 'boardShapes', { get() { return this._shapeDrag?.preview?.boardShapes || this.pcbDocument.boardShapes; } });
     for (const [kind, label] of [['arc', 'Arc'], ['line', 'Line']]) {
         showBoardShapeContextMenu(app, shape, 0, 0, { x: 3, y: 0 });
         assert.equal(contextMenu.children[0].textContent, `Convert to ${label}`);
@@ -145,9 +146,10 @@ const { updateSelectionInteraction, finishSelectionInteraction, placeFloatingSel
         if (kind === 'arc') {
             assert.equal(app._pcbSelectionInteraction?.mode, 'floating-anchor');
             assert.equal(app._pcbSelectionInteraction.anchorId, 'bulge');
-            assert.deepEqual(shape.bulge, { x: 5, y: 1.25 }, 'Conversion begins floating at the actual bulge anchor');
+            assert.deepEqual(app._shapeDrag.shape.bulge, { x: 5, y: 1.25 }, 'Conversion begins floating at the actual bulge anchor');
+            assert.equal(shape.kind, 'line', 'Conversion stages geometry without changing the authored line');
             updateSelectionInteraction(app, { x: 5, y: -2.5 });
-            assert.deepEqual(shape.bulge, { x: 5, y: -2.5 }, 'Converted bulge follows the cursor');
+            assert.deepEqual(app._shapeDrag.shape.bulge, { x: 5, y: -2.5 }, 'Converted bulge follows the cursor');
             finishSelectionInteraction(app, false);
             assert.equal(app._pcbSelectionInteraction, null);
             assert.equal(shape.kind, 'line', 'Cancelling conversion restores the original line');
@@ -254,7 +256,7 @@ console.log('PASS standalone conversion uses native shape kinds, menus, properti
     assert.equal(title, 'Arc Segment');
     assert.equal(startBoardShapeDrag(app, shape, { x: 5, y: 1.25 }, 'bulge:0'), true);
     handleBoardShapeDrag(app, { x: 5, y: -2.5 });
-    assert.equal(shape.segmentBulges[0], -0.5);
+    assert.equal(app._shapeDrag.shape.segmentBulges[0], -0.5);
     endBoardShapeDrag(app, false);
     assert.equal(shape.segmentBulges[0], 0.25);
     commands[0].undo();
@@ -294,7 +296,7 @@ console.log('PASS standalone conversion uses native shape kinds, menus, properti
     shape.segmentWidths = {};
     shape.segmentBulges = { 1: 0.4 };
     assert.equal(startBoardShapeDrag(app, shape, { x: 5, y: 0 }, 'mid:0'), true);
-    assert.deepEqual(shape.segmentBulges, { 2: 0.4 });
+    assert.deepEqual(app._shapeDrag.shape.segmentBulges, { 2: 0.4 });
     endBoardShapeDrag(app, false);
     for (const [kind, layer] of [['line', 'top-silk'], ['polygon', 'top-silk'], ['rect', 'board-outline']]) {
         shape.kind = kind;
@@ -313,7 +315,7 @@ console.log('PASS standalone conversion uses native shape kinds, menus, properti
         assert.equal(app._pcbSelectionInteraction?.mode, 'floating-anchor');
         assert.equal(app._pcbSelectionInteraction.anchorId, 'bulge:0');
         updateSelectionInteraction(app, { x: 5, y: -2.5 });
-        assert.equal(shape.segmentBulges[0], -0.5);
+        assert.equal(app._shapeDrag.shape.segmentBulges[0], -0.5);
         assert.equal(placeFloatingSelectionInteraction(app), true);
         assert.equal(app._pcbSelectionInteraction, null);
         assert.equal(app._shapeDrag, null);
@@ -501,8 +503,8 @@ for (const commit of [false, true]) {
         history: { execute(command) { commands.push(command); command.execute(); } } };
     startBoardShapeDrag(app, shape, { x: 10, y: 0 }, 'mid:0');
     handleBoardShapeDrag(app, { x: -4, y: -3 });
-    assert.deepEqual(shape.points[1], { x: -4, y: -3 });
-    assert.deepEqual(shape.points.filter((_point, index) => index !== 1), before.points);
+    assert.deepEqual(app._shapeDrag.shape.points[1], { x: -4, y: -3 });
+    assert.deepEqual(app._shapeDrag.shape.points.filter((_point, index) => index !== 1), before.points);
     endBoardShapeDrag(app, commit);
     if (commit) {
         assert.equal(commands.length, 1);
@@ -519,7 +521,7 @@ console.log('PASS centreline editing, symmetric hit tests, unchanged circles, mi
 {
     const { boardBoundary, rectangleBoardOutline } = await import('../src/pcb/modules/board-outline.js');
     const { renderBoardShape, setBoardShapeHover, selectBoardShape } = await import('../src/pcb/modules/board-shapes.js');
-    const { updateGroupDrag, cancelGroupDrag } = await import('../src/pcb/modules/box-select.js');
+    const { beginGroupDrag, updateGroupDrag, cancelGroupDrag } = await import('../src/pcb/modules/box-select.js');
     const { CommandHistory } = await import('../src/core/CommandHistory.js');
     const model = new PcbDocument();
     const outline = model.setBoardOutline(rectangleBoardOutline(20, 10));
@@ -554,7 +556,8 @@ console.log('PASS centreline editing, symmetric hit tests, unchanged circles, mi
         else assert.equal(startBoardShapeDrag(app, outline, start, anchor), true);
         handleBoardShapeDrag(app, end);
         assertDimensions();
-        assert.notEqual(model.board.height, 10, `Anchor ${anchor} changes the outline height`);
+        assert.equal(model.board.height, 10, 'Preview leaves canonical dimensions unchanged');
+        assert.notEqual(boardBoundary({ boardShapes: app._shapeDrag.preview.boardShapes }).h, 10, `Anchor ${anchor} changes displayed height`);
         endBoardShapeDrag(app, false);
         app._pcbSelectionInteraction = null;
         assertDimensions();
@@ -563,7 +566,7 @@ console.log('PASS centreline editing, symmetric hit tests, unchanged circles, mi
     assert.equal(startBoardShapeDrag(app, outline, { x: 10, y: -10 }, null, { allowSegment: true }), true);
     assert.equal(app._shapeDrag.mode, 'segment');
     handleBoardShapeDrag(app, { x: 10, y: -15 });
-    assert.equal(model.board.height, 15);
+    assert.equal(model.board.height, 10, 'Segment preview leaves canonical dimensions unchanged');
     endBoardShapeDrag(app, true);
     assertDimensions();
     app.history.undo();
@@ -580,15 +583,14 @@ console.log('PASS centreline editing, symmetric hit tests, unchanged circles, mi
     let synchronizations = 0;
     const synchronize = model.syncBoardOutlineDimensions.bind(model);
     model.syncBoardOutlineDimensions = () => { synchronizations++; synchronize(); };
-    app._groupDrag = { startWorld: { x: 0, y: 0 }, comps: [], vias: [], tracks: [],
-        shapes: [{ shape: outline, before: cloneShapeGeometry(outline) }], ratsnestNets: new Set(),
-        previousDeferDragOverlays: false };
+    selectBoardShape(app, outline);
+    beginGroupDrag(app, { x: 0, y: 0 });
     updateGroupDrag(app, { x: 3, y: 5 });
     assertDimensions();
-    assert.equal(synchronizations, 1);
+    assert.equal(synchronizations, 0, 'Group previews leave canonical outline dimensions unchanged');
     cancelGroupDrag(app);
     assertDimensions();
-    assert.equal(synchronizations, 2);
+    assert.equal(synchronizations, 0, 'Discard does not synchronize unchanged geometry');
     assert.deepEqual(cloneShapeGeometry(outline), original);
     model.setBoardOutline({ id: 'board-outline', kind: 'circle', layer: 'board-outline', x: 0, y: 0, radius: 5 });
     const listeners = new Map();
@@ -665,7 +667,7 @@ for (const reversed of [false, true]) {
     startBoardShapeDrag(app, shape, midpoint, midpoint.id);
     for (const height of [21, 40, 60, 21]) {
         handleBoardShapeDrag(app, { x: 10, y: height });
-        const contours = resolveBoardShapeGeometry(shape).physicalContours;
+        const contours = resolveBoardShapeGeometry(app._shapeDrag.shape).physicalContours;
         assert.ok(contains(contours, { x: 10, y: 15.6 }));
         assert.ok(contains(contours, { x: 10, y: 16.4 }));
     }

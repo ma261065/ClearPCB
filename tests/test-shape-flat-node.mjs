@@ -62,7 +62,7 @@ for (const reversed of [false, true]) {
         const node = reversed ? 2 : 0;
         startBoardShapeDrag(app, shape, { x: 0, y: 0 }, node);
         handleBoardShapeDrag(app, { x: 1, y: 0 });
-        const dragged = resolveBoardShapeGeometry(shape).physicalContours;
+        const dragged = resolveBoardShapeGeometry(app._shapeDrag.shape).physicalContours;
         const cap = dragged.flat().filter(point => point.x < 0.8);
         assert.ok(cap.length > 5, 'Edited node exposes a sampled round cap, not a flat bevel');
         assert.ok(cap.every(point => Math.abs(Math.hypot(point.x - 1, point.y) - 1) < 0.003),
@@ -92,7 +92,8 @@ for (const moved of [false, true]) {
         viewport: { scale: 1000, setCrosshair() {}, hideCrosshair() {} }, _snapToGrid(point) { return point; },
         history: { execute(command) { command.execute(); } } };
     startBoardShapeDrag(app, shape, { x: 10, y: 0 }, 'mid:0');
-    assert.deepEqual(shape.nodeCornerRadii, { 3: 0 }, 'Insertion shifts existing node radii');
+    assert.deepEqual(app._shapeDrag.shape.nodeCornerRadii, { 3: 0 }, 'Insertion shifts preview node radii');
+    assert.deepEqual(shape.nodeCornerRadii, { 2: 0 }, 'Insertion preserves authored node radii');
     handleBoardShapeDrag(app, { x: 10, y: moved ? -3 : 0 });
     endBoardShapeDrag(app, true);
     assert.deepEqual(shape.nodeCornerRadii, moved ? { 3: 0 } : { 2: 0 },
@@ -108,7 +109,7 @@ for (const reversed of [false, true]) {
     startBoardShapeDrag(app, shape, { x: 10, y: 0 }, 2);
     for (const position of [{ x: 3, y: 6 }, { x: 17, y: 6 }, { x: 1, y: 12 }]) {
         handleBoardShapeDrag(app, position);
-        const contours = resolveBoardShapeGeometry(shape).physicalContours;
+        const contours = resolveBoardShapeGeometry(app._shapeDrag.shape).physicalContours;
         assert.ok(Math.min(...contours.flat().map(point => point.y)) >= -1.0001,
             'Dragging the middle node inward must not extend either adjacent corner into a spike');
     }

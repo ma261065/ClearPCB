@@ -657,9 +657,30 @@ readiness retains the existing rotation guard.
 
 Copper-cut geometry stays on its settled cache during image rotation, including
 explicit refresh and viewport updates, so old pour holes remain until drop.
-Discarded rotations do not repour unchanged copper. Numeric image properties,
-ordinary board-shape movement/resizing and shape groups remain separate preview
-ownership work; this rotation slice does not isolate those paths.
+Discarded rotations do not repour unchanged copper. Numeric image properties
+remain separate preview ownership work.
+
+Ordinary board-shape pointer gestures retain their canonical target in
+`_shapeDrag.original` and render a reusable copy through a `boardShapes`
+projection. Movement, vertex/segment edits, image resizing and circle/arc
+handles allocate on the first movement; midpoint insertion, floating segment
+conversion and open/split operations stage topology immediately on copies.
+Split remainders remain projected until acceptance, and their IDs are consumed
+by the model add command rather than during pickup. Artwork remains shared
+read-only. Authored points, indexed metadata, board dimensions and serialization
+stay unchanged during previews; bounds, anchors, segment highlights, properties
+presentation and ratwires follow displayed geometry.
+
+Completion clears projection ownership before canonical move/modify or compound
+commands. Joins and topology changes retain precise undo/redo. Cancellation,
+invalid outlines, stationary pickup, locks/hiding, loading/deactivation, missing
+targets and rejected commands discard artwork rather than restoring authored
+geometry. Discard does not repour unchanged copper; committed clearance refreshes
+receive canonical objects instead of stale preview copies. Repeated identical
+pointer/modifier states skip SVG work, while grid/scale/Shift changes are
+reevaluated. Stationary pickup does not allocate the projected collection.
+Numeric board-shape properties and generic board-dimension editing are still
+separate ownership work.
 
 Single-text dragging skips projection writes, SVG rebuilds and crosshair updates when
 the snapped position has not changed. Changed positions still render immediately;
@@ -969,8 +990,21 @@ locked/hidden layers, deactivation/loading, missing targets and command failures
 clean up artwork without authored rollback, restoring outer overlay/3D deferral
 state. Discarded previews do not repour unchanged copper. Property/terminal
 handoffs finish pending edits before canonical pickup; save/export guards remain.
-Grouped-track moves and ordinary board-shape pointer/property previews are still
-separate ownership work.
+Mixed-object group movement in `box-select.js` now reuses detached copies of
+directly selected tracks, vias, pads, board shapes and fills alongside the
+existing component/text projections. `PCBApp` collection getters give the group
+projection precedence. Group-specific selection-registry forwarding resolves
+displayed bounds, paths, hits and anchors without retargeting gesture methods
+away from canonical objects. Selected tracks also attached to a moving component
+are rendered once, not by both preview paths.
+
+Group completion preflights stored originals and clears projections before the
+existing compound commands. Cancellation, missing/deleted targets, rejected
+commands, locks/hiding and lifecycle cleanup remove preview artwork without
+canonical rollback. Board dimensions and fill caches stay authored; settled
+copper-removal holes remain through the gesture. Repeated unchanged deltas do
+no additional measured SVG/derived/3D work. Shape/image property previews and
+generic board-dimension editing remain separate ownership work.
 
 Both component pointer paths use the same live pose updater. If magnetic snapping
 produces the current coordinates, it skips footprint transforms, pad/bond updates

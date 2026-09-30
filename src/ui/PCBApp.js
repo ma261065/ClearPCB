@@ -30,7 +30,7 @@ import { savePcbPdf, printPcb, projectBaseName } from '../pcb/modules/pcb-export
 import { renderTrack, renderVia, removeTrackElements, removeViaElements, viaCopperPathD } from '../pcb/modules/track-render.js';
 import { startTrackDraw, updateTrackDraw, refreshTrackDrawPreview, addTrackWaypoint, finishTrackDraw, cancelTrackDraw, toggleTrackLayer, resolveTrackDrawSnap, resolveTrackSnap, showTrackSnapMarker, clearTrackSnapMarker, reconcileRatsnest } from '../pcb/modules/track-draw.js';
 import { hitTestTrack, hitTestLockedTrack, selectTrackOrVia, clearTrackSelection, deleteSelectedTrack, setHoverHighlight, showTrackContextMenu, refreshTrackSelectionHalo, getSelectedTrack, getSelectedVia, selectTrackSegment, dismissTrackContextMenu, applyNetToCopperSelection, trackIsSelectable } from '../pcb/modules/track-select.js';
-import { deleteFocusedBoardShape, getBoardShapeRotationPreview, finishBoardShapeRotationPreview } from '../pcb/modules/board-shapes.js';
+import { deleteFocusedBoardShape, getBoardShapeRotationPreview, getBoardShapePointerPreview, finishBoardShapeRotationPreview } from '../pcb/modules/board-shapes.js';
 import {
     startVertexDrag,
     updateVertexDrag,
@@ -111,6 +111,7 @@ import {
     hasBoxSelection,
     pointInBoxSelection,
     beginGroupDrag,
+    getGroupPreview,
     scheduleGroupDrag,
     updateGroupDrag,
     endGroupDrag,
@@ -214,20 +215,20 @@ const PCB_CROSSHAIR_TOOLS = new Set([
 
 export default class PCBApp {
     get tracks() {
-        return getPlacementPreviewTracks(this) || this._viaDrag?.preview?.tracks
+        return getGroupPreview(this)?.tracks || getPlacementPreviewTracks(this) || this._viaDrag?.preview?.tracks
             || this._vertexDrag?.preview?.tracks || getTrackPropertyPreview(this)?.tracks || this.pcbDocument.tracks;
     }
     set tracks(value) { this.pcbDocument.tracks = value; }
-    get vias() { return this._viaDrag?.preview?.vias || getViaPropertyPreview(this)?.vias || this.pcbDocument.vias; }
+    get vias() { return getGroupPreview(this)?.vias || this._viaDrag?.preview?.vias || getViaPropertyPreview(this)?.vias || this.pcbDocument.vias; }
     set vias(value) { this.pcbDocument.vias = value; }
     get pads() {
-        return this._viaDrag?.preview?.pads || getPadRotationPreview(this)?.pads
+        return getGroupPreview(this)?.pads || this._viaDrag?.preview?.pads || getPadRotationPreview(this)?.pads
             || getPadPropertyPreview(this)?.pads || this.pcbDocument.pads;
     }
     set pads(value) { this.pcbDocument.pads = value; }
     get texts() { return getTextPosePreviewTexts(this) || this.pcbDocument.texts; }
     set texts(value) { this.pcbDocument.texts = value; }
-    get boardShapes() { return getBoardShapeRotationPreview(this)?.boardShapes || this.pcbDocument.boardShapes; }
+    get boardShapes() { return getGroupPreview(this)?.boardShapes || getBoardShapePointerPreview(this)?.boardShapes || getBoardShapeRotationPreview(this)?.boardShapes || this.pcbDocument.boardShapes; }
     set boardShapes(value) { this.pcbDocument.boardShapes = value; }
     get _shapeIdCounter() { return this.pcbDocument.shapeIdCounter; }
     set _shapeIdCounter(value) { this.pcbDocument.shapeIdCounter = value; }
@@ -2614,6 +2615,10 @@ export default class PCBApp {
             return true;
         }
         if (ctrl && ((e.key === 'y' || e.key === 'Y') || ((e.key === 'z' || e.key === 'Z') && e.shiftKey))) {
+            if (this._groupDrag) {
+                this._cancelPosePreviews();
+                return true;
+            }
             if (getBoardShapeRotationPreview(this)) {
                 if (!finishSelectionInteraction(this, false)) finishBoardShapeRotationPreview(this);
             }
@@ -2621,6 +2626,7 @@ export default class PCBApp {
             return true;
         }
         if (e.key === 'Delete' || e.key === 'Backspace') {
+            if (this._groupDrag) this._cancelPosePreviews();
             this._trackPropertyBinding?.cancel();
             if (deleteFocusedBoardShape(this)) return true;
             const focusedFill = getPcbSelection(this, 'fill')[0];
@@ -3044,6 +3050,12 @@ export default class PCBApp {
      * @param {boolean} visible
      */
     _onLayerVisibilityChanged(layerId, visible) {
+        if (!visible && this._groupDrag && getPcbSelectionEntries(this).some(entry => entry.visible === false)) {
+            this._cancelPosePreviews();
+        }
+        if (!visible && this._shapeDrag?.original.layer === layerId) {
+            if (!finishSelectionInteraction(this, false)) endBoardShapeDrag(this, false);
+        }
         if (!visible && this._vertexDrag && trackPointerTouchesLayer(this, layerId)) {
             if (!finishSelectionInteraction(this, false)) cancelVertexDrag(this);
         }
@@ -3121,6 +3133,12 @@ export default class PCBApp {
      * @param {boolean} locked
      */
     _onLayerLockChanged(layerId, locked) {
+        if (locked && this._groupDrag && getPcbSelectionEntries(this).some(entry => entry.locked)) {
+            this._cancelPosePreviews();
+        }
+        if (locked && this._shapeDrag?.original.layer === layerId) {
+            if (!finishSelectionInteraction(this, false)) endBoardShapeDrag(this, false);
+        }
         if (locked && this._vertexDrag && trackPointerTouchesLayer(this, layerId)) {
             if (!finishSelectionInteraction(this, false)) cancelVertexDrag(this);
         }
@@ -5241,6 +5259,12 @@ export default class PCBApp {
     }
 
     _cancelPosePreviews() {
+        const shapeInteraction = this._pcbSelectionInteraction;
+        if (this._shapeDrag && (shapeInteraction?.adapter?.kind === 'shape'
+            || (shapeInteraction?.mode === 'move-adapter' && shapeInteraction.entry.kind === 'shape'))) {
+            finishSelectionInteraction(this, false);
+        }
+        if (this._shapeDrag) endBoardShapeDrag(this, false);
         const trackInteraction = this._pcbSelectionInteraction;
         if (trackInteraction?.adapter?.kind === 'track'
             || (trackInteraction?.mode === 'move-adapter' && trackInteraction.entry.kind === 'track')) {
@@ -8832,6 +8856,7 @@ export default class PCBApp {
      * @param {boolean} visible
      */
     _onCopperFillVisibilityChanged(copperLayerId, visible) {
+        if (!visible && this._groupDrag?.fills.some(({ fill }) => fill.layer === copperLayerId)) this._cancelPosePreviews();
         const g = this._layerGroups.get(fillGroupId(copperLayerId));
         if (g) g.style.display = visible ? '' : 'none';
         this._refreshPcbSelectionHighlights?.();
@@ -8845,6 +8870,7 @@ export default class PCBApp {
      * @param {boolean} locked
      */
     _onCopperFillLockChanged(copperLayerId, locked) {
+        if (locked && this._groupDrag?.fills.some(({ fill }) => fill.layer === copperLayerId)) this._cancelPosePreviews();
         const g = this._layerGroups.get(fillGroupId(copperLayerId));
         if (g) g.style.opacity = locked ? '0.4' : '';
         const selectedFill = getPcbSelection(this, 'fill')[0] || null;

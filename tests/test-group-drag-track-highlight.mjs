@@ -27,7 +27,7 @@ globalThis.document = { createElementNS() { return new Element(); }, getElementB
 
 const { Track } = await import('../src/shapes/track.js');
 const { setPcbSelection } = await import('../src/pcb/modules/selection-registry.js');
-const { beginGroupDrag, updateGroupDrag, endGroupDrag, refreshBoxSelectionHighlights } = await import('../src/pcb/modules/box-select.js');
+const { beginGroupDrag, updateGroupDrag, endGroupDrag, refreshBoxSelectionHighlights, getGroupPreview } = await import('../src/pcb/modules/box-select.js');
 const { refreshTrackSelectionHalo } = await import('../src/pcb/modules/track-select.js');
 const { buildTrackLayerRuns } = await import('../src/pcb/modules/track-render.js');
 
@@ -39,7 +39,10 @@ for (const count of [1, 2]) {
         points: [{ x: 20, y: 0 }, { x: 25, y: 0 }, { x: 25, y: 5 }, { x: 20, y: 5 }] };
     const layers = new Map(['top-copper', 'bottom-copper', 'top-silk', 'hole', 'selection-overlay'].map((name) => [name, new Element()]));
     const app = {
-        tracks, vias: [], boardShapes: [rectangle], placements: new Map(), texts: new Map(),
+        pcbDocument: { tracks, vias: [], pads: [], boardShapes: [rectangle], texts: new Map() },
+        get tracks() { return getGroupPreview(this)?.tracks || tracks; },
+        get boardShapes() { return getGroupPreview(this)?.boardShapes || this.pcbDocument.boardShapes; },
+        vias: [], placements: new Map(), texts: new Map(),
         _shapeElements: new Map(), _layerGroups: layers,
         _getLayerGroup(name) {
             for (const track of tracks) assert.deepEqual(track.getBounds(), track._calculateBounds(),
@@ -55,7 +58,7 @@ for (const count of [1, 2]) {
     const checkHighlights = () => {
         const primary = layers.get('selection-overlay').querySelectorAll('.pcb-track-selection');
         const secondary = layers.get('selection-overlay').querySelectorAll('.pcb-box-track-sel');
-        const expected = tracks.flatMap((track) => buildTrackLayerRuns(track)
+        const expected = app.tracks.flatMap((track) => buildTrackLayerRuns(track)
             .map((run) => run.points.map((point) => `${point.x},${point.y}`).join(' ')));
         assert.deepEqual([...primary, ...secondary].map((element) => element.getAttribute('points')), expected);
     };
@@ -69,7 +72,8 @@ for (const count of [1, 2]) {
         updateGroupDrag(app, position);
         checkHighlights();
     }
-    assert.deepEqual(rectangle.points[0], { x: 28, y: 7 });
+    assert.deepEqual(app.boardShapes[0].points[0], { x: 28, y: 7 });
+    assert.deepEqual(rectangle.points[0], { x: 23, y: 4 }, 'Canonical rectangle retains the last committed pose');
     endGroupDrag(app);
     checkHighlights();
 }

@@ -213,8 +213,9 @@ export function previewPlacementPose(app, compId, pose) {
  * Preview a fixed set of component poses, sharing one copy of each bonded track.
  * @param {any} app
  * @param {Map<string, Partial<{x:number, y:number, rotation:number}>>} poses
+ * @param {Set<string>} [deferredTrackIds] Tracks rendered after a mixed-group translation.
  */
-export function previewPlacementPoses(app, poses) {
+export function previewPlacementPoses(app, poses, deferredTrackIds) {
     const ids = [...poses.keys()].filter(id => app.placements?.has(id));
     if (!ids.length) return;
     let preview = placementPreviews.get(app);
@@ -251,7 +252,7 @@ export function previewPlacementPoses(app, poses) {
     }
     for (const track of touched) {
         if (!preview.rendered.has(track)) removeTrackElements(preview.originals.get(track));
-        renderTrack(track, id => app._getLayerGroup(id), _opts(app, track));
+        if (!deferredTrackIds?.has(track.id)) renderTrack(track, id => app._getLayerGroup(id), _opts(app, track));
         preview.rendered.add(track);
     }
     refreshEditedTrackClearance(app);
@@ -281,10 +282,11 @@ export function finishPlacementPreview(app, commit) {
                 if (preview.changed.has(id)) renderPlacementPose(app, id);
             }
         }
+        const currentTracks = preview ? new Set(app.pcbDocument?.tracks || app.tracks || []) : null;
         for (const track of preview?.rendered || []) {
             removeTrackElements(track);
             const original = preview.originals.get(track);
-            if (!committed || !hasTrackElements(original)) {
+            if (currentTracks.has(original) && (!committed || !hasTrackElements(original))) {
                 renderTrack(original, id => app._getLayerGroup(id), _opts(app, original));
             }
         }

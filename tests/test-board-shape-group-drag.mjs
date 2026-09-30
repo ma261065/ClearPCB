@@ -39,10 +39,13 @@ const {
     setBoardShapeNodeCornerRadius,
     startBoardShapeDrag,
     translateShapeGeometry,
+    getBoardShapePointerPreview,
 } = await import('../src/pcb/modules/board-shapes.js');
 const { boardShapeNodeCornerRadius, boardShapeSegmentBulge, boardShapeSegmentWidth,
     resolveBoardShapeGeometry, shapeOutline, shapePathD } = await import('../src/pcb/modules/board-shape-geometry.js');
-const { updateGroupDrag, endGroupDrag, cancelGroupDrag } = await import('../src/pcb/modules/box-select.js');
+const { beginGroupDrag, updateGroupDrag, endGroupDrag, cancelGroupDrag, getGroupPreview } = await import('../src/pcb/modules/box-select.js');
+const { getTextPosePreviewTexts } = await import('../src/pcb/modules/text-commands.js');
+const { setPcbSelection } = await import('../src/pcb/modules/selection-registry.js');
 const { updateSelectionInteraction, finishSelectionInteraction, placeFloatingSelectionInteraction } =
     await import('../src/pcb/modules/selection-interaction.js');
 
@@ -60,17 +63,17 @@ function expect(name, actual, expected) {
 
 {
     const text = { id: 'snapped-text', x: 10, y: 20 };
+    const pcbDocument = new PcbDocument();
+    pcbDocument.texts.set(text.id, text);
     let redraws = 0;
     const app = {
-        placements: new Map(), texts: new Map([[text.id, text]]),
+        pcbDocument, placements: new Map(),
+        get texts() { return getTextPosePreviewTexts(this) || this.pcbDocument.texts; },
         viewport: { snapToGrid: true, gridVisible: true, gridSize: 1 },
         _refreshText() { redraws++; },
-        _groupDrag: {
-            startWorld: { x: 0, y: 0 }, lastDx: 0, lastDy: 0,
-            comps: [], vias: [], tracks: [], shapes: [], fills: [],
-            texts: [{ text, x: text.x, y: text.y }], ratsnestNets: new Set(),
-        },
     };
+    setPcbSelection(app, [{ kind: 'text', object: text }]);
+    beginGroupDrag(app, { x: 0, y: 0 });
     updateGroupDrag(app, { x: 0.1, y: 0.2 });
     expect('group drag skips movement inside the starting grid magnet', redraws, 0);
     updateGroupDrag(app, { x: 1.1, y: 2.1 });
@@ -78,7 +81,9 @@ function expect(name, actual, expected) {
     updateGroupDrag(app, { x: 1.2, y: 2.2 });
     expect('group drag does not redraw an unchanged snapped position', redraws, 1);
     updateGroupDrag(app, { x: 2.1, y: 3.1 });
-    expect('group drag continues rendering subsequent movement', [redraws, text.x, text.y], [2, 12, 23]);
+    expect('group drag continues rendering subsequent movement', [redraws, app.texts.get(text.id).x, app.texts.get(text.id).y], [2, 12, 23]);
+    expect('group preview preserves canonical text', [text.x, text.y], [10, 20]);
+    cancelGroupDrag(app);
 }
 
 const cases = [
@@ -115,15 +120,14 @@ for (const test of cases) {
         const before = cloneShapeGeometry(shape);
         const refreshes = [];
         const crosshairs = [];
-        const app = {
-            boardShapes: [shape], placements: new Map(), tracks: [], vias: [], texts: new Map(),
+        const app = Object.assign(topologyApp([shape]), {
             _deferDragOverlays: false, _shapeElements: new Map(), _layerGroups: new Map(),
             _getLayerGroup() { return null; },
             _snapToGrid(point) { return point; },
             _refreshFills() { refreshes.push(this._deferDragOverlays); },
             viewport: { scale: 100, setCrosshair(point) { crosshairs.push(point); }, hideCrosshair() {} },
             history: { execute(command) { command.execute(); } },
-        };
+        });
         startBoardShapeDrag(app, shape, { x: 2, y: 3 });
         expect(`${test.name} fixture starts a whole-shape move`, app._shapeDrag.mode, 'move');
         const origin = before.points ? before.points[0] : before.start || { x: before.x, y: before.y };
@@ -134,24 +138,23 @@ for (const test of cases) {
         expect(`${test.name} defers fill refresh while moving`, refreshes, []);
         endBoardShapeDrag(app, commit);
         flushTimers();
-        expect(`${test.name} refreshes after ${commit ? 'completion' : 'cancellation'}`, refreshes, [false]);
+        expect(`${test.name} refreshes only after authored completion`, refreshes, commit ? [false] : []);
         expect(`${test.name} finishes with the expected geometry`, cloneShapeGeometry(shape),
             commit ? translateShapeGeometry(before, 5, -3) : before);
 
         refreshes.length = 0;
         const groupBefore = cloneShapeGeometry(shape);
-        app._groupDrag = {
-            startWorld: { x: 0, y: 0 }, previousDeferDragOverlays: false,
-            comps: [], tracks: [], vias: [], texts: [], fills: [], ratsnestNets: new Set(),
-            shapes: [{ shape, before: groupBefore }],
-        };
-        app._deferDragOverlays = true;
+        setPcbSelection(app, [{ kind: 'shape', object: shape }]);
+        beginGroupDrag(app, { x: 0, y: 0 });
         updateGroupDrag(app, { x: 3, y: 4 });
+        expect(`${test.name} group preview leaves canonical geometry untouched`, cloneShapeGeometry(shape), groupBefore);
+        expect(`${test.name} group display follows translated geometry`, cloneShapeGeometry(getGroupPreview(app).copies.get(shape)),
+            translateShapeGeometry(groupBefore, 3, 4));
         expect(`${test.name} group defers fill refresh while moving`, refreshes, []);
         if (commit) endGroupDrag(app);
         else cancelGroupDrag(app);
         flushTimers();
-        expect(`${test.name} group refreshes after ${commit ? 'completion' : 'cancellation'}`, refreshes, [false]);
+        expect(`${test.name} group refreshes only after authored completion`, refreshes, commit ? [false] : []);
         expect(`${test.name} group finishes with expected geometry`, cloneShapeGeometry(shape),
             commit ? translateShapeGeometry(groupBefore, 3, 4) : groupBefore);
         if (test.name === 'Line') {
@@ -162,7 +165,7 @@ for (const test of cases) {
             handleBoardShapeDrag(app, { x: start.x + 2, y: start.y + 1 });
             endBoardShapeDrag(app, false);
             flushTimers();
-            expect('cancelled vertex drag refreshes once', refreshes, [false]);
+            expect('cancelled vertex preview requires no repour', refreshes, []);
             expect('cancelled vertex drag restores its geometry', cloneShapeGeometry(shape), vertexBefore);
         }
     }
@@ -182,16 +185,21 @@ const additiveShape = {
 };
 const dragApp = {
     _deferDragOverlays: false,
-    viewport: { scale: 100, setCrosshair() {} },
+    boardShapes: [additiveShape], _shapeElements: new Map(), _layerGroups: new Map(),
+    _getLayerGroup() { return null; },
+    viewport: { scale: 100, setCrosshair() {}, hideCrosshair() {} },
 };
 startBoardShapeDrag(dragApp, additiveShape, { x: 5, y: 5 });
 expect('additive copper drag defers derived overlays', dragApp._deferDragOverlays, true);
 expect('additive copper drag restricts ratsnest to its net',
     [...dragApp._shapeDrag.ratsnestNets], ['GND']);
+endBoardShapeDrag(dragApp, false);
 
 const removalShape = { ...additiveShape, id: 'removal', copperMode: 'remove-copper' };
+dragApp.boardShapes = [removalShape];
 startBoardShapeDrag(dragApp, removalShape, { x: 5, y: 5 });
 expect('removal copper drag skips ratsnest reconciliation', dragApp._shapeDrag.ratsnestNets, null);
+endBoardShapeDrag(dragApp, false);
 
 for (const shape of [
     { id: 'line-select', kind: 'line', layer: 'top-silk', points: [{ x: 0, y: 0 }, { x: 10, y: 0 }] },
@@ -201,10 +209,12 @@ for (const shape of [
     dragApp.boardShapes = [shape];
     startBoardShapeDrag(dragApp, shape, { x: 5, y: 0 });
     expect(`${shape.kind} first-click drag moves the whole shape`, dragApp._shapeDrag.mode, 'move');
+    endBoardShapeDrag(dragApp, false);
     startBoardShapeDrag(dragApp, shape, { x: 5, y: 0 }, null, { allowSegment: true });
     expect(`${shape.kind} second-click drag selects its segment`, dragApp._shapeDrag.mode, 'segment');
     expect(`${shape.kind} stores the refined segment`, dragApp._selectedBoardShapeSegment,
         { shapeId: shape.id, segment: 0 });
+    endBoardShapeDrag(dragApp, false);
 }
 
 {
@@ -254,15 +264,17 @@ for (const shape of [
     };
     startBoardShapeDrag(app, shape, { x: 5, y: 0 }, null, { allowSegment: true });
     handleBoardShapeDrag(app, { x: 5, y: 2 });
+    const displayed = app._shapeDrag.shape;
     expect('rounded rectangle segment drag preserves its geometry type and radius', {
-        kind: shape.kind,
-        cornerRadius: shape.cornerRadius,
-        points: shape.points,
+        kind: displayed.kind,
+        cornerRadius: displayed.cornerRadius,
+        points: displayed.points,
     }, {
         kind: 'rect',
         cornerRadius: 2,
         points: [{ x: 0, y: 2 }, { x: 10, y: 2 }, { x: 10, y: 10 }, { x: 0, y: 10 }],
     });
+    expect('rounded rectangle canonical points stay settled', shape.points[0], { x: 0, y: 0 });
 }
 
 {
@@ -339,11 +351,13 @@ for (const shape of [
     };
     startBoardShapeDrag(app, shape, { x: 5, y: 0 }, null, { allowSegment: true });
     handleBoardShapeDrag(app, { x: 6, y: 2 });
+    const displayed = app._shapeDrag.shape;
     expect('skewed rounded rectangle becomes a rounded polygon', {
-        kind: shape.kind,
-        cornerRadius: shape.cornerRadius,
-        roundedCorners: (shapePathD(shape).match(/ Q /g) || []).length,
+        kind: displayed.kind,
+        cornerRadius: displayed.cornerRadius,
+        roundedCorners: (shapePathD(displayed).match(/ Q /g) || []).length,
     }, { kind: 'polygon', cornerRadius: 2, roundedCorners: 4 });
+    expect('skewed preview leaves canonical rectangle intact', [shape.kind, shape.points[0]], ['rect', { x: 0, y: 0 }]);
 }
 
 {
@@ -352,10 +366,14 @@ for (const shape of [
         points: [{ x: 0, y: 0 }, { x: 10, y: 0 }, { x: 20, y: 0 }],
         segmentWidths: { 1: 0.7 },
     };
-    startBoardShapeDrag(dragApp, shape, { x: 5, y: 0 }, 'mid:0');
+    const app = topologyApp([shape]);
+    startBoardShapeDrag(app, shape, { x: 5, y: 0 }, 'mid:0');
+    const displayed = app._shapeDrag.shape;
     expect('midpoint insertion keeps a later width on the same physical segment',
-        [boardShapeSegmentWidth(shape, 0), boardShapeSegmentWidth(shape, 1), boardShapeSegmentWidth(shape, 2)],
+        [boardShapeSegmentWidth(displayed, 0), boardShapeSegmentWidth(displayed, 1), boardShapeSegmentWidth(displayed, 2)],
         [0.2, 0.2, 0.7]);
+    expect('midpoint insertion is not authored before drop', shape.points.length, 3);
+    endBoardShapeDrag(app, false);
 }
 
 {
@@ -364,17 +382,22 @@ for (const shape of [
         points: [{ x: 0, y: 0 }, { x: 10, y: 0 }, { x: 20, y: 0 }],
         segmentWidths: { 1: 0.7 },
     };
-    startBoardShapeDrag(dragApp, shape, { x: 15, y: 0 }, 'mid:1');
+    const app = topologyApp([shape]);
+    startBoardShapeDrag(app, shape, { x: 15, y: 0 }, 'mid:1');
+    const displayed = app._shapeDrag.shape;
     expect('splitting an overridden segment gives both halves its width',
-        [boardShapeSegmentWidth(shape, 0), boardShapeSegmentWidth(shape, 1), boardShapeSegmentWidth(shape, 2)],
+        [boardShapeSegmentWidth(displayed, 0), boardShapeSegmentWidth(displayed, 1), boardShapeSegmentWidth(displayed, 2)],
         [0.2, 0.7, 0.7]);
+    endBoardShapeDrag(app, false);
 }
 
 function topologyApp(shapes) {
     const pcbDocument = new PcbDocument();
     pcbDocument.boardShapes.push(...shapes);
     return {
-        pcbDocument, boardShapes: pcbDocument.boardShapes, placements: new Map(), tracks: [], vias: [], texts: new Map(),
+        pcbDocument,
+        get boardShapes() { return getGroupPreview(this)?.boardShapes || getBoardShapePointerPreview(this)?.boardShapes || pcbDocument.boardShapes; },
+        placements: new Map(), tracks: [], vias: [], texts: new Map(),
         _shapeElements: new Map(), _shapeIdCounter: 1, _deferDragOverlays: false,
         _getLayerGroup() { return null; }, _snapToGrid(point) { return point; },
         viewport: { scale: 100, snapToGrid: false, setCrosshair() {}, hideCrosshair() {} },
@@ -402,6 +425,7 @@ function topologyApp(shapes) {
         points: [{ x: 0, y: 0 }, { x: 0, y: 10 }], segmentBulges: { 0: 0.3 } };
     const app = topologyApp([first, second]);
     startBoardShapeDrag(app, first, first.points[0], 0);
+    handleBoardShapeDrag(app, { x: -1, y: 0 });
     handleBoardShapeDrag(app, first.points[0]);
     endBoardShapeDrag(app, true);
     expect('joining reverses only the line whose point order changes',
@@ -416,7 +440,8 @@ function topologyApp(shapes) {
     const app = topologyApp([shape]);
     openBoardShape(app, shape, 2);
     expect('splitting a polygon rotates all segment curves without dropping an edge',
-        shape.segmentBulges, { 0: 0.3, 1: 0.4, 2: 0.1, 3: 0.2 });
+        app._shapeDrag.shape.segmentBulges, { 0: 0.3, 1: 0.4, 2: 0.1, 3: 0.2 });
+    expect('floating split keeps canonical polygon closed', shape.kind, 'polygon');
     updateSelectionInteraction(app, { x: 12, y: 13 });
     placeFloatingSelectionInteraction(app);
     deleteBoardShapeVertex(app, shape, 1);
@@ -433,18 +458,20 @@ for (const kind of ['polygon', 'rect']) {
         app.history.execute = command => { commands.push(command); command.execute(); };
         const original = serializeBoardShapes(app);
         expect(`${kind} split starts`, openBoardShape(app, shape, 2), true);
+        const displayed = app._shapeDrag.shape;
         expect(`${kind} split floats the endpoint without node selection`,
             [app._pcbSelectionInteraction?.mode, app._selectedBoardShapeNode], ['floating-anchor', null]);
-        expect(`${kind} split preserves every original segment`, shape.points,
+        expect(`${kind} split preserves every original segment`, displayed.points,
             [{ x: 10, y: 10 }, { x: 0, y: 10 }, { x: 0, y: 0 }, { x: 10, y: 0 }, { x: 10, y: 10 }]);
-        expect(`${kind} split preserves widths`, shape.segmentWidths, { 1: 0.7, 2: 0.4 });
-        expect(`${kind} split remaps node radii onto both endpoints`, shape.nodeCornerRadii, { 0: 1, 3: 0.5, 4: 1 });
-        expect(`${kind} split keeps the overall radius`, shape.cornerRadius, 2);
+        expect(`${kind} split preserves widths`, displayed.segmentWidths, { 1: 0.7, 2: 0.4 });
+        expect(`${kind} split remaps node radii onto both endpoints`, displayed.nodeCornerRadii, { 0: 1, 3: 0.5, 4: 1 });
+        expect(`${kind} split keeps the overall radius`, displayed.cornerRadius, 2);
+        expect(`${kind} split leaves the canonical closed shape unchanged`, serializeBoardShapes(app.pcbDocument), original);
         expect(`${kind} split is provisional`, commands.length, 0);
         if (action !== 'in-place') {
             updateSelectionInteraction(app, { x: 12, y: 13 });
             expect(`${kind} only the detached endpoint follows the cursor`,
-                [shape.points[0], shape.points.at(-1)], [{ x: 12, y: 13 }, { x: 10, y: 10 }]);
+                [displayed.points[0], displayed.points.at(-1)], [{ x: 12, y: 13 }, { x: 10, y: 10 }]);
         }
         if (action === 'cancel') finishSelectionInteraction(app, false);
         else placeFloatingSelectionInteraction(app);
@@ -474,6 +501,7 @@ for (const action of ['place', 'cancel', 'in-place']) {
     const original = serializeBoardShapes(app);
     expect(`line ${action}: split begins`, openBoardShape(app, shape, 1), true);
     expect(`line ${action}: both pieces retain their edges`, app.boardShapes.map(part => part.points.length), [2, 2]);
+    expect(`line ${action}: both pieces remain provisional`, serializeBoardShapes(app.pcbDocument), original);
     if (action !== 'in-place') updateSelectionInteraction(app, { x: 12, y: 3 });
     if (action === 'cancel') finishSelectionInteraction(app, false);
     else placeFloatingSelectionInteraction(app);

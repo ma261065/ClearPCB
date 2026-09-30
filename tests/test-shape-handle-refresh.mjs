@@ -68,7 +68,8 @@ try {
                 assert.equal(halos, 0);
                 assert.equal(fills, 0);
             }
-            assert.notDeepEqual(cloneShapeGeometry(shape), original, `${shape.kind} updates live`);
+            assert.notDeepEqual(cloneShapeGeometry(app._shapeDrag.shape), original, `${shape.kind} updates live`);
+            assert.deepEqual(cloneShapeGeometry(shape), original, 'Canonical geometry is unchanged during preview');
             endBoardShapeDrag(app, commit);
             if (commit) {
                 assert.equal(timers.size, 1, 'A committed release starts one debounce');
@@ -79,12 +80,12 @@ try {
                 assert.equal(app._pictureCopperRefreshPending, false);
                 assert.equal(timers.size, 0, 'Cancellation leaves no deferred refresh');
                 assert.equal(halos, 1, 'Cancel restores clearance immediately');
-                assert.equal(fills, 1, 'Cancel refreshes fills immediately');
+                assert.equal(fills, 0, 'Cancel retains unchanged settled fills');
             }
             flush();
             assert.equal(app._pictureCopperRefreshPending, false);
             assert.equal(halos, 1);
-            assert.equal(fills, 1, 'Restored or committed geometry refreshes fills exactly once');
+            assert.equal(fills, commit ? 1 : 0, 'Only committed geometry refreshes fills');
             if (commit) {
                 app.history.undo();
                 assert.deepEqual(cloneShapeGeometry(shape), original);

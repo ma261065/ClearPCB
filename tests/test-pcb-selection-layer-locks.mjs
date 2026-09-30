@@ -230,7 +230,7 @@ const { trackPointerTouchesLayer, cancelVertexDrag } = await import('../src/pcb/
 const { finishSelectionInteraction } = await import('../src/pcb/modules/selection-interaction.js');
 const { getBoardShapeRotationPreview, finishBoardShapeRotationPreview } = await import('../src/pcb/modules/board-shapes.js');
 const visibilityDependencies = {
-    ...layers, getPcbSelection, saveLayerPrefs() {},
+    ...layers, getPcbSelection, getPcbSelectionEntries, saveLayerPrefs() {},
     trackPointerTouchesLayer, cancelVertexDrag, finishSelectionInteraction,
     getBoardShapeRotationPreview, finishBoardShapeRotationPreview,
     getSelectedTrack() { return null; }, getSelectedVia() { return null; },
@@ -264,7 +264,9 @@ const onFillVisibility = new Function('fillGroupId', 'saveLayerPrefs',
     `return ({ ${source.slice(fillVisibilityStart, fillVisibilityEnd)} })._onCopperFillVisibilityChanged;`)(
     layer => layer, () => {},
 );
+fillApp._cancelPosePreviews = function () { this._groupDrag = null; };
 onFillVisibility.call(fillApp, 'top-copper', false);
+assert.equal(fillApp._groupDrag, null, 'Hiding a pour discards an active mixed-group preview');
 assert.equal(selectionRefreshes, 6, 'Hiding copper-fill outlines removes their selection lock overlay');
 
 const lockStart = source.indexOf('    _onCopperFillLockChanged(copperLayerId, locked) {');

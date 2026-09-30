@@ -124,16 +124,17 @@ for (const [name, target, expectedKind, diagonal] of [
     const anchor = getBoardShapeAnchors(shape)[0];
     startBoardShapeDrag(app, shape, anchor, 0);
     handleBoardShapeDrag(app, target);
-    const moved = getBoardShapeAnchors(shape)[0];
+    const displayed = app._shapeDrag.shape;
+    const moved = getBoardShapeAnchors(displayed)[0];
     if (diagonal) {
         expect('polygon diagonal alignment takes priority over the outer-handle grid',
-            [shape.points[1], shape.points.at(-1)].some(neighbour =>
-                Math.abs(Math.abs(shape.points[0].x - neighbour.x) - Math.abs(shape.points[0].y - neighbour.y)) < 1e-6));
+            [displayed.points[1], displayed.points.at(-1)].some(neighbour =>
+                Math.abs(Math.abs(displayed.points[0].x - neighbour.x) - Math.abs(displayed.points[0].y - neighbour.y)) < 1e-6));
     } else {
         expect(`polygon ${name} alignment keeps the outer handle on grid when compatible`,
             Math.abs(moved.x - Math.round(moved.x)) < 1e-6 && Math.abs(moved.y - Math.round(moved.y)) < 1e-6);
     }
-    expect(`polygon ${name} alignment normalizes its kind correctly`, shape.kind === expectedKind);
+    expect(`polygon ${name} alignment normalizes its kind correctly`, displayed.kind === expectedKind);
     const lines = overlay.children.filter(child => child.tagName === 'line' && child.getAttribute('stroke') === '#ffffff');
     if (expectedKind === 'rect') {
         expect('rectangle conversion suppresses redundant H/V indicators', lines.length === 0);
@@ -153,7 +154,7 @@ for (const [name, target, expectedKind, diagonal] of [
     expect('rectangle plus handle is on the centerline', midpoint.x === 5 && midpoint.y === 0);
     startBoardShapeDrag(app, shape, midpoint, midpoint.id);
     handleBoardShapeDrag(app, midpoint);
-    expect('plus insertion has no half-width displacement', Math.abs(shape.points[1].x - 5) < 1e-9 && Math.abs(shape.points[1].y) < 1e-9);
+    expect('plus insertion has no half-width displacement', Math.abs(app._shapeDrag.shape.points[1].x - 5) < 1e-9 && Math.abs(app._shapeDrag.shape.points[1].y) < 1e-9);
 }
 
 {
@@ -200,7 +201,7 @@ for (const commit of [false, true]) {
     const midpoint = getBoardShapeAnchors(shape).find(anchor => anchor.id === 'mid:0');
     startBoardShapeDrag(app, shape, midpoint, midpoint.id);
     const cursorAtNode = () => {
-        const node = getBoardShapeAnchors(shape).find(anchor => anchor.id === 1);
+        const node = getBoardShapeAnchors(app._shapeDrag.shape).find(anchor => anchor.id === 1);
         const screen = viewport.worldToScreen(node);
         return Number(viewport._crosshairYLine.getAttribute('x1')) === screen.x
             && Number(viewport._crosshairXLine.getAttribute('y1')) === screen.y;
@@ -234,7 +235,7 @@ for (const reversed of [false, true]) {
             if (Math.abs(midpoint.x - 10) < 1e-9) target.y += displacement;
             else target.x += displacement;
             handleBoardShapeDrag(app, target);
-            const anchors = getBoardShapeAnchors(shape).filter(anchor => !anchor.midpoint);
+            const anchors = getBoardShapeAnchors(app._shapeDrag.shape).filter(anchor => !anchor.midpoint);
             expect(`split side ${segment} reversed=${reversed} move=${displacement} fixes existing outer corners`,
                 originalAnchors.every((anchor, index) => {
                     const actual = anchors[index > segment ? index + 1 : index];
@@ -282,8 +283,8 @@ for (const mode of ['move', 'segment', 'insert']) {
         for (let position = -10; position <= 30; position += 0.5) {
             handleBoardShapeDrag(app, { x: position, y: height });
             stable &&= Math.hypot(crosshair.x - position, crosshair.y - height) < 1e-8
-                && Math.hypot(crosshair.x - shape.points[1].x, crosshair.y - shape.points[1].y) < 1e-8
-                && shape.points.every(point => Number.isFinite(point.x) && Number.isFinite(point.y)
+                && Math.hypot(crosshair.x - app._shapeDrag.shape.points[1].x, crosshair.y - app._shapeDrag.shape.points[1].y) < 1e-8
+                && app._shapeDrag.shape.points.every(point => Number.isFinite(point.x) && Number.isFinite(point.y)
                     && Math.abs(point.x) < 100 && Math.abs(point.y) < 100);
         }
         expect(`split past both endpoints remains bounded at height=${height}`, stable);
@@ -322,7 +323,7 @@ for (const kind of ['arc', 'line']) {
         handleBoardShapeDrag(app, { x: 5, y: 1 });
         expect('PCB bulge drag suppresses endpoint axis indicators', !app._axisGlowHalos?.length && !app._axisGlowTop?.length);
         handleBoardShapeDrag(app, { x: 5, y: 0.02 });
-        expect('PCB near-zero bulge drag reaches exact zero', kind === 'arc' ? shape.bulge.y === 0 : shape.segmentBulges[0] === 0);
+        expect('PCB near-zero bulge drag reaches exact zero', kind === 'arc' ? app._shapeDrag.shape.bulge.y === 0 : app._shapeDrag.shape.segmentBulges[0] === 0);
         expect('PCB straightening uses blue width-aware halo', app._axisGlowHalos?.[0]?.getAttribute('stroke') === '#0072B2'
             && Math.abs(Number(app._axisGlowHalos[0].getAttribute('stroke-width'))
                 - (width + 2 * Math.max(4 / app.viewport.scale, width * 0.25))) < 1e-9);
@@ -332,7 +333,7 @@ for (const kind of ['arc', 'line']) {
             && previous.every(node => node.removed));
         app.viewport.shiftHeld = true;
         handleBoardShapeDrag(app, { x: 5, y: 0.02 });
-        expect('PCB Shift disables straightening snap', kind === 'arc' ? shape.bulge.y !== 0 : shape.segmentBulges[0] !== 0);
+        expect('PCB Shift disables straightening snap', kind === 'arc' ? app._shapeDrag.shape.bulge.y !== 0 : app._shapeDrag.shape.segmentBulges[0] !== 0);
         endBoardShapeDrag(app, false);
         expect('PCB cancelling restores original curvature', kind === 'arc' ? shape.bulge.y === 2 : shape.segmentBulges[0] === 0.4);
     }
@@ -621,19 +622,20 @@ for (const height of [8, 10]) {
     startBoardShapeDrag(app, shape, { x: 0, y: 0 }, 0);
     const target = { x: 0.1, y: height - 9.8 };
     handleBoardShapeDrag(app, target);
-    const width = Math.abs(shape.points[2].x - shape.points[0].x);
-    const actualHeight = Math.abs(shape.points[2].y - shape.points[0].y);
+    const displayed = app._shapeDrag.shape;
+    const width = Math.abs(displayed.points[2].x - displayed.points[0].x);
+    const actualHeight = Math.abs(displayed.points[2].y - displayed.points[0].y);
     expect(`PCB corner snaps ${height === 10 ? 'an existing square' : 'a rectangle'} to exact square geometry`,
-        Math.abs(width - actualHeight) < 1e-9 && Math.abs(shape.points[0].x - 0.1) < 1e-9
+        Math.abs(width - actualHeight) < 1e-9 && Math.abs(displayed.points[0].x - 0.1) < 1e-9
         && app._axisGlowResolved.length === 4);
-    expect('square snapping preserves the fixed opposite corner', shape.points[2].x === 10 && shape.points[2].y === height);
+    expect('square snapping preserves the fixed opposite corner', displayed.points[2].x === 10 && displayed.points[2].y === height);
     handleBoardShapeDrag(app, { x: 0.1, y: height - 9.3 });
     expect('PCB corner releases square snapping beyond the alignment threshold', !app._axisGlowResolved.length
-        && Math.abs(shape.points[0].y - (height - 9.3)) < 1e-9);
+        && Math.abs(displayed.points[0].y - (height - 9.3)) < 1e-9);
     app.viewport.shiftHeld = true;
     handleBoardShapeDrag(app, target);
-    expect('Shift bypasses square snapping and removes the square indicator', shape.points[0].x === target.x
-        && shape.points[0].y === target.y && !app._axisGlowResolved.length);
+    expect('Shift bypasses square snapping and removes the square indicator', displayed.points[0].x === target.x
+        && displayed.points[0].y === target.y && !app._axisGlowResolved.length);
     endBoardShapeDrag(app, false);
 }
 
@@ -672,7 +674,7 @@ for (const index of [0, 2]) {
         history: { execute() {} } };
     startBoardShapeDrag(app, shape, shape.points[index], index);
     handleBoardShapeDrag(app, cursor);
-    expect(`PCB endpoint ${index} snaps to exact oblique geometry`, Math.abs(shape.points[index].y * 10 - shape.points[index].x * 3) < 1e-9);
+    expect(`PCB endpoint ${index} snaps to exact oblique geometry`, Math.abs(app._shapeDrag.shape.points[index].y * 10 - app._shapeDrag.shape.points[index].x * 3) < 1e-9);
     expect(`PCB endpoint ${index} shows both collinear segments`, app._axisGlowResolved.length === 2
         && app._axisGlowResolved.every(({ segment, dashKind }) => segment.collinear && dashKind === 'dotted'));
     handleBoardShapeDrag(app, { x: points[index].x, y: points[index].y + 1 });
@@ -759,10 +761,10 @@ for (const index of [0, 2]) {
         _getLayerGroup() { return null; }, _snapToGrid(point) { return point; }, _shapeElements: new Map() };
     startBoardShapeDrag(app, shape, { x: 24, y: 10.5 }, null, { allowSegment: true });
     handleBoardShapeDrag(app, { x: 24, y: 10.55 });
-    expect('PCB segment uses the same oblique continuation snap', onContinuation(shape.points[2]));
+    expect('PCB segment uses the same oblique continuation snap', onContinuation(app._shapeDrag.shape.points[2]));
     app.viewport.shiftHeld = true;
     handleBoardShapeDrag(app, { x: 24, y: 10.55 });
-    expect('Shift bypasses PCB segment continuation snapping', Math.abs(shape.points[2].y - 6.05) < 1e-9);
+    expect('Shift bypasses PCB segment continuation snapping', Math.abs(app._shapeDrag.shape.points[2].y - 6.05) < 1e-9);
     endBoardShapeDrag(app, false);
     expect('cancelling PCB segment movement restores its original points', JSON.stringify(shape.points) === JSON.stringify(points));
 }

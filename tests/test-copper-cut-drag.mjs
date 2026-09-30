@@ -62,7 +62,8 @@ try {
             const groups = new Map(['top-copper', 'bottom-copper', 'top-fill', 'bottom-fill', 'hole']
                 .map(id => [id, new Element()]));
             const app = {
-                pcbDocument, boardShapes: pcbDocument.boardShapes, placements: new Map(), texts: new Map(),
+                pcbDocument, get boardShapes() { return Object.getOwnPropertyDescriptor(PCBApp.prototype, 'boardShapes').get.call(this); },
+                placements: new Map(), texts: new Map(),
                 tracks: [], vias: [], pads: [], _shapeElements: new Map(), _layerGroups: groups,
                 history: new CommandHistory(), _ensureSvgDefs: () => defs, _getLayerGroup: id => groups.get(id),
                 viewport: { scale: 10, gridVisible: false, svg: new Element('svg'),

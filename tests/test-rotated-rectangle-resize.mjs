@@ -122,9 +122,11 @@ for (const rotation of [30, 90, 137.5]) {
                 for (const commit of [false, true]) {
                     assert.equal(startBoardShapeDrag(app, shape, points[index], index), true);
                     handleBoardShapeDrag(app, target);
-                    nearPoints(shape.points, expected);
-                    near(app.viewport.crosshair, shape.points[index]);
-                    near(shape.points[(index + 2) % 4], fixed);
+                    const displayed = app._shapeDrag.shape;
+                    nearPoints(displayed.points, expected);
+                    near(app.viewport.crosshair, displayed.points[index]);
+                    near(displayed.points[(index + 2) % 4], fixed);
+                    assert.deepEqual(shape.points, points, 'Authored rectangle remains unchanged during resizing');
                     endBoardShapeDrag(app, commit);
                     if (!commit) assert.deepEqual(shape.points, points);
                 }

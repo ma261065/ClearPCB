@@ -28,13 +28,18 @@ import {
     removeHalosByClass,
     trackIsSelectable,
 } from './track-select.js';
-import { renderTrack, renderVia } from './track-render.js';
-import { viaBounds, viaHitTest } from '../../shapes/via.js';
-import { isLayerLocked, isViaLocked, isCopperFillLocked, isCopperFillVisible } from './layers.js';
+import { renderTrack, renderVia, removeTrackElements, removeViaElements } from './track-render.js';
+import { Track } from '../../shapes/track.js';
+import { Via, viaBounds, viaHitTest } from '../../shapes/via.js';
+import { Pad } from '../../shapes/pad.js';
+import { CopperFill } from '../../shapes/copper-fill.js';
+import { renderCopperFill, removeCopperFillElements } from './copper-fill-render.js';
+import { isLayerLocked, isViaLocked, isCopperFillLocked, isCopperFillVisible, isLayerVisible, isViaVisible } from './layers.js';
 import {
     applyShapeGeometry,
     cloneShapeGeometry,
     renderBoardShape,
+    removeBoardShapeElement,
     translateShapeGeometry,
 } from './board-shapes.js';
 import { boardShapeHitTest, normalizeShapeCopperMode, shapeOutline } from './board-shape-geometry.js';
@@ -45,16 +50,16 @@ import {
     MovePlacementCommand,
     MoveViaCommand,
     ModifyTrackGraphCommand,
-    applyPlacementPose,
     previewPlacementPoses,
     finishPlacementPreview,
+    getPlacementPreviewTracks,
 } from './track-commands.js';
 import { MoveBoardShapeCommand, RemoveBoardShapeCommand } from './shape-commands.js';
 import { MoveTextCommand, RemoveTextCommand, previewTextPoses, finishTextPosePreview } from './text-commands.js';
 import { ModifyFillCommand, RemoveFillCommand } from './copper-fill-commands.js';
 import { ModifyPadCommand, RemovePadCommand } from './pad-commands.js';
-import { padBounds, padHitTest } from '../../shapes/pad-geometry.js';
-import { renderPad } from './pad.js';
+import { padBounds, padHitTest, padLayers } from '../../shapes/pad-geometry.js';
+import { renderPad, removePadElements } from './pad.js';
 import { pcbTextBounds, pcbTextHitTest } from './pcb-text.js';
 import { clearPcbSelectionAnchors, renderPcbSelectionAnchors } from './selection-anchors.js';
 import {
@@ -64,6 +69,7 @@ import {
     refreshPcbReferenceOverlay,
     setPcbSelection,
     togglePcbSelection,
+    syncPcbSelection,
 } from './selection-registry.js';
 
 /** Pixel distance the pointer must travel before a marquee starts. */
@@ -73,6 +79,86 @@ const TRACK_HALO_CLASS = 'pcb-box-track-sel';
 const VIA_HALO_CLASS = 'pcb-box-via-sel';
 const PAD_HALO_CLASS = 'pcb-box-pad-sel';
 const COMP_HALO_CLASS = 'pcb-box-comp-sel';
+
+export function getGroupPreview(app) {
+    return app._groupDrag?.preview;
+}
+
+function beginGroupPreview(app, g) {
+    if (g.preview || ![g.tracks, g.vias, g.pads, g.shapes, g.fills].some(entries => entries.length)) return;
+    const model = app.pcbDocument || app;
+    assertGroupTargets(app, g);
+    const tracks = getPlacementPreviewTracks(app) || model.tracks;
+    const tracksById = new Map(tracks.map(track => [track.id, track]));
+    const copies = new Map();
+    for (const entry of g.tracks) {
+        const existing = tracksById.get(entry.track.id);
+        const copy = existing !== entry.track ? existing : new Track({ id: entry.track.id });
+        if (copy !== existing) copy.applyState(entry.before);
+        copies.set(entry.track, copy);
+    }
+    for (const [entries, key, Type] of [
+        [g.vias, 'via', Via], [g.pads, 'pad', Pad],
+    ]) for (const entry of entries) {
+        const original = entry[key], copy = new Type({ id: original.id });
+        copy.applyState(original.captureState());
+        copies.set(original, copy);
+    }
+    for (const entry of g.shapes) {
+        const { artwork, ...shape } = entry.shape;
+        copies.set(entry.shape, { ...structuredClone(shape), ...(artwork ? { artwork } : {}) });
+    }
+    for (const entry of g.fills) copies.set(entry.fill, new CopperFill(entry.before));
+    const replace = collection => collection.map(item => copies.get(item) || item);
+    g.preview = {
+        copies, originals: new Map([...copies].map(([original, copy]) => [copy, original])),
+        tracks: replace(tracks), vias: replace(model.vias || []), pads: replace(model.pads || []),
+        boardShapes: replace(model.boardShapes || []),
+    };
+    for (const { track } of g.tracks) removeTrackElements(track);
+    for (const { via } of g.vias) removeViaElements(via);
+    for (const { pad } of g.pads) removePadElements(pad);
+}
+
+function groupIsEditable(app, g) {
+    return app._active !== false
+        && g.comps.every(entry => !app.placements.get(entry.id)?.locked)
+        && g.tracks.every(entry => trackIsSelectable(entry.track))
+        && g.vias.every(entry => !entry.via.locked && entry.via.visible !== false && !isViaLocked() && isViaVisible())
+        && g.pads.every(entry => !entry.pad.locked && entry.pad.visible !== false
+            && padLayers(entry.pad).every(layer => !isLayerLocked(layer)) && padLayers(entry.pad).some(isLayerVisible))
+        && [...g.shapes.map(entry => entry.shape), ...g.texts.map(entry => entry.text)]
+            .every(item => !item.locked && item.visible !== false && !isLayerLocked(item.layer) && isLayerVisible(item.layer))
+        && g.fills.every(({ fill }) => !fill.locked && fill.visible !== false && !isLayerLocked(fill.layer)
+            && !isCopperFillLocked(fill.layer) && isCopperFillVisible(fill.layer));
+}
+
+function assertGroupTargets(app, g) {
+    const model = app.pcbDocument || app;
+    for (const component of g.comps) {
+        if (!app.placements.has(component.id) || !app.project.getPcbFootprint(component.id)) {
+            throw new Error(`PCB footprint is no longer available: ${component.id}`);
+        }
+    }
+    for (const [entries, key, collection] of [
+        [g.tracks, 'track', model.tracks], [g.vias, 'via', model.vias], [g.pads, 'pad', model.pads],
+        [g.shapes, 'shape', model.boardShapes], [g.fills, 'fill', model.boardShapes],
+    ]) {
+        if (!entries.length) continue;
+        const present = new Set(collection);
+        for (const entry of entries) {
+            if (!present.has(entry[key])) throw new Error(`PCB ${key} is no longer available: ${entry[key].id}`);
+        }
+    }
+    for (const entry of g.texts) {
+        if (model.texts.get(entry.text.id) !== entry.text) throw new Error(`PCB text is no longer available: ${entry.text.id}`);
+    }
+    for (const entry of g.tracks) {
+        if ([...entry.nodes.keys()].some(id => !entry.track.nodes.has(id))) {
+            throw new Error(`PCB track node is no longer available: ${entry.track.id}`);
+        }
+    }
+}
 
 /* ───────────────────────────── state ───────────────────────────── */
 
@@ -407,6 +493,11 @@ function _pointSegDist(p, a, b) {
 
 /** Snapshot start positions of every selected object for a group drag. */
 export function beginGroupDrag(app, worldPos) {
+    if (app._groupDrag) cancelGroupDrag(app);
+    app._textPropertyBinding?.commit();
+    app._padPropertyBinding?.commit();
+    app._viaPropertyBinding?.commit();
+    app._trackPropertyBinding?.commit();
     const comps = [];
     for (const compId of getPcbSelection(app, 'component')) {
         const pl = app.placements.get(compId);
@@ -447,12 +538,15 @@ export function beginGroupDrag(app, worldPos) {
         startWorld: { x: worldPos.x, y: worldPos.y },
         lastDx: 0, lastDy: 0,
         comps, vias, pads, tracks, shapes, texts, fills,
-        posePreview: comps.length + texts.length > 0 && [vias, pads, tracks, shapes, fills].every(items => !items.length),
+        directTrackIds: new Set(tracks.map(entry => entry.track.id)),
+        posePreview: true,
         ratsnestNets,
         padCrosshairStart: pads.length ? { x: pads[0].before.x, y: pads[0].before.y } : null,
         previousDeferDragOverlays: !!app._deferDragOverlays,
+        previousSuspendBoardViewRefresh: !!app._suspendBoardViewRefresh,
     };
     app._deferDragOverlays = true;
+    app._suspendBoardViewRefresh = true;
     if (app._groupDrag.padCrosshairStart) {
         app.viewport?.setCrosshair(app._groupDrag.padCrosshairStart);
     }
@@ -474,8 +568,22 @@ export function scheduleGroupDrag(app, worldPos) {
 }
 
 export function updateGroupDrag(app, worldPos, { snap = true } = {}) {
+    try {
+        updateGroupPreview(app, worldPos, snap);
+    } catch (error) {
+        cancelGroupDrag(app);
+        throw error;
+    }
+}
+
+function updateGroupPreview(app, worldPos, snap) {
     const g = app._groupDrag;
     if (!g) return;
+    if (!groupIsEditable(app, g)) { cancelGroupDrag(app); return; }
+    if (!Number.isFinite(worldPos?.x) || !Number.isFinite(worldPos?.y)) {
+        cancelGroupDrag(app);
+        throw new Error('Group drag requires a finite position.');
+    }
     let dx = worldPos.x - g.startWorld.x;
     let dy = worldPos.y - g.startWorld.y;
     // Magnetically snap the shared delta (not each object) so relative layout
@@ -495,48 +603,47 @@ export function updateGroupDrag(app, worldPos, { snap = true } = {}) {
         });
     }
 
-    if (g.posePreview) {
-        previewPlacementPoses(app, new Map(g.comps.map(c => [c.id, { x: c.x + dx, y: c.y + dy }])));
-        previewTextPoses(app, new Map(g.texts.map(entry => [entry.text.id, { x: entry.x + dx, y: entry.y + dy }])));
-    } else {
-        for (const c of g.comps) {
-            const pl = app.placements.get(c.id);
-            if (!pl) continue;
-            pl.x = c.x + dx; pl.y = c.y + dy;
-            applyPlacementPose(app, c.id);
-        }
-    }
+    previewPlacementPoses(app, new Map(g.comps.map(c => [c.id, { x: c.x + dx, y: c.y + dy }])), g.directTrackIds);
+    previewTextPoses(app, new Map(g.texts.map(entry => [entry.text.id, { x: entry.x + dx, y: entry.y + dy }])));
+    beginGroupPreview(app, g);
+    const display = original => g.preview?.copies.get(original) || original;
     for (const vEntry of g.vias) {
-        vEntry.via.x = vEntry.x + dx;
-        vEntry.via.y = vEntry.y + dy;
-        renderVia(vEntry.via, (id) => app._getLayerGroup(id));
+        const via = display(vEntry.via);
+        via.x = vEntry.x + dx;
+        via.y = vEntry.y + dy;
+        renderVia(via, (id) => app._getLayerGroup(id));
     }
     for (const entry of g.pads || []) {
-        entry.pad.x = entry.before.x + dx;
-        entry.pad.y = entry.before.y + dy;
-        renderPad(entry.pad, id => app._getLayerGroup(id));
+        const pad = display(entry.pad);
+        pad.x = entry.before.x + dx;
+        pad.y = entry.before.y + dy;
+        renderPad(pad, id => app._getLayerGroup(id));
     }
     for (const tEntry of g.tracks) {
+        const track = display(tEntry.track);
         for (const [nid, start] of tEntry.nodes) {
-            const n = tEntry.track.nodes.get(nid);
+            const n = track.nodes.get(nid);
             if (n) { n.x = start.x + dx; n.y = start.y + dy; }
         }
-        tEntry.track.invalidate();
-        renderTrack(tEntry.track, (id) => app._getLayerGroup(id), _trackOpts(app, tEntry.track));
+        track.invalidate();
+        renderTrack(track, (id) => app._getLayerGroup(id), _trackOpts(app, track));
     }
     for (const entry of (g.shapes || [])) {
-        applyShapeGeometry(entry.shape, translateShapeGeometry(entry.before, dx, dy));
-        if (entry.shape.layer === 'board-outline') app.pcbDocument.syncBoardOutlineDimensions();
-        renderBoardShape(app, entry.shape, { liveDrag: true });
-    }
-    for (const entry of (g.posePreview ? [] : g.texts || [])) {
-        entry.text.x = entry.x + dx;
-        entry.text.y = entry.y + dy;
-        app._refreshText?.(entry.text.id);
+        const shape = display(entry.shape);
+        applyShapeGeometry(shape, translateShapeGeometry(entry.before, dx, dy));
+        renderBoardShape(app, shape, { liveDrag: true });
     }
     for (const entry of (g.fills || [])) {
-        entry.fill.applyState(entry.before);
-        entry.fill.move(dx, dy);
+        const fill = display(entry.fill);
+        if (fill.kind === 'circle') {
+            fill.x = entry.before.x + dx;
+            fill.y = entry.before.y + dy;
+        }
+        fill.outline.forEach((point, index) => {
+            point.x = entry.before.outline[index].x + dx;
+            point.y = entry.before.outline[index].y + dy;
+        });
+        renderCopperFill(fill, id => app._getLayerGroup(id), { selected: true, outlineOnly: true });
     }
     if (g.ratsnestNets.size) app._updateRatsnest?.({ nets: g.ratsnestNets });
     refreshTrackSelectionHalo(app);
@@ -547,13 +654,32 @@ export function updateGroupDrag(app, worldPos, { snap = true } = {}) {
 export function endGroupDrag(app) {
     const g = app._groupDrag;
     if (!g) return;
-    if (g.frame) window.cancelAnimationFrame(g.frame);
-    g.frame = 0;
-    if (g.pendingWorld) updateGroupDrag(app, g.pendingWorld);
-    g.pendingWorld = null;
-    app._groupDrag = null;
-    app._deferDragOverlays = g.previousDeferDragOverlays;
-    if (g.padCrosshairStart) app.viewport?.hideCrosshair();
+    let committed = false;
+    try {
+        if (g.frame) window.cancelAnimationFrame(g.frame);
+        g.frame = 0;
+        if (g.pendingWorld) updateGroupDrag(app, g.pendingWorld);
+        g.pendingWorld = null;
+        if (app._groupDrag !== g || !groupIsEditable(app, g)) return;
+        const cmds = groupMoveCommands(app, g);
+        if (!cmds.length) return;
+        assertGroupTargets(app, g);
+        const command = cmds.length === 1 ? cmds[0] : new CompoundCommand(cmds);
+        app._groupDrag = null;
+        removeGroupPreviewArtwork(app, g);
+        finishPlacementPreview(app, () => finishTextPosePreview(app, () => {
+            syncPcbSelection(app);
+            app._deferDragOverlays = g.previousDeferDragOverlays;
+            app.history.execute(command);
+        }));
+        committed = true;
+    } finally {
+        finishGroupPreview(app, g, committed);
+    }
+}
+
+function groupMoveCommands(app, g) {
+    const display = original => g.preview?.copies.get(original) || original;
     const cmds = [];
     for (const c of g.comps) {
         const pl = app.placements.get(c.id);
@@ -562,128 +688,107 @@ export function endGroupDrag(app) {
         }
     }
     for (const v of g.vias) {
-        if (v.via.x !== v.x || v.via.y !== v.y) {
-            cmds.push(new MoveViaCommand(app, v.via, v.x, v.y, v.via.x, v.via.y));
+        const via = display(v.via);
+        if (via.x !== v.x || via.y !== v.y) {
+            cmds.push(new MoveViaCommand(app, v.via, v.x, v.y, via.x, via.y));
         }
     }
     for (const entry of g.pads || []) {
-        const after = entry.pad.captureState();
+        const after = display(entry.pad).captureState();
         if (after.x !== entry.before.x || after.y !== entry.before.y) {
             cmds.push(new ModifyPadCommand(app, entry.pad, entry.before, after));
         }
     }
     for (const t of g.tracks) {
-        const after = t.track.captureState();
+        const after = display(t.track).captureState();
         // Only record a move if something actually shifted.
         const moved = JSON.stringify(after) !== JSON.stringify(t.before);
         if (moved) cmds.push(new ModifyTrackGraphCommand(app, t.track, t.before, after));
     }
     for (const entry of (g.shapes || [])) {
-        const after = cloneShapeGeometry(entry.shape);
+        const after = cloneShapeGeometry(display(entry.shape));
         if (JSON.stringify(after) !== JSON.stringify(entry.before)) {
             cmds.push(new MoveBoardShapeCommand(app, entry.shape, entry.before, after));
         }
     }
     for (const entry of (g.texts || [])) {
-        const text = g.posePreview ? app.texts.get(entry.text.id) : entry.text;
+        const text = app.texts.get(entry.text.id);
         if (text && (text.x !== entry.x || text.y !== entry.y)) {
             cmds.push(new MoveTextCommand(app, text.id, entry.x, entry.y, text.x, text.y));
         }
     }
     for (const entry of (g.fills || [])) {
-        const after = entry.fill.captureState();
+        const after = display(entry.fill).captureState();
         if (JSON.stringify(after) !== JSON.stringify(entry.before)) {
             cmds.push(new ModifyFillCommand(app, entry.fill, entry.before, after));
         }
     }
-    if (cmds.length === 0) {
-        if (g.posePreview) {
-            finishPlacementPreview(app);
-            finishTextPosePreview(app);
-        }
-        if (!app._deferDragOverlays && (g.comps.length || g.vias.length || g.tracks.length)) {
-            app._refreshClearanceHalos?.();
-        }
-        app._updateRatsnest?.();
-        _applyHighlights(app);
-        return;
-    }
-    const command = cmds.length === 1 ? cmds[0] : new CompoundCommand(cmds);
-    if (g.posePreview) {
-        finishPlacementPreview(app, () => finishTextPosePreview(app, () => {
-            // Resolve every target before the compound command can author any member.
-            for (const component of g.comps) {
-                if (!app.project.getPcbFootprint(component.id)) {
-                    throw new Error(`PCB footprint is no longer available: ${component.id}`);
-                }
-            }
-            for (const entry of g.texts) {
-                if (!app.pcbDocument.texts.has(entry.text.id)) {
-                    throw new Error(`PCB text is no longer available: ${entry.text.id}`);
-                }
-            }
-            app.history.execute(command);
-        }));
-    } else app.history?.execute(command);
-    _applyHighlights(app);
+    return cmds;
 }
 
-/** Cancel a supported-entity group drag and restore its initial geometry. */
+/** Discard the projection and restore canonical artwork without authored rollback. */
 export function cancelGroupDrag(app) {
     const g = app._groupDrag;
-    app._groupDrag = null;
     if (!g) return;
+    finishGroupPreview(app, g, false);
+}
+
+function removeGroupPreviewArtwork(app, g) {
+    for (const entry of g.tracks) {
+        const copy = g.preview?.copies.get(entry.track);
+        if (copy) removeTrackElements(copy);
+    }
+    for (const [entries, key, remove] of [[g.vias, 'via', removeViaElements], [g.pads, 'pad', removePadElements]]) {
+        for (const entry of entries) {
+            const copy = g.preview?.copies.get(entry[key]);
+            if (copy) remove(copy);
+        }
+    }
+}
+
+function finishGroupPreview(app, g, committed) {
+    if (g.finished) return;
+    g.finished = true;
+    app._groupDrag = null;
     if (g.frame) window.cancelAnimationFrame(g.frame);
     g.frame = 0;
     g.pendingWorld = null;
-    app._deferDragOverlays = g.previousDeferDragOverlays;
-    if (g.padCrosshairStart) app.viewport?.hideCrosshair();
-    if (g.posePreview) {
+    try {
+        removeGroupPreviewArtwork(app, g);
         finishPlacementPreview(app);
         finishTextPosePreview(app);
+        if (g.preview && !committed) {
+            const model = app.pcbDocument || app;
+            for (const [entries, key, collection, render] of [
+                [g.tracks, 'track', model.tracks, track => renderTrack(track, id => app._getLayerGroup(id), _trackOpts(app, track))],
+                [g.vias, 'via', model.vias, via => renderVia(via, id => app._getLayerGroup(id))],
+                [g.pads, 'pad', model.pads, pad => renderPad(pad, id => app._getLayerGroup(id))],
+            ]) {
+                if (!entries.length) continue;
+                const present = new Set(collection);
+                for (const entry of entries) if (present.has(entry[key])) render(entry[key]);
+            }
+            const shapes = new Set(model.boardShapes);
+            for (const entry of g.shapes) {
+                if (shapes.has(entry.shape)) renderBoardShape(app, entry.shape);
+                else removeBoardShapeElement(app, entry.shape.id);
+            }
+            for (const entry of g.fills) {
+                if (shapes.has(entry.fill)) renderCopperFill(entry.fill, id => app._getLayerGroup(id), { selected: true });
+                else removeCopperFillElements(entry.fill, id => app._getLayerGroup(id));
+            }
+        }
+    } finally {
+        app._deferDragOverlays = g.previousDeferDragOverlays;
+        app._suspendBoardViewRefresh = g.previousSuspendBoardViewRefresh;
+        if (g.padCrosshairStart) app.viewport?.hideCrosshair();
+        if (g.preview) syncPcbSelection(app);
     }
-    for (const entry of (g.posePreview ? [] : g.comps || [])) {
-        const placement = app.placements.get(entry.id);
-        if (!placement) continue;
-        placement.x = entry.x;
-        placement.y = entry.y;
-        applyPlacementPose(app, entry.id);
-    }
-    for (const entry of g.vias || []) {
-        entry.via.x = entry.x;
-        entry.via.y = entry.y;
-        renderVia(entry.via, (id) => app._getLayerGroup(id));
-    }
-    for (const entry of g.pads || []) {
-        entry.pad.applyState(entry.before);
-        renderPad(entry.pad, id => app._getLayerGroup(id));
-    }
-    for (const entry of g.tracks || []) {
-        entry.track.applyState(entry.before);
-        renderTrack(entry.track, (id) => app._getLayerGroup(id), _trackOpts(app, entry.track));
-    }
-    for (const entry of (g.shapes || [])) {
-        applyShapeGeometry(entry.shape, entry.before);
-        if (entry.shape.layer === 'board-outline') app.pcbDocument.syncBoardOutlineDimensions();
-        renderBoardShape(app, entry.shape);
-    }
-    for (const entry of (g.posePreview ? [] : g.texts || [])) {
-        entry.text.x = entry.x;
-        entry.text.y = entry.y;
-        app._refreshText?.(entry.text.id);
-    }
-    for (const entry of (g.fills || [])) entry.fill.applyState(entry.before);
-    const movedShapeAffectsFill = g.shapes?.some((entry) => entry.shape?.layer === 'hole'
-        || entry.shape?.layer === 'top-copper' || entry.shape?.layer === 'bottom-copper');
-    const movedTextAffectsFill = g.texts?.some((entry) => entry.text?.layer === 'top-copper'
-        || entry.text?.layer === 'bottom-copper');
-    if (g.comps?.length || g.vias?.length || g.pads?.length || g.tracks?.length || g.fills?.length
-        || movedShapeAffectsFill || movedTextAffectsFill) app._refreshFills?.();
     if (!app._deferDragOverlays && (g.comps?.length || g.vias?.length || g.tracks?.length)) {
         app._refreshClearanceHalos?.();
     }
     app._updateRatsnest?.();
-    app._board3d?.refresh?.();
+    if (!app._suspendBoardViewRefresh) app._board3d?.refresh?.();
     _applyHighlights(app);
 }
 
@@ -700,6 +805,10 @@ function _trackOpts(app, track) {
  * schematic netlist). Returns true if anything was deleted.
  */
 export function deleteBoxSelection(app) {
+    if (app._groupDrag) {
+        cancelGroupDrag(app);
+        app._pcbSelectionInteraction = null;
+    }
     if (!hasBoxSelection(app)) return false;
     const cmds = [];
     for (const t of getPcbSelection(app, 'track')) cmds.push(new RemoveTrackCommand(app, t));

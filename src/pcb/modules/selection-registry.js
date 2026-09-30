@@ -10,6 +10,10 @@ import { SelectionManager } from '../../core/SelectionManager.js';
 const keyFor = (kind, object) => `${kind}:${kind === 'component' || kind === 'reftext' ? object : object.id}`;
 const adapterFactories = new Map();
 const hitQueries = new WeakMap();
+const groupGeometryMembers = new Set([
+    'object', 'getBounds', 'hitTest', 'getPosition', 'getAnchors', 'getEditPath',
+    'getLockPosition', 'invalidate', 'render',
+]);
 
 function placementSelectionHit(app, point, method) {
     const query = hitQueries.get(app);
@@ -76,7 +80,25 @@ function manager(app) {
 
 function adapter(app, kind, object) {
     const factory = adapterFactories.get(kind);
-    if (factory) return factory(app, object, keyFor(kind, object));
+    if (factory) {
+        const original = app._groupDrag?.preview?.originals.get(object) || object;
+        const base = factory(app, original, keyFor(kind, original));
+        if (!['track', 'via', 'pad', 'shape', 'fill'].includes(kind)) return base;
+        let displayed, projected;
+        // Geometry follows the group copy; gesture methods keep canonical command targets.
+        return new Proxy(base, {
+            get(target, member, receiver) {
+                const copy = app._groupDrag?.preview?.copies.get(original);
+                if (!copy || !groupGeometryMembers.has(member)) return Reflect.get(target, member, receiver);
+                if (displayed !== copy) {
+                    displayed = copy;
+                    projected = factory(app, copy, base.id);
+                }
+                const value = projected[member];
+                return typeof value === 'function' ? value.bind(projected) : value;
+            },
+        });
+    }
     return {
         id: keyFor(kind, object),
         kind,

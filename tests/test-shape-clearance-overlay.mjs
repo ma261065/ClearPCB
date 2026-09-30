@@ -121,9 +121,10 @@ const toggle = new Function('saveLayerPrefs',
     `return ({ ${source.slice(toggleStart, toggleEnd)} })._onOverlayVisibilityChanged;`)(() => {});
 const groups = new Map(['top-copper', 'bottom-copper', 'hole', 'vias', 'clearance-overlay'].map(id => [id, element()]));
 const pcbDocument = new PcbDocument();
+pcbDocument.boardShapes.push(circle, rectangle, hole, line, arc);
 const app = {
     pcbDocument, texts: pcbDocument.texts,
-    placements: new Map(), boardShapes: [circle, rectangle, hole, line, arc],
+    placements: new Map(), boardShapes: pcbDocument.boardShapes,
     _layerGroups: groups, _getLayerGroup(id) { return groups.get(id); },
     _getRoutingParams() { return { clearance, trackWidth: 0.2 }; }, showClearances,
     _refreshBoardShapeClearance: refreshShape, _shapeElements: new Map(),

@@ -205,7 +205,7 @@ for (const finish of ['commit', 'cancel', 'no-op']) {
     const { app, shared } = fixture(false);
     setPcbSelection(app, [{ kind: 'component', object: 'a' }, { kind: 'track', object: shared }]);
     beginGroupDrag(app, { x: 0, y: 0 });
-    assert.equal(app._groupDrag.posePreview, false, 'Groups with directly selected tracks retain their existing path');
+    assert.equal(app._groupDrag.posePreview, true, 'Groups with directly selected tracks also isolate preview ownership');
     cancelGroupDrag(app);
 }
 console.log('PASS component-only group preview isolation, shared-track reuse, pending movement, cancellation, failure preflight and history');

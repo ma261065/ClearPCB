@@ -2,7 +2,10 @@ import assert from 'node:assert/strict';
 import { Viewport } from '../src/core/Viewport.js';
 import { snapToViewportGrid } from '../src/core/grid-snap.js';
 import { updateBoardOutlineResize } from '../src/pcb/modules/board-outline-resize.js';
-import { updateGroupDrag } from '../src/pcb/modules/box-select.js';
+import { beginGroupDrag, updateGroupDrag, cancelGroupDrag } from '../src/pcb/modules/box-select.js';
+import { setPcbSelection } from '../src/pcb/modules/selection-registry.js';
+import { finishPlacementPreview } from '../src/pcb/modules/track-commands.js';
+import { PcbDocument } from '../src/core/PcbDocument.js';
 import { finishTextPosePreview } from '../src/pcb/modules/text-commands.js';
 
 globalThis.window = { addEventListener() {} };
@@ -11,9 +14,11 @@ const { default: PCBApp } = await import('../src/ui/PCBApp.js');
 
 function fixture(viewport) {
     const text = { id: 'text', x: 0, y: 0, size: 1, strokeWidth: 0.1 };
+    const pcbDocument = new PcbDocument();
+    pcbDocument.texts.set(text.id, text);
     const placement = { x: 0, y: 0, pads: new Map(), refDx: 0, refDy: 0 };
     const app = {
-        viewport, pcbDocument: { texts: new Map([[text.id, text]]) }, placements: new Map([['part', placement]]),
+        viewport, pcbDocument, placements: new Map([['part', placement]]),
         tracks: [], _getLayerGroup: () => null,
         _refreshText() {}, _updateRatsnest() {}, _drawRefOverlay() {}, _drawBoardOutline() {},
         _screenToWorld: event => ({ x: event.clientX, y: event.clientY }),
@@ -22,8 +27,6 @@ function fixture(viewport) {
         _refDrag: { compId: 'part', startWorld: { x: 0, y: 0 }, startDx: 0, startDy: 0 },
         _pasteDrop: { anchorWorld: { x: 0, y: 0 }, tracks: [], vias: [], pads: [], shapes: [],
             fills: [], texts: [{ text, x: 0, y: 0 }] },
-        _groupDrag: { startWorld: { x: 0, y: 0 }, lastDx: 0, lastDy: 0,
-            comps: [], tracks: [], vias: [], texts: [{ text, x: 0, y: 0 }], ratsnestNets: new Set() },
         _boardOutlineResize: { handle: 'both', start: { x: 0, y: 0 },
             before: { width: 100, height: 80 } },
         _boardWidth: 100, _boardHeight: 80,
@@ -60,6 +63,7 @@ function check(point, expected, options = {}) {
     assert.deepEqual({ x: placement.x, y: placement.y }, expected, 'Component adapter drag');
     app._handleDrag({ clientX: point.x, clientY: point.y, shiftKey: viewport.shiftHeld });
     assert.deepEqual({ x: placement.x, y: placement.y }, expected, 'Legacy component pointer drag');
+    finishPlacementPreview(app);
     placement.x = placement.y = 0;
     app._updateRefTextDrag(point);
     assert.deepEqual({ x: placement.refDx, y: placement.refDy }, expected, 'Reference adapter drag');
@@ -68,8 +72,13 @@ function check(point, expected, options = {}) {
     app._updatePasteDrop(point);
     assert.deepEqual({ x: text.x, y: text.y }, expected, 'Floating pasted text/bundle');
     text.x = text.y = 0;
+    setPcbSelection(app, [{ kind: 'text', object: text }]);
+    beginGroupDrag(app, { x: 0, y: 0 });
     updateGroupDrag(app, point);
-    assert.deepEqual({ x: text.x, y: text.y }, expected, 'Group drag preserves shared-delta snapping');
+    const groupText = app.texts.get(text.id);
+    assert.deepEqual({ x: groupText.x, y: groupText.y }, expected, 'Group drag preserves shared-delta snapping');
+    assert.deepEqual({ x: text.x, y: text.y }, { x: 0, y: 0 }, 'Group snap preview leaves canonical text unchanged');
+    cancelGroupDrag(app);
     updateBoardOutlineResize(app, point);
     assert.equal(app._boardWidth, 100 + expected.x, 'Outline resize X');
     assert.equal(app._boardHeight, 80 - expected.y, 'Outline resize Y');

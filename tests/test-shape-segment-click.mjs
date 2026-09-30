@@ -285,7 +285,7 @@ for (const kind of ['line', 'track']) {
             _getLayerGroup() { return null; }, _snapToGrid(point) { return point; },
             viewport: { scale: 100, setCrosshair() {}, hideCrosshair() {} },
             history: { execute(command) { commands.push(command); command.execute(); } } };
-        const positions = () => kind === 'track' ? [...(app._vertexDrag?.track || object).nodes.values()] : object.points;
+        const positions = () => kind === 'track' ? [...(app._vertexDrag?.track || object).nodes.values()] : (app._shapeDrag?.shape || object).points;
         if (kind === 'track') selectTrackOrVia(app, { type: 'track', track: object });
         else selectBoardShape(app, object);
         assert.ok(beginSelectionInteraction(app, { x: 5, y: 0 }, false));
@@ -370,7 +370,7 @@ for (const layer of ['top-silk', 'board-outline']) {
                 app.viewport.shiftHeld = shiftHeld;
                 const cursor = orient({ x: fixed + 0.03, y: free });
                 adapter.updateAnchorDrag(cursor);
-                assert.deepEqual(shape.points[2], shiftHeld ? cursor : orient({ x: fixed, y: snappedFree }),
+                assert.deepEqual(adapter.object.points[2], shiftHeld ? cursor : orient({ x: fixed, y: snappedFree }),
                     `${layer}: ${horizontal ? 'horizontal' : 'vertical'} alignment preserves the free-axis grid magnet`);
                 assert.equal(shape.segmentBulges[1], 0.25, 'Endpoint snapping keeps the arc curvature');
             }
@@ -685,7 +685,7 @@ for (const kind of ['line', 'polygon']) {
         const originalHighlight = segmentHighlights()[0];
         const originalPath = originalHighlight.getAttribute('d');
         updateSelectionInteraction(app, { x: 5, y: -2.5 });
-        assert.equal(shape.segmentBulges[0], -0.5, 'Dragging the rendered handle changes the segment curvature');
+        assert.equal(app._shapeDrag.shape.segmentBulges[0], -0.5, 'Dragging the rendered handle changes the displayed segment curvature');
         assert.equal(segmentHighlights().length, 1, 'Dragging retains exactly one segment highlight');
         assert.ok(!overlay.children.includes(originalHighlight), 'The original curve highlight is removed during drag');
         const draggedPath = segmentHighlights()[0].getAttribute('d');

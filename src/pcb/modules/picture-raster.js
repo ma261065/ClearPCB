@@ -353,6 +353,7 @@ export function resizePicturePoints(points, index, target) {
     const diagonalSquared = dx * dx + dy * dy;
     if (diagonalSquared < 1e-12) return points.map(point => ({ ...point }));
     const factor = Math.max(0.01, ((target.x - opposite.x) * dx + (target.y - opposite.y) * dy) / diagonalSquared);
+    if (factor === 1) return points.map(point => ({ ...point }));
     return points.map(point => ({ x: opposite.x + (point.x - opposite.x) * factor,
         y: opposite.y + (point.y - opposite.y) * factor }));
 }

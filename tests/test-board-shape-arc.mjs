@@ -554,7 +554,7 @@ for (const reversed of [false, true]) {
         };
         startBoardShapeDrag(dragApp, shape, anchor, corner);
         handleBoardShapeDrag(dragApp, expected);
-        const actual = getBoardShapeAnchors(shape).find(handle => handle.id === corner);
+        const actual = getBoardShapeAnchors(dragApp._shapeDrag.shape).find(handle => handle.id === corner);
         check(`existing ${kind} reversed=${reversed} corner=${corner} snaps its centreline handle to grid`,
             approx(actual.x, expected.x) && approx(actual.y, expected.y));
     }
@@ -753,10 +753,8 @@ for (const layer of ['hole', 'top-copper', 'bottom-copper']) {
         diameterApp._snapToGrid = (point) => point;
         diameterApp.viewport.setCrosshair = () => {};
         diameterApp.viewport.hideCrosshair = () => {};
-        diameterApp._shapeDrag = {
-            id: editableCircle.id, mode: 'vertex', handle: 'radius',
-            before: beforeDrag.geom, beforeState: beforeDrag,
-        };
+        startBoardShapeDrag(diameterApp, editableCircle,
+            { x: editableCircle.x + editableCircle.radius, y: editableCircle.y }, 'radius');
         let dragPanelRebuilds = 0;
         diameterApp._pcbPropsItems = () => { dragPanelRebuilds++; return propertyItems; };
         handleBoardShapeDrag(diameterApp, { x: editableCircle.x + 5, y: editableCircle.y });
@@ -766,10 +764,8 @@ for (const layer of ['hole', 'top-copper', 'bottom-copper']) {
         check(`${layer} filled=${filled} cancelled diameter drag restores spinner`,
             approx(diameterInput.valueAsNumber, circleFilledRadius(editableCircle) * 2)
             && approx(editableCircle.radius, beforeDrag.geom.radius));
-        diameterApp._shapeDrag = {
-            id: editableCircle.id, mode: 'vertex', handle: 'radius',
-            before: beforeDrag.geom, beforeState: beforeDrag,
-        };
+        startBoardShapeDrag(diameterApp, editableCircle,
+            { x: editableCircle.x + editableCircle.radius, y: editableCircle.y }, 'radius');
         handleBoardShapeDrag(diameterApp, { x: editableCircle.x + 3, y: editableCircle.y });
         endBoardShapeDrag(diameterApp, true);
         check(`${layer} filled=${filled} committed diameter drag keeps spinner synchronized`,
