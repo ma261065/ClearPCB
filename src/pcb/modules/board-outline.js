@@ -28,8 +28,5 @@ export function boardBoundary(app) {
 }
 
 export function syncBoardOutlineDimensions(app) {
-    const bounds = boardBoundary(app);
-    app._boardWidth = bounds.w;
-    app._boardHeight = bounds.h;
-    app._boardRadius = getBoardOutline(app)?.cornerRadius || 0;
+    app.pcbDocument.syncBoardOutlineDimensions();
 }

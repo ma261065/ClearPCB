@@ -263,7 +263,10 @@ console.log('PASS board resize handles, snapping, minimum dimensions, undo/redo,
     PCBApp.prototype._drawBoardOutline.call(view);
     const bounds = boardBoundary(pcbDocument);
     assert.deepEqual(fitCalls, [[bounds.x, bounds.y, bounds.x + bounds.w, bounds.y + bounds.h, 5]]);
+    const saved = pcbDocument.serialize();
+    Object.freeze(pcbDocument.board);
     PCBApp.prototype._drawBoardOutline.call(view);
+    assert.deepEqual(pcbDocument.serialize(), saved, 'Dedicated redraw does not write model geometry or dimensions');
     assert.equal(pcbDocument.boardShapes.length, 1);
     assert.equal(outlineLayer.children.length, 1);
     assert.equal(fitCalls.length, 1, 'Explicit initialization and subsequent redraw remain idempotent');

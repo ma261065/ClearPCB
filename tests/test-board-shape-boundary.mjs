@@ -516,6 +516,118 @@ for (const commit of [false, true]) {
 }
 console.log('PASS centreline editing, symmetric hit tests, unchanged circles, migration and undo');
 
+{
+    const { boardBoundary, rectangleBoardOutline } = await import('../src/pcb/modules/board-outline.js');
+    const { renderBoardShape, setBoardShapeHover, selectBoardShape } = await import('../src/pcb/modules/board-shapes.js');
+    const { updateGroupDrag, cancelGroupDrag } = await import('../src/pcb/modules/box-select.js');
+    const { CommandHistory } = await import('../src/core/CommandHistory.js');
+    const model = new PcbDocument();
+    const outline = model.setBoardOutline(rectangleBoardOutline(20, 10));
+    const assertDimensions = () => {
+        const bounds = boardBoundary(model);
+        assert.deepEqual(model.board, { width: bounds.w, height: bounds.h, radius: outline.cornerRadius || 0 },
+            'Edit paths synchronize canonical dimensions before rendering or derived refresh');
+    };
+    const app = { pcbDocument: model, boardShapes: model.boardShapes, tracks: [], vias: [], pads: [],
+        texts: new Map(), placements: new Map(), _shapeElements: new Map(),
+        _getLayerGroup() { assertDimensions(); return null; }, _snapToGrid(point) { return point; },
+        viewport: { scale: 100, snapToGrid: false, setCrosshair() {}, hideCrosshair() {} },
+        history: new CommandHistory() };
+    for (const key of ['_boardWidth', '_boardHeight', '_boardRadius']) {
+        Object.defineProperty(app, key, { set() { assert.fail('Preview must use model synchronization, not editor aliases'); } });
+    }
+    const before = model.serialize();
+    Object.freeze(model.board);
+    renderBoardShape(app, outline);
+    setBoardShapeHover(app, outline);
+    selectBoardShape(app, outline);
+    createBoardShapeSelectionAdapter(app, outline, outline.id).render();
+    assert.deepEqual(model.serialize(), before, 'Render, hover and selection leave authored state untouched');
+    model.board = { ...model.board };
+    const original = cloneShapeGeometry(outline);
+    for (const [anchor, start, end] of [
+        [0, { x: 0, y: -10 }, { x: -5.123456, y: -14.234567 }],
+        ['mid:0', { x: 10, y: -10 }, { x: 10, y: -14 }],
+        ['bulge:0', { x: 10, y: -10 }, { x: 10, y: -13 }],
+    ]) {
+        if (anchor === 'bulge:0') assert.equal(setBoardShapeSegmentType(app, outline, 0, 'arc', { floating: true }), true);
+        else assert.equal(startBoardShapeDrag(app, outline, start, anchor), true);
+        handleBoardShapeDrag(app, end);
+        assertDimensions();
+        assert.notEqual(model.board.height, 10, `Anchor ${anchor} changes the outline height`);
+        endBoardShapeDrag(app, false);
+        app._pcbSelectionInteraction = null;
+        assertDimensions();
+        assert.deepEqual(cloneShapeGeometry(outline), original);
+    }
+    assert.equal(startBoardShapeDrag(app, outline, { x: 10, y: -10 }, null, { allowSegment: true }), true);
+    assert.equal(app._shapeDrag.mode, 'segment');
+    handleBoardShapeDrag(app, { x: 10, y: -15 });
+    assert.equal(model.board.height, 15);
+    endBoardShapeDrag(app, true);
+    assertDimensions();
+    app.history.undo();
+    assert.equal(model.board.height, 10);
+    app.history.redo();
+    assert.equal(model.board.height, 15);
+    app.history.undo();
+    const adapter = createBoardShapeSelectionAdapter(app, outline, outline.id);
+    adapter.moveAnchor(0, -3, -12);
+    assertDimensions();
+    assert.equal(model.board.width, 23);
+    model.setBoardOutline(rectangleBoardOutline(20, 10));
+    // Group move and cancel can no longer rely on renderBoardShape to repair dimensions.
+    let synchronizations = 0;
+    const synchronize = model.syncBoardOutlineDimensions.bind(model);
+    model.syncBoardOutlineDimensions = () => { synchronizations++; synchronize(); };
+    app._groupDrag = { startWorld: { x: 0, y: 0 }, comps: [], vias: [], tracks: [],
+        shapes: [{ shape: outline, before: cloneShapeGeometry(outline) }], ratsnestNets: new Set(),
+        previousDeferDragOverlays: false };
+    updateGroupDrag(app, { x: 3, y: 5 });
+    assertDimensions();
+    assert.equal(synchronizations, 1);
+    cancelGroupDrag(app);
+    assertDimensions();
+    assert.equal(synchronizations, 2);
+    assert.deepEqual(cloneShapeGeometry(outline), original);
+    model.setBoardOutline({ id: 'board-outline', kind: 'circle', layer: 'board-outline', x: 0, y: 0, radius: 5 });
+    const listeners = new Map();
+    const diameter = { value: '',
+        get valueAsNumber() { return Number(this.value); },
+        addEventListener(name, callback) {
+            if (!listeners.has(name)) listeners.set(name, []);
+            listeners.get(name).push(callback);
+        } };
+    const dispatch = (name, event) => [...listeners.get(name)].forEach(callback => callback(event));
+    app._pcbPropsItems = () => ({ set innerHTML(value) {
+        listeners.clear();
+        diameter.value = String(outline.radius * 2);
+    } });
+    document.getElementById = id => id === 'pcbPropShapeDiameter' ? diameter : null;
+    showBoardShapeProperties(app, outline);
+    diameter.value = '16.246912';
+    dispatch('input');
+    assert.equal(model.board.width, 16.246912);
+    assertDimensions();
+    dispatch('keydown', { key: 'Escape', preventDefault() {}, stopPropagation() {} });
+    assert.equal(model.board.width, 10, 'Property-preview cancellation restores dimension metadata');
+    diameter.value = '16.246912';
+    dispatch('input');
+    dispatch('change');
+    assert.equal(model.board.width, 16.25, 'Commit retains existing property-field rounding');
+    app.history.undo();
+    assert.equal(model.board.width, 10);
+    app.history.redo();
+    assert.equal(model.board.width, 16.25);
+    document.getElementById = () => null;
+    const loaded = { ...shapeModel(), _shapeIdCounter: 1 };
+    loadBoardShapes(loaded, serializeBoardShapes(model), { render: false });
+    assert.deepEqual(loaded.pcbDocument.board, { width: 16.25, height: 16.25, radius: 0 },
+        'Non-rendering shape load synchronizes model dimensions with saved geometry');
+    cancelPictureCopperRefresh(app);
+}
+console.log('PASS read-only outline rendering and explicit preview/drag/load dimension synchronization');
+
 const { pointInPolygon } = await import('../src/core/geometry.js');
 const crossedPoints = [{ x: 0, y: 0 }, { x: 0, y: 16 }, { x: 20, y: 16 },
     { x: 20, y: 0 }, { x: 10, y: 21 }];

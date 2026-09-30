@@ -206,9 +206,14 @@ Move/modify validate existing outline edits before mutation and return `false`
 for rejected edits, leaving no partial geometry behind. Accepted outline edits
 synchronize model-owned dimension metadata without rendering, including undo.
 The editor adapters preserve selection cleanup, rendering, property controls,
-3D refresh and immediate versus deferred copper updates. Live preview rendering
-still synchronizes outline dimensions; that remaining presentation-side mutation
-is not removed by the command separation.
+3D refresh and immediate versus deferred copper updates. Live geometry edits and
+their rollback paths explicitly synchronize outline dimensions through
+`PcbDocument` before rendering. This includes property previews, anchor/vertex/
+segment/whole-shape drags, floating arc conversion, group moves and shape loading.
+Generic shape rendering, hover, selection and dedicated outline redraw no longer
+write dimension metadata. Preview geometry still lives in the editable model
+during a gesture; this change separates mutation from rendering rather than
+introducing a detached preview model.
 
 Board-outline setup lives in `core/pcb-outline-commands.js`.
 `PcbDocument.setBoardOutline()` validates and detaches incoming geometry before
@@ -225,8 +230,8 @@ Normalization leaves caller data untouched and works before editor activation.
 New/clear still leaves the outline absent and retains the dimensions prompt;
 accepting defaults explicitly initializes the model before drawing.
 The editor command retains draw/input/pour refresh ordering and first-draw
-viewport fitting. Drawing alone no longer creates geometry. Render-triggered
-dimension synchronization during live previews remains a separate boundary.
+viewport fitting. Drawing alone neither creates geometry nor synchronizes model
+dimensions.
 
 `serialize(settings)` assembles the complete authored PCB section: stackup,
 dimensions, design settings, optional panelization, entities and saved placements.
@@ -432,7 +437,7 @@ Missing/non-physical components return null; physical components with no
 footprint data retain the existing empty geometry result. The existing pure
 parser remains in `pcb/modules/footprint.js` alongside its rendering exports.
 All four physical placement commands use this source. Entity/render and derived
-cache coupling, render-triggered outline dimension/preview writes and the
+cache coupling, live-preview mutation ownership and the
 explicit viewport-preference boundary still need closure review; physical command
 separation does not imply that all model boundaries or application decomposition
 are complete.

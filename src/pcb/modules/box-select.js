@@ -519,6 +519,7 @@ export function updateGroupDrag(app, worldPos, { snap = true } = {}) {
     }
     for (const entry of (g.shapes || [])) {
         applyShapeGeometry(entry.shape, translateShapeGeometry(entry.before, dx, dy));
+        if (entry.shape.layer === 'board-outline') app.pcbDocument.syncBoardOutlineDimensions();
         renderBoardShape(app, entry.shape, { liveDrag: true });
     }
     for (const entry of (g.texts || [])) {
@@ -633,6 +634,7 @@ export function cancelGroupDrag(app) {
     }
     for (const entry of (g.shapes || [])) {
         applyShapeGeometry(entry.shape, entry.before);
+        if (entry.shape.layer === 'board-outline') app.pcbDocument.syncBoardOutlineDimensions();
         renderBoardShape(app, entry.shape);
     }
     for (const entry of (g.texts || [])) {

@@ -404,6 +404,7 @@ function shapeStyle(shape) {
 function redrawBoardShapePropertyPreview(app, targets, { liveDrag = false } = {}) {
     redrawPropertyPreview(targets, {
         prepare: target => {
+            if (target.layer === 'board-outline') syncBoardOutlineDimensions(app);
             if (target.kind !== 'image' || target.layer.endsWith('copper')) schedulePictureCopperRefresh(app, target);
         },
         render: changed => {
@@ -450,7 +451,6 @@ function bindPropertyPreviewCancel(input, preview, refreshPanel) {
 }
 
 export function renderBoardShape(app, shape, opts = {}) {
-    if (shape.layer === 'board-outline') syncBoardOutlineDimensions(app);
     removeBoardShapeElement(app, shape.id, { skipHatchUpdate: true, preserveInteraction: true });
     const selectedSegment = app._selectedBoardShapeSegment?.shapeId === shape.id
         && isPcbSelected(app, 'shape', shape)
@@ -685,6 +685,7 @@ export function moveBoardShapeAnchor(app, shape, anchorId, worldPos) {
     const before = cloneShapeGeometry(shape);
     const snap = app._snapToGrid(worldPos);
     applyBoardShapeVertexResize(shape, { before, handle: anchorId }, snap);
+    if (shape.layer === 'board-outline') syncBoardOutlineDimensions(app);
     schedulePictureCopperRefresh(app, shape);
     renderBoardShape(app, shape, { liveDrag: true });
     syncCircleDiameterProperty(app, shape);
@@ -1075,11 +1076,13 @@ export function setBoardShapeSegmentType(app, shape, segment, type, { floating =
     app._selectedBoardShapeNode = null;
     if (floating && type === 'arc') {
         applyShapeSnapshot(shape, after);
+        if (shape.layer === 'board-outline') syncBoardOutlineDimensions(app);
         const adapter = createBoardShapeSelectionAdapter(app, shape, shape.id);
         const anchorId = shape.kind === 'arc' ? 'bulge' : `bulge:${segment}`;
         const anchor = adapter.getAnchors().find(item => item.id === anchorId);
         if (!anchor || !beginPcbAnchorInteraction(app, adapter, anchor, anchor, true)) {
             applyShapeSnapshot(shape, before);
+            if (shape.layer === 'board-outline') syncBoardOutlineDimensions(app);
             renderBoardShape(app, shape);
             renderBoardShapeHandles(app, shape);
             renderBoardShapeSegmentSelection(app);
@@ -1126,6 +1129,7 @@ export function startBoardShapeDrag(app, shape, worldPos, anchorId = null, optio
             app._selectedBoardShapeSegment = { shapeId: shape.id, segment };
         }
     }
+    if (shape.layer === 'board-outline') syncBoardOutlineDimensions(app);
     const bulgeMatch = typeof handle === 'string' ? /^bulge:(\d+)$/.exec(handle) : null;
     if (bulgeMatch || shape.kind === 'arc' && handle === 'bulge') {
         app._selectedBoardShapeNode = null;
@@ -1203,6 +1207,7 @@ export function handleBoardShapeDrag(app, worldPos) {
         }
         const handle = shapeHandlePoints(s).find((point) => point.key === d.handle);
         app.viewport?.setCrosshair(handle || snap);
+        if (s.layer === 'board-outline') syncBoardOutlineDimensions(app);
         renderBoardShape(app, s, { liveDrag: true });
         renderBoardShapeHandles(app, s);
         renderBoardShapeSegmentSelection(app);
@@ -1222,6 +1227,7 @@ export function handleBoardShapeDrag(app, worldPos) {
         s.points[secondIndex] = { x: points[secondIndex].x + dx, y: points[secondIndex].y + dy };
         app.viewport?.setCrosshair({ x: d.startWorld.x + dx, y: d.startWorld.y + dy });
         normalizeBoardPolylineKind(s);
+        if (s.layer === 'board-outline') syncBoardOutlineDimensions(app);
         renderBoardShape(app, s, { liveDrag: true });
         renderBoardShapeHandles(app, s);
         renderBoardShapeSegmentSelection(app);
@@ -1238,6 +1244,7 @@ export function handleBoardShapeDrag(app, worldPos) {
     const delta = snapPathTranslation(app, d.before.points || [anchor], { x: dx, y: dy }, [anchor]);
     const snapped = { x: anchor.x + delta.x, y: anchor.y + delta.y };
     applyShapeGeometry(s, translateShapeGeometry(d.before, delta.x, delta.y));
+    if (s.layer === 'board-outline') syncBoardOutlineDimensions(app);
     app.viewport?.setCrosshair(snapped);
     renderBoardShape(app, s, { liveDrag: true });
     renderBoardShapeHandles(app, s);
@@ -1296,6 +1303,7 @@ export function endBoardShapeDrag(app, commit) {
     // Roll back first, then commit through history so undo is exact.
     if (d.mode === 'move') applyShapeGeometry(s, d.before);
     else applyShapeSnapshot(s, d.beforeState);
+    if (s.layer === 'board-outline') syncBoardOutlineDimensions(app);
     renderBoardShape(app, s);
     if (!moved || !commit) {
         if (d.splitBeforeState || !commit) showBoardShapeProperties(app, s);
@@ -2465,6 +2473,7 @@ export function loadBoardShapes(app, arr, { render = true, strict = false } = {}
     app._shapeIdCounter = stage.shapeIdCounter;
     for (const shape of stage.boardShapes) {
         app.boardShapes.push(shape);
+        if (shape.layer === 'board-outline') syncBoardOutlineDimensions(app);
         if (render && shape.type !== 'fill') renderBoardShape(app, shape);
     }
 }

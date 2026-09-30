@@ -6,6 +6,7 @@ import { collapseRoundedPolygon } from '../src/shapes/path-operations.js';
 import { validBoardOutline } from '../src/pcb/modules/board-outline.js';
 import { validateProject, defaultPcbStackup } from '../src/core/project-format.js';
 import { FileManager, readProjectFile } from '../src/core/FileManager.js';
+import { PcbDocument } from '../src/core/PcbDocument.js';
 
 globalThis.window = { addEventListener() {} };
 const { serializeBoardShapes, loadBoardShapes } = await import('../src/pcb/modules/board-shapes.js');
@@ -23,7 +24,8 @@ const boardShape = (overrides = {}) => ({
 });
 const save = shape => serializeBoardShapes({ boardShapes: [shape] })[0];
 const restore = record => {
-    const app = { boardShapes: [], _shapeIdCounter: 1 };
+    const pcbDocument = new PcbDocument();
+    const app = { pcbDocument, boardShapes: pcbDocument.boardShapes, _shapeIdCounter: 1 };
     loadBoardShapes(app, [record], { strict: true, render: false });
     return app.boardShapes[0];
 };
