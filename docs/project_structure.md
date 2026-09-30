@@ -513,6 +513,14 @@ An unavailable model footprint fails before pose or graph mutation.
 `CommandHistory` transfers an undo/redo entry only after that operation succeeds,
 so such failures retain the entry for retry; this is not general mutation rollback.
 
+Component drag completion distinguishes commit from cancellation in both the
+shared selection adapter and legacy pointer path. Escape restores the starting
+placement, world pads and bonded track nodes using the existing pose helper,
+then restores clearance/ratsnest presentation without recording history or
+writing saved placement overrides. Pending frame movement is discarded on
+cancel but flushed on commit. Ctrl+Z cancels the live preview before undoing
+the previous committed command; ordinary drops retain model-owned undo/redo.
+
 Side changes retain the established snapshot of all existing track bond records
 at each execute/redo. The command owns copies and restores them into the current
 connection maps on undo, then checks compatibility against the current footprint.

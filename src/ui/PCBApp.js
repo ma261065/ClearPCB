@@ -2591,6 +2591,7 @@ export default class PCBApp {
                 return true;
             }
             finishSelectionInteraction(this, false);
+            if (this._drag) this._endDrag(false);
             if (this._vertexDrag) { cancelVertexDrag(this); this.viewport.hideCrosshair(); }
             if (this._viaDrag) cancelViaDrag(this);
             if (this._shapeDrag) {
@@ -2632,6 +2633,11 @@ export default class PCBApp {
                 return true;
             }
             if (finishSelectionInteraction(this, false)) {
+                this._clearCursorCrosshair();
+                return true;
+            }
+            if (this._drag) {
+                this._endDrag(false);
                 this._clearCursorCrosshair();
                 return true;
             }
@@ -5168,9 +5174,9 @@ export default class PCBApp {
     }
 
     /**
-     * End a drag operation and rebuild ratsnest.
+     * Commit or cancel a component drag and restore derived overlays.
      */
-    _endDrag() {
+    _endDrag(commit = true) {
         if (!this._drag) return;
         // Flush any pointer move coalesced by _scheduleDragUpdate so the final
         // resting position reflects the very last mouse position, not the one
@@ -5179,14 +5185,17 @@ export default class PCBApp {
             cancelAnimationFrame(this._dragRaf);
             this._dragRaf = 0;
         }
-        if (this._pendingDragEvent) {
-            const ev = this._pendingDragEvent;
-            this._pendingDragEvent = null;
-            this._handleDrag(ev);
-        }
+        const pending = this._pendingDragEvent;
+        this._pendingDragEvent = null;
+        if (commit && pending) this._handleDrag(pending);
         const { compId, startPos } = this._drag;
         const pl = this.placements.get(compId);
         this._drag = null;
+        if (!commit && pl && (pl.x !== startPos.x || pl.y !== startPos.y)) {
+            pl.x = startPos.x;
+            pl.y = startPos.y;
+            applyPlacementPose(this, compId);
+        }
         // Restore overlays before the placement command refreshes clearance.
         this._deferDragOverlays = false;
         // Drop the GPU-layer promotion applied during the drag so the overlay
@@ -5196,16 +5205,8 @@ export default class PCBApp {
             if (ov) ov.style.willChange = '';
         }
         this.viewport.svg.style.cursor = getPcbSelection(this, 'component').length ? 'grab' : 'default';
-        // If the placement actually moved, push a MovePlacementCommand so the
-        // drag is undoable. _handleDrag has already applied the new position;
-        // construct the command with execute=no-op by passing identical
-        // to-coords on first execute (we instead apply manually by calling
-        // execute() which re-applies, idempotent).
-        if (pl && (pl.x !== startPos.x || pl.y !== startPos.y)) {
+        if (commit && pl && (pl.x !== startPos.x || pl.y !== startPos.y)) {
             const cmd = new MovePlacementCommand(this, compId, startPos.x, startPos.y, pl.x, pl.y);
-            // The drag already moved the component visually; execute() will
-            // re-apply the same position (idempotent), so the history stack
-            // is correct without double-rendering.
             this.history.execute(cmd);
         } else {
             this._refreshClearanceHalos();

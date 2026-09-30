@@ -54,7 +54,7 @@ export function createComponentSelectionAdapter(app, componentId, id) {
         },
         beginMove(worldPos) { return app._beginComponentDrag(componentId, worldPos); },
         updateMove(worldPos) { app._updateComponentDrag(worldPos); },
-        endMove(commit) { if (commit) app._endDrag(); },
+        endMove(commit) { app._endDrag(commit); },
         invalidate() { app._updatePcbCulling?.(); },
         render() { this.invalidate(); },
     };
