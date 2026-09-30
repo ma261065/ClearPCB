@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { PcbDocument } from '../src/core/PcbDocument.js';
 import { CommandHistory } from '../src/core/CommandHistory.js';
 import { createPcbText, TEXT_LAYERS } from '../src/core/pcb-text.js';
-import { getTextPosePreviewTexts } from '../src/pcb/modules/text-commands.js';
+import { AddTextCommand, getTextPosePreviewTexts } from '../src/pcb/modules/text-commands.js';
 import { cancelPictureCopperRefresh } from '../src/pcb/modules/picture-refresh.js';
 import { measureText } from '../src/pcb/modules/stroke-font.js';
 import { loadPcb } from '../src/pcb/modules/project-state.js';
@@ -41,14 +41,14 @@ globalThis.document = {
 globalThis.window = { addEventListener() {} };
 const { default: PCBApp } = await import('../src/ui/PCBApp.js');
 
-function fixture(layer, extraTexts = 0) {
+function fixture(layer, extraTexts = 0, isNew = false) {
     const pcbDocument = new PcbDocument();
-    const text = createPcbText({ id: 'text', content: 'Original', layer, x: Math.PI, y: -Math.E,
+    const text = createPcbText({ id: 'text', content: isNew ? '' : 'Original', layer, x: Math.PI, y: -Math.E,
         rotation: 37.123456789, size: 1.23456789, strokeWidth: 0.123456789 });
     let content = text.content, contentReads = 0, mapCopies = 0;
     Object.defineProperty(text, 'content', { enumerable: true,
         get() { contentReads++; return content; }, set(value) { content = value; } });
-    pcbDocument.texts.set(text.id, text);
+    if (!isNew) pcbDocument.texts.set(text.id, text);
     const other = createPcbText({ id: 'other', content: 'Untouched', layer });
     pcbDocument.texts.set(other.id, other);
     for (let index = 0; index < extraTexts; index++) {
@@ -76,7 +76,9 @@ function fixture(layer, extraTexts = 0) {
     Object.defineProperty(app, 'texts', Object.getOwnPropertyDescriptor(PCBApp.prototype, 'texts'));
     for (const name of ['_startTextInlineEdit', '_endTextInlineEdit', '_refreshText', '_removeTextElement', '_selectText',
         '_showTextProperties', '_bindStrokeTextProps', '_cancelPosePreviews', '_cancelDrawingMode']) app[name] = PCBApp.prototype[name];
-    app._renderText(text); app._renderText(other);
+    if (isNew) app.history.execute(new AddTextCommand(app, text));
+    else app._renderText(text);
+    app._renderText(other);
     return { app, text, other, overlay, renders: () => renders, mapCopies: () => mapCopies,
         contentReads: () => contentReads, resetReads: () => { contentReads = 0; } };
 }
@@ -213,5 +215,54 @@ for (const commit of [false, true]) {
         assert.equal(app.texts, map);
         app._endTextInlineEdit(false);
     } finally { cancelPictureCopperRefresh(app); }
+}
+
+for (const finish of ['cancel', 'blank', 'accept']) for (const committedStyle of [false, true]) {
+    const { app, text, other } = fixture('top-silk', 0, true);
+    const originalSize = text.size, size = 3.123456789;
+    try {
+        app._startTextInlineEdit(text, null, { isNewPlacement: true });
+        app._textEdit.input.fire('input', finish === 'blank' ? '  ' : 'New label');
+        fields.get('pcbPropTextSize').fire('input', size);
+        assert.equal(text.size, originalSize);
+        assert.equal(text.content, '');
+        if (committedStyle) fields.get('pcbPropTextSize').fire('change', size);
+        app._endTextInlineEdit(finish !== 'cancel');
+        assert.equal(app.texts.get(other.id), other);
+        assert.equal(getTextPosePreviewTexts(app), undefined);
+        if (finish === 'accept') {
+            assert.equal(text.content, 'New label');
+            assert.equal(text.size, size);
+            assert.equal(app.history.undoStack.length, 3, 'Add, style and accepted content remain independent');
+            app.history.undo();
+            assert.equal(text.content, '');
+            assert.equal(text.size, size);
+            app.history.undo();
+            assert.equal(text.size, originalSize);
+            app.history.undo();
+            assert.equal(app.texts.has(text.id), false);
+            while (app.history.redo()) {}
+            assert.equal(app.texts.get(text.id).content, 'New label');
+            assert.equal(app.texts.get(text.id).size, size);
+        } else {
+            assert.equal(app.texts.has(text.id), false);
+            const styled = committedStyle || finish === 'blank';
+            assert.equal(app.history.undoStack.length, styled ? 3 : 0);
+            if (styled) {
+                app.history.undo();
+                assert.equal(app.texts.get(text.id).content, '');
+                assert.equal(app.texts.get(text.id).size, size);
+                app.history.undo();
+                assert.equal(app.texts.get(text.id).size, originalSize);
+                app.history.undo();
+                assert.equal(app.texts.has(text.id), false);
+                while (app.history.redo()) {}
+                assert.equal(app.texts.has(text.id), false);
+            }
+        }
+    } finally {
+        if (app._textEdit) app._endTextInlineEdit(false);
+        cancelPictureCopperRefresh(app);
+    }
 }
 console.log('PASS inline content model isolation, stable dense-board projections, redraw counts, styles/history and lifecycle cleanup');

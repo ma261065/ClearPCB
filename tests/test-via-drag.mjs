@@ -174,14 +174,17 @@ for (const commit of [false, true]) {
     assert.equal(track.getBounds(), before, 'Canonical bounds remain cached during bulge preview');
     adapter.endAnchorDrag(false);
     assert.deepEqual(track.getBounds(), before);
-    app._pasteDrop = { anchorWorld: { x: 0, y: 0 },
-        tracks: [{ track, nodes: new Map([...track.nodes].map(([id, point]) => [id, { ...point }])) }],
-        vias: [], shapes: [], texts: [], fills: [] };
+    const pasted = new Track({ id: 'pasted-track' });
+    pasted.applyState(track.captureState());
+    PCBApp.prototype._beginPasteDrop.call(app, { tracks: [pasted] });
+    app._pasteDrop.anchorWorld = { x: 0, y: 0 };
     for (const point of [{ x: -3, y: -2 }, { x: -6, y: -4 }]) {
         PCBApp.prototype._updatePasteDrop.call(app, point);
-        assert.deepEqual(track.getBounds(), track._calculateBounds());
-        assert.equal(track.getBounds().minX, point.x - 0.1);
+        assert.deepEqual(pasted.getBounds(), pasted._calculateBounds());
+        assert.equal(pasted.getBounds().minX, point.x - 0.1);
+        assert.deepEqual(track.getBounds(), before);
     }
+    PCBApp.prototype._cancelPasteDrop.call(app);
 }
 
 {

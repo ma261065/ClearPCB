@@ -613,8 +613,15 @@ undo/redo. Layer-side compensation uses the displayed content width.
 Completion removes the projection before a content edit or deletion command;
 there is no temporary authored-content rollback. Cancel restores presentation
 from the current model, preserving independently committed property changes.
-Blank-content deletion and cancelled new-placement cleanup retain their prior
-history behavior. Failed completion restores canonical artwork and tears down
+Blank-content deletion and cancelled new-placement cleanup use the existing
+RemoveTextCommand rather than deleting the canonical text map in the editor.
+First-click placement still records Add. If Add is the latest command, cleanup
+removes the text without adding another history entry, prunes Add and updates
+history controls. If commands intervened, cleanup records Remove and preserves
+those commands: undo first restores the blank text with its committed styles,
+so earlier property commands never target a text deleted outside history.
+This conservative rule also applies to unrelated intervening commands.
+Failed completion restores canonical artwork and tears down
 the input, caret, keyboard listener and properties state before propagating.
 Reference inline editing retains its existing separate model-command path.
 Native property-field blur still commits a field before focus returns to the
@@ -1027,8 +1034,31 @@ existing compound commands. Cancellation, missing/deleted targets, rejected
 commands, locks/hiding and lifecycle cleanup remove preview artwork without
 canonical rollback. Board dimensions and fill caches stay authored; settled
 copper-removal holes remain through the gesture. Repeated unchanged deltas do
-no additional measured SVG/derived/3D work. Floating-paste ownership and the final
-cross-family ownership audit remain separate work.
+no additional measured SVG/derived/3D work.
+
+Floating PCB paste is owned by `pcb/modules/pcb-paste.js`. Fresh tracks, vias,
+pads, shapes, fills and text remain detached until placement acceptance; source
+geometry, component pads, attached source tracks, settled copper caches and
+canonical serialization do not follow the cursor. Acceptance inserts the bundle
+with one atomic history entry, while cancellation preserves prior history and
+redo. Shape IDs are consumed only on acceptance. Repeated unchanged positions
+skip rendering, crosshair updates and graph-cache invalidation. Lifecycle,
+lock/visibility, keyboard/history and failure cleanup discard the floating
+bundle rather than undoing previously authored content.
+
+Imported images use the same placement path. Their properties open after the
+placement is accepted, not while the image is floating; selection and anchors
+remain visible during placement. Schematic paste and shared clipboard contents
+retain their existing semantics.
+
+Mixed-selection attribute preparation in `PCBApp._pcbMultiPropertyCapabilities`
+uses detached shape/image/fill candidates and track-width snapshots rather than
+mutating canonical objects and restoring them. Mutation callbacks receive the
+candidate, while the resulting commands retain canonical targets. Image bounds
+are measured on the candidate, immutable artwork remains shared read-only, and
+unchanged dimensions/rotation skip transforms to avoid precision drift.
+Failed preparation leaves canonical geometry, nested references and fill caches
+untouched; accepted batches retain their existing compound history behavior.
 
 Both component pointer paths use the same live pose updater. If magnetic snapping
 produces the current coordinates, it skips footprint transforms, pad/bond updates

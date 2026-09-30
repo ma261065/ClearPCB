@@ -192,8 +192,14 @@ export function bindPcbControls(app) {
     pastePropsBtn?.addEventListener('click', doPaste);
     app._syncClipboardButtons?.();
 
-    undoBtn?.addEventListener('click', () => app.history?.undo?.());
-    redoBtn?.addEventListener('click', () => app.history?.redo?.());
+    undoBtn?.addEventListener('click', () => {
+        if (app._pasteDrop) app._cancelPasteDrop();
+        else app.history?.undo?.();
+    });
+    redoBtn?.addEventListener('click', () => {
+        if (app._pasteDrop) app._cancelPasteDrop();
+        else app.history?.redo?.();
+    });
     app._syncHistoryButtons?.();
 
     // Auto Route button

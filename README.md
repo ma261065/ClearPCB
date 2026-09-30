@@ -79,6 +79,9 @@ clearpcb/
 │   │   ├── EventBus.js         # Global pub/sub
 │   │   ├── FileManager.js      # Dirty tracking, auto-save, file naming
 │   │   ├── ProjectDocument.js  # Neutral owner of the single project file
+│   │   ├── SchematicDocument.js# Authored schematic entities and persistence
+│   │   ├── PcbDocument.js      # Authored PCB entities, settings and geometry capture
+│   │   ├── PcbPlacementState.js# Footprint/reference state and automatic layout slots
 │   │   ├── StorageManager.js   # localStorage / IndexedDB abstraction
 │   │   ├── geometry.js         # Point/segment math helpers
 │   │   ├── ShapeValidator.js   # Validates shape data on load
@@ -108,6 +111,9 @@ clearpcb/
 │   │   ├── LCSCFetcher.js      # LCSC/JLCPCB part lookup
 │   │   ├── STEPPreview.js      # 3D model preview (lazy-loaded)
 │   │   └── VRMLPreview.js      # VRML model preview (lazy-loaded)
+│   │
+│   ├── pcb/
+│   │   └── modules/            # PCB rendering, interactions and command adapters
 │   │
 │   └── ui/                     # Application layer
 │       ├── AppBootstrap.js     # Shared startup; owns ProjectDocument + mode switching
@@ -193,16 +199,19 @@ owning the other.
 **Key patterns:**
 
 - **Single document, peer views** — `ProjectDocument` owns the one
-  `FileManager` and coordinates the editors. Each view contributes one
-  section through a small duck-typed interface (`serializeSection`,
-  `loadSection`, `clearSection`, `isSectionDirty`); the project assembles
-  the combined file and aggregates dirty state for auto-save. The file
+  `FileManager`, `SchematicDocument` and `PcbDocument`. The models own
+  authored entities, settings, geometry capture and serialization; editor
+  collection accessors refer to those models rather than duplicate stores.
+  Views contribute current view settings, editing readiness and presentation
+  lifecycle hooks. The project assembles the combined file and aggregates
+  dirty state for auto-save. The file
   lifecycle (New/Open/Save/Import) is *injected* into the project by the
   schematic view, so `core/` never imports a view module. Both editors'
   File menus drive the same `bootstrap.project.*` operations.
-- **Facade** — `SchematicApp` owns all schematic state in its constructor
-  and exposes ~110 methods, but most are one-line delegations to module
-  functions. The real logic lives in `ui/modules/`.
+- **Facade** — `SchematicApp` and `PCBApp` own interaction and presentation
+  state and delegate feature behavior to `ui/modules/` and `pcb/modules/`.
+  Model commands own authored changes; rendering and manufacturing output
+  conversion remain consumers of model geometry.
 - **Command** — Every edit (move, add, delete, modify) creates a command
   object pushed onto `CommandHistory`, giving full undo/redo.
 - **Graph-based wires** — Wires use a node+edge graph model

@@ -1,9 +1,6 @@
 import { ModalManager } from '../../core/ModalManager.js';
 import { isLayerLocked, isLayerVisible } from './layers.js';
-import { showBoardShapeProperties } from './board-shapes.js';
-import { AddBoardShapeCommand } from './shape-commands.js';
-import { setPcbSelection } from './selection-registry.js';
-import { renderPcbSelectionAnchors } from './selection-anchors.js';
+import { preparePcbPaste } from './pcb-paste.js';
 import { rasterizePicture, pictureShape, drawPicture, MAX_PICTURE_REGIONS, MAX_PICTURE_VERTICES, MAX_PICTURE_CIRCLES, MAX_TRACE_RESOLUTION } from './picture-raster.js';
 
 export function showPictureImport(app) {
@@ -377,17 +374,9 @@ export function showPictureImport(app) {
         const imported = await update();
         if (!imported || accept.disabled || closed) return;
         document.getElementById('pcbToolSelect')?.click();
-        const shape = { ...imported, id: `pshape_${app._shapeIdCounter++}` };
-        const historyDepth = app.history.undoStack.length;
-        app._suspendFillRefresh = true;
-        app._fillRefreshPending = false;
-        app._suspendBoardViewRefresh = true;
-        app.history.execute(new AddBoardShapeCommand(app, shape));
-        setPcbSelection(app, [{ kind: 'shape', object: shape }]);
-        renderPcbSelectionAnchors(app);
-        showBoardShapeProperties(app, shape);
+        const payload = preparePcbPaste(app, { shapes: [imported] });
         close();
-        app._beginPasteDrop({ shapes: [shape] }, historyDepth);
+        app._beginPasteDrop(payload, { select: true });
         app._setStatus?.('Click to place image');
     });
     dialog.querySelector('[data-cancel]').addEventListener('click', close);

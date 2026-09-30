@@ -133,19 +133,19 @@ import { CommandHistory } from '../core/CommandHistory.js';
 import { Track } from '../shapes/track.js';
 import { Via } from '../shapes/via.js';
 import { Pad } from '../shapes/pad.js';
+import { CopperFill } from '../shapes/copper-fill.js';
 import { padCopperPathD, padLayers, renderPad } from '../pcb/modules/pad.js';
 import {
     AddPadCommand, ModifyPadCommand, getPadRotationPreview, finishPadRotationPreview,
     getPadPropertyPreview, beginPadPropertyPreview, finishPadPropertyPreview, canonicalPad,
 } from '../pcb/modules/pad-commands.js';
 import '../pcb/modules/pad-selection.js';
-import { CopperFill } from '../shapes/copper-fill.js';
 import { computeFillPolygons, loadClipper, isClipperReady, boardShapeClearanceOutlines, pcbTextClearanceOutlines } from '../pcb/modules/copper-fill-geom.js';
 import { setComputedFill } from '../pcb/modules/computed-fill-cache.js';
 import { bindPictureRefreshHold, schedulePictureCopperRefresh } from '../pcb/modules/picture-refresh.js';
 import { PICTURE_LAYERS } from '../pcb/modules/picture-raster.js';
 import { renderCopperFill, fillGroupId, setCopperFillClip } from '../pcb/modules/copper-fill-render.js';
-import { AddFillCommand, RemoveFillCommand, ModifyFillCommand } from '../pcb/modules/copper-fill-commands.js';
+import { RemoveFillCommand, ModifyFillCommand } from '../pcb/modules/copper-fill-commands.js';
 import '../pcb/modules/copper-fill-selection.js';
 import { startFillEditAt, updateFillEdit, endFillEdit, showFillContextMenu,
     addFillGeometryProperties, deleteFocusedFillPart, canEditFill } from '../pcb/modules/copper-fill-edit.js';
@@ -159,8 +159,7 @@ import {
     finishFillDraw,
     cancelFillDraw,
 } from '../pcb/modules/copper-fill-draw.js';
-import { createShape } from '../shapes/index.js';
-import { AddBoardShapeCommand } from '../pcb/modules/shape-commands.js';
+import { preparePcbPaste, beginPcbPaste, updatePcbPaste, endPcbPaste, cancelPcbPaste, isPcbPasteEditable } from '../pcb/modules/pcb-paste.js';
 import { getBoardOutline, boardBoundary } from '../pcb/modules/board-outline.js';
 import {
     beginBoardOutlineResize, updateBoardOutlineResize, endBoardOutlineResize,
@@ -216,20 +215,20 @@ const PCB_CROSSHAIR_TOOLS = new Set([
 
 export default class PCBApp {
     get tracks() {
-        return getGroupPreview(this)?.tracks || getPlacementPreviewTracks(this) || this._viaDrag?.preview?.tracks
+        return getGroupPreview(this)?.tracks || this._pasteDrop?.preview?.tracks || getPlacementPreviewTracks(this) || this._viaDrag?.preview?.tracks
             || this._vertexDrag?.preview?.tracks || getTrackPropertyPreview(this)?.tracks || this.pcbDocument.tracks;
     }
     set tracks(value) { this.pcbDocument.tracks = value; }
-    get vias() { return getGroupPreview(this)?.vias || this._viaDrag?.preview?.vias || getViaPropertyPreview(this)?.vias || this.pcbDocument.vias; }
+    get vias() { return getGroupPreview(this)?.vias || this._pasteDrop?.preview?.vias || this._viaDrag?.preview?.vias || getViaPropertyPreview(this)?.vias || this.pcbDocument.vias; }
     set vias(value) { this.pcbDocument.vias = value; }
     get pads() {
-        return getGroupPreview(this)?.pads || this._viaDrag?.preview?.pads || getPadRotationPreview(this)?.pads
+        return getGroupPreview(this)?.pads || this._pasteDrop?.preview?.pads || this._viaDrag?.preview?.pads || getPadRotationPreview(this)?.pads
             || getPadPropertyPreview(this)?.pads || this.pcbDocument.pads;
     }
     set pads(value) { this.pcbDocument.pads = value; }
-    get texts() { return getTextPosePreviewTexts(this) || this.pcbDocument.texts; }
+    get texts() { return this._pasteDrop?.preview?.texts || getTextPosePreviewTexts(this) || this.pcbDocument.texts; }
     set texts(value) { this.pcbDocument.texts = value; }
-    get boardShapes() { return getGroupPreview(this)?.boardShapes || getBoardDimensionPreview(this)?.boardShapes || getBoardShapePointerPreview(this)?.boardShapes || getBoardShapeRotationPreview(this)?.boardShapes || getBoardShapePropertyPreview(this)?.boardShapes || this.pcbDocument.boardShapes; }
+    get boardShapes() { return getGroupPreview(this)?.boardShapes || this._pasteDrop?.preview?.boardShapes || getBoardDimensionPreview(this)?.boardShapes || getBoardShapePointerPreview(this)?.boardShapes || getBoardShapeRotationPreview(this)?.boardShapes || getBoardShapePropertyPreview(this)?.boardShapes || this.pcbDocument.boardShapes; }
     set boardShapes(value) { this.pcbDocument.boardShapes = value; }
     get _shapeIdCounter() { return this.pcbDocument.shapeIdCounter; }
     set _shapeIdCounter(value) { this.pcbDocument.shapeIdCounter = value; }
@@ -357,8 +356,6 @@ export default class PCBApp {
         this._lastTextContent = 'Text';
         /** In-memory PCB clipboard payload. */
         this._pcbClipboard = null;
-        /** Monotonic paste counter (used for visible paste offsets). */
-        this._pcbPasteCount = 0;
         /** SVG <path> elements keyed by shape id for quick remove/replace. */
         this._shapeElements = new Map();
         /** Board shape currently hovered in select mode, or null. */
@@ -560,7 +557,7 @@ export default class PCBApp {
     _syncHistoryButtons() {
         const undoBtn = /** @type {HTMLButtonElement|null} */ (document.getElementById('pcbUndoBtn'));
         const redoBtn = /** @type {HTMLButtonElement|null} */ (document.getElementById('pcbRedoBtn'));
-        const canUndo = !!this.history?.canUndo?.();
+        const canUndo = !!this._pasteDrop || !!this.history?.canUndo?.();
         const canRedo = !!this.history?.canRedo?.();
         if (undoBtn) undoBtn.disabled = !canUndo;
         if (redoBtn) redoBtn.disabled = !canRedo;
@@ -672,13 +669,13 @@ export default class PCBApp {
             return false;
         }
         this._pcbClipboard = payload;
-        this._pcbPasteCount = 0;
         this._syncClipboardButtons();
         return true;
     }
 
     /** Cut currently-selected PCB entities (copy + remove). */
     cutSelection() {
+        if (this._pasteDrop) { this._cancelPasteDrop(); return true; }
         if (!this.copySelection()) return false;
         const deleted = deleteBoxSelection(this);
         if (deleted) this._clearProperties();
@@ -690,212 +687,35 @@ export default class PCBApp {
      * Start cursor-glued drop mode for freshly pasted entities. The pasted
      * objects move as one bundle with the cursor until the next left click.
      */
-    _beginPasteDrop(payload, historyDepthBeforePaste = null) {
-        const base = this._snapToGrid(this.viewport?.currentMouseWorld || { x: 0, y: 0 });
-        const points = [];
-        for (const t of (payload.tracks || [])) {
-            for (const [, n] of t.nodes) points.push({ x: n.x, y: n.y });
-        }
-        for (const v of (payload.vias || [])) points.push({ x: v.x, y: v.y });
-        for (const pad of (payload.pads || [])) points.push({ x: pad.x, y: pad.y });
-        for (const shape of (payload.shapes || [])) {
-            if (shape.kind === 'circle') points.push({ x: shape.x, y: shape.y });
-            else for (const point of (shape.points || [shape.start, shape.end, shape.bulge])) if (point) points.push(point);
-        }
-        for (const t of (payload.texts || [])) points.push({ x: t.x, y: t.y });
-        for (const f of (payload.fills || [])) {
-            if (f.kind === 'circle') points.push({ x: f.x, y: f.y });
-            else for (const p of (f.outline || [])) points.push({ x: p.x, y: p.y });
-        }
-        const anchor = points.length
-            ? {
-                x: points.reduce((s, p) => s + p.x, 0) / points.length,
-                y: points.reduce((s, p) => s + p.y, 0) / points.length,
-            }
-            : { x: base.x, y: base.y };
-        this._pasteDrop = {
-            historyDepthBeforePaste,
-            anchorWorld: { x: anchor.x, y: anchor.y },
-            tracks: (payload.tracks || []).map((t) => {
-                const nodes = new Map();
-                for (const [nid, n] of t.nodes) nodes.set(nid, { x: n.x, y: n.y });
-                return { track: t, nodes };
-            }),
-            vias: (payload.vias || []).map((v) => ({ via: v, x: v.x, y: v.y })),
-            pads: (payload.pads || []).map((pad) => ({ pad, x: pad.x, y: pad.y })),
-            shapes: (payload.shapes || []).map((shape) => ({ shape, before: JSON.parse(JSON.stringify(shape)) })),
-            texts: (payload.texts || []).map((t) => ({ text: t, x: t.x, y: t.y })),
-            fills: (payload.fills || []).map((f) => ({
-                fill: f,
-                before: f.captureState(),
-            })),
-        };
-        if (this.viewport?.svg) this.viewport.svg.style.cursor = 'crosshair';
-        // Place immediately at the current cursor location.
-        this._updatePasteDrop(base);
+    _beginPasteDrop(payload, options) {
+        return beginPcbPaste(this, payload, options);
     }
 
     /** Live-update the pasted bundle position while in paste-drop mode. */
     _updatePasteDrop(worldPos) {
-        const pd = this._pasteDrop;
-        if (!pd) return;
-        const snap = this._snapToGrid(worldPos);
-        const dx = snap.x - pd.anchorWorld.x;
-        const dy = snap.y - pd.anchorWorld.y;
-
-        // Force a visible crosshair while a paste bundle is floating,
-        // independent of the currently selected tool.
-        this.viewport?.setCrosshair({ x: snap.x, y: snap.y });
-        if (this.viewport?.svg) this.viewport.svg.style.cursor = 'crosshair';
-
-        for (const t of pd.tracks) {
-            for (const [nid, start] of t.nodes) {
-                const n = t.track.nodes.get(nid);
-                if (!n) continue;
-                n.x = start.x + dx;
-                n.y = start.y + dy;
-            }
-            t.track.invalidate();
-            renderTrack(t.track, (id) => this._getLayerGroup(id), {
-                viaDiameter: this._getRoutingParams?.()?.viaDiameter,
-                viaDrill: this._getRoutingParams?.()?.viaDrill,
-                hideNetLabel: t.track === getSelectedTrack(this),
-            });
-        }
-        for (const v of pd.vias) {
-            v.via.x = v.x + dx;
-            v.via.y = v.y + dy;
-            renderVia(v.via, (id) => this._getLayerGroup(id));
-        }
-        for (const entry of pd.pads || []) {
-            entry.pad.x = entry.x + dx;
-            entry.pad.y = entry.y + dy;
-            renderPad(entry.pad, id => this._getLayerGroup(id));
-        }
-        for (const entry of pd.shapes) {
-            const shape = entry.shape;
-            const before = entry.before;
-            if (shape.kind === 'circle') { shape.x = before.x + dx; shape.y = before.y + dy; }
-            else if (shape.points) shape.points = before.points.map((point) => ({ x: point.x + dx, y: point.y + dy }));
-            else for (const key of ['start', 'end', 'bulge']) shape[key] = { x: before[key].x + dx, y: before[key].y + dy };
-            renderBoardShape(this, shape);
-        }
-        for (const t of pd.texts) {
-            t.text.x = t.x + dx;
-            t.text.y = t.y + dy;
-            this._refreshText(t.text.id);
-        }
-        for (const f of pd.fills) {
-            f.fill.applyState(f.before);
-            f.fill.move(dx, dy);
-            renderCopperFill(f.fill, (id) => this._getLayerGroup(id),
-                { selected: isPcbSelected(this, 'fill', f.fill) });
-            if (isPcbSelected(this, 'fill', f.fill)) renderPcbSelectionAnchors(this);
-        }
-        refreshTrackSelectionHalo(this);
+        updatePcbPaste(this, worldPos);
     }
 
     /** Finish paste-drop mode and keep the pasted entities at their current position. */
     _endPasteDrop() {
-        if (!this._pasteDrop) return;
-        this._pasteDrop = null;
-        this._suspendFillRefresh = false;
-        this._suspendBoardViewRefresh = false;
-        if (this._fillRefreshPending) {
-            this._fillRefreshPending = false;
-            this._refreshFills?.();
-        }
-        this._board3d?.refresh?.();
-        this._updateCursorForTool?.();
-        // Keep derived visuals coherent after the final drop position.
-        this._refreshClearanceHalos();
-        reconcileRatsnest(this);
-        this._syncClipboardButtons?.();
+        endPcbPaste(this);
     }
 
     /** Cancel paste-drop mode and remove the freshly pasted entities. */
     _cancelPasteDrop() {
-        const pd = this._pasteDrop;
-        if (!pd) return;
-        this._pasteDrop = null;
-        const before = pd.historyDepthBeforePaste;
-        if (Number.isFinite(before) && (this.history?.undoStack?.length || 0) > before) {
-            this.history.undo();
-        }
-        this._suspendFillRefresh = false;
-        this._suspendBoardViewRefresh = false;
-        if (this._fillRefreshPending) {
-            this._fillRefreshPending = false;
-            this._refreshFills?.();
-        }
-        this._board3d?.refresh?.();
-        this._updateCursorForTool?.();
-        this._refreshClearanceHalos();
-        this._syncClipboardButtons?.();
+        cancelPcbPaste(this);
     }
 
-    /** Paste the current PCB clipboard payload with a small positional offset. */
+    /** Stage the current PCB clipboard payload at the cursor without authoring it. */
     pasteSelection() {
         if (!this._hasPcbClipboardData()) {
             this._syncClipboardButtons();
             return false;
         }
-        const c = this._pcbClipboard;
-        this._pcbPasteCount = (this._pcbPasteCount || 0) + 1;
-        const d = 2 * this._pcbPasteCount; // mm offset per successive paste
-        const cmds = [];
-        const pasted = { tracks: [], vias: [], pads: [], shapes: [], texts: [], fills: [] };
-
-        for (const td of (c.tracks || [])) {
-            const json = JSON.parse(JSON.stringify(td));
-            delete json.id; delete json.i;
-            const t = createShape(json);
-            if (!(t instanceof Track)) continue;
-            for (const [, n] of t.nodes) { n.x += d; n.y += d; }
-            cmds.push(new AddTrackCommand(this, t));
-            pasted.tracks.push(t);
-        }
-        for (const vd of (c.vias || [])) {
-            const via = Via.fromJSON({ ...vd, id: undefined });
-            via.x += d; via.y += d;
-            cmds.push(new AddViaCommand(this, via));
-            pasted.vias.push(via);
-        }
-        for (const pd of (c.pads || [])) {
-            const pad = Pad.fromJSON({ ...pd, id: undefined });
-            pad.x += d; pad.y += d;
-            cmds.push(new AddPadCommand(this, pad));
-            pasted.pads.push(pad);
-        }
-        for (const sd of (c.shapes || [])) {
-            const shape = JSON.parse(JSON.stringify(sd));
-            shape.id = `pshape_${this._shapeIdCounter++}`;
-            if (shape.kind === 'circle') { shape.x += d; shape.y += d; }
-            else if (shape.points) shape.points.forEach((point) => { point.x += d; point.y += d; });
-            else for (const key of ['start', 'end', 'bulge']) { shape[key].x += d; shape[key].y += d; }
-            cmds.push(new AddBoardShapeCommand(this, shape));
-            pasted.shapes.push(shape);
-        }
-        for (const tx of (c.texts || [])) {
-            const t = createPcbText({ ...tx, id: undefined, x: (tx.x || 0) + d, y: (tx.y || 0) + d });
-            cmds.push(new AddTextCommand(this, t));
-            pasted.texts.push(t);
-        }
-        for (const fd of (c.fills || [])) {
-            const fill = new CopperFill({ ...fd, id: undefined });
-            fill.move(d, d);
-            cmds.push(new AddFillCommand(this, fill));
-            pasted.fills.push(fill);
-        }
-        if (!cmds.length) return false;
-        this._suspendFillRefresh = true;
-        this._fillRefreshPending = false;
-        this._suspendBoardViewRefresh = true;
-        const depthBeforePaste = this.history?.undoStack?.length || 0;
-        this.history.execute(cmds.length === 1 ? cmds[0] : new CompoundCommand(cmds));
-        this._beginPasteDrop(pasted, depthBeforePaste);
+        const pasted = preparePcbPaste(this, this._pcbClipboard);
+        const started = this._beginPasteDrop(pasted);
         this._syncClipboardButtons();
-        return true;
+        return started;
     }
 
     _ensureViewport() {
@@ -2416,7 +2236,7 @@ export default class PCBApp {
             // Viewport changes can still resize the outer clip without moving its holes.
             const shapeCuts = (!geometryChanged || deferGeometry) && geometryCache[side]
                 ? geometryCache[side]
-                : (geometryCache[side] = boardShapeCopperCuts(this, copperLayer));
+                : (geometryCache[side] = boardShapeCopperCuts(this._pasteDrop ? this.pcbDocument : this, copperLayer));
             const existing = defs.querySelector(`#${clipId}`);
             if (shapeCuts.count === 0) {
                 // Nothing to cut on this side. Only touch the DOM if we weren't
@@ -2598,6 +2418,7 @@ export default class PCBApp {
             return true;
         }
         if (ctrl && !e.shiftKey && (e.key === 'z' || e.key === 'Z')) {
+            if (this._pasteDrop) { this._cancelPasteDrop(); return true; }
             if (getBoardDimensionPreview(this) || this._boardOutlineResize) {
                 this._boardDimensionPropertyBinding?.cancel();
                 endBoardOutlineResize(this, false);
@@ -2622,6 +2443,7 @@ export default class PCBApp {
             return true;
         }
         if (ctrl && ((e.key === 'y' || e.key === 'Y') || ((e.key === 'z' || e.key === 'Z') && e.shiftKey))) {
+            if (this._pasteDrop) { this._cancelPasteDrop(); return true; }
             if (getBoardDimensionPreview(this) || this._boardOutlineResize) {
                 this._boardDimensionPropertyBinding?.cancel();
                 endBoardOutlineResize(this, false);
@@ -2639,6 +2461,7 @@ export default class PCBApp {
             return true;
         }
         if (e.key === 'Delete' || e.key === 'Backspace') {
+            if (this._pasteDrop) { this._cancelPasteDrop(); return true; }
             if (this._groupDrag) this._cancelPosePreviews();
             this._boardShapePropertyBinding?.cancel();
             this._trackPropertyBinding?.cancel();
@@ -3072,6 +2895,7 @@ export default class PCBApp {
      * @param {boolean} visible
      */
     _onLayerVisibilityChanged(layerId, visible) {
+        if (this._pasteDrop && !visible && !isPcbPasteEditable(this)) this._cancelPasteDrop();
         if (!visible && layerId === 'board-outline') {
             this._boardDimensionPropertyBinding?.dispose();
             endBoardOutlineResize(this, false);
@@ -3160,6 +2984,7 @@ export default class PCBApp {
      * @param {boolean} locked
      */
     _onLayerLockChanged(layerId, locked) {
+        if (this._pasteDrop && locked && !isPcbPasteEditable(this)) this._cancelPasteDrop();
         if (locked && layerId === 'board-outline') {
             this._boardDimensionPropertyBinding?.cancel();
             endBoardOutlineResize(this, false);
@@ -5263,6 +5088,7 @@ export default class PCBApp {
     }
 
     _cancelPosePreviews() {
+        cancelPcbPaste(this);
         this._boardShapePropertyBinding?.cancel();
         this._boardDimensionPropertyBinding?.dispose();
         endBoardOutlineResize(this, false);
@@ -6504,30 +6330,22 @@ export default class PCBApp {
 
         // Determine effective final content (empty if cancelled).
         const effective = commit ? finalContent : originalContent;
-        // No empty orphans: if the resulting content is blank, delete
-        // the text outright. For a freshly-created text (originalContent
-        // was already empty), this avoids the undo stack growing for
-        // an aborted placement; use Remove instead of Edit.
+        // Remove blank text without recording its temporary typed content.
         const blank = effective.trim() === '';
         const wasSelected = isPcbSelected(this, 'text', text);
         try {
             finishTextPosePreview(this, () => {
                 if (blank) {
-                    if (isNewPlacement) {
-                        // An intervening style edit may sit above this placement in history.
-                        const stack = this.history.undoStack;
-                        for (let i = stack.length - 1; i >= 0; i--) {
-                            const cmd = stack[i];
-                            if (cmd?.constructor?.name === 'AddTextCommand' && cmd.text?.id === text.id) {
-                                stack.splice(i, 1);
-                                break;
-                            }
-                        }
+                    const remove = new RemoveTextCommand(this, text.id);
+                    const last = this.history.undoStack.at(-1);
+                    if (isNewPlacement && last instanceof AddTextCommand && last.text.id === text.id) {
+                        remove.execute();
+                        this.history.popUndo();
                         this.history.redoStack = [];
-                        this._removeTextElement(text.id);
-                        this.pcbDocument.texts.delete(text.id);
+                        this.history._notifyChanged();
                     } else {
-                        this.history.execute(new RemoveTextCommand(this, text.id));
+                        // Keep intervening edits undoable against a restored text.
+                        this.history.execute(remove);
                     }
                 } else if (commit && finalContent !== originalContent) {
                     this.history.execute(new EditTextCommand(this, text.id, { content: finalContent }));
@@ -6567,17 +6385,18 @@ export default class PCBApp {
         const net = (get, command) => ({ type: 'net', label: 'Net', get, command });
         const shapeCommand = (mutate) => {
             const before = captureBoardShapeState(object);
-            mutate(object);
-            const after = captureBoardShapeState(object);
-            applyShapeSnapshot(object, before);
+            const candidate = { ...object };
+            applyShapeSnapshot(candidate, before);
+            mutate(candidate);
+            const after = captureBoardShapeState(candidate);
             return JSON.stringify(before) === JSON.stringify(after)
                 ? null : new ModifyBoardShapeCommand(this, object, before, after);
         };
         const fillCommand = (mutate) => {
             const before = object.captureState();
-            mutate(object);
-            const after = object.captureState();
-            object.applyState(before);
+            const candidate = new CopperFill(before);
+            mutate(candidate);
+            const after = candidate.captureState();
             return JSON.stringify(before) === JSON.stringify(after)
                 ? null : new ModifyFillCommand(this, object, before, after);
         };
@@ -6695,6 +6514,7 @@ export default class PCBApp {
                         const bounds = target.getBounds();
                         const min = axis === 'x' ? 'minX' : 'minY';
                         const max = axis === 'x' ? 'maxX' : 'maxY';
+                        if (value === bounds[max] - bounds[min]) return;
                         const factor = value / (bounds[max] - bounds[min]);
                         target.outline = target.outline.map(point => ({
                             ...point,
@@ -6734,10 +6554,11 @@ export default class PCBApp {
             capabilities.lineWidth = number('Width (mm)', () => object.width,
                 value => {
                     const before = object.captureState();
-                    object.width = value;
-                    for (const edgeId of object.edges.keys()) object.setEdgeAttr(edgeId, 'width', value);
-                    const after = object.captureState();
-                    object.applyState(before);
+                    const candidate = new Track({ id: object.id });
+                    candidate.applyState(before);
+                    candidate.width = value;
+                    for (const edgeId of candidate.edges.keys()) candidate.setEdgeAttr(edgeId, 'width', value);
+                    const after = candidate.captureState();
                     return JSON.stringify(before) === JSON.stringify(after)
                         ? null : new ModifyTrackGraphCommand(this, object, before, after);
                 }, 0.05, 0.05);
@@ -6753,13 +6574,14 @@ export default class PCBApp {
                     ? layer.id !== 'board-outline' : PICTURE_LAYERS.includes(layer.id)))
                     .map(layer => [layer.id, layer.name]));
             if (object.kind === 'image') {
-                const imageSize = () => ({
-                    width: Math.hypot(object.points[1].x - object.points[0].x, object.points[1].y - object.points[0].y),
-                    height: Math.hypot(object.points[3].x - object.points[0].x, object.points[3].y - object.points[0].y),
+                const imageSize = (target = object) => ({
+                    width: Math.hypot(target.points[1].x - target.points[0].x, target.points[1].y - target.points[0].y),
+                    height: Math.hypot(target.points[3].x - target.points[0].x, target.points[3].y - target.points[0].y),
                 });
                 const resize = (dimension, value) => shapeCommand(target => {
-                    const current = imageSize();
+                    const current = imageSize(target);
                     const base = current[dimension];
+                    if (value === base) return;
                     const factor = value / base;
                     const center = { x: (target.points[0].x + target.points[2].x) / 2,
                         y: (target.points[0].y + target.points[2].y) / 2 };
@@ -6778,6 +6600,7 @@ export default class PCBApp {
                 ) % 360, value => shapeCommand(target => {
                     const current = (-Math.atan2(target.points[1].y - target.points[0].y,
                         target.points[1].x - target.points[0].x) * 180 / Math.PI + 360) % 360;
+                    if (value === current) return;
                     const radians = -(value - current) * Math.PI / 180;
                     const cosine = Math.cos(radians), sine = Math.sin(radians);
                     const center = { x: (target.points[0].x + target.points[2].x) / 2,
@@ -8693,6 +8516,7 @@ export default class PCBApp {
      * halos stay in sync (rip-ups in particular leave orphaned halos otherwise).
      */
     _refreshBoardShapeClearance(shape) {
+        if (this._pasteDrop) return;
         if (!this._clearancesVisible) return;
         const overlay = this._getLayerGroup('clearance-overlay');
         if (!overlay) return;
@@ -8864,6 +8688,7 @@ export default class PCBApp {
      * @param {boolean} visible
      */
     _onCopperFillVisibilityChanged(copperLayerId, visible) {
+        if (this._pasteDrop && !visible && !isPcbPasteEditable(this)) this._cancelPasteDrop();
         if (!visible && this._groupDrag?.fills.some(({ fill }) => fill.layer === copperLayerId)) this._cancelPosePreviews();
         const g = this._layerGroups.get(fillGroupId(copperLayerId));
         if (g) g.style.display = visible ? '' : 'none';
@@ -8878,6 +8703,7 @@ export default class PCBApp {
      * @param {boolean} locked
      */
     _onCopperFillLockChanged(copperLayerId, locked) {
+        if (this._pasteDrop && locked && !isPcbPasteEditable(this)) this._cancelPasteDrop();
         if (locked && this._groupDrag?.fills.some(({ fill }) => fill.layer === copperLayerId)) this._cancelPosePreviews();
         const g = this._layerGroups.get(fillGroupId(copperLayerId));
         if (g) g.style.opacity = locked ? '0.4' : '';

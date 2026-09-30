@@ -2,7 +2,9 @@ import assert from 'node:assert/strict';
 import { PcbDocument } from '../src/core/PcbDocument.js';
 import { CommandHistory } from '../src/core/CommandHistory.js';
 import { createPcbText, serializePcbText } from '../src/core/pcb-text.js';
-import { AddTextCommand, EditTextCommand, beginTextContentPreview, getTextPosePreviewTexts } from '../src/pcb/modules/text-commands.js';
+import { AddTextCommand, EditTextCommand, RemoveTextCommand, beginTextContentPreview, getTextPosePreviewTexts } from '../src/pcb/modules/text-commands.js';
+import { RemoveTextCommand as ModelRemoveTextCommand } from '../src/core/pcb-text-commands.js';
+import { CompoundCommand } from '../src/pcb/modules/track-commands.js';
 import { cancelPictureCopperRefresh } from '../src/pcb/modules/picture-refresh.js';
 import { setPcbSelection, getPcbSelection } from '../src/pcb/modules/selection-registry.js';
 
@@ -15,10 +17,10 @@ function fixture({ isNew = false, content = 'Original' } = {}) {
         x: Math.PI, y: -Math.E, size: 1.234567, strokeWidth: 0.123456, rotation: 37.123456 });
     const original = { ...text };
     const pcbDocument = new PcbDocument();
-    const renders = [], removals = [], clearances = [];
+    const renders = [], removals = [], clearances = [], historyChanges = [];
     let destroyed = 0, inputRemoved = 0, cleared = 0, exited = 0;
     const app = {
-        pcbDocument, history: new CommandHistory(),
+        pcbDocument, history: new CommandHistory({ onChanged: change => historyChanges.push(change) }),
         _renderText: current => renders.push({ ...current }),
         _refreshText(id) { const current = this.texts.get(id); if (current) this._renderText(current); },
         _removeTextElement: id => removals.push(id),
@@ -53,7 +55,7 @@ function fixture({ isNew = false, content = 'Original' } = {}) {
         assert.equal(exited, 1);
         assert.deepEqual(getPcbSelection(app), []);
     };
-    return { app, text, original, renders, removals, clearances, preview, finish, verifyTeardown };
+    return { app, text, original, renders, removals, clearances, historyChanges, preview, finish, verifyTeardown };
 }
 
 for (const isNew of [false, true]) {
@@ -123,19 +125,111 @@ for (const commit of [false, true]) {
     } finally { cancelPictureCopperRefresh(f.app); }
 }
 
-for (const commit of [false, true]) {
+for (const commit of [false, true]) for (const undoneStyle of [false, true]) {
     const f = fixture({ isNew: true });
+    const execute = ModelRemoveTextCommand.prototype.execute;
+    let modelRemovals = 0;
+    ModelRemoveTextCommand.prototype.execute = function () { modelRemovals++; return execute.call(this); };
     try {
-        const unrelated = { execute() {}, undo() {} };
-        f.app.history.execute(unrelated);
-        f.preview(commit ? '   ' : 'Cancelled new label');
+        if (undoneStyle) {
+            f.app.history.execute(new EditTextCommand(f.app, f.text.id, { size: Math.PI }));
+            f.app.history.undo();
+            assert.equal(f.app.history.redoStack.length, 1);
+        }
+        f.preview(commit ? ' \t ' : 'Cancelled new label');
         f.finish(commit);
-        assert.equal(f.renders.length, 0, 'Discarding new text requires removal, not a rollback redraw');
+        assert.equal(modelRemovals, 1, 'New-placement disposal executes the model-owned Remove command');
         assert.equal(f.app.texts.size, 0);
-        assert.deepEqual(f.app.history.undoStack, [unrelated], 'Only this cancelled placement is removed from history');
+        assert.equal(f.app.history.undoStack.length, 0, 'Untouched placement cancellation leaves no history entry');
+        assert.equal(f.app.history.redoStack.length, 0, 'Discarded placement/style cannot be resurrected by redo');
+        assert.equal(f.app.history.undo(), false);
+        assert.equal(f.app.history.redo(), false);
+        assert.equal(f.historyChanges.at(-1).canUndo, false, 'History controls are notified after removing the Add');
+        assert.equal(f.historyChanges.at(-1).canRedo, false);
+        assert.equal(f.renders.length, undoneStyle ? 2 : 0);
         assert.deepEqual(f.removals, [f.text.id]);
         f.verifyTeardown();
+    } finally {
+        ModelRemoveTextCommand.prototype.execute = execute;
+        cancelPictureCopperRefresh(f.app);
+    }
+}
+
+for (const commit of [false, true]) for (const edits of ['style', 'other-text', 'compound', 'trimmed-add']) {
+    const f = fixture({ isNew: true });
+    try {
+        const other = createPcbText({ id: 'other', content: 'Independent', x: Math.E, y: Math.PI });
+        f.app.pcbDocument.texts.set(other.id, other);
+        const geometry = () => {
+            const snapshot = f.app.pcbDocument.captureGeometry();
+            // Existing Remove undo appends the restored text to the Map.
+            snapshot.texts.sort((a, b) => a.id.localeCompare(b.id));
+            return snapshot;
+        };
+        const initial = geometry();
+        const add = f.app.history.undoStack[0];
+        const style = () => new EditTextCommand(f.app, f.text.id,
+            { size: 2.345678912, strokeWidth: 0.234567891, rotation: 73.123456789, border: true });
+        const independent = () => new EditTextCommand(f.app, other.id, { content: 'Independent edit', x: -Math.PI });
+        if (edits === 'other-text') f.app.history.execute(independent());
+        else if (edits === 'compound') f.app.history.execute(new CompoundCommand([style(), independent()]));
+        else {
+            if (edits === 'trimmed-add') f.app.history.maxSize = 2;
+            f.app.history.execute(style());
+            if (edits === 'trimmed-add') f.app.history.execute(independent());
+        }
+        const prior = [...f.app.history.undoStack];
+        const styled = serializePcbText(f.app.pcbDocument.texts.get(f.text.id));
+        const otherState = serializePcbText(other);
+        const beforeRemoval = geometry();
+        // Keep the retained commands available while testing their full undo chain.
+        f.app.history.maxSize = 100;
+        f.preview(commit ? '   ' : 'Cancelled new label');
+        f.renders.length = 0;
+        f.finish(commit);
+        assert.equal(f.renders.length, 0, 'Discarding new text requires removal, not a rollback redraw');
+        assert.equal(f.app.texts.has(f.text.id), false);
+        assert.deepEqual(serializePcbText(other), otherState, 'Independent authored edits survive cancellation');
+        assert.deepEqual(f.app.history.undoStack.slice(0, -1), prior, 'Intervening commands retain their order and identity');
+        assert.ok(f.app.history.undoStack.at(-1) instanceof RemoveTextCommand);
+        assert.deepEqual(f.removals, [f.text.id]);
+        f.verifyTeardown();
+        f.app.history.undo();
+        assert.deepEqual(serializePcbText(f.app.texts.get(f.text.id)), styled, 'Undo removal restores exact committed styles, not typed content');
+        assert.deepEqual(geometry(), beforeRemoval);
+        f.app.history.redo();
+        assert.equal(f.app.texts.has(f.text.id), false);
+        f.app.history.undo();
+        for (const command of [...prior].reverse()) {
+            f.app.history.undo();
+            if (command === add) assert.equal(f.app.texts.has(f.text.id), false);
+        }
+        if (edits === 'trimmed-add') assert.deepEqual(geometry(), initial);
+        else assert.deepEqual(serializePcbText(other), serializePcbText(createPcbText({
+            id: 'other', content: 'Independent', x: Math.E, y: Math.PI,
+        })));
+        while (f.app.history.redo()) {}
+        assert.equal(f.app.texts.has(f.text.id), false, 'Complete redo reaches the cancelled/blank final state');
+        assert.deepEqual(serializePcbText(other), otherState);
     } finally { cancelPictureCopperRefresh(f.app); }
+}
+
+for (const withStyle of [false, true]) {
+    const f = fixture({ isNew: true });
+    const execute = ModelRemoveTextCommand.prototype.execute;
+    try {
+        if (withStyle) f.app.history.execute(new EditTextCommand(f.app, f.text.id, { size: Math.PI }));
+        const before = f.app.pcbDocument.captureGeometry(), history = [...f.app.history.undoStack];
+        ModelRemoveTextCommand.prototype.execute = () => { throw new Error('Injected model removal failure'); };
+        f.preview('Cancelled content');
+        assert.throws(() => f.finish(false), /Injected model removal failure/);
+        assert.deepEqual(f.app.pcbDocument.captureGeometry(), before);
+        assert.deepEqual(f.app.history.undoStack, history, 'Failed removal never prunes the Add or independent edits');
+        f.verifyTeardown();
+    } finally {
+        ModelRemoveTextCommand.prototype.execute = execute;
+        cancelPictureCopperRefresh(f.app);
+    }
 }
 
 delete globalThis.document;

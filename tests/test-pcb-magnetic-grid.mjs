@@ -20,13 +20,11 @@ function fixture(viewport) {
     const app = {
         viewport, pcbDocument, placements: new Map([['part', placement]]),
         tracks: [], _getLayerGroup: () => null,
-        _refreshText() {}, _updateRatsnest() {}, _drawRefOverlay() {}, _drawBoardOutline() {},
+        _refreshText() {}, _removeTextElement() {}, _updateRatsnest() {}, _drawRefOverlay() {}, _drawBoardOutline() {},
         _screenToWorld: event => ({ x: event.clientX, y: event.clientY }),
         _textDrag: { textId: text.id, startWorld: { x: 0, y: 0 }, startPos: { x: 0, y: 0 } },
         _drag: { compId: 'part', startWorld: { x: 0, y: 0 }, startPos: { x: 0, y: 0 }, nets: new Set() },
         _refDrag: { compId: 'part', startWorld: { x: 0, y: 0 }, startDx: 0, startDy: 0 },
-        _pasteDrop: { anchorWorld: { x: 0, y: 0 }, tracks: [], vias: [], pads: [], shapes: [],
-            fills: [], texts: [{ text, x: 0, y: 0 }] },
         _boardOutlineSelected: true, _boardOutlineDrawn: true,
     };
     Object.defineProperty(app, 'texts', Object.getOwnPropertyDescriptor(PCBApp.prototype, 'texts'));
@@ -34,7 +32,8 @@ function fixture(viewport) {
         Object.defineProperty(app, key, Object.getOwnPropertyDescriptor(PCBApp.prototype, key));
     }
     for (const method of ['_snapToGrid', '_snapPadPlacement', '_updateTextDrag', '_updateComponentDrag',
-        '_handleDrag', '_updateRefTextDrag', '_handleRefDrag', '_worldToPlacementLocal', '_updatePasteDrop']) {
+        '_handleDrag', '_updateRefTextDrag', '_handleRefDrag', '_worldToPlacementLocal',
+        '_beginPasteDrop', '_updatePasteDrop', '_cancelPasteDrop']) {
         app[method] = PCBApp.prototype[method];
     }
     return { app, text, placement };
@@ -70,9 +69,12 @@ function check(point, expected, options = {}) {
     assert.deepEqual({ x: placement.refDx, y: placement.refDy }, expected, 'Reference adapter drag');
     app._handleRefDrag({ clientX: point.x, clientY: point.y, shiftKey: viewport.shiftHeld });
     assert.deepEqual({ x: placement.refDx, y: placement.refDy }, expected, 'Legacy reference pointer drag');
+    const pastedText = { ...text, id: 'pasted', layer: 'top-silk' };
+    app._beginPasteDrop({ texts: [pastedText] });
     app._updatePasteDrop(point);
-    assert.deepEqual({ x: text.x, y: text.y }, expected, 'Floating pasted text/bundle');
-    text.x = text.y = 0;
+    assert.deepEqual({ x: pastedText.x, y: pastedText.y }, expected, 'Floating pasted text/bundle');
+    assert.deepEqual({ x: text.x, y: text.y }, { x: 0, y: 0 }, 'Floating paste never moves the authored source');
+    app._cancelPasteDrop();
     setPcbSelection(app, [{ kind: 'text', object: text }]);
     beginGroupDrag(app, { x: 0, y: 0 });
     updateGroupDrag(app, point);
