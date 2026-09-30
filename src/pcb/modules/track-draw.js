@@ -341,11 +341,11 @@ function _findNearbyTrackNodePreferNet(app, worldPos, tolerance, excludeTrack, p
         if (track === excludeTrack) continue;
         const sameNet = preferredNet && track.net === preferredNet;
         for (const [nid, p] of track.nodes) {
-            if (excludeNode && excludeNode(track, nid)) continue;
             const dx = p.x - worldPos.x;
             const dy = p.y - worldPos.y;
             const d2 = dx * dx + dy * dy;
             if (d2 > tol2) continue;
+            if (excludeNode && excludeNode(track, nid)) continue;
             if (sameNet) {
                 if (d2 < bestSameD2) { bestSameD2 = d2; bestSameNet = { x: p.x, y: p.y, track, nodeId: nid }; }
             } else {

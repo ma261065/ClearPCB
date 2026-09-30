@@ -6,6 +6,7 @@ import { Pad } from '../src/shapes/pad.js';
 
 globalThis.window = { addEventListener() {} };
 const { startViaDrag, startPadDrag } = await import('../src/pcb/modules/track-drag.js');
+const { resolveTrackSnap } = await import('../src/pcb/modules/track-draw.js');
 
 for (const kind of ['via', 'pad']) {
     const model = new PcbDocument();
@@ -38,5 +39,38 @@ for (const kind of ['via', 'pad']) {
     assert.equal(calls.get(top), 1, 'Only the coincident node needs an incident-edge scan');
     assert.equal(calls.get(bottom), 1, 'Layer eligibility is checked for the near-coincident node');
     assert.equal(calls.get(distant), 0, 'Distant tracks do not need any incident-edge scans');
+    for (const track of model.tracks) calls.set(track, 0);
+    const snapStart = performance.now();
+    const snap = resolveTrackSnap(app, { x: 2000.02, y: 0.01 }, {
+        layer: kind === 'pad' ? 'top-copper' : 'both',
+        excludeNode: (track, id) => !track.incidentEdges(id)
+            .some(edge => app._viaDrag.layers.includes(track.getEdgeLayer(edge.edgeId))),
+    });
+    console.log(`${kind} node snap: ${(performance.now() - snapStart).toFixed(2)} ms; incident scans: ${[...calls.values()].join(', ')}`);
+    assert.equal(snap.snapType, 'track-node');
+    assert.equal(snap.trackNode.track, top);
+    assert.equal(snap.trackNode.nodeId, 'n2000');
+    assert.equal(calls.get(top), 1, 'Only an in-range candidate needs layer eligibility testing');
+    assert.equal(calls.get(bottom), 0);
+    assert.equal(calls.get(distant), 0);
+    assert.deepEqual(model.tracks.map(track => track.captureState()), before, 'Snapping is read-only');
 }
-console.log('PASS via/pad pickup uses node positions before edge scans, preserving layer eligibility and read-only state');
+
+{
+    const near = new Track({ net: 'OTHER', points: [{ x: 0.01, y: 0 }, { x: 10, y: 0 }] });
+    const preferred = new Track({ net: 'GND', points: [{ x: 0.05, y: 0 }, { x: 10, y: 10 }] });
+    const boundary = new Track({ net: 'GND', points: [{ x: 0.1, y: 0 }, { x: 20, y: 20 }] });
+    const app = { tracks: [near, preferred, boundary], viewport: { scale: 100 } };
+    const options = { net: 'GND', trackTolerance: 0.1 };
+    assert.equal(resolveTrackSnap(app, { x: 0, y: 0 }, options).trackNode.track, preferred);
+    assert.equal(resolveTrackSnap(app, { x: 0, y: 0 }, {
+        ...options, excludeNode: track => track === preferred,
+    }).trackNode.track, boundary, 'Exclusion retains same-net preference and inclusive tolerance');
+    assert.equal(resolveTrackSnap(app, { x: 0, y: 0 }, {
+        ...options, excludeNode: track => track.net === 'GND',
+    }).trackNode.track, near, 'Excluded preferred nodes fall back to the nearest other-net node');
+    assert.notEqual(resolveTrackSnap(app, { x: 0, y: 0 }, {
+        ...options, excludeNode: () => true,
+    }).snapType, 'track-node');
+}
+console.log('PASS via/pad pickup and node snapping bound edge scans, preserving layer/net eligibility and read-only state');
