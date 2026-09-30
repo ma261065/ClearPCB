@@ -5936,16 +5936,17 @@ export default class PCBApp {
             ],
             preview: (t) => this._refreshText(t.id),
             commit: (t, snap) => {
+                const before = {};
                 const after = {};
-                for (const k of ['content', 'layer', 'size', 'rotation', 'strokeWidth', 'border', 'x', 'y']) {
-                    if (snap[k] !== t[k]) after[k] = t[k];
+                for (const k of ['layer', 'size', 'rotation', 'strokeWidth', 'x', 'y']) {
+                    if (snap[k] !== t[k]) {
+                        before[k] = snap[k];
+                        after[k] = t[k];
+                    }
                 }
-                // Roll back to snapshot first; EditTextCommand will reapply.
-                const final = { ...t };
-                Object.assign(t, snap);
-                this._refreshText(t.id);
                 if (Object.keys(after).length === 0) return;
-                Object.assign(t, final); // restore current values inside cmd
+                // Let the command capture pre-preview values without repainting the rollback.
+                Object.assign(t, before);
                 this.history.execute(new EditTextCommand(this, t.id, after));
             },
         });

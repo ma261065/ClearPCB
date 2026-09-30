@@ -451,6 +451,14 @@ snapshot with its original ID. Add undo retains the current model object, which
 may have been recreated by a later deletion undo, so a complete undo/redo chain
 cannot resurrect a stale text instance. Missing move/edit targets fail explicitly.
 
+Text property previews still update the live model while typing. On commit, the
+editor restores only changed style fields (including layer-dependent anchor
+coordinates) before constructing the model command, so undo captures the
+pre-preview values. This temporary restoration is not rendered; the command
+reapplies the final values and refreshes presentation and derived copper data.
+Content and border edits have separate commands and are not folded into a style
+edit. This corrects the history handoff, not general live-preview ownership.
+
 Saved PCB placement/reference settings live in
 `ProjectDocument.pcbDocument.placementState` (`core/PcbPlacementState.js`). The PCB editor's
 `_placementOverrides` aliases its map. Recording copies only the persisted pose,
