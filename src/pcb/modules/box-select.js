@@ -46,6 +46,8 @@ import {
     MoveViaCommand,
     ModifyTrackGraphCommand,
     applyPlacementPose,
+    previewPlacementPoses,
+    finishPlacementPreview,
 } from './track-commands.js';
 import { MoveBoardShapeCommand, RemoveBoardShapeCommand } from './shape-commands.js';
 import { MoveTextCommand, RemoveTextCommand } from './text-commands.js';
@@ -445,6 +447,7 @@ export function beginGroupDrag(app, worldPos) {
         startWorld: { x: worldPos.x, y: worldPos.y },
         lastDx: 0, lastDy: 0,
         comps, vias, pads, tracks, shapes, texts, fills,
+        componentPreview: comps.length > 0 && [vias, pads, tracks, shapes, texts, fills].every(items => !items.length),
         ratsnestNets,
         padCrosshairStart: pads.length ? { x: pads[0].before.x, y: pads[0].before.y } : null,
         previousDeferDragOverlays: !!app._deferDragOverlays,
@@ -492,11 +495,15 @@ export function updateGroupDrag(app, worldPos, { snap = true } = {}) {
         });
     }
 
-    for (const c of g.comps) {
-        const pl = app.placements.get(c.id);
-        if (!pl) continue;
-        pl.x = c.x + dx; pl.y = c.y + dy;
-        applyPlacementPose(app, c.id);
+    if (g.componentPreview) {
+        previewPlacementPoses(app, new Map(g.comps.map(c => [c.id, { x: c.x + dx, y: c.y + dy }])));
+    } else {
+        for (const c of g.comps) {
+            const pl = app.placements.get(c.id);
+            if (!pl) continue;
+            pl.x = c.x + dx; pl.y = c.y + dy;
+            applyPlacementPose(app, c.id);
+        }
     }
     for (const vEntry of g.vias) {
         vEntry.via.x = vEntry.x + dx;
@@ -588,6 +595,7 @@ export function endGroupDrag(app) {
         }
     }
     if (cmds.length === 0) {
+        if (g.componentPreview) finishPlacementPreview(app);
         if (!app._deferDragOverlays && (g.comps.length || g.vias.length || g.tracks.length)) {
             app._refreshClearanceHalos?.();
         }
@@ -595,9 +603,18 @@ export function endGroupDrag(app) {
         _applyHighlights(app);
         return;
     }
-    // The model is already at the dragged-to state; execute() re-applies it
-    // (idempotent), keeping the command the single source of truth.
-    app.history?.execute(cmds.length === 1 ? cmds[0] : new CompoundCommand(cmds));
+    const command = cmds.length === 1 ? cmds[0] : new CompoundCommand(cmds);
+    if (g.componentPreview) {
+        finishPlacementPreview(app, () => {
+            // Preflight every footprint before the compound command can change any track.
+            for (const component of g.comps) {
+                if (!app.project.getPcbFootprint(component.id)) {
+                    throw new Error(`PCB footprint is no longer available: ${component.id}`);
+                }
+            }
+            app.history.execute(command);
+        });
+    } else app.history?.execute(command);
     _applyHighlights(app);
 }
 
@@ -611,7 +628,8 @@ export function cancelGroupDrag(app) {
     g.pendingWorld = null;
     app._deferDragOverlays = g.previousDeferDragOverlays;
     if (g.padCrosshairStart) app.viewport?.hideCrosshair();
-    for (const entry of g.comps || []) {
+    if (g.componentPreview) finishPlacementPreview(app);
+    for (const entry of (g.componentPreview ? [] : g.comps || [])) {
         const placement = app.placements.get(entry.id);
         if (!placement) continue;
         placement.x = entry.x;

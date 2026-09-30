@@ -5133,6 +5133,10 @@ export default class PCBApp {
         const state = this._pcbSelectionInteraction;
         if (state?.adapter?.kind === 'component'
             || (state?.mode === 'move-adapter' && state.entry.kind === 'component')) finishSelectionInteraction(this, false);
+        if (this._groupDrag?.componentPreview) {
+            if (state?.mode === 'move') finishSelectionInteraction(this, false);
+            else cancelGroupDrag(this);
+        }
         if (this._drag) this._endDrag(false);
     }
 

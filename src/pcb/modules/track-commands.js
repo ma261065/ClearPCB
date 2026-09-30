@@ -66,28 +66,49 @@ export function getPlacementPreviewTracks(app) {
  * @param {Partial<{x:number, y:number, rotation:number}>} pose
  */
 export function previewPlacementPose(app, compId, pose) {
-    const pl = app.placements?.get(compId);
-    if (!pl) return;
+    previewPlacementPoses(app, new Map([[compId, pose]]));
+}
+
+/**
+ * Preview a fixed set of component poses, sharing one copy of each bonded track.
+ * @param {any} app
+ * @param {Map<string, Partial<{x:number, y:number, rotation:number}>>} poses
+ */
+export function previewPlacementPoses(app, poses) {
+    const ids = [...poses.keys()].filter(id => app.placements?.has(id));
+    if (!ids.length) return;
     let preview = placementPreviews.get(app);
     if (!preview) {
+        const before = new Map(ids.map(id => {
+            const pl = app.placements.get(id);
+            return [id, { x: pl.x, y: pl.y, rotation: pl.rotation }];
+        }));
         const originals = new Map();
         const tracks = (app.pcbDocument?.tracks || app.tracks || []).map(track => {
-            if (![...(track.padConnections?.values() || [])].some(connection => connection?.componentId === compId)) return track;
+            if (![...(track.padConnections?.values() || [])].some(connection => before.has(connection?.componentId))) return track;
             const copy = new Track({ id: track.id });
             copy.applyState(track.captureState());
             originals.set(copy, track);
             return copy;
         });
-        preview = { compId, tracks, copies: [...originals.keys()], originals, rendered: new Set(),
-            before: { x: pl.x, y: pl.y, rotation: pl.rotation }, changed: false };
+        preview = { tracks, copies: [...originals.keys()], originals, rendered: new Set(),
+            before, changed: new Set() };
         placementPreviews.set(app, preview);
     }
-    if (preview.compId !== compId) throw new Error('Finish the current placement preview before starting another.');
-    Object.assign(pl, pose);
-    preview.changed = pl.x !== preview.before.x || pl.y !== preview.before.y || pl.rotation !== preview.before.rotation;
-    updatePlacementPadPositions(pl);
-    renderPlacementPose(app, compId);
-    for (const track of repositionPadConnectedNodesData(preview.copies, compId, pl.pads)) {
+    if (preview.before.size !== ids.length || ids.some(id => !preview.before.has(id))) {
+        throw new Error('Finish the current placement preview before starting another.');
+    }
+    const touched = new Set();
+    for (const id of ids) {
+        const pl = app.placements.get(id), before = preview.before.get(id);
+        Object.assign(pl, poses.get(id));
+        if (pl.x !== before.x || pl.y !== before.y || pl.rotation !== before.rotation) preview.changed.add(id);
+        else preview.changed.delete(id);
+        updatePlacementPadPositions(pl);
+        renderPlacementPose(app, id);
+        for (const track of repositionPadConnectedNodesData(preview.copies, id, pl.pads)) touched.add(track);
+    }
+    for (const track of touched) {
         if (!preview.rendered.has(track)) removeTrackElements(preview.originals.get(track));
         renderTrack(track, id => app._getLayerGroup(id), _opts(app, track));
         preview.rendered.add(track);
@@ -111,11 +132,12 @@ export function finishPlacementPreview(app, commit) {
         }
     } finally {
         if (preview && !committed) {
-            const pl = app.placements?.get(preview.compId);
-            if (pl) {
-                Object.assign(pl, preview.before);
+            for (const [id, before] of preview.before) {
+                const pl = app.placements?.get(id);
+                if (!pl) continue;
+                Object.assign(pl, before);
                 updatePlacementPadPositions(pl);
-                if (preview.changed) renderPlacementPose(app, preview.compId);
+                if (preview.changed.has(id)) renderPlacementPose(app, id);
             }
         }
         for (const track of preview?.rendered || []) {

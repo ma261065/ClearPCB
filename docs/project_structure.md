@@ -762,10 +762,12 @@ An unavailable model footprint fails before pose or graph mutation.
 `CommandHistory` transfers an undo/redo entry only after that operation succeeds,
 so such failures retain the entry for retry; this is not general mutation rollback.
 
-Single-component movement and rotation use editor-owned track projections.
-The first changed pointer position copies only tracks bonded to that component,
-preserving their IDs, full-precision topology and physical pad connections.
-Further movement reuses those objects. During the gesture, the editor's `tracks`
+Single-component movement/rotation and component-only group movement use
+editor-owned track projections. The first changed pointer position copies only
+tracks bonded to participating components, preserving their IDs, full-precision
+topology and physical pad connections. Further movement reuses those objects.
+Tracks shared by moving components are copied once and rendered once per update,
+after all their endpoints have moved. During the gesture, the editor's `tracks`
 getter exposes the projected list for rendering, clearance and ratsnest queries;
 `PcbDocument.tracks`, its bounds caches, serialization and geometry capture remain
 unchanged. Unrelated tracks retain their original identity.
@@ -777,9 +779,14 @@ discards the projection and restores the starting placement/pads and canonical
 track artwork without rewriting authored copper or recording history. Command
 failure also removes preview state and restores presentation before propagating
 the error. Tab deactivation and document loading cancel these component gestures.
+Component-only group commits preflight every participant's footprint before
+executing the existing compound command, so a missing later footprint cannot
+leave earlier components authored. This is not general transaction rollback.
 Pending frame movement is discarded on cancel but flushed on commit. Ctrl+Z
 cancels the live preview before undoing the previous committed command.
-Save/export readiness guards remain in place: grouped moves and direct
+Group movement retains shared-delta snapping and outer overlay deferral; no-op
+drops and cancellation preserve redo history. Save/export readiness guards
+remain in place: mixed-entity grouped moves and direct
 entity/property previews are not yet generally isolated.
 
 Both component pointer paths use the same live pose updater. If magnetic snapping
