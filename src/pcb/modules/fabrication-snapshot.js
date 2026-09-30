@@ -21,14 +21,9 @@ export async function prepareFabricationSnapshot(app, { computeFills = true } = 
         structuredClone(Object.fromEntries(placementFields.map(key => [key, placement[key]]))),
     ]));
     const tracks = app.tracks.map(track => {
-        const nodes = new Map([...track.nodes].map(([id, point]) => [id, { x: point.x, y: point.y }]));
-        const edges = new Map([...track.edges].map(([id, edge]) => [id, { ...edge,
-            width: track.getEdgeWidth(id), layer: track.getEdgeLayer(id),
-        }]));
-        return { id: track.id, net: track.net, width: track.width, layer: track.layer, nodes, edges,
-            cornerRadius: track.cornerRadius, nodeCornerRadii: { ...track.nodeCornerRadii },
-            padConnections: new Map([...track.padConnections].map(([id, connection]) => [id, { ...connection }])),
-            getEdgeWidth: id => edges.get(id).width, getEdgeLayer: id => edges.get(id).layer };
+        const geometry = track.captureCopperGeometry();
+        return { ...geometry, getEdgeWidth: id => geometry.edges.get(id).width,
+            getEdgeLayer: id => geometry.edges.get(id).layer };
     });
     const fills = app.copperFills.map(fill => ({ id: fill.id, type: 'fill', layer: fill.layer, net: fill.net,
         outline: structuredClone(fill.getOutline?.() || fill.outline), _computed: null }));

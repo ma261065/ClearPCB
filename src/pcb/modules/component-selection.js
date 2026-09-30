@@ -1,5 +1,7 @@
 import { registerPcbSelectionAdapter, getComponentSelectionHit } from './selection-registry.js';
 import { lockPositionOutsideOutline } from './selection-anchors.js';
+import { rotationHandleAnchor, pointerRotation } from './rotation-handle.js';
+import { applyPlacementPose, RotatePlacementCommand } from './track-commands.js';
 
 function outlineForPlacement(placement) {
     const bounds = placement?.bounds;
@@ -33,6 +35,7 @@ function appLocalToWorld(placement, point) {
 }
 
 export function createComponentSelectionAdapter(app, componentId, id) {
+    let rotationDrag = null;
     return {
         id,
         kind: 'component',
@@ -40,6 +43,10 @@ export function createComponentSelectionAdapter(app, componentId, id) {
         get visible() { return app.placements?.has(componentId); },
         get locked() { return !!app.placements?.get(componentId)?.locked; },
         getBounds() { return boundsForPlacement(app.placements?.get(componentId)); },
+        getAnchors() {
+            const placement = app.placements?.get(componentId);
+            return placement ? [rotationHandleAnchor(boundsForPlacement(placement), app.viewport?.scale)] : [];
+        },
         getLockPosition(pointer, scale) {
             return lockPositionOutsideOutline(
                 outlineForPlacement(app.placements?.get(componentId)),
@@ -55,6 +62,46 @@ export function createComponentSelectionAdapter(app, componentId, id) {
         beginMove(worldPos) { return app._beginComponentDrag(componentId, worldPos); },
         updateMove(worldPos) { app._updateComponentDrag(worldPos); },
         endMove(commit) { app._endDrag(commit); },
+        beginAnchorDrag(anchorId, worldPos) {
+            const placement = app.placements?.get(componentId);
+            if (anchorId !== 'rotate' || !placement || placement.locked) return false;
+            rotationDrag = {
+                center: { x: placement.x, y: placement.y }, start: { ...worldPos },
+                rotation: placement.rotation || 0, nets: app._netsForComponent?.(componentId),
+            };
+            app._rotationHandleDrag = true;
+            app._hoverComponent?.(null);
+            app._hideNetTooltip?.();
+            return true;
+        },
+        updateAnchorDrag(worldPos) {
+            const placement = app.placements?.get(componentId);
+            if (!rotationDrag || !placement || placement.locked) return;
+            // Footprint transforms use SVG's clockwise-positive angles.
+            const rotation = pointerRotation(rotationDrag.center, rotationDrag.start, worldPos, rotationDrag.rotation, true);
+            if ((placement.rotation || 0) === rotation) return;
+            placement.rotation = rotation;
+            applyPlacementPose(app, componentId);
+            app._updateRatsnest?.({ nets: rotationDrag.nets, skipFillRefresh: true });
+        },
+        endAnchorDrag(commit) {
+            if (!rotationDrag) return;
+            const placement = app.placements?.get(componentId);
+            const before = rotationDrag.rotation;
+            rotationDrag = null;
+            app._rotationHandleDrag = false;
+            if (!placement) return;
+            const after = placement.rotation || 0;
+            if (commit && !placement.locked && after !== before) {
+                // Seed automatic-placement history from the original pose, without repainting it.
+                placement.rotation = before;
+                app.history.execute(new RotatePlacementCommand(app, componentId, before, after));
+            } else if (after !== before) {
+                placement.rotation = before;
+                applyPlacementPose(app, componentId);
+                app._updateRatsnest?.();
+            }
+        },
         invalidate() { app._updatePcbCulling?.(); },
         render() { this.invalidate(); },
     };

@@ -9,8 +9,17 @@ import {
     AddTextCommand as ModelAddTextCommand, RemoveTextCommand as ModelRemoveTextCommand,
     MoveTextCommand as ModelMoveTextCommand, EditTextCommand as ModelEditTextCommand,
 } from '../../core/pcb-text-commands.js';
-import { isPcbSelected } from './selection-registry.js';
+import { getPcbSelectionEntries, isPcbSelected } from './selection-registry.js';
 import { schedulePictureCopperRefresh } from './picture-refresh.js';
+import { deferDerivedUpdate } from '../../core/DerivedUpdates.js';
+
+function refreshTextLayerProperties(app) {
+    if (deferDerivedUpdate(app, 'text-layer-properties', () => refreshTextLayerProperties(app))) return;
+    const selected = getPcbSelectionEntries(app);
+    if (!selected.some(entry => entry.kind === 'text')) return;
+    if (selected.length === 1) app._showTextProperties?.(selected[0].object);
+    else app._showPcbMultiSelectionProperties?.(selected);
+}
 
 /** Add a text to app.texts and render it. */
 export class AddTextCommand extends ModelAddTextCommand {
@@ -84,6 +93,9 @@ export class EditTextCommand extends ModelEditTextCommand {
         const t = this.document.texts.get(this.id);
         schedulePictureCopperRefresh(this.app, t);
         this.app._refreshText(this.id);
+        if ('layer' in patch && isPcbSelected(this.app, 'text', t)) {
+            refreshTextLayerProperties(this.app);
+        }
         if ('rotation' in patch && isPcbSelected(this.app, 'text', t)) {
             const input = /** @type {HTMLInputElement|null} */ (document.getElementById('pcbPropTextRot'));
             if (input) input.value = String(Math.round(t.rotation) % 360);

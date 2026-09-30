@@ -10,11 +10,12 @@ export function rotationHandleAnchor(bounds, scale) {
     };
 }
 
-export function pointerRotation(center, start, current, initialRotation) {
+export function pointerRotation(center, start, current, initialRotation, clockwise = false) {
     if (Math.hypot(current.x - center.x, current.y - center.y) < 1e-9) return initialRotation;
     const startAngle = Math.atan2(start.y - center.y, start.x - center.x);
     const angle = Math.atan2(current.y - center.y, current.x - center.x);
-    return ((Math.round(initialRotation - (angle - startAngle) * 180 / Math.PI) % 360) + 360) % 360;
+    const delta = (angle - startAngle) * 180 / Math.PI;
+    return ((Math.round(initialRotation + (clockwise ? delta : -delta)) % 360) + 360) % 360;
 }
 
 export function rotatedImagePoints(points, center, degrees) {

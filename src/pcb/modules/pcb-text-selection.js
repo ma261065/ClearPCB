@@ -29,15 +29,17 @@ export function createPcbTextSelectionAdapter(app, text, id) {
         getPosition() { return { x: text.x, y: text.y }; },
         getAnchors() { return [rotationHandleAnchor(pcbTextBounds(text), app.viewport?.scale)]; },
         beginAnchorDrag(anchorId, worldPos) {
-            if (anchorId !== 'rotate') return false;
+            if (anchorId !== 'rotate' || isLayerLocked(text.layer) || !isLayerVisible(text.layer)) return false;
             rotationDrag = { center: { x: text.x, y: text.y }, start: { ...worldPos }, rotation: text.rotation || 0 };
             app._rotationHandleDrag = true;
             schedulePictureCopperRefresh(app, text);
             return true;
         },
         updateAnchorDrag(worldPos) {
-            if (!rotationDrag) return;
-            text.rotation = pointerRotation(rotationDrag.center, rotationDrag.start, worldPos, rotationDrag.rotation);
+            if (!rotationDrag || isLayerLocked(text.layer) || !isLayerVisible(text.layer)) return;
+            const rotation = pointerRotation(rotationDrag.center, rotationDrag.start, worldPos, rotationDrag.rotation);
+            if (text.rotation === rotation) return;
+            text.rotation = rotation;
             schedulePictureCopperRefresh(app, text);
             app._refreshText(text.id);
             const input = /** @type {HTMLInputElement|null} */ (document.getElementById('pcbPropTextRot'));
@@ -50,8 +52,9 @@ export function createPcbTextSelectionAdapter(app, text, id) {
             rotationDrag = null;
             app._rotationHandleDrag = false;
             schedulePictureCopperRefresh(app, text);
-            if (commit && after !== text.rotation) app.history.execute(new EditTextCommand(app, text.id, { rotation: after }));
-            else app._refreshText(text.id);
+            if (commit && !isLayerLocked(text.layer) && isLayerVisible(text.layer) && after !== text.rotation) {
+                app.history.execute(new EditTextCommand(app, text.id, { rotation: after }));
+            } else app._refreshText(text.id);
             app._showTextProperties?.(text);
         },
         beginMove(worldPos) { return app._beginTextDrag(text, worldPos); },

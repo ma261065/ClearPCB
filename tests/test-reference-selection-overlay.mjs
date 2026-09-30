@@ -61,6 +61,7 @@ globalThis.document = {
 };
 const { ProjectDocument } = await import('../src/core/ProjectDocument.js');
 const { default: SchematicApp } = await import('../src/ui/SchematicApp.js');
+const { default: PCBApp } = await import('../src/ui/PCBApp.js');
 const { idleState } = await import('../src/schematic/modules/draw-states.js');
 const source = readFileSync(new URL('../src/ui/PCBApp.js', import.meta.url), 'utf8').replace(/\r\n/g, '\n');
 const method = source.match(/    _tryEditReferenceAt\(worldPos\) \{([\s\S]*?)\n    \}/);
@@ -104,13 +105,19 @@ Object.defineProperty(window, 'app', {
     get() { assert.fail('PCB component access must use the registered schematic'); },
 });
 let dirty = false;
+const referenceRenders = [], referenceOverlays = [], referencePanels = [];
+let referenceRatsnestUpdates = 0, referenceBoardUpdates = 0;
 const editor = {
     project: componentApi,
     placements: new Map([[component.id, { reference: 'R1', side: 'top', x: 10, y: 20 }]]),
     history: new CommandHistory({ onChanged() { dirty = true; } }),
     _hitTestText() { return null; }, _hitTestRefText() { return component.id; },
     _startTextInlineEdit(text, point, options) { this.edit = { text, options }; },
-    _rerenderRef() {}, _drawRefOverlay() {}, _showRefProperties() {}, _updateRatsnest() {},
+    _rerenderRef(id) { referenceRenders.push(this.placements.get(id)?.reference); },
+    _drawRefOverlay(id) { referenceOverlays.push(this.placements.get(id)?.reference); },
+    _showRefProperties(id) { referencePanels.push(this.placements.get(id)?.reference); },
+    _updateRatsnest() { referenceRatsnestUpdates++; },
+    _board3d: { refresh() { referenceBoardUpdates++; } },
 };
 assert.equal(startReferenceEdit.call(editor, { x: 10, y: 20 }), true);
 editor.edit.text.content = 'R7';
@@ -121,7 +128,28 @@ assert.equal(editor.edit.options.validate(' r2 '), false, 'Duplicate names are c
 assert.equal(editor.edit.options.validate('   '), false, 'Blank references are rejected');
 assert.equal(alerts.length, 2);
 assert.equal(editor.edit.options.validate(' R7 '), true);
-editor.edit.options.finish(' R7 ', true);
+const beforeRenameRenders = referenceRenders.length, beforeRenameOverlays = referenceOverlays.length;
+let editOverlayDestroyed = 0;
+editor._textEdit = {
+    ...editor.edit, originalContent: 'R1', input: { value: 'R2' },
+    overlay: { destroy() { editOverlayDestroyed++; } },
+};
+const activeReferenceEdit = editor._textEdit;
+assert.equal(PCBApp.prototype._endTextInlineEdit.call(editor, true), false);
+assert.equal(editor._textEdit, activeReferenceEdit, 'Invalid names keep the inline editor open');
+assert.equal(editOverlayDestroyed, 0);
+assert.equal(editor.history.canUndo(), false);
+assert.equal(component.reference, 'R1');
+editor._textEdit.input.value = ' R7 ';
+PCBApp.prototype._endTextInlineEdit.call(editor, true);
+assert.equal(editor._textEdit, null);
+assert.equal(editOverlayDestroyed, 1, 'Commit retains inline editing teardown');
+assert.deepEqual(referenceRenders.slice(beforeRenameRenders), ['R7'],
+    'Rename commit renders only the final reference, never a rollback to the old label');
+assert.deepEqual(referenceOverlays.slice(beforeRenameOverlays), ['R7']);
+assert.deepEqual(referencePanels, ['R7'], 'The rename command owns the single final properties refresh');
+assert.equal(referenceRatsnestUpdates, 1);
+assert.equal(referenceBoardUpdates, 1);
 assert.equal(component.reference, 'R7');
 assert.equal(component.refText.text, 'R7', 'Schematic field text follows its component');
 assert.equal(editor.netlist[0].net, 'R7.1', 'Reference-derived net names refresh through the project');
@@ -140,6 +168,9 @@ editor.history.redo();
 assert.equal(component.reference, 'R7');
 assert.equal(component.refText.text, 'R7');
 assert.equal(editor.placements.get(component.id).reference, 'R7');
+assert.deepEqual(referencePanels, ['R7', 'R1', 'R7'], 'Undo/redo each refresh the properties panel once');
+assert.equal(referenceRatsnestUpdates, 3);
+assert.equal(referenceBoardUpdates, 3);
 startReferenceEdit.call(editor, { x: 10, y: 20 });
 editor.edit.text.content = 'R99';
 editor.edit.options.render();
@@ -147,6 +178,19 @@ editor.edit.options.finish('R99', false);
 assert.equal(component.reference, 'R7');
 assert.equal(editor.placements.get(component.id).reference, 'R7', 'Cancel restores the PCB preview');
 assert.equal(editor.history.undoStack.length, 1, 'Cancel creates no history entry');
+assert.equal(referenceRenders.at(-1), 'R7');
+assert.equal(referencePanels.length, 4, 'Cancel restores the properties panel once');
+assert.equal(referenceRatsnestUpdates, 3, 'Cancel does not rebuild the netlist presentation');
+assert.equal(referenceBoardUpdates, 3);
+startReferenceEdit.call(editor, { x: 10, y: 20 });
+editor.edit.text.content = ' R7 ';
+editor.edit.options.render();
+editor.edit.options.finish(' R7 ', true);
+assert.equal(editor.placements.get(component.id).reference, 'R7', 'No-op commits discard whitespace-only previews');
+assert.equal(editor.history.undoStack.length, 1);
+assert.equal(referencePanels.length, 5);
+assert.equal(referenceRatsnestUpdates, 3);
+assert.equal(referenceBoardUpdates, 3);
 layerLocked = true;
 assert.equal(startReferenceEdit.call(editor, { x: 10, y: 20 }), false);
 layerLocked = false;
@@ -403,7 +447,6 @@ drawRefOverlay.call(highlightApp, null, false);
 assert.equal(referenceOverlay.children.length, 0);
 console.log('PASS: PCB references use silk selection colors, restore on deselection, and draw no reference box');
 
-const { default: PCBApp } = await import('../src/ui/PCBApp.js');
 component.definition = { footprintShapes: ['PAD~owned-footprint'] };
 const inspectorText = { value: '' };
 const inspector = {

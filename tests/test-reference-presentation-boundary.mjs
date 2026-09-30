@@ -94,6 +94,23 @@ for (const side of ['top', 'bottom']) for (const mirror of [false, true]) {
     assert.equal(dirty, 9, 'Every executed/undone/redone command retains its dirty notification');
     assert.equal(boardRefreshes, 9);
     assert.ok(overlays >= 9);
+    const rotatedGlyphs = [...reference.children];
+    const cachedBox = { cy: Number(reference.getAttribute('data-ref-cy')) };
+    placement._refBox = cachedBox;
+    const beforeHighlights = highlights, beforeCarets = caretUpdates;
+    app.history.execute(new SetRefStyleCommand(app, 'part', { refRot: placement.refRot }, { refRot: 123 }));
+    verifyTransform();
+    assert.equal(placement._refBox, cachedBox, 'Rotation-only style edits preserve the local layout box');
+    assert.equal(reference.children.length, rotatedGlyphs.length);
+    assert.ok(reference.children.every((child, index) => child === rotatedGlyphs[index]),
+        'Rotation-only style edits preserve glyph node identity');
+    app.history.undo();
+    verifyTransform();
+    assert.equal(placement._refBox, cachedBox);
+    assert.equal(reference.children.length, rotatedGlyphs.length);
+    assert.ok(reference.children.every((child, index) => child === rotatedGlyphs[index]));
+    assert.equal(highlights, beforeHighlights + 2, 'Reusing glyphs still refreshes highlight presentation');
+    assert.equal(caretUpdates, beforeCarets + 2, 'Reusing glyphs still repositions the inline-edit caret');
     app.placements.clear();
     app.history.undo();
     app.history.undo();

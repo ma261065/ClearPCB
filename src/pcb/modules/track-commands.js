@@ -171,6 +171,7 @@ export function renderPlacementPose(app, compId) {
             }
         }
     }
+    app._syncComponentRotationInput?.(compId);
 }
 
 /** Add a freshly-built Track to app.tracks and render it. Optionally
@@ -367,6 +368,7 @@ function presentPlacementPose(app, compId, result) {
     app._updateRatsnest?.();
     app._refreshFills?.();
     app._board3d?.refresh?.();
+    app._refreshPcbSelectionHighlights?.();
 }
 
 export class MovePlacementCommand extends ModelMovePlacementCommand {
@@ -415,6 +417,9 @@ export class SetPlacementLockedCommand extends ModelSetPlacementLockedCommand {
                 this.app.viewport.svg.style.cursor = locked ? 'default' : 'grab';
             }
             this.app._showComponentProperties?.(this.compId);
+        }
+        if (getPcbSelection(this.app, 'reftext').includes(this.compId)) {
+            this.app._showRefProperties?.(this.compId);
         }
         return saved;
     }

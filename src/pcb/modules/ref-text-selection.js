@@ -1,5 +1,11 @@
 import { registerPcbSelectionAdapter, getRefTextSelectionHit } from './selection-registry.js';
 import { lockPositionOutsideOutline } from './selection-anchors.js';
+import { isLayerVisible, isLayerLocked, unlockPcbLayer } from './layers.js';
+
+export function isRefTextLocked(placement) {
+    return !!placement && (!!placement.locked
+        || isLayerLocked(placement.side === 'bottom' ? 'bottom-silk' : 'top-silk'));
+}
 
 function outlineForRefText(app, componentId) {
     const placement = app.placements?.get(componentId);
@@ -18,9 +24,11 @@ function outlineForRefText(app, componentId) {
     ].map(([x, y]) => {
         const offsetX = x - box.cx;
         const offsetY = y - box.cy;
+        let localX = box.cx + offsetX * cos - offsetY * sin;
+        if (placement.mirror) localX = 2 * box.cx - localX;
         return app._placementLocalToWorld(
             placement,
-            box.cx + offsetX * cos - offsetY * sin + dx,
+            localX + dx,
             box.cy + offsetX * sin + offsetY * cos + dy,
         );
     });
@@ -42,8 +50,16 @@ export function createRefTextSelectionAdapter(app, componentId, id) {
         id,
         kind: 'reftext',
         object: componentId,
-        get visible() { return app.placements?.get(componentId)?.refVisible !== false; },
-        get locked() { return !!app.placements?.get(componentId)?.locked; },
+        get visible() {
+            const placement = app.placements?.get(componentId);
+            return !!placement && placement.refVisible !== false
+                && isLayerVisible(placement.side === 'bottom' ? 'bottom-silk' : 'top-silk');
+        },
+        get locked() { return isRefTextLocked(app.placements?.get(componentId)); },
+        unlock() {
+            const placement = app.placements?.get(componentId);
+            if (placement) unlockPcbLayer(app, placement.side === 'bottom' ? 'bottom-silk' : 'top-silk');
+        },
         getBounds() { return boundsForRefText(app, componentId); },
         getLockPosition(pointer, scale) {
             return lockPositionOutsideOutline(

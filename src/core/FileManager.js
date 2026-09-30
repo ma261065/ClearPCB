@@ -888,13 +888,14 @@ export class FileManager {
     // ==================== Auto-save (localStorage) ====================
     
     /**
-     * Start auto-save timer
+     * Start auto-save timer. Recheck snapshot readiness when idle work actually runs.
      */
-    startAutoSave(getDataFn, isDirtyFn) {
+    startAutoSave(getDataFn, isDirtyFn, canSaveFn = () => true) {
         this.stopAutoSave();
         const saveIfNeeded = () => {
             if (this.loading) return;
             try {
+                if (!canSaveFn()) return;
                 const dirty = this.isDirty || (typeof isDirtyFn === 'function' && isDirtyFn());
                 if (!dirty) return;
                 const snapshot = { revision: this.revision, fileName: this.fileName };
@@ -907,6 +908,7 @@ export class FileManager {
         };
         this.autoSaveTimer = setInterval(() => {
             if (this.loading || this.autoSaveIdleHandle !== null) return;
+            if (!canSaveFn()) return;
             const dirty = this.isDirty || (typeof isDirtyFn === 'function' && isDirtyFn());
             if (!dirty) return;
             if (typeof requestIdleCallback === 'function') {

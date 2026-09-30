@@ -131,5 +131,66 @@ for (const saved of [false, true]) {
     assert.equal(f.app.placementState.overrides.size, 0);
 }
 
+for (const legacy of [false, true]) for (const side of ['top', 'bottom']) {
+    for (const mirror of [false, true]) {
+        const f = fixture({ side, mirror });
+        const original = f.snapshot();
+        Object.assign(f.app.viewport, {
+            snapToGrid: true, gridSize: 1, getEffectiveGridSize: () => 10,
+        });
+        f.begin(false);
+        const moveTo = (x, y, shift = false) => {
+            const point = f.app._placementLocalToWorld(f.placement,
+                x - original.pose.refDx, y - original.pose.refDy);
+            if (legacy) f.app._handleRefDrag({ clientX: point.x, clientY: point.y, shiftKey: shift });
+            else {
+                f.app.viewport.shiftHeld = shift;
+                f.adapter.updateMove(point);
+            }
+        };
+        for (let index = 0; index < 100; index++) moveTo(20 + index / 1000, 30 + index / 1000);
+        assert.deepEqual(f.offsets(), { refDx: 20, refDy: 30 });
+        assert.equal(f.renders.length, 1, '100 events attracted to one point render the reference pose once');
+        assert.equal(f.overlays.length, 2, 'Only pickup and the changed position draw the tether overlay');
+        assert.deepEqual(f.snapshot().saved, original.saved);
+        assert.deepEqual(f.snapshot().pads, original.pads);
+        assert.deepEqual(f.snapshot().graph, original.graph);
+        assert.equal(f.app.history.canUndo(), false);
+        assert.equal(f.dirty(), 0);
+        assert.equal(f.boardRefreshes(), 0);
+
+        for (let index = 0; index < 100; index++) {
+            const x = 24 + index / 1000, y = 34 + index / 1000;
+            moveTo(x, y);
+            assert.ok(Math.abs(f.placement.refDx - x) < 1e-12 && Math.abs(f.placement.refDy - y) < 1e-12);
+        }
+        assert.equal(f.renders.length, 101, 'Every distinct free position still renders immediately');
+        assert.equal(f.overlays.length, 102, 'Every distinct free position updates its overlay');
+        moveTo(24.099, 34.099);
+        assert.equal(f.renders.length, 101, 'An identical unsnapped position also reuses its presentation');
+        moveTo(20.1, 30.1, true);
+        assert.ok(Math.abs(f.placement.refDx - 20.1) < 1e-12 && Math.abs(f.placement.refDy - 30.1) < 1e-12);
+        moveTo(20.1, 30.1);
+        assert.deepEqual(f.offsets(), { refDx: 20, refDy: 30 }, 'Releasing Shift re-evaluates the same pointer');
+        f.app.viewport.gridVisible = false;
+        moveTo(20.1, 30.1);
+        assert.ok(Math.abs(f.placement.refDx - 20.1) < 1e-12 && Math.abs(f.placement.refDy - 30.1) < 1e-12,
+            'Hiding the grid releases the same pointer from attraction');
+        f.adapter.endMove(false);
+        assert.deepEqual(f.snapshot(), original);
+        assert.equal(f.overlays.at(-1).withTether, false);
+
+        f.begin(false);
+        moveTo(24.123456, 34.234567);
+        f.adapter.endMove(true);
+        const committed = f.snapshot();
+        assert.equal(f.app.history.undoStack.length, 1);
+        f.app.history.undo();
+        assert.deepEqual(f.snapshot(), original);
+        f.app.history.redo();
+        assert.deepEqual(f.snapshot(), committed);
+    }
+}
+
 delete globalThis.window;
-console.log('PASS reference drag cancellation, physical geometry isolation, precise history and single-position drop');
+console.log('PASS reference drag cancellation, unchanged-pose reuse, free movement, physical isolation and history');

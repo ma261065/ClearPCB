@@ -105,6 +105,18 @@ styling. Success-indicator failures are logged separately: they cannot turn a
 completed autosave into a storage-failure warning or cause it to be retried.
 `onAutoSaveChanged` remains the separate size/title update callback.
 
+Browser idle time is not an edit-completion signal. Registered views may report
+`isSectionEditing()`; `ProjectDocument.canSerialize()` uses that neutral readiness
+contract without inspecting editor fields. PCB pointer/inline previews block
+project snapshots because some still mutate live model geometry before command
+commit. Autosave retains its existing idle scheduling and rechecks readiness
+both before scheduling and at idle execution, leaving the pending revision
+unsaved until commit/cancel makes it safe. Timer-only browsers use the same guard.
+Manual Save/Save As report a snapshot failure through the existing failure UI
+without opening or writing a file. Headless serialization remains available.
+This protects those preview windows; it does not migrate preview geometry out
+of the authored models or claim that all property-preview paths are isolated.
+
 Schematic history/dirty callbacks update their own UI, then call
 `ProjectDocument.notifySchematicChanged()`. The project calls the registered
 PCB's `onSchematicChanged()`; PCB never replaces another editor's callbacks.
@@ -205,6 +217,14 @@ still filter hidden copper. Selection pruning reuses model bounds including
 stroke extents rather than a separate centreline-only box. Whole-track radius
 previews and pad-bond removal/restoration explicitly invalidate bounds: a bond
 change can enable or suppress rounding without moving any node.
+
+`Track.captureCopperGeometry()` owns detached, full-precision copper graph
+capture, including resolved per-edge widths/layers, bulges, corner radii and
+pad-bond records. Its result is transferable data without SVG state or methods;
+it neither rounds for file storage nor triangulates/formats for a consumer.
+Fabrication capture delegates to this model operation, then adds its existing
+edge-query methods over the detached graph. Gerber formatting, worker transfer
+and asynchronous pour preparation remain consumer responsibilities.
 
 Standalone `Pad` exposes `getOutline()`, `getBounds()` and `hitTest()` through
 the pure helpers in `shapes/pad-geometry.js`. These helpers accept both model
@@ -435,6 +455,21 @@ as well as deferred geometry drags, rather than exporting cancellable previews.
 Track-to-pad connection records are copied along with their maps before any
 asynchronous pour preparation; snapshot and live metadata cannot mutate each other.
 
+Component selection exposes the shared rotation handle only for a single
+selected component. Its gesture uses one-degree, clockwise-positive footprint
+angles around the placement origin; text/image rotation keeps its existing
+opposite sign convention. Preview updates use `applyPlacementPose`, keeping
+pad positions, bonded track nodes and their SVG geometry attached on either
+board side and under mirroring. Unchanged rounded angles skip all preview work.
+Live ratsnest updates are limited to the component's nets and skip pour rebuilds
+until completion. The component rotation spinner follows previews and history;
+typed values and spinner steps commit through the existing rotation command
+without replacing the input. Pose commands also refresh selection anchors.
+Release records one `RotatePlacementCommand`, seeding automatic placements from
+the original pose. Escape, undo during a gesture and protected drops restore
+the original pose and track bonds without saving the preview. Locking through
+the properties panel cancels the active gesture before recording the lock.
+
 Free-standing text creation, defaults/layer rules and full-precision snapshots
 live in `core/pcb-text.js`. Undo and clipboard use these snapshots without file
 rounding; `PcbDocument.serializeEntities()` rounds text position, size, rotation
@@ -458,6 +493,43 @@ pre-preview values. This temporary restoration is not rendered; the command
 reapplies the final values and refreshes presentation and derived copper data.
 Content and border edits have separate commands and are not folded into a style
 edit. This corrects the history handoff, not general live-preview ownership.
+
+Standalone inline-text completion restores the original content in memory for
+command snapshot capture, without repainting it before a changed-content commit
+or deletion. Cancel and unchanged-content completion still render the restored
+text. Blank-content deletion captures selection before the remove command clears
+it, so completion also clears the deleted text's properties panel. Existing
+new-placement history cleanup, unrelated style edits and deferred clearance
+updates retain their behavior.
+
+Standalone text property panels, including the multi-selection intersection and
+inline symbol insertion, are read-only on locked layers. Drag/rotation handlers
+recheck layer locks and visibility before preview updates and commit; a protected
+drop restores the original pose. Locking a layer cancels active text movement,
+rotation and inline-content previews and refreshes selected property controls.
+Direct inline-edit and deletion entry points also reject locked/hidden text.
+Model history commands remain independent of these editor interaction guards.
+When a text command changes its layer, the editor adapter refreshes the current
+selected-text property panel on execute/undo/redo, including mixed selections.
+This keeps the displayed layer, mixed-value state and lock-disabled controls in
+sync. Non-layer patches do not rebuild the form, and commands for unselected
+text do not replace the current properties panel.
+Layer-property projection uses the existing `DerivedUpdates` batch scope: nested
+compound edits coalesce it until the outer command completes or rolls back.
+The refresh resolves the selection at that point, so the form does not display
+intermediate layer states or resurrect a selection cleared during the command.
+
+Standalone text, pad and image rotation previews resolve every pointer event using the
+existing whole-degree angle policy, but skip presentation and input writes when
+the resulting angle equals the current angle. Images retain the last rendered
+angle only for the active gesture, preserving geometry and SVG node identity
+for unchanged previews. Returning to the original image angle copies the original
+points exactly rather than applying a zero-degree transform, avoiding numerical
+drift and spurious history entries. Changed angles still render
+synchronously; text clearance invalidation and pad highlight geometry update
+only for changed previews. Commit/cancel refreshes and exact fractional-angle
+history restoration retain their existing behavior.
+Individual commands remain synchronous; no additional timer is introduced.
 
 Single-text dragging skips model writes, SVG rebuilds and crosshair updates when
 the snapped position has not changed. Changed positions still render immediately;
@@ -507,6 +579,30 @@ selection and legacy Escape/Undo paths both finish the drag; physical pad and
 bonded-track positions are unchanged. Local-frame magnetic snapping and
 placement rotation/mirroring remain the same.
 
+Both reference-drag paths re-evaluate magnetic snapping on every pointer event,
+but skip SVG transforms and selection/tether overlay rebuilding when the resulting
+local offsets are exactly unchanged. Distinct free positions still render
+immediately; there is no rounding, movement threshold or new scheduler.
+
+Reference property commits restore the pre-preview style only in memory before
+constructing `SetRefStyleCommand`, so automatic placements retain their original
+canonical baseline for undo. They do not regenerate glyphs or redraw overlays at
+that temporary rollback value. No-op commits do not perform an additional redraw;
+the shared input handler still presents valid edits immediately.
+Reference rotation spinners use one-degree increments in both single-reference
+and multi-selection properties.
+During inline label editing, focused numeric properties retain their native
+typing, selection, clipboard and navigation keys; Enter/Escape still finish the
+inline edit. Rotation fields normalize their displayed angle on commit, not
+while a signed value is being typed.
+
+Inline reference-name commits likewise let the project-owned rename command
+present the final label without a temporary rollback repaint. Its editor wrapper
+owns the single properties refresh plus netlist, ratsnest and 3D updates on
+execute/undo/redo. Cancel and whitespace-only no-op commits restore the original
+preview without adding history or refreshing nets; validation still happens before
+the inline editor is torn down.
+
 Reference previews, cancellation, offset/rotation history and glyph regeneration
 use the existing `renderPlacementPose()` helper for SVG transforms only. They no
 longer call the physical `applyPlacementPose()` path: reference-only changes do
@@ -515,6 +611,36 @@ The shared renderer retains placement/reference transforms, pad-number
 counter-mirroring, LOD and halo transforms. Dirty, reference-overlay, inline-caret
 and 3D notifications remain with their existing editor callers. Physical movement,
 rotation, side changes and initial placement setup keep their geometry updates.
+
+`applyRefGeometry()` retains the last successful layout inputs in a renderer-local
+WeakMap keyed by the reference SVG group. Unchanged text, anchor, size and stroke
+width reuse existing glyph nodes, including rotation-only property edits and the
+commit following a matching live preview. Changed layout inputs rebuild immediately;
+replacement groups build independently. The cached inputs are invalidated before
+DOM mutation so failed updates cannot masquerade as reusable geometry.
+`_rerenderRef()` invalidates the local reference-box cache only when glyph geometry
+changes, but always refreshes pose, highlight and inline-edit caret presentation.
+This reuse state is not authored model data and does not affect Canvas, 3D or Gerber
+geometry generation.
+
+Reference selection outlines include the user counter-mirror after reference
+rotation and before offset/placement transforms, matching SVG and export geometry.
+Hit-testing reverses that order, undoing the counter-mirror before reference
+rotation. Selection bounds and pointer-relative lock positions use this corrected
+outline; neither authored geometry nor reference handedness is changed.
+Reference picking also respects the visibility of its side's silkscreen layer:
+legacy hit-testing skips hidden labels before resolving layout boxes, and shared
+selection adapters report them as invisible. Missing placements are invisible to
+stale adapters. Hiding one side does not suppress visible references on the other.
+
+Reference interaction locking combines the placement lock and its side's silk
+layer lock. Locked labels remain selectable for inspection/unlocking, but shared
+and legacy dragging, keyboard rotation and single/multi-selection properties
+respect that combined policy. Locking silk cancels active reference drag and
+inline-name previews; a drag also rechecks the lock before committing. Layer
+lock changes refresh the selected reference's property controls. Reference lock
+icons retain both their component owner and layer-unlock callback, keeping
+authored placement-lock history separate from layer-panel preferences.
 
 The same core module now owns `MovePlacementCommand`, `RotatePlacementCommand`,
 `FlipPlacementCommand` and `SetPlacementSideCommand`. These take the project document, resolve its current

@@ -757,7 +757,7 @@ export function createBoardShapeSelectionAdapter(app, shape, id) {
             const rotation = ((-Math.atan2(shape.points[1].y - shape.points[0].y,
                 shape.points[1].x - shape.points[0].x) * 180 / Math.PI) % 360 + 360) % 360;
             rotationDrag = { before: shapeSnapshot(shape), points: shape.points.map(point => ({ ...point })),
-                center, start: { ...worldPos }, rotation };
+                center, start: { ...worldPos }, rotation, currentRotation: rotation };
             app._rotationHandleDrag = true;
             schedulePictureCopperRefresh(app, shape);
             return true;
@@ -766,11 +766,15 @@ export function createBoardShapeSelectionAdapter(app, shape, id) {
             if (!rotationDrag) return handleBoardShapeDrag(app, worldPos);
             const { center, start, rotation, points } = rotationDrag;
             const next = pointerRotation(center, start, worldPos, rotation);
-            shape.points = rotatedImagePoints(points, center, next - rotation);
+            if (next === rotationDrag.currentRotation) return;
+            shape.points = next === rotation
+                ? points.map(point => ({ ...point }))
+                : rotatedImagePoints(points, center, next - rotation);
             schedulePictureCopperRefresh(app, shape);
             renderBoardShape(app, shape, { liveDrag: true });
             const input = /** @type {HTMLInputElement|null} */ (document.getElementById('pcbPropImageRot'));
             if (input) input.value = String(Math.round(next) % 360);
+            rotationDrag.currentRotation = next;
         },
         endAnchorDrag(commit, options = {}) {
             if (rotationDrag) {

@@ -223,6 +223,19 @@ export class Track extends PolylineGraph {
         return s;
     }
 
+    /** Detached, full-precision copper graph with resolved per-edge attributes; no rendering state. */
+    captureCopperGeometry() {
+        const nodes = new Map([...this.nodes].map(([id, point]) => [id, { x: point.x, y: point.y }]));
+        const edges = new Map([...this.edges].map(([id, edge]) => [id, { ...edge,
+            width: this.getEdgeWidth(id), layer: this.getEdgeLayer(id),
+        }]));
+        return {
+            id: this.id, net: this.net, width: this.width, layer: this.layer, nodes, edges,
+            cornerRadius: this.cornerRadius, nodeCornerRadii: { ...this.nodeCornerRadii },
+            padConnections: new Map([...this.padConnections].map(([id, connection]) => [id, { ...connection }])),
+        };
+    }
+
     /** @override — restore track-specific fields. */
     applyState(state) {
         super.applyState(state);

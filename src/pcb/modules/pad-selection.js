@@ -50,9 +50,11 @@ export function createPadSelectionAdapter(app, pad, id) {
         },
         updateAnchorDrag(worldPos) {
             if (!rotationDrag) return;
-            pad.rotation = pointerRotation(
+            const rotation = pointerRotation(
                 { x: pad.x, y: pad.y }, rotationDrag.start, worldPos, rotationDrag.rotation,
             );
+            if (pad.rotation === rotation) return;
+            pad.rotation = rotation;
             renderPad(pad, layer => app._getLayerGroup(layer));
             updatePadHighlightGeometry(pad, app._getLayerGroup('selection-overlay'));
             const input = /** @type {HTMLInputElement|null} */ (document.getElementById('pcbPropPadRotation'));

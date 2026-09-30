@@ -304,8 +304,7 @@ export async function newFile(app) {
  * @returns {Promise<{success: boolean, fileName?: string, error?: string}>}
  */
 export async function saveFile(app) {
-    const data = app._serializeDocument();
-    const result = await app.fileManager.save(data);
+    const result = await writeDocument(app, false);
 
     if (result.success) {
         // Saving writes the WHOLE document, so every section is now clean.
@@ -333,8 +332,7 @@ export async function saveFile(app) {
  * @returns {Promise<{success: boolean, fileName?: string, error?: string}>}
  */
 export async function saveFileAs(app) {
-    const data = app._serializeDocument();
-    const result = await app.fileManager.saveAs(data);
+    const result = await writeDocument(app, true);
 
     if (result.success) {
         // Saving writes the WHOLE document, so every section is now clean.
@@ -347,6 +345,17 @@ export async function saveFileAs(app) {
     }
 
     return result;
+}
+
+async function writeDocument(app, saveAs) {
+    let data;
+    try {
+        data = app._serializeDocument();
+    } catch (error) {
+        console.error('Save snapshot failed:', error);
+        return { success: false, error: error instanceof Error ? error.message : String(error) };
+    }
+    return saveAs ? app.fileManager.saveAs(data) : app.fileManager.save(data);
 }
 
 /**

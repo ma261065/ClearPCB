@@ -20,6 +20,7 @@ function fixture(outcome = 'success') {
             schematicDocument: new SchematicDocument(),
             isDirty: outcome === 'declined',
             serialize: ProjectDocument.prototype.serialize,
+            canSerialize: ProjectDocument.prototype.canSerialize,
             async reset() {
                 if (outcome === 'reset-error') throw new Error('Reset failed');
                 await ProjectDocument.prototype.reset.call(this);

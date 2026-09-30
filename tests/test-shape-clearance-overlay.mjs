@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { PcbDocument } from '../src/core/PcbDocument.js';
+import { isLayerLocked, isLayerVisible } from '../src/pcb/modules/layers.js';
 
 globalThis.window = { addEventListener() {} };
 const element = () => ({
@@ -240,8 +241,8 @@ const { startBoardShapeDrag, handleBoardShapeDrag, endBoardShapeDrag } = await i
 const dropStart = source.indexOf('    _endTextDrag(commit = true) {');
 const dropEnd = source.indexOf('\n    //', dropStart);
 assert.ok(dropStart >= 0 && dropEnd > dropStart);
-const endTextDrag = new Function('MoveTextCommand',
-    `return ({ ${source.slice(dropStart, dropEnd)} })._endTextDrag;`)(MoveTextCommand);
+const endTextDrag = new Function('MoveTextCommand', 'isLayerLocked', 'isLayerVisible',
+    `return ({ ${source.slice(dropStart, dropEnd)} })._endTextDrag;`)(MoveTextCommand, isLayerLocked, isLayerVisible);
 const originalSetTimeout = globalThis.setTimeout;
 const originalClearTimeout = globalThis.clearTimeout;
 let deferred;

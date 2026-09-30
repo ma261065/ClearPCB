@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { PcbDocument } from '../src/core/PcbDocument.js';
 import { readFileSync } from 'node:fs';
 import { rotationHandleAnchor, pointerRotation, rotatedImagePoints, ROTATION_CURSOR } from '../src/pcb/modules/rotation-handle.js';
+import { isLayerLocked, isLayerVisible } from '../src/pcb/modules/layers.js';
 
 const bounds = { minX: -4, minY: -2, maxX: 4, maxY: 2 };
 for (const scale of [0.1, 1, 20]) {
@@ -219,8 +220,9 @@ try {
     const methodsStart = source.indexOf('    _selectText(text) {');
     const methodsEnd = source.indexOf('\n    //', source.indexOf('    _endTextDrag(commit = true) {', methodsStart));
     assert.ok(methodsStart >= 0 && methodsEnd > methodsStart);
-    const textPrototype = new Function('getPcbSelection', 'setPcbSelection', 'MoveTextCommand',
-        `return (class { ${source.slice(methodsStart, methodsEnd)} }).prototype;`)(getPcbSelection, setPcbSelection, MoveTextCommand);
+    const textPrototype = new Function('getPcbSelection', 'setPcbSelection', 'MoveTextCommand', 'isLayerLocked', 'isLayerVisible',
+        `return (class { ${source.slice(methodsStart, methodsEnd)} }).prototype;`)(
+        getPcbSelection, setPcbSelection, MoveTextCommand, isLayerLocked, isLayerVisible);
     const textMethods = Object.fromEntries(Object.getOwnPropertyNames(textPrototype)
         .filter(name => name !== 'constructor').map(name => [name, textPrototype[name]]));
     const movingText = { id: 'moving-text', content: 'Move', x: 0, y: 0, size: 2, strokeWidth: 0.2,

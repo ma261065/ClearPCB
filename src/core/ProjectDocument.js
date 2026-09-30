@@ -24,6 +24,7 @@ import { createPcbFootprint } from './pcb-footprint.js';
  *   - `loadSection(data)`   → restore the view from its slice.
  *   - `clearSection()`      → reset the view to empty (used by New).
  *   - `isSectionDirty()`    → unsaved-changes flag for autosave/beforeunload.
+ *   - `isSectionEditing()`  → transient previews make a file snapshot unsafe.
  *   - `restoreSectionDirty(dirty)` → restore section dirtiness after a failed load.
  *   - `onDocumentReplaced(reason)` → local UI reset after a successful file action.
  *   - `onProjectChanged()` → UI host refreshes aggregate project status.
@@ -166,6 +167,14 @@ export class ProjectDocument {
         return !!this.fileManager.isDirty || this.isViewDirty();
     }
 
+    /** Whether registered views permit a snapshot of the authored models. */
+    canSerialize() {
+        for (const view of this.views.values()) {
+            if (view.isSectionEditing?.()) return false;
+        }
+        return true;
+    }
+
     /**
      * Assemble authored content from the project-owned models.
      * Views contribute only current preferences, with loaded model fallback.
@@ -173,6 +182,7 @@ export class ProjectDocument {
      * @returns {object} The serialized project document.
      */
     serialize() {
+        if (!this.canSerialize()) throw new Error('Finish the current edit before saving.');
         const doc = this.schematicDocument.serialize(this.schematic?.getViewSettings?.());
         const pcbSection = this.pcbDocument.serializeSection(this.pcb?.getViewSettings?.());
         if (pcbSection) doc.pcb = pcbSection;
@@ -247,6 +257,7 @@ export class ProjectDocument {
         this.fileManager.startAutoSave(
             () => this.serialize(),
             () => this.isViewDirty(),
+            () => this.canSerialize(),
         );
     }
 

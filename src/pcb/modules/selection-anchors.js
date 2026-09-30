@@ -156,7 +156,7 @@ export function renderPcbSelectionAnchors(app) {
             const owner = {
                 element: overlay,
                 unlock: adapter.unlock,
-                componentId: adapter.kind === 'component' ? adapter.object : null,
+                componentId: adapter.kind === 'component' || adapter.kind === 'reftext' ? adapter.object : null,
             };
             overlay.appendChild(createLockIcon(
                 position.x,

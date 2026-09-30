@@ -10,6 +10,8 @@ import { MASK_EXPANSION } from './board-geometry.js';
 import { layoutReferenceText, referenceAnchor, REF_DEFAULT_SIZE, REF_DEFAULT_STROKE } from './reference-text.js';
 
 const NS = 'http://www.w3.org/2000/svg';
+/** @type {WeakMap<SVGGElement, {ref:string, cxRef:number, baseY:number, size:number, strokeWidth:number}>} */
+const referenceGeometry = new WeakMap();
 
 /** Default reference-designator silk text size / line width (mm). */
 export { REF_DEFAULT_SIZE, REF_DEFAULT_STROKE } from './reference-text.js';
@@ -19,7 +21,8 @@ export { REF_DEFAULT_SIZE, REF_DEFAULT_STROKE } from './reference-text.js';
  * `<g data-fp-ref>` group and refresh the cached layout attributes the editor
  * relies on (bounding box, centre, baseline anchor, current size/line width).
  * Used both when first rendering a footprint and when the user changes the
- * designator's size or line width from the properties panel.
+ * designator's size or line width from the properties panel. Unchanged layout
+ * inputs reuse the group's existing glyphs.
  *
  * @param {SVGGElement} refGroup - the `data-fp-ref` group to fill
  * @param {string} ref - reference string (e.g. 'R3')
@@ -27,11 +30,17 @@ export { REF_DEFAULT_SIZE, REF_DEFAULT_STROKE } from './reference-text.js';
  * @param {number} baseY - text baseline Y (footprint-local)
  * @param {number} size - glyph size (mm)
  * @param {number} strokeWidth - line width (mm)
+ * @returns {boolean} Whether glyph geometry and layout attributes were rebuilt.
  */
 export function applyRefGeometry(refGroup, ref, cxRef, baseY, size, strokeWidth) {
+    const previous = referenceGeometry.get(refGroup);
+    if (previous && previous.ref === ref && previous.cxRef === cxRef && previous.baseY === baseY
+        && previous.size === size && previous.strokeWidth === strokeWidth) return false;
+    const layout = layoutReferenceText(ref, cxRef, baseY, size, strokeWidth);
+    // A failed DOM update must not leave the previous geometry marked reusable.
+    referenceGeometry.delete(refGroup);
     while (refGroup.firstChild) refGroup.removeChild(refGroup.firstChild);
     refGroup.setAttribute('stroke-width', String(strokeWidth));
-    const layout = layoutReferenceText(ref, cxRef, baseY, size, strokeWidth);
     for (const poly of layout.polylines) {
         const pl = document.createElementNS(NS, 'polyline');
         pl.setAttribute('points', poly.map(p => `${p.x},${p.y}`).join(' '));
@@ -47,6 +56,8 @@ export function applyRefGeometry(refGroup, ref, cxRef, baseY, size, strokeWidth)
     refGroup.setAttribute('data-ref-bw', String(bw));
     refGroup.setAttribute('data-ref-bh', String(bh));
     refGroup.setAttribute('data-ref-cy', String(cy));
+    referenceGeometry.set(refGroup, { ref, cxRef, baseY, size, strokeWidth });
+    return true;
 }
 
 /**
