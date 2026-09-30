@@ -319,6 +319,14 @@ write dimension metadata. Preview geometry still lives in the editable model
 during a gesture; this change separates mutation from rendering rather than
 introducing a detached preview model.
 
+Copper-removal clipping retains its last settled cutout geometry while drag
+overlays and pours are deferred. Moving removal artwork therefore leaves the old
+holes visible until the drop's existing deferred copper refresh applies the new
+position. Cancellation keeps the original cuts. Pan/zoom may resize the outer
+clip rectangle during the gesture without moving those holes. This shared clip
+policy covers single and grouped moves, both copper sides and Hole-layer cutouts,
+without recomputing pours or rebuilding clip paths on each pointer movement.
+
 Board-outline setup lives in `core/pcb-outline-commands.js`.
 `PcbDocument.setBoardOutline()` validates and detaches incoming geometry before
 adoption, retains an existing outline object and the model's collection/dimension
@@ -610,24 +618,42 @@ component deletion/reordering; New/load/reset clear them in place. Slots are
 derived, never serialized or marked dirty, and failed resolution does not retain
 partially allocated slots.
 
-The PCB editor consumes these resolved placements, adding SVG, LOD bounds and 3D
-presentation metadata. Rebuilds retain existing side/reference rendering and
-bonded-track refreshes, without recalculating the already resolved pad map.
-Clearances and ratsnest refresh after the complete rebuild. Headless consumers
+`ProjectDocument.synchronizePcbLayout()` is the explicit mutating counterpart:
+it resolves all placements and connectivity first, then updates track endpoints
+and incompatible bottom-side pad bonds using the existing rebuild eligibility
+rules. Resolution failures leave tracks untouched. It preserves track/map
+identity, invalidates changed track bounds and does no redundant physical work
+when repeated. It does not create placement overrides or notify dirty hooks;
+the existing schematic-change lifecycle retains that responsibility.
+
+Schematic-driven PCB rebuilds synchronize the models before clearing SVG or
+rendering persistent tracks. The editor then consumes the resolved placements,
+adding SVG, LOD bounds and 3D presentation metadata. Footprint rendering uses
+presentation-only side/pose helpers: it neither reads track models nor repeats
+pad calculations or bonded-track rendering. Clearances and ratsnest refresh
+after the complete rebuild. Headless consumers
 can pass `{ pcbDocument: project.pcbDocument, ...project.resolvePcbLayout() }`
 to fabrication snapshot preparation. The layout query itself does not move
-track nodes or change bonds. Fabrication does not automatically replace a live
+track nodes or change bonds; consumers needing rebuild-time track updates call
+the explicit synchronization operation first. Existing override-restoration and
+live-preview adapters remain separate migration boundaries.
+Fabrication does not automatically replace a live
 editor's supplied placements/netlist: general preview isolation remains open,
 and mixing committed poses with preview-mutated tracks would be inconsistent.
 
 The metadata commands in `core/pcb-placement-commands.js` own lock and reference visibility, offset,
 rotation and style edits directly against `PcbPlacementState`. Commands patch
-the latest canonical record without replacing unrelated pose fields. An explicit
-authored baseline can be supplied for an automatic placement with no saved
-override: `capturePlacementOverride()` detaches only persisted fields, and the
-model is not changed until execution. First-edit undo retains that baseline
-override, matching the existing editor's recording behavior. Missing placements
-without either a saved record or an explicit baseline fail immediately.
+the latest canonical record without replacing unrelated pose fields. All placement
+commands take their initial baseline from a saved override, otherwise the
+model-owned automatic slot. After layout resolution, headless commands need no
+editor-supplied seed; automatic poses receive the same defaults as resolved
+placements. An explicit baseline remains supported when neither model record
+exists, but never overrides model-owned data. This also prevents unrelated live
+preview fields from becoming authored state during the first edit.
+`capturePlacementOverride()` detaches only persisted fields; construction does not
+create overrides, allocate slots or edit tracks. First-edit undo retains the
+baseline override, matching existing persistence behavior. Missing placements
+without a saved record, resolved automatic slot or explicit baseline fail immediately.
 
 The existing metadata editor command names remain adapters. They project only edited
 fields into the current generated placement, then retain transform/glyph,

@@ -5,6 +5,7 @@ import { SchematicDocument } from './SchematicDocument.js';
 import { PcbDocument } from './PcbDocument.js';
 import { extractComponents } from './netlist.js';
 import { createPcbFootprint } from './pcb-footprint.js';
+import { disconnectIncompatiblePadNodes, repositionPadConnectedNodes } from './pcb-placement-geometry.js';
 
 /** @typedef {{id: string, reference: string, locked: boolean, footprintShapes: string[]}} ComponentInfo */
 
@@ -96,6 +97,21 @@ export class ProjectDocument {
         const components = extractComponents(this.schematicDocument);
         const netlist = this.getNetlist();
         return { placements: this.pcbDocument.placementState.resolve(components), netlist };
+    }
+
+    /** Resolve the complete layout before applying the existing rebuild policy to track bonds. */
+    synchronizePcbLayout() {
+        const layout = this.resolvePcbLayout();
+        const tracks = this.pcbDocument.tracks;
+        for (const [id, placement] of layout.placements) {
+            if (placement.side === 'bottom') disconnectIncompatiblePadNodes(tracks, id, placement.padOffsets);
+            // Preserve the legacy rebuild eligibility, including reference-offset placements.
+            if (placement.mirror || placement.side === 'bottom' || placement.rotation
+                || placement.refDx || placement.refDy || placement.refRot) {
+                repositionPadConnectedNodes(tracks, id, placement.pads);
+            }
+        }
+        return layout;
     }
 
     /**

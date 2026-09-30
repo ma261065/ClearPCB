@@ -172,7 +172,7 @@ for (const withComponents of [false, true]) {
     const app = makeApp(false);
     Object.assign(app, {
         project: { schematicDocument: {},
-            resolvePcbLayout: () => ({ placements: new Map(components.map(component => [component.id, component])), netlist: [] }) },
+            synchronizePcbLayout: () => ({ placements: new Map(components.map(component => [component.id, component])), netlist: [] }) },
         activate: method('activate'), preload: method('preload'), _syncFromSchematic: method('_syncFromSchematic'),
         _renderPersistentObjects: method('_renderPersistentObjects'),
         initialize() {}, _updateCursorForTool() {}, _updateViewportStatus() {},
@@ -235,7 +235,7 @@ for (const pcb of [
         const before = pcbDocument.serializeSection();
         const outline = dependencies.getBoardOutline(pcbDocument);
         const app = new PCBApp({ pcbDocument, schematicDocument: {},
-            resolvePcbLayout: () => ({ placements: new Map(components.map(component => [component.id, component])), netlist: [] }) });
+            synchronizePcbLayout: () => ({ placements: new Map(components.map(component => [component.id, component])), netlist: [] }) });
         assert.equal(app._boardOutlineDrawn, !!outline, 'Editor attachment recognizes an existing model outline');
         components = withComponents ? [{ id: 'U1' }] : [];
         Object.assign(app, {

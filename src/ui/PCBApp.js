@@ -66,7 +66,7 @@ import {
     ModifyViaCommand,
     applyPlacementPose,
     renderPlacementPose,
-    repositionPadConnectedNodes,
+    renderPlacementSide,
     applyPlacementSide,
     applyPlacementRefVisible,
     placementTransform,
@@ -2388,7 +2388,9 @@ export default class PCBApp {
             const copperLayer = `${side}-copper`;
             const fillLayer = `${side}-fill`;
             const clipId = `pcb-copper-cut-${side}`;
-            const shapeCuts = !geometryChanged && geometryCache[side]
+            // Keep cutouts aligned with deferred pours until the drag commits or cancels.
+            // Viewport changes can still resize the outer clip without moving its holes.
+            const shapeCuts = (!geometryChanged || this._deferDragOverlays) && geometryCache[side]
                 ? geometryCache[side]
                 : (geometryCache[side] = boardShapeCopperCuts(this, copperLayer));
             const existing = defs.querySelector(`#${clipId}`);
@@ -4116,7 +4118,7 @@ export default class PCBApp {
 
         this._ensureViewport();
 
-        const { placements, netlist } = this.project.resolvePcbLayout();
+        const { placements, netlist } = this.project.synchronizePcbLayout();
         this.netlist = netlist;
 
         // Clear previous PCB content
@@ -4291,12 +4293,11 @@ export default class PCBApp {
         for (const compId of placements.keys()) {
             const pl = this.placements.get(compId);
             if (!pl) continue;
-            if (pl.side === 'bottom') applyPlacementSide(this, compId, 'bottom');
+            if (pl.side === 'bottom') renderPlacementSide(this, compId, 'bottom');
             if (pl.refVisible === false) applyPlacementRefVisible(this, compId, false);
-            // Pads are already resolved; only update presentation and bonded tracks here.
+            // Pads and track bonds are already synchronized by the model.
             if (pl.mirror || pl.side === 'bottom' || pl.rotation || pl.refDx || pl.refDy || pl.refRot) {
                 renderPlacementPose(this, compId);
-                repositionPadConnectedNodes(this, compId);
             }
             if (pl.refSize !== REF_DEFAULT_SIZE || pl.refStrokeWidth !== REF_DEFAULT_STROKE) this._rerenderRef(compId);
         }

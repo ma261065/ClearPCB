@@ -130,6 +130,12 @@ assert.equal(renamed.placements.get(parts[0].id).reference, 'J99');
 assert.ok(renamed.netlist.some(entry => entry.net === 'J99.2'), 'Default nets and placement references resolve together');
 assert.equal(resolved.placements.get(parts[0].id).reference, 'J1');
 parts[0].reference = 'J1';
+project.synchronizePcbLayout();
+assert.deepEqual(track.nodes.get(trackNode), {
+    x: resolved.placements.get(parts[0].id).pads.get('1').x,
+    y: resolved.placements.get(parts[0].id).pads.get('1').y,
+}, 'Model synchronization re-glues connected tracks before any editor exists');
+const synchronizedTrack = track.captureState();
 assert.equal(typeof document, 'undefined');
 assert.equal(typeof window, 'undefined');
 
@@ -165,7 +171,8 @@ new PCBApp(project);
 assert.deepEqual([...autoSlots], slotsBeforeAttachment, 'Attaching an editor does not reset model-derived layout');
 const groups = new Map();
 const app = {
-    placements: new Map(), tracks: project.pcbDocument.tracks,
+    placements: new Map(),
+    get tracks() { assert.fail('Footprint rendering must not read or mutate track models'); },
     _getLayerGroup(id) {
         if (!groups.has(id)) groups.set(id, element());
         return groups.get(id);
@@ -180,10 +187,7 @@ for (const [id, placement] of app.placements) {
         'The actual editor adapter preserves the model-resolved physical placement');
     for (const svg of placement.elements) assert.equal(svg.getAttribute('transform'), placementTransform(placement));
 }
-assert.deepEqual(track.nodes.get(trackNode), {
-    x: app.placements.get(parts[0].id).pads.get('1').x,
-    y: app.placements.get(parts[0].id).pads.get('1').y,
-}, 'Editor rebuilds still re-glue connected tracks to transformed pads');
+assert.deepEqual(track.captureState(), synchronizedTrack, 'Footprint rendering is presentation-only');
 const modelOutput = await prepareFabricationSnapshot({ pcbDocument: project.pcbDocument, ...project.resolvePcbLayout() });
 const editorOutput = await prepareFabricationSnapshot({ pcbDocument: project.pcbDocument,
     placements: app.placements, netlist: resolved.netlist });

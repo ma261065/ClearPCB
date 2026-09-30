@@ -591,7 +591,8 @@ export function applyPlacementSide(app, compId, side) {
     disconnectIncompatiblePadNodes(app, compId);
 }
 
-function renderPlacementSide(app, compId, side) {
+/** Reparent and recolor footprint artwork without changing pads or track bonds. */
+export function renderPlacementSide(app, compId, side) {
     const pl = app.placements.get(compId);
     const flip = side === 'bottom';
     for (const el of (pl.elements || [])) {

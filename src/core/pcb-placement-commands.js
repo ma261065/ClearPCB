@@ -6,7 +6,7 @@ import { updatePlacementPadPositions, repositionPadConnectedNodes,
 /** @typedef {Partial<import('./PcbPlacementState.js').PlacementOverride> & {x:number, y:number}} PlacementSeed */
 
 function initialPlacement(placementState, compId, initial) {
-    const placement = placementState.overrides.get(compId) || initial;
+    const placement = placementState.overrides.get(compId) || placementState.autoSlots.get(compId) || initial;
     if (!placement) throw new Error(`PCB placement is no longer available: ${compId}`);
     return capturePlacementOverride(placement);
 }
