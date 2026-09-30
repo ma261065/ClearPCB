@@ -202,8 +202,9 @@ console.log('PASS: drawing cancellation takes two Escapes with or without an exi
 const statusStart = source.indexOf('    _setPcbStatus() {');
 const statusEnd = source.indexOf('\n    /** Enable/disable PCB home-tab', statusStart);
 assert.ok(statusStart >= 0 && statusEnd > statusStart);
-const setStatus = new Function('getPcbSelection',
-    `return ({ ${source.slice(statusStart, statusEnd)} })._setPcbStatus;`)(getPcbSelection);
+const { resolveShapeDrawLayer } = await import('../src/pcb/modules/board-shapes.js');
+const setStatus = new Function('getPcbSelection', 'resolveShapeDrawLayer',
+    `return ({ ${source.slice(statusStart, statusEnd)} })._setPcbStatus;`)(getPcbSelection, resolveShapeDrawLayer);
 app.status = { modeStatus: { textContent: '' } };
 app.activeLayer = 'hole';
 for (const [tool, settings, expected] of [

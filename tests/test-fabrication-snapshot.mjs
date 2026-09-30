@@ -6,6 +6,7 @@ import { inflateRawSync } from 'node:zlib';
 import { unzipSync, strFromU8 } from '../assets/vendor/fflate.module.js';
 import { CopperFill } from '../src/shapes/copper-fill.js';
 import { Track } from '../src/shapes/track.js';
+import { createPcbText, serializePcbText, TEXT_LAYERS } from '../src/core/pcb-text.js';
 globalThis.window = { addEventListener() {} };
 const { exportGerbers, buildZip } = await import('../src/pcb/modules/gerber.js');
 const { prepareFabricationSnapshot, prepareSnapshotFills, hasFabricationContent } = await import('../src/pcb/modules/fabrication-snapshot.js');
@@ -95,6 +96,37 @@ await assert.rejects(prepareFabricationSnapshot(app), /Invalid track/);
 track.getEdgeWidth = priorGetEdgeWidth;
 
 const priorWorker = globalThis.Worker;
+for (const layer of TEXT_LAYERS) for (const border of [false, true]) {
+    const text = createPcbText({ id: 'snapshot-label', content: 'R1', x: Math.PI, y: -Math.E,
+        size: 1.23456789, rotation: 37.12345678, strokeWidth: 0.12345678, layer, border });
+    const authored = serializePcbText(text);
+    const textApp = { placements: new Map(), tracks: [], vias: [], pads: [], texts: new Map([[text.id, text]]),
+        boardShapes: [], copperFills: [], _boardWidth: 20, _boardHeight: 20, _boardRadius: 0,
+        _getRoutingParams: () => ({ clearance: 0.2 }) };
+    const clean = await prepareFabricationSnapshot(textApp, { computeFills: false });
+    const expectedGerbers = exportGerbers(clean);
+    text.element = { uncloneable() {} };
+    text.selected = true;
+    text.viewState = { cachedBounds: { minX: 999 } };
+    const pendingText = prepareFabricationSnapshot(textApp, { computeFills: false });
+    text.content = 'changed-after-capture';
+    text.x = 100;
+    text.rotation = 90;
+    const captured = await pendingText;
+    assert.deepEqual(captured.texts, [authored], 'Fabrication uses the full-precision authored text snapshot');
+    assert.deepEqual(structuredClone(captured.texts), [authored], 'No editor state enters the worker payload');
+    assert.deepEqual(exportGerbers(captured), expectedGerbers,
+        'Authored-only text capture preserves Gerber output on every text layer and border mode');
+    captured.texts[0].content = 'snapshot-only';
+    captured.texts[0].x = 200;
+    assert.equal(text.content, 'changed-after-capture');
+    assert.equal(text.x, 100);
+    assert.equal(typeof text.element.uncloneable, 'function', 'Capture leaves view-owned metadata alone');
+    assert.equal(text.viewState.cachedBounds.minX, 999);
+    Object.defineProperty(text, 'content', { get() { throw new Error('Invalid authored text'); } });
+    await assert.rejects(prepareFabricationSnapshot(textApp), /Invalid authored text/,
+        'Authored-field errors must still reach the export caller');
+}
 const workerProgress = [];
 let workerFailure = false;
 let workerTerminated = false;

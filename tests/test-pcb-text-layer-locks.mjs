@@ -10,6 +10,7 @@ import { cancelPictureCopperRefresh } from '../src/pcb/modules/picture-refresh.j
 globalThis.window = { addEventListener() {} };
 globalThis.document = {
     getElementById: () => null, querySelector: () => null,
+    querySelectorAll: () => [],
     createElement() { assert.fail('Locked text must not create an inline editor'); },
 };
 globalThis.requestAnimationFrame = callback => { callback(); return 1; };

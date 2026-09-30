@@ -1,5 +1,13 @@
 import { placementPose } from '../pcb/modules/board-geometry.js';
 
+const resolvedPlacementFields = ['x', 'y', 'rotation', 'mirror', 'side', 'padOffsets', 'pasteOffsets', 'silks',
+    'pads', 'name', 'reference', 'outline', 'refVisible', 'refDx', 'refDy', 'refRot', 'refSize', 'refStrokeWidth'];
+
+/** Detach full-precision physical placement data without copying presentation state. */
+export function captureResolvedPlacement(placement) {
+    return structuredClone(Object.fromEntries(resolvedPlacementFields.map(key => [key, placement[key]])));
+}
+
 /** Update derived world-pad positions from current footprint-local geometry. */
 export function updatePlacementPadPositions(placement) {
     const pose = placementPose(placement);

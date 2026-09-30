@@ -19,7 +19,7 @@ import {
     createInlineTextOverlay,
     setInlineTextInputActive,
 } from './modules/inline-text-overlay.js';
-import { PCB_LAYERS, PCB_OVERLAYS, PCB_COPPER_FILLS, isLayerLocked, isViaLocked, isLayerVisible, isViaVisible, pcbLayerHoverColor, pcbLayerSelectionColor, showLockedLayerBubble, isCopperFillLocked, isCopperFillVisible, saveLayerPrefs, setPcbCopperFillLocked, setPcbLayerLocked } from '../pcb/modules/layers.js';
+import { PCB_LAYERS, PCB_OVERLAYS, PCB_COPPER_FILLS, isLayerLocked, isViaLocked, isLayerVisible, isViaVisible, pcbLayerHoverColor, pcbLayerSelectionColor, pcbLayerOptionHtml, refreshPcbLayerOptions, showLockedLayerBubble, isCopperFillLocked, isCopperFillVisible, saveLayerPrefs, setPcbCopperFillLocked, setPcbLayerLocked } from '../pcb/modules/layers.js';
 import { exportDSN, importSES } from '../pcb/modules/dsn.js';
 import { runDRC } from '../pcb/modules/drc.js';
 import { buildCopperObstacles } from '../pcb/modules/copper-obstacles.js';
@@ -83,7 +83,7 @@ import {
     MoveTextCommand,
     EditTextCommand,
 } from '../pcb/modules/text-commands.js';
-import { shapeDrawClick, updateShapeDrawPreview, cancelShapeDraw, finishPolygonDraw, finishLineDraw, finishShapeDrawAtPoint, hitTestBoardShape, setBoardShapeHover, selectBoardShape, startBoardShapeDrag, handleBoardShapeDrag, endBoardShapeDrag, showBoardShapeProperties, showBoardShapeToolProperties, boardShapeCopperCuts, renderBoardShape, hitTestBoardShapeVertex, showBoardShapeContextMenu, dismissBoardShapeContextMenu, captureBoardShapeState, applyShapeSnapshot } from '../pcb/modules/board-shapes.js';
+import { shapeDrawClick, updateShapeDrawPreview, cancelShapeDraw, finishPolygonDraw, finishLineDraw, finishShapeDrawAtPoint, hitTestBoardShape, setBoardShapeHover, selectBoardShape, startBoardShapeDrag, handleBoardShapeDrag, endBoardShapeDrag, showBoardShapeProperties, showBoardShapeToolProperties, refreshBoardShapeToolLayer, resolveShapeDrawLayer, boardShapeCopperCuts, renderBoardShape, hitTestBoardShapeVertex, showBoardShapeContextMenu, dismissBoardShapeContextMenu, captureBoardShapeState, applyShapeSnapshot } from '../pcb/modules/board-shapes.js';
 import { ModifyBoardShapeCommand } from '../pcb/modules/shape-commands.js';
 import { shapeOutline, normalizeShapeCopperMode, boardShapeRemovalPathD, boardShapeBounds } from '../pcb/modules/board-shape-geometry.js';
 import { hitTestPcbSelectionAnchor, renderPcbSelectionAnchors } from '../pcb/modules/selection-anchors.js';
@@ -223,7 +223,7 @@ export default class PCBApp {
 
     /** CopperFill entries owned by the canonical board-shape collection. */
     get copperFills() {
-        return (this.boardShapes || []).filter((shape) => shape?.type === 'fill');
+        return this.pcbDocument.copperFills;
     }
 
     /** @param {import('../core/ProjectDocument.js').ProjectDocument} [project] */
@@ -495,12 +495,15 @@ export default class PCBApp {
     _setPcbStatus() {
         if (!this.status.modeStatus) return;
         const rawTool = this.currentTool || 'select';
+        const shapeTool = ['line', 'circle', 'rect', 'polygon', 'arc'].includes(rawTool);
         const toolLabel = rawTool.replace(/-/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
         const layer = rawTool === 'text' ? this._textDefaults?.layer || 'top-silk'
             : rawTool === 'fill' ? this._fillDraw?.layer || this._fillToolLayer || 'top-copper'
             : rawTool === 'track' ? this._trackDraw?.currentLayer || this._trackToolLayer || 'top-copper'
+            : shapeTool ? this._shapeDraw?.layer || resolveShapeDrawLayer(this, this.activeLayer)
             : this.activeLayer;
-        const layerLabel = layer?.replace(/-/g, ' ')?.replace(/\b\w/g, c => c.toUpperCase()) || 'Top Copper';
+        const layerLabel = layer?.replace(/-/g, ' ')?.replace(/\b\w/g, c => c.toUpperCase())
+            || (shapeTool ? 'No unlocked layers' : 'Top Copper');
         const selectedShape = getPcbSelection(this, 'shape');
         const selectedTrack = getPcbSelection(this, 'track');
         const showSegmentTip = rawTool === 'select'
@@ -512,7 +515,7 @@ export default class PCBApp {
                 && this._selectedBoardShapeSegment?.shapeId !== selectedShape[0]?.id
                 && this._selectedBoardShapeNode?.shapeId !== selectedShape[0]?.id)
                 || (selectedTrack.length === 1 && this._trackEdit?.track !== selectedTrack[0]));
-        const showHoleTip = rawTool === 'circle' && this.activeLayer === 'hole';
+        const showHoleTip = rawTool === 'circle' && layer === 'hole';
         const showOverlapTip = rawTool === 'select' && this._overlapHitCount > 1;
         const showTrackTip = rawTool === 'track';
         const showPadTip = rawTool === 'pad'
@@ -3110,6 +3113,8 @@ export default class PCBApp {
             if (ko) ko.style.opacity = '';
         }
         saveLayerPrefs();
+        refreshPcbLayerOptions(layerId);
+        refreshBoardShapeToolLayer(this);
         const checkbox = /** @type {HTMLInputElement|null} */ (document.getElementById('pcbPropOutlineLocked'));
         if (checkbox) checkbox.checked = locked;
         this._refreshPcbSelectionHighlights?.();
@@ -6651,8 +6656,8 @@ export default class PCBApp {
             }
             capabilities.layer = select('Layer', () => object.layer,
                 value => shapeCommand(target => { target.layer = value; }),
-                PCB_LAYERS.filter(layer => object.kind !== 'image'
-                    ? layer.id !== 'board-outline' : PICTURE_LAYERS.includes(layer.id))
+                PCB_LAYERS.filter(layer => layer.id !== 'vias' && (object.kind !== 'image'
+                    ? layer.id !== 'board-outline' : PICTURE_LAYERS.includes(layer.id)))
                     .map(layer => [layer.id, layer.name]));
             if (object.kind === 'image') {
                 const imageSize = () => ({
@@ -6707,6 +6712,7 @@ export default class PCBApp {
     _showPcbMultiSelectionProperties(entries) {
         const items = this._pcbPropsItems();
         if (!items) return;
+        const hasShapes = entries.some(entry => entry.kind === 'shape');
         this._setPcbPropsTitle(`${entries.length} Selected`);
         const capabilitySets = entries.map(entry => this._pcbMultiPropertyCapabilities(entry));
         let keys = Object.keys(capabilitySets[0] || {});
@@ -6740,7 +6746,13 @@ export default class PCBApp {
             if (descriptor.type === 'checkbox') {
                 rows.push(`<label class="prop-row prop-toggle"><input type="checkbox" id="${id}"${!mixed && values[0] ? ' checked' : ''}${group.some(item => item.disabled) ? ' disabled' : ''}><span>${descriptor.label}</span></label>`);
             } else if (descriptor.type === 'select') {
-                rows.push(`<div class="prop-row"><label>${descriptor.label}</label><select id="${id}"${group.some(item => item.disabled) ? ' disabled' : ''}>${mixed ? '<option value="" selected disabled>Mixed</option>' : ''}${descriptor.options.map(([value, label]) => `<option value="${value}"${!mixed && value === values[0] ? ' selected' : ''}>${label}</option>`).join('')}</select></div>`);
+                const options = descriptor.options.map(([value, label]) => {
+                    const selected = !mixed && value === values[0];
+                    return key === 'layer' && hasShapes
+                        ? pcbLayerOptionHtml(value, label, selected)
+                        : `<option value="${value}"${selected ? ' selected' : ''}>${label}</option>`;
+                }).join('');
+                rows.push(`<div class="prop-row"><label>${descriptor.label}</label><select id="${id}"${group.some(item => item.disabled) ? ' disabled' : ''}>${mixed ? '<option value="" selected disabled>Mixed</option>' : ''}${options}</select></div>`);
             } else if (descriptor.type === 'net') {
                 const { escape, options } = this._toolNetOptions(mixed ? '' : values[0]);
                 rows.push(`<div class="prop-row"><label>Net</label><span class="prop-net-control"><input type="text" id="${id}" value="${mixed ? '' : escape(values[0])}" placeholder="${mixed ? 'Mixed' : 'None'}"${group.some(item => item.disabled) ? ' disabled' : ''}><details class="prop-net-menu"><summary aria-label="Select existing net"></summary><div>${options}</div></details></span></div>`);
@@ -6756,6 +6768,11 @@ export default class PCBApp {
         const commit = (key, value) => {
             const info = descriptors.get(key);
             if (!info || info.group.some(capability => capability.disabled)) return;
+            if (key === 'layer' && hasShapes && isLayerLocked(value)) {
+                showLockedLayerBubble(this, value);
+                this._showPcbMultiSelectionProperties(entries);
+                return;
+            }
             if (key === 'net') {
                 const routedEntries = entries.filter(entry => entry.kind === 'track' || entry.kind === 'via');
                 const otherCommands = entries.map((entry, index) =>

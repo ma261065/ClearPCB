@@ -19,7 +19,8 @@ function element() {
 }
 
 globalThis.window = { addEventListener() {} };
-globalThis.document = { getElementById: () => null, querySelector: () => null, createElementNS: element };
+globalThis.document = { getElementById: () => null, querySelector: () => null,
+    querySelectorAll: () => [], createElementNS: element };
 globalThis.requestAnimationFrame = callback => { callback(); return 1; };
 const { default: PCBApp } = await import('../src/ui/PCBApp.js');
 

@@ -8,6 +8,7 @@ import { Via, resetViaIdCounter, updateViaIdCounter } from '../shapes/via.js';
 import { Pad, resetPadIdCounter, updatePadIdCounter } from '../shapes/pad.js';
 import { createPcbText, serializePcbText } from './pcb-text.js';
 import { loadBoardShapeData, serializeBoardShapes } from './pcb-board-shapes.js';
+import { capturePcbGeometry } from './pcb-geometry-snapshot.js';
 import { validBoardOutline, getBoardOutline, rectangleBoardOutline, boardBoundary } from '../pcb/modules/board-outline.js';
 import { hasRectangleFrame, rectangleFramePoints } from '../shapes/rectangle-frame.js';
 import { updateFillIdCounter } from '../shapes/copper-fill.js';
@@ -38,6 +39,11 @@ export class PcbDocument {
         /** @type {any[]} Generic board shapes and CopperFill instances. */
         this.boardShapes = [];
         this.shapeIdCounter = 1;
+    }
+
+    /** CopperFill entries owned by the canonical board-shape collection. */
+    get copperFills() {
+        return this.boardShapes.filter(shape => shape?.type === 'fill');
     }
 
     static prepare(data) {
@@ -198,6 +204,11 @@ export class PcbDocument {
             || Object.keys(DEFAULT_BOARD_DIMENSIONS).some(key => this.board[key] !== DEFAULT_BOARD_DIMENSIONS[key])
             || settings !== undefined;
         return hasContent ? this.serialize(settings) : null;
+    }
+
+    /** Full-precision physical data, without consumer query methods or computed pours. */
+    captureGeometry() {
+        return capturePcbGeometry(this);
     }
 
     serializeEntities() {

@@ -151,6 +151,12 @@ export class CopperFill {
 
     getOutline() { return closedShapeOutline(this); }
 
+    /** Detached, full-precision resolved boundary; pour computation belongs to consumers. */
+    captureCopperGeometry() {
+        return { id: this.id, type: 'fill', layer: this.layer, net: this.net,
+            outline: this.getOutline().map(point => ({ x: point.x, y: point.y })) };
+    }
+
     clone() {
         const { id, ...state } = this.captureState();
         return new CopperFill(state);

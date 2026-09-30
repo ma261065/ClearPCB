@@ -1,14 +1,14 @@
-import { serializeBoardShapes } from '../../core/pcb-board-shapes.js';
+import { capturePcbGeometry } from '../../core/pcb-geometry-snapshot.js';
+import { captureResolvedPlacement } from '../../core/pcb-placement-geometry.js';
 import { buildFillContext } from './fill-context.js';
 import { computeFillPolygons, loadClipper } from './copper-fill-geom.js';
 import { panelSettings } from './panelization.js';
 
-const placementFields = ['x', 'y', 'rotation', 'mirror', 'side', 'padOffsets', 'pasteOffsets', 'silks',
-    'pads', 'name', 'reference', 'outline', 'refVisible', 'refDx', 'refDy', 'refRot', 'refSize', 'refStrokeWidth'];
-
 export function hasFabricationContent(app) {
-    return !!(app.placements?.size || app.tracks?.length || app.vias?.length || app.pads?.length || app.texts?.size
-        || app.boardShapes?.some(shape => !String(shape.layer).endsWith('-document')) || app.copperFills?.length);
+    const entities = app.pcbDocument || app;
+    return !!(app.placements?.size || entities.tracks?.length || entities.vias?.length
+        || entities.pads?.length || entities.texts?.size
+        || entities.boardShapes?.some(shape => !String(shape.layer).endsWith('-document')) || entities.copperFills?.length);
 }
 
 export async function prepareFabricationSnapshot(app, { computeFills = true } = {}) {
@@ -16,28 +16,23 @@ export async function prepareFabricationSnapshot(app, { computeFills = true } = 
         || app._vertexDrag || app._viaDrag || app._textEdit || app._boardOutlineResize) {
         throw new Error('Finish the current edit before exporting.');
     }
-    const params = { ...app._getRoutingParams?.() };
-    const placements = new Map([...app.placements].map(([id, placement]) => [id,
-        structuredClone(Object.fromEntries(placementFields.map(key => [key, placement[key]]))),
-    ]));
-    const tracks = app.tracks.map(track => {
-        const geometry = track.captureCopperGeometry();
-        return { ...geometry, getEdgeWidth: id => geometry.edges.get(id).width,
-            getEdgeLayer: id => geometry.edges.get(id).layer };
-    });
-    const fills = app.copperFills.map(fill => ({ id: fill.id, type: 'fill', layer: fill.layer, net: fill.net,
-        outline: structuredClone(fill.getOutline?.() || fill.outline), _computed: null }));
+    const model = app.pcbDocument;
+    const params = model ? model.designSettings.getRoutingParams() : { ...app._getRoutingParams?.() };
+    const board = model ? { ...model.board }
+        : { width: app._boardWidth, height: app._boardHeight, radius: app._boardRadius };
+    const panelization = model ? model.serializePanelization()
+        : app.panelization ? panelSettings(app.panelization) : null;
+    const placements = new Map([...app.placements].map(([id, placement]) => [id, captureResolvedPlacement(placement)]));
+    const geometry = model ? model.captureGeometry() : capturePcbGeometry(app);
+    const tracks = geometry.tracks.map(track => ({ ...track,
+        getEdgeWidth: id => track.edges.get(id).width, getEdgeLayer: id => track.edges.get(id).layer }));
+    const fills = geometry.fills.map(fill => ({ ...fill, _computed: null }));
     const snapshot = {
         params, netlist: structuredClone(app.netlist || []),
-        panelization: app.panelization ? panelSettings(app.panelization) : null,
-        placements, tracks, vias: app.vias.map(via => ({ id: via.id, x: via.x, y: via.y,
-            diameter: via.diameter, drill: via.drill, net: via.net })),
-        pads: (app.pads || []).map(pad => structuredClone(pad.captureState())),
-        texts: structuredClone([...app.texts.values()]), fills,
-        boardShapes: serializeBoardShapes({ boardShapes: app.boardShapes.filter(shape => shape.type !== 'fill') },
-            { compactArtwork: false, roundGeometry: false, parametricRectangles: false }),
+        panelization,
+        placements, ...geometry, tracks, fills,
         boardX: app._boardX || 0, boardY: app._boardY || 0,
-        boardWidth: app._boardWidth, boardHeight: app._boardHeight, boardRadius: app._boardRadius,
+        boardWidth: board.width, boardHeight: board.height, boardRadius: board.radius,
     };
     if (computeFills) await prepareSnapshotFills(snapshot);
     return snapshot;

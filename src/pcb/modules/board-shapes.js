@@ -32,6 +32,7 @@ import {
     pcbHighlightColor,
     PCB_HOVER_HIGHLIGHT_OPACITY,
     PCB_LAYERS,
+    pcbLayerOptionHtml,
     PCB_SELECTION_HIGHLIGHT_OPACITY,
     setPcbLayerLocked,
     unlockPcbLayer,
@@ -1478,13 +1479,14 @@ export function showBoardShapeContextMenu(app, shape, clientX, clientY, worldPos
 
 // ── Draw lifecycle ───────────────────────────────────────────────────────────
 
-/** Shapes follow the active edit layer; redirect non-graphic layers to silk. */
+/** Prefer the active drawing layer, otherwise the first unlocked valid choice. */
 export function resolveShapeDrawLayer(app, layerId) {
-    const id = String(layerId || 'top-copper');
-    if (id === 'top-paste' || id === 'bottom-paste' || id === 'board-outline') {
-        return id.startsWith('bottom-') ? 'bottom-silk' : 'top-silk';
+    let id = String(layerId || 'top-copper');
+    if (id === 'top-paste' || id === 'bottom-paste' || id === 'board-outline' || id === 'vias') {
+        id = id.startsWith('bottom-') ? 'bottom-silk' : 'top-silk';
     }
-    return id;
+    const available = PCB_LAYERS.filter(layer => !PROP_HIDDEN_LAYERS.has(layer.id) && !layer.locked);
+    return (available.find(layer => layer.id === id) || available[0])?.id || null;
 }
 
 function makePreview(app) {
@@ -1514,7 +1516,11 @@ export function shapeDrawClick(app, kind, worldPos) {
     const snap = shapeDrawSnap(app, worldPos);
     if (!app._shapeDraw || app._shapeDraw.kind !== kind) {
         const layer = resolveShapeDrawLayer(app, app.activeLayer);
-        if (isLayerLocked(layer)) return;
+        if (!layer) {
+            showBoardShapeToolProperties(app, kind);
+            return;
+        }
+        app.activeLayer = layer;
         app._shapeDraw = {
             kind,
             layer,
@@ -1645,7 +1651,7 @@ export function finishShapeDraw(app) {
 const PROP_HIDDEN_LAYERS = new Set([
     'top-paste', 'bottom-paste',
     'top-mask', 'bottom-mask',
-    'board-outline',
+    'board-outline', 'vias',
 ]);
 
 function boardNetNames(app) {
@@ -1685,10 +1691,11 @@ export function showBoardShapeToolProperties(app, kind) {
         const items = app._pcbPropsItems?.();
         if (!items) return;
         const defaults = app._shapeDefaults || (app._shapeDefaults = { lineWidth: 0.2 });
-        const currentLayer = resolveShapeDrawLayer(app, app._shapeDraw?.layer || app.activeLayer);
+        const currentLayer = app._shapeDraw?.layer || resolveShapeDrawLayer(app, app.activeLayer);
+        if (!app._shapeDraw && currentLayer) app.activeLayer = currentLayer;
         const layerOptionsHtml = PCB_LAYERS
             .filter((layer) => !PROP_HIDDEN_LAYERS.has(layer.id))
-            .map((layer) => `<option value="${layer.id}"${layer.id === currentLayer ? ' selected' : ''}>${layer.name}</option>`)
+            .map((layer) => pcbLayerOptionHtml(layer.id, layer.name, layer.id === currentLayer))
             .join('');
         const initialCopperMode = normalizeShapeCopperMode(defaults.copperMode);
         const initialNet = String(defaults.net || '').replace(/&/g, '&amp;').replace(/"/g, '&quot;');
@@ -1703,7 +1710,7 @@ export function showBoardShapeToolProperties(app, kind) {
 
         app._setPcbPropsTitle?.(`New ${shapeKindLabel(kind)}`);
         items.innerHTML = `
-            <div class="prop-row"><label>Layer</label><select id="pcbToolShapeLayer">${layerOptionsHtml}</select></div>
+            <div class="prop-row"><label>Layer</label><select id="pcbToolShapeLayer"${currentLayer ? '' : ' disabled'}>${currentLayer ? '' : '<option value="" selected disabled>No unlocked layers</option>'}${layerOptionsHtml}</select></div>
             ${showFill ? `<label class="prop-row prop-toggle"><input type="checkbox" id="pcbToolShapeFilled"${defaults.filled ? ' checked' : ''}><span>Fill</span></label>` : ''}
             ${currentLayer === 'hole' ? `<label class="prop-row prop-toggle"><input type="checkbox" id="pcbToolShapePlated"${defaults.plated ? ' checked' : ''}><span>Plated</span></label>` : ''}
             <div class="prop-row" id="pcbToolShapeCopperModeRow"><label>Copper Mode</label><select id="pcbToolShapeCopperMode"><option value="add"${initialCopperMode === 'add' ? ' selected' : ''}>Add Copper</option><option value="remove-copper"${initialCopperMode === 'remove-copper' ? ' selected' : ''}>Remove Copper</option><option value="remove-solder-mask"${initialCopperMode === 'remove-solder-mask' ? ' selected' : ''}>Remove Solder Mask</option><option value="remove-copper-mask"${initialCopperMode === 'remove-copper-mask' ? ' selected' : ''}>Remove Copper + Mask</option></select></div>
@@ -1767,8 +1774,8 @@ export function showBoardShapeToolProperties(app, kind) {
             if (netMenuEl.open) syncNetMenuSelection(netMenuEl, netEl);
         });
         layerEl?.addEventListener('change', () => {
-            const next = resolveShapeDrawLayer(app, layerEl.value);
-            if (isLayerLocked(next)) {
+            const next = layerEl.value;
+            if (!next || isLayerLocked(next)) {
                 layerEl.value = app._shapeDraw?.layer || app.activeLayer;
                 syncAvailability();
                 return;
@@ -1785,7 +1792,16 @@ export function showBoardShapeToolProperties(app, kind) {
             updateShapeDrawPreview(app, app._lastCrosshairWorld || app._shapeDraw?.points.at(-1));
         });
         syncAvailability();
+        app._setPcbStatus?.();
         app._setActiveRibbonTab?.('pcb-properties');
+}
+
+export function refreshBoardShapeToolLayer(app) {
+    if (!SHAPE_KINDS.has(app.currentTool) || app.currentTool === 'image') return;
+    const select = /** @type {HTMLSelectElement|null} */ (document.getElementById('pcbToolShapeLayer'));
+    if (!select || app._shapeDraw) return;
+    const layer = resolveShapeDrawLayer(app, app.activeLayer);
+    if ((select.value || null) !== layer) showBoardShapeToolProperties(app, app.currentTool);
 }
 
 function showImageProperties(app, shape, items) {
@@ -1802,7 +1818,7 @@ function showImageProperties(app, shape, items) {
     }).join('');
     items.innerHTML = `
         <div class="prop-row"><label>Layer</label><select id="pcbPropImageLayer">${layers.map(layer =>
-            `<option value="${layer.id}"${layer.id === shape.layer ? ' selected' : ''}${isLayerLocked(layer.id) ? ' disabled' : ''}>${layer.name}</option>`).join('')}</select></div>
+            pcbLayerOptionHtml(layer.id, layer.name, layer.id === shape.layer)).join('')}</select></div>
         <div class="prop-row"><label>Width (mm)</label><input id="pcbPropImageWidth" type="number" min="0.1" max="500" step="0.1" value="${width.toFixed(2)}"></div>
         <div class="prop-row"><label>Height (mm)</label><input id="pcbPropImageHeight" type="number" min="0.1" max="500" step="0.1" value="${height.toFixed(2)}"></div>
         <div class="prop-row"><label>Rotation (°)</label><input id="pcbPropImageRot" type="number" step="1" data-number-format="rotation" value="${Math.round(rotation) % 360}"></div>
@@ -1990,7 +2006,7 @@ export function showBoardShapeProperties(app, shape) {
         : '';
     const layerOpts = PCB_LAYERS
         .filter((l) => !PROP_HIDDEN_LAYERS.has(l.id))
-        .map((l) => `<option value="${l.id}"${!mixedLayer && l.id === currentLayer ? ' selected' : ''}>${l.name}</option>`);
+        .map((l) => pcbLayerOptionHtml(l.id, l.name, !mixedLayer && l.id === currentLayer));
     const layerOptionsHtml = [legacyCurrentOpt, ...layerOpts].join('');
     const isCopperLayer = (id) => id === 'top-copper' || id === 'bottom-copper';
     const showCopperMode = initialTargets.every((target) => isCopperLayer(target.layer));

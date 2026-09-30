@@ -146,6 +146,23 @@ export function isLayerLocked(layerId) {
     return !!(def && def.locked);
 }
 
+// Native options need text; the variation selector requests a monochrome lock.
+const LOCK_OPTION_SUFFIX = ' \u{1F512}\uFE0E';
+
+export function pcbLayerOptionHtml(layerId, label, selected = false) {
+    const locked = isLayerLocked(layerId);
+    return `<option value="${layerId}"${selected ? ' selected' : ''}${locked ? ' disabled' : ''} data-pcb-layer-label="${label}">${label}${locked ? LOCK_OPTION_SUFFIX : ''}</option>`;
+}
+
+export function refreshPcbLayerOptions(layerId) {
+    const locked = isLayerLocked(layerId);
+    for (const option of document.querySelectorAll(`option[value="${layerId}"][data-pcb-layer-label]`)) {
+        const element = /** @type {HTMLOptionElement} */ (option);
+        element.disabled = locked;
+        element.textContent = `${element.dataset.pcbLayerLabel}${locked ? LOCK_OPTION_SUFFIX : ''}`;
+    }
+}
+
 /**
  * True when the given layer id is currently visible (its eye toggle is on).
  * Hidden layers are non-interactive: their objects can't be selected, hovered

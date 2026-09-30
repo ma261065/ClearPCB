@@ -148,6 +148,9 @@ vias and pads, free-standing text and board shapes (including copper-fill region
 together with board dimensions, panelization, placement and design state.
 PCB editor collection accessors alias the model, including array/map replacements
 by commands; constructing an editor does not clear a preloaded model.
+The model's `copperFills` getter derives the fill list from `boardShapes`; the
+editor delegates to that query. Results contain canonical fill references in a
+fresh array, so replacing or clearing board shapes cannot leave a stale fill list.
 `prepare()` normalizes a PCB section and checks its required stackup, validates
 board outlines, panelization and design settings, and constructs all entities
 without a DOM. The adapter's `preparePcb()` delegates to this model operation.
@@ -158,6 +161,12 @@ dimensions and ID counters, merges design settings and loads saved placements;
 same phases around rendering rather than implementing its own data adoption.
 `serializeEntities()` returns the entity collections using the existing
 entity serializers, preserving topology, metadata and save-boundary precision.
+`captureGeometry()` is a separate full-precision, detached snapshot of tracks,
+vias, pads, text, board artwork and resolved fill boundaries. It works without
+an editor or DOM and contains data only, not track-query functions or computed
+pours. The lightweight `core/pcb-geometry-snapshot.js` helper also supports
+explicit-collection consumers without constructing a document or duplicating
+the entity-copying contract. File serialization and its rounding remain unchanged.
 `clear()` empties entity collections and placement overrides in place, resets
 dimensions and panelization, discards loaded viewport preferences, and retains
 the last-used design settings, matching
@@ -282,6 +291,13 @@ Detached fabrication snapshots intentionally retain their own `_computed`
 transfer field and recompute from captured authored geometry rather than using
 the live preview cache. This does not remove the remaining inherited shape
 presentation methods or other entity-level derived caches.
+
+`CopperFill.captureCopperGeometry()` captures the model's resolved boundary as
+detached, full-precision data. It reuses `getOutline()` for circles, rounded
+corners and bulged edges rather than substituting the authored control polygon
+or the file serializer's rounded coordinates. Fabrication adds its `_computed`
+field after capture; the model neither reads live pour caches nor computes pours.
+Boundary snapshots can be edited or transferred without changing the live fill.
 
 Generic board-shape add/remove/move/modify operations live in
 `core/pcb-shape-commands.js` and take `PcbDocument`, retaining its collection and
@@ -454,6 +470,36 @@ Manufacturing capture rejects active inline text edits and board-outline resizes
 as well as deferred geometry drags, rather than exporting cancellable previews.
 Track-to-pad connection records are copied along with their maps before any
 asynchronous pour preparation; snapshot and live metadata cannot mutate each other.
+Standalone text capture reuses the neutral `serializePcbText()` snapshot rather
+than cloning the entire live object. Authored text fields retain full precision;
+editor metadata is neither copied nor traversed. The model's omitted false-border
+default retains the same fabrication geometry. Worker transfer and Gerber output
+remain consumer-owned.
+
+When a PCB model is attached, fabrication reads routing dimensions, board
+dimensions and panel settings directly from `PcbDocument`, rather than through
+editor projections. These inputs are captured at full precision before any
+asynchronous pour work. Model-less callers retain the existing explicit-input
+contract; an attached model's errors do not fall back to editor values. Outline
+precedence, legacy origin handling and Gerber coordinate conversion are unchanged.
+Fabrication capture and its content check also read tracks, vias, pads, text,
+board shapes and fills directly from the attached model, without consulting
+editor collection getters. Entity assembly delegates once to `captureGeometry()`;
+the adapter adds detached track queries and export-only pour results. Model-less
+callers use the same neutral collection-capture helper. Document-only artwork retains its existing exclusion
+from the content check. Entity geometry is detached before asynchronous work;
+resolved component placements and netlist inputs still come from the caller.
+This does not yet make the complete fabrication pipeline editor-independent.
+
+`core/pcb-placement-geometry.js` owns the detached resolved-placement contract
+through `captureResolvedPlacement()`. It preserves the full-precision pose,
+physical pad identifiers and positions, local pad/paste/artwork geometry, outline
+and reference settings, without traversing SVG elements, hit-test bounds, lock
+flags or 3D presentation state. Capture does not normalize poses or introduce
+defaults. The fabrication adapter delegates this copying before asynchronous
+work, keeping automatic placement positions paired with the caller's resolved
+netlist. Moving automatic placement resolution itself remains separate work;
+Gerber coordinate conversion, drill formatting and pour computation stay in consumers.
 
 Component selection exposes the shared rotation handle only for a single
 selected component. Its gesture uses one-degree, clockwise-positive footprint
@@ -949,7 +995,19 @@ translations continue to reuse the existing halo geometry.
 - In the PCB editor, Vias use a dedicated **Via** display layer. Its
   visibility and lock state are session preferences and are not serialized
   into `.cpcb` files; the Hole layer applies only to routed board holes and
-  cutouts.
+  cutouts. Via is not an assignable shape layer: creation, single-selection
+  and multi-selection properties exclude it. Starting a shape while Via is
+  active prefers Top Silk, following the existing non-graphic-layer fallback.
+  Locked destinations in shape/image layer dropdowns show a monochrome text lock and
+  use native disabled options (greyed out). Layer-panel lock changes update
+  these options in place without rebuilding the shape property form.
+  New shape tools retain an unlocked valid active layer, otherwise select the
+  first valid unlocked entry in layer order. If none is available, the dropdown
+  and status show **No unlocked layers** and no new shape preview can begin.
+  Lock changes refresh an idle drawing tool's default and layer-dependent
+  controls; unlocking a valid layer makes drawing available immediately.
+  Existing shape assignments and in-progress drawing layers are not automatically
+  reassigned by this default-selection policy.
 - Render (`track-render.js`) and Gerber/Excellon output (`gerber.js`)
   read vias exclusively from `PCBApp.vias`.
 

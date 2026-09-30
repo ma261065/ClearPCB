@@ -124,7 +124,7 @@ app.history.redo();
 assert.deepEqual(cloneShapeGeometry(image), finalRotation);
 console.log('PASS live image rotation preserves spinner and commits a single undo entry');
 for (const [layer, label] of [['top-document', 'Top Document'], ['bottom-document', 'Bottom Document']]) {
-    assert.ok(items.html.includes(`<option value="${layer}">${label}</option>`));
+    assert.match(items.html, new RegExp(`<option value="${layer}"[^>]*>${label}</option>`));
     const previousLayer = image.layer;
     fields.get('pcbPropImageLayer').change(layer);
     assert.equal(image.layer, layer);
