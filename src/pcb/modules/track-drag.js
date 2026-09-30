@@ -47,7 +47,7 @@ import { refreshTrackSelectionHalo } from './track-select.js';
 import { MoveVertexCommand, MoveViaCommand, CompoundCommand, ModifyTrackGraphCommand, RemoveTrackCommand, AddViaCommand, AddTrackCommand, ModifyTrackCommand, ModifyViaCommand } from './track-commands.js';
 import { pointsCollinear, collinearSnap } from '../../core/geometry.js';
 import { showAlert } from '../../ui/modules/modal.js';
-import { Via } from '../../shapes/via.js';
+import { Via, viaHitTest } from '../../shapes/via.js';
 import { Track } from '../../shapes/track.js';
 import { isLayerLocked } from './layers.js';
 import { getPcbSelection } from './selection-registry.js';
@@ -1741,8 +1741,7 @@ const VIA_HIT_PX = 6;
  */
 function _hitVia(app, via, worldPos, pxTol = VIA_HIT_PX) {
     const scale = app.viewport?.scale || 1;
-    const r = (via.diameter || 0.6) / 2 + pxTol / scale;
-    return Math.hypot(via.x - worldPos.x, via.y - worldPos.y) <= r;
+    return viaHitTest(via, worldPos, pxTol / scale);
 }
 
 /**

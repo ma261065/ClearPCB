@@ -224,6 +224,14 @@ The geometry helper's existing `padFlash` name denotes only a geometric aperture
 descriptor in millimetres, not a Gerber instruction. Consumer-specific sampling
 tolerances, mask expansion and drill treatment are unchanged.
 
+`Via.getBounds()` and `Via.hitTest()` share the small pure `viaBounds` and
+`viaHitTest` helpers in `shapes/via.js`, also accepting detached plain via data.
+Queries do not cache or mutate state; hit tests include the drill centre and
+default to zero extra tolerance. Selection, group pickup and drag pickup supply
+their existing six-pixel tolerance converted to world millimetres, while marquee
+containment uses the full physical bounds without extra tolerance. Layer policy,
+lock-icon sampling, drawing and manufacturing conversion remain in consumers.
+
 The PCB track, via and standalone-pad renderers keep their SVG references in
 module-private weak maps keyed by entity identity, not in `_svgElements` fields
 on model objects. Rendering, redraw and removal work with frozen entities.

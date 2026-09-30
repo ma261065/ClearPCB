@@ -28,6 +28,7 @@ import {
     trackIsSelectable,
 } from './track-select.js';
 import { renderTrack, renderVia } from './track-render.js';
+import { viaBounds, viaHitTest } from '../../shapes/via.js';
 import { isLayerLocked, isViaLocked, isCopperFillLocked, isCopperFillVisible } from './layers.js';
 import {
     applyShapeGeometry,
@@ -237,8 +238,8 @@ function _computeEnclosed(app, bounds) {
     // Vias: centre (± radius) inside the rectangle. Skip when locked.
     if (!isViaLocked()) {
         for (const v of app.vias) {
-            const r = (v.diameter || 0.6) / 2;
-            if (v.x - r >= minX && v.x + r <= maxX && v.y - r >= minY && v.y + r <= maxY) {
+            const bounds = viaBounds(v);
+            if (bounds.minX >= minX && bounds.maxX <= maxX && bounds.minY >= minY && bounds.maxY <= maxY) {
                 selected.push({ kind: 'via', object: v });
             }
         }
@@ -364,8 +365,7 @@ export function pointInBoxSelection(app, worldPos) {
     if (componentHit && getPcbSelection(app, 'component').includes(componentHit)) return true;
     // A selected via.
     for (const v of getPcbSelection(app, 'via')) {
-        const r = (v.diameter || 0.6) / 2 + worldTol;
-        if (Math.hypot(v.x - worldPos.x, v.y - worldPos.y) <= r) return true;
+        if (viaHitTest(v, worldPos, worldTol)) return true;
     }
     for (const pad of getPcbSelection(app, 'pad')) {
         if (padHitTest(pad, worldPos)) return true;

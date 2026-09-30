@@ -69,6 +69,7 @@ import { arcFromBulge } from '../../shapes/arc-edge.js';
 import { bulgeRatio } from '../../core/geometry.js';
 import { pathMoveInteraction, pathContextActions, showPathContextMenu, dismissPathContextMenu, snapPathPoint } from './path-edit.js';
 import { padOutline } from '../../shapes/pad-geometry.js';
+import { viaBounds, viaHitTest } from '../../shapes/via.js';
 import { beginPcbAnchorInteraction } from './selection-interaction.js';
 
 const NS = 'http://www.w3.org/2000/svg';
@@ -291,11 +292,6 @@ export function createTrackSelectionAdapter(app, track, id) {
 
 registerPcbSelectionAdapter('track', createTrackSelectionAdapter);
 
-function viaBounds(via) {
-    const radius = Math.max(0, Number(via.diameter) || 0.6) / 2;
-    return { minX: via.x - radius, minY: via.y - radius, maxX: via.x + radius, maxY: via.y + radius };
-}
-
 export function createViaSelectionAdapter(app, via, id) {
     return {
         id,
@@ -318,9 +314,7 @@ export function createViaSelectionAdapter(app, via, id) {
             return lockPositionOutsideOutline(outline, pointer, scale);
         },
         getBounds() { return viaBounds(via); },
-        hitTest(point, tolerance) {
-            return Math.hypot(via.x - point.x, via.y - point.y) <= (Number(via.diameter) || 0.6) / 2 + tolerance;
-        },
+        hitTest(point, tolerance) { return viaHitTest(via, point, tolerance); },
         getPosition() { return { x: via.x, y: via.y }; },
         beginMove(worldPos) { return startViaDrag(app, via, worldPos); },
         updateMove(worldPos) { updateViaDrag(app, worldPos); },
@@ -347,8 +341,7 @@ export function hitTestTrack(app, worldPos, pxTol = HIT_TOL_PX) {
     if (!isViaLocked() && isViaVisible()) {
         for (let i = app.vias.length - 1; i >= 0; i--) {
             const v = app.vias[i];
-            const r = (v.diameter || 0.6) / 2 + worldTol;
-            if (Math.hypot(v.x - worldPos.x, v.y - worldPos.y) <= r) {
+            if (viaHitTest(v, worldPos, worldTol)) {
                 return { type: 'via', via: v };
             }
         }
@@ -381,8 +374,7 @@ export function hitTestLockedTrack(app, worldPos, pxTol = HIT_TOL_PX) {
     if (isViaLocked() && isViaVisible()) {
         for (let i = app.vias.length - 1; i >= 0; i--) {
             const v = app.vias[i];
-            const r = (v.diameter || 0.6) / 2 + worldTol;
-            if (Math.hypot(v.x - worldPos.x, v.y - worldPos.y) <= r) {
+            if (viaHitTest(v, worldPos, worldTol)) {
                 return { type: 'via', layerId: v.layer || 'top-copper' };
             }
         }

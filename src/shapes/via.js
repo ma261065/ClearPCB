@@ -38,6 +38,17 @@ export function nextViaId() {
     return `via_${++viaIdCounter}`;
 }
 
+/** Physical bounds, also accepting detached plain via data. */
+export function viaBounds(via) {
+    const radius = Math.max(0, Number(via.diameter) || 0.6) / 2;
+    return { minX: via.x - radius, minY: via.y - radius, maxX: via.x + radius, maxY: via.y + radius };
+}
+
+/** Test the outer via area, including its drill centre. Tolerance is in mm. */
+export function viaHitTest(via, point, tolerance = 0) {
+    return Math.hypot(via.x - point.x, via.y - point.y) <= (Number(via.diameter) || 0.6) / 2 + tolerance;
+}
+
 export class Via {
     /**
      * @param {object} options
@@ -64,6 +75,14 @@ export class Via {
         this.selected = false;
         this.locked = !!options.locked;
         this.visible = options.visible !== undefined ? options.visible : true;
+    }
+
+    getBounds() {
+        return viaBounds(this);
+    }
+
+    hitTest(point, tolerance = 0) {
+        return viaHitTest(this, point, tolerance);
     }
 
     /** Move the via by (dx, dy) in world units. */

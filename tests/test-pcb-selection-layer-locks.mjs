@@ -3,6 +3,7 @@ import { getComputedFill, setComputedFill } from '../src/pcb/modules/computed-fi
 import { readFileSync } from 'node:fs';
 import * as layers from '../src/pcb/modules/layers.js';
 import { trackIsSelectable } from '../src/pcb/modules/track-select.js';
+import { viaBounds } from '../src/shapes/via.js';
 import { lockPositionOutsideOutline } from '../src/pcb/modules/selection-anchors.js';
 import {
     LOCK_BOUNDS,
@@ -65,6 +66,7 @@ assert.ok(marqueeStart >= 0 && marqueeEnd > marqueeStart);
 const dependencies = {
     ...layers,
     trackIsSelectable,
+    viaBounds,
     window: {},
     setPcbSelection(app, selected) { app.selected = selected; },
     refreshBoxSelectionHighlights() {}, showPcbSelectionProperties() {},
