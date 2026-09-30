@@ -83,7 +83,7 @@ for (const saved of [false, true]) for (const finish of ['commit', 'cancel', 'no
         }
     };
     beginGroupDrag(app, { x: 0, y: 0 });
-    assert.equal(app._groupDrag.componentPreview, true);
+    assert.equal(app._groupDrag.posePreview, true);
     assert.equal(getPlacementPreviewTracks(app), undefined, 'Picking up a group does not clone tracks');
     updateGroupDrag(app, { x: 3, y: -4 }, { snap: false });
     const projected = app.tracks[0];
@@ -205,7 +205,7 @@ for (const finish of ['commit', 'cancel', 'no-op']) {
     const { app, shared } = fixture(false);
     setPcbSelection(app, [{ kind: 'component', object: 'a' }, { kind: 'track', object: shared }]);
     beginGroupDrag(app, { x: 0, y: 0 });
-    assert.equal(app._groupDrag.componentPreview, false, 'Mixed groups retain their existing path');
+    assert.equal(app._groupDrag.posePreview, false, 'Groups with directly selected tracks retain their existing path');
     cancelGroupDrag(app);
 }
 console.log('PASS component-only group preview isolation, shared-track reuse, pending movement, cancellation, failure preflight and history');

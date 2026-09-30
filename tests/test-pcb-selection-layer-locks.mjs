@@ -1,4 +1,8 @@
 import assert from 'node:assert/strict';
+import { PcbDocument } from '../src/core/PcbDocument.js';
+import { CommandHistory } from '../src/core/CommandHistory.js';
+import { getTextPosePreviewTexts } from '../src/pcb/modules/text-commands.js';
+import { cancelPictureCopperRefresh } from '../src/pcb/modules/picture-refresh.js';
 import { getComputedFill, setComputedFill } from '../src/pcb/modules/computed-fill-cache.js';
 import { readFileSync } from 'node:fs';
 import * as layers from '../src/pcb/modules/layers.js';
@@ -85,7 +89,9 @@ const lockedPlacement = { id: 'locked-component', x: 3, y: 4, locked: true,
     pads: new Map([['1', { x: 1, y: 1 }]]) };
 const app = {
     placements: new Map([[lockedPlacement.id, lockedPlacement]]),
-    tracks: [], vias: [], texts: new Map(), boardShapes: [fill, shape],
+    pcbDocument: new PcbDocument(), history: new CommandHistory(),
+    get texts() { return getTextPosePreviewTexts(this) || this.pcbDocument.texts; },
+    tracks: [], vias: [], boardShapes: [fill, shape], _refreshText() {},
     _syncClipboardButtons() {}, _getLayerGroup() { return null; }, selected: [],
 };
 for (const select of [() => selectAll.call(app), () => marquee(app, { minX: 0, minY: 0, maxX: 10, maxY: 10 })]) {
@@ -170,6 +176,7 @@ updateGroupDrag(app, { x: 5, y: 5 });
 endGroupDrag(app);
 assert.deepEqual({ x: lockedPlacement.x, y: lockedPlacement.y }, lockedStart);
 assert.equal(movingText.x, textStart + 5, 'Unlocked selection members still move');
+cancelPictureCopperRefresh(app);
 
 const { CopperFill } = await import('../src/shapes/copper-fill.js');
 const { createCopperFillSelectionAdapter } = await import('../src/pcb/modules/copper-fill-selection.js');

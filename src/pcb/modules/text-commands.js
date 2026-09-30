@@ -21,18 +21,30 @@ export function getTextPosePreviewTexts(app) {
 
 /** Preview one text's pose without changing authored text or unrelated entries. */
 export function previewTextPose(app, id, pose) {
+    previewTextPoses(app, new Map([[id, pose]]));
+}
+
+/** Reuse one projection for a fixed set of moving texts. */
+export function previewTextPoses(app, poses) {
+    if (!poses.size) return;
     let preview = textPosePreviews.get(app);
-    if (preview && preview.id !== id) throw new Error('Finish the current text preview before starting another.');
     if (!preview) {
-        const original = app.pcbDocument.texts.get(id);
-        if (!original) throw new Error(`PCB text is no longer available: ${id}`);
-        const text = { ...original };
         const texts = new Map(app.pcbDocument.texts);
-        texts.set(id, text);
-        preview = { id, text, texts };
+        const copies = new Map();
+        for (const id of poses.keys()) {
+            const original = app.pcbDocument.texts.get(id);
+            if (!original) throw new Error(`PCB text is no longer available: ${id}`);
+            const text = { ...original };
+            copies.set(id, text);
+            texts.set(id, text);
+        }
+        preview = { copies, texts };
         textPosePreviews.set(app, preview);
     }
-    Object.assign(preview.text, pose);
+    if (preview.copies.size !== poses.size || [...poses.keys()].some(id => !preview.copies.has(id))) {
+        throw new Error('Finish the current text preview before starting another.');
+    }
+    for (const [id, pose] of poses) Object.assign(preview.copies.get(id), pose);
 }
 
 /** Switch back to canonical text before executing a model command or restoring artwork. */
@@ -47,10 +59,12 @@ export function finishTextPosePreview(app, commit) {
         }
     } finally {
         if (preview && !committed) {
-            const text = app.pcbDocument.texts.get(preview.id);
-            if (!text) app._removeTextElement(preview.id);
-            else if (commit || ['x', 'y', 'rotation'].some(key => text[key] !== preview.text[key])) {
-                app._refreshText(preview.id);
+            for (const [id, copy] of preview.copies) {
+                const text = app.pcbDocument.texts.get(id);
+                if (!text) app._removeTextElement(id);
+                else if (commit || ['x', 'y', 'rotation'].some(key => text[key] !== copy[key])) {
+                    app._refreshText(id);
+                }
             }
         }
     }

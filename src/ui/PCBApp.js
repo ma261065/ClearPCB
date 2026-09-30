@@ -5136,7 +5136,7 @@ export default class PCBApp {
         const state = this._pcbSelectionInteraction;
         if (['component', 'text'].includes(state?.adapter?.kind)
             || (state?.mode === 'move-adapter' && ['component', 'text'].includes(state.entry.kind))) finishSelectionInteraction(this, false);
-        if (this._groupDrag?.componentPreview) {
+        if (this._groupDrag?.posePreview) {
             if (state?.mode === 'move') finishSelectionInteraction(this, false);
             else cancelGroupDrag(this);
         }

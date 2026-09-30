@@ -50,7 +50,7 @@ import {
     finishPlacementPreview,
 } from './track-commands.js';
 import { MoveBoardShapeCommand, RemoveBoardShapeCommand } from './shape-commands.js';
-import { MoveTextCommand, RemoveTextCommand } from './text-commands.js';
+import { MoveTextCommand, RemoveTextCommand, previewTextPoses, finishTextPosePreview } from './text-commands.js';
 import { ModifyFillCommand, RemoveFillCommand } from './copper-fill-commands.js';
 import { ModifyPadCommand, RemovePadCommand } from './pad-commands.js';
 import { padBounds, padHitTest } from '../../shapes/pad-geometry.js';
@@ -447,7 +447,7 @@ export function beginGroupDrag(app, worldPos) {
         startWorld: { x: worldPos.x, y: worldPos.y },
         lastDx: 0, lastDy: 0,
         comps, vias, pads, tracks, shapes, texts, fills,
-        componentPreview: comps.length > 0 && [vias, pads, tracks, shapes, texts, fills].every(items => !items.length),
+        posePreview: comps.length + texts.length > 0 && [vias, pads, tracks, shapes, fills].every(items => !items.length),
         ratsnestNets,
         padCrosshairStart: pads.length ? { x: pads[0].before.x, y: pads[0].before.y } : null,
         previousDeferDragOverlays: !!app._deferDragOverlays,
@@ -495,8 +495,9 @@ export function updateGroupDrag(app, worldPos, { snap = true } = {}) {
         });
     }
 
-    if (g.componentPreview) {
+    if (g.posePreview) {
         previewPlacementPoses(app, new Map(g.comps.map(c => [c.id, { x: c.x + dx, y: c.y + dy }])));
+        previewTextPoses(app, new Map(g.texts.map(entry => [entry.text.id, { x: entry.x + dx, y: entry.y + dy }])));
     } else {
         for (const c of g.comps) {
             const pl = app.placements.get(c.id);
@@ -528,7 +529,7 @@ export function updateGroupDrag(app, worldPos, { snap = true } = {}) {
         if (entry.shape.layer === 'board-outline') app.pcbDocument.syncBoardOutlineDimensions();
         renderBoardShape(app, entry.shape, { liveDrag: true });
     }
-    for (const entry of (g.texts || [])) {
+    for (const entry of (g.posePreview ? [] : g.texts || [])) {
         entry.text.x = entry.x + dx;
         entry.text.y = entry.y + dy;
         app._refreshText?.(entry.text.id);
@@ -584,8 +585,9 @@ export function endGroupDrag(app) {
         }
     }
     for (const entry of (g.texts || [])) {
-        if (entry.text.x !== entry.x || entry.text.y !== entry.y) {
-            cmds.push(new MoveTextCommand(app, entry.text.id, entry.x, entry.y, entry.text.x, entry.text.y));
+        const text = g.posePreview ? app.texts.get(entry.text.id) : entry.text;
+        if (text && (text.x !== entry.x || text.y !== entry.y)) {
+            cmds.push(new MoveTextCommand(app, text.id, entry.x, entry.y, text.x, text.y));
         }
     }
     for (const entry of (g.fills || [])) {
@@ -595,7 +597,10 @@ export function endGroupDrag(app) {
         }
     }
     if (cmds.length === 0) {
-        if (g.componentPreview) finishPlacementPreview(app);
+        if (g.posePreview) {
+            finishPlacementPreview(app);
+            finishTextPosePreview(app);
+        }
         if (!app._deferDragOverlays && (g.comps.length || g.vias.length || g.tracks.length)) {
             app._refreshClearanceHalos?.();
         }
@@ -604,16 +609,21 @@ export function endGroupDrag(app) {
         return;
     }
     const command = cmds.length === 1 ? cmds[0] : new CompoundCommand(cmds);
-    if (g.componentPreview) {
-        finishPlacementPreview(app, () => {
-            // Preflight every footprint before the compound command can change any track.
+    if (g.posePreview) {
+        finishPlacementPreview(app, () => finishTextPosePreview(app, () => {
+            // Resolve every target before the compound command can author any member.
             for (const component of g.comps) {
                 if (!app.project.getPcbFootprint(component.id)) {
                     throw new Error(`PCB footprint is no longer available: ${component.id}`);
                 }
             }
+            for (const entry of g.texts) {
+                if (!app.pcbDocument.texts.has(entry.text.id)) {
+                    throw new Error(`PCB text is no longer available: ${entry.text.id}`);
+                }
+            }
             app.history.execute(command);
-        });
+        }));
     } else app.history?.execute(command);
     _applyHighlights(app);
 }
@@ -628,8 +638,11 @@ export function cancelGroupDrag(app) {
     g.pendingWorld = null;
     app._deferDragOverlays = g.previousDeferDragOverlays;
     if (g.padCrosshairStart) app.viewport?.hideCrosshair();
-    if (g.componentPreview) finishPlacementPreview(app);
-    for (const entry of (g.componentPreview ? [] : g.comps || [])) {
+    if (g.posePreview) {
+        finishPlacementPreview(app);
+        finishTextPosePreview(app);
+    }
+    for (const entry of (g.posePreview ? [] : g.comps || [])) {
         const placement = app.placements.get(entry.id);
         if (!placement) continue;
         placement.x = entry.x;
@@ -654,7 +667,7 @@ export function cancelGroupDrag(app) {
         if (entry.shape.layer === 'board-outline') app.pcbDocument.syncBoardOutlineDimensions();
         renderBoardShape(app, entry.shape);
     }
-    for (const entry of (g.texts || [])) {
+    for (const entry of (g.posePreview ? [] : g.texts || [])) {
         entry.text.x = entry.x;
         entry.text.y = entry.y;
         app._refreshText?.(entry.text.id);

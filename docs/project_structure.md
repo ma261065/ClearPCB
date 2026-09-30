@@ -540,9 +540,11 @@ snapshot with its original ID. Add undo retains the current model object, which
 may have been recreated by a later deletion undo, so a complete undo/redo chain
 cannot resurrect a stale text instance. Missing move/edit targets fail explicitly.
 
-Single-text movement and rotation use an editor-owned text-map projection.
-The first changed pose copies the text once; further updates reuse that object
-and map, while unrelated text objects retain their identity. The editor's `texts`
+Single-text movement/rotation, text-only groups and mixed component/text groups
+use an editor-owned text-map projection. The first changed pose copies each
+participating text once; further updates reuse those objects and map, while
+unrelated text objects retain their identity. The complete participant set is
+validated before publishing a projection. The editor's `texts`
 getter and selection adapters resolve the displayed projection for SVG, bounds,
 hit testing and selection anchors. `PcbDocument.texts`, serialization and geometry
 capture remain unchanged until commit. The projection is removed before the
@@ -553,7 +555,8 @@ Tab deactivation and document loading cancel active component and text pose
 gestures through the shared pose-preview lifecycle hook. Terminal selection
 interactions clear their state even if completion throws, while intentional
 floating-anchor interactions remain active. Errors still propagate.
-Text group movement, inline-content and property previews are not yet isolated,
+Groups containing directly selected tracks, vias, pads, shapes or fills, along
+with inline-content and property previews, are not yet generally isolated,
 so existing save/export readiness guards remain.
 
 Text property previews still update the live model while typing. On commit, the
@@ -778,7 +781,7 @@ An unavailable model footprint fails before pose or graph mutation.
 `CommandHistory` transfers an undo/redo entry only after that operation succeeds,
 so such failures retain the entry for retry; this is not general mutation rollback.
 
-Single-component movement/rotation and component-only group movement use
+Single-component movement/rotation and component/text group movement use
 editor-owned track projections. The first changed pointer position copies only
 tracks bonded to participating components, preserving their IDs, full-precision
 topology and physical pad connections. Further movement reuses those objects.
@@ -795,14 +798,17 @@ discards the projection and restores the starting placement/pads and canonical
 track artwork without rewriting authored copper or recording history. Command
 failure also removes preview state and restores presentation before propagating
 the error. Tab deactivation and document loading cancel these component gestures.
-Component-only group commits preflight every participant's footprint before
-executing the existing compound command, so a missing later footprint cannot
-leave earlier components authored. This is not general transaction rollback.
+Groups containing only components and/or texts compose the track and text
+projections. Both projections end before the existing compound command runs.
+Group commits preflight every participating footprint and text before authoring
+any member, so a missing later target cannot leave earlier members authored.
+This is not general transaction rollback. Texts render once per changed group
+position through the selection refresh, without a duplicate per-text redraw.
 Pending frame movement is discarded on cancel but flushed on commit. Ctrl+Z
 cancels the live preview before undoing the previous committed command.
 Group movement retains shared-delta snapping and outer overlay deferral; no-op
 drops and cancellation preserve redo history. Save/export readiness guards
-remain in place: mixed-entity grouped moves and direct
+remain in place: other grouped moves and direct
 entity/property previews are not yet generally isolated.
 
 Both component pointer paths use the same live pose updater. If magnetic snapping

@@ -24,6 +24,7 @@ globalThis.document = { createElementNS: element };
 const { CommandHistory } = await import('../src/core/CommandHistory.js');
 const { beginGroupDrag, updateGroupDrag, endGroupDrag, refreshBoxSelectionHighlights } =
     await import('../src/pcb/modules/box-select.js');
+const { getTextPosePreviewTexts } = await import('../src/pcb/modules/text-commands.js');
 const { registerPcbSelectionAdapter, setPcbSelection, getPcbSelection, getPcbSelectionEntries, clearPcbSelection } =
     await import('../src/pcb/modules/selection-registry.js');
 
@@ -40,7 +41,7 @@ const pcbDocument = new PcbDocument();
 for (const text of texts) pcbDocument.texts.set(text.id, text);
 const app = {
     placements: new Map(), tracks: [], vias: [], boardShapes: [],
-    pcbDocument, texts: pcbDocument.texts,
+    pcbDocument, get texts() { return getTextPosePreviewTexts(this) || pcbDocument.texts; },
     viewport: { scale: 8, snapToGrid: false },
     _layerGroups: new Map([['selection-overlay', overlay]]),
     _getLayerGroup(id) { return this._layerGroups.get(id); },
