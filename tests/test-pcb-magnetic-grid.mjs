@@ -3,6 +3,7 @@ import { Viewport } from '../src/core/Viewport.js';
 import { snapToViewportGrid } from '../src/core/grid-snap.js';
 import { updateBoardOutlineResize } from '../src/pcb/modules/board-outline-resize.js';
 import { updateGroupDrag } from '../src/pcb/modules/box-select.js';
+import { finishTextPosePreview } from '../src/pcb/modules/text-commands.js';
 
 globalThis.window = { addEventListener() {} };
 globalThis.document = { getElementById: () => null };
@@ -12,7 +13,7 @@ function fixture(viewport) {
     const text = { id: 'text', x: 0, y: 0, size: 1, strokeWidth: 0.1 };
     const placement = { x: 0, y: 0, pads: new Map(), refDx: 0, refDy: 0 };
     const app = {
-        viewport, texts: new Map([[text.id, text]]), placements: new Map([['part', placement]]),
+        viewport, pcbDocument: { texts: new Map([[text.id, text]]) }, placements: new Map([['part', placement]]),
         tracks: [], _getLayerGroup: () => null,
         _refreshText() {}, _updateRatsnest() {}, _drawRefOverlay() {}, _drawBoardOutline() {},
         _screenToWorld: event => ({ x: event.clientX, y: event.clientY }),
@@ -27,6 +28,7 @@ function fixture(viewport) {
             before: { width: 100, height: 80 } },
         _boardWidth: 100, _boardHeight: 80,
     };
+    Object.defineProperty(app, 'texts', Object.getOwnPropertyDescriptor(PCBApp.prototype, 'texts'));
     for (const method of ['_snapToGrid', '_snapPadPlacement', '_updateTextDrag', '_updateComponentDrag',
         '_handleDrag', '_updateRefTextDrag', '_handleRefDrag', '_worldToPlacementLocal', '_updatePasteDrop']) {
         app[method] = PCBApp.prototype[method];
@@ -51,7 +53,9 @@ function check(point, expected, options = {}) {
         'Text placement crosshair uses the same snap policy as the new text origin');
     assert.deepEqual(app._snapPadPlacement(point), expected, 'Standalone pad placement');
     app._updateTextDrag(point);
-    assert.deepEqual({ x: text.x, y: text.y }, expected, 'Text drag');
+    const displayed = app.texts.get(text.id);
+    assert.deepEqual({ x: displayed.x, y: displayed.y }, expected, 'Text drag');
+    finishTextPosePreview(app);
     app._updateComponentDrag(point);
     assert.deepEqual({ x: placement.x, y: placement.y }, expected, 'Component adapter drag');
     app._handleDrag({ clientX: point.x, clientY: point.y, shiftKey: viewport.shiftHeld });

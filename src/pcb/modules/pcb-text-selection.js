@@ -4,19 +4,21 @@ import { registerPcbSelectionAdapter } from './selection-registry.js';
 import { lockPositionOutsideOutline } from './selection-anchors.js';
 import { rotationHandleAnchor, pointerRotation } from './rotation-handle.js';
 import { schedulePictureCopperRefresh } from './picture-refresh.js';
-import { EditTextCommand } from './text-commands.js';
+import { EditTextCommand, previewTextPose, finishTextPosePreview } from './text-commands.js';
 
 export function createPcbTextSelectionAdapter(app, text, id) {
     let rotationDrag = null;
+    const current = () => app.texts.get(text.id) || text;
     return {
         id,
         kind: 'text',
-        object: text,
-        get visible() { return isLayerVisible(text.layer); },
-        get locked() { return isLayerLocked(text.layer); },
-        unlock() { unlockPcbLayer(app, text.layer); },
-        getBounds() { return pcbTextBounds(text); },
+        get object() { return current(); },
+        get visible() { return isLayerVisible(current().layer); },
+        get locked() { return isLayerLocked(current().layer); },
+        unlock() { unlockPcbLayer(app, current().layer); },
+        getBounds() { return pcbTextBounds(current()); },
         getLockPosition(pointer, scale) {
+            const text = current();
             return lockPositionOutsideOutline(
                 pcbTextOutline(text, false),
                 pointer || { x: text.x, y: text.y },
@@ -25,10 +27,11 @@ export function createPcbTextSelectionAdapter(app, text, id) {
                 Math.max(0, Number(text.strokeWidth) || 0) / 2,
             );
         },
-        hitTest(point) { return pcbTextHitTest(text, point.x, point.y); },
-        getPosition() { return { x: text.x, y: text.y }; },
-        getAnchors() { return [rotationHandleAnchor(pcbTextBounds(text), app.viewport?.scale)]; },
+        hitTest(point) { return pcbTextHitTest(current(), point.x, point.y); },
+        getPosition() { const text = current(); return { x: text.x, y: text.y }; },
+        getAnchors() { return [rotationHandleAnchor(pcbTextBounds(current()), app.viewport?.scale)]; },
         beginAnchorDrag(anchorId, worldPos) {
+            const text = current();
             if (anchorId !== 'rotate' || isLayerLocked(text.layer) || !isLayerVisible(text.layer)) return false;
             rotationDrag = { center: { x: text.x, y: text.y }, start: { ...worldPos }, rotation: text.rotation || 0 };
             app._rotationHandleDrag = true;
@@ -36,32 +39,39 @@ export function createPcbTextSelectionAdapter(app, text, id) {
             return true;
         },
         updateAnchorDrag(worldPos) {
+            const text = current();
             if (!rotationDrag || isLayerLocked(text.layer) || !isLayerVisible(text.layer)) return;
             const rotation = pointerRotation(rotationDrag.center, rotationDrag.start, worldPos, rotationDrag.rotation);
             if (text.rotation === rotation) return;
-            text.rotation = rotation;
-            schedulePictureCopperRefresh(app, text);
+            previewTextPose(app, text.id, { rotation });
+            schedulePictureCopperRefresh(app, current());
             app._refreshText(text.id);
             const input = /** @type {HTMLInputElement|null} */ (document.getElementById('pcbPropTextRot'));
-            if (input) input.value = String(Math.round(text.rotation) % 360);
+            if (input) input.value = String(Math.round(rotation) % 360);
         },
         endAnchorDrag(commit) {
             if (!rotationDrag) return;
+            const text = current();
             const after = text.rotation;
-            text.rotation = rotationDrag.rotation;
+            const before = rotationDrag.rotation;
             rotationDrag = null;
             app._rotationHandleDrag = false;
-            schedulePictureCopperRefresh(app, text);
-            if (commit && !isLayerLocked(text.layer) && isLayerVisible(text.layer) && after !== text.rotation) {
-                app.history.execute(new EditTextCommand(app, text.id, { rotation: after }));
-            } else app._refreshText(text.id);
-            app._showTextProperties?.(text);
+            try {
+                finishTextPosePreview(app, commit && !isLayerLocked(text.layer)
+                    && isLayerVisible(text.layer) && after !== before
+                    ? () => app.history.execute(new EditTextCommand(app, text.id, { rotation: after }))
+                    : undefined);
+            } finally {
+                const canonical = app.pcbDocument.texts.get(text.id);
+                schedulePictureCopperRefresh(app, canonical);
+                if (canonical) app._showTextProperties?.(canonical);
+            }
         },
-        beginMove(worldPos) { return app._beginTextDrag(text, worldPos); },
+        beginMove(worldPos) { return app._beginTextDrag(current(), worldPos); },
         updateMove(worldPos) { app._updateTextDrag(worldPos); },
         endMove(commit) { app._endTextDrag(commit); },
         invalidate() { app._refreshText(text.id); },
-        render() { renderPcbText(text); },
+        render() { renderPcbText(current()); },
     };
 }
 

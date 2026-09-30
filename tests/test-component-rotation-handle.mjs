@@ -314,7 +314,7 @@ for (const saved of [false, true]) {
 {
     const f = fixture();
     const original = f.track.captureState();
-    f.app._cancelComponentPreview = PCBApp.prototype._cancelComponentPreview;
+    f.app._cancelPosePreviews = PCBApp.prototype._cancelPosePreviews;
     f.app._cancelDrawingMode = () => false;
     beginSelectionInteraction(f.app, f.anchor(), false);
     updateSelectionInteraction(f.app, f.pointFor(90));

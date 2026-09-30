@@ -17,7 +17,7 @@ function fixture(options = {}) {
     let hiddenCrosshairs = 0;
     let historyChanges = 0;
     const app = {
-        pcbDocument, texts: pcbDocument.texts,
+        pcbDocument,
         history: new CommandHistory({ onChanged: () => historyChanges++ }),
         viewport: {
             svg: { style: { cursor: 'grabbing' } }, gridSize: 1, snapToGrid: true,
@@ -26,8 +26,9 @@ function fixture(options = {}) {
             hideCrosshair: () => hiddenCrosshairs++,
         },
         _screenToWorld: event => ({ x: event.clientX, y: event.clientY }),
-        _refreshText: () => renders.push({ ...text }),
+        _refreshText: () => renders.push({ ...app.texts.get(text.id) }),
     };
+    Object.defineProperty(app, 'texts', Object.getOwnPropertyDescriptor(PCBApp.prototype, 'texts'));
     for (const name of ['_beginTextDrag', '_updateTextDrag', '_handleTextDrag', '_endTextDrag',
         '_snapToGrid', '_snapActive']) app[name] = PCBApp.prototype[name];
     const adapter = createPcbTextSelectionAdapter(app, text, text.id);
@@ -46,7 +47,8 @@ function fixture(options = {}) {
         for (let index = 0; index < 100; index++) {
             adapter.updateMove({ x: 5 + index / 1000, y: 7 + index / 1000 });
         }
-        assert.deepEqual([text.x, text.y], [15, 27]);
+        assert.deepEqual([adapter.object.x, adapter.object.y], [15, 27]);
+        assert.deepEqual(text, original, 'Live movement leaves authored text unchanged');
         assert.deepEqual(crosshairs.at(-1), { x: 15, y: 27 },
             'Drag crosshair lies on the snapped grid point without a font-height offset');
         assert.equal(renders.length, 1, '100 pointer events inside the same grid magnet render once');
@@ -55,7 +57,7 @@ function fixture(options = {}) {
         assert.equal(app.history.canUndo(), false);
         adapter.updateMove({ x: 6, y: 8 });
         assert.equal(renders.length, 2, 'Entering another cell renders immediately');
-        const final = { ...text };
+        const final = { ...adapter.object };
         const beforeDrop = renders.length;
         adapter.endMove(true);
         assert.deepEqual(renders.slice(beforeDrop), [final],
@@ -86,7 +88,7 @@ function fixture(options = {}) {
         for (let index = 0; index < 100; index++) {
             const point = { x: 4 + index / 1000, y: 6 + index / 1000 };
             adapter.updateMove(point);
-            assert.deepEqual({ x: text.x, y: text.y }, point, 'Movement between grid lines remains free');
+            assert.deepEqual(adapter.getPosition(), point, 'Movement between grid lines remains free');
         }
         assert.equal(renders.length, 100, 'Every distinct free position renders, even within one grid cell');
         adapter.endMove(true);
@@ -109,7 +111,7 @@ for (const layer of ['top-silk', 'bottom-silk']) {
             assert.deepEqual(crosshairs.at(-1), { x: text.x, y: text.y });
             for (const point of [{ x: 4, y: 6 }, { x: 1.5, y: 8.5 }]) {
                 adapter.updateMove(point);
-                assert.deepEqual(crosshairs.at(-1), { x: text.x, y: text.y },
+                assert.deepEqual(crosshairs.at(-1), adapter.getPosition(),
                     'Free and magnetic motion share one origin regardless of rotation, side or style');
             }
             adapter.endMove(false);
@@ -152,7 +154,7 @@ for (const previousDefer of [false, true]) {
         const original = { ...text };
         app._beginTextDrag(text, { x: 0, y: 0 });
         app._handleTextDrag({ clientX: 0.1234567, clientY: 0.7654321, shiftKey: true });
-        const final = { ...text };
+        const final = { ...app.texts.get(text.id) };
         assert.equal(final.x, original.x + 0.1234567, 'Shift disables snapping on a visible grid');
         assert.equal(final.y, original.y + 0.7654321);
         app._endTextDrag();
@@ -163,8 +165,8 @@ for (const previousDefer of [false, true]) {
         assert.deepEqual(text, final, 'Redo preserves unrounded final coordinates');
         app._beginTextDrag(text, { x: 0, y: 0 });
         app._handleTextDrag({ clientX: 1, clientY: 2, shiftKey: false });
-        assert.equal(text.x, Math.round(final.x + 1));
-        assert.equal(text.y, Math.round(final.y + 2));
+        assert.equal(app.texts.get(text.id).x, Math.round(final.x + 1));
+        assert.equal(app.texts.get(text.id).y, Math.round(final.y + 2));
         app._endTextDrag(false);
         assert.deepEqual(text, final);
     } finally { cancelPictureCopperRefresh(app); }

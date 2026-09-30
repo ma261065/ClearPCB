@@ -7,6 +7,7 @@ import { createPcbTextSelectionAdapter } from '../src/pcb/modules/pcb-text-selec
 import { createPadSelectionAdapter } from '../src/pcb/modules/pad-selection.js';
 import { padCopperPathD, padOutline } from '../src/pcb/modules/pad.js';
 import { cancelPictureCopperRefresh } from '../src/pcb/modules/picture-refresh.js';
+import { getTextPosePreviewTexts } from '../src/pcb/modules/text-commands.js';
 
 const inputs = new Map();
 globalThis.document = {
@@ -47,7 +48,8 @@ for (const kind of ['text', 'pad']) {
     };
     const overlay = { querySelectorAll: () => [highlight] };
     const app = {
-        pcbDocument, texts: pcbDocument.texts, pads: pcbDocument.pads, history: new CommandHistory(),
+        pcbDocument, get texts() { return getTextPosePreviewTexts(this) || pcbDocument.texts; },
+        pads: pcbDocument.pads, history: new CommandHistory(),
         _getLayerGroup: layer => layer === 'top-copper' ? copper : layer === 'selection-overlay' ? overlay : null,
         _refreshText: () => renders++,
         _boardShapeClearanceCache: new Map([[object.id, { elements: [{
@@ -65,7 +67,8 @@ for (const kind of ['text', 'pad']) {
         assert.equal(adapter.beginAnchorDrag('rotate', start), true);
         const beforeClearance = clearanceInvalidations;
         for (let index = 0; index < 100; index++) adapter.updateAnchorDrag(pointFor(37 + index / 1000));
-        assert.equal(object.rotation, 37);
+        assert.equal(adapter.object.rotation, 37);
+        if (kind === 'text') assert.equal(object.rotation, startingRotation, 'Authored rotation stays unchanged');
         assert.equal(renders, 1, `${kind}: 100 events resolving to one angle render once`);
         assert.equal(inputWrites, 1, `${kind}: unchanged angles do not rewrite the rotation input`);
         assert.equal(input.value, '37');
@@ -75,7 +78,7 @@ for (const kind of ['text', 'pad']) {
         assert.equal(app.history.canUndo(), false);
         for (let angle = 90; angle < 190; angle++) {
             adapter.updateAnchorDrag(pointFor(angle));
-            assert.equal(object.rotation, angle);
+            assert.equal(adapter.object.rotation, angle);
         }
         assert.equal(renders, 101, `${kind}: every distinct angle still renders immediately`);
         assert.equal(inputWrites, 101);
@@ -90,7 +93,7 @@ for (const kind of ['text', 'pad']) {
         adapter.updateAnchorDrag(pointFor(189.49));
         assert.equal(renders, 101, 'Sub-degree pointer movement retains the existing one-degree rounding');
         adapter.updateAnchorDrag(pointFor(189.51));
-        assert.equal(object.rotation, 190);
+        assert.equal(adapter.object.rotation, 190);
         assert.equal(renders, 102);
         adapter.endAnchorDrag(true);
         assert.equal(app.history.undoStack.length, 1);
@@ -100,7 +103,7 @@ for (const kind of ['text', 'pad']) {
         adapter.beginAnchorDrag('rotate', start);
         adapter.updateAnchorDrag(pointFor(90));
         adapter.updateAnchorDrag({ x: object.x, y: object.y });
-        assert.equal(object.rotation, startingRotation, 'Centre fallback restores the exact fractional angle');
+        assert.equal(adapter.object.rotation, startingRotation, 'Centre fallback restores the exact fractional angle');
         const fractionalCenterRenders = renders;
         for (let index = 0; index < 100; index++) adapter.updateAnchorDrag({ x: object.x, y: object.y });
         assert.equal(renders, fractionalCenterRenders);
@@ -115,7 +118,7 @@ for (const kind of ['text', 'pad']) {
         for (let index = 0; index < 100; index++) adapter.updateAnchorDrag({ x: object.x, y: object.y });
         assert.equal(renders, beforeCenter, 'Repeated centre points preserve the starting rotation without redraw');
         adapter.updateAnchorDrag(pointFor(359.6, 190));
-        assert.equal(object.rotation, 0, 'Angle wrapping remains unchanged');
+        assert.equal(adapter.object.rotation, 0, 'Angle wrapping remains unchanged');
         adapter.endAnchorDrag(false);
         assert.equal(object.rotation, 190);
         assert.equal(app.history.undoStack.length, 1, 'Cancel records no history');

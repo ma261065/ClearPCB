@@ -82,6 +82,9 @@ import {
     RemoveTextCommand,
     MoveTextCommand,
     EditTextCommand,
+    getTextPosePreviewTexts,
+    previewTextPose,
+    finishTextPosePreview,
 } from '../pcb/modules/text-commands.js';
 import { shapeDrawClick, updateShapeDrawPreview, cancelShapeDraw, finishPolygonDraw, finishLineDraw, finishShapeDrawAtPoint, hitTestBoardShape, setBoardShapeHover, selectBoardShape, startBoardShapeDrag, handleBoardShapeDrag, endBoardShapeDrag, showBoardShapeProperties, showBoardShapeToolProperties, refreshBoardShapeToolLayer, resolveShapeDrawLayer, boardShapeCopperCuts, renderBoardShape, hitTestBoardShapeVertex, showBoardShapeContextMenu, dismissBoardShapeContextMenu, captureBoardShapeState, applyShapeSnapshot } from '../pcb/modules/board-shapes.js';
 import { ModifyBoardShapeCommand } from '../pcb/modules/shape-commands.js';
@@ -206,7 +209,7 @@ export default class PCBApp {
     set vias(value) { this.pcbDocument.vias = value; }
     get pads() { return this.pcbDocument.pads; }
     set pads(value) { this.pcbDocument.pads = value; }
-    get texts() { return this.pcbDocument.texts; }
+    get texts() { return getTextPosePreviewTexts(this) || this.pcbDocument.texts; }
     set texts(value) { this.pcbDocument.texts = value; }
     get boardShapes() { return this.pcbDocument.boardShapes; }
     set boardShapes(value) { this.pcbDocument.boardShapes = value; }
@@ -479,7 +482,7 @@ export default class PCBApp {
 
     deactivate() {
         setInlineTextInputActive(this._textEdit?.input, false);
-        this._cancelComponentPreview();
+        this._cancelPosePreviews();
         this._cancelDrawingMode();
         this._active = false;
     }
@@ -5129,15 +5132,16 @@ export default class PCBApp {
         }
     }
 
-    _cancelComponentPreview() {
+    _cancelPosePreviews() {
         const state = this._pcbSelectionInteraction;
-        if (state?.adapter?.kind === 'component'
-            || (state?.mode === 'move-adapter' && state.entry.kind === 'component')) finishSelectionInteraction(this, false);
+        if (['component', 'text'].includes(state?.adapter?.kind)
+            || (state?.mode === 'move-adapter' && ['component', 'text'].includes(state.entry.kind))) finishSelectionInteraction(this, false);
         if (this._groupDrag?.componentPreview) {
             if (state?.mode === 'move') finishSelectionInteraction(this, false);
             else cancelGroupDrag(this);
         }
         if (this._drag) this._endDrag(false);
+        if (this._textDrag) this._endTextDrag(false);
     }
 
     // ── Text annotations ─────────────────────────────────────────
@@ -5268,8 +5272,7 @@ export default class PCBApp {
             y: this._textDrag.startPos.y + worldPos.y - this._textDrag.startWorld.y,
         });
         if (text.x === snap.x && text.y === snap.y) return;
-        text.x = snap.x;
-        text.y = snap.y;
+        previewTextPose(this, text.id, snap);
         this.viewport?.setCrosshair({ x: snap.x, y: snap.y });
         this._refreshText(text.id);
     }
@@ -5290,16 +5293,10 @@ export default class PCBApp {
         this.viewport?.hideCrosshair();
         this.viewport.svg.style.cursor = 'default';
         const t = this.texts.get(textId);
-        if (!t) return;
-        if (!commit || isLayerLocked(t.layer) || !isLayerVisible(t.layer)) {
-            t.x = startPos.x;
-            t.y = startPos.y;
-            this._refreshText(t.id);
-            return;
-        }
-        if (t.x === startPos.x && t.y === startPos.y) return;
-        // The command owns explicit endpoints; no live-model rollback is needed.
-        this.history.execute(new MoveTextCommand(this, textId, startPos.x, startPos.y, t.x, t.y));
+        finishTextPosePreview(this, t && commit && !isLayerLocked(t.layer) && isLayerVisible(t.layer)
+            && (t.x !== startPos.x || t.y !== startPos.y)
+            ? () => this.history.execute(new MoveTextCommand(this, textId, startPos.x, startPos.y, t.x, t.y))
+            : undefined);
     }
 
     // ── Reference-designator move / rotate ────────────────────

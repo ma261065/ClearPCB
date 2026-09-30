@@ -51,7 +51,7 @@ const { createPcbTextSelectionAdapter } = await import('../src/pcb/modules/pcb-t
 const { Pad } = await import('../src/shapes/pad.js');
 const { createPadSelectionAdapter } = await import('../src/pcb/modules/pad-selection.js');
 const { setPcbSelection, getPcbSelection, isPcbSelected } = await import('../src/pcb/modules/selection-registry.js');
-const { MoveTextCommand } = await import('../src/pcb/modules/text-commands.js');
+const { MoveTextCommand, getTextPosePreviewTexts, previewTextPose, finishTextPosePreview } = await import('../src/pcb/modules/text-commands.js');
 const { pcbTextBounds } = await import('../src/pcb/modules/pcb-text.js');
 const { renderPcbSelectionAnchors, hitTestPcbSelectionAnchor } = await import('../src/pcb/modules/selection-anchors.js');
 const { cancelPictureCopperRefresh } = await import('../src/pcb/modules/picture-refresh.js');
@@ -80,7 +80,8 @@ try {
             }
             const pcbDocument = new PcbDocument();
             if (kind === 'text') pcbDocument.texts.set(object.id, object);
-            const app = { pcbDocument, boardShapes: kind === 'image' ? [object] : [], texts: pcbDocument.texts,
+            const app = { pcbDocument, boardShapes: kind === 'image' ? [object] : [],
+                get texts() { return getTextPosePreviewTexts(this) || pcbDocument.texts; },
                 tracks: [], vias: [], placements: new Map(), _shapeElements: new Map(),
                 viewport: { scale: 10, svg: element('svg') }, history: new CommandHistory(), _getLayerGroup() { return null; },
                 _pcbPropsItems() { return null; }, _refreshText() {},
@@ -221,8 +222,9 @@ try {
     const methodsEnd = source.indexOf('\n    //', source.indexOf('    _endTextDrag(commit = true) {', methodsStart));
     assert.ok(methodsStart >= 0 && methodsEnd > methodsStart);
     const textPrototype = new Function('getPcbSelection', 'setPcbSelection', 'MoveTextCommand', 'isLayerLocked', 'isLayerVisible',
+        'previewTextPose', 'finishTextPosePreview',
         `return (class { ${source.slice(methodsStart, methodsEnd)} }).prototype;`)(
-        getPcbSelection, setPcbSelection, MoveTextCommand, isLayerLocked, isLayerVisible);
+        getPcbSelection, setPcbSelection, MoveTextCommand, isLayerLocked, isLayerVisible, previewTextPose, finishTextPosePreview);
     const textMethods = Object.fromEntries(Object.getOwnPropertyNames(textPrototype)
         .filter(name => name !== 'constructor').map(name => [name, textPrototype[name]]));
     const movingText = { id: 'moving-text', content: 'Move', x: 0, y: 0, size: 2, strokeWidth: 0.2,
@@ -230,7 +232,8 @@ try {
     const movingOverlay = element('g');
     const movingDocument = new PcbDocument();
     movingDocument.texts.set(movingText.id, movingText);
-    const movingApp = { ...textMethods, pcbDocument: movingDocument, boardShapes: [], texts: movingDocument.texts,
+    const movingApp = { ...textMethods, pcbDocument: movingDocument, boardShapes: [],
+        get texts() { return getTextPosePreviewTexts(this) || movingDocument.texts; },
         placements: new Map(), tracks: [], vias: [], history: new CommandHistory(),
         viewport: { scale: 10, svg: element('svg'), setCrosshair() {}, hideCrosshair() {} },
         _getLayerGroup(id) { return id === 'selection-overlay' ? movingOverlay : null; },
@@ -239,11 +242,12 @@ try {
     };
     movingApp._selectText(movingText);
     const assertMovingHandle = () => {
-        assert.equal(getPcbSelection(movingApp, 'text')[0], movingText, 'Dragged text remains selected');
+        const displayed = movingApp.texts.get(movingText.id);
+        assert.equal(getPcbSelection(movingApp, 'text')[0], displayed, 'Dragged text remains selected');
         const handles = movingOverlay.children.flatMap(group => group.children)
             .filter(handle => handle.attributes.get('data-anchor-id') === 'rotate');
         assert.equal(handles.length, 1, 'Exactly one rotate handle remains attached');
-        const expected = rotationHandleAnchor(pcbTextBounds(movingText), movingApp.viewport.scale);
+        const expected = rotationHandleAnchor(pcbTextBounds(displayed), movingApp.viewport.scale);
         assert.equal(Number(handles[0].attributes.get('cx')), expected.x);
         assert.equal(Number(handles[0].attributes.get('cy')), expected.y);
     };

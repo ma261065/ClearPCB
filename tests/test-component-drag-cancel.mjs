@@ -231,7 +231,7 @@ for (const legacy of [false, true]) {
 for (const shared of [true, false]) {
     const f = fixture();
     const original = f.snapshot();
-    f.app._cancelComponentPreview = PCBApp.prototype._cancelComponentPreview;
+    f.app._cancelPosePreviews = PCBApp.prototype._cancelPosePreviews;
     f.app._cancelDrawingMode = () => false;
     f.begin(shared);
     f.adapter.updateMove({ x: 4, y: 5 });

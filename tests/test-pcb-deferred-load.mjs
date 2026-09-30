@@ -71,7 +71,7 @@ const makeApp = active => {
 
 const hidden = makeApp(false);
 let cancelledComponentPreview = false;
-hidden._cancelComponentPreview = () => { cancelledComponentPreview = true; };
+hidden._cancelPosePreviews = () => { cancelledComponentPreview = true; };
 const textMap = hidden.pcbDocument.texts;
 const oldText = { id: 'old-text' };
 hidden.texts.set(oldText.id, oldText);

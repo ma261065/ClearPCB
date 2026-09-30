@@ -220,43 +220,51 @@ export function finishSelectionInteraction(app, commit = true, worldPos = null) 
     if (commit && worldPos && app._pcbSelectionInteraction?.mode === 'cycle') updateSelectionInteraction(app, worldPos);
     const state = app._pcbSelectionInteraction;
     if (!state) return false;
-    if (state.mode === 'cycle') {
-        if (commit) {
-            const selected = getPcbSelectionEntries(app);
-            const hits = getPcbSelectionHits(app, state.startWorld, SUPPORTED_KINDS);
-            const index = hits.findIndex((hit) => selected.some((item) => item.id === hit.id));
-            const next = hits[(index + 1) % hits.length];
-            if (next) {
-                const keep = state.additive ? selected.filter((item) => !hits.some((hit) => hit.id === item.id)) : [];
-                setPcbSelection(app, [...keep, next].map(({ kind, object }) => ({ kind, object })));
-                showPcbSelectionProperties(app);
+    let floating = false;
+    try {
+        if (state.mode === 'cycle') {
+            if (commit) {
+                const selected = getPcbSelectionEntries(app);
+                const hits = getPcbSelectionHits(app, state.startWorld, SUPPORTED_KINDS);
+                const index = hits.findIndex((hit) => selected.some((item) => item.id === hit.id));
+                const next = hits[(index + 1) % hits.length];
+                if (next) {
+                    const keep = state.additive ? selected.filter((item) => !hits.some((hit) => hit.id === item.id)) : [];
+                    setPcbSelection(app, [...keep, next].map(({ kind, object }) => ({ kind, object })));
+                    showPcbSelectionProperties(app);
+                }
             }
+        } else if (state.mode === 'anchor') {
+            if (commit && !state.moved && ['shape', 'track', 'fill'].includes(state.adapter.kind)
+                && String(state.anchorId).startsWith('mid:')) {
+                state.mode = 'floating-anchor';
+                renderPcbSelectionAnchors(app);
+                if (app.viewport?.svg) app.viewport.svg.style.cursor = selectionInteractionCursor(app);
+                floating = true;
+                return true;
+            }
+            if (commit && worldPos && state.anchor?.symbol === 'rotate') state.adapter.updateAnchorDrag?.(worldPos);
+            const result = state.adapter.endAnchorDrag?.(commit, { moved: state.moved });
+            if (commit && result?.floating) {
+                state.mode = 'floating-anchor';
+                floating = true;
+                return true;
+            }
+        } else if (state.mode === 'floating-anchor') {
+            state.adapter.endAnchorDrag?.(false, { moved: true });
+        } else if (state.mode === 'move') {
+            if (commit) endGroupDrag(app);
+            else cancelGroupDrag(app);
+        } else if (state.mode === 'move-adapter') {
+            state.entry.endMove?.(commit, { moved: state.moved, startWorld: state.startWorld });
         }
-    } else if (state.mode === 'anchor') {
-        if (commit && !state.moved && ['shape', 'track', 'fill'].includes(state.adapter.kind)
-            && String(state.anchorId).startsWith('mid:')) {
-            state.mode = 'floating-anchor';
-            renderPcbSelectionAnchors(app);
-            if (app.viewport?.svg) app.viewport.svg.style.cursor = selectionInteractionCursor(app);
-            return true;
+    } finally {
+        if (!floating) {
+            app._pcbSelectionInteraction = null;
+            refreshBoxSelectionHighlights(app);
+            if (state.anchor?.symbol === 'rotate' && app.viewport?.svg) app.viewport.svg.style.cursor = 'default';
         }
-        if (commit && worldPos && state.anchor?.symbol === 'rotate') state.adapter.updateAnchorDrag?.(worldPos);
-        const result = state.adapter.endAnchorDrag?.(commit, { moved: state.moved });
-        if (commit && result?.floating) {
-            state.mode = 'floating-anchor';
-            return true;
-        }
-    } else if (state.mode === 'floating-anchor') {
-        state.adapter.endAnchorDrag?.(false, { moved: true });
-    } else if (state.mode === 'move') {
-        if (commit) endGroupDrag(app);
-        else cancelGroupDrag(app);
-    } else if (state.mode === 'move-adapter') {
-        state.entry.endMove?.(commit, { moved: state.moved, startWorld: state.startWorld });
     }
-    app._pcbSelectionInteraction = null;
-    refreshBoxSelectionHighlights(app);
-    if (state.anchor?.symbol === 'rotate' && app.viewport?.svg) app.viewport.svg.style.cursor = 'default';
     return true;
 }
 

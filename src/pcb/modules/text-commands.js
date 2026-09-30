@@ -13,6 +13,49 @@ import { getPcbSelectionEntries, isPcbSelected } from './selection-registry.js';
 import { schedulePictureCopperRefresh } from './picture-refresh.js';
 import { deferDerivedUpdate } from '../../core/DerivedUpdates.js';
 
+const textPosePreviews = new WeakMap();
+
+export function getTextPosePreviewTexts(app) {
+    return textPosePreviews.get(app)?.texts;
+}
+
+/** Preview one text's pose without changing authored text or unrelated entries. */
+export function previewTextPose(app, id, pose) {
+    let preview = textPosePreviews.get(app);
+    if (preview && preview.id !== id) throw new Error('Finish the current text preview before starting another.');
+    if (!preview) {
+        const original = app.pcbDocument.texts.get(id);
+        if (!original) throw new Error(`PCB text is no longer available: ${id}`);
+        const text = { ...original };
+        const texts = new Map(app.pcbDocument.texts);
+        texts.set(id, text);
+        preview = { id, text, texts };
+        textPosePreviews.set(app, preview);
+    }
+    Object.assign(preview.text, pose);
+}
+
+/** Switch back to canonical text before executing a model command or restoring artwork. */
+export function finishTextPosePreview(app, commit) {
+    const preview = textPosePreviews.get(app);
+    textPosePreviews.delete(app);
+    let committed = false;
+    try {
+        if (commit) {
+            commit();
+            committed = true;
+        }
+    } finally {
+        if (preview && !committed) {
+            const text = app.pcbDocument.texts.get(preview.id);
+            if (!text) app._removeTextElement(preview.id);
+            else if (commit || ['x', 'y', 'rotation'].some(key => text[key] !== preview.text[key])) {
+                app._refreshText(preview.id);
+            }
+        }
+    }
+}
+
 function refreshTextLayerProperties(app) {
     if (deferDerivedUpdate(app, 'text-layer-properties', () => refreshTextLayerProperties(app))) return;
     const selected = getPcbSelectionEntries(app);

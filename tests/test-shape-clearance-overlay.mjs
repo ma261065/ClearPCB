@@ -236,13 +236,13 @@ assert.equal(textHalos().length, 0);
 assert.equal(app._boardShapeClearanceCache.has(text.id), false);
 console.log('PASS text clearance rendering, translation cache, deferred rotation and deletion');
 const { schedulePictureCopperRefresh } = await import('../src/pcb/modules/picture-refresh.js');
-const { MoveTextCommand } = await import('../src/pcb/modules/text-commands.js');
+const { MoveTextCommand, finishTextPosePreview } = await import('../src/pcb/modules/text-commands.js');
 const { startBoardShapeDrag, handleBoardShapeDrag, endBoardShapeDrag } = await import('../src/pcb/modules/board-shapes.js');
 const dropStart = source.indexOf('    _endTextDrag(commit = true) {');
 const dropEnd = source.indexOf('\n    //', dropStart);
 assert.ok(dropStart >= 0 && dropEnd > dropStart);
-const endTextDrag = new Function('MoveTextCommand', 'isLayerLocked', 'isLayerVisible',
-    `return ({ ${source.slice(dropStart, dropEnd)} })._endTextDrag;`)(MoveTextCommand, isLayerLocked, isLayerVisible);
+const endTextDrag = new Function('MoveTextCommand', 'isLayerLocked', 'isLayerVisible', 'finishTextPosePreview',
+    `return ({ ${source.slice(dropStart, dropEnd)} })._endTextDrag;`)(MoveTextCommand, isLayerLocked, isLayerVisible, finishTextPosePreview);
 const originalSetTimeout = globalThis.setTimeout;
 const originalClearTimeout = globalThis.clearTimeout;
 let deferred;

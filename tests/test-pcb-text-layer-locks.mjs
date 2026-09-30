@@ -28,7 +28,7 @@ for (const layerId of TEXT_LAYERS) {
     const items = { innerHTML: '', querySelector: () => ({ addEventListener() {} }) };
     let propertyShows = 0, cleared = 0;
     const app = {
-        _active: true, pcbDocument, texts: pcbDocument.texts, history: new CommandHistory(),
+        _active: true, pcbDocument, history: new CommandHistory(),
         viewport: { svg: { style: {} }, scale: 10, snapToGrid: false, setCrosshair() {}, hideCrosshair() {} },
         placements: new Map(), tracks: [], vias: [], boardShapes: [], _layerGroups: new Map(),
         _getLayerGroup: () => null, _refreshText() {},
@@ -36,6 +36,7 @@ for (const layerId of TEXT_LAYERS) {
         _layerLabel: value => value, _clearProperties: () => cleared++, _exitTextTool() {},
         _screenToWorld: event => ({ x: event.clientX, y: event.clientY }),
     };
+    Object.defineProperty(app, 'texts', Object.getOwnPropertyDescriptor(PCBApp.prototype, 'texts'));
     for (const name of ['_beginTextDrag', '_updateTextDrag', '_handleTextDrag', '_endTextDrag',
         '_snapToGrid', '_selectText', '_showTextProperties', '_bindStrokeTextProps',
         '_pcbMultiPropertyCapabilities', '_onLayerLockChanged', '_startTextInlineEdit',
@@ -70,11 +71,12 @@ for (const layerId of TEXT_LAYERS) {
         assert.doesNotMatch(items.innerHTML, /id="pcbPropTextRot"[^>]* disabled/);
         assert.equal(adapter.beginMove({ x: 0, y: 0 }), true);
         adapter.updateMove({ x: 3, y: 4 });
-        const preview = { ...text };
+        const preview = { ...adapter.object };
         layer.locked = true;
         adapter.updateMove({ x: 7, y: 8 });
         app._handleTextDrag({ clientX: 9, clientY: 10, shiftKey: false });
-        assert.deepEqual(text, preview, 'Locking stops updates through both pointer paths');
+        assert.deepEqual(adapter.object, preview, 'Locking stops updates through both pointer paths');
+        assert.deepEqual(text, original, 'Locking never requires an authored rollback');
         adapter.endMove(true);
         assert.deepEqual(text, original, 'A now-locked drag restores its original position on drop');
         assert.equal(app.history.canUndo(), false);
@@ -94,11 +96,11 @@ for (const layerId of TEXT_LAYERS) {
             layer.locked = false;
             assert.equal(adapter.beginAnchorDrag('rotate', { x: text.x + 1, y: text.y }), true);
             adapter.updateAnchorDrag({ x: text.x, y: text.y + 1 });
-            assert.notEqual(text.rotation, original.rotation);
-            const rotationPreview = text.rotation;
+            assert.notEqual(adapter.object.rotation, original.rotation);
+            const rotationPreview = adapter.object.rotation;
             layer.locked = true;
             adapter.updateAnchorDrag({ x: text.x - 1, y: text.y });
-            assert.equal(text.rotation, rotationPreview, 'Locked rotation stops following the pointer');
+            assert.equal(adapter.object.rotation, rotationPreview, 'Locked rotation stops following the pointer');
             if (notify) {
                 app._pcbSelectionInteraction = { mode: 'anchor', adapter };
                 app._onLayerLockChanged(layerId, true);

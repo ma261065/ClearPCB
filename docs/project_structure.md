@@ -512,8 +512,8 @@ Gerber coordinate conversion, drill formatting and pour computation stay in cons
 Component selection exposes the shared rotation handle only for a single
 selected component. Its gesture uses one-degree, clockwise-positive footprint
 angles around the placement origin; text/image rotation keeps its existing
-opposite sign convention. Preview updates use `applyPlacementPose`, keeping
-pad positions, bonded track nodes and their SVG geometry attached on either
+opposite sign convention. Preview updates use editor-owned placement projections,
+keeping pad positions, projected bonded track nodes and their SVG geometry attached on either
 board side and under mirroring. Unchanged rounded angles skip all preview work.
 Live ratsnest updates are limited to the component's nets and skip pour rebuilds
 until completion. The component rotation spinner follows previews and history;
@@ -539,6 +539,22 @@ control and derived-refresh updates. Deleted text is restored from an unrounded
 snapshot with its original ID. Add undo retains the current model object, which
 may have been recreated by a later deletion undo, so a complete undo/redo chain
 cannot resurrect a stale text instance. Missing move/edit targets fail explicitly.
+
+Single-text movement and rotation use an editor-owned text-map projection.
+The first changed pose copies the text once; further updates reuse that object
+and map, while unrelated text objects retain their identity. The editor's `texts`
+getter and selection adapters resolve the displayed projection for SVG, bounds,
+hit testing and selection anchors. `PcbDocument.texts`, serialization and geometry
+capture remain unchanged until commit. The projection is removed before the
+existing move/edit command runs, so undo captures the original canonical values
+without a temporary model rollback. Cancel and failed commits discard the
+projection and restore canonical artwork; deleted targets are not resurrected.
+Tab deactivation and document loading cancel active component and text pose
+gestures through the shared pose-preview lifecycle hook. Terminal selection
+interactions clear their state even if completion throws, while intentional
+floating-anchor interactions remain active. Errors still propagate.
+Text group movement, inline-content and property previews are not yet isolated,
+so existing save/export readiness guards remain.
 
 Text property previews still update the live model while typing. On commit, the
 editor restores only changed style fields (including layer-dependent anchor
@@ -585,7 +601,7 @@ only for changed previews. Commit/cancel refreshes and exact fractional-angle
 history restoration retain their existing behavior.
 Individual commands remain synchronous; no additional timer is introduced.
 
-Single-text dragging skips model writes, SVG rebuilds and crosshair updates when
+Single-text dragging skips projection writes, SVG rebuilds and crosshair updates when
 the snapped position has not changed. Changed positions still render immediately;
 there is no new frame scheduler or throttling. Drop passes the explicit original
 and final coordinates to `MoveTextCommand` without first moving/rendering the text

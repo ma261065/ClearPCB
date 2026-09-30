@@ -59,7 +59,7 @@ function fixture(saved) {
             return copper;
         },
         _netsForComponent: () => new Set(['N']),
-        _cancelComponentPreview: PCBApp.prototype._cancelComponentPreview, _cancelDrawingMode: () => false,
+        _cancelPosePreviews: PCBApp.prototype._cancelPosePreviews, _cancelDrawingMode: () => false,
     };
     setPcbSelection(app, [{ kind: 'component', object: 'a' }, { kind: 'component', object: 'b' }]);
     for (const track of app.tracks) renderTrack(track, id => app._getLayerGroup(id));
