@@ -293,16 +293,19 @@ export function createTrackSelectionAdapter(app, track, id) {
 registerPcbSelectionAdapter('track', createTrackSelectionAdapter);
 
 export function createViaSelectionAdapter(app, via, id) {
+    if (app._viaDrag?.via === via) via = app._viaDrag.original;
+    const current = () => app._viaDrag?.original === via ? app._viaDrag.via : via;
     return {
         id,
         kind: 'via',
-        object: via,
+        get object() { return current(); },
         get visible() { return isViaVisible(); },
         get locked() { return isViaLocked(); },
         unlock() {
             unlockPcbLayer(app, 'vias');
         },
         getLockPosition(pointer, scale) {
+            const via = current();
             const radius = (Number(via.diameter) || 0.6) / 2;
             const outline = Array.from({ length: 24 }, (_, index) => {
                 const angle = index * Math.PI * 2 / 24;
@@ -313,14 +316,14 @@ export function createViaSelectionAdapter(app, via, id) {
             });
             return lockPositionOutsideOutline(outline, pointer, scale);
         },
-        getBounds() { return viaBounds(via); },
-        hitTest(point, tolerance) { return viaHitTest(via, point, tolerance); },
-        getPosition() { return { x: via.x, y: via.y }; },
+        getBounds() { return viaBounds(current()); },
+        hitTest(point, tolerance) { return viaHitTest(current(), point, tolerance); },
+        getPosition() { const via = current(); return { x: via.x, y: via.y }; },
         beginMove(worldPos) { return startViaDrag(app, via, worldPos); },
         updateMove(worldPos) { updateViaDrag(app, worldPos); },
         endMove(commit) { if (commit) finishViaDrag(app); else cancelViaDrag(app); },
-        invalidate() { renderVia(via, (layerId) => app._getLayerGroup(layerId)); },
-        render() { renderVia(via, (layerId) => app._getLayerGroup(layerId)); },
+        invalidate() { renderVia(current(), (layerId) => app._getLayerGroup(layerId)); },
+        render() { renderVia(current(), (layerId) => app._getLayerGroup(layerId)); },
     };
 }
 

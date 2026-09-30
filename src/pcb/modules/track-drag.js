@@ -20,7 +20,7 @@
  *   - Escape cancels and restores the original position(s).
  */
 
-import { renderTrack } from './track-render.js';
+import { renderTrack, removeTrackElements, removeViaElements } from './track-render.js';
 import { resolveTrackSegments } from './board-geometry.js';
 import { renderVia } from './track-render.js';
 import {
@@ -49,10 +49,11 @@ import { pointsCollinear, collinearSnap } from '../../core/geometry.js';
 import { showAlert } from '../../ui/modules/modal.js';
 import { Via, viaHitTest } from '../../shapes/via.js';
 import { Track } from '../../shapes/track.js';
+import { Pad } from '../../shapes/pad.js';
 import { isLayerLocked } from './layers.js';
 import { getPcbSelection } from './selection-registry.js';
 import { padLayers } from '../../shapes/pad-geometry.js';
-import { renderPad } from './pad.js';
+import { renderPad, removePadElements } from './pad.js';
 import { MovePadCommand, ModifyPadCommand } from './pad-commands.js';
 import { captureBoardShapeState } from './board-shapes.js';
 import { ModifyBoardShapeCommand } from './shape-commands.js';
@@ -1775,9 +1776,11 @@ function startTerminalDrag(app, via, worldPos, kind) {
     }
     app._viaDrag = {
         via,
+        original: via,
         kind,
         layers,
         render: kind === 'pad' ? renderPad : renderVia,
+        remove: kind === 'pad' ? removePadElements : removeViaElements,
         startX: via.x,
         startY: via.y,
         grabX: worldPos.x,
@@ -1788,6 +1791,52 @@ function startTerminalDrag(app, via, worldPos, kind) {
     app._deferDragOverlays = true;
     app.viewport?.setCrosshair({ x: via.x, y: via.y });
     return true;
+}
+
+function beginTerminalPreview(app, drag) {
+    if (drag.preview) return;
+    const copy = drag.kind === 'pad' ? new Pad({ id: drag.original.id }) : new Via({ id: drag.original.id });
+    copy.applyState(drag.original.captureState());
+    const copies = new Map();
+    for (const { track } of drag.attached) {
+        if (copies.has(track)) continue;
+        const copy = new Track({ id: track.id });
+        copy.applyState(track.captureState());
+        copies.set(track, copy);
+    }
+    const collection = drag.kind === 'pad' ? 'pads' : 'vias';
+    const preview = {
+        tracks: app.pcbDocument.tracks.map(track => copies.get(track) || track),
+        [collection]: app.pcbDocument[collection].map(item => item === drag.original ? copy : item),
+        copies,
+    };
+    drag.attached = drag.attached.map(item => ({
+        ...item, originalTrack: item.track, track: copies.get(item.track),
+    }));
+    drag.preview = preview;
+    drag.via = copy;
+    drag.remove(drag.original);
+    for (const track of copies.keys()) removeTrackElements(track);
+}
+
+function restoreTerminalArtwork(app, drag, committed) {
+    if (!drag.preview) return;
+    drag.remove(drag.via);
+    for (const copy of drag.preview.copies.values()) removeTrackElements(copy);
+    if (!committed) {
+        const collection = drag.kind === 'pad' ? 'pads' : 'vias';
+        if (app.pcbDocument[collection].includes(drag.original)) {
+            drag.render(drag.original, id => app._getLayerGroup(id));
+        }
+        for (const track of drag.preview.copies.keys()) {
+            if (app.pcbDocument.tracks.includes(track)) {
+                renderTrack(track, id => app._getLayerGroup(id), _opts(app, track));
+            }
+        }
+        if (!app._deferDragOverlays) app._refreshClearanceHalos?.();
+        refreshTrackSelectionHalo(app);
+        reconcileRatsnest(app, { skipFillRefresh: true });
+    }
 }
 
 /** Update a dragged Via or standalone Pad and its layer-compatible Track nodes. */
@@ -1870,6 +1919,8 @@ export function updateViaDrag(app, worldPos) {
     }
 
     app.viewport?.setCrosshair(pos);
+    if (drag.via.x === pos.x && drag.via.y === pos.y) return;
+    beginTerminalPreview(app, drag);
     drag.via.x = pos.x;
     drag.via.y = pos.y;
     // Drag attached track nodes in lock-step.
@@ -1915,61 +1966,52 @@ export function finishViaDrag(app) {
     clearTrackSnapMarker(app);
     const moved = Math.abs(drag.via.x - drag.startX) > 1e-6
         || Math.abs(drag.via.y - drag.startY) > 1e-6;
-    if (!moved) {
-        // Restore any incidental sub-tolerance drift on track nodes.
+    let committed = false;
+    try {
+        if (!moved) return;
+        if (drag.snapTargetTrack) {
+            const viaNet = drag.via.net || '';
+            const trackNet = drag.snapTargetTrack.track.net || '';
+            if (viaNet && trackNet && viaNet !== trackNet) {
+                _showTrackViaNetConflict(app, trackNet, viaNet, drag.kind);
+                return;
+            }
+        }
+        const collection = drag.kind === 'pad' ? 'pads' : 'vias';
+        if (!app.pcbDocument[collection].includes(drag.original)) {
+            throw new Error(`Cannot move a missing ${drag.kind}.`);
+        }
+        for (const { originalTrack, nodeId } of drag.attached) {
+            if (!app.pcbDocument.tracks.includes(originalTrack) || !originalTrack.nodes.has(nodeId)) {
+                throw new Error('Cannot move a missing attached track node.');
+            }
+        }
+        const toX = drag.via.x, toY = drag.via.y;
+        const cmds = [drag.kind === 'pad'
+            ? new MovePadCommand(app, drag.original, { x: drag.startX, y: drag.startY }, { x: toX, y: toY })
+            : new MoveViaCommand(app, drag.original, drag.startX, drag.startY, toX, toY)];
         for (const a of drag.attached) {
-            const n = a.track.nodes.get(a.nodeId);
-            if (n) { n.x = a.startX; n.y = a.startY; a.track.invalidate(); }
+            cmds.push(new MoveVertexCommand(app, a.originalTrack, a.nodeId, a.startX, a.startY, toX, toY));
         }
-        return;
-    }
-    if (drag.snapTargetTrack) {
-        const viaNet = drag.via.net || '';
-        const trackNet = drag.snapTargetTrack.track.net || '';
-        if (viaNet && trackNet && viaNet !== trackNet) {
-            drag.via.x = drag.startX;
-            drag.via.y = drag.startY;
-            drag.render(drag.via, (id) => app._getLayerGroup(id));
-            const touched = new Set();
-            for (const a of drag.attached) {
-                const n = a.track.nodes.get(a.nodeId);
-                if (n) { n.x = a.startX; n.y = a.startY; touched.add(a.track); }
+        if (drag.snapTargetTrack) {
+            const { track, edgeId, nodeId } = drag.snapTargetTrack;
+            if (!app.pcbDocument.tracks.includes(track)
+                || (edgeId ? !track.edges.has(edgeId) : !track.nodes.has(nodeId))) {
+                throw new Error('Cannot connect to a missing track target.');
             }
-            for (const track of touched) track.invalidate();
-            for (const track of touched) {
-                renderTrack(track, (id) => app._getLayerGroup(id), _opts(app, track));
+            if (edgeId) {
+                const before = track.captureState();
+                const copy = new Track({ id: track.id });
+                copy.applyState(before);
+                copy.splitEdge(edgeId, { x: toX, y: toY });
+                cmds.push(new ModifyTrackGraphCommand(app, track, before, copy.captureState()));
             }
-            if (!app._deferDragOverlays) app._refreshClearanceHalos?.();
-            refreshTrackSelectionHalo(app);
-            reconcileRatsnest(app);
-            _showTrackViaNetConflict(app, trackNet, viaNet, drag.kind);
-            return;
         }
+        app.history.execute(new CompoundCommand(cmds));
+        committed = true;
+    } finally {
+        restoreTerminalArtwork(app, drag, committed);
     }
-    const toX = drag.via.x, toY = drag.via.y;
-    // Snap-back the model so commands' execute() re-apply.
-    drag.via.x = drag.startX;
-    drag.via.y = drag.startY;
-    for (const a of drag.attached) {
-        const n = a.track.nodes.get(a.nodeId);
-        if (n) { n.x = a.startX; n.y = a.startY; a.track.invalidate(); }
-    }
-    const cmds = [drag.kind === 'pad'
-        ? new MovePadCommand(app, drag.via, { x: drag.startX, y: drag.startY }, { x: toX, y: toY })
-        : new MoveViaCommand(app, drag.via, drag.startX, drag.startY, toX, toY)];
-    for (const a of drag.attached) {
-        cmds.push(new MoveVertexCommand(app, a.track, a.nodeId, a.startX, a.startY, toX, toY));
-    }
-    if (drag.snapTargetTrack?.edgeId) {
-        // Materialize the contact so the next Pad/Via drag has a node to carry.
-        const { track, edgeId } = drag.snapTargetTrack;
-        const before = track.captureState();
-        track.splitEdge(edgeId, { x: toX, y: toY });
-        const after = track.captureState();
-        track.applyState(before);
-        cmds.push(new ModifyTrackGraphCommand(app, track, before, after));
-    }
-    app.history.execute(new CompoundCommand(cmds));
     reconcileRatsnest(app);
 }
 
@@ -1982,18 +2024,5 @@ export function cancelViaDrag(app) {
     app.viewport?.hideCrosshair();
     clearTrackAxisGlow(app);
     clearTrackSnapMarker(app);
-    drag.via.x = drag.startX;
-    drag.via.y = drag.startY;
-    drag.render(drag.via, (id) => app._getLayerGroup(id));
-    const touched = new Set();
-    for (const a of drag.attached) {
-        const n = a.track.nodes.get(a.nodeId);
-        if (n) { n.x = a.startX; n.y = a.startY; touched.add(a.track); }
-    }
-    for (const track of touched) track.invalidate();
-    for (const t of touched) {
-        renderTrack(t, (id) => app._getLayerGroup(id), _opts(app, t));
-    }
-    if (!app._deferDragOverlays) app._refreshClearanceHalos?.();
-    refreshTrackSelectionHalo(app);
+    restoreTerminalArtwork(app, drag, false);
 }

@@ -11,6 +11,10 @@ import { snapToGridLines } from '../src/core/grid-snap.js';
 import { LOCK_SCREEN_GAP_PX, LOCK_SIZE, lockIconMetrics } from '../src/core/ui-helpers.js';
 import { compactProjectAliases, normalizeProjectAliases } from '../src/core/project-field-aliases.js';
 import { validateProject } from '../src/core/project-format.js';
+import { PcbDocument } from '../src/core/PcbDocument.js';
+
+globalThis.window = { addEventListener() {} };
+const { default: PCBApp } = await import('../src/ui/PCBApp.js');
 
 const pad = new Pad({
     id: 'pad_7', x: 10, y: 20, shape: 'stadium', size: 2, drill: 1,
@@ -60,22 +64,28 @@ const movingViewport = {
     setCrosshair() {},
     hideCrosshair() {},
 };
-const movingAdapter = createPadSelectionAdapter({
+const movingApp = {
+    pcbDocument: new PcbDocument(),
     viewport: movingViewport,
     _getLayerGroup: () => null,
     history: { execute() {} },
-}, movingPad, 'pad:moving');
+};
+movingApp.pcbDocument.pads.push(movingPad);
+for (const key of ['tracks', 'vias', 'pads']) {
+    Object.defineProperty(movingApp, key, Object.getOwnPropertyDescriptor(PCBApp.prototype, key));
+}
+const movingAdapter = createPadSelectionAdapter(movingApp, movingPad, 'pad:moving');
 movingAdapter.beginMove({ x: 0, y: 0 });
 movingAdapter.updateMove({ x: 1.3, y: 1.45 });
 assert.deepEqual(
-    { x: movingPad.x, y: movingPad.y },
+    movingAdapter.getPosition(),
     { x: 1, y: 1.45 },
     'pad drag is free between grid lines and magnetically snaps each nearby axis',
 );
 movingViewport.shiftHeld = true;
 movingAdapter.updateMove({ x: 1.3, y: 1.3 });
 assert.deepEqual(
-    { x: movingPad.x, y: movingPad.y },
+    movingAdapter.getPosition(),
     { x: 1.3, y: 1.3 },
     'Shift overrides magnetic grid snapping while dragging a pad',
 );
@@ -83,7 +93,7 @@ movingViewport.snapToGrid = false;
 movingViewport.shiftHeld = true;
 movingAdapter.updateMove({ x: 2.3, y: 2.45 });
 assert.deepEqual(
-    { x: movingPad.x, y: movingPad.y },
+    movingAdapter.getPosition(),
     { x: 2, y: 2.45 },
     'Shift temporarily enables magnetic snapping when normal snapping is off',
 );
@@ -261,7 +271,6 @@ assert.throws(() => validateProject({
     ...project, pcb: { ...project.pcb, pads: [{ ...longPad, drill: 2 }] },
 }), /drill no larger than size/);
 
-globalThis.window = { addEventListener() {} };
 const { exportGerbers } = await import('../src/pcb/modules/gerber.js');
 const { boardCutoutEdgeRings, standalonePadEdgeMesh } = await import('../src/pcb/modules/board3d.js');
 const { clipMeshToOutline } = await import('../src/pcb/modules/board3d-mesh-ops.js');

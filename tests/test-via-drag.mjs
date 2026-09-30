@@ -27,6 +27,7 @@ globalThis.document = {
 
 const { Via } = await import('../src/shapes/via.js');
 const { Track } = await import('../src/shapes/track.js');
+const { default: PCBApp } = await import('../src/ui/PCBApp.js');
 const { setPcbSelection, getPcbSelection } = await import('../src/pcb/modules/selection-registry.js');
 const { collectBondedCopper, reconcileRatsnest } = await import('../src/pcb/modules/track-draw.js');
 const { AddTrackCommand, RemoveTrackCommand, AddViaCommand, RemoveViaCommand, MoveViaCommand,
@@ -69,7 +70,7 @@ function appFor(via) {
     let fillRefreshes = 0;
     let clearanceRefreshes = 0;
     const crosshairs = [];
-    return {
+    const app = {
         pcbDocument,
         placementState: pcbDocument.placementState,
         tracks: pcbDocument.tracks,
@@ -96,6 +97,10 @@ function appFor(via) {
         history: { execute(command) { command.execute(); } },
         _alert(message, options) { this.lastAlert = { message, options }; },
     };
+    for (const key of ['tracks', 'vias', 'pads']) {
+        Object.defineProperty(app, key, Object.getOwnPropertyDescriptor(PCBApp.prototype, key));
+    }
+    return app;
 }
 
 function trackAppFor(track, previousDeferral = false) {
@@ -185,8 +190,9 @@ for (const commit of [false, true]) {
     expect('off-center via pickup keeps the via at its origin', via.x === 1 && via.y === 2
         && app.crosshairs.at(-1).x === 1 && app.crosshairs.at(-1).y === 2);
     updateViaDrag(app, { x: 4.5, y: 6.25 });
-    expect('off-center via drag preserves the cursor offset', via.x === 4 && via.y === 6
+    expect('off-center via drag preserves the cursor offset', app.vias[0].x === 4 && app.vias[0].y === 6
         && app.crosshairs.at(-1).x === 4 && app.crosshairs.at(-1).y === 6);
+    assert.deepEqual([via.x, via.y], [1, 2], 'Canonical via stays at its authored position during preview');
     cancelViaDrag(app);
 }
 

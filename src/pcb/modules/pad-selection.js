@@ -8,24 +8,28 @@ import { ModifyPadCommand } from './pad-commands.js';
 import { startPadDrag, updateViaDrag, finishViaDrag, cancelViaDrag } from './track-drag.js';
 
 export function createPadSelectionAdapter(app, pad, id) {
+    if (app._viaDrag?.via === pad) pad = app._viaDrag.original;
+    const current = () => app._viaDrag?.original === pad ? app._viaDrag.via : pad;
     let rotationDrag = null;
     const layers = () => padLayers(pad);
     return {
-        id, kind: 'pad', object: pad,
+        id, kind: 'pad', get object() { return current(); },
         get visible() { return pad.visible !== false && layers().some(isLayerVisible); },
         get locked() { return pad.locked || layers().some(isLayerLocked); },
         unlock() { for (const layer of layers()) unlockPcbLayer(app, layer); },
-        getBounds() { return pad.getBounds(); },
+        getBounds() { return current().getBounds(); },
         getLockPosition(pointer, scale) {
+            const pad = current();
             return lockPositionOutsideOutline(
                 pad.getOutline(),
                 pointer || { x: pad.x, y: pad.y },
                 scale,
             );
         },
-        hitTest(point) { return pad.hitTest(point); },
-        getPosition() { return { x: pad.x, y: pad.y }; },
+        hitTest(point) { return current().hitTest(point); },
+        getPosition() { const pad = current(); return { x: pad.x, y: pad.y }; },
         getAnchors() {
+            const pad = current();
             return pad.shape === 'round'
                 ? [] : [rotationHandleAnchor(pad.getBounds(), app.viewport?.scale)];
         },
@@ -34,7 +38,7 @@ export function createPadSelectionAdapter(app, pad, id) {
         },
         updateMove(worldPos) {
             updateViaDrag(app, worldPos);
-            updatePadHighlightGeometry(pad, app._getLayerGroup('selection-overlay'));
+            updatePadHighlightGeometry(current(), app._getLayerGroup('selection-overlay'));
         },
         endMove(commit) {
             if (commit) finishViaDrag(app);
@@ -74,7 +78,7 @@ export function createPadSelectionAdapter(app, pad, id) {
                 renderPad(pad, layer => app._getLayerGroup(layer));
             }
         },
-        invalidate() { renderPad(pad, layer => app._getLayerGroup(layer)); },
+        invalidate() { renderPad(current(), layer => app._getLayerGroup(layer)); },
     };
 }
 

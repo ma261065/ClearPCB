@@ -1,9 +1,11 @@
 import assert from 'node:assert/strict';
+import { PcbDocument } from '../src/core/PcbDocument.js';
 
 globalThis.window = { addEventListener() {} };
 globalThis.document = { getElementById() { return null; } };
 const { Pad } = await import('../src/shapes/pad.js');
 const { Track } = await import('../src/shapes/track.js');
+const { default: PCBApp } = await import('../src/ui/PCBApp.js');
 const { createPadSelectionAdapter } = await import('../src/pcb/modules/pad-selection.js');
 const { startVertexDrag, updateVertexDrag, finishVertexDrag } = await import('../src/pcb/modules/track-drag.js');
 
@@ -12,13 +14,19 @@ function fixture(layers = 'both') {
     const top = new Track({ points: [{ x: 0, y: 0 }, { x: 10, y: 0 }], layer: 'top-copper', net: 'GND' });
     const bottom = new Track({ points: [{ x: 0, y: 0 }, { x: 0, y: 10 }], layer: 'bottom-copper', net: 'GND' });
     const commands = [];
+    const pcbDocument = new PcbDocument();
+    pcbDocument.pads.push(pad);
+    pcbDocument.tracks.push(top, bottom);
     const app = {
-        pads: [pad], tracks: [top, bottom], vias: [], placements: new Map(), netlist: [],
+        pcbDocument, placements: new Map(), netlist: [],
         _getLayerGroup() { return null; },
         viewport: { scale: 100, gridVisible: false, setCrosshair() {}, hideCrosshair() {} },
         history: { execute(command) { commands.push(command); command.execute(); } },
         _alert(message) { this.lastAlert = message; },
     };
+    for (const key of ['tracks', 'vias', 'pads']) {
+        Object.defineProperty(app, key, Object.getOwnPropertyDescriptor(PCBApp.prototype, key));
+    }
     return { app, pad, top, bottom, commands, adapter: createPadSelectionAdapter(app, pad, 'pad:test') };
 }
 
@@ -26,11 +34,14 @@ for (const layers of ['both', 'top-copper', 'bottom-copper']) {
     const { app, pad, top, bottom, commands, adapter } = fixture(layers);
     adapter.beginMove({ x: 0.25, y: 0.5 });
     adapter.updateMove({ x: 3.25, y: 4.5 });
-    assert.equal(pad.x, 3);
-    assert.equal(pad.y, 4);
+    assert.deepEqual([pad.x, pad.y], [0, 0], 'The authored pad is not moved during preview');
+    assert.equal(app.pads[0].x, 3);
+    assert.equal(app.pads[0].y, 4);
     for (const track of [top, bottom]) {
         const attached = layers === 'both' || layers === track.layer;
-        assert.deepEqual([...track.nodes.values()][0], attached ? { x: 3, y: 4 } : { x: 0, y: 0 });
+        const displayed = app.tracks.find(item => item.id === track.id);
+        assert.deepEqual([...displayed.nodes.values()][0], attached ? { x: 3, y: 4 } : { x: 0, y: 0 });
+        assert.deepEqual([...track.nodes.values()][0], { x: 0, y: 0 });
     }
     adapter.endMove(true);
     assert.equal(commands.length, 1);
@@ -64,7 +75,7 @@ for (const layers of ['both', 'top-copper', 'bottom-copper']) {
     commands[0].execute();
     adapter.beginMove({ x: 5, y: 0 });
     adapter.updateMove({ x: 7, y: 2 });
-    assert.ok([...track.nodes.values()].some(node => node.x === pad.x && node.y === pad.y),
+    assert.ok([...app.tracks[0].nodes.values()].some(node => node.x === app.pads[0].x && node.y === app.pads[0].y),
         'newly connected junction follows the next Pad drag');
     adapter.endMove(false);
 }
@@ -94,7 +105,7 @@ for (const net of ['GND', 'OTHER']) {
     if (net === 'GND') {
         adapter.beginMove({ x: 20, y: 0 });
         adapter.updateMove({ x: 23, y: 4 });
-        assert.deepEqual(top.nodes.get(nodeId), { x: pad.x, y: pad.y });
+        assert.deepEqual(app.tracks[0].nodes.get(nodeId), { x: app.pads[0].x, y: app.pads[0].y });
         adapter.endMove(false);
     } else assert.match(app.lastAlert, /pad net/);
 }

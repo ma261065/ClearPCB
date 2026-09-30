@@ -830,6 +830,22 @@ drops and cancellation preserve redo history. Save/export readiness guards
 remain in place: other grouped moves and direct
 entity/property previews are not yet generally isolated.
 
+Single via and standalone-pad movement uses an editor-owned projection in
+`_viaDrag`. Pickup checks node proximity before incident-edge/layer eligibility;
+it does not clone geometry. The first changed position copies the terminal and
+each attached track once, retaining IDs, precision and topology. The editor
+collection getters and terminal selection adapters expose those reusable copies,
+while canonical collections, bounds caches and manufacturing/serialization
+snapshots stay unchanged. Repeated final positions skip geometry redraws.
+Commit drops the projection before executing the existing compound model
+commands, with terminal, attached-node and snap-target preflight. Segment-contact
+snapshots are prepared on a detached track rather than temporarily splitting
+authored geometry. Cancellation, no-op drops, command failures, tab deactivation
+and loading discard preview SVG and restore canonical presentation. Discarding
+unchanged copper does not repour fills; nested overlay deferral is retained.
+Standalone-pad rotation/properties and groups containing terminals still use
+their existing preview paths and remain part of the ownership work.
+
 Both component pointer paths use the same live pose updater. If magnetic snapping
 produces the current coordinates, it skips footprint transforms, pad/bond updates
 and incremental ratsnest work. The comparison is exact: distinct positions in the

@@ -206,11 +206,11 @@ const PCB_CROSSHAIR_TOOLS = new Set([
 ]);
 
 export default class PCBApp {
-    get tracks() { return getPlacementPreviewTracks(this) || this.pcbDocument.tracks; }
+    get tracks() { return getPlacementPreviewTracks(this) || this._viaDrag?.preview?.tracks || this.pcbDocument.tracks; }
     set tracks(value) { this.pcbDocument.tracks = value; }
-    get vias() { return this.pcbDocument.vias; }
+    get vias() { return this._viaDrag?.preview?.vias || this.pcbDocument.vias; }
     set vias(value) { this.pcbDocument.vias = value; }
-    get pads() { return this.pcbDocument.pads; }
+    get pads() { return this._viaDrag?.preview?.pads || this.pcbDocument.pads; }
     set pads(value) { this.pcbDocument.pads = value; }
     get texts() { return getTextPosePreviewTexts(this) || this.pcbDocument.texts; }
     set texts(value) { this.pcbDocument.texts = value; }
@@ -5142,13 +5142,14 @@ export default class PCBApp {
         this._textPropertyBinding?.cancel();
         const state = this._pcbSelectionInteraction;
         if (['component', 'text'].includes(state?.adapter?.kind)
-            || (state?.mode === 'move-adapter' && ['component', 'text'].includes(state.entry.kind))) finishSelectionInteraction(this, false);
+            || (state?.mode === 'move-adapter' && ['component', 'text', 'via', 'pad'].includes(state.entry.kind))) finishSelectionInteraction(this, false);
         if (this._groupDrag?.posePreview) {
             if (state?.mode === 'move') finishSelectionInteraction(this, false);
             else cancelGroupDrag(this);
         }
         if (this._drag) this._endDrag(false);
         if (this._textDrag) this._endTextDrag(false);
+        if (this._viaDrag) cancelViaDrag(this);
     }
 
     // ── Text annotations ─────────────────────────────────────────
