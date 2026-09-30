@@ -63,7 +63,7 @@ function expect(name, actual, expected) {
     let redraws = 0;
     const app = {
         placements: new Map(), texts: new Map([[text.id, text]]),
-        viewport: { snapToGrid: true, gridSize: 1 },
+        viewport: { snapToGrid: true, gridVisible: true, gridSize: 1 },
         _refreshText() { redraws++; },
         _groupDrag: {
             startWorld: { x: 0, y: 0 }, lastDx: 0, lastDy: 0,
@@ -72,7 +72,7 @@ function expect(name, actual, expected) {
         },
     };
     updateGroupDrag(app, { x: 0.1, y: 0.2 });
-    expect('group drag skips movement inside the starting grid cell', redraws, 0);
+    expect('group drag skips movement inside the starting grid magnet', redraws, 0);
     updateGroupDrag(app, { x: 1.1, y: 2.1 });
     expect('group drag renders a changed snapped position', redraws, 1);
     updateGroupDrag(app, { x: 1.2, y: 2.2 });

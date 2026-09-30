@@ -4,7 +4,7 @@
  * Uses SVG viewBox for pan/zoom - mathematically perfect scaling.
  */
 
-import { snapToGridLines } from './grid-snap.js';
+import { snapToViewportGrid } from './grid-snap.js';
 
 export class Viewport {
     /**
@@ -385,12 +385,7 @@ export class Viewport {
      * @returns {{x: number, y: number}} Snapped (or original) position.
      */
     getSnappedPosition(worldPos) {
-        // Shift temporarily reverses the snap setting, but only if grid is visible
-        let shouldSnap = this.snapToGrid;
-        if (this.shiftHeld && this.gridVisible) shouldSnap = !shouldSnap;
-        if (!shouldSnap || !this.gridVisible) return worldPos;
-        const { x, y } = snapToGridLines(worldPos, this.getEffectiveGridSize(), this.scale);
-        return { x, y };
+        return snapToViewportGrid(worldPos, this);
     }
     
     /**

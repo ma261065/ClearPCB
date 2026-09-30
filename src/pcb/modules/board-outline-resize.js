@@ -1,5 +1,6 @@
 import { isLayerLocked, isLayerVisible } from './layers.js';
 import { SetBoardOutlineCommand } from './track-commands.js';
+import { snapToViewportGrid } from '../../core/grid-snap.js';
 
 export function boardOutlineHandles(app) {
     if (!app._boardOutlineSelected || !app._boardOutlineDrawn
@@ -62,12 +63,11 @@ export function updateBoardOutlineResize(app, point) {
         endBoardOutlineResize(app, false);
         return;
     }
-    const grid = app.viewport?.snapToGrid ? app.viewport.gridSize : 0;
-    const snap = value => grid > 0 ? Math.round(value / grid) * grid : value;
+    const delta = snapToViewportGrid({ x: point.x - drag.start.x, y: point.y - drag.start.y }, app.viewport);
     const width = drag.handle === 'height' ? drag.before.width
-        : Math.max(5, drag.before.width + snap(point.x - drag.start.x));
+        : Math.max(5, drag.before.width + delta.x);
     const height = drag.handle === 'width' ? drag.before.height
-        : Math.max(5, drag.before.height - snap(point.y - drag.start.y));
+        : Math.max(5, drag.before.height - delta.y);
     if (width === app._boardWidth && height === app._boardHeight) return;
     app._boardWidth = width;
     app._boardHeight = height;

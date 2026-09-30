@@ -459,6 +459,22 @@ reapplies the final values and refreshes presentation and derived copper data.
 Content and border edits have separate commands and are not folded into a style
 edit. This corrects the history handoff, not general live-preview ownership.
 
+Single-text dragging skips model writes, SVG rebuilds and crosshair updates when
+the snapped position has not changed. Changed positions still render immediately;
+there is no new frame scheduler or throttling. Drop passes the explicit original
+and final coordinates to `MoveTextCommand` without first moving/rendering the text
+back at its starting position. The command retains the final presentation and
+deferred copper refresh; cancel still restores the starting position without a
+history entry. Existing translated clearance geometry and selection anchors are
+preserved.
+
+Text placement and drag crosshairs mark the authored `(x, y)` placement origin,
+which is also the point attracted to the grid. They do not add a font-size or
+stroke-width offset, so rotation, layer mirroring and borders cannot displace the
+crosshair from the snapped point. The text tool uses its grid snap for both the
+crosshair and placement, rather than using track-target snapping only for the
+crosshair.
+
 Saved PCB placement/reference settings live in
 `ProjectDocument.pcbDocument.placementState` (`core/PcbPlacementState.js`). The PCB editor's
 `_placementOverrides` aliases its map. Recording copies only the persisted pose,
@@ -633,6 +649,15 @@ mode; it is not a release requirement. Remaining ownership work is tracked in
   Rectangles show only square-aspect feedback, not redundant H/V indicators.
   All indicators refresh on redraw and share
   finish/cancel cleanup.
+- `core/grid-snap.js` owns the shared displayed-grid magnet: each coordinate
+  remains free unless it is within eight screen pixels of a grid line, capped
+  at 40% of the displayed spacing so there is always a free region between
+  lines. `snapToViewportGrid()` adds viewport visibility, adaptive spacing and
+  the temporary Shift override; both `Viewport.getSnappedPosition()` and PCB
+  text/component/reference movement, paste, group movement and outline resize
+  use it. PCB's `_snapToGrid()` is a magnetic adapter, not nearest-grid rounding.
+  Existing gesture anchors (including group deltas and local reference offsets)
+  and higher-priority pin/pad/alignment constraints are unchanged.
 - `shapes/property-preview.js` owns reversible live-property transactions:
   capture once, mutate and redraw, restore before committing a single history
   edit, skip unchanged commits, and restore/redraw on cancellation. Snapshots

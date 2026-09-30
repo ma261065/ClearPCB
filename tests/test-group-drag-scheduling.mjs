@@ -14,7 +14,7 @@ let redraws = 0;
 const commands = [];
 const app = {
     placements: new Map(), texts: new Map([[text.id, text]]),
-    viewport: { snapToGrid: true, gridSize: 1 },
+    viewport: { snapToGrid: true, gridVisible: true, gridSize: 1 },
     _refreshText() { redraws++; },
     history: { execute(command) { commands.push(command); } },
 };

@@ -4,6 +4,7 @@
 import { serializePcb, preparePcb, loadPcb } from '../pcb/modules/project-state.js';
 import { bindPcbControls } from '../pcb/modules/controls.js';
 import { Viewport } from '../core/Viewport.js';
+import { snapToViewportGrid } from '../core/grid-snap.js';
 import { PcbDocument } from '../core/PcbDocument.js';
 import { commitDesignInput, renderDesignSettings } from '../pcb/modules/design-settings.js';
 import { loadAndApplyTheme, toggleTheme as toggleSharedTheme, syncThemeToggleButtons } from '../shared/ui/theme.js';
@@ -2020,7 +2021,8 @@ export default class PCBApp {
      */
     _updateCursorCrosshair(worldPos) {
         if (!this.viewport) return;
-        const snap = resolveTrackSnap(this, worldPos, {});
+        const snap = this.currentTool === 'text'
+            ? this._snapToGrid(worldPos) : resolveTrackSnap(this, worldPos, {});
         this._lastCrosshairWorld = { x: worldPos.x, y: worldPos.y };
         this.viewport.setCrosshair({ x: snap.x, y: snap.y });
     }
@@ -5021,11 +5023,11 @@ export default class PCBApp {
         if (!this._drag) return;
         const newX = this._drag.startPos.x + worldPos.x - this._drag.startWorld.x;
         const newY = this._drag.startPos.y + worldPos.y - this._drag.startWorld.y;
-        const gridSize = this.viewport.gridSize;
         const pl = this.placements.get(this._drag.compId);
         if (!pl || pl.locked) return;
-        pl.x = this._snapActive() ? Math.round(newX / gridSize) * gridSize : newX;
-        pl.y = this._snapActive() ? Math.round(newY / gridSize) * gridSize : newY;
+        const snap = this._snapToGrid({ x: newX, y: newY });
+        pl.x = snap.x;
+        pl.y = snap.y;
         applyPlacementPose(this, this._drag.compId);
         this._updateRatsnest({ nets: this._drag.nets });
     }
@@ -5147,13 +5149,7 @@ export default class PCBApp {
         const newX = this._drag.startPos.x + dx;
         const newY = this._drag.startPos.y + dy;
 
-        // Snap to grid if enabled (Shift temporarily reverses the setting)
-        let snapX = newX, snapY = newY;
-        if (this._snapActive()) {
-            const gs = this.viewport.gridSize;
-            snapX = Math.round(newX / gs) * gs;
-            snapY = Math.round(newY / gs) * gs;
-        }
+        const snap = this._snapToGrid({ x: newX, y: newY });
 
         const pl = this.placements.get(this._drag.compId);
         if (!pl) return;
@@ -5162,8 +5158,8 @@ export default class PCBApp {
         // rotation is preserved) — this moves the SVG, LOD placeholder and
         // pad halos, recomputes pad world positions and re-glues bonded
         // track endpoints.
-        pl.x = snapX;
-        pl.y = snapY;
+        pl.x = snap.x;
+        pl.y = snap.y;
         applyPlacementPose(this, this._drag.compId);
 
         // Rebuild ratsnest in real-time — restricted to the dragged
@@ -5231,11 +5227,9 @@ export default class PCBApp {
         return snap;
     }
 
-    /** Snap a world point to grid if snap-to-grid is enabled. */
+    /** Attract nearby coordinates to displayed grid lines, leaving the rest free. */
     _snapToGrid(p) {
-        if (!this._snapActive()) return { x: p.x, y: p.y };
-        const gs = this.viewport.gridSize;
-        return { x: Math.round(p.x / gs) * gs, y: Math.round(p.y / gs) * gs };
+        return snapToViewportGrid(p, this.viewport);
     }
 
     _snapPadPlacement(point) {
@@ -5334,7 +5328,7 @@ export default class PCBApp {
             previousDeferDragOverlays: !!this._deferDragOverlays,
         };
         this._deferDragOverlays = true;
-        this.viewport?.setCrosshair({ x: text.x, y: text.y + text.size * 0.313 + text.strokeWidth / 2 });
+        this.viewport?.setCrosshair({ x: text.x, y: text.y });
         return true;
     }
 
@@ -5346,9 +5340,10 @@ export default class PCBApp {
             x: this._textDrag.startPos.x + worldPos.x - this._textDrag.startWorld.x,
             y: this._textDrag.startPos.y + worldPos.y - this._textDrag.startWorld.y,
         });
+        if (text.x === snap.x && text.y === snap.y) return;
         text.x = snap.x;
         text.y = snap.y;
-        this.viewport?.setCrosshair({ x: snap.x, y: snap.y + text.size * 0.313 + text.strokeWidth / 2 });
+        this.viewport?.setCrosshair({ x: snap.x, y: snap.y });
         this._refreshText(text.id);
     }
 
@@ -5376,13 +5371,8 @@ export default class PCBApp {
             return;
         }
         if (t.x === startPos.x && t.y === startPos.y) return;
-        // The visible position is already current; record the move so it's
-        // undoable. Roll back first, then execute so the command stays the
-        // single source of truth.
-        const x1 = t.x, y1 = t.y;
-        t.x = startPos.x; t.y = startPos.y;
-        this._refreshText(t.id);
-        this.history.execute(new MoveTextCommand(this, textId, startPos.x, startPos.y, x1, y1));
+        // The command owns explicit endpoints; no live-model rollback is needed.
+        this.history.execute(new MoveTextCommand(this, textId, startPos.x, startPos.y, t.x, t.y));
     }
 
     // ── Reference-designator move / rotate ────────────────────
@@ -5669,17 +5659,12 @@ export default class PCBApp {
         if (!pl) return;
         const localNow = this._worldToPlacementLocal(worldPos, pl);
         const localStart = this._worldToPlacementLocal(this._refDrag.startWorld, pl);
-        let dx = this._refDrag.startDx + localNow.x - localStart.x;
-        let dy = this._refDrag.startDy + localNow.y - localStart.y;
-        if (this._snapActive()) {
-            const gridSize = this.viewport.gridSize || 0;
-            if (gridSize > 0) {
-                dx = Math.round(dx / gridSize) * gridSize;
-                dy = Math.round(dy / gridSize) * gridSize;
-            }
-        }
-        pl.refDx = dx;
-        pl.refDy = dy;
+        const snap = this._snapToGrid({
+            x: this._refDrag.startDx + localNow.x - localStart.x,
+            y: this._refDrag.startDy + localNow.y - localStart.y,
+        });
+        pl.refDx = snap.x;
+        pl.refDy = snap.y;
         applyPlacementPose(this, this._refDrag.compId);
         this._drawRefOverlay(this._refDrag.compId, true);
     }
@@ -5752,21 +5737,7 @@ export default class PCBApp {
         const pl = this.placements.get(this._refDrag.compId);
         if (!pl || pl.locked) return;
         this.viewport.shiftHeld = e.shiftKey;
-        const localNow = this._worldToPlacementLocal(this._screenToWorld(e), pl);
-        const localStart = this._worldToPlacementLocal(this._refDrag.startWorld, pl);
-        let dx = this._refDrag.startDx + (localNow.x - localStart.x);
-        let dy = this._refDrag.startDy + (localNow.y - localStart.y);
-        if (this._snapActive()) {
-            const gs = this.viewport.gridSize || 0;
-            if (gs > 0) {
-                dx = Math.round(dx / gs) * gs;
-                dy = Math.round(dy / gs) * gs;
-            }
-        }
-        pl.refDx = dx;
-        pl.refDy = dy;
-        applyPlacementPose(this, this._refDrag.compId);
-        this._drawRefOverlay(this._refDrag.compId, true);
+        this._updateRefTextDrag(this._screenToWorld(e));
     }
 
     /** End a ref-text drag, pushing a MoveRefTextCommand if it actually moved. */

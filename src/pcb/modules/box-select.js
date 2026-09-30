@@ -13,6 +13,7 @@
  * `app.viewport.scale` and `app.viewport.contentLayer`).
  */
 
+import { snapToViewportGrid } from '../../core/grid-snap.js';
 import {
     createBoxSelectElement,
     updateBoxSelectElement,
@@ -476,14 +477,10 @@ export function updateGroupDrag(app, worldPos, { snap = true } = {}) {
     let dy = worldPos.y - g.startWorld.y;
     // Magnetically snap the shared delta (not each object) so relative layout
     // is kept while movement remains free between nearby grid lines.
-    if (snap && app.viewport?.getSnappedPosition) {
-        const position = app.viewport.getSnappedPosition({ x: dx, y: dy });
+    if (snap) {
+        const position = snapToViewportGrid({ x: dx, y: dy }, app.viewport);
         dx = position.x;
         dy = position.y;
-    } else if (snap && app.viewport?.snapToGrid) {
-        const gs = app.viewport.gridSize;
-        dx = Math.round(dx / gs) * gs;
-        dy = Math.round(dy / gs) * gs;
     }
     if (dx === g.lastDx && dy === g.lastDy) return;
     g.lastDx = dx;

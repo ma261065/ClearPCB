@@ -77,7 +77,7 @@ const app = Object.assign(Object.create(dimensionPrototype), {
     pcbDocument: new PcbDocument(),
     _boardOutlineSelected: true, _boardOutlineDrawn: true,
     _boardWidth: 100, _boardHeight: 80, _boardRadius: 3,
-    viewport: { scale: 10, snapToGrid: true, gridSize: 1 },
+    viewport: { scale: 10, snapToGrid: true, gridVisible: true, gridSize: 1 },
     _drawBoardOutline() { redraws++; },
     _refreshFills() {
         fills++;

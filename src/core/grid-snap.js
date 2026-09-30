@@ -1,5 +1,15 @@
 export const GRID_SNAP_PX = 8;
 
+/** Shared displayed-grid magnet, including visibility and the temporary Shift override. */
+export function snapToViewportGrid(point, viewport) {
+    let shouldSnap = viewport?.snapToGrid;
+    if (viewport?.shiftHeld && viewport.gridVisible) shouldSnap = !shouldSnap;
+    if (!shouldSnap || !viewport?.gridVisible) return point;
+    const spacing = viewport.getEffectiveGridSize?.() ?? viewport.gridSize;
+    const { x, y } = snapToGridLines(point, spacing, viewport.scale);
+    return { x, y };
+}
+
 export function snapToGridLines(point, gridSize, scale) {
     if (!(gridSize > 0)) return { x: point.x, y: point.y, snappedX: false, snappedY: false };
     const tolerance = Math.min(
