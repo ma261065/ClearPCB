@@ -1,5 +1,5 @@
 /**
- * Editor adapters for PCB model commands, plus remaining placement-pose commands.
+ * Editor adapters for PCB model commands.
  *
  * Render/SVG updates and derived refreshes stay here; separated authored
  * changes and undo snapshots belong to the neutral core commands.
@@ -28,6 +28,7 @@ import {
     MovePlacementCommand as ModelMovePlacementCommand,
     RotatePlacementCommand as ModelRotatePlacementCommand,
     FlipPlacementCommand as ModelFlipPlacementCommand,
+    SetPlacementSideCommand as ModelSetPlacementSideCommand,
     SetPlacementLockedCommand as ModelSetPlacementLockedCommand,
     SetPlacementRefVisibleCommand as ModelSetPlacementRefVisibleCommand,
     MoveRefTextCommand as ModelMoveRefTextCommand,
@@ -577,8 +578,15 @@ export function disconnectIncompatiblePadNodes(app, compId) {
 export function applyPlacementSide(app, compId, side) {
     const pl = app.placements?.get(compId);
     if (!pl) return;
-    const flip = side === 'bottom';
     applyPlacementSideData(pl, side);
+    renderPlacementSide(app, compId, side);
+    // Drop incompatible bonds before a subsequent pose update can move their endpoints.
+    disconnectIncompatiblePadNodes(app, compId);
+}
+
+function renderPlacementSide(app, compId, side) {
+    const pl = app.placements.get(compId);
+    const flip = side === 'bottom';
     for (const el of (pl.elements || [])) {
         const base = el.getAttribute('data-fp-layer');
         if (!base) continue;
@@ -596,9 +604,6 @@ export function applyPlacementSide(app, compId, side) {
             }
         }
     }
-    // SMD pads have just changed copper layer — drop any track bonds that no
-    // longer share a layer with their pad so the trace stops sticking.
-    disconnectIncompatiblePadNodes(app, compId);
 }
 
 /**
@@ -606,51 +611,20 @@ export function applyPlacementSide(app, compId, side) {
  * the matching layers, mirrors the footprint, re-glues pad-bonded tracks,
  * persists the override, reconciles the ratsnest and refreshes any 3D view.
  */
-export class SetPlacementSideCommand {
+export class SetPlacementSideCommand extends ModelSetPlacementSideCommand {
     constructor(app, compId, side) {
+        super(app.project, compId, side, app.placements?.get(compId));
         this.app = app;
-        this.compId = compId;
-        const pl = app.placements?.get(compId);
-        this.before = pl?.side === 'bottom' ? 'bottom' : 'top';
-        this.after = side === 'bottom' ? 'bottom' : 'top';
-        this._bonds = null;
     }
-    _snapshotBonds() {
-        // Capture every track's pad bonds so undo can restore the ones that
-        // applyPlacementSide drops when single-sided pads change layer.
-        const snap = new Map();
-        for (const track of (this.app.tracks || [])) {
-            if (!track.padConnections?.size) continue;
-            const m = new Map();
-            for (const [nid, conn] of track.padConnections) m.set(nid, { ...conn });
-            snap.set(track, m);
+    _apply(side, restore = false) {
+        const result = super._apply(side, restore);
+        const pl = this.app.placements?.get(this.compId);
+        if (pl) {
+            applyPlacementSideData(pl, result.pose.side);
+            renderPlacementSide(this.app, this.compId, result.pose.side);
         }
-        return snap;
-    }
-    _restoreBonds(snap) {
-        if (!snap) return;
-        for (const [track, m] of snap) {
-            track.padConnections.clear();
-            for (const [nid, conn] of m) track.padConnections.set(nid, { ...conn });
-        }
-    }
-    _apply(side) {
-        if (!this.app.placements?.get(this.compId)) return;
-        applyPlacementSide(this.app, this.compId, side);
-        applyPlacementPose(this.app, this.compId);
-        this.app._recordPlacementOverride?.(this.compId);
-        this.app._updateRatsnest?.();
-        // Pads changed side — recompute copper-pour clearances around them.
-        this.app._refreshFills?.();
-        this.app._board3d?.refresh?.();
-    }
-    execute() {
-        this._bonds = this._snapshotBonds();
-        this._apply(this.after);
-    }
-    undo() {
-        this._restoreBonds(this._bonds);
-        this._apply(this.before);
+        presentPlacementPose(this.app, this.compId, result);
+        return result;
     }
 }
 

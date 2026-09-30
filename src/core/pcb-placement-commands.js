@@ -1,5 +1,6 @@
 import { capturePlacementOverride } from './PcbPlacementState.js';
-import { updatePlacementPadPositions, repositionPadConnectedNodes } from './pcb-placement-geometry.js';
+import { updatePlacementPadPositions, repositionPadConnectedNodes,
+    applyPlacementSide, disconnectIncompatiblePadNodes } from './pcb-placement-geometry.js';
 
 /** @typedef {import('./PcbPlacementState.js').PcbPlacementState} PcbPlacementState */
 /** @typedef {Partial<import('./PcbPlacementState.js').PlacementOverride> & {x:number, y:number}} PlacementSeed */
@@ -15,15 +16,20 @@ function applyPatch(command, patch) {
     return command.placementState.record(command.compId, { ...current, ...patch });
 }
 
-function applyPose(command, patch) {
+function resolvePose(command, patch) {
     const footprint = command.project.getPcbFootprint(command.compId);
     if (!footprint) throw new Error(`PCB footprint is no longer available: ${command.compId}`);
     const current = command.placementState.overrides.get(command.compId) || command.initial;
-    const pose = capturePlacementOverride({ ...current, ...patch });
-    const pads = new Map();
-    updatePlacementPadPositions({ ...pose, padOffsets: footprint.padOffsets, pads });
-    const tracks = repositionPadConnectedNodes(command.project.pcbDocument.tracks, command.compId, pads);
-    return { pose: command.placementState.record(command.compId, pose), pads, tracks };
+    const placement = { ...capturePlacementOverride({ ...current, ...patch }),
+        padOffsets: footprint.padOffsets, pasteOffsets: footprint.pasteOffsets, pads: new Map() };
+    updatePlacementPadPositions(placement);
+    return placement;
+}
+
+function applyPose(command, patch) {
+    const placement = resolvePose(command, patch);
+    const tracks = repositionPadConnectedNodes(command.project.pcbDocument.tracks, command.compId, placement.pads);
+    return { pose: command.placementState.record(command.compId, placement), pads: placement.pads, tracks };
 }
 
 export class MovePlacementCommand {
@@ -73,6 +79,52 @@ export class FlipPlacementCommand {
     _apply(pose) { return applyPose(this, pose); }
     execute() { this._apply(this.after); }
     undo() { this._apply(this.before); }
+}
+
+export class SetPlacementSideCommand {
+    /** @param {import('./ProjectDocument.js').ProjectDocument} project @param {PlacementSeed} [initial] */
+    constructor(project, compId, side, initial) {
+        this.project = project;
+        this.placementState = project.pcbDocument.placementState;
+        this.compId = compId;
+        this.initial = initialPlacement(this.placementState, compId, initial);
+        this.before = this.initial.side;
+        this.after = side === 'bottom' ? 'bottom' : 'top';
+        this._bonds = null;
+    }
+    _snapshotBonds() {
+        const snapshot = new Map();
+        for (const track of this.project.pcbDocument.tracks) {
+            if (!track.padConnections?.size) continue;
+            snapshot.set(track, new Map([...track.padConnections].map(([id, connection]) => [id, { ...connection }])));
+        }
+        return snapshot;
+    }
+    _restoreBonds() {
+        const touched = new Set();
+        for (const [track, bonds] of this._bonds || []) {
+            const current = track.padConnections;
+            if (current.size !== bonds.size || [...bonds].some(([id, connection]) =>
+                !current.has(id) || current.get(id)?.componentId !== connection.componentId
+                || current.get(id)?.pinNumber !== connection.pinNumber)) touched.add(track);
+            current.clear();
+            for (const [id, connection] of bonds) current.set(id, { ...connection });
+        }
+        return touched;
+    }
+    _apply(side, restore = false) {
+        // Resolve first: a missing footprint must not restore bonds or replace the undo snapshot.
+        const placement = resolvePose(this, { side });
+        applyPlacementSide(placement, placement.side);
+        const tracks = restore ? this._restoreBonds() : new Set();
+        if (!restore) this._bonds = this._snapshotBonds();
+        const boardTracks = this.project.pcbDocument.tracks;
+        for (const track of disconnectIncompatiblePadNodes(boardTracks, this.compId, placement.padOffsets)) tracks.add(track);
+        for (const track of repositionPadConnectedNodes(boardTracks, this.compId, placement.pads)) tracks.add(track);
+        return { pose: this.placementState.record(this.compId, placement), pads: placement.pads, tracks };
+    }
+    execute() { this._apply(this.after); }
+    undo() { this._apply(this.before, true); }
 }
 
 export class SetPlacementLockedCommand {

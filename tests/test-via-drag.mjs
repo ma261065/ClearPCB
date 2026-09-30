@@ -564,15 +564,18 @@ for (const previousDeferral of [false, true]) {
     const duplicateThrough = attached('3#2', 'bottom-copper');
     const app = trackAppFor(topSmd);
     app.tracks.push(bottomSmd, topThrough, duplicateThrough);
+    app.project.schematicDocument.components.push(new Component({
+        name: 'SideFixture', _source: 'KiCad', symbol: { pins: [] },
+        footprintShapes: [
+            'PAD~RECT~2~0~1~1~1~top', 'PAD~RECT~0~2~1~1~2~bottom',
+            'PAD~RECT~-4~-2~1~1~3~both~1~0~0.5', 'PAD~RECT~4~0~1~1~3~both~1~0~0.5',
+            'PASTE~RECT~0~0~1~1~top', 'PASTE~RECT~0~0~1~1~bottom',
+        ],
+    }, { id: 'component' }));
+    const footprint = app.project.getPcbFootprint('component');
     const placement = {
         x: 10, y: 20, rotation: 0, side: 'top', pads: new Map(),
-        padOffsets: [
-            { padId: '1', number: '1', dx: 2, dy: 0, layer: 'top' },
-            { padId: '2', number: '2', dx: 0, dy: 2, layer: 'bottom' },
-            { padId: '3', number: '3', dx: -4, dy: 0, layer: 'both' },
-            { padId: '3#2', number: '3', dx: 4, dy: 0, layer: 'both' },
-        ],
-        pasteOffsets: [{ side: 'top' }, { side: 'bottom' }],
+        padOffsets: footprint.padOffsets, pasteOffsets: footprint.pasteOffsets,
     };
     const svg = attributes => {
         const values = new Map(Object.entries(attributes));
@@ -617,7 +620,9 @@ for (const previousDeferral of [false, true]) {
     app._padHaloGroups = new Map([['component', halo]]);
     app._getLayerGroup = id => layers.get(id) || null;
     app.placements.set('component', placement);
-    app._recordPlacementOverride = id => app.placementState.record(id, app.placements.get(id));
+    app._recordPlacementOverride = () => assert.fail('Side adapters must not re-record generated placement data');
+    let dirty = 0;
+    app._markDirty = () => { dirty++; };
     applyPlacementPose(app, 'component');
     const before = app.tracks.map(track => track.captureState());
     const command = new SetPlacementSideCommand(app, 'component', 'bottom');
@@ -652,7 +657,13 @@ for (const previousDeferral of [false, true]) {
         assert.equal(smdShape.getAttribute('fill'), '#e74c3c');
         assert.equal(copperArtwork.getAttribute('transform'), 'translate(10, 20)');
         assert.equal(padLabel.getAttribute('transform'), undefined);
+        assert.equal(dirty, (cycle + 1) * 2, 'Each side execute/undo notifies dirty once');
     }
+    command.execute();
+    app.placements.delete('component');
+    command.undo();
+    assert.deepEqual(app.tracks.map(track => track.captureState()), before, 'Side undo restores bonds without a rendered footprint');
+    assert.equal(app.placementState.overrides.get('component').side, 'top');
 }
 
 if (failures) process.exitCode = 1;

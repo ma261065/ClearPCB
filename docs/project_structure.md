@@ -379,8 +379,8 @@ selection, overlay and 3D updates and notify the dirty hook. They no longer
 re-record the whole generated placement to persist metadata edits. Authored
 undo/redo works without a currently rendered placement.
 
-The same core module now owns `MovePlacementCommand`, `RotatePlacementCommand`
-and `FlipPlacementCommand`. These take the project document, resolve its current
+The same core module now owns `MovePlacementCommand`, `RotatePlacementCommand`,
+`FlipPlacementCommand` and `SetPlacementSideCommand`. These take the project document, resolve its current
 footprint on every execute/undo, patch only the requested canonical pose fields,
 and reposition bonded track nodes by physical pad ID. History captures authored
 pose values, not footprint geometry or rendered placements. Automatic placements
@@ -393,6 +393,17 @@ Model undo and track updates also work when there is no rendered placement.
 An unavailable model footprint fails before pose or graph mutation.
 `CommandHistory` transfers an undo/redo entry only after that operation succeeds,
 so such failures retain the entry for retry; this is not general mutation rollback.
+
+Side changes retain the established snapshot of all existing track bond records
+at each execute/redo. The command owns copies and restores them into the current
+connection maps on undo, then checks compatibility against the current footprint.
+Incompatible SMD bonds are removed before connected endpoints move; through-hole
+and otherwise compatible bonds follow the new pose. Footprint resolution precedes
+both restoration and snapshot replacement, so a missing footprint leaves bonds
+and the last good snapshot intact. Restored bonds count as touched tracks even
+when their endpoints did not move. The editor adapter updates generated pad/paste
+layer descriptors and artwork without repeating model bond mutations; the existing
+live-sync side helper retains its data-plus-presentation behavior.
 
 `core/pcb-placement-geometry.js` owns renderer-free world-pad updates, bonded
 track-node movement, side-dependent pad/paste layers and incompatible-bond
@@ -417,9 +428,11 @@ another cache. It does not create placement overrides or a saved PCB section.
 Missing/non-physical components return null; physical components with no
 footprint data retain the existing empty geometry result. The existing pure
 parser remains in `pcb/modules/footprint.js` alongside its rendering exports.
-Movement, rotation and flipping use this source. `SetPlacementSideCommand`
-still owns bond-disconnection/restoration history in the editor and remains
-the next physical command boundary.
+All four physical placement commands use this source. Entity/render and derived
+cache coupling, view-triggered outline initialization/preview writes and the
+explicit viewport-preference boundary still need closure review; physical command
+separation does not imply that all model boundaries or application decomposition
+are complete.
 
 The live `placements` map and automatic layout slots remain editor-owned:
 they contain generated footprint geometry, presentation caches and temporary
