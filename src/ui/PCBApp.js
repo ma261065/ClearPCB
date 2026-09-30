@@ -128,8 +128,11 @@ import { CommandHistory } from '../core/CommandHistory.js';
 import { Track } from '../shapes/track.js';
 import { Via } from '../shapes/via.js';
 import { Pad } from '../shapes/pad.js';
-import { padCopperPathD, renderPad } from '../pcb/modules/pad.js';
-import { AddPadCommand, ModifyPadCommand, getPadRotationPreview, finishPadRotationPreview } from '../pcb/modules/pad-commands.js';
+import { padCopperPathD, padLayers, renderPad } from '../pcb/modules/pad.js';
+import {
+    AddPadCommand, ModifyPadCommand, getPadRotationPreview, finishPadRotationPreview,
+    getPadPropertyPreview, beginPadPropertyPreview, finishPadPropertyPreview, canonicalPad,
+} from '../pcb/modules/pad-commands.js';
 import '../pcb/modules/pad-selection.js';
 import { CopperFill } from '../shapes/copper-fill.js';
 import { computeFillPolygons, loadClipper, isClipperReady, boardShapeClearanceOutlines, pcbTextClearanceOutlines } from '../pcb/modules/copper-fill-geom.js';
@@ -210,7 +213,10 @@ export default class PCBApp {
     set tracks(value) { this.pcbDocument.tracks = value; }
     get vias() { return this._viaDrag?.preview?.vias || this.pcbDocument.vias; }
     set vias(value) { this.pcbDocument.vias = value; }
-    get pads() { return this._viaDrag?.preview?.pads || getPadRotationPreview(this)?.pads || this.pcbDocument.pads; }
+    get pads() {
+        return this._viaDrag?.preview?.pads || getPadRotationPreview(this)?.pads
+            || getPadPropertyPreview(this)?.pads || this.pcbDocument.pads;
+    }
     set pads(value) { this.pcbDocument.pads = value; }
     get texts() { return getTextPosePreviewTexts(this) || this.pcbDocument.texts; }
     set texts(value) { this.pcbDocument.texts = value; }
@@ -2838,7 +2844,8 @@ export default class PCBApp {
             || this._shapeDrag || this._vertexDrag || this._viaDrag || this._fillDrag
             || this._pasteDrop || this._textEdit || this._boardOutlineResize
             || this._pcbSelectionInteraction || this._rotationHandleDrag
-            || this._deferDragOverlays || this._suspendFillRefresh || this._textPropertyBinding?.active);
+            || this._deferDragOverlays || this._suspendFillRefresh || this._textPropertyBinding?.active
+            || this._padPropertyBinding?.active);
     }
 
     /**
@@ -3020,6 +3027,9 @@ export default class PCBApp {
      * @param {boolean} visible
      */
     _onLayerVisibilityChanged(layerId, visible) {
+        if (!visible && this._padPropertyBinding?.pads.some(pad => padLayers(pad).includes(layerId))) {
+            this._padPropertyBinding.dispose();
+        }
         const g = this._layerGroups.get(layerId);
         if (g) {
             g.style.display = visible ? '' : 'none';
@@ -3087,6 +3097,9 @@ export default class PCBApp {
      */
     _onLayerLockChanged(layerId, locked) {
         if (locked && this._textPropertyBinding?.model.layer === layerId) this._textPropertyBinding.cancel();
+        if (locked && this._padPropertyBinding?.pads.some(pad => padLayers(pad).includes(layerId))) {
+            this._padPropertyBinding.cancel();
+        }
         const draggingReference = this.placements?.get(this._refDrag?.compId);
         if (locked && draggingReference
             && (draggingReference.side === 'bottom' ? 'bottom-silk' : 'top-silk') === layerId) {
@@ -3491,6 +3504,8 @@ export default class PCBApp {
     _setPcbPropsTitle(title) {
         this._textPropertyBinding?.dispose();
         this._textPropertyBinding = null;
+        this._padPropertyBinding?.dispose();
+        this._padPropertyBinding = null;
         const el = document.querySelector('#pcbPropsContent .ribbon-group-title');
         if (el) el.textContent = title || 'Properties';
     }
@@ -3655,8 +3670,9 @@ export default class PCBApp {
     _showPadEditor(pad) {
         const items = this._pcbPropsItems();
         if (!items) return;
+        if (pad) pad = canonicalPad(this, pad);
         const state = pad || this._padDefaults;
-        const selectedPads = pad ? getPcbSelection(this, 'pad') : [];
+        const selectedPads = pad ? getPcbSelection(this, 'pad').map(target => canonicalPad(this, target)) : [];
         const pads = pad && selectedPads.includes(pad) ? selectedPads : (pad ? [pad] : []);
         const isMixed = property => pads.some(target => target[property] !== state[property]);
         const mixedShape = isMixed('shape');
@@ -3690,7 +3706,13 @@ export default class PCBApp {
             </select></div>
             <div class="prop-row"><label>Net</label><span class="prop-net-control"><input type="text" id="pcbPropPadNet" value="${mixedNet ? '' : escape(state.net || '')}" placeholder="${mixedNet ? 'Mixed' : 'None'}"><details class="prop-net-menu"><summary aria-label="Select existing net"></summary><div>${options}</div></details></span></div>
         `;
+        let disposed = false;
+        let preview = null;
+        let activeProperty = null;
+        const fields = new Map();
         const apply = (property, value) => {
+            if (disposed) return;
+            finish(true);
             if (pad) {
                 const commands = [];
                 for (const target of pads) {
@@ -3711,6 +3733,7 @@ export default class PCBApp {
             }
         };
         items.querySelector('#pcbPropPadShape')?.addEventListener('change', event => {
+            if (disposed) return;
             apply('shape', event.target.value);
             this._showPadEditor(pad);
         });
@@ -3720,7 +3743,7 @@ export default class PCBApp {
             if (!pad || renderFrame !== null) return;
             renderFrame = requestAnimationFrame(() => {
                 renderFrame = null;
-                for (const target of pads) renderPad(target, layer => this._getLayerGroup(layer));
+                for (const target of preview?.copies.values() || []) renderPad(target, layer => this._getLayerGroup(layer));
                 refreshBoxSelectionHighlights(this);
             });
         };
@@ -3729,12 +3752,55 @@ export default class PCBApp {
             cancelAnimationFrame(renderFrame);
             renderFrame = null;
         };
+        const resetFields = () => {
+            for (const [property, input] of fields) {
+                input.value = pads.some(target => target[property] !== pad[property]) ? '' : String(pad[property]);
+            }
+            const drillInput = fields.get('drill');
+            if (drillInput && pad) drillInput.max = String(Math.min(...pads.map(target => target.size)));
+        };
+        const finish = commit => {
+            if (!preview) return;
+            preview = null;
+            activeProperty = null;
+            cancelLiveRender();
+            let committed = false;
+            try {
+                finishPadPropertyPreview(this, commit ? changes => {
+                    const commands = changes.map(({ pad, before, after }) => new ModifyPadCommand(this, pad, before, after));
+                    this.history.execute(commands.length === 1 ? commands[0] : new CompoundCommand(commands));
+                } : undefined);
+                committed = commit;
+            } finally {
+                if (!committed) resetFields();
+                refreshBoxSelectionHighlights(this);
+            }
+        };
+        const editable = () => !disposed && this._active !== false && (!pad || pads.every(target => !target.locked
+            && target.visible !== false && !padLayers(target).some(isLayerLocked) && padLayers(target).some(isLayerVisible)));
+        const binding = {
+            pads,
+            get active() { return preview !== null; },
+            commit: () => finish(editable()),
+            cancel: () => finish(false),
+            dispose: () => {
+                disposed = true;
+                finish(false);
+                cancelLiveRender();
+            },
+        };
+        this._padPropertyBinding = binding;
         const bindLiveNumber = (id, property, minimum) => {
             const input = /** @type {HTMLInputElement|null} */ (items.querySelector(id));
             if (!input) return;
-            let baseline = null;
+            fields.set(property, input);
             bindPictureRefreshHold(this, input);
-            input.addEventListener('input', () => {
+            const onInput = () => {
+                if (!editable()) {
+                    binding.cancel();
+                    return;
+                }
+                if (!input.value.trim()) return;
                 let value = Number(input.value);
                 if (!Number.isFinite(value) || value < minimum) return;
                 if (property === 'rotation') {
@@ -3742,11 +3808,12 @@ export default class PCBApp {
                     if (Number(input.value) !== value) input.value = String(value);
                 }
                 if (property === 'drill') {
-                    const max = pad ? Math.min(...pads.map(target => target.size)) : state.size;
+                    const max = pad ? Math.min(...pads.map(target => preview?.copies.get(target).size ?? target.size)) : state.size;
                     value = Math.min(value, max);
                     if (Number(input.value) !== value) input.value = String(value);
                 }
                 if (!pad) {
+                    if (this._padDefaults[property] === value) return;
                     this._padDefaults[property] = value;
                     if (property === 'size') {
                         const drillInput = /** @type {HTMLInputElement|null} */ (items.querySelector('#pcbPropPadDrill'));
@@ -3759,10 +3826,11 @@ export default class PCBApp {
                     if (this._lastCrosshairWorld) this._updatePadPreview(this._lastCrosshairWorld);
                     return;
                 }
-                // The editor can remain open across moves and Undo/Redo.
-                // Capture state when this edit starts, not when the panel opens.
-                baseline ??= new Map(pads.map(target => [target, target.captureState()]));
-                for (const target of pads) {
+                if (preview && activeProperty !== property) binding.commit();
+                if (pads.every(target => (preview?.copies.get(target) || target)[property] === value)) return;
+                preview ??= beginPadPropertyPreview(this, pads);
+                activeProperty = property;
+                for (const target of preview.copies.values()) {
                     target[property] = value;
                     if (property === 'size') target.drill = Math.min(target.drill, value);
                     schedulePictureCopperRefresh(this, target);
@@ -3772,23 +3840,17 @@ export default class PCBApp {
                     if (drillInput) drillInput.max = String(value);
                 }
                 renderLivePads();
-            });
+            };
+            input.addEventListener('input', onInput);
             input.addEventListener('change', () => {
-                if (!pad || !baseline) return;
-                const changes = pads.map(target => ({
-                    target,
-                    before: baseline.get(target),
-                    after: target.captureState(),
-                })).filter(change => JSON.stringify(change.after) !== JSON.stringify(change.before));
-                baseline = null;
-                if (!changes.length) return;
-                cancelLiveRender();
-                const commands = changes.map(({ target, before, after }) => {
-                    target.applyState(before);
-                    return new ModifyPadCommand(this, target, before, after);
-                });
-                this.history.execute(commands.length === 1 ? commands[0] : new CompoundCommand(commands));
-                refreshBoxSelectionHighlights(this);
+                onInput();
+                binding.commit();
+            });
+            input.addEventListener('keydown', event => {
+                if (disposed || event.key !== 'Escape') return;
+                binding.cancel();
+                event.preventDefault();
+                event.stopPropagation();
             });
         };
         bindLiveNumber('#pcbPropPadSize', 'size', 0.05);
@@ -5140,6 +5202,7 @@ export default class PCBApp {
 
     _cancelPosePreviews() {
         this._textPropertyBinding?.cancel();
+        this._padPropertyBinding?.cancel();
         const state = this._pcbSelectionInteraction;
         if (['component', 'text', 'pad'].includes(state?.adapter?.kind)
             || (state?.mode === 'move-adapter' && ['component', 'text', 'via', 'pad'].includes(state.entry.kind))) finishSelectionInteraction(this, false);

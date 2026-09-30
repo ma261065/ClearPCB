@@ -6,17 +6,13 @@ import { lockPositionOutsideOutline } from './selection-anchors.js';
 import { rotationHandleAnchor, pointerRotation } from './rotation-handle.js';
 import {
     ModifyPadCommand, getPadRotationPreview, beginPadRotationPreview, previewPadRotation, finishPadRotationPreview,
+    canonicalPad, displayedPad,
 } from './pad-commands.js';
 import { startPadDrag, updateViaDrag, finishViaDrag, cancelViaDrag } from './track-drag.js';
 
 export function createPadSelectionAdapter(app, pad, id) {
-    if (app._viaDrag?.via === pad) pad = app._viaDrag.original;
-    if (getPadRotationPreview(app)?.pad === pad) pad = getPadRotationPreview(app).original;
-    const current = () => {
-        if (app._viaDrag?.original === pad) return app._viaDrag.via;
-        const preview = getPadRotationPreview(app);
-        return preview?.original === pad ? preview.pad : pad;
-    };
+    pad = canonicalPad(app, pad);
+    const current = () => displayedPad(app, pad);
     const layers = () => padLayers(pad);
     return {
         id, kind: 'pad', get object() { return current(); },
@@ -40,6 +36,7 @@ export function createPadSelectionAdapter(app, pad, id) {
                 ? [] : [rotationHandleAnchor(pad.getBounds(), app.viewport?.scale)];
         },
         beginMove(worldPos) {
+            app._padPropertyBinding?.commit();
             return startPadDrag(app, pad, worldPos);
         },
         updateMove(worldPos) {
@@ -54,6 +51,7 @@ export function createPadSelectionAdapter(app, pad, id) {
         },
         beginAnchorDrag(anchorId, worldPos) {
             if (anchorId !== 'rotate') return false;
+            app._padPropertyBinding?.commit();
             beginPadRotationPreview(app, pad, worldPos);
             return true;
         },

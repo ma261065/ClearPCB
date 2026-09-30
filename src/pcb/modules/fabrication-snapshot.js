@@ -13,7 +13,8 @@ export function hasFabricationContent(app) {
 
 export async function prepareFabricationSnapshot(app, { computeFills = true } = {}) {
     if (app._deferDragOverlays || app._suspendFillRefresh || app._rotationHandleDrag || app._shapeDrag
-        || app._vertexDrag || app._viaDrag || app._textEdit || app._boardOutlineResize) {
+        || app._vertexDrag || app._viaDrag || app._textEdit || app._boardOutlineResize
+        || app._padPropertyBinding?.active) {
         throw new Error('Finish the current edit before exporting.');
     }
     const model = app.pcbDocument;

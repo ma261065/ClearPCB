@@ -854,8 +854,28 @@ Escape, deactivation, loading, missing targets and rejected commands clean up
 without canonical rollback. Returning to the exact initial angle preserves redo.
 Gesture state is editor-owned too, so rebuilt adapters can finish it and stale
 callbacks cannot resume a discarded gesture. Save/export guards remain active.
-Pad property previews, groups containing terminals and directly selected track
-previews retain their existing paths and remain part of the ownership work.
+
+Live numeric pad properties (size, ratio, drill and rotation) use a separate
+fixed-selection projection in `pad-commands.js`. The first changed value copies
+the selected pads and their collection once; later inputs reuse those copies
+and retain animation-frame-coalesced SVG rendering. Identical values do not
+redraw or reschedule copper work. Bounds, hits and selection adapters resolve
+the displayed copies, while canonical geometry and serialization stay unchanged.
+`change` (including change-only spinner events) clears the projection before
+existing single/compound `ModifyPadCommand` execution, with every target checked
+before the first mutation. Undo retains full precision, and no-op edits retain
+redo. Shape, copper-side and net controls keep their immediate-command semantics,
+committing a pending numeric field first; placement defaults remain outside
+document history.
+
+The pad property binding cancels on Escape, tab deactivation and layer locks,
+and disposes detached controls when the panel is replaced, a layer is hidden
+or a document is loaded. Pending render frames are cancelled on every exit.
+Save and fabrication-export guards include active numeric pad edits. Pad
+collection precedence is terminal movement, rotation handle, numeric properties,
+then canonical state; starting a pad move or rotation commits pending numeric
+properties first. Via properties, groups containing terminals and directly
+selected track previews retain their existing paths and remain ownership work.
 
 Both component pointer paths use the same live pose updater. If magnetic snapping
 produces the current coordinates, it skips footprint transforms, pad/bond updates
