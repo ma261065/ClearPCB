@@ -127,7 +127,7 @@ globalThis.document = {
     createElementNS: (_namespace, name) => new FakeSvgElement(name),
     getElementById: () => null,
 };
-assert.doesNotThrow(() => renderTrack({ edges: new Map(), _svgElements: null }, () => null),
+assert.doesNotThrow(() => renderTrack({ edges: new Map() }, () => null),
     'track rendering has no stale Via drill-colour dependency');
 const renderGroups = new Map([
     ['top-copper', new FakeSvgElement('g')],

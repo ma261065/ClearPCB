@@ -375,8 +375,10 @@ for (const previousDeferral of [false, true]) {
     const move = new MoveViaCommand(app, first, first.x, first.y, 3.123456, -4.123456);
     const beforeMove = [app.clearanceRefreshes(), app.fillRefreshes(), reconciles];
     move.execute();
-    assert.equal(first._svgElements[0].getAttribute('data-via-x'), '3.123456');
-    assert.equal(first._svgElements[0].getAttribute('data-via-y'), '-4.123456');
+    const ring = layer.children.find(element => element.dataset.viaId === first.id
+        && element.getAttribute('class') === 'pcb-via');
+    assert.equal(ring.getAttribute('data-via-x'), '3.123456');
+    assert.equal(ring.getAttribute('data-via-y'), '-4.123456');
     move.undo();
     assert.equal(layer.children.length, 4);
     assert.equal(app.clearanceRefreshes() - beforeMove[0], 2);
@@ -441,7 +443,7 @@ for (const previousDeferral of [false, true]) {
     ]) {
         const counts = [app.clearanceRefreshes(), app.fillRefreshes(), reconciles];
         command.execute();
-        assert.equal(copper.children.length, route._svgElements.length, 'Track redraw replaces its old SVG');
+        assert.equal(copper.children.length, 1, 'Selected track redraw replaces its old SVG without labels');
         const path = copper.children.find(element => element.getAttribute('class') === 'pcb-track');
         if (command instanceof MoveVertexCommand) assert.ok(path.getAttribute('points').startsWith('3.123456,-4.123456 '));
         if (command instanceof ModifyTrackGraphCommand) assert.equal(path.getAttribute('stroke-width'), '0.456789');

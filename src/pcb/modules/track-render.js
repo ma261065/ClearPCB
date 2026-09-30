@@ -29,6 +29,11 @@ const TRACK_CLASS = 'pcb-track';
 /** CSS class applied to via rings and drills. */
 const VIA_CLASS = 'pcb-via';
 
+/** @type {WeakMap<object, SVGElement[]>} */
+const trackElements = new WeakMap();
+/** @type {WeakMap<object, SVGElement[]>} */
+const viaElements = new WeakMap();
+
 /**
  * Render a Track into the supplied layer groups, removing any prior
  * SVG it owned. Safe to call repeatedly.
@@ -87,7 +92,7 @@ export function renderTrack(track, getLayerGroup, opts = {}) {
     // `Via` shapes (see PCBApp.vias / renderVia). A Track that changes
     // layer without a colocated Via simply shows an in-air vertex.
 
-    track._svgElements = created;
+    trackElements.set(track, created);
 }
 
 /**
@@ -135,23 +140,31 @@ export function renderVia(via, getLayerGroup, opts = {}) {
     const drill = renderDrillBore(via, viaLayer, `${VIA_CLASS} pcb-via-drill`, 'via');
     if (drill) created.push(drill);
 
-    via._svgElements = created;
+    viaElements.set(via, created);
 }
 
 /** Remove every SVG element this Track previously created. */
 export function removeTrackElements(track) {
-    if (track._svgElements) {
-        for (const el of track._svgElements) el.remove();
-        track._svgElements = null;
-    }
+    for (const el of trackElements.get(track) || []) el.remove();
+    trackElements.delete(track);
 }
 
 /** Remove every SVG element this Via previously created. */
 export function removeViaElements(via) {
-    if (via._svgElements) {
-        for (const el of via._svgElements) el.remove();
-        via._svgElements = null;
+    for (const el of viaElements.get(via) || []) el.remove();
+    viaElements.delete(via);
+}
+
+/** Show/hide existing net labels; false tells selection to rebuild omitted labels. */
+export function setTrackLabelsVisible(track, visible) {
+    let found = false;
+    for (const el of trackElements.get(track) || []) {
+        if (el.getAttribute('class') === 'pcb-track-label') {
+            el.style.display = visible ? '' : 'none';
+            found = true;
+        }
     }
+    return found;
 }
 
 /* ──────────────────────────── internals ──────────────────────────── */

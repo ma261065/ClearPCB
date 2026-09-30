@@ -14,7 +14,7 @@
  *   - Multi-selection.
  */
 
-import { buildTrackLayerRuns, removeTrackElements, removeViaElements, renderTrack, renderVia } from './track-render.js';
+import { buildTrackLayerRuns, removeTrackElements, removeViaElements, renderTrack, renderVia, setTrackLabelsVisible } from './track-render.js';
 import { reconcileRatsnest, collectBondedCopper } from './track-draw.js';
 import {
     hitTestTrackEdge,
@@ -431,7 +431,7 @@ export function selectTrackOrVia(app, hit) {
     }
     if (hit.type === 'track') {
         setPcbSelection(app, [{ kind: 'track', object: hit.track }]);
-        _setTrackLabelsVisible(hit.track, false);
+        setTrackLabelsVisible(hit.track, false);
         _drawTrackHalo(app, hit.track);
         _showTrackProperties(app, hit.track);
     } else {
@@ -464,7 +464,7 @@ export function selectTrackSegment(app, track, edgeId) {
     }
     setPcbSelection(app, [{ kind: 'track', object: track }]);
     app._trackEdit = { track, edgeId };
-    _setTrackLabelsVisible(track, false);
+    setTrackLabelsVisible(track, false);
     _drawSegmentHalo(app, track, edgeId);
     _showTrackSegmentProperties(app, track, edgeId);
     renderPcbSelectionAnchors(app);
@@ -489,20 +489,6 @@ export function showTrackSelectionProperties(app, track) {
     } else selectTrackOrVia(app, { type: 'track', track });
 }
 
-/** Show/hide a track's net-name labels without a full re-render. */
-function _setTrackLabelsVisible(track, visible) {
-    const els = track?._svgElements;
-    if (!els) return;
-    let found = false;
-    for (const el of els) {
-        if (el.getAttribute?.('class') === 'pcb-track-label') {
-            el.style.display = visible ? '' : 'none';
-            found = true;
-        }
-    }
-    return found;
-}
-
 /** Remove any track/via selection halos and clear stored references. */
 export function clearTrackSelection(app) {
     const prev = getSelectedTrack(app);
@@ -512,7 +498,7 @@ export function clearTrackSelection(app) {
         // Bring the net labels back. They were hidden via display toggling,
         // but a re-render while selected may have dropped them entirely
         // (hideNetLabel) — in that case re-render now to rebuild them.
-        const restored = _setTrackLabelsVisible(prev, true);
+        const restored = setTrackLabelsVisible(prev, true);
         if (!restored) {
             renderTrack(prev, (id) => app._getLayerGroup(id), {
                 viaDiameter: app._getRoutingParams?.()?.viaDiameter,

@@ -4,6 +4,9 @@ import { renderDrillBore } from './drill-bore.js';
 
 const NS = 'http://www.w3.org/2000/svg';
 
+/** @type {WeakMap<object, SVGElement[]>} */
+const padElements = new WeakMap();
+
 function flashShape(pad) {
     if (pad.shape === 'round') return 'circle';
     if (pad.shape === 'oval') return 'ellipse';
@@ -76,8 +79,8 @@ export function updatePadHighlightGeometry(pad, root) {
 }
 
 export function removePadElements(pad) {
-    for (const element of pad._svgElements || []) element.remove();
-    pad._svgElements = null;
+    for (const element of padElements.get(pad) || []) element.remove();
+    padElements.delete(pad);
 }
 
 export function padCopperPathD(pad) {
@@ -112,7 +115,7 @@ export function renderPad(pad, getLayerGroup, strokeOverride = null) {
         const drill = renderDrillBore(pad, getLayerGroup(`${layer}-pad-drills`), 'pcb-pad-drill', 'pad');
         if (drill) elements.push(drill);
     }
-    pad._svgElements = elements;
+    padElements.set(pad, elements);
 }
 
 export function padFlash(pad) {

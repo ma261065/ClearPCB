@@ -183,8 +183,17 @@ resolve the current node by ID on every operation, so they survive graph undo
 recreating node objects. Missing targets throw explicitly rather than recording
 a successful no-op. Geometry edits invalidate existing entity bounds without
 rendering; connectivity, clearance, selection and SVG work remain in the
-`pcb/modules/track-commands.js` adapters. Physical placement commands and
-entity-level render/derived state remain open boundaries.
+`pcb/modules/track-commands.js` adapters.
+
+The PCB track, via and standalone-pad renderers keep their SVG references in
+module-private weak maps keyed by entity identity, not in `_svgElements` fields
+on model objects. Rendering, redraw and removal work with frozen entities.
+Track selection asks the renderer to toggle existing net labels and still
+rebuilds labels omitted by a selected redraw. Cleanup retains the existing
+single-rendering-per-entity behavior, including detached/missing layers and
+repeated removal; equal IDs on different instances do not share SVG ownership.
+Inherited shape presentation methods and entity-level derived caches remain
+separate boundaries; this does not make every entity type presentation-free.
 
 Copper-fill add/remove/modify operations live in `core/pcb-fill-commands.js`.
 Collection commands use the model's existing `boardShapes` array; modification
