@@ -64,6 +64,7 @@ export function disconnectIncompatiblePadNodes(tracks, compId, padOffsets) {
                 : track.layer === copper;
             if (!compatible) {
                 track.padConnections.delete(nodeId);
+                track.invalidate();
                 touched.add(track);
             }
         }

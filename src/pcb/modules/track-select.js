@@ -96,17 +96,6 @@ export function getSelectedVia(app) {
     return getPcbSelection(app, 'via')[0] || null;
 }
 
-function trackBounds(track) {
-    const points = [...resolveTrackEdgePaths(track).values()].flat();
-    if (!points.length) return { minX: 0, minY: 0, maxX: 0, maxY: 0 };
-    return {
-        minX: Math.min(...points.map((point) => point.x)),
-        minY: Math.min(...points.map((point) => point.y)),
-        maxX: Math.max(...points.map((point) => point.x)),
-        maxY: Math.max(...points.map((point) => point.y)),
-    };
-}
-
 export function trackIsSelectable(track) {
     if (track?.visible === false) return false;
     for (const [edgeId] of track?.edges || []) {
@@ -202,7 +191,7 @@ export function createTrackSelectionAdapter(app, track, id) {
                 paths.map(([edgeId]) => Math.max(0, Number(track.getEdgeWidth?.(edgeId) ?? track.width) || 0) / 2),
             );
         },
-        getBounds() { return trackBounds(track); },
+        getBounds() { return track.getBounds(); },
         hitTest(point, tolerance) { return trackHitTest(track, point, tolerance); },
         getAnchors() {
             const visibleEdges = [...track.edges.entries()].filter(([edgeId]) => isLayerVisible(track.getEdgeLayer(edgeId)));
@@ -1124,6 +1113,7 @@ function bindTrackCornerRadius(app, track, nodeId = null) {
         if (nodeId == null) {
             track.cornerRadius = radius;
             track.nodeCornerRadii = {};
+            track.invalidate();
         }
         else track.setNodeCornerRadius(nodeId, radius);
         renderTrack(track, id => app._getLayerGroup(id), { hideNetLabel: true });

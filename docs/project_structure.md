@@ -196,6 +196,16 @@ Schematic `Text` remains a measured-layout exception: drawing clears its bounds
 so the next query uses the updated SVG font metrics rather than an earlier
 headless estimate or stale text measurement.
 
+Track bounds, hit tests and centreline distances use the shared copper paths in
+`shapes/track-geometry.js`, including per-edge widths, bulged edges and rounded
+corners. `pcb/modules/board-geometry.js` re-exports the same resolvers, so existing
+rendering, connectivity and export consumers retain their geometry and sampling
+tolerance. Model queries do not consult layer visibility; the editor's hit tests
+still filter hidden copper. Selection pruning reuses model bounds including
+stroke extents rather than a separate centreline-only box. Whole-track radius
+previews and pad-bond removal/restoration explicitly invalidate bounds: a bond
+change can enable or suppress rounding without moving any node.
+
 The PCB track, via and standalone-pad renderers keep their SVG references in
 module-private weak maps keyed by entity identity, not in `_svgElements` fields
 on model objects. Rendering, redraw and removal work with frozen entities.

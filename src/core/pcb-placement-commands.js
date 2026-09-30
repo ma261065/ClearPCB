@@ -106,7 +106,10 @@ export class SetPlacementSideCommand {
             const current = track.padConnections;
             if (current.size !== bonds.size || [...bonds].some(([id, connection]) =>
                 !current.has(id) || current.get(id)?.componentId !== connection.componentId
-                || current.get(id)?.pinNumber !== connection.pinNumber)) touched.add(track);
+                || current.get(id)?.pinNumber !== connection.pinNumber)) {
+                track.invalidate();
+                touched.add(track);
+            }
             current.clear();
             for (const [id, connection] of bonds) current.set(id, { ...connection });
         }

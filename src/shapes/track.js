@@ -25,6 +25,8 @@
 
 import { PolylineGraph } from './polyline-graph.js';
 import { arcFromBulge } from './arc-edge.js';
+import { resolveTrackSegments } from './track-geometry.js';
+import { distanceToSegment } from '../core/geometry.js';
 
 /** Default copper layer for a Track if none is specified. */
 const DEFAULT_LAYER = 'top-copper';
@@ -239,6 +241,31 @@ export class Track extends PolylineGraph {
     }
 
     /* ──────────────────── Query helpers ──────────────────────── */
+
+    /** Copper bounds include per-edge widths and the resolved rounded path. */
+    _calculateBounds() {
+        const segments = resolveTrackSegments(this);
+        if (!segments.length) return { minX: 0, minY: 0, maxX: 0, maxY: 0 };
+        let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+        for (const { start, end, width } of segments) {
+            const halfWidth = width / 2;
+            minX = Math.min(minX, start.x - halfWidth, end.x - halfWidth);
+            minY = Math.min(minY, start.y - halfWidth, end.y - halfWidth);
+            maxX = Math.max(maxX, start.x + halfWidth, end.x + halfWidth);
+            maxY = Math.max(maxY, start.y + halfWidth, end.y + halfWidth);
+        }
+        return { minX, minY, maxX, maxY };
+    }
+
+    hitTest(point, tolerance = 0.5) {
+        return resolveTrackSegments(this).some(({ start, end, width }) =>
+            distanceToSegment(point, start, end) <= width / 2 + tolerance);
+    }
+
+    distanceTo(point) {
+        return resolveTrackSegments(this).reduce((distance, { start, end }) =>
+            Math.min(distance, distanceToSegment(point, start, end)), Infinity);
+    }
 
     /** Return the layer name for a given edge id (or the default). */
     getEdgeLayer(edgeId) {
