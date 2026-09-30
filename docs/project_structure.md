@@ -843,8 +843,19 @@ snapshots are prepared on a detached track rather than temporarily splitting
 authored geometry. Cancellation, no-op drops, command failures, tab deactivation
 and loading discard preview SVG and restore canonical presentation. Discarding
 unchanged copper does not repour fills; nested overlay deferral is retained.
-Standalone-pad rotation/properties and groups containing terminals still use
-their existing preview paths and remain part of the ownership work.
+Standalone-pad rotation handles use a separate editor-owned gesture/projection
+in `pcb/modules/pad-commands.js`. Pickup allocates no pad copy or collection;
+the first changed angle creates one exact-state pad copy and one array, reused
+for subsequent angles. `PCBApp.pads` and rebuilt selection adapters resolve that
+copy for rendering, bounds, hit tests and anchors, while authored pad state and
+attached tracks remain unchanged. Repeated angles do not redraw geometry.
+Completion removes preview SVG and the projection before `ModifyPadCommand`;
+Escape, deactivation, loading, missing targets and rejected commands clean up
+without canonical rollback. Returning to the exact initial angle preserves redo.
+Gesture state is editor-owned too, so rebuilt adapters can finish it and stale
+callbacks cannot resume a discarded gesture. Save/export guards remain active.
+Pad property previews, groups containing terminals and directly selected track
+previews retain their existing paths and remain part of the ownership work.
 
 Both component pointer paths use the same live pose updater. If magnetic snapping
 produces the current coordinates, it skips footprint transforms, pad/bond updates

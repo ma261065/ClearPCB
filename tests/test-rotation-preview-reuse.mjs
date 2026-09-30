@@ -68,7 +68,7 @@ for (const kind of ['text', 'pad']) {
         const beforeClearance = clearanceInvalidations;
         for (let index = 0; index < 100; index++) adapter.updateAnchorDrag(pointFor(37 + index / 1000));
         assert.equal(adapter.object.rotation, 37);
-        if (kind === 'text') assert.equal(object.rotation, startingRotation, 'Authored rotation stays unchanged');
+        assert.equal(object.rotation, startingRotation, 'Authored rotation stays unchanged');
         assert.equal(renders, 1, `${kind}: 100 events resolving to one angle render once`);
         assert.equal(inputWrites, 1, `${kind}: unchanged angles do not rewrite the rotation input`);
         assert.equal(input.value, '37');
@@ -85,8 +85,8 @@ for (const kind of ['text', 'pad']) {
         if (kind === 'pad') {
             assert.equal(highlightUpdates, 101);
             assert.equal(copper.children.length, 1);
-            assert.equal(copper.children[0].attributes.get('d'), padCopperPathD(object));
-            assert.equal(highlight.attributes.get('points'), padOutline({ ...object, x: 0, y: 0 })
+            assert.equal(copper.children[0].attributes.get('d'), padCopperPathD(adapter.object));
+            assert.equal(highlight.attributes.get('points'), padOutline({ ...adapter.object, x: 0, y: 0 })
                 .map(point => `${point.x},${point.y}`).join(' '));
             assert.equal(highlight.attributes.get('transform'), `translate(${object.x},${object.y})`);
         }

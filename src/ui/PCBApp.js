@@ -129,7 +129,7 @@ import { Track } from '../shapes/track.js';
 import { Via } from '../shapes/via.js';
 import { Pad } from '../shapes/pad.js';
 import { padCopperPathD, renderPad } from '../pcb/modules/pad.js';
-import { AddPadCommand, ModifyPadCommand } from '../pcb/modules/pad-commands.js';
+import { AddPadCommand, ModifyPadCommand, getPadRotationPreview, finishPadRotationPreview } from '../pcb/modules/pad-commands.js';
 import '../pcb/modules/pad-selection.js';
 import { CopperFill } from '../shapes/copper-fill.js';
 import { computeFillPolygons, loadClipper, isClipperReady, boardShapeClearanceOutlines, pcbTextClearanceOutlines } from '../pcb/modules/copper-fill-geom.js';
@@ -210,7 +210,7 @@ export default class PCBApp {
     set tracks(value) { this.pcbDocument.tracks = value; }
     get vias() { return this._viaDrag?.preview?.vias || this.pcbDocument.vias; }
     set vias(value) { this.pcbDocument.vias = value; }
-    get pads() { return this._viaDrag?.preview?.pads || this.pcbDocument.pads; }
+    get pads() { return this._viaDrag?.preview?.pads || getPadRotationPreview(this)?.pads || this.pcbDocument.pads; }
     set pads(value) { this.pcbDocument.pads = value; }
     get texts() { return getTextPosePreviewTexts(this) || this.pcbDocument.texts; }
     set texts(value) { this.pcbDocument.texts = value; }
@@ -5141,7 +5141,7 @@ export default class PCBApp {
     _cancelPosePreviews() {
         this._textPropertyBinding?.cancel();
         const state = this._pcbSelectionInteraction;
-        if (['component', 'text'].includes(state?.adapter?.kind)
+        if (['component', 'text', 'pad'].includes(state?.adapter?.kind)
             || (state?.mode === 'move-adapter' && ['component', 'text', 'via', 'pad'].includes(state.entry.kind))) finishSelectionInteraction(this, false);
         if (this._groupDrag?.posePreview) {
             if (state?.mode === 'move') finishSelectionInteraction(this, false);
@@ -5150,6 +5150,7 @@ export default class PCBApp {
         if (this._drag) this._endDrag(false);
         if (this._textDrag) this._endTextDrag(false);
         if (this._viaDrag) cancelViaDrag(this);
+        finishPadRotationPreview(this);
     }
 
     // ── Text annotations ─────────────────────────────────────────

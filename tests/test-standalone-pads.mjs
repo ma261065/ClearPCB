@@ -103,16 +103,19 @@ const rotatingPad = new Pad({ x: 0, y: 0, shape: 'rectangle', size: 2, ratio: 2 
 const rotationInput = { value: '' };
 globalThis.document = { getElementById: id => id === 'pcbPropPadRotation' ? rotationInput : null };
 const rotationApp = {
+    pcbDocument: new PcbDocument(),
     viewport: { scale: 1 }, _getLayerGroup: () => null,
     history: { execute() {} },
 };
+rotationApp.pcbDocument.pads.push(rotatingPad);
 const rotationAdapter = createPadSelectionAdapter(rotationApp, rotatingPad, 'pad:rotating');
 assert.equal(rotationAdapter.getAnchors().length, 1);
 rotationAdapter.beginAnchorDrag('rotate', { x: 0, y: -4 });
 rotationAdapter.updateAnchorDrag({ x: 2, y: -2 });
-assert.equal(rotatingPad.rotation, 315);
+assert.equal(rotatingPad.rotation, 0, 'rotation preview leaves authored geometry unchanged');
+assert.equal(rotationAdapter.object.rotation, 315);
 assert.equal(rotationInput.value, '315', 'rotation property follows the dragged handle');
-assert.ok(padOutline(rotatingPad)[1].y > 0, 'pad geometry follows the pointer rotation direction');
+assert.ok(padOutline(rotationAdapter.object)[1].y > 0, 'pad geometry follows the pointer rotation direction');
 rotationAdapter.endAnchorDrag(false);
 
 class FakeSvgElement {
