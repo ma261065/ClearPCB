@@ -937,6 +937,7 @@ function _tryMergeDroppedNode(app, drag, netCommand = null) {
         // Net conflict: revert the node and warn.
         n.x = nd.startX;
         n.y = nd.startY;
+        track.invalidate();
         renderTrack(track, (id) => app._getLayerGroup(id), _opts(app));
         refreshTrackSelectionHalo(app);
         reconcileRatsnest(app);
@@ -1153,6 +1154,7 @@ export function updateVertexDrag(app, worldPos) {
             if (nd.padLink) drag.track.padConnections.delete(nd.nodeId);
         }
         const anchor = drag.track.nodes.get(drag.nodes[0]?.nodeId);
+        drag.track.invalidate();
         if (anchor) app.viewport?.setCrosshair({ x: anchor.x, y: anchor.y });
         renderTrackAxisGlow(app, _incidentSegments(drag.track, drag.nodes));
         renderTrack(drag.track, (id) => app._getLayerGroup(id), _opts(app));
@@ -1256,6 +1258,7 @@ export function updateVertexDrag(app, worldPos) {
         drag.track.padConnections.delete(nd.nodeId);
     }
 
+    drag.track.invalidate();
     renderTrackAxisGlow(app, _incidentSegments(drag.track, drag.nodes));
     renderTrack(drag.track, (id) => app._getLayerGroup(id), _opts(app));
     renderTrackAxisGlowTop(app);
@@ -1574,6 +1577,7 @@ export function finishVertexDrag(app) {
                 if (nd.padLink) drag.track.padConnections.set(nd.nodeId, { ...nd.padLink });
                 else drag.track.padConnections.delete(nd.nodeId);
             }
+            drag.track.invalidate();
             renderTrack(drag.track, (id) => app._getLayerGroup(id), _opts(app));
             refreshTrackSelectionHalo(app);
             reconcileRatsnest(app);
@@ -1656,6 +1660,7 @@ export function finishVertexDrag(app) {
         n.x = nd.startX;
         n.y = nd.startY;
     }
+    drag.track.invalidate();
     if (!moves.length) {
         _endVertexDragOverlayDeferral(app, drag, false);
         return;
@@ -1717,6 +1722,7 @@ export function cancelVertexDrag(app) {
         if (nd.padLink) drag.track.padConnections.set(nd.nodeId, { ...nd.padLink });
         else drag.track.padConnections.delete(nd.nodeId);
     }
+    drag.track.invalidate();
     renderTrack(drag.track, (id) => app._getLayerGroup(id), _opts(app, drag.track));
     refreshTrackSelectionHalo(app);
     reconcileRatsnest(app);
@@ -1875,6 +1881,7 @@ export function updateViaDrag(app, worldPos) {
         n.y = pos.y;
         touched.add(a.track);
     }
+    for (const track of touched) track.invalidate();
     // Build the axis glow from every attached track's incident segments, then
     // render: glow halos UNDER the copper, centerlines ON TOP (two-pass).
     const byTrack = new Map();
@@ -1912,7 +1919,7 @@ export function finishViaDrag(app) {
         // Restore any incidental sub-tolerance drift on track nodes.
         for (const a of drag.attached) {
             const n = a.track.nodes.get(a.nodeId);
-            if (n) { n.x = a.startX; n.y = a.startY; }
+            if (n) { n.x = a.startX; n.y = a.startY; a.track.invalidate(); }
         }
         return;
     }
@@ -1928,6 +1935,7 @@ export function finishViaDrag(app) {
                 const n = a.track.nodes.get(a.nodeId);
                 if (n) { n.x = a.startX; n.y = a.startY; touched.add(a.track); }
             }
+            for (const track of touched) track.invalidate();
             for (const track of touched) {
                 renderTrack(track, (id) => app._getLayerGroup(id), _opts(app, track));
             }
@@ -1944,7 +1952,7 @@ export function finishViaDrag(app) {
     drag.via.y = drag.startY;
     for (const a of drag.attached) {
         const n = a.track.nodes.get(a.nodeId);
-        if (n) { n.x = a.startX; n.y = a.startY; }
+        if (n) { n.x = a.startX; n.y = a.startY; a.track.invalidate(); }
     }
     const cmds = [drag.kind === 'pad'
         ? new MovePadCommand(app, drag.via, { x: drag.startX, y: drag.startY }, { x: toX, y: toY })
@@ -1982,6 +1990,7 @@ export function cancelViaDrag(app) {
         const n = a.track.nodes.get(a.nodeId);
         if (n) { n.x = a.startX; n.y = a.startY; touched.add(a.track); }
     }
+    for (const track of touched) track.invalidate();
     for (const t of touched) {
         renderTrack(t, (id) => app._getLayerGroup(id), _opts(app, t));
     }

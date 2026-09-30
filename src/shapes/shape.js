@@ -102,11 +102,11 @@ export class Shape {
     }
     
     /**
-     * Get the axis-aligned bounding box, using a cached value when clean.
+     * Get the axis-aligned bounding box, cached until geometry is invalidated.
      * @returns {{minX: number, minY: number, maxX: number, maxY: number}}
      */
     getBounds() {
-        if (!this._bounds || this._dirty) {
+        if (!this._bounds) {
             this._bounds = this._calculateBounds();
         }
         return this._bounds;

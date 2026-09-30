@@ -226,6 +226,8 @@ export class Text extends Shape {
         } else {
             el.removeAttribute('transform');
         }
+        // Rendered font metrics replace estimates or measurements of the previous text.
+        this._bounds = null;
     }
 
     /** @override */

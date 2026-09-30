@@ -30,7 +30,7 @@ import { openBoard3DViewer } from '../pcb/modules/board3d.js';
 import { savePcbPdf, printPcb, projectBaseName } from '../pcb/modules/pcb-export.js';import { tracksFromAutorouterResult } from '../pcb/modules/autorouter-adapter.js';
 import { renderTrack, renderVia, removeTrackElements, removeViaElements, viaCopperPathD } from '../pcb/modules/track-render.js';
 import { startTrackDraw, updateTrackDraw, refreshTrackDrawPreview, addTrackWaypoint, finishTrackDraw, cancelTrackDraw, toggleTrackLayer, resolveTrackDrawSnap, resolveTrackSnap, showTrackSnapMarker, clearTrackSnapMarker, reconcileRatsnest } from '../pcb/modules/track-draw.js';
-import { hitTestTrack, hitTestLockedTrack, selectTrackOrVia, clearTrackSelection, deleteSelectedTrack, setHoverHighlight, showTrackContextMenu, refreshTrackSelectionHalo, getSelectedTrack, getSelectedVia, selectTrackSegment, dismissTrackContextMenu, applyNetToCopperSelection } from '../pcb/modules/track-select.js';
+import { hitTestTrack, hitTestLockedTrack, selectTrackOrVia, clearTrackSelection, deleteSelectedTrack, setHoverHighlight, showTrackContextMenu, refreshTrackSelectionHalo, getSelectedTrack, getSelectedVia, selectTrackSegment, dismissTrackContextMenu, applyNetToCopperSelection, trackIsSelectable } from '../pcb/modules/track-select.js';
 import { deleteFocusedBoardShape } from '../pcb/modules/board-shapes.js';
 import {
     startVertexDrag,
@@ -579,7 +579,7 @@ export default class PCBApp {
             selected.push({ kind: 'component', object: componentId });
         }
         for (const track of this.tracks) {
-            if (!isLayerLocked(track.layer) && isLayerVisible(track.layer)) {
+            if (trackIsSelectable(track)) {
                 selected.push({ kind: 'track', object: track });
             }
         }
@@ -737,6 +737,7 @@ export default class PCBApp {
                 n.x = start.x + dx;
                 n.y = start.y + dy;
             }
+            t.track.invalidate();
             renderTrack(t.track, (id) => this._getLayerGroup(id), {
                 viaDiameter: this._getRoutingParams?.()?.viaDiameter,
                 viaDrill: this._getRoutingParams?.()?.viaDrill,

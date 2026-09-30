@@ -185,6 +185,17 @@ a successful no-op. Geometry edits invalidate existing entity bounds without
 rendering; connectivity, clearance, selection and SVG work remain in the
 `pcb/modules/track-commands.js` adapters.
 
+Shared `Shape.getBounds()` caches geometry independently of the SVG `_dirty`
+flag. Repeated headless queries reuse bounds until `invalidate()` clears them;
+reading bounds does not acknowledge a pending render. Arc control-point setters
+invalidate both arc geometry and bounds. Track node/segment/whole drags,
+attached-via/pad movement, cancellation, conflict rollback, group translation
+and floating paste explicitly invalidate geometry before it is presented.
+Bounds remain entity-owned derived data, not authored state.
+Schematic `Text` remains a measured-layout exception: drawing clears its bounds
+so the next query uses the updated SVG font metrics rather than an earlier
+headless estimate or stale text measurement.
+
 The PCB track, via and standalone-pad renderers keep their SVG references in
 module-private weak maps keyed by entity identity, not in `_svgElements` fields
 on model objects. Rendering, redraw and removal work with frozen entities.

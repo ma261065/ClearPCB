@@ -107,7 +107,8 @@ function trackBounds(track) {
     };
 }
 
-function trackIsSelectable(track) {
+export function trackIsSelectable(track) {
+    if (track?.visible === false) return false;
     for (const [edgeId] of track?.edges || []) {
         const layer = track.getEdgeLayer(edgeId);
         if (!isLayerLocked(layer) && isLayerVisible(layer)) return true;
@@ -116,6 +117,7 @@ function trackIsSelectable(track) {
 }
 
 function trackIsVisible(track) {
+    if (track?.visible === false) return false;
     for (const [edgeId] of track?.edges || []) {
         if (isLayerVisible(track.getEdgeLayer(edgeId))) return true;
     }
@@ -123,7 +125,8 @@ function trackIsVisible(track) {
 }
 
 function trackHitTest(track, point, tolerance) {
-    for (const { start, end, width } of resolveTrackSegments(track)) {
+    for (const { start, end, width, layer } of resolveTrackSegments(track)) {
+        if (!isLayerVisible(layer)) continue;
         const halfWidth = width / 2;
         if (_pointSegDist(point, start, end) <= halfWidth + tolerance) return true;
     }
@@ -202,7 +205,9 @@ export function createTrackSelectionAdapter(app, track, id) {
         getBounds() { return trackBounds(track); },
         hitTest(point, tolerance) { return trackHitTest(track, point, tolerance); },
         getAnchors() {
-            const nodes = [...track.nodes.entries()].map(([nodeId, point]) => ({
+            const visibleEdges = [...track.edges.entries()].filter(([edgeId]) => isLayerVisible(track.getEdgeLayer(edgeId)));
+            const visibleNodes = new Set(visibleEdges.flatMap(([, edge]) => [edge.from, edge.to]));
+            const nodes = [...track.nodes.entries()].filter(([nodeId]) => visibleNodes.has(nodeId)).map(([nodeId, point]) => ({
                 id: nodeId,
                 ...point,
                 fill: HALO_COLOR,
@@ -212,7 +217,7 @@ export function createTrackSelectionAdapter(app, track, id) {
                 strokeWidthPx: 1.25,
                 cursor: 'nwse-resize',
             }));
-            const midpoints = [...track.edges.entries()].flatMap(([edgeId, edge]) => {
+            const midpoints = visibleEdges.flatMap(([edgeId, edge]) => {
                 const start = track.nodes.get(edge.from);
                 const end = track.nodes.get(edge.to);
                 if (start && end && edge.bulge) {
@@ -252,6 +257,7 @@ export function createTrackSelectionAdapter(app, track, id) {
             const edge = track.edges.get(bulgeDrag.edgeId);
             const snap = snapPathPoint(app, worldPos, [], true);
             edge.bulge = Math.max(-1, Math.min(1, bulgeRatio(track.nodes.get(edge.from), track.nodes.get(edge.to), snap)));
+            track.invalidate();
             renderTrack(track, layer => app._getLayerGroup(layer));
             refreshTrackSelectionHalo(app);
             const input = document.getElementById('pcbPropTrackBulge');
@@ -924,6 +930,7 @@ export function showTrackContextMenu(app, hit, clientX, clientY, worldPos) {
 /* ──────────────────────────── halos ──────────────────────────── */
 
 function _drawTrackHalo(app, track, cls = HALO_CLASS, opacity = HALO_OPACITY_SELECTED) {
+    if (!trackIsVisible(track)) return;
     if (getPcbSelection(app).length === 1 && app._trackEdit?.track === track
         && track.nodes.has(app._trackEdit.nodeId)) return;
     // Lay a translucent white overlay along each layer-run, at the same
@@ -931,6 +938,7 @@ function _drawTrackHalo(app, track, cls = HALO_CLASS, opacity = HALO_OPACITY_SEL
     // instead of producing an outer glow that lags behind moves.
     const runs = buildTrackLayerRuns(track);
     for (const run of runs) {
+        if (!isLayerVisible(run.layer)) continue;
         const parent = app._getLayerGroup(cls === HOVER_CLASS ? run.layer : 'selection-overlay');
         if (!parent) continue;
         const poly = document.createElementNS(NS, 'polyline');
@@ -961,6 +969,7 @@ function _drawSegmentHalo(app, track, edgeId, cls = HALO_CLASS, opacity = HALO_O
     const b = track.nodes.get(e.to);
     if (!a || !b) return;
     const layerId = track.getEdgeLayer(edgeId) || 'top-copper';
+    if (track.visible === false || !isLayerVisible(layerId)) return;
     const parent = app._getLayerGroup(cls === HOVER_CLASS ? layerId : 'selection-overlay');
     if (parent) {
         const line = document.createElementNS(NS, 'polyline');

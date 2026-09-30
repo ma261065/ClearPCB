@@ -50,7 +50,7 @@ export class Arc extends Shape {
     /** @param {{x:number,y:number}} val */
     set startPoint(val) {
         this._startPoint = val;
-        this._cachedGeometry = null;
+        this.invalidate();
     }
     /** @returns {{x:number,y:number}} Arc end control point. */
     get endPoint() {
@@ -59,14 +59,13 @@ export class Arc extends Shape {
     /** @param {{x:number,y:number}} val */
     set endPoint(val) {
         this._endPoint = val;
-        this._cachedGeometry = null;
+        this.invalidate();
     }
     get bulge() { return bulgeRatio(this._startPoint, this._endPoint, this._bulgePoint); }
 
     set bulge(value) {
         if (!Number.isFinite(value)) return;
         this.bulgePoint = bulgePointFromRatio(this._startPoint, this._endPoint, Math.max(-1, Math.min(1, value)));
-        this.invalidate();
     }
 
     /** @returns {{x:number,y:number}} Bulge (curvature) control point. */
@@ -76,7 +75,7 @@ export class Arc extends Shape {
     /** @param {{x:number,y:number}} val */
     set bulgePoint(val) {
         this._bulgePoint = val;
-        this._cachedGeometry = null;
+        this.invalidate();
     }
     
     /**

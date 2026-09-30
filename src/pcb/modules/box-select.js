@@ -25,6 +25,7 @@ import {
     drawViaHalo,
     refreshTrackSelectionHalo,
     removeHalosByClass,
+    trackIsSelectable,
 } from './track-select.js';
 import { renderTrack, renderVia } from './track-render.js';
 import { isLayerLocked, isViaLocked, isCopperFillLocked, isCopperFillVisible } from './layers.js';
@@ -218,11 +219,10 @@ function _computeEnclosed(app, bounds) {
         if (allInside) selected.push({ kind: 'component', object: compId });
     }
 
-    // Tracks: every node must lie inside the rectangle. Locked-layer tracks
-    // are never marquee-selectable.
+    // Tracks: every node must lie inside, with at least one visible, unlocked edge.
     for (const t of app.tracks) {
         if (!t.nodes || t.nodes.size === 0) continue;
-        if (isLayerLocked(t.layer)) continue;
+        if (!trackIsSelectable(t)) continue;
         let allInside = true;
         for (const [, n] of t.nodes) {
             if (n.x < minX || n.x > maxX || n.y < minY || n.y > maxY) {
@@ -515,6 +515,7 @@ export function updateGroupDrag(app, worldPos, { snap = true } = {}) {
             const n = tEntry.track.nodes.get(nid);
             if (n) { n.x = start.x + dx; n.y = start.y + dy; }
         }
+        tEntry.track.invalidate();
         renderTrack(tEntry.track, (id) => app._getLayerGroup(id), _trackOpts(app, tEntry.track));
     }
     for (const entry of (g.shapes || [])) {

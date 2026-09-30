@@ -49,7 +49,6 @@ for (const side of ['top', 'bottom']) for (const mirror of [false, true]) {
         const untouched = other.captureState();
         const connections = track.padConnections;
         track.getBounds();
-        track._dirty = false;
         assert.deepEqual(repositionPadConnectedNodes([track, other], 'U1', pads), new Set([track]));
         assert.equal(track._bounds, null, 'Moved tracks invalidate their own geometry without a renderer');
         assert.equal(track.padConnections, connections);
@@ -59,9 +58,9 @@ for (const side of ['top', 'bottom']) for (const mirror of [false, true]) {
         }
         assert.notDeepEqual(track.nodes.get('n0'), track.nodes.get('n1'), 'Duplicate-number pads keep distinct physical positions');
         const bounds = track.getBounds();
-        track._dirty = false;
         assert.equal(repositionPadConnectedNodes([track, other], 'U1', pads).size, 0);
         assert.equal(track._bounds, bounds, 'Unchanged endpoints retain the existing geometry cache');
+        assert.equal(track.getBounds(), bounds, 'Headless bounds reuse does not require clearing render dirtiness');
         offsets[0].dx += 1;
         updatePlacementPadPositions(placement);
         assert.deepEqual(repositionPadConnectedNodes([track, other], 'U1', pads), new Set([track]),

@@ -40,7 +40,6 @@ assert.deepEqual(tracks, [untouched, track]);
 assert.deepEqual(vias, [untouchedVia, firstVia, secondVia], 'Associated-via membership belongs to the command');
 states.push(state());
 track.getBounds();
-track._dirty = false;
 const move = new MoveVertexCommand(track, 'n0', 1.234567, -2.345678, Math.PI, -Math.E);
 history.execute(move);
 assert.equal(track._bounds, null, 'Node edits invalidate entity geometry without rendering');

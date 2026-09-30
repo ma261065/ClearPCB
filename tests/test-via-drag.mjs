@@ -77,7 +77,11 @@ function appFor(via) {
         placements: new Map(),
         netlist: [],
         _layerGroups: new Map(),
-        _getLayerGroup() { return null; },
+        _getLayerGroup() {
+            for (const track of this.tracks) assert.deepEqual(track.getBounds(), track._calculateBounds(),
+                'Track bounds follow preview geometry before rendering');
+            return null;
+        },
         _refreshFills() { fillRefreshes++; },
         fillRefreshes() { return fillRefreshes; },
         _refreshClearanceHalos() { clearanceRefreshes++; },
@@ -112,7 +116,11 @@ function trackAppFor(track, previousDeferral = false) {
         copperFills: [],
         _layerGroups: new Map(),
         _deferDragOverlays: previousDeferral,
-        _getLayerGroup() { return null; },
+        _getLayerGroup() {
+            for (const track of this.tracks) assert.deepEqual(track.getBounds(), track._calculateBounds(),
+                'Track bounds follow preview geometry before rendering');
+            return null;
+        },
         _refreshFills() { fillRefreshes++; },
         _snapToGrid(point) { return point; },
         fillRefreshes() { return fillRefreshes; },
@@ -127,6 +135,47 @@ function trackAppFor(track, previousDeferral = false) {
         history: { execute(command) { command.execute(); } },
         _alert(message, options) { this.lastAlert = { message, options }; },
     };
+}
+
+for (const commit of [false, true]) {
+    const via = new Via({ x: 0, y: 0, net: 'GND' });
+    const app = appFor(via);
+    app.tracks.push(
+        new Track({ points: [{ x: 0, y: 0 }, { x: 10, y: 0 }], net: 'GND' }),
+        new Track({ points: [{ x: 0, y: 0 }, { x: 0, y: 10 }], net: 'GND' }));
+    const before = app.tracks.map(track => track.getBounds());
+    startViaDrag(app, via, { x: 0, y: 0 });
+    updateViaDrag(app, { x: -4, y: -3 });
+    updateViaDrag(app, { x: -6, y: -5 });
+    assert.ok(app.tracks.every(track => track.getBounds().minX === -6.1));
+    if (commit) finishViaDrag(app);
+    else cancelViaDrag(app);
+    for (const [index, track] of app.tracks.entries()) {
+        assert.deepEqual(track.getBounds(), track._calculateBounds());
+        if (!commit) assert.deepEqual(track.getBounds(), before[index]);
+    }
+}
+
+{
+    const { createTrackSelectionAdapter } = await import('../src/pcb/modules/track-select.js');
+    const { default: PCBApp } = await import('../src/ui/PCBApp.js');
+    const track = new Track({ points: [{ x: 0, y: 0 }, { x: 10, y: 0 }] });
+    const app = trackAppFor(track);
+    const before = track.getBounds();
+    const adapter = createTrackSelectionAdapter(app, track, track.id);
+    adapter.beginAnchorDrag('bulge:e0', { x: 5, y: 0 });
+    adapter.updateAnchorDrag({ x: 5, y: 4 });
+    assert.notDeepEqual(track.getBounds(), before);
+    adapter.endAnchorDrag(false);
+    assert.deepEqual(track.getBounds(), before);
+    app._pasteDrop = { anchorWorld: { x: 0, y: 0 },
+        tracks: [{ track, nodes: new Map([...track.nodes].map(([id, point]) => [id, { ...point }])) }],
+        vias: [], shapes: [], texts: [], fills: [] };
+    for (const point of [{ x: -3, y: -2 }, { x: -6, y: -4 }]) {
+        PCBApp.prototype._updatePasteDrop.call(app, point);
+        assert.deepEqual(track.getBounds(), track._calculateBounds());
+        assert.equal(track.getBounds().minX, point.x - 0.1);
+    }
 }
 
 {

@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { getComputedFill, setComputedFill } from '../src/pcb/modules/computed-fill-cache.js';
 import { readFileSync } from 'node:fs';
 import * as layers from '../src/pcb/modules/layers.js';
+import { trackIsSelectable } from '../src/pcb/modules/track-select.js';
 import { lockPositionOutsideOutline } from '../src/pcb/modules/selection-anchors.js';
 import {
     LOCK_BOUNDS,
@@ -63,6 +64,7 @@ const marqueeEnd = marqueeSource.indexOf('\n/* ', marqueeStart);
 assert.ok(marqueeStart >= 0 && marqueeEnd > marqueeStart);
 const dependencies = {
     ...layers,
+    trackIsSelectable,
     window: {},
     setPcbSelection(app, selected) { app.selected = selected; },
     refreshBoxSelectionHighlights() {}, showPcbSelectionProperties() {},
