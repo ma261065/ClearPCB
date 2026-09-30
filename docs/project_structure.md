@@ -507,6 +507,15 @@ selection and legacy Escape/Undo paths both finish the drag; physical pad and
 bonded-track positions are unchanged. Local-frame magnetic snapping and
 placement rotation/mirroring remain the same.
 
+Reference previews, cancellation, offset/rotation history and glyph regeneration
+use the existing `renderPlacementPose()` helper for SVG transforms only. They no
+longer call the physical `applyPlacementPose()` path: reference-only changes do
+not recalculate world pads, scan track bonds or rebuild physical clearance.
+The shared renderer retains placement/reference transforms, pad-number
+counter-mirroring, LOD and halo transforms. Dirty, reference-overlay, inline-caret
+and 3D notifications remain with their existing editor callers. Physical movement,
+rotation, side changes and initial placement setup keep their geometry updates.
+
 The same core module now owns `MovePlacementCommand`, `RotatePlacementCommand`,
 `FlipPlacementCommand` and `SetPlacementSideCommand`. These take the project document, resolve its current
 footprint on every execute/undo, patch only the requested canonical pose fields,

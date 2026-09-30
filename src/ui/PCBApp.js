@@ -67,6 +67,7 @@ import {
     SetBoardOutlineCommand,
     ModifyViaCommand,
     applyPlacementPose,
+    renderPlacementPose,
     applyPlacementSide,
     applyPlacementRefVisible,
     placementTransform,
@@ -5477,7 +5478,7 @@ export default class PCBApp {
     /**
      * Regenerate a reference designator's glyph geometry after its size or
      * line width changed, refresh the cached layout box, and re-apply the
-     * placement pose so the new geometry picks up the current offset/rotation
+     * SVG pose so the new geometry picks up the current offset/rotation
      * and mirror state.
      * @param {string} compId
      */
@@ -5493,7 +5494,7 @@ export default class PCBApp {
         applyRefGeometry(el, pl.reference, cxRef, baseY,
             pl.refSize || REF_DEFAULT_SIZE, pl.refStrokeWidth || REF_DEFAULT_STROKE);
         pl._refBox = null; // bbox changed — invalidate cache
-        applyPlacementPose(this, compId);
+        renderPlacementPose(this, compId);
         this._refreshRefHighlight(compId);
         if (this._textEdit?.options?.componentId === compId) this._textEdit.updateCaret?.();
     }
@@ -5648,7 +5649,7 @@ export default class PCBApp {
         });
         pl.refDx = snap.x;
         pl.refDy = snap.y;
-        applyPlacementPose(this, this._refDrag.compId);
+        renderPlacementPose(this, this._refDrag.compId);
         this._drawRefOverlay(this._refDrag.compId, true);
     }
 
@@ -5739,7 +5740,7 @@ export default class PCBApp {
             this.history.execute(new MoveRefTextCommand(this, compId, startDx, startDy, pl.refDx || 0, pl.refDy || 0));
         } else {
             pl.refDx = startDx; pl.refDy = startDy;
-            applyPlacementPose(this, compId);
+            renderPlacementPose(this, compId);
             this._drawRefOverlay(compId, false);
         }
     }

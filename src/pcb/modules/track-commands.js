@@ -129,8 +129,10 @@ export function applyPlacementPose(app, compId) {
     refreshEditedTrackClearance(app);
 }
 
-function renderPlacementPose(app, compId) {
-    const pl = app.placements.get(compId);
+/** Update existing SVG transforms without changing pads, track bonds or clearance. */
+export function renderPlacementPose(app, compId) {
+    const pl = app.placements?.get(compId);
+    if (!pl) return;
     const transform = placementTransform(pl);
     for (const el of (pl.elements || [])) el.setAttribute('transform', transform);
     if (pl.lodEl) pl.lodEl.setAttribute('transform', transform);
@@ -484,7 +486,7 @@ export class MoveRefTextCommand extends ModelMoveRefTextCommand {
         const saved = super._apply(s);
         const pl = this.app.placements?.get(this.compId);
         if (pl) { pl.refDx = saved.refDx; pl.refDy = saved.refDy; }
-        applyPlacementPose(this.app, this.compId);
+        renderPlacementPose(this.app, this.compId);
         this.app._markDirty?.();
         this.app._drawRefOverlay?.(this.compId, false);
         this.app._board3d?.refresh?.();
@@ -505,7 +507,7 @@ export class RotateRefTextCommand extends ModelRotateRefTextCommand {
         const saved = super._apply(deg);
         const pl = this.app.placements?.get(this.compId);
         if (pl) pl.refRot = saved.refRot;
-        applyPlacementPose(this.app, this.compId);
+        renderPlacementPose(this.app, this.compId);
         this.app._markDirty?.();
         this.app._drawRefOverlay?.(this.compId, false);
         this.app._board3d?.refresh?.();
