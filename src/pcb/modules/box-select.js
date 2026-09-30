@@ -498,6 +498,7 @@ export function beginGroupDrag(app, worldPos) {
     app._padPropertyBinding?.commit();
     app._viaPropertyBinding?.commit();
     app._trackPropertyBinding?.commit();
+    app._boardShapePropertyBinding?.commit();
     const comps = [];
     for (const compId of getPcbSelection(app, 'component')) {
         const pl = app.placements.get(compId);

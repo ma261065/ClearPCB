@@ -599,7 +599,7 @@ for (const kind of ['rect', 'polygon']) {
         for (const width of [2, 0.1, 1]) {
             widthInput.value = String(width);
             widthInput.fire('input');
-            const outline = boardShapeFilledRemovalOutlines(shape).flat();
+            const outline = boardShapeFilledRemovalOutlines(boardShapeEditor.getBoardShapePropertyPreview(widthApp).copies[0]).flat();
             check(`${kind} reversed=${reversed} width=${width} expands by half width`,
                 approx(Math.min(...outline.map(point => point.x)), -width / 2)
                 && approx(Math.max(...outline.map(point => point.x)), 10 + width / 2)
@@ -658,6 +658,7 @@ for (const layer of ['hole', 'top-copper', 'bottom-copper']) {
             _refreshPcbSelectionHighlights() { selectionRefreshes++; },
             history: { execute(command) { commands.push(command); command.execute(); } },
         };
+        const displayedCircle = () => boardShapeEditor.getBoardShapePropertyPreview(diameterApp)?.copies[0] || editableCircle;
         showBoardShapeProperties(diameterApp, editableCircle);
         const initialPropertyRebuilds = propertyRebuilds;
         if (layer !== 'hole') {
@@ -673,11 +674,11 @@ for (const layer of ['hole', 'top-copper', 'bottom-copper']) {
             diameterInput.value === '29.999999999999996' && propertyRebuilds === initialPropertyRebuilds);
         check(`${layer} filled=${filled} diameter preview refreshes selection geometry`, selectionRefreshes >= 2);
         check(`${layer} filled=${filled} diameter previews exact outside size`,
-            approx(editableCircle.radius, 15)
-            && approx(circleFilledRadius(editableCircle) * 2, 30)
-            && editableCircle.x === circlePropertyShape.x && editableCircle.y === circlePropertyShape.y
-            && editableCircle.lineWidth === 0.4 && editableCircle.filled === filled
-            && commands.length === 0 && fillRefreshes >= 2);
+            approx(displayedCircle().radius, 15)
+            && approx(circleFilledRadius(displayedCircle()) * 2, 30)
+            && displayedCircle().x === circlePropertyShape.x && displayedCircle().y === circlePropertyShape.y
+            && displayedCircle().lineWidth === 0.4 && displayedCircle().filled === filled
+            && editableCircle.radius === 3 && commands.length === 0 && fillRefreshes === 0);
         diameterInput.fire('change');
         check(`${layer} filled=${filled} committed diameter removes floating-point tails`,
             diameterInput.value === '30.00');
@@ -727,11 +728,12 @@ for (const layer of ['hole', 'top-copper', 'bottom-copper']) {
         diameterInput.value = '1';
         diameterInput.fire('input');
         check(`${layer} filled=${filled} 1 mm diameter fits a previously thick stroke`,
-            diameterInput.value === '1' && approx(circleFilledRadius(editableCircle) * 2, 1));
+            diameterInput.value === '1' && approx(circleFilledRadius(displayedCircle()) * 2, 1)
+            && editableCircle.radius === radiusBeforeShrink);
         diameterInput.value = '10';
         diameterInput.fire('input');
         check(`${layer} filled=${filled} intermediate small input does not permanently shrink width`,
-            approx(editableCircle.lineWidth, 4.75));
+            approx(displayedCircle().lineWidth, 4.75));
         diameterInput.value = '1';
         diameterInput.fire('input');
         diameterInput.fire('change');

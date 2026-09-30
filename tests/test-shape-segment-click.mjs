@@ -37,7 +37,7 @@ const { beginSelectionInteraction, updateSelectionInteraction, finishSelectionIn
 const { boardShapeHitTest } = await import('../src/pcb/modules/board-shape-geometry.js');
 const { createBoardShapeSelectionAdapter, getBoardShapeAnchors,
     renderBoardShapeSegmentSelection, selectBoardShape, showBoardShapeProperties,
-    startBoardShapeDrag, handleBoardShapeDrag, endBoardShapeDrag, openBoardShape } = await import('../src/pcb/modules/board-shapes.js');
+    startBoardShapeDrag, handleBoardShapeDrag, endBoardShapeDrag, openBoardShape, getBoardShapePropertyPreview } = await import('../src/pcb/modules/board-shapes.js');
 const { renderPcbSelectionAnchors } = await import('../src/pcb/modules/selection-anchors.js');
 const { Track } = await import('../src/shapes/track.js');
 const { selectTrackOrVia, selectTrackNode, drawTrackHalo, createTrackSelectionAdapter } = await import('../src/pcb/modules/track-select.js');
@@ -421,7 +421,9 @@ for (const bulge of [0, 0.25]) {
         assert.notEqual(highlights[0], previous, 'The old highlight is replaced before committing');
         assert.equal(highlights[0].getAttribute('stroke-width'), String(value),
             `${bulge ? 'Curved' : 'Straight'} segment highlight grows and shrinks during input`);
-        assert.equal(shape.segmentWidths[0] ?? shape.lineWidth, value);
+        const displayed = getBoardShapePropertyPreview(app).copies[0];
+        assert.equal(displayed.segmentWidths[0] ?? displayed.lineWidth, value);
+        assert.equal(shape.segmentWidths?.[0] ?? shape.lineWidth, 0.2);
         assert.equal(commands.length, 0, 'Live width preview does not create undo entries');
     }
     width.fire('change');
@@ -429,7 +431,7 @@ for (const bulge of [0, 0.25]) {
     width.value = '2';
     width.fire('input');
     width.fire('keydown', { key: 'Escape' });
-    assert.equal(shape.segmentWidths[0] ?? shape.lineWidth, 0.2, 'Escape restores the original segment width');
+    assert.equal(shape.segmentWidths?.[0] ?? shape.lineWidth, 0.2, 'Escape preserves the original segment width');
     assert.equal(commands.length, 0, 'Escape does not create history');
     for (const [id, values] of [
         ...(!bulge ? [['pcbPropShapeCornerRadius', [2, 0.5]]] : []),
@@ -757,7 +759,9 @@ for (const [kind, zeroOffset] of ['arc', 'line', 'polygon'].flatMap(kind =>
         assert.equal(commands.length, 0, 'Partial typing does not commit');
         input.value = '-0.5';
         input.fire('input');
-        assert.equal(kind === 'arc' ? shape.bulge.y : shape.segmentBulges[0], kind === 'arc' ? -2.5 : -0.5);
+        const displayed = getBoardShapePropertyPreview(app).copies[0];
+        assert.equal(kind === 'arc' ? displayed.bulge.y : displayed.segmentBulges[0], kind === 'arc' ? -2.5 : -0.5);
+        assert.equal(kind === 'arc' ? shape.bulge.y : shape.segmentBulges[0], kind === 'arc' ? 1.25 : 0.25);
         input.fire('change');
         assert.equal(commands.length, 1, 'Typed bulge makes one undoable edit');
         await Promise.resolve();

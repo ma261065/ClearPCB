@@ -14,7 +14,8 @@ export function hasFabricationContent(app) {
 export async function prepareFabricationSnapshot(app, { computeFills = true } = {}) {
     if (app._deferDragOverlays || app._suspendFillRefresh || app._rotationHandleDrag || app._shapeDrag
         || app._vertexDrag || app._viaDrag || app._textEdit || app._boardOutlineResize
-        || app._padPropertyBinding?.active || app._viaPropertyBinding?.active || app._trackPropertyBinding?.active) {
+        || app._padPropertyBinding?.active || app._viaPropertyBinding?.active || app._trackPropertyBinding?.active
+        || app._boardShapePropertyBinding?.active) {
         throw new Error('Finish the current edit before exporting.');
     }
     const model = app.pcbDocument;

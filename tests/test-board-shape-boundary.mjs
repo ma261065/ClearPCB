@@ -32,7 +32,7 @@ const { resolveBoardShapeGeometry, boardShapeHitTest, boardShapeBounds, shapePat
     await import('../src/pcb/modules/board-shape-geometry.js');
 const { getBoardShapeAnchors, serializeBoardShapes, loadBoardShapes, cloneShapeGeometry,
     createBoardShapeSelectionAdapter, startBoardShapeDrag, handleBoardShapeDrag, endBoardShapeDrag,
-    showBoardShapeProperties, showBoardShapeContextMenu, setBoardShapeSegmentType } = await import('../src/pcb/modules/board-shapes.js');
+    showBoardShapeProperties, showBoardShapeContextMenu, setBoardShapeSegmentType, getBoardShapePropertyPreview } = await import('../src/pcb/modules/board-shapes.js');
 const { reconcileRatsnest } = await import('../src/pcb/modules/track-draw.js');
 const { cancelPictureCopperRefresh } = await import('../src/pcb/modules/picture-refresh.js');
 const { updateSelectionInteraction, finishSelectionInteraction, placeFloatingSelectionInteraction } =
@@ -447,7 +447,9 @@ for (const cornerRadius of [0, 2]) {
     assert.deepEqual(cloneShapeGeometry(shape), before);
     assert.equal(shape.cornerRadius, cornerRadius);
     assert.deepEqual(getBoardShapeAnchors(shape), anchors);
-    assert.equal(shape.lineWidth, 5);
+    assert.equal(getBoardShapePropertyPreview(app).copies[0].lineWidth, 5);
+    assert.equal(shape.lineWidth, 1, 'Typing preserves authored width');
+    app._boardShapePropertyBinding.cancel();
     document.getElementById = () => null;
     const serialized = serializeBoardShapes(app);
     const loaded = { boardShapes: [], _shapeIdCounter: 1 };
@@ -609,7 +611,8 @@ console.log('PASS centreline editing, symmetric hit tests, unchanged circles, mi
     showBoardShapeProperties(app, outline);
     diameter.value = '16.246912';
     dispatch('input');
-    assert.equal(model.board.width, 16.246912);
+    assert.equal(model.board.width, 10, 'Properties leave authored dimensions unchanged');
+    assert.equal(getBoardShapePropertyPreview(app).copies[0].radius * 2, 16.246912);
     assertDimensions();
     dispatch('keydown', { key: 'Escape', preventDefault() {}, stopPropagation() {} });
     assert.equal(model.board.width, 10, 'Property-preview cancellation restores dimension metadata');

@@ -30,7 +30,7 @@ import { savePcbPdf, printPcb, projectBaseName } from '../pcb/modules/pcb-export
 import { renderTrack, renderVia, removeTrackElements, removeViaElements, viaCopperPathD } from '../pcb/modules/track-render.js';
 import { startTrackDraw, updateTrackDraw, refreshTrackDrawPreview, addTrackWaypoint, finishTrackDraw, cancelTrackDraw, toggleTrackLayer, resolveTrackDrawSnap, resolveTrackSnap, showTrackSnapMarker, clearTrackSnapMarker, reconcileRatsnest } from '../pcb/modules/track-draw.js';
 import { hitTestTrack, hitTestLockedTrack, selectTrackOrVia, clearTrackSelection, deleteSelectedTrack, setHoverHighlight, showTrackContextMenu, refreshTrackSelectionHalo, getSelectedTrack, getSelectedVia, selectTrackSegment, dismissTrackContextMenu, applyNetToCopperSelection, trackIsSelectable } from '../pcb/modules/track-select.js';
-import { deleteFocusedBoardShape, getBoardShapeRotationPreview, getBoardShapePointerPreview, finishBoardShapeRotationPreview } from '../pcb/modules/board-shapes.js';
+import { deleteFocusedBoardShape, getBoardShapeRotationPreview, getBoardShapePointerPreview, getBoardShapePropertyPreview, finishBoardShapeRotationPreview } from '../pcb/modules/board-shapes.js';
 import {
     startVertexDrag,
     updateVertexDrag,
@@ -165,6 +165,7 @@ import { getBoardOutline, boardBoundary } from '../pcb/modules/board-outline.js'
 import {
     beginBoardOutlineResize, updateBoardOutlineResize, endBoardOutlineResize,
     renderBoardOutlineHandles, hitTestBoardOutlineHandle,
+    getBoardDimensionPreview, finishBoardDimensionPreview, bindBoardDimensionProperties,
 } from '../pcb/modules/board-outline-resize.js';
 
 /**
@@ -228,15 +229,15 @@ export default class PCBApp {
     set pads(value) { this.pcbDocument.pads = value; }
     get texts() { return getTextPosePreviewTexts(this) || this.pcbDocument.texts; }
     set texts(value) { this.pcbDocument.texts = value; }
-    get boardShapes() { return getGroupPreview(this)?.boardShapes || getBoardShapePointerPreview(this)?.boardShapes || getBoardShapeRotationPreview(this)?.boardShapes || this.pcbDocument.boardShapes; }
+    get boardShapes() { return getGroupPreview(this)?.boardShapes || getBoardDimensionPreview(this)?.boardShapes || getBoardShapePointerPreview(this)?.boardShapes || getBoardShapeRotationPreview(this)?.boardShapes || getBoardShapePropertyPreview(this)?.boardShapes || this.pcbDocument.boardShapes; }
     set boardShapes(value) { this.pcbDocument.boardShapes = value; }
     get _shapeIdCounter() { return this.pcbDocument.shapeIdCounter; }
     set _shapeIdCounter(value) { this.pcbDocument.shapeIdCounter = value; }
-    get _boardWidth() { return this.pcbDocument.board.width; }
+    get _boardWidth() { return getBoardDimensionPreview(this)?.board.width ?? this.pcbDocument.board.width; }
     set _boardWidth(value) { this.pcbDocument.board.width = value; }
-    get _boardHeight() { return this.pcbDocument.board.height; }
+    get _boardHeight() { return getBoardDimensionPreview(this)?.board.height ?? this.pcbDocument.board.height; }
     set _boardHeight(value) { this.pcbDocument.board.height = value; }
-    get _boardRadius() { return this.pcbDocument.board.radius; }
+    get _boardRadius() { return getBoardDimensionPreview(this)?.board.radius ?? this.pcbDocument.board.radius; }
     set _boardRadius(value) { this.pcbDocument.board.radius = value; }
     get panelization() { return this.pcbDocument.panelization; }
     set panelization(value) { this.pcbDocument.loadPanelization(value); }
@@ -2597,6 +2598,12 @@ export default class PCBApp {
             return true;
         }
         if (ctrl && !e.shiftKey && (e.key === 'z' || e.key === 'Z')) {
+            if (getBoardDimensionPreview(this) || this._boardOutlineResize) {
+                this._boardDimensionPropertyBinding?.cancel();
+                endBoardOutlineResize(this, false);
+                finishBoardDimensionPreview(this);
+                return true;
+            }
             if (this._groupDrag) {
                 cancelGroupDrag(this);
                 this._pcbSelectionInteraction = null;
@@ -2615,6 +2622,12 @@ export default class PCBApp {
             return true;
         }
         if (ctrl && ((e.key === 'y' || e.key === 'Y') || ((e.key === 'z' || e.key === 'Z') && e.shiftKey))) {
+            if (getBoardDimensionPreview(this) || this._boardOutlineResize) {
+                this._boardDimensionPropertyBinding?.cancel();
+                endBoardOutlineResize(this, false);
+                finishBoardDimensionPreview(this);
+                return true;
+            }
             if (this._groupDrag) {
                 this._cancelPosePreviews();
                 return true;
@@ -2627,6 +2640,7 @@ export default class PCBApp {
         }
         if (e.key === 'Delete' || e.key === 'Backspace') {
             if (this._groupDrag) this._cancelPosePreviews();
+            this._boardShapePropertyBinding?.cancel();
             this._trackPropertyBinding?.cancel();
             if (deleteFocusedBoardShape(this)) return true;
             const focusedFill = getPcbSelection(this, 'fill')[0];
@@ -2649,6 +2663,10 @@ export default class PCBApp {
             return deleted;
         }
         if (e.key === 'Escape') {
+            if (this._boardShapePropertyBinding?.active) {
+                this._boardShapePropertyBinding.cancel();
+                return true;
+            }
             if (this._trackPropertyBinding?.active) {
                 this._trackPropertyBinding.cancel();
                 return true;
@@ -2656,6 +2674,10 @@ export default class PCBApp {
             if (this._boardOutlineResize) {
                 endBoardOutlineResize(this, false);
                 this.viewport.svg.style.cursor = 'default';
+                return true;
+            }
+            if (this._boardDimensionPropertyBinding?.active) {
+                this._boardDimensionPropertyBinding.cancel();
                 return true;
             }
             if (finishSelectionInteraction(this, false)) {
@@ -2868,7 +2890,7 @@ export default class PCBApp {
             || this._pcbSelectionInteraction || this._rotationHandleDrag
             || this._deferDragOverlays || this._suspendFillRefresh || this._textPropertyBinding?.active
             || this._padPropertyBinding?.active || this._viaPropertyBinding?.active
-            || this._trackPropertyBinding?.active);
+            || this._trackPropertyBinding?.active || this._boardShapePropertyBinding?.active);
     }
 
     /**
@@ -3050,6 +3072,10 @@ export default class PCBApp {
      * @param {boolean} visible
      */
     _onLayerVisibilityChanged(layerId, visible) {
+        if (!visible && layerId === 'board-outline') {
+            this._boardDimensionPropertyBinding?.dispose();
+            endBoardOutlineResize(this, false);
+        }
         if (!visible && this._groupDrag && getPcbSelectionEntries(this).some(entry => entry.visible === false)) {
             this._cancelPosePreviews();
         }
@@ -3063,6 +3089,7 @@ export default class PCBApp {
             if (!finishSelectionInteraction(this, false)) finishBoardShapeRotationPreview(this);
         }
         if (!visible && this._trackPropertyBinding?.affectsLayer(layerId)) this._trackPropertyBinding.dispose();
+        if (!visible && this._boardShapePropertyBinding?.affectsLayer(layerId)) this._boardShapePropertyBinding.dispose();
         if (!visible && layerId === 'vias') this._viaPropertyBinding?.dispose();
         if (!visible && this._padPropertyBinding?.pads.some(pad => padLayers(pad).includes(layerId))) {
             this._padPropertyBinding.dispose();
@@ -3133,6 +3160,10 @@ export default class PCBApp {
      * @param {boolean} locked
      */
     _onLayerLockChanged(layerId, locked) {
+        if (locked && layerId === 'board-outline') {
+            this._boardDimensionPropertyBinding?.cancel();
+            endBoardOutlineResize(this, false);
+        }
         if (locked && this._groupDrag && getPcbSelectionEntries(this).some(entry => entry.locked)) {
             this._cancelPosePreviews();
         }
@@ -3146,6 +3177,7 @@ export default class PCBApp {
             if (!finishSelectionInteraction(this, false)) finishBoardShapeRotationPreview(this);
         }
         if (locked && this._trackPropertyBinding?.affectsLayer(layerId)) this._trackPropertyBinding.cancel();
+        if (locked && this._boardShapePropertyBinding?.affectsLayer(layerId)) this._boardShapePropertyBinding.cancel();
         if (locked && layerId === 'vias') this._viaPropertyBinding?.cancel();
         if (locked && this._textPropertyBinding?.model.layer === layerId) this._textPropertyBinding.cancel();
         if (locked && this._padPropertyBinding?.pads.some(pad => padLayers(pad).includes(layerId))) {
@@ -3329,6 +3361,8 @@ export default class PCBApp {
      */
     _showBoardDimensionsDialog() {
         if (this._boardDimensionsOverlay) return;
+        this._boardDimensionPropertyBinding?.commit();
+        if (this._boardOutlineResize) endBoardOutlineResize(this);
         const overlay = document.createElement('div');
         overlay.className = 'app-modal-overlay';
         overlay.innerHTML = `
@@ -3412,16 +3446,16 @@ export default class PCBApp {
         const layer = this._getLayerGroup('board-outline');
         const old = layer.querySelector('.pcb-board-outline');
         if (old) old.remove();
-        const shape = getBoardOutline(this.pcbDocument);
+        const shape = getBoardOutline(this);
         if (!shape) {
             this._boardOutlineDrawn = false;
             return;
         }
-        renderBoardShape(this, shape);
+        renderBoardShape(this, shape, { liveDrag: !!getBoardDimensionPreview(this) || this._deferDragOverlays });
         const wasDrawn = this._boardOutlineDrawn;
         this._boardOutlineDrawn = true;
         renderPanelPreview(this);
-        if (!wasDrawn && this.viewport) {
+        if (!wasDrawn && this.viewport && !getBoardDimensionPreview(this)) {
             const bounds = boardBoundary(this);
             this.viewport.fitToBounds(bounds.x, bounds.y, bounds.x + bounds.w, bounds.y + bounds.h, 5);
         }
@@ -3478,6 +3512,7 @@ export default class PCBApp {
             return;
         }
         if (!selected && this._boardOutlineResize) endBoardOutlineResize(this, false);
+        if (!selected) this._boardDimensionPropertyBinding?.dispose();
         this._boardOutlineSelected = selected;
         renderBoardOutlineHandles(this);
         const outline = this._getLayerGroup('board-outline').querySelector('.pcb-board-outline');
@@ -3553,6 +3588,7 @@ export default class PCBApp {
      * @param {string} title
      */
     _setPcbPropsTitle(title) {
+        this._boardDimensionPropertyBinding?.dispose();
         if (getBoardShapeRotationPreview(this)) {
             if (!finishSelectionInteraction(this, false)) finishBoardShapeRotationPreview(this);
         }
@@ -3564,6 +3600,8 @@ export default class PCBApp {
         this._viaPropertyBinding = null;
         this._trackPropertyBinding?.dispose();
         this._trackPropertyBinding = null;
+        this._boardShapePropertyBinding?.dispose();
+        this._boardShapePropertyBinding = null;
         const el = document.querySelector('#pcbPropsContent .ribbon-group-title');
         if (el) el.textContent = title || 'Properties';
     }
@@ -3933,12 +3971,14 @@ export default class PCBApp {
             const input = /** @type {HTMLInputElement|null} */ (document.getElementById(id));
             if (input) input.value = Number(value).toFixed(2);
         }
+        this._boardDimensionPropertyBinding?.sync();
     }
 
     /**
      * Show board outline properties and switch to Properties tab.
      */
     _showBoardOutlineProperties() {
+        this._boardDimensionPropertyBinding?.dispose();
         const outline = getBoardOutline(this);
         if (outline) {
             showBoardShapeProperties(this, outline);
@@ -3959,43 +3999,7 @@ export default class PCBApp {
             setPcbLayerLocked(this, 'board-outline', lockedEl.checked);
         });
 
-        // Live editing: apply changes immediately for visual feedback, but
-        // only commit a SetBoardOutlineCommand on `change` (blur / Enter)
-        // so the undo stack gets a single entry per edit, not one per
-        // keystroke. _boardOutlineEditStart captures the pre-edit values.
-        const snapshot = () => ({
-            width: this._boardWidth,
-            height: this._boardHeight,
-            radius: this._boardRadius,
-        });
-        const onInput = () => {
-            if (!this._boardOutlineEditStart) {
-                this._boardOutlineEditStart = snapshot();
-            }
-            const wEl = /** @type {HTMLInputElement} */ (document.getElementById('pcbPropBoardW'));
-            const hEl = /** @type {HTMLInputElement} */ (document.getElementById('pcbPropBoardH'));
-            const rEl = /** @type {HTMLInputElement} */ (document.getElementById('pcbPropBoardR'));
-            this._boardWidth = Math.max(5, parseFloat(wEl?.value) || 100);
-            this._boardHeight = Math.max(5, parseFloat(hEl?.value) || 80);
-            this._boardRadius = Math.max(0, parseFloat(rEl?.value) || 0);
-            if (rEl) rEl.value = this._boardRadius.toFixed(2);
-            this._drawBoardOutline();
-        };
-        const onCommit = () => {
-            if (!this._boardOutlineEditStart) return;
-            const before = this._boardOutlineEditStart;
-            const after = snapshot();
-            this._boardOutlineEditStart = null;
-            if (before.width === after.width
-                && before.height === after.height
-                && before.radius === after.radius) return;
-            this.history.execute(new SetBoardOutlineCommand(this, before, after));
-        };
-        for (const id of ['pcbPropBoardW', 'pcbPropBoardH', 'pcbPropBoardR']) {
-            const el = items.querySelector('#' + id);
-            el?.addEventListener('input', onInput);
-            el?.addEventListener('change', onCommit);
-        }
+        bindBoardDimensionProperties(this, items);
 
         // Switch to Properties tab
         this._setActiveRibbonTab?.('pcb-properties');
@@ -5259,6 +5263,10 @@ export default class PCBApp {
     }
 
     _cancelPosePreviews() {
+        this._boardShapePropertyBinding?.cancel();
+        this._boardDimensionPropertyBinding?.dispose();
+        endBoardOutlineResize(this, false);
+        finishBoardDimensionPreview(this);
         const shapeInteraction = this._pcbSelectionInteraction;
         if (this._shapeDrag && (shapeInteraction?.adapter?.kind === 'shape'
             || (shapeInteraction?.mode === 'move-adapter' && shapeInteraction.entry.kind === 'shape'))) {

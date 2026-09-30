@@ -13,6 +13,7 @@ import {
     renderBoardShapeSegmentSelection,
     canonicalBoardShape,
     getBoardShapeRotationPreview,
+    getBoardShapePropertyPreview,
     finishBoardShapeRotationPreview,
     endBoardShapeDrag,
 } from './board-shapes.js';
@@ -71,6 +72,7 @@ export class RemoveBoardShapeCommand extends ModelRemoveBoardShapeCommand {
 
     execute() {
         if (this.shape.layer === 'board-outline') return;
+        if (getBoardShapePropertyPreview(this.app)?.originals.includes(this.shape)) this.app._boardShapePropertyBinding.cancel();
         if (getBoardShapeRotationPreview(this.app)?.original === this.shape) {
             if (!finishSelectionInteraction(this.app, false)) finishBoardShapeRotationPreview(this.app);
         }
@@ -101,6 +103,7 @@ export class MoveBoardShapeCommand extends ModelMoveBoardShapeCommand {
     }
 
     _apply(geometry) {
+        if (getBoardShapePropertyPreview(this.app)?.originals.includes(this.shape)) this.app._boardShapePropertyBinding.cancel();
         if (this.app._shapeDrag?.original === this.shape) endBoardShapeDrag(this.app, false);
         const applied = super._apply(geometry);
         // Retain translated halos; only rebind clearance already invalidated by handle edits.
@@ -120,6 +123,7 @@ export class ModifyBoardShapeCommand extends ModelModifyBoardShapeCommand {
     }
 
     _apply(state) {
+        if (getBoardShapePropertyPreview(this.app)?.originals.includes(this.shape)) this.app._boardShapePropertyBinding.cancel();
         if (this.app._shapeDrag?.original === this.shape) endBoardShapeDrag(this.app, false);
         const affectsCopper = this.shape.kind !== 'image'
             || this.shape.layer.endsWith('copper') || state.layer.endsWith('copper');

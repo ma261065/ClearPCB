@@ -1,0 +1,341 @@
+import assert from 'node:assert/strict';
+import { ProjectDocument } from '../src/core/ProjectDocument.js';
+import { CommandHistory } from '../src/core/CommandHistory.js';
+import { CopperFill } from '../src/shapes/copper-fill.js';
+import { setComputedFill, getComputedFill } from '../src/pcb/modules/computed-fill-cache.js';
+import { getBoardOutline, rectangleBoardOutline, boardBoundary } from '../src/pcb/modules/board-outline.js';
+import { getBoardDimensionPreview, previewBoardDimensions, finishBoardDimensionPreview,
+    bindBoardDimensionProperties, beginBoardOutlineResize, updateBoardOutlineResize,
+    endBoardOutlineResize, boardOutlineHandles } from '../src/pcb/modules/board-outline-resize.js';
+import { prepareFabricationSnapshot } from '../src/pcb/modules/fabrication-snapshot.js';
+import { loadPcb } from '../src/pcb/modules/project-state.js';
+import { PCB_LAYERS } from '../src/pcb/modules/layers.js';
+
+let allocations = 0;
+class Element {
+    constructor() { allocations++; this.children = []; this.attributes = new Map(); this.style = {}; this.dataset = {}; }
+    setAttribute(key, value) { this.attributes.set(key, String(value)); }
+    getAttribute(key) { return this.attributes.get(key) ?? null; }
+    removeAttribute(key) { this.attributes.delete(key); }
+    appendChild(child) { child.remove(); this.children.push(child); child.parentNode = this; }
+    removeChild(child) { child.remove(); }
+    remove() {
+        if (this.parentNode) this.parentNode.children.splice(this.parentNode.children.indexOf(this), 1);
+        this.parentNode = null;
+    }
+    querySelectorAll(selector) {
+        return this.children.filter(child => (child.getAttribute('class') || '').split(' ').includes(selector.slice(1)));
+    }
+    querySelector(selector) { return this.querySelectorAll(selector)[0] || null; }
+}
+class Input {
+    constructor(value) { this.value = value; this.listeners = new Map(); this.validity = ''; }
+    addEventListener(name, listener) { this.listeners.set(name, listener); }
+    setCustomValidity(message) { this.validity = message; }
+    emit(name, event = {}) { this.listeners.get(name)?.({ preventDefault() {}, stopPropagation() {}, ...event }); }
+}
+let currentInputs = new Map();
+globalThis.window = { addEventListener() {}, removeEventListener() {} };
+globalThis.document = { createElementNS: () => new Element(), getElementById: id => currentInputs.get(id) || null,
+    querySelector: () => null, querySelectorAll: () => [] };
+globalThis.localStorage = { setItem() {} };
+globalThis.requestAnimationFrame = () => 1;
+globalThis.cancelAnimationFrame = () => {};
+const { default: PCBApp } = await import('../src/ui/PCBApp.js');
+const layer = PCB_LAYERS.find(item => item.id === 'board-outline');
+const fields = { width: 'pcbPropBoardW', height: 'pcbPropBoardH', radius: 'pcbPropBoardR' };
+
+function fixture(existing = true, deferred = false) {
+    const project = new ProjectDocument(), model = project.pcbDocument;
+    const initial = { width: 40.123456789, height: 30.234567891, radius: 2.345678912 };
+    Object.assign(model.board, initial);
+    if (existing) model.setBoardOutline(rectangleBoardOutline(initial.width, initial.height, initial.radius));
+    const fill = new CopperFill({ outline: [{ x: 1, y: -1 }, { x: 10, y: -1 }, { x: 10, y: -10 }] });
+    model.boardShapes.push(fill);
+    setComputedFill(fill, [{ outer: fill.outline, holes: [] }]);
+    const group = new Element();
+    let draws = 0, pours = 0, fits = 0, refresh3d = 0;
+    const app = {
+        project, pcbDocument: model, history: new CommandHistory(), placements: new Map(), netlist: [],
+        _active: true, _shapeElements: new Map(), _textElements: new Map(), _layerGroups: new Map(),
+        _boardOutlineSelected: true, _boardOutlineDrawn: existing,
+        _deferDragOverlays: deferred, _suspendBoardViewRefresh: deferred,
+        viewport: { scale: 100, snapToGrid: false, svg: new Element(), fitToBounds() { fits++; },
+            hideCrosshair() {} },
+        _getLayerGroup: id => id === 'board-outline' ? group : null,
+        _drawBoardOutline() { draws++; PCBApp.prototype._drawBoardOutline.call(this); },
+        _refreshFills() { assert.equal(this._deferDragOverlays, deferred); pours++; },
+        _board3d: { refresh() { refresh3d++; } },
+        _showBoardOutlineProperties() {}, _pcbPropsItems: () => null,
+        _cancelDrawingMode() {}, _ensureViewport() {}, markSectionClean() {},
+        _refreshPcbSelectionHighlights() {},
+    };
+    for (const key of ['boardShapes', 'tracks', 'vias', 'pads', 'texts', '_shapeIdCounter',
+        '_boardWidth', '_boardHeight', '_boardRadius']) {
+        Object.defineProperty(app, key, Object.getOwnPropertyDescriptor(PCBApp.prototype, key));
+    }
+    for (const key of ['_cancelPosePreviews', '_syncBoardOutlineInputs', 'isSectionEditing',
+        '_onLayerLockChanged', '_onLayerVisibilityChanged', '_clearProperties', '_setPcbPropsTitle', '_selectBoardOutline']) {
+        app[key] = PCBApp.prototype[key];
+    }
+    project.registerView('pcb', app);
+    app._drawBoardOutline();
+    const inputs = new Map(Object.entries(fields).map(([key, id]) => [id, new Input(model.board[key].toFixed(2))]));
+    currentInputs = inputs;
+    const bind = () => bindBoardDimensionProperties(app, { querySelector: selector => inputs.get(selector.slice(1)) });
+    return { app, model, fill, group, inputs, bind, draws: () => draws, pours: () => pours,
+        fits: () => fits, refresh3d: () => refresh3d };
+}
+
+let cases = 0;
+for (const mode of ['width', 'height', 'both', 'property-width', 'property-height', 'property-radius']) {
+    for (const deferred of [false, true]) for (const finish of ['commit', 'cancel', 'failure', 'replace', 'lock', 'hide', 'load', 'deactivate']) {
+        const numeric = mode.startsWith('property-');
+        const { app, model, fill, group, inputs, bind, draws, pours, fits } = fixture(!numeric, deferred);
+        const geometry = model.captureGeometry(), serialized = model.serialize(), board = { ...model.board };
+        const canonical = getBoardOutline(model), originalShapes = model.boardShapes, computed = getComputedFill(fill);
+        const corners = canonical?.points, field = mode.slice('property-'.length);
+        const binding = numeric ? bind() : null;
+        let update;
+        if (numeric) {
+            const input = inputs.get(fields[field]);
+            update = () => { input.value = String(board[field] + 5.123456789); input.emit('input'); };
+        } else {
+            const start = boardOutlineHandles(app).find(handle => handle.id === mode);
+            assert.equal(beginBoardOutlineResize(app, start), true);
+            updateBoardOutlineResize(app, start);
+            assert.equal(getBoardDimensionPreview(app), undefined, 'Unchanged pickup creates no copy');
+            update = () => updateBoardOutlineResize(app, { x: start.x + 5.123456789, y: start.y - 7.234567891 });
+        }
+        update();
+        const preview = getBoardDimensionPreview(app), shape = preview.outline, collection = app.boardShapes;
+        const points = shape.points, firstPoint = points[0], work = allocations, drawCount = draws();
+        const expected = { ...preview.board };
+        for (let index = 0; index < 100; index++) update();
+        assert.equal(allocations, work);
+        assert.equal(draws(), drawCount, 'Repeated unchanged dimensions do no SVG work');
+        assert.equal(getBoardDimensionPreview(app).outline, shape);
+        assert.equal(app.boardShapes, collection);
+        assert.equal(shape.points, points);
+        assert.equal(shape.points[0], firstPoint);
+        assert.deepEqual(model.captureGeometry(), geometry);
+        assert.deepEqual(model.serialize(), serialized);
+        assert.deepEqual(model.board, board);
+        assert.equal(model.boardShapes, originalShapes);
+        assert.equal(canonical?.points, corners);
+        assert.equal(getComputedFill(fill), computed);
+        assert.equal(pours(), 0);
+        assert.equal(fits(), 0, 'Live preview never fits the viewport');
+        assert.equal(group.children.length, 1, 'Exactly one outline SVG');
+        assert.equal(app._shapeElements.get(shape.id), group.children[0]);
+        assert.equal(boardBoundary(app).w, expected.width);
+        assert.equal(boardBoundary(app).h, expected.height);
+        assert.equal(app.isSectionEditing(), true);
+        await assert.rejects(prepareFabricationSnapshot(app), /current edit/i);
+        const complete = commit => numeric ? (commit ? binding.commit() : binding.cancel()) : endBoardOutlineResize(app, commit);
+        try {
+            if (finish === 'commit') {
+                const execute = app.history.execute.bind(app.history);
+                app.history.execute = command => {
+                    assert.equal(getBoardDimensionPreview(app), undefined);
+                    assert.equal(app.boardShapes, model.boardShapes);
+                    assert.deepEqual(model.captureGeometry(), geometry);
+                    execute(command);
+                };
+                complete(true);
+                assert.deepEqual(model.board, expected);
+                assert.equal(pours(), 1);
+                assert.equal(app.history.undoStack.length, 1);
+                const after = model.captureGeometry();
+                app.history.undo();
+                assert.deepEqual(model.board, board);
+                if (canonical) assert.deepEqual(model.captureGeometry(), geometry);
+                else assert.deepEqual(getBoardOutline(model), rectangleBoardOutline(board.width, board.height, board.radius),
+                    'Existing SetBoardOutlineCommand undo semantics create the previous rectangle');
+                app.history.redo();
+                assert.deepEqual(model.captureGeometry(), after);
+                assert.equal(group.children.length, 1);
+            } else {
+                if (finish === 'failure') {
+                    app.history.execute = () => { throw new Error('Rejected board dimensions'); };
+                    assert.throws(() => complete(true), /Rejected board dimensions/);
+                } else if (finish === 'replace') {
+                    if (canonical) model.boardShapes[model.boardShapes.indexOf(canonical)] = structuredClone(canonical);
+                    else model.setBoardOutline(rectangleBoardOutline(board.width, board.height, board.radius));
+                    assert.throws(() => complete(true), /no longer available/);
+                } else if (finish === 'load') loadPcb(app, null);
+                else if (finish === 'deactivate') PCBApp.prototype.deactivate.call(app);
+                else if (finish === 'lock') { layer.locked = true; app._onLayerLockChanged(layer.id, true); }
+                else if (finish === 'hide') { layer.visible = false; app._onLayerVisibilityChanged(layer.id, false); }
+                else {
+                    if (canonical) { canonical.points.forEach(Object.freeze); Object.freeze(canonical.points); Object.freeze(canonical); }
+                    Object.freeze(model.board);
+                    complete(false);
+                }
+                if (finish !== 'load' && finish !== 'replace') {
+                    assert.deepEqual(model.captureGeometry(), geometry);
+                    assert.deepEqual(model.serialize(), serialized);
+                    assert.equal(getComputedFill(fill), computed);
+                }
+                assert.equal(app.history.undoStack.length, 0);
+                assert.equal(pours(), 0, 'Discard does not rebuild settled fills');
+            }
+            assert.equal(getBoardDimensionPreview(app), undefined);
+            assert.equal(app._boardOutlineResize ?? null, null);
+            assert.equal(app._deferDragOverlays, deferred);
+            assert.equal(app._suspendBoardViewRefresh, deferred);
+            assert.equal(app.boardShapes, model.boardShapes);
+            if (finish !== 'load') assert.equal(group.children.length, getBoardOutline(model) ? 1 : 0,
+                'Discard/commit leaves only current canonical artwork');
+            cases++;
+        } finally { layer.locked = false; layer.visible = true; }
+    }
+}
+console.log(`PASS ${cases} generic dimension isolation cases: numeric/resize, serialization, geometry, caches, SVG, precision, work skips and lifecycle`);
+
+{
+    const { app, model, inputs, bind, draws } = fixture(false);
+    const binding = bind(), before = { ...model.board }, input = inputs.get(fields.width);
+    input.emit('change');
+    assert.equal(app.history.undoStack.length, 0, 'Rounded untouched display does not author dimensions');
+    const work = draws();
+    input.value = String(before.width + 3);
+    input.emit('input');
+    const preview = getBoardDimensionPreview(app), point = preview.outline.points[0], shapes = app.boardShapes;
+    input.value = String(before.width + 4);
+    input.emit('input');
+    assert.equal(getBoardDimensionPreview(app), preview);
+    assert.equal(preview.outline.points[0], point);
+    assert.equal(app.boardShapes, shapes);
+    assert.equal(preview.board.height, before.height, 'Untouched height retains full precision');
+    assert.equal(preview.board.radius, before.radius, 'Untouched radius retains full precision');
+    input.value = String(before.width);
+    input.emit('change');
+    assert.equal(app.history.undoStack.length, 0, 'Returning to the original dimensions creates no command');
+    assert.ok(draws() > work);
+    input.value = '55.123456789'; input.emit('input');
+    input.emit('keydown', { key: 'Escape' });
+    input.emit('change');
+    assert.deepEqual(model.board, before);
+    assert.equal(app.history.undoStack.length, 0, 'Escape suppresses the following native change');
+    input.value = '56'; input.emit('input');
+    input.value = ''; input.emit('change');
+    assert.match(input.validity, /finite/);
+    assert.equal(binding.active, true, 'Invalid text cannot commit an earlier preview');
+    binding.cancel();
+    input.value = '57'; input.emit('input');
+    app._setPcbPropsTitle('Other');
+    input.value = '58'; input.emit('change');
+    assert.equal(getBoardDimensionPreview(app), undefined);
+    assert.deepEqual(model.board, before, 'Disposed callbacks cannot reauthor the model');
+}
+
+for (const numeric of [false, true]) {
+    const { app, model, inputs, bind } = fixture();
+    const before = model.captureGeometry(), draw = app._drawBoardOutline;
+    app._drawBoardOutline = function () {
+        if (getBoardDimensionPreview(this)) throw new Error('Preview renderer failed');
+        draw.call(this);
+    };
+    if (numeric) {
+        bind(); inputs.get(fields.width).value = '55';
+        assert.throws(() => inputs.get(fields.width).emit('input'), /Preview renderer failed/);
+    } else {
+        const start = boardOutlineHandles(app).find(handle => handle.id === 'both');
+        beginBoardOutlineResize(app, start);
+        assert.throws(() => updateBoardOutlineResize(app, { x: start.x + 1, y: start.y }), /Preview renderer failed/);
+    }
+    assert.equal(getBoardDimensionPreview(app), undefined);
+    assert.equal(app._boardOutlineResize ?? null, null);
+    assert.equal(app._deferDragOverlays, false);
+    assert.equal(app._suspendBoardViewRefresh, false);
+    assert.deepEqual(model.captureGeometry(), before);
+}
+{
+    const { app, model } = fixture();
+    const before = model.captureGeometry();
+    for (const dimensions of [{}, { width: Infinity, height: 10, radius: 0 }, { width: 0, height: 10, radius: 0 }]) {
+        assert.throws(() => previewBoardDimensions(app, dimensions), /dimensions/);
+    }
+    assert.equal(getBoardDimensionPreview(app), undefined);
+    assert.deepEqual(model.captureGeometry(), before);
+    finishBoardDimensionPreview(app);
+}
+console.log('PASS precision/no-op/native event sequencing, disposed callbacks, input validation and renderer failure cleanup');
+
+for (const key of [{ key: 'Escape' }, { key: 'z', ctrlKey: true }, { key: 'y', ctrlKey: true },
+    { key: 'z', ctrlKey: true, shiftKey: true }]) {
+    for (const numeric of [false, true]) {
+        const { app, model, inputs, bind } = fixture();
+        const before = model.captureGeometry();
+        if (numeric) {
+            bind(); inputs.get(fields.width).value = '55'; inputs.get(fields.width).emit('input');
+        } else {
+            const start = boardOutlineHandles(app).find(handle => handle.id === 'both');
+            beginBoardOutlineResize(app, start);
+            updateBoardOutlineResize(app, { x: start.x + 2, y: start.y });
+        }
+        app.history.undo = () => assert.fail('Do not undo beneath a preview');
+        app.history.redo = () => assert.fail('Do not redo beneath a preview');
+        assert.equal(PCBApp.prototype.handleKeyDown.call(app, key), true);
+        assert.deepEqual(model.captureGeometry(), before);
+        assert.equal(getBoardDimensionPreview(app), undefined);
+        assert.equal(app._suspendBoardViewRefresh, false);
+        if (numeric) {
+            inputs.get(fields.width).value = '56'; inputs.get(fields.width).emit('input');
+            assert.ok(getBoardDimensionPreview(app), 'Keyboard cancellation leaves the visible panel editable');
+            app._boardDimensionPropertyBinding.cancel();
+        }
+    }
+}
+{
+    const { app, model, draws } = fixture();
+    model.boardShapes.push(...Array.from({ length: 1000 }, (_, index) => ({
+        id: `unrelated-${index}`, kind: 'circle', layer: 'top-silk', x: index, y: 10, radius: 1,
+    })));
+    const start = boardOutlineHandles(app).find(handle => handle.id === 'both'), work = draws();
+    beginBoardOutlineResize(app, start);
+    for (let index = 0; index < 100; index++) updateBoardOutlineResize(app, start);
+    assert.equal(getBoardDimensionPreview(app), undefined);
+    assert.equal(draws(), work, 'Large stationary pickup does not redraw or project the collection');
+    updateBoardOutlineResize(app, { x: start.x + 1, y: start.y });
+    assert.equal(app.boardShapes[1001], model.boardShapes[1001], 'Unrelated shapes are not copied');
+    updateBoardOutlineResize(app, start);
+    endBoardOutlineResize(app);
+    assert.equal(app.history.undoStack.length, 0, 'Resize returning to the starting dimensions is a no-op');
+}
+{
+    const { app, model } = fixture(false), before = model.captureGeometry();
+    const overlay = new Element(), controls = new Map([
+        ['#boardDlgWidth', new Input(String(model.board.width))],
+        ['#boardDlgHeight', new Input(String(model.board.height))],
+        ['#boardDlgRadius', new Input(String(model.board.radius))],
+        ['#boardDlgOk', new Input('')],
+    ]);
+    overlay.querySelector = selector => controls.get(selector);
+    overlay.addEventListener = () => {};
+    document.createElement = () => overlay;
+    document.body = new Element();
+    app._closeBoardDimensionsDialog = PCBApp.prototype._closeBoardDimensionsDialog;
+    PCBApp.prototype._showBoardDimensionsDialog.call(app);
+    controls.get('#boardDlgWidth').value = '66.123456789';
+    controls.get('#boardDlgWidth').emit('input');
+    assert.deepEqual(model.captureGeometry(), before);
+    assert.equal(getBoardDimensionPreview(app), undefined, 'Dimensions dialog remains command-only');
+    controls.get('#boardDlgOk').emit('click');
+    assert.equal(model.board.width, 66.123456789);
+    assert.equal(app.history.undoStack.length, 1);
+    assert.equal(app._boardDimensionsOverlay, null);
+}
+console.log('PASS Escape/undo/redo cancellation, large-board stationary pickup and command-only dimensions dialog');
+
+{
+    const { app, model } = fixture();
+    model.setBoardOutline(rectangleBoardOutline(20, 3));
+    const start = boardOutlineHandles(app).find(handle => handle.id === 'width');
+    beginBoardOutlineResize(app, start);
+    updateBoardOutlineResize(app, { x: start.x + 1, y: start.y });
+    assert.equal(app._boardHeight, 3, 'An untouched pre-existing small dimension is preserved');
+    endBoardOutlineResize(app);
+    assert.deepEqual(model.board, { width: 21, height: 3, radius: 0 });
+}

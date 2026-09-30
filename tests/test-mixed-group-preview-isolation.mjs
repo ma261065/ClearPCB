@@ -9,7 +9,8 @@ import { CopperFill } from '../src/shapes/copper-fill.js';
 import { setComputedFill, getComputedFill } from '../src/pcb/modules/computed-fill-cache.js';
 import { renderTrack, renderVia } from '../src/pcb/modules/track-render.js';
 import { renderPad } from '../src/pcb/modules/pad.js';
-import { renderBoardShape } from '../src/pcb/modules/board-shapes.js';
+import { renderBoardShape, showBoardShapeProperties, getBoardShapePropertyPreview } from '../src/pcb/modules/board-shapes.js';
+import { cancelPictureCopperRefresh } from '../src/pcb/modules/picture-refresh.js';
 import { renderCopperFill } from '../src/pcb/modules/copper-fill-render.js';
 import { beginGroupDrag, updateGroupDrag, scheduleGroupDrag, endGroupDrag, cancelGroupDrag, getGroupPreview, deleteBoxSelection } from '../src/pcb/modules/box-select.js';
 import { setPcbSelection, getPcbSelectionEntries, syncPcbSelection } from '../src/pcb/modules/selection-registry.js';
@@ -330,5 +331,50 @@ for (const field of ['locked', 'visible']) {
         cancelGroupDrag(app);
     } finally { bottom.visible = previous; }
     cases++;
+}
+for (const commit of [false, true]) {
+    const { app, model, shape } = fixture(), before = model.captureGeometry();
+    const listeners = new Map();
+    const input = {
+        value: String(shape.lineWidth),
+        get valueAsNumber() { return Number(this.value); },
+        addEventListener(name, listener) { listeners.set(name, listener); },
+    };
+    const getElement = document.getElementById;
+    document.getElementById = id => id === 'pcbPropShapeLineWidth' ? input : null;
+    try {
+        showBoardShapeProperties(app, shape);
+        input.value = '0.47';
+        listeners.get('input')();
+        const copy = getBoardShapePropertyPreview(app).copies[0];
+        assert.notEqual(copy, shape);
+        assert.equal(getPcbSelectionEntries(app).find(entry => entry.kind === 'shape').object, copy);
+        assert.deepEqual(model.captureGeometry(), before);
+        beginGroupDrag(app, { x: 0, y: 0 });
+        assert.equal(getBoardShapePropertyPreview(app), undefined, 'Group pickup first commits the property projection');
+        assert.equal(app.history.undoStack.length, 1);
+        assert.equal(shape.lineWidth, 0.47);
+        assert.equal(app._groupDrag.shapes[0].shape, shape, 'Group stores the canonical original, never the displayed property copy');
+        const afterProperty = model.captureGeometry();
+        updateGroupDrag(app, { x: 3, y: 4 }, { snap: false });
+        assert.deepEqual(model.captureGeometry(), afterProperty);
+        if (commit) {
+            endGroupDrag(app);
+            const afterMove = model.captureGeometry();
+            assert.equal(app.history.undoStack.length, 2);
+            app.history.undo();
+            assert.deepEqual(model.captureGeometry(), afterProperty);
+            app.history.redo();
+            assert.deepEqual(model.captureGeometry(), afterMove);
+            app.history.undo();
+        } else cancelGroupDrag(app);
+        assert.deepEqual(model.captureGeometry(), afterProperty);
+        app.history.undo();
+        assert.deepEqual(model.captureGeometry(), before, 'Property and group edits retain separate exact history');
+        cases++;
+    } finally {
+        document.getElementById = getElement;
+        cancelPictureCopperRefresh(app);
+    }
 }
 console.log(`PASS ${cases} mixed-group isolation cases: all entity kinds, components/attached tracks, exact history, copies/caches/SVG, lifecycle and work skips`);

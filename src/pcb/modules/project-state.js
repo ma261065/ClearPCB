@@ -35,6 +35,7 @@ export function loadPcb(app, data, prepared = preparePcb(data)) {
     app._padPropertyBinding?.dispose();
     app._viaPropertyBinding?.dispose();
     app._trackPropertyBinding?.dispose();
+    app._boardShapePropertyBinding?.dispose();
     app._cancelDrawingMode?.();
     app._closeBoardDimensionsDialog?.();
     // Deselection can redraw old objects, so do it before removing their SVG.

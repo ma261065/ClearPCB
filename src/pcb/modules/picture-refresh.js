@@ -70,7 +70,8 @@ export function schedulePictureCopperRefresh(app, shape = null) {
     for (const element of cached?.elements || []) {
         element.parentNode?.removeChild(element);
     }
-    if (activeHolds.has(app) || app._rotationHandleDrag || ['vertex', 'segment'].includes(app._shapeDrag?.mode)) return;
+    if (activeHolds.has(app) || app._rotationHandleDrag || app._boardShapePropertyBinding?.active
+        || ['vertex', 'segment'].includes(app._shapeDrag?.mode)) return;
     pendingRefreshes.set(app, setTimeout(() => {
         pendingRefreshes.delete(app);
         app._pictureCopperRefreshPending = false;

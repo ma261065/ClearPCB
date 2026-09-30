@@ -444,8 +444,16 @@ These presentation changes do not alter
 authored geometry, grid presets or file-save precision.
 
 Saved board dimensions live in `PcbDocument.board`. The editor's `_boardWidth`,
-`_boardHeight` and `_boardRadius` access that object, including during live resize,
-cancel and undo/redo. Loading restores legacy dimension-only boards, while an
+`_boardHeight` and `_boardRadius` expose the detached dimension projection during
+generic numeric/resize previews and canonical dimensions otherwise. The lazy
+projection in `board-outline-resize.js` holds reusable board/outline copies;
+rendering and property fields follow it without changing authored dimensions,
+outline geometry, serialization or settled-fill caches. Acceptance clears the
+projection before the existing board command. Cancellation, panel replacement,
+locks/hiding, loading/deactivation, replaced targets and failures clean up
+artwork without authored rollback. Repeated values and stationary pickup skip
+redraw/projection work. The dimensions dialog remains command-only. Loading
+restores legacy dimension-only boards, while an
 existing outline's bounds and corner radius override saved dimension metadata.
 Clearing restores the existing 100 x 80 mm, zero-radius defaults without replacing
 the dimension object. `serializeBoardDimensions()` rounds only the saved copy to
@@ -657,8 +665,7 @@ readiness retains the existing rotation guard.
 
 Copper-cut geometry stays on its settled cache during image rotation, including
 explicit refresh and viewport updates, so old pour holes remain until drop.
-Discarded rotations do not repour unchanged copper. Numeric image properties
-remain separate preview ownership work.
+Discarded rotations do not repour unchanged copper.
 
 Ordinary board-shape pointer gestures retain their canonical target in
 `_shapeDrag.original` and render a reusable copy through a `boardShapes`
@@ -679,8 +686,25 @@ geometry. Discard does not repour unchanged copper; committed clearance refreshe
 receive canonical objects instead of stale preview copies. Repeated identical
 pointer/modifier states skip SVG work, while grid/scale/Shift changes are
 reevaluated. Stationary pickup does not allocate the projected collection.
-Numeric board-shape properties and generic board-dimension editing are still
-separate ownership work.
+Numeric board-shape properties use a disposable panel binding with one active
+field preview. Widths, segment widths/bulges, node/default corner radii, circle
+diameters and image dimensions/rotation mutate reusable copies exposed through
+a weak-map collection projection. First-change snapshots preserve full authored
+precision, and immutable image artwork remains shared. Repeated values skip SVG
+work. Switching fields commits the previous field before capturing the next
+baseline; pointer/group pickup also finishes numeric edits before reading
+canonical targets. Numeric pickup can accept a pointer edit without overwriting
+the in-progress input text.
+
+Numeric completion removes the projection before canonical single/compound
+commands. Discrete image/shape attributes and shape-specific outline commands
+also prepare detached candidates instead of mutating/rolling back authored state.
+Escape, blur/change ordering, disposed controls, no-op redo preservation,
+selection/panel/layer/lifecycle cleanup and missing/rejected commands are covered.
+Copper pours and cuts retain settled geometry until acceptance; cancellation
+restores canonical clearance immediately and preserves refreshes owed by earlier
+commits. Non-copper images do not rebuild unrelated copper clipping. Save/export
+readiness includes active shape properties.
 
 Single-text dragging skips projection writes, SVG rebuilds and crosshair updates when
 the snapped position has not changed. Changed positions still render immediately;
@@ -1003,8 +1027,8 @@ existing compound commands. Cancellation, missing/deleted targets, rejected
 commands, locks/hiding and lifecycle cleanup remove preview artwork without
 canonical rollback. Board dimensions and fill caches stay authored; settled
 copper-removal holes remain through the gesture. Repeated unchanged deltas do
-no additional measured SVG/derived/3D work. Shape/image property previews and
-generic board-dimension editing remain separate ownership work.
+no additional measured SVG/derived/3D work. Floating-paste ownership and the final
+cross-family ownership audit remain separate work.
 
 Both component pointer paths use the same live pose updater. If magnetic snapping
 produces the current coordinates, it skips footprint transforms, pad/bond updates

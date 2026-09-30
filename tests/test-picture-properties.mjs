@@ -104,8 +104,10 @@ const spinner = fields.get('pcbPropImageRot');
 const historyDepth = app.history.undoStack.length;
 for (const angle of [30, 45, 60, 90, 345, 360, 15, 0, -15, 360, 375]) {
     spinner.input(String(angle));
-    const actual = -Math.atan2(image.points[1].y - image.points[0].y,
-        image.points[1].x - image.points[0].x) * 180 / Math.PI;
+    const displayed = adapter.object;
+    const actual = -Math.atan2(displayed.points[1].y - displayed.points[0].y,
+        displayed.points[1].x - displayed.points[0].x) * 180 / Math.PI;
+    assert.deepEqual(cloneShapeGeometry(image), rotated, 'Rotation input preserves authored geometry');
     const wrapped = ((angle % 360) + 360) % 360;
     const difference = ((actual - wrapped + 180) % 360 + 360) % 360 - 180;
     assert.ok(Math.abs(difference) < 1e-9, 'Input previews the absolute angle immediately');
@@ -151,7 +153,8 @@ for (const [id, value] of [['pcbPropImageWidth', '12'], ['pcbPropImageHeight', '
     const original = cloneShapeGeometry(image);
     const depth = app.history.undoStack.length;
     fields.get(id).input(value);
-    assert.notDeepEqual(cloneShapeGeometry(image), original, 'Silk previews update the visible geometry');
+    assert.notDeepEqual(cloneShapeGeometry(adapter.object), original, 'Silk previews update the visible geometry');
+    assert.deepEqual(cloneShapeGeometry(image), original, 'Silk previews preserve authored geometry');
     fields.get(id).keydown('Escape');
     assert.deepEqual(cloneShapeGeometry(image), original, 'Escape restores the silk preview');
     fields.get(id).input(value);
@@ -206,13 +209,15 @@ try {
         app._boardShapeClearanceCache = new Map([[image.id, { elements: [halo] }]]);
         for (const factor of [1.1, 1.2, 1.3]) {
             spinner.input(String(dimension * factor));
-            const actual = Math.hypot(image.points[edge].x - image.points[0].x, image.points[edge].y - image.points[0].y);
+            const displayed = adapter.object;
+            const actual = Math.hypot(displayed.points[edge].x - displayed.points[0].x, displayed.points[edge].y - displayed.points[0].y);
+            assert.deepEqual(cloneShapeGeometry(image), original);
             assert.ok(Math.abs(actual - dimension * factor) < 1e-9, 'Held spinner previews absolute size without compounding');
             assert.equal(fields.get(id), spinner, 'Live resizing preserves the held input');
             assert.match(fields.get(pairedId).value, /^\d+\.\d{2}$/, 'Paired dimension updates with two decimals');
             assert.equal(app.history.undoStack.length, historySize);
             assert.equal(halo.parentNode, null, 'Live resizing hides clearance immediately');
-            assert.equal(pendingCopper.size, 1);
+            assert.equal(pendingCopper.size, 0, 'Typing retains settled pours until acceptance');
         }
         spinner.change(String(dimension * 1.3));
         assert.equal(app.history.undoStack.length, historySize + 1);
@@ -235,7 +240,7 @@ try {
     assert.equal(app.history.undoStack.length, depthBeforeCancel);
     assert.equal(fillRefreshes, 3, 'Copper spinner clicks and undo do not pour synchronously');
     assert.equal(ratsnestRefreshes, 3, 'Copper spinner clicks and undo do not reconcile synchronously');
-    assert.equal(imageClearanceRefreshes, 0, 'Width, rotation and undo do not calculate image clearance before the debounce');
+    assert.equal(imageClearanceRefreshes, 1, 'Cancellation immediately restores canonical clearance');
     assert.equal(copperCutRefreshes, cutsBeforeBurst, 'Additive copper image edits do not rebuild unrelated copper cuts');
     assert.equal(hatchRefreshes, hatchesBeforeBurst, 'Additive copper image edits do not rebuild unrelated removal hatching');
     assert.equal(pendingCopper.size, 1, 'Copper spinner burst and undo share one pending refresh');

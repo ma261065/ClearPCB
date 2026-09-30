@@ -75,6 +75,7 @@ let fills = 0;
 const fillDimensions = [];
 const app = Object.assign(Object.create(dimensionPrototype), {
     pcbDocument: new PcbDocument(),
+    _shapeElements: new Map(),
     _boardOutlineSelected: true, _boardOutlineDrawn: true,
     _boardWidth: 100, _boardHeight: 80, _boardRadius: 3,
     viewport: { scale: 10, snapToGrid: true, gridVisible: true, gridSize: 1 },
@@ -90,8 +91,8 @@ assert.equal(boardOutlineHandles(app).length, 3);
 assert.ok(beginBoardOutlineResize(app, { x: 100, y: -80 }));
 updateBoardOutlineResize(app, { x: 110.2, y: -85.2 });
 assert.deepEqual([app._boardWidth, app._boardHeight, app._boardRadius], [110, 85, 3]);
-assert.deepEqual(app.pcbDocument.board, { width: 110, height: 85, radius: 3 },
-    'Live resize writes into the project model before committing');
+assert.deepEqual(app.pcbDocument.board, { width: 100, height: 80, radius: 3 },
+    'Live resize preserves the project model until committing');
 await assert.rejects(prepareFabricationSnapshot(app, { computeFills: false }),
     /Finish the current edit before exporting/, 'Export must not capture uncommitted model dimensions');
 assert.deepEqual([...inputs.values()].map(input => input.value), ['110.00', '85.00'], 'Spinners update before mouse-up');
@@ -133,8 +134,8 @@ assert.ok(beginBoardOutlineResize(app, { x: 110, y: -95 }));
 updateBoardOutlineResize(app, { x: 110.12345, y: -95.98765 });
 assert.deepEqual([...inputs.values()].map(input => input.value), ['110.12', '95.99'], 'Unsnapped dimensions display two decimal places');
 assert.deepEqual([app._boardWidth, app._boardHeight], [110.12345, 95.98765], 'Display formatting preserves geometry precision');
-assert.deepEqual(app.pcbDocument.serializeBoardDimensions(), { width: 110.1235, height: 95.9877, radius: 3 },
-    'Saving rounds dimensions without changing the live resize');
+assert.deepEqual(app.pcbDocument.serializeBoardDimensions(), { width: 110, height: 95, radius: 3 },
+    'Serialization excludes the live resize');
 endBoardOutlineResize(app, false);
 assert.deepEqual(app.pcbDocument.board, { width: 110, height: 95, radius: 3 },
     'Cancelling the preview restores the authoritative dimensions');

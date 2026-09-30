@@ -47,7 +47,7 @@ import { AddTrackCommand, RemoveTrackCommand, CompoundCommand } from './track-co
 import { Track } from '../../shapes/track.js';
 import { clearAxisGlow, renderAxisGlow, pathAlignmentSegments, squareAlignmentSegments } from '../../shapes/axis-glow.js';
 import { pathContinuationConstraints, pathSegmentConstraints } from '../../shapes/path-snap.js';
-import { redrawPropertyPreview, createPropertyPreview } from '../../shapes/property-preview.js';
+import { redrawPropertyPreview } from '../../shapes/property-preview.js';
 import {
     getPcbSelection,
     getPcbSelectionEntries,
@@ -97,18 +97,25 @@ const NS = 'http://www.w3.org/2000/svg';
 const HOLE_BORDER_WIDTH = 0.05;
 const REMOVAL_OUTLINE_WIDTH_PX = 1;
 const boardShapeRotationPreviews = new WeakMap();
+const boardShapePropertyPreviews = new WeakMap();
+
+export function getBoardShapePropertyPreview(app) {
+    return boardShapePropertyPreviews.get(app);
+}
 
 export function getBoardShapeRotationPreview(app) {
     return boardShapeRotationPreviews.get(app);
 }
 
 export function canonicalBoardShape(app, shape) {
+    shape = boardShapePropertyPreviews.get(app)?.originalsByCopy.get(shape) || shape;
     if (app._shapeDrag?.shape === shape) return app._shapeDrag.original;
     const preview = boardShapeRotationPreviews.get(app);
     return preview && preview.shape === shape ? preview.original : shape;
 }
 
 function displayedBoardShape(app, shape) {
+    shape = boardShapePropertyPreviews.get(app)?.copiesByOriginal.get(shape) || shape;
     const drag = app._shapeDrag;
     if (drag && (drag.original === shape || drag.shape === shape)) return drag.shape;
     const preview = boardShapeRotationPreviews.get(app);
@@ -490,35 +497,162 @@ function shapeStyle(shape) {
 function redrawBoardShapePropertyPreview(app, targets, { liveDrag = false } = {}) {
     redrawPropertyPreview(targets, {
         prepare: target => {
-            if (target.layer === 'board-outline') syncBoardOutlineDimensions(app);
             if (target.kind !== 'image' || target.layer.endsWith('copper')) schedulePictureCopperRefresh(app, target);
         },
         render: changed => {
-            for (const target of changed) renderBoardShape(app, target, { liveDrag });
+            for (const target of changed) renderBoardShape(app, target, {
+                liveDrag, skipCopperUpdate: target.kind === 'image' && !target.layer.endsWith('copper'),
+            });
         },
         refreshSelection: () => {
             renderBoardShapeSegmentSelection(app);
             if (app._refreshPcbSelectionHighlights) app._refreshPcbSelectionHighlights();
             else renderPcbSelectionAnchors(app);
         },
-        refreshDerived: () => {
-            if (!liveDrag) app._refreshFills?.();
-        },
+        refreshDerived() {},
     });
 }
 
-function createBoardShapePropertyPreview(app, targets, { liveDrag = false } = {}) {
-    return createPropertyPreview({
-        capture: () => targets.map(shapeSnapshot),
-        restore: states => targets.forEach((target, index) => applyShapeSnapshot(target, states[index])),
-        // Commit/cancel redraws must retain the same deferred copper-refresh policy.
-        redraw: () => redrawBoardShapePropertyPreview(app, targets, { liveDrag }),
-        commit: (before, after) => {
-            const commands = targets.flatMap((target, index) => JSON.stringify(before[index]) === JSON.stringify(after[index])
-                ? [] : [new ModifyBoardShapeCommand(app, target, before[index], after[index])]);
-            if (commands.length) app.history.execute(commands.length === 1 ? commands[0] : new CompoundCommand(commands));
+function createBoardShapePropertyBinding(app) {
+    app._boardShapePropertyBinding?.dispose();
+    let disposed = false;
+    let active = null;
+    const binding = {
+        committing: false,
+        get active() { return !!active?.active; },
+        get disposed() { return disposed; },
+        affectsLayer(layer) {
+            return boardShapePropertyPreviews.get(app)?.originals.some(shape => shape.layer === layer) || false;
         },
-    });
+        activate(preview) {
+            if (disposed || app._active === false) return false;
+            if (active && active !== preview) active.commit({ rebuild: false });
+            binding.committing = true;
+            try {
+                if (app._shapeDrag) endBoardShapeDrag(app, true);
+                if (getBoardShapeRotationPreview(app)) finishBoardShapeRotationPreview(app, true);
+            } finally { binding.committing = false; }
+            if (disposed) return false;
+            active = preview;
+            return true;
+        },
+        release(preview) { if (active === preview) active = null; },
+        commit() { return active?.commit() || false; },
+        cancel() { return active?.cancel() || false; },
+        prepare() {
+            if (disposed) return false;
+            active?.commit({ rebuild: false });
+            return !disposed;
+        },
+        dispose() {
+            if (disposed) return;
+            disposed = true;
+            active?.cancel();
+            if (app._boardShapePropertyBinding === binding) app._boardShapePropertyBinding = null;
+        },
+    };
+    app._boardShapePropertyBinding = binding;
+    return binding;
+}
+
+function createBoardShapePropertyPreview(app, targets, { liveDrag = false } = {}) {
+    const binding = app._boardShapePropertyBinding;
+    const originals = targets.map(target => canonicalBoardShape(app, target));
+    const collection = () => app.pcbDocument?.boardShapes || app.boardShapes;
+    const editable = () => !binding.disposed && app._active !== false
+        && originals.every(shape => isLayerVisible(shape.layer) && !isLayerLocked(shape.layer));
+    let state = null;
+    const finish = (commit, { rebuild = true } = {}) => {
+        if (!state) return false;
+        const preview = state;
+        state = null;
+        binding.release(control);
+        boardShapePropertyPreviews.delete(app);
+        app._deferDragOverlays = preview.previousDeferDragOverlays;
+        let committed = false;
+        try {
+            if (commit && originals.some(shape => !collection().includes(shape))) {
+                throw new Error('Cannot edit properties of a missing board shape.');
+            }
+            if (commit && editable() && preview.copies.every(shape => shape.layer !== 'board-outline' || validBoardOutline(shape))) {
+                const after = preview.copies.map(shapeSnapshot);
+                const commands = originals.flatMap((target, index) => JSON.stringify(preview.before[index]) === JSON.stringify(after[index])
+                    ? [] : [new ModifyBoardShapeCommand(app, target, preview.before[index], after[index])]);
+                if (commands.length) {
+                    binding.committing = true;
+                    try {
+                        app.history.execute(commands.length === 1 ? commands[0] : new CompoundCommand(commands));
+                        committed = true;
+                    } finally { binding.committing = false; }
+                }
+            }
+        } finally {
+            if (!committed) {
+                for (const original of originals) {
+                    if (collection().includes(original)) {
+                        if (app._pendingShapeClearances?.has(original.id)) schedulePictureCopperRefresh(app, original);
+                        renderBoardShape(app, original, {
+                            liveDrag: true, skipCopperUpdate: original.kind === 'image' && !original.layer.endsWith('copper'),
+                        });
+                    } else removeBoardShapeElement(app, original.id);
+                }
+                if (originals.some(shape => shape.kind !== 'image' || shape.layer.endsWith('copper'))) {
+                    cancelPictureCopperRefresh(app);
+                    if (preview.previousPictureRefreshPending) schedulePictureCopperRefresh(app);
+                }
+                syncPcbSelection(app);
+                renderBoardShapeSegmentSelection(app);
+                renderPcbSelectionAnchors(app);
+            }
+        }
+        if (committed && rebuild) showBoardShapeProperties(app, originals[0]);
+        return committed;
+    };
+    const control = {
+        get active() { return !!state; },
+        update(mutate) {
+            if (!editable()) { control.cancel(); return; }
+            if (!state) {
+                if (!binding.activate(control)) return;
+                if (originals.some(shape => !collection().includes(shape))) {
+                    binding.release(control);
+                    binding.dispose();
+                    for (const original of originals) {
+                        if (!collection().includes(original)) removeBoardShapeElement(app, original.id);
+                    }
+                    syncPcbSelection(app);
+                    renderPcbSelectionAnchors(app);
+                    throw new Error('Cannot edit properties of a missing board shape.');
+                }
+                const copies = originals.map(copyBoardShape);
+                const copiesByOriginal = new Map(originals.map((original, index) => [original, copies[index]]));
+                state = {
+                    originals, copies, copiesByOriginal,
+                    originalsByCopy: new Map(copies.map((copy, index) => [copy, originals[index]])),
+                    before: originals.map(shapeSnapshot),
+                    previousDeferDragOverlays: app._deferDragOverlays,
+                    previousPictureRefreshPending: !!app._pictureCopperRefreshPending,
+                    boardShapes: collection().map(shape => copiesByOriginal.get(shape) || shape),
+                };
+                boardShapePropertyPreviews.set(app, state);
+                app._deferDragOverlays = true;
+            }
+            try {
+                mutate(state.before, state.copies);
+                redrawBoardShapePropertyPreview(app, state.copies, { liveDrag });
+            } catch (error) {
+                control.cancel();
+                throw error;
+            }
+        },
+        commit(options) { return finish(true, options); },
+        cancel() {
+            if (!state) return false;
+            finish(false);
+            return true;
+        },
+    };
+    return control;
 }
 
 function bindPropertyPreviewCancel(input, preview, refreshPanel) {
@@ -616,7 +750,7 @@ export function renderBoardShape(app, shape, opts = {}) {
     if (!opts.interactionOnly) app._refreshBoardShapeClearance?.(shape);
     if (!opts.interactionOnly && (!opts.liveDrag || st.isCopperRemoval)) app._scheduleRemovalHatchRender?.();
     if (app._pictureCopperRefreshPending) {
-        if (shapeAffectsCopperCuts(shape) || app._hasCopperCuts) app._deferredShapeCopperCuts = true;
+        if (!opts.skipCopperUpdate && (shapeAffectsCopperCuts(shape) || (!opts.liveDrag && app._hasCopperCuts))) app._deferredShapeCopperCuts = true;
         return;
     }
     // Rebuilding the copper-cut clip-path re-rasterises the whole copper/fill
@@ -693,6 +827,8 @@ export function setBoardShapeNetHover(app, shapes) {
 
 export function selectBoardShape(app, shape) {
     shape = canonicalBoardShape(app, shape);
+    const properties = boardShapePropertyPreviews.get(app);
+    if (properties && !properties.originals.includes(shape)) app._boardShapePropertyBinding.dispose();
     if (app._shapeDrag && app._shapeDrag.original !== shape) endBoardShapeDrag(app, false);
     const rotation = boardShapeRotationPreviews.get(app);
     if (rotation && rotation.original !== shape) {
@@ -850,6 +986,7 @@ export function createBoardShapeSelectionAdapter(app, shape, id) {
         moveAnchor(anchorId, x, y) { moveBoardShapeAnchor(app, shape, anchorId, { x, y }); },
         beginAnchorDrag(anchorId, worldPos) {
             if (anchorId !== 'rotate' || shape.kind !== 'image') return startBoardShapeDrag(app, shape, worldPos, anchorId);
+            app._boardShapePropertyBinding?.commit();
             if (isLayerLocked(shape.layer) || !isLayerVisible(shape.layer)) return false;
             if (boardShapeRotationPreviews.has(app) || app._rotationHandleDrag || app._shapeDrag) {
                 throw new Error('Finish the current shape preview before rotating an image.');
@@ -1212,6 +1349,7 @@ export function setBoardShapeSegmentType(app, shape, segment, type, { floating =
 
 export function startBoardShapeDrag(app, shape, worldPos, anchorId = null, options = {}) {
     shape = canonicalBoardShape(app, shape);
+    app._boardShapePropertyBinding?.commit();
     if (!shape || isLayerLocked(shape.layer) || !isLayerVisible(shape.layer)) return false;
     if (app._shapeDrag?.preparing && app._shapeDrag.original === shape) return true;
     if (app._shapeDrag) throw new Error('Finish the current shape drag before starting another.');
@@ -1933,11 +2071,16 @@ export function refreshBoardShapeToolLayer(app) {
 }
 
 function showImageProperties(app, shape, items) {
+    if (app._boardShapePropertyBinding?.committing) return;
+    shape = canonicalBoardShape(app, shape);
+    app._boardShapePropertyBinding?.dispose();
     app._setPcbPropsTitle?.('Image');
-    const width = Math.hypot(shape.points[1].x - shape.points[0].x, shape.points[1].y - shape.points[0].y);
-    const height = Math.hypot(shape.points[3].x - shape.points[0].x, shape.points[3].y - shape.points[0].y);
-    const rotation = ((-Math.atan2(shape.points[1].y - shape.points[0].y,
-        shape.points[1].x - shape.points[0].x) * 180 / Math.PI) % 360 + 360) % 360;
+    const binding = createBoardShapePropertyBinding(app);
+    const displayed = displayedBoardShape(app, shape);
+    const width = Math.hypot(displayed.points[1].x - displayed.points[0].x, displayed.points[1].y - displayed.points[0].y);
+    const height = Math.hypot(displayed.points[3].x - displayed.points[0].x, displayed.points[3].y - displayed.points[0].y);
+    const rotation = ((-Math.atan2(displayed.points[1].y - displayed.points[0].y,
+        displayed.points[1].x - displayed.points[0].x) * 180 / Math.PI) % 360 + 360) % 360;
     const layers = PCB_LAYERS.filter(layer => PICTURE_LAYERS.includes(layer.id));
     const names = [...new Set([...boardNetNames(app), String(shape.net || '')])].filter(Boolean).sort();
     const imageNetOptions = names.map(name => {
@@ -1955,10 +2098,11 @@ function showImageProperties(app, shape, items) {
         <div class="prop-row"><label for="pcbPropImageFlipVertical">Flip Vertical</label><input id="pcbPropImageFlipVertical" type="checkbox"${shape.artwork.flipVertical ? ' checked' : ''}></div>
         ${shape.layer.endsWith('copper') ? `<div class="prop-row"><label>Net</label><select id="pcbPropImageNet"><option value="">Unassigned</option>${imageNetOptions}</select></div>` : ''}`;
     const commit = mutate => {
+        if (!binding.prepare()) return;
         const before = shapeSnapshot(shape);
-        mutate();
-        const after = shapeSnapshot(shape);
-        applyShapeSnapshot(shape, before);
+        const candidate = copyBoardShape(shape);
+        mutate(candidate);
+        const after = shapeSnapshot(candidate);
         if (JSON.stringify(before) !== JSON.stringify(after)) app.history.execute(new ModifyBoardShapeCommand(app, shape, before, after));
         else showImageProperties(app, shape, items);
     };
@@ -1969,13 +2113,13 @@ function showImageProperties(app, shape, items) {
         ['pcbPropImageFlipVertical', 'flipVertical'],
     ]) {
         const input = /** @type {HTMLInputElement|null} */ (document.getElementById(id));
-        input?.addEventListener('change', () => commit(() => {
-            shape.artwork = { ...shape.artwork, [property]: input.checked };
+        input?.addEventListener('change', () => commit(candidate => {
+            candidate.artwork = { ...candidate.artwork, [property]: input.checked };
         }));
     }
     layerInput?.addEventListener('change', () => {
         if (!PICTURE_LAYERS.includes(layerInput.value) || isLayerLocked(layerInput.value)) return;
-        commit(() => { shape.layer = layerInput.value; });
+        commit(candidate => { candidate.layer = layerInput.value; });
     });
     for (const [id, dimension] of [['pcbPropImageWidth', width], ['pcbPropImageHeight', height]]) {
         const input = /** @type {HTMLInputElement} */ (document.getElementById(String(id)));
@@ -1984,14 +2128,22 @@ function showImageProperties(app, shape, items) {
         bindPropertyPreviewCancel(input, resizePreview, () => showImageProperties(app, shape, items));
         let lastValue = Number(dimension);
         const previewResize = () => {
+            if (binding.disposed) return;
             const value = input.valueAsNumber;
             const factor = value / Number(dimension);
             if (!Number.isFinite(factor) || value < 0.1 || Math.max(width, height) * factor > 500) return;
-            resizePreview.update(before => {
-                applyShapeSnapshot(shape, before[0]);
-                const center = { x: (shape.points[0].x + shape.points[2].x) / 2, y: (shape.points[0].y + shape.points[2].y) / 2 };
-                shape.points = shape.points.map(point => ({ x: center.x + (point.x - center.x) * factor,
-                    y: center.y + (point.y - center.y) * factor }));
+            const current = displayedBoardShape(app, shape);
+            const edge = id === 'pcbPropImageWidth' ? 1 : 3;
+            if (Math.abs(Math.hypot(current.points[edge].x - current.points[0].x,
+                current.points[edge].y - current.points[0].y) - value) < 1e-9) return;
+            resizePreview.update((before, [candidate]) => {
+                applyShapeSnapshot(candidate, before[0]);
+                const baseline = Math.hypot(candidate.points[edge].x - candidate.points[0].x,
+                    candidate.points[edge].y - candidate.points[0].y);
+                const scale = value / baseline;
+                const center = { x: (candidate.points[0].x + candidate.points[2].x) / 2, y: (candidate.points[0].y + candidate.points[2].y) / 2 };
+                if (scale !== 1) candidate.points = candidate.points.map(point => ({ x: center.x + (point.x - center.x) * scale,
+                    y: center.y + (point.y - center.y) * scale }));
             });
             lastValue = value;
             const pairedId = id === 'pcbPropImageWidth' ? 'pcbPropImageHeight' : 'pcbPropImageWidth';
@@ -2000,6 +2152,7 @@ function showImageProperties(app, shape, items) {
         };
         input?.addEventListener('input', previewResize);
         input?.addEventListener('change', () => {
+            if (binding.disposed) return;
             if (!Number.isFinite(input.valueAsNumber)) {
                 resizePreview.cancel();
                 showImageProperties(app, shape, items);
@@ -2015,24 +2168,26 @@ function showImageProperties(app, shape, items) {
     const rotationPreview = createBoardShapePropertyPreview(app, [shape], { liveDrag: true });
     bindPropertyPreviewCancel(rotationInput, rotationPreview, () => showImageProperties(app, shape, items));
     const previewRotation = () => {
+        if (binding.disposed) return;
         const value = parseFloat(rotationInput.value);
         if (!Number.isFinite(value)) return;
         const next = ((Math.round(value) % 360) + 360) % 360;
-        rotationPreview.update(before => {
-            applyShapeSnapshot(shape, before[0]);
-            const radians = -(next - rotation) * Math.PI / 180;
-            const cosine = Math.cos(radians);
-            const sine = Math.sin(radians);
-            const center = { x: (shape.points[0].x + shape.points[2].x) / 2,
-                y: (shape.points[0].y + shape.points[2].y) / 2 };
-            shape.points = shape.points.map(point => ({
-                x: center.x + (point.x - center.x) * cosine - (point.y - center.y) * sine,
-                y: center.y + (point.x - center.x) * sine + (point.y - center.y) * cosine,
-            }));
+        const current = displayedBoardShape(app, shape);
+        const currentAngle = ((-Math.atan2(current.points[1].y - current.points[0].y,
+            current.points[1].x - current.points[0].x) * 180 / Math.PI) % 360 + 360) % 360;
+        if (Math.abs(next - currentAngle) < 1e-9) return;
+        rotationPreview.update((before, [candidate]) => {
+            applyShapeSnapshot(candidate, before[0]);
+            const baseline = ((-Math.atan2(candidate.points[1].y - candidate.points[0].y,
+                candidate.points[1].x - candidate.points[0].x) * 180 / Math.PI) % 360 + 360) % 360;
+            const center = { x: (candidate.points[0].x + candidate.points[2].x) / 2,
+                y: (candidate.points[0].y + candidate.points[2].y) / 2 };
+            if (next !== baseline) candidate.points = rotatedImagePoints(candidate.points, center, next - baseline);
         });
     };
     rotationInput?.addEventListener('input', previewRotation);
     rotationInput?.addEventListener('change', () => {
+        if (binding.disposed) return;
         if (!Number.isFinite(rotationInput.valueAsNumber)) {
             rotationPreview.cancel();
             showImageProperties(app, shape, items);
@@ -2042,6 +2197,7 @@ function showImageProperties(app, shape, items) {
         if (!rotationPreview.commit()) showImageProperties(app, shape, items);
     });
     const wrapRotation = () => {
+        if (binding.disposed) return;
         const value = parseFloat(rotationInput.value);
         if (!Number.isFinite(value)) return;
         const wrapped = ((Math.round(value) % 360) + 360) % 360;
@@ -2052,23 +2208,25 @@ function showImageProperties(app, shape, items) {
     const netInput = /** @type {HTMLSelectElement} */ (document.getElementById('pcbPropImageNet'));
     if (netInput) {
         netInput.value = shape.net || '';
-        netInput.addEventListener('change', () => commit(() => { shape.net = netInput.value.trim(); }));
+        netInput.addEventListener('change', () => commit(candidate => { candidate.net = netInput.value.trim(); }));
     }
     app._setActiveRibbonTab?.('pcb-properties');
 }
 
 export function showBoardShapeProperties(app, shape) {
+    if (app._boardShapePropertyBinding?.committing) return;
     shape = canonicalBoardShape(app, shape);
+    app._boardShapePropertyBinding?.dispose();
     if (app._shapeDrag?.original === shape) shape = app._shapeDrag.shape;
     const items = app._pcbPropsItems?.();
     if (!items || !shape) return;
     syncPcbSelection(app);
     app._setPcbStatus?.();
 
-    const propertyTargets = () => {
-        const selected = getPcbSelection(app, 'shape');
-        return selected.length > 0 ? selected : [shape];
-    };
+    const selectedTargets = getPcbSelection(app, 'shape');
+    const propertyOriginals = (selectedTargets.length > 0 ? selectedTargets : [shape])
+        .map(target => canonicalBoardShape(app, target));
+    const propertyTargets = () => propertyOriginals.map(target => displayedBoardShape(app, target));
     const initialTargets = propertyTargets();
     const outlineTarget = initialTargets.length === 1 && shape.layer === 'board-outline';
     const hasOutline = initialTargets.some(target => target.layer === 'board-outline');
@@ -2097,6 +2255,7 @@ export function showBoardShapeProperties(app, shape) {
         : selectedSegment != null
             ? `${segmentLabel}${standalone ? '' : ' Segment'}`
         : mixedKind ? 'Mixed' : shapeKindLabel(initialTargets[0].kind));
+    const binding = createBoardShapePropertyBinding(app);
     const lineWidthMinimum = Math.max(...initialTargets.map((target) => boardShapeLineWidthMinimum(target)));
     const initialLineWidth = selectedSegment == null
         ? normalizedBoardShapeLineWidth(initialTargets[0], initialTargets[0].lineWidth)
@@ -2189,57 +2348,57 @@ export function showBoardShapeProperties(app, shape) {
         const input = /** @type {HTMLInputElement|null} */ (document.getElementById(String(id)));
         input?.addEventListener('change', () => {
             if (isLayerLocked(shape.layer) || !Number.isFinite(input.valueAsNumber) || input.valueAsNumber < 0.1) return;
-            const before = shapeSnapshot(shape);
             const bounds = boardBoundary(app);
             const factor = input.valueAsNumber / bounds[dimension];
-            shape.points = shape.points.map(point => ({ ...point, [axis]: bounds[axis] + (point[axis] - bounds[axis]) * factor }));
-            const after = shapeSnapshot(shape);
-            applyShapeSnapshot(shape, before);
-            app.history.execute(new ModifyBoardShapeCommand(app, shape, before, after));
+            commit(candidate => {
+                candidate.points = candidate.points.map(point => ({ ...point, [axis]: bounds[axis] + (point[axis] - bounds[axis]) * factor }));
+            });
         });
     }
     const outlineKind = /** @type {HTMLSelectElement|null} */ (document.getElementById('pcbPropOutlineKind'));
     outlineKind?.addEventListener('change', () => {
         if (isLayerLocked(shape.layer) || shape.kind === outlineKind.value || !['rect', 'polygon', 'circle'].includes(outlineKind.value)) return;
-        const before = shapeSnapshot(shape);
         const bounds = boardBoundary(app);
         const keepCorners = shape.kind === 'rect' && outlineKind.value === 'polygon';
         const points = keepCorners ? shape.points.map(point => ({ ...point })) : shapeOutline(shape);
-        shape.kind = outlineKind.value;
-        if (!keepCorners) {
-            shape.segmentBulges = {};
-            shape.nodeCornerRadii = {};
-            shape.cornerRadius = 0;
-        }
-        applyShapeGeometry(shape, shape.kind === 'circle'
-            ? { x: bounds.x + bounds.w / 2, y: bounds.y + bounds.h / 2, radius: Math.min(bounds.w, bounds.h) / 2 }
-            : { points: shape.kind === 'polygon' ? points : [
-                { x: bounds.x, y: bounds.y }, { x: bounds.x + bounds.w, y: bounds.y },
-                { x: bounds.x + bounds.w, y: bounds.y + bounds.h }, { x: bounds.x, y: bounds.y + bounds.h }] });
-        const after = shapeSnapshot(shape);
-        applyShapeSnapshot(shape, before);
-        app.history.execute(new ModifyBoardShapeCommand(app, shape, before, after));
+        commit(candidate => {
+            candidate.kind = outlineKind.value;
+            if (!keepCorners) {
+                candidate.segmentBulges = {};
+                candidate.nodeCornerRadii = {};
+                candidate.cornerRadius = 0;
+            }
+            applyShapeGeometry(candidate, candidate.kind === 'circle'
+                ? { x: bounds.x + bounds.w / 2, y: bounds.y + bounds.h / 2, radius: Math.min(bounds.w, bounds.h) / 2 }
+                : { points: candidate.kind === 'polygon' ? points : [
+                    { x: bounds.x, y: bounds.y }, { x: bounds.x + bounds.w, y: bounds.y },
+                    { x: bounds.x + bounds.w, y: bounds.y + bounds.h }, { x: bounds.x, y: bounds.y + bounds.h }] });
+        });
     });
     const bulgeEl = /** @type {HTMLInputElement|null} */ (document.getElementById('pcbPropShapeBulge'));
     const bulgePreview = createBoardShapePropertyPreview(app, [shape], { liveDrag: true });
     const previewBulge = () => {
+        if (binding.disposed) return;
         if (!bulgeEl || !Number.isFinite(bulgeEl.valueAsNumber)) return;
         const value = Number(formatNumberInputValue(Math.max(-1, Math.min(1, bulgeEl.valueAsNumber))));
-        if (value === editableShapeBulge(shape, selectedSegment)) return;
-        bulgePreview.update(() => {
-            if (shape.kind === 'arc') shape.bulge = bulgePointFromRatio(shape.start, shape.end, value);
+        if (value === editableShapeBulge(displayedBoardShape(app, shape), selectedSegment)) return;
+        const text = bulgeEl.value;
+        bulgePreview.update((_before, [candidate]) => {
+            if (candidate.kind === 'arc') candidate.bulge = bulgePointFromRatio(candidate.start, candidate.end, value);
             else if (selectedSegment != null) {
-                shape.segmentBulges ||= {};
-                shape.segmentBulges[selectedSegment] = value;
+                candidate.segmentBulges ||= {};
+                candidate.segmentBulges[selectedSegment] = value;
             }
         });
+        if (!binding.disposed) bulgeEl.value = text;
     };
     const commitBulge = () => {
+        if (binding.disposed) return;
         if (!bulgeEl) return;
         if (!Number.isFinite(bulgeEl.valueAsNumber)) { bulgePreview.cancel(); return; }
         previewBulge();
         formatNumberInput(bulgeEl);
-        bulgePreview.update(() => normalizeStraightArc(shape, selectedSegment));
+        bulgePreview.update((_before, [candidate]) => normalizeStraightArc(candidate, selectedSegment));
         bulgePreview.commit();
     };
     bulgeEl?.addEventListener('input', previewBulge);
@@ -2251,19 +2410,18 @@ export function showBoardShapeProperties(app, shape) {
     });
 
     const commit = (mutate) => {
-        const before = propertyTargets().map((target) => ({ target, state: shapeSnapshot(target) }));
-        for (const { target } of before) {
-            mutate(target);
-            if (isMaskLayer(target.layer)) target.filled = true;
-            target.copperMode = normalizeShapeCopperMode(target.copperMode);
-        }
-        const changed = before.filter(({ target, state }) => JSON.stringify(state) !== JSON.stringify(shapeSnapshot(target)));
-        if (!changed.length) return;
-        const commands = changed.map(({ target, state }) => {
-            const after = shapeSnapshot(target);
-            applyShapeSnapshot(target, state);
-            return new ModifyBoardShapeCommand(app, target, state, after);
+        if (!binding.prepare()) return;
+        const commands = propertyTargets().flatMap(displayed => {
+            const target = canonicalBoardShape(app, displayed);
+            const before = shapeSnapshot(target), candidate = copyBoardShape(target);
+            mutate(candidate);
+            if (isMaskLayer(candidate.layer)) candidate.filled = true;
+            candidate.copperMode = normalizeShapeCopperMode(candidate.copperMode);
+            const after = shapeSnapshot(candidate);
+            return JSON.stringify(before) === JSON.stringify(after) ? []
+                : [new ModifyBoardShapeCommand(app, target, before, after)];
         });
+        if (!commands.length) return;
         app.history.execute(commands.length === 1 ? commands[0] : new CompoundCommand(commands));
         app._refreshPcbSelectionHighlights?.();
     };
@@ -2272,14 +2430,15 @@ export function showBoardShapeProperties(app, shape) {
     const cornerRadiusPreview = createBoardShapePropertyPreview(app, propertyTargets().filter(target => ['line', 'rect', 'polygon'].includes(target.kind)));
     const nodeCornerRadiusPreview = createBoardShapePropertyPreview(app, [shape]);
     const previewCornerRadius = () => {
+        if (binding.disposed) return;
         if (!cornerRadiusEl || !Number.isFinite(cornerRadiusEl.valueAsNumber)) return;
         const radius = Math.min(25, Math.max(0, cornerRadiusEl.valueAsNumber));
         cornerRadiusEl.value = radius.toFixed(2);
         const targets = propertyTargets().filter((target) => ['line', 'rect', 'polygon'].includes(target.kind));
         if (targets.every((target) => Math.abs(targetCornerRadius(target) - radius) < 1e-9
             && !Object.keys(target.nodeCornerRadii || {}).length)) return;
-        cornerRadiusPreview.update(() => {
-            for (const target of targets) {
+        cornerRadiusPreview.update((_before, copies) => {
+            for (const target of copies) {
                 target.cornerRadius = radius;
                 target.nodeCornerRadii = {};
             }
@@ -2287,15 +2446,17 @@ export function showBoardShapeProperties(app, shape) {
     };
 
     const previewNodeCornerRadius = () => {
+        if (binding.disposed) return;
         if (!nodeCornerRadiusEl || selectedNode == null || !Number.isFinite(nodeCornerRadiusEl.valueAsNumber)) return;
         const radius = Math.min(25, Math.max(0, nodeCornerRadiusEl.valueAsNumber));
         nodeCornerRadiusEl.value = radius.toFixed(2);
-        if (Math.abs(boardShapeNodeCornerRadius(shape, selectedNode) - radius) < 1e-9) return;
-        nodeCornerRadiusPreview.update(() => setBoardShapeNodeCornerRadius(shape, selectedNode, radius));
+        if (Math.abs(boardShapeNodeCornerRadius(displayedBoardShape(app, shape), selectedNode) - radius) < 1e-9) return;
+        nodeCornerRadiusPreview.update((_before, [candidate]) => setBoardShapeNodeCornerRadius(candidate, selectedNode, radius));
     };
 
     const diameterEl = /** @type {HTMLInputElement|null} */ (document.getElementById('pcbPropShapeDiameter'));
     const syncDiameter = () => {
+        if (binding.disposed) return;
         if (!diameterEl) return;
         const targets = propertyTargets();
         const diameter = circleFilledRadius(targets[0]) * 2;
@@ -2305,20 +2466,24 @@ export function showBoardShapeProperties(app, shape) {
         diameterEl.placeholder = mixed ? 'Mixed' : '';
     };
     const previewDiameter = () => {
+        if (binding.disposed) return;
         if (!diameterEl || !Number.isFinite(diameterEl.valueAsNumber)) return;
         const diameter = Number(diameterEl.valueAsNumber.toFixed(6));
         if (diameter < diameterMinimum()) return;
         const targets = propertyTargets().filter((target) => target.kind === 'circle');
         if (targets.every((target) => Math.abs(circleFilledRadius(target) * 2 - diameter) < 1e-9)) return;
-        diameterPreview.update(before => {
-            targets.forEach((target, index) => {
+        const text = diameterEl.value;
+        diameterPreview.update((before, copies) => {
+            copies.forEach((target, index) => {
                 target.lineWidth = Math.min(normalizedBoardShapeLineWidth(target, before[index].lineWidth), diameter / 2);
                 target.radius = Math.max(0.05, diameter / 2);
             });
+            if (!binding.disposed) diameterEl.value = text;
         });
         if (lineEl) {
-            const width = targets[0].lineWidth;
-            const mixed = targets.some((target) => Math.abs(target.lineWidth - width) >= 1e-9);
+            const displayed = propertyTargets();
+            const width = displayed[0].lineWidth;
+            const mixed = displayed.some((target) => Math.abs(target.lineWidth - width) >= 1e-9);
             lineEl.value = mixed ? '' : width.toFixed(2);
             lineEl.placeholder = mixed ? 'Mixed' : '';
         }
@@ -2343,6 +2508,7 @@ export function showBoardShapeProperties(app, shape) {
         previewDiameter();
     });
     diameterEl?.addEventListener('change', () => {
+        if (binding.disposed) return;
         if (!Number.isFinite(diameterEl.valueAsNumber)) { diameterPreview.cancel(); syncDiameter(); return; }
         if (Number.isFinite(diameterEl.valueAsNumber)) {
             diameterEl.value = Math.max(diameterMinimum(), diameterEl.valueAsNumber).toFixed(2);
@@ -2394,6 +2560,7 @@ export function showBoardShapeProperties(app, shape) {
     };
 
     const previewLineWidth = () => {
+        if (binding.disposed) return;
         if (!lineEl || !Number.isFinite(lineEl.valueAsNumber)) return;
         const targets = propertyTargets();
         const minimum = Math.max(...targets.map((target) => boardShapeLineWidthMinimum(target)));
@@ -2402,12 +2569,12 @@ export function showBoardShapeProperties(app, shape) {
             : Infinity;
         const v = Math.max(minimum, Math.min(maximum, lineEl.valueAsNumber));
         if (lineEl.valueAsNumber !== v) lineEl.value = v.toFixed(2);
-        if (selectedSegment != null && Math.abs(v - boardShapeSegmentWidth(shape, selectedSegment)) < 1e-9) return;
+        if (selectedSegment != null && Math.abs(v - boardShapeSegmentWidth(displayedBoardShape(app, shape), selectedSegment)) < 1e-9) return;
         if (selectedSegment == null
             && targets.every((target) => Math.abs(v - (Number(target.lineWidth) || 0.2)) < 1e-9
                 && !Object.keys(target.segmentWidths || {}).length)) return;
-        lineWidthPreview.update(() => {
-            for (const target of targets) {
+        lineWidthPreview.update((_before, copies) => {
+            for (const target of copies) {
                 if (selectedSegment != null && target.kind !== 'arc') {
                     target.segmentWidths ||= {};
                     if (Math.abs(v - normalizedBoardShapeLineWidth(target, target.lineWidth)) < 1e-9) {
@@ -2448,6 +2615,7 @@ export function showBoardShapeProperties(app, shape) {
         previewLineWidth();
     });
     lineEl?.addEventListener('change', () => {
+        if (binding.disposed) return;
         if (!Number.isFinite(lineEl.valueAsNumber)) { lineWidthPreview.cancel(); return; }
         if (Number.isFinite(lineEl.valueAsNumber)) lineEl.value = lineEl.valueAsNumber.toFixed(2);
         previewLineWidth();
@@ -2455,12 +2623,14 @@ export function showBoardShapeProperties(app, shape) {
     });
     cornerRadiusEl?.addEventListener('input', previewCornerRadius);
     cornerRadiusEl?.addEventListener('change', () => {
+        if (binding.disposed) return;
         if (!Number.isFinite(cornerRadiusEl.valueAsNumber)) { cornerRadiusPreview.cancel(); return; }
         previewCornerRadius();
         cornerRadiusPreview.commit();
     });
     nodeCornerRadiusEl?.addEventListener('input', previewNodeCornerRadius);
     nodeCornerRadiusEl?.addEventListener('change', () => {
+        if (binding.disposed) return;
         if (!Number.isFinite(nodeCornerRadiusEl.valueAsNumber)) { nodeCornerRadiusPreview.cancel(); return; }
         previewNodeCornerRadius();
         nodeCornerRadiusPreview.commit();
@@ -2509,6 +2679,7 @@ export function showBoardShapeProperties(app, shape) {
     });
     netEl?.addEventListener('change', () => {
         const next = netEl.value.trim();
+        if (!binding.prepare()) return;
         const targets = propertyTargets();
         if (targets.length === 1 && next && targets[0].kind === 'line') {
             const track = convertBoardLineToTrack(app, targets[0], next);
