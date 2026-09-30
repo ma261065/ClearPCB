@@ -1,8 +1,10 @@
 # Code Review Follow-Up
 
 This maps the 19 review findings to the corresponding implementation changes.
-Verification uses the headless Node regressions below; browser verification has
-not been performed.
+The original findings were verified with the headless Node regressions below.
+Subsequent milestones record their own verification, including isolated native
+browser checks where explicitly stated; these are not full-application browser
+or release acceptance.
 
 ## Release-readiness tracker
 
@@ -10,6 +12,8 @@ Started 2026-09-29. This is the active checklist, not a declaration that the
 application is ready to release. Each milestone requires implementation,
 regression evidence, and updated documentation. Work proceeds in small,
 reviewable changes; no broad rewrite or mechanical file splitting is planned.
+Implementation rows preserve the evidence and open work at each checkpoint;
+later milestones supersede those historical remaining-work statements.
 
 | Milestone | Status | Evidence required / remaining work |
 | --- | --- | --- |
@@ -148,6 +152,7 @@ reviewable changes; no broad rewrite or mechanical file splitting is planned.
 | Shape-property and dimension integration gate | Locally verified | The final combined gate passes 210/210 regression files, including the native-discovered Escape/change/blur regression fix. Checked diagnostics and whitespace are clean. Mixed-group handoff now finishes shape properties before collecting canonical targets; its matrix has 70 cases. Isolated native shape/image and generic-dimension checks passed with exact undo/redo, settled canonical state during preview and no duplicate SVG. The fixture server's rotation-icon asset restriction was corrected and the icon-loaded numeric interactions retested. No full-application latency claim. |
 | Separation of duties and maintainability | In progress | Completion, New/reset, DRC scheduling, fill/pad refreshes and PCB project lookups are bounded verified slices. First neutral schematic model migration now passes all regressions. Broader private-state coupling remains; avoid generic frameworks and mechanical file splitting. |
 | Rendered via-drag handler benchmark | Isolated browser evidence | A native-pointer fixture rendered all 201 tracks (8,002 graph nodes) with normal snapping and actual SVG, without app bootstrap or user data. Pickup measured 1.3 ms; first move 7.2 ms; 50 moves had median 1.7 ms/max 7.2 ms. Canonical serialization remained identical throughout, and cancellation retained empty history and exactly 201 track polylines without duplicates. Clearance/pour hooks and the ratline layer were intentionally absent: this measures pickup/snap/preview-SVG handler work, not full PCBApp or end-to-end frame latency. |
+| Final bounded-work and viewport recheck | Locally verified, qualified browser evidence | Twelve focused performance/cache/navigation/net-hover/copper-cut files pass. The 8,002-node terminal fixture measures via/pad pickup at 3.08/1.67 ms with incident scans 1/1/0, and node snapping at 3.23/1.75 ms with scans 1/0/0. Track-run construction retains zero cumulative linear-membership slots at 1,000 and 4,000 nodes. An isolated real Viewport with 600 SVG paths, 8,000 route vertices and 40,000 shape vertices handled 12 native zoom and four native pan wheel events with zero content-subtree mutations, unchanged path identities/geometry and one SVG rectangle read. The first wheel handler measured 0.2 ms; all handlers were 0-0.2 ms. Second-animation-frame latency ranged from 24.6 to 82.9 ms, including the outlier, and is not paint-completion latency. No application bootstrap, PCB view-change callback or native storage access was used; a settled screenshot showed complete geometry but does not prove absence of transient tearing on all hardware. No full-application latency guarantee or timing threshold is claimed. |
 | Measured performance | Pending | Define representative boards, latency budgets and repeatable first-interaction/load/switch/dense-board measurements; check visual correctness as well as speed. Browser checks remain user-led unless authorized. |
 | Reliability and routing baseline review | Pending | Exercise failure paths and multi-step editing sequences. Review 288 traces/214 vias versus the old 239/174 baseline; the hard routed threshold is still 65 despite current 74/76. Do not merely reset baselines to silence warnings. |
 | Current documentation and distribution notices | Pending | Reconcile README, structure, file-format and limitation descriptions; distinguish historical audit results from current guarantees; review licence/notices. |

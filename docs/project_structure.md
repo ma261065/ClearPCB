@@ -107,15 +107,15 @@ completed autosave into a storage-failure warning or cause it to be retried.
 
 Browser idle time is not an edit-completion signal. Registered views may report
 `isSectionEditing()`; `ProjectDocument.canSerialize()` uses that neutral readiness
-contract without inspecting editor fields. PCB pointer/inline previews block
-project snapshots because some still mutate live model geometry before command
-commit. Autosave retains its existing idle scheduling and rechecks readiness
+contract without inspecting editor fields. Pending PCB edits block project
+snapshots rather than silently saving committed geometry that differs from the
+displayed preview. Autosave retains its existing idle scheduling and rechecks readiness
 both before scheduling and at idle execution, leaving the pending revision
 unsaved until commit/cancel makes it safe. Timer-only browsers use the same guard.
 Manual Save/Save As report a snapshot failure through the existing failure UI
 without opening or writing a file. Headless serialization remains available.
-This protects those preview windows; it does not migrate preview geometry out
-of the authored models or claim that all property-preview paths are isolated.
+This readiness policy is independent of the detached per-family preview
+ownership described below.
 
 Schematic history/dirty callbacks update their own UI, then call
 `ProjectDocument.notifySchematicChanged()`. The project calls the registered
@@ -210,8 +210,9 @@ Shared `Shape.getBounds()` caches geometry independently of the SVG `_dirty`
 flag. Repeated headless queries reuse bounds until `invalidate()` clears them;
 reading bounds does not acknowledge a pending render. Arc control-point setters
 invalidate both arc geometry and bounds. Track node/segment/whole drags,
-attached-via/pad movement, cancellation, conflict rollback, group translation
-and floating paste explicitly invalidate geometry before it is presented.
+attached-via/pad movement and group translation invalidate their displayed
+copies before presentation, without invalidating canonical bounds during preview.
+Accepted model commands invalidate the authored entity's bounds.
 Bounds remain entity-owned derived data, not authored state.
 Schematic `Text` remains a measured-layout exception: drawing clears its bounds
 so the next query uses the updated SVG font metrics rather than an earlier
@@ -296,7 +297,8 @@ Completion clears gesture ownership before the existing `ModifyFillCommand`;
 cancellation, no-op, invalid edits and command rejection restore canonical
 artwork without authored rollback. Missing targets remove orphan preview SVG.
 Shared lifecycle cancellation handles fill adapters and orphaned `_fillDrag`
-state on deactivation/load. Grouped fill previews remain outside this isolation.
+state on deactivation/load. Grouped fills use the shared mixed-group projection
+described below.
 
 Live computed pour polygons belong to `pcb/modules/computed-fill-cache.js`,
 an identity-keyed weak map outside authored `CopperFill` entities. SVG, flat 2D,
@@ -329,14 +331,12 @@ Move/modify validate existing outline edits before mutation and return `false`
 for rejected edits, leaving no partial geometry behind. Accepted outline edits
 synchronize model-owned dimension metadata without rendering, including undo.
 The editor adapters preserve selection cleanup, rendering, property controls,
-3D refresh and immediate versus deferred copper updates. Live geometry edits and
-their rollback paths explicitly synchronize outline dimensions through
-`PcbDocument` before rendering. This includes property previews, anchor/vertex/
-segment/whole-shape drags, floating arc conversion, group moves and shape loading.
-Generic shape rendering, hover, selection and dedicated outline redraw no longer
-write dimension metadata. Preview geometry still lives in the editable model
-during a gesture; this change separates mutation from rendering rather than
-introducing a detached preview model.
+3D refresh and immediate versus deferred copper updates. Accepted commands and
+loading synchronize outline dimensions through `PcbDocument` before rendering.
+Pointer, property, group and generic-dimension previews use detached copies;
+canonical outline geometry and dimensions remain unchanged until acceptance.
+Generic shape rendering, hover, selection and dedicated outline redraw do not
+write dimension metadata.
 
 Copper-removal clipping retains its last settled cutout geometry while drag
 overlays and pours are deferred. Moving removal artwork therefore leaves the old
@@ -524,7 +524,8 @@ the adapter adds detached track queries and export-only pour results. Model-less
 callers use the same neutral collection-capture helper. Document-only artwork retains its existing exclusion
 from the content check. Entity geometry is detached before asynchronous work;
 resolved component placements and netlist inputs still come from the caller.
-This does not yet make the complete fabrication pipeline editor-independent.
+Headless callers can supply the model and `ProjectDocument.resolvePcbLayout()`
+result without constructing an editor.
 
 `core/pcb-placement-geometry.js` owns the detached resolved-placement contract
 through `captureResolvedPlacement()`. It preserves the full-precision pose,
@@ -533,7 +534,7 @@ and reference settings, without traversing SVG elements, hit-test bounds, lock
 flags or 3D presentation state. Capture does not normalize poses or introduce
 defaults. The fabrication adapter delegates this copying before asynchronous
 work, keeping automatic placement positions paired with the caller's resolved
-netlist. Moving automatic placement resolution itself remains separate work;
+netlist. `ProjectDocument` owns automatic placement resolution as described below;
 Gerber coordinate conversion, drill formatting and pour computation stay in consumers.
 
 Component selection exposes the shared rotation handle only for a single
@@ -582,9 +583,9 @@ Tab deactivation and document loading cancel active component and text pose
 gestures through the shared pose-preview lifecycle hook. Terminal selection
 interactions clear their state even if completion throws, while intentional
 floating-anchor interactions remain active. Errors still propagate.
-Groups containing directly selected tracks, vias, pads, shapes or fills, along
-with other entity/property previews, are not yet generally isolated,
-so existing save/export readiness guards remain.
+Groups containing directly selected tracks, vias, pads, shapes or fills compose
+the mixed-group projection described below. Save/export readiness guards remain
+the policy for unfinished edits, even when canonical geometry is unchanged.
 
 Text property inputs now edit the same reusable editor projection, never the
 canonical text. A property preview owns only layer, size, rotation, stroke width
@@ -756,11 +757,10 @@ after the complete rebuild. Headless consumers
 can pass `{ pcbDocument: project.pcbDocument, ...project.resolvePcbLayout() }`
 to fabrication snapshot preparation. The layout query itself does not move
 track nodes or change bonds; consumers needing rebuild-time track updates call
-the explicit synchronization operation first. General live-preview isolation
-remains a separate migration boundary.
-Fabrication does not automatically replace a live
-editor's supplied placements/netlist: general preview isolation remains open,
-and mixing committed poses with preview-mutated tracks would be inconsistent.
+the explicit synchronization operation first. Fabrication retains the caller's
+paired resolved placements/netlist rather than independently replacing one of
+those inputs. Application capture rejects unfinished previews before combining
+them with committed model geometry.
 
 `ProjectDocument.restorePcbPlacementOverrides()` handles saved-pose restoration
 independently of an editor. It resolves current physical footprints for saved
@@ -909,9 +909,9 @@ position through the selection refresh, without a duplicate per-text redraw.
 Pending frame movement is discarded on cancel but flushed on commit. Ctrl+Z
 cancels the live preview before undoing the previous committed command.
 Group movement retains shared-delta snapping and outer overlay deferral; no-op
-drops and cancellation preserve redo history. Save/export readiness guards
-remain in place: other grouped moves and direct
-entity/property previews are not yet generally isolated.
+drops and cancellation preserve redo history. Other entity families compose
+the mixed-group projection described below; save/export readiness guards
+continue to reject unfinished edits.
 
 Single via and standalone-pad movement uses an editor-owned projection in
 `_viaDrag`. Pickup checks node proximity before incident-edge/layer eligibility;
