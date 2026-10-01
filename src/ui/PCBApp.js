@@ -11,6 +11,7 @@ import { loadAndApplyTheme, toggleTheme as toggleSharedTheme, syncThemeToggleBut
 import { renderFootprint, applyRefGeometry, REF_DEFAULT_SIZE, REF_DEFAULT_STROKE } from '../pcb/modules/footprint.js';
 import { updateGridDropdown, restoreGridSettings, serializeGridSettings } from './modules/viewport.js';
 import { setToolCursor } from './modules/cursor.js';
+import { bindRibbonHeight } from './modules/ribbon-height.js';
 import { isUnmodifiedPrimaryDoublePress } from './modules/inline-edit-activation.js';
 import {
     applyTextConnectionGuide,
@@ -3097,32 +3098,12 @@ export default class PCBApp {
 
         const tabs = this.ribbon.querySelectorAll('.ribbon-tab[data-tab]');
         const panels = this.ribbon.querySelectorAll('.ribbon-panel');
-        const panelsEl = /** @type {HTMLElement|null} */ (this.ribbon.querySelector('.ribbon-panels'));
         let activeTabId = /** @type {HTMLElement|null} */ (
             this.ribbon.querySelector('.ribbon-tab.active')
         )?.dataset.tab || null;
 
-        const retainRibbonHeight = () => {
-            if (!panelsEl || this.ribbon.offsetParent === null) return;
-            const activePanels = Array.from(panels, panel => panel.classList.contains('active'));
-            panelsEl.style.minHeight = '';
-            let height = 0;
-
-            panels.forEach(panel => {
-                panels.forEach(other => other.classList.toggle('active', other === panel));
-                height = Math.max(height, panelsEl.getBoundingClientRect().height);
-            });
-
-            panels.forEach((panel, index) => panel.classList.toggle('active', activePanels[index]));
-            panelsEl.style.minHeight = `${Math.ceil(height)}px`;
-        };
+        const retainRibbonHeight = bindRibbonHeight(this.ribbon);
         this._retainRibbonHeight = retainRibbonHeight;
-
-        window.addEventListener('resize', () => {
-            if (!panelsEl || this.ribbon.offsetParent === null) return;
-            panelsEl.style.minHeight = '';
-            requestAnimationFrame(retainRibbonHeight);
-        });
 
         const setActive = (tabId) => {
             if (this._shapeDraw && activeTabId !== tabId) {

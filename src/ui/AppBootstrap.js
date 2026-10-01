@@ -255,6 +255,7 @@ class AppBootstrap {
                 this.pcbApp?.activate();
             } else {
                 this.pcbApp?.deactivate();
+                this.schematicApp?._retainRibbonHeight?.();
             }
         } finally {
             if (needsPcbRender) {

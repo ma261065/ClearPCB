@@ -84,6 +84,20 @@ function fixture() {
 
 {
     const test = fixture();
+    test.bootstrap.pcbApp = { deactivate() { test.events.push('deactivate'); } };
+    test.bootstrap.schematicApp = {
+        _retainRibbonHeight() {
+            assert.equal(test.tabs[0].classes.get('active'), true);
+            test.events.push('schematic-height');
+        },
+    };
+    await test.bootstrap.switchMode('schematic');
+    assert.deepEqual(test.events, ['deactivate', 'schematic-height'],
+        'Returning to the schematic rechecks height after a hidden resize or font change');
+}
+
+{
+    const test = fixture();
     const modes = [];
     let pcbKeys = 0;
     test.tabs[0].classList.toggle('active', true);

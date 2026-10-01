@@ -1108,9 +1108,10 @@ explicit viewport-preference boundary still need closure review; physical comman
 separation does not imply that all model boundaries or application decomposition
 are complete.
 
-The live `placements` map and automatic layout slots remain editor-owned:
-they contain generated footprint geometry, presentation caches and temporary
-gesture state, not a second authoritative saved-placement store. PCB presentation
+The live `placements` map remains editor-owned: it contains generated footprint
+geometry, presentation caches and temporary gesture state, not a second
+authoritative saved-placement store. Model-owned `PcbPlacementState` retains the
+derived automatic layout slots separately from saved overrides. PCB presentation
 during loading and viewport settings remain in the PCB adapter.
 Viewport culling uses constant-time selection membership rather than rebuilding
 the selection list for each footprint. Every in-view selected footprint keeps
@@ -1124,6 +1125,15 @@ values. The adapter in `pcb/modules/design-settings.js` handles display units,
 local defaults, validation and refresh/dirty notifications. Unit changes convert
 the display from the model, not from previously rounded controls.
 
+Both editors use `ui/modules/ribbon-height.js` to retain the tallest static
+ribbon panel. A cached container width and retained style avoid cycling every
+tab through forced layout on each activation or tab change. Width changes and
+font completion trigger fresh measurements; hidden ribbons retain their last
+valid height until shown, and resize requests share one animation-frame callback.
+Schematic reactivation also rechecks the cache after resizing while hidden.
+Panel classes and height are restored if measurement fails. Existing flex layout,
+inactive-panel hiding and maximum-height behavior are unchanged.
+
 The Design ribbon and New Track/Via property editors share the same commit path.
 Valid edits mark the PCB dirty and retain the existing geometry refresh requests;
 unit/router preferences are also saved project edits. Temporarily blank or invalid
@@ -1134,8 +1144,8 @@ Project serialization still rounds dimensions to four decimals at the file
 boundary. Local defaults now store canonical mm values and still read the legacy
 display-unit strings under the existing storage key.
 
-This is an intermediate migration: existing entities still contain rendering
-methods/state, and general commands still mix data and presentation.
+Editor command adapters coordinate model commands with rendering and derived
+refreshes; some entity types retain inherited presentation methods and caches.
 SVG preparation/attachment, derived Net
 text, label layout and current viewport settings remain editor responsibilities.
 Headless serialization preserves loaded settings; registered editors supply

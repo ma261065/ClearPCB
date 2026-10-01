@@ -1,5 +1,6 @@
 import { hasClipboard } from './clipboard.js';
 import { bindRecentsDropdown } from './recents.js';
+import { bindRibbonHeight } from './ribbon-height.js';
 
 /**
  * Binds all ribbon tab buttons, tool buttons, file commands, edit commands,
@@ -109,28 +110,8 @@ export function bindRibbon(app) {
     const tabs = ribbonEl.querySelectorAll('.ribbon-tab');
     const panels = ribbonEl.querySelectorAll('.ribbon-panel');
     if (tabs.length === 0 || panels.length === 0) return;
-    const panelsEl = /** @type {HTMLElement|null} */ (ribbonEl.querySelector('.ribbon-panels'));
-
-    const retainRibbonHeight = () => {
-        if (!panelsEl) return;
-        const activePanels = Array.from(panels, panel => panel.classList.contains('active'));
-        let height = 0;
-
-        panels.forEach(panel => {
-            panels.forEach(other => other.classList.toggle('active', other === panel));
-            height = Math.max(height, panelsEl.getBoundingClientRect().height);
-        });
-
-        panels.forEach((panel, index) => panel.classList.toggle('active', activePanels[index]));
-        panelsEl.style.minHeight = `${Math.ceil(height)}px`;
-    };
-
-    window.addEventListener('resize', () => {
-        if (!panelsEl) return;
-        delete panelsEl.dataset.retainedHeight;
-        panelsEl.style.minHeight = '';
-        requestAnimationFrame(retainRibbonHeight);
-    });
+    const retainRibbonHeight = bindRibbonHeight(ribbonEl);
+    app._retainRibbonHeight = retainRibbonHeight;
 
     /** @type {(toolId: string|undefined|null) => void} */
     let setActiveToolButton = () => {};
