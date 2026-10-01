@@ -35,7 +35,7 @@ import { resolveTrackSegments } from './board-geometry.js';
 import { collectCopperArtwork } from './copper-artwork.js';
 import { getComputedFill } from './computed-fill-cache.js';
 import { subtractCopperArtwork } from './copper-removal.js';
-import { spatialPairs } from '../../core/spatial-pairs.js';
+import { spatialPairs, prepareSpatialOrder, filterSpatialOrder, spatialCrossPairsPrepared } from '../../core/spatial-pairs.js';
 import { pointInPolygon } from '../../core/geometry.js';
 import { circleCircleDistance, circleSegmentDistance } from './circle-clearance.js';
 import { arcPoint, arcSegmentDistance, arcArcDistance, arcCircleDistance, containsArcInterior, strokedPointDistance } from './arc-clearance.js';
@@ -307,6 +307,16 @@ function copperPairKey(first, second) {
     return [first.keyId || first.uid || first.label, second.keyId || second.uid || second.label].sort().join('~');
 }
 
+function hasMultipleNamedNets(features) {
+    let net;
+    for (const feature of features) {
+        if (!feature.net) continue;
+        if (net && net !== feature.net) return true;
+        net = feature.net;
+    }
+    return false;
+}
+
 function makeViolation(rule, severity, message, x, y, marker, key) {
     // Stable id: derive from a content key when provided so the same physical
     // violation keeps its id across re-runs (an unrelated edit elsewhere won't
@@ -374,8 +384,11 @@ export function runDRC(app, rules = {}) {
     const copperDistance = createCopperDistanceChecker(clearance);
     const originalCopper = [...pads, ...segments, ...vias, ...areas, ...circles, ...arcs];
     const remainingCopper = subtractCopperArtwork(originalCopper, app.boardShapes, featureBounds);
-    const shorts = remainingCopper === originalCopper ? detectShorts({ pads, segments, vias }, copperDistance)
-        : detectRemainingShorts(remainingCopper, copperDistance);
+    let shorts = [];
+    if (hasMultipleNamedNets(remainingCopper)) {
+        shorts = remainingCopper === originalCopper ? detectShorts({ pads, segments, vias }, copperDistance)
+            : detectRemainingShorts(remainingCopper, copperDistance);
+    }
     const shortByFeature = new Map();
     for (const short of shorts) {
         const [first, second] = short.contactFeatures;
@@ -495,6 +508,20 @@ function featureAnchor(f) {
     return { x: f.x, y: f.y };
 }
 
+function ringBounds(points) {
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    for (const point of points) {
+        minX = Math.min(minX, point.x); minY = Math.min(minY, point.y);
+        maxX = Math.max(maxX, point.x); maxY = Math.max(maxY, point.y);
+    }
+    return { minX, minY, maxX, maxY };
+}
+
+function boundsContainPoint(bounds, point) {
+    return point.x >= bounds.minX && point.x <= bounds.maxX
+        && point.y >= bounds.minY && point.y <= bounds.maxY;
+}
+
 function featureBounds(feature) {
     if (feature.kind === 'arc') {
         const radius = feature.radius + feature.hw;
@@ -510,12 +537,7 @@ function featureBounds(feature) {
         minY: Math.min(feature.ay, feature.by) - feature.hw, maxY: Math.max(feature.ay, feature.by) + feature.hw,
     };
     if (feature.kind === 'area' || feature.kind === 'pad') {
-        let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-        for (const point of feature.outer || feature.outline) {
-            minX = Math.min(minX, point.x); minY = Math.min(minY, point.y);
-            maxX = Math.max(maxX, point.x); maxY = Math.max(maxY, point.y);
-        }
-        return { minX, minY, maxX, maxY };
+        return ringBounds(feature.outer || feature.outline);
     }
     const halfWidth = feature.kind === 'via' ? feature.r : feature.hw;
     const halfHeight = feature.kind === 'via' ? feature.r : feature.hh;
@@ -530,10 +552,11 @@ function featureEdges(feature) {
     return rings.flatMap((ring) => ring.map((point, index) => [point, ring[(index + 1) % ring.length]]));
 }
 
-function containsCopper(feature, point) {
+function containsCopper(feature, point, holeBounds = null) {
     if (feature.kind === 'arc') return containsArcInterior(feature, point);
     if (feature.kind === 'area') return pointInPolygon(point, feature.outer)
-        && !feature.holes.some((hole) => pointInPolygon(point, hole));
+        && !feature.holes.some((hole, index) =>
+            (!holeBounds || boundsContainPoint(holeBounds[index], point)) && pointInPolygon(point, hole));
     if (feature.kind !== 'pad') return false;
     return pointInPolygon(point, feature.outline);
 }
@@ -542,6 +565,7 @@ function containsCopper(feature, point) {
 export function createCopperDistanceChecker(clearance = Infinity) {
     const cache = new WeakMap();
     const viaCircles = new WeakMap();
+    const holeBounds = new WeakMap();
     const copperGeometry = (feature) => {
         if (feature.kind !== 'via') return feature;
         let circle = viaCircles.get(feature);
@@ -557,18 +581,35 @@ export function createCopperDistanceChecker(clearance = Infinity) {
         if (!result) {
             result = {
                 bounds: featureBounds(feature),
-                edges: featureEdges(feature).map(([start, end]) => ({
-                    start, end,
+                edges: featureEdges(feature).map(([start, end], index) => ({
+                    start, end, index,
                     minX: Math.min(start.x, end.x), maxX: Math.max(start.x, end.x),
                     minY: Math.min(start.y, end.y), maxY: Math.max(start.y, end.y),
                 })),
             };
+            for (const edge of result.edges) {
+                result.bounds.minX = Math.min(result.bounds.minX, edge.minX);
+                result.bounds.minY = Math.min(result.bounds.minY, edge.minY);
+                result.bounds.maxX = Math.max(result.bounds.maxX, edge.maxX);
+                result.bounds.maxY = Math.max(result.bounds.maxY, edge.maxY);
+            }
             cache.set(feature, result);
         }
         return result;
     };
-    const contains = (feature, bounds, point) => point.x >= bounds.minX && point.x <= bounds.maxX
-        && point.y >= bounds.minY && point.y <= bounds.maxY && containsCopper(feature, point);
+    const orderedEdges = (boundary) => boundary.ordered ||= prepareSpatialOrder(boundary.edges, edge => edge);
+    const contains = (feature, bounds, point) => {
+        if (!boundsContainPoint(bounds, point)) return false;
+        let holes;
+        if (feature.kind === 'area') {
+            holes = holeBounds.get(feature);
+            if (!holes) {
+                holes = feature.holes.map(ringBounds);
+                holeBounds.set(feature, holes);
+            }
+        }
+        return containsCopper(feature, point, holes);
+    };
     const radius = (feature) => feature.kind === 'via' ? feature.r : feature.kind === 'track' ? feature.hw : 0;
     const chord = (arc) => [arcPoint(arc, arc.startAngle), arcPoint(arc, arc.endAngle)];
     const chordFeature = (arc) => {
@@ -638,17 +679,22 @@ export function createCopperDistanceChecker(clearance = Infinity) {
         const combinedRadius = radius(first) + radius(second);
         let limit = clearance + combinedRadius + EPS;
         let nearest = { dist: Infinity, x: 0, y: 0 };
-        for (const edge of firstBoundary.edges) {
-            for (const other of secondBoundary.edges) {
-                const gapX = Math.max(0, edge.minX - other.maxX, other.minX - edge.maxX);
-                const gapY = Math.max(0, edge.minY - other.maxY, other.minY - edge.maxY);
-                if (gapX > limit || gapY > limit || gapX * gapX + gapY * gapY > limit * limit) continue;
-                const candidate = segmentSegmentDistance(edge.start.x, edge.start.y, edge.end.x, edge.end.y,
-                    other.start.x, other.start.y, other.end.x, other.end.y, radius(first), radius(second));
-                if (candidate.dist < nearest.dist) {
-                    nearest = candidate;
-                    limit = Math.min(limit, nearest.dist + EPS);
-                }
+        let firstIndex = Infinity, secondIndex = Infinity;
+        const firstOrder = filterSpatialOrder(orderedEdges(firstBoundary), secondBoundary.bounds, limit);
+        const secondOrder = filterSpatialOrder(orderedEdges(secondBoundary), firstBoundary.bounds, limit);
+        for (const [edge, other] of spatialCrossPairsPrepared(firstOrder, secondOrder, limit)) {
+            const gapX = Math.max(0, edge.minX - other.maxX, other.minX - edge.maxX);
+            const gapY = Math.max(0, edge.minY - other.maxY, other.minY - edge.maxY);
+            if (gapX > limit || gapY > limit || gapX * gapX + gapY * gapY > limit * limit) continue;
+            const candidate = segmentSegmentDistance(edge.start.x, edge.start.y, edge.end.x, edge.end.y,
+                other.start.x, other.start.y, other.end.x, other.end.y, radius(first), radius(second));
+            // Sweeps reorder candidates; equal gaps retain the original nested-loop witness.
+            if (candidate.dist < nearest.dist || (candidate.dist === nearest.dist && Number.isFinite(candidate.dist)
+                && (edge.index < firstIndex || (edge.index === firstIndex && other.index < secondIndex)))) {
+                nearest = candidate;
+                firstIndex = edge.index;
+                secondIndex = other.index;
+                limit = Math.min(limit, nearest.dist + EPS);
             }
         }
         nearest.dist = Math.max(0, nearest.dist - combinedRadius);

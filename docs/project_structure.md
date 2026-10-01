@@ -352,6 +352,18 @@ Prepared cross-sweeps merge these orders without repeatedly boxing or sorting
 the same triangles, while sharing the generic sweep's expiry/overlap logic.
 Reinstalling prepared geometry invalidates its ordering; arbitrary mutable
 contacts still use the ordinary lazy-capture sweep.
+Region/region checks conservatively filter ordered triangles against the other
+contact's bounds before sweeping. Fully contained orders bypass filtering;
+candidate arrays contain existing records, and no persistent candidate cache or
+additional worker payload is introduced.
+
+Each DRC distance checker owns one immutable physical snapshot. It caches hole
+bounds to reject unrelated contours and prepared boundary-edge ordering to avoid
+Cartesian edge scans. Candidate queries conservatively include outlying bore
+edges; equal-distance markers retain the original edge-pair order even though
+the sweep visits candidates spatially. Short connectivity is skipped only when
+fewer than two named nets exist; clearance, unassigned copper, ring validity and
+unrouted checks still run. These optimizations do not make live DRC asynchronous.
 Published fill-region identities are preserved, so their triangle contacts and
 bounds can be reused rather than rebuilt for every candidate pair or unchanged
 connectivity pass. A newly computed region has a new identity; replacing a

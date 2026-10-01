@@ -1,7 +1,7 @@
 import { resolveBoardShapeGeometry } from './board-shape-geometry.js';
 import { padFlashOutline } from './board-geometry.js';
 import { distanceToSegment, pointInPolygon } from '../../core/geometry.js';
-import { spatialCrossPairs, prepareSpatialOrder, spatialCrossPairsPrepared } from '../../core/spatial-pairs.js';
+import { spatialCrossPairs, prepareSpatialOrder, filterSpatialOrder, spatialCrossPairsPrepared } from '../../core/spatial-pairs.js';
 import earcut from '../../../assets/vendor/earcut.module.js';
 
 const regionShapes = new WeakMap();
@@ -173,10 +173,26 @@ function orderedContacts(contact) {
     const region = contact.region;
     let ordered = regionOrders.get(region);
     if (!ordered) {
-        ordered = prepareSpatialOrder(region ? contactsForRegion(region) : [contact], item => item.bounds);
+        const items = prepareSpatialOrder(region ? contactsForRegion(region) : [contact], item => item.bounds);
+        const bounds = { ...contact.bounds };
+        // Include triangle extents even for an oversized authored bore/slot.
+        for (const item of items) {
+            bounds.minX = Math.min(bounds.minX, item.bounds.minX);
+            bounds.minY = Math.min(bounds.minY, item.bounds.minY);
+            bounds.maxX = Math.max(bounds.maxX, item.bounds.maxX);
+            bounds.maxY = Math.max(bounds.maxY, item.bounds.maxY);
+        }
+        ordered = { items, bounds };
         if (immutableRegion(region)) regionOrders.set(region, ordered);
     }
     return ordered;
+}
+
+function contactCandidates(ordered, query, tolerance) {
+    const bounds = ordered.bounds;
+    if (query.minX <= bounds.minX && query.minY <= bounds.minY
+        && query.maxX >= bounds.maxX && query.maxY >= bounds.maxY) return ordered.items;
+    return filterSpatialOrder(ordered.items, query, tolerance);
 }
 
 const cache = new WeakMap();
@@ -297,9 +313,14 @@ export function copperContactsTouch(firstContact, secondContact) {
     if (firstPrepared && !secondContact.region) return preparedRegionTouches(firstPrepared, secondContact, tolerance);
     if (secondPrepared && !firstContact.region) return preparedRegionTouches(secondPrepared, firstContact, tolerance);
     const regions = contact => contact.region ? contactsForRegion(contact.region) : [contact];
-    const pairs = immutableRegion(firstContact.region) || immutableRegion(secondContact.region)
-        ? spatialCrossPairsPrepared(orderedContacts(firstContact), orderedContacts(secondContact), tolerance)
-        : spatialCrossPairs(regions(firstContact), regions(secondContact), contact => contact.bounds, tolerance);
+    let pairs;
+    if (immutableRegion(firstContact.region) || immutableRegion(secondContact.region)) {
+        const first = orderedContacts(firstContact), second = orderedContacts(secondContact);
+        pairs = spatialCrossPairsPrepared(contactCandidates(first, second.bounds, tolerance),
+            contactCandidates(second, first.bounds, tolerance), tolerance);
+    } else {
+        pairs = spatialCrossPairs(regions(firstContact), regions(secondContact), contact => contact.bounds, tolerance);
+    }
     for (const [a, b] of pairs) {
         if (copperGeometryTouches(a.geometry, b.geometry)) return true;
     }

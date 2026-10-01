@@ -172,3 +172,68 @@ assert.ok(runDRC(app, { clearance: 0.2 }).violations.some((violation) => violati
 app.vias[0].x = 0;
 assert.equal(runDRC(app, { clearance: 0.2 }).ok, true);
 console.log('DRC boundary-cache and exhaustive-distance comparisons passed.');
+
+let holeReads = 0;
+const measuredHole = points => Object.freeze(points.map(point => Object.freeze({
+    get x() { holeReads++; return point.x; },
+    get y() { holeReads++; return point.y; },
+})));
+const perforated = Object.freeze({
+    kind: 'area', outer: Object.freeze(rectangle(-100, -100, 100, 100).map(Object.freeze)),
+    holes: Object.freeze(Array.from({ length: 40 }, (_, index) =>
+        measuredHole(rectangle(10 + index * 2, 20, 11 + index * 2, 21)))),
+});
+const probe = Object.freeze({ kind: 'pad', outline: Object.freeze(rectangle(-1, -1, 1, 1).map(Object.freeze)) });
+const perforationCheck = createCopperDistanceChecker();
+assert.equal(perforationCheck(probe, perforated).dist, 0);
+holeReads = 0;
+for (let index = 0; index < 1000; index++) assert.equal(perforationCheck(probe, perforated).dist, 0);
+assert.equal(holeReads, 0, 'prepared bounds reject distant holes without reading their vertices again');
+
+for (const outline of [
+    rectangle(10.4, 20.4, 10.6, 20.6),
+    rectangle(9.9, 20.4, 10.1, 20.6),
+    rectangle(10, 20.4, 10.1, 20.6),
+    rectangle(11 + 1e-7, 20.4, 11.1, 20.6),
+]) {
+    const other = { kind: 'pad', outline };
+    for (const [first, second] of [[other, perforated], [perforated, other]]) {
+        assert.deepEqual(perforationCheck(first, second), exhaustiveDistance(first, second),
+            'hole interiors, edges and tolerance-adjacent points retain exact distance and witness');
+    }
+}
+const concave = { kind: 'area', outer: rectangle(0, 0, 5, 5), holes: [[
+    { x: 1, y: 1 }, { x: 3, y: 1 }, { x: 3, y: 2 },
+    { x: 2, y: 2 }, { x: 2, y: 3 }, { x: 1, y: 3 },
+]] };
+assert.equal(createCopperDistanceChecker()({ kind: 'pad', outline: rectangle(2.4, 2.4, 2.6, 2.6) }, concave).dist, 0,
+    'a hole bounding box is only a rejection test, not a replacement for polygon containment');
+console.log('PASS: cached hole bounds retain exact containment and avoid 1,000 repeated distant contour scans');
+
+const denseArea = { kind: 'area', outer: rectangle(-10, -10, 500, 50),
+    holes: [rectangle(-1, -1, 1, 1), ...Array.from({ length: 200 }, (_, index) =>
+        rectangle(10 + index * 2, 20, 11 + index * 2, 21))] };
+const denseProbe = { kind: 'pad', outline: Array.from({ length: 128 }, (_, index) => ({
+    x: 0.99 * Math.cos(index * Math.PI / 64), y: 0.99 * Math.sin(index * Math.PI / 64),
+})) };
+const expectedDense = exhaustiveDistance(denseProbe, denseArea);
+const denseCheck = createCopperDistanceChecker(0.2);
+assert.deepEqual(denseCheck(denseProbe, denseArea), expectedDense);
+let boundsComparisons = 0;
+const originalMax = Math.max;
+try {
+    Math.max = (...values) => { boundsComparisons++; return originalMax(...values); };
+    assert.deepEqual(denseCheck(denseProbe, denseArea), expectedDense,
+        'spatial candidate order retains the first original edge-pair witness for equal gaps');
+} finally {
+    Math.max = originalMax;
+}
+assert.ok(boundsComparisons < 10000,
+    `prepared candidates avoid the 206,848 Cartesian axis-gap checks (observed ${boundsComparisons} max calls)`);
+assert.deepEqual(denseCheck(denseArea, denseProbe), exhaustiveDistance(denseArea, denseProbe));
+
+const oversizedBore = { kind: 'area', outer: rectangle(-1, -1, 1, 1), holes: [rectangle(10, 10, 12, 12)] };
+const nearBore = { kind: 'pad', outline: rectangle(13, 10.2, 13.2, 10.4) };
+assert.deepEqual(createCopperDistanceChecker(2)(oversizedBore, nearBore), exhaustiveDistance(oversizedBore, nearBore),
+    'candidate bounds include outlying hole edges in oversized-bore snapshots');
+console.log('PASS: prepared edge candidates avoid Cartesian scans and preserve equal-gap and oversized-bore witnesses');

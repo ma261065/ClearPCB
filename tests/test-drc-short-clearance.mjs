@@ -130,3 +130,39 @@ for (const clearance of [0.025, 0.3, 0.5]) {
 }
 
 console.log('PASS short/clearance deduplication, terminal and No Net contacts, clipped copper and independent clearance retention');
+
+for (const clipped of [false, true]) {
+    for (const namedNets of [0, 1, 2]) {
+        const app = board();
+        app.tracks = [track('a', namedNets ? 'A' : '', [[0, 0], [10, 0]]),
+            track('bridge', '', [[10, 0], [20, 0]]),
+            track('b', namedNets === 2 ? 'B' : namedNets ? 'A' : '', [[20, 0], [30, 0]])];
+        if (clipped) app.boardShapes.push({
+            id: 'trim', kind: 'rect', layer: 'top-copper', copperMode: 'remove-copper',
+            filled: true, lineWidth: 0.05,
+            points: [{ x: 4, y: 0.075 }, { x: 6, y: 0.075 }, { x: 6, y: 1 }, { x: 4, y: 1 }],
+        });
+        let connectivityGraphs = 0;
+        const OriginalMap = globalThis.Map;
+        let result;
+        try {
+            globalThis.Map = class extends OriginalMap {
+                constructor(entries) {
+                    super(entries);
+                    if (Array.isArray(entries) && entries.length
+                        && entries.every(([key, value]) => key && typeof key === 'object' && key === value)) {
+                        connectivityGraphs++;
+                    }
+                }
+            };
+            result = check(app);
+        } finally {
+            globalThis.Map = OriginalMap;
+        }
+        assert.equal(byRule(result, 'short').length, namedNets === 2 ? 1 : 0);
+        if (namedNets < 2) assert.equal(connectivityGraphs, 0, 'no short graph when fewer than two named nets exist');
+        else assert.ok(connectivityGraphs > 0, 'two named nets still trace physical No Net bridges');
+        if (namedNets) assert.ok(byRule(result, 'clearance').length, 'unassigned-copper clearance remains checked');
+    }
+}
+console.log('PASS: empty/single named nets skip short graphs without skipping clearance or No Net bridge detection');

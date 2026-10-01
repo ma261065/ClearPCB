@@ -13,6 +13,19 @@ export function prepareSpatialOrder(items, bounds) {
         .sort((left, right) => left.bounds.minX - right.bounds.minX);
 }
 
+/** Conservative query of a prepared order, retaining its original records and tie order. */
+export function filterSpatialOrder(ordered, query, margin = 0) {
+    const candidates = [];
+    for (const entry of ordered) {
+        const bounds = entry.bounds;
+        if (bounds.minX > query.maxX + margin) break;
+        if (bounds.maxX + margin < query.minX || bounds.maxY + margin < query.minY
+            || query.maxY + margin < bounds.minY) continue;
+        candidates.push(entry);
+    }
+    return candidates;
+}
+
 export function* spatialPairs(items, bounds, margin = 0) {
     const ordered = prepareSpatialOrder(items, bounds);
     const active = [];

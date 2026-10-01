@@ -92,10 +92,14 @@ assert.equal(copperContactsTouch(lazyContact, resolveTrackContactGeometry({
     const cluster = { kind: 'via', viaRadius: 0.6, via: { x: 9, y: 0, drill: 0.3 } };
     let terminal = resolveTerminalCopperContact(cluster);
     const sort = Array.prototype.sort;
+    const preparedTriangles = new Set();
     let sorts = 0, entries = 0;
     try {
         Array.prototype.sort = function (...args) {
             if (this[0]?.item?.bounds && this[0].bounds) { sorts++; entries += this.length; }
+            if (this[0]?.item?.indices instanceof Uint32Array) {
+                for (const entry of this) preparedTriangles.add(entry.item);
+            }
             return sort.apply(this, args);
         };
         assert.equal(copperContactsTouch(first, terminal.resolved), true);
@@ -127,6 +131,37 @@ assert.equal(copperContactsTouch(lazyContact, resolveTrackContactGeometry({
         authored.x = 9;
         assert.equal(copperContactsTouch(terminal.resolved, resolveTrackContactGeometry(authored)), false,
             'Cached terminal ordering cannot memoize or freeze the mutable other contact');
+        const materialized = [...preparedTriangles].filter(triangle => Object.hasOwn(triangle, '_geometry')).length;
+        assert.ok(materialized > 0 && materialized < preparedTriangles.size / 10,
+            'Bounds filtering leaves distant triangle geometry lazy rather than materializing the entire pour');
     } finally { Array.prototype.sort = sort; }
+}
+
+{
+    const rectangle = (x, y, width, height) => [
+        { x, y }, { x: x + width, y }, { x: x + width, y: y + height }, { x, y: y + height },
+    ];
+    const regions = [
+        { outer: rectangle(-5, -5, 10, 10), holes: [rectangle(-2, -2, 4, 4)] },
+        { outer: rectangle(-5, -5, 10, 10), holes: [rectangle(-1, -1, 9, 2)] },
+    ];
+    for (const source of regions) {
+        const region = structuredClone(source);
+        installCopperRegionContact(region, prepareCopperRegionContact(region));
+        const current = resolveTrackContactGeometry(copperRegionShape(region));
+        const cold = resolveTrackContactGeometry(copperRegionShape(structuredClone(source)));
+        for (const x of [-5.5, -5, -2.5, -2, -1, 0, 2, 4.5, 5, 5 + 0.5e-7, 5 + 2e-7]) {
+            for (const y of [-5, -2, -1, 0, 1, 2, 5]) {
+                const region = { outer: rectangle(x, y, 0.5, 0.5), holes: [] };
+                const otherCold = resolveTrackContactGeometry(copperRegionShape(structuredClone(region)));
+                installCopperRegionContact(region, prepareCopperRegionContact(region));
+                const other = resolveTrackContactGeometry(copperRegionShape(region));
+                const expected = copperContactsTouch(cold, otherCold);
+                assert.equal(copperContactsTouch(current, other), expected);
+                assert.equal(copperContactsTouch(other, current), expected,
+                    'Filtered candidates preserve symmetry, holes, outlying bores and exact tolerance decisions');
+            }
+        }
+    }
 }
 console.log('PASS prepared region contacts: exact narrow phases, zero immutable snapshots/scans, mutable validation and identity rejection');
