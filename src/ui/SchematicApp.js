@@ -267,6 +267,10 @@ export default class SchematicApp {
             );
         }
 
+        // Warm the index immediately so first picker use need not start a download.
+        this.componentLibrary.kicadFetcher?.ensureIndexLoaded()
+            ?.catch(err => console.warn('KiCad background index warm-up failed:', err));
+
         // Warn about unsaved changes in either editor (one document).
         window.addEventListener('beforeunload', (e) => {
             const dirty = this.project

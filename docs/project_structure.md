@@ -1179,10 +1179,12 @@ Schematic reactivation also rechecks the cache after resizing while hidden.
 Panel classes and height are restored if measurement fails. Existing flex layout,
 inactive-panel hiding and maximum-height behavior are unchanged.
 
-Online component index initialization belongs to `ComponentPicker`, not schematic
-startup. Opening the Online picker, switching an open picker from Local to Online,
-or starting a search initializes the index; Local-only use does not. The existing
-fetcher still owns shared in-flight work, cache hydration and stale-cache refresh.
+Schematic startup immediately starts KiCad index loading in the background,
+without awaiting the download, to minimize the wait on first picker use.
+Opening the Online picker or starting a search joins the shared in-flight load,
+uses its warmed result, or retries a failed load. Switching an open picker from
+Local to Online retains that behavior; Local mode does not add a separate request.
+The fetcher owns cache hydration and stale-cache refresh as well as shared work.
 Progress belongs to the current visible empty-query picker, and searches retain
 their generation guard. Exhausting every index ref rejects explicitly without
 publishing incomplete data or replacing a usable cached index. First-search

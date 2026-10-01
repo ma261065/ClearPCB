@@ -55,8 +55,8 @@ export class ComponentPicker {
         this._populateCategories();
         this._populateComponents();
         // Online is the default search mode: hide the category filter, show the
-        // online search prompt and placeholder. The KiCad index load is deferred
-        // until the picker is actually opened/searched.
+        // online search prompt and placeholder. Startup warms the KiCad index;
+        // opening/searching joins that load or retries it after a failure.
         this.categoriesEl.style.display = 'none';
         this.searchInput.placeholder = 'Search online (e.g., NE555, C46749)...';
         this._showLCSCPrompt();

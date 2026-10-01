@@ -11,8 +11,9 @@ const { createGenerationGate, createDebouncedRunner } = await import('../src/com
 const { ModalManager } = await import('../src/core/ModalManager.js');
 
 const schematic = readFileSync(new URL('../src/ui/SchematicApp.js', import.meta.url), 'utf8');
-assert.ok(!schematic.includes('ensureIndexLoaded('),
-    'Schematic startup must not eagerly initialize the online component catalog');
+const warmup = schematic.match(/this\.componentLibrary\.kicadFetcher\?\.ensureIndexLoaded\(\)\s*\?\.catch\([^;]+;/);
+assert.ok(warmup, 'Schematic startup immediately warms the index and handles background failures');
+const startWarmup = new Function(`${warmup[0]}\nreturn 'ready';`);
 
 function deferred() {
     let resolve, reject;
@@ -55,6 +56,53 @@ function fixture({ cached = false, mode = 'lcsc' } = {}) {
 }
 
 {
+    const load = deferred(), started = deferred();
+    const fetcher = new KiCadFetcher();
+    fetcher._detectLatestRelease = async () => {};
+    let downloads = 0;
+    fetcher._fetchFullSymbolIndex = async () => {
+        downloads++;
+        started.resolve();
+        await load.promise;
+        fetcher.libraryIndex = { symbols: { Device: ['R'], Timer: ['NE555'] } };
+    };
+    assert.equal(startWarmup.call({ componentLibrary: { kicadFetcher: fetcher } }), 'ready',
+        'Startup continues without waiting for the index download');
+    await started.promise;
+    assert.equal(downloads, 1, 'Download begins before the picker opens');
+    const f = fixture();
+    f.picker.library.kicadFetcher = fetcher;
+    f.picker.toggle();
+    fetcher._emitIndexProgress({ loaded: 1, total: 2, message: 'Background progress' });
+    assert.equal(f.renders.at(-1), 'Background progress', 'An opened picker joins background progress');
+    load.resolve();
+    await fetcher.ensureIndexLoaded();
+    await flush();
+    assert.equal(downloads, 1, 'Startup, picker and search callers share one download');
+    f.picker.close();
+    f.picker.toggle();
+    assert.equal(downloads, 1, 'Reopening uses the warmed index');
+    f.picker.close();
+}
+{
+    const load = deferred(), logged = [], warn = console.warn;
+    try {
+        console.warn = (...args) => logged.push(args);
+        assert.equal(startWarmup.call({ componentLibrary: {
+            kicadFetcher: { ensureIndexLoaded: () => load.promise },
+        } }), 'ready');
+        const failure = new Error('Background download failed');
+        load.reject(failure);
+        await flush();
+        assert.equal(logged.length, 1);
+        assert.deepEqual(logged[0], ['KiCad background index warm-up failed:', failure]);
+        assert.equal(startWarmup.call({ componentLibrary: {} }), 'ready');
+    } finally {
+        console.warn = warn;
+    }
+}
+
+{
     const f = fixture();
     await f.picker._prepareKiCadIndex();
     f.picker._setSearchMode('lcsc');
@@ -77,7 +125,7 @@ function fixture({ cached = false, mode = 'lcsc' } = {}) {
     const f = fixture({ mode: 'local' });
     f.picker.toggle();
     await f.picker._prepareKiCadIndex();
-    assert.equal(f.calls.length, 0, 'The Local library never starts online indexing');
+    assert.equal(f.calls.length, 0, 'The Local picker does not request another index load');
     f.picker._setSearchMode('lcsc');
     assert.equal(f.calls.length, 1, 'Switching an open picker to Online starts indexing');
     f.load.resolve();
