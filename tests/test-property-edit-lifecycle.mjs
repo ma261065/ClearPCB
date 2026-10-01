@@ -58,10 +58,61 @@ function inputFixture() {
     };
     return input;
 }
+for (const completion of ['commit', 'prepare', 'handoff', 'cancel', 'dispose']) {
+    const owner = createPropertyBinding();
+    let value = 1, finalized = 0;
+    const commands = [];
+    const preview = createPropertyPreview({
+        binding: owner, capture: () => value, restore: before => { value = before; }, redraw() {},
+        beforeCommit() { value = Math.round(value); finalized++; },
+        commit(before, after) { commands.push({ before, after }); value = after; },
+    });
+    preview.update(() => { value = 2.6; });
+    assert.equal(finalized, 0, 'Previewing must not finalize geometry');
+    if (completion === 'handoff') owner.activate({ active: false });
+    else owner[completion]();
+    if (completion === 'cancel' || completion === 'dispose') {
+        assert.equal(finalized, 0);
+        assert.equal(value, 1);
+        assert.deepEqual(commands, []);
+    } else {
+        assert.equal(finalized, 1);
+        assert.equal(value, 3);
+        assert.deepEqual(commands, [{ before: 1, after: 3 }], 'Every commit path captures finalized geometry once');
+    }
+}
 globalThis.document = { activeElement: null };
-for (const focused of [false, true]) {
+for (const valid of [false, true]) for (const completion of ['commit', 'prepare', 'handoff']) {
+    const owner = createPropertyBinding(), input = inputFixture();
+    let value = 1, finalized = 0, refreshes = 0;
+    const commands = [];
+    const preview = createPropertyPreview({
+        binding: owner, capture: () => value, restore: before => { value = before; }, redraw() {},
+        beforeCommit() { finalized++; },
+        commit(before, after, options) { value = after; commands.push({ before, after, options }); },
+    });
+    bindPropertyPreviewInput(input, preview, { binding: owner, refresh() { refreshes++; } });
+    input.value = '2';
+    preview.update(() => { value = 2; });
+    if (!valid) input.value = '';
+    if (completion === 'handoff') owner.activate({ active: false });
+    else owner[completion]();
+    assert.equal(value, valid ? 2 : 1, 'Owner completion uses the current numeric input, not just the last valid preview');
+    assert.equal(commands.length, valid ? 1 : 0);
+    assert.equal(finalized, valid ? 1 : 0, 'Invalid input does not run geometry finalization');
+    assert.equal(refreshes, 1);
+    if (valid) assert.deepEqual(commands[0].options, { rebuild: completion === 'commit' },
+        'Handoff and action preparation retain their no-rebuild request');
+    input.fire('blur');
+    await Promise.resolve();
+    assert.equal(commands.length, valid ? 1 : 0);
+    assert.equal(refreshes, 1, 'Delayed blur does not repeat completion');
+}
+for (const focus of ['same', 'sibling', 'outside']) {
     const input = inputFixture();
-    document.activeElement = focused ? input : null;
+    const sibling = inputFixture();
+    const focusRoot = { contains: target => target === input || target === sibling };
+    document.activeElement = focus === 'same' ? input : focus === 'sibling' ? sibling : null;
     const calls = [];
     let active = true, current = true;
     const preview = {
@@ -70,10 +121,11 @@ for (const focused of [false, true]) {
         cancel() { const changed = active; active = false; return changed; },
     };
     let refreshes = 0, cancellations = 0;
-    const options = { isCurrent: () => current, refresh() { refreshes++; }, onCancel() { cancellations++; } };
+    const options = { isCurrent: () => current, focusRoot,
+        refresh() { refreshes++; }, onCancel() { cancellations++; } };
     bindPropertyPreviewInput(input, preview, options);
     assert.equal(commitPropertyPreviewInput(input, preview, options), true);
-    assert.deepEqual(calls, [{ rebuild: !focused }]);
+    assert.deepEqual(calls, [{ rebuild: focus === 'outside' }]);
     assert.equal(refreshes, 1);
     input.fire('blur');
     await Promise.resolve();

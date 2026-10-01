@@ -1440,7 +1440,24 @@ mode; it is not a release requirement. Remaining ownership work is tracked in
   finish against its original target without rebuilding the newer panel.
   Starting another numeric field settles that previous edit first, preventing
   overlapping whole-shape snapshots from combining independent field edits.
+  Numeric inputs register their completion policy with the shared owner, so
+  handoff, action preparation and owner-driven commits validate the current
+  field text just like change/blur. An empty or incomplete number cancels its
+  pending preview rather than committing the last valid intermediate value.
+  Completion preserves the caller's no-rebuild request and cannot disturb a
+  newer field; geometry finalization still forces structural rebuilds.
+  Schematic discrete property application also prepares this owner before
+  reading selection and recording its command, matching PCB Properties actions.
+  Checkbox, text and dropdown changes therefore cannot enter a pending numeric
+  snapshot: a valid numeric edit has its own preceding undo step, while an
+  invalid numeric edit is cancelled before the discrete change.
   Geometry normalization runs before the command after-state is captured.
+  PCB curvature finalization belongs to the preview transaction, not only its
+  input's change handler: field handoff, action preparation and direct binding
+  commits normalize straight arcs and collinear nodes before outline validation
+  and history capture. Structural completion rebuilds even when an ordinary
+  value-only handoff requested no rebuild, retiring the obsolete controls.
+  Cancellation never runs geometry finalization.
   This is not a universal form framework or a merger of electrical models:
   validation, metadata, structural panel changes and rendering stay local.
   Schematic shape properties include precise bulge and circle diameter edits,
@@ -1451,14 +1468,24 @@ mode; it is not a release requirement. Remaining ownership work is tracked in
   Schematic numeric Properties commits retain focused controls instead of
   rebuilding the panel and handing subsequent arrow keys to canvas nudging.
   Current values, mixed placeholders, coupled dimensions and corner-action
-  availability refresh in place; unfocused commits, selection changes and
-  structural edits (such as removing Bulge after straightening) still rebuild.
+  availability refresh in place. The shared focus policy preserves any focused
+  control within the editor's Properties container, including a newly focused
+  field that has not received input yet. Commits after leaving that container,
+  selection changes and structural edits (such as removing Bulge after
+  straightening) still rebuild.
   This covers shape/segment/node geometry, text size and reference rotation.
   Numeric input/change/Escape callbacks verify both the displayed control
   identity and current selection. Retired fields cannot restart edits after
   cancellation, a completed commit or panel replacement, or interfere with a
   newer preview. An already-pending blur still finishes against its original
   targets; the guard does not change that completion contract.
+  Schematic panel instances have a current-render identity separate from
+  numeric transaction ownership. Rebuilding or replacing the panel retires
+  its checkbox/text/dropdown callbacks, clipboard/delete/transform actions and
+  drawing defaults, even when the same objects remain selected. Pending
+  numeric completion retains its existing lifetime. PCB shape controls check
+  binding disposal before discrete callbacks can update controls or rebuild
+  the panel, not merely before they mutate the model.
 - Schematic focused Delete and shape context menus share node/segment deletion
   actions; without refinement, Delete still removes the entire selection.
   Shape removal/replacement finishes selection and refinement cleanup after

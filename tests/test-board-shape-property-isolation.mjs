@@ -26,6 +26,7 @@ class Element {
 }
 const fields = new Map();
 const items = {
+    contains(target) { return [...fields.values()].includes(target); },
     set innerHTML(html) {
         if ([...fields.values()].includes(document.activeElement)) document.activeElement = document.body;
         fields.clear();
@@ -349,6 +350,27 @@ for (const [kind, id, value] of cases) {
 }
 console.log('PASS exact no-op properties preserve redo and disposed controls cannot restart previews');
 
+for (const replacement of ['refresh', 'selection']) {
+    const { app, model, shapes, unrelated } = fixture('cornerRadius');
+    const retiredLayer = fields.get('pcbPropShapeLayer'), retiredFill = fields.get('pcbPropShapeFilled');
+    const currentShape = replacement === 'selection' ? unrelated[0] : shapes[0];
+    setPcbSelection(app, [{ kind: 'shape', object: currentShape }]);
+    showBoardShapeProperties(app, currentShape);
+    const currentWidth = fields.get('pcbPropShapeLineWidth'), before = model.captureGeometry();
+    retiredFill.checked = true; retiredFill.fire('change');
+    retiredLayer.value = 'bottom-silk'; retiredLayer.fire('change');
+    assert.deepEqual(model.captureGeometry(), before);
+    assert.equal(app.history.undoStack.length, 0);
+    assert.equal(fields.get('pcbPropShapeLineWidth'), currentWidth, 'Retired PCB controls cannot replace the current Properties panel');
+    const currentLayer = fields.get('pcbPropShapeLayer');
+    currentLayer.value = 'bottom-silk'; currentLayer.fire('change');
+    assert.equal(currentShape.layer, 'bottom-silk', 'Current layer controls still work');
+    assert.equal(app.history.undoStack.length, 1);
+    app.history.undo();
+    assert.deepEqual(model.captureGeometry(), before);
+    cancelPictureCopperRefresh(app);
+}
+
 {
     const { app, model, shapes } = fixture('imageWidth');
     const width = fields.get('pcbPropImageWidth'), height = fields.get('pcbPropImageHeight');
@@ -586,6 +608,137 @@ for (const closed of [false, true]) for (const boundary of ['uniform', 'width', 
     }
 }
 console.log('PASS numeric segment straightening cleans collinear nodes at commit with exact cancellation and history');
+
+for (const kind of ['arcBulge', 'segmentBulge']) for (const completion of ['field', 'prepare', 'commit']) {
+    const { app, model, shapes } = fixture(kind);
+    const shape = shapes[0];
+    if (kind === 'segmentBulge') {
+        shape.kind = 'line';
+        shape.points = [{ x: 0, y: 0 }, { x: 10, y: 0 }, { x: 20, y: 0 }, { x: 30, y: 0 }];
+        shape.segmentBulges = { 1: 0.25 };
+        app._selectedBoardShapeSegment = { shapeId: shape.id, segment: 1 };
+        showBoardShapeProperties(app, shape);
+    }
+    const before = model.captureGeometry(), width = shape.lineWidth;
+    const binding = app._boardShapePropertyBinding;
+    const bulge = fields.get('pcbPropShapeBulge'), next = fields.get('pcbPropShapeLineWidth');
+    bulge.focus();
+    bulge.value = '0'; bulge.fire('input');
+    assert.deepEqual(model.captureGeometry(), before);
+    if (completion === 'field') {
+        next.focus(); next.value = '0.8'; next.fire('input');
+    } else binding[completion]();
+    assert.equal(shape.kind, 'line', 'Every completion path normalizes a straightened arc');
+    assert.equal(shape.points.length, 2, 'Every completion path removes newly redundant nodes');
+    assert.equal(fields.has('pcbPropShapeBulge'), false, 'Structural completion removes obsolete controls');
+    assert.equal(binding.disposed, true, 'The old form cannot continue an action against changed geometry');
+    assert.notEqual(fields.get('pcbPropShapeLineWidth'), next);
+    assert.equal(shape.lineWidth, width);
+    assert.equal(app.history.undoStack.length, 1);
+    assert.equal(app._boardShapePropertyBinding.active, false);
+    const after = model.captureGeometry();
+    bulge.fire('blur'); next.fire('change');
+    await Promise.resolve();
+    assert.deepEqual(model.captureGeometry(), after, 'Delayed events cannot alter the completed straight line');
+    app.history.undo();
+    assert.deepEqual(model.captureGeometry(), before);
+    app.history.redo();
+    assert.deepEqual(model.captureGeometry(), after);
+    document.activeElement = document.body;
+    cancelPictureCopperRefresh(app);
+}
+
+for (const kind of ['cornerRadius', 'imageWidth']) for (const completion of ['change', 'blur']) {
+    for (const withinPanel of [false, true]) {
+        const { app, model } = fixture(kind);
+        const previousId = kind === 'imageWidth' ? 'pcbPropImageWidth' : 'pcbPropShapeLineWidth';
+        const nextId = kind === 'imageWidth' ? 'pcbPropImageHeight' : 'pcbPropShapeCornerRadius';
+        const previous = fields.get(previousId), next = fields.get(nextId);
+        const before = model.captureGeometry();
+        previous.focus();
+        previous.value = kind === 'imageWidth' ? '20' : '0.8'; previous.fire('input');
+        if (withinPanel) next.focus();
+        else document.activeElement = document.body;
+        previous.fire(completion);
+        await Promise.resolve();
+        assert.equal(app.history.undoStack.length, 1);
+        if (withinPanel) {
+            assert.ok(document.activeElement === next, 'Finishing the previous field must retain focus in Properties');
+            assert.equal(fields.get(nextId), next, 'A pending commit must not replace the next field before typing starts');
+            next.value = kind === 'imageWidth' ? '18' : '2'; next.fire('input'); next.fire('change');
+            assert.equal(app.history.undoStack.length, 2);
+            document.activeElement = document.body;
+            app.history.undo();
+        } else assert.notEqual(fields.get(nextId), next, 'Leaving Properties retains the normal rebuild');
+        app.history.undo();
+        assert.deepEqual(model.captureGeometry(), before);
+        cancelPictureCopperRefresh(app);
+    }
+}
+
+for (const kind of ['cornerRadius', 'imageWidth', 'arcBulge']) {
+    for (const completion of ['field', 'prepare', 'commit']) {
+        const { app, model } = fixture(kind);
+        const before = model.captureGeometry();
+        const binding = app._boardShapePropertyBinding;
+        const previous = fields.get(kind === 'imageWidth' ? 'pcbPropImageWidth'
+            : kind === 'arcBulge' ? 'pcbPropShapeBulge' : 'pcbPropShapeLineWidth');
+        const next = fields.get(kind === 'imageWidth' ? 'pcbPropImageHeight'
+            : kind === 'arcBulge' ? 'pcbPropShapeLineWidth' : 'pcbPropShapeCornerRadius');
+        previous.focus();
+        previous.value = kind === 'imageWidth' ? '20' : kind === 'arcBulge' ? '0' : '0.8';
+        previous.fire('input');
+        previous.value = ''; previous.fire('input'); previous.fire('blur');
+        if (completion === 'field') {
+            next.focus(); next.value = kind === 'imageWidth' ? '18' : '1.5'; next.fire('input');
+        } else binding[completion]();
+        assert.deepEqual(model.captureGeometry(), before, 'Invalid previous input must not commit its last valid preview');
+        assert.equal(app.history.undoStack.length, 0);
+        await Promise.resolve();
+        assert.equal(app.history.undoStack.length, 0);
+        if (completion === 'field') {
+            assert.ok(document.activeElement === next);
+            assert.equal(fields.get(kind === 'imageWidth' ? 'pcbPropImageHeight'
+                : kind === 'arcBulge' ? 'pcbPropShapeLineWidth' : 'pcbPropShapeCornerRadius'), next);
+            next.fire('change');
+            assert.equal(app.history.undoStack.length, 1);
+            const after = model.captureGeometry();
+            app.history.undo();
+            assert.deepEqual(model.captureGeometry(), before);
+            app.history.redo();
+            assert.deepEqual(model.captureGeometry(), after);
+        }
+        document.activeElement = document.body;
+        cancelPictureCopperRefresh(app);
+    }
+}
+
+for (const valid of [false, true]) {
+    const { app, model, shapes } = fixture('cornerRadius');
+    const shape = shapes[0], before = model.captureGeometry(), originalWidth = shape.lineWidth;
+    const width = fields.get('pcbPropShapeLineWidth'), fill = fields.get('pcbPropShapeFilled');
+    width.focus(); width.value = '0.8'; width.fire('input');
+    if (!valid) { width.value = ''; width.fire('input'); }
+    width.fire('blur');
+    fill.focus(); fill.checked = true; fill.fire('change');
+    assert.equal(app.history.undoStack.length, valid ? 2 : 1);
+    assert.equal(shape.lineWidth, valid ? 0.8 : originalWidth);
+    assert.equal(shape.filled, true);
+    const after = model.captureGeometry();
+    await Promise.resolve();
+    assert.deepEqual(model.captureGeometry(), after);
+    assert.equal(app.history.undoStack.length, valid ? 2 : 1);
+    document.activeElement = document.body;
+    app.history.undo();
+    assert.equal(shape.filled, false);
+    assert.equal(shape.lineWidth, valid ? 0.8 : originalWidth);
+    if (valid) app.history.undo();
+    assert.deepEqual(model.captureGeometry(), before);
+    if (valid) app.history.redo();
+    app.history.redo();
+    assert.deepEqual(model.captureGeometry(), after);
+    cancelPictureCopperRefresh(app);
+}
 
 {
     const { app, shapes } = fixture('cornerRadius');

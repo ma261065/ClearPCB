@@ -17,13 +17,21 @@ export function redrawPropertyPreview(targets, adapter) {
 export function createPropertyBinding({ beforeActivate = () => {}, onDispose = () => {} } = {}) {
     let disposed = false;
     let active = null;
+    const completions = new WeakMap();
+    const finish = (preview, options) => {
+        if (!preview) return false;
+        const complete = completions.get(preview);
+        return complete ? complete(options) : preview.commit(options);
+    };
     const binding = {
         committing: false,
         get active() { return !!active?.active; },
         get disposed() { return disposed; },
+        registerCompletion(preview, complete) { completions.set(preview, complete); },
         activate(preview) {
             if (disposed) return false;
-            if (active && active !== preview) active.commit({ rebuild: false });
+            if (active && active !== preview) finish(active, { rebuild: false });
+            if (disposed) return false;
             binding.committing = true;
             try { beforeActivate(); } finally { binding.committing = false; }
             if (disposed) return false;
@@ -31,11 +39,11 @@ export function createPropertyBinding({ beforeActivate = () => {}, onDispose = (
             return true;
         },
         release(preview) { if (active === preview) active = null; },
-        commit(options) { return active?.commit(options) || false; },
+        commit(options) { return finish(active, options) || false; },
         cancel() { return active?.cancel() || false; },
         prepare() {
             if (disposed) return false;
-            active?.commit({ rebuild: false });
+            finish(active, { rebuild: false });
             return !disposed;
         },
         dispose() {
@@ -49,22 +57,27 @@ export function createPropertyBinding({ beforeActivate = () => {}, onDispose = (
 }
 
 export function commitPropertyPreviewInput(input, preview, {
-    forceRebuild = false, isCurrent = () => true,
+    forceRebuild = false, isCurrent = () => true, focusRoot = null,
     commit = options => preview.commit(options), refresh = () => {},
 } = {}) {
     const current = isCurrent();
     if (!current && !preview.active) return false;
+    const keepFocus = document.activeElement === input || focusRoot?.contains?.(document.activeElement);
     const changed = Number.isFinite(parseFloat(input.value))
-        ? commit({ rebuild: current && (forceRebuild || document.activeElement !== input) })
+        ? commit({ rebuild: current && (forceRebuild || !keepFocus) })
         : preview.cancel();
     if (current) refresh();
     return changed;
 }
 
 export function bindPropertyPreviewInput(input, preview, {
-    isCurrent = () => true, commit = options => preview.commit(options),
+    binding = null, isCurrent = () => true, focusRoot = null, commit = options => preview.commit(options),
     refresh = () => {}, onCancel = refresh,
 } = {}) {
+    const finish = options => commitPropertyPreviewInput(input, preview, {
+        isCurrent, focusRoot, refresh, commit: settings => commit({ ...settings, ...options }),
+    });
+    if (input) binding?.registerCompletion(preview, finish);
     input?.addEventListener('keydown', event => {
         if (!isCurrent() || event.key !== 'Escape' || !preview.cancel()) return;
         event.preventDefault();
@@ -73,7 +86,7 @@ export function bindPropertyPreviewInput(input, preview, {
     });
     input?.addEventListener('blur', () => {
         queueMicrotask(() => {
-            if (preview.active) commitPropertyPreviewInput(input, preview, { isCurrent, commit, refresh });
+            if (preview.active) finish();
         });
     });
 }

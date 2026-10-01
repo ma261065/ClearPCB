@@ -11,8 +11,8 @@ import { redrawPropertyPreview, createPropertyPreview, createPropertyBinding,
     commitPropertyPreviewInput, bindPropertyPreviewInput } from '../../shapes/property-preview.js';
 import { canRoundPathNode } from '../../shapes/path-geometry.js';
 
-// Keep pending blur completion attached to its original field across panel rebuilds.
-const propertyBindings = new WeakMap();
+// Retire panel callbacks on rebuild without losing pending numeric completion.
+const propertyPanels = new WeakMap();
 
 /**
  * Initializes the properties panel and subscribes to `selectionChanged`
@@ -102,7 +102,7 @@ function wireNetNames(app) {
 }
 
 /** Append an editable Net field with suggestions from the current schematic. */
-function appendWireNetField(app, content, id, value, onChange, { allowAuto = false } = {}) {
+function appendWireNetField(app, content, id, value, onChange, { allowAuto = false, isCurrent = () => true } = {}) {
     const row = document.createElement('div');
     row.className = 'prop-row';
     const label = document.createElement('label');
@@ -122,7 +122,9 @@ function appendWireNetField(app, content, id, value, onChange, { allowAuto = fal
         option.value = net;
         list.appendChild(option);
     }
-    input.addEventListener('change', () => onChange(input.value.trim()));
+    input.addEventListener('change', () => {
+        if (isCurrent()) onChange(input.value.trim());
+    });
     row.append(label, input, list);
     content.appendChild(row);
 }
@@ -140,15 +142,16 @@ const NEW_SHAPE_TOOLS = new Map([
 ]);
 
 /** Render drawing defaults in Properties before a geometric shape is placed. */
-function renderNewShapeProperties(app, panel, tool) {
+function renderNewShapeProperties(app, panel, tool, isCurrent) {
     const label = NEW_SHAPE_TOOLS.get(tool);
     if (!label) return false;
+    const canEdit = () => isCurrent() && app.currentTool === tool;
 
     const sec = _createSection(`New ${label}`);
     if (tool === 'wire') {
         appendWireNetField(app, sec.content, 'prop_newWireNet', app.toolOptions?.wireNet, (net) => {
             app.toolOptions.wireNet = net;
-        }, { allowAuto: true });
+        }, { allowAuto: true, isCurrent: canEdit });
         panel.appendChild(sec.group);
         return true;
     }
@@ -171,6 +174,7 @@ function renderNewShapeProperties(app, panel, tool) {
         const optionKey = tool === 'text' ? 'fontSize' : 'netFontSize';
         fontSizeInput.value = String(app.toolOptions?.[optionKey] ?? (tool === 'text' ? 2 : 1.4));
         fontSizeInput.addEventListener('change', () => {
+            if (!canEdit()) return;
             const value = Number(fontSizeInput.value);
             if (!Number.isFinite(value)) return;
             app.toolOptions[optionKey] = Math.min(50, Math.max(0.5, value));
@@ -195,6 +199,7 @@ function renderNewShapeProperties(app, panel, tool) {
     lineWidthInput.step = '0.05';
     lineWidthInput.value = String(app.toolOptions?.lineWidth ?? 0.2);
     lineWidthInput.addEventListener('change', () => {
+        if (!canEdit()) return;
         const value = Number(lineWidthInput.value);
         if (!Number.isFinite(value)) return;
         app.toolOptions.lineWidth = Math.min(5, Math.max(0.05, value));
@@ -210,7 +215,9 @@ function renderNewShapeProperties(app, panel, tool) {
     fillInput.type = 'checkbox';
     fillInput.id = 'prop_newShapeFill';
     fillInput.checked = !!app.toolOptions?.fill;
-    fillInput.addEventListener('change', () => { app.toolOptions.fill = fillInput.checked; });
+    fillInput.addEventListener('change', () => {
+        if (canEdit()) app.toolOptions.fill = fillInput.checked;
+    });
     fillLabel.append(fillInput, ' Fill');
     fillRow.appendChild(fillLabel);
     sec.content.appendChild(fillRow);
@@ -230,20 +237,22 @@ function renderNewShapeProperties(app, panel, tool) {
 export function updatePropertiesPanel(app, selection) {
     const panel = app.ui.propertiesPanel;
     if (!panel) return;
-    let binding = propertyBindings.get(panel);
-    if (!binding) {
-        binding = createPropertyBinding();
-        propertyBindings.set(panel, binding);
-    }
+    const binding = propertyPanels.get(panel)?.binding || createPropertyBinding();
+    const currentPanel = { binding };
+    propertyPanels.set(panel, currentPanel);
     const refreshControls = [];
     const isCurrentSelection = () => {
+        if (app.ui.propertiesPanel !== panel || propertyPanels.get(panel) !== currentPanel) return false;
         const current = app.selection.getSelection();
         return current.length === selection.length && current.every((item, index) => item === selection[index]);
+    };
+    const applyProperty = (key, value) => {
+        if (isCurrentSelection()) applyCommonProperty(app, key, value);
     };
 
     // Clear previous content
     panel.innerHTML = '';
-    if (selection.length === 0 && renderNewShapeProperties(app, panel, app.currentTool)) return;
+    if (selection.length === 0 && renderNewShapeProperties(app, panel, app.currentTool, isCurrentSelection)) return;
     const singleWire = selection.length === 1 && selection[0].type === 'wire' ? selection[0] : null;
     const selectedSegment = selection.length === 1
         && selection[0].type === 'polyline'
@@ -314,8 +323,8 @@ export function updatePropertiesPanel(app, selection) {
                             app._updatePropertiesPanel?.(selection);
                             return;
                         }
-                        applyCommonProperty(app, 'net', net);
-                    });
+                        applyProperty('net', net);
+                    }, { isCurrent: isCurrentSelection });
                 }
             }
 
@@ -355,7 +364,7 @@ export function updatePropertiesPanel(app, selection) {
                         lbl.style.pointerEvents = 'none';
                     }
                     input.addEventListener('change', () => {
-                        applyCommonProperty(app, desc.key, input.checked);
+                        applyProperty(desc.key, input.checked);
                     });
                     lbl.appendChild(input);
                     lbl.append(` ${desc.label}`);
@@ -496,7 +505,7 @@ export function updatePropertiesPanel(app, selection) {
                         });
                     };
                     const commitPreview = () => commitPropertyPreviewInput(input, preview, {
-                        isCurrent: isCurrentControl, refresh: refreshCurrentControls,
+                        isCurrent: isCurrentControl, focusRoot: panel, refresh: refreshCurrentControls,
                     });
                     input.addEventListener('change', () => {
                         if (!isCurrentControl()) return;
@@ -528,7 +537,7 @@ export function updatePropertiesPanel(app, selection) {
                         previewValue(v);
                     });
                     bindPropertyPreviewInput(input, preview, {
-                        isCurrent: isCurrentControl, refresh: refreshCurrentControls,
+                        binding, isCurrent: isCurrentControl, focusRoot: panel, refresh: refreshCurrentControls,
                         onCancel: () => app._updatePropertiesPanel?.(selection),
                     });
                     if (disabled) {
@@ -563,7 +572,7 @@ export function updatePropertiesPanel(app, selection) {
                         input.style.opacity = '0.7';
                     } else {
                         input.addEventListener('change', () => {
-                            applyCommonProperty(app, desc.key, input.value);
+                            applyProperty(desc.key, input.value);
                         });
                     }
                     row.appendChild(input);
@@ -597,7 +606,7 @@ export function updatePropertiesPanel(app, selection) {
                             // Convert to number if the option values are numeric
                             const num = parseFloat(v);
                             if (!Number.isNaN(num) && String(num) === v) v = num;
-                            applyCommonProperty(app, desc.key, v);
+                            applyProperty(desc.key, v);
                         });
                     }
                     row.appendChild(select);
@@ -628,7 +637,7 @@ export function updatePropertiesPanel(app, selection) {
                 if (allSameRot && curRot === 0) hBtn.classList.add('active');
                 if (allLocked) hBtn.disabled = true;
                 hBtn.addEventListener('click', () => {
-                    applyCommonProperty(app, 'rotation', 0);
+                    applyProperty('rotation', 0);
                 });
                 const vBtn = document.createElement('button');
                 vBtn.textContent = 'V';
@@ -637,7 +646,7 @@ export function updatePropertiesPanel(app, selection) {
                 if (allSameRot && curRot === 270) vBtn.classList.add('active');
                 if (allLocked) vBtn.disabled = true;
                 vBtn.addEventListener('click', () => {
-                    applyCommonProperty(app, 'rotation', 270);
+                    applyProperty('rotation', 270);
                 });
                 hvBtns.appendChild(hBtn);
                 hvBtns.appendChild(vBtn);
@@ -698,7 +707,7 @@ export function updatePropertiesPanel(app, selection) {
             rotLeftBtn.addEventListener('click', () => {
                 const cur = selection[0].orientation || 'E';
                 const next = rotateNetOrientation(rotateNetOrientation(rotateNetOrientation(cur)));
-                applyCommonProperty(app, 'orientation', next);
+                applyProperty('orientation', next);
             });
             div.appendChild(rotLeftBtn);
 
@@ -710,7 +719,7 @@ export function updatePropertiesPanel(app, selection) {
             rotRightBtn.addEventListener('click', () => {
                 const cur = selection[0].orientation || 'E';
                 const next = rotateNetOrientation(cur);
-                applyCommonProperty(app, 'orientation', next);
+                applyProperty('orientation', next);
             });
             div.appendChild(rotRightBtn);
         }
@@ -787,54 +796,56 @@ export function updatePropertiesPanel(app, selection) {
     }
 
     // Rebind action buttons (ids are used by ribbon.js / callbacks.js)
-    _bindActionButtons(app);
+    _bindActionButtons(app, isCurrentSelection);
 }
 
 // ── action button rebinding ──────────────────────────────────────
 
-function _bindActionButtons(app) {
+function _bindActionButtons(app, isCurrent) {
     const deleteBtn = document.getElementById('ribbonDelete');
     if (deleteBtn) {
-        deleteBtn.addEventListener('click', () => app._deleteSelected());
+        deleteBtn.addEventListener('click', () => { if (isCurrent()) app._deleteSelected(); });
     }
     const decomposeBtn = document.getElementById('propDecomposeCorners');
     if (decomposeBtn) {
         decomposeBtn.addEventListener('click', () => {
+            if (!isCurrent()) return;
             const sel = app.selection?.getSelection?.() || [];
             if (sel.length === 1) decomposeShapeCorners(app, sel[0]);
         });
     }
     const cutBtn = document.getElementById('propCut');
     if (cutBtn) {
-        cutBtn.addEventListener('click', () => app._cutSelection());
+        cutBtn.addEventListener('click', () => { if (isCurrent()) app._cutSelection(); });
     }
     const copyBtn = document.getElementById('propCopy');
     if (copyBtn) {
-        copyBtn.addEventListener('click', () => app._copySelection());
+        copyBtn.addEventListener('click', () => { if (isCurrent()) app._copySelection(); });
     }
     const pasteBtn = document.getElementById('propPaste');
     if (pasteBtn) {
-        pasteBtn.addEventListener('click', () => app._pasteClipboard());
+        pasteBtn.addEventListener('click', () => { if (isCurrent()) app._pasteClipboard(); });
     }
     const rotLeftBtn = document.getElementById('propRotateLeft');
     if (rotLeftBtn) {
-        rotLeftBtn.addEventListener('click', () => app._rotateComponentLeft());
+        rotLeftBtn.addEventListener('click', () => { if (isCurrent()) app._rotateComponentLeft(); });
     }
     const rotRightBtn = document.getElementById('propRotateRight');
     if (rotRightBtn) {
-        rotRightBtn.addEventListener('click', () => app._rotateComponentRight());
+        rotRightBtn.addEventListener('click', () => { if (isCurrent()) app._rotateComponentRight(); });
     }
     const flipHBtn = document.getElementById('propFlipH');
     if (flipHBtn) {
-        flipHBtn.addEventListener('click', () => app._flipComponentH());
+        flipHBtn.addEventListener('click', () => { if (isCurrent()) app._flipComponentH(); });
     }
     const flipVBtn = document.getElementById('propFlipV');
     if (flipVBtn) {
-        flipVBtn.addEventListener('click', () => app._flipComponentV());
+        flipVBtn.addEventListener('click', () => { if (isCurrent()) app._flipComponentV(); });
     }
     const show3dBtn = document.getElementById('propShow3D');
     if (show3dBtn) {
         show3dBtn.addEventListener('click', async () => {
+            if (!isCurrent()) return;
             const sel = app.selection?.getSelection?.() || [];
             const comp = sel.length === 1 ? sel[0] : null;
             const modelData = comp?.definition;
@@ -860,6 +871,7 @@ function _bindActionButtons(app) {
  * @param {*} value - New value for the property.
  */
 export function applyCommonProperty(app, prop, value) {
+    if (propertyPanels.get(app.ui?.propertiesPanel)?.binding.prepare() === false) return;
     const selection = app.selection.getSelection();
     if (selection.length === 0) return;
 

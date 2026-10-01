@@ -4,6 +4,7 @@ import { SelectionManager } from '../src/core/SelectionManager.js';
 import { createRect, createLine, createPolygon } from '../src/shapes/polyline.js';
 import { Circle } from '../src/shapes/circle.js';
 import { Text } from '../src/shapes/text.js';
+import { Net } from '../src/shapes/net.js';
 
 class Element {
     constructor(tag) {
@@ -235,6 +236,35 @@ for (const refinement of ['whole', 'node', 'segment']) {
         assert.deepEqual(rectangle.captureState(), before);
     } finally { dispose(); }
 }
+for (const completion of ['change', 'blur']) for (const withinPanel of [false, true]) {
+    const shape = createRect({ width: 10, height: 10, lineWidth: 0.2, cornerRadius: 0.5 });
+    const { app, dispose, keydown } = fixture([shape]);
+    try {
+        const previous = document.getElementById('prop_lineWidth');
+        const next = document.getElementById('prop_cornerRadius');
+        const before = shape.captureState();
+        previous.focus();
+        previous.value = '0.8'; previous.fire('input');
+        if (withinPanel) next.focus();
+        else document.activeElement = document.body;
+        previous.fire(completion);
+        await Promise.resolve();
+        assert.equal(app.history.undoStack.length, 1);
+        assert.equal(shape.lineWidth, 0.8);
+        if (withinPanel) {
+            assert.ok(document.activeElement === next, 'Finishing the previous field must retain focus in Properties');
+            assert.equal(document.getElementById(next.id), next);
+            assert.equal(keydown('ArrowUp').defaultPrevented, false, 'The next field, not canvas nudging, owns the arrow');
+            next.value = '1.5'; next.fire('input'); next.fire('change');
+            assert.equal(app.history.undoStack.length, 2);
+            app.history.undo();
+            assert.equal(shape.lineWidth, 0.8);
+        } else assert.notEqual(document.getElementById(next.id), next, 'Leaving Properties retains the normal rebuild');
+        app.history.undo();
+        assert.deepEqual(shape.captureState(), before);
+    } finally { dispose(); }
+}
+
 for (const nextProperty of ['cornerRadius', 'lineWidth']) {
     const shape = createRect({ width: 10, height: 10, lineWidth: 0.2, cornerRadius: 0.5 });
     const { app, dispose } = fixture([shape]);
@@ -264,6 +294,139 @@ for (const nextProperty of ['cornerRadius', 'lineWidth']) {
         assert.deepEqual(shape.captureState(), before);
         app.history.redo(); app.history.redo();
         assert.deepEqual(shape.captureState(), after);
+    } finally { dispose(); }
+}
+
+for (const invalid of ['', '-']) {
+    const shape = createRect({ width: 10, height: 10, lineWidth: 0.2, cornerRadius: 0.5 });
+    const { app, dispose } = fixture([shape]);
+    try {
+        const width = document.getElementById('prop_lineWidth');
+        const radius = document.getElementById('prop_cornerRadius');
+        const before = shape.captureState();
+        width.focus(); width.value = '0.8'; width.fire('input');
+        width.value = invalid; width.fire('input'); width.fire('blur');
+        radius.focus(); radius.value = '1.5'; radius.fire('input');
+        assert.equal(shape.lineWidth, before.lineWidth, 'Invalid previous input cancels rather than committing its last valid preview');
+        assert.equal(app.history.undoStack.length, 0);
+        await Promise.resolve();
+        assert.equal(shape.cornerRadius, 1.5);
+        assert.equal(Number(radius.value), 1.5);
+        assert.ok(document.activeElement === radius);
+        radius.fire('change');
+        assert.equal(app.history.undoStack.length, 1);
+        const after = shape.captureState();
+        app.history.undo();
+        assert.deepEqual(shape.captureState(), before);
+        app.history.redo();
+        assert.deepEqual(shape.captureState(), after);
+    } finally { dispose(); }
+}
+
+for (const property of ['fill', 'text', 'style']) for (const valid of [false, true]) {
+    const shape = property === 'fill' ? new Circle({ radius: 5, lineWidth: 0.2 })
+        : property === 'text' ? new Text({ text: 'Before' }) : new Net({ net: 'VCC' });
+    const { app, dispose } = fixture([shape]);
+    try {
+        const numericProperty = property === 'fill' ? 'lineWidth' : 'fontSize';
+        const input = document.getElementById(`prop_${numericProperty}`);
+        const before = shape.captureState(), originalProperty = shape[property], originalNumber = shape[numericProperty];
+        const allElements = element => [element, ...element.children.flatMap(allElements)];
+        const discrete = property === 'fill'
+            ? allElements(app.ui.propertiesPanel).filter(element => element.type === 'checkbox').at(-1)
+            : document.getElementById(`prop_${property}`);
+        const number = property === 'fill' ? 0.8 : 3;
+        const value = property === 'fill' ? true : property === 'text' ? 'After' : 'gnd';
+        input.focus(); input.value = String(number); input.fire('input');
+        if (!valid) { input.value = ''; input.fire('input'); }
+        input.fire('blur');
+        discrete.focus();
+        if (property === 'fill') discrete.checked = value;
+        else discrete.value = value;
+        discrete.fire('change');
+        assert.equal(app.history.undoStack.length, valid ? 2 : 1,
+            'A discrete action settles the preceding numeric edit before executing');
+        assert.equal(shape[numericProperty], valid ? number : originalNumber);
+        assert.equal(shape[property], value);
+        const after = shape.captureState();
+        await Promise.resolve();
+        assert.deepEqual(shape.captureState(), after, 'Deferred numeric blur cannot absorb the discrete property edit');
+        assert.equal(app.history.undoStack.length, valid ? 2 : 1);
+        app.history.undo();
+        assert.equal(shape[property], originalProperty, 'First Undo reverses only the discrete property');
+        assert.equal(shape[numericProperty], valid ? number : originalNumber);
+        if (valid) app.history.undo();
+        assert.deepEqual(shape.captureState(), before);
+        if (valid) app.history.redo();
+        app.history.redo();
+        assert.deepEqual(shape.captureState(), after);
+    } finally { dispose(); }
+}
+
+for (const property of ['fill', 'text', 'style']) for (const replacement of ['refresh', 'selection', 'panel']) {
+    const create = () => property === 'fill' ? new Circle({ radius: 5 })
+        : property === 'text' ? new Text({ text: 'Before' }) : new Net({ net: 'VCC' });
+    const shape = create();
+    const { app, dispose } = fixture([shape]);
+    try {
+        const allElements = element => [element, ...element.children.flatMap(allElements)];
+        const control = () => property === 'fill'
+            ? allElements(app.ui.propertiesPanel).filter(element => element.type === 'checkbox').at(-1)
+            : document.getElementById(`prop_${property}`);
+        const retired = control();
+        const retiredDelete = document.getElementById('ribbonDelete');
+        const retiredCopy = document.getElementById('propCopy');
+        let deletes = 0, copies = 0;
+        app._deleteSelected = () => { deletes++; };
+        app._copySelection = () => { copies++; };
+        if (replacement === 'selection') {
+            const next = create();
+            app.shapes.push(next);
+            app.selection.setShapes(app.shapes);
+            app.selection.select(next, false);
+        } else if (replacement === 'panel') {
+            document.body.innerHTML = '';
+            app.ui.propertiesPanel = new Element('div');
+            document.body.appendChild(app.ui.propertiesPanel);
+        }
+        app._updatePropertiesPanel(app.selection.getSelection());
+        const current = control(), before = app.shapes.map(item => item.captureState()), initialChildren = app.ui.propertiesPanel.children;
+        if (property === 'fill') retired.checked = true;
+        else retired.value = property === 'text' ? 'Stale' : 'gnd';
+        retired.fire('change'); retiredDelete.fire('click'); retiredCopy.fire('click');
+        assert.deepEqual(app.shapes.map(item => item.captureState()), before, 'Replaced controls cannot edit the current selection');
+        assert.equal(app.history.undoStack.length, 0);
+        assert.equal(deletes, 0, 'Replaced Delete cannot operate on a newer selection');
+        assert.equal(copies, 0);
+        assert.equal(control(), current);
+        assert.equal(app.ui.propertiesPanel.children, initialChildren, 'Stale callbacks cannot rebuild Properties');
+        document.getElementById('propCopy').fire('click');
+        assert.equal(copies, 1, 'Current action buttons still operate');
+        if (property === 'fill') current.checked = true;
+        else current.value = property === 'text' ? 'After' : 'gnd';
+        current.fire('change');
+        assert.equal(app.history.undoStack.length, 1);
+    } finally { dispose(); }
+}
+
+for (const [tool, nextTool, id, key, value] of [
+    ['circle', 'rect', 'prop_newShapeLineWidth', 'lineWidth', '0.5'],
+    ['text', 'net', 'prop_newShapeFontSize', 'netFontSize', '3'],
+    ['wire', 'wire', 'prop_newWireNet', 'wireNet', 'GND'],
+]) {
+    const options = { lineWidth: 0.2, fill: false, fontSize: 2, netFontSize: 1.4, wireNet: 'VCC' };
+    const { app, dispose } = fixture([], { currentTool: tool, toolOptions: { ...options } });
+    try {
+        const retired = document.getElementById(id);
+        const retiredFill = document.getElementById('prop_newShapeFill');
+        app.currentTool = nextTool;
+        app._updatePropertiesPanel([]);
+        retired.value = value; retired.fire('change');
+        if (retiredFill) { retiredFill.checked = true; retiredFill.fire('change'); }
+        assert.deepEqual(app.toolOptions, options, 'Old drawing defaults cannot change the current tool');
+        const current = document.getElementById(id);
+        current.value = value; current.fire('change');
+        assert.equal(app.toolOptions[key], key === 'wireNet' ? value : Number(value));
     } finally { dispose(); }
 }
 
@@ -331,6 +494,33 @@ for (const replacement of ['escape', 'commit', 'refresh', 'selection']) {
         await Promise.resolve();
         assert.deepEqual(shape.captureState(), after, 'A removed Bulge control cannot curve the straightened segment again');
         assert.equal(app.history.undoStack.length, 1);
+    } finally { dispose(); }
+}
+
+{
+    const shape = createLine({ points: [{ x: 0, y: 0 }, { x: 10, y: 0 }, { x: 20, y: 0 }, { x: 30, y: 0 }] });
+    shape.setEdgeAttr('e1', 'bulge', 0.25);
+    const { app, dispose } = fixture([shape], { _selectedShapeSegment: { shapeId: shape.id, edgeId: 'e1' } });
+    try {
+        const before = shape.captureState();
+        const bulge = document.getElementById('prop_bulge');
+        const next = document.getElementById('prop_lineWidth');
+        bulge.focus(); bulge.value = '0'; bulge.fire('input');
+        next.focus(); next.value = '0.8'; next.fire('input');
+        assert.equal(shape.nodes.size, 2, 'Field handoff finalizes the previous segment before starting another edit');
+        assert.equal(shape.lineWidth, before.lineWidth);
+        assert.equal(document.getElementById('prop_bulge'), null);
+        assert.notEqual(document.getElementById('prop_lineWidth'), next);
+        assert.equal(app._selectedShapeSegment, null);
+        assert.equal(app.history.undoStack.length, 1);
+        const after = shape.captureState();
+        bulge.fire('blur'); next.fire('change');
+        await Promise.resolve();
+        assert.deepEqual(shape.captureState(), after);
+        app.history.undo();
+        assert.deepEqual(shape.captureState(), before);
+        app.history.redo();
+        assert.deepEqual(shape.captureState(), after);
     } finally { dispose(); }
 }
 
