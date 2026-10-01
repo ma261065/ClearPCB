@@ -3,7 +3,7 @@
 /** @type {WeakMap<object, FillPolygons>} */
 const computedFills = new WeakMap();
 
-/** Null means pending/failed; an empty array is a successfully computed empty pour. */
+/** Last published geometry; the editor may have a pending/failed refresh. Null means none, [] means empty. */
 export function getComputedFill(fill) {
     return computedFills.get(fill) ?? null;
 }

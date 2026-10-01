@@ -303,15 +303,34 @@ described below.
 Live computed pour polygons belong to `pcb/modules/computed-fill-cache.js`,
 an identity-keyed weak map outside authored `CopperFill` entities. SVG, flat 2D,
 3D, DRC, routing contacts, net propagation and ratsnest consumers read the same
-results. Null means pending/failed; an empty array means a successfully computed
-empty pour. Existing deferred-refresh timing is unchanged: previews can retain
-the previous result until their scheduled recomputation. Failed computations
-clear that result and log the error, while DRC retains its pending-pour report.
+results. Null means no completed result; an empty array means a successfully
+computed empty pour. Previews and outstanding refreshes retain the previous
+complete result. Failed computations retain settled artwork, leave refresh debt
+pending and report the error rather than displaying an empty or partial pour.
 Clones and loaded replacements do not inherit results, even with equal IDs.
 Detached fabrication snapshots intentionally retain their own `_computed`
 transfer field and recompute from captured authored geometry rather than using
 the live preview cache. This does not remove the remaining inherited shape
 presentation methods or other entity-level derived caches.
+
+Scheduled live pours use `pcb/modules/fill-worker-client.js` and the module
+worker `fill-worker.js`. `fill-worker-geometry.js` captures detached,
+full-precision model inputs; image artwork is represented by its physical frame,
+matching the existing pour engine. The service allows one active job and one
+replaceable pending job. Generations, document/fill identities and lifecycle
+cancellation reject stale results; preview deferral retains settled holes.
+`fill-refresh.js` stages complete SVG results off-DOM before handing them over.
+Direct command recomputation remains synchronous; missing Worker support and
+reported transport failures use the synchronous fallback. Deactivation/load
+cancel live work, while terminal disposal prevents restarting the service.
+Snapshot capture, rendering and derived connectivity still run on the main
+thread; offloading clipping alone is not an end-to-end latency guarantee.
+The worker also transfers full-precision region/triangle bounds and earcut
+indices. Validated preparations attach only to the exact successfully adopted
+region identities; mutable authored shapes retain value validation, and
+unprepared synchronous regions retain lazy triangulation. DRC reports pending
+or failed refreshes even when settled display geometry is retained, rather than
+treating that older cache as a current successful pour.
 
 Ratsnest and bonded-Net traversal prepare contact geometry once per synchronous
 pass and share it between spatial filtering and exact contact tests. Resolved

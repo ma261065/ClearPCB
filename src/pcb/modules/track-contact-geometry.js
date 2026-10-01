@@ -5,6 +5,106 @@ import earcut from '../../../assets/vendor/earcut.module.js';
 
 const regionShapes = new WeakMap();
 const regionContacts = new WeakMap();
+const preparedRegions = new WeakMap();
+const validatedPreparations = new WeakSet();
+
+/** Worker-transferable triangles/bounds; region and payload become read-only after adoption. */
+export function prepareCopperRegionContact(region) {
+    const points = [region.outer, ...region.holes].flat();
+    let offset = region.outer.length;
+    const holes = region.holes.map(hole => {
+        const start = offset;
+        offset += hole.length;
+        return start;
+    });
+    const indices = new Uint32Array(earcut(points.flatMap(point => [point.x, point.y]), holes));
+    const bounds = new Float64Array([Infinity, Infinity, -Infinity, -Infinity]);
+    for (const point of region.outer) {
+        bounds[0] = Math.min(bounds[0], point.x); bounds[1] = Math.min(bounds[1], point.y);
+        bounds[2] = Math.max(bounds[2], point.x); bounds[3] = Math.max(bounds[3], point.y);
+    }
+    const triangleBounds = new Float64Array(indices.length / 3 * 4);
+    for (let index = 0, target = 0; index < indices.length; index += 3, target += 4) {
+        const a = points[indices[index]], b = points[indices[index + 1]], c = points[indices[index + 2]];
+        triangleBounds[target] = Math.min(a.x, b.x, c.x);
+        triangleBounds[target + 1] = Math.min(a.y, b.y, c.y);
+        triangleBounds[target + 2] = Math.max(a.x, b.x, c.x);
+        triangleBounds[target + 3] = Math.max(a.y, b.y, c.y);
+    }
+    return { region, indices, bounds, triangleBounds };
+}
+
+/** Validate once at the transport boundary, binding metadata to the exact returned region. */
+export function validateCopperRegionContact(region, prepared) {
+    if (prepared?.region !== region) throw new Error('Prepared copper contact belongs to a different region');
+    if (validatedPreparations.has(prepared)) return;
+    const { indices, bounds, triangleBounds } = prepared;
+    const count = region.outer.length + region.holes.reduce((sum, hole) => sum + hole.length, 0);
+    if (!(indices instanceof Uint32Array) || indices.length % 3
+        || !(bounds instanceof Float64Array) || bounds.length !== 4
+        || !(triangleBounds instanceof Float64Array) || triangleBounds.length !== indices.length / 3 * 4
+        || indices.some(index => index >= count)) throw new Error('Invalid prepared copper-contact triangles');
+    for (const values of [bounds, triangleBounds]) {
+        for (let index = 0; index < values.length; index += 4) {
+            if (!Number.isFinite(values[index]) || !Number.isFinite(values[index + 1])
+                || !Number.isFinite(values[index + 2]) || !Number.isFinite(values[index + 3])
+                || values[index] > values[index + 2] || values[index + 1] > values[index + 3]) {
+                throw new Error('Invalid prepared copper-contact bounds');
+            }
+        }
+    }
+    Object.freeze(prepared);
+    validatedPreparations.add(prepared);
+}
+
+const polygonGeometry = contour => ({ centerline: contour, areaOutline: contour, lineWidth: 0,
+    filled: true, pathClosed: true, strokeSegments: [], circle: null });
+const unpackBounds = (values, offset = 0) => ({
+    minX: values[offset], minY: values[offset + 1], maxX: values[offset + 2], maxY: values[offset + 3],
+});
+
+/** Adopt only validated, immutable worker results, never authored shapes or their metadata. */
+export function installCopperRegionContact(region, prepared) {
+    validateCopperRegionContact(region, prepared);
+    preparedRegions.set(region, {
+        prepared, contact: { region, geometry: polygonGeometry(region.outer), bounds: unpackBounds(prepared.bounds) },
+    });
+    regionContacts.delete(region);
+    const shape = regionShapes.get(region);
+    if (shape) Object.freeze(shape);
+}
+
+class PreparedTriangle {
+    constructor(points, prepared, index) {
+        this.points = points;
+        this.indices = prepared.indices;
+        this.index = index;
+        this.bounds = unpackBounds(prepared.triangleBounds, index / 3 * 4);
+    }
+    get geometry() {
+        return this._geometry ||= polygonGeometry([
+            this.points[this.indices[this.index]], this.points[this.indices[this.index + 1]],
+            this.points[this.indices[this.index + 2]],
+        ]);
+    }
+}
+
+function preparedTriangle(entry, index) {
+    const { prepared } = entry;
+    entry.points ||= [prepared.region.outer, ...prepared.region.holes].flat();
+    entry.triangles ||= new Array(prepared.indices.length / 3);
+    return entry.triangles[index] ||= new PreparedTriangle(entry.points, prepared, index * 3);
+}
+
+function preparedRegionTouches(entry, other, tolerance) {
+    const bounds = entry.prepared.triangleBounds, target = other.bounds;
+    for (let offset = 0; offset < bounds.length; offset += 4) {
+        if (bounds[offset + 2] + tolerance < target.minX || target.maxX + tolerance < bounds[offset]
+            || bounds[offset + 3] + tolerance < target.minY || target.maxY + tolerance < bounds[offset + 1]) continue;
+        if (copperGeometryTouches(preparedTriangle(entry, offset / 4).geometry, other.geometry)) return true;
+    }
+    return false;
+}
 
 export function pointInCopperRegion(point, region) {
     return pointInPolygon(point, region.outer)
@@ -16,6 +116,7 @@ export function copperRegionShape(region) {
     if (!shape) {
         shape = { kind: 'polygon', filled: true, lineWidth: 0, points: region.outer,
             region: region.holes ? region : { ...region, holes: [] } };
+        if (preparedRegions.has(region)) Object.freeze(shape);
         regionShapes.set(region, shape);
     }
     return shape;
@@ -29,6 +130,13 @@ export function copperSegmentShape(segment) {
 function contactsForRegion(region) {
     let contacts = regionContacts.get(region);
     if (!contacts) {
+        const entry = preparedRegions.get(region);
+        if (entry) {
+            contacts = Array.from({ length: entry.prepared.indices.length / 3 },
+                (_, index) => preparedTriangle(entry, index));
+            regionContacts.set(region, contacts);
+            return contacts;
+        }
         const points = [region.outer, ...region.holes].flat();
         let offset = region.outer.length;
         const holes = region.holes.map(hole => {
@@ -73,6 +181,8 @@ function equalInput(current, saved) {
 }
 
 export function resolveTrackContactGeometry(shape) {
+    const prepared = preparedRegions.get(shape.region);
+    if (prepared && regionShapes.get(shape.region) === shape) return prepared.contact;
     const previous = cache.get(shape);
     if (previous && previous.region === shape.region
         && geometryKeys.every((key) => equalInput(shape[key], previous.inputs[key]))) return previous;
@@ -129,6 +239,9 @@ export function copperContactsTouch(firstContact, secondContact) {
     if (!firstContact.region && !secondContact.region) {
         return copperGeometryTouches(firstGeometry, secondGeometry);
     }
+    const firstPrepared = preparedRegions.get(firstContact.region), secondPrepared = preparedRegions.get(secondContact.region);
+    if (firstPrepared && !secondContact.region) return preparedRegionTouches(firstPrepared, secondContact, tolerance);
+    if (secondPrepared && !firstContact.region) return preparedRegionTouches(secondPrepared, firstContact, tolerance);
     const regions = contact => contact.region ? contactsForRegion(contact.region) : [contact];
     for (const [a, b] of spatialCrossPairs(regions(firstContact), regions(secondContact),
         contact => contact.bounds, tolerance)) {

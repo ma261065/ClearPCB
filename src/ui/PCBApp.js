@@ -100,7 +100,7 @@ import { shapeOutline, normalizeShapeCopperMode, boardShapeRemovalPathD, boardSh
 import { hitTestPcbSelectionAnchor, renderPcbSelectionAnchors } from '../pcb/modules/selection-anchors.js';
 import { refreshAxisGlow } from '../pcb/modules/axis-glow.js';
 import { buildFillContext } from '../pcb/modules/fill-context.js';
-import { scheduleFillRefresh } from '../pcb/modules/fill-refresh.js';
+import { scheduleFillRefresh, recomputeFillsNow, invalidateFillRefresh, disposeFillRefresh } from '../pcb/modules/fill-refresh.js';
 import { hasAny3DModel, openComponent3DFromData, buildComponent3DTitle } from '../components/model3d-source.js';
 import {
     armBoxSelect,
@@ -141,8 +141,7 @@ import {
     getPadPropertyPreview, beginPadPropertyPreview, finishPadPropertyPreview, canonicalPad,
 } from '../pcb/modules/pad-commands.js';
 import '../pcb/modules/pad-selection.js';
-import { computeFillPolygons, loadClipper, isClipperReady, boardShapeClearanceOutlines, pcbTextClearanceOutlines } from '../pcb/modules/copper-fill-geom.js';
-import { setComputedFill } from '../pcb/modules/computed-fill-cache.js';
+import { boardShapeClearanceOutlines, pcbTextClearanceOutlines } from '../pcb/modules/copper-fill-geom.js';
 import { bindPictureRefreshHold, schedulePictureCopperRefresh } from '../pcb/modules/picture-refresh.js';
 import { PICTURE_LAYERS } from '../pcb/modules/picture-raster.js';
 import { renderCopperFill, fillGroupId, setCopperFillClip } from '../pcb/modules/copper-fill-render.js';
@@ -215,6 +214,11 @@ const PCB_CROSSHAIR_TOOLS = new Set([
 ]);
 
 export default class PCBApp {
+    get _deferDragOverlays() { return this._fillOverlayDeferred; }
+    set _deferDragOverlays(value) {
+        if (value && !this._fillOverlayDeferred) invalidateFillRefresh(this);
+        this._fillOverlayDeferred = value;
+    }
     get tracks() {
         return getGroupPreview(this)?.tracks || this._pasteDrop?.preview?.tracks || getPlacementPreviewTracks(this) || this._viaDrag?.preview?.tracks
             || this._vertexDrag?.preview?.tracks || getTrackPropertyPreview(this)?.tracks || this.pcbDocument.tracks;
@@ -399,6 +403,7 @@ export default class PCBApp {
             // the schematic\u2192PCB stale-sync listener that would
             // otherwise rebuild and wipe PCB-only edits.
             onChanged: () => {
+                invalidateFillRefresh(this);
                 this._markDirty();
                 this._syncHistoryButtons?.();
                 refreshBoxSelectionHighlights(this);
@@ -481,6 +486,7 @@ export default class PCBApp {
 
         // Rebuild if schematic changed while we were away
         if (this._stale) this._syncFromSchematic();
+        if (this._fillRefreshPending) this._refreshFills();
 
         this._setPcbStatus();
         if (this.viewport) {
@@ -501,6 +507,12 @@ export default class PCBApp {
         this._cancelPosePreviews();
         this._cancelDrawingMode();
         this._active = false;
+        disposeFillRefresh(this);
+    }
+
+    dispose() {
+        this._fillRefreshDisposed = true;
+        disposeFillRefresh(this);
     }
 
     _setPcbStatus() {
@@ -5069,6 +5081,7 @@ export default class PCBApp {
     }
 
     _cancelPosePreviews() {
+        disposeFillRefresh(this);
         cancelPcbPaste(this);
         this._boardShapePropertyBinding?.cancel();
         this._boardDimensionPropertyBinding?.dispose();
@@ -6022,6 +6035,7 @@ export default class PCBApp {
 
         const svg = this.viewport?.svg;
         if (!svg) return;
+        invalidateFillRefresh(this);
         if (!opts.componentId) text = beginTextContentPreview(this, text.id);
 
         // Hidden input captures keystrokes / selection / IME / clipboard.
@@ -8601,46 +8615,7 @@ export default class PCBApp {
      * @returns {true|undefined} True when fills were computed and downstream refreshes requested.
      */
     _recomputeFillsNow() {
-        if (this._deferDragOverlays || this._suspendFillRefresh) {
-            this._fillRefreshPending = true;
-            return;
-        }
-        this._fillRefreshPending = false;
-        if (!this.copperFills || this.copperFills.length === 0) {
-            this._clearFillGroups();
-            return;
-        }
-        if (!isClipperReady()) {
-            // Load the polygon engine, then try again.
-            loadClipper().then(() => this._recomputeFillsNow()).catch(() => {});
-            return;
-        }
-        const ctx = this._fillContext();
-        this._clearFillGroups();
-        for (const fill of this.copperFills) {
-            try {
-                setComputedFill(fill, computeFillPolygons(fill, ctx));
-            } catch (error) {
-                setComputedFill(fill, null);
-                console.error(`Failed to compute copper fill ${fill.id}:`, error);
-            }
-            renderCopperFill(fill, (id) => this._getLayerGroup(id), {
-                selected: isPcbSelected(this, 'fill', fill),
-            });
-        }
-        const selectedFill = getPcbSelection(this, 'fill')[0] || null;
-        if (selectedFill) {
-            if (isPcbSelected(this, 'fill', selectedFill)) renderPcbSelectionAnchors(this);
-        }
-        // Ratline connectivity uses each fill's computed islands. Reconcile
-        // after committing them so same-net copper shapes joined by a pour do
-        // not retain a stale air wire.
-        reconcileRatsnest(this, { skipFillRefresh: true });
-        this._scheduleDRC();
-        // Pours just recomputed — let any open 3D/2D view pick up the fresh
-        // geometry from the shared computed-fill cache.
-        this._board3d?.refresh?.();
-        return true;
+        return recomputeFillsNow(this);
     }
 
     /** Build the obstacle/parameter context for the fill geometry engine. */

@@ -331,9 +331,13 @@ export function runDRC(app, rules = {}) {
     const { pads, segments, vias, areas, circles, arcs } = collectCopper(app);
     const violations = [];
     for (const fill of app.copperFills || (app.boardShapes || []).filter((shape) => shape.type === 'fill')) {
-        if (getComputedFill(fill) != null) continue;
-        const point = (fill.getOutline?.() || fill.outline)?.[0] || { x: 0, y: 0 };
-        violations.push(makeViolation('fill', 'error', 'Copper pour has not been computed.',
+        if (getComputedFill(fill) != null && !app._fillRefreshPending && !app._fillRefreshError) continue;
+        const point = fill.outline?.[0] || { x: fill.x || 0, y: fill.y || 0 };
+        const message = app._fillRefreshError
+            ? 'Copper pour refresh failed; displayed copper is not current.'
+            : app._fillRefreshPending ? 'Copper pour refresh is pending; displayed copper is not current.'
+                : 'Copper pour has not been computed.';
+        violations.push(makeViolation('fill', 'error', message,
             point.x, point.y, null, `fill-pending|${fill.id}`));
     }
 

@@ -50,6 +50,8 @@ for (const flag of ['_deferDragOverlays', '_suspendFillRefresh']) {
 }
 assert.equal(checks, 1);
 assert.equal(previews, 1);
+// Subsequent consumer tests install settled snapshots directly, outside the refresh service.
+app._fillRefreshPending = false;
 const replacement = CopperFill.fromJSON(fill.toJSON());
 assert.equal(replacement.id, fill.id);
 assert.equal(getComputedFill(replacement), null, 'Loaded replacements cannot inherit a same-ID cache');
@@ -113,8 +115,12 @@ try {
 } finally {
     console.error = logError;
 }
-assert.equal(getComputedFill(broken), null, 'A failed recompute cannot retain stale successful copper');
+assert.equal(getComputedFill(broken), regions, 'A failed batch retains settled artwork instead of publishing partial geometry');
+assert.equal(app._fillRefreshPending, true, 'Retained artwork is explicitly awaiting a successful refresh');
+assert.match(app._fillRefreshError.message, /Invalid test geometry/);
+assert.ok(runDRC(app).violations.some(item => item.rule === 'fill' && /refresh failed/.test(item.message)),
+    'Retained successful geometry cannot hide the failed refresh from DRC');
 assert.equal(errors.length, 1);
-assert.match(errors[0][0], /broken/);
+assert.match(errors[0][0], /retaining settled pours/);
 assert.match(errors[0][1].message, /Invalid test geometry/);
 console.log('PASS external fill results, frozen model, identity, preview/DRC consumers and export isolation');

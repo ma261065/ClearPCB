@@ -25,6 +25,7 @@ const { CommandHistory } = await import('../src/core/CommandHistory.js');
 const { beginGroupDrag, updateGroupDrag, endGroupDrag, refreshBoxSelectionHighlights } =
     await import('../src/pcb/modules/box-select.js');
 const { getTextPosePreviewTexts } = await import('../src/pcb/modules/text-commands.js');
+const { invalidateFillRefresh } = await import('../src/pcb/modules/fill-refresh.js');
 const { registerPcbSelectionAdapter, setPcbSelection, getPcbSelection, getPcbSelectionEntries, clearPcbSelection } =
     await import('../src/pcb/modules/selection-registry.js');
 
@@ -50,7 +51,8 @@ const app = {
 const source = readFileSync(new URL('../src/ui/PCBApp.js', import.meta.url), 'utf8');
 const callback = source.match(/onChanged: \(\) => \{([\s\S]*?)\n            \},/);
 assert.ok(callback, 'PCB history callback exists');
-const onChanged = new Function('refreshBoxSelectionHighlights', callback[1]).bind(app, refreshBoxSelectionHighlights);
+const onChanged = new Function('refreshBoxSelectionHighlights', 'invalidateFillRefresh', callback[1])
+    .bind(app, refreshBoxSelectionHighlights, invalidateFillRefresh);
 app.history = new CommandHistory({ onChanged });
 setPcbSelection(app, texts.map(object => ({ kind: 'text', object })));
 
