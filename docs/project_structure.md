@@ -1380,6 +1380,10 @@ mode; it is not a release requirement. Remaining ownership work is tracked in
   `splitPathAtNode` for splitting. Open-path splits create independent shapes;
   closed-path splits create an open path with distinct endpoint IDs. Their
   context menus and floating-handle history remain editor adapters.
+  Vertex deletion completes collinear cleanup in the same path mutation before
+  either editor captures its after-state. Redundant equal-width straight nodes
+  disappear in the deletion's single undo step; width/curvature boundaries and
+  surviving node/edge metadata retain the existing cleanup rules.
   `Polyline.toEditablePath()` / `applyEditablePath()` adapt stable
   graph IDs to indexed paths without changing the saved file format.
 - `shapes/shape-drawing.js` owns point-sequence completion, validation, primitive

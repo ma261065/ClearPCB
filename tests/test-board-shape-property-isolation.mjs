@@ -186,6 +186,38 @@ for (const [kind, points, bulges, expected] of [
     assert.deepEqual(captureBoardShapeState(shapes[0]), before, 'Control visibility does not alter authored geometry');
 }
 
+for (const closed of [false, true]) for (const boundary of ['uniform', 'width-change', 'curve']) {
+    const { app, shapes } = fixture('nodeRadius');
+    const shape = shapes[0];
+    Object.assign(shape, {
+        kind: closed ? 'polygon' : 'line',
+        points: [{ x: 0, y: 0 }, { x: 10, y: 0 }, { x: 10, y: 4 }, { x: 20, y: 0 },
+            ...(closed ? [{ x: 20, y: 10 }, { x: 0, y: 10 }] : [{ x: 30, y: 0 }])],
+        segmentWidths: boundary === 'width-change' ? { 0: 0.7 } : {},
+        segmentBulges: boundary === 'curve' ? { 0: 0.25 } : {},
+        nodeCornerRadii: { 1: 0.75, 4: 1.25 },
+    });
+    const points = structuredClone(shape.points);
+    const before = captureBoardShapeState(shape);
+    app._selectedBoardShapeNode = { shapeId: shape.id, index: 2 };
+    showBoardShapeProperties(app, shape);
+    assert.equal(PCBApp.prototype.handleKeyDown.call(app, { key: 'Delete' }), true);
+    const expected = closed
+        ? [points[0], ...(boundary === 'uniform' ? [] : [points[1]]), ...points.slice(3)]
+        : [points[0], ...(boundary === 'uniform' ? [] : [points[1]]), points[4]];
+    assert.deepEqual(shape.points, expected, 'Deleting a node removes newly redundant straight-through nodes');
+    if (boundary === 'width-change') assert.equal(shape.segmentWidths[0], 0.7);
+    if (boundary === 'curve') assert.equal(shape.segmentBulges[0], 0.25);
+    const lastRadiusIndex = shape.points.findIndex(point => point.x === points[4].x && point.y === points[4].y);
+    assert.equal(shape.nodeCornerRadii[lastRadiusIndex], 1.25, 'Surviving radius metadata follows its node');
+    assert.equal(app.history.undoStack.length, 1, 'Deletion and simplification are one command');
+    const after = captureBoardShapeState(shape);
+    app.history.undo();
+    assert.deepEqual(captureBoardShapeState(shape), before);
+    app.history.redo();
+    assert.deepEqual(captureBoardShapeState(shape), after);
+}
+
 let checked = 0;
 for (const [kind, id, value] of cases) for (const count of ['lineWidth', 'cornerRadius', 'diameter'].includes(kind) ? [1, 4] : [1]) {
     for (const finish of ['commit', 'escape', 'dispose', 'load', 'lock', 'missing', 'failure']) {

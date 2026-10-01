@@ -221,6 +221,36 @@ for (const [closed, points, bulges, expected] of [
     assert.deepEqual(shape.captureState(), before, 'Control visibility leaves stored radii and geometry untouched');
 }
 
+for (const closed of [false, true]) for (const boundary of ['uniform', 'width-change', 'curve']) {
+    const points = [{ x: 0, y: 0 }, { x: 10, y: 0 }, { x: 10, y: 4 }, { x: 20, y: 0 },
+        ...(closed ? [{ x: 20, y: 10 }, { x: 0, y: 10 }] : [{ x: 30, y: 0 }])];
+    const shape = (closed ? createPolygon : createLine)({ points });
+    if (boundary === 'width-change') shape.setEdgeAttr('e0', 'width', 0.7);
+    if (boundary === 'curve') shape.setEdgeAttr('e0', 'bulge', 0.25);
+    shape.setNodeCornerRadius('n1', 0.75);
+    shape.setNodeCornerRadius('n4', 1.25);
+    const before = shape.captureState();
+    const app = fixture(shape);
+    app._selectedShapeNode = { shapeId: shape.id, nodeId: 'n2' };
+    app._onSelectionChanged(app.selection.getSelection());
+    deleteSelected(app);
+    const expected = closed
+        ? [points[0], ...(boundary === 'uniform' ? [] : [points[1]]), ...points.slice(3)]
+        : [points[0], ...(boundary === 'uniform' ? [] : [points[1]]), points[4]];
+    assert.deepEqual(shape.getOrderedPoints(), expected, 'Node deletion also completes collinear cleanup');
+    assert.equal(shape.nodes.has('n1'), boundary !== 'uniform', 'Width/curvature boundaries retain their node IDs');
+    assert.equal(shape.nodeCornerRadius('n4'), 1.25);
+    if (boundary === 'width-change') assert.equal(shape.getEdgeAttr('e0', 'width'), 0.7);
+    if (boundary === 'curve') assert.equal(shape.getEdgeAttr('e0', 'bulge'), 0.25);
+    assert.deepEqual(app.selection.getSelection(), [shape]);
+    assert.equal(app.history.undoStack.length, 1);
+    const after = shape.captureState();
+    app.history.undo();
+    assert.deepEqual(shape.captureState(), before);
+    app.history.redo();
+    assert.deepEqual(shape.captureState(), after);
+}
+
 for (const key of ['Delete', 'Backspace']) {
     for (const curved of [false, true]) {
         const rectangle = createRect({ x: 0, y: 0, width: 10, height: 10, lineWidth: 0.234567 });

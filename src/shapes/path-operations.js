@@ -285,5 +285,6 @@ export function deletePathVertex(path, vertexIndex) {
     path.points.splice(vertexIndex, 1);
     remapPathNodes(path, vertexIndex, -1);
     path.kind = path.points.length < 3 || !closed ? 'line' : 'polygon';
+    collapseCollinearPath(path);
     return true;
 }
