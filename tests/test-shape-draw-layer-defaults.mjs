@@ -12,9 +12,15 @@ globalThis.document = {
     createElementNS() {
         const attributes = new Map();
         return {
+            children: [],
             style: {}, setAttribute: (key, value) => attributes.set(key, String(value)),
             getAttribute: key => attributes.get(key) ?? null,
             removeAttribute: key => attributes.delete(key),
+            appendChild(child) {
+                this.children.push(child);
+                child.parentNode = this;
+                return child;
+            },
         };
     },
 };

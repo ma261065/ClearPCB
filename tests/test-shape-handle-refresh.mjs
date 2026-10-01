@@ -45,7 +45,9 @@ try {
             const original = cloneShapeGeometry(shape);
             let halos = 0;
             let fills = 0;
-            const halo = { parentNode: { removeChild(child) { child.parentNode = null; } } };
+            const overlay = { removeChild(child) { child.parentNode = null; } };
+            const halo = { parentNode: overlay };
+            const expectedHaloParent = shape.kind === 'image' ? null : overlay;
             const app = {
                 boardShapes: [shape], tracks: [], vias: [], placements: new Map(), texts: new Map(), copperFills: [],
                 history: new CommandHistory(), _shapeElements: new Map(),
@@ -59,10 +61,13 @@ try {
                 _updateRatsnest(options) { reconcileRatsnest(this, options); },
             };
             assert.equal(startBoardShapeDrag(app, shape, start, handle), true);
-            assert.equal(halo.parentNode, null, 'Handle press hides clearance immediately');
+            assert.equal(halo.parentNode, expectedHaloParent,
+                `${shape.kind}: handle press defers image clearance but retains ordinary shape clearance`);
             for (const delta of [1, 2, 3]) {
                 handleBoardShapeDrag(app, { x: start.x + delta, y: start.y + delta });
                 flush();
+                assert.equal(halo.parentNode, expectedHaloParent,
+                    `${shape.kind}: clearance visibility is preserved throughout the drag`);
                 assert.equal(app._pictureCopperRefreshPending, true);
                 assert.equal(timers.size, 0, 'No timer runs during a held handle drag');
                 assert.equal(halos, 0);
@@ -97,4 +102,4 @@ try {
     globalThis.setTimeout = originalSetTimeout;
     globalThis.clearTimeout = originalClearTimeout;
 }
-console.log('PASS all shape handle drags defer committed refreshes and restore cancelled geometry/clearance/fills immediately');
+console.log('PASS shape handle drags retain ordinary clearance, defer image clearance and committed refreshes, and restore cancelled geometry/clearance/fills immediately');
