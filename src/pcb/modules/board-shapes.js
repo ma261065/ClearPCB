@@ -655,6 +655,11 @@ function createBoardShapePropertyPreview(app, targets, { liveDrag = false } = {}
     return control;
 }
 
+function commitPropertyPreviewInput(input, preview, forceRebuild = false) {
+    if (!Number.isFinite(input.valueAsNumber)) preview.cancel();
+    else preview.commit({ rebuild: forceRebuild || document.activeElement !== input });
+}
+
 function bindPropertyPreviewCancel(input, preview, refreshPanel) {
     input?.addEventListener('keydown', event => {
         if (event.key !== 'Escape' || !preview.cancel()) return;
@@ -2113,8 +2118,7 @@ function showImageProperties(app, shape, items) {
     };
     const commitNumericPreview = (input, preview) => {
         const keepFocus = document.activeElement === input;
-        if (Number.isFinite(input.valueAsNumber)) preview.commit({ rebuild: !keepFocus });
-        else preview.cancel();
+        commitPropertyPreviewInput(input, preview);
         if (binding.disposed) return;
         if (!keepFocus) {
             showImageProperties(app, shape, items);
@@ -2407,11 +2411,12 @@ export function showBoardShapeProperties(app, shape) {
     const commitBulge = () => {
         if (binding.disposed) return;
         if (!bulgeEl) return;
-        if (!Number.isFinite(bulgeEl.valueAsNumber)) { bulgePreview.cancel(); return; }
+        if (!Number.isFinite(bulgeEl.valueAsNumber)) { commitNumericPreview(bulgeEl, bulgePreview); return; }
         previewBulge();
         formatNumberInput(bulgeEl);
         bulgePreview.update((_before, [candidate]) => normalizeStraightArc(candidate, selectedSegment));
-        bulgePreview.commit();
+        const straight = Math.abs(editableShapeBulge(displayedBoardShape(app, shape), selectedSegment)) < BULGE_EPS;
+        commitNumericPreview(bulgeEl, bulgePreview, straight);
     };
     bulgeEl?.addEventListener('input', previewBulge);
     bulgeEl?.addEventListener('change', commitBulge);
@@ -2521,18 +2526,39 @@ export function showBoardShapeProperties(app, shape) {
     });
     diameterEl?.addEventListener('change', () => {
         if (binding.disposed) return;
-        if (!Number.isFinite(diameterEl.valueAsNumber)) { diameterPreview.cancel(); syncDiameter(); return; }
+        if (!Number.isFinite(diameterEl.valueAsNumber)) { commitNumericPreview(diameterEl, diameterPreview); return; }
         if (Number.isFinite(diameterEl.valueAsNumber)) {
             diameterEl.value = Math.max(diameterMinimum(), diameterEl.valueAsNumber).toFixed(2);
         }
         previewDiameter();
         syncDiameter();
-        diameterPreview.commit();
+        commitNumericPreview(diameterEl, diameterPreview);
     });
     const lineEl = /** @type {HTMLInputElement|null} */ (document.getElementById('pcbPropShapeLineWidth'));
     const lineRowEl = /** @type {HTMLDivElement|null} */ (document.getElementById('pcbPropShapeLineWidthRow'));
     const cornerRadiusEl = /** @type {HTMLInputElement|null} */ (document.getElementById('pcbPropShapeCornerRadius'));
     const nodeCornerRadiusEl = /** @type {HTMLInputElement|null} */ (document.getElementById('pcbPropShapeNodeCornerRadius'));
+    const commitNumericPreview = (input, preview, forceRebuild = false) => {
+        commitPropertyPreviewInput(input, preview, forceRebuild);
+        if (binding.disposed) return;
+        const targets = propertyTargets();
+        const syncMixed = (field, values) => {
+            const mixed = values.some(value => Math.abs(value - values[0]) >= 1e-9);
+            field.value = mixed ? '' : values[0].toFixed(2);
+            field.placeholder = mixed ? 'Mixed' : '';
+        };
+        if (lineEl) syncMixed(lineEl, selectedSegment == null
+            ? targets.map(target => normalizedBoardShapeLineWidth(target, target.lineWidth))
+            : [boardShapeSegmentWidth(displayedBoardShape(app, shape), selectedSegment)]);
+        syncDiameter();
+        if (cornerRadiusEl) syncMixed(cornerRadiusEl, targets.map(targetCornerRadius));
+        if (nodeCornerRadiusEl && selectedNode != null) {
+            nodeCornerRadiusEl.value = formatNumberInputValue(boardShapeNodeCornerRadius(displayedBoardShape(app, shape), selectedNode));
+        }
+        if (bulgeEl) {
+            bulgeEl.value = formatNumberInputValue(editableShapeBulge(displayedBoardShape(app, shape), selectedSegment));
+        }
+    };
     const filledEl = /** @type {HTMLInputElement|null} */ (document.getElementById('pcbPropShapeFilled'));
     const platedEl = /** @type {HTMLInputElement|null} */ (document.getElementById('pcbPropShapePlated'));
     const layerEl = /** @type {HTMLSelectElement|null} */ (document.getElementById('pcbPropShapeLayer'));
@@ -2628,24 +2654,24 @@ export function showBoardShapeProperties(app, shape) {
     });
     lineEl?.addEventListener('change', () => {
         if (binding.disposed) return;
-        if (!Number.isFinite(lineEl.valueAsNumber)) { lineWidthPreview.cancel(); return; }
+        if (!Number.isFinite(lineEl.valueAsNumber)) { commitNumericPreview(lineEl, lineWidthPreview); return; }
         if (Number.isFinite(lineEl.valueAsNumber)) lineEl.value = lineEl.valueAsNumber.toFixed(2);
         previewLineWidth();
-        lineWidthPreview.commit();
+        commitNumericPreview(lineEl, lineWidthPreview);
     });
     cornerRadiusEl?.addEventListener('input', previewCornerRadius);
     cornerRadiusEl?.addEventListener('change', () => {
         if (binding.disposed) return;
-        if (!Number.isFinite(cornerRadiusEl.valueAsNumber)) { cornerRadiusPreview.cancel(); return; }
+        if (!Number.isFinite(cornerRadiusEl.valueAsNumber)) { commitNumericPreview(cornerRadiusEl, cornerRadiusPreview); return; }
         previewCornerRadius();
-        cornerRadiusPreview.commit();
+        commitNumericPreview(cornerRadiusEl, cornerRadiusPreview);
     });
     nodeCornerRadiusEl?.addEventListener('input', previewNodeCornerRadius);
     nodeCornerRadiusEl?.addEventListener('change', () => {
         if (binding.disposed) return;
-        if (!Number.isFinite(nodeCornerRadiusEl.valueAsNumber)) { nodeCornerRadiusPreview.cancel(); return; }
+        if (!Number.isFinite(nodeCornerRadiusEl.valueAsNumber)) { commitNumericPreview(nodeCornerRadiusEl, nodeCornerRadiusPreview); return; }
         previewNodeCornerRadius();
-        nodeCornerRadiusPreview.commit();
+        commitNumericPreview(nodeCornerRadiusEl, nodeCornerRadiusPreview);
     });
     filledEl?.addEventListener('change', () => {
         const v = !!filledEl.checked;

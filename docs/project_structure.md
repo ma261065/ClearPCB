@@ -134,6 +134,10 @@ focused native `input`/`change` steps. Commits update the displayed numeric
 values in place rather than rebuilding the panel and losing keyboard focus;
 no-op/invalid values and paired dimensions use current geometry. Undo/redo and
 owner changes retain the normal panel refresh path.
+The same commit policy covers shape width, circle diameter, global/node corner
+radius and bulge previews. Their focused controls synchronize current values,
+mixed-state placeholders and coupled dimensions in place. Structural changes
+still rebuild the panel: straightening an arc removes its obsolete Bulge field.
 
 An image Properties refresh supplies its canonical target identity. Rebuilding
 controls for that same image does not cancel its pointer rotation; changing to
@@ -1405,6 +1409,12 @@ mode; it is not a release requirement. Remaining ownership work is tracked in
   and overrides. Whole-shape width/radius edits clear their segment/node
   overrides; undo restores them. A zero-bulge standalone arc is replaced by a
   line in the same history operation as the property change.
+  Schematic numeric Properties commits retain focused controls instead of
+  rebuilding the panel and handing subsequent arrow keys to canvas nudging.
+  Current values, mixed placeholders, coupled dimensions and corner-action
+  availability refresh in place; unfocused commits, selection changes and
+  structural edits (such as removing Bulge after straightening) still rebuild.
+  This covers shape/segment/node geometry, text size and reference rotation.
 - Schematic focused Delete and shape context menus share node/segment deletion
   actions; without refinement, Delete still removes the entire selection.
   Standalone arc menus support conversion and deletion. Shape splits retain

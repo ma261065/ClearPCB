@@ -225,6 +225,11 @@ function renderNewShapeProperties(app, panel, tool) {
 export function updatePropertiesPanel(app, selection) {
     const panel = app.ui.propertiesPanel;
     if (!panel) return;
+    const refreshControls = [];
+    const isCurrentSelection = () => {
+        const current = app.selection.getSelection();
+        return current.length === selection.length && current.every((item, index) => item === selection[index]);
+    };
 
     // Clear previous content
     panel.innerHTML = '';
@@ -356,24 +361,28 @@ export function updatePropertiesPanel(app, selection) {
                     if (desc.max != null) input.max = desc.max;
                     if (desc.step != null) input.step = desc.step;
 
-                    const values = desc.key === 'bulge' && selectedSegment
-                        ? [selectedSegment.shape.getEdgeAttr(selectedSegment.edgeId, 'bulge') || 0]
-                        : desc.key === 'lineWidth' && selectedSegment
-                        ? [selectedSegment.shape.getEdgeAttr(selectedSegment.edgeId, 'width')]
-                        : desc.key === 'cornerRadius' && selectedNode
-                            ? [selectedNode.shape.nodeCornerRadius(selectedNode.nodeId)]
-                            : selection.map(s => s[desc.key]).filter(v => typeof v === 'number');
-                    if (values.length === 0) {
-                        input.value = '';
-                        input.placeholder = '—';
-                    } else {
+                    const refreshNumber = () => {
+                        const values = desc.key === 'bulge' && selectedSegment
+                            ? [selectedSegment.shape.getEdgeAttr(selectedSegment.edgeId, 'bulge') || 0]
+                            : desc.key === 'lineWidth' && selectedSegment
+                                ? [selectedSegment.shape.getEdgeAttr(selectedSegment.edgeId, 'width')]
+                                : desc.key === 'cornerRadius' && selectedNode
+                                    ? [selectedNode.shape.nodeCornerRadius(selectedNode.nodeId)]
+                                    : selection.map(s => s[desc.key]).filter(v => typeof v === 'number');
                         const first = values[0];
-                        const allSame = values.every(v => Math.abs(v - first) < 1e-6);
+                        const allSame = values.length > 0 && values.every(v => Math.abs(v - first) < 1e-6);
                         input.value = allSame
                             ? (['cornerRadius', 'bulge'].includes(desc.key) ? Number(first).toFixed(2) : first)
                             : '';
-                        if (!allSame) input.placeholder = '—';
-                    }
+                        input.placeholder = allSame ? '' : '—';
+                    };
+                    refreshNumber();
+                    refreshControls.push(refreshNumber);
+                    const refreshCurrentControls = () => {
+                        if (document.getElementById(input.id) === input && isCurrentSelection()) {
+                            for (const refresh of refreshControls) refresh();
+                        }
+                    };
 
                     const affected = desc.key === 'bulge' && selectedSegment ? [selectedSegment.shape]
                         : selection.filter(item => desc.key in item);
@@ -394,6 +403,7 @@ export function updatePropertiesPanel(app, selection) {
                             if (desc.key === 'rotation' && affected.includes(app.textEdit?.shape)) app._updateTextEditOverlay?.();
                         } }),
                         commit: (before, after) => {
+                            let structureChanged = false;
                             if (geometryEdit) {
                                 const batch = new BatchCommand(`Change ${desc.key}`);
                                 const replacements = new Map();
@@ -414,13 +424,18 @@ export function updatePropertiesPanel(app, selection) {
                                     app._selectedShapeSegment = null;
                                     app._selectedShapeNode = null;
                                 }
-                                app.fileManager.setDirty(true);
-                                app._updatePropertiesPanel?.(app.selection.getSelection());
+                                structureChanged = replacements.size > 0 || (desc.key === 'bulge' && !!selectedSegment
+                                    && Math.abs(selectedSegment.shape.getEdgeAttr(selectedSegment.edgeId, 'bulge') || 0) < BULGE_EPS);
                             } else {
                                 app.history.execute(new ModifyPropertyCommand(app, affected, desc.key, after[0]));
-                                app.fileManager.setDirty(true);
-                                app._updatePropertiesPanel?.(app.selection.getSelection());
                                 if (['fontSize', 'rotation'].includes(desc.key) && affected.includes(app.textEdit?.shape)) app._updateTextEditOverlay?.();
+                            }
+                            app.fileManager.setDirty(true);
+                            // Native number stepping can commit while the input still owns keyboard focus.
+                            if (!structureChanged && isCurrentSelection() && document.activeElement === input) {
+                                refreshCurrentControls();
+                            } else {
+                                app._updatePropertiesPanel?.(app.selection.getSelection());
                             }
                         },
                     });
@@ -454,14 +469,18 @@ export function updatePropertiesPanel(app, selection) {
                     });
                     input.addEventListener('change', () => {
                         let v = parseFloat(input.value);
-                        if (!Number.isFinite(v)) { preview.cancel(); return; }
+                        if (!Number.isFinite(v)) {
+                            preview.cancel();
+                            refreshCurrentControls();
+                            return;
+                        }
                         if (desc.key === 'rotation') v = ((Math.round(v) % 360) + 360) % 360;
                         if (desc.min != null && v < desc.min) v = desc.min;
                         if (desc.max != null && v > desc.max) v = desc.max;
                         if (['cornerRadius', 'bulge'].includes(desc.key)) input.value = v.toFixed(2);
                         else if (parseFloat(input.value) !== v) input.value = v;
                         previewValue(v);
-                        preview.commit();
+                        if (!preview.commit()) refreshCurrentControls();
                     });
                     // Real-time preview while dragging spinner
                     input.addEventListener('input', () => {
@@ -716,11 +735,16 @@ export function updatePropertiesPanel(app, selection) {
             div.appendChild(show3dBtn);
         }
 
-        if (selection.length === 1 && canDecomposeRoundedCorners(selection[0]) && !allLocked) {
+        if (selection.length === 1 && selection[0].type === 'polyline' && !allLocked) {
             const decomposeBtn = document.createElement('button');
             decomposeBtn.title = 'Convert rounded corners into editable arc edges';
             decomposeBtn.id = 'propDecomposeCorners';
             decomposeBtn.textContent = '⌒ Decompose corners';
+            const refreshDecompose = () => {
+                decomposeBtn.style.display = canDecomposeRoundedCorners(selection[0]) ? '' : 'none';
+            };
+            refreshDecompose();
+            refreshControls.push(refreshDecompose);
             div.appendChild(decomposeBtn);
         }
 

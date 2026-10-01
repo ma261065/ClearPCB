@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { ProjectDocument } from '../src/core/ProjectDocument.js';
 import { CommandHistory } from '../src/core/CommandHistory.js';
+import { bulgeRatio } from '../src/core/geometry.js';
 import { showBoardShapeProperties, getBoardShapePropertyPreview, getBoardShapeRotationPreview, createBoardShapeSelectionAdapter,
     renderBoardShape, startBoardShapeDrag, handleBoardShapeDrag, endBoardShapeDrag } from '../src/pcb/modules/board-shapes.js';
 import { setPcbSelection } from '../src/pcb/modules/selection-registry.js';
@@ -31,6 +32,7 @@ const items = {
             const listeners = new Map();
             const input = {
                 value: /\bvalue="([^"]*)"/.exec(match[0])?.[1] || '', style: {}, dataset: {},
+                placeholder: /\bplaceholder="([^"]*)"/.exec(match[0])?.[1] || '',
                 tagName: match[0].match(/^<(\w+)/)[1].toUpperCase(),
                 focus() { document.activeElement = this; },
                 matches: selector => selector === 'input[type="number"]',
@@ -347,6 +349,110 @@ for (const [kind, id, values] of [
     cancelPictureCopperRefresh(app);
 }
 console.log('PASS repeated image numeric input/change keeps focus, center, field identity and exact history');
+
+for (const [kind, id, value] of cases.filter(([kind]) => !kind.startsWith('image'))) {
+    for (const count of ['lineWidth', 'cornerRadius', 'diameter'].includes(kind) ? [1, 3] : [1]) {
+        const { app, model, shapes } = fixture(kind, count);
+        app.currentTool = 'select';
+        const before = model.captureGeometry();
+        const input = fields.get(id), binding = app._boardShapePropertyBinding;
+        const propertyValue = shape => kind === 'lineWidth' ? shape.lineWidth
+            : kind === 'segmentWidth' ? shape.segmentWidths[0]
+                : kind === 'cornerRadius' ? shape.cornerRadius
+                    : kind === 'nodeRadius' ? shape.nodeCornerRadii[1]
+                        : kind === 'diameter' ? shape.radius * 2
+                            : kind === 'arcBulge' ? bulgeRatio(shape.start, shape.end, shape.bulge)
+                                : shape.segmentBulges[0];
+        input.focus();
+        for (const next of [value, value + 0.1, value + 0.2]) {
+            assert.equal(PCBApp.prototype.handleKeyDown.call(app, { key: 'ArrowUp', target: document.activeElement }), false);
+            input.fire('keydown', { key: 'ArrowUp' });
+            input.value = String(next); input.fire('input'); input.fire('change');
+            assert.equal(fields.get(id), input, `${kind}: retain the focused numeric control across native changes`);
+            assert.equal(document.activeElement, input);
+            assert.equal(app._boardShapePropertyBinding, binding);
+            assert.equal(getBoardShapePropertyPreview(app), undefined);
+            for (const shape of shapes) assert.ok(Math.abs(propertyValue(shape) - next) < 1e-9, `${kind}: apply the numeric value`);
+        }
+        const after = model.captureGeometry(), depth = app.history.undoStack.length;
+        assert.equal(depth, 3);
+        input.fire('change');
+        assert.equal(app.history.undoStack.length, depth);
+        input.value = ''; input.fire('change');
+        assert.equal(fields.get(id), input, `${kind}: invalid values reset without dropping focus`);
+        assert.ok(Number.isFinite(input.valueAsNumber));
+        assert.deepEqual(model.captureGeometry(), after);
+        document.activeElement = document.body;
+        for (let i = 0; i < depth; i++) app.history.undo();
+        assert.deepEqual(model.captureGeometry(), before);
+        for (let i = 0; i < depth; i++) app.history.redo();
+        assert.deepEqual(model.captureGeometry(), after);
+        cancelPictureCopperRefresh(app);
+    }
+}
+console.log('PASS focused shape numeric changes preserve controls, single/batch values and exact history');
+
+for (const kind of ['lineWidth', 'diameter', 'cornerRadius']) {
+    const { app, model, shapes } = fixture(kind, 3);
+    const property = kind === 'diameter' ? 'radius' : kind;
+    shapes[1][property] += 0.3;
+    shapes[2][property] += 0.6;
+    showBoardShapeProperties(app, shapes[0]);
+    const id = kind === 'lineWidth' ? 'pcbPropShapeLineWidth'
+        : kind === 'diameter' ? 'pcbPropShapeDiameter' : 'pcbPropShapeCornerRadius';
+    const input = fields.get(id), before = model.captureGeometry();
+    assert.equal(input.value, '');
+    assert.equal(input.placeholder, 'Mixed');
+    input.focus();
+    input.value = kind === 'diameter' ? '0.4' : '0.5';
+    input.fire('input'); input.fire('change');
+    assert.equal(input.placeholder, '', 'Batch commit clears the obsolete Mixed placeholder in place');
+    assert.equal(fields.get(id), input);
+    if (kind === 'diameter') {
+        assert.equal(fields.get('pcbPropShapeLineWidth').value, '0.20', 'Clamped width follows the new diameter');
+        assert.ok(shapes.every(shape => shape.lineWidth === 0.2 && shape.radius === 0.2));
+    }
+    document.activeElement = document.body;
+    app.history.undo();
+    assert.deepEqual(model.captureGeometry(), before, 'Mixed values and coupled dimensions restore exactly');
+    cancelPictureCopperRefresh(app);
+}
+for (const kind of ['arcBulge', 'segmentBulge']) {
+    const { app, model, shapes } = fixture(kind);
+    const before = model.captureGeometry();
+    const input = fields.get('pcbPropShapeBulge');
+    input.focus();
+    input.value = '0'; input.fire('input'); input.fire('change');
+    assert.equal(fields.has('pcbPropShapeBulge'), false, 'Straightening removes the obsolete bulge control');
+    assert.equal(document.activeElement, document.body, 'A removed control must not retain phantom focus');
+    assert.equal(shapes[0].kind, kind === 'arcBulge' ? 'line' : 'polygon');
+    const after = model.captureGeometry();
+    input.value = '0.5'; input.fire('input'); input.fire('change');
+    assert.deepEqual(model.captureGeometry(), after, 'A removed curved-geometry control cannot edit the new shape');
+    app.history.undo();
+    assert.deepEqual(model.captureGeometry(), before);
+    assert.ok(fields.has('pcbPropShapeBulge'));
+    cancelPictureCopperRefresh(app);
+}
+console.log('PASS mixed-field synchronization, coupled diameter/width clamps and intentional arc-to-line panel changes');
+
+{
+    const { app, shapes } = fixture('cornerRadius');
+    const width = fields.get('pcbPropShapeLineWidth'), radius = fields.get('pcbPropShapeCornerRadius');
+    width.focus(); width.value = '0.8'; width.fire('input'); width.fire('change');
+    radius.focus(); width.fire('blur');
+    radius.value = '2'; radius.fire('input');
+    await Promise.resolve();
+    assert.equal(document.activeElement, radius, 'Deferred blur of a committed field must not steal the next field focus');
+    assert.equal(fields.get('pcbPropShapeCornerRadius'), radius);
+    assert.equal(getBoardShapePropertyPreview(app).copies[0].cornerRadius, 2, 'The next field retains its own pending preview');
+    assert.equal(shapes[0].cornerRadius, 0.123456789);
+    radius.fire('change');
+    assert.equal(shapes[0].cornerRadius, 2);
+    assert.equal(app.history.undoStack.length, 2);
+    document.activeElement = document.body;
+    cancelPictureCopperRefresh(app);
+}
 
 {
     const { app, model, shapes } = fixture('imageWidth');
