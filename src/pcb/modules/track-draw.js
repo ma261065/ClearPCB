@@ -824,6 +824,13 @@ export function reconcileRatsnest(app, opts) {
 
     const ratLayer = app._getLayerGroup?.('ratlines');
     if (!ratLayer) return;
+    const ratlines = (app._drcRatlinesModel === (app.pcbDocument || app) ? app._drcRatlines || [] : [])
+        .filter(line => line.failed || (onlyNets && !onlyNets.has(line.net)));
+    const publishRatlines = () => {
+        app._drcRatlines = ratlines;
+        app._drcRatlinesModel = app.pcbDocument || app;
+        app._invalidateDRC?.();
+    };
 
     // Clear previously-generated ratsnest (keep autorouter failed lines).
     for (const el of [...ratLayer.children]) {
@@ -863,6 +870,7 @@ export function reconcileRatsnest(app, opts) {
 
     if (!clusters.length) {
         terminalContactPasses.delete(app);
+        publishRatlines();
         return;
     }
 
@@ -926,12 +934,14 @@ export function reconcileRatsnest(app, opts) {
             line.setAttribute('class', 'ratsnest-line');
             line.dataset.net = net;
             ratLayer.appendChild(line);
+            ratlines.push({ net: String(net), x1: edge.x1, y1: edge.y1, x2: edge.x2, y2: edge.y2 });
         }
     }
 
     // A selected incomplete-connection DRC marker targets one of these
     // derived lines. Re-anchor it after every rebuild, including callers that
     // invoke reconcileRatsnest directly during track/via/group movement.
+    publishRatlines();
     app._followDRCRatline?.();
 }
 

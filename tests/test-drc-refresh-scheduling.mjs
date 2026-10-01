@@ -59,7 +59,7 @@ function fixture(withFill = true) {
         _getLayerGroup: () => null, _clearFillGroups() {}, _updateCopperCuts() {},
         _refreshBoardShapeClearance() {}, _collectRatlines: () => [],
         _drcShouldRun: () => true, _renderDRCList() {},
-        _updateDRCStatus(result) { reports.push(result); },
+        _updateDRCStatus(result, pending) { if (!pending) reports.push(result); },
     });
     const before = captureBoardShapeState(shape);
     shape.points = shape.points.map(({ x, y }) => ({ x: -y, y: x }));
@@ -128,7 +128,7 @@ try {
     input.fire('pointerdown', { button: 0, pointerId: 1 });
     command.undo();
     const count = reports.length;
-    assert.equal(timers.size, 0, 'held rotation input postpones the debounce timer');
+    assert.ok(timers.size <= 1, 'held input postpones geometry; only deferred DRC debt may poll');
     app._scheduleDRC();
     flushFrames();
     assert.equal(reports.length, count, 'DRC also waits throughout held property edits');

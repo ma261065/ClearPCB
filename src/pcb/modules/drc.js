@@ -334,18 +334,33 @@ function makeViolation(rule, severity, message, x, y, marker, key) {
  * @returns {{ok:boolean, violations:Array, counts:{errors:number, warnings:number}}}
  */
 export function runDRC(app, rules = {}) {
+    return runDrcInputs(collectDrcInputs(app, rules));
+}
+
+/** Physical inputs shared by direct checks and detached worker snapshots. */
+export function collectDrcInputs(app, rules = {}) {
+    const fills = (app.copperFills || (app.boardShapes || []).filter(shape => shape.type === 'fill')).map(fill => ({
+        id: fill.id, point: fill.outline?.[0] || { x: fill.x || 0, y: fill.y || 0 },
+        computed: getComputedFill(fill) != null,
+    }));
+    return { copper: collectCopper(app), boardShapes: app.boardShapes || [], fills, rules,
+        fillPending: !!app._fillRefreshPending, fillFailed: !!app._fillRefreshError };
+}
+
+/** DOM-free checker over physical features; fragment identities are created within this pass. */
+export function runDrcInputs({ copper, boardShapes, fills, rules = {}, fillPending, fillFailed }) {
     const clearance = Number.isFinite(rules.clearance) && rules.clearance > 0 ? rules.clearance : 0.1;
     const minRing = Number.isFinite(rules.minAnnularRing) && rules.minAnnularRing > 0
         ? rules.minAnnularRing : DEFAULT_MIN_ANNULAR_RING;
 
-    const { pads, segments, vias, areas, circles, arcs } = collectCopper(app);
+    const { pads, segments, vias, areas, circles, arcs } = copper;
     const violations = [];
-    for (const fill of app.copperFills || (app.boardShapes || []).filter((shape) => shape.type === 'fill')) {
-        if (getComputedFill(fill) != null && !app._fillRefreshPending && !app._fillRefreshError) continue;
-        const point = fill.outline?.[0] || { x: fill.x || 0, y: fill.y || 0 };
-        const message = app._fillRefreshError
+    for (const fill of fills) {
+        if (fill.computed && !fillPending && !fillFailed) continue;
+        const point = fill.point;
+        const message = fillFailed
             ? 'Copper pour refresh failed; displayed copper is not current.'
-            : app._fillRefreshPending ? 'Copper pour refresh is pending; displayed copper is not current.'
+            : fillPending ? 'Copper pour refresh is pending; displayed copper is not current.'
                 : 'Copper pour has not been computed.';
         violations.push(makeViolation('fill', 'error', message,
             point.x, point.y, null, `fill-pending|${fill.id}`));
@@ -383,7 +398,7 @@ export function runDRC(app, rules = {}) {
 
     const copperDistance = createCopperDistanceChecker(clearance);
     const originalCopper = [...pads, ...segments, ...vias, ...areas, ...circles, ...arcs];
-    const remainingCopper = subtractCopperArtwork(originalCopper, app.boardShapes, featureBounds);
+    const remainingCopper = subtractCopperArtwork(originalCopper, boardShapes, featureBounds);
     let shorts = [];
     if (hasMultipleNamedNets(remainingCopper)) {
         shorts = remainingCopper === originalCopper ? detectShorts({ pads, segments, vias }, copperDistance)

@@ -49,6 +49,7 @@ export function loadPcb(app, data, prepared = preparePcb(data)) {
     for (const id of app._textElements.keys()) app._removeTextElement(id);
     for (const id of app._shapeElements.keys()) removeBoardShapeElement(app, id);
     app.pcbDocument.clear();
+    app._resetDRC?.();
     app._hoveredShape = null;
     app._shapeDraw = null;
     app._shapeDrag = null;

@@ -166,9 +166,42 @@ later milestones supersede those historical remaining-work statements.
 | Physical terminal contact reuse and combined sweep gate | Implemented, full/native verification | Ratsnest and bonded traversal reuse detached pad/via contours, bores and lazy triangulation after exact physical-input comparisons; the latest-pass cache is app/document scoped, with current net/layer membership rebuilt independently. Tests cover 33 physical-edit cases, same-ID replacement, history, clear/load, slot/drill/pose changes, ownership and one triangulation across 1,000 unchanged queries. Twenty-seven focused files and the combined 218/218 plus routing gate pass, including the spatial sweep change above; routing remains 74/76 with zero violations and unchanged count warnings. A same-revision headless adoption benchmark measured cold/warm medians 279.35/131.24 ms, with terminal snapshots 200/0 and copied outer vertices 36,300/0; this is not a native before/after benchmark. Native combined sweep+terminal trials retained exact polygon/SVG/ratsnest output (183 ratlines) and canonical state, with arrival-to-DRC median 77.5 ms versus the earlier prepared-worker 95.4 ms observation. A separate warmed run after the full gate completed measured 48.9-58.5 ms (median 50.5); workload warming and concurrent CPU work make those runs non-interchangeable. Native via-drill editing, Ctrl+Z/Y and cold same-ID document replacement reproduce exact warm geometry/ratsnest results; a conflicting-net drag remains rejected without mutation. Profiling still identifies broad/narrow-phase pairing, transfer validation, SVG work and allocation; no universal frame-latency guarantee is claimed. |
 | Immutable triangle spatial ordering | Implemented, full/native verification | Known immutable worker/terminal region contacts reuse prepared spatial ordering; generic mutable inputs retain lazy capture, one bounds callback per occurrence, exact pair orientation/order and inclusive margins. No worker protocol change. Twenty-eight focused files and full 218/218 plus unchanged routing gate pass. Pinned headless adoption comparisons against `7be8802` reduce same-net warm sorts from 200/268,700 records to 1/1,058, and multi-net sorted records from 12,535 to 8,053. Native full-app alternating runs use 4,000 route nodes, 100 pads, 100 vias, one shared net and 16 valid filled removal circles. Baseline arrival-to-DRC-scheduling medians were 702.8 and 678.5 ms; prepared ordering measured 148.3 and 141.8 ms. Complete polygon data, SVG paths and ratsnest markup remain exactly equal, with 38 ratlines and no runtime errors. Only the two changed production modules were pinned for the baseline; no user storage or board was used. The ordinary multi-net native trials measured 50.4-79.4 ms, but these observations are not universal frame budgets. Shared-pour adoption still exceeds a frame; residual overlap scanning and allocation remain visible in profiling. |
 | Contact candidate filtering and DRC boundary pruning | Implemented, combined full/native verification | Prepared region pairs filter triangles against the opposite contact's bounds before sweeping; no new index, persistent candidate cache or worker payload was needed. Headless same-net sweep visits fall from 148,000 to 4,116, with 200 small candidate arrays replacing much larger active sweeps. Native shared-net arrival-to-DRC-scheduling median falls from 142.2 to 65.8 ms with exact polygon/ratsnest parity; multi-net native trials were variable and do not establish a reliable timing gain. Independent live DRC profiling found a much larger Cartesian boundary-distance cost: the multi-net fixture originally took 8.3-10 seconds. Per-checker hole bounds, a safe fewer-than-two-named-nets short-graph guard and prepared edge candidates reduce it to 1.60-1.73 seconds, retaining all 622 violations exactly, including IDs and marker witnesses. The shared-net fixture retains its 38 unrouted reports at 53.6-80.1 ms versus 435.7 ms in the paired baseline. The synthetic fixtures are intentionally not manufacturing-clean. Tests preserve No Net bridges/clearance, frozen holes, equal-gap witness order and outlying bore edges, and bound a 201-hole/128-vertex case below 10,000 max operations versus 206,848 Cartesian axis-gap checks. Eleven DRC and 28 contact-focused files pass; the combined 218/218 plus routing gate also covers restored early KiCad loading, with 74/76 routes, zero clearance violations and unchanged count warnings. Live DRC still blocks for over a second on the multi-net stress fixture; scheduled off-thread DRC remains actionable work, not a solved latency claim. |
+| Scheduled live DRC worker | Implemented, full/native verification | Detached full-precision physical inputs and neutral ratlines move scheduled calculation off-thread, with bounded jobs, stale-result rejection, preview/pour deferral, explicit pending/failure UI and lifecycle cancellation. Direct/no-Worker/reported-failure synchronous paths remain. The full gate passes 219/219 plus unchanged routing. Native exact-result, interaction, lifecycle, failure and timing evidence is recorded below; this supersedes the preceding synchronous-DRC limitation. |
 | Reliability and routing baseline review | Regression verified; routing-quality review pending | Failure paths and multi-step history sequences pass the final gate. Routing remains 74/76 with zero clearance violations and unchanged 288 traces/214 vias. Review those counts versus the old 239/174 baseline; the hard routed threshold is still 65. Baselines were not reset to silence warnings. |
 | Current documentation and distribution notices | Ownership documentation reconciled; distribution review pending | README and architecture now describe model-owned entities/persistence and detached previews, retaining file format 1.0 and distinguishing historical milestones from current guarantees. Standalone licence/notices and distribution approval remain separate release work. |
 | Final release acceptance | Pending | Run the full gate on the final revision, complete user-led real-board/browser acceptance and independent manufacturing-output review, record limitations, and obtain release approval. |
+
+### Scheduled DRC worker integration evidence
+
+An isolated full application, with real models/renderers and blocked native
+storage/external requests, exercised a genuine module worker on the synthetic
+4,000-node board with 100 pads, 100 vias, a pour and 16 filled removal circles.
+The full 622-result list matches synchronous DRC exactly, including IDs and
+marker witnesses, without changing canonical PCB data. These intentionally
+unclean fixtures test parity, not manufacturing acceptance.
+
+- Pending checks retain settled results and the selected violation. Native zoom
+  during a job reaches the second animation frame in 20.5 ms; this is not proof
+  of completed painting. Complete list/marker adoption measured 7 ms in that run.
+- Preview deferral accepts no result while deferred and one result after resume.
+  A real clearance edit during an outstanding job accepts only the new result:
+  all 650 violations exactly match synchronous calculation.
+- Document replacement terminates the old worker, clears obsolete selection and
+  produces the exact 38-result shared-net report. Transport failure is reported
+  and recovers synchronously. An injected capture failure retains the previous
+  result list with explicit failure status; a subsequent scheduled check recovers.
+  Terminal disposal during an active job terminates workers and prevents restart.
+- Three later warm multi-net checks take 1.89-2.07 seconds off-thread, with
+  maximum 10-ms-heartbeat gaps of 44.4-54.4 ms and complete adoption of 1.7-2.6 ms.
+  The initial run during concurrent regression testing had a 60.2 ms maximum
+  gap and 2.4 ms adoption. Timers were drained after completion. Capture,
+  transfer, layout and rendering still cost main-thread time; these observations
+  do not establish a universal frame budget or eliminate all possible tearing.
+
+All 219 regression files pass, with 74/76 routed connections, 288 traces,
+214 vias, zero clearance violations and the same two count warnings. Checked
+diagnostics and whitespace are clean. The intentionally immediate, non-awaited
+KiCad index warm-up remains unchanged.
 
 ### First model-ownership migration
 
@@ -372,9 +405,10 @@ file-format documentation. Keep compatibility until that confirmation.
 
 ## Limits
 
-- DRC remains synchronous. The sweep reduces separated candidates but densely
-  overlapping bounds can still require quadratic work; no speedup is claimed
-  without a benchmark.
+- Scheduled live DRC runs off-thread; direct checks and fallback paths remain
+  synchronous. Snapshot capture, transfer and result rendering still use the
+  main thread. Densely overlapping bounds can still require quadratic work,
+  and worker execution does not guarantee a particular frame latency.
 - Pad clearance uses shared, posed, conservatively enclosed outlines in DRC
   and the pour engine. Round cutouts enclose their exact circles; Clipper offsets
   include an arc-approximation and integer-rounding allowance so polygon edges

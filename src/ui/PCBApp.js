@@ -20,7 +20,7 @@ import {
 } from './modules/inline-text-overlay.js';
 import { PCB_LAYERS, PCB_OVERLAYS, PCB_COPPER_FILLS, isLayerLocked, isViaLocked, isLayerVisible, isViaVisible, pcbLayerHoverColor, pcbLayerSelectionColor, pcbLayerOptionHtml, refreshPcbLayerOptions, showLockedLayerBubble, isCopperFillLocked, isCopperFillVisible, saveLayerPrefs, setPcbCopperFillLocked, setPcbLayerLocked } from '../pcb/modules/layers.js';
 import { exportDSN, importSES } from '../pcb/modules/dsn.js';
-import { runDRC } from '../pcb/modules/drc.js';
+import { scheduleDrcRefresh, runDrcNow, invalidateDrcRefresh, disposeDrcRefresh } from '../pcb/modules/drc-refresh.js';
 import { buildCopperObstacles } from '../pcb/modules/copper-obstacles.js';
 import { hasFabricationContent } from '../pcb/modules/fabrication-snapshot.js';
 import { openPanelizeDialog, renderPanelPreview } from '../pcb/modules/panelization-ui.js';
@@ -216,8 +216,17 @@ const PCB_CROSSHAIR_TOOLS = new Set([
 export default class PCBApp {
     get _deferDragOverlays() { return this._fillOverlayDeferred; }
     set _deferDragOverlays(value) {
-        if (value && !this._fillOverlayDeferred) invalidateFillRefresh(this);
+        if (value && !this._fillOverlayDeferred) {
+            invalidateFillRefresh(this);
+            invalidateDrcRefresh(this);
+        }
         this._fillOverlayDeferred = value;
+    }
+
+    get _suspendFillRefresh() { return this._drcFillSuspended; }
+    set _suspendFillRefresh(value) {
+        if (value && !this._drcFillSuspended) invalidateDrcRefresh(this);
+        this._drcFillSuspended = value;
     }
     get tracks() {
         return getGroupPreview(this)?.tracks || this._pasteDrop?.preview?.tracks || getPlacementPreviewTracks(this) || this._viaDrag?.preview?.tracks
@@ -487,6 +496,7 @@ export default class PCBApp {
         // Rebuild if schematic changed while we were away
         if (this._stale) this._syncFromSchematic();
         if (this._fillRefreshPending) this._refreshFills();
+        if (this._drcPending || this._drcShouldRun()) this._scheduleDRC();
 
         this._setPcbStatus();
         if (this.viewport) {
@@ -508,11 +518,14 @@ export default class PCBApp {
         this._cancelDrawingMode();
         this._active = false;
         disposeFillRefresh(this);
+        disposeDrcRefresh(this);
     }
 
     dispose() {
         this._fillRefreshDisposed = true;
         disposeFillRefresh(this);
+        this._drcDisposed = true;
+        disposeDrcRefresh(this);
     }
 
     _setPcbStatus() {
@@ -3148,7 +3161,7 @@ export default class PCBApp {
             // — it's dismissed only by re-clicking the DRC button or its X.
             this._drcActive = (tabId === 'pcb-design');
             if (this._drcActive) {
-                this._runDRCLive();
+                this._scheduleDRC();
             }
         };
 
@@ -4191,6 +4204,9 @@ export default class PCBApp {
      * Remove all PCB footprint and ratsnest content from layer groups.
      */
     _clearPCBContent() {
+        disposeDrcRefresh(this);
+        this._drcRatlines = [];
+        this._drcRatlinesModel = this.pcbDocument;
         // Clear children of layer groups (but keep the groups themselves)
         for (const [, g] of this._layerGroups) {
             while (g.firstChild) g.removeChild(g.firstChild);
@@ -5082,6 +5098,7 @@ export default class PCBApp {
 
     _cancelPosePreviews() {
         disposeFillRefresh(this);
+        disposeDrcRefresh(this);
         cancelPcbPaste(this);
         this._boardShapePropertyBinding?.cancel();
         this._boardDimensionPropertyBinding?.dispose();
@@ -5119,6 +5136,7 @@ export default class PCBApp {
         if (this._viaDrag) cancelViaDrag(this);
         if (this._fillDrag) endFillEdit(this, false);
         finishPadRotationPreview(this);
+        if (this._drcPending) this._scheduleDRC();
     }
 
     // ── Text annotations ─────────────────────────────────────────
@@ -6036,6 +6054,7 @@ export default class PCBApp {
         const svg = this.viewport?.svg;
         if (!svg) return;
         invalidateFillRefresh(this);
+        invalidateDrcRefresh(this);
         if (!opts.componentId) text = beginTextContentPreview(this, text.id);
 
         // Hidden input captures keystrokes / selection / IME / clipboard.
@@ -7859,7 +7878,7 @@ export default class PCBApp {
         // Re-run when the design rules themselves change.
         for (const id of ['pcbClearance', 'pcbViaDiameter', 'pcbViaDrill', 'pcbRouteUnits']) {
             const el = document.getElementById(id);
-            el?.addEventListener('change', () => { if (this._drcShouldRun()) this._runDRCLive(); });
+            el?.addEventListener('change', () => this._scheduleDRC());
         }
 
         this._updateDRCStatus({ ok: true, violations: [], counts: { errors: 0, warnings: 0 } }, true);
@@ -7874,55 +7893,47 @@ export default class PCBApp {
 
     /** Request a visible live check, coalesced to one per animation frame. */
     _scheduleDRC() {
-        if (this._drcRaf || !this._drcShouldRun()) return;
-        this._drcRaf = requestAnimationFrame(() => {
-            this._drcRaf = 0;
-            if (this._drcShouldRun()) this._runDRCLive();
-        });
+        scheduleDrcRefresh(this);
+    }
+
+    _invalidateDRC() {
+        invalidateDrcRefresh(this);
     }
 
     /**
-     * Collect the rendered ratsnest air wires (remaining + autorouter-failed)
+     * Collect neutral ratsnest air wires (remaining + autorouter-failed)
      * as plain segments for the DRC's incomplete-connection check.
      * @returns {Array<{net:string, x1:number, y1:number, x2:number, y2:number}>}
      */
     _collectRatlines() {
-        const layer = this._getLayerGroup?.('ratlines');
-        if (!layer) return [];
-        const out = [];
-        for (const el of layer.querySelectorAll('line.ratsnest-line, line.ratsnest-failed')) {
-            out.push({
-                net: el.dataset?.net || '',
-                x1: parseFloat(el.getAttribute('x1')),
-                y1: parseFloat(el.getAttribute('y1')),
-                x2: parseFloat(el.getAttribute('x2')),
-                y2: parseFloat(el.getAttribute('y2')),
-            });
-        }
-        return out;
+        if (this._drcRatlinesModel && this._drcRatlinesModel !== (this.pcbDocument || this)) return [];
+        // SVG numeric attributes previously normalized signed zero, but retained all other precision.
+        return (this._drcRatlines || []).map(({ net, x1, y1, x2, y2 }) => ({
+            net, x1: x1 === 0 ? 0 : x1, y1: y1 === 0 ? 0 : y1,
+            x2: x2 === 0 ? 0 : x2, y2: y2 === 0 ? 0 : y2,
+        }));
+    }
+
+    _resetDRC() {
+        disposeDrcRefresh(this);
+        this._drcRatlines = [];
+        this._drcRatlinesModel = this.pcbDocument;
+        this._drcError = null;
+        this._drcPending = false;
+        this._scheduleDRC();
     }
 
     /** Refresh DRC only after deferred copper geometry and pours are current. */
     _runDRCLive() {
-        if (this._deferDragOverlays || this._suspendFillRefresh
-            || this._pictureCopperRefreshPending || this._fillRefreshScheduled) return;
+        runDrcNow(this);
+    }
+
+    _adoptDRCResult(result) {
         // Capture the currently-selected violation before the list is replaced,
         // so a coordinate-keyed ratline that gets renumbered can be re-adopted.
         const prevSel = this._drcSelectedId
             ? this._drcViolations?.find(v => v.id === this._drcSelectedId)
             : null;
-        const params = this._getRoutingParams();
-        let result;
-        try {
-            result = runDRC(this, {
-                clearance: params.clearance,
-                minAnnularRing: 0.05,
-                ratlines: this._collectRatlines(),
-            });
-        } catch (err) {
-            console.warn('[DRC] check failed', err);
-            return;
-        }
         this._drcViolations = result.violations;
         this._updateDRCStatus(result);
         this._renderDRCList();
@@ -7996,7 +8007,7 @@ export default class PCBApp {
         if (pending) {
             btn.classList.add('drc-status-pending');
             icon.textContent = '…';
-            label.textContent = 'Checking…';
+            label.textContent = this._drcError ? 'DRC check failed' : 'Checking…';
             return;
         }
 
@@ -8155,6 +8166,7 @@ export default class PCBApp {
         panel.setAttribute('aria-hidden', 'false');
         btn?.setAttribute('aria-expanded', 'true');
         btn?.classList.add('drc-status-active');
+        this._scheduleDRC();
     }
 
     _closeDRCPanel() {
@@ -8581,6 +8593,7 @@ export default class PCBApp {
      * parameter changes, as well as during fill editing.
      */
     _refreshFills() {
+        invalidateDrcRefresh(this);
         return scheduleFillRefresh(this);
     }
 
@@ -8615,6 +8628,7 @@ export default class PCBApp {
      * @returns {true|undefined} True when fills were computed and downstream refreshes requested.
      */
     _recomputeFillsNow() {
+        invalidateDrcRefresh(this);
         return recomputeFillsNow(this);
     }
 
@@ -9002,6 +9016,7 @@ export default class PCBApp {
         }
 
         const NS2 = 'http://www.w3.org/2000/svg';
+        const drcRatlines = [...(this._drcRatlines || [])];
         if (Array.isArray(result.failedConnections)) {
             for (const fc of result.failedConnections) {
                 const line = document.createElementNS(NS2, 'line');
@@ -9016,10 +9031,16 @@ export default class PCBApp {
                 line.setAttribute('class', 'ratsnest-line ratsnest-failed');
                 line.dataset.net = fc.net;
                 ratLayer.appendChild(line);
+                drcRatlines.push({
+                    net: String(fc.net), x1: fc.from.x, y1: fc.from.y, x2: fc.to.x, y2: fc.to.y, failed: true,
+                });
             }
         }
 
+        this._drcRatlines = drcRatlines;
+        this._drcRatlinesModel = this.pcbDocument;
         this._refreshClearanceHalos();
+        this._scheduleDRC();
     }
 
     /**
@@ -9051,6 +9072,7 @@ export default class PCBApp {
         // the autorouter's failed-connection lines.
         const ratLayer = this._getLayerGroup('ratlines');
         ratLayer.querySelectorAll('.ratsnest-failed').forEach(el => el.remove());
+        this._drcRatlines = (this._drcRatlines || []).filter(line => !line.failed);
         reconcileRatsnest(this);
 
         this._refreshClearanceHalos();

@@ -363,7 +363,22 @@ Cartesian edge scans. Candidate queries conservatively include outlying bore
 edges; equal-distance markers retain the original edge-pair order even though
 the sweep visits candidates spatially. Short connectivity is skipped only when
 fewer than two named nets exist; clearance, unassigned copper, ring validity and
-unrouted checks still run. These optimizations do not make live DRC asynchronous.
+unrouted checks still run.
+
+Scheduled live DRC uses `drc-refresh.js` and a module worker. The
+`drc-worker-inputs.js` capture supplies detached, full-precision physical geometry
+and neutral ratline data; the worker imports no editor, storage or network code.
+Ratsnest rendering publishes that neutral data instead of making DRC recover
+connectivity from SVG attributes. One active and one replaceable pending request
+bound queued work. Revision, document/collection, pour-cache and ratline ownership
+checks reject obsolete results; previews and unsettled pours defer adoption.
+The UI explicitly shows checking or failure while retaining settled results and
+selection. Replacement/deactivation cancel work; terminal disposal prevents
+restart. Direct checks, missing Worker support and reported worker failures use
+the same synchronous calculation. Failed capture/calculation does not replace
+previous results with an empty successful report. Capture, transfer and result
+rendering remain main-thread work, so offloading is not a zero-latency guarantee.
+
 Published fill-region identities are preserved, so their triangle contacts and
 bounds can be reused rather than rebuilt for every candidate pair or unchanged
 connectivity pass. A newly computed region has a new identity; replacing a
