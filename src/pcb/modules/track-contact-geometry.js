@@ -1,4 +1,5 @@
 import { resolveBoardShapeGeometry } from './board-shape-geometry.js';
+import { padFlashOutline } from './board-geometry.js';
 import { distanceToSegment, pointInPolygon } from '../../core/geometry.js';
 import { spatialCrossPairs } from '../../core/spatial-pairs.js';
 import earcut from '../../../assets/vendor/earcut.module.js';
@@ -195,6 +196,44 @@ export function resolveTrackContactGeometry(shape) {
 /** Resolve pass-local segment descriptors without authored-shape cache snapshots. */
 export function copperSegmentContact(segment) {
     return createContact({ copperSegment: segment });
+}
+
+function sameOutline(first, second) {
+    if (first.length !== second.length) return false;
+    for (let index = 0; index < first.length; index++) {
+        if (first[index].x !== second[index].x || first[index].y !== second[index].y) return false;
+    }
+    return true;
+}
+
+/** Reuse only exact physical inputs; the retained geometry owns its contour and bore. */
+export function resolveTerminalCopperContact(cluster, previous) {
+    const terminal = cluster.pad || cluster.via;
+    const outline = cluster.pad?.outline;
+    const { x, y, drill } = terminal;
+    const slot = terminal.slot || null;
+    if (previous && previous.kind === cluster.kind && previous.x === x && previous.y === y
+        && previous.radius === cluster.viaRadius && previous.drill === drill
+        && !!previous.slot === !!slot && (!slot || (previous.slot.x1 === slot.x1
+            && previous.slot.y1 === slot.y1 && previous.slot.x2 === slot.x2 && previous.slot.y2 === slot.y2))
+        && previous.hasOutline === !!outline && (!outline || sameOutline(outline, previous.shape.region.outer))) {
+        return previous;
+    }
+    const outer = outline ? outline.map(point => ({ x: point.x, y: point.y })) : padFlashOutline({
+        x, y, w: cluster.viaRadius * 2, h: cluster.viaRadius * 2, shape: 'circle',
+    }, 1e-4);
+    const holes = [];
+    if (drill > 0) holes.push(padFlashOutline({
+        x: slot ? (slot.x1 + slot.x2) / 2 : x,
+        y: slot ? (slot.y1 + slot.y2) / 2 : y,
+        w: drill + (slot ? Math.hypot(slot.x2 - slot.x1, slot.y2 - slot.y1) : 0),
+        h: drill, shape: slot ? 'oval' : 'circle',
+        rad: slot ? Math.atan2(slot.y2 - slot.y1, slot.x2 - slot.x1) : 0,
+    }, 1e-4));
+    const shape = copperRegionShape({ outer, holes });
+    return { kind: cluster.kind, x, y, drill, radius: cluster.viaRadius, hasOutline: !!outline,
+        slot: slot ? { x1: slot.x1, y1: slot.y1, x2: slot.x2, y2: slot.y2 } : null,
+        shape, resolved: resolveTrackContactGeometry(shape) };
 }
 
 function createContact(shape) {

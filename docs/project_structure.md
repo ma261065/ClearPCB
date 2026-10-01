@@ -340,6 +340,12 @@ Ratsnest and bonded-Net traversal prepare contact geometry once per synchronous
 pass and share it between spatial filtering and exact contact tests. Resolved
 track segments use pass-local contact descriptors without authored-shape cache
 snapshots. Mutable board shapes still use value-validated cached geometry.
+Physical pad/via contacts also reuse detached contours and lazy triangulation
+across passes after exact posed-outline, position, radius, drill and slot
+comparisons. The app-owned weak cache retains only the latest completed pass,
+rejects reuse across document identities and drops absent terminals. Net and
+layer membership are rebuilt separately; matching terminal IDs alone never
+establish geometry validity.
 Published fill-region identities are preserved, so their triangle contacts and
 bounds can be reused rather than rebuilt for every candidate pair or unchanged
 connectivity pass. A newly computed region has a new identity; replacing a

@@ -45,7 +45,7 @@ import { snapNodeToAxis, snapNodeToCollinear } from '../../shapes/path-snap.js';
 export { snapNodeToAxis, snapNodeToCollinear } from '../../shapes/path-snap.js';
 import { normalizeShapeCopperMode, shapeOutline } from './board-shape-geometry.js';
 import { renderBoardShape } from './board-shapes.js';
-import { resolveTrackContactGeometry, copperShapesTouch, copperContactsTouch, copperRegionShape, copperSegmentShape, copperSegmentContact, pointInCopperRegion } from './track-contact-geometry.js';
+import { resolveTrackContactGeometry, copperShapesTouch, copperContactsTouch, copperRegionShape, copperSegmentShape, copperSegmentContact, resolveTerminalCopperContact, pointInCopperRegion } from './track-contact-geometry.js';
 import { spatialClusterMST } from './cluster-mst.js';
 import { spatialPairs } from '../../core/spatial-pairs.js';
 import { showAlert } from '../../ui/modules/modal.js';
@@ -861,7 +861,10 @@ export function reconcileRatsnest(app, opts) {
         }
     }
 
-    if (!clusters.length) return;
+    if (!clusters.length) {
+        terminalContactPasses.delete(app);
+        return;
+    }
 
     // ── Union clusters that physically touch (same net, coincident point,
     //    AND layer-compatible: same layer, or one side is an all-layer bond
@@ -872,7 +875,7 @@ export function reconcileRatsnest(app, opts) {
     const union = (a, b) => { const ra = find(a), rb = find(b); if (ra !== rb) parent[ra] = rb; };
 
     unionCoincidentClusters(clusters.slice(0, terminalCount), union, true);
-    const contacts = _clusterCopperContacts(clusters);
+    const contacts = _clusterCopperContacts(app, clusters);
     for (const [first, second] of spatialPairs(contacts,
         contact => contact.resolved.bounds, 1e-7)) {
         const a = clusters[first.index], b = clusters[second.index];
@@ -948,6 +951,7 @@ export function reconcileRatsnest(app, opts) {
  */
 export function collectBondedCopper(app, seed, { includeShapes = false, newTracks = null } = {}) {
     const clusters = buildCopperClusters(app);
+    if (!clusters.length) terminalContactPasses.delete(app);
     if (includeShapes) {
         for (const shape of new Set([...(app.boardShapes || []), ...(app.copperFills || [])])) {
             if (!TOGGLE_LAYERS.includes(shape.layer)
@@ -981,7 +985,7 @@ export function collectBondedCopper(app, seed, { includeShapes = false, newTrack
         }
     }
     if (includeShapes && roots.size) {
-        const contacts = _clusterCopperContacts(clusters).map(contact => ({
+        const contacts = _clusterCopperContacts(app, clusters).map(contact => ({
             ...contact, root: find(contact.index),
         }));
         const bounds = contact => contact.resolved.bounds;
@@ -1186,32 +1190,26 @@ function _projectPointOnSegment(p, a, b) {
     return { x: a.x + abx * t, y: a.y + aby * t };
 }
 
+// Retain only the last contact pass, not deleted terminals or an unbounded geometry history.
+const terminalContactPasses = new WeakMap();
+
 /** Shared physical geometry for ratlines and bonded-Net traversal. */
-function _clusterCopperContacts(clusters) {
+function _clusterCopperContacts(app, clusters) {
     const contacts = [];
     const segments = new Map();
+    const model = app.pcbDocument || app;
+    const previous = terminalContactPasses.get(app);
+    const terminals = new Map();
     clusters.forEach((cluster, index) => {
         const isShape = cluster.kind === 'shape' || !!cluster.copperShape;
-        let geometries;
+        let geometries, terminal;
         if (isShape) geometries = [cluster.geometry || cluster.copperShape];
         else if (cluster.kind === 'via' || cluster.kind === 'pad') {
-            const terminal = cluster.pad || cluster.via;
-            const outer = cluster.pad?.outline || padFlashOutline({
-                x: terminal.x, y: terminal.y, w: cluster.viaRadius * 2,
-                h: cluster.viaRadius * 2, shape: 'circle',
-            }, 1e-4);
-            const holes = [];
-            if (terminal.drill > 0) {
-                const slot = terminal.slot;
-                holes.push(padFlashOutline({
-                    x: slot ? (slot.x1 + slot.x2) / 2 : terminal.x,
-                    y: slot ? (slot.y1 + slot.y2) / 2 : terminal.y,
-                    w: terminal.drill + (slot ? Math.hypot(slot.x2 - slot.x1, slot.y2 - slot.y1) : 0),
-                    h: terminal.drill, shape: slot ? 'oval' : 'circle',
-                    rad: slot ? Math.atan2(slot.y2 - slot.y1, slot.x2 - slot.x1) : 0,
-                }, 1e-4));
-            }
-            geometries = [copperRegionShape({ outer, holes })];
+            const key = cluster.via || cluster.padKey;
+            terminal = resolveTerminalCopperContact(cluster,
+                previous?.model === model ? previous.terminals.get(key) : undefined);
+            terminals.set(key, terminal);
+            geometries = [terminal.shape];
         } else {
             if (!segments.has(cluster.track)) segments.set(cluster.track, resolveTrackSegments(cluster.track));
             geometries = segments.get(cluster.track).filter(segment => cluster.edgeIds.has(segment.edgeId))
@@ -1219,11 +1217,13 @@ function _clusterCopperContacts(clusters) {
         }
         for (const geometry of geometries) contacts.push({
             index, geometry, track: cluster.track, shape: cluster.shape,
-            resolved: geometry.copperSegment ? copperSegmentContact(geometry.copperSegment)
+            resolved: terminal ? terminal.resolved
+                : geometry.copperSegment ? copperSegmentContact(geometry.copperSegment)
                 : resolveTrackContactGeometry(geometry),
             layer: geometry.layer || cluster.layer,
         });
     });
+    terminalContactPasses.set(app, { model, terminals });
     return contacts;
 }
 
