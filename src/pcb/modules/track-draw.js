@@ -45,7 +45,7 @@ import { snapNodeToAxis, snapNodeToCollinear } from '../../shapes/path-snap.js';
 export { snapNodeToAxis, snapNodeToCollinear } from '../../shapes/path-snap.js';
 import { normalizeShapeCopperMode, shapeOutline } from './board-shape-geometry.js';
 import { renderBoardShape } from './board-shapes.js';
-import { resolveTrackContactGeometry, copperShapesTouch, copperRegionShape, copperSegmentShape, pointInCopperRegion } from './track-contact-geometry.js';
+import { resolveTrackContactGeometry, copperShapesTouch, copperContactsTouch, copperRegionShape, copperSegmentShape, copperSegmentContact, pointInCopperRegion } from './track-contact-geometry.js';
 import { spatialClusterMST } from './cluster-mst.js';
 import { spatialPairs } from '../../core/spatial-pairs.js';
 import { showAlert } from '../../ui/modules/modal.js';
@@ -857,7 +857,7 @@ export function reconcileRatsnest(app, opts) {
         for (const region of getComputedFill(fill) || []) {
             if (!region.outer || region.outer.length < 3) continue;
             clusters.push({ net, layer: fill.layer, points: [], source: fill,
-                copperShape: copperRegionShape({ ...region, holes: region.holes || [] }) });
+                copperShape: copperRegionShape(region) });
         }
     }
 
@@ -874,12 +874,12 @@ export function reconcileRatsnest(app, opts) {
     unionCoincidentClusters(clusters.slice(0, terminalCount), union, true);
     const contacts = _clusterCopperContacts(clusters);
     for (const [first, second] of spatialPairs(contacts,
-        contact => resolveTrackContactGeometry(contact.geometry).bounds, 1e-7)) {
+        contact => contact.resolved.bounds, 1e-7)) {
         const a = clusters[first.index], b = clusters[second.index];
         if (a.net !== b.net || find(first.index) === find(second.index)
             || (a.source && a.source === b.source)
             || (first.layer !== 'all' && second.layer !== 'all' && first.layer !== second.layer)) continue;
-        if (copperShapesTouch(first.geometry, second.geometry)) union(first.index, second.index);
+        if (copperContactsTouch(first.resolved, second.resolved)) union(first.index, second.index);
     }
 
     // ── Group merged clusters by net ──
@@ -953,7 +953,7 @@ export function collectBondedCopper(app, seed, { includeShapes = false, newTrack
             if (!TOGGLE_LAYERS.includes(shape.layer)
                 || (shape.type !== 'fill' && normalizeShapeCopperMode(shape.copperMode) !== 'add')) continue;
             const geometries = shape.type === 'fill'
-                ? (getComputedFill(shape) || []).map(region => copperRegionShape({ ...region, holes: region.holes || [] }))
+                ? (getComputedFill(shape) || []).map(copperRegionShape)
                 : [shape];
             for (const geometry of geometries) {
                 clusters.push({ kind: 'shape', shape, geometry, net: shape.net || '',
@@ -984,7 +984,7 @@ export function collectBondedCopper(app, seed, { includeShapes = false, newTrack
         const contacts = _clusterCopperContacts(clusters).map(contact => ({
             ...contact, root: find(contact.index),
         }));
-        const bounds = contact => resolveTrackContactGeometry(contact.geometry).bounds;
+        const bounds = contact => contact.resolved.bounds;
         const neighbours = new Map();
         const addCandidates = pairs => {
             for (const [first, second] of pairs) {
@@ -1008,7 +1008,7 @@ export function collectBondedCopper(app, seed, { includeShapes = false, newTrack
         const pending = [...roots];
         for (let index = 0; index < pending.length; index++) {
             for (const [from, to] of neighbours.get(pending[index]) || []) {
-                if (roots.has(to.root) || !copperShapesTouch(from.geometry, to.geometry)) continue;
+                if (roots.has(to.root) || !copperContactsTouch(from.resolved, to.resolved)) continue;
                 roots.add(to.root);
                 pending.push(to.root);
             }
@@ -1219,6 +1219,8 @@ function _clusterCopperContacts(clusters) {
         }
         for (const geometry of geometries) contacts.push({
             index, geometry, track: cluster.track, shape: cluster.shape,
+            resolved: geometry.copperSegment ? copperSegmentContact(geometry.copperSegment)
+                : resolveTrackContactGeometry(geometry),
             layer: geometry.layer || cluster.layer,
         });
     });

@@ -313,6 +313,16 @@ transfer field and recompute from captured authored geometry rather than using
 the live preview cache. This does not remove the remaining inherited shape
 presentation methods or other entity-level derived caches.
 
+Ratsnest and bonded-Net traversal prepare contact geometry once per synchronous
+pass and share it between spatial filtering and exact contact tests. Resolved
+track segments use pass-local contact descriptors without authored-shape cache
+snapshots. Mutable board shapes still use value-validated cached geometry.
+Published fill-region identities are preserved, so their triangle contacts and
+bounds can be reused rather than rebuilt for every candidate pair or unchanged
+connectivity pass. A newly computed region has a new identity; replacing a
+shape's region also invalidates its resolved contact. Hole geometry and physical
+contact tolerances are unchanged.
+
 `CopperFill.captureCopperGeometry()` captures the model's resolved boundary as
 detached, full-precision data. It reuses `getOutline()` for circles, rounded
 corners and bulged edges rather than substituting the authored control polygon
