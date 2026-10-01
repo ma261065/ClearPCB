@@ -34,15 +34,14 @@ function fixture() {
     const app = Object.assign(Object.create(PCBApp.prototype), {
         pcbDocument: new PcbDocument(), placements: new Map([['part', { pads: new Map() }]]),
         netlist: [{ net: 'ORIGINAL', pins: [] }], _active: true, currentTool: 'select', status: {},
-        _ratsnestVisibilityQueue: new Map(), _layerGroups: new Map(),
+        _layerGroups: new Map(),
         _textElements: new Map(), _shapeElements: new Map(),
         _getLayerGroup: () => null,
         _getRoutingParams: () => ({ trackWidth: 0.23456789, clearance: 0.1, viaDiameter: 0.6, viaDrill: 0.3 }),
         _getRouterMode: () => 'maze',
         _buildRouteInput: () => ({ connections: [{ net: 'ORIGINAL', pads: [] }] }),
-        _showRouteProgress() {}, _hideRouteProgress() {}, _setStatus(message) { this.lastStatus = message; },
-        _reconcileRatsnestFromRouteState() {}, _flushRatsnestVisibilityQueue() {},
-        _playRemainingRipupPhases: async () => {}, _refreshClearanceHalos() {}, _scheduleDRC() {},
+        _setStatus(message) { this.lastStatus = message; },
+        _refreshClearanceHalos() {}, _scheduleDRC() {},
         _refreshFills: () => false, _ensureViewport() {}, _resetDRC() {}, _updateCopperCuts() {},
         _closeDRCPanel() {}, _clearDRCMarker() {}, _selectBoardOutline() {},
         _closeBoardDimensionsDialog() {}, _clearFillGroups() {},
@@ -66,7 +65,7 @@ for (const stopped of [false, true]) {
     assert.deepEqual(app.pcbDocument.captureGeometry(), before, 'Routing never clears authored copper at startup');
     assert.equal(app.isSectionDirty(), false);
     if (stopped) {
-        app._routeCancelToken.cancelled = true;
+        app._getAutorouter().stop();
         for (const poll of intervals.values()) poll();
         assert.equal(worker.jobs.at(-1).type, 'cancel', 'Stop requests a cooperative partial result');
     }
@@ -114,7 +113,7 @@ for (const operation of ['command', 'document', 'clear-document', 'deactivate', 
     await run;
     assert.deepEqual(app.pcbDocument.captureGeometry(), expected, `${operation}: old results never overwrite newer state`);
     assert.equal(worker.terminated, true);
-    assert.equal(app._routeSession, null);
+    assert.equal(app._getAutorouter().active, false);
     assert.equal(intervals.size, 0);
     if (operation === 'command') {
         assert.equal(app.history.undoStack.length, 1);
@@ -144,7 +143,7 @@ for (const operation of ['command', 'document', 'clear-document', 'deactivate', 
 {
     const { app, track } = fixture();
     let finishPresentation;
-    app._playRemainingRipupPhases = () => new Promise(resolve => { finishPresentation = resolve; });
+    app._getAutorouter().presentation.finishRipupPhases = () => new Promise(resolve => { finishPresentation = resolve; });
     const run = app.runAutoRoute();
     workers.at(-1).finish(routed);
     await Promise.resolve();
@@ -182,7 +181,7 @@ for (const mode of ['error', 'messageerror', 'post', 'constructor', 'capture', '
         if (mode === 'error') workers.at(-1).emit({ type: 'error', error: 'Router failed' });
         if (mode === 'messageerror') workers.at(-1).listeners.get('messageerror')();
         if (mode === 'progress') {
-            app._showRouteProgress = () => { throw new Error('Progress render failed'); };
+            app._getAutorouter().presentation.showProgress = () => { throw new Error('Progress render failed'); };
             workers.at(-1).emit({ type: 'progress', done: 1, total: 3 });
         }
         await run;

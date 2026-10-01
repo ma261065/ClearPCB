@@ -31,7 +31,7 @@ const { default: PCBApp } = await import('../src/ui/PCBApp.js');
 const app = Object.create(PCBApp.prototype);
 app.pcbDocument = new PcbDocument();
 app._drcSelectedId = null;
-app._selectDRCViolation = id => { app._drcSelectedId = id; };
+app._getDrcPresentation().selectViolation = id => { app._drcSelectedId = id; };
 
 app._moveDRCSelection(1);
 assert.equal(app._drcSelectedId, 'a', 'Arrow Down starts at the first visible violation');

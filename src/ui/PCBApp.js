@@ -2,6 +2,8 @@
 // PCBApp.js - PCB Editor Application
 
 import { serializePcb, preparePcb, loadPcb } from '../pcb/modules/project-state.js';
+import { AutorouterSession } from '../pcb/modules/autorouter-session.js';
+import { ComponentProperties } from '../pcb/modules/component-properties.js';
 import { bindPcbControls } from '../pcb/modules/controls.js';
 import { Viewport } from '../core/Viewport.js';
 import { snapToViewportGrid } from '../core/grid-snap.js';
@@ -20,6 +22,8 @@ import {
 } from './modules/inline-text-overlay.js';
 import { PCB_LAYERS, PCB_OVERLAYS, PCB_COPPER_FILLS, isLayerLocked, isViaLocked, isLayerVisible, isViaVisible, pcbLayerHoverColor, pcbLayerSelectionColor, pcbLayerOptionHtml, refreshPcbLayerOptions, showLockedLayerBubble, isCopperFillLocked, isCopperFillVisible, saveLayerPrefs, setPcbCopperFillLocked, setPcbLayerLocked } from '../pcb/modules/layers.js';
 import { exportDSN, importSES } from '../pcb/modules/dsn.js';
+import { DrcPresentation } from '../pcb/modules/drc-presentation.js';
+import { resolveDrcPairMarker } from '../pcb/modules/drc.js';
 import { scheduleDrcRefresh, runDrcNow, invalidateDrcRefresh, disposeDrcRefresh } from '../pcb/modules/drc-refresh.js';
 import { cancelPcbPosePreviews, disposePcbPropertyEditors, hasPcbEditInProgress } from '../pcb/modules/edit-lifecycle.js';
 import { runPcbDeleteAction, runPcbEscapeAction, runPcbHistoryAction, runPcbNudgeAction, savePcbProject } from '../pcb/modules/editor-actions.js';
@@ -31,7 +35,7 @@ import { generateGerberArchive, showGerberProgress } from '../pcb/modules/gerber
 import { generateBOM, generatePickAndPlace } from '../pcb/modules/assembly.js';
 import { openBoard3DViewer } from '../pcb/modules/board3d.js';
 import { savePcbPdf, printPcb, projectBaseName } from '../pcb/modules/pcb-export.js';import { tracksFromAutorouterResult } from '../pcb/modules/autorouter-adapter.js';
-import { renderTrack, renderVia, removeTrackElements, removeViaElements, viaCopperPathD } from '../pcb/modules/track-render.js';
+import { renderTrack, renderVia, removeTrackElements, removeViaElements, buildTrackLayerRuns, hasTrackElements, hasViaElements } from '../pcb/modules/track-render.js';
 import { startTrackDraw, updateTrackDraw, refreshTrackDrawPreview, addTrackWaypoint, finishTrackDraw, cancelTrackDraw, toggleTrackLayer, resolveTrackDrawSnap, resolveTrackSnap, showTrackSnapMarker, clearTrackSnapMarker, reconcileRatsnest } from '../pcb/modules/track-draw.js';
 import { hitTestTrack, hitTestLockedTrack, selectTrackOrVia, clearTrackSelection, setHoverHighlight, showTrackContextMenu, refreshTrackSelectionHalo, getSelectedTrack, getSelectedVia, selectTrackSegment, dismissTrackContextMenu, applyNetToCopperSelection, trackIsSelectable } from '../pcb/modules/track-select.js';
 import { getBoardShapeRotationPreview, getBoardShapePointerPreview, getBoardShapePropertyPreview, finishBoardShapeRotationPreview } from '../pcb/modules/board-shapes.js';
@@ -143,7 +147,7 @@ import {
 } from '../pcb/modules/pad-commands.js';
 import '../pcb/modules/pad-selection.js';
 import { boardShapeClearanceOutlines, pcbTextClearanceOutlines } from '../pcb/modules/copper-fill-geom.js';
-import { bindPictureRefreshHold, schedulePictureCopperRefresh } from '../pcb/modules/picture-refresh.js';
+import { bindPictureRefreshHold, schedulePictureCopperRefresh, shouldDeferShapeClearance } from '../pcb/modules/picture-refresh.js';
 import { PICTURE_LAYERS } from '../pcb/modules/picture-raster.js';
 import { renderCopperFill, fillGroupId, setCopperFillClip } from '../pcb/modules/copper-fill-render.js';
 import { RemoveFillCommand, ModifyFillCommand } from '../pcb/modules/copper-fill-commands.js';
@@ -421,32 +425,10 @@ export default class PCBApp {
         this._showDebugTooltip = false;
         /** Transient message bubble shown over a component, or null. */
         this._componentPopup = null;
-        /** Autoroute progress/cancel runtime state */
-        this._routeCancelToken = null;
-        this._routeWorker = null;
-        this._routeSession = null;
-        this._routeProgressStartMs = 0;
-        this._routeProgressTimer = null;
-        /** @type {Map<string, boolean>} pending net visibility updates */
-        this._ratsnestVisibilityQueue = new Map();
-        this._ratsnestVisibilityRaf = 0;
-        /** @type {Map<string, boolean>|null} net -> is unrouted */
-        this._routeNetUnrouted = null;
-        this._routeLastBoundaryKey = '';
-        /** @type {object|null} Stored test board RouteInput for direct routing */
+        /** Lazily created owner of routing session and temporary presentation. */
+        this._autorouter = null;
+        /** @type {object|null} Stored test board RouteInput for direct routing. */
         this._testBoardRouteInput = null;
-        this._routeProgressState = {
-            done: 0,
-            total: 1,
-            netName: 'Starting...',
-            phase: 'initial',
-            pendingConnections: 0,
-            pendingNets: 0,
-            ripupDone: 0,
-            ripupTotal: 0,
-            ripupPass: 0,
-            ripupMaxPasses: 4,
-        };
     }
 
     initialize() {
@@ -486,6 +468,7 @@ export default class PCBApp {
         this._updateCursorForTool();
         this._syncPcbHomeToolHighlight?.();
         this.viewport?._onResize?.();
+        this._drcPresentation?.activate();
         this._updateViewportStatus();
         this.syncPcbViewToggles?.();
         updateGridDropdown(this);
@@ -515,16 +498,18 @@ export default class PCBApp {
         this._cancelPosePreviews();
         this._cancelDrawingMode();
         this._active = false;
+        this._drcPresentation?.deactivate();
         disposeFillRefresh(this);
         disposeDrcRefresh(this);
     }
 
     dispose() {
-        this._cancelAutoRoute?.();
+        this._autorouter?.dispose();
         this._fillRefreshDisposed = true;
         disposeFillRefresh(this);
         this._drcDisposed = true;
         disposeDrcRefresh(this);
+        this._drcPresentation?.dispose();
     }
 
     _setPcbStatus() {
@@ -2553,7 +2538,7 @@ export default class PCBApp {
 
     /** Pending previews must finish before a user-visible save/export snapshot. */
     isSectionEditing() {
-        return !!this._routeSession || hasPcbEditInProgress(this);
+        return !!this._autorouter?.active || hasPcbEditInProgress(this);
     }
 
     /**
@@ -2757,7 +2742,7 @@ export default class PCBApp {
         if (!visible && this._boardShapePropertyBinding?.affectsLayer(layerId)) this._boardShapePropertyBinding.dispose();
         if (!visible && layerId === 'vias') this._viaPropertyBinding?.dispose();
         if (!visible && this._textPropertyBinding?.model.layer === layerId) this._textPropertyBinding.dispose();
-        if (!visible && this._refPropertyBinding?.affectsLayer(layerId)) this._refPropertyBinding.dispose();
+        if (!visible && this._componentProperties?.affectsLayer(layerId)) this._componentProperties.dispose();
         if (!visible && this._padPropertyBinding?.pads.some(pad => padLayers(pad).includes(layerId))) {
             this._padPropertyBinding.dispose();
         }
@@ -2848,7 +2833,7 @@ export default class PCBApp {
         if (locked && this._boardShapePropertyBinding?.affectsLayer(layerId)) this._boardShapePropertyBinding.cancel();
         if (locked && layerId === 'vias') this._viaPropertyBinding?.cancel();
         if (locked && this._textPropertyBinding?.model.layer === layerId) this._textPropertyBinding.cancel();
-        if (locked && this._refPropertyBinding?.affectsLayer(layerId)) this._refPropertyBinding.cancel();
+        if (locked && this._componentProperties?.affectsLayer(layerId)) this._componentProperties.cancel();
         if (locked && this._padPropertyBinding?.pads.some(pad => padLayers(pad).includes(layerId))) {
             this._padPropertyBinding.cancel();
         }
@@ -2904,19 +2889,7 @@ export default class PCBApp {
             // Ratlines have a real SVG layer group; toggle its display.
             const g = this._layerGroups.get('ratlines');
             if (g) g.style.display = visible ? '' : 'none';
-            // A highlighted incomplete-connection violation draws a temporary
-            // copy of its ratline only while the real ratline is hidden.
-            // Toggling ratline visibility flips that condition, so re-draw the
-            // currently shown marker to add or drop the temp ratline to match.
-            if (this._drcSelectedId) {
-                const overlay = this._layerGroups.get('drc-overlay');
-                const sel = (overlay && overlay.firstChild)
-                    ? this._drcViolations.find(x => x.id === this._drcSelectedId) : null;
-                if (sel) {
-                    this._drawDRCMarker(sel);
-                    this._updateDRCConnector();
-                }
-            }
+            this._drcPresentation?.overlayVisibilityChanged();
         }
         saveLayerPrefs();
     }
@@ -2971,10 +2944,7 @@ export default class PCBApp {
             // The DRC runs live only while the Design tab is active. The
             // slide-in problem panel, however, stays open across tab switches
             // — it's dismissed only by re-clicking the DRC button or its X.
-            this._drcActive = (tabId === 'pcb-design');
-            if (this._drcActive) {
-                this._scheduleDRC();
-            }
+            this._getDrcPresentation().setDesignActive(tabId === 'pcb-design');
         };
 
         this._setActiveRibbonTab = setActive;
@@ -3239,8 +3209,7 @@ export default class PCBApp {
      * with the base Properties group as the sole panel content.
      */
     _pcbPropsItems() {
-        document.getElementById('pcbPropertiesPanel')
-            ?.querySelectorAll('.pcb-props-extra').forEach((el) => el.remove());
+        this._componentProperties?.clearExtras();
         return document.getElementById('pcbPropsItems');
     }
 
@@ -3642,95 +3611,38 @@ export default class PCBApp {
         this._setActiveRibbonTab?.('pcb-properties');
     }
 
+    _getComponentProperties() {
+        return this._componentProperties ??= new ComponentProperties({
+            getPlacement: id => this.placements.get(id),
+            isActive: () => this._active !== false,
+            isSelected: (kind, id) => isPcbSelected(this, kind, id),
+            getItems: () => this._pcbPropsItems(),
+            setTitle: title => this._setPcbPropsTitle(title),
+            activateTab: () => this._setActiveRibbonTab?.('pcb-properties'),
+            layerLabel: layer => this._layerLabel(layer),
+            bindStrokeText: (items, model, spec) => this._bindStrokeTextProps(items, model, spec),
+            rotate: (id, before, after) => this.history.execute(new RotatePlacementCommand(this, id, before, after)),
+            setLocked: (id, locked) => {
+                finishSelectionInteraction(this, false);
+                this.history.execute(new SetPlacementLockedCommand(this, id, locked));
+            },
+            setReferenceVisible: (id, visible) => this._setComponentRefVisible(id, visible),
+            setSide: (id, side) => this._setPlacementSide(id, side),
+            flip: (id, axis) => this._flipComponent(id, axis),
+            open3D: id => this._openComponent3DPopout(id),
+            renderReference: id => this._rerenderRef(id),
+            drawReferenceOverlay: (id, tether) => this._drawRefOverlay(id, tether),
+            setReferenceStyle: (id, before, after) => this.history.execute(new SetRefStyleCommand(this, id, before, after)),
+        });
+    }
+
     _syncComponentRotationInput(compId) {
-        if (!getPcbSelection(this, 'component').includes(compId)) return;
-        const placement = this.placements.get(compId);
-        const input = /** @type {HTMLInputElement|null} */ (document.getElementById('pcbPropCompRot'));
-        if (placement && input) input.value = String(((Math.round(placement.rotation || 0) % 360) + 360) % 360);
+        this._componentProperties?.syncRotationInput(compId);
     }
 
     /** Show properties for a single placed component. */
     _showComponentProperties(compId) {
-        const items = this._pcbPropsItems();
-        if (!items) return;
-        this._setPcbPropsTitle('Component');
-
-        const pl = this.placements.get(compId);
-        const name = pl?.name || pl?.reference || compId;
-        const side = pl?.side === 'bottom' ? 'bottom' : 'top';
-        const refVisible = pl?.refVisible !== false;
-        const locked = !!pl?.locked;
-
-        items.innerHTML = `
-            <div class="prop-row"><label>Reference</label><span style="font-size:11px;color:var(--text-primary)">${name}</span></div>
-            <label class="prop-row prop-toggle"><input type="checkbox" id="pcbPropCompLocked"${locked ? ' checked' : ''}><span>Locked</span></label>
-            <label class="prop-row prop-toggle"><input type="checkbox" id="pcbPropCompRefVis"${refVisible ? ' checked' : ''}${locked ? ' disabled' : ''}><span>Show Reference</span></label>
-            <div class="prop-row"><label>Layer</label><select id="pcbPropCompSide"${locked ? ' disabled' : ''}>
-                <option value="top"${side === 'top' ? ' selected' : ''}>Top</option>
-                <option value="bottom"${side === 'bottom' ? ' selected' : ''}>Bottom</option>
-            </select></div>
-            <div class="prop-row"><label>Rotation (°)</label><input type="number" id="pcbPropCompRot" data-number-format="rotation" value="${((Math.round(pl?.rotation || 0) % 360) + 360) % 360}" step="1"${locked ? ' disabled' : ''}></div>
-            ${hasAny3DModel(pl) ? '<div class="prop-actions" style="margin-top:6px"><button id="pcbPropShow3D" title="Show 3D model">\uD83E\uDDCA Show 3D</button></div>' : ''}
-        `;
-
-        // Sibling ribbon-group sections (mirrors the schematic Properties
-        // panel: Transform sits beside the info group horizontally).
-        const panel = document.getElementById('pcbPropertiesPanel');
-        const transform = document.createElement('div');
-        transform.className = 'ribbon-group pcb-props-extra';
-        transform.innerHTML = `
-            <div class="ribbon-group-title">Transform</div>
-            <div class="ribbon-group-items prop-actions">
-                <button id="pcbPropRotateLeft" title="Rotate Left 90°">↶ Rotate L</button>
-                <button id="pcbPropRotateRight" title="Rotate Right 90°">↷ Rotate R</button>
-                <button id="pcbPropFlipH" title="Flip Horizontal (X)">⇔ Flip H</button>
-                <button id="pcbPropFlipV" title="Flip Vertical (Y)">⇕ Flip V</button>
-            </div>
-        `;
-        panel?.appendChild(transform);
-        for (const button of transform.querySelectorAll('button')) button.disabled = locked;
-
-        const curRot = () => ((this.placements.get(compId)?.rotation || 0) % 360 + 360) % 360;
-
-        const rotateTo = (deg) => {
-            const p = this.placements.get(compId);
-            if (!p || p.locked) return;
-            const norm = ((deg % 360) + 360) % 360;
-            if ((p.rotation || 0) === norm) return;
-            this.history.execute(new RotatePlacementCommand(this, compId, p.rotation || 0, norm));
-        };
-
-        const lockedEl = /** @type {HTMLInputElement} */ (document.getElementById('pcbPropCompLocked'));
-        lockedEl?.addEventListener('change', () => {
-            finishSelectionInteraction(this, false);
-            this.history.execute(new SetPlacementLockedCommand(this, compId, lockedEl.checked));
-        });
-        const rotationEl = /** @type {HTMLInputElement|null} */ (document.getElementById('pcbPropCompRot'));
-        rotationEl?.addEventListener('change', () => {
-            const value = Number.parseFloat(rotationEl.value);
-            if (Number.isFinite(value)) rotateTo(Math.round(value));
-            this._syncComponentRotationInput(compId);
-        });
-        const refEl = /** @type {HTMLInputElement} */ (document.getElementById('pcbPropCompRefVis'));
-        refEl?.addEventListener('change', () => {
-            this._setComponentRefVisible(compId, refEl.checked);
-        });
-        document.getElementById('pcbPropRotateLeft')
-            ?.addEventListener('click', () => rotateTo(curRot() - 90));
-        document.getElementById('pcbPropRotateRight')
-            ?.addEventListener('click', () => rotateTo(curRot() + 90));
-        document.getElementById('pcbPropFlipH')
-            ?.addEventListener('click', () => { this._flipComponent(compId, 'H'); this._showComponentProperties(compId); });
-        document.getElementById('pcbPropFlipV')
-            ?.addEventListener('click', () => { this._flipComponent(compId, 'V'); this._showComponentProperties(compId); });
-        const sideEl = /** @type {HTMLSelectElement} */ (document.getElementById('pcbPropCompSide'));
-        sideEl?.addEventListener('change', () => {
-            this._setPlacementSide(compId, sideEl.value === 'bottom' ? 'bottom' : 'top');
-        });
-        document.getElementById('pcbPropShow3D')
-            ?.addEventListener('click', () => this._openComponent3DPopout(compId));
-
-        this._setActiveRibbonTab?.('pcb-properties');
+        return PCBApp.prototype._getComponentProperties.call(this).showComponent(compId);
     }
 
 
@@ -4232,34 +4144,7 @@ export default class PCBApp {
      * ones, then redraws the marker.
      */
     _followDRCRatline() {
-        const sel = this._drcViolations?.find(v => v.id === this._drcSelectedId);
-        const m = sel?.marker;
-        if (!m || m.type !== 'ratline' || !m.a || !m.b) return;
-
-        const net = m.net || '';
-        const dist2 = (ax, ay, bx, by) => (ax - bx) ** 2 + (ay - by) ** 2;
-        let best = null, bestD = Infinity;
-        for (const r of this._collectRatlines()) {
-            if ((r.net || '') !== net) continue;
-            if (![r.x1, r.y1, r.x2, r.y2].every(Number.isFinite)) continue;
-            const dA = dist2(r.x1, r.y1, m.a.x, m.a.y) + dist2(r.x2, r.y2, m.b.x, m.b.y);
-            const dB = dist2(r.x1, r.y1, m.b.x, m.b.y) + dist2(r.x2, r.y2, m.a.x, m.a.y);
-            const d = Math.min(dA, dB);
-            if (d < bestD) {
-                bestD = d;
-                best = (dA <= dB)
-                    ? { a: { x: r.x1, y: r.y1 }, b: { x: r.x2, y: r.y2 } }
-                    : { a: { x: r.x2, y: r.y2 }, b: { x: r.x1, y: r.y1 } };
-            }
-        }
-        if (!best) return;
-
-        m.a = best.a;
-        m.b = best.b;
-        sel.x = (best.a.x + best.b.x) / 2;
-        sel.y = (best.a.y + best.b.y) / 2;
-        this._drawDRCMarker(sel);
-        this._updateDRCConnector();
+        return this._getDrcPresentation().followRatline();
     }
 
     /**
@@ -4988,6 +4873,7 @@ export default class PCBApp {
         const t = this.texts.get(id);
         if (!t) return;
         this._renderText(t);
+        this._refreshSelectedDRCMarker?.();
     }
 
     /**
@@ -5338,7 +5224,7 @@ export default class PCBApp {
     }
 
     _beginRefTextDrag(compId, worldPos) {
-        this._refPropertyBinding?.commit();
+        this._componentProperties?.commit();
         const pl = this.placements.get(compId);
         if (!pl || isRefTextLocked(pl)) return false;
         this._refDrag = {
@@ -5460,7 +5346,7 @@ export default class PCBApp {
 
     /** Rotate the selected reference designator by 90° (through history). */
     _rotateRefText(compId) {
-        this._refPropertyBinding?.commit();
+        this._componentProperties?.commit();
         const pl = this.placements.get(compId);
         if (!pl || isRefTextLocked(pl)) return;
         const cur = ((pl.refRot || 0) % 360 + 360) % 360;
@@ -5779,73 +5665,7 @@ export default class PCBApp {
      * @param {string} compId
      */
     _showRefProperties(compId) {
-        const pl = this.placements.get(compId);
-        if (!pl) return;
-        const items = this._pcbPropsItems();
-        if (!items) return;
-        this._setPcbPropsTitle('Reference');
-        const silkLayer = pl.side === 'bottom' ? 'bottom-silk' : 'top-silk';
-        const size = pl.refSize || REF_DEFAULT_SIZE;
-        const lw = pl.refStrokeWidth || REF_DEFAULT_STROKE;
-        const rot = ((pl.refRot || 0) % 360 + 360) % 360;
-        const disabled = isRefTextLocked(pl) ? ' disabled' : '';
-        items.innerHTML = `
-            <div class="prop-row"><label>Reference</label><input type="text" id="pcbPropRefName" value="${pl.reference ?? ''}" disabled></div>
-            <div class="prop-row"><label>Layer</label><input type="text" id="pcbPropRefLayer" value="${this._layerLabel(silkLayer)}" disabled></div>
-            <div class="prop-row"><label>Size (mm)</label><input type="number" id="pcbPropRefSize" value="${size}" min="0.2" step="0.1"${disabled}></div>
-            <div class="prop-row"><label>Rotation (°)</label><input type="number" id="pcbPropRefRot" data-number-format="rotation" value="${rot}" step="1"${disabled}></div>
-            <div class="prop-row"><label>Line W (mm)</label><input type="number" id="pcbPropRefLW" value="${lw}" min="0.05" step="0.05"${disabled}></div>
-        `;
-        const num = (min) => (v) => {
-            const n = parseFloat(v);
-            if (!Number.isFinite(n)) return null;
-            return min !== undefined ? Math.max(min, n) : n;
-        };
-        const rotParse = (v) => {
-            const n = parseFloat(v);
-            if (!Number.isFinite(n)) return null;
-            return ((n % 360) + 360) % 360;
-        };
-        const styleFields = ['refSize', 'refStrokeWidth', 'refRot'];
-        const restoreStyle = snapshot => {
-            for (const key of styleFields) {
-                if (Object.hasOwn(snapshot, key)) pl[key] = snapshot[key];
-                else delete pl[key];
-            }
-        };
-        this._refPropertyBinding = this._bindStrokeTextProps(items, pl, {
-            editable: () => this._active !== false && this.placements.get(compId) === pl
-                && !isRefTextLocked(pl) && pl.refVisible !== false
-                && isLayerVisible(pl.side === 'bottom' ? 'bottom-silk' : 'top-silk'),
-            fields: [
-                { id: 'pcbPropRefSize', field: 'refSize', parse: num(0.1), value: m => m.refSize || REF_DEFAULT_SIZE },
-                { id: 'pcbPropRefRot', field: 'refRot', parse: rotParse, wrap: true, value: m => m.refRot || 0 },
-                { id: 'pcbPropRefLW', field: 'refStrokeWidth', parse: num(0.01), value: m => m.refStrokeWidth || REF_DEFAULT_STROKE },
-            ],
-            preview: () => {
-                this._rerenderRef(compId);
-                if (isPcbSelected(this, 'reftext', compId)) this._drawRefOverlay(compId, true);
-            },
-            cancel: snapshot => {
-                restoreStyle(snapshot);
-                if (this.placements.get(compId) !== pl) return;
-                this._rerenderRef(compId);
-                if (isPcbSelected(this, 'reftext', compId)) this._drawRefOverlay(compId, false);
-            },
-            commit: (m, snap) => {
-                const before = { refSize: snap.refSize, refStrokeWidth: snap.refStrokeWidth, refRot: snap.refRot };
-                const after = { refSize: m.refSize, refStrokeWidth: m.refStrokeWidth, refRot: m.refRot };
-                const changed = before.refSize !== after.refSize
-                    || before.refStrokeWidth !== after.refStrokeWidth
-                    || before.refRot !== after.refRot;
-                if (!changed) return;
-                // Capture an automatic placement's pre-preview baseline without repainting it.
-                Object.assign(m, before);
-                this.history.execute(new SetRefStyleCommand(this, compId, before, after));
-            },
-        });
-        this._refPropertyBinding.affectsLayer = layer => (pl.side === 'bottom' ? 'bottom-silk' : 'top-silk') === layer;
-        this._setActiveRibbonTab?.('pcb-properties');
+        return PCBApp.prototype._getComponentProperties.call(this).showReference(compId);
     }
 
     /**
@@ -6567,6 +6387,42 @@ export default class PCBApp {
         this._syncClipboardButtons?.();
     }
 
+    /** Routing adapters expose model operations, never the application itself. */
+    _getAutorouter() {
+        if (!this._autorouter) this._autorouter = new AutorouterSession({
+            readBoard: () => ({
+                active: this._active !== false,
+                editing: hasPcbEditInProgress(this) || !!(this._trackDraw || this._fillDraw || this._shapeDraw),
+                model: this.pcbDocument, placements: this.placements, netlist: this.netlist,
+                undo: this.history.undoStack, redo: this.history.redoStack,
+                rules: this._getRoutingParams(),
+            }),
+            takeRouteInput: () => {
+                const testInput = this._testBoardRouteInput;
+                const input = testInput || this._buildRouteInput();
+                this._testBoardRouteInput = null;
+                if (testInput) input.copperObstacles = this._buildCopperObstacles();
+                return input;
+            },
+            getRouterMode: () => this._getRouterMode(),
+            adoptResult: result => this._renderRouteResult(result),
+            reconcileRatsnest: () => reconcileRatsnest(this),
+            setStatus: message => this._setStatus(message),
+            presentation: {
+                getProgressHost: () => this.status.modeStatus,
+                getLayerGroup: id => this._getLayerGroup(id),
+                getSvg: () => this.viewport?.svg,
+                getRoutingParams: () => this._getRoutingParams(),
+                refreshClearanceHalos: () => this._refreshClearanceHalos(),
+            },
+        });
+        return this._autorouter;
+    }
+
+    runAutoRoute() { return this._getAutorouter().run(); }
+
+    _cancelAutoRoute(message = null) { this._autorouter?.cancel(message); }
+
     // ── Auto Router ───────────────────────────────────────────────
 
     /**
@@ -6696,458 +6552,6 @@ export default class PCBApp {
         if (!this.viewport?.svg) return;
         for (const el of this.viewport.svg.querySelectorAll('.pcb-test-pad')) {
             el.remove();
-        }
-    }
-
-    /**
-     * Run the built-in A* maze autorouter on the current board layout.
-     */
-    async runAutoRoute() {
-        if (this._active === false) return;
-        if (hasPcbEditInProgress(this) || this._trackDraw || this._fillDraw || this._shapeDraw) {
-            this._setStatus('Finish the current edit before routing.');
-            return;
-        }
-        if (!this.placements.size || !this.netlist.length) {
-            this._setStatus('Nothing to route');
-            return;
-        }
-
-        this._cancelAutoRoute();
-        /** @type {{ cancelled: boolean, abort?: () => void }} */
-        const cancelToken = { cancelled: false };
-        const session = {
-            model: this.pcbDocument, placements: this.placements, netlist: this.netlist,
-            undo: [...this.history.undoStack], redo: [...this.history.redoStack], cancelToken,
-            rules: { ...this._getRoutingParams() },
-        };
-        this._routeSession = session;
-        const current = () => {
-            if (this._routeSession !== session || this._active === false) return false;
-            const rules = this._getRoutingParams();
-            return this.pcbDocument === session.model && this.placements === session.placements
-                && this.netlist === session.netlist && !hasPcbEditInProgress(this)
-                && Object.entries(session.rules).every(([key, value]) => rules[key] === value)
-                && !this._trackDraw && !this._fillDraw && !this._shapeDraw
-                && this.history.undoStack.length === session.undo.length
-                && this.history.undoStack.every((command, index) => command === session.undo[index])
-                && this.history.redoStack.length === session.redo.length
-                && this.history.redoStack.every((command, index) => command === session.redo[index]);
-        };
-        this._routeCancelToken = cancelToken;
-        this._routeProgressStartMs = performance.now();
-        try {
-            this._showRouteProgress(0, 1, 'Starting...', {
-                phase: 'initial',
-                pendingConnections: 0,
-                pendingNets: 0,
-                ripupDone: 0,
-                ripupTotal: 0,
-                ripupPass: 0,
-                ripupMaxPasses: 4,
-            });
-
-            const usingTestBoard = !!this._testBoardRouteInput;
-            const routeInput = this._testBoardRouteInput || this._buildRouteInput();
-            this._testBoardRouteInput = null;
-            const routerMode = this._getRouterMode();
-            // Test-board inputs also obey the current rules and copper artwork.
-            routeInput.trackWidth = session.rules.trackWidth;
-            routeInput.clearance = session.rules.clearance;
-            routeInput.viaDiameter = session.rules.viaDiameter;
-            if (usingTestBoard) routeInput.copperObstacles = this._buildCopperObstacles();
-            this._routeNetUnrouted = new Map(routeInput.connections.map(c => [c.net, true]));
-            this._routeLastBoundaryKey = '';
-            this._reconcileRatsnestFromRouteState();
-
-            const startTime = performance.now();
-
-            const result = await this._runAutoRouteInWorker(routeInput, cancelToken, routerMode, current);
-            if (!result || !current()) {
-                if (this._routeSession === session) this._cancelAutoRoute('Routing cancelled because the board changed.');
-                return;
-            }
-            if (!cancelToken.cancelled) await this._playRemainingRipupPhases(current);
-            if (!current()) {
-                if (this._routeSession === session) this._cancelAutoRoute('Routing cancelled because the board changed.');
-                return;
-            }
-
-            // A user Stop may publish partial routes, but an obsolete session never does.
-            this._routeSession = null;
-            this._routeCancelToken = null;
-            this._routeNetUnrouted = null;
-
-            const elapsedSec = Math.max(0, Math.floor((performance.now() - startTime) / 1000));
-            const elapsedMin = Math.floor(elapsedSec / 60);
-            const elapsedRemSec = elapsedSec % 60;
-            const elapsed = `${elapsedMin} min ${String(elapsedRemSec).padStart(2, '0')} sec`;
-
-            // Clear incremental tracks and do final clean render
-            this._clearIncrementalTracks();
-            this._renderRouteResult(result);
-
-            const totalConns = result.totalConnectionCount || routeInput.connections.length;
-            const viaCount = result.vias?.length || 0;
-            this._hideRouteProgress();
-
-            // Use the router's authoritative connection count
-            const unroutedConns = result.failedConnectionCount || 0;
-            const routedConns = totalConns - unroutedConns;
-
-            this._setStatus(`Routed ${routedConns} of ${totalConns} connections (${unroutedConns} unrouted), ${result.tracks.length} segments, ${viaCount} vias in ${elapsed}`);
-            this._routeNetUnrouted = null;
-
-        } catch (e) {
-            console.error('Autorouter error:', e);
-            this._hideRouteProgress();
-            this._setStatus(`Route error: ${e.message}`);
-        } finally {
-            if (this._routeSession === session) {
-                this._cancelAutoRoute();
-            }
-        }
-    }
-
-    /** Discard asynchronous routing without changing authored copper or history. */
-    _cancelAutoRoute(message = null) {
-        const session = this._routeSession;
-        if (!session) return;
-        this._routeSession = null;
-        session.cancelToken.cancelled = true;
-        session.cancelToken.abort?.();
-        this._routeCancelToken = null;
-        this._routeNetUnrouted = null;
-        this._clearIncrementalTracks();
-        this._hideRouteProgress();
-        reconcileRatsnest(this);
-        if (message) this._setStatus(message);
-    }
-
-    /**
-     * Run routing in a dedicated worker and relay progress/events back to UI.
-     * @param {import('../pcb/modules/autorouter-common.js').RouteInput} routeInput
-     * @param {{cancelled: boolean, abort?: () => void}} cancelToken
-     * @param {'maze'|'pathfinder'} routerMode
-     * @param {() => boolean} [isCurrent]
-     * @returns {Promise<import('../pcb/modules/autorouter-common.js').RouteResult | null>}
-     */
-    _runAutoRouteInWorker(routeInput, cancelToken, routerMode = 'maze', isCurrent = () => true) {
-        return new Promise((resolve, reject) => {
-            const workerUrl = new URL('../pcb/modules/autorouter-worker.js', import.meta.url);
-            const worker = new Worker(workerUrl, { type: 'module' });
-            this._routeWorker = worker;
-            let cancelPoll = null;
-
-            const cleanup = () => {
-                if (cancelPoll) {
-                    clearInterval(cancelPoll);
-                    cancelPoll = null;
-                }
-                worker.removeEventListener('message', onMessage);
-                worker.removeEventListener('error', onError);
-                worker.removeEventListener('messageerror', onMessageError);
-                worker.terminate();
-                if (this._routeWorker === worker) this._routeWorker = null;
-                delete cancelToken.abort;
-            };
-
-            const onError = (err) => {
-                cleanup();
-                if (!isCurrent()) { resolve(null); return; }
-                reject(err?.error || new Error(err?.message || 'Autorouter worker failed'));
-            };
-            const onMessageError = () => onError(new Error('Invalid autorouter worker response'));
-            cancelToken.abort = () => { cleanup(); resolve(null); };
-
-            const dispatchMessage = (evt) => {
-                if (!isCurrent()) {
-                    if (this._routeCancelToken === cancelToken) {
-                        this._cancelAutoRoute('Routing cancelled because the board changed.');
-                    }
-                    cleanup();
-                    resolve(null);
-                    return;
-                }
-                const msg = evt.data || {};
-                switch (msg.type) {
-                    case 'progress': {
-                        const { done, total, net, meta } = msg;
-                        this._showRouteProgress(done, total, net, meta || {});
-                        this._maybeReconcileAtPhaseBoundary(done, total, meta || {});
-                        break;
-                    }
-                    case 'netRouted': {
-                        const netTracks = msg.netTracks || [];
-                        this._clearTryingLines();
-                        // Clear old visuals for specific connections before rendering new paths
-                        for (const track of netTracks) {
-                            if (track.connId) this._clearIncrementalConnection(track.connId);
-                        }
-                        const netName = netTracks?.[0]?.net;
-                        if (netName) {
-                            this._setRouteNetUnrouted(netName, false);
-                        }
-                        this._renderNetTracks(netTracks);
-                        break;
-                    }
-                    case 'netFailed': {
-                        this._clearTryingLines();
-                        this._flashFailedNet(msg.conn);
-                        break;
-                    }
-                    case 'connRipped': {
-                        const connId = msg.connId;
-                        if (connId) this._clearIncrementalConnection(connId);
-                        break;
-                    }
-                    case 'netPendingChanged': {
-                        const { netName, pendingConnections } = msg;
-                        this._setRouteNetUnrouted(netName, pendingConnections > 0);
-                        this._setRatsnestVisibilityForNet(netName, pendingConnections > 0);
-                        break;
-                    }
-                    case 'trying': {
-                        this._flashTryingLine(msg.from, msg.to);
-                        break;
-                    }
-                    case 'done': {
-                        cleanup();
-                        resolve(msg.result);
-                        break;
-                    }
-                    case 'error': {
-                        cleanup();
-                        reject(new Error(msg.error || 'Autorouter worker error'));
-                        break;
-                    }
-                    default:
-                        break;
-                }
-            };
-            const onMessage = (evt) => {
-                try { dispatchMessage(evt); } catch (error) { onError(error); }
-            };
-
-            worker.addEventListener('message', onMessage);
-            worker.addEventListener('error', onError);
-            worker.addEventListener('messageerror', onMessageError);
-            try {
-                worker.postMessage({ type: 'start', routeInput, routerMode });
-                cancelPoll = setInterval(() => {
-                    if (!cancelToken?.cancelled) return;
-                    try {
-                        if (this._routeWorker === worker) worker.postMessage({ type: 'cancel' });
-                    } catch (error) { onError(error); }
-                }, 50);
-            } catch (error) { onError(error); }
-        });
-    }
-
-    _setRouteNetUnrouted(netName, isUnrouted) {
-        if (!this._routeNetUnrouted || !netName) return;
-        this._routeNetUnrouted.set(netName, !!isUnrouted);
-    }
-
-    _reconcileRatsnestFromRouteState() {
-        if (!this._routeNetUnrouted) return;
-        const visibility = new Map();
-        for (const [netName, isUnrouted] of this._routeNetUnrouted.entries()) {
-            visibility.set(netName, !!isUnrouted);
-        }
-        this._applyRatsnestVisibilityMap(visibility);
-    }
-
-    _maybeReconcileAtPhaseBoundary(done, total, meta = {}) {
-        const phase = meta?.phase || 'initial';
-        if (phase === 'initial' && total > 0 && done === total) {
-            const key = 'initial:end';
-            if (this._routeLastBoundaryKey === key) return;
-            this._routeLastBoundaryKey = key;
-            this._reconcileRatsnestFromRouteState();
-            return;
-        }
-
-        if (phase === 'ripup') {
-            const pass = Number.isFinite(meta?.ripupPass) ? meta.ripupPass : 0;
-            const ripDone = Number.isFinite(meta?.ripupDone) ? meta.ripupDone : -1;
-            const ripTotal = Number.isFinite(meta?.ripupTotal) ? meta.ripupTotal : -2;
-            if (pass > 0 && ripTotal >= 0 && ripDone === ripTotal) {
-                const key = `ripup:${pass}:end`;
-                if (this._routeLastBoundaryKey === key) return;
-                this._routeLastBoundaryKey = key;
-                this._reconcileRatsnestFromRouteState();
-            }
-        }
-    }
-
-    async _playRemainingRipupPhases(isCurrent = () => true) {
-        const state = this._routeProgressState;
-        if (!state) return;
-        const isRipup = state.phase === 'ripup' || String(state.netName || '').startsWith('Rip-up');
-        if (!isRipup) return;
-
-        const currentPass = Math.max(0, state.ripupPass || 0);
-        const maxPasses = Math.max(0, state.ripupMaxPasses || 0);
-        if (currentPass <= 0 || maxPasses <= currentPass) return;
-
-        for (let p = currentPass + 1; p <= maxPasses; p++) {
-            if (!isCurrent()) return;
-            this._showRouteProgress(1, 1, `Rip-up pass ${p}`, {
-                phase: 'ripup',
-                pendingConnections: state.pendingConnections,
-                pendingNets: state.pendingNets,
-                ripupDone: 1,
-                ripupTotal: 1,
-                ripupPass: p,
-                ripupMaxPasses: maxPasses,
-            });
-            await new Promise(resolve => setTimeout(resolve, 1000));
-        }
-    }
-
-    /**
-     * Show routing progress in the status bar.
-     */
-    _showRouteProgress(done, total, netName, meta = {}) {
-        if (!this.status.modeStatus) return;
-        const prev = this._routeProgressState || {
-            done: 0,
-            total: 1,
-            netName: 'Starting...',
-            phase: 'initial',
-            pendingConnections: 0,
-            pendingNets: 0,
-            ripupDone: 0,
-            ripupTotal: 0,
-            ripupPass: 0,
-            ripupMaxPasses: 4,
-        };
-        const m = /** @type {any} */ (meta || {});
-        this._routeProgressState = {
-            done,
-            total,
-            netName,
-            phase: m.phase || prev.phase || 'initial',
-            pendingConnections: Number.isFinite(m.pendingConnections) ? m.pendingConnections : (prev.pendingConnections || 0),
-            pendingNets: Number.isFinite(m.pendingNets) ? m.pendingNets : (prev.pendingNets || 0),
-            ripupDone: Number.isFinite(m.ripupDone) ? m.ripupDone : (prev.ripupDone || 0),
-            ripupTotal: Number.isFinite(m.ripupTotal) ? m.ripupTotal : (prev.ripupTotal || 0),
-            ripupPass: Number.isFinite(m.ripupPass) ? m.ripupPass : (prev.ripupPass || 0),
-            ripupMaxPasses: Number.isFinite(m.ripupMaxPasses) ? m.ripupMaxPasses : (prev.ripupMaxPasses || 4),
-        };
-
-        // Only build the DOM structure once; update text/width on subsequent calls
-        let bar = this.status.modeStatus.querySelector('.route-progress-bar-fill');
-        let label = this.status.modeStatus.querySelector('.route-progress-label');
-        let elapsed = this.status.modeStatus.querySelector('.route-progress-elapsed');
-        if (!bar) {
-            this.status.modeStatus.innerHTML = `
-                <span style="display:inline-flex;align-items:center;gap:8px">
-                    <span class="route-progress-label"></span>
-                    <span style="display:inline-block;width:80px;height:6px;background:var(--border-color);border-radius:3px;overflow:hidden;vertical-align:middle">
-                        <span class="route-progress-bar-fill" style="display:block;height:100%;width:0%;background:var(--accent-color);border-radius:3px;transition:width 0.15s"></span>
-                    </span>
-                    <span class="route-progress-elapsed" style="font-size:10px;color:var(--text-muted)">0:00</span>
-                    <button id="pcbRouteCancelBtn" style="
-                        background:none;border:1px solid var(--text-muted);color:var(--text-primary);
-                        padding:1px 8px;border-radius:3px;font-size:10px;cursor:pointer;line-height:1.4;
-                        transition: background 0.1s, color 0.1s;
-                    ">Stop</button>
-                </span>`;
-            bar = this.status.modeStatus.querySelector('.route-progress-bar-fill');
-            label = this.status.modeStatus.querySelector('.route-progress-label');
-            elapsed = this.status.modeStatus.querySelector('.route-progress-elapsed');
-
-            const cancelBtn = /** @type {HTMLButtonElement|null} */ (this.status.modeStatus.querySelector('#pcbRouteCancelBtn'));
-            cancelBtn?.addEventListener('mousedown', (e) => {
-                e.stopPropagation();
-                if (this._routeCancelToken) this._routeCancelToken.cancelled = true;
-                if (this._routeWorker) this._routeWorker.postMessage({ type: 'cancel' });
-                cancelBtn.style.background = '#d9534f';
-                cancelBtn.style.borderColor = '#d9534f';
-                cancelBtn.style.color = '#fff';
-                cancelBtn.textContent = 'Stopping...';
-                cancelBtn.disabled = true;
-            });
-
-            if (this._routeProgressTimer) clearInterval(this._routeProgressTimer);
-            this._routeProgressTimer = setInterval(() => {
-                this._refreshRouteProgress();
-            }, 250);
-        }
-
-        this._refreshRouteProgress(label, bar, elapsed);
-    }
-
-    _refreshRouteProgress(labelEl = null, barEl = null, elapsedEl = null) {
-        if (!this.status.modeStatus) return;
-        const state = this._routeProgressState || {
-            done: 0,
-            total: 1,
-            netName: 'Routing...',
-            phase: 'initial',
-            pendingConnections: 0,
-            pendingNets: 0,
-            ripupDone: 0,
-            ripupTotal: 0,
-            ripupPass: 0,
-            ripupMaxPasses: 4,
-        };
-        const label = labelEl || this.status.modeStatus.querySelector('.route-progress-label');
-        const bar = barEl || this.status.modeStatus.querySelector('.route-progress-bar-fill');
-        const elapsed = elapsedEl || this.status.modeStatus.querySelector('.route-progress-elapsed');
-
-        const pct = state.total > 0 ? Math.round((state.done / state.total) * 100) : 0;
-        const isRipup = state.phase === 'ripup' || String(state.netName || '').startsWith('Rip-up');
-        const isPathfinder = state.phase === 'pathfinder';
-        let phaseLabel;
-        if (isRipup) {
-            phaseLabel = `Phase: Rip-up ${Math.max(1, state.ripupPass || 1)} of ${Math.max(1, state.ripupMaxPasses || 4)}`;
-        } else if (isPathfinder) {
-            // Pathfinder sends a self-describing netName (e.g. "Pathfinder iter 12/25: 950 overused").
-            phaseLabel = `Phase: ${state.netName || 'Pathfinder'}`;
-        } else {
-            phaseLabel = 'Phase: Route placement';
-        }
-        const remainingConns = Math.max(0, Number.isFinite(state.pendingConnections) ? state.pendingConnections : (state.total - state.done));
-        const progressLabel = `${pct}%`;
-        if (label) {
-            label.textContent = isPathfinder
-                ? `${phaseLabel} - ${progressLabel} - ${remainingConns} pending`
-                : `${phaseLabel} - ${state.done}/${state.total} (${pct}%) - ${remainingConns} connections unrouted`;
-        }
-        if (bar) bar.style.width = `${pct}%`;
-        if (elapsed) {
-            const t = Math.max(0, (performance.now() - this._routeProgressStartMs) / 1000);
-            const mins = Math.floor(t / 60);
-            const secs = Math.floor(t % 60);
-            elapsed.textContent = `${mins}:${String(secs).padStart(2, '0')}`;
-        }
-    }
-
-    /**
-     * Remove routing progress from the status bar.
-     */
-    _hideRouteProgress() {
-        if (this._routeProgressTimer) {
-            clearInterval(this._routeProgressTimer);
-            this._routeProgressTimer = null;
-        }
-        this._routeProgressState = {
-            done: 0,
-            total: 1,
-            netName: 'Starting...',
-            phase: 'initial',
-            pendingConnections: 0,
-            pendingNets: 0,
-            ripupDone: 0,
-            ripupTotal: 0,
-            ripupPass: 0,
-            ripupMaxPasses: 4,
-        };
-        if (this.status.modeStatus) {
-            this.status.modeStatus.textContent = '';
         }
     }
 
@@ -7307,23 +6711,32 @@ export default class PCBApp {
      * callable from the console: `bootstrap.pcbApp.showClearances(true|false)`.
      *
      * @param {boolean} [show] - explicit on/off; omit to toggle.
+     * @param {object|null} [liveTrack] - update only this track's rendered clearance during a drag.
      */
-    showClearances(show) {
+    showClearances(show, liveTrack = null) {
         const NS = 'http://www.w3.org/2000/svg';
         const HALO_CLASS = 'debug-clearance';
         const OVERLAY_LAYER = 'clearance-overlay';
 
-        // All halos live in a single dedicated overlay layer that sits on
-        // top of every copper/silk/hole layer in the SVG z-order. Wipe and
-        // rebuild from scratch on each call.
         const overlay = this._getLayerGroup(OVERLAY_LAYER);
-        while (overlay.firstChild) overlay.removeChild(overlay.firstChild);
+        this._trackClearanceElements ??= new Map();
+        if (liveTrack) {
+            for (const element of this._trackClearanceElements.get(liveTrack.id) || []) element.remove();
+            this._trackClearanceElements.delete(liveTrack.id);
+        } else {
+            while (overlay.firstChild) overlay.removeChild(overlay.firstChild);
+            this._trackClearanceElements.clear();
+            this._viaClearanceCache?.clear();
+            this._viaClearanceKeys?.clear();
+        }
 
         if (show === undefined) show = !this._clearancesVisible;
         this._boardShapeClearanceCache ??= new Map();
-        const shapeIds = new Set([...(this.boardShapes || []), ...(this.texts?.values() || [])].map(shape => shape.id));
-        for (const id of this._boardShapeClearanceCache.keys()) {
-            if (!shapeIds.has(id)) this._boardShapeClearanceCache.delete(id);
+        if (!liveTrack) {
+            const shapeIds = new Set([...(this.boardShapes || []), ...(this.texts?.values() || [])].map(shape => shape.id));
+            for (const id of this._boardShapeClearanceCache.keys()) {
+                if (!shapeIds.has(id)) this._boardShapeClearanceCache.delete(id);
+            }
         }
         this._clearancesVisible = !!show;
         if (!this._clearancesVisible) {
@@ -7354,7 +6767,6 @@ export default class PCBApp {
         };
         const topVisible = isLayerVisible('top-copper');
         const bottomVisible = isLayerVisible('bottom-copper');
-        const viaVisible = isLayerVisible('vias');
 
         // Build a single SVG path representing the Minkowski expansion of a
         // pad shape by `halo`. Returns null if shape unsupported.
@@ -7396,8 +6808,8 @@ export default class PCBApp {
         // Halos for component pads — wrapped in a per-placement <g> with a
         // translate() transform so they follow the component during drag
         // (the drag handler updates the same transform).
-        this._padHaloGroups = new Map();
-        for (const [compId, pl] of this.placements) {
+        if (!liveTrack) this._padHaloGroups = new Map();
+        for (const [compId, pl] of liveTrack ? [] : this.placements) {
             const grp = document.createElementNS(NS, 'g');
             grp.setAttribute('class', 'halo-comp');
             grp.setAttribute('data-comp-id', compId);
@@ -7618,23 +7030,30 @@ export default class PCBApp {
             return right;
         };
 
+        const liveRuns = liveTrack ? (hasTrackElements(liveTrack) ? buildTrackLayerRuns(liveTrack) : []) : null;
         const layerIds = ['top-copper', 'bottom-copper'];
         for (const layerId of layerIds) {
             if (layerId === 'top-copper' && !topVisible) continue;
             if (layerId === 'bottom-copper' && !bottomVisible) continue;
-            const sourceGroup = this._getLayerGroup(layerId);
             // Both the legacy incremental render ('.pcb-routed-track') and
             // the model-driven render ('.pcb-track') are valid track sources.
-            const tracks = [...sourceGroup.querySelectorAll('.pcb-routed-track, .pcb-track')];
+            const tracks = liveRuns ? liveRuns.filter(run => run.layer === layerId).map(run => ({
+                points: run.points.filter((point, index) => !index
+                    || point.x !== run.points[index - 1].x || point.y !== run.points[index - 1].y)
+                    .map(point => [point.x, point.y]), width: run.width,
+                id: liveTrack.id, net: liveTrack.net,
+            })) : [...this._getLayerGroup(layerId).querySelectorAll('.pcb-routed-track, .pcb-track')]
+                .map(track => ({ points: trackToPoints(track), width: parseFloat(track.getAttribute('stroke-width')),
+                    id: track.dataset?.trackId, net: track.dataset?.net }));
             if (tracks.length === 0) continue;
 
             for (const track of tracks) {
-                const pts = trackToPoints(track);
+                const pts = track.points;
                 if (pts.length < 2) continue;
                 // Each rendered run carries its own stroke-width (tracks can
                 // have per-segment widths), so size the halo from THIS track's
                 // width rather than the global routing width.
-                const sw = parseFloat(track.getAttribute('stroke-width'));
+                const sw = track.width;
                 const ringR = (Number.isFinite(sw) && sw > 0 ? sw / 2 : params.trackWidth / 2) + halo;
                 const poly = offsetPolygon(pts, ringR);
                 if (poly.length < 3) continue;
@@ -7650,121 +7069,86 @@ export default class PCBApp {
                 // Tag with the source track's net so a footprint drag can hide
                 // the halos of the nets it moves (their tracks shift mid-drag,
                 // leaving the deferred halo stranded at the old position).
-                const tnet = track.dataset?.net;
+                const tnet = track.net;
                 if (tnet) el.dataset.net = tnet;
+                if (track.id) {
+                    el.dataset.trackId = track.id;
+                    if (!this._trackClearanceElements.has(track.id)) this._trackClearanceElements.set(track.id, []);
+                    this._trackClearanceElements.get(track.id).push(el);
+                }
                 overlay.appendChild(el);
             }
         }
 
+        if (liveTrack) return;
         for (const shape of this.boardShapes || []) {
             if (shape) this._refreshBoardShapeClearance(shape);
         }
         for (const text of this.texts?.values() || []) this._refreshBoardShapeClearance(text);
 
-        // Legacy/animated vias are circles; model-driven vias are annular paths
-        // carrying their outer geometry as data attributes.
-        const viaGroup = this._getLayerGroup('vias');
-        if (!viaVisible) return;
-        const viaRingByCenter = new Map();
-        for (const via of viaGroup.querySelectorAll('circle.pcb-routed-via, circle.pcb-via, path.pcb-via')) {
-            const pathVia = via.localName === 'path';
-            const cx = parseFloat(via.getAttribute(pathVia ? 'data-via-x' : 'cx'));
-            const cy = parseFloat(via.getAttribute(pathVia ? 'data-via-y' : 'cy'));
-            const r = parseFloat(via.getAttribute(pathVia ? 'data-via-radius' : 'r'));
-            if (!Number.isFinite(cx) || !Number.isFinite(cy) || !Number.isFinite(r)) continue;
-            const key = `${cx.toFixed(4)},${cy.toFixed(4)}`;
-            const prev = viaRingByCenter.get(key);
-            if (!prev || r > prev.r) viaRingByCenter.set(key, { cx, cy, r, net: via.dataset?.net || prev?.net });
-        }
-        for (const { cx, cy, r, net } of viaRingByCenter.values()) {
-            const ghost = document.createElementNS(NS, 'circle');
-            ghost.setAttribute('cx', String(cx));
-            ghost.setAttribute('cy', String(cy));
-            ghost.setAttribute('r', String(r + halo));
-            styleHalo(ghost);
-            // Tag with net so a footprint drag can hide moving nets' halos.
-            if (net) ghost.dataset.net = net;
-            overlay.appendChild(ghost);
-        }
+        this._refreshViaClearance();
     }
 
     /* ─────────────────────── Design Rule Checker ───────────────────── */
 
-    /**
-     * Wire up the DRC status button (toggle the problem dropdown) and re-run
-     * triggers (routing-rule input changes). Live evaluation itself is driven
-     * by the Design tab becoming active and by board edits via `_markDirty`.
-     */
+    _getDrcPresentation() {
+        return this._drcPresentation ??= new DrcPresentation({
+            requestRefresh: () => this._scheduleDRC(),
+            collectRatlines: () => this._collectRatlines(),
+            resolvePairMarker: violation => resolveDrcPairMarker(this, violation, this._getRoutingParams()),
+            clearBoardSelection: () => {
+                if (!getPcbSelection(this).length && !this._boardOutlineSelected && !this._trackEdit) return;
+                clearSelectionInteractionUi(this);
+                clearBoxSelection(this);
+                this._clearProperties?.();
+            },
+            getLayerGroup: (id, create = false) => create
+                ? this._getLayerGroup(id) : this._layerGroups?.get(id),
+            getViewport: () => {
+                const vp = this.viewport;
+                return vp ? {
+                    viewBox: vp.viewBox, svg: vp.svg, scale: vp.scale,
+                    worldToScreen: vp.worldToScreen ? point => vp.worldToScreen(point) : null,
+                    updateViewBox: () => vp._updateViewBox?.(),
+                    notifyViewChanged: () => vp._notifyViewChanged?.(),
+                } : null;
+            },
+        });
+    }
+
+    get _drcViolations() { return this._getDrcPresentation().violations; }
+    set _drcViolations(value) { this._getDrcPresentation().violations = value; }
+    get _drcActive() { return this._getDrcPresentation().designActive; }
+    set _drcActive(value) { this._getDrcPresentation().designActive = value; }
+    get _drcSelectedId() { return this._getDrcPresentation().selectedId; }
+    set _drcSelectedId(value) { this._getDrcPresentation().selectedId = value; }
+    get _drcCollapsedGroups() { return this._getDrcPresentation().collapsedGroups; }
+    set _drcCollapsedGroups(value) { this._getDrcPresentation().collapsedGroups = value; }
+    get _drcConnectorLine() { return this._getDrcPresentation().connectorLine; }
+    set _drcConnectorLine(value) { this._getDrcPresentation().connectorLine = value; }
+    get _drcPending() { return this._getDrcPresentation().pending; }
+    set _drcPending(value) { this._getDrcPresentation().pending = value; }
+    get _drcError() { return this._getDrcPresentation().error; }
+    set _drcError(value) { this._getDrcPresentation().error = value; }
+
     _initDRC() {
-        /** @type {Array} */
-        this._drcViolations = [];
-        this._drcActive = false;
-        this._drcSelectedId = null;
         this._drcRaf = 0;
-        /** @type {Set<string>} Collapsed problem-list section headings. */
-        this._drcCollapsedGroups = new Set();
-
-        const statusBtn = document.getElementById('pcbDrcStatus');
-        const closeBtn = document.getElementById('pcbDrcSlideClose');
-        statusBtn?.addEventListener('click', (e) => {
-            e.stopPropagation();
-            this._toggleDRCPanel();
-        });
-        closeBtn?.addEventListener('click', (e) => {
-            e.stopPropagation();
-            this._closeDRCPanel();
-        });
-        const slidePanel = document.getElementById('pcbDrcSlidePanel');
-        const clearBoardSelection = () => {
-            if (!getPcbSelection(this).length && !this._boardOutlineSelected && !this._trackEdit) return;
-            clearSelectionInteractionUi(this);
-            clearBoxSelection(this);
-            this._clearProperties?.();
-        };
-        slidePanel?.setAttribute('tabindex', '-1');
-        slidePanel?.addEventListener('pointerdown', () => {
-            clearBoardSelection();
-            slidePanel.focus({ preventScroll: true });
-        }, { capture: true });
-        slidePanel?.addEventListener('focusin', clearBoardSelection);
-        slidePanel?.addEventListener('keydown', (e) => {
-            if (e.key !== 'ArrowUp' && e.key !== 'ArrowDown') return;
-            e.preventDefault();
-            e.stopPropagation();
-            this._moveDRCSelection(e.key === 'ArrowDown' ? 1 : -1);
-        });
-
-        // Suppress the browser/app context menu on the DRC panel.
-        slidePanel?.addEventListener('contextmenu', (e) => {
-            e.preventDefault();
-            e.stopPropagation();
-        });
-
-        // Keep the leader anchored to its row as the problem list scrolls.
-        const body = document.querySelector('#pcbDrcSlidePanel .drc-slide-body');
-        body?.addEventListener('scroll', () => {
-            if (this._drcSelectedId) this._updateDRCConnector();
-        }, { passive: true });
-
-        // Re-run when the design rules themselves change.
-        for (const id of ['pcbClearance', 'pcbViaDiameter', 'pcbViaDrill', 'pcbRouteUnits']) {
-            const el = document.getElementById(id);
-            el?.addEventListener('change', () => this._scheduleDRC());
-        }
-
-        this._updateDRCStatus({ ok: true, violations: [], counts: { errors: 0, warnings: 0 } }, true);
+        return this._getDrcPresentation().initialize();
     }
 
     /** True when DRC should re-evaluate: Design tab active or panel open. */
     _drcShouldRun() {
-        if (this._drcActive) return true;
-        const panel = document.getElementById('pcbDrcSlidePanel');
-        return !!panel && panel.classList.contains('open');
+        return this._getDrcPresentation().shouldRun();
     }
 
     /** Request a visible live check, coalesced to one per animation frame. */
     _scheduleDRC() {
+        this._refreshSelectedDRCMarker?.();
         scheduleDrcRefresh(this);
+    }
+
+    _refreshSelectedDRCMarker() {
+        this._drcPresentation?.scheduleMarkerRefresh();
     }
 
     _invalidateDRC() {
@@ -7800,66 +7184,7 @@ export default class PCBApp {
     }
 
     _adoptDRCResult(result) {
-        // Capture the currently-selected violation before the list is replaced,
-        // so a coordinate-keyed ratline that gets renumbered can be re-adopted.
-        const prevSel = this._drcSelectedId
-            ? this._drcViolations?.find(v => v.id === this._drcSelectedId)
-            : null;
-        this._drcViolations = result.violations;
-        this._updateDRCStatus(result);
-        this._renderDRCList();
-
-        // Keep the selected marker in sync: if the violation still exists,
-        // redraw it at its (possibly moved) location; otherwise drop it.
-        if (this._drcSelectedId) {
-            let sel = this._drcViolations.find(v => v.id === this._drcSelectedId);
-            // An incomplete-connection violation's id is keyed on its endpoint
-            // coordinates, so moving the connected copper renumbers it — the
-            // old id vanishes on re-run. Re-adopt the equivalent fresh ratline
-            // (same net, nearest endpoints) so the selection survives the drop.
-            if (!sel) {
-                sel = this._rematchRatlineViolation(prevSel);
-                if (sel) {
-                    this._drcSelectedId = sel.id;
-                    this._renderDRCList();
-                }
-            }
-            if (sel) {
-                this._drawDRCMarker(sel);
-                this._updateDRCConnector();
-            } else {
-                this._drcSelectedId = null;
-                this._clearDRCMarker();
-            }
-        }
-    }
-
-    /**
-     * Find the incomplete-connection violation in the freshly-computed list
-     * that corresponds to a previously-selected one whose coordinate-keyed id
-     * was renumbered (because its copper moved). Matches by net and nearest
-     * endpoints; the live drag already moved `prev.marker` to the drop point,
-     * so the closest new ratline of that net is the same connection.
-     * @param {any} prev - the previously selected violation (pre-rerun).
-     * @returns {any|null}
-     */
-    _rematchRatlineViolation(prev) {
-        const pm = prev?.marker;
-        if (!pm || pm.type !== 'ratline' || !pm.a || !pm.b) return null;
-        const net = pm.net || '';
-        const dist2 = (p, q) => (p.x - q.x) ** 2 + (p.y - q.y) ** 2;
-        let best = null, bestD = Infinity;
-        for (const v of this._drcViolations) {
-            const m = v.marker;
-            if (v.rule !== 'unrouted' || !m || m.type !== 'ratline') continue;
-            if ((m.net || '') !== net || !m.a || !m.b) continue;
-            const d = Math.min(
-                dist2(m.a, pm.a) + dist2(m.b, pm.b),
-                dist2(m.a, pm.b) + dist2(m.b, pm.a),
-            );
-            if (d < bestD) { bestD = d; best = v; }
-        }
-        return best;
+        return this._getDrcPresentation().adoptResult(result);
     }
 
     /**
@@ -7868,205 +7193,21 @@ export default class PCBApp {
      * @param {boolean} [pending]
      */
     _updateDRCStatus(result, pending = false) {
-        const btn = document.getElementById('pcbDrcStatus');
-        const icon = document.getElementById('pcbDrcIcon');
-        const label = document.getElementById('pcbDrcLabel');
-        if (!btn || !icon || !label) return;
-
-        btn.classList.remove('drc-status-pending', 'drc-status-ok', 'drc-status-error', 'drc-status-warn');
-
-        if (pending) {
-            btn.classList.add('drc-status-pending');
-            icon.textContent = '…';
-            label.textContent = this._drcError ? 'DRC check failed' : 'Checking…';
-            return;
-        }
-
-        const { errors, warnings } = result.counts;
-        if (errors === 0 && warnings === 0) {
-            btn.classList.add('drc-status-ok');
-            icon.textContent = '✓';
-            label.textContent = 'No DRC errors';
-        } else if (errors > 0) {
-            btn.classList.add('drc-status-error');
-            icon.textContent = '✕';
-            const w = warnings > 0 ? `, ${warnings} warning${warnings === 1 ? '' : 's'}` : '';
-            label.textContent = `${errors} error${errors === 1 ? '' : 's'}${w}`;
-        } else {
-            btn.classList.add('drc-status-warn');
-            icon.textContent = '!';
-            label.textContent = `${warnings} warning${warnings === 1 ? '' : 's'}`;
-        }
+        return this._getDrcPresentation().updateStatus(result, pending);
     }
 
     /** Populate the problem dropdown; each item points to its issue on click. */
     _renderDRCList() {
-        const list = document.getElementById('pcbDrcList');
-        const empty = document.getElementById('pcbDrcEmpty');
-        if (!list || !empty) return;
-        list.textContent = '';
-
-        const title = document.getElementById('pcbDrcSlideTitle');
-        if (title) {
-            const n = this._drcViolations.length;
-            title.textContent = n === 0
-                ? 'Design Rule Check'
-                : `Design Rule Check — ${n} problem${n === 1 ? '' : 's'}`;
-        }
-
-        if (this._drcViolations.length === 0) {
-            empty.removeAttribute('hidden');
-            empty.style.display = '';
-            return;
-        }
-        empty.setAttribute('hidden', '');
-        empty.style.display = 'none';
-
-        // Group violations under section headings. Sections appear only when
-        // they have at least one violation (built from the data below), so an
-        // empty category never shows a header. Shorted nets are listed first
-        // (highest severity), then clearance, then incomplete connections.
-        const groupOf = (v) => {
-            if (v.rule === 'short') return 'Shorted Nets';
-            if (v.rule === 'unrouted') return 'Incomplete Connections';
-            return 'Clearance';
-        };
-        const ORDER = ['Shorted Nets', 'Clearance', 'Incomplete Connections'];
-
-        // Cap the rendered rows so a pathological board (thousands of
-        // violations) can't bloat the DOM and stall the UI. Prioritize first:
-        // the engine emits shorts last, after potentially hundreds of ratlines.
-        const MAX_ROWS = 200;
-        const shown = [...this._drcViolations]
-            .sort((a, b) => ORDER.indexOf(groupOf(a)) - ORDER.indexOf(groupOf(b)))
-            .slice(0, MAX_ROWS);
-
-        const groups = new Map();
-        for (const v of shown) {
-            const g = groupOf(v);
-            if (!groups.has(g)) groups.set(g, []);
-            groups.get(g).push(v);
-        }
-        const names = [...ORDER.filter(n => groups.has(n)), ...[...groups.keys()].filter(n => !ORDER.includes(n))];
-
-        for (const name of names) {
-            const collapsed = this._drcCollapsedGroups.has(name);
-            const heading = document.createElement('li');
-            heading.className = 'drc-group-heading' + (collapsed ? ' drc-group-collapsed' : '');
-            heading.setAttribute('role', 'button');
-            heading.setAttribute('tabindex', '0');
-            heading.setAttribute('aria-expanded', collapsed ? 'false' : 'true');
-
-            const chevron = document.createElement('span');
-            chevron.className = 'drc-group-chevron';
-            chevron.textContent = '▸';
-            const label = document.createElement('span');
-            label.className = 'drc-group-label';
-            label.textContent = `${name} (${groups.get(name).length})`;
-            heading.appendChild(chevron);
-            heading.appendChild(label);
-
-            const toggle = () => {
-                if (this._drcCollapsedGroups.has(name)) this._drcCollapsedGroups.delete(name);
-                else this._drcCollapsedGroups.add(name);
-                this._renderDRCList();
-                // If the selected violation now sits in a collapsed section,
-                // stop showing its on-board marker + leader; restore them when
-                // its section is expanded again.
-                const sel = this._drcSelectedId
-                    ? this._drcViolations.find(x => x.id === this._drcSelectedId) : null;
-                if (sel && this._drcCollapsedGroups.has(groupOf(sel))) {
-                    this._clearDRCMarker();
-                } else if (sel) {
-                    this._drawDRCMarker(sel);
-                    this._updateDRCConnector();
-                }
-            };
-            heading.addEventListener('click', toggle);
-            heading.addEventListener('keydown', (e) => {
-                if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggle(); }
-            });
-            list.appendChild(heading);
-
-            if (collapsed) continue;
-
-            for (const v of groups.get(name)) {
-                const li = document.createElement('li');
-                li.className = `drc-item drc-item-${v.severity === 'error' ? 'error' : 'warn'}`;
-                li.dataset.drcId = v.id;
-                li.tabIndex = v.id === this._drcSelectedId ? 0 : -1;
-                if (v.id === this._drcSelectedId) li.classList.add('drc-item-active');
-
-                const dot = document.createElement('span');
-                dot.className = 'drc-item-dot';
-                const text = document.createElement('span');
-                text.className = 'drc-item-text';
-                text.textContent = v.message;
-                li.appendChild(dot);
-                li.appendChild(text);
-
-                li.addEventListener('click', () => {
-                    this._selectDRCViolation(v.id);
-                    li.focus();
-                });
-                list.appendChild(li);
-            }
-        }
-
-        if (this._drcViolations.length > MAX_ROWS) {
-            const more = document.createElement('li');
-            more.className = 'drc-panel-empty';
-            more.style.cursor = 'default';
-            more.textContent = `…and ${this._drcViolations.length - MAX_ROWS} more`;
-            list.appendChild(more);
-        }
-    }
-
-    _toggleDRCPanel() {
-        const panel = document.getElementById('pcbDrcSlidePanel');
-        if (!panel) return;
-        if (panel.classList.contains('open')) this._closeDRCPanel();
-        else this._openDRCPanel();
-    }
-
-    _openDRCPanel() {
-        const panel = document.getElementById('pcbDrcSlidePanel');
-        const btn = document.getElementById('pcbDrcStatus');
-        if (!panel) return;
-        panel.classList.add('open');
-        panel.setAttribute('aria-hidden', 'false');
-        btn?.setAttribute('aria-expanded', 'true');
-        btn?.classList.add('drc-status-active');
-        this._scheduleDRC();
+        return this._getDrcPresentation().renderList();
     }
 
     _closeDRCPanel() {
-        const panel = document.getElementById('pcbDrcSlidePanel');
-        const btn = document.getElementById('pcbDrcStatus');
-        if (!panel) return;
-        panel.classList.remove('open');
-        panel.setAttribute('aria-hidden', 'true');
-        btn?.setAttribute('aria-expanded', 'false');
-        btn?.classList.remove('drc-status-active');
-        // Closing the panel clears the on-board violation marker(s)/leader.
-        this._drcSelectedId = null;
-        this._clearDRCMarker();
+        return this._getDrcPresentation().closePanel();
     }
 
     /** Select the adjacent visible DRC row using keyboard list navigation. */
     _moveDRCSelection(direction) {
-        const list = document.getElementById('pcbDrcList');
-        if (!list) return;
-        const rows = [...list.querySelectorAll('.drc-item')];
-        if (rows.length === 0) return;
-        const current = rows.findIndex(row => row.dataset.drcId === this._drcSelectedId);
-        const next = current < 0
-            ? (direction > 0 ? 0 : rows.length - 1)
-            : Math.max(0, Math.min(rows.length - 1, current + direction));
-        const row = rows[next];
-        this._selectDRCViolation(row.dataset.drcId);
-        row.focus({ preventScroll: true });
-        row.scrollIntoView({ block: 'nearest' });
+        return this._getDrcPresentation().moveSelection(direction);
     }
 
     /**
@@ -8075,131 +7216,17 @@ export default class PCBApp {
      * @param {string} id
      */
     _selectDRCViolation(id) {
-        const v = this._drcViolations.find(x => x.id === id);
-        if (!v) return;
-        this._drcSelectedId = id;
-
-        // Re-flag the active list row.
-        const list = document.getElementById('pcbDrcList');
-        if (list) {
-            for (const li of list.querySelectorAll('.drc-item')) {
-                const active = li.dataset.drcId === id;
-                li.classList.toggle('drc-item-active', active);
-                li.tabIndex = active ? 0 : -1;
-            }
-        }
-
-        this._drawDRCMarker(v);
-        this._ensurePointVisible(v.x, v.y);
-        this._updateDRCConnector();
+        return this._getDrcPresentation().selectViolation(id);
     }
 
     /** Draw the dotted marker for a violation on the DRC overlay layer. */
     _drawDRCMarker(v) {
-        const NS = 'http://www.w3.org/2000/svg';
-        const overlay = this._getLayerGroup('drc-overlay');
-        while (overlay.firstChild) overlay.removeChild(overlay.firstChild);
-
-        const COLOR = '#ffd400';
-        const dot = (x, y, r, dash) => {
-            const c = document.createElementNS(NS, 'circle');
-            c.setAttribute('cx', String(x));
-            c.setAttribute('cy', String(y));
-            c.setAttribute('r', String(r));
-            c.setAttribute('fill', 'none');
-            c.setAttribute('stroke', COLOR);
-            c.setAttribute('stroke-width', '1.5');
-            c.setAttribute('vector-effect', 'non-scaling-stroke');
-            if (dash) c.setAttribute('stroke-dasharray', dash);
-            c.setAttribute('pointer-events', 'none');
-            overlay.appendChild(c);
-        };
-
-        // One location ring, including the detected contact for a short.
-        const m = v.marker || {};
-        const ringR = (m.type === 'ring') ? (m.r || 0.3) + 0.25 : 0.6;
-        dot(v.x, v.y, ringR, '3,2');
-
-        // For an incomplete-connection (ratline) violation, the actual air
-        // wire may be hidden (Ratlines overlay off, or this net's ratline
-        // toggled off). Re-draw just this one ratline on the overlay so the
-        // user can see what is unconnected — only while it stays highlighted.
-        if (m.type === 'ratline' && m.a && m.b && !this._isRatlineVisible(m.a, m.b)) {
-            const line = document.createElementNS(NS, 'line');
-            line.setAttribute('x1', String(m.a.x));
-            line.setAttribute('y1', String(m.a.y));
-            line.setAttribute('x2', String(m.b.x));
-            line.setAttribute('y2', String(m.b.y));
-            line.setAttribute('stroke', '#4488ff');
-            line.setAttribute('stroke-width', '1');
-            line.setAttribute('vector-effect', 'non-scaling-stroke');
-            line.setAttribute('pointer-events', 'none');
-            overlay.appendChild(line);
-        }
-    }
-
-    /**
-     * True when the ratline between two points is currently shown on the
-     * board. Hidden if the Ratlines overlay group is off, or if the matching
-     * ratsnest line element is individually display:none.
-     * @param {{x:number, y:number}} a
-     * @param {{x:number, y:number}} b
-     * @returns {boolean}
-     */
-    _isRatlineVisible(a, b) {
-        const layer = this._layerGroups?.get('ratlines');
-        if (!layer || layer.style.display === 'none') return false;
-        const near = (p, q) => Math.abs(p - q) < 1e-3;
-        for (const el of layer.querySelectorAll('line.ratsnest-line, line.ratsnest-failed')) {
-            if (/** @type {HTMLElement} */ (el).style.display === 'none') continue;
-            const x1 = parseFloat(el.getAttribute('x1'));
-            const y1 = parseFloat(el.getAttribute('y1'));
-            const x2 = parseFloat(el.getAttribute('x2'));
-            const y2 = parseFloat(el.getAttribute('y2'));
-            if ((near(x1, a.x) && near(y1, a.y) && near(x2, b.x) && near(y2, b.y)) ||
-                (near(x1, b.x) && near(y1, b.y) && near(x2, a.x) && near(y2, a.y))) {
-                return true;
-            }
-        }
-        return false;
+        return this._getDrcPresentation().drawMarker(v);
     }
 
     /** Remove the DRC marker overlay. */
     _clearDRCMarker() {
-        const overlay = this._layerGroups.get('drc-overlay');
-        if (overlay) while (overlay.firstChild) overlay.removeChild(overlay.firstChild);
-        this._hideDRCConnector();
-    }
-
-    /** Lazily create the screen-space SVG used for the panel→marker leader. */
-    _ensureDRCConnector() {
-        if (this._drcConnectorSvg) return this._drcConnectorSvg;
-        const container = this.viewport?.svg?.parentElement?.parentElement; // .main-container
-        if (!container) return null;
-        const NS = 'http://www.w3.org/2000/svg';
-        const svg = document.createElementNS(NS, 'svg');
-        svg.setAttribute('class', 'drc-connector-svg');
-        svg.style.position = 'absolute';
-        svg.style.inset = '0';
-        svg.style.width = '100%';
-        svg.style.height = '100%';
-        svg.style.pointerEvents = 'none';
-        svg.style.zIndex = '60';
-        svg.style.display = 'none';
-        const line = document.createElementNS(NS, 'polyline');
-        line.setAttribute('fill', 'none');
-        line.setAttribute('stroke', '#ffd400');
-        line.setAttribute('stroke-width', '1.5');
-        line.setAttribute('stroke-dasharray', '4,3');
-        svg.appendChild(line);
-        container.appendChild(svg);
-        this._drcConnectorSvg = svg;
-        this._drcConnectorLine = line;
-        return svg;
-    }
-
-    _hideDRCConnector() {
-        if (this._drcConnectorSvg) this._drcConnectorSvg.style.display = 'none';
+        return this._getDrcPresentation().clearMarker();
     }
 
     /**
@@ -8207,60 +7234,7 @@ export default class PCBApp {
      * to its marker on the board. Recomputed on selection and on view change.
      */
     _updateDRCConnector() {
-        const id = this._drcSelectedId;
-        const panel = document.getElementById('pcbDrcSlidePanel');
-        const v = id ? this._drcViolations.find(x => x.id === id) : null;
-        // Only show while the panel is open and a violation is selected.
-        if (!v || !panel || !panel.classList.contains('open')) {
-            this._hideDRCConnector();
-            return;
-        }
-        const svg = this._ensureDRCConnector();
-        if (!svg || !this.viewport?.worldToScreen) return;
-
-        const row = panel.querySelector(`.drc-item[data-drc-id="${id}"]`);
-        const containerRect = svg.parentElement.getBoundingClientRect();
-        const vpSvg = this.viewport.svg;
-        const sp = this.viewport.worldToScreen({ x: v.x, y: v.y });
-        const svgRect = vpSvg.getBoundingClientRect();
-        // Marker position in container-local coordinates.
-        const ex = (svgRect.left - containerRect.left) + sp.x;
-        const ey = (svgRect.top - containerRect.top) + sp.y;        // Start point: right edge of the selected row so the leader meets the
-        // marker from the right side of the list. Clamp vertically to the
-        // scrollable body so it never spills over the header/footer when the
-        // row is scrolled out of view.
-        const body = panel.querySelector('.drc-slide-body');
-        const startRect = (row || panel).getBoundingClientRect();
-        const sx = startRect.right - containerRect.left - 16;
-        let sy = (row ? (startRect.top + startRect.height / 2) : (startRect.top + 24)) - containerRect.top;
-        let rowVisible = true;
-        if (body) {
-            const b = body.getBoundingClientRect();
-            const top = b.top - containerRect.top;
-            const bottom = b.bottom - containerRect.top;
-            // The row is "off the list" when its center sits outside the body.
-            if (row) {
-                const rowCenter = startRect.top + startRect.height / 2;
-                rowVisible = rowCenter >= b.top && rowCenter <= b.bottom;
-            }
-            sy = Math.max(top, Math.min(bottom, sy));
-        }
-
-        // Dim the leader when its row is scrolled out of view.
-        this._drcConnectorLine.setAttribute('stroke-opacity', rowVisible ? '1' : '0.3');
-        // Stop the leader at the edge of the marker ring (not its center).
-        const m = v.marker || {};
-        const ringR = (m.type === 'ring') ? (m.r || 0.3) + 0.25 : 0.6;
-        const screenR = ringR * (this.viewport.scale || 1);
-        let tx = ex, ty = ey;
-        const dx = ex - sx, dy = ey - sy;
-        const dist = Math.hypot(dx, dy);
-        if (dist > screenR) {
-            tx = ex - (dx / dist) * screenR;
-            ty = ey - (dy / dist) * screenR;
-        }
-        this._drcConnectorLine.setAttribute('points', `${sx},${sy} ${tx},${ty}`);
-        svg.style.display = '';
+        return this._getDrcPresentation().updateConnector();
     }
 
     /**
@@ -8268,32 +7242,7 @@ export default class PCBApp {
      * moves the view if the point sits outside the unobscured viewport.
      */
     _ensurePointVisible(x, y) {
-        const vp = this.viewport;
-        if (!vp || !vp.viewBox) return;
-        const vb = vp.viewBox;
-        let leftInset = 0;
-        const panel = document.getElementById('pcbDrcSlidePanel');
-        if (panel?.classList.contains('open')) {
-            const rect = vp.svg?.getBoundingClientRect();
-            const panelRect = panel.getBoundingClientRect();
-            if (rect?.width > 0 && panelRect.width > 0 && panel.offsetParent &&
-                panelRect.bottom > rect.top && panelRect.top < rect.top + rect.height) {
-                // Use the settled left-docked position, even during the slide-in animation.
-                const panelRight = panel.offsetParent.getBoundingClientRect().left +
-                    panel.offsetLeft + panelRect.width;
-                leftInset = Math.max(0, Math.min(1, (panelRight - rect.left) / rect.width)) * vb.width;
-            }
-        }
-        const visibleWidth = vb.width - leftInset;
-        const margin = Math.min(visibleWidth, vb.height) * 0.12;
-        const inside = x >= vb.x + leftInset + margin && x <= vb.x + vb.width - margin &&
-            y >= vb.y + margin && y <= vb.y + vb.height - margin;
-        if (inside) return;
-        // Center within the uncovered area without changing the scale.
-        vb.x = x - leftInset - visibleWidth / 2;
-        vb.y = y - vb.height / 2;
-        vp._updateViewBox?.();
-        vp._notifyViewChanged?.();
+        return this._getDrcPresentation().ensurePointVisible(x, y);
     }
 
     /**
@@ -8308,87 +7257,6 @@ export default class PCBApp {
     }
 
     /**
-     * Render a single net's tracks incrementally during routing animation.
-     */
-    _renderNetTracks(netTracks) {
-        const NS = 'http://www.w3.org/2000/svg';
-        const topCopper = this._getLayerGroup('top-copper');
-        const bottomCopper = this._getLayerGroup('bottom-copper');
-        const params = this._getRoutingParams();
-
-        for (const track of netTracks) {
-            if (track.points.length < 2) continue;
-            const parent = track.layer === 'bottom' ? bottomCopper : topCopper;
-            const color = track.layer === 'bottom' ? '#0066ff' : '#ff3333';
-
-            const polyline = document.createElementNS(NS, 'polyline');
-            polyline.setAttribute('class', 'pcb-routed-track pcb-route-anim');
-            const ptsStr = track.points.map(p => `${p.x},${p.y}`).join(' ');
-            polyline.setAttribute('points', ptsStr);
-            polyline.setAttribute('fill', 'none');
-            polyline.setAttribute('stroke', color);
-            polyline.setAttribute('stroke-width', String(params.trackWidth));
-            polyline.setAttribute('stroke-linecap', 'round');
-            polyline.setAttribute('stroke-linejoin', 'round');
-            polyline.setAttribute('opacity', '0.6');
-            if (track.net) polyline.dataset.net = track.net;
-            if (track.connId) polyline.dataset.connid = track.connId;
-            parent.appendChild(polyline);
-
-            // Render vias for this track
-            if (track.vias?.length) {
-                const viaLayer = this._getLayerGroup('vias');
-                const viaRadius = params.viaDiameter / 2;
-                const drillRadius = params.viaDrill / 2;
-                for (const v of track.vias) {
-                    const ring = document.createElementNS(NS, 'path');
-                    ring.setAttribute('class', 'pcb-routed-via pcb-route-anim');
-                    ring.setAttribute('d', viaCopperPathD({
-                        x: v.x, y: v.y, diameter: viaRadius * 2, drill: drillRadius * 2,
-                    }));
-                    ring.setAttribute('fill-rule', 'evenodd');
-                    ring.setAttribute('fill', '#b8860b');
-                    ring.setAttribute('opacity', '0.6');
-                    ring.setAttribute('data-via-x', String(v.x));
-                    ring.setAttribute('data-via-y', String(v.y));
-                    ring.setAttribute('data-via-radius', String(viaRadius));
-                    if (track.net) ring.dataset.net = track.net;
-                    if (track.connId) ring.dataset.connid = track.connId;
-                    viaLayer.appendChild(ring);
-                }
-            }
-        }
-        this._refreshClearanceHalos();
-    }
-
-    _clearIncrementalNet(netName) {
-        if (!netName || !this.viewport?.svg) return;
-        for (const el of this.viewport.svg.querySelectorAll(`.pcb-route-anim[data-net="${netName}"]`)) {
-            el.remove();
-        }
-        this._refreshClearanceHalos();
-    }
-
-    _clearIncrementalConnection(connId) {
-        if (!connId || !this.viewport?.svg) return;
-        for (const el of this.viewport.svg.querySelectorAll(`.pcb-route-anim[data-connid="${connId}"]`)) {
-            el.remove();
-        }
-        this._refreshClearanceHalos();
-    }
-
-    /**
-     * Remove incremental animation tracks (replaced by final clean render).
-     */
-    _clearIncrementalTracks() {
-        const anims = this.viewport?.svg?.querySelectorAll('.pcb-route-anim');
-        if (anims) {
-            for (const el of anims) el.remove();
-        }
-        this._refreshClearanceHalos();
-    }
-
-    /**
      * If the clearance overlay is currently visible, redraw it. Call this
      * after any operation that adds, removes, or relocates tracks/vias so the
      * halos stay in sync (rip-ups in particular leave orphaned halos otherwise).
@@ -8400,7 +7268,7 @@ export default class PCBApp {
         if (!overlay) return;
         this._boardShapeClearanceCache ??= new Map();
         const previous = this._boardShapeClearanceCache.get(shape.id);
-        if (this._pictureCopperRefreshPending && this._pendingShapeClearances?.has(shape.id)) {
+        if (shouldDeferShapeClearance(this, shape)) {
             for (const element of previous?.elements || []) {
                 element.parentNode?.removeChild(element);
             }
@@ -8453,6 +7321,83 @@ export default class PCBApp {
 
     _refreshClearanceHalos() {
         if (this._clearancesVisible) this.showClearances(true);
+    }
+
+    _refreshTrackClearance(track) {
+        if (this._clearancesVisible) this.showClearances(true, track);
+    }
+
+    _refreshViaClearance(via = null) {
+        if (!this._clearancesVisible) return;
+        const overlay = this._getLayerGroup('clearance-overlay');
+        const layer = this._getLayerGroup('vias');
+        if (!overlay) return;
+        this._viaClearanceCache ??= new Map();
+        this._viaClearanceKeys ??= new Map();
+        const affected = new Set();
+        if (via) {
+            const previous = this._viaClearanceKeys.get(via.id);
+            if (previous != null) {
+                this._viaClearanceCache.get(previous)?.sources.delete(via.id);
+                this._viaClearanceKeys.delete(via.id);
+                affected.add(previous);
+            }
+        } else {
+            for (const entry of this._viaClearanceCache.values()) entry.element?.remove();
+            this._viaClearanceCache.clear();
+            this._viaClearanceKeys.clear();
+        }
+        const register = (id, cx, cy, r, net) => {
+            if (!Number.isFinite(cx) || !Number.isFinite(cy) || !Number.isFinite(r)) return;
+            const key = `${cx.toFixed(4)},${cy.toFixed(4)}`;
+            if (!this._viaClearanceCache.has(key)) this._viaClearanceCache.set(key, { sources: new Map() });
+            const sources = this._viaClearanceCache.get(key).sources;
+            const previous = sources.get(id);
+            if (!previous || r > previous.r) sources.set(id, { cx, cy, r, net: net || previous?.net });
+            this._viaClearanceKeys.set(id, key);
+            affected.add(key);
+        };
+        if (layer && layer.style.display !== 'none') {
+            if (via) {
+                if (hasViaElements(via)) register(via.id, via.x, via.y, via.diameter / 2, via.net);
+            } else for (const rendered of layer.querySelectorAll('circle.pcb-routed-via, circle.pcb-via, path.pcb-via')) {
+                const path = rendered.localName === 'path';
+                register(rendered.dataset?.viaId || rendered,
+                    parseFloat(rendered.getAttribute(path ? 'data-via-x' : 'cx')),
+                    parseFloat(rendered.getAttribute(path ? 'data-via-y' : 'cy')),
+                    parseFloat(rendered.getAttribute(path ? 'data-via-radius' : 'r')), rendered.dataset?.net);
+            }
+        }
+        const clearance = this._getRoutingParams().clearance;
+        for (const key of affected) {
+            const entry = this._viaClearanceCache.get(key);
+            entry.element?.remove();
+            if (!entry.sources.size) {
+                this._viaClearanceCache.delete(key);
+                continue;
+            }
+            // Coincident vias share the largest ring; moving one must retain any others.
+            let largest = null, net = '';
+            for (const source of entry.sources.values()) {
+                if (!largest || source.r > largest.r) {
+                    largest = source;
+                    net = source.net || net;
+                }
+            }
+            const element = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+            element.setAttribute('cx', String(largest.cx));
+            element.setAttribute('cy', String(largest.cy));
+            element.setAttribute('r', String(largest.r + clearance));
+            element.setAttribute('class', 'debug-clearance');
+            element.setAttribute('fill', 'none');
+            element.setAttribute('stroke', 'rgba(255, 255, 255, 0.55)');
+            element.setAttribute('stroke-width', '1');
+            element.setAttribute('vector-effect', 'non-scaling-stroke');
+            element.setAttribute('pointer-events', 'none');
+            if (net) element.dataset.net = net;
+            overlay.appendChild(element);
+            entry.element = element;
+        }
     }
 
     /* ──────────────────── Copper fill (pours) ─────────────────────── */
@@ -8711,127 +7656,6 @@ export default class PCBApp {
     }
 
     /**
-     * Show a brief "trying" line for a connection being attempted.
-     */
-    _flashTryingLine(from, to) {
-        const NS = 'http://www.w3.org/2000/svg';
-        const layer = this._getLayerGroup('ratlines');
-
-        // Remove all previous trying lines
-        for (const el of layer.querySelectorAll('.pcb-trying-line')) el.remove();
-
-        const line = document.createElementNS(NS, 'line');
-        line.setAttribute('class', 'pcb-route-anim pcb-trying-line');
-        line.setAttribute('x1', String(from.x));
-        line.setAttribute('y1', String(from.y));
-        line.setAttribute('x2', String(to.x));
-        line.setAttribute('y2', String(to.y));
-        line.setAttribute('stroke', '#ffcc00');
-        line.setAttribute('stroke-width', '0.2');
-        line.setAttribute('opacity', '0.8');
-        layer.appendChild(line);
-    }
-
-    /**
-     * Remove all trying lines.
-     */
-    _clearTryingLines() {
-        const layer = this._layerGroups.get('ratlines');
-        if (layer) {
-            for (const el of layer.querySelectorAll('.pcb-trying-line')) el.remove();
-        }
-    }
-
-    /**
-     * Flash a failed net's ratline(s) in yellow.
-     */
-    _flashFailedNet(conn) {
-        if (!conn.pads || conn.pads.length < 2) return;
-        const NS = 'http://www.w3.org/2000/svg';
-        const layer = this._getLayerGroup('ratlines');
-
-        // Keep failed overlays bounded and replace previous overlays for this net.
-        const netName = conn.net || '';
-        if (netName) {
-            for (const old of layer.querySelectorAll(`.pcb-failed-line[data-net="${netName}"]`)) {
-                old.remove();
-            }
-        }
-        const allFailed = layer.querySelectorAll('.pcb-failed-line');
-        if (allFailed.length > 24) {
-            const toRemove = allFailed.length - 24;
-            for (let i = 0; i < toRemove; i++) allFailed[i]?.remove();
-        }
-
-        for (let i = 0; i < conn.pads.length - 1; i++) {
-            const from = conn.pads[i];
-            const to = conn.pads[i + 1];
-
-            const line = document.createElementNS(NS, 'line');
-            line.setAttribute('class', 'pcb-route-anim pcb-failed-line');
-            if (netName) line.dataset.net = netName;
-            line.setAttribute('x1', String(from.x));
-            line.setAttribute('y1', String(from.y));
-            line.setAttribute('x2', String(to.x));
-            line.setAttribute('y2', String(to.y));
-            line.setAttribute('stroke', '#ffcc00');
-            line.setAttribute('stroke-width', '0.3');
-            line.setAttribute('opacity', '0.9');
-            layer.appendChild(line);
-
-            // Fade out and remove
-            let opacity = 0.9;
-            const fade = () => {
-                opacity -= 0.08;
-                if (opacity <= 0) {
-                    line.remove();
-                    return;
-                }
-                line.setAttribute('opacity', String(opacity));
-                requestAnimationFrame(fade);
-            };
-            requestAnimationFrame(fade);
-        }
-    }
-
-    _hideRatsnestForNet(netName) {
-        this._setRatsnestVisibilityForNet(netName, false);
-    }
-
-    _setRatsnestVisibilityForNet(netName, visible) {
-        if (!netName) return;
-        this._ratsnestVisibilityQueue.set(netName, !!visible);
-        if (this._ratsnestVisibilityRaf) return;
-        this._ratsnestVisibilityRaf = requestAnimationFrame(() => {
-            this._ratsnestVisibilityRaf = 0;
-            this._flushRatsnestVisibilityQueue();
-        });
-    }
-
-    _flushRatsnestVisibilityQueue() {
-        if (!this._ratsnestVisibilityQueue.size) return;
-        const updates = new Map(this._ratsnestVisibilityQueue);
-        this._ratsnestVisibilityQueue.clear();
-        this._applyRatsnestVisibilityMap(updates);
-    }
-
-    _applyRatsnestVisibilityMap(visibilityByNet) {
-        if (!visibilityByNet || !visibilityByNet.size) return;
-        const ratLayer = this._getLayerGroup('ratlines');
-        for (const line of ratLayer.querySelectorAll('.ratsnest-line')) {
-            const net = /** @type {HTMLElement} */ (line).dataset.net || '';
-            if (!visibilityByNet.has(net)) continue;
-            /** @type {HTMLElement} */ (line).style.display = visibilityByNet.get(net) ? '' : 'none';
-        }
-        for (const el of ratLayer.children) {
-            if (el.tagName !== 'text') continue;
-            const net = (el.textContent || '').trim();
-            if (!visibilityByNet.has(net)) continue;
-            /** @type {HTMLElement} */ (el).style.display = visibilityByNet.get(net) ? '' : 'none';
-        }
-    }
-
-    /**
      * Render routing result onto copper layers and hide routed ratlines.
      *
      * Converts the autorouter's raw {tracks, vias} payload into Track and
@@ -8842,7 +7666,6 @@ export default class PCBApp {
      * @param {import('../pcb/modules/autorouter-common.js').RouteResult} result
      */
     _renderRouteResult(result) {
-        this._flushRatsnestVisibilityQueue();
         const params = this._getRoutingParams();
         const { tracks, vias } = tracksFromAutorouterResult(result, {
             trackWidth: params.trackWidth,
@@ -8909,11 +7732,6 @@ export default class PCBApp {
      */
     clearRoutes() {
         this._cancelAutoRoute();
-        if (this._ratsnestVisibilityRaf) {
-            cancelAnimationFrame(this._ratsnestVisibilityRaf);
-            this._ratsnestVisibilityRaf = 0;
-        }
-        this._ratsnestVisibilityQueue.clear();
 
         const command = new ReplaceRoutesCommand(this, [], []);
         command.description = 'Clear routed copper';

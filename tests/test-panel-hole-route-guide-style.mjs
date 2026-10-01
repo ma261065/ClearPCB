@@ -89,10 +89,20 @@ for (const theme of ['light', 'dark']) {
             const ordinary = { id: 'ordinary-hole', layer: 'hole', kind: 'circle',
                 x: hole.x, y: hole.y, radius: hole.diameter / 2, lineWidth: 0 };
             renderBoardShape(app, ordinary);
-            const ordinaryElement = app._shapeElements.get(ordinary.id);
-            const border = preview.children.find(child => child.getAttribute('d') === ordinaryElement.getAttribute('d'));
+            const ordinaryRoot = app._shapeElements.get(ordinary.id);
+            const ordinaryElement = ordinaryRoot.children.at(-1);
+            const borderRoot = preview.children.find(child => child.localName === 'g'
+                && child.children.at(-1)?.getAttribute('d') === ordinaryElement.getAttribute('d'));
+            const border = borderRoot?.children.at(-1);
             assert.ok(border, 'tooling bores reuse the same physical hole geometry');
             assert.equal(border.getAttribute('fill'), 'none', `${theme}: no opaque canvas-colour paint`);
+            for (const [painted, owner] of [[border, borderRoot], [ordinaryElement, ordinaryRoot]]) {
+                const clip = reference(owner, painted.getAttribute('clip-path'));
+                assert.equal(clip.getAttribute('clipPathUnits'), 'userSpaceOnUse');
+                assert.equal(clip.children[0].getAttribute('d'), painted.getAttribute('d'));
+                assert.equal(clip.children[0].getAttribute('clip-rule'), 'evenodd');
+                assert.equal(Number(painted.getAttribute('stroke-width')) / 2, 0.05);
+            }
             for (const key of ['stroke', 'stroke-width', 'stroke-linejoin', 'stroke-linecap']) {
                 assert.equal(border.getAttribute(key), ordinaryElement.getAttribute(key), `matches ordinary hole ${key}`);
             }
@@ -127,8 +137,8 @@ for (const theme of ['light', 'dark']) {
             assert.equal(guide.getAttribute(key), ratline.getAttribute(key), `${theme}, zoom ${scale}: same ${key}`);
         }
         assert.equal(guide.getAttribute('vector-effect'), 'non-scaling-stroke');
-        assert.equal(guide.getAttribute('stroke-dasharray'), '0 3', 'screen-space point dashes');
-        assert.equal(guide.getAttribute('stroke-linecap'), 'round', 'zero-length strokes are round dots');
+        assert.equal(guide.getAttribute('stroke-dasharray'), '4 3', 'screen-space 4px dashes with 3px gaps');
+        assert.equal(guide.getAttribute('stroke-linecap'), 'round', 'guide dashes have rounded ends');
         assert.equal(ratline.getAttribute('stroke-dasharray'), null, 'real ratlines remain solid');
         assert.equal(guide.getAttribute('pointer-events'), 'none');
         updateTrackDraw(app, { x: 9, y: 5 });
@@ -137,4 +147,4 @@ for (const theme of ['light', 'dark']) {
         assert.equal(app._netGuideLine, null, 'cancellation removes the guide');
     }
 }
-console.log('PASS panel tooling-hole cutouts and dotted live guides: both themes, 3 zooms, transforms, cleanup');
+console.log('PASS panel tooling-hole cutouts and dashed live guides: both themes, 3 zooms, transforms, cleanup');

@@ -8,6 +8,26 @@ export const LOCK_GAP = 0.2;    // world units
 export const LOCK_STROKE = 0.2;
 export const LOCK_MIN_SCREEN_PX = 10;
 export const LOCK_SCREEN_GAP_PX = 5;
+let insideStrokeId = 0;
+
+/** Keep a path's border inside its fill geometry without changing that geometry. */
+export function insideStrokeGroup(path) {
+    const group = document.createElementNS(NS, 'g');
+    const clip = document.createElementNS(NS, 'clipPath');
+    const id = `inside-stroke-${++insideStrokeId}`;
+    clip.setAttribute('id', id);
+    clip.setAttribute('clipPathUnits', 'userSpaceOnUse');
+    const outline = document.createElementNS(NS, 'path');
+    outline.setAttribute('d', path.getAttribute('d'));
+    outline.setAttribute('clip-rule', path.getAttribute('fill-rule') || 'nonzero');
+    clip.appendChild(outline);
+    path.setAttribute('clip-path', `url(#${id})`);
+    // Clipping keeps half of a centred stroke, so double it to retain the border width.
+    path.setAttribute('stroke-width', String(Number(path.getAttribute('stroke-width')) * 2));
+    group.appendChild(clip);
+    group.appendChild(path);
+    return group;
+}
 
 export function lockIconMetrics(scale = Infinity) {
     const size = Math.max(LOCK_SIZE, LOCK_MIN_SCREEN_PX / Math.max(0.01, scale));

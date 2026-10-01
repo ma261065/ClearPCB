@@ -31,8 +31,7 @@ import {
     clearTrackAxisGlow,
     showTrackSnapMarker,
     clearTrackSnapMarker,
-    nearestPointOnNet,
-    showNetGuideLine,
+    updateNetGuideLine,
     clearNetGuideLine,
     bondedExclusion,
     snapNodeToAxis,
@@ -41,7 +40,7 @@ import {
     _axisAlignment,
     COLLINEAR_SNAP_SCREEN_PX,
     COLLINEAR_GLOW_ANGLE_TOL,
-    collectBondedCopper,
+    collectNodeConnections,
 } from './track-draw.js';
 import { refreshTrackSelectionHalo } from './track-select.js';
 import { MoveVertexCommand, MoveViaCommand, CompoundCommand, ModifyTrackGraphCommand, RemoveTrackCommand, AddViaCommand, AddTrackCommand, ModifyTrackCommand, ModifyViaCommand, canonicalTrack, getPlacementPreviewTracks } from './track-commands.js';
@@ -83,6 +82,7 @@ function _beginVertexDragOverlayDeferral(app) {
 function _endVertexDragOverlayDeferral(app, drag) {
     app._deferDragOverlays = drag.previousDeferDragOverlays;
     if (!app._deferDragOverlays) app._refreshClearanceHalos?.();
+    else if (drag.preview) app._refreshTrackClearance?.(drag.original);
 }
 
 function prepareTrackPointer(app, track) {
@@ -648,18 +648,35 @@ function _buildCopperNetCommands(app, bonded, net, shapes = bonded.shapes, inclu
 
 /** Capture Net edits after the move/merge so snapshots reference the final topology. */
 class AdoptDroppedCopperNetCommand {
-    constructor(app, track, nodeIds, net) {
+    constructor(app, bonded, net) {
         this.app = app;
-        this.track = track;
-        this.nodeIds = nodeIds;
+        this.bonded = bonded;
         this.net = net;
         this.command = null;
     }
     execute() {
         if (!this.command) {
-            const nodeId = [...this.nodeIds].find(id => this.track.nodes.has(id));
-            const bonded = collectBondedCopper(this.app, { track: this.track, nodeId },
-                { includeShapes: true, newTracks: new Set([this.track]) });
+            // Rebind validated contacts to final topology, without rediscovering
+            // crossings or depending on a dropped node that may have been merged.
+            const tracks = new Set();
+            const trackNodes = new Map();
+            for (const [preview, nodes] of this.bonded.trackNodes) {
+                const track = this.app.tracks.find(candidate => candidate.id === preview.id);
+                if (!track) continue; // Absorbed tracks are now part of the surviving graph.
+                const connected = track.connectedComponents().filter(component =>
+                    [...component].some(id => nodes.has(id)));
+                if (!connected.length) continue;
+                tracks.add(track);
+                trackNodes.set(track, new Set(connected.flatMap(component => [...component])));
+            }
+            const vias = new Set();
+            for (const preview of this.bonded.vias) {
+                const via = this.app.vias.find(candidate => candidate.id === preview.id)
+                    || this.app.vias.find(candidate => candidate.x === preview.x && candidate.y === preview.y);
+                if (!via) throw new Error('Validated node-drop Via is missing after the geometry command.');
+                vias.add(via);
+            }
+            const bonded = { ...this.bonded, tracks, trackNodes, vias };
             this.command = new CompoundCommand(_buildCopperNetCommands(this.app, bonded, this.net));
         }
         this.command.execute();
@@ -687,10 +704,10 @@ export function buildDrawnTrackCommands(app, newTracks, newVias = [], destinatio
     const drawn = Array.isArray(newTracks) ? newTracks.slice() : [newTracks];
     const vias = newVias || [];
     const drawnSet = new Set(drawn);
-    const bonded = collectBondedCopper({
+    const bonded = collectNodeConnections({
         ...app, tracks: [...(app.tracks || []), ...drawn], vias: [...(app.vias || []), ...vias],
         pads: app.pads, boardShapes: app.boardShapes,
-    }, { tracks: drawnSet }, { includeShapes: true, newTracks: drawnSet });
+    }, new Map(drawn.map(track => [track, new Set(track.nodes.keys())])));
     const shapes = new Set([...bonded.shapes, ...destinationShapes]);
     const nets = _bondedNets(bonded, shapes);
     if (nets.size > 1) {
@@ -1191,6 +1208,8 @@ export function updateVertexDrag(app, worldPos) {
         const copy = beginTrackPointerPreview(app, drag);
         copy.setEdgeAttr(drag.edgeId, 'bulge', bulge);
         renderTrack(copy, layer => app._getLayerGroup(layer), _opts(app));
+        app._refreshTrackClearance?.(copy);
+        app._refreshSelectedDRCMarker?.();
         refreshTrackSelectionHalo(app);
         const input = document.getElementById('pcbPropTrackBulge');
         if (input) input.value = formatNumberInputValue(bulge);
@@ -1239,6 +1258,7 @@ export function updateVertexDrag(app, worldPos) {
         if (anchor) app.viewport?.setCrosshair({ x: anchor.x, y: anchor.y });
         renderTrackAxisGlow(app, _incidentSegments(drag.track, drag.nodes));
         renderTrack(drag.track, (id) => app._getLayerGroup(id), _opts(app));
+        app._refreshTrackClearance?.(drag.track);
         renderTrackAxisGlowTop(app);
         refreshTrackSelectionHalo(app);
         reconcileRatsnest(app);
@@ -1343,24 +1363,13 @@ export function updateVertexDrag(app, worldPos) {
     drag.track.invalidate();
     renderTrackAxisGlow(app, _incidentSegments(drag.track, drag.nodes));
     renderTrack(drag.track, (id) => app._getLayerGroup(id), _opts(app));
+    app._refreshTrackClearance?.(drag.track);
     renderTrackAxisGlowTop(app);
     // Keep the selection halo glued to the new geometry.
     refreshTrackSelectionHalo(app);
     reconcileRatsnest(app);
 
-    // Live guide from the dragged node to the nearest existing copper on this
-    // track's net, regardless of the static Ratlines toggle.
-    // The track's bonded cluster (captured at drag
-    // start) is excluded so the guide skips copper the far end already reaches.
-    if (drag.track.net) {
-        const near = nearestPointOnNet(app, drag.track.net, { x: n.x, y: n.y }, {
-            layer: drag.track.getEdgeLayer(drag.track.incidentEdges(nd.nodeId)[0]?.edgeId) || drag.track.layer,
-            ...(drag.guideExclude || {}),
-        });
-        showNetGuideLine(app, near ? { x: n.x, y: n.y } : null, near);
-    } else {
-        clearNetGuideLine(app);
-    }
+    updateNetGuideLine(app, drag.track.net, { x: n.x, y: n.y }, drag.guideExclude?.ratlinePointKeys);
 }
 
 /**
@@ -1673,8 +1682,8 @@ function trackPointerCommands(app, view, drag) {
                     vias: [...(app.vias || []), _makeViaAt(app, point.x, point.y, '')] };
             }
         }
-        const bonded = collectBondedCopper(prospectiveApp, { track: drag.track, nodeId },
-            { includeShapes: true, newTracks: new Set([drag.track]) });
+        const bonded = collectNodeConnections(prospectiveApp,
+            new Map([[drag.track, new Set([nodeId])]]));
         const nets = _bondedNets(bonded);
         if (nets.size > 1) {
             const terminalNet = drag.snapTargetVia?.net;
@@ -1684,8 +1693,7 @@ function trackPointerCommands(app, view, drag) {
             return [];
         }
         const net = [...nets][0];
-        if (net) netCommand = new AdoptDroppedCopperNetCommand(app, drag.original,
-            bonded.trackNodes.get(drag.track), net);
+        if (net) netCommand = new AdoptDroppedCopperNetCommand(app, bonded, net);
     }
     const withNet = commands => netCommand && commands.length ? [...commands, netCommand] : commands;
     if (drag.topology) {
@@ -1873,10 +1881,14 @@ function beginTerminalPreview(app, drag) {
     for (const track of copies.keys()) removeTrackElements(track);
 }
 
-function restoreTerminalArtwork(app, drag, committed) {
-    if (!drag.preview) return;
+function removeTerminalPreviewArtwork(drag) {
     drag.remove(drag.via);
     for (const copy of drag.preview.copies.values()) removeTrackElements(copy);
+}
+
+function restoreTerminalArtwork(app, drag, committed) {
+    if (!drag.preview) return;
+    removeTerminalPreviewArtwork(drag);
     if (!committed) {
         const collection = drag.kind === 'pad' ? 'pads' : 'vias';
         if (app.pcbDocument[collection].includes(drag.original)) {
@@ -1887,9 +1899,14 @@ function restoreTerminalArtwork(app, drag, committed) {
                 renderTrack(track, id => app._getLayerGroup(id), _opts(app, track));
             }
         }
-        if (!app._deferDragOverlays) app._refreshClearanceHalos?.();
         refreshTrackSelectionHalo(app);
         reconcileRatsnest(app, { skipFillRefresh: true });
+    }
+    if (!app._deferDragOverlays) {
+        if (!committed) app._refreshClearanceHalos?.();
+    } else {
+        if (drag.kind === 'via') app._refreshViaClearance?.(drag.original);
+        for (const track of drag.preview.copies.keys()) app._refreshTrackClearance?.(track);
     }
 }
 
@@ -2001,8 +2018,10 @@ export function updateViaDrag(app, worldPos) {
     renderTrackAxisGlow(app, glowSegs);
     for (const t of touched) {
         renderTrack(t, (id) => app._getLayerGroup(id), _opts(app, t));
+        app._refreshTrackClearance?.(t);
     }
     drag.render(drag.via, (id) => app._getLayerGroup(id));
+    if (drag.kind === 'via') app._refreshViaClearance?.(drag.via);
     renderTrackAxisGlowTop(app);
     refreshTrackSelectionHalo(app);
     reconcileRatsnest(app);
@@ -2063,6 +2082,8 @@ export function finishViaDrag(app) {
                 cmds.push(new ModifyTrackGraphCommand(app, track, before, copy.captureState()));
             }
         }
+        // Command refreshes must not see both preview and committed track artwork.
+        removeTerminalPreviewArtwork(drag);
         app.history.execute(new CompoundCommand(cmds));
         committed = true;
     } finally {

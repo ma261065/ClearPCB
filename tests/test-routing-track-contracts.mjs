@@ -4,6 +4,7 @@ import { routeAll } from '../src/pcb/modules/autorouter-maze.js';
 import { routeAllPathfinder } from '../src/pcb/modules/autorouter-pathfinder.js';
 import { tracksFromAutorouterResult } from '../src/pcb/modules/autorouter-adapter.js';
 import { exportDSN, importDSN, importSES } from '../src/pcb/modules/dsn.js';
+import { AutorouterPresentation } from '../src/pcb/modules/autorouter-presentation.js';
 
 // Direct calls use the non-yielding DOM path; real workers exercise MessageChannel scheduling.
 globalThis.document = { visibilityState: 'hidden' };
@@ -105,20 +106,20 @@ globalThis.document = { createElementNS(_ns, tag) {
         remove() { nodes.splice(nodes.indexOf(this), 1); } };
     return node;
 } };
-const { default: PCBApp } = await import('../src/ui/PCBApp.js');
-const app = {
-    _getRoutingParams: () => ({ trackWidth: 0.234, viaDiameter: 0.4, viaDrill: 0.2 }),
-    _getLayerGroup: () => ({ appendChild(node) { nodes.push(node); } }),
-    _refreshClearanceHalos() {},
-    viewport: { svg: { querySelectorAll(selector) {
+const presentation = new AutorouterPresentation({
+    getProgressHost: () => null,
+    getRoutingParams: () => ({ trackWidth: 0.234, viaDiameter: 0.4, viaDrill: 0.2 }),
+    getLayerGroup: () => ({ appendChild(node) { nodes.push(node); } }),
+    refreshClearanceHalos() {},
+    getSvg: () => ({ querySelectorAll(selector) {
         assert.equal(selector, '.pcb-route-anim');
         return nodes.filter(node => node.attributes.class.split(' ').includes('pcb-route-anim'));
-    } } },
-};
-PCBApp.prototype._renderNetTracks.call(app, ses.tracks);
+    } }),
+}, () => {});
+presentation.renderNetTracks(ses.tracks);
 assert.equal(nodes[0].attributes.class, 'pcb-routed-track pcb-route-anim');
 assert.equal(nodes[0].attributes['stroke-width'], '0.234');
 assert.equal(nodes[0].attributes.points, '2,-3 8,-3');
-PCBApp.prototype._clearIncrementalTracks.call(app);
+presentation.clearIncrementalTracks();
 assert.equal(nodes.length, 0);
 console.log('PASS track contracts across both routers, real workers, model adapter, DSN/SES and incremental rendering');

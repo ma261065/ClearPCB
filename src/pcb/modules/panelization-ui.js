@@ -6,6 +6,7 @@ import { AddTextCommand } from './text-commands.js';
 import { getBoardOutline } from './board-outline.js';
 import { boardShapeRemovalPathD } from './board-shape-geometry.js';
 import { createPanelArtworkRaster } from './panelization-raster.js';
+import { insideStrokeGroup } from '../../core/ui-helpers.js';
 import ClipperLib from '../../../assets/vendor/clipper.esm.js';
 
 const NS = 'http://www.w3.org/2000/svg';
@@ -154,10 +155,10 @@ export function renderPanelPreview(app, settings = app.panelization) {
     }));
     for (const drill of layout.drills) {
         const path = positioningPaths.get(drill);
-        group.appendChild(path ? svg('path', { d: path, fill: 'none',
+        group.appendChild(path ? insideStrokeGroup(svg('path', { d: path, fill: 'none', 'fill-rule': 'evenodd',
             stroke: PCB_LAYERS.find(layer => layer.id === 'hole')?.color || '#1abc9c',
             'stroke-width': 0.05, 'stroke-linejoin': 'round', 'stroke-linecap': 'round',
-        }) : svg('circle', {
+        })) : svg('circle', {
             cx: drill.x, cy: drill.y, r: drill.diameter / 2, fill: 'none', stroke: color, 'stroke-width': 0.1,
         }));
     }

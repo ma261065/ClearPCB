@@ -23,7 +23,7 @@ const shortBoard = () => {
     assert.deepEqual(result.counts, { errors: 1, warnings: 0 });
     assert.equal(result.ok, false);
     assert.equal(result.violations[0].id, 'drc:short|A~B');
-    assert.deepEqual(result.violations[0].marker, { type: 'short' });
+    assert.deepEqual(result.violations[0].marker, { type: 'short', pair: [{ key: 'trk:a' }, { key: 'trk:b' }] });
 }
 
 for (const terminal of ['pad', 'via']) {

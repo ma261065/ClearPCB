@@ -65,7 +65,9 @@ function fixture() {
         _showFillToolOptions() { events.push('properties:fill'); },
         _showBoardShapeToolProperties(kind) { events.push(`properties:${kind}`); },
         _scheduleDRC() { events.push('drc'); },
+        _getDrcPresentation: PCBApp.prototype._getDrcPresentation,
     };
+    Object.defineProperty(app, '_drcActive', Object.getOwnPropertyDescriptor(PCBApp.prototype, '_drcActive'));
     PCBApp.prototype._bindRibbonTabs.call(app);
     bindPcbControls(app);
     events.length = 0;

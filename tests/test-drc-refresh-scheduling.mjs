@@ -61,6 +61,8 @@ function fixture(withFill = true) {
         _drcShouldRun: () => true, _renderDRCList() {},
         _updateDRCStatus(result, pending) { if (!pending) reports.push(result); },
     });
+    app._getDrcPresentation().updateStatus = app._updateDRCStatus;
+    app._getDrcPresentation().renderList = app._renderDRCList;
     const before = captureBoardShapeState(shape);
     shape.points = shape.points.map(({ x, y }) => ({ x: -y, y: x }));
     const after = captureBoardShapeState(shape);

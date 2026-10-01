@@ -34,7 +34,9 @@ assert.equal(violation.x, 100, 'marker belongs at the mismatched pad junction, n
 assert.equal(violation.y, 0);
 assert.equal(violation.message, 'Shorted nets: U1.52 and U1.53');
 assert.equal(violation.id, 'drc:short|U1.52~U1.53', 'selection identity is preserved');
-assert.deepEqual(violation.marker, { type: 'short' }, 'no remote sample endpoints are exported');
+assert.equal(violation.marker.type, 'short');
+assert.deepEqual(new Set(violation.marker.pair.map(item => item.key)), new Set(['trk:long-track', 'pad:U1.53']));
+assert.equal(violation.marker.a, undefined, 'no remote sample endpoints are exported');
 app.tracks.unshift(track('unrelated', 'OTHER', [[-100, -100], [-90, -100]]));
 assert.deepEqual(shorts(app), [violation], 'unrelated copper does not move or renumber the marker');
 
@@ -101,14 +103,14 @@ ui._drcViolations = [violation];
 ui._drcConnectorLine = new Element('polyline');
 const connector = new Element('svg');
 connector.parentElement = { getBoundingClientRect: () => ({ left: 0, top: 0 }) };
-ui._ensureDRCConnector = () => connector;
+ui._getDrcPresentation().ensureConnector = () => connector;
 ui.viewport = {
     scale: 5,
     worldToScreen: p => ({ x: p.x * 5 + 100, y: p.y * 5 + 100 }),
     svg: { getBoundingClientRect: () => ({ left: 0, top: 0 }) },
 };
 let navigation;
-ui._ensurePointVisible = (x, y) => { navigation = { x, y }; };
+ui._getDrcPresentation().ensurePointVisible = (x, y) => { navigation = { x, y }; };
 ui._selectDRCViolation(violation.id);
 assert.deepEqual(navigation, { x: 100, y: 0 }, 'navigation targets the physical junction');
 assert.deepEqual(overlay.children.map(el => el.tag), ['circle'], 'exactly one ring, without a red sample line');
@@ -123,7 +125,7 @@ ui._drawDRCMarker({ x: 1, y: 2, marker: { type: 'clearance' } });
 assert.equal(overlay.children.length, 1, 'clearance retains its location ring');
 ui._drawDRCMarker({ x: 1, y: 2, marker: { type: 'ring', r: 0.8 } });
 assert.equal(overlay.children[0].getAttribute('r'), '1.05', 'annular-ring sizing is unchanged');
-ui._isRatlineVisible = () => false;
+ui._getDrcPresentation().isRatlineVisible = () => false;
 ui._drawDRCMarker({ x: 1, y: 2, marker: { type: 'ratline', a: { x: 0, y: 0 }, b: { x: 2, y: 4 } } });
 assert.deepEqual(overlay.children.map(el => el.tag), ['circle', 'line'], 'hidden incomplete connections remain visible');
 

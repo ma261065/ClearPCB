@@ -10,7 +10,7 @@ import { disposeFillRefresh } from './fill-refresh.js';
 import { disposeDrcRefresh } from './drc-refresh.js';
 
 const PROPERTY_EDITORS = [
-    '_textPropertyBinding', '_refPropertyBinding', '_padPropertyBinding', '_viaPropertyBinding',
+    '_textPropertyBinding', '_componentProperties', '_padPropertyBinding', '_viaPropertyBinding',
     '_trackPropertyBinding', '_boardShapePropertyBinding',
 ];
 
@@ -57,7 +57,8 @@ export function disposePcbPropertyEditors(app, owner = null) {
     }
     for (const key of PROPERTY_EDITORS) {
         app[key]?.dispose();
-        app[key] = null;
+        // The component owner survives panel replacement; its retained controls do not.
+        if (key !== '_componentProperties') app[key] = null;
     }
 }
 

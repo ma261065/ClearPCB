@@ -23,7 +23,7 @@ const app = {
     _updateRatsnest(options) { assert.equal(options.skipFillRefresh, true); ratsnest++; },
     _scheduleDRC() { drcRequests++; },
 };
-const shape = { id: 'image' };
+const shape = { id: 'image', kind: 'image' };
 const halo = { parentNode: { removeChild(element) { element.parentNode = null; } } };
 app._boardShapeClearanceCache = new Map([[shape.id, { elements: [halo] }]]);
 try {

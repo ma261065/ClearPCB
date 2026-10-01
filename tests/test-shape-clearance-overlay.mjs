@@ -2,6 +2,8 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { PcbDocument } from '../src/core/PcbDocument.js';
 import { isLayerLocked, isLayerVisible } from '../src/pcb/modules/layers.js';
+import { shouldDeferShapeClearance } from '../src/pcb/modules/picture-refresh.js';
+import { hasViaElements } from '../src/pcb/modules/track-render.js';
 
 globalThis.window = { addEventListener() {} };
 const element = () => ({
@@ -97,23 +99,28 @@ const source = readFileSync(new URL('../src/ui/PCBApp.js', import.meta.url), 'ut
     assert.equal(halo.removals || 0, 0, 'Panning never detaches clearance lines');
     assert.equal(tooltipHides, 1, 'Panning still dismisses the net tooltip');
 }
-const start = source.indexOf('    showClearances(show) {');
+const start = source.indexOf('    showClearances(show, liveTrack = null) {');
 const end = source.indexOf('\n    /*', start);
 assert.ok(start >= 0 && end > start);
 const showClearances = new Function('boardShapeClearanceOutlines',
     `return ({ ${source.slice(start, end)} }).showClearances;`)(boardShapeClearanceOutlines);
+const viaStart = source.indexOf('    _refreshViaClearance(via = null) {');
+const viaEnd = source.indexOf('\n    /*', viaStart);
+assert.ok(viaStart >= 0 && viaEnd > viaStart);
+const refreshVia = new Function('hasViaElements',
+    `return ({ ${source.slice(viaStart, viaEnd)} })._refreshViaClearance;`)(hasViaElements);
 const refreshStart = source.indexOf('    _refreshBoardShapeClearance(shape) {');
 const refreshEnd = source.indexOf('\n    _refreshClearanceHalos()', refreshStart);
 let outlineCalls = 0;
 let textOutlineCalls = 0;
-const refreshShape = new Function('boardShapeClearanceOutlines', 'pcbTextClearanceOutlines',
+const refreshShape = new Function('boardShapeClearanceOutlines', 'pcbTextClearanceOutlines', 'shouldDeferShapeClearance',
     `return ({ ${source.slice(refreshStart, refreshEnd)} })._refreshBoardShapeClearance;`)((...args) => {
         outlineCalls++;
         return boardShapeClearanceOutlines(...args);
     }, (...args) => {
         textOutlineCalls++;
         return pcbTextClearanceOutlines(...args);
-    });
+    }, shouldDeferShapeClearance);
 const toggleStart = source.indexOf('    _onOverlayVisibilityChanged(overlayId, visible) {');
 const toggleEnd = source.indexOf('\n    _fitToContent()', toggleStart);
 assert.ok(toggleStart >= 0 && toggleEnd > toggleStart);
@@ -126,7 +133,7 @@ const app = {
     pcbDocument, texts: pcbDocument.texts,
     placements: new Map(), boardShapes: pcbDocument.boardShapes,
     _layerGroups: groups, _getLayerGroup(id) { return groups.get(id); },
-    _getRoutingParams() { return { clearance, trackWidth: 0.2 }; }, showClearances,
+    _getRoutingParams() { return { clearance, trackWidth: 0.2 }; }, showClearances, _refreshViaClearance: refreshVia,
     _refreshBoardShapeClearance: refreshShape, _shapeElements: new Map(),
 };
 let hatchSchedules = 0;
@@ -344,6 +351,51 @@ try {
         }
     }
     console.log('PASS all board-shape translations retain halos through drag/drop and undo/redo, with pour/DRC release updates');
+    for (const mode of ['vertex', 'segment', 'midpoint', 'bulge']) for (const commit of [false, true]) {
+        const shape = { id: `live-line-${mode}-${commit}`, kind: 'line', layer: 'top-copper', lineWidth: 0.4,
+            points: [{ x: 30, y: 40 }, { x: 40, y: 40 }, { x: 40, y: 50 }],
+            segmentWidths: { 1: 0.8 }, segmentBulges: mode === 'bulge' ? { 0: 0.2 } : {} };
+        app.boardShapes.push(shape);
+        renderBoardShape(app, shape);
+        const saved = structuredClone(shape);
+        const cached = app._boardShapeClearanceCache.get(shape.id);
+        const beforePoints = cached.elements.map(child => child.getAttribute('points'));
+        const stationary = [...app._boardShapeClearanceCache.get(circle.id).elements];
+        const handle = mode === 'vertex' ? 0 : mode === 'midpoint' ? 'mid:0' : mode === 'bulge' ? 'bulge:0' : null;
+        const start = mode === 'segment' || mode === 'midpoint' ? { x: 35, y: 40 }
+            : mode === 'bulge' ? getBoardShapeAnchors(shape).find(anchor => anchor.id === handle) : shape.points[0];
+        startBoardShapeDrag(app, shape, start, handle, { allowSegment: mode === 'segment' });
+        assert.ok(cached.elements.every(child => child.parentNode === overlay), `${mode}: pickup keeps clearance visible`);
+        handleBoardShapeDrag(app, { x: start.x + 2, y: start.y + 3 });
+        const preview = app._shapeDrag.shape;
+        const actual = () => app._boardShapeClearanceCache.get(shape.id).elements;
+        const expected = boardShapeClearanceOutlines(preview, clearance)
+            .map(contour => contour.map(point => `${point.x},${point.y}`).join(' '));
+        assert.ok(actual().length && actual().every(child => child.parentNode === overlay), `${mode}: live clearance is visible`);
+        assert.deepEqual(actual().map(child => child.getAttribute('points')), expected, `${mode}: exact preview offset`);
+        assert.notDeepEqual(expected, beforePoints, `${mode}: outline changes with the edit`);
+        assert.deepEqual(shape, saved, 'clearance does not mutate the authored line');
+        assert.ok(stationary.every(child => child.parentNode === overlay), 'unrelated outlines stay attached');
+        app._clearancesVisible = false;
+        while (overlay.firstChild) overlay.removeChild(overlay.firstChild);
+        handleBoardShapeDrag(app, { x: start.x + 3, y: start.y + 4 });
+        assert.equal(overlay.children.length, 0, 'editing cannot resurrect disabled clearance');
+        app._clearancesVisible = true;
+        refreshShape.call(app, app._shapeDrag.shape);
+        endBoardShapeDrag(app, commit);
+        assert.ok(actual().length && actual().every(child => child.parentNode === overlay), 'drop/cancel retains clearance');
+        if (!commit) assert.deepEqual(actual().map(child => child.getAttribute('points')), beforePoints);
+        else {
+            const command = commands.at(-1);
+            command.undo();
+            assert.deepEqual(actual().map(child => child.getAttribute('points')), beforePoints, 'undo restores outline');
+            command.execute();
+            assert.ok(actual().every(child => child.parentNode === overlay), 'redo retains outline');
+        }
+        if (deferred) deferred();
+        showClearances.call(app, true);
+    }
+    console.log('PASS line vertex/segment/midpoint/bulge drags retain live clearance through drop, cancel and history');
     const trackHalo = element();
     overlay.appendChild(trackHalo);
     const untouched = overlay.children.filter(child => child.attributes.get('data-shape-id') !== image.id)

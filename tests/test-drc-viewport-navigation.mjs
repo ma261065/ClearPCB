@@ -33,8 +33,8 @@ function fixture({ width = 1000, height = 600, panelWidth = 320, svgInset = 0,
         viewBox, svg: { getBoundingClientRect: () => svgRect },
         _updateViewBox() { updates++; }, _notifyViewChanged() { notifications++; },
     };
-    app._drawDRCMarker = () => {};
-    app._updateDRCConnector = () => {};
+    app._getDrcPresentation().drawMarker = () => {};
+    app._getDrcPresentation().updateConnector = () => {};
     const covered = open ? Math.max(0, panelWidth - svgInset) : 0;
     const point = (x, y) => ({ x: viewBox.x + x / scale, y: viewBox.y + y / scale });
     return { app, viewBox, covered, point, screen, width, height,

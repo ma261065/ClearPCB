@@ -59,7 +59,7 @@ import {
     syncPcbSelection,
 } from './selection-registry.js';
 import { clearPcbSelectionAnchors, lockPositionOutsideOutline, renderPcbSelectionAnchors } from './selection-anchors.js';
-import { appendSegmentSelection } from '../../core/ui-helpers.js';
+import { appendSegmentSelection, insideStrokeGroup } from '../../core/ui-helpers.js';
 import { beginPcbAnchorInteraction, finishSelectionInteraction, showPcbSelectionProperties } from './selection-interaction.js';
 import { pathMoveInteraction, beginPathSplit, snapPathPoint, snapPathTranslation, pathContextActions, showPathContextMenu, dismissPathContextMenu } from './path-edit.js';
 import {
@@ -638,6 +638,7 @@ function createBoardShapePropertyPreview(app, targets, { liveDrag = false, befor
 }
 
 export function renderBoardShape(app, shape, opts = {}) {
+    if (!opts.interactionOnly) app._refreshSelectedDRCMarker?.();
     shape = displayedBoardShape(app, shape);
     removeBoardShapeElement(app, shape.id, { skipHatchUpdate: true, preserveInteraction: true });
     const selectedSegment = app._selectedBoardShapeSegment?.shapeId === shape.id
@@ -663,7 +664,7 @@ export function renderBoardShape(app, shape, opts = {}) {
             ? boardShapeRemovalPathD(shape)
             : shapePathD(shape, { close: st.filled }));
     }
-    if (st.isCopperRemoval) el.setAttribute('fill-rule', 'evenodd');
+    if (st.isCopperRemoval || st.isHoleLayer) el.setAttribute('fill-rule', 'evenodd');
     const canvasHatch = st.isCopperRemoval && st.filled;
     el.setAttribute('fill', st.filled
         ? (canvasHatch
@@ -688,7 +689,6 @@ export function renderBoardShape(app, shape, opts = {}) {
     }
     if (st.isCopperKnockout && !isSelected && !st.filled) el.setAttribute('stroke-dasharray', '0.6 0.45');
     if (shape.kind === 'image' && canDrawPictureCircles(shape.artwork)) el.setAttribute('fill-rule', 'nonzero');
-    el.setAttribute('data-board-shape-layer', shape.layer || '');
     if (shape.layer === 'board-outline') el.setAttribute('class', 'pcb-board-outline');
     if (renderAsSegments) {
         if (st.filled) {
@@ -712,8 +712,10 @@ export function renderBoardShape(app, shape, opts = {}) {
             el.appendChild(segmentEl);
         }
     }
-    app._getLayerGroup(st.targetLayer)?.appendChild(el);
-    app._shapeElements.set(shape.id, el);
+    const root = st.isHoleLayer ? insideStrokeGroup(el) : el;
+    root.setAttribute('data-board-shape-layer', shape.layer || '');
+    app._getLayerGroup(st.targetLayer)?.appendChild(root);
+    app._shapeElements.set(shape.id, root);
     if (!opts.interactionOnly) app._refreshBoardShapeClearance?.(shape);
     if (!opts.interactionOnly && (!opts.liveDrag || st.isCopperRemoval)) app._scheduleRemovalHatchRender?.();
     if (app._pictureCopperRefreshPending) {

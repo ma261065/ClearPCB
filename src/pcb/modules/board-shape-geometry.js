@@ -164,56 +164,17 @@ export function boardShapeStrokeSegments(shape) {
     }));
 }
 
-function openStrokeOutline(points, halfWidth) {
-    if (!Array.isArray(points) || points.length < 2) return [];
-    const normals = [];
-    for (let index = 0; index < points.length - 1; index++) {
-        const dx = points[index + 1].x - points[index].x;
-        const dy = points[index + 1].y - points[index].y;
-        const length = Math.hypot(dx, dy) || 1;
-        normals.push({ x: -dy / length, y: dx / length });
+function roundStrokePaths(segments, scale) {
+    const paths = [];
+    for (const { start, end, lineWidth } of segments) {
+        const offset = new ClipperLib.ClipperOffset(2, 0.001 * scale);
+        offset.AddPath([start, end].map(point => ({ X: Math.round(point.x * scale), Y: Math.round(point.y * scale) })),
+            ClipperLib.JoinType.jtRound, ClipperLib.EndType.etOpenRound);
+        const expanded = [];
+        offset.Execute(expanded, lineWidth * scale / 2);
+        paths.push(...expanded);
     }
-    const offsetPoint = (index, side) => {
-        const point = points[index];
-        if (index === 0) {
-            return { x: point.x + normals[0].x * halfWidth * side, y: point.y + normals[0].y * halfWidth * side };
-        }
-        if (index === points.length - 1) {
-            const normal = normals[normals.length - 1];
-            return { x: point.x + normal.x * halfWidth * side, y: point.y + normal.y * halfWidth * side };
-        }
-        const previous = normals[index - 1];
-        const next = normals[index];
-        const mx = previous.x + next.x;
-        const my = previous.y + next.y;
-        const magnitude = Math.hypot(mx, my);
-        if (magnitude < 1e-9) return { x: point.x + next.x * halfWidth * side, y: point.y + next.y * halfWidth * side };
-        const ux = mx / magnitude;
-        const uy = my / magnitude;
-        const denominator = ux * next.x + uy * next.y;
-        const distance = Math.abs(denominator) < 1e-9 ? halfWidth : halfWidth / denominator;
-        return { x: point.x + ux * distance * side, y: point.y + uy * distance * side };
-    };
-    const left = points.map((_, index) => offsetPoint(index, 1));
-    const right = points.map((_, index) => offsetPoint(index, -1));
-    const outline = [...left];
-    const capSegments = 12;
-    const end = points[points.length - 1];
-    const endBefore = points[points.length - 2];
-    const endAngle = Math.atan2(end.y - endBefore.y, end.x - endBefore.x);
-    for (let index = 1; index <= capSegments; index++) {
-        const angle = endAngle + Math.PI / 2 - Math.PI * index / capSegments;
-        outline.push({ x: end.x + Math.cos(angle) * halfWidth, y: end.y + Math.sin(angle) * halfWidth });
-    }
-    outline.push(...right.slice(0, -1).reverse());
-    const start = points[0];
-    const startAfter = points[1];
-    const startAngle = Math.atan2(startAfter.y - start.y, startAfter.x - start.x);
-    for (let index = 1; index < capSegments; index++) {
-        const angle = startAngle - Math.PI / 2 - Math.PI * index / capSegments;
-        outline.push({ x: start.x + Math.cos(angle) * halfWidth, y: start.y + Math.sin(angle) * halfWidth });
-    }
-    return outline;
+    return paths;
 }
 
 function outlinePathD(points) {
@@ -236,14 +197,7 @@ function closedShapeContours(shape, filled, lineWidth) {
     const path = shapeOutline(shape).map((point) => ({ X: Math.round(point.x * scale), Y: Math.round(point.y * scale) }));
     const strokes = [];
     if (Object.keys(shape.segmentWidths || {}).length || Object.keys(shape.segmentBulges || {}).length) {
-        for (const segment of boardShapeStrokeSegments(shape)) {
-            const offset = new ClipperLib.ClipperOffset(10, 0.001 * scale);
-            offset.AddPath([segment.start, segment.end].map((point) => ({ X: Math.round(point.x * scale), Y: Math.round(point.y * scale) })),
-                ClipperLib.JoinType.jtRound, ClipperLib.EndType.etOpenRound);
-            const paths = [];
-            offset.Execute(paths, segment.lineWidth * scale / 2);
-            strokes.push(...paths);
-        }
+        strokes.push(...roundStrokePaths(boardShapeStrokeSegments(shape), scale));
     } else if (shapeHasUnroundedCorners(shape)) {
         for (let index = 0; index < path.length; index++) {
             const offset = new ClipperLib.ClipperOffset(10, 0.001 * scale);
@@ -302,7 +256,6 @@ export function boardShapeRemovalPathD(shape) {
     }
     const geometry = resolveBoardShapeGeometry(shape);
     if (geometry.physicalContours) return geometry.physicalContours.map(outlinePathD).join(' ');
-    const halfWidth = geometry.lineWidth / 2;
     if (geometry.filled) {
         return boardShapeFilledRemovalOutlines(shape).map(outlinePathD).join(' ');
     }
@@ -311,14 +264,21 @@ export function boardShapeRemovalPathD(shape) {
         const innerRadius = shape.radius - geometry.lineWidth;
         return innerRadius > 0 ? outer + ' ' + shapePathD({ ...shape, radius: innerRadius }) : outer;
     }
-    if (!geometry.filled && geometry.strokeSegments.length) {
-        return geometry.strokeSegments
-            .map((segment) => outlinePathD(openStrokeOutline(
-                [segment.start, segment.end], segment.lineWidth / 2)))
-            .join(' ');
+    if (!geometry.centerlineClosed) {
+        const scale = 10000;
+        const segments = geometry.strokeSegments.length ? geometry.strokeSegments
+            : geometry.centerline.slice(1).map((end, index) => ({
+                start: geometry.centerline[index], end, lineWidth: geometry.lineWidth,
+            }));
+        const union = new ClipperLib.Clipper();
+        union.AddPaths(roundStrokePaths(segments, scale), ClipperLib.PolyType.ptSubject, true);
+        const contours = [];
+        union.Execute(ClipperLib.ClipType.ctUnion, contours,
+            ClipperLib.PolyFillType.pftNonZero, ClipperLib.PolyFillType.pftNonZero);
+        return contours.map(contour => outlinePathD(contour.map(point => ({
+            x: point.X / scale, y: point.Y / scale,
+        })))).join(' ');
     }
-    const centerline = shape.kind === 'arc' ? arcSamples(shape) : geometry.centerline;
-    if (!geometry.centerlineClosed) return outlinePathD(openStrokeOutline(centerline, halfWidth));
     return '';
 }
 

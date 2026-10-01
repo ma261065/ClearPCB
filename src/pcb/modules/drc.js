@@ -35,6 +35,7 @@ import { resolveTrackSegments } from './board-geometry.js';
 import { collectCopperArtwork } from './copper-artwork.js';
 import { getComputedFill } from './computed-fill-cache.js';
 import { subtractCopperArtwork } from './copper-removal.js';
+import { normalizeShapeCopperMode } from './board-shape-geometry.js';
 import { spatialPairs, prepareSpatialOrder, filterSpatialOrder, spatialCrossPairsPrepared } from '../../core/spatial-pairs.js';
 import { pointInPolygon } from '../../core/geometry.js';
 import { circleCircleDistance, circleSegmentDistance } from './circle-clearance.js';
@@ -307,6 +308,54 @@ function copperPairKey(first, second) {
     return [first.keyId || first.uid || first.label, second.keyId || second.uid || second.label].sort().join('~');
 }
 
+function markerPair(first, second) {
+    return [first, second].map(feature => ({
+        key: feature.keyId || feature.uid || feature.label,
+        ...(feature.componentId != null ? { componentId: feature.componentId } : {}),
+    }));
+}
+
+/** Recheck only the selected entity pair against the displayed (possibly preview) geometry. */
+export function resolveDrcPairMarker(app, violation, rules = {}) {
+    const pair = violation.marker?.pair;
+    if (!pair || pair.length !== 2) return null;
+    const keys = new Set(pair.map(item => item.key));
+    const components = new Set(pair.map(item => item.componentId).filter(id => id != null));
+    const shapes = (app.boardShapes || []).filter(shape => keys.has(`shape:${shape.id}`)
+        || keys.has(`fill:${shape.id}`)
+        || ['remove-copper', 'remove-copper-mask'].includes(normalizeShapeCopperMode(shape.copperMode)));
+    const fills = (app.copperFills || shapes.filter(shape => shape.type === 'fill'))
+        .filter(fill => keys.has(`fill:${fill.id}`));
+    if (fills.length && (app._fillRefreshPending || app._fillRefreshError)) return null;
+    const copper = collectCopper({
+        tracks: (app.tracks || []).filter(track => keys.has(`trk:${track.id}`)),
+        vias: (app.vias || []).filter(via => keys.has(`via:${via.id}`)),
+        pads: (app.pads || []).filter(pad => keys.has(`pad:null.${pad.id}`)),
+        texts: new Map([...(app.texts || [])].filter(([id]) => keys.has(`text:${id}`))),
+        placements: new Map([...(app.placements || [])].filter(([id]) => components.has(id))),
+        netlist: components.size ? app.netlist : [], boardShapes: shapes, copperFills: fills,
+    });
+    const features = subtractCopperArtwork(Object.values(copper).flat().filter(feature =>
+        keys.has(feature.keyId || feature.uid || feature.label)), shapes, featureBounds);
+    const first = features.filter(feature => (feature.keyId || feature.uid || feature.label) === pair[0].key);
+    const second = features.filter(feature => (feature.keyId || feature.uid || feature.label) === pair[1].key);
+    const clearance = Number.isFinite(rules.clearance) && rules.clearance > 0 ? rules.clearance : 0.1;
+    const distance = createCopperDistanceChecker(clearance);
+    let closest = null;
+    for (const [a, b] of spatialCrossPairsPrepared(
+        prepareSpatialOrder(first, featureBounds), prepareSpatialOrder(second, featureBounds), clearance)) {
+        if (!layersOverlap(a.layer, b.layer)) continue;
+        // A short's joining pair can be an unassigned bridge between named groups.
+        if (sameNet(a.net, b.net) && !(violation.rule === 'short' && !a.net && !b.net)) continue;
+        if ((a.originalKind || a.kind) === 'pad' && (b.originalKind || b.kind) === 'pad'
+            && a.componentId === b.componentId) continue;
+        if (a.trackId && a.trackId === b.trackId) continue;
+        const gap = distance(a, b);
+        if (gap.dist < clearance - EPS && (!closest || gap.dist < closest.dist)) closest = gap;
+    }
+    return closest ? { ...violation, x: closest.x, y: closest.y } : null;
+}
+
 function hasMultipleNamedNets(features) {
     let net;
     for (const feature of features) {
@@ -381,7 +430,7 @@ export function runDrcInputs({ copper, boardShapes, fills, rules = {}, fillPendi
             'clearance', 'error',
             `Clearance ${fmt(gap)} < ${fmt(clearance)} between ${aLabel} and ${bLabel}`,
             x, y,
-            { type: 'clearance', a: featureAnchor(fa), b: featureAnchor(fb) },
+            { type: 'clearance', a: featureAnchor(fa), b: featureAnchor(fb), pair: markerPair(fa, fb) },
             key,
         );
         // The same pair of entities can touch at more than one point (e.g. two
@@ -475,12 +524,13 @@ export function runDrcInputs({ copper, boardShapes, fills, rules = {}, fillPendi
     /* ---- Shorted nets (distinct nets bonded by coincident copper) ---- */
 
     for (const sh of shorts) {
+        const [first, second] = sh.contactFeatures;
         const msg = sh.nets.length > 2
             ? `Shorted nets: ${sh.nets.join(', ')}`
             : `Shorted nets: ${sh.nets[0]} and ${sh.nets[1]}`;
         violations.push(makeViolation(
             'short', 'error', msg, sh.point.x, sh.point.y,
-            { type: 'short' },
+            { type: 'short', pair: markerPair(first, second) },
             `short|${sh.nets.join('~')}`,
         ));
     }

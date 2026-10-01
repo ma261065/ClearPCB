@@ -13,7 +13,7 @@ if (!process.argv.includes('--worker')) {
     globalThis.window = { addEventListener() {} };
     const { Track } = await import('../src/shapes/track.js');
     const { Via } = await import('../src/shapes/via.js');
-    const { collectBondedCopper } = await import('../src/pcb/modules/track-draw.js');
+    const { collectBondedCopper, collectNodeConnections } = await import('../src/pcb/modules/track-draw.js');
     const { copperShapesTouch } = await import('../src/pcb/modules/track-contact-geometry.js');
     const { pictureShape } = await import('../src/pcb/modules/picture-raster.js');
     const artwork = offset => ({
@@ -34,6 +34,12 @@ if (!process.argv.includes('--worker')) {
     assert.deepEqual([...bonded.vias], [via]);
     assert.equal(bonded.shapes.size, 0);
     assert.ok(unrelatedMs < 500, `Unrelated artwork blocked propagation for ${unrelatedMs.toFixed(1)} ms`);
+    const nodeStart = performance.now();
+    const nodeGroup = collectNodeConnections(app, new Map([[track, new Set(track.nodes.keys())]]));
+    const nodeMs = performance.now() - nodeStart;
+    assert.deepEqual([...nodeGroup.vias], [via]);
+    assert.equal(nodeGroup.shapes.size, 0);
+    assert.ok(nodeMs < 500, `Node-target resolution blocked propagation for ${nodeMs.toFixed(1)} ms`);
 
     const contactStart = performance.now();
     assert.equal(copperShapesTouch(...shapes), true, 'overlapping picture frames form one logical copper group');
@@ -50,5 +56,5 @@ if (!process.argv.includes('--worker')) {
     assert.ok(connected.shapes.has(shapes[1]));
     const connectedMs = performance.now() - connectedStart;
     assert.ok(connectedMs < 1000, `Connected artwork blocked propagation for ${connectedMs.toFixed(1)} ms`);
-    console.log(`PASS bounded Net traversal: unrelated ${unrelatedMs.toFixed(1)} ms, artwork contacts ${contactMs.toFixed(1)} ms, connected ${connectedMs.toFixed(1)} ms`);
+    console.log(`PASS bounded Net traversal: unrelated ${unrelatedMs.toFixed(1)} ms, node targets ${nodeMs.toFixed(1)} ms, artwork contacts ${contactMs.toFixed(1)} ms, connected ${connectedMs.toFixed(1)} ms`);
 }

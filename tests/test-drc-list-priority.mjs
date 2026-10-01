@@ -38,7 +38,7 @@ app._drcViolations = [
 const original = [...app._drcViolations];
 app._drcCollapsedGroups = new Set();
 app._drcSelectedId = 'via-shape-short';
-app._selectDRCViolation = id => { app._drcSelectedId = id; };
+app._getDrcPresentation().selectViolation = id => { app._drcSelectedId = id; };
 app._renderDRCList();
 let rows = list.querySelectorAll('.drc-item');
 assert.deepEqual(rows.slice(0, 2).map(row => row.dataset.drcId), ['first-short', 'via-shape-short'],

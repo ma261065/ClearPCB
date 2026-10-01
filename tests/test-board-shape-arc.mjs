@@ -57,6 +57,9 @@ globalThis.document = {
     createElementNS() {
         const attributes = new Map();
         return {
+            children: [],
+            appendChild(child) { child.remove(); this.children.push(child); child.parentNode = this; },
+            removeChild(child) { this.children.splice(this.children.indexOf(child), 1); child.parentNode = null; },
             setAttribute(name, value) { attributes.set(name, String(value)); },
             getAttribute(name) { return attributes.get(name) ?? null; },
             removeAttribute(name) { attributes.delete(name); },
@@ -858,7 +861,7 @@ renderBoardShape({
     boardShapes: [holeCircle],
     _shapeElements: new Map(),
     _pcbSelection: { isSelected() { return false; } },
-    _getLayerGroup() { return { appendChild(element) { renderedHoleCircle = element; } }; },
+    _getLayerGroup() { return { appendChild(element) { renderedHoleCircle = element.children.at(-1); } }; },
 }, holeCircle, { skipCopperUpdate: true });
 check('hole-layer circle display reaches the physical cutout edge',
     renderedHoleCircle?.getAttribute('d').includes('M 8 5'));
@@ -871,7 +874,7 @@ renderBoardShape({
     boardShapes: [holeLine],
     _shapeElements: new Map(),
     _pcbSelection: { isSelected() { return false; } },
-    _getLayerGroup() { return { appendChild(element) { renderedHoleLine = element; } }; },
+    _getLayerGroup() { return { appendChild(element) { renderedHoleLine = element.children.at(-1); } }; },
 }, holeLine, { skipCopperUpdate: true });
 check('hole-layer line fills its slot with the canvas background like other cutouts',
     renderedHoleLine?.getAttribute('fill') === 'var(--bg-canvas, #000000)'

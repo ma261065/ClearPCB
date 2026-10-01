@@ -50,11 +50,14 @@ function fixture() {
             if (pending) counts.pending++;
             else { counts.accepted++; app.lastResult = result; }
         },
-        _renderDRCList() { counts.lists++; },
-        _drawDRCMarker() { counts.markers++; }, _clearDRCMarker() { counts.cleared++; },
-        _updateDRCConnector() { counts.connectors++; },
         _setStatus(message) { app.lastStatus = message; },
         _cancelDrawingMode() {}, _closeBoardDimensionsDialog() {},
+    });
+    Object.assign(app._getDrcPresentation(), {
+        updateStatus: app._updateDRCStatus,
+        renderList() { counts.lists++; },
+        drawMarker() { counts.markers++; }, clearMarker() { counts.cleared++; },
+        updateConnector() { counts.connectors++; },
     });
     app._drcRatlinesModel = model;
     model.tracks.push(new Track({ id: 'track', net: 'N1', points: [{ x: Math.PI, y: 2 }, { x: 8, y: 2 }, { x: 8, y: 8 }],

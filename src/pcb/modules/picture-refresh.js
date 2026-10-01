@@ -1,6 +1,11 @@
 const pendingRefreshes = new WeakMap();
 const activeHolds = new WeakMap();
 
+export function shouldDeferShapeClearance(app, shape) {
+    return app._pictureCopperRefreshPending && app._pendingShapeClearances?.has(shape?.id)
+        && (shape.kind === 'image' || typeof shape.content === 'string');
+}
+
 function refreshEditedClearances(app) {
     const shapes = app._pendingShapeClearances;
     app._pendingShapeClearances = null;
@@ -58,6 +63,7 @@ export function cancelPictureCopperRefresh(app) {
 }
 
 export function schedulePictureCopperRefresh(app, shape = null) {
+    app._refreshSelectedDRCMarker?.();
     const timer = pendingRefreshes.get(app);
     if (timer !== undefined) clearTimeout(timer);
     pendingRefreshes.delete(app);
@@ -66,9 +72,11 @@ export function schedulePictureCopperRefresh(app, shape = null) {
         app._pendingShapeClearances ??= new Map();
         app._pendingShapeClearances.set(shape.id, shape);
     }
-    const cached = app._boardShapeClearanceCache?.get(shape?.id);
-    for (const element of cached?.elements || []) {
-        element.parentNode?.removeChild(element);
+    if (shouldDeferShapeClearance(app, shape)) {
+        const cached = app._boardShapeClearanceCache?.get(shape.id);
+        for (const element of cached?.elements || []) {
+            element.parentNode?.removeChild(element);
+        }
     }
     if (activeHolds.has(app) || app._rotationHandleDrag || app._boardShapePropertyBinding?.active
         || ['vertex', 'segment'].includes(app._shapeDrag?.mode)) return;

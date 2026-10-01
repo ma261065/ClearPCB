@@ -4,10 +4,10 @@ import { CommandHistory } from '../src/core/CommandHistory.js';
 import { Track } from '../src/shapes/track.js';
 import { Via } from '../src/shapes/via.js';
 import { MoveVertexCommand, RemoveTrackCommand, previewPlacementPoses, finishPlacementPreview } from '../src/pcb/modules/track-commands.js';
-import { renderTrack, buildTrackLayerRuns } from '../src/pcb/modules/track-render.js';
+import { renderTrack, renderVia, buildTrackLayerRuns } from '../src/pcb/modules/track-render.js';
 import { createTrackSelectionAdapter, selectTrackOrVia, setHoverHighlight } from '../src/pcb/modules/track-select.js';
 import { startVertexDrag, updateVertexDrag, finishVertexDrag, cancelVertexDrag,
-    startMidpointInsertDrag, splitTrackNodeAndDrag, startViaDrag, updateViaDrag } from '../src/pcb/modules/track-drag.js';
+    startMidpointInsertDrag, splitTrackNodeAndDrag, startViaDrag, updateViaDrag, finishViaDrag, cancelViaDrag } from '../src/pcb/modules/track-drag.js';
 import { syncPcbSelection, getPcbSelection } from '../src/pcb/modules/selection-registry.js';
 import { finishSelectionInteraction } from '../src/pcb/modules/selection-interaction.js';
 import { prepareFabricationSnapshot } from '../src/pcb/modules/fabrication-snapshot.js';
@@ -43,13 +43,19 @@ class Element {
         child.parentNode = this;
     }
     get firstChild() { return this.children[0] || null; }
+    get tagName() { return this.tag; }
+    get localName() { return this.tag; }
+    removeChild(child) { child.remove(); }
     remove() {
         if (this.parentNode) this.parentNode.children.splice(this.parentNode.children.indexOf(this), 1);
         this.parentNode = null;
     }
     querySelectorAll(selector) {
         return this.children.flatMap(child => [
-            ...(selector.startsWith('.') && child.classList.contains(selector.slice(1)) ? [child] : []),
+            ...(selector.split(',').some(part => {
+                const [tag, cls] = part.trim().split('.');
+                return cls && (!tag || tag === child.tag) && child.classList.contains(cls);
+            }) ? [child] : []),
             ...child.querySelectorAll(selector),
         ]);
     }
@@ -229,6 +235,30 @@ for (const mode of ['whole', 'segment', 'bridge', 'node', 'midpoint', 'split', '
         if (finish !== 'load') assert.deepEqual(f.artwork(f.unrelated[0]), otherArtwork);
         cases++;
     }
+}
+
+function enableClearances({ app, groups }) {
+    groups.set('clearance-overlay', new Element('g'));
+    groups.set('vias', new Element('g'));
+    const work = { trackScans: 0, viaScans: 0, fullRedraws: 0 };
+    for (const group of groups.values()) {
+        const query = group.querySelectorAll.bind(group);
+        group.querySelectorAll = selector => {
+            if (selector.includes('.pcb-routed-track')) work.trackScans++;
+            if (selector.includes('.pcb-routed-via')) work.viaScans++;
+            return query(selector);
+        };
+    }
+    app._getRoutingParams = () => ({ clearance: 0.25, trackWidth: 0.2 });
+    app.showClearances = (show, liveTrack) => {
+        if (!liveTrack) work.fullRedraws++;
+        return PCBApp.prototype.showClearances.call(app, show, liveTrack);
+    };
+    app._refreshTrackClearance = PCBApp.prototype._refreshTrackClearance;
+    app._refreshViaClearance = PCBApp.prototype._refreshViaClearance;
+    app._refreshClearanceHalos = PCBApp.prototype._refreshClearanceHalos;
+    app.history.onChanged = () => app._refreshClearanceHalos();
+    return work;
 }
 
 for (const mode of ['whole', 'segment', 'node', 'midpoint', 'split', 'bulge']) {
@@ -508,4 +538,138 @@ for (const deferred of [false, true]) {
     cases++;
 }
 
-console.log(`PASS ${cases} direct-track pointer isolation cases: canonical state/cache/SVG, stable copies, work counts, exact history and lifecycle`);
+for (const mode of ['whole', 'segment', 'node', 'midpoint', 'split', 'bulge']) {
+    for (const deferred of [false, true]) {
+        const f = fixture(mode, deferred), { app, track, initial, groups, model } = f;
+        const work = enableClearances(f);
+        if (mode === 'whole') {
+            const edgeId = [...track.edges.keys()].at(-1);
+            track.setEdgeAttr(edgeId, 'width', 0.8);
+            track.setEdgeAttr(edgeId, 'layer', 'bottom-copper');
+            renderTrack(track, app._getLayerGroup);
+        }
+        app.showClearances(true);
+        const haloPoints = () => (app._trackClearanceElements.get(track.id) || [])
+            .map(element => element.getAttribute('points'));
+        const before = haloPoints(), canonical = model.captureGeometry();
+        const stationary = [...app._trackClearanceElements.get(f.unrelated[0].id)];
+        const overlay = groups.get('clearance-overlay');
+        assert.ok(before.length);
+        const initialScans = work.trackScans;
+        f.start();
+        const position = { x: initial.x + 2.123456789, y: initial.y + 3.765432198 };
+        updateVertexDrag(app, position);
+        const preview = haloPoints();
+        assert.notDeepEqual(preview, before, `${mode}: clearance follows preview before drop`);
+        assert.equal(work.fullRedraws, 1, 'pointer updates never rebuild the full-board overlay');
+        assert.equal(work.trackScans, initialScans, 'targeted clearance never scans unrelated track SVG');
+        assert.deepEqual(model.captureGeometry(), canonical, 'clearance reads detached preview, not authored geometry');
+        for (const element of stationary) assert.ok(overlay.children.includes(element),
+            'unrelated clearance SVG is retained without detach/rebuild');
+        const currentElements = [...app._trackClearanceElements.get(track.id)];
+        updateVertexDrag(app, position);
+        assert.deepEqual(app._trackClearanceElements.get(track.id), currentElements,
+            'stationary pointer creates no clearance churn');
+        app.showClearances(true);
+        assert.deepEqual(haloPoints(), preview, 'targeted preview is identical to the normal full clearance renderer');
+        app.showClearances(false);
+        updateVertexDrag(app, { x: position.x + 1, y: position.y + 1 });
+        assert.equal(overlay.children.length, 0, 'drag cannot resurrect disabled clearance');
+        app.showClearances(true);
+        cancelVertexDrag(app);
+        assert.deepEqual(haloPoints(), before, `${mode}: cancellation restores clearance, including nested deferral`);
+        assert.equal(app._deferDragOverlays, deferred);
+        f.start();
+        updateVertexDrag(app, position);
+        finishVertexDrag(app);
+        const committed = haloPoints();
+        assert.notDeepEqual(committed, before, `${mode}: committed clearance retains moved geometry`);
+        app.history.undo();
+        assert.deepEqual(haloPoints(), before, `${mode}: undo restores clearance`);
+        app.history.redo();
+        assert.deepEqual(haloPoints(), committed, `${mode}: redo restores committed clearance`);
+        cases++;
+    }
+}
+
+for (const deferred of [false, true]) for (const coincident of [false, true]) {
+    const f = fixture('node', deferred), { app, track, initial, model, groups } = f;
+    const work = enableClearances(f);
+    const via = new Via({ ...initial, diameter: 1.2 }), stationary = new Via({ x: -100, y: -100, diameter: 0.8 });
+    model.vias.push(via, stationary);
+    if (coincident) model.vias.push(new Via({ ...initial, diameter: 0.6 }));
+    const bottom = new Track({ layer: 'bottom-copper', width: 0.7,
+        points: [initial, { x: initial.x - 10, y: initial.y - 10 }] });
+    model.tracks.push(bottom);
+    renderTrack(bottom, app._getLayerGroup);
+    for (const object of model.vias) renderVia(object, app._getLayerGroup);
+    app.showClearances(true);
+    const overlay = groups.get('clearance-overlay');
+    const halo = object => app._viaClearanceCache.get(app._viaClearanceKeys.get(object.id))?.element;
+    const snapshot = () => ({
+        via: [...app._viaClearanceCache.values()].map(({ element }) =>
+            ['cx', 'cy', 'r'].map(key => element.getAttribute(key)).join(',')).sort(),
+        tracks: [track, bottom].map(object => app._trackClearanceElements.get(object.id).map(el => el.getAttribute('points'))),
+    });
+    const before = snapshot(), saved = model.captureGeometry();
+    const stable = [halo(stationary), ...app._trackClearanceElements.get(f.unrelated[0].id)];
+    const counts = { ...work }, position = { x: initial.x + 2, y: initial.y + 3 };
+    startViaDrag(app, via, initial);
+    updateViaDrag(app, position);
+    const preview = snapshot();
+    assert.notDeepEqual(preview.tracks, before.tracks, 'via drag updates attached tracks on both copper layers');
+    assert.deepEqual(model.captureGeometry(), saved, 'live halos use detached geometry');
+    assert.equal(halo(via).getAttribute('cx'), String(position.x));
+    assert.equal(halo(via).getAttribute('cy'), String(position.y));
+    assert.equal(halo(via).getAttribute('r'), '0.85', 'via halo has its diameter plus the exact clearance');
+    assert.deepEqual(work, counts, 'no full redraw or unrelated SVG scan during a via drag');
+    for (const element of stable) assert.equal(element.parentNode, overlay, 'unrelated outlines remain attached');
+    if (coincident) assert.equal(halo(model.vias[2]).getAttribute('r'), '0.55',
+        'moving the larger coincident via restores the remaining smaller ring');
+    const current = halo(via);
+    updateViaDrag(app, position);
+    assert.equal(halo(via), current, 'stationary pointer does not redraw clearance');
+    app.showClearances(true);
+    assert.deepEqual(snapshot(), preview, 'incremental via and track halos equal full overlay output');
+    app.showClearances(false);
+    updateViaDrag(app, { x: position.x + 1, y: position.y + 1 });
+    assert.equal(overlay.children.length, 0, 'disabled outlines stay disabled');
+    app.showClearances(true);
+    cancelViaDrag(app);
+    assert.deepEqual(snapshot(), before, 'cancel restores via and attached halos, even under nested deferral');
+    assert.equal(app._deferDragOverlays, deferred);
+    startViaDrag(app, via, initial);
+    updateViaDrag(app, position);
+    finishViaDrag(app);
+    assert.deepEqual(snapshot(), preview, 'drop retains the preview outlines');
+    app.history.undo();
+    assert.deepEqual(snapshot(), before, 'undo restores all moved outlines');
+    app.history.redo();
+    assert.deepEqual(snapshot(), preview, 'redo restores all moved outlines');
+    via.net = track.net = bottom.net = 'GND';
+    f.unrelated[0].net = 'OTHER';
+    app.viewport.shiftHeld = false;
+    startViaDrag(app, via, position);
+    updateViaDrag(app, { x: 100, y: 100 });
+    assert.equal(app._viaDrag.snapTargetTrack?.track, f.unrelated[0], 'real pointer finds an incompatible drop target');
+    finishViaDrag(app);
+    assert.ok(app.lastAlert, 'incompatible drop warns');
+    assert.deepEqual(snapshot(), preview, 'rejected drop restores the prior via and attached-track outlines');
+    app.viewport.shiftHeld = true;
+    groups.get('vias').style.display = 'none';
+    app.showClearances(true);
+    startViaDrag(app, via, position);
+    updateViaDrag(app, { x: position.x + 2, y: position.y + 2 });
+    assert.equal(app._viaClearanceCache.size, 0, 'hidden via layer does not gain live halos');
+    cancelViaDrag(app);
+    groups.get('vias').style.display = '';
+    app.showClearances(true);
+    startViaDrag(app, via, position);
+    updateViaDrag(app, { x: position.x + 2, y: position.y + 2 });
+    model.vias.splice(model.vias.indexOf(via), 1);
+    cancelViaDrag(app);
+    assert.equal(halo(via), undefined, 'cancel cannot restore a clearance ghost for a removed terminal');
+    cases++;
+}
+
+console.log(`PASS ${cases} direct-track pointer cases: isolation, exact history and live clearance with bounded redraws`);

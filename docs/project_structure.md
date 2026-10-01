@@ -324,6 +324,20 @@ a successful no-op. Geometry edits invalidate existing entity bounds without
 rendering; connectivity, clearance, selection and SVG work remain in the
 `pcb/modules/track-commands.js` adapters.
 
+Track drawing and single-node drops distinguish edit-time connections from
+physical copper contact. The connection policy follows explicitly placed nodes
+on compatible copper layers (including nodes placed onto segment/arc interiors,
+pads, vias and copper shapes), preserving schematic-pad Net authority. It rejects
+incompatible named connections before committing. A segment merely crossing
+other copper does not trigger a Net-conflict popup or label that copper; physical
+short/clearance checking remains DRC's job. Drawing and dragging share the
+node-to-copper target query in `collectNodeConnections`; the existing graph and
+Net commands apply the validated connection. `collectBondedCopper` has no
+edit-specific crossing filter; physical-contact consumers, including
+ratsnest/DRC geometry, retain their existing rules. Post-drop adoption
+uses the validated contacts rebound to the final graph, so node merges and
+collinear cleanup neither lose intended adoption nor rediscover remote crossings.
+
 Autorouting retains existing authored copper while its worker produces a preview.
 The pending session blocks project snapshots and owns its worker, model, layout,
 netlist, routing rules and command-history baseline. Edits, document replacement,
@@ -334,8 +348,29 @@ SES imports use `ReplaceRoutesCommand`, an atomic, dirtying replacement with exa
 undo/redo; Clear Routes uses the same command. Worker failures preserve the previous
 copper and history. The editor adapter rebuilds selection, copper presentation,
 ratlines, fills and DRC after command replay.
-The temporary nearest-same-net guide uses the normal ratline color, width and
-opacity, with round screen-space dots distinguishing it from real ratlines.
+The temporary active-connection guide uses the normal ratline color, width and
+opacity, with rounded 4px dashes and 3px gaps distinguishing it from real ratlines.
+It promotes exactly one actual node-based ratline from the active copper,
+retaining that edge's exact endpoints; it does not independently target curve
+interiors or hide the other edges attached to the source. After every graph
+rebuild, the solid lines plus the dashed replacement still represent every
+connection exactly once. The dashed edge remains visible with Ratlines disabled.
+Track drawing supplies detached preview tracks/vias to the same connectivity
+calculation, restricted to the affected nets, without authoring model entities.
+Unchanged previews reuse that input. Cancel/commit removes the provisional input
+and restores the normal graph. DRC's existing pending-edit guard prevents checking
+an unfinished gesture; guide styling itself never removes neutral ratline records.
+
+`pcb/modules/autorouter-session.js` owns the routing session, worker, cancellation
+polling, result-adoption guard and disposal. It receives explicit capabilities
+for board-state capture, route-input capture, router mode, command adoption,
+ratsnest reconciliation and status/error reporting, not the editor object.
+`pcb/modules/autorouter-presentation.js` owns progress controls, phase delays,
+temporary routing artwork, fade frames and ratline visibility, using injected
+DOM/layer/rule capabilities and schedulers. `PCBApp` supplies those adapters and
+retains the canonical model/command boundary; it no longer owns the worker or
+presentation timers. Independent owner tests exercise cancellation, supersession
+and cleanup without constructing an editor.
 
 Shared `Shape.getBounds()` caches geometry independently of the SVG `_dirty`
 flag. Repeated headless queries reuse bounds until `invalidate()` clears them;
@@ -509,6 +544,34 @@ restart. Direct checks, missing Worker support and reported worker failures use
 the same synchronous calculation. Failed capture/calculation does not replace
 previous results with an empty successful report. Capture, transfer and result
 rendering remain main-thread work, so offloading is not a zero-latency guarantee.
+
+`pcb/modules/drc-presentation.js` owns the DRC panel, grouped list, selected
+violation identity, collapsed groups, pending/error display and viewport markers.
+It also owns Design-tab activity, DOM listeners and suspension/disposal. Its
+capabilities request refreshes, resolve the selected copper pair, collect neutral
+ratlines, clear board selection and access layer groups and the limited viewport
+navigation interface.
+The owner accepts injected DOM for independent tests and never receives
+`PCBApp`. The existing scheduler/checker publishes through thin editor adapters;
+it does not own list selection or marker elements. Calculation and worker
+generation rules remain in their existing modules.
+
+Selected short/clearance markers also have a lightweight live-preview path.
+Their reports carry a serializable pair of stable copper-entity references.
+`resolveDrcPairMarker` reads the displayed preview collections, resolves only that
+pair's copper (plus applicable copper-removal artwork), and reuses the full DRC
+distance checker, layers and clearance tolerance. The marker follows the current
+contact or insufficient gap, disappears when the pair clears, and reappears if
+the conflict returns. A short's marker also remains while the pair separates but
+still violates clearance. Unsettled selected pours have no live marker until
+usable geometry is available; the full result remains pending.
+`DrcPresentation` coalesces marker checks to one animation frame and keeps the
+preview separate from the authoritative results/list/status. Closing, replacing
+results, deactivation and disposal cancel queued marker work. Pan/zoom uses the
+same preview marker and cannot resurrect a temporarily resolved conflict.
+Normal DRC still rechecks the complete board after commit/cancel and pour
+settlement. Incomplete-connection markers retain their existing ratline-follow
+path; this does not perform whole-board DRC on every pointer event.
 
 Published fill-region identities are preserved, so their triangle contacts and
 bounds can be reused rather than rebuilt for every candidate pair or unchanged
@@ -1515,6 +1578,14 @@ mode; it is not a release requirement. Remaining ownership work is tracked in
   PCB reference styles retain a registered property binding: pending edits
   block snapshots, cancellation restores only reference-style fields, and
   disposed controls cannot author late changes.
+  `pcb/modules/component-properties.js` owns component/reference panel identity,
+  Transform controls, the reference binding and teardown. Its explicit
+  capabilities expose placement/selection/activity reads, panel access, the
+  shared binding service, named domain commands and reference rendering, not the
+  editor object. `edit-lifecycle.js` reaches the binding through that owner;
+  `PCBApp` retains only the presentation adapters and forwarding entry points.
+  Independent owner tests cover retired controls and cleanup, while existing
+  reference-history tests retain exact rollback and command-replay coverage.
   Schematic discrete property application also prepares this owner before
   reading selection and recording its command, matching PCB Properties actions.
   Checkbox, text and dropdown changes therefore cannot enter a pending numeric
@@ -1634,6 +1705,18 @@ and the existing image-contour utilities; PCB layer and copper-mode rules
 remain PCB-owned. `board-geometry.js` continues to own footprint and track
 geometry, rather than accumulating unrelated shape editing behavior.
 
+Open hole and copper-removal SVG outlines union round-ended segment capsules
+with Clipper before emitting compound paths. This bounds acute joins, keeps
+retraced/crossing strokes solid, and preserves genuine interior islands.
+Hole paths use even-odd filling, like copper-removal paths. Per-segment widths,
+curves and authored corner rounding come from the shared geometry descriptor;
+native round-stroke 2D/3D and manufacturing output remain unchanged.
+Hole borders are clipped inside the physical path with a user-space SVG clip;
+they do not enlarge the cutout when switching from copper or silk. The shared
+`insideStrokeGroup()` renderer keeps the clip and artwork in one disposable
+subtree and preserves the visible border width. Panel positioning holes use
+the same treatment; geometry, hit tests and exports are not inset.
+
 `board-shapes.js` owns interaction, mutation, commands, SVG rendering, and
 properties. It does not re-export geometry functions. All geometry consumers,
 including editor adapters and tests, import directly from
@@ -1665,6 +1748,23 @@ The editor's clearance-halo cache includes per-segment curvature alongside
 widths, corner radii and other geometry/style fields. Curvature edits invalidate
 the cached contours even when endpoints stay fixed; unchanged shapes and pure
 translations continue to reuse the existing halo geometry.
+Enabled track clearance outlines likewise stay visible during whole-track,
+segment, node, split/midpoint and curvature drags. The live path replaces only
+the edited track's ID-keyed halo elements, using its detached preview runs and
+the same offset calculation as a full overlay rebuild. Per-run widths and
+layer visibility are preserved; unrelated halos and copper SVG are not scanned
+or rebuilt. Toggle-off remains off during movement, and cancellation restores
+the canonical outline even inside an outer overlay deferral. Full-board fill
+and DRC work remains deferred independently of this visible outline update.
+Simple board-shape edits also refresh their own clearance during node, segment,
+midpoint and bulge drags; the copper-refresh debounce no longer hides those
+outlines. Expensive picture/text geometry retains its existing deferred policy.
+Via drags update the moved via's ring and each attached track's preview halo.
+The via cache tracks contributors by ID and centre, preserving the largest
+ring for coincident vias while refreshing only affected centres. Cancellation
+and rejected drops restore canonical halos, including under nested deferral.
+Terminal previews are removed before command-driven overlay refreshes so a
+drop cannot leave duplicate preview/committed track outlines.
 
 ### Tracks and Vias
 
@@ -1674,7 +1774,7 @@ translations continue to reuse the existing halo geometry.
   represented here, including those sitting at a Track's layer-change
   node. Tracks never carry implicit vias.
 - Decoupling: dragging a Track vertex moves only the vertex; any
-  colocated Via stays put. Dragging a Via moves only the Via.
+  colocated Via stays put. Dragging a Via also moves its attached Track nodes.
 - Sources of Vias: interactive draw (`track-draw.js` emits a Via at
   each layer-change node on finish), autorouter
   (`autorouter-adapter.js` emits standalone Vias deduped by position),

@@ -160,6 +160,10 @@ export function removeViaElements(via) {
     viaElements.delete(via);
 }
 
+export function hasViaElements(via) {
+    return viaElements.has(via);
+}
+
 /** Show/hide existing net labels; false tells selection to rebuild omitted labels. */
 export function setTrackLabelsVisible(track, visible) {
     let found = false;
