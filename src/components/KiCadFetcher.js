@@ -1773,6 +1773,7 @@ export class KiCadFetcher {
                 return;
             }
         }
+        throw new Error('Unable to load a complete KiCad symbol index.');
     }
     
     /**

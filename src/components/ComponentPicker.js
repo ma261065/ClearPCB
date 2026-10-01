@@ -230,9 +230,7 @@ export class ComponentPicker {
                 this._searchLCSC();
             } else {
                 this._showLCSCPrompt();
-                // If first-time KiCad indexing started in background, surface
-                // progress immediately even before the user types a query.
-                this._watchKiCadIndexProgressIfLoading();
+                this._prepareKiCadIndex();
             }
         } else {
             this._populateComponents();
@@ -240,12 +238,11 @@ export class ComponentPicker {
     }
 
     /**
-     * If KiCad index loading is already in-flight and no usable index exists,
-     * display the indexing progress while the user is in Online mode.
+     * Load the index on first Online use, showing progress until a usable index exists.
      */
-    async _watchKiCadIndexProgressIfLoading() {
+    async _prepareKiCadIndex() {
         const fetcher = this.library?.kicadFetcher;
-        if (!fetcher || fetcher.libraryIndex) {
+        if (!this.isOpen || this.searchMode !== 'lcsc' || !fetcher || fetcher.libraryIndex) {
             return;
         }
 
@@ -260,7 +257,7 @@ export class ComponentPicker {
 
         try {
             await fetcher.ensureIndexLoaded((progress) => {
-                if (this.searchMode === 'lcsc'
+                if (this.isOpen && this.searchMode === 'lcsc'
                     && this.searchQuery.trim().length < 2
                     && this.searchRequestGate.isCurrent(watchId)) {
                     sawProgress = true;
@@ -268,19 +265,19 @@ export class ComponentPicker {
                 }
             });
         } catch (error) {
-            if (this.searchMode === 'lcsc'
+            if (this.isOpen && this.searchMode === 'lcsc'
                 && this.searchQuery.trim().length < 2
                 && this.searchRequestGate.isCurrent(watchId)) {
                 this.listEl.innerHTML = `
                     <div class="cp-error">
-                        Failed to load KiCad index. You can still search EasyEDA results.
+                        Failed to load KiCad index. Try the Local library or retry your search.
                     </div>
                 `;
             }
             return;
         }
 
-        if (this.searchMode === 'lcsc'
+        if (this.isOpen && this.searchMode === 'lcsc'
             && this.searchQuery.trim().length < 2
             && this.searchRequestGate.isCurrent(watchId)) {
             // If we never got progress updates, index likely came from cache immediately.
@@ -394,27 +391,19 @@ export class ComponentPicker {
         // Track search generation to prevent stale results overwriting newer ones
         const searchId = this.searchRequestGate.next();
 
-        // Ensure the KiCad index is loaded (shows progress bar on first use)
-        const fetcher = this.library.kicadFetcher;
-        if (!fetcher.libraryIndex) {
-            // Show immediate feedback that the index is loading
-            if (this.searchRequestGate.isCurrent(searchId)) {
-                this._showIndexingProgress('Loading KiCad library index...', 0, 0);
-            }
-            await fetcher.ensureIndexLoaded((progress) => {
-                // Only show indexing progress if still in LCSC mode and same search
-                if (this.searchMode === 'lcsc' && this.searchRequestGate.isCurrent(searchId)) {
-                    this._showIndexingProgress(progress.message, progress.loaded, progress.total);
-                }
-            });
-            if (!this.searchRequestGate.isCurrent(searchId)) return;
-            // If user switched to local mode while indexing, abort this search
-            if (this.searchMode !== 'lcsc') return;
-        }
-        
-        this._showLoading();
-        
         try {
+            const fetcher = this.library.kicadFetcher;
+            if (!fetcher.libraryIndex) {
+                this._showIndexingProgress('Loading KiCad library index...', 0, 0);
+                await fetcher.ensureIndexLoaded((progress) => {
+                    if (this.searchMode === 'lcsc' && this.searchRequestGate.isCurrent(searchId)) {
+                        this._showIndexingProgress(progress.message, progress.loaded, progress.total);
+                    }
+                });
+                if (!this.searchRequestGate.isCurrent(searchId) || this.searchMode !== 'lcsc') return;
+            }
+            this._showLoading();
+
             // Search both EasyEDA (online) and KiCad
             const [onlineResults, kicadResults] = await Promise.all([
                 this.searchManager.searchLCSC(query),
@@ -2817,6 +2806,9 @@ export class ComponentPicker {
                 this.close();
                 this.eventBus.emit('component:pickerClosed');
             });
+            if (this.searchMode === 'lcsc' && this.searchQuery.trim().length < 2) {
+                this._prepareKiCadIndex();
+            }
         } else {
             this.element.classList.add('collapsed');
             // Unregister from ModalManager

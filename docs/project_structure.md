@@ -1144,6 +1144,16 @@ Schematic reactivation also rechecks the cache after resizing while hidden.
 Panel classes and height are restored if measurement fails. Existing flex layout,
 inactive-panel hiding and maximum-height behavior are unchanged.
 
+Online component index initialization belongs to `ComponentPicker`, not schematic
+startup. Opening the Online picker, switching an open picker from Local to Online,
+or starting a search initializes the index; Local-only use does not. The existing
+fetcher still owns shared in-flight work, cache hydration and stale-cache refresh.
+Progress belongs to the current visible empty-query picker, and searches retain
+their generation guard. Exhausting every index ref rejects explicitly without
+publishing incomplete data or replacing a usable cached index. First-search
+initialization errors use the normal search error/finally path rather than
+leaving the loading state active indefinitely.
+
 The Design ribbon and New Track/Via property editors share the same commit path.
 Valid edits mark the PCB dirty and retain the existing geometry refresh requests;
 unit/router preferences are also saved project edits. Temporarily blank or invalid

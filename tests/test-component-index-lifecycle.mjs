@@ -1,0 +1,191 @@
+import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+
+globalThis.window = { addEventListener() {} };
+globalThis.document = { activeElement: null, body: { contains: () => false } };
+globalThis.localStorage = { length: 0, getItem: () => null, setItem() {} };
+globalThis.fetch = () => { throw new Error('Unexpected remote access in lifecycle fixture'); };
+const { ComponentPicker } = await import('../src/components/ComponentPicker.js');
+const { KiCadFetcher } = await import('../src/components/KiCadFetcher.js');
+const { createGenerationGate, createDebouncedRunner } = await import('../src/components/async-control.js');
+const { ModalManager } = await import('../src/core/ModalManager.js');
+
+const schematic = readFileSync(new URL('../src/ui/SchematicApp.js', import.meta.url), 'utf8');
+assert.ok(!schematic.includes('ensureIndexLoaded('),
+    'Schematic startup must not eagerly initialize the online component catalog');
+
+function deferred() {
+    let resolve, reject;
+    const promise = new Promise((yes, no) => { resolve = yes; reject = no; });
+    return { promise, resolve, reject };
+}
+async function flush() {
+    for (let i = 0; i < 4; i++) await Promise.resolve();
+}
+function fixture({ cached = false, mode = 'lcsc' } = {}) {
+    const load = deferred(), progress = [], calls = [], renders = [];
+    const fetcher = {
+        libraryIndex: cached ? { symbols: { Device: ['R'] } } : null,
+        ensureIndexLoaded(callback) {
+            calls.push('index');
+            progress.push(callback);
+            return load.promise;
+        },
+    };
+    const picker = Object.assign(Object.create(ComponentPicker.prototype), {
+        library: { kicadFetcher: fetcher }, isOpen: false, searchMode: mode, searchQuery: '',
+        componentItems: new Map(), lazyLoader: null, searchRequestGate: createGenerationGate(),
+        selectionRequestGate: createGenerationGate(), modeButtons: [],
+        element: { classList: { remove() {}, add() {} }, querySelectorAll: () => [] },
+        eventBus: { emit() {} }, listEl: { innerHTML: '' },
+        categoriesEl: { style: {} }, searchInput: {}, placeBtn: {}, previewSvg: {}, previewInfo: {},
+        _updatePackageSelector() {}, _disposeModel3dViewer() {},
+        _showLCSCPrompt() { renders.push('prompt'); },
+        _showIndexingProgress(message) { renders.push(message); },
+        _showLoading() { renders.push('loading'); },
+        _populateComponents() { renders.push('local'); },
+        _populateLCSCResults() { renders.push('results'); },
+        searchManager: {
+            async searchLCSC(query) { calls.push(`online:${query}`); return [{ id: query }]; },
+            async searchKiCad(query) { calls.push(`kicad:${query}`); return [{ name: query }]; },
+        },
+    });
+    picker.searchDebouncer = createDebouncedRunner(400, () => picker._searchLCSC());
+    return { picker, fetcher, load, progress, calls, renders };
+}
+
+{
+    const f = fixture();
+    await f.picker._prepareKiCadIndex();
+    f.picker._setSearchMode('lcsc');
+    assert.deepEqual(f.calls, [], 'Constructed/closed pickers do not initialize the index');
+    f.picker.toggle();
+    assert.equal(f.picker.isOpen, true);
+    assert.deepEqual(f.calls, ['index'], 'First Online opening starts loading before a query');
+    assert.ok(f.renders.includes('Loading KiCad library index...'));
+    f.progress[0]({ message: 'Halfway', loaded: 1, total: 2 });
+    assert.equal(f.renders.at(-1), 'Halfway');
+    f.fetcher.libraryIndex = { symbols: { Device: ['R'] } };
+    f.load.resolve();
+    await flush();
+    f.picker.close();
+    f.picker.toggle();
+    assert.equal(f.calls.length, 1, 'Reopening an already loaded catalog does not reload it');
+    f.picker.close();
+}
+{
+    const f = fixture({ mode: 'local' });
+    f.picker.toggle();
+    await f.picker._prepareKiCadIndex();
+    assert.equal(f.calls.length, 0, 'The Local library never starts online indexing');
+    f.picker._setSearchMode('lcsc');
+    assert.equal(f.calls.length, 1, 'Switching an open picker to Online starts indexing');
+    f.load.resolve();
+    await flush();
+    assert.equal(f.renders.at(-1), 'prompt', 'A hydrated cache without progress returns to the prompt');
+    f.picker.close();
+}
+{
+    const f = fixture({ cached: true });
+    f.picker.toggle();
+    assert.equal(f.calls.length, 0);
+    assert.equal(f.renders.length, 0, 'Already available cache does not flash a progress indicator');
+    f.picker.close();
+}
+for (const finish of ['close', 'local', 'new-query']) {
+    const f = fixture();
+    f.picker.toggle();
+    if (finish === 'close') f.picker.close();
+    else if (finish === 'local') f.picker._setSearchMode('local');
+    else { f.picker.searchQuery = 'resistor'; f.picker.searchRequestGate.next(); }
+    const before = [...f.renders];
+    f.progress[0]({ message: 'Late progress', loaded: 1, total: 2 });
+    f.load.reject(new Error('Stale index failure'));
+    await flush();
+    assert.deepEqual(f.renders, before, `${finish}: stale index progress does not replace current UI`);
+    assert.equal(f.picker.listEl.innerHTML, '');
+    f.picker.close();
+}
+{
+    const f = fixture();
+    f.picker.toggle();
+    f.load.reject(new Error('Offline'));
+    await flush();
+    assert.match(f.picker.listEl.innerHTML, /Failed to load KiCad index/);
+    assert.match(f.picker.listEl.innerHTML, /Local library/);
+    f.picker.close();
+}
+{
+    const f = fixture();
+    f.picker.toggle();
+    f.picker.searchQuery = 'NE555';
+    const search = f.picker._searchLCSC();
+    f.progress[0]({ message: 'Obsolete opening progress', loaded: 0, total: 1 });
+    assert.notEqual(f.renders.at(-1), 'Obsolete opening progress');
+    f.fetcher.libraryIndex = { symbols: {} };
+    f.load.resolve();
+    await search;
+    assert.deepEqual(f.calls.slice(-2), ['online:NE555', 'kicad:NE555']);
+    assert.equal(f.picker.isSearching, false);
+    assert.deepEqual(f.picker.lcscResults, [{ id: 'NE555' }]);
+    f.picker.close();
+}
+{
+    const f = fixture();
+    f.picker.isOpen = true;
+    f.picker.searchQuery = 'NE555';
+    const error = console.error, logged = [];
+    try {
+        console.error = (...args) => logged.push(args);
+        const search = f.picker._searchLCSC();
+        f.load.reject(new Error('Initial indexing failed'));
+        await assert.doesNotReject(search, 'First-search index failures use the normal search error path');
+        assert.equal(f.picker.isSearching, false, 'Index failures cannot leave a permanent loading state');
+        assert.match(f.picker.listEl.innerHTML, /Search failed/);
+        assert.equal(logged.length, 1);
+        assert.equal(f.calls.some(call => call.startsWith('online:')), false);
+    } finally {
+        console.error = error;
+    }
+}
+assert.equal(ModalManager.top(), null);
+{
+    const fetcher = new KiCadFetcher();
+    const writes = [];
+    fetcher._getGitRefs = () => ['release', 'main'];
+    fetcher._detectLatestRelease = async () => {};
+    fetcher._setContentCache = (key, value) => { writes.push({ key, value }); return true; };
+    fetcher._fetchGitLabTreePage = async () => null;
+    await assert.rejects(fetcher.ensureIndexLoaded(), /complete KiCad symbol index/,
+        'Exhausted remote refs must reject, not resolve with no usable index');
+    assert.equal(fetcher.libraryIndex, null);
+    assert.equal(fetcher._indexLoadPromise, null, 'A failed load can be retried');
+    assert.equal(writes.length, 0);
+    const completeEntries = [
+        { type: 'blob', path: 'Device.kicad_symdir/R.kicad_sym' },
+        { type: 'blob', path: 'Timer.kicad_symdir/NE555.kicad_sym' },
+    ];
+    for (const partial of ['missing-library', 'missing-page']) {
+        fetcher._fetchGitLabTreePage = async ({ page }) => page > 1 ? null : {
+            json: partial === 'missing-library' ? completeEntries.slice(0, 1) : completeEntries,
+            headers: { get: name => name === 'x-total' ? '2'
+                : name === 'x-total-pages' ? (partial === 'missing-page' ? '2' : '1') : null },
+        };
+        await assert.rejects(fetcher.ensureIndexLoaded(), /complete KiCad symbol index/);
+        assert.equal(fetcher.libraryIndex, null);
+        assert.equal(writes.length, 0, 'Partial data never replaces the index or enters the cache');
+    }
+    fetcher._fetchGitLabTreePage = async () => ({
+        json: completeEntries,
+        headers: { get: name => name === 'x-total' ? '2' : name === 'x-total-pages' ? '1' : null },
+    });
+    await fetcher.ensureIndexLoaded();
+    assert.deepEqual(fetcher.libraryIndex, { symbols: { Device: ['R'], Timer: ['NE555'] } });
+    assert.equal(writes.length, 1, 'A successful retry publishes and caches the complete result once');
+    const usable = fetcher.libraryIndex;
+    fetcher._fetchGitLabTreePage = async () => null;
+    await assert.rejects(fetcher._fetchFullSymbolIndex(), /complete KiCad symbol index/);
+    assert.equal(fetcher.libraryIndex, usable, 'Failed background refresh preserves an existing usable index');
+    assert.equal(writes.length, 1);
+}
+console.log('PASS on-demand component indexing, Local/cache behavior, progress ownership and first-search errors');

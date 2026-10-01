@@ -267,14 +267,6 @@ export default class SchematicApp {
             );
         }
 
-        // Start KiCad index loading/refresh in the background immediately.
-        // - If no cache exists: downloads index now.
-        // - If stale cache exists: serves cached index and refreshes silently.
-        // The picker attaches a progress callback if opened while a first-time
-        // download is still in flight.
-        this.componentLibrary.kicadFetcher?.ensureIndexLoaded()
-            ?.catch(err => console.warn('KiCad background index warm-up failed:', err));
-
         // Warn about unsaved changes in either editor (one document).
         window.addEventListener('beforeunload', (e) => {
             const dirty = this.project
