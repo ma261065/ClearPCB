@@ -25,11 +25,14 @@ class Element {
 const fields = new Map();
 const items = {
     set innerHTML(html) {
+        if ([...fields.values()].includes(document.activeElement)) document.activeElement = document.body;
         fields.clear();
         for (const match of html.matchAll(/<[^>]*\bid="([^"]+)"[^>]*>/g)) {
             const listeners = new Map();
             const input = {
                 value: /\bvalue="([^"]*)"/.exec(match[0])?.[1] || '', style: {}, dataset: {},
+                tagName: match[0].match(/^<(\w+)/)[1].toUpperCase(),
+                focus() { document.activeElement = this; },
                 matches: selector => selector === 'input[type="number"]',
                 get valueAsNumber() { return this.value === '' ? NaN : Number(this.value); },
                 addEventListener(name, callback) {
@@ -48,6 +51,7 @@ const items = {
 };
 globalThis.window = { addEventListener() {}, removeEventListener() {} };
 globalThis.document = {
+    body: { tagName: 'BODY' }, activeElement: null,
     createElementNS: () => new Element(), getElementById: id => fields.get(id) || null,
     querySelector: () => null, querySelectorAll: () => [],
 };
@@ -286,6 +290,83 @@ console.log('PASS exact no-op properties preserve redo and disposed controls can
     assert.equal(app._deferDragOverlays, false);
 }
 console.log('PASS cross-field image dimensions, first-change baselines and pre-pickup missing-target cleanup');
+
+for (const [kind, id, values] of [
+    ['imageRotation', 'pcbPropImageRot', [1, 2, 3, 2, 1, 0, 359, 360, -1]],
+    ['imageWidth', 'pcbPropImageWidth', [10.1, 10.2, 10.3, 10.2]],
+    ['imageHeight', 'pcbPropImageHeight', [6.1, 6.2, 6.3, 6.2]],
+]) {
+    const { app, model, shapes } = fixture(kind);
+    app.currentTool = 'select';
+    const before = model.captureGeometry();
+    const input = fields.get(id), binding = app._boardShapePropertyBinding;
+    input.focus();
+    const center = () => ({ x: (shapes[0].points[0].x + shapes[0].points[2].x) / 2,
+        y: (shapes[0].points[0].y + shapes[0].points[2].y) / 2 });
+    const originalCenter = center();
+    for (const value of values) {
+        const key = { key: 'ArrowUp', target: document.activeElement };
+        assert.equal(PCBApp.prototype.handleKeyDown.call(app, key), false, 'Focused input owns every arrow key');
+        input.fire('keydown', { key: 'ArrowUp' });
+        input.value = String(value);
+        input.fire('input');
+        input.fire('change');
+        assert.equal(fields.get(id), input, `${kind}: native input/change must not replace the focused field`);
+        assert.equal(document.activeElement, input, `${kind}: repeated arrow keys retain focus`);
+        assert.equal(app._boardShapePropertyBinding, binding);
+        assert.equal(getBoardShapePropertyPreview(app), undefined);
+        const points = shapes[0].points;
+        if (kind === 'imageRotation') {
+            const actual = ((-Math.atan2(points[1].y - points[0].y,
+                points[1].x - points[0].x) * 180 / Math.PI) % 360 + 360) % 360;
+            const expected = ((value % 360) + 360) % 360;
+            assert.ok(Math.abs(((actual - expected + 180) % 360 + 360) % 360 - 180) < 1e-9);
+            assert.equal(input.valueAsNumber, expected);
+        } else {
+            const edge = kind === 'imageWidth' ? 1 : 3;
+            assert.ok(Math.abs(Math.hypot(points[edge].x - points[0].x,
+                points[edge].y - points[0].y) - value) < 1e-9);
+        }
+        assert.ok(Math.abs(center().x - originalCenter.x) < 1e-9);
+        assert.ok(Math.abs(center().y - originalCenter.y) < 1e-9, 'No arrow-key nudge leaks to the image');
+    }
+    const after = model.captureGeometry(), depth = app.history.undoStack.length;
+    assert.equal(depth, values.length, 'Each completed native change remains one undoable edit');
+    input.fire('change');
+    assert.equal(app.history.undoStack.length, depth, 'Repeated unchanged values do not author commands');
+    assert.equal(fields.get(id), input, 'A no-op change also retains the focused field');
+    input.value = ''; input.fire('change');
+    assert.equal(fields.get(id), input, 'Invalid input resets in place instead of dropping focus');
+    assert.ok(Number.isFinite(input.valueAsNumber));
+    assert.deepEqual(model.captureGeometry(), after);
+    document.activeElement = document.body;
+    for (let i = 0; i < depth; i++) app.history.undo();
+    assert.deepEqual(model.captureGeometry(), before);
+    for (let i = 0; i < depth; i++) app.history.redo();
+    assert.deepEqual(model.captureGeometry(), after);
+    cancelPictureCopperRefresh(app);
+}
+console.log('PASS repeated image numeric input/change keeps focus, center, field identity and exact history');
+
+{
+    const { app, model, shapes } = fixture('imageWidth');
+    const width = fields.get('pcbPropImageWidth'), height = fields.get('pcbPropImageHeight');
+    const before = model.captureGeometry();
+    width.focus(); width.value = '20'; width.fire('input'); width.fire('change');
+    assert.equal(height.value, '12.00');
+    height.focus(); height.fire('change');
+    assert.equal(height.value, '12.00', 'A paired-field no-op must not restore its panel-open value');
+    assert.equal(app.history.undoStack.length, 1);
+    height.value = '18'; height.fire('input'); height.fire('change');
+    assert.equal(width.value, '30.00');
+    assert.equal(shapes[0].points[1].x - shapes[0].points[0].x, 30);
+    assert.equal(fields.get('pcbPropImageWidth'), width);
+    assert.equal(fields.get('pcbPropImageHeight'), height);
+    document.activeElement = document.body;
+    app.history.undo(); app.history.undo();
+    assert.deepEqual(model.captureGeometry(), before, 'Cross-field focus retention preserves exact undo');
+    cancelPictureCopperRefresh(app);
+}
 
 {
     const { app, shapes, model } = fixture('diameter');

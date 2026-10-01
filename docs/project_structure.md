@@ -129,6 +129,12 @@ Property-panel rebuilding and document replacement share the same disposal
 routine; deactivation retains reusable property controls after cancellation.
 Cleanup errors propagate and unresolved editors continue to block snapshots.
 
+Image rotation and dimension number controls retain their DOM nodes during
+focused native `input`/`change` steps. Commits update the displayed numeric
+values in place rather than rebuilding the panel and losing keyboard focus;
+no-op/invalid values and paired dimensions use current geometry. Undo/redo and
+owner changes retain the normal panel refresh path.
+
 An image Properties refresh supplies its canonical target identity. Rebuilding
 controls for that same image does not cancel its pointer rotation; changing to
 another target (even one with the same ID), clearing the panel or replacing the
@@ -164,6 +170,17 @@ Track teardown preserves that tool's crosshair position and visibility without
 waiting for another mousemove. Leaving drawing mode (including a second Escape)
 still hides it; cancellation does not reveal a crosshair already hidden outside
 the canvas.
+
+Arrow-key nudging also dispatches through the action boundary. It reuses the
+lifecycle's pointer/inline-interaction guard instead of maintaining another
+gesture list in the keyboard handler. Snapshot readiness remains a broader
+query that additionally includes property previews and deferred derived work.
+The existing group-move path still commits pending numeric-property edits
+before movement, records the nudge separately in history and refreshes
+Properties after completion. Step sizes remain one quarter of the configured
+grid with snapping enabled, or 1 mm with snapping disabled. Drawing, marquee,
+pan, hidden/locked selections and reference-label selections retain their
+existing guards; input-focus and DRC-list navigation stay with the keyboard UI.
 
 `pcb/modules/tool-lifecycle.js` owns the tool catalog, tool selection,
 drawing-mode cancellation and pre-navigation policy. Controls retain icons,

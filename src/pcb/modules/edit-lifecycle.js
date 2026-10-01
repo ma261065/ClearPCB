@@ -27,12 +27,19 @@ export function cancelPcbPropertyPreview(app) {
     return false;
 }
 
-/** @param {import('../../ui/PCBApp.js').default} app */
-export function hasPcbEditInProgress(app) {
+/** Pointer/inline interactions that must finish before another selection action.
+ * @param {import('../../ui/PCBApp.js').default} app
+ */
+export function hasPcbInteractionInProgress(app) {
     return !!(app._drag || app._refDrag || app._textDrag || app._groupDrag
         || app._shapeDrag || app._vertexDrag || app._viaDrag || app._fillDrag
         || app._pasteDrop || app._textEdit || app._boardOutlineResize
-        || app._pcbSelectionInteraction || app._rotationHandleDrag
+        || app._pcbSelectionInteraction || app._rotationHandleDrag);
+}
+
+/** @param {import('../../ui/PCBApp.js').default} app */
+export function hasPcbEditInProgress(app) {
+    return !!(hasPcbInteractionInProgress(app)
         || app._deferDragOverlays || app._suspendFillRefresh
         || app._boardDimensionPropertyBinding?.active
         || PROPERTY_EDITORS.some(key => app[key]?.active));

@@ -1,12 +1,36 @@
-import { cancelPcbPosePreviews, cancelPcbPropertyPreview } from './edit-lifecycle.js';
-import { finishSelectionInteraction, clearSelectionInteractionUi } from './selection-interaction.js';
-import { cancelGroupDrag, clearBoxSelection, hasBoxSelection } from './box-select.js';
+import { cancelPcbPosePreviews, cancelPcbPropertyPreview, hasPcbInteractionInProgress } from './edit-lifecycle.js';
+import { finishSelectionInteraction, clearSelectionInteractionUi, showPcbSelectionProperties } from './selection-interaction.js';
+import { beginGroupDrag, updateGroupDrag, endGroupDrag, cancelGroupDrag, clearBoxSelection, hasBoxSelection } from './box-select.js';
 import { getBoardDimensionPreview, endBoardOutlineResize, finishBoardDimensionPreview } from './board-outline-resize.js';
 import { getBoardShapeRotationPreview, finishBoardShapeRotationPreview, endBoardShapeDrag } from './board-shapes.js';
 import { cancelVertexDrag, cancelViaDrag } from './track-drag.js';
-import { getPcbSelection } from './selection-registry.js';
+import { getPcbSelection, getPcbSelectionEntries } from './selection-registry.js';
 import { getSelectedTrack, getSelectedVia, clearTrackSelection } from './track-select.js';
 import { resetPcbTool } from './tool-lifecycle.js';
+
+/**
+ * Move a selected group by one keyboard step using the existing pose/history
+ * path. Group pickup owns committing pending numeric-property previews.
+ * @param {import('../../ui/PCBApp.js').default} app
+ * @param {'ArrowUp'|'ArrowDown'|'ArrowLeft'|'ArrowRight'} key
+ */
+export function runPcbNudgeAction(app, key) {
+    if (app._active === false || app.currentTool !== 'select'
+        || app._trackDraw || app._fillDraw || app._shapeDraw
+        || hasPcbInteractionInProgress(app) || app._boxSelectArm
+        || app._boxSelectActive || app.viewport.isPanning) return false;
+    const selected = getPcbSelectionEntries(app);
+    if (!selected.length || selected.some(entry => entry.locked || entry.visible === false
+        || entry.kind === 'reftext')) return false;
+    const step = app.viewport.snapToGrid ? app.viewport.gridSize / 4 : 1;
+    const dx = key === 'ArrowLeft' ? -step : key === 'ArrowRight' ? step : 0;
+    const dy = key === 'ArrowUp' ? -step : key === 'ArrowDown' ? step : 0;
+    beginGroupDrag(app, { x: 0, y: 0 });
+    updateGroupDrag(app, { x: dx, y: dy }, { snap: false });
+    endGroupDrag(app);
+    showPcbSelectionProperties(app);
+    return true;
+}
 
 /**
  * Unwind one level after drawing-mode keys have been handled: preview, pointer,

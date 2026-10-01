@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { PcbDocument } from '../src/core/PcbDocument.js';
-import { runPcbEscapeAction } from '../src/pcb/modules/editor-actions.js';
+import { runPcbEscapeAction, runPcbNudgeAction } from '../src/pcb/modules/editor-actions.js';
+import { createPropertyPreview } from '../src/shapes/property-preview.js';
 
 function element() {
     return {
@@ -85,10 +86,9 @@ const keyboardEnd = source.indexOf('    _commitTrack(', keyboardStart);
 assert.ok(keyboardStart >= 0 && keyboardEnd > keyboardStart);
 const keyboardDependencies = {
     runPcbEscapeAction,
+    runPcbNudgeAction,
     getPcbSelection,
     getPcbSelectionEntries,
-    beginGroupDrag, updateGroupDrag, endGroupDrag,
-    showPcbSelectionProperties() {},
     cancelShapeDraw(target) { target._shapeDraw = null; },
     cancelTrackDraw(target) { target._trackDraw = null; },
     cancelFillDraw(target) { target._fillDraw = null; },
@@ -111,13 +111,22 @@ app.currentTool = 'select';
 app.viewport.snapToGrid = true;
 app.viewport.gridSize = 0.25;
 setPcbSelection(app, texts.map(object => ({ kind: 'text', object })));
+let propertyRefreshes = 0;
+app._showPcbMultiSelectionProperties = selected => {
+    assert.equal(app._groupDrag, null, 'Properties refresh follows gesture completion');
+    assert.deepEqual(selected.map(entry => entry.object), texts);
+    propertyRefreshes++;
+};
+for (const invoke of [key => handleKeyDown.call(app, { key }), key => runPcbNudgeAction(app, key)]) {
 for (const [key, dx, dy] of [
     ['ArrowUp', 0, -0.0625], ['ArrowDown', 0, 0.0625],
     ['ArrowLeft', -0.0625, 0], ['ArrowRight', 0.0625, 0],
 ]) {
     const before = texts.map(text => [text.x, text.y]);
     const after = before.map(([x, y]) => [x + dx, y + dy]);
-    assert.equal(handleKeyDown.call(app, { key }), true);
+    propertyRefreshes = 0;
+    assert.equal(invoke(key), true);
+    assert.equal(propertyRefreshes, 1, 'Refresh Properties once after the movement command');
     assert.deepEqual(texts.map(text => [text.x, text.y]), after, `${key}: one quarter-grid step`);
     assert.deepEqual(coordinates(), after, `${key}: selection handles follow`);
     app.history.undo();
@@ -128,12 +137,57 @@ for (const [key, dx, dy] of [
     assert.equal(app._groupDrag, null);
     assert.equal(app._deferDragOverlays, false);
 }
+}
 app.viewport.snapToGrid = false;
 const beforeUnsnapped = texts.map(text => [text.x, text.y]);
 assert.equal(handleKeyDown.call(app, { key: 'ArrowRight' }), true);
 assert.deepEqual(texts.map(text => [text.x, text.y]), beforeUnsnapped.map(([x, y]) => [x + 1, y]),
     'With snapping off, arrows move by 1 mm');
 app.history.undo();
+{
+    const before = texts.map(text => [text.x, text.y]);
+    texts[0].size = 1.2;
+    const binding = createPropertyPreview({
+        capture: () => texts[0].size,
+        restore: size => { texts[0].size = size; },
+        redraw() {},
+        commit(original, next) {
+            app.history.execute({
+                execute() { texts[0].size = next; },
+                undo() { texts[0].size = original; },
+            });
+        },
+    });
+    app._textPropertyBinding = binding;
+    binding.update(() => { texts[0].size = 2.4; });
+    assert.equal(handleKeyDown.call(app, { key: 'ArrowRight' }), true);
+    assert.equal(binding.active, false, 'Nudging preserves the existing property-commit handoff');
+    assert.equal(texts[0].size, 2.4);
+    assert.deepEqual(texts.map(text => [text.x, text.y]), before.map(([x, y]) => [x + 1, y]));
+    app.history.undo();
+    assert.deepEqual(texts.map(text => [text.x, text.y]), before, 'First Undo restores the group position');
+    assert.equal(texts[0].size, 2.4, 'Property edit precedes movement in history');
+    app.history.undo();
+    assert.equal(texts[0].size, 1.2, 'Second Undo restores the property value');
+    app.history.redo();
+    app.history.redo();
+    assert.equal(texts[0].size, 2.4);
+    assert.deepEqual(texts.map(text => [text.x, text.y]), before.map(([x, y]) => [x + 1, y]));
+    app.history.undo();
+    app.history.undo();
+    app._textPropertyBinding = null;
+}
+{
+    const failure = new Error('Fixture property commit failed');
+    const beforeUndo = [...app.history.undoStack], beforeRedo = [...app.history.redoStack];
+    app._padPropertyBinding = { active: true, commit() { throw failure; } };
+    assert.throws(() => handleKeyDown.call(app, { key: 'ArrowLeft' }), error => error === failure);
+    assert.deepEqual(texts.map(text => [text.x, text.y]), beforeUnsnapped);
+    assert.equal(app._groupDrag, null, 'A failed handoff must not start movement');
+    assert.deepEqual(app.history.undoStack, beforeUndo);
+    assert.deepEqual(app.history.redoStack, beforeRedo);
+    app._padPropertyBinding = null;
+}
 for (const event of [
     { key: 'ArrowUp', target: { tagName: 'INPUT' } },
     { key: 'ArrowUp', target: { tagName: 'TEXTAREA' } },
@@ -150,6 +204,7 @@ for (const state of ['_pcbSelectionInteraction', '_groupDrag', '_vertexDrag', '_
     '_textDrag', '_refDrag', '_fillDrag', '_boxSelectArm', '_boxSelectActive']) {
     app[state] = {};
     assert.equal(handleKeyDown.call(app, { key: 'ArrowLeft' }), false, `${state}: arrows leave active gestures alone`);
+    assert.equal(runPcbNudgeAction(app, 'ArrowLeft'), false, `${state}: direct action uses the same guard`);
     assert.deepEqual(texts.map(text => [text.x, text.y]), beforeUnsnapped);
     app[state] = null;
 }
@@ -157,7 +212,31 @@ const selectedEntry = getPcbSelectionEntries(app)[0];
 selectedEntry.visible = false;
 assert.equal(handleKeyDown.call(app, { key: 'ArrowLeft' }), false, 'Hidden or layer-locked entries cannot move');
 selectedEntry.visible = true;
+selectedEntry.locked = true;
+assert.equal(handleKeyDown.call(app, { key: 'ArrowRight' }), false, 'A locked member blocks the whole selection move');
+selectedEntry.locked = false;
+app.viewport.isPanning = true;
+assert.equal(handleKeyDown.call(app, { key: 'ArrowRight' }), false, 'Panning retains ownership of navigation');
+app.viewport.isPanning = false;
+app.currentTool = 'track';
+assert.equal(handleKeyDown.call(app, { key: 'ArrowRight' }), false, 'Drawing tools do not nudge selection');
+app.currentTool = 'select';
+app._active = false;
+assert.equal(handleKeyDown.call(app, { key: 'ArrowRight' }), false, 'Inactive editors do not nudge');
+assert.equal(runPcbNudgeAction(app, 'ArrowRight'), false);
+app._active = true;
+for (const key of ['_trackDraw', '_fillDraw', '_shapeDraw']) {
+    app[key] = {};
+    assert.equal(runPcbNudgeAction(app, 'ArrowRight'), false, 'Direct actions also respect unfinished drawing');
+    app[key] = null;
+}
+assert.deepEqual(texts.map(text => [text.x, text.y]), beforeUnsnapped);
+app.placements.set('ref', {});
+setPcbSelection(app, [{ kind: 'text', object: texts[0] }, { kind: 'reftext', object: 'ref' }]);
+assert.equal(getPcbSelectionEntries(app).length, 2);
+assert.equal(runPcbNudgeAction(app, 'ArrowRight'), false, 'Reference labels retain their separate movement policy');
 clearPcbSelection(app);
+app.placements.delete('ref');
 assert.equal(handleKeyDown.call(app, { key: 'ArrowLeft' }), false, 'Empty selection is not moved');
 console.log('PASS: PCB arrow-key group movement, grid steps, undo/redo, and input guards');
 

@@ -22,7 +22,7 @@ import { PCB_LAYERS, PCB_OVERLAYS, PCB_COPPER_FILLS, isLayerLocked, isViaLocked,
 import { exportDSN, importSES } from '../pcb/modules/dsn.js';
 import { scheduleDrcRefresh, runDrcNow, invalidateDrcRefresh, disposeDrcRefresh } from '../pcb/modules/drc-refresh.js';
 import { cancelPcbPosePreviews, disposePcbPropertyEditors, hasPcbEditInProgress } from '../pcb/modules/edit-lifecycle.js';
-import { runPcbEscapeAction, runPcbHistoryAction, savePcbProject } from '../pcb/modules/editor-actions.js';
+import { runPcbEscapeAction, runPcbHistoryAction, runPcbNudgeAction, savePcbProject } from '../pcb/modules/editor-actions.js';
 import { PCB_CROSSHAIR_TOOLS, cancelPcbDrawingMode, preparePcbRibbonTransition } from '../pcb/modules/tool-lifecycle.js';
 import { buildCopperObstacles } from '../pcb/modules/copper-obstacles.js';
 import { hasFabricationContent } from '../pcb/modules/fabrication-snapshot.js';
@@ -116,7 +116,6 @@ import {
     beginGroupDrag,
     getGroupPreview,
     scheduleGroupDrag,
-    updateGroupDrag,
     endGroupDrag,
     deleteBoxSelection,
 } from '../pcb/modules/box-select.js';
@@ -2409,22 +2408,7 @@ export default class PCBApp {
         // Otherwise: history, delete, selection-cancel.
         const ctrl = e.ctrlKey || e.metaKey;
         if (!ctrl && !e.altKey && ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key)) {
-            if (this.currentTool !== 'select' || this._pcbSelectionInteraction || this._groupDrag
-                || this._vertexDrag || this._viaDrag || this._shapeDrag || this._boardOutlineResize
-                || this._rotationHandleDrag || this._pasteDrop || this._textEdit || this._drag
-                || this._textDrag || this._refDrag || this._fillDrag || this._boxSelectArm
-                || this._boxSelectActive || this.viewport.isPanning) return false;
-            const selected = getPcbSelectionEntries(this);
-            if (!selected.length || selected.some(entry => entry.locked || entry.visible === false
-                || entry.kind === 'reftext')) return false;
-            const step = this.viewport.snapToGrid ? this.viewport.gridSize / 4 : 1;
-            const dx = e.key === 'ArrowLeft' ? -step : e.key === 'ArrowRight' ? step : 0;
-            const dy = e.key === 'ArrowUp' ? -step : e.key === 'ArrowDown' ? step : 0;
-            beginGroupDrag(this, { x: 0, y: 0 });
-            updateGroupDrag(this, { x: dx, y: dy }, { snap: false });
-            endGroupDrag(this);
-            showPcbSelectionProperties(this);
-            return true;
+            return runPcbNudgeAction(this, e.key);
         }
         if (ctrl && !e.shiftKey && (e.key === 'z' || e.key === 'Z')) {
             return runPcbHistoryAction(this, 'undo');

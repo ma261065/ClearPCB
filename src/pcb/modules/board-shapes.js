@@ -2076,11 +2076,16 @@ function showImageProperties(app, shape, items) {
     app._boardShapePropertyBinding?.dispose();
     app._setPcbPropsTitle?.('Image', shape);
     const binding = createBoardShapePropertyBinding(app);
-    const displayed = displayedBoardShape(app, shape);
-    const width = Math.hypot(displayed.points[1].x - displayed.points[0].x, displayed.points[1].y - displayed.points[0].y);
-    const height = Math.hypot(displayed.points[3].x - displayed.points[0].x, displayed.points[3].y - displayed.points[0].y);
-    const rotation = ((-Math.atan2(displayed.points[1].y - displayed.points[0].y,
-        displayed.points[1].x - displayed.points[0].x) * 180 / Math.PI) % 360 + 360) % 360;
+    const geometryValues = () => {
+        const { points } = displayedBoardShape(app, shape);
+        return {
+            width: Math.hypot(points[1].x - points[0].x, points[1].y - points[0].y),
+            height: Math.hypot(points[3].x - points[0].x, points[3].y - points[0].y),
+            rotation: ((-Math.atan2(points[1].y - points[0].y,
+                points[1].x - points[0].x) * 180 / Math.PI) % 360 + 360) % 360,
+        };
+    };
+    const { width, height, rotation } = geometryValues();
     const layers = PCB_LAYERS.filter(layer => PICTURE_LAYERS.includes(layer.id));
     const names = [...new Set([...boardNetNames(app), String(shape.net || '')])].filter(Boolean).sort();
     const imageNetOptions = names.map(name => {
@@ -2106,6 +2111,26 @@ function showImageProperties(app, shape, items) {
         if (JSON.stringify(before) !== JSON.stringify(after)) app.history.execute(new ModifyBoardShapeCommand(app, shape, before, after));
         else showImageProperties(app, shape, items);
     };
+    const commitNumericPreview = (input, preview) => {
+        const keepFocus = document.activeElement === input;
+        if (Number.isFinite(input.valueAsNumber)) preview.commit({ rebuild: !keepFocus });
+        else preview.cancel();
+        if (binding.disposed) return;
+        if (!keepFocus) {
+            showImageProperties(app, shape, items);
+            return;
+        }
+        // Native number stepping emits change while the field is still focused.
+        const geometry = geometryValues();
+        for (const [id, value] of [
+            ['pcbPropImageWidth', geometry.width.toFixed(2)],
+            ['pcbPropImageHeight', geometry.height.toFixed(2)],
+            ['pcbPropImageRot', String(Math.round(geometry.rotation) % 360)],
+        ]) {
+            const field = /** @type {HTMLInputElement|null} */ (document.getElementById(id));
+            if (field) field.value = value;
+        }
+    };
     const layerInput = /** @type {HTMLSelectElement} */ (document.getElementById('pcbPropImageLayer'));
     for (const [id, property] of [
         ['pcbPropImageInvert', 'invert'],
@@ -2126,7 +2151,6 @@ function showImageProperties(app, shape, items) {
         bindPictureRefreshHold(app, input);
         const resizePreview = createBoardShapePropertyPreview(app, [shape], { liveDrag: true });
         bindPropertyPreviewCancel(input, resizePreview, () => showImageProperties(app, shape, items));
-        let lastValue = Number(dimension);
         const previewResize = () => {
             if (binding.disposed) return;
             const value = input.valueAsNumber;
@@ -2145,7 +2169,6 @@ function showImageProperties(app, shape, items) {
                 if (scale !== 1) candidate.points = candidate.points.map(point => ({ x: center.x + (point.x - center.x) * scale,
                     y: center.y + (point.y - center.y) * scale }));
             });
-            lastValue = value;
             const pairedId = id === 'pcbPropImageWidth' ? 'pcbPropImageHeight' : 'pcbPropImageWidth';
             const pairedInput = /** @type {HTMLInputElement} */ (document.getElementById(pairedId));
             if (pairedInput) pairedInput.value = ((id === 'pcbPropImageWidth' ? height : width) * factor).toFixed(2);
@@ -2153,14 +2176,8 @@ function showImageProperties(app, shape, items) {
         input?.addEventListener('input', previewResize);
         input?.addEventListener('change', () => {
             if (binding.disposed) return;
-            if (!Number.isFinite(input.valueAsNumber)) {
-                resizePreview.cancel();
-                showImageProperties(app, shape, items);
-                return;
-            }
             previewResize();
-            input.value = lastValue.toFixed(2);
-            if (!resizePreview.commit()) showImageProperties(app, shape, items);
+            commitNumericPreview(input, resizePreview);
         });
     }
     const rotationInput = /** @type {HTMLInputElement} */ (document.getElementById('pcbPropImageRot'));
@@ -2188,13 +2205,8 @@ function showImageProperties(app, shape, items) {
     rotationInput?.addEventListener('input', previewRotation);
     rotationInput?.addEventListener('change', () => {
         if (binding.disposed) return;
-        if (!Number.isFinite(rotationInput.valueAsNumber)) {
-            rotationPreview.cancel();
-            showImageProperties(app, shape, items);
-            return;
-        }
         previewRotation();
-        if (!rotationPreview.commit()) showImageProperties(app, shape, items);
+        commitNumericPreview(rotationInput, rotationPreview);
     });
     const wrapRotation = () => {
         if (binding.disposed) return;
