@@ -331,6 +331,10 @@ region identities; mutable authored shapes retain value validation, and
 unprepared synchronous regions retain lazy triangulation. DRC reports pending
 or failed refreshes even when settled display geometry is retained, rather than
 treating that older cache as a current successful pour.
+Shared spatial pair sweeps compact expired entries in their existing active
+arrays instead of allocating filtered arrays for every item. Stable pair order,
+one bounds lookup per input and inclusive clearance/tolerance comparisons are
+preserved for both single-set and cross-set consumers.
 
 Ratsnest and bonded-Net traversal prepare contact geometry once per synchronous
 pass and share it between spatial filtering and exact contact tests. Resolved
