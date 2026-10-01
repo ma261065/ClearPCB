@@ -133,8 +133,8 @@ An image Properties refresh supplies its canonical target identity. Rebuilding
 controls for that same image does not cancel its pointer rotation; changing to
 another target (even one with the same ID), clearing the panel or replacing the
 document still ends the old gesture. Numeric-preview acceptance on rotation
-pickup remains owned by the image adapter. Tool-specific commit, Escape and
-drawing-mode policies remain with their existing callers; this is not a new
+pickup remains owned by the image adapter. Drawing-mode completion remains
+with its existing callers; this is not a new
 general-purpose interaction framework.
 
 `pcb/modules/editor-actions.js` is the common keyboard/ribbon entry point for
@@ -149,6 +149,21 @@ request consumption, not whether an undo/redo entry existed.
 Save requests resolve `app.project` at invocation, never a global bootstrap.
 The project still owns snapshot readiness, I/O and ordinary failure reporting;
 the shared action shows the saved toast only after a successful result.
+
+The same action boundary owns staged Escape after drawing-mode keys have been
+handled. It cancels an active property preview or pointer gesture before
+leaving a tool, clearing selection or returning Home. The lifecycle module's
+property-editor catalog supplies preview cancellation for text, pad and via
+editors as well as track and shape editors; cancellation retains the controls
+and does not commit or traverse history. Existing shape/track priority and
+outline-resize-before-dimension-property ordering are preserved. Keyboard
+focus guards still leave native input handling alone. This is deliberately
+different from full view-exit cleanup: one Escape unwinds one level, and the
+first Escape during drawing still cancels only the drawing, retaining its tool.
+Track teardown preserves that tool's crosshair position and visibility without
+waiting for another mousemove. Leaving drawing mode (including a second Escape)
+still hides it; cancellation does not reveal a crosshair already hidden outside
+the canvas.
 
 `pcb/modules/tool-lifecycle.js` owns the tool catalog, tool selection,
 drawing-mode cancellation and pre-navigation policy. Controls retain icons,

@@ -22,8 +22,8 @@ import { PCB_LAYERS, PCB_OVERLAYS, PCB_COPPER_FILLS, isLayerLocked, isViaLocked,
 import { exportDSN, importSES } from '../pcb/modules/dsn.js';
 import { scheduleDrcRefresh, runDrcNow, invalidateDrcRefresh, disposeDrcRefresh } from '../pcb/modules/drc-refresh.js';
 import { cancelPcbPosePreviews, disposePcbPropertyEditors, hasPcbEditInProgress } from '../pcb/modules/edit-lifecycle.js';
-import { runPcbHistoryAction, savePcbProject } from '../pcb/modules/editor-actions.js';
-import { PCB_CROSSHAIR_TOOLS, cancelPcbDrawingMode, resetPcbTool, preparePcbRibbonTransition } from '../pcb/modules/tool-lifecycle.js';
+import { runPcbEscapeAction, runPcbHistoryAction, savePcbProject } from '../pcb/modules/editor-actions.js';
+import { PCB_CROSSHAIR_TOOLS, cancelPcbDrawingMode, preparePcbRibbonTransition } from '../pcb/modules/tool-lifecycle.js';
 import { buildCopperObstacles } from '../pcb/modules/copper-obstacles.js';
 import { hasFabricationContent } from '../pcb/modules/fabrication-snapshot.js';
 import { openPanelizeDialog, renderPanelPreview } from '../pcb/modules/panelization-ui.js';
@@ -44,7 +44,6 @@ import {
     startViaDrag,
     updateViaDrag,
     finishViaDrag,
-    cancelViaDrag,
     hitTestTrackNode,
     findSplittableTrackEdge,
     splitTrackObjectAtPoint,
@@ -119,7 +118,6 @@ import {
     scheduleGroupDrag,
     updateGroupDrag,
     endGroupDrag,
-    cancelGroupDrag,
     deleteBoxSelection,
 } from '../pcb/modules/box-select.js';
 import {
@@ -2459,95 +2457,7 @@ export default class PCBApp {
             }
             return deleted;
         }
-        if (e.key === 'Escape') {
-            if (this._boardShapePropertyBinding?.active) {
-                this._boardShapePropertyBinding.cancel();
-                return true;
-            }
-            if (this._trackPropertyBinding?.active) {
-                this._trackPropertyBinding.cancel();
-                return true;
-            }
-            if (this._boardOutlineResize) {
-                endBoardOutlineResize(this, false);
-                this.viewport.svg.style.cursor = 'default';
-                return true;
-            }
-            if (this._boardDimensionPropertyBinding?.active) {
-                this._boardDimensionPropertyBinding.cancel();
-                return true;
-            }
-            if (finishSelectionInteraction(this, false)) {
-                this._clearCursorCrosshair();
-                return true;
-            }
-            if (this._drag) {
-                this._endDrag(false);
-                this._clearCursorCrosshair();
-                return true;
-            }
-            if (this._refDrag) {
-                this._endRefDrag(false);
-                this._clearCursorCrosshair();
-                return true;
-            }
-            if (this._groupDrag) {
-                cancelGroupDrag(this);
-                this.viewport.svg.style.cursor = 'default';
-                return true;
-            }
-            if (this._pasteDrop) {
-                this._cancelPasteDrop();
-                return true;
-            }
-            if (this._vertexDrag) {
-                cancelVertexDrag(this);
-                this.viewport.hideCrosshair();
-                // The mouse-up block that normally clears this is skipped now
-                // that the drag is gone, so reset it here to avoid a stale
-                // segment-click candidate leaking into the next interaction.
-                this._segmentClickEdgeId = null;
-                return true;
-            }
-            if (this._viaDrag) { cancelViaDrag(this); return true; }
-            if (this.currentTool !== 'select') {
-                clearSelectionInteractionUi(this);
-                clearBoxSelection(this);
-                this._clearProperties?.();
-                resetPcbTool(this);
-                this._setActiveRibbonTab?.('pcb-home');
-                return true;
-            }
-            if (hasBoxSelection(this)) {
-                clearBoxSelection(this);
-                clearSelectionInteractionUi(this);
-                return true;
-            }
-            if (getPcbSelection(this, 'text').length) {
-                this._selectText(null);
-                this._clearProperties?.();
-                this._setActiveRibbonTab?.('pcb-home');
-                return true;
-            }
-            if (getSelectedTrack(this) || getSelectedVia(this)) {
-                clearTrackSelection(this);
-                this._clearProperties?.();
-                return true;
-            }
-            if (getPcbSelection(this, 'fill').length) {
-                this._selectFill(null);
-                this._clearProperties?.();
-                return true;
-            }
-            if (getPcbSelection(this, 'reftext').length) {
-                this._selectRefText(null);
-                this._clearProperties?.();
-                this._setActiveRibbonTab?.('pcb-home');
-                return true;
-            }
-            this._setActiveRibbonTab?.('pcb-home');
-            return true;
-        }
+        if (e.key === 'Escape') return runPcbEscapeAction(this);
         // Component transform shortcuts (match the schematic editor):
         //   Space = rotate right, X = flip horizontal, Y = flip vertical.
         const selectedRef = getPcbSelection(this, 'reftext')[0] || null;

@@ -1123,7 +1123,8 @@ function _teardownDraw(app) {
     _clearPreviewElements(ctx);
     clearTrackSnapMarker(app);
     clearNetGuideLine(app);
-    app.viewport?.hideCrosshair();
+    // The selected tool owns the crosshair, not the discarded drawing.
+    if (app.currentTool !== 'track') app.viewport?.hideCrosshair();
     app._trackDraw = null;
 }
 

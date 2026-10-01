@@ -14,6 +14,19 @@ const PROPERTY_EDITORS = [
     '_trackPropertyBinding', '_boardShapePropertyBinding',
 ];
 
+/** Cancel one active property preview without disposing its controls.
+ * @param {import('../../ui/PCBApp.js').default} app
+ */
+export function cancelPcbPropertyPreview(app) {
+    // Shape/track previews retain their existing Escape priority.
+    for (const key of ['_boardShapePropertyBinding', '_trackPropertyBinding', ...PROPERTY_EDITORS]) {
+        if (!app[key]?.active) continue;
+        app[key].cancel();
+        return true;
+    }
+    return false;
+}
+
 /** @param {import('../../ui/PCBApp.js').default} app */
 export function hasPcbEditInProgress(app) {
     return !!(app._drag || app._refDrag || app._textDrag || app._groupDrag

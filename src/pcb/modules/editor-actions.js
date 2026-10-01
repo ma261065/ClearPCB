@@ -1,9 +1,99 @@
-import { cancelPcbPosePreviews } from './edit-lifecycle.js';
-import { finishSelectionInteraction } from './selection-interaction.js';
-import { cancelGroupDrag } from './box-select.js';
+import { cancelPcbPosePreviews, cancelPcbPropertyPreview } from './edit-lifecycle.js';
+import { finishSelectionInteraction, clearSelectionInteractionUi } from './selection-interaction.js';
+import { cancelGroupDrag, clearBoxSelection, hasBoxSelection } from './box-select.js';
 import { getBoardDimensionPreview, endBoardOutlineResize, finishBoardDimensionPreview } from './board-outline-resize.js';
 import { getBoardShapeRotationPreview, finishBoardShapeRotationPreview, endBoardShapeDrag } from './board-shapes.js';
 import { cancelVertexDrag, cancelViaDrag } from './track-drag.js';
+import { getPcbSelection } from './selection-registry.js';
+import { getSelectedTrack, getSelectedVia, clearTrackSelection } from './track-select.js';
+import { resetPcbTool } from './tool-lifecycle.js';
+
+/**
+ * Unwind one level after drawing-mode keys have been handled: preview, pointer,
+ * tool, then selection. Unlike full lifecycle cleanup, Escape retains controls.
+ * @param {import('../../ui/PCBApp.js').default} app
+ */
+export function runPcbEscapeAction(app) {
+    if (app._active === false) return false;
+    if (cancelPcbPropertyPreview(app)) return true;
+    if (app._boardOutlineResize) {
+        endBoardOutlineResize(app, false);
+        app.viewport.svg.style.cursor = 'default';
+        return true;
+    }
+    if (app._boardDimensionPropertyBinding?.active) {
+        app._boardDimensionPropertyBinding.cancel();
+        return true;
+    }
+    if (finishSelectionInteraction(app, false)) {
+        app._clearCursorCrosshair();
+        return true;
+    }
+    if (app._drag) {
+        app._endDrag(false);
+        app._clearCursorCrosshair();
+        return true;
+    }
+    if (app._refDrag) {
+        app._endRefDrag(false);
+        app._clearCursorCrosshair();
+        return true;
+    }
+    if (app._groupDrag) {
+        cancelGroupDrag(app);
+        app.viewport.svg.style.cursor = 'default';
+        return true;
+    }
+    if (app._pasteDrop) {
+        app._cancelPasteDrop();
+        return true;
+    }
+    if (app._vertexDrag) {
+        cancelVertexDrag(app);
+        app.viewport.hideCrosshair();
+        // No mouse-up cleanup follows a cancelled drag.
+        app._segmentClickEdgeId = null;
+        return true;
+    }
+    if (app._viaDrag) { cancelViaDrag(app); return true; }
+    if (app.currentTool !== 'select') {
+        clearSelectionInteractionUi(app);
+        clearBoxSelection(app);
+        app._clearProperties?.();
+        resetPcbTool(app);
+        app._setActiveRibbonTab?.('pcb-home');
+        return true;
+    }
+    if (hasBoxSelection(app)) {
+        clearBoxSelection(app);
+        clearSelectionInteractionUi(app);
+        return true;
+    }
+    if (getPcbSelection(app, 'text').length) {
+        app._selectText(null);
+        app._clearProperties?.();
+        app._setActiveRibbonTab?.('pcb-home');
+        return true;
+    }
+    if (getSelectedTrack(app) || getSelectedVia(app)) {
+        clearTrackSelection(app);
+        app._clearProperties?.();
+        return true;
+    }
+    if (getPcbSelection(app, 'fill').length) {
+        app._selectFill(null);
+        app._clearProperties?.();
+        return true;
+    }
+    if (getPcbSelection(app, 'reftext').length) {
+        app._selectRefText(null);
+        app._clearProperties?.();
+        app._setActiveRibbonTab?.('pcb-home');
+        return true;
+    }
+    app._setActiveRibbonTab?.('pcb-home');
+    return true;
+}
 
 /**
  * Apply the PCB keyboard history policy to every UI entry point.
