@@ -186,6 +186,15 @@ grid with snapping enabled, or 1 mm with snapping disabled. Drawing, marquee,
 pan, hidden/locked selections and reference-label selections retain their
 existing guards; input-focus and DRC-list navigation stay with the keyboard UI.
 
+Delete/Backspace also delegates to `editor-actions.js`. The action preserves
+paste cancellation, group-preview rollback and property-cancellation ordering
+before choosing focused shape/fill/track deletion or whole-selection removal.
+Blocked refined edits do not fall through to deleting the whole object.
+Component/reference warnings retain the original target after selection
+cleanup; components remain schematic-owned. Native field guards stay in the
+keyboard handler. Cut and object-specific context menus keep their distinct
+whole-object/targeted semantics rather than adopting keyboard refinement.
+
 `pcb/modules/tool-lifecycle.js` owns the tool catalog, tool selection,
 drawing-mode cancellation and pre-navigation policy. Controls retain icons,
 button highlighting and Shapes-menu memory; the ribbon retains panel switching,
@@ -1417,6 +1426,9 @@ mode; it is not a release requirement. Remaining ownership work is tracked in
   This covers shape/segment/node geometry, text size and reference rotation.
 - Schematic focused Delete and shape context menus share node/segment deletion
   actions; without refinement, Delete still removes the entire selection.
+  Deletion uses `SelectionManager.clearSelection()` and completes the scene
+  redraw so the independent segment-selection SVG disappears immediately,
+  rather than waiting for another pointer event.
   Standalone arc menus support conversion and deletion. Shape splits retain
   one pre-split snapshot and an optional temporary remainder; placement commits
   one batch and Escape restores the original without leaving a remainder.

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { PcbDocument } from '../src/core/PcbDocument.js';
-import { runPcbEscapeAction, runPcbNudgeAction } from '../src/pcb/modules/editor-actions.js';
+import { runPcbDeleteAction, runPcbEscapeAction, runPcbNudgeAction } from '../src/pcb/modules/editor-actions.js';
 import { createPropertyPreview } from '../src/shapes/property-preview.js';
 
 function element() {
@@ -48,7 +48,7 @@ const app = {
     viewport: { scale: 8, snapToGrid: false },
     _layerGroups: new Map([['selection-overlay', overlay]]),
     _getLayerGroup(id) { return this._layerGroups.get(id); },
-    _markDirty() {}, _syncHistoryButtons() {}, _refreshText() {},
+    _markDirty() {}, _syncHistoryButtons() {}, _refreshText() {}, _removeTextElement() {}, _renderText() {},
 };
 const source = readFileSync(new URL('../src/ui/PCBApp.js', import.meta.url), 'utf8');
 const callback = source.match(/onChanged: \(\) => \{([\s\S]*?)\n            \},/);
@@ -85,6 +85,7 @@ const keyboardStart = source.indexOf('    handleKeyDown(e) {');
 const keyboardEnd = source.indexOf('    _commitTrack(', keyboardStart);
 assert.ok(keyboardStart >= 0 && keyboardEnd > keyboardStart);
 const keyboardDependencies = {
+    runPcbDeleteAction,
     runPcbEscapeAction,
     runPcbNudgeAction,
     getPcbSelection,
@@ -95,12 +96,6 @@ const keyboardDependencies = {
     finishSelectionInteraction() { return false; },
     clearSelectionInteractionUi() {},
     clearBoxSelection: clearPcbSelection,
-    deleteFocusedBoardShape() { return false; },
-    deleteBoxSelection(target) {
-        const deleted = getPcbSelection(target, 'text').length > 0;
-        clearPcbSelection(target);
-        return deleted;
-    },
     hasBoxSelection(target) { return getPcbSelection(target).length > 0; },
     getSelectedTrack() { return null; }, getSelectedVia() { return null; },
 };
@@ -246,6 +241,7 @@ app.placements.set('component-1', {});
 for (const key of ['Delete', 'Backspace']) {
     for (const kind of ['component', 'reftext']) {
         for (const mixed of [false, true]) {
+            pcbDocument.texts.set(texts[0].id, texts[0]);
             const selection = [{ kind, object: 'component-1' }];
             if (mixed) selection.push({ kind: 'text', object: texts[0] });
             setPcbSelection(app, selection);
@@ -254,14 +250,17 @@ for (const key of ['Delete', 'Backspace']) {
             assert.deepEqual(getPcbSelection(app), [], 'Deletion cleared selection before the warning');
             assert.deepEqual(warnings, [{ componentId: 'component-1', message: 'Delete components from the schematic editor' }],
                 `${key}: ${kind} warning survives selection clearing (mixed=${mixed})`);
+            assert.equal(pcbDocument.texts.has(texts[0].id), !mixed, 'Only selected text is deleted');
         }
     }
 }
 warnings.length = 0;
+pcbDocument.texts.set(texts[0].id, texts[0]);
 setPcbSelection(app, [{ kind: 'text', object: texts[0] }]);
 assert.equal(handleKeyDown.call(app, { key: 'Delete' }), true);
 assert.deepEqual(warnings, [], 'Ordinary deletion does not show a component warning');
 assert.equal(handleKeyDown.call(app, { key: 'Delete' }), false, 'Empty selection remains unhandled');
+pcbDocument.texts.set(texts[0].id, texts[0]);
 app.placements.delete('component-1');
 console.log('PASS: component deletion warnings survive selection clearing');
 

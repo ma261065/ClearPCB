@@ -339,7 +339,7 @@ export function deleteWireSegment(app, wire, edgeId) {
             batch.add(new AddShapeCommand(app, fragment));
         }
         app.history.execute(batch);
-        app.selection.clear();
+        app.selection.clearSelection();
         app.renderShapes(true);
         return;
     }
@@ -407,7 +407,7 @@ export function deleteWire(app, wire) {
     const batch = new BatchCommand('Delete wire');
     batch.add(new DeleteShapesCommand(app, [wire]));
     app.history.execute(batch);
-    app.selection.clear();
+    app.selection.clearSelection();
     app.renderShapes(true);
 }
 
@@ -419,7 +419,7 @@ export function deleteSchematicShapeNode(app, shape, nodeId) {
     if (shape?.type !== 'polyline' || shape.locked || !shape.nodes.has(nodeId)) return false;
     if (shape.edges.size <= 1) {
         app.history.execute(new DeleteShapesCommand(app, [shape]));
-        app.selection.clear();
+        app.selection.clearSelection();
     } else {
         const before = shape.captureState();
         if (!shape.deleteAnchor(nodeId)) return false;
@@ -800,7 +800,7 @@ export function showSegmentContextMenu(app, shape, edgeId, clientX, clientY) {
 function deleteSchematicShape(app, shape) {
     if (shape.locked) return;
     app.history.execute(new DeleteShapesCommand(app, [shape]));
-    app.selection.clear();
+    app.selection.clearSelection();
     app._selectedShapeNode = null;
     app._selectedShapeSegment = null;
     app.fileManager?.setDirty?.(true);
@@ -1006,4 +1006,3 @@ export function showComponentContextMenu(app, component, clientX, clientY) {
         }
     }], clientX, clientY);
 }
-

@@ -22,7 +22,7 @@ import { PCB_LAYERS, PCB_OVERLAYS, PCB_COPPER_FILLS, isLayerLocked, isViaLocked,
 import { exportDSN, importSES } from '../pcb/modules/dsn.js';
 import { scheduleDrcRefresh, runDrcNow, invalidateDrcRefresh, disposeDrcRefresh } from '../pcb/modules/drc-refresh.js';
 import { cancelPcbPosePreviews, disposePcbPropertyEditors, hasPcbEditInProgress } from '../pcb/modules/edit-lifecycle.js';
-import { runPcbEscapeAction, runPcbHistoryAction, runPcbNudgeAction, savePcbProject } from '../pcb/modules/editor-actions.js';
+import { runPcbDeleteAction, runPcbEscapeAction, runPcbHistoryAction, runPcbNudgeAction, savePcbProject } from '../pcb/modules/editor-actions.js';
 import { PCB_CROSSHAIR_TOOLS, cancelPcbDrawingMode, preparePcbRibbonTransition } from '../pcb/modules/tool-lifecycle.js';
 import { buildCopperObstacles } from '../pcb/modules/copper-obstacles.js';
 import { hasFabricationContent } from '../pcb/modules/fabrication-snapshot.js';
@@ -33,8 +33,8 @@ import { openBoard3DViewer } from '../pcb/modules/board3d.js';
 import { savePcbPdf, printPcb, projectBaseName } from '../pcb/modules/pcb-export.js';import { tracksFromAutorouterResult } from '../pcb/modules/autorouter-adapter.js';
 import { renderTrack, renderVia, removeTrackElements, removeViaElements, viaCopperPathD } from '../pcb/modules/track-render.js';
 import { startTrackDraw, updateTrackDraw, refreshTrackDrawPreview, addTrackWaypoint, finishTrackDraw, cancelTrackDraw, toggleTrackLayer, resolveTrackDrawSnap, resolveTrackSnap, showTrackSnapMarker, clearTrackSnapMarker, reconcileRatsnest } from '../pcb/modules/track-draw.js';
-import { hitTestTrack, hitTestLockedTrack, selectTrackOrVia, clearTrackSelection, deleteSelectedTrack, setHoverHighlight, showTrackContextMenu, refreshTrackSelectionHalo, getSelectedTrack, getSelectedVia, selectTrackSegment, dismissTrackContextMenu, applyNetToCopperSelection, trackIsSelectable } from '../pcb/modules/track-select.js';
-import { deleteFocusedBoardShape, getBoardShapeRotationPreview, getBoardShapePointerPreview, getBoardShapePropertyPreview, finishBoardShapeRotationPreview } from '../pcb/modules/board-shapes.js';
+import { hitTestTrack, hitTestLockedTrack, selectTrackOrVia, clearTrackSelection, setHoverHighlight, showTrackContextMenu, refreshTrackSelectionHalo, getSelectedTrack, getSelectedVia, selectTrackSegment, dismissTrackContextMenu, applyNetToCopperSelection, trackIsSelectable } from '../pcb/modules/track-select.js';
+import { getBoardShapeRotationPreview, getBoardShapePointerPreview, getBoardShapePropertyPreview, finishBoardShapeRotationPreview } from '../pcb/modules/board-shapes.js';
 import {
     startVertexDrag,
     updateVertexDrag,
@@ -2417,29 +2417,7 @@ export default class PCBApp {
             return runPcbHistoryAction(this, 'redo');
         }
         if (e.key === 'Delete' || e.key === 'Backspace') {
-            if (this._pasteDrop) { this._cancelPasteDrop(); return true; }
-            if (this._groupDrag) this._cancelPosePreviews();
-            this._boardShapePropertyBinding?.cancel();
-            this._trackPropertyBinding?.cancel();
-            if (deleteFocusedBoardShape(this)) return true;
-            const focusedFill = getPcbSelection(this, 'fill')[0];
-            if (focusedFill && canEditFill(focusedFill) && deleteFocusedFillPart(this, focusedFill)) return true;
-            // A focused Track segment is a Track-specific edit state rather
-            // than a selection kind, so it retains its narrower delete path.
-            if (this._trackEdit && getPcbSelection(this).length === 1 && getSelectedTrack(this) === this._trackEdit.track) {
-                deleteSelectedTrack(this);
-                return true;
-            }
-            const componentId = getPcbSelection(this, 'component')[0] || getPcbSelection(this, 'reftext')[0];
-            const deleted = deleteBoxSelection(this);
-            // Components belong to the schematic netlist and can't be deleted
-            // on the PCB — tell the user where to do it instead.
-            if (componentId) {
-                this._showComponentPopup(
-                    componentId, 'Delete components from the schematic editor');
-                return true;
-            }
-            return deleted;
+            return runPcbDeleteAction(this);
         }
         if (e.key === 'Escape') return runPcbEscapeAction(this);
         // Component transform shortcuts (match the schematic editor):

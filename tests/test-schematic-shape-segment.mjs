@@ -262,7 +262,6 @@ function commandAppFor(shape) {
             if (!selected.includes(item)) selected.push(item);
             item.selected = true;
         },
-        clear() { selected.length = 0; },
         clearSelection() { selected.length = 0; },
         _clearSelection() { selected.length = 0; },
         _notifySelectionChanged() {},
@@ -560,20 +559,32 @@ for (const kind of ['line', 'polygon', 'rectangle']) {
         expect('curved segment menu exposes line conversion', menu.children.some(child => child.textContent === 'Convert to Line Segment'));
         dismissAnchorContextMenu();
         const line = createLine({ points: [{ x: 0, y: 0 }, { x: 10, y: 0 }] });
-        showSegmentContextMenu(app, line, 'e0', 10, 10);
+        const lineApp = commandAppFor(line);
+        showSegmentContextMenu(lineApp, line, 'e0', 10, 10);
         expect('single-line menu uses standalone conversion wording',
             menu.children.some(child => child.textContent === 'Convert to Arc')
             && !menu.children.some(child => child.textContent === 'Convert to Arc Segment'));
         expect('two-point lines expose only whole-line deletion',
             !menu.children.some(child => /^Delete segment$/i.test(child.textContent))
             && menu.children.some(child => child.textContent === 'Delete line'));
+        menu.children.find(child => child.textContent === 'Delete line').click();
+        expect('whole-line menu deletion finishes selection cleanup', lineApp.shapes.length === 0
+            && lineApp.selection.getSelection().length === 0 && lineApp.commands.length === 1);
+        lineApp.commands[0].undo();
+        expect('whole-line menu deletion remains undoable', lineApp.shapes[0] === line);
         dismissAnchorContextMenu();
         const arc = new Arc({ startPoint: { x: 0, y: 0 }, endPoint: { x: 10, y: 0 }, bulgePoint: { x: 5, y: 2 } });
-        showSegmentContextMenu(app, arc, null, 10, 10);
+        const arcApp = commandAppFor(arc);
+        showSegmentContextMenu(arcApp, arc, null, 10, 10);
         expect('standalone arc menu exposes conversion and deletion',
             menu.children.some(child => child.textContent === 'Convert to Line')
             && menu.children.some(child => child.textContent === 'Delete arc')
             && !menu.children.some(child => /^Delete segment$/i.test(child.textContent)));
+        menu.children.find(child => child.textContent === 'Delete arc').click();
+        expect('whole-arc menu deletion finishes selection cleanup', arcApp.shapes.length === 0
+            && arcApp.selection.getSelection().length === 0 && arcApp.commands.length === 1);
+        arcApp.commands[0].undo();
+        expect('whole-arc menu deletion remains undoable', arcApp.shapes[0] === arc);
         dismissAnchorContextMenu();
     } finally {
         dismissAnchorContextMenu();

@@ -13,6 +13,7 @@ import { renderBoardShape, showBoardShapeProperties, getBoardShapePropertyPrevie
 import { cancelPictureCopperRefresh } from '../src/pcb/modules/picture-refresh.js';
 import { renderCopperFill } from '../src/pcb/modules/copper-fill-render.js';
 import { beginGroupDrag, updateGroupDrag, scheduleGroupDrag, endGroupDrag, cancelGroupDrag, getGroupPreview, deleteBoxSelection } from '../src/pcb/modules/box-select.js';
+import { runPcbDeleteAction } from '../src/pcb/modules/editor-actions.js';
 import { setPcbSelection, getPcbSelectionEntries, syncPcbSelection } from '../src/pcb/modules/selection-registry.js';
 import { prepareFabricationSnapshot } from '../src/pcb/modules/fabrication-snapshot.js';
 import { loadPcb } from '../src/pcb/modules/project-state.js';
@@ -262,11 +263,14 @@ for (const component of [false, true]) for (const kind of ['track', 'via', 'pad'
     assert.equal(f.artwork().length, 1);
     cases++;
 }
-{
+for (const dispatch of [deleteBoxSelection, runPcbDeleteAction,
+    app => PCBApp.prototype.handleKeyDown.call(app, { key: 'Delete' }),
+    app => PCBApp.prototype.handleKeyDown.call(app, { key: 'Backspace' })]) {
     const f = fixture(), { app, model } = f, before = model.serialize();
+    app._active = true;
     beginGroupDrag(app, { x: 0, y: 0 });
     updateGroupDrag(app, { x: 2, y: 3 }, { snap: false });
-    assert.equal(deleteBoxSelection(app), true);
+    assert.equal(dispatch(app), true);
     assert.equal(app._groupDrag, null);
     assert.equal(model.tracks.length + model.vias.length + model.pads.length + model.boardShapes.length + model.texts.size, 0);
     app.history.undo();

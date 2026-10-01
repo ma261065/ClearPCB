@@ -1,12 +1,41 @@
 import { cancelPcbPosePreviews, cancelPcbPropertyPreview, hasPcbInteractionInProgress } from './edit-lifecycle.js';
 import { finishSelectionInteraction, clearSelectionInteractionUi, showPcbSelectionProperties } from './selection-interaction.js';
-import { beginGroupDrag, updateGroupDrag, endGroupDrag, cancelGroupDrag, clearBoxSelection, hasBoxSelection } from './box-select.js';
+import { beginGroupDrag, updateGroupDrag, endGroupDrag, cancelGroupDrag, clearBoxSelection, hasBoxSelection, deleteBoxSelection } from './box-select.js';
 import { getBoardDimensionPreview, endBoardOutlineResize, finishBoardDimensionPreview } from './board-outline-resize.js';
-import { getBoardShapeRotationPreview, finishBoardShapeRotationPreview, endBoardShapeDrag } from './board-shapes.js';
+import { getBoardShapeRotationPreview, finishBoardShapeRotationPreview, endBoardShapeDrag, deleteFocusedBoardShape } from './board-shapes.js';
 import { cancelVertexDrag, cancelViaDrag } from './track-drag.js';
 import { getPcbSelection, getPcbSelectionEntries } from './selection-registry.js';
-import { getSelectedTrack, getSelectedVia, clearTrackSelection } from './track-select.js';
+import { getSelectedTrack, getSelectedVia, clearTrackSelection, deleteSelectedTrack } from './track-select.js';
+import { canEditFill, deleteFocusedFillPart } from './copper-fill-edit.js';
 import { resetPcbTool } from './tool-lifecycle.js';
+
+/**
+ * Delete the current refinement or selection, retaining drawing/paste ownership
+ * and the schematic's ownership of components.
+ * @param {import('../../ui/PCBApp.js').default} app
+ */
+export function runPcbDeleteAction(app) {
+    if (app._active === false || app._trackDraw || app._fillDraw || app._shapeDraw) return false;
+    if (app._pasteDrop) { app._cancelPasteDrop(); return true; }
+    if (app._groupDrag) app._cancelPosePreviews();
+    app._boardShapePropertyBinding?.cancel();
+    app._trackPropertyBinding?.cancel();
+    if (deleteFocusedBoardShape(app)) return true;
+    const focusedFill = getPcbSelection(app, 'fill')[0];
+    if (focusedFill && canEditFill(focusedFill) && deleteFocusedFillPart(app, focusedFill)) return true;
+    // Track refinement is narrower than whole-object selection deletion.
+    if (app._trackEdit && getPcbSelection(app).length === 1 && getSelectedTrack(app) === app._trackEdit.track) {
+        deleteSelectedTrack(app);
+        return true;
+    }
+    const componentId = getPcbSelection(app, 'component')[0] || getPcbSelection(app, 'reftext')[0];
+    const deleted = deleteBoxSelection(app);
+    if (componentId) {
+        app._showComponentPopup(componentId, 'Delete components from the schematic editor');
+        return true;
+    }
+    return deleted;
+}
 
 /**
  * Move a selected group by one keyboard step using the existing pose/history
