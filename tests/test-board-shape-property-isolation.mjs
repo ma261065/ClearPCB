@@ -531,6 +531,62 @@ for (const kind of ['arcBulge', 'segmentBulge']) {
 }
 console.log('PASS mixed-field synchronization, coupled diameter/width clamps and intentional arc-to-line panel changes');
 
+for (const closed of [false, true]) for (const boundary of ['uniform', 'width', 'curve', 'selected-width']) {
+    for (const completion of ['change', 'blur']) {
+        const { app, model, shapes } = fixture('segmentBulge');
+        const shape = shapes[0];
+        shape.kind = closed ? 'polygon' : 'line';
+        shape.points = [{ x: 0, y: 0 }, { x: 10, y: 0 }, { x: 20, y: 0 }, { x: 30, y: 0 }];
+        if (closed) shape.points.push({ x: 30, y: 10 }, { x: 0, y: 10 });
+        shape.segmentBulges = { 1: 0.25 };
+        if (boundary === 'width') shape.segmentWidths = { 0: 0.7 };
+        if (boundary === 'curve') shape.segmentBulges[0] = 0.3;
+        if (boundary === 'selected-width') shape.segmentWidths = { 1: 0.7 };
+        shape.nodeCornerRadii = { 3: 0.8 };
+        app._selectedBoardShapeSegment = { shapeId: shape.id, segment: 1 };
+        showBoardShapeProperties(app, shape);
+        const points = structuredClone(shape.points), before = model.captureGeometry();
+        let input = fields.get('pcbPropShapeBulge');
+        input.focus();
+        input.value = '0'; input.fire('input');
+        assert.deepEqual(model.captureGeometry(), before, 'Numeric straightening remains isolated until commit');
+        assert.equal(getBoardShapePropertyPreview(app).copies[0].points.length, points.length);
+        input.fire('keydown', { key: 'Escape' });
+        assert.deepEqual(model.captureGeometry(), before);
+        assert.equal(app.history.undoStack.length, 0);
+        input = fields.get('pcbPropShapeBulge');
+        input.focus();
+        input.value = '0'; input.fire('input');
+        input.value = '0.4'; input.fire('input');
+        assert.equal(getBoardShapePropertyPreview(app).copies[0].points.length, points.length,
+            'Passing through zero during a preview does not merge nodes');
+        assert.equal(getBoardShapePropertyPreview(app).copies[0].segmentBulges[1], 0.4);
+        input.value = '0'; input.fire('input');
+        input.fire(completion);
+        await Promise.resolve();
+        const expected = points.filter((_, index) => boundary === 'selected-width'
+            || index !== 2 && (index !== 1 || boundary !== 'uniform'));
+        assert.deepEqual(shape.points, expected, 'Committed straightening merges only redundant equal-width nodes');
+        assert.equal(shape.nodeCornerRadii[expected.findIndex(point => point.x === 30 && point.y === 0)], 0.8);
+        if (boundary === 'curve') assert.equal(shape.segmentBulges[0], 0.3);
+        if (boundary === 'width') assert.equal(shape.segmentWidths[0], 0.7);
+        if (boundary === 'selected-width') assert.equal(shape.segmentWidths[1], 0.7);
+        assert.equal(fields.has('pcbPropShapeBulge'), false);
+        assert.deepEqual(app._selectedBoardShapeSegment,
+            boundary === 'selected-width' ? { shapeId: shape.id, segment: 1 } : null,
+            'Merging indexed segments clears obsolete refinement');
+        assert.equal(app.history.undoStack.length, 1);
+        const after = model.captureGeometry();
+        app.history.undo();
+        assert.deepEqual(model.captureGeometry(), before);
+        app.history.redo();
+        assert.deepEqual(model.captureGeometry(), after);
+        document.activeElement = document.body;
+        cancelPictureCopperRefresh(app);
+    }
+}
+console.log('PASS numeric segment straightening cleans collinear nodes at commit with exact cancellation and history');
+
 {
     const { app, shapes } = fixture('cornerRadius');
     const width = fields.get('pcbPropShapeLineWidth'), radius = fields.get('pcbPropShapeCornerRadius');

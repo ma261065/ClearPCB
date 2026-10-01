@@ -1384,6 +1384,10 @@ mode; it is not a release requirement. Remaining ownership work is tracked in
   either editor captures its after-state. Redundant equal-width straight nodes
   disappear in the deletion's single undo step; width/curvature boundaries and
   surviving node/edge metadata retain the existing cleanup rules.
+  Numeric Bulge straightening in both editors also runs this cleanup at commit,
+  not while previewing or passing through zero. Cleanup shares the curvature
+  edit's history step and discards obsolete segment refinement; surviving
+  schematic edge IDs retain refinement, while merged PCB indices are cleared.
   `Polyline.toEditablePath()` / `applyEditablePath()` adapt stable
   graph IDs to indexed paths without changing the saved file format.
 - `shapes/shape-drawing.js` owns point-sequence completion, validation, primitive
@@ -1426,6 +1430,19 @@ mode; it is not a release requirement. Remaining ownership work is tracked in
   Commit and cancellation request a final redraw, including any derived work
   deferred during previews. Property validation, snapshot representation,
   history commands, and PCB copper-refresh throttling remain editor-owned.
+  The same module now owns the small shared Properties lifecycle used by
+  schematic descriptor-driven numeric controls and PCB shape/image controls:
+  one active field, commit-before-handoff, cancellation/disposal, focused
+  commit policy, Escape consumption and deferred blur completion. PCB's
+  binding supplies pointer/rotation handoff and layer checks; its detached
+  copies and schematic's reversible live snapshots remain separate adapters.
+  Schematic ownership survives a panel rebuild so an already-pending blur can
+  finish against its original target without rebuilding the newer panel.
+  Starting another numeric field settles that previous edit first, preventing
+  overlapping whole-shape snapshots from combining independent field edits.
+  Geometry normalization runs before the command after-state is captured.
+  This is not a universal form framework or a merger of electrical models:
+  validation, metadata, structural panel changes and rendering stay local.
   Schematic shape properties include precise bulge and circle diameter edits,
   including multi-selection. Geometry snapshots preserve coupled dimensions
   and overrides. Whole-shape width/radius edits clear their segment/node
@@ -1437,6 +1454,11 @@ mode; it is not a release requirement. Remaining ownership work is tracked in
   availability refresh in place; unfocused commits, selection changes and
   structural edits (such as removing Bulge after straightening) still rebuild.
   This covers shape/segment/node geometry, text size and reference rotation.
+  Numeric input/change/Escape callbacks verify both the displayed control
+  identity and current selection. Retired fields cannot restart edits after
+  cancellation, a completed commit or panel replacement, or interfere with a
+  newer preview. An already-pending blur still finishes against its original
+  targets; the guard does not change that completion contract.
 - Schematic focused Delete and shape context menus share node/segment deletion
   actions; without refinement, Delete still removes the entire selection.
   Shape removal/replacement finishes selection and refinement cleanup after

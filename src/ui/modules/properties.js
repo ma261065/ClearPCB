@@ -7,8 +7,12 @@ import { adaptShortcutText } from './platform-keys.js';
 import { canDecomposeRoundedCorners } from '../../shapes/shape-decompose.js';
 import { decomposeShapeCorners, appendArcToLineCommand } from './context-menu.js';
 import { hasAny3DModel, openComponent3DFromData } from '../../components/model3d-source.js';
-import { redrawPropertyPreview, createPropertyPreview } from '../../shapes/property-preview.js';
+import { redrawPropertyPreview, createPropertyPreview, createPropertyBinding,
+    commitPropertyPreviewInput, bindPropertyPreviewInput } from '../../shapes/property-preview.js';
 import { canRoundPathNode } from '../../shapes/path-geometry.js';
+
+// Keep pending blur completion attached to its original field across panel rebuilds.
+const propertyBindings = new WeakMap();
 
 /**
  * Initializes the properties panel and subscribes to `selectionChanged`
@@ -226,6 +230,11 @@ function renderNewShapeProperties(app, panel, tool) {
 export function updatePropertiesPanel(app, selection) {
     const panel = app.ui.propertiesPanel;
     if (!panel) return;
+    let binding = propertyBindings.get(panel);
+    if (!binding) {
+        binding = createPropertyBinding();
+        propertyBindings.set(panel, binding);
+    }
     const refreshControls = [];
     const isCurrentSelection = () => {
         const current = app.selection.getSelection();
@@ -383,8 +392,9 @@ export function updatePropertiesPanel(app, selection) {
                     };
                     refreshNumber();
                     refreshControls.push(refreshNumber);
+                    const isCurrentControl = () => document.getElementById(input.id) === input && isCurrentSelection();
                     const refreshCurrentControls = () => {
-                        if (document.getElementById(input.id) === input && isCurrentSelection()) {
+                        if (isCurrentControl()) {
                             for (const refresh of refreshControls) refresh();
                         }
                     };
@@ -395,6 +405,13 @@ export function updatePropertiesPanel(app, selection) {
                         && ['polyline', 'circle', 'arc'].includes(item.type);
                     const geometryEdit = affected.some(usesGeometryState);
                     const preview = createPropertyPreview({
+                        binding, isCurrent: isCurrentControl,
+                        beforeCommit: () => {
+                            if (desc.key === 'bulge' && selectedSegment
+                                && Math.abs(selectedSegment.shape.getEdgeAttr(selectedSegment.edgeId, 'bulge') || 0) < BULGE_EPS) {
+                                selectedSegment.shape.cleanGraph();
+                            }
+                        },
                         capture: () => affected.map(item => usesGeometryState(item) ? item.captureState() : item[desc.key]),
                         restore: state => {
                             affected.forEach((item, index) => {
@@ -407,7 +424,7 @@ export function updatePropertiesPanel(app, selection) {
                             app.renderShapes(false);
                             if (desc.key === 'rotation' && affected.includes(app.textEdit?.shape)) app._updateTextEditOverlay?.();
                         } }),
-                        commit: (before, after) => {
+                        commit: (before, after, { rebuild = true } = {}) => {
                             let structureChanged = false;
                             if (geometryEdit) {
                                 const batch = new BatchCommand(`Change ${desc.key}`);
@@ -422,6 +439,9 @@ export function updatePropertiesPanel(app, selection) {
                                     }
                                 });
                                 app.history.execute(batch);
+                                if (selectedSegment && !selectedSegment.shape.edges.has(selectedSegment.edgeId)) {
+                                    app._selectedShapeSegment = null;
+                                }
                                 if (replacements.size) {
                                     const nextSelection = selection.map(item => replacements.get(item) || item);
                                     app.selection.clearSelection();
@@ -436,47 +456,53 @@ export function updatePropertiesPanel(app, selection) {
                                 if (['fontSize', 'rotation'].includes(desc.key) && affected.includes(app.textEdit?.shape)) app._updateTextEditOverlay?.();
                             }
                             app.fileManager.setDirty(true);
-                            // Native number stepping can commit while the input still owns keyboard focus.
-                            if (!structureChanged && isCurrentSelection() && document.activeElement === input) {
+                            if (!structureChanged && !rebuild) {
                                 refreshCurrentControls();
                             } else {
                                 app._updatePropertiesPanel?.(app.selection.getSelection());
                             }
                         },
                     });
-                    const previewValue = value => preview.update(before => {
-                        if (desc.key === 'bulge') value = Number(value.toFixed(2));
-                        if (desc.key === 'lineWidth') value = Math.min(value, ...affected.map(item => item.type === 'circle' ? item.radius : Infinity));
-                        if (desc.key === 'bulge' && selectedSegment) {
-                            selectedSegment.shape.setEdgeAttr(selectedSegment.edgeId, 'bulge', value);
-                            selectedSegment.shape.isRect = selectedSegment.shape.isAxisAlignedRect();
-                        } else if (desc.key === 'lineWidth' && singlePolyline) previewPolylineWidth(value);
-                        else if (desc.key === 'cornerRadius' && selectedNode) selectedNode.shape.setNodeCornerRadius(selectedNode.nodeId, value);
-                        else affected.forEach((item, index) => {
-                            if (geometryEdit && desc.key === 'diameter') item.applyState(before[index]);
-                            item[desc.key] = value;
-                            if (item.type === 'polyline' && desc.key === 'lineWidth') {
-                                for (const edge of item.edges.values()) delete edge.width;
+                    const previewValue = value => {
+                        const text = input.value;
+                        preview.update(before => {
+                            input.value = text;
+                            if (desc.key === 'bulge') value = Number(value.toFixed(2));
+                            if (desc.key === 'lineWidth') value = Math.min(value, ...affected.map(item => item.type === 'circle' ? item.radius : Infinity));
+                            if (desc.key === 'bulge' && selectedSegment) {
+                                selectedSegment.shape.setEdgeAttr(selectedSegment.edgeId, 'bulge', value);
+                                selectedSegment.shape.isRect = selectedSegment.shape.isAxisAlignedRect();
+                            } else if (desc.key === 'lineWidth' && singlePolyline) previewPolylineWidth(value);
+                            else if (desc.key === 'cornerRadius' && selectedNode) selectedNode.shape.setNodeCornerRadius(selectedNode.nodeId, value);
+                            else affected.forEach((item, index) => {
+                                if (geometryEdit && desc.key === 'diameter') item.applyState(before[index]);
+                                item[desc.key] = value;
+                                if (item.type === 'polyline' && desc.key === 'lineWidth') {
+                                    for (const edge of item.edges.values()) delete edge.width;
+                                }
+                                if (item.type === 'polyline' && desc.key === 'cornerRadius') item.nodeCornerRadii = {};
+                                item.invalidate?.();
+                            });
+                            if (desc.key === 'lineWidth' && Number(input.value) !== value) input.value = String(value);
+                            if (desc.key === 'diameter') {
+                                const widthInput = /** @type {HTMLInputElement|null} */ (document.getElementById('prop_lineWidth'));
+                                if (widthInput) {
+                                    const width = affected[0]?.lineWidth;
+                                    const mixed = affected.some(item => Math.abs(item.lineWidth - width) >= 1e-9);
+                                    widthInput.value = mixed ? '' : width.toFixed(2);
+                                    widthInput.placeholder = mixed ? 'Mixed' : '';
+                                }
                             }
-                            if (item.type === 'polyline' && desc.key === 'cornerRadius') item.nodeCornerRadii = {};
-                            item.invalidate?.();
                         });
-                        if (desc.key === 'lineWidth' && Number(input.value) !== value) input.value = String(value);
-                        if (desc.key === 'diameter') {
-                            const widthInput = /** @type {HTMLInputElement|null} */ (document.getElementById('prop_lineWidth'));
-                            if (widthInput) {
-                                const width = affected[0]?.lineWidth;
-                                const mixed = affected.some(item => Math.abs(item.lineWidth - width) >= 1e-9);
-                                widthInput.value = mixed ? '' : width.toFixed(2);
-                                widthInput.placeholder = mixed ? 'Mixed' : '';
-                            }
-                        }
+                    };
+                    const commitPreview = () => commitPropertyPreviewInput(input, preview, {
+                        isCurrent: isCurrentControl, refresh: refreshCurrentControls,
                     });
                     input.addEventListener('change', () => {
+                        if (!isCurrentControl()) return;
                         let v = parseFloat(input.value);
                         if (!Number.isFinite(v)) {
-                            preview.cancel();
-                            refreshCurrentControls();
+                            commitPreview();
                             return;
                         }
                         if (desc.key === 'rotation') v = ((Math.round(v) % 360) + 360) % 360;
@@ -485,10 +511,11 @@ export function updatePropertiesPanel(app, selection) {
                         if (['cornerRadius', 'bulge'].includes(desc.key)) input.value = v.toFixed(2);
                         else if (parseFloat(input.value) !== v) input.value = v;
                         previewValue(v);
-                        if (!preview.commit()) refreshCurrentControls();
+                        commitPreview();
                     });
                     // Real-time preview while dragging spinner
                     input.addEventListener('input', () => {
+                        if (!isCurrentControl()) return;
                         let v = parseFloat(input.value);
                         if (!Number.isFinite(v)) return;
                         if (desc.key === 'rotation') {
@@ -500,17 +527,9 @@ export function updatePropertiesPanel(app, selection) {
                         if (desc.key === 'cornerRadius') input.value = v.toFixed(2);
                         previewValue(v);
                     });
-                    input.addEventListener('keydown', event => {
-                        if (event.key !== 'Escape' || !preview.cancel()) return;
-                        event.preventDefault();
-                        event.stopPropagation();
-                        app._updatePropertiesPanel?.(selection);
-                    });
-                    input.addEventListener('blur', () => {
-                        queueMicrotask(() => {
-                            if (!Number.isFinite(parseFloat(input.value))) preview.cancel();
-                            else preview.commit();
-                        });
+                    bindPropertyPreviewInput(input, preview, {
+                        isCurrent: isCurrentControl, refresh: refreshCurrentControls,
+                        onCancel: () => app._updatePropertiesPanel?.(selection),
                     });
                     if (disabled) {
                         input.readOnly = true;

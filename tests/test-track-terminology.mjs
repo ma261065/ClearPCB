@@ -39,7 +39,8 @@ for (const [summary, violations, expectedExit] of [
     [summaries[1], 0, 0], [summaries[1], 1, 1], ['unrecognized output', 0, 1],
 ]) {
     const output = [];
-    let exitCode, calls = 0;
+    let calls = 0;
+    const gateProcess = { execPath: 'node', stdout: { write() {} }, stderr: { write() {} }, exitCode: undefined };
     runInNewContext(gate, {
         fileURLToPath: value => value, dirname: () => '.', join: (...parts) => parts.join('\\'),
         console: { log: message => output.push(message), error: message => output.push(message) },
@@ -47,10 +48,10 @@ for (const [summary, violations, expectedExit] of [
             calls++;
             return { status: 0, stdout: calls === 1 ? '' : `${summary}\nTotal violations: ${violations}\n`, stderr: '' };
         },
-        process: { execPath: 'node', stdout: { write() {} }, stderr: { write() {} }, exit: code => { exitCode = code; } },
+        process: gateProcess,
     });
     assert.equal(calls, 2);
-    assert.equal(exitCode, expectedExit, 'Terminology must not bypass gate failures');
+    assert.equal(gateProcess.exitCode, expectedExit, 'Terminology must not bypass gate failures');
     if (expectedExit === 0) {
         assert.ok(output.includes('WARN  tracks == 239 (got 288)'), 'Keep the original count threshold');
         assert.ok(output.includes('WARN  vias == 174 (got 214)'));

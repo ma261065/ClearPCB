@@ -567,7 +567,7 @@ for (const overall of [2, 3]) {
     assert.equal(title, 'Line Node');
     assert.ok(items.innerHTML.includes('pcbPropShapeNodeX'));
     assert.ok(items.innerHTML.includes('pcbPropShapeNodeY'));
-    assert.ok(items.innerHTML.includes('Corner Radius'));
+    assert.ok(!items.innerHTML.includes('Corner Radius'), 'A line endpoint is not a roundable corner');
     const adapter = createBoardShapeSelectionAdapter(app, shape, shape.id);
     assert.equal(adapter.getEditPath(), '', 'Node focus hides the parent editing path');
     assert.equal(adapter.getAnchors().filter(anchor => anchor.selected).length, 1);

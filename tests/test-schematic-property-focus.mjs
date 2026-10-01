@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { CommandHistory } from '../src/core/CommandHistory.js';
 import { SelectionManager } from '../src/core/SelectionManager.js';
-import { createRect } from '../src/shapes/polyline.js';
+import { createRect, createLine, createPolygon } from '../src/shapes/polyline.js';
 import { Circle } from '../src/shapes/circle.js';
 import { Text } from '../src/shapes/text.js';
 
@@ -234,5 +234,152 @@ for (const refinement of ['whole', 'node', 'segment']) {
         while (app.history.undo()) {}
         assert.deepEqual(rectangle.captureState(), before);
     } finally { dispose(); }
+}
+for (const nextProperty of ['cornerRadius', 'lineWidth']) {
+    const shape = createRect({ width: 10, height: 10, lineWidth: 0.2, cornerRadius: 0.5 });
+    const { app, dispose } = fixture([shape]);
+    try {
+        const previousProperty = nextProperty === 'cornerRadius' ? 'lineWidth' : 'cornerRadius';
+        const previous = document.getElementById(`prop_${previousProperty}`);
+        const next = document.getElementById(`prop_${nextProperty}`);
+        const before = shape.captureState();
+        previous.focus();
+        previous.value = '0.8'; previous.fire('input'); previous.fire('blur');
+        next.focus();
+        next.value = '1.5'; next.fire('input');
+        assert.equal(app.history.undoStack.length, 1, 'A new field first commits the previous field independently');
+        assert.equal(Number(next.value), 1.5, 'Handoff preserves the newly typed value');
+        await Promise.resolve();
+        assert.equal(shape[previousProperty], 0.8);
+        assert.equal(shape[nextProperty], 1.5, 'Deferred blur cannot capture the next field into the previous command');
+        assert.equal(document.getElementById(next.id), next);
+        assert.equal(document.activeElement, next);
+        next.fire('change');
+        assert.equal(app.history.undoStack.length, 2);
+        const after = shape.captureState();
+        app.history.undo();
+        assert.equal(shape[previousProperty], 0.8);
+        assert.equal(shape[nextProperty], before[nextProperty], 'First undo changes only the second field');
+        app.history.undo();
+        assert.deepEqual(shape.captureState(), before);
+        app.history.redo(); app.history.redo();
+        assert.deepEqual(shape.captureState(), after);
+    } finally { dispose(); }
+}
+
+for (const replacement of ['escape', 'commit', 'refresh', 'selection']) {
+    const shape = new Circle({ radius: 5, lineWidth: 0.5 });
+    const { app, dispose } = fixture([shape]);
+    try {
+        const retired = document.getElementById('prop_diameter');
+        retired.focus();
+        if (replacement === 'escape') {
+            retired.value = '4'; retired.fire('input');
+            retired.fire('keydown', { key: 'Escape' });
+        } else if (replacement === 'commit') {
+            retired.value = '4'; retired.fire('input');
+            document.activeElement = document.body;
+            retired.fire('blur');
+            await Promise.resolve();
+        } else if (replacement === 'refresh') app._updatePropertiesPanel([shape]);
+        else {
+            const next = new Circle({ radius: 3, lineWidth: 0.3 });
+            app.shapes.push(next);
+            app.selection.setShapes(app.shapes);
+            app.selection.select(next, false);
+            app._updatePropertiesPanel([next]);
+        }
+        assert.notEqual(document.getElementById('prop_diameter'), retired);
+        const baseline = app.shapes.map(item => item.captureState()), depth = app.history.undoStack.length;
+        const current = document.getElementById('prop_lineWidth');
+        current.focus();
+        current.value = '0.2'; current.fire('input');
+        const pending = app.shapes.map(item => item.captureState());
+        for (const event of ['input', 'change', 'blur']) {
+            retired.value = '1'; retired.fire(event);
+            await Promise.resolve();
+            assert.deepEqual(app.shapes.map(item => item.captureState()), pending,
+                `${replacement}: a retired field's ${event} must not alter the newer preview`);
+            assert.equal(app.history.undoStack.length, depth);
+            assert.equal(document.getElementById('prop_lineWidth'), current);
+            assert.equal(document.activeElement, current);
+        }
+        retired.value = ''; retired.fire('change');
+        retired.fire('keydown', { key: 'Escape' });
+        assert.deepEqual(app.shapes.map(item => item.captureState()), pending);
+        assert.equal(document.getElementById('prop_lineWidth'), current);
+        current.fire('change');
+        assert.equal(app.history.undoStack.length, depth + 1);
+        app.history.undo();
+        assert.deepEqual(app.shapes.map(item => item.captureState()), baseline);
+        app.history.redo();
+        assert.deepEqual(app.shapes.map(item => item.captureState()), pending);
+    } finally { dispose(); }
+}
+
+{
+    const shape = createRect({ width: 10, height: 10 });
+    shape.setEdgeAttr('e0', 'bulge', 0.25);
+    const { app, dispose } = fixture([shape], { _selectedShapeSegment: { shapeId: shape.id, edgeId: 'e0' } });
+    try {
+        const retired = document.getElementById('prop_bulge');
+        retired.focus();
+        retired.value = '0'; retired.fire('input'); retired.fire('change');
+        const after = shape.captureState();
+        assert.equal(document.getElementById('prop_bulge'), null);
+        retired.value = '0.5'; retired.fire('input'); retired.fire('change'); retired.fire('blur');
+        await Promise.resolve();
+        assert.deepEqual(shape.captureState(), after, 'A removed Bulge control cannot curve the straightened segment again');
+        assert.equal(app.history.undoStack.length, 1);
+    } finally { dispose(); }
+}
+
+for (const closed of [false, true]) for (const boundary of ['uniform', 'width', 'curve', 'selected-width']) {
+    for (const completion of ['change', 'blur']) {
+        const points = [{ x: 0, y: 0 }, { x: 10, y: 0 }, { x: 20, y: 0 }, { x: 30, y: 0 }];
+        if (closed) points.push({ x: 30, y: 10 }, { x: 0, y: 10 });
+        const shape = (closed ? createPolygon : createLine)({ points, lineWidth: 0.2 });
+        shape.setEdgeAttr('e1', 'bulge', 0.25);
+        if (boundary === 'width') shape.setEdgeAttr('e0', 'width', 0.7);
+        if (boundary === 'curve') shape.setEdgeAttr('e0', 'bulge', 0.3);
+        if (boundary === 'selected-width') shape.setEdgeAttr('e1', 'width', 0.7);
+        shape.setNodeCornerRadius('n3', 0.8);
+        const { app, dispose } = fixture([shape], { _selectedShapeSegment: { shapeId: shape.id, edgeId: 'e1' } });
+        try {
+            const before = shape.captureState();
+            let input = document.getElementById('prop_bulge');
+            input.focus();
+            input.value = '0'; input.fire('input');
+            assert.equal(shape.nodes.size, points.length, 'Previewing zero keeps editable segment identities');
+            input.fire('keydown', { key: 'Escape' });
+            assert.deepEqual(shape.captureState(), before, 'Cancelling zero bulge restores exact curved geometry');
+            assert.equal(app.history.undoStack.length, 0);
+            input = document.getElementById('prop_bulge');
+            input.focus();
+            input.value = '0'; input.fire('input');
+            input.value = '0.4'; input.fire('input');
+            assert.equal(shape.nodes.size, points.length, 'Passing through zero during a preview does not merge nodes');
+            assert.equal(shape.getEdgeAttr('e1', 'bulge'), 0.4);
+            input.value = '0'; input.fire('input');
+            input.fire(completion);
+            await Promise.resolve();
+            const expected = points.filter((_, index) => boundary === 'selected-width'
+                || index !== 2 && (index !== 1 || boundary !== 'uniform'));
+            assert.deepEqual(shape.getOrderedPoints(), expected, 'Committed straightening merges only redundant equal-width nodes');
+            assert.equal(shape.nodeCornerRadius('n3'), 0.8, 'Surviving node metadata stays attached');
+            if (boundary === 'curve') assert.equal(shape.getEdgeAttr('e0', 'bulge'), 0.3);
+            if (boundary === 'width') assert.equal(shape.getEdgeAttr('e0', 'width'), 0.7);
+            if (boundary === 'selected-width') assert.equal(shape.getEdgeAttr('e1', 'width'), 0.7);
+            assert.equal(document.getElementById('prop_bulge'), null, 'Straightening removes the obsolete Bulge control');
+            assert.equal(app._selectedShapeSegment?.edgeId ?? null, shape.edges.has('e1') ? 'e1' : null,
+                'Refinement cannot refer to a removed edge');
+            assert.equal(app.history.undoStack.length, 1, 'Straightening and cleanup share one undo step');
+            const after = shape.captureState();
+            app.history.undo();
+            assert.deepEqual(shape.captureState(), before);
+            app.history.redo();
+            assert.deepEqual(shape.captureState(), after);
+        } finally { dispose(); }
+    }
 }
 console.log('PASS schematic numeric focus, keyboard ownership, exact history, mixed values, constraints, refinement and structural refresh');

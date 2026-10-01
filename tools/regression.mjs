@@ -45,19 +45,23 @@ const BASELINE = {
 let failures = 0;
 let warnings = 0;
 
-function run(cmd, args) {
+function run(cmd, args, capture = false) {
     console.log(`\n$ ${cmd} ${args.join(' ')}`);
     const t0 = Date.now();
-    const r = spawnSync(cmd, args, { cwd: repoRoot, encoding: 'utf8', shell: false });
+    // Only the clearance summary needs capture; the suite can exceed maxBuffer.
+    const r = spawnSync(cmd, args, {
+        cwd: repoRoot, encoding: 'utf8', shell: false,
+        stdio: capture ? ['inherit', 'pipe', 'inherit'] : 'inherit',
+    });
     const dt = Date.now() - t0;
+    if (r.stdout) process.stdout.write(r.stdout);
     if (r.error) {
         console.error('FAIL  process error:', r.error.message);
         failures++;
         return { code: -1, out: '', dt };
     }
-    process.stdout.write(r.stdout);
-    if (r.stderr) process.stderr.write(r.stderr);
-    return { code: r.status, out: r.stdout, dt };
+    if (r.signal) console.error(`FAIL  process terminated by signal: ${r.signal}`);
+    return { code: r.status, out: r.stdout || '', dt };
 }
 
 function hardCheck(cond, msg) {
@@ -82,7 +86,7 @@ console.log('\n--- [1/2] isolated regression suite ---');
 // 2. Full clearance regression on test-board.json
 console.log('\n--- [2/2] full clearance check on test-board.json ---');
 {
-    const r = run(process.execPath, ['tools/check-clearance-full.mjs', BASELINE.board]);
+    const r = run(process.execPath, ['tools/check-clearance-full.mjs', BASELINE.board], true);
     hardCheck(r.code === 0, 'check-clearance-full exits cleanly');
 
     const routedMatch = r.out.match(/Routed (\d+)\/(\d+) connections, (\d+) tracks, (\d+) vias/);
@@ -121,8 +125,8 @@ if (failures === 0) {
     console.log(warnings === 0
         ? 'REGRESSION GATE: PASS'
         : 'REGRESSION GATE: PASS (with soft warnings — review routing diff)');
-    process.exit(0);
 } else {
     console.log('REGRESSION GATE: FAIL');
-    process.exit(1);
 }
+// Let pending stdout/stderr writes drain when CI captures output through pipes.
+process.exitCode = failures === 0 ? 0 : 1;

@@ -47,7 +47,8 @@ import { AddTrackCommand, RemoveTrackCommand, CompoundCommand } from './track-co
 import { Track } from '../../shapes/track.js';
 import { clearAxisGlow, renderAxisGlow, pathAlignmentSegments, squareAlignmentSegments } from '../../shapes/axis-glow.js';
 import { pathContinuationConstraints, pathSegmentConstraints } from '../../shapes/path-snap.js';
-import { redrawPropertyPreview } from '../../shapes/property-preview.js';
+import { redrawPropertyPreview, createPropertyBinding, commitPropertyPreviewInput,
+    bindPropertyPreviewInput } from '../../shapes/property-preview.js';
 import {
     getPcbSelection,
     getPcbSelectionEntries,
@@ -515,42 +516,17 @@ function redrawBoardShapePropertyPreview(app, targets, { liveDrag = false } = {}
 
 function createBoardShapePropertyBinding(app) {
     app._boardShapePropertyBinding?.dispose();
-    let disposed = false;
-    let active = null;
-    const binding = {
-        committing: false,
-        get active() { return !!active?.active; },
-        get disposed() { return disposed; },
-        affectsLayer(layer) {
-            return boardShapePropertyPreviews.get(app)?.originals.some(shape => shape.layer === layer) || false;
+    const binding = createPropertyBinding({
+        beforeActivate() {
+            if (app._shapeDrag) endBoardShapeDrag(app, true);
+            if (getBoardShapeRotationPreview(app)) finishBoardShapeRotationPreview(app, true);
         },
-        activate(preview) {
-            if (disposed || app._active === false) return false;
-            if (active && active !== preview) active.commit({ rebuild: false });
-            binding.committing = true;
-            try {
-                if (app._shapeDrag) endBoardShapeDrag(app, true);
-                if (getBoardShapeRotationPreview(app)) finishBoardShapeRotationPreview(app, true);
-            } finally { binding.committing = false; }
-            if (disposed) return false;
-            active = preview;
-            return true;
-        },
-        release(preview) { if (active === preview) active = null; },
-        commit() { return active?.commit() || false; },
-        cancel() { return active?.cancel() || false; },
-        prepare() {
-            if (disposed) return false;
-            active?.commit({ rebuild: false });
-            return !disposed;
-        },
-        dispose() {
-            if (disposed) return;
-            disposed = true;
-            active?.cancel();
+        onDispose() {
             if (app._boardShapePropertyBinding === binding) app._boardShapePropertyBinding = null;
         },
-    };
+    });
+    binding.affectsLayer = layer =>
+        boardShapePropertyPreviews.get(app)?.originals.some(shape => shape.layer === layer) || false;
     app._boardShapePropertyBinding = binding;
     return binding;
 }
@@ -579,6 +555,10 @@ function createBoardShapePropertyPreview(app, targets, { liveDrag = false } = {}
                 const commands = originals.flatMap((target, index) => JSON.stringify(preview.before[index]) === JSON.stringify(after[index])
                     ? [] : [new ModifyBoardShapeCommand(app, target, preview.before[index], after[index])]);
                 if (commands.length) {
+                    if (originals.some((shape, index) => app._selectedBoardShapeSegment?.shapeId === shape.id
+                        && shape.points?.length !== preview.copies[index].points?.length)) {
+                        app._selectedBoardShapeSegment = null;
+                    }
                     binding.committing = true;
                     try {
                         app.history.execute(commands.length === 1 ? commands[0] : new CompoundCommand(commands));
@@ -653,26 +633,6 @@ function createBoardShapePropertyPreview(app, targets, { liveDrag = false } = {}
         },
     };
     return control;
-}
-
-function commitPropertyPreviewInput(input, preview, forceRebuild = false) {
-    if (!Number.isFinite(input.valueAsNumber)) preview.cancel();
-    else preview.commit({ rebuild: forceRebuild || document.activeElement !== input });
-}
-
-function bindPropertyPreviewCancel(input, preview, refreshPanel) {
-    input?.addEventListener('keydown', event => {
-        if (event.key !== 'Escape' || !preview.cancel()) return;
-        event.preventDefault();
-        event.stopPropagation();
-        refreshPanel();
-    });
-    input?.addEventListener('blur', () => {
-        queueMicrotask(() => {
-            if (!Number.isFinite(input.valueAsNumber)) preview.cancel();
-            else preview.commit();
-        });
-    });
 }
 
 export function renderBoardShape(app, shape, opts = {}) {
@@ -2165,7 +2125,10 @@ function showImageProperties(app, shape, items) {
         const input = /** @type {HTMLInputElement} */ (document.getElementById(String(id)));
         bindPictureRefreshHold(app, input);
         const resizePreview = createBoardShapePropertyPreview(app, [shape], { liveDrag: true });
-        bindPropertyPreviewCancel(input, resizePreview, () => showImageProperties(app, shape, items));
+        bindPropertyPreviewInput(input, resizePreview, {
+            isCurrent: () => !binding.disposed,
+            onCancel: () => showImageProperties(app, shape, items),
+        });
         const previewResize = () => {
             if (binding.disposed) return;
             const value = input.valueAsNumber;
@@ -2198,7 +2161,10 @@ function showImageProperties(app, shape, items) {
     const rotationInput = /** @type {HTMLInputElement} */ (document.getElementById('pcbPropImageRot'));
     bindPictureRefreshHold(app, rotationInput);
     const rotationPreview = createBoardShapePropertyPreview(app, [shape], { liveDrag: true });
-    bindPropertyPreviewCancel(rotationInput, rotationPreview, () => showImageProperties(app, shape, items));
+    bindPropertyPreviewInput(rotationInput, rotationPreview, {
+        isCurrent: () => !binding.disposed,
+        onCancel: () => showImageProperties(app, shape, items),
+    });
     const previewRotation = () => {
         if (binding.disposed) return;
         const value = parseFloat(rotationInput.value);
@@ -2425,17 +2391,15 @@ export function showBoardShapeProperties(app, shape) {
         if (!Number.isFinite(bulgeEl.valueAsNumber)) { commitNumericPreview(bulgeEl, bulgePreview); return; }
         previewBulge();
         formatNumberInput(bulgeEl);
-        bulgePreview.update((_before, [candidate]) => normalizeStraightArc(candidate, selectedSegment));
         const straight = Math.abs(editableShapeBulge(displayedBoardShape(app, shape), selectedSegment)) < BULGE_EPS;
+        bulgePreview.update((_before, [candidate]) => {
+            normalizeStraightArc(candidate, selectedSegment);
+            if (straight) collapseCollinearPolylinePoints(candidate);
+        });
         commitNumericPreview(bulgeEl, bulgePreview, straight);
     };
     bulgeEl?.addEventListener('input', previewBulge);
     bulgeEl?.addEventListener('change', commitBulge);
-    bulgeEl?.addEventListener('blur', () => {
-        queueMicrotask(() => {
-            if (bulgePreview.active) commitBulge();
-        });
-    });
 
     const commit = (mutate) => {
         if (!binding.prepare()) return;
@@ -2550,7 +2514,7 @@ export function showBoardShapeProperties(app, shape) {
     const cornerRadiusEl = /** @type {HTMLInputElement|null} */ (document.getElementById('pcbPropShapeCornerRadius'));
     const nodeCornerRadiusEl = /** @type {HTMLInputElement|null} */ (document.getElementById('pcbPropShapeNodeCornerRadius'));
     const commitNumericPreview = (input, preview, forceRebuild = false) => {
-        commitPropertyPreviewInput(input, preview, forceRebuild);
+        commitPropertyPreviewInput(input, preview, { forceRebuild, isCurrent: () => !binding.disposed });
         if (binding.disposed) return;
         const targets = propertyTargets();
         const syncMixed = (field, values) => {
@@ -2580,7 +2544,11 @@ export function showBoardShapeProperties(app, shape) {
     for (const input of [diameterEl, lineEl, cornerRadiusEl, nodeCornerRadiusEl, bulgeEl]) bindPictureRefreshHold(app, input);
     for (const [input, preview] of [[diameterEl, diameterPreview], [lineEl, lineWidthPreview],
         [cornerRadiusEl, cornerRadiusPreview], [nodeCornerRadiusEl, nodeCornerRadiusPreview], [bulgeEl, bulgePreview]]) {
-        bindPropertyPreviewCancel(input, preview, () => showBoardShapeProperties(app, shape));
+        bindPropertyPreviewInput(input, preview, {
+            isCurrent: () => !binding.disposed,
+            commit: options => preview === bulgePreview ? commitBulge() : preview.commit(options),
+            onCancel: () => showBoardShapeProperties(app, shape),
+        });
     }
     if (filledEl) {
         filledEl.checked = mixedFill ? false : !!shape.filled;

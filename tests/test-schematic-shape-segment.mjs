@@ -197,7 +197,7 @@ function expect(name, condition) {
                 app._selectedShapeSegment = { shapeId: shape.id, edgeId: 'e0' };
             }
             const original = shape.captureState();
-            const input = buildInput(app, 'bulge');
+            let input = buildInput(app, 'bulge');
             expect('arc properties display two-decimal bulges', input.value === '0.25'
                 && input.attributes['data-number-format'] !== 'precise');
             input.value = '0.001'; input.fire('input'); input.fire('change');
@@ -206,6 +206,8 @@ function expect(name, condition) {
                 : !shape.getEdgeAttr('e0', 'bulge')));
             app.commands[0].undo();
             expect('bulge undo restores the original geometry', JSON.stringify(shape.captureState()) === JSON.stringify(original));
+            app.selection.select(shape, false);
+            input = buildInput(app, 'bulge');
             input.value = '0'; input.fire('input'); input.fire('change');
             expect('zero bulge becomes a straight line', standalone
                 ? app.shapes.length === 1 && app.shapes[0].type === 'polyline' && !app.shapes[0].closed
