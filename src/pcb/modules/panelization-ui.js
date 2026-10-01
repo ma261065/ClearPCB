@@ -4,6 +4,7 @@ import { createPcbText } from '../../core/pcb-text.js';
 import { renderPcbText } from './pcb-text.js';
 import { AddTextCommand } from './text-commands.js';
 import { getBoardOutline } from './board-outline.js';
+import { boardShapeRemovalPathD } from './board-shape-geometry.js';
 import { createPanelArtworkRaster } from './panelization-raster.js';
 import ClipperLib from '../../../assets/vendor/clipper.esm.js';
 
@@ -127,17 +128,39 @@ export function renderPanelPreview(app, settings = app.panelization) {
     for (const instance of layout.instances.slice(1)) {
         group.appendChild(svg('use', { href: `#${artworkId}`, transform: `translate(${instance.dx},${instance.dy})` }));
     }
-    group.appendChild(svg('path', { d: outlinePath(panelPreviewSupportContours(layout)),
-        fill: color, 'fill-opacity': 0.12, 'fill-rule': 'evenodd', stroke: 'none' }));
+    const supports = svg('path', { d: outlinePath(panelPreviewSupportContours(layout)),
+        fill: color, 'fill-opacity': 0.12, 'fill-rule': 'evenodd', stroke: 'none' });
+    const positioningPaths = new Map(layout.positioningHoles.map(hole => [hole,
+        boardShapeRemovalPathD({ kind: 'circle', layer: 'hole',
+            x: hole.x, y: hole.y, radius: hole.diameter / 2, lineWidth: 0 })]));
+    if (positioningPaths.size) {
+        // Use the board-hole geometry and even-odd vector cutout, not canvas-colour paint.
+        const clipId = `${artworkId}-positioning-holes`;
+        const clip = svg('clipPath', { id: clipId, clipPathUnits: 'userSpaceOnUse' });
+        const { x, y, w, h } = layout.bounds;
+        clip.appendChild(svg('path', {
+            d: `M${x},${y}h${w}v${h}h${-w}Z ${[...positioningPaths.values()].join(' ')}`,
+            'clip-rule': 'evenodd',
+        }));
+        holeDefs.appendChild(clip);
+        supports.setAttribute('clip-path', `url(#${clipId})`);
+    }
+    group.appendChild(supports);
     group.appendChild(svg('path', { d: panelPreviewOutlinePath(layout.contours, bounds.points),
         fill: 'none', stroke: color, 'stroke-width': 0.15 }));
     if (layout.cuts.length) group.appendChild(svg('path', {
         d: layout.cuts.map(points => `M${points[0].x},${points[0].y}L${points[1].x},${points[1].y}`).join(''),
         fill: 'none', stroke: color, 'stroke-width': 0.15, 'stroke-dasharray': '1 0.5',
     }));
-    for (const drill of layout.drills) group.appendChild(svg('circle', {
-        cx: drill.x, cy: drill.y, r: drill.diameter / 2, fill: 'none', stroke: color, 'stroke-width': 0.1,
-    }));
+    for (const drill of layout.drills) {
+        const path = positioningPaths.get(drill);
+        group.appendChild(path ? svg('path', { d: path, fill: 'none',
+            stroke: PCB_LAYERS.find(layer => layer.id === 'hole')?.color || '#1abc9c',
+            'stroke-width': 0.05, 'stroke-linejoin': 'round', 'stroke-linecap': 'round',
+        }) : svg('circle', {
+            cx: drill.x, cy: drill.y, r: drill.diameter / 2, fill: 'none', stroke: color, 'stroke-width': 0.1,
+        }));
+    }
     for (const mark of layout.fiducials) {
         group.appendChild(svg('circle', { cx: mark.x, cy: mark.y, r: mark.maskDiameter / 2,
             fill: 'none', stroke: PCB_LAYERS.find(layer => layer.id === 'top-mask')?.color || '#59b879', 'stroke-width': 0.1 }));

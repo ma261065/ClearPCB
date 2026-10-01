@@ -80,6 +80,9 @@ owns its own Home-tab navigation; the PCB view also owns new-board setup timing
 and disposal of its dimensions dialog. Completion is not emitted for cancelled
 or failed file actions. The UI host confirms New; `ProjectDocument.reset()` clears
 the schematic and then the PCB through each view's `clearSection()` hook.
+The schematic clear boundary first cancels pending Properties, pointer, drawing,
+paste and component-placement work and verifies readiness. Failed cleanup stops
+before either model or its history is cleared.
 `FileManager` adopts the new identity and stores the cleared project's actual
 settings for recovery. Reset guards section clearing, not the entire asynchronous
 confirmation/picker/adoption lifetime, and does not promise atomic recovery.
@@ -104,6 +107,9 @@ The fixed 4px blue dot retains its 250ms retriggerable visibility and existing
 styling. Success-indicator failures are logged separately: they cannot turn a
 completed autosave into a storage-failure warning or cause it to be retried.
 `onAutoSaveChanged` remains the separate size/title update callback.
+Successful Open and Open Recent clean up only the opened file's recovery
+snapshot; Import preserves existing recovery entries. Unrelated project backups
+are never purged as a side effect of adopting another document.
 
 Browser idle time is not an edit-completion signal. Registered views may report
 `isSectionEditing()`; `ProjectDocument.canSerialize()` uses that neutral readiness
@@ -317,6 +323,19 @@ recreating node objects. Missing targets throw explicitly rather than recording
 a successful no-op. Geometry edits invalidate existing entity bounds without
 rendering; connectivity, clearance, selection and SVG work remain in the
 `pcb/modules/track-commands.js` adapters.
+
+Autorouting retains existing authored copper while its worker produces a preview.
+The pending session blocks project snapshots and owns its worker, model, layout,
+netlist, routing rules and command-history baseline. Edits, document replacement,
+schematic changes, deactivation and disposal invalidate that ownership; stale
+progress, errors and results cannot affect a successor session. User Stop remains
+distinct: a current worker may return a partial result. Successful routing and
+SES imports use `ReplaceRoutesCommand`, an atomic, dirtying replacement with exact
+undo/redo; Clear Routes uses the same command. Worker failures preserve the previous
+copper and history. The editor adapter rebuilds selection, copper presentation,
+ratlines, fills and DRC after command replay.
+The temporary nearest-same-net guide uses the normal ratline color, width and
+opacity, with round screen-space dots distinguishing it from real ratlines.
 
 Shared `Shape.getBounds()` caches geometry independently of the SVG `_dirty`
 flag. Repeated headless queries reuse bounds until `invalidate()` clears them;
@@ -571,6 +590,13 @@ title-block settings, including detached title-block data. Current settings
 override the loaded fallback only for the saved snapshot; saving does not mutate
 either the fallback or live entities. Direct schematic serialization and combined
 project serialization use the same model codec.
+The registered schematic view implements `prepareSection()` using the model's
+preflight and adopts those prepared entities during loading. Missing component
+definitions therefore fail before document adoption, preserving existing
+undo/redo instead of reloading an unchanged document through rollback.
+EasyEDA import emits native component types and maps part metadata to canonical
+`defaultProperties.mpn` and `footprintName`, preserving it through native ZIP
+and autosave round trips.
 
 For preparation, load and reset, `ProjectDocument` uses the PCB model directly
 when no PCB view is registered; registered adapters retain their existing
@@ -663,6 +689,15 @@ settings without rendering; a headless `load()` performs both phases without
 rendering. Existing panel commands still create ordinary
 authored note texts and retain their undo/redo behavior; model operations do not
 generate notes. Preview SVG and its lifecycle remain editor-owned.
+Panel positioning holes use the shared hole geometry and ordinary hole border
+style, with even-odd vector cutouts through the support artwork so the actual
+grid remains visible in either theme.
+
+Overlap selection includes every eligible component, not just the topmost
+footprint. PCB hit queries cache all component hits for the current pointer
+query; both editors expose the Shift+click cycling tip. A selected obscured
+component remains eligible for drag pickup, including mixed groups, without
+bypassing layer visibility, locks or selection-anchor precedence.
 
 The editor adapter still removes old SVG and selection before replacing entities,
 renders only when active, and refreshes derived geometry after loading.
@@ -933,9 +968,12 @@ netlist from the schematic and PCB models, without a registered view. Placement
 state owns the stable automatic grid slots and neutral footprint generation,
 including full-precision world-pad positions, duplicate physical pad IDs and
 bottom-side/mirror/rotation handling. Existing automatic slots survive ordinary
-component deletion/reordering; New/load/reset clear them in place. Slots are
-derived, never serialized or marked dirty, and failed resolution does not retain
-partially allocated slots.
+component deletion/reordering; New/load/reset clear the allocation cache in place.
+Resolved automatic positions are saved alongside explicit overrides, without
+mutating live overrides or marking layout queries dirty. Reload adopts them as
+stable canonical placement baselines, so deleting an earlier component cannot
+shift remaining pads away from saved track endpoints. Failed resolution does
+not retain partially allocated slots.
 
 `ProjectDocument.synchronizePcbLayout()` is the explicit mutating counterpart:
 it resolves all placements and connectivity first, then updates track endpoints
@@ -986,6 +1024,10 @@ preview fields from becoming authored state during the first edit.
 create overrides, allocate slots or edit tracks. First-edit undo retains the
 baseline override, matching existing persistence behavior. Missing placements
 without a saved record, resolved automatic slot or explicit baseline fail immediately.
+Executed placement commands retain resolved footprint geometry for later replay
+if their schematic component is deleted. Undo/redo can restore placement metadata
+and bonded geometry without resurrecting that component or blocking earlier PCB
+history. Never-executed commands still reject missing targets.
 
 The existing metadata editor command names remain adapters. They project only edited
 fields into the current generated placement, then retain transform/glyph,

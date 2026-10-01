@@ -78,7 +78,7 @@ const U = (v) => v / SCALE;
  * @property {Array} boardShapes - app.boardShapes (including hole-layer cutouts)
  * @property {Array} texts
  * @property {Array} fills
- * @property {Array<{x:number,y:number,dia:number}>} holes
+ * @property {Array<{x:number,y:number,dia:number,slot?:null|{x2:number,y2:number}}>} holes
  * @property {{clearance:number}} params
  * @property {{w:number,h:number,r:number,x?:number,y?:number,points?:Array<{x:number,y:number}>}|null} board
  */
@@ -228,7 +228,11 @@ function collectObstacles(C, fill, ctx, clearance) {
 
     // ── Pads (on this copper layer) ──
     for (const hole of ctx.holes || []) {
-        out.push(circlePath(C, hole.x, hole.y, hole.dia / 2 + clearance));
+        if (hole.slot) {
+            out.push(...offsetOpenSegment(C, hole, { x: hole.slot.x2, y: hole.slot.y2 }, hole.dia / 2 + clearance));
+        } else {
+            out.push(circlePath(C, hole.x, hole.y, hole.dia / 2 + clearance));
+        }
     }
 
     // Other-net pads are voided solid (pad + clearance). Same-net pads get a

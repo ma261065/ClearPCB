@@ -23,6 +23,7 @@ export function preparePcb(data) {
 
 /** @param {any} app */
 export function loadPcb(app, data, prepared = preparePcb(data)) {
+    app._cancelAutoRoute?.();
     if (prepared.data) data = prepared.data;
     resetPanelPreview(app);
     app.panelization = null;

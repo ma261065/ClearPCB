@@ -12,7 +12,7 @@ const app = {
         x: 0, y: 0, refVisible: false, bounds: { x: -1, y: -1, width: 2, height: 2 },
     }])),
     viewport: { scale: 10 },
-    _hitTestComponent() { scans++; return winner; },
+    _hitTestComponent(_point, all) { scans++; return all ? (winner ? [winner] : []) : winner; },
 };
 syncPcbSelection(app);
 const hits = () => getPcbSelectionHits(app, point, null, { sync: false }).map((hit) => hit.object);
@@ -40,7 +40,7 @@ assert.equal(scans, 6, 'Direct adapter calls must not retain a previous query re
 
 app._hitTestComponent = () => { throw new Error('hit-test failure'); };
 assert.throws(hits, /hit-test failure/);
-app._hitTestComponent = () => { scans++; return 'component-42'; };
+app._hitTestComponent = () => { scans++; return ['component-42']; };
 assert.equal(adapter.hitTest(point), true);
 assert.deepEqual(hits(), ['component-42']);
 assert.equal(scans, 8, 'A failed query must release its cache');
@@ -49,7 +49,7 @@ const nestedPoint = { x: 0.1, y: 0.1 };
 let nesting = false;
 app._hitTestComponent = () => {
     scans++;
-    if (nesting) return 'component-7';
+    if (nesting) return ['component-7'];
     nesting = true;
     try {
         assert.deepEqual(getPcbSelectionHits(app, nestedPoint, null, { sync: false })
@@ -57,12 +57,12 @@ app._hitTestComponent = () => {
     } finally {
         nesting = false;
     }
-    return 'component-42';
+    return ['component-42'];
 };
 assert.deepEqual(hits(), ['component-42']);
 assert.equal(scans, 10, 'Nested queries must restore the outer query cache');
 
-const otherApp = { ...app, _pcbSelection: undefined, _hitTestComponent: () => 'component-9' };
+const otherApp = { ...app, _pcbSelection: undefined, _hitTestComponent: () => ['component-9'] };
 assert.equal(hitTestPcbSelection(otherApp, point, 'component'), 'component-9');
 assert.deepEqual(hits(), ['component-42']);
 console.log('PASS: one component scan per selection query, fresh hits/misses, direct calls, errors, nesting, and app isolation');
@@ -74,7 +74,7 @@ const referenceApp = {
         x: 0, y: 0, refVisible: true,
     }])),
     viewport: { scale: 10 },
-    _hitTestComponent() { componentScans++; return 'component-42'; },
+    _hitTestComponent() { componentScans++; return ['component-42']; },
     _hitTestRefText() { referenceScans++; return referenceWinner; },
 };
 syncPcbSelection(referenceApp);

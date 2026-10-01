@@ -81,7 +81,7 @@ export function orthoSwap(rotation) {
 /**
  * Resolve all placement-derived drilled holes — through-hole pad drills
  * (round and oval/stadium slots) and footprint mechanical/mounting holes
- * (authored as `'hole'`-layer circles inside a footprint's `silks`) — into
+ * (authored as `'hole'`-layer circles or slot lines inside `silks`) — into
  * renderer-neutral descriptors, posed to board-plane mm.
  *
  * Each descriptor is `{ x, y, dia, plated, slot }`: `(x, y)` is the bore
@@ -117,9 +117,15 @@ export function resolvePlacementDrills(placements) {
             }
         }
         for (const s of (pl.silks || [])) {
-            if (s.layer !== 'hole' || s.type !== 'circle' || !(s.r > 0)) continue;
-            const p = pose.xf(s.cx, s.cy);
-            out.push({ x: p.x, y: p.y, dia: 2 * s.r, plated: false, slot: null });
+            if (s.layer !== 'hole') continue;
+            if (s.type === 'circle' && s.r > 0) {
+                const p = pose.xf(s.cx, s.cy);
+                out.push({ x: p.x, y: p.y, dia: 2 * s.r, plated: false, slot: null });
+            } else if (s.type === 'line' && s.strokeWidth > 0) {
+                const a = pose.xf(s.x1, s.y1), b = pose.xf(s.x2, s.y2);
+                out.push({ x: a.x, y: a.y, dia: s.strokeWidth, plated: false,
+                    slot: { x2: b.x, y2: b.y } });
+            }
         }
     }
     return out;

@@ -82,3 +82,18 @@ export class ModifyTrackGraphCommand {
     execute() { this._apply(this.after); }
     undo() { this._apply(this.before); }
 }
+
+/** Replace routed copper as one reversible edit, preserving entity identities. */
+export class ReplaceRoutesCommand {
+    constructor(document, tracks, vias) {
+        this.document = document;
+        this.before = { tracks: [...document.tracks], vias: [...document.vias] };
+        this.after = { tracks: [...tracks], vias: [...vias] };
+    }
+    _apply(state) {
+        this.document.tracks.splice(0, this.document.tracks.length, ...state.tracks);
+        this.document.vias.splice(0, this.document.vias.length, ...state.vias);
+    }
+    execute() { this._apply(this.after); }
+    undo() { this._apply(this.before); }
+}

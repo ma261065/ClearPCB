@@ -515,6 +515,11 @@ clipped routed profiles rather than full Excellon drills or slots. A routed
 profile does not specify edge plating; confirm that separately with the
 manufacturer when the clipped opening is marked plated. Routing contours
 are simplified to avoid retraced edges at cutout/gap junctions.
+Edge-crossing footprint holes also become clipped routed openings in the
+single-board or repeated panel profile, rather than disappearing from both
+drill and outline output. They are not duplicated in Excellon.
+`fabrication-notes.txt` identifies these openings by position, dimensions and
+plating requirement; confirm routed-edge plating with the manufacturer.
 For both single-board and panel exports, a hole-layer circle exactly tangent
 to the source boundary (within 0.000001 mm of the sampled outline) receives
 an automatic 0.01 mm radial routing relief. This converts the zero-width
@@ -530,6 +535,9 @@ the panel headers are comments, not executable repetition. V-scores are separate
 `board-vscore.gbr`, never through routes. The ZIP also includes
 `panel-settings.json` and manufacturing notes. BOM, pick-and-place, and the
 2D/3D board viewers continue to describe the source board.
+Pick-and-place export rejects mirrored component placements with an
+actionable, component-specific error: side and rotation alone cannot encode
+that reflected geometry. Ordinary bottom-side placement remains supported.
 
 ### Tracks
 
@@ -927,10 +935,12 @@ counter-clockwise even though model Y points down. Valid text layers are
 same geometry as the inline-editing box, including its cursor and descender
 room, so entering and leaving edit mode does not show two almost-matching boxes.
 
-### Placement Overrides
+### Placements
 
-Only footprint placements with an overridden position, pose, reference style,
-or lock state are persisted. The map key is the schematic component ID:
+Resolved automatic footprint positions and explicit position, pose, reference
+style or lock overrides are persisted. Automatic positions become stable saved
+baselines on reload, preserving pad locations and track bonds after other
+components are deleted or reordered. The map key is the schematic component ID:
 
 ```json
 {
@@ -1075,7 +1085,8 @@ project document:
 - Ratsnest lines and DRC results.
 - Computed copper-pour polygons.
 - Derived net-label text.
-- Automatically generated footprint placements that the user did not move.
+- Generated footprint pads, rendering caches and automatic-slot allocation state
+  (resolved positions themselves are stored in `pcb.placements`).
 - Component-library HTTP caches and TTL metadata from `StorageManager`.
 - Local UI preferences that are not listed under schematic settings or
   `pcb.design`.

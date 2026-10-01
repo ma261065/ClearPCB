@@ -199,6 +199,23 @@ export function exportGerbers(opts, onProgress = (done, total, name) => {}) {
         Object.assign(clipBounds, boardBoundary({ boardShapes: [legacy] }));
     }
     if (panel) clipBounds.panel = panel;
+    const placementDrills = [];
+    const placementCutouts = [];
+    const routedHoleNotes = [];
+    for (const drill of resolvePlacementDrills(placements)) {
+        const contours = drill.slot
+            ? _strokeContours([{ x: drill.x, y: drill.y }, { x: drill.slot.x2, y: drill.slot.y2 }], false, drill.dia)
+            : [padFlashOutline({ x: drill.x, y: drill.y, w: drill.dia, h: drill.dia, shape: 'circle' })];
+        if (clipBounds.points && _clipContours(contours, clipBounds, ClipperLib.ClipType.ctDifference).length
+            && _clipContours(contours, clipBounds).length) {
+            placementCutouts.push(contours);
+            routedHoleNotes.push(`${drill.plated ? 'PLATED' : 'NON-PLATED'}: diameter ${drill.dia.toFixed(6)}, `
+                + `X=${drill.x.toFixed(6)}, Y=${(-drill.y).toFixed(6)}`
+                + (drill.slot ? ` to X=${drill.slot.x2.toFixed(6)}, Y=${(-drill.slot.y2).toFixed(6)}` : ''));
+        } else {
+            placementDrills.push(drill);
+        }
+    }
     const files = new Map();
     const emit = (name, build) => {
         onProgress(files.size, 14, name);
@@ -213,16 +230,16 @@ export function exportGerbers(opts, onProgress = (done, total, name) => {}) {
         ['board.gbp', () => _buildPaste(placements, 'bottom', clipBounds)],
         ['board.gto', () => _buildSilk(placements, 'top', clipBounds, texts, boardShapes)],
         ['board.gbo', () => _buildSilk(placements, 'bottom', clipBounds, texts, boardShapes)],
-        ['board.gko', () => _buildOutline(outlineBounds, boardShapes, clipBounds)],
+        ['board.gko', () => _buildOutline(outlineBounds, boardShapes, clipBounds, placementCutouts)],
         // Plated through-holes (pads, vias, and Hole-layer circles) and
         // non-plated holes go in separate Excellon files so fabs (JLCPCB,
         // etc.) can tell them apart — they key off the -PTH / -NPTH suffix.
-        ['board-PTH.drl', () => _buildDrill(_collectPlatedDrills(placements, vias, boardShapes, clipBounds, pads), clipBounds, false, panel)],
+        ['board-PTH.drl', () => _buildDrill(_collectPlatedDrills(placementDrills, vias, boardShapes, clipBounds, pads), clipBounds, false, panel)],
     ];
     for (const [name, build] of layers) emit(name, build);
     // Only emit the NPTH file when there are non-plated holes — an empty
     // drill file trips up some fab pre-checks.
-    const npth = _collectNonPlatedDrills(boardShapes, placements, clipBounds);
+    const npth = _collectNonPlatedDrills(boardShapes, placementDrills, clipBounds);
     if (npth.length || panel?.drills.length) emit('board-NPTH.drl', () => _buildDrill(npth, clipBounds, true, panel));
     if (panel) {
         if (panel.cuts.length) files.set('board-vscore.gbr', panelScoreFile(panel));
@@ -249,6 +266,13 @@ export function exportGerbers(opts, onProgress = (done, total, name) => {}) {
             'Confirm manufacturer-side panelization before ordering; panel comments are instructions, not executable Gerber repetition.',
             'Confirm cutter size, copper-to-edge clearance, tab strength and scoring requirements with the manufacturer.',
         ].join('\n') + '\n');
+    }
+    if (placementCutouts.length) {
+        files.set('fabrication-notes.txt',
+            'Footprint holes crossing the source-board boundary are supplied as clipped routed openings in board.gko, not as full Excellon drills.\n'
+            + 'Confirm cutter size and any required routed-edge plating with the manufacturer before ordering.\n'
+            + 'The following source-board holes use Gerber Y-up millimetres. Panelized board.gko already repeats their routed profiles.\n'
+            + routedHoleNotes.join('\n') + '\n');
     }
     onProgress(files.size, files.size, 'Artwork complete');
     return files;
@@ -811,7 +835,7 @@ function _buildSilk(placements, side, bounds, texts = [], boardShapes = []) {
 
 /* ──────────────────────────── board outline ──────────────────────────── */
 
-function _buildOutline(b, boardShapes = [], bounds) {
+function _buildOutline(b, boardShapes = [], bounds, placementCutouts = []) {
     const w = b.w, h = b.h;
     const r = b.r || 0;
     const x0 = b.x || 0, y0 = b.y || 0;
@@ -923,6 +947,7 @@ function _buildOutline(b, boardShapes = [], bounds) {
             }
         }
     }
+    for (const contours of placementCutouts) includeCutout(contours);
     if (bounds?.panel || crossingCutout) {
         const clipper = new ClipperLib.Clipper();
         clipper.StrictlySimple = true;
@@ -953,10 +978,10 @@ function _buildOutline(b, boardShapes = [], bounds) {
 /* ──────────────────────────── drill ──────────────────────────── */
 
 /** Collect plated drills: through-hole pads, vias, and plated Hole-layer shapes. */
-function _collectPlatedDrills(placements, vias, boardShapes = [], bounds = null, pads = []) {
+function _collectPlatedDrills(placementDrills, vias, boardShapes = [], bounds = null, pads = []) {
     const out = [];
     // Through-hole pad drills (round + oval slot), posed via the shared resolver.
-    for (const drill of resolvePlacementDrills(placements)) {
+    for (const drill of placementDrills) {
         if (!drill.plated) continue;
         if (drill.slot) {
             out.push({ dia: drill.dia, x: drill.x, y: drill.y, x2: drill.slot.x2, y2: drill.slot.y2 });
@@ -984,7 +1009,7 @@ function _collectPlatedDrills(placements, vias, boardShapes = [], bounds = null,
 }
 
 /** Collect non-plated drills: Hole-layer shapes and footprint mounting holes. */
-function _collectNonPlatedDrills(boardShapes = [], placements = new Map(), bounds) {
+function _collectNonPlatedDrills(boardShapes = [], placementDrills = [], bounds) {
     const out = [];
     // Hole-layer circles drill through the board unless explicitly plated.
     for (const c of boardShapes) {
@@ -999,9 +1024,10 @@ function _collectNonPlatedDrills(boardShapes = [], placements = new Map(), bound
     }
     // Footprint mechanical / mounting holes (posed 'hole'-layer silk circles),
     // resolved alongside pad drills by the shared resolver.
-    for (const drill of resolvePlacementDrills(placements)) {
+    for (const drill of placementDrills) {
         if (drill.plated) continue;
-        out.push({ dia: drill.dia, x: drill.x, y: drill.y });
+        out.push({ dia: drill.dia, x: drill.x, y: drill.y,
+            ...(drill.slot ? { x2: drill.slot.x2, y2: drill.slot.y2 } : {}) });
     }
     out.push(..._collectBoardShapeSlots(boardShapes, false, bounds));
     return out;

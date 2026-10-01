@@ -248,10 +248,23 @@ The PAD format has optional `pasteExpansion` and `maskExpansion` fields at posit
 ### Data Flow
 
 1. LCSC fetcher stores `detail.packageDetail.dataStr.shape` array as `footprintShapes` on the component definition
-2. KiCad fetcher generates `PAD~` and `SILK~` strings via `_parseFootprintPreview`
+2. KiCad fetcher generates `PAD~`, `HOLE~` and `SILK~` strings via `_parseFootprintPreview`
 3. `footprint.js` `generateFromShapes()` parses both formats
 4. `renderFootprint()` returns a `Map<layerId, SVGGElement>` for per-layer rendering
 5. `PCBApp._placeFootprints()` distributes layer groups to the correct SVG layer
+
+### KiCad Mechanical Holes
+
+The KiCad-derived format is distinct from EasyEDA's records above.
+Non-plated round and slotted holes use
+`HOLE~cx~cy~diameter~slotLength~slotAngle`, with dimensions in millimetres and
+angles in radians. These are mechanical holes, not electrical copper pads.
+KiCad-derived plated `PAD` records optionally retain slot length and angle at
+fields [11] and [12]. Footprint transforms, copper clearance and fabrication
+snapshots preserve the complete hole geometry.
+
+Previously saved footprints whose import already discarded plating or slot
+metadata cannot recover that information automatically; reimport them.
 
 ### Centering
 

@@ -222,8 +222,8 @@ function _convertLIB(libString, componentLibrary) {
         defaultValue: value || mfgPart || '',
         defaultReference: _refPrefix(reference) || 'U?',
         symbol,
-        mpn: mfgPart,
-        package: props.package || '',
+        defaultProperties: { mpn: mfgPart },
+        footprintName: props.package || '',
         _source: 'EasyEDA-Import',
     };
 
@@ -246,6 +246,7 @@ function _convertLIB(libString, componentLibrary) {
     const compId = nextCompId();
 
     const component = {
+        type: 'component',
         id: compId,
         dn: defName,
         x: worldX,

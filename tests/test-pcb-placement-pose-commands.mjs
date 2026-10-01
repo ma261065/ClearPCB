@@ -130,20 +130,18 @@ for (const side of ['top', 'bottom']) for (const mirror of [false, true]) {
     const history = new CommandHistory();
     history.execute(move);
     project.schematicDocument.components.length = 0;
-    const before = structuredClone(state.overrides.get('part'));
-    assert.throws(() => history.undo(), /PCB footprint is no longer available: part/);
-    assert.deepEqual(state.overrides.get('part'), before, 'Missing geometry is rejected before authored mutation');
-    assert.equal(history.undoStack.length, 1, 'Failed physical undo must retain its history entry');
-    assert.equal(history.redoStack.length, 0);
-    project.schematicDocument.components.push(component);
     history.undo();
-    project.schematicDocument.components.length = 0;
-    assert.throws(() => history.redo(), /PCB footprint is no longer available: part/);
-    assert.equal(history.redoStack.length, 1, 'Failed physical redo must retain its history entry');
+    assert.equal(state.overrides.get('part').x, seed.x);
+    assert.equal(state.overrides.get('part').y, seed.y);
+    assert.equal(project.schematicDocument.components.length, 0, 'PCB undo never recreates a deleted schematic component');
+    assert.equal(history.redoStack.length, 1);
     assert.equal(history.undoStack.length, 0);
-    project.schematicDocument.components.push(component);
     history.redo();
+    assert.equal(project.schematicDocument.components.length, 0);
     assert.equal(state.overrides.get('part').x, 10);
+    project.schematicDocument.components.push(component);
+    assert.equal(project.resolvePcbLayout().placements.get('part').x, 10,
+        'Restoring the schematic component uses the latest PCB history pose');
     const missing = new MovePlacementCommand(project, 'missing', 0, 0, 1, 1, { x: 0, y: 0 });
     assert.throws(() => history.execute(missing), /PCB footprint is no longer available: missing/);
     assert.equal(state.overrides.has('missing'), false);

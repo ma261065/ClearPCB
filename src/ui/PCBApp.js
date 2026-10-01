@@ -55,6 +55,7 @@ import {
     AddTrackCommand,
     AddViaCommand,
     RemoveTrackCommand,
+    ReplaceRoutesCommand,
     ModifyTrackGraphCommand,
     CompoundCommand,
     MovePlacementCommand,
@@ -423,6 +424,7 @@ export default class PCBApp {
         /** Autoroute progress/cancel runtime state */
         this._routeCancelToken = null;
         this._routeWorker = null;
+        this._routeSession = null;
         this._routeProgressStartMs = 0;
         this._routeProgressTimer = null;
         /** @type {Map<string, boolean>} pending net visibility updates */
@@ -508,6 +510,7 @@ export default class PCBApp {
     }
 
     deactivate() {
+        this._cancelAutoRoute?.();
         setInlineTextInputActive(this._textEdit?.input, false);
         this._cancelPosePreviews();
         this._cancelDrawingMode();
@@ -517,6 +520,7 @@ export default class PCBApp {
     }
 
     dispose() {
+        this._cancelAutoRoute?.();
         this._fillRefreshDisposed = true;
         disposeFillRefresh(this);
         this._drcDisposed = true;
@@ -2549,7 +2553,7 @@ export default class PCBApp {
 
     /** Pending previews must finish before a user-visible save/export snapshot. */
     isSectionEditing() {
-        return hasPcbEditInProgress(this);
+        return !!this._routeSession || hasPcbEditInProgress(this);
     }
 
     /**
@@ -2571,6 +2575,7 @@ export default class PCBApp {
      * Flag PCB edits and notify the project; its UI host owns the shared title.
      */
     _markDirty() {
+        this._cancelAutoRoute?.('Routing cancelled because the board changed.');
         this._isDirty = true;
         renderPanelPreview(this);
         this.onDocumentChanged?.();
@@ -3857,6 +3862,7 @@ export default class PCBApp {
      * schematic edits don't cause per-keystroke rebuilds.
      */
     onSchematicChanged() {
+        this._cancelAutoRoute?.('Routing cancelled because the schematic changed.');
         this._stale = true;
         if (!this._active) return;
 
@@ -4340,10 +4346,12 @@ export default class PCBApp {
      * or null. Iterates in insertion order and keeps the last (topmost)
      * match so overlapping components resolve to the one drawn on top.
      * @param {{x: number, y: number}} worldPos
-     * @returns {string|null}
+     * @param {boolean} [all=false] Return every hit in top-to-bottom order for overlap selection.
+     * @returns {string|string[]|null}
      */
-    _hitTestComponent(worldPos) {
+    _hitTestComponent(worldPos, all = false) {
         let hit = null;
+        const hits = all ? [] : null;
         for (const [compId, pl] of this.placements) {
             const b = pl.bounds;
             if (b) {
@@ -4359,6 +4367,7 @@ export default class PCBApp {
                     && local.y >= b.y && local.y <= b.y + b.height
                 ) {
                     hit = compId;
+                    hits?.push(compId);
                 }
                 continue;
             }
@@ -4382,9 +4391,10 @@ export default class PCBApp {
                 && worldPos.y >= minY - MARGIN && worldPos.y <= maxY + MARGIN
             ) {
                 hit = compId;
+                hits?.push(compId);
             }
         }
-        return hit;
+        return hits ? hits.reverse() : hit;
     }
 
     /**
@@ -4441,14 +4451,14 @@ export default class PCBApp {
             if (!ev || !this._active || this.currentTool !== 'select') return;
             const worldPos = this._screenToWorld(ev);
             this._hoverBoardOutline(this._hitTestBoardOutline(worldPos));
-            // Hover highlight for the component body under the cursor.
-            const componentHover = this._hitTestComponent(worldPos);
-            this._hoverComponent(componentHover);
             // Hover highlight for tracks/vias.
             const trackHover = hitTestTrack(this, worldPos);
             // Read-only overlap count: skip the per-frame adapter-list rebuild
             // and reuse the last-synced entries (structural edits resync).
             const selectionHits = getPcbSelectionHits(this, worldPos, null, { sync: false });
+            const componentHover = (selectionHits.find(hit => hit.kind === 'component' && hit.selected)
+                || selectionHits.find(hit => hit.kind === 'component'))?.object || null;
+            this._hoverComponent(componentHover);
             const standalonePadHover = selectionHits.find(hit => hit.kind === 'pad')?.object || null;
             const shapeHover = hitTestBoardShape(this, worldPos);
             const copperShapeHover = shapeHover
@@ -6693,66 +6703,80 @@ export default class PCBApp {
      * Run the built-in A* maze autorouter on the current board layout.
      */
     async runAutoRoute() {
+        if (this._active === false) return;
+        if (hasPcbEditInProgress(this) || this._trackDraw || this._fillDraw || this._shapeDraw) {
+            this._setStatus('Finish the current edit before routing.');
+            return;
+        }
         if (!this.placements.size || !this.netlist.length) {
             this._setStatus('Nothing to route');
             return;
         }
 
-        this.clearRoutes();
-
-        // Show progress UI in status bar
+        this._cancelAutoRoute();
+        /** @type {{ cancelled: boolean, abort?: () => void }} */
         const cancelToken = { cancelled: false };
+        const session = {
+            model: this.pcbDocument, placements: this.placements, netlist: this.netlist,
+            undo: [...this.history.undoStack], redo: [...this.history.redoStack], cancelToken,
+            rules: { ...this._getRoutingParams() },
+        };
+        this._routeSession = session;
+        const current = () => {
+            if (this._routeSession !== session || this._active === false) return false;
+            const rules = this._getRoutingParams();
+            return this.pcbDocument === session.model && this.placements === session.placements
+                && this.netlist === session.netlist && !hasPcbEditInProgress(this)
+                && Object.entries(session.rules).every(([key, value]) => rules[key] === value)
+                && !this._trackDraw && !this._fillDraw && !this._shapeDraw
+                && this.history.undoStack.length === session.undo.length
+                && this.history.undoStack.every((command, index) => command === session.undo[index])
+                && this.history.redoStack.length === session.redo.length
+                && this.history.redoStack.every((command, index) => command === session.redo[index]);
+        };
         this._routeCancelToken = cancelToken;
         this._routeProgressStartMs = performance.now();
-        this._showRouteProgress(0, 1, 'Starting...', {
-            phase: 'initial',
-            pendingConnections: 0,
-            pendingNets: 0,
-            ripupDone: 0,
-            ripupTotal: 0,
-            ripupPass: 0,
-            ripupMaxPasses: 4,
-        });
-
-        // Build route input from placements + netlist, or use stored test board input
-        const usingTestBoard = !!this._testBoardRouteInput;
-        const routeInput = this._testBoardRouteInput || this._buildRouteInput();
-        this._testBoardRouteInput = null;  // consume it — only used once
-        const routerMode = this._getRouterMode();
-        // Always honour the current UI design rules, even when the source is a
-        // test-board JSON that embedded its own values.
-        const uiParams = this._getRoutingParams();
-        routeInput.trackWidth = uiParams.trackWidth;
-        routeInput.clearance = uiParams.clearance;
-        routeInput.viaDiameter = uiParams.viaDiameter;
-        // A stored test-board input pre-dates any copper text the user has
-        // since drawn on it, so refresh its copper obstacles from the live
-        // model. (_buildRouteInput already embeds these for the normal path.)
-        if (usingTestBoard) {
-            routeInput.copperObstacles = this._buildCopperObstacles();
-        }
-        this._routeNetUnrouted = new Map(routeInput.connections.map(c => [c.net, true]));
-        this._routeLastBoundaryKey = '';
-        this._reconcileRatsnestFromRouteState();
-
         try {
+            this._showRouteProgress(0, 1, 'Starting...', {
+                phase: 'initial',
+                pendingConnections: 0,
+                pendingNets: 0,
+                ripupDone: 0,
+                ripupTotal: 0,
+                ripupPass: 0,
+                ripupMaxPasses: 4,
+            });
+
+            const usingTestBoard = !!this._testBoardRouteInput;
+            const routeInput = this._testBoardRouteInput || this._buildRouteInput();
+            this._testBoardRouteInput = null;
+            const routerMode = this._getRouterMode();
+            // Test-board inputs also obey the current rules and copper artwork.
+            routeInput.trackWidth = session.rules.trackWidth;
+            routeInput.clearance = session.rules.clearance;
+            routeInput.viaDiameter = session.rules.viaDiameter;
+            if (usingTestBoard) routeInput.copperObstacles = this._buildCopperObstacles();
+            this._routeNetUnrouted = new Map(routeInput.connections.map(c => [c.net, true]));
+            this._routeLastBoundaryKey = '';
+            this._reconcileRatsnestFromRouteState();
+
             const startTime = performance.now();
 
-            const result = await this._runAutoRouteInWorker(routeInput, cancelToken, routerMode);
-
-            if (cancelToken.cancelled) {
-                // Keep and finalize partial routes so users can continue from this point.
-                this._clearIncrementalTracks();
-                this._renderRouteResult(result);
-                const routedConns = result.totalConnectionCount - (result.failedConnectionCount || 0);
-                const totalConns2 = result.totalConnectionCount || routeInput.connections.length;
-                this._hideRouteProgress();
-                this._setStatus(`${routedConns} of ${totalConns2} connections routed`);
-                this._routeNetUnrouted = null;
+            const result = await this._runAutoRouteInWorker(routeInput, cancelToken, routerMode, current);
+            if (!result || !current()) {
+                if (this._routeSession === session) this._cancelAutoRoute('Routing cancelled because the board changed.');
+                return;
+            }
+            if (!cancelToken.cancelled) await this._playRemainingRipupPhases(current);
+            if (!current()) {
+                if (this._routeSession === session) this._cancelAutoRoute('Routing cancelled because the board changed.');
                 return;
             }
 
-            await this._playRemainingRipupPhases();
+            // A user Stop may publish partial routes, but an obsolete session never does.
+            this._routeSession = null;
+            this._routeCancelToken = null;
+            this._routeNetUnrouted = null;
 
             const elapsedSec = Math.max(0, Math.floor((performance.now() - startTime) / 1000));
             const elapsedMin = Math.floor(elapsedSec / 60);
@@ -6778,24 +6802,37 @@ export default class PCBApp {
             console.error('Autorouter error:', e);
             this._hideRouteProgress();
             this._setStatus(`Route error: ${e.message}`);
-            this._routeNetUnrouted = null;
         } finally {
-            if (this._routeWorker) {
-                this._routeWorker.terminate();
-                this._routeWorker = null;
+            if (this._routeSession === session) {
+                this._cancelAutoRoute();
             }
         }
+    }
+
+    /** Discard asynchronous routing without changing authored copper or history. */
+    _cancelAutoRoute(message = null) {
+        const session = this._routeSession;
+        if (!session) return;
+        this._routeSession = null;
+        session.cancelToken.cancelled = true;
+        session.cancelToken.abort?.();
         this._routeCancelToken = null;
+        this._routeNetUnrouted = null;
+        this._clearIncrementalTracks();
+        this._hideRouteProgress();
+        reconcileRatsnest(this);
+        if (message) this._setStatus(message);
     }
 
     /**
      * Run routing in a dedicated worker and relay progress/events back to UI.
      * @param {import('../pcb/modules/autorouter-common.js').RouteInput} routeInput
-     * @param {{cancelled: boolean}} cancelToken
-    * @param {'maze'|'pathfinder'} routerMode
-     * @returns {Promise<import('../pcb/modules/autorouter-common.js').RouteResult>}
+     * @param {{cancelled: boolean, abort?: () => void}} cancelToken
+     * @param {'maze'|'pathfinder'} routerMode
+     * @param {() => boolean} [isCurrent]
+     * @returns {Promise<import('../pcb/modules/autorouter-common.js').RouteResult | null>}
      */
-    _runAutoRouteInWorker(routeInput, cancelToken, routerMode = 'maze') {
+    _runAutoRouteInWorker(routeInput, cancelToken, routerMode = 'maze', isCurrent = () => true) {
         return new Promise((resolve, reject) => {
             const workerUrl = new URL('../pcb/modules/autorouter-worker.js', import.meta.url);
             const worker = new Worker(workerUrl, { type: 'module' });
@@ -6809,14 +6846,29 @@ export default class PCBApp {
                 }
                 worker.removeEventListener('message', onMessage);
                 worker.removeEventListener('error', onError);
+                worker.removeEventListener('messageerror', onMessageError);
+                worker.terminate();
+                if (this._routeWorker === worker) this._routeWorker = null;
+                delete cancelToken.abort;
             };
 
             const onError = (err) => {
                 cleanup();
+                if (!isCurrent()) { resolve(null); return; }
                 reject(err?.error || new Error(err?.message || 'Autorouter worker failed'));
             };
+            const onMessageError = () => onError(new Error('Invalid autorouter worker response'));
+            cancelToken.abort = () => { cleanup(); resolve(null); };
 
-            const onMessage = (evt) => {
+            const dispatchMessage = (evt) => {
+                if (!isCurrent()) {
+                    if (this._routeCancelToken === cancelToken) {
+                        this._cancelAutoRoute('Routing cancelled because the board changed.');
+                    }
+                    cleanup();
+                    resolve(null);
+                    return;
+                }
                 const msg = evt.data || {};
                 switch (msg.type) {
                     case 'progress': {
@@ -6873,17 +6925,22 @@ export default class PCBApp {
                         break;
                 }
             };
+            const onMessage = (evt) => {
+                try { dispatchMessage(evt); } catch (error) { onError(error); }
+            };
 
             worker.addEventListener('message', onMessage);
             worker.addEventListener('error', onError);
-            worker.postMessage({ type: 'start', routeInput, routerMode });
-
-            cancelPoll = setInterval(() => {
-                if (!cancelToken?.cancelled) return;
-                if (this._routeWorker === worker) {
-                    worker.postMessage({ type: 'cancel' });
-                }
-            }, 50);
+            worker.addEventListener('messageerror', onMessageError);
+            try {
+                worker.postMessage({ type: 'start', routeInput, routerMode });
+                cancelPoll = setInterval(() => {
+                    if (!cancelToken?.cancelled) return;
+                    try {
+                        if (this._routeWorker === worker) worker.postMessage({ type: 'cancel' });
+                    } catch (error) { onError(error); }
+                }, 50);
+            } catch (error) { onError(error); }
         });
     }
 
@@ -6924,7 +6981,7 @@ export default class PCBApp {
         }
     }
 
-    async _playRemainingRipupPhases() {
+    async _playRemainingRipupPhases(isCurrent = () => true) {
         const state = this._routeProgressState;
         if (!state) return;
         const isRipup = state.phase === 'ripup' || String(state.netName || '').startsWith('Rip-up');
@@ -6935,6 +6992,7 @@ export default class PCBApp {
         if (currentPass <= 0 || maxPasses <= currentPass) return;
 
         for (let p = currentPass + 1; p <= maxPasses; p++) {
+            if (!isCurrent()) return;
             this._showRouteProgress(1, 1, `Rip-up pass ${p}`, {
                 phase: 'ripup',
                 pendingConnections: state.pendingConnections,
@@ -8786,57 +8844,44 @@ export default class PCBApp {
     _renderRouteResult(result) {
         this._flushRatsnestVisibilityQueue();
         const params = this._getRoutingParams();
-
-        // Discard previous tracks/vias (the autorouter replaces the entire
-        // routed copper picture each run; manually-drawn tracks will be
-        // preserved separately once Phase 2 lands).
-        for (const t of this.tracks) removeTrackElements(t);
-        for (const v of this.vias) removeViaElements(v);
-        this.tracks.length = 0;
-        this.vias.length = 0;
-
-        // Also clear any stale incremental-render SVG (from progress msgs).
-        const topCopper = this._getLayerGroup('top-copper');
-        const bottomCopper = this._getLayerGroup('bottom-copper');
-        if (topCopper) topCopper.querySelectorAll('.pcb-routed-track, .pcb-route-anim').forEach(el => el.remove());
-        if (bottomCopper) bottomCopper.querySelectorAll('.pcb-routed-track, .pcb-route-anim').forEach(el => el.remove());
-        const viaLayerEarly = this._getLayerGroup('vias');
-        if (viaLayerEarly) viaLayerEarly.querySelectorAll('.pcb-routed-via, .pcb-route-anim').forEach(el => el.remove());
-
-        // Build model objects from the autorouter output.
         const { tracks, vias } = tracksFromAutorouterResult(result, {
             trackWidth: params.trackWidth,
             viaDiameter: params.viaDiameter,
             viaDrill: params.viaDrill,
             placements: this.placements,
         });
-        this.tracks.push(...tracks);
-        this.vias.push(...vias);
+        this.history.execute(new ReplaceRoutesCommand(this, tracks, vias, result.failedConnections));
+    }
 
-        // Render them.
+    _renderRoutedCopper(failedRatlines = []) {
+        const params = this._getRoutingParams();
+        for (const id of ['top-copper', 'bottom-copper', 'vias']) {
+            this._getLayerGroup(id)?.querySelectorAll('.pcb-routed-track, .pcb-routed-via, .pcb-route-anim')
+                .forEach(el => el.remove());
+        }
         const getGroup = (id) => this._getLayerGroup(id);
-        for (const t of this.tracks) renderTrack(t, getGroup, {
+        for (const t of this.pcbDocument.tracks) renderTrack(t, getGroup, {
             viaDiameter: params.viaDiameter,
             viaDrill: params.viaDrill,
         });
-        for (const v of this.vias) renderVia(v, getGroup);
+        for (const v of this.pcbDocument.vias) renderVia(v, getGroup);
 
         // Reconcile final ratsnest: hide all original ratlines, then draw
         // per-connection ratlines for each failed connection.
         const ratLayer = this._getLayerGroup('ratlines');
-        for (const el of [...ratLayer.children]) {
+        ratLayer?.querySelectorAll('.ratsnest-failed').forEach(el => el.remove());
+        for (const el of [...(ratLayer?.children || [])]) {
             /** @type {HTMLElement} */ (el).style.display = 'none';
         }
 
         const NS2 = 'http://www.w3.org/2000/svg';
-        const drcRatlines = [...(this._drcRatlines || [])];
-        if (Array.isArray(result.failedConnections)) {
-            for (const fc of result.failedConnections) {
+        if (ratLayer) {
+            for (const fc of failedRatlines) {
                 const line = document.createElementNS(NS2, 'line');
-                line.setAttribute('x1', String(fc.from.x));
-                line.setAttribute('y1', String(fc.from.y));
-                line.setAttribute('x2', String(fc.to.x));
-                line.setAttribute('y2', String(fc.to.y));
+                line.setAttribute('x1', String(fc.x1));
+                line.setAttribute('y1', String(fc.y1));
+                line.setAttribute('x2', String(fc.x2));
+                line.setAttribute('y2', String(fc.y2));
                 line.setAttribute('stroke', '#4488ff');
                 line.setAttribute('stroke-width', '1');
                 line.setAttribute('vector-effect', 'non-scaling-stroke');
@@ -8844,14 +8889,17 @@ export default class PCBApp {
                 line.setAttribute('class', 'ratsnest-line ratsnest-failed');
                 line.dataset.net = fc.net;
                 ratLayer.appendChild(line);
-                drcRatlines.push({
-                    net: String(fc.net), x1: fc.from.x, y1: fc.from.y, x2: fc.to.x, y2: fc.to.y, failed: true,
-                });
             }
         }
 
-        this._drcRatlines = drcRatlines;
+        this._drcRatlines = failedRatlines.map(line => ({ ...line }));
         this._drcRatlinesModel = this.pcbDocument;
+        reconcileRatsnest(this);
+        syncPcbSelection(this);
+        refreshBoxSelectionHighlights(this);
+        showPcbSelectionProperties(this);
+        this._setPcbStatus?.();
+
         this._refreshClearanceHalos();
         this._scheduleDRC();
     }
@@ -8860,35 +8908,17 @@ export default class PCBApp {
      * Clear all routed tracks/vias and restore all ratlines.
      */
     clearRoutes() {
+        this._cancelAutoRoute();
         if (this._ratsnestVisibilityRaf) {
             cancelAnimationFrame(this._ratsnestVisibilityRaf);
             this._ratsnestVisibilityRaf = 0;
         }
         this._ratsnestVisibilityQueue.clear();
 
-        // Drop track/via selection (its references are about to become stale).
-        clearTrackSelection(this);
-
-        // Drop model objects and their SVG.
-        for (const t of this.tracks) removeTrackElements(t);
-        for (const v of this.vias) removeViaElements(v);
-        this.tracks.length = 0;
-        this.vias.length = 0;
-
-        // Remove any stray legacy SVG (incremental render, SES import, etc.)
-        for (const [, g] of this._layerGroups) {
-            g.querySelectorAll('.pcb-routed-track, .pcb-routed-via, .pcb-track, .pcb-via, .pcb-route-anim').forEach(el => el.remove());
-        }
-
-        // Rebuild the ratsnest from scratch now that all routed copper is
-        // gone (every net reverts to fully-unconnected guide lines) and drop
-        // the autorouter's failed-connection lines.
-        const ratLayer = this._getLayerGroup('ratlines');
-        ratLayer.querySelectorAll('.ratsnest-failed').forEach(el => el.remove());
-        this._drcRatlines = (this._drcRatlines || []).filter(line => !line.failed);
-        reconcileRatsnest(this);
-
-        this._refreshClearanceHalos();
+        const command = new ReplaceRoutesCommand(this, [], []);
+        command.description = 'Clear routed copper';
+        if (this.pcbDocument.tracks.length || this.pcbDocument.vias.length) this.history.execute(command);
+        else this._renderRoutedCopper();
         this._setStatus('Routes cleared');
     }
 
@@ -9163,8 +9193,7 @@ export default class PCBApp {
                     this._setStatus('No routes found in SES file');
                     return;
                 }
-                // Clear existing routes first
-                this.clearRoutes();
+                this._cancelAutoRoute();
                 // Log first track for debugging coordinates
                 if (result.tracks.length) {
                     const t = result.tracks[0];

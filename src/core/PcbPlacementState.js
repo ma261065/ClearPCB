@@ -33,7 +33,7 @@ export class PcbPlacementState {
     constructor() {
         /** @type {Map<string, PlacementOverride>} */
         this.overrides = new Map();
-        /** @type {Map<string, {x:number, y:number}>} Stable derived positions, not serialized. */
+        /** @type {Map<string, {x:number, y:number}>} Stable automatic positions, saved alongside overrides. */
         this.autoSlots = new Map();
     }
 
@@ -106,6 +106,9 @@ export class PcbPlacementState {
     serialize() {
         /** @type {Record<string, Partial<PlacementOverride>>} */
         const placements = {};
+        for (const [id, p] of this.autoSlots) {
+            placements[id] = { x: round4(p.x), y: round4(p.y), rotation: 0 };
+        }
         for (const [id, p] of this.overrides) {
             const saved = { x: round4(p.x), y: round4(p.y), rotation: round4(p.rotation || 0) };
             if (p.locked) saved.locked = true;

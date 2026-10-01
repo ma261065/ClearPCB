@@ -44,6 +44,7 @@ import {
     ModifyTrackCommand as ModelModifyTrackCommand,
     MoveVertexCommand as ModelMoveVertexCommand,
     ModifyTrackGraphCommand as ModelModifyTrackGraphCommand,
+    ReplaceRoutesCommand as ModelReplaceRoutesCommand,
 } from '../../core/pcb-track-commands.js';
 import {
     AddViaCommand as ModelAddViaCommand,
@@ -436,6 +437,7 @@ export class AddTrackCommand extends ModelAddTrackCommand {
         super(app.pcbDocument, track, vias);
         this.app = app;
     }
+
     execute() {
         super.execute();
         renderTrack(this.track, (id) => this.app._getLayerGroup(id), _opts(this.app, this.track));
@@ -455,6 +457,25 @@ export class AddTrackCommand extends ModelAddTrackCommand {
         super.undo();
         refreshEditedTrackClearance(this.app);
         reconcileRatsnest(this.app);
+    }
+}
+
+export class ReplaceRoutesCommand extends ModelReplaceRoutesCommand {
+    constructor(app, tracks, vias, failedConnections = []) {
+        super(app.pcbDocument, tracks, vias);
+        this.app = app;
+        this.description = 'Replace routed copper';
+        this.beforeFailed = (app._drcRatlines || []).filter(line => line.failed).map(line => ({ ...line }));
+        this.afterFailed = failedConnections.map(fc => ({
+            net: String(fc.net), x1: fc.from.x, y1: fc.from.y, x2: fc.to.x, y2: fc.to.y, failed: true,
+        }));
+    }
+    _apply(state) {
+        clearTrackSelection(this.app);
+        for (const track of this.document.tracks) removeTrackElements(track);
+        for (const via of this.document.vias) removeViaElements(via);
+        super._apply(state);
+        this.app._renderRoutedCopper(state === this.after ? this.afterFailed : this.beforeFailed);
     }
 }
 

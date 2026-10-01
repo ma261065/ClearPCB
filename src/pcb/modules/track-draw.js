@@ -1430,7 +1430,7 @@ export function bondedExclusion(app, seedTrack, terminalSeed = null) {
 
 /**
  * Draw a live guide line from `from` to `to` (the nearest existing copper on
- * the active net), styled like a ratline. Replaces any previous guide. Pass a
+ * the active net), styled like a dotted ratline. Replaces any previous guide. Pass a
  * falsy endpoint, or call `clearNetGuideLine`, to remove it.
  *
  * @param {object} app
@@ -1448,7 +1448,8 @@ export function showNetGuideLine(app, from, to) {
     line.setAttribute('stroke', '#4488ff');
     line.setAttribute('stroke-width', '1');
     line.setAttribute('vector-effect', 'non-scaling-stroke');
-    line.setAttribute('stroke-opacity', '0.9');
+    line.setAttribute('stroke-dasharray', '0 3');
+    line.setAttribute('stroke-linecap', 'round');
     line.setAttribute('pointer-events', 'none');
     line.classList.add('net-guide-line');
     // Root SVG so the guide always paints above the copper.

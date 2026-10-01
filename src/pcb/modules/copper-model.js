@@ -24,7 +24,7 @@ export function resolveCopperPads(app, { physical = false } = {}) {
                 const worldHeight = Math.abs(pose.sin) * width + Math.abs(pose.cos) * height;
                 const layer = offset.drill > 0 ? 'both' : offset.layer || 'top';
                 const halfSlot = Math.max(0, ((offset.slotLength || 0) - (offset.drill || 0)) / 2);
-                const angle = (offset.slotAngle || 0) * Math.PI / 180;
+                const angle = offset.slotAngle || 0;
                 const slotStart = pose.xf(offset.dx - halfSlot * Math.cos(angle), offset.dy - halfSlot * Math.sin(angle));
                 const slotEnd = pose.xf(offset.dx + halfSlot * Math.cos(angle), offset.dy + halfSlot * Math.sin(angle));
                 pads.push({

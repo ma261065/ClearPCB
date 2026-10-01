@@ -356,6 +356,9 @@ function generateFromShapes(shapes, bbox, source) {
                         slotAngle = ((parseFloat(parts[11]) || 0) * Math.PI) / 180;
                     }
                 }
+            } else if (!isEasyEDA) {
+                slotLength = (parseFloat(parts[11]) || 0) * S;
+                slotAngle = parseFloat(parts[12]) || 0;
             }
 
             // Map EasyEDA's PAD shape enum onto our internal vocabulary.
@@ -601,6 +604,23 @@ function generateFromShapes(shapes, bbox, source) {
                 minX = Math.min(minX, hx - hr); minY = Math.min(minY, hy - hr);
                 maxX = Math.max(maxX, hx + hr); maxY = Math.max(maxY, hy + hr);
             }
+        } else if (shape.startsWith('HOLE~')) {
+            // KiCad: HOLE~cx~cy~diameter~slotLength~slotAngle (mm/radians).
+            const [, x, y, diameter, length, angle] = shape.split('~').map(Number);
+            if (![x, y, diameter].every(Number.isFinite) || diameter <= 0) continue;
+            const half = Math.max(0, ((length || 0) - diameter) / 2);
+            const dx = half * Math.cos(angle || 0), dy = half * Math.sin(angle || 0);
+            if (half > 0) {
+                silks.push({ type: 'line', x1: x - dx, y1: y - dy, x2: x + dx, y2: y + dy,
+                    strokeWidth: diameter, layer: 'hole' });
+            } else {
+                silks.push({ type: 'circle', cx: x, cy: y, r: diameter / 2,
+                    strokeWidth: 0.15, layer: 'hole' });
+            }
+            minX = Math.min(minX, x - Math.abs(dx) - diameter / 2);
+            minY = Math.min(minY, y - Math.abs(dy) - diameter / 2);
+            maxX = Math.max(maxX, x + Math.abs(dx) + diameter / 2);
+            maxY = Math.max(maxY, y + Math.abs(dy) + diameter / 2);
         }
     }
 

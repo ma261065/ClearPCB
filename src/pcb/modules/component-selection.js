@@ -1,4 +1,4 @@
-import { registerPcbSelectionAdapter, getComponentSelectionHit } from './selection-registry.js';
+import { registerPcbSelectionAdapter, getComponentSelectionHits } from './selection-registry.js';
 import { lockPositionOutsideOutline } from './selection-anchors.js';
 import { rotationHandleAnchor, pointerRotation } from './rotation-handle.js';
 import { previewPlacementPose, restorePlacementPosePreview, finishPlacementPreview, RotatePlacementCommand } from './track-commands.js';
@@ -15,6 +15,22 @@ function outlineForPlacement(placement) {
 }
 
 function boundsForPlacement(placement) {
+    if (!placement?.bounds) {
+        const pads = (placement?.padOffsets || []).flatMap(off => {
+            const pos = placement.pads?.get(off.padId);
+            if (!pos) return [];
+            const halfWidth = (off.width || 1.2) / 2 + 0.5;
+            const halfHeight = (off.height || 1.2) / 2 + 0.5;
+            return [{ x: pos.x - halfWidth, y: pos.y - halfHeight },
+                { x: pos.x + halfWidth, y: pos.y + halfHeight }];
+        });
+        if (pads.length) return {
+            minX: Math.min(...pads.map(point => point.x)),
+            minY: Math.min(...pads.map(point => point.y)),
+            maxX: Math.max(...pads.map(point => point.x)),
+            maxY: Math.max(...pads.map(point => point.y)),
+        };
+    }
     const points = outlineForPlacement(placement);
     return {
         minX: Math.min(...points.map((point) => point.x)),
@@ -54,7 +70,7 @@ export function createComponentSelectionAdapter(app, componentId, id) {
                 scale,
             );
         },
-        hitTest(point) { return getComponentSelectionHit(app, point) === componentId; },
+        hitTest(point) { return getComponentSelectionHits(app, point).has(componentId); },
         getPosition() {
             const placement = app.placements?.get(componentId);
             return { x: placement?.x || 0, y: placement?.y || 0 };

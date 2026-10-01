@@ -959,13 +959,15 @@ export default class SchematicApp {
             && selected.length === 1
             && selected[0]?.type === 'text'
             && selected[0]?.fieldKey === 'reference';
+        const showOverlapTip = this.currentTool === 'select' && this._overlapHitCount > 1;
         const show = this.currentTool === 'select'
             && selected.length === 1
             && selected[0]?.type === 'polyline'
             && !this._selectedShapeSegment
             && !this._selectedShapeNode;
-        tip.hidden = !show && !showReferenceTip;
+        tip.hidden = !show && !showReferenceTip && !showOverlapTip;
         tip.textContent = showReferenceTip ? 'Tip: Use SPACE to rotate text'
+            : showOverlapTip ? 'Tip: Shift+Click to cycle overlapping objects; Ctrl+Click for multi-selection'
             : show ? 'Tip: Click again to select a segment or node' : '';
     }
 
@@ -1448,13 +1450,14 @@ export default class SchematicApp {
         return FileTools.serializeDocument(this);
     }
 
-    /**
-     * Restore just this editor's slice of the document.
-     * @param {Object} data
-     * @returns {Promise<void>}
-     */
-    async loadSection(data) {
-        await FileTools.loadDocument(this, data);
+    /** Validate and render replacement entities before either editor is changed. */
+    prepareSection(data) {
+        return FileTools.prepareDocument(this, data);
+    }
+
+    /** Restore this editor's slice, consuming project preflight when provided. */
+    async loadSection(data, prepared = this.prepareSection(data)) {
+        await FileTools.loadDocument(this, data, prepared);
     }
 
     clearSection() {

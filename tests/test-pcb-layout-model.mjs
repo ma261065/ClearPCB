@@ -93,10 +93,17 @@ assert.deepEqual([grown.placements.get(added.id).x, grown.placements.get(added.i
     'New components reuse the first unoccupied current-grid cell');
 assert.equal(autoSlots, state.autoSlots, 'The model retains stable derived-map identity');
 const saved = project.serialize();
-assert.deepEqual(Object.keys(state.serialize()), [parts[0].id], 'Only authored poses are serialized, not automatic slots');
+assert.deepEqual(new Set(Object.keys(state.serialize())), new Set([...state.autoSlots.keys(), ...state.overrides.keys()]),
+    'Automatic positions are saved without manufacturing live overrides');
+assert.deepEqual([...state.overrides], savedOverrides);
 const copy = new ProjectDocument();
 await copy.load(saved);
-assert.equal(copy.pcbDocument.placementState.autoSlots.size, 0, 'Loaded documents resolve automatic layout afresh');
+assert.equal(copy.pcbDocument.placementState.autoSlots.size, 0, 'Saved automatic positions load as stable placement baselines');
+for (const [id, placement] of grown.placements) {
+    if (id === parts[0].id) continue;
+    const restored = copy.resolvePcbLayout().placements.get(id);
+    assert.deepEqual([restored.x, restored.y], [placement.x, placement.y]);
+}
 const loaded = copy.resolvePcbLayout().placements.get(parts[0].id);
 assert.equal(loaded.x, 30);
 assert.equal(loaded.y, -10);

@@ -1374,6 +1374,8 @@ export class KiCadFetcher {
             let sizeX = 0;
             let sizeY = 0;
             let drill = 0;
+            let slotLength = 0;
+            let slotAngle = 0;
             // Layer membership. A pad may live on any combination of copper,
             // soldermask and solderpaste, on the front (F.*) or back (B.*).
             let hasCopper = false, hasPaste = false, hasMask = false;
@@ -1389,12 +1391,12 @@ export class KiCadFetcher {
                     sizeX = parseFloat(padItem[1]) || 0;
                     sizeY = parseFloat(padItem[2]) || 0;
                 } else if (padItem[0] === 'drill') {
-                    // (drill X) round, or (drill oval X Y) — take the smaller
-                    // bore dimension as the visible drill diameter.
                     if (padItem[1] === 'oval') {
                         const dx = parseFloat(padItem[2]) || 0;
                         const dy = parseFloat(padItem[3]) || 0;
                         drill = Math.min(dx, dy) || dx || dy;
+                        slotLength = Math.max(dx, dy);
+                        slotAngle = dy > dx ? Math.PI / 2 : 0;
                     } else {
                         drill = parseFloat(padItem[1]) || 0;
                     }
@@ -1411,6 +1413,17 @@ export class KiCadFetcher {
             }
 
             if (!sizeX || !sizeY) continue;
+            // KiCad rotates counterclockwise; the imported Y reflection reverses that direction.
+            slotAngle += rotation * Math.PI / 180;
+
+            if (padKind === 'np_thru_hole') {
+                if (drill > 0) {
+                    // Mechanical holes must not become numbered copper pads.
+                    shapes.push(`HOLE~${atX}~${atY}~${drill}~${slotLength}~${slotAngle}`);
+                    includeRect(atX, atY, sizeX, sizeY);
+                }
+                continue;
+            }
 
             let w = sizeX;
             let h = sizeY;
@@ -1451,15 +1464,17 @@ export class KiCadFetcher {
             // footprint pipeline can build a faithful stencil/mask: an
             // exposed pad that is copper+mask but NOT paste (windowpaned
             // separately) must not get a full-area paste opening.
-            // Through-hole / NP-through-hole pads (and any pad carrying a
+            // Through-hole pads (and any copper pad carrying a
             // drill — e.g. the thermal-via grid under an exposed pad) live on
             // both copper faces and render with a drilled bore. Field [10] =
-            // drill diameter (mm, 0 for SMD).
-            const isThruHole = padKind === 'thru_hole' || padKind === 'np_thru_hole' || drill > 0;
+            // drill diameter (mm, 0 for SMD); optional fields [11]/[12]
+            // retain slot length (mm) and local axis angle (radians).
+            const isThruHole = padKind === 'thru_hole' || drill > 0;
             const copperSide = isThruHole ? 'both' : side;
             const maskFlag = hasMask ? 1 : 0;
             const pasteFlag = hasPaste ? 1 : 0;
-            shapes.push(`PAD~${padType}~${atX}~${atY}~${w}~${h}~${padNumber}~${copperSide}~${maskFlag}~${pasteFlag}~${drill}`);
+            shapes.push(`PAD~${padType}~${atX}~${atY}~${w}~${h}~${padNumber}~${copperSide}~${maskFlag}~${pasteFlag}~${drill}`
+                + (slotLength > drill ? `~${slotLength}~${slotAngle}` : ''));
             includeRect(atX, atY, w, h);
         }
 

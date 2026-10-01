@@ -4,6 +4,8 @@ import { attachLabelToTarget } from '../../ui/modules/label-attachment.js';
 import { importEasyEDASchematic } from '../../easyeda/schematic-importer.js';
 import { deserializeComponent } from '../../core/SchematicDocument.js';
 import { serializeGridSettings, restoreGridSettings } from '../../ui/modules/viewport.js';
+import { cancelSchematicPointerInteraction } from '../../ui/modules/drag.js';
+import { cancelSchematicPropertyPreview } from '../../ui/modules/properties.js';
 
 function canReplaceDocument(app) {
     if (!app.fileManager.saving && !app.fileManager.loading) return true;
@@ -254,8 +256,17 @@ export async function loadVersion(app) {
 
 /** Clear only the schematic section, retaining paper/grid preferences. */
 export function clearDocument(app) {
-    app.selection.clearSelection();
     if (app.textEdit?.shape) app._endTextEdit(false);
+    cancelSchematicPropertyPreview(app);
+    cancelSchematicPointerInteraction(app);
+    if (app.pastingClipboard) app._cancelPaste();
+    if (app.placingComponent) app._cancelComponentPlacement();
+    if (app.isDrawing) {
+        if (app.currentTool === 'wire') app._cancelWireDrawing();
+        else app._cancelDrawing();
+    }
+    if (app.isSectionEditing?.()) throw new Error('Finish the current edit before creating a new document.');
+    app.selection.clearSelection();
     app._clearAllShapes();
     app._clearAllComponents();
     resetWireLabelCounter();
@@ -379,7 +390,7 @@ export async function openFile(app) {
             await app.fileManager.adoptOpen(result);
             app._fitToContent?.();
             app._updateTitle();
-            app.fileManager.clearAutoSave();
+            app.fileManager.clearAutoSave(result.fileName);
             app._notifyDocumentReplaced?.('open');
             console.log('Opened:', result.fileName);
         } else if (result.error) {
@@ -413,7 +424,7 @@ export async function openRecentFile(app, name) {
             await app.fileManager.adoptOpen(result);
             app._fitToContent?.();
             app._updateTitle();
-            app.fileManager.clearAutoSave();
+            app.fileManager.clearAutoSave(result.fileName);
             app._notifyDocumentReplaced?.('open');
             console.log('Opened recent:', result.fileName);
         } else if (result.error) {
@@ -456,7 +467,6 @@ export async function importEasyEDA(app) {
         app.fileManager.setFileName('imported.cpcb');
         app.fileManager.setDirty(true);
         app._updateTitle();
-        app.fileManager.clearAutoSave();
         app._notifyDocumentReplaced?.('import');
         console.log('EasyEDA import complete');
     } catch (err) {

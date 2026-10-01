@@ -109,6 +109,10 @@ export function generatePickAndPlace(placements) {
         compareRefs(a.reference || '', b.reference || ''));
 
     for (const pl of rows) {
+        if (pl.mirror) {
+            throw new Error(`Cannot export pick-and-place: ${pl.reference || 'a component'} is mirrored. `
+                + 'Remove its mirror (Flip) transform; use Top/Bottom side to place a component on the other face.');
+        }
         const layer = pl.side === 'bottom' ? 'Bottom' : 'Top';
         const x = (pl.x || 0).toFixed(4);
         // App stores Y-down; pick-and-place files are Y-up.

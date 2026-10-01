@@ -15,15 +15,17 @@ const groupGeometryMembers = new Set([
     'getLockPosition', 'invalidate', 'render',
 ]);
 
-function placementSelectionHit(app, point, method) {
+function placementSelectionHit(app, point, method, all = false) {
     const query = hitQueries.get(app);
-    if (!query || query.x !== point.x || query.y !== point.y) return app[method]?.(point) ?? null;
-    if (!query.results.has(method)) query.results.set(method, app[method]?.(point) ?? null);
-    return query.results.get(method);
+    const read = () => all ? new Set(app[method]?.(point, true) || []) : app[method]?.(point) ?? null;
+    const key = `${method}:${all}`;
+    if (!query || query.x !== point.x || query.y !== point.y) return read();
+    if (!query.results.has(key)) query.results.set(key, read());
+    return query.results.get(key);
 }
 
-export function getComponentSelectionHit(app, point) {
-    return placementSelectionHit(app, point, '_hitTestComponent');
+export function getComponentSelectionHits(app, point) {
+    return placementSelectionHit(app, point, '_hitTestComponent', true);
 }
 
 export function getRefTextSelectionHit(app, point) {

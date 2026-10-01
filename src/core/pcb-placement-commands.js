@@ -17,12 +17,18 @@ function applyPatch(command, patch) {
 }
 
 function resolvePose(command, patch) {
-    const footprint = command.project.getPcbFootprint(command.compId);
+    const footprint = command.project.getPcbFootprint(command.compId) || command._footprint;
     if (!footprint) throw new Error(`PCB footprint is no longer available: ${command.compId}`);
     const current = command.placementState.overrides.get(command.compId) || command.initial;
     const placement = { ...capturePlacementOverride({ ...current, ...patch }),
         padOffsets: footprint.padOffsets, pasteOffsets: footprint.pasteOffsets, pads: new Map() };
     updatePlacementPadPositions(placement);
+    // Independent schematic history may remove the component before PCB undo.
+    // Retain geometry for copper/pose history without recreating that component.
+    command._footprint = {
+        padOffsets: structuredClone(footprint.padOffsets),
+        pasteOffsets: structuredClone(footprint.pasteOffsets),
+    };
     return placement;
 }
 
@@ -116,7 +122,7 @@ export class SetPlacementSideCommand {
         return touched;
     }
     _apply(side, restore = false) {
-        // Resolve first: a missing footprint must not restore bonds or replace the undo snapshot.
+        // Resolve before changing bonds; never-executed missing targets still fail atomically.
         const placement = resolvePose(this, { side });
         applyPlacementSide(placement, placement.side);
         const tracks = restore ? this._restoreBonds() : new Set();

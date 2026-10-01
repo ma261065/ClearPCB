@@ -64,6 +64,7 @@ import { pcbTextBounds, pcbTextHitTest } from './pcb-text.js';
 import { clearPcbSelectionAnchors, renderPcbSelectionAnchors } from './selection-anchors.js';
 import {
     clearPcbSelection,
+    getComponentSelectionHits,
     getPcbSelection,
     hasPcbSelection,
     refreshPcbReferenceOverlay,
@@ -450,8 +451,8 @@ export function pointInBoxSelection(app, worldPos) {
     // Reuse PCBApp's pose-aware component picker. Placement bounds live in
     // local coordinates, so a simple translated rectangle misses rotated or
     // mirrored footprints and breaks Ctrl+A group dragging from their body.
-    const componentHit = app._hitTestComponent?.(worldPos);
-    if (componentHit && getPcbSelection(app, 'component').includes(componentHit)) return true;
+    const componentHits = getComponentSelectionHits(app, worldPos);
+    if (getPcbSelection(app, 'component').some(id => componentHits.has(id))) return true;
     // A selected via.
     for (const v of getPcbSelection(app, 'via')) {
         if (viaHitTest(v, worldPos, worldTol)) return true;

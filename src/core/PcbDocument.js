@@ -201,7 +201,8 @@ export class PcbDocument {
      */
     serializeSection(settings = this.settings) {
         const hasContent = this._loadedSection || this.tracks.length || this.vias.length || this.pads.length
-            || this.boardShapes.length || this.texts.size || this.placementState.overrides.size || this.panelization
+            || this.boardShapes.length || this.texts.size || this.placementState.overrides.size
+            || this.placementState.autoSlots.size || this.panelization
             || Object.keys(DEFAULT_BOARD_DIMENSIONS).some(key => this.board[key] !== DEFAULT_BOARD_DIMENSIONS[key])
             || settings !== undefined;
         return hasContent ? this.serialize(settings) : null;

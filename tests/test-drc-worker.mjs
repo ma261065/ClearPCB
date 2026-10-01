@@ -472,6 +472,10 @@ try {
         assert.deepEqual(app._collectRatlines(), svg(), 'Incremental rebuild preserves unaffected/failed records');
         app._flushRatsnestVisibilityQueue = () => {};
         app._refreshClearanceHalos = () => {};
+        app.history = new CommandHistory();
+        app._refreshFills = () => false;
+        app._clearProperties = () => {};
+        app.status = {};
         app._renderRouteResult({ tracks: [], vias: [], failedConnections: [
             { net: 'failed-again', from: { x: -0, y: Math.E }, to: { x: 8.123456789, y: 9.987654321 } },
         ] });
