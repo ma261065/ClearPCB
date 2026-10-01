@@ -346,6 +346,12 @@ comparisons. The app-owned weak cache retains only the latest completed pass,
 rejects reuse across document identities and drops absent terminals. Net and
 layer membership are rebuilt separately; matching terminal IDs alone never
 establish geometry validity.
+Validated worker regions and internally owned terminal regions additionally
+retain weakly cached spatial ordering for their immutable triangle contacts.
+Prepared cross-sweeps merge these orders without repeatedly boxing or sorting
+the same triangles, while sharing the generic sweep's expiry/overlap logic.
+Reinstalling prepared geometry invalidates its ordering; arbitrary mutable
+contacts still use the ordinary lazy-capture sweep.
 Published fill-region identities are preserved, so their triangle contacts and
 bounds can be reused rather than rebuilt for every candidate pair or unchanged
 connectivity pass. A newly computed region has a new identity; replacing a

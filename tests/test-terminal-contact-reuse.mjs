@@ -224,8 +224,8 @@ for (const [make, edits] of [
 }
 
 function countSnapshots(run) {
-    const clone = globalThis.structuredClone;
-    let snapshots = 0, vertices = 0;
+    const clone = globalThis.structuredClone, sort = Array.prototype.sort;
+    let snapshots = 0, vertices = 0, contactSorts = 0, sortedContacts = 0;
     try {
         globalThis.structuredClone = value => {
             if (value?.kind === 'polygon' && value.filled && value.lineWidth === 0) {
@@ -233,9 +233,15 @@ function countSnapshots(run) {
             }
             return clone(value);
         };
+        Array.prototype.sort = function (...args) {
+            if (this[0]?.item?.bounds && this[0].bounds) {
+                contactSorts++; sortedContacts += this.length;
+            }
+            return sort.apply(this, args);
+        };
         run();
-    } finally { globalThis.structuredClone = clone; }
-    return { snapshots, vertices };
+    } finally { globalThis.structuredClone = clone; Array.prototype.sort = sort; }
+    return { snapshots, vertices, contactSorts, sortedContacts };
 }
 {
     const app = padFixture();
@@ -366,6 +372,8 @@ function countSnapshots(run) {
         coldAdoptionMedianMs: median(times.cold), warmAdoptionMedianMs: median(times.warm),
         coldSnapshots: allocations.cold.snapshots, warmSnapshots: allocations.warm.snapshots,
         coldSnapshotVertices: allocations.cold.vertices, warmSnapshotVertices: allocations.warm.vertices,
+        coldContactSorts: allocations.cold.contactSorts, warmContactSorts: allocations.warm.contactSorts,
+        coldSortedContacts: allocations.cold.sortedContacts, warmSortedContacts: allocations.warm.sortedContacts,
     }));
 }
 console.log(`PASS terminal contact reuse: ${cases} physical-edit cases, exact parity, history, ownership, lifetime and work counts`);

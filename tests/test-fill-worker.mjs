@@ -186,7 +186,7 @@ function fixture() {
             assert.equal(copperContactsTouch(prepared, probe), copperContactsTouch(cold, probe));
         }));
 
-        const timings = { cold: [], prepared: [], deliveryClone: [] };
+        const timings = { cold: [], prepared: [], deliveryClone: [] }, contactWork = {};
         for (let trial = 0; trial < 6; trial++) {
             for (const kind of trial % 2 ? ['prepared', 'cold'] : ['cold', 'prepared']) {
                 let payload = structuredClone(batch);
@@ -194,9 +194,20 @@ function fixture() {
                 payload = structuredClone(payload, { transfer: payload.contacts.flat().flatMap(contact =>
                     [contact.indices.buffer, contact.bounds.buffer, contact.triangleBounds.buffer]) });
                 if (trial) timings.deliveryClone.push(performance.now() - startClone);
-                const start = performance.now();
-                adoptFillResults(app, model.copperFills, payload.results, kind === 'prepared' ? payload.contacts : undefined);
-                if (trial) timings[kind].push(performance.now() - start);
+                const sort = Array.prototype.sort;
+                let contactSorts = 0, sortedContacts = 0;
+                try {
+                    Array.prototype.sort = function (...args) {
+                        if (this[0]?.item?.bounds && this[0].bounds) {
+                            contactSorts++; sortedContacts += this.length;
+                        }
+                        return sort.apply(this, args);
+                    };
+                    const start = performance.now();
+                    adoptFillResults(app, model.copperFills, payload.results, kind === 'prepared' ? payload.contacts : undefined);
+                    if (trial) timings[kind].push(performance.now() - start);
+                    contactWork[kind] = { contactSorts, sortedContacts };
+                } finally { Array.prototype.sort = sort; }
             }
         }
         const median = values => [...values].sort((a, b) => a - b)[Math.floor(values.length / 2)];
@@ -210,6 +221,7 @@ function fixture() {
                 + contact.bounds.byteLength + contact.triangleBounds.byteLength, 0),
             coldAdoptionMedianMs: median(timings.cold), preparedAdoptionMedianMs: median(timings.prepared),
             transferredCloneMedianMs: median(timings.deliveryClone),
+            contactWork,
         }));
         assert.deepEqual(model.serialize(), saved, 'Contact adoption never mutates authored state');
     } finally { client.dispose(); }

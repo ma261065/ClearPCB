@@ -7,9 +7,14 @@ function retainActive(active, minX, margin) {
     active.length = retained;
 }
 
-export function* spatialPairs(items, bounds, margin = 0) {
-    const ordered = items.map((item) => ({ item, bounds: bounds(item) }))
+/** Capture sorted records; retain them only while items and finite bounds stay unchanged. */
+export function prepareSpatialOrder(items, bounds) {
+    return items.map((item) => ({ item, bounds: bounds(item) }))
         .sort((left, right) => left.bounds.minX - right.bounds.minX);
+}
+
+export function* spatialPairs(items, bounds, margin = 0) {
+    const ordered = prepareSpatialOrder(items, bounds);
     const active = [];
     for (const current of ordered) {
         retainActive(active, current.bounds.minX, margin);
@@ -22,18 +27,40 @@ export function* spatialPairs(items, bounds, margin = 0) {
     }
 }
 
-export function* spatialCrossPairs(first, second, bounds, margin = 0) {
-    const ordered = [first, second].flatMap((items, side) => items.map(item => ({ item, side, bounds: bounds(item) })))
-        .sort((left, right) => left.bounds.minX - right.bounds.minX);
+export function spatialCrossPairs(first, second, bounds, margin = 0) {
+    return crossPairs(first, second, margin, bounds);
+}
+
+/** Merge pre-sorted immutable inputs without boxing or sorting their items again. */
+export function spatialCrossPairsPrepared(first, second, margin = 0) {
+    return crossPairs(first, second, margin, null, true);
+}
+
+function* crossPairs(first, second, margin, bounds, prepared = false) {
+    if (!prepared) {
+        first = [first, second].flatMap((items, side) => items.map(item => ({ item, side, bounds: bounds(item) })))
+            .sort((left, right) => left.bounds.minX - right.bounds.minX);
+        second = null;
+    }
     const active = [[], []];
-    for (const current of ordered) {
-        const otherSide = 1 - current.side;
+    let firstIndex = 0, secondIndex = 0;
+    while (firstIndex < first.length || (second && secondIndex < second.length)) {
+        let current, side;
+        if (second) {
+            side = secondIndex >= second.length || (firstIndex < first.length
+                && first[firstIndex].bounds.minX <= second[secondIndex].bounds.minX) ? 0 : 1;
+            current = side === 0 ? first[firstIndex++] : second[secondIndex++];
+        } else {
+            current = first[firstIndex++];
+            side = current.side;
+        }
+        const otherSide = 1 - side;
         retainActive(active[otherSide], current.bounds.minX, margin);
         for (const entry of active[otherSide]) {
             if (entry.bounds.maxY + margin < current.bounds.minY
                 || current.bounds.maxY + margin < entry.bounds.minY) continue;
-            yield current.side === 0 ? [current.item, entry.item] : [entry.item, current.item];
+            yield side === 0 ? [current.item, entry.item] : [entry.item, current.item];
         }
-        active[current.side].push(current);
+        active[side].push(current);
     }
 }

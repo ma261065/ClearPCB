@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { spatialPairs, spatialCrossPairs } from '../src/core/spatial-pairs.js';
+import { spatialPairs, spatialCrossPairs, prepareSpatialOrder, spatialCrossPairsPrepared } from '../src/core/spatial-pairs.js';
 
 let seed = 7321;
 const random = () => { seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0; return seed / 4294967296; };
@@ -15,10 +15,17 @@ for (let count = 0; count < 50; count++) {
             && left.minY <= right.maxY + margin && right.minY <= left.maxY + margin
         ).map(right => `${left.id}:${right.id}`)).sort();
         let boundsCalls = 0;
-        const actual = [...spatialCrossPairs(first, second, item => { boundsCalls++; return item; }, margin)]
+        const bounds = item => { boundsCalls++; return item; };
+        const actual = [...spatialCrossPairs(first, second, bounds, margin)]
             .map(([left, right]) => `${left.id}:${right.id}`).sort();
         assert.deepEqual(actual, expected);
         assert.equal(boundsCalls, first.length + second.length);
+        boundsCalls = 0;
+        const firstOrder = prepareSpatialOrder(first, bounds), secondOrder = prepareSpatialOrder(second, bounds);
+        assert.equal(boundsCalls, first.length + second.length);
+        assert.deepEqual([...spatialCrossPairsPrepared(firstOrder, secondOrder, margin)],
+            [...referencePairs(first, second, margin)], 'prepared merge retains exact orientation and stable tie order');
+        assert.equal(boundsCalls, first.length + second.length, 'Prepared traversal performs no bounds callbacks');
     }
 }
 console.log('PASS: spatial cross-pairs match 150 exhaustive fixtures with one bounds lookup per item');
@@ -67,6 +74,12 @@ for (const first of [Object.freeze([]), touching,
             assert.deepEqual([...spatialCrossPairs(first, second, bounds, margin)],
                 [...referencePairs(first, second, margin)], 'cross-set sweep retains exact pair order');
             assert.equal(boundsCalls, first.length + second.length);
+            boundsCalls = 0;
+            const firstOrder = prepareSpatialOrder(first, bounds), secondOrder = prepareSpatialOrder(second, bounds);
+            assert.equal(boundsCalls, first.length + second.length);
+            assert.deepEqual([...spatialCrossPairsPrepared(firstOrder, secondOrder, margin)],
+                [...referencePairs(first, second, margin)], 'prepared merge retains exact orientation and stable tie order');
+            assert.equal(boundsCalls, first.length + second.length);
         }
     }
 }
@@ -87,3 +100,47 @@ try {
 assert.ok(singleCount > 0 && crossCount > 0);
 assert.equal(filters, 0, 'expiry reuses active arrays instead of allocating one filtered array per item');
 console.log('PASS: 4,000-box spatial sweeps allocate no per-item filtered active arrays');
+
+{
+    const first = prepareSpatialOrder(dense, item => item), second = prepareSpatialOrder(touching, item => item);
+    const methods = ['map', 'flatMap', 'filter', 'sort'];
+    const original = new Map(methods.map(name => [name, Array.prototype[name]]));
+    let allocations = 0, pairs = 0;
+    try {
+        for (const name of methods) Array.prototype[name] = function (...args) {
+            allocations++;
+            return original.get(name).apply(this, args);
+        };
+        for (let pass = 0; pass < 10; pass++) {
+            for (const pair of spatialCrossPairsPrepared(first, second)) pairs++;
+        }
+    } finally {
+        for (const [name, method] of original) Array.prototype[name] = method;
+    }
+    assert.equal(pairs, crossCount * 10);
+    assert.equal(allocations, 0, 'Prepared queries do not rebox, sort, map, flatten or filter their inputs');
+    const before = first.slice(), otherBefore = second.slice();
+    const paused = spatialCrossPairsPrepared(first, second);
+    paused.next();
+    assert.deepEqual([...spatialCrossPairsPrepared(first, second)],
+        [...spatialCrossPairs(dense, touching, item => item)], 'Interleaved queries have independent sweep state');
+    paused.return();
+    assert.deepEqual(first, before);
+    assert.deepEqual(second, otherBefore);
+}
+{
+    const first = [{ minX: 0, maxX: 1, minY: 0, maxY: 1 }];
+    const second = [{ minX: 3, maxX: 4, minY: 0, maxY: 1 }];
+    assert.equal([...spatialCrossPairs(first, second, item => item)].length, 0);
+    const pending = spatialCrossPairs(first, second, item => item);
+    second[0].minX = 0.5;
+    assert.equal([...pending].length, 1, 'Generic input capture remains lazy until iteration begins');
+    assert.equal([...spatialCrossPairs(first, second, item => item)].length, 1,
+        'Generic sweeps still resolve mutated bounds on every call');
+    const ordered = prepareSpatialOrder(second, item => item);
+    second[0] = { minX: 5, maxX: 6, minY: 0, maxY: 1 };
+    assert.equal([...spatialCrossPairsPrepared(prepareSpatialOrder(first, item => item), ordered)].length, 1);
+    assert.equal([...spatialCrossPairsPrepared(prepareSpatialOrder(first, item => item),
+        prepareSpatialOrder(second, item => item))].length, 0, 'Explicit replacement preparation does not reuse an old ordering');
+}
+console.log('PASS: prepared sweeps preserve stable order and generic mutation behavior without repeated input allocations/sorts');

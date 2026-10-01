@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import {
     prepareCopperRegionContact, validateCopperRegionContact, installCopperRegionContact,
     copperRegionShape, resolveTrackContactGeometry, copperContactsTouch,
+    resolveTerminalCopperContact,
 } from '../src/pcb/modules/track-contact-geometry.js';
 
 const ring = (radius, count, x = 0) => Array.from({ length: count }, (_, index) => ({
@@ -83,4 +84,49 @@ const lazyContact = resolveTrackContactGeometry(copperRegionShape(lazy));
 assert.equal(copperContactsTouch(lazyContact, resolveTrackContactGeometry({
     kind: 'circle', x: 0, y: 0, radius: 0.1, filled: true,
 })), false, 'Unprepared synchronous regions still triangulate lazily and retain holes');
+
+{
+    const packet = structuredClone(prepared), region = packet.region;
+    installCopperRegionContact(region, packet);
+    const first = resolveTrackContactGeometry(copperRegionShape(region));
+    const cluster = { kind: 'via', viaRadius: 0.6, via: { x: 9, y: 0, drill: 0.3 } };
+    let terminal = resolveTerminalCopperContact(cluster);
+    const sort = Array.prototype.sort;
+    let sorts = 0, entries = 0;
+    try {
+        Array.prototype.sort = function (...args) {
+            if (this[0]?.item?.bounds && this[0].bounds) { sorts++; entries += this.length; }
+            return sort.apply(this, args);
+        };
+        assert.equal(copperContactsTouch(first, terminal.resolved), true);
+        assert.equal(sorts, 2, 'Each immutable region prepares its ordering once');
+        assert.ok(entries > 100, 'The work-count probe exercises a nontrivial triangulation');
+        sorts = entries = 0;
+        for (let query = 0; query < 100; query++) {
+            assert.equal(copperContactsTouch(first, terminal.resolved), true);
+            assert.equal(copperContactsTouch(terminal.resolved, first), true);
+        }
+        assert.equal(sorts, 0);
+        assert.equal(entries, 0, 'Repeated region pairs do not rebuild sorted item wrappers');
+        assert.throws(() => installCopperRegionContact(region, structuredClone(packet)), /different region/);
+        assert.equal(copperContactsTouch(first, terminal.resolved), true);
+        assert.equal(sorts, 0, 'Rejected metadata leaves the existing exact-region ordering intact');
+        installCopperRegionContact(region, packet);
+        assert.equal(copperContactsTouch(resolveTrackContactGeometry(copperRegionShape(region)), terminal.resolved), true);
+        assert.equal(sorts, 1, 'Reinstallation invalidates that exact region ordering');
+        sorts = 0;
+        cluster.via.y = 0.1;
+        terminal = resolveTerminalCopperContact(cluster, terminal);
+        assert.equal(copperContactsTouch(first, terminal.resolved), true);
+        assert.equal(sorts, 1, 'Changed terminal geometry gets a fresh ordering, without replacing the pour ordering');
+        const replacement = { outer: ring(2, 32), holes: [] };
+        installCopperRegionContact(replacement, prepareCopperRegionContact(replacement));
+        assert.equal(copperContactsTouch(resolveTrackContactGeometry(copperRegionShape(replacement)), terminal.resolved), false);
+        const authored = { kind: 'circle', x: 8.5, y: 0.1, radius: 0.01, filled: true };
+        assert.equal(copperContactsTouch(terminal.resolved, resolveTrackContactGeometry(authored)), true);
+        authored.x = 9;
+        assert.equal(copperContactsTouch(terminal.resolved, resolveTrackContactGeometry(authored)), false,
+            'Cached terminal ordering cannot memoize or freeze the mutable other contact');
+    } finally { Array.prototype.sort = sort; }
+}
 console.log('PASS prepared region contacts: exact narrow phases, zero immutable snapshots/scans, mutable validation and identity rejection');

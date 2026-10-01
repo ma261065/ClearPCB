@@ -1,13 +1,15 @@
 import { resolveBoardShapeGeometry } from './board-shape-geometry.js';
 import { padFlashOutline } from './board-geometry.js';
 import { distanceToSegment, pointInPolygon } from '../../core/geometry.js';
-import { spatialCrossPairs } from '../../core/spatial-pairs.js';
+import { spatialCrossPairs, prepareSpatialOrder, spatialCrossPairsPrepared } from '../../core/spatial-pairs.js';
 import earcut from '../../../assets/vendor/earcut.module.js';
 
 const regionShapes = new WeakMap();
 const regionContacts = new WeakMap();
 const preparedRegions = new WeakMap();
 const validatedPreparations = new WeakSet();
+const terminalRegions = new WeakSet();
+const regionOrders = new WeakMap();
 
 /** Worker-transferable triangles/bounds; region and payload become read-only after adoption. */
 export function prepareCopperRegionContact(region) {
@@ -71,6 +73,7 @@ export function installCopperRegionContact(region, prepared) {
         prepared, contact: { region, geometry: polygonGeometry(region.outer), bounds: unpackBounds(prepared.bounds) },
     });
     regionContacts.delete(region);
+    regionOrders.delete(region);
     const shape = regionShapes.get(region);
     if (shape) Object.freeze(shape);
 }
@@ -165,6 +168,17 @@ function contactsForRegion(region) {
     return contacts;
 }
 
+const immutableRegion = region => preparedRegions.has(region) || terminalRegions.has(region);
+function orderedContacts(contact) {
+    const region = contact.region;
+    let ordered = regionOrders.get(region);
+    if (!ordered) {
+        ordered = prepareSpatialOrder(region ? contactsForRegion(region) : [contact], item => item.bounds);
+        if (immutableRegion(region)) regionOrders.set(region, ordered);
+    }
+    return ordered;
+}
+
 const cache = new WeakMap();
 const geometryKeys = ['kind', 'x', 'y', 'radius', 'start', 'end', 'bulge', 'points',
     'lineWidth', 'segmentWidths', 'segmentBulges', 'filled', 'cornerRadius', 'nodeCornerRadii', 'copperMode', 'layer', 'copperSegment'];
@@ -231,6 +245,7 @@ export function resolveTerminalCopperContact(cluster, previous) {
         rad: slot ? Math.atan2(slot.y2 - slot.y1, slot.x2 - slot.x1) : 0,
     }, 1e-4));
     const shape = copperRegionShape({ outer, holes });
+    terminalRegions.add(shape.region);
     return { kind: cluster.kind, x, y, drill, radius: cluster.viaRadius, hasOutline: !!outline,
         slot: slot ? { x1: slot.x1, y1: slot.y1, x2: slot.x2, y2: slot.y2 } : null,
         shape, resolved: resolveTrackContactGeometry(shape) };
@@ -282,8 +297,10 @@ export function copperContactsTouch(firstContact, secondContact) {
     if (firstPrepared && !secondContact.region) return preparedRegionTouches(firstPrepared, secondContact, tolerance);
     if (secondPrepared && !firstContact.region) return preparedRegionTouches(secondPrepared, firstContact, tolerance);
     const regions = contact => contact.region ? contactsForRegion(contact.region) : [contact];
-    for (const [a, b] of spatialCrossPairs(regions(firstContact), regions(secondContact),
-        contact => contact.bounds, tolerance)) {
+    const pairs = immutableRegion(firstContact.region) || immutableRegion(secondContact.region)
+        ? spatialCrossPairsPrepared(orderedContacts(firstContact), orderedContacts(secondContact), tolerance)
+        : spatialCrossPairs(regions(firstContact), regions(secondContact), contact => contact.bounds, tolerance);
+    for (const [a, b] of pairs) {
         if (copperGeometryTouches(a.geometry, b.geometry)) return true;
     }
     return false;
