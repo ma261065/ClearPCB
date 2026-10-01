@@ -10,6 +10,7 @@ import { resetPcbSelection, syncPcbSelection } from './selection-registry.js';
 import { clearPcbSelectionAnchors } from './selection-anchors.js';
 import { refreshDesignSettings } from './design-settings.js';
 import { PcbDocument } from '../../core/PcbDocument.js';
+import { disposePcbPropertyEditors } from './edit-lifecycle.js';
 
 /** @param {any} app */
 export function serializePcb(app) {
@@ -32,10 +33,7 @@ export function loadPcb(app, data, prepared = preparePcb(data)) {
     // ever activated the PCB tab).
     app._ensureViewport();
     app._cancelPosePreviews?.();
-    app._padPropertyBinding?.dispose();
-    app._viaPropertyBinding?.dispose();
-    app._trackPropertyBinding?.dispose();
-    app._boardShapePropertyBinding?.dispose();
+    disposePcbPropertyEditors(app);
     app._cancelDrawingMode?.();
     app._closeBoardDimensionsDialog?.();
     // Deselection can redraw old objects, so do it before removing their SVG.

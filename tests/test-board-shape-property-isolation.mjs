@@ -1,13 +1,14 @@
 import assert from 'node:assert/strict';
 import { ProjectDocument } from '../src/core/ProjectDocument.js';
 import { CommandHistory } from '../src/core/CommandHistory.js';
-import { showBoardShapeProperties, getBoardShapePropertyPreview, createBoardShapeSelectionAdapter,
+import { showBoardShapeProperties, getBoardShapePropertyPreview, getBoardShapeRotationPreview, createBoardShapeSelectionAdapter,
     renderBoardShape, startBoardShapeDrag, handleBoardShapeDrag, endBoardShapeDrag } from '../src/pcb/modules/board-shapes.js';
 import { setPcbSelection } from '../src/pcb/modules/selection-registry.js';
 import { cancelPictureCopperRefresh } from '../src/pcb/modules/picture-refresh.js';
 import { loadPcb } from '../src/pcb/modules/project-state.js';
 import { prepareFabricationSnapshot } from '../src/pcb/modules/fabrication-snapshot.js';
 import { PCB_LAYERS } from '../src/pcb/modules/layers.js';
+import { beginPcbAnchorInteraction, updateSelectionInteraction, finishSelectionInteraction } from '../src/pcb/modules/selection-interaction.js';
 
 let allocations = 0;
 class Element {
@@ -306,3 +307,40 @@ console.log('PASS cross-field image dimensions, first-change baselines and pre-p
     cancelPictureCopperRefresh(app);
 }
 console.log('PASS pointer-to-numeric handoff preserves the typed value and separate canonical history');
+
+for (const finish of ['commit', 'cancel', 'panel', 'different-owner']) {
+    const { app, shapes, model } = fixture('imageRotation');
+    const shape = shapes[0], before = model.captureGeometry();
+    const adapter = createBoardShapeSelectionAdapter(app, shape, `shape:${shape.id}`);
+    assert.equal(beginPcbAnchorInteraction(app, adapter, { id: 'rotate', symbol: 'rotate' }, { x: 17, y: 6 }), true);
+    assert.ok(getBoardShapeRotationPreview(app), 'Showing the image properties must not cancel rotation pickup');
+    assert.equal(app._pcbSelectionInteraction?.mode, 'anchor');
+    updateSelectionInteraction(app, { x: 7, y: -4 });
+    const preview = getBoardShapeRotationPreview(app);
+    assert.equal(preview.currentRotation, 90);
+    assert.deepEqual(model.captureGeometry(), before, 'The real properties-panel path retains detached geometry');
+    showBoardShapeProperties(app, shape);
+    assert.equal(getBoardShapeRotationPreview(app), preview, 'Same-owner panel refresh preserves the pointer session');
+    assert.equal(fields.get('pcbPropImageRot').value, '90', 'Properties display the in-flight rotation');
+    if (finish === 'commit') {
+        finishSelectionInteraction(app, true);
+        const after = model.captureGeometry();
+        assert.notDeepEqual(after, before);
+        assert.equal(app.history.undoStack.length, 1);
+        app.history.undo();
+        assert.deepEqual(model.captureGeometry(), before);
+        app.history.redo();
+        assert.deepEqual(model.captureGeometry(), after);
+    } else {
+        if (finish === 'panel') app._setPcbPropsTitle('Other');
+        else if (finish === 'different-owner') app._setPcbPropsTitle('Image', { ...shape });
+        else finishSelectionInteraction(app, false);
+        assert.deepEqual(model.captureGeometry(), before);
+        assert.equal(app.history.canUndo(), false);
+    }
+    assert.equal(getBoardShapeRotationPreview(app), undefined);
+    assert.equal(app._pcbSelectionInteraction, null);
+    assert.equal(app._rotationHandleDrag, false);
+    cancelPictureCopperRefresh(app);
+}
+console.log('PASS image rotation through selection and real property bindings, same-owner refresh, cancellation and history');

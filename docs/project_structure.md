@@ -117,6 +117,26 @@ without opening or writing a file. Headless serialization remains available.
 This readiness policy is independent of the detached per-family preview
 ownership described below.
 
+`pcb/modules/edit-lifecycle.js` owns cross-family preview cancellation,
+property-editor disposal and the PCB snapshot-readiness query. The facade
+delegates these decisions rather than maintaining its own adapter-kind list.
+Cancellation stops derived workers, settles property previews, then asks the
+existing selection state machine to end its active gesture regardless of kind
+or mode. Direct pointer paths retain their own cancellation helpers. This also
+ends reference-label drags and pending overlap-selection gestures on view exit
+or document replacement, without committing or consuming prior undo/redo.
+Property-panel rebuilding and document replacement share the same disposal
+routine; deactivation retains reusable property controls after cancellation.
+Cleanup errors propagate and unresolved editors continue to block snapshots.
+
+An image Properties refresh supplies its canonical target identity. Rebuilding
+controls for that same image does not cancel its pointer rotation; changing to
+another target (even one with the same ID), clearing the panel or replacing the
+document still ends the old gesture. Numeric-preview acceptance on rotation
+pickup remains owned by the image adapter. Tool-specific commit, Escape and
+drawing-mode policies remain with their existing callers; this is not a new
+general-purpose interaction framework.
+
 Schematic history/dirty callbacks update their own UI, then call
 `ProjectDocument.notifySchematicChanged()`. The project calls the registered
 PCB's `onSchematicChanged()`; PCB never replaces another editor's callbacks.

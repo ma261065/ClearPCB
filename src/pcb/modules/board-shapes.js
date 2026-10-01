@@ -2074,7 +2074,7 @@ function showImageProperties(app, shape, items) {
     if (app._boardShapePropertyBinding?.committing) return;
     shape = canonicalBoardShape(app, shape);
     app._boardShapePropertyBinding?.dispose();
-    app._setPcbPropsTitle?.('Image');
+    app._setPcbPropsTitle?.('Image', shape);
     const binding = createBoardShapePropertyBinding(app);
     const displayed = displayedBoardShape(app, shape);
     const width = Math.hypot(displayed.points[1].x - displayed.points[0].x, displayed.points[1].y - displayed.points[0].y);

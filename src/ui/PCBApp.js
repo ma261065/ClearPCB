@@ -21,6 +21,7 @@ import {
 import { PCB_LAYERS, PCB_OVERLAYS, PCB_COPPER_FILLS, isLayerLocked, isViaLocked, isLayerVisible, isViaVisible, pcbLayerHoverColor, pcbLayerSelectionColor, pcbLayerOptionHtml, refreshPcbLayerOptions, showLockedLayerBubble, isCopperFillLocked, isCopperFillVisible, saveLayerPrefs, setPcbCopperFillLocked, setPcbLayerLocked } from '../pcb/modules/layers.js';
 import { exportDSN, importSES } from '../pcb/modules/dsn.js';
 import { scheduleDrcRefresh, runDrcNow, invalidateDrcRefresh, disposeDrcRefresh } from '../pcb/modules/drc-refresh.js';
+import { cancelPcbPosePreviews, disposePcbPropertyEditors, hasPcbEditInProgress } from '../pcb/modules/edit-lifecycle.js';
 import { buildCopperObstacles } from '../pcb/modules/copper-obstacles.js';
 import { hasFabricationContent } from '../pcb/modules/fabrication-snapshot.js';
 import { openPanelizeDialog, renderPanelPreview } from '../pcb/modules/panelization-ui.js';
@@ -137,7 +138,7 @@ import { Pad } from '../shapes/pad.js';
 import { CopperFill } from '../shapes/copper-fill.js';
 import { padCopperPathD, padLayers, renderPad } from '../pcb/modules/pad.js';
 import {
-    AddPadCommand, ModifyPadCommand, getPadRotationPreview, finishPadRotationPreview,
+    AddPadCommand, ModifyPadCommand, getPadRotationPreview,
     getPadPropertyPreview, beginPadPropertyPreview, finishPadPropertyPreview, canonicalPad,
 } from '../pcb/modules/pad-commands.js';
 import '../pcb/modules/pad-selection.js';
@@ -2733,13 +2734,7 @@ export default class PCBApp {
 
     /** Pending previews must finish before a user-visible save/export snapshot. */
     isSectionEditing() {
-        return !!(this._drag || this._refDrag || this._textDrag || this._groupDrag
-            || this._shapeDrag || this._vertexDrag || this._viaDrag || this._fillDrag
-            || this._pasteDrop || this._textEdit || this._boardOutlineResize
-            || this._pcbSelectionInteraction || this._rotationHandleDrag
-            || this._deferDragOverlays || this._suspendFillRefresh || this._textPropertyBinding?.active
-            || this._padPropertyBinding?.active || this._viaPropertyBinding?.active
-            || this._trackPropertyBinding?.active || this._boardShapePropertyBinding?.active);
+        return hasPcbEditInProgress(this);
     }
 
     /**
@@ -3417,22 +3412,10 @@ export default class PCBApp {
     /**
      * Set the PCB Properties ribbon group title.
      * @param {string} title
+     * @param {object|null} [owner] Canonical target retained by a same-object panel refresh.
      */
-    _setPcbPropsTitle(title) {
-        this._boardDimensionPropertyBinding?.dispose();
-        if (getBoardShapeRotationPreview(this)) {
-            if (!finishSelectionInteraction(this, false)) finishBoardShapeRotationPreview(this);
-        }
-        this._textPropertyBinding?.dispose();
-        this._textPropertyBinding = null;
-        this._padPropertyBinding?.dispose();
-        this._padPropertyBinding = null;
-        this._viaPropertyBinding?.dispose();
-        this._viaPropertyBinding = null;
-        this._trackPropertyBinding?.dispose();
-        this._trackPropertyBinding = null;
-        this._boardShapePropertyBinding?.dispose();
-        this._boardShapePropertyBinding = null;
+    _setPcbPropsTitle(title, owner = null) {
+        disposePcbPropertyEditors(this, owner);
         const el = document.querySelector('#pcbPropsContent .ribbon-group-title');
         if (el) el.textContent = title || 'Properties';
     }
@@ -5097,46 +5080,7 @@ export default class PCBApp {
     }
 
     _cancelPosePreviews() {
-        disposeFillRefresh(this);
-        disposeDrcRefresh(this);
-        cancelPcbPaste(this);
-        this._boardShapePropertyBinding?.cancel();
-        this._boardDimensionPropertyBinding?.dispose();
-        endBoardOutlineResize(this, false);
-        finishBoardDimensionPreview(this);
-        const shapeInteraction = this._pcbSelectionInteraction;
-        if (this._shapeDrag && (shapeInteraction?.adapter?.kind === 'shape'
-            || (shapeInteraction?.mode === 'move-adapter' && shapeInteraction.entry.kind === 'shape'))) {
-            finishSelectionInteraction(this, false);
-        }
-        if (this._shapeDrag) endBoardShapeDrag(this, false);
-        const trackInteraction = this._pcbSelectionInteraction;
-        if (trackInteraction?.adapter?.kind === 'track'
-            || (trackInteraction?.mode === 'move-adapter' && trackInteraction.entry.kind === 'track')) {
-            finishSelectionInteraction(this, false);
-        }
-        if (this._vertexDrag) cancelVertexDrag(this);
-        if (getBoardShapeRotationPreview(this) && this._pcbSelectionInteraction?.adapter?.kind === 'shape') {
-            finishSelectionInteraction(this, false);
-        }
-        finishBoardShapeRotationPreview(this);
-        this._textPropertyBinding?.cancel();
-        this._padPropertyBinding?.cancel();
-        this._viaPropertyBinding?.cancel();
-        this._trackPropertyBinding?.cancel();
-        const state = this._pcbSelectionInteraction;
-        if (['component', 'text', 'pad', 'fill'].includes(state?.adapter?.kind)
-            || (state?.mode === 'move-adapter' && ['component', 'text', 'via', 'pad', 'fill'].includes(state.entry.kind))) finishSelectionInteraction(this, false);
-        if (this._groupDrag?.posePreview) {
-            if (state?.mode === 'move') finishSelectionInteraction(this, false);
-            else cancelGroupDrag(this);
-        }
-        if (this._drag) this._endDrag(false);
-        if (this._textDrag) this._endTextDrag(false);
-        if (this._viaDrag) cancelViaDrag(this);
-        if (this._fillDrag) endFillEdit(this, false);
-        finishPadRotationPreview(this);
-        if (this._drcPending) this._scheduleDRC();
+        cancelPcbPosePreviews(this);
     }
 
     // ── Text annotations ─────────────────────────────────────────

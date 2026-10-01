@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { PcbDocument } from '../src/core/PcbDocument.js';
 import { PANEL_DEFAULTS } from '../src/core/pcb-panelization.js';
+import { disposePcbPropertyEditors } from '../src/pcb/modules/edit-lifecycle.js';
 
 const source = readFileSync(new URL('../src/pcb/modules/project-state.js', import.meta.url), 'utf8');
 const start = source.indexOf('export function loadPcb(');
@@ -10,6 +11,7 @@ const calls = [];
 const previews = [];
 const record = name => () => calls.push(name);
 const dependencies = {
+    disposePcbPropertyEditors,
     removeTrackElements() {}, removeViaElements() {}, removePadElements() {},
     removeBoardShapeElement() {},
     clearTrackSelection() {},
