@@ -1000,6 +1000,8 @@ function objModelToMesh(parsed, pl) {
         if (v.y > maxY) maxY = v.y;
     }
     if (!isFinite(minZ)) minZ = 0;
+    // Built-in leads extend below their authored mounting plane; do not lift the body.
+    const mountingZ = parsed.source === 'builtin' ? 0 : minZ;
     const ocx = isFinite(minX) ? (minX + maxX) / 2 : 0;
     const ocy = isFinite(minY) ? (minY + maxY) / 2 : 0;
 
@@ -1055,7 +1057,7 @@ function objModelToMesh(parsed, pl) {
         if (mir) fx = -fx;
         const wx = fx * pct - fy * pst;
         const wz = fx * pst + fy * pct;
-        const up = (mp.z || 0) + (v.z - minZ);
+        const up = (mp.z || 0) + (v.z - mountingZ);
         return {
             x: pl.x + wx,
             y: bottom ? -up : BOARD_THICKNESS + up,

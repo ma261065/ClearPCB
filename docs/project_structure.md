@@ -1444,6 +1444,16 @@ publishing incomplete data or replacing a usable cached index. First-search
 initialization errors use the normal search error/finally path rather than
 leaving the loading state active indefinitely.
 
+The component picker header has an accessible 36-by-36-pixel close button with
+a 24-pixel X and shared dialog-close hover/focus styling. Button, Escape and programmatic/toggle closure share
+cleanup and emit `component:pickerClosed` once per open-to-closed transition.
+The existing tool owner returns Component mode to Select and cancels placement;
+closing during a switch to another tool does not override that new tool.
+Choosing Place Component does not dismiss the picker or switch back to Select.
+Returning to Select with no selection also activates Home, so cancelling a
+drawing tool with Escape does not leave an empty Properties tab. Existing
+selection properties remain visible when switching to Select with a selection.
+
 The Design ribbon and New Track/Via property editors share the same commit path.
 Valid edits mark the PCB dirty and retain the existing geometry refresh requests;
 unit/router preferences are also saved project edits. Temporarily blank or invalid
@@ -1676,6 +1686,18 @@ mode; it is not a release requirement. Remaining ownership work is tracked in
 - Track / SVG-group ids use the long form: `'top-copper' | 'bottom-copper'`.
 
 ## PCB Data Model
+
+### Built-In Component 3D Models
+
+`BuiltInModels3D.js` authors package bodies relative to the mounting plane
+Z = 0. Through-hole pins extend to Z = -2.1 mm: through the viewer's 1.6 mm
+board and 0.5 mm beyond its opposite face. Surface-mount models, lead XY
+positions, footprints and drill dimensions are unchanged.
+The OBJ parser identifies the procedural-package header as source `builtin`;
+the board viewer preserves that authored mounting plane rather than raising
+the model by its lowest pin tip. Top/bottom placement, mirroring, rotation and
+explicit model height offsets retain their normal behavior. Imported EasyEDA
+and KiCad models retain their existing minimum-Z seating.
 
 ### Board-Shape Geometry Contract
 

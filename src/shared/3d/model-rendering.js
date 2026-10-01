@@ -15,6 +15,7 @@ export function parseObjModel(objText) {
     // Source discriminator: the KiCad WRL/STEP→OBJ converter names materials
     // `m_<r>_<g>_<b>`; EasyEDA OBJs use numeric names with `endmtl` blocks.
     let kicadMaterial = false;
+    let builtInModel = false;
 
     for (const raw of objText.split('\n')) {
         const line = raw.trim();
@@ -23,6 +24,9 @@ export function parseObjModel(objText) {
         const kw = sp < 0 ? line : line.slice(0, sp);
         const rest = sp < 0 ? '' : line.slice(sp + 1).trim();
         switch (kw) {
+            case '#':
+                if (rest === 'ClearPCB procedural package; millimetres; Z up') builtInModel = true;
+                break;
             case 'v': {
                 const p = rest.split(/\s+/);
                 vertices.push({ x: +p[0], y: +p[1], z: +p[2] });
@@ -62,7 +66,7 @@ export function parseObjModel(objText) {
         }
     }
     if (!vertices.length || !faces.length) return null;
-    return { vertices, faces, source: kicadMaterial ? 'kicad' : 'easyeda' };
+    return { vertices, faces, source: builtInModel ? 'builtin' : kicadMaterial ? 'kicad' : 'easyeda' };
 }
 
 export function meshToGeometry(mesh, groupByColor = false) {

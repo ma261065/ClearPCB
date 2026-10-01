@@ -257,6 +257,23 @@ const board3dSource = readFileSync(new URL('../src/pcb/modules/board3d.js', impo
 const meshStart = board3dSource.indexOf('function objModelToMesh(');
 const meshEnd = board3dSource.indexOf('\n/**', meshStart);
 const placedMesh = new Function('BOARD_THICKNESS', `${board3dSource.slice(meshStart, meshEnd)}; return objModelToMesh;`)(1.6);
+const metalColors = new Set(['180,188,198', '211,166,57']);
+function leadSection(mesh, height) {
+    const points = [];
+    for (const face of mesh.faces) {
+        if (!metalColors.has(face.color.join(','))) continue;
+        const vertices = face.idx.map(index => mesh.verts[index]);
+        for (let index = 0; index < vertices.length; index++) {
+            const first = vertices[index], second = vertices[(index + 1) % vertices.length];
+            if (Math.abs(first.y - height) < 1e-6) points.push(first);
+            if ((first.y - height) * (second.y - height) < 0) {
+                const t = (height - first.y) / (second.y - first.y);
+                points.push({ x: first.x + t * (second.x - first.x), z: first.z + t * (second.z - first.z) });
+            }
+        }
+    }
+    return points;
+}
 for (const definition of definitions.values()) for (const option of getBuiltInPackageOptions(definition)) {
     const comp = new Component(definition, { packageId: option.value });
     const data = extractComponents({ components: [comp] })[0];
@@ -267,8 +284,8 @@ for (const definition of definitions.values()) for (const option of getBuiltInPa
         const mesh = placedMesh(parsed, pl);
         const angle = rotation * Math.PI / 180;
         const surface = side === 'bottom' ? 0 : 1.6;
-        const contacts = mesh.verts.filter(vertex => Math.abs(vertex.y - surface) < 1e-6);
-        for (const pad of pads) {
+        for (const pad of pads) for (const depth of pad.drill > 0 ? [0, 0.8, 1.6, 2.1] : [0]) {
+            const contacts = leadSection(mesh, surface + (side === 'bottom' ? depth : -depth));
             const x = mirror !== (side === 'bottom') ? -pad.x : pad.x;
             const expected = { x: pl.x + x * Math.cos(angle) - pad.y * Math.sin(angle),
                 z: pl.y + x * Math.sin(angle) + pad.y * Math.cos(angle) };
@@ -281,9 +298,30 @@ for (const definition of definitions.values()) for (const option of getBuiltInPa
                 }
                 return Math.abs(localX) <= pad.width / 2 + 1e-6 && Math.abs(localY) <= pad.height / 2 + 1e-6;
             }),
-            `${definition.name}/${option.value}: lead contact follows ${side}/${mirror}/${rotation}`);
+            `${definition.name}/${option.value}: lead crosses pad at depth ${depth} for ${side}/${mirror}/${rotation}`);
         }
-        assert.ok(mesh.verts.every(vertex => side === 'bottom' ? vertex.y <= surface + 1e-6 : vertex.y >= surface - 1e-6));
+        const extent = pads.some(pad => pad.drill > 0) ? 2.1 : 0;
+        const tip = side === 'bottom' ? Math.max(...mesh.verts.map(vertex => vertex.y))
+            : Math.min(...mesh.verts.map(vertex => vertex.y));
+        assert.ok(Math.abs(tip - (surface + (side === 'bottom' ? extent : -extent))) < 1e-6,
+            'TH pins protrude exactly 0.5 mm beyond the opposite face; SMT stays on the mounting surface');
+        for (const face of mesh.faces.filter(face => !metalColors.has(face.color.join(',')))) {
+            assert.ok(face.idx.every(index => side === 'bottom'
+                ? mesh.verts[index].y <= surface + 1e-6 : mesh.verts[index].y >= surface - 1e-6),
+            'package bodies and markings remain outside the board');
+        }
+        const offsetMesh = placedMesh(parsed, { ...pl, model3dPlacement: { z: 0.4 } });
+        mesh.verts.forEach((vertex, index) => assert.ok(Math.abs(offsetMesh.verts[index].y
+            - vertex.y - (side === 'bottom' ? -0.4 : 0.4)) < 1e-6, 'authored model height offset is preserved'));
     }
+}
+for (const material of ['external', 'm_180_188_198']) {
+    const parsed = parseObjModel(`newmtl ${material}\nKd 0.7 0.7 0.7\nusemtl ${material}\n`
+        + 'v 0 0 -2.6\nv 1 0 0\nv 0 1 2\nf 1 2 3\n');
+    assert.equal(parsed.source, material === 'external' ? 'easyeda' : 'kicad');
+    const top = placedMesh(parsed, { x: 0, y: 0, side: 'top' });
+    const bottom = placedMesh(parsed, { x: 0, y: 0, side: 'bottom' });
+    assert.equal(Math.min(...top.verts.map(vertex => vertex.y)), 1.6, 'imported models retain minimum-Z seating');
+    assert.equal(Math.abs(Math.max(...bottom.verts.map(vertex => vertex.y))), 0, 'bottom imported model seating unchanged');
 }
 console.log('PASS: package selection, undo, multi-selection, clipboard, persistence, offline preview, PCB sync and posed model contacts');

@@ -1,9 +1,11 @@
 /**
- * Small, original package approximations in millimetres, resting on Z = 0.
+ * Small, original package approximations in millimetres, mounted at Z = 0.
  * Authoring uses centred board-local XY; OBJ Y is reflected for the board viewer.
  * These visual models are not mechanical/manufacturing specifications.
  */
 const cache = new Map();
+// Through the standard 1.6 mm board, with 0.5 mm of lead beyond the opposite face.
+const THROUGH_HOLE_LEAD_BOTTOM = -2.1;
 const colors = {
     plastic: [35, 38, 43],
     metal: [180, 188, 198],
@@ -82,7 +84,7 @@ class Model {
     }
 
     pin(x, y, top, radius = 0.25) {
-        this.round(x, y, 0, radius, top, 'metal', 8);
+        this.round(x, y, THROUGH_HOLE_LEAD_BOTTOM, radius, top, 'metal', 8);
     }
 
     axial(length, radius, height, body, bands = [], halfPitch = 3.81) {
@@ -184,7 +186,7 @@ const builders = new Map([
         model.box(0, 0, 1, 6.3, 9.4, 3.5, 'plastic');
         for (const x of [-3.81, 3.81]) {
             for (const y of [-3.81, -1.27, 1.27, 3.81]) {
-                model.box(x, y, 0, 0.3, 0.55, 1.9, 'metal');
+                model.box(x, y, THROUGH_HOLE_LEAD_BOTTOM, 0.3, 0.55, 1.9, 'metal');
                 model.box(Math.sign(x) * 3.45, y, 1.65, 0.9, 0.55, 1.95, 'metal');
             }
         }
@@ -193,7 +195,7 @@ const builders = new Map([
     }],
     ['Connector_PinHeader_2.54mm:PinHeader_1x02_P2.54mm_Vertical', model => {
         model.box(0, 0, 0.1, 2.54, 5.08, 2.5, 'plastic');
-        for (const y of [-1.27, 1.27]) model.box(0, y, 0, 0.64, 0.64, 8.3, 'gold');
+        for (const y of [-1.27, 1.27]) model.box(0, y, THROUGH_HOLE_LEAD_BOTTOM, 0.64, 0.64, 8.3, 'gold');
     }],
     ['Button_Switch_THT:SW_PUSH_6mm', model => {
         model.box(0, 0, 0.5, 6, 6, 3, 'plastic');
@@ -201,7 +203,7 @@ const builders = new Map([
         model.round(0, 0, 3.3, 1.65, 4.8, 'plastic', 16);
         for (const x of [-3.25, 3.25]) {
             for (const y of [-2.25, 2.25]) {
-                model.box(x, y, 0, 0.5, 0.5, 1.4, 'metal');
+                model.box(x, y, THROUGH_HOLE_LEAD_BOTTOM, 0.5, 0.5, 1.4, 'metal');
             }
         }
     }],

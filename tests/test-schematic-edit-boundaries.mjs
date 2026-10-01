@@ -33,6 +33,7 @@ function fixture(shape = new Circle({ radius: 5 })) {
     const app = Object.create(SchematicApp.prototype);
     Object.assign(app, {
         project, document: project.schematicDocument, fileManager: project.fileManager,
+        eventBus: { emit() {} },
         currentTool: 'select', interactionState: 'idle',
         viewport: { svg: { style: {} } }, selection: new SelectionManager(),
         renderShapes() {}, _hideCrosshair() {}, _removeBoxSelectElement() {},
@@ -162,5 +163,47 @@ for (const action of ['undo', 'redo']) {
     app.interactionState = 'drawing';
     app.history[action] = () => { throw new Error('Drawing retains history ownership'); };
     assert.equal(runSchematicHistoryAction(app, action), false);
+}
+for (const tool of ['wire', 'line', 'rect', 'circle', 'arc', 'polygon', 'text', 'net', 'noconnect']) {
+    for (const started of [false, true]) {
+        if (started && ['text', 'net', 'noconnect'].includes(tool)) continue;
+        const { app } = fixture();
+        const svgNode = () => ({ style: {}, setAttribute() {}, appendChild() {}, remove() {} });
+        document.createElementNS = svgNode;
+        app.viewport.contentLayer = svgNode();
+        app.componentPicker = { isOpen: false };
+        app._updateShapePanelOptions = () => {};
+        app._onOptionsChanged = () => {};
+        app._setActiveRibbonTab = tab => { app.activeTab = tab; };
+        app._setActiveToolButton = toolId => { app.activeButton = toolId; };
+        app._onToolSelected(tool);
+        assert.equal(app.activeTab, 'properties');
+        assert.equal(app.currentTool, tool);
+        if (started) {
+            app.interactionState = 'drawing';
+            app.isDrawing = true;
+            app.previewElement = svgNode();
+            app.drawStart = { x: 0, y: 0 };
+        }
+        listeners.get('keydown')({ key: 'Escape', target: { tagName: 'svg' },
+            preventDefault() {}, stopPropagation() {}, stopImmediatePropagation() {} });
+        assert.equal(app.currentTool, 'select', `${tool}/${started}: one Escape returns to Select`);
+        assert.equal(app.interactionState, 'idle');
+        assert.equal(app.activeButton, 'select');
+        assert.equal(app.activeTab, 'home', `${tool}/${started}: no empty Properties tab after cancellation`);
+        assert.equal(app.viewport.svg.style.cursor, 'default');
+        assert.equal(app.isDrawing, false);
+        assert.equal(app.previewElement ?? null, null);
+        assert.equal(app._toolGhost ?? null, null);
+    }
+}
+{
+    const { app } = fixture();
+    app.componentPicker = { isOpen: false };
+    app._updateShapePanelOptions = () => {};
+    app.activeTab = 'properties';
+    app._setActiveRibbonTab = tab => { app.activeTab = tab; };
+    app._onToolSelected('select');
+    assert.equal(app.activeTab, 'properties', 'Select preserves Properties when an existing shape is selected');
 }
 console.log('PASS schematic keyboard/ribbon history cleanup, undo/redo rollback, snapshot readiness and transient-mode ownership');

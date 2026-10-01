@@ -71,6 +71,7 @@ export class ComponentPicker {
         this.element.innerHTML = `
             <div class="cp-header">
                 <span class="cp-title">Components</span>
+                <button type="button" class="cp-close app-modal-close" title="Close component picker" aria-label="Close component picker">&times;</button>
             </div>
             <div class="cp-body">
                 <div class="cp-mode-toggle">
@@ -143,6 +144,7 @@ export class ComponentPicker {
         }
         
         // Bind events
+        this.element.querySelector('.cp-close').addEventListener('click', () => this.close());
         this.packageSelect.addEventListener('change', () => {
             this._selectBuiltInPackage(this.packageSelect.value);
         });
@@ -182,8 +184,6 @@ export class ComponentPicker {
                 this._selectComponent(this.selectedComponent);
             }
         });
-        
-        // Toggle control removed - panel is managed by toolbox and ESC
         
         // Mode toggle buttons
         this.modeButtons.forEach(btn => {
@@ -2794,25 +2794,19 @@ export class ComponentPicker {
      * Toggles the component picker panel open or closed.
      */
     toggle() {
-        this.isOpen = !this.isOpen;
         if (this.isOpen) {
-            this.element.classList.remove('collapsed');
-            // Re-initialize lazy loading now that the element is visible
-            if (!this.lazyLoader && this.componentItems.size > 0) {
-                this._setupLazyLoading();
-            }
-            // Register with ModalManager so ESC will close the picker
-            ModalManager.push('componentPicker', () => {
-                this.close();
-                this.eventBus.emit('component:pickerClosed');
-            });
-            if (this.searchMode === 'lcsc' && this.searchQuery.trim().length < 2) {
-                this._prepareKiCadIndex();
-            }
-        } else {
-            this.element.classList.add('collapsed');
-            // Unregister from ModalManager
-            ModalManager.pop('componentPicker');
+            this.close();
+            return;
+        }
+        this.isOpen = true;
+        this.element.classList.remove('collapsed');
+        // Re-initialize lazy loading now that the element is visible
+        if (!this.lazyLoader && this.componentItems.size > 0) {
+            this._setupLazyLoading();
+        }
+        ModalManager.push('componentPicker', () => this.close());
+        if (this.searchMode === 'lcsc' && this.searchQuery.trim().length < 2) {
+            this._prepareKiCadIndex();
         }
     }
     
@@ -2820,15 +2814,17 @@ export class ComponentPicker {
      * Closes the component picker panel and cleans up the lazy loader.
      */
     close() {
-        if (this.isOpen) {
-            this.toggle();
-        }
+        const wasOpen = this.isOpen;
+        this.isOpen = false;
+        this.element.classList.add('collapsed');
+        ModalManager.pop('componentPicker');
         this._disposeModel3dViewer();
         // Cleanup lazy loader to save memory
         if (this.lazyLoader) {
             this.lazyLoader.destroy();
             this.lazyLoader = null;
         }
+        if (wasOpen) this.eventBus.emit('component:pickerClosed');
     }
     
     /**

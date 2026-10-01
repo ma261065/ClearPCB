@@ -15,7 +15,9 @@ const cases = [
     ['Button_Switch_THT:SW_PUSH_6mm', [-3.25, 3.25].flatMap(x => [-2.25, 2.25].map(y => [x, y])), [7.2, 6, 4.8]],
     ['Package_TO_SOT_SMD:SOT-23', [[-0.95, 1.1], [0.95, 1.1], [0, -1.1]], [2.9, 2.8, 1.3]],
 ];
+const throughHoleFootprints = new Set(cases.slice(0, -1).map(([footprint]) => footprint));
 for (const entry of Object.values(builtInPackageLayouts)) {
+    if (entry.pads.some(([, , , , drill]) => drill > 0)) throughHoleFootprints.add(entry.footprint);
     if (cases.some(([footprint]) => footprint === entry.footprint)) continue;
     cases.push([entry.footprint, entry.pads.map(([x, y]) => [x, y]), [
         Math.max(entry.body[0], ...entry.pads.map(([x, , width]) => Math.abs(x) * 2 + width)) + 2,
@@ -77,7 +79,7 @@ for (const [footprint, pads, maxSize] of cases) {
     const mesh = parseObjModel(obj);
     assert.ok(mesh);
     meshes.set(footprint, mesh);
-    assert.equal(mesh.source, 'easyeda', 'No unintended KiCad rotation');
+    assert.equal(mesh.source, 'builtin', 'Authored mounting plane without KiCad rotation');
     assert.ok(mesh.vertices.length < 800 && mesh.faces.length < 1200, `${footprint}: modest mesh`);
     assert.ok(mesh.vertices.every(vertex => Object.values(vertex).every(Number.isFinite)));
     assert.ok(colors(mesh).size >= 2, `${footprint}: body and lead colours`);
@@ -86,10 +88,12 @@ for (const [footprint, pads, maxSize] of cases) {
         Math.min(...mesh.vertices.map(vertex => vertex[axis])),
         Math.max(...mesh.vertices.map(vertex => vertex[axis])),
     ]);
-    assert.equal(bounds[2][0], 0, `${footprint}: on board surface`);
+    const leadBottom = throughHoleFootprints.has(footprint) ? -2.1 : 0;
+    assert.equal(bounds[2][0], leadBottom, `${footprint}: TH leads extend through the board; SMT stays on its surface`);
     for (let axis = 0; axis < 3; axis++) {
         const [min, max] = bounds[axis];
-        assert.ok(max - min > 0 && max - min <= maxSize[axis] + 1e-6, `${footprint}: mm size bounds`);
+        assert.ok(max - min > 0 && max - min <= maxSize[axis] + (axis === 2 ? -leadBottom : 0) + 1e-6,
+            `${footprint}: unchanged XY and above-board size bounds`);
         if (axis < 2) assert.ok(Math.abs(min + max) < 1e-6, `${footprint}: centred XY`);
     }
 
@@ -141,12 +145,17 @@ for (const [footprint, pads, maxSize] of cases) {
             }
         }
     }
-    const contacts = mesh.faces.filter(face => face.idx.every(i => mesh.vertices[i].z === 0));
+    const contacts = mesh.faces.filter(face => face.idx.every(i => mesh.vertices[i].z === leadBottom));
     for (const [x, boardY] of pads) {
         assert.ok(contacts.some(face =>
             ['180,188,198', '211,166,57'].includes(face.color.join(',')) &&
             containsXY(face.idx.map(i => mesh.vertices[i]), x, -boardY)),
-        `${footprint}: metallic lead at pad (${x}, ${boardY}) on board surface`);
+        `${footprint}: metallic lead at pad (${x}, ${boardY}) at the correct tip depth`);
+    }
+    for (const vertices of solids.values()) {
+        if (!vertices.some(vertex => vertex.z < 0)) continue;
+        assert.equal(Math.min(...vertices.map(vertex => vertex.z)), -2.1, 'every extended lead has the same tip depth');
+        assert.ok(Math.max(...vertices.map(vertex => vertex.z)) > 0, 'lead is continuous through the mounting plane');
     }
     for (const face of contacts) {
         const triangle = face.idx.map(i => mesh.vertices[i]);

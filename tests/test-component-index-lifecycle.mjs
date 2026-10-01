@@ -9,6 +9,16 @@ const { ComponentPicker } = await import('../src/components/ComponentPicker.js')
 const { KiCadFetcher } = await import('../src/components/KiCadFetcher.js');
 const { createGenerationGate, createDebouncedRunner } = await import('../src/components/async-control.js');
 const { ModalManager } = await import('../src/core/ModalManager.js');
+const { onToolSelected, onComponentPickerClosed } = await import('../src/ui/modules/tool.js');
+
+const css = readFileSync(new URL('../src/ui/schematic.css', import.meta.url), 'utf8');
+const closeStyle = css.match(/\.cp-close\s*\{([^}]+)\}/)?.[1] || '';
+for (const dimension of ['width', 'height']) {
+    assert.ok(Number(closeStyle.match(new RegExp(`\\b${dimension}:\\s*(\\d+)px`))?.[1]) >= 36,
+        `Picker close button has a usable ${dimension}`);
+}
+assert.ok(Number(closeStyle.match(/font-size:\s*(\d+)px/)?.[1]) >= 24, 'Picker X is clearly visible');
+assert.match(closeStyle, /flex-shrink:\s*0/, 'Header cannot shrink the close target');
 
 const schematic = readFileSync(new URL('../src/ui/SchematicApp.js', import.meta.url), 'utf8');
 const warmup = schematic.match(/this\.componentLibrary\.kicadFetcher\?\.ensureIndexLoaded\(\)\s*\?\.catch\([^;]+;/);
@@ -236,4 +246,96 @@ assert.equal(ModalManager.top(), null);
     assert.equal(fetcher.libraryIndex, usable, 'Failed background refresh preserves an existing usable index');
     assert.equal(writes.length, 1);
 }
-console.log('PASS on-demand component indexing, Local/cache behavior, progress ownership and first-search errors');
+{
+    const createElement = document.createElement;
+    const node = () => {
+        const classes = new Set(), events = new Map(), controls = new Map();
+        return {
+            style: {}, innerHTML: '',
+            classList: { add: value => classes.add(value), remove: value => classes.delete(value),
+                contains: value => classes.has(value) },
+            addEventListener: (name, callback) => events.set(name, callback),
+            click: () => events.get('click')?.(), focus() {},
+            querySelector(selector) {
+                if (!controls.has(selector)) controls.set(selector, node());
+                return controls.get(selector);
+            },
+            querySelectorAll: () => [],
+        };
+    };
+    document.createElement = node;
+    try {
+        for (const action of ['button', 'escape', 'toggle', 'close']) for (const placing of [false, true]) {
+            const { picker } = fixture({ mode: 'local' });
+            picker._createDOM();
+            assert.match(picker.element.innerHTML, /<button type="button" class="cp-close app-modal-close"[^>]*aria-label="Close component picker"[^>]*>&times;<\/button>/,
+                'accessible X button uses the existing close-button styling');
+            let closed = 0, disposed = 0, lazyDestroyed = 0, cancelled = 0;
+            const changes = [];
+            const app = {
+                currentTool: 'select', interactionState: 'idle', componentPicker: picker,
+                viewport: { svg: { style: {} } },
+                selection: { clearSelection() {}, getSelection: () => [] },
+                renderShapes() {}, _cancelDrawing() {}, _hideCrosshair() {},
+                _updateShapePanelOptions() {}, _updatePropertiesPanel() {},
+                _setToolCursor(tool) { this.viewport.svg.style.cursor = tool === 'select' ? 'default' : 'crosshair'; },
+                _setActiveToolButton(tool) { this.activeButton = tool; },
+                _onToolSelected(tool) { changes.push(tool); onToolSelected(this, tool); },
+                _cancelComponentPlacement() { cancelled++; this.placingComponent = null; },
+            };
+            picker._disposeModel3dViewer = () => { disposed++; };
+            picker.eventBus.emit = name => {
+                if (name === 'component:pickerClosed') {
+                    assert.equal(picker.isOpen, false);
+                    assert.equal(ModalManager.top(), null);
+                    assert.equal(picker.lazyLoader, null, 'cleanup finishes before the app switches tools');
+                    closed++;
+                    onComponentPickerClosed(app);
+                } else if (name === 'component:selected') {
+                    app.placingComponent = {};
+                    app.interactionState = 'placing';
+                }
+            };
+            app._onToolSelected('component');
+            picker.lazyLoader = { destroy() { lazyDestroyed++; } };
+            if (placing) {
+                picker._normalizeDefinition = value => value;
+                picker._updatePreview = () => {};
+                picker._setPlaceBtnLoading = () => {};
+                picker._setPreviewLoading = () => {};
+                picker._beginPlacement({ name: 'Resistor' });
+                assert.equal(app.currentTool, 'component', 'Place Component still starts placement, not Select');
+                assert.equal(picker.isOpen, true);
+                assert.equal(closed, 0);
+            }
+            if (action === 'button') picker.element.querySelector('.cp-close').click();
+            else if (action === 'escape') ModalManager.top().onEscape();
+            else picker[action]();
+            assert.equal(picker.isOpen, false);
+            assert.ok(picker.element.classList.contains('collapsed'));
+            assert.equal(ModalManager.top(), null);
+            assert.equal(app.currentTool, 'select', `${action}: closing returns to Select`);
+            assert.equal(app.interactionState, 'idle');
+            assert.equal(app.activeButton, 'select');
+            assert.equal(app.viewport.svg.style.cursor, 'default');
+            assert.equal(cancelled, placing ? 1 : 0);
+            assert.equal(disposed, 1);
+            assert.equal(lazyDestroyed, 1);
+            assert.deepEqual(changes, ['component', 'select'], 'no duplicate/reentrant tool transition');
+            picker.close();
+            assert.equal(closed, 1, 'repeated closure does not emit duplicate notifications');
+
+            app._onToolSelected('component');
+            assert.equal(ModalManager.top().id, 'componentPicker', 'picker can reopen normally');
+            app._onToolSelected('wire');
+            assert.equal(picker.isOpen, false);
+            assert.equal(app.currentTool, 'wire', 'closing as part of another tool selection must not override it');
+            assert.equal(app.activeButton, 'wire');
+            assert.equal(closed, 2);
+            assert.equal(ModalManager.top(), null);
+        }
+    } finally {
+        document.createElement = createElement;
+    }
+}
+console.log('PASS component index lifecycle, accessible picker close, Select restoration and placement/tool handoff');

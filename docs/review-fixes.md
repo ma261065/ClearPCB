@@ -250,6 +250,45 @@ and real line-edit pointer lifecycles. Related pad, text, picture-refresh and
 live DRC tests also pass. Checked diagnostics are clean. No browser testing,
 full routing gate or commit for this follow-up.
 
+### Built-in through-hole lead extension
+
+Built-in through-hole model pins now extend 2.1 mm below the mounting plane,
+leaving 0.5 mm beyond the standard 1.6 mm board. This includes cylindrical leads
+and the rectangular DIP, pin-header and tactile-switch pins. The OBJ parser
+recognizes the built-in procedural header so the board viewer retains Z = 0
+as the mounting plane instead of lifting the body to align the longer tips.
+Imported-model seating, SMT geometry, body heights and footprint/drill
+dimensions remain unchanged.
+
+Four focused regression files pass, covering all package variants, closed
+meshes, material winding, persistence, package changes and per-pad metal
+cross-sections at the mounting face, inside the board, opposite face and lead
+tip. Top/bottom, mirrored and rotated placements and explicit height offsets
+are tested. All 32 SMT model OBJs are also byte-identical to the committed
+versions. No browser testing, full routing gate or commit for this change.
+
+### Component picker close control
+
+Added an accessible header X with a nonshrinking 36-by-36-pixel target and a
+24-pixel glyph, retaining the existing close-button hover/focus styling. All
+picker closure paths now share cleanup and publish one closed event, returning
+Component mode to Select and cancelling any active placement. Switching to a
+different tool still retains the requested tool; Place Component still begins
+placement without closing the picker. Repeated close calls do not re-emit.
+Three focused regression files pass, covering button/Escape/toggle/direct
+closure, tool/cursor/button state, cleanup, reopening, placement handoff,
+asynchronous indexing and existing schematic edit boundaries. Checked
+diagnostics and whitespace are clean. No browser testing or commit.
+
+Follow-up: returning to Select with no selection now activates Home instead
+of leaving Properties showing "None Selected". A keyboard-path regression
+reproduced the stale tab before the fix and now checks all nine drawing tools,
+including cancellation before drawing and during multi-click drawing. Switching
+to Select with an existing selection preserves its Properties. Three focused
+suites pass: component-index lifecycle, schematic edit boundaries and schematic
+selection modifiers. Close-button dimensions and glyph sizing are checked in
+the stylesheet fixture; no browser testing was performed.
+
 ### Scheduled DRC worker integration evidence
 
 An isolated full application, with real models/renderers and blocked native

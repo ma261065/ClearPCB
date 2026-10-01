@@ -84,12 +84,12 @@ for (const [name, original] of canonical) {
         const mesh = parseObjModel(result.model3dObj);
         assert.ok(mesh.vertices.length < 800 && mesh.faces.length < 1200);
         assert.ok(mesh.vertices.every(vertex => Object.values(vertex).every(Number.isFinite)));
-        assert.equal(mesh.source, 'easyeda');
+        assert.equal(mesh.source, 'builtin');
         const bounds = ['x', 'y', 'z'].map(axis => [
             Math.min(...mesh.vertices.map(vertex => vertex[axis])),
             Math.max(...mesh.vertices.map(vertex => vertex[axis])),
         ]);
-        assert.equal(bounds[2][0], 0);
+        assert.equal(bounds[2][0], th ? -2.1 : 0);
         assert.ok(Math.abs(bounds[0][0] + bounds[0][1]) < 1e-6);
         assert.ok(Math.abs(bounds[1][0] + bounds[1][1]) < 1e-6);
         for (const [axis, size] of [['x', 'width'], ['y', 'height']]) {
@@ -98,7 +98,7 @@ for (const [name, original] of canonical) {
             assert.ok(Math.abs(min + max) < 1e-6, 'Real footprint parser centres the copper bbox');
         }
         const contacts = mesh.faces.filter(face =>
-            face.idx.every(i => mesh.vertices[i].z === 0)
+            face.idx.every(i => mesh.vertices[i].z === bounds[2][0])
             && ['180,188,198', '211,166,57'].includes(face.color.join(',')));
         for (const pad of fp.pads) {
             assert.ok(contacts.some(face =>
