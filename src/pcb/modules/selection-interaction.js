@@ -89,7 +89,7 @@ export function showPcbSelectionProperties(app) {
     }
 }
 
-/** Start a state-machine-owned select gesture. Returns true when consumed. */
+/** Start an anchor gesture; context-menu actions may request floating placement. */
 export function beginPcbAnchorInteraction(app, adapter, anchor, worldPos, floating = false) {
     if (adapter.locked) return false;
     const anchorId = anchor.id ?? anchor.key;
@@ -220,7 +220,14 @@ export function finishSelectionInteraction(app, commit = true, worldPos = null) 
     if (commit && worldPos && app._pcbSelectionInteraction?.mode === 'cycle') updateSelectionInteraction(app, worldPos);
     const state = app._pcbSelectionInteraction;
     if (!state) return false;
-    let floating = false;
+    if (commit && state.mode === 'anchor' && !state.moved
+        && ['shape', 'track', 'fill'].includes(state.adapter.kind)
+        && String(state.anchorId).startsWith('mid:')) {
+        state.mode = 'floating-anchor';
+        renderPcbSelectionAnchors(app);
+        if (app.viewport?.svg) app.viewport.svg.style.cursor = selectionInteractionCursor(app);
+        return true;
+    }
     try {
         if (state.mode === 'cycle') {
             if (commit) {
@@ -235,21 +242,8 @@ export function finishSelectionInteraction(app, commit = true, worldPos = null) 
                 }
             }
         } else if (state.mode === 'anchor') {
-            if (commit && !state.moved && ['shape', 'track', 'fill'].includes(state.adapter.kind)
-                && String(state.anchorId).startsWith('mid:')) {
-                state.mode = 'floating-anchor';
-                renderPcbSelectionAnchors(app);
-                if (app.viewport?.svg) app.viewport.svg.style.cursor = selectionInteractionCursor(app);
-                floating = true;
-                return true;
-            }
             if (commit && worldPos && state.anchor?.symbol === 'rotate') state.adapter.updateAnchorDrag?.(worldPos);
-            const result = state.adapter.endAnchorDrag?.(commit, { moved: state.moved });
-            if (commit && result?.floating) {
-                state.mode = 'floating-anchor';
-                floating = true;
-                return true;
-            }
+            state.adapter.endAnchorDrag?.(commit, { moved: state.moved });
         } else if (state.mode === 'floating-anchor') {
             state.adapter.endAnchorDrag?.(false, { moved: true });
         } else if (state.mode === 'move') {
@@ -259,16 +253,14 @@ export function finishSelectionInteraction(app, commit = true, worldPos = null) 
             state.entry.endMove?.(commit, { moved: state.moved, startWorld: state.startWorld });
         }
     } finally {
-        if (!floating) {
-            app._pcbSelectionInteraction = null;
-            refreshBoxSelectionHighlights(app);
-            if (state.anchor?.symbol === 'rotate' && app.viewport?.svg) app.viewport.svg.style.cursor = 'default';
-        }
+        app._pcbSelectionInteraction = null;
+        refreshBoxSelectionHighlights(app);
+        if (state.anchor?.symbol === 'rotate' && app.viewport?.svg) app.viewport.svg.style.cursor = 'default';
     }
     return true;
 }
 
-/** Place a click-release floating anchor at its current pointer position. */
+/** Place an anchor picked up by a midpoint click or context-menu action. */
 export function placeFloatingSelectionInteraction(app) {
     const state = app._pcbSelectionInteraction;
     if (state?.mode !== 'floating-anchor') return false;

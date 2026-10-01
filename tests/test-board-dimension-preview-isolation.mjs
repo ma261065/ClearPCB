@@ -32,6 +32,7 @@ class Input {
     constructor(value) { this.value = value; this.listeners = new Map(); this.validity = ''; }
     addEventListener(name, listener) { this.listeners.set(name, listener); }
     setCustomValidity(message) { this.validity = message; }
+    reportValidity() { this.reportedValidity = this.validity; return !this.validity; }
     emit(name, event = {}) { this.listeners.get(name)?.({ preventDefault() {}, stopPropagation() {}, ...event }); }
 }
 let currentInputs = new Map();
@@ -334,28 +335,100 @@ for (const key of [{ key: 'Escape' }, { key: 'z', ctrlKey: true }, { key: 'y', c
     endBoardOutlineResize(app);
     assert.equal(app.history.undoStack.length, 0, 'Resize returning to the starting dimensions is a no-op');
 }
-{
-    const { app, model } = fixture(false), before = model.captureGeometry();
+for (const mode of ['rectangle', 'default-rectangle', 'circle', 'same-size-circle']) {
+    const { app, model } = fixture(false);
+    if (mode === 'same-size-circle') Object.assign(model.board, { width: 30, height: 30, radius: 0 });
+    const before = model.captureGeometry(), originalDimensions = { ...model.board };
     const overlay = new Element(), controls = new Map([
+        ['#boardDlgShape', new Input('rect')],
+        ['#boardDlgRectangleSizes', new Element()],
+        ['#boardDlgCircleSizes', new Element()],
+        ['#boardDlgDiameter', new Input(String(Math.min(model.board.width, model.board.height)))],
         ['#boardDlgWidth', new Input(String(model.board.width))],
         ['#boardDlgHeight', new Input(String(model.board.height))],
         ['#boardDlgRadius', new Input(String(model.board.radius))],
         ['#boardDlgOk', new Input('')],
     ]);
     overlay.querySelector = selector => controls.get(selector);
-    overlay.addEventListener = () => {};
+    const listeners = new Map();
+    overlay.addEventListener = (name, listener) => listeners.set(name, listener);
     document.createElement = () => overlay;
     document.body = new Element();
+    let dirty = 0;
+    app._markDirty = () => { dirty++; };
     app._closeBoardDimensionsDialog = PCBApp.prototype._closeBoardDimensionsDialog;
     PCBApp.prototype._showBoardDimensionsDialog.call(app);
-    controls.get('#boardDlgWidth').value = '66.123456789';
-    controls.get('#boardDlgWidth').emit('input');
+    assert.ok(overlay.innerHTML.includes('Tip: Edit the board outline after creation for more complex shapes'));
+    const shape = controls.get('#boardDlgShape');
+    shape.value = 'circle'; shape.emit('change');
+    assert.equal(controls.get('#boardDlgRectangleSizes').style.display, 'none');
+    assert.equal(controls.get('#boardDlgCircleSizes').style.display, 'block');
+    shape.value = 'rect'; shape.emit('change');
+    assert.equal(controls.get('#boardDlgRectangleSizes').style.display, 'flex');
+    assert.equal(controls.get('#boardDlgCircleSizes').style.display, 'none');
+    const circle = mode.endsWith('circle');
+    if (circle) {
+        shape.value = 'circle'; shape.emit('change');
+        const diameter = controls.get('#boardDlgDiameter'), initialDiameter = diameter.value;
+        for (const invalid of ['', '0', '-10', '4', 'Infinity']) {
+            diameter.value = invalid; diameter.emit('input');
+            controls.get('#boardDlgOk').emit('click');
+            assert.equal(diameter.reportedValidity, 'Enter a diameter of at least 5 mm.');
+            assert.equal(app._boardDimensionsOverlay, overlay);
+            assert.equal(app.history.undoStack.length, 0);
+            assert.deepEqual(model.captureGeometry(), before);
+        }
+        diameter.value = initialDiameter;
+        if (mode === 'circle') controls.get('#boardDlgDiameter').value = '66.123456789';
+        controls.get('#boardDlgDiameter').emit('input');
+        assert.equal(diameter.validity, '');
+        controls.get('#boardDlgWidth').value = '999';
+        controls.get('#boardDlgHeight').value = '999';
+        controls.get('#boardDlgRadius').value = '20';
+    } else if (mode === 'rectangle') {
+        controls.get('#boardDlgWidth').value = '66.123456789';
+        controls.get('#boardDlgWidth').emit('input');
+    }
     assert.deepEqual(model.captureGeometry(), before);
     assert.equal(getBoardDimensionPreview(app), undefined, 'Dimensions dialog remains command-only');
-    controls.get('#boardDlgOk').emit('click');
-    assert.equal(model.board.width, 66.123456789);
-    assert.equal(app.history.undoStack.length, 1);
+    if (circle) listeners.get('keydown')({ key: 'Enter' });
+    else controls.get('#boardDlgOk').emit('click');
+    const expectedWidth = mode === 'same-size-circle' ? 30
+        : mode === 'default-rectangle' ? originalDimensions.width : 66.123456789;
+    assert.equal(model.board.width, expectedWidth);
+    const outline = getBoardOutline(model);
+    assert.equal(outline.kind, circle ? 'circle' : 'rect');
+    if (circle) {
+        assert.equal(model.board.height, expectedWidth);
+        assert.equal(model.board.radius, 0);
+        assert.equal(outline.radius, expectedWidth / 2);
+        assert.equal(outline.x, expectedWidth / 2);
+        assert.equal(outline.y, -expectedWidth / 2);
+    } else {
+        assert.equal(model.board.height, originalDimensions.height);
+        assert.equal(model.board.radius, originalDimensions.radius);
+    }
+    assert.equal(app.history.undoStack.length, mode === 'default-rectangle' ? 0 : 1);
+    assert.equal(dirty, mode === 'default-rectangle' ? 1 : 0);
     assert.equal(app._boardDimensionsOverlay, null);
+    const saved = model.serialize();
+    const copy = new ProjectDocument().pcbDocument;
+    copy.load(saved);
+    assert.deepEqual(copy.serialize().boardShapes, saved.boardShapes, 'The selected outline survives save/load');
+    assert.equal(getBoardOutline(copy).kind, circle ? 'circle' : 'rect');
+    assert.ok(Math.abs(copy.board.width - expectedWidth) <= 0.0001,
+        'Reloaded dimensions reflect geometry rounded to the file format precision');
+    if (mode !== 'default-rectangle') {
+        const created = structuredClone(outline);
+        app.history.undo();
+        assert.deepEqual(getBoardOutline(model), rectangleBoardOutline(
+            originalDimensions.width, originalDimensions.height, originalDimensions.radius));
+        app.history.redo();
+        assert.deepEqual(getBoardOutline(model), created);
+    }
+    controls.get('#boardDlgOk').emit('click');
+    assert.equal(app.history.undoStack.length, mode === 'default-rectangle' ? 0 : 1,
+        'Closed dialog controls cannot create another outline');
 }
 console.log('PASS Escape/undo/redo cancellation, large-board stationary pickup and command-only dimensions dialog');
 

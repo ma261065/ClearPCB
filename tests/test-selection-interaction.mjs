@@ -219,7 +219,6 @@ function expect(name, condition) {
                 updateAnchorDrag() { updates++; },
                 endAnchorDrag(_commit, options) {
                     endCalls.push(options);
-                    return options.place ? undefined : { floating: true };
                 },
             },
         },
@@ -227,12 +226,12 @@ function expect(name, condition) {
 
     expect('anchor update is consumed', updateSelectionInteraction(app, { x: 4, y: 0 }));
     expect('anchor movement crosses the shared threshold', app._pcbSelectionInteraction.moved);
-    expect('adapter receives floating update', updates === 1);
-    expect('click-release is consumed', finishSelectionInteraction(app, true));
-    expect('adapter can retain a floating interaction', app._pcbSelectionInteraction?.mode === 'floating-anchor');
-    expect('placement click is consumed', placeFloatingSelectionInteraction(app));
-    expect('placement clears the shared interaction', app._pcbSelectionInteraction === null);
-    expect('placement reaches the adapter', endCalls[1]?.place === true);
+    expect('adapter receives held-drag update', updates === 1);
+    expect('release is consumed', finishSelectionInteraction(app, true));
+    expect('release finishes the interaction', app._pcbSelectionInteraction === null);
+    expect('release reaches the adapter once', endCalls.length === 1 && endCalls[0].moved);
+    expect('movement after release is ignored', !updateSelectionInteraction(app, { x: 8, y: 0 }) && updates === 1);
+    expect('ordinary anchor release leaves nothing to drop', !placeFloatingSelectionInteraction(app));
 }
 
 {
@@ -268,31 +267,34 @@ function expect(name, condition) {
     expect('Escape cancels a floating interaction', endCalls[0] === false && app._pcbSelectionInteraction === null);
 }
 
-{
-    const floatingShapeAdapter = {
-        endAnchorDrag(commit, options) {
-            return commit && !options.moved && !options.place ? { floating: true } : undefined;
-        },
-    };
+for (const kind of ['shape', 'track', 'fill']) for (const anchorId of [0, 'mid:0']) {
+    let ended = 0;
     const app = {
         viewport: { scale: 1 },
         _pcbSelectionInteraction: {
             mode: 'anchor',
             startWorld: { x: 0, y: 0 },
             moved: false,
-            adapter: floatingShapeAdapter,
+            anchorId,
+            adapter: { kind, endAnchorDrag() { ended++; } },
         },
     };
 
     finishSelectionInteraction(app, true);
-    expect('an untouched generic shape anchor becomes floating', app._pcbSelectionInteraction?.mode === 'floating-anchor');
+    if (anchorId === 'mid:0') {
+        expect(`${kind} midpoint click sticks to the cursor`, ended === 0 && app._pcbSelectionInteraction?.mode === 'floating-anchor');
+        expect(`${kind} midpoint follows the released pointer`, updateSelectionInteraction(app, { x: 5, y: 4 }));
+        expect(`${kind} midpoint drops on the next click`, placeFloatingSelectionInteraction(app) && ended === 1);
+    } else {
+        expect(`${kind} existing node click ends without floating`, ended === 1 && app._pcbSelectionInteraction === null);
+        expect(`${kind} existing node cannot follow the released pointer`, !updateSelectionInteraction(app, { x: 5, y: 4 }));
+    }
 }
 
 {
     let committed = false;
     const fillAdapter = {
         endAnchorDrag(commit, options) {
-            if (commit && !options.moved && !options.place) return { floating: true };
             committed = commit;
         },
     };

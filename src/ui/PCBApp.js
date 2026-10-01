@@ -881,17 +881,8 @@ export default class PCBApp {
                 this._endPasteDrop();
                 return;
             }
-            // A click-release anchor move follows the pointer until the next
-            // left-click places it. The shared selection controller owns the
-            // lifecycle for Tracks and generic board-shape midpoint inserts.
+            // Midpoint and context-menu split/conversion previews drop on the next click.
             if (e.button === 0 && placeFloatingSelectionInteraction(this)) {
-                this.viewport.hideCrosshair();
-                svg.style.cursor = 'default';
-                return;
-            }
-            if (e.button === 0 && this._vertexDrag?.floating) {
-                finishVertexDrag(this);
-                this._vertexDragDownScreen = null;
                 this.viewport.hideCrosshair();
                 svg.style.cursor = 'default';
                 return;
@@ -1443,11 +1434,8 @@ export default class PCBApp {
             } else if (this._refDrag) {
                 this._handleRefDrag(e);
             } else if (this._vertexDrag) {
-                // Distinguish a press-drag (mode 1, place on mouse-up) from a
-                // click that arms move mode (mode 2, follow-the-mouse). Once the
-                // pointer travels past the threshold while the button is held,
-                // it is unambiguously a drag.
-                if (!this._vertexDrag.floating && this._vertexDragDownScreen) {
+                // Preserve click-to-refine selection without treating a drag as a click.
+                if (this._vertexDragDownScreen) {
                     const ddx = e.clientX - this._vertexDragDownScreen.x;
                     const ddy = e.clientY - this._vertexDragDownScreen.y;
                     if (Math.hypot(ddx, ddy) > 3) this._vertexDrag.userDragged = true;
@@ -1632,39 +1620,22 @@ export default class PCBApp {
                 this._endRefDrag();
             }
             if (this._vertexDrag && !finishedSelectionInteraction) {
-                // Mode 2 (click to enter move mode): the node was pressed and
-                // released without dragging. Instead of committing, keep the
-                // drag alive as a floating node that follows the mouse and is
-                // placed on the next click. Only single-node moves qualify;
-                // segment drags always place on mouse-up.
-                if (!this._vertexDrag.floating
-                    && this._vertexDrag.mode === 'node'
-                    && !this._vertexDrag.userDragged) {
-                    this._vertexDrag.floating = true;
-                    this._vertexDragDownScreen = null;
-                    svg.style.cursor = 'grabbing';
-                    this._updateVertexDragCrosshair();
-                } else {
-                    this._vertexDragDownScreen = null;
-                    // A pure click (no drag) on a segment of the already-
-                    // selected track refines down to that single segment.
-                    const segmentClick = this._vertexDrag.mode === 'segment'
-                        && !this._vertexDrag.userDragged
-                        && this._segmentClickEdgeId;
-                    const segEdgeId = this._segmentClickEdgeId;
-                    finishVertexDrag(this);
-                    this.viewport.hideCrosshair();
-                    svg.style.cursor = 'default';
-                    // Refresh the halo on the (possibly reshaped) selected track.
-                    const selectedTrack = getSelectedTrack(this);
-                    if (selectedTrack) {
-                        const t = selectedTrack;
-                        clearTrackSelection(this);
-                        if (segmentClick && t.edges?.has(segEdgeId)) {
-                            selectTrackSegment(this, t, segEdgeId);
-                        } else {
-                            selectTrackOrVia(this, { type: 'track', track: t });
-                        }
+                this._vertexDragDownScreen = null;
+                const segmentClick = this._vertexDrag.mode === 'segment'
+                    && !this._vertexDrag.userDragged
+                    && this._segmentClickEdgeId;
+                const segEdgeId = this._segmentClickEdgeId;
+                finishVertexDrag(this);
+                this.viewport.hideCrosshair();
+                svg.style.cursor = 'default';
+                const selectedTrack = getSelectedTrack(this);
+                if (selectedTrack) {
+                    const t = selectedTrack;
+                    clearTrackSelection(this);
+                    if (segmentClick && t.edges?.has(segEdgeId)) {
+                        selectTrackSegment(this, t, segEdgeId);
+                    } else {
+                        selectTrackOrVia(this, { type: 'track', track: t });
                     }
                 }
                 this._segmentClickEdgeId = null;
@@ -2978,20 +2949,30 @@ export default class PCBApp {
             <div class="app-modal" style="min-width:300px">
                 <div class="app-modal-title">Board Dimensions</div>
                 <div class="app-modal-message">Enter the board size in millimetres.</div>
-                <div style="display:flex;gap:10px;margin-top:10px">
+                <label for="boardDlgShape" style="font-size:11px;color:var(--text-secondary)">Shape</label>
+                <select class="app-modal-input" id="boardDlgShape">
+                    <option value="rect">Rectangle</option>
+                    <option value="circle">Circle</option>
+                </select>
+                <div id="boardDlgRectangleSizes" style="display:flex;gap:10px;margin-top:10px">
                     <div style="flex:1">
-                        <label style="font-size:11px;color:var(--text-secondary)">Width (mm)</label>
+                        <label for="boardDlgWidth" style="font-size:11px;color:var(--text-secondary)">Width (mm)</label>
                         <input class="app-modal-input" id="boardDlgWidth" type="number" value="${this._boardWidth}" min="5" step="1" style="margin-top:2px">
                     </div>
                     <div style="flex:1">
-                        <label style="font-size:11px;color:var(--text-secondary)">Height (mm)</label>
+                        <label for="boardDlgHeight" style="font-size:11px;color:var(--text-secondary)">Height (mm)</label>
                         <input class="app-modal-input" id="boardDlgHeight" type="number" value="${this._boardHeight}" min="5" step="1" style="margin-top:2px">
                     </div>
                     <div style="flex:1">
-                        <label style="font-size:11px;color:var(--text-secondary)">Corner R (mm)</label>
+                        <label for="boardDlgRadius" style="font-size:11px;color:var(--text-secondary)">Corner R (mm)</label>
                         <input class="app-modal-input" id="boardDlgRadius" type="number" value="${Number(this._boardRadius).toFixed(2)}" min="0" step="0.5" style="margin-top:2px">
                     </div>
                 </div>
+                <div id="boardDlgCircleSizes" style="display:none;margin-top:10px">
+                    <label for="boardDlgDiameter" style="font-size:11px;color:var(--text-secondary)">Diameter (mm)</label>
+                    <input class="app-modal-input" id="boardDlgDiameter" type="number" value="${Math.min(this._boardWidth, this._boardHeight)}" min="5" step="1" style="margin-top:2px">
+                </div>
+                <div class="app-modal-message" style="margin-top:10px">Tip: Edit the board outline after creation for more complex shapes</div>
                 <div class="app-modal-actions">
                     <button class="app-modal-btn app-modal-ok" id="boardDlgOk">OK</button>
                 </div>
@@ -2999,10 +2980,21 @@ export default class PCBApp {
         document.body.appendChild(overlay);
         this._boardDimensionsOverlay = overlay;
 
+        const shapeInput = /** @type {HTMLSelectElement} */ (overlay.querySelector('#boardDlgShape'));
+        const rectangleSizes = /** @type {HTMLElement} */ (overlay.querySelector('#boardDlgRectangleSizes'));
+        const circleSizes = /** @type {HTMLElement} */ (overlay.querySelector('#boardDlgCircleSizes'));
+        const diameterInput = /** @type {HTMLInputElement} */ (overlay.querySelector('#boardDlgDiameter'));
         const widthInput = /** @type {HTMLInputElement} */ (overlay.querySelector('#boardDlgWidth'));
         const heightInput = /** @type {HTMLInputElement} */ (overlay.querySelector('#boardDlgHeight'));
         const radiusInput = /** @type {HTMLInputElement} */ (overlay.querySelector('#boardDlgRadius'));
         const okBtn = overlay.querySelector('#boardDlgOk');
+
+        shapeInput.addEventListener('change', () => {
+            const circle = shapeInput.value === 'circle';
+            rectangleSizes.style.display = circle ? 'none' : 'flex';
+            circleSizes.style.display = circle ? 'block' : 'none';
+        });
+        diameterInput.addEventListener('input', () => diameterInput.setCustomValidity(''));
 
         radiusInput?.addEventListener('input', () => {
             if (Number.isFinite(radiusInput.valueAsNumber)) {
@@ -3011,7 +3003,9 @@ export default class PCBApp {
         });
 
         setTimeout(() => {
-            if (this._boardDimensionsOverlay === overlay) widthInput?.focus();
+            if (this._boardDimensionsOverlay === overlay) {
+                (shapeInput.value === 'circle' ? diameterInput : widthInput).focus();
+            }
         }, 50);
 
         const accept = () => {
@@ -3024,12 +3018,27 @@ export default class PCBApp {
                 height: this._boardHeight,
                 radius: this._boardRadius,
             };
-            const after = {
+            const diameter = parseFloat(diameterInput.value);
+            const circle = shapeInput.value === 'circle';
+            if (circle && (!Number.isFinite(diameter) || diameter < 5)) {
+                diameterInput.setCustomValidity('Enter a diameter of at least 5 mm.');
+                diameterInput.reportValidity();
+                return;
+            }
+            const after = circle ? {
+                width: diameter,
+                height: diameter,
+                radius: 0,
+                outline: {
+                    id: 'board-outline', kind: 'circle', layer: 'board-outline', lineWidth: 0.2,
+                    filled: false, x: diameter / 2, y: -diameter / 2, radius: diameter / 2,
+                },
+            } : {
                 width: Math.max(5, w),
                 height: Math.max(5, h),
                 radius: Math.max(0, r),
             };
-            if (before.width !== after.width || before.height !== after.height || before.radius !== after.radius) {
+            if (circle || before.width !== after.width || before.height !== after.height || before.radius !== after.radius) {
                 this.history.execute(new SetBoardOutlineCommand(this, before, after));
             } else if (!this._boardOutlineDrawn) {
                 // Dimensions unchanged from defaults, so no command runs — but

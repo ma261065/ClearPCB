@@ -18,7 +18,7 @@
 
 import { updateStickyWires, updateSnapHighlight, resolveWireSnapPosition, computeAnchorCollinearSnap, computeSegmentDragSnap, computeStickyWireSnaps, applyOffGridNeighborSnap, buildCollinearChain, bridgeCollinearPinEndpoints, SNAP_SCREEN_PX, COLLINEAR_EPSILON, VERTEX_EPSILON, PIN_SNAP_TOL } from './wire.js';
 import { renderGuideLines } from '../../shapes/axis-glow.js';
-import { commitAnchorDrag, clearDragState, commitMoveDrag, commitSegmentDrag, resolveAnchorDragOnMouseUp, revertSegmentDragIfNoMove, areCapturedStatesEqual, commitShapeJoin } from '../../ui/modules/drag.js';
+import { clearDragState, commitMoveDrag, commitSegmentDrag, resolveAnchorDragOnMouseUp, revertSegmentDragIfNoMove, commitShapeJoin } from '../../ui/modules/drag.js';
 import { detectTJunction, showAnchorContextMenu, showSegmentContextMenu, showLabelContextMenu, showComponentContextMenu } from '../../ui/modules/context-menu.js';
 import { hasAny3DModel } from '../../components/model3d-source.js';
 import { updateToolGhost } from '../../ui/modules/tool.js';
@@ -547,18 +547,19 @@ function beginBoxSelectSession(app, worldPos, additive) {
     app.interactionState = 'boxSelect';
 }
 
-function promotePendingAnchorDragSession(app, screenPos) {
+function promotePendingAnchorDragSession(app, screenPos, midpointPickup = false) {
     const pending = app.pendingAnchorDrag;
     if (!pending) return false;
 
     const dx = screenPos.x - pending.screenPos.x;
     const dy = screenPos.y - pending.screenPos.y;
-    if (Math.hypot(dx, dy) < DRAG_THRESHOLD_PX) return false;
+    if (!midpointPickup && Math.hypot(dx, dy) < DRAG_THRESHOLD_PX) return false;
 
     app.pendingAnchorDrag = null;
     const { shape, anchorId, snapped: startSnapped, preInsertState } = pending;
 
     beginAnchorDragSession(app, { shape, anchorId, startSnapped, screenPos, preInsertState });
+    app.drag.midpointPlacement = midpointPickup;
 
     if (shape.getAnchorSnapMode(anchorId) === 'axis') {
         const anchor = shape.getAnchors().find(a => a.id === anchorId);
@@ -608,20 +609,6 @@ function promotePendingAnchorDragSession(app, screenPos) {
 
 // ─── Drag commit helpers ───────────────────────────────────────────
 
-function commitPendingMidpointAfterDrag(app) {
-    const pending = app.pendingAnchorDrag;
-    if (!pending?.preInsertState) return;
-    const { shape, preInsertState } = pending;
-    if (shape.type === 'wire') collapseRedundantWirePoints(app, shape);
-    const afterState = app._captureShapeState(shape);
-    if (!areCapturedStatesEqual(preInsertState, afterState)) {
-        app._applyShapeState(shape, preInsertState);
-        const command = new ModifyShapeCommand(app, shape, preInsertState, afterState);
-        app.history.execute(command);
-    }
-    shape.selected = true;
-}
-
 function handleDragEnd(app) {
     if (!app.drag) return;
 
@@ -650,7 +637,6 @@ function handleDragEnd(app) {
         }
     }
 
-    commitPendingMidpointAfterDrag(app);
     finalizeDragInteraction(app, { refreshTextEdit: true });
     app.interactionState = resolveState(app);
 }
@@ -1074,16 +1060,6 @@ export const idleState = {
             }
         }
 
-        // Commit lingering anchor drag from a previous interaction
-        if (app.drag && app.drag.mode === 'anchor' && app.drag.beforeState
-            && (app.didDrag || (app.drag.wireStates && app.drag.wireStates.size > 0))) {
-            commitAnchorDrag(app, app.drag.shape, app.drag.beforeState, app.drag.wireStates, app.drag.ncLinks, app.drag.junctionBeforeWireStates, app.drag.junctionBeforeLabelTextStates);
-            finalizeDragInteraction(app);
-            app.didDrag = true;
-            event.preventDefault();
-            return;
-        }
-
         app.didDrag = false;
         if (app.pendingAnchorDrag && !app.drag) app.pendingAnchorDrag = null;
 
@@ -1227,23 +1203,14 @@ export const idleState = {
 
     mouseup(app, event, { worldPos, snapped }) {
         if (event.button !== 0) return;
-    },
-
-    click(app, event, { worldPos }) {
-        let pendingSegmentToggle = app._pendingShapeSegmentToggle;
-        app._pendingShapeSegmentToggle = null;
-        if (app.viewport.isPanning) return;
-        if (app.skipClickSelection) { app.skipClickSelection = false; return; }
-        if (app.didDrag) { app.didDrag = false; return; }
-
         const pendingNode = app.pendingAnchorDrag;
-        if (pendingNode?.shape?.type === 'polyline' && pendingNode.anchorId?.startsWith('mid_')) {
-            const edgeId = pendingNode.anchorId.slice(4);
-            if (pendingNode.shape.edges.has(edgeId)) {
-                pendingSegmentToggle = { shape: pendingNode.shape, edgeId };
-                app.pendingAnchorDrag = null;
-            }
+        if (pendingNode && (pendingNode.preInsertState
+            || pendingNode.shape.type === 'polyline' && pendingNode.anchorId?.startsWith('mid_'))) {
+            promotePendingAnchorDragSession(app, pendingNode.screenPos, true);
+            app.viewport.svg.style.cursor = 'move';
+            return;
         }
+        app.pendingAnchorDrag = null;
         if (pendingNode?.shape?.type === 'polyline'
             && pendingNode.shape.nodes?.has(pendingNode.anchorId)
             && app.selection.getSelection().length === 1
@@ -1254,9 +1221,17 @@ export const idleState = {
             app._updateShapeSelectionTip?.();
             app._updatePropertiesPanel?.(app.selection.getSelection());
             app._setActiveRibbonTab?.('properties');
+            app.skipClickSelection = true;
             event.preventDefault();
-            return;
         }
+    },
+
+    click(app, event, { worldPos }) {
+        const pendingSegmentToggle = app._pendingShapeSegmentToggle;
+        app._pendingShapeSegmentToggle = null;
+        if (app.viewport.isPanning) return;
+        if (app.skipClickSelection) { app.skipClickSelection = false; return; }
+        if (app.didDrag) { app.didDrag = false; return; }
 
         if (pendingSegmentToggle
             && app.selection.getSelection().length === 1
@@ -1736,6 +1711,15 @@ export const moveDragState = {
  * anchorDrag — dragging an anchor point.
  */
 export const anchorDragState = {
+    mousedown(app, event, positions) {
+        if (event.button !== 0 || !app.drag.midpointPlacement) return;
+        anchorDragState.mousemove(app, event, positions);
+        handleDragEnd(app);
+        app.skipClickSelection = true;
+        app.viewport.svg.style.cursor = '';
+        event.preventDefault();
+    },
+
     mousemove(app, event, { worldPos, snapped }) {
         if (app.viewport.isPanning) return;
 
@@ -1852,6 +1836,7 @@ export const anchorDragState = {
 
     mouseup(app, event) {
         if (event.button !== 0) return;
+        if (app.drag.midpointPlacement) return;
         handleDragEnd(app);
     }
 };

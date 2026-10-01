@@ -77,10 +77,8 @@ export function bindMouseEvents(app) {
         }
         const positions = getEventPositions(e, app.viewport);
         dispatch(app, 'mouseup', e, positions);
-        const pending = app.pendingAnchorDrag;
-        const midpointClick = pending?.shape?.type === 'polyline' && pending.anchorId?.startsWith('mid_');
         if (e.button === 0 && app.interactionState === 'idle' && !app.didDrag && !app.skipClickSelection
-            && (app._pendingShapeSegmentToggle || midpointClick)) {
+            && app._pendingShapeSegmentToggle) {
             dispatch(app, 'click', e, positions);
             segmentClickHandled = true;
         }

@@ -196,16 +196,29 @@ for (const reason of ['invalid', 'locked']) {
     assert.equal(app._fillDrag, null);
     cases++;
 }
-{
+for (const action of ['place', 'cancel', 'drag']) {
     const { app, fill, adapter, start, target } = fixture('midpoint', false);
     const before = fill.captureState();
     assert.equal(beginPcbAnchorInteraction(app, adapter, { id: 'mid:0', ...start }, start), true);
-    finishSelectionInteraction(app, true);
-    assert.equal(app._pcbSelectionInteraction.mode, 'floating-anchor');
-    assert.deepEqual(fill.captureState(), before, 'Click-release insertion remains unauthored while floating');
+    if (action !== 'drag') {
+        finishSelectionInteraction(app, true);
+        assert.equal(app._pcbSelectionInteraction.mode, 'floating-anchor');
+    }
+    assert.deepEqual(fill.captureState(), before, 'Midpoint pickup remains a preview');
+    assert.equal(app.history.undoStack.length, 0);
     updateSelectionInteraction(app, target);
-    assert.deepEqual(fill.captureState(), before);
-    placeFloatingSelectionInteraction(app);
+    assert.deepEqual(fill.captureState(), before, 'Movement does not author the preview until placed');
+    if (action === 'cancel') {
+        finishSelectionInteraction(app, false);
+        assert.deepEqual(fill.captureState(), before);
+        assert.equal(app.history.undoStack.length, 0);
+        assert.equal(app._fillDrag, null);
+        assert.equal(app._pcbSelectionInteraction, null);
+        cases++;
+        continue;
+    }
+    if (action === 'place') placeFloatingSelectionInteraction(app);
+    else finishSelectionInteraction(app, true);
     assert.equal(fill.outline.length, 5);
     assert.equal(app.history.undoStack.length, 1);
     assert.equal(app._fillDrag, null);

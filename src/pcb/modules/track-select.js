@@ -131,19 +131,12 @@ export function createTrackSelectionAdapter(app, track, id) {
     const current = () => displayedTrack(app, track);
     const beginDrag = (worldPos, options) => {
         const started = startVertexDrag(app, track, worldPos, options);
-        if (started && app._vertexDrag) app._vertexDrag.userDragged = false;
         app._setPcbStatus?.();
         return started;
     };
     const updateDrag = (worldPos) => {
         const drag = app._vertexDrag;
         if (drag?.original !== track) return;
-        if (drag && !drag.floating) {
-            const threshold = 3 / Math.max(0.01, app.viewport?.scale || 1);
-            if (Math.hypot(worldPos.x - drag.grabX, worldPos.y - drag.grabY) > threshold) {
-                drag.userDragged = true;
-            }
-        }
         updateVertexDrag(app, worldPos);
         app._updateVertexDragCrosshair?.();
     };
@@ -158,7 +151,6 @@ export function createTrackSelectionAdapter(app, track, id) {
         const drag = app._vertexDrag;
         if (options.place && drag) {
             const nodeId = app._trackEdit?.track === track ? app._trackEdit.nodeId : null;
-            drag.floating = false;
             finishVertexDrag(app);
             const selectedTrack = getSelectedTrack(app);
             if (selectedTrack) {

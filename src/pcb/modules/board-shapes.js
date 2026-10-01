@@ -2247,11 +2247,13 @@ export function showBoardShapeProperties(app, shape) {
     const mixedKind = initialTargets.some((target) => target.kind !== initialTargets[0].kind);
     const segmentLabel = shape.kind === 'arc' || boardShapeSegmentBulge(shape, selectedSegment) ? 'Arc' : 'Line';
     const standalone = shape.kind === 'arc' || (shape.kind === 'line' && shape.points.length === 2);
-    app._setPcbPropsTitle?.(selectedNode != null
-        ? `${shapeKindLabel(shape.kind)} Node`
-        : selectedSegment != null
-            ? `${segmentLabel}${standalone ? '' : ' Segment'}`
-        : mixedKind ? 'Mixed' : shapeKindLabel(initialTargets[0].kind));
+    app._setPcbPropsTitle?.(outlineTarget
+        ? selectedNode != null ? 'Board Outline Node'
+            : selectedSegment != null ? 'Board Outline Segment'
+                : 'Board Outline'
+        : selectedNode != null ? `${shapeKindLabel(shape.kind)} Node`
+            : selectedSegment != null ? `${segmentLabel}${standalone ? '' : ' Segment'}`
+                : mixedKind ? 'Mixed' : shapeKindLabel(initialTargets[0].kind));
     const binding = createBoardShapePropertyBinding(app);
     const lineWidthMinimum = Math.max(...initialTargets.map((target) => boardShapeLineWidthMinimum(target)));
     const initialLineWidth = selectedSegment == null
@@ -2333,7 +2335,6 @@ export function showBoardShapeProperties(app, shape) {
             ${bulgeHtml}
         `;
 
-    if (outlineTarget) app._setPcbPropsTitle?.(selectedNode != null ? 'Board Outline Node' : selectedSegment != null ? 'Board Outline Segment' : 'Board Outline');
     const outlineLocked = /** @type {HTMLInputElement|null} */ (document.getElementById('pcbPropOutlineLocked'));
     outlineLocked?.addEventListener('change', () => {
         setPcbLayerLocked(app, 'board-outline', outlineLocked.checked);

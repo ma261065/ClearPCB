@@ -459,8 +459,8 @@ export function commitCollinearCleanup(app, track) {
  * Split a degree-2 Track node into two coincident nodes (detaching one
  * incident edge to the new node) and immediately float the new node
  * under the cursor, mirroring the schematic "Split" action. The floating
- * node drops on the next left-click (handled in PCBApp's mousedown via
- * the `floating` flag). Returns true if the split started.
+ * node drops on the next left-click through the selection controller.
+ * Returns true if the split started.
  *
  * @param {object} app
  * @param {object} track

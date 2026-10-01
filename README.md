@@ -28,6 +28,24 @@ npx serve .
 
 Then open `http://localhost:8000` in a browser.
 
+### Initial board outline
+
+On first opening **PCB Layout**, choose **Rectangle** or **Circle** in the
+**Board Dimensions** dialog. Rectangles use width, height and corner radius;
+circles use diameter. All sizes are in millimetres.
+
+Tip: Edit the board outline after creation for more complex shapes
+
+### Moving nodes
+
+In both editors, hold the mouse button while dragging a node or handle, then
+release to place it. Clicking and releasing selects the node; subsequent mouse
+movement does not move it. Clicking a **(+) midpoint insertion handle** picks up
+the new node: move the pointer, then click to place it. Midpoints also support
+holding the button to drag and releasing to place.
+Context-menu **Split** and **Convert to Arc** actions still follow the pointer
+until the next click places the result. Drawing and paste placement are unchanged.
+
 ### Built-in packages and 3D models
 
 Choose a built-in component in the **Local** library, then use **Package / model**

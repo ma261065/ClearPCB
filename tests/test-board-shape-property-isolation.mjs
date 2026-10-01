@@ -76,10 +76,11 @@ const cases = [
     ['imageRotation', 'pcbPropImageRot', 73],
 ];
 
-function fixture(kind, count = 1, unrelatedCount = 1) {
+function fixture(kind, count = 1, unrelatedCount = 1, shapeLayer = 'top-copper') {
     const project = new ProjectDocument(), model = project.pcbDocument;
     const shapes = Array.from({ length: count }, (_, index) => {
-        const shape = { id: `shape-${index}`, kind: 'polygon', layer: 'top-copper', lineWidth: 0.23456789,
+        const shape = { id: shapeLayer === 'board-outline' ? 'board-outline' : `shape-${index}`,
+            kind: 'polygon', layer: shapeLayer, lineWidth: 0.23456789,
             points: [{ x: 2, y: 3 }, { x: 12, y: 3 }, { x: 12, y: 9 }, { x: 2, y: 9 }],
             filled: false, cornerRadius: 0.123456789, copperMode: 'add' };
         if (kind === 'diameter') { shape.kind = 'circle'; delete shape.points; Object.assign(shape, { x: 7, y: 6, radius: 3.123456789 }); }
@@ -123,6 +124,19 @@ function fixture(kind, count = 1, unrelatedCount = 1) {
     renderBoardShape(app, unrelated[0]);
     showBoardShapeProperties(app, shapes[0]);
     return { app, model, project, shapes, adapters, group, unrelated, pours: () => pours };
+}
+
+{
+    const { app, shapes } = fixture('cornerRadius', 1, 1, 'board-outline');
+    const outline = shapes[0];
+    const kind = fields.get('pcbPropOutlineKind');
+    kind.value = 'circle';
+    kind.fire('change');
+    assert.equal(outline.kind, 'circle');
+    assert.equal(outline.radius, 3);
+    assert.equal(app.history.undoStack.length, 1);
+    app.history.undo();
+    assert.equal(outline.kind, 'polygon');
 }
 
 for (const index of [0, 1]) for (const action of ['Delete', 'Backspace', 'context']) {

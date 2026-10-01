@@ -9,6 +9,23 @@ assert.equal(typeof document, 'undefined');
 assert.equal(typeof window, 'undefined');
 {
     const model = new PcbDocument();
+    const before = { ...model.board };
+    const outline = { id: 'board-outline', kind: 'circle', layer: 'board-outline',
+        lineWidth: 0.2, filled: false, x: 20, y: -20, radius: 20 };
+    const expected = structuredClone(outline);
+    const command = new SetBoardOutlineCommand(model, before,
+        { width: 40, height: 40, radius: 0, outline });
+    outline.radius = 999;
+    command.execute();
+    assert.deepEqual(getBoardOutline(model), expected, 'Explicit outline is captured independently of caller data');
+    assert.deepEqual(model.board, { width: 40, height: 40, radius: 0 });
+    command.undo();
+    assert.deepEqual(getBoardOutline(model), rectangleBoardOutline(before.width, before.height, before.radius));
+    command.execute();
+    assert.deepEqual(getBoardOutline(model), expected);
+}
+{
+    const model = new PcbDocument();
     const artwork = { id: 'board-outline', kind: 'circle', layer: 'top-silk', x: 3, y: -3, radius: 1 };
     const input = { stackup: defaultPcbStackup(),
         board: { width: 47.123456, height: 29.234567, radius: 1.234567 }, boardShapes: [artwork] };

@@ -275,7 +275,7 @@ for (const kind of ['line', 'polygon', 'rect', 'track']) {
 }
 
 for (const kind of ['line', 'track']) {
-    for (const action of ['place', 'cancel', 'drag']) {
+    for (const action of ['place', 'cancel', 'drag', 'drag-cancel']) {
         const points = [{ x: 0, y: 0 }, { x: 10, y: 0 }];
         const object = kind === 'track' ? new Track({ points })
             : { id: `midpoint-${action}`, kind, layer: 'top-silk', lineWidth: 0.2, points };
@@ -291,19 +291,19 @@ for (const kind of ['line', 'track']) {
         assert.ok(beginSelectionInteraction(app, { x: 5, y: 0 }, false));
         assert.ok(String(app._pcbSelectionInteraction.anchorId).startsWith('mid:'));
         assert.equal(positions().length, 3, `${kind}: pressing (+) inserts a provisional node`);
-        if (action !== 'drag') {
+        if (action === 'place' || action === 'cancel') {
             finishSelectionInteraction(app, true);
-            assert.equal(app._pcbSelectionInteraction?.mode, 'floating-anchor', `${kind}: (+) click keeps the new node attached`);
-            assert.equal(commands.length, 0, `${kind}: insertion is not committed on mouse-up`);
+            assert.equal(app._pcbSelectionInteraction?.mode, 'floating-anchor', `${kind}: (+) click sticks to the cursor`);
+            assert.equal(commands.length, 0, `${kind}: pickup creates no history until placed`);
         }
         updateSelectionInteraction(app, { x: 5, y: 2 });
         assert.ok(positions().some(point => point.x === 5 && point.y === 2), `${kind}: inserted node follows the cursor`);
-        if (action === 'cancel') {
+        if (action === 'cancel' || action === 'drag-cancel') {
             finishSelectionInteraction(app, false);
             assert.equal(commands.length, 0);
         } else {
-            if (action === 'drag') finishSelectionInteraction(app, true);
-            else assert.ok(placeFloatingSelectionInteraction(app));
+            if (action === 'place') assert.ok(placeFloatingSelectionInteraction(app));
+            else finishSelectionInteraction(app, true);
             assert.equal(commands.length, 1, `${kind}: insertion and movement form one undo step`);
             commands[0].undo();
         }

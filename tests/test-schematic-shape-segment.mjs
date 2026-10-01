@@ -20,10 +20,11 @@ const {
     updatePolylineSegmentDrag,
 } = await import('../src/schematic/modules/polyline-segment-drag.js');
 const { clearShapeSegmentSelection, renderShapeSegmentSelection } = await import('../src/schematic/modules/shape-management.js');
-const { idleState } = await import('../src/schematic/modules/draw-states.js');
+const { idleState, anchorDragState } = await import('../src/schematic/modules/draw-states.js');
 const { updatePropertiesPanel } = await import('../src/ui/modules/properties.js');
 const { Circle } = await import('../src/shapes/circle.js');
 const { Arc } = await import('../src/shapes/arc.js');
+const { Wire } = await import('../src/shapes/wire.js');
 const { setSchematicShapeSegmentType, showSegmentContextMenu, dismissAnchorContextMenu, splitAnchorAndDrag } = await import('../src/ui/modules/context-menu.js');
 const { deleteSelected } = await import('../src/ui/modules/selection.js');
 const { resolveAnchorDragOnMouseUp, commitShapeJoin } = await import('../src/ui/modules/drag.js');
@@ -282,7 +283,10 @@ function commandAppFor(shape) {
         },
         _commandDeleteShapes(entries) { for (const entry of entries) this._commandRemoveShape(entry.shape); },
         _commandRestoreShapes(entries) { for (const entry of entries) this.shapes.splice(entry.index, 0, entry.shape); },
-        history: { execute(command) { app.commands.push(command); command.execute(); } },
+        history: {
+            execute(command) { app.commands.push(command); command.execute(); },
+            record(command) { app.commands.push(command); },
+        },
     });
     return app;
 }
@@ -703,11 +707,16 @@ for (const [name, shape] of cases) {
     app._updatePropertiesPanel = () => {};
     let activeTab = null;
     app._setActiveRibbonTab = tab => { activeTab = tab; };
+    const before = shape.captureState();
+    idleState.mouseup(app, { button: 0, preventDefault() {} }, { worldPos: shape.nodes.get(nodeId) });
     idleState.click(app, { preventDefault() {} }, { worldPos: shape.nodes.get(nodeId) });
-    expect('schematic Node properties preserve pending click-release movement',
-        app.pendingAnchorDrag === pending
+    expect('schematic Node properties end pending movement on release',
+        app.pendingAnchorDrag === null
         && app._selectedShapeNode?.nodeId === nodeId);
     expect('node refinement activates Properties', activeTab === 'properties');
+    idleState.mousemove(app, {}, { screenPos: { x: 200, y: 300 }, worldPos: { x: 2, y: 3 }, snapped: { x: 2, y: 3 } });
+    expect('a selected schematic node does not follow the released pointer', !app.drag
+        && JSON.stringify(shape.captureState()) === JSON.stringify(before));
 }
 
 {
@@ -732,7 +741,7 @@ for (const [name, shape] of cases) {
         app._selectedShapeSegment?.edgeId === edgeId && app._selectedShapeNode === null && activeTab === 'properties');
 }
 
-for (const position of [3, 5]) {
+for (const position of [0, 3]) {
     for (const nativeClick of [false, true]) {
         const originalWindowListener = window.addEventListener;
         const originalQuery = document.querySelector;
@@ -763,8 +772,9 @@ for (const position of [3, 5]) {
             for (let press = 0; press < 2; press++) {
                 svgListeners.get('mousedown')(event);
                 windowListeners.get('mouseup')(event);
-                expect('segment selection completes on release without a native click',
-                    app._selectedShapeSegment?.edgeId === 'e0' && activeTab === 'properties' && updates === press + 1);
+                expect('node/segment selection completes on release without a native click',
+                    (position === 0 ? app._selectedShapeNode?.nodeId === 'n0' : app._selectedShapeSegment?.edgeId === 'e0')
+                    && activeTab === 'properties' && updates === press + 1);
                 expect('release clears pending segment selection and preserves geometry',
                     app._pendingShapeSegmentToggle == null && app.pendingAnchorDrag == null
                     && JSON.stringify(shape.captureState()) === JSON.stringify(before));
@@ -772,6 +782,9 @@ for (const position of [3, 5]) {
                     svgListeners.get('click')(event);
                     expect('native click does not duplicate release selection', updates === press + 1);
                 }
+                idleState.mousemove(app, {}, { screenPos: { x: 900, y: 300 }, worldPos: { x: 9, y: 3 }, snapped: { x: 9, y: 3 } });
+                expect('hover after release cannot start a node drag', !app.drag
+                    && JSON.stringify(shape.captureState()) === JSON.stringify(before));
             }
         } finally {
             window.addEventListener = originalWindowListener;
@@ -779,6 +792,86 @@ for (const position of [3, 5]) {
             globalThis.HTMLElement = originalHTMLElement;
         }
     }
+}
+
+for (const kind of ['wire', 'line', 'polygon', 'rectangle']) for (const action of ['place', 'cancel']) {
+    const originalWindowListener = window.addEventListener;
+    const originalQuery = document.querySelector;
+    const originalHTMLElement = globalThis.HTMLElement;
+    const svgListeners = new Map(), windowListeners = new Map();
+    window.addEventListener = (type, handler) => windowListeners.set(type, handler);
+    document.querySelector = () => null;
+    globalThis.HTMLElement = class {};
+    try {
+        const points = [{ x: 0, y: 0 }, { x: 10, y: 0 }, { x: 10, y: 10 }, { x: 0, y: 10 }];
+        const shape = kind === 'wire' ? new Wire({ points: points.slice(0, 2) })
+            : kind === 'line' ? createLine({ points: points.slice(0, 2) })
+                : kind === 'polygon' ? createPolygon({ points }) : createRect({ x: 0, y: 0, width: 10, height: 10 });
+        const app = commandAppFor(shape);
+        app.currentTool = 'select';
+        app.selection.select(shape);
+        app._removeBoxSelectElement = () => {};
+        app.viewport.svg.addEventListener = (type, handler) => svgListeners.set(type, handler);
+        app.viewport._getCachedRect = () => ({ left: 0, top: 0 });
+        app.viewport.screenToWorld = point => ({ x: point.x / 100, y: point.y / 100 });
+        app.viewport.trackMouse = () => {};
+        const before = shape.captureState();
+        bindMouseEvents(app);
+        const event = { button: 0, buttons: 0, clientX: 500, clientY: 0, preventDefault() {} };
+        svgListeners.get('mousedown')({ ...event, buttons: 1 });
+        windowListeners.get('mouseup')(event);
+        svgListeners.get('click')(event);
+        expect(`${kind} midpoint click starts pickup without committing`, app.interactionState === 'anchorDrag'
+            && app.drag.midpointPlacement && app.commands.length === 0);
+        const target = { ...event, clientY: 300 };
+        svgListeners.get('mousemove')(target);
+        expect(`${kind} picked-up midpoint follows the cursor`, [...shape.nodes.values()].some(point => point.x === 5 && point.y === 3));
+        if (action === 'cancel') {
+            handleEscape(app);
+            expect(`${kind} Escape restores pre-insertion geometry`, !app.drag && app.commands.length === 0
+                && JSON.stringify(shape.captureState()) === JSON.stringify(before));
+        } else {
+            svgListeners.get('mousedown')({ ...target, buttons: 1 });
+            windowListeners.get('mouseup')(target);
+            svgListeners.get('click')(target);
+            expect(`${kind} second click places midpoint exactly once`, !app.drag && app.interactionState === 'idle'
+                && app.commands.length === 1);
+            const after = shape.captureState();
+            svgListeners.get('mousemove')({ ...target, clientY: 600 });
+            expect(`${kind} dropped midpoint stops following`, JSON.stringify(shape.captureState()) === JSON.stringify(after));
+            app.commands[0].undo();
+            expect(`${kind} midpoint undo restores pre-insertion geometry`, JSON.stringify(shape.captureState()) === JSON.stringify(before));
+            app.commands[0].execute();
+            expect(`${kind} midpoint redo restores placed geometry`, JSON.stringify(shape.captureState()) === JSON.stringify(after));
+        }
+    } finally {
+        window.addEventListener = originalWindowListener;
+        document.querySelector = originalQuery;
+        globalThis.HTMLElement = originalHTMLElement;
+    }
+}
+
+for (const midpoint of [false, true]) {
+    const shape = createLine({ points: [{ x: 0, y: 0 }, { x: 10, y: 0 }] });
+    const app = commandAppFor(shape);
+    app.currentTool = 'select';
+    app._removeBoxSelectElement = () => {};
+    const before = shape.captureState();
+    const start = { x: midpoint ? 5 : 0, y: 0 };
+    app.pendingAnchorDrag = { shape, anchorId: midpoint ? 'mid_e0' : 'n0',
+        screenPos: { x: start.x * 100, y: 0 }, snapped: start };
+    const target = { screenPos: { x: 500, y: 300 }, worldPos: { x: 5, y: 3 }, snapped: { x: 5, y: 3 } };
+    idleState.mousemove(app, { buttons: 1 }, target);
+    expect('held movement promotes the pending node drag', app.interactionState === 'anchorDrag' && app.pendingAnchorDrag === null);
+    anchorDragState.mousemove(app, { buttons: 1 }, target);
+    anchorDragState.mouseup(app, { button: 0 });
+    expect('held node/midpoint drag commits on release', !app.drag && app.interactionState === 'idle'
+        && app.commands.length === 1);
+    const after = shape.captureState();
+    idleState.mousemove(app, {}, { ...target, screenPos: { x: 900, y: 600 }, worldPos: { x: 9, y: 6 } });
+    expect('committed schematic drag stops following the pointer', JSON.stringify(shape.captureState()) === JSON.stringify(after));
+    app.commands[0].undo();
+    expect('node/midpoint drag remains undoable', JSON.stringify(shape.captureState()) === JSON.stringify(before));
 }
 
 {
