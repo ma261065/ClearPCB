@@ -3,6 +3,7 @@ import { PCB_LAYERS, buildLayerPanel } from './layers.js';
 import { bindRecentsDropdown } from '../../ui/modules/recents.js';
 import { showPictureImport } from './picture-import.js';
 import { bindDesignSettings } from './design-settings.js';
+import { runPcbHistoryAction, savePcbProject } from './editor-actions.js';
 
 /**
  * Binds PCB-specific UI controls for tools and layers.
@@ -192,14 +193,8 @@ export function bindPcbControls(app) {
     pastePropsBtn?.addEventListener('click', doPaste);
     app._syncClipboardButtons?.();
 
-    undoBtn?.addEventListener('click', () => {
-        if (app._pasteDrop) app._cancelPasteDrop();
-        else app.history?.undo?.();
-    });
-    redoBtn?.addEventListener('click', () => {
-        if (app._pasteDrop) app._cancelPasteDrop();
-        else app.history?.redo?.();
-    });
+    undoBtn?.addEventListener('click', () => runPcbHistoryAction(app, 'undo'));
+    redoBtn?.addEventListener('click', () => runPcbHistoryAction(app, 'redo'));
     app._syncHistoryButtons?.();
 
     // Auto Route button
@@ -426,14 +421,8 @@ function bindPcbFileMenu(app) {
         });
     }
 
-    get('pcbRibbonSave')?.addEventListener('click', async () => {
-        const result = await project()?.save();
-        if (result?.success) app._showSaveToast?.('Saved');
-    });
-    get('pcbRibbonSaveAs')?.addEventListener('click', async () => {
-        const result = await project()?.saveAs();
-        if (result?.success) app._showSaveToast?.('Saved');
-    });
+    get('pcbRibbonSave')?.addEventListener('click', () => savePcbProject(app));
+    get('pcbRibbonSaveAs')?.addEventListener('click', () => savePcbProject(app, true));
     get('pcbRibbonExportPdf')?.addEventListener('click', () => app.savePdf());
     get('pcbRibbonPrint')?.addEventListener('click', () => app.print());
 }

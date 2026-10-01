@@ -137,6 +137,19 @@ pickup remains owned by the image adapter. Tool-specific commit, Escape and
 drawing-mode policies remain with their existing callers; this is not a new
 general-purpose interaction framework.
 
+`pcb/modules/editor-actions.js` is the common keyboard/ribbon entry point for
+Undo, Redo, Save and Save As. Keyboard focus guards and shortcut matching stay
+in the editor; DOM bindings only dispatch actions. History requests use the
+existing keyboard policy: floating paste, dimension previews and group drags
+consume the request by cancelling, while unfinished track/fill/shape drawing
+does not traverse history. Individual-pointer Undo and image-rotation Redo
+retain their existing cleanup semantics before traversing history. Cleanup
+errors propagate without advancing the stacks. The handler's boolean reports
+request consumption, not whether an undo/redo entry existed.
+Save requests resolve `app.project` at invocation, never a global bootstrap.
+The project still owns snapshot readiness, I/O and ordinary failure reporting;
+the shared action shows the saved toast only after a successful result.
+
 Schematic history/dirty callbacks update their own UI, then call
 `ProjectDocument.notifySchematicChanged()`. The project calls the registered
 PCB's `onSchematicChanged()`; PCB never replaces another editor's callbacks.

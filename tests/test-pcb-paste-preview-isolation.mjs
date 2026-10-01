@@ -266,6 +266,7 @@ for (const key of ['Escape', 'Delete', 'z', 'y']) {
 console.log('PASS single-kind/repeated paste, keyboard discard, invalid and missing preview cleanup');
 
 {
+    const { runPcbHistoryAction } = await import('../src/pcb/modules/editor-actions.js');
     const controls = readFileSync(new URL('../src/pcb/modules/controls.js', import.meta.url), 'utf8');
     const start = controls.indexOf("    undoBtn?.addEventListener('click'");
     const end = controls.indexOf('    app._syncHistoryButtons?.();', start);
@@ -274,8 +275,8 @@ console.log('PASS single-kind/repeated paste, keyboard discard, invalid and miss
         const { app, model } = fixture(), before = model.captureGeometry();
         let callback;
         const button = { addEventListener(name, fn) { callback = fn; } };
-        new Function('app', 'undoBtn', 'redoBtn', controls.slice(start, end))(
-            app, action === 'undo' ? button : null, action === 'redo' ? button : null);
+        new Function('app', 'undoBtn', 'redoBtn', 'runPcbHistoryAction', controls.slice(start, end))(
+            app, action === 'undo' ? button : null, action === 'redo' ? button : null, runPcbHistoryAction);
         app.pasteSelection();
         callback();
         assert.equal(app._pasteDrop, null);

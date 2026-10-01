@@ -22,6 +22,7 @@ import { PCB_LAYERS, PCB_OVERLAYS, PCB_COPPER_FILLS, isLayerLocked, isViaLocked,
 import { exportDSN, importSES } from '../pcb/modules/dsn.js';
 import { scheduleDrcRefresh, runDrcNow, invalidateDrcRefresh, disposeDrcRefresh } from '../pcb/modules/drc-refresh.js';
 import { cancelPcbPosePreviews, disposePcbPropertyEditors, hasPcbEditInProgress } from '../pcb/modules/edit-lifecycle.js';
+import { runPcbHistoryAction, savePcbProject } from '../pcb/modules/editor-actions.js';
 import { buildCopperObstacles } from '../pcb/modules/copper-obstacles.js';
 import { hasFabricationContent } from '../pcb/modules/fabrication-snapshot.js';
 import { openPanelizeDialog, renderPanelPreview } from '../pcb/modules/panelization-ui.js';
@@ -165,7 +166,7 @@ import { getBoardOutline, boardBoundary } from '../pcb/modules/board-outline.js'
 import {
     beginBoardOutlineResize, updateBoardOutlineResize, endBoardOutlineResize,
     renderBoardOutlineHandles, hitTestBoardOutlineHandle,
-    getBoardDimensionPreview, finishBoardDimensionPreview, bindBoardDimensionProperties,
+    getBoardDimensionPreview, bindBoardDimensionProperties,
 } from '../pcb/modules/board-outline-resize.js';
 
 /**
@@ -2348,9 +2349,7 @@ export default class PCBApp {
         // dialog instead of saving the project (matching the PCB ribbon Save
         // button, which calls project.save()/saveAs()).
         if ((e.ctrlKey || e.metaKey) && (e.key === 's' || e.key === 'S')) {
-            const w = /** @type {any} */ (window);
-            const result = e.altKey ? w.bootstrap?.project?.saveAs() : w.bootstrap?.project?.save();
-            Promise.resolve(result).then((r) => { if (r?.success) this._showSaveToast('Saved'); });
+            void savePcbProject(this, e.altKey);
             return true;
         }
 
@@ -2445,47 +2444,10 @@ export default class PCBApp {
             return true;
         }
         if (ctrl && !e.shiftKey && (e.key === 'z' || e.key === 'Z')) {
-            if (this._pasteDrop) { this._cancelPasteDrop(); return true; }
-            if (getBoardDimensionPreview(this) || this._boardOutlineResize) {
-                this._boardDimensionPropertyBinding?.cancel();
-                endBoardOutlineResize(this, false);
-                finishBoardDimensionPreview(this);
-                return true;
-            }
-            if (this._groupDrag) {
-                cancelGroupDrag(this);
-                this._pcbSelectionInteraction = null;
-                return true;
-            }
-            finishSelectionInteraction(this, false);
-            if (this._drag) this._endDrag(false);
-            if (this._refDrag) this._endRefDrag(false);
-            if (this._vertexDrag) { cancelVertexDrag(this); this.viewport.hideCrosshair(); }
-            if (this._viaDrag) cancelViaDrag(this);
-            if (this._shapeDrag) {
-                endBoardShapeDrag(this, false);
-                this._clearCursorCrosshair();
-            }
-            this.history.undo();
-            return true;
+            return runPcbHistoryAction(this, 'undo');
         }
         if (ctrl && ((e.key === 'y' || e.key === 'Y') || ((e.key === 'z' || e.key === 'Z') && e.shiftKey))) {
-            if (this._pasteDrop) { this._cancelPasteDrop(); return true; }
-            if (getBoardDimensionPreview(this) || this._boardOutlineResize) {
-                this._boardDimensionPropertyBinding?.cancel();
-                endBoardOutlineResize(this, false);
-                finishBoardDimensionPreview(this);
-                return true;
-            }
-            if (this._groupDrag) {
-                this._cancelPosePreviews();
-                return true;
-            }
-            if (getBoardShapeRotationPreview(this)) {
-                if (!finishSelectionInteraction(this, false)) finishBoardShapeRotationPreview(this);
-            }
-            this.history.redo();
-            return true;
+            return runPcbHistoryAction(this, 'redo');
         }
         if (e.key === 'Delete' || e.key === 'Backspace') {
             if (this._pasteDrop) { this._cancelPasteDrop(); return true; }
