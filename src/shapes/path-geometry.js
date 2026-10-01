@@ -2,6 +2,21 @@ import { distanceToSegment } from '../core/geometry.js';
 import { sampleArcEdge, arcFromBulge, distanceToArcEdge } from './arc-edge.js';
 import { roundedPathCorners, sampleRoundedCorner } from './rounded-path.js';
 
+/** Whether a path node joins two straight, non-collinear edges. */
+export function canRoundPathNode(path, index) {
+    const points = path.points || [];
+    if (!Number.isInteger(index) || index < 0 || index >= points.length || points.length < 3
+        || (path.kind === 'line' && (index === 0 || index === points.length - 1))) return false;
+    const previousIndex = (index + points.length - 1) % points.length;
+    if (path.segmentBulges?.[previousIndex] || path.segmentBulges?.[index]) return false;
+    const vertex = points[index], previous = points[previousIndex], next = points[(index + 1) % points.length];
+    const ax = previous.x - vertex.x, ay = previous.y - vertex.y;
+    const bx = next.x - vertex.x, by = next.y - vertex.y;
+    const firstLength = Math.hypot(ax, ay), secondLength = Math.hypot(bx, by);
+    return firstLength > 1e-9 && secondLength > 1e-9
+        && Math.abs(ax * by - ay * bx) > 1e-9 * firstLength * secondLength;
+}
+
 export function pathStrokeSegments(points, closed, widths, bulges, radii, cornerWidth, circular = false) {
     const effectiveRadii = points.map((_, index) =>
         bulges[(index + points.length - 1) % points.length] || bulges[index] ? 0 : radii[index] || 0);

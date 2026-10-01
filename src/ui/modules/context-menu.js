@@ -319,6 +319,19 @@ export function deleteJunction(app, junctionInfo) {
     app.viewport.svg.style.cursor = 'move';
 }
 
+function finishShapeRefinement(app) {
+    app._selectedShapeNode = null;
+    app._selectedShapeSegment = null;
+    app.selection._notifySelectionChanged();
+    app.renderShapes(true);
+}
+
+function finishShapeRemoval(app) {
+    // Commands already remove selected IDs, so clearSelection() may not notify.
+    app.selection._clearSelection();
+    finishShapeRefinement(app);
+}
+
 /**
  * Delete a wire segment (edge).  If the wire has only one edge, delete the
  * whole wire.  Otherwise remove the edge and split into connected components,
@@ -339,8 +352,7 @@ export function deleteWireSegment(app, wire, edgeId) {
             batch.add(new AddShapeCommand(app, fragment));
         }
         app.history.execute(batch);
-        app.selection.clearSelection();
-        app.renderShapes(true);
+        finishShapeRemoval(app);
         return;
     }
     if (wire.edges.size <= 1) {
@@ -398,6 +410,7 @@ export function deleteWireSegment(app, wire, edgeId) {
     }
 
     app.history.execute(batch);
+    app.selection._notifySelectionChanged();
 }
 
 /**
@@ -407,19 +420,18 @@ export function deleteWire(app, wire) {
     const batch = new BatchCommand('Delete wire');
     batch.add(new DeleteShapesCommand(app, [wire]));
     app.history.execute(batch);
-    app.selection.clearSelection();
-    app.renderShapes(true);
+    finishShapeRemoval(app);
 }
 
 /**
- * Split a degree-2 anchor into two co-located nodes (one for each edge),
- * then enter anchor-drag mode on the new node. Works for any graph-based shape.
+ * Delete a polyline node, retaining surviving geometry and its selection.
  */
 export function deleteSchematicShapeNode(app, shape, nodeId) {
     if (shape?.type !== 'polyline' || shape.locked || !shape.nodes.has(nodeId)) return false;
     if (shape.edges.size <= 1) {
         app.history.execute(new DeleteShapesCommand(app, [shape]));
-        app.selection.clearSelection();
+        finishShapeRemoval(app);
+        return true;
     } else {
         const before = shape.captureState();
         if (!shape.deleteAnchor(nodeId)) return false;
@@ -428,11 +440,8 @@ export function deleteSchematicShapeNode(app, shape, nodeId) {
         shape.applyState(before);
         app.history.execute(new ModifyShapeCommand(app, shape, before, after));
     }
-    app._selectedShapeNode = null;
-    app._selectedShapeSegment = null;
     app.fileManager?.setDirty?.(true);
-    app.renderShapes(true);
-    app._updatePropertiesPanel?.(app.selection.getSelection());
+    finishShapeRefinement(app);
     return true;
 }
 
@@ -454,19 +463,12 @@ export function deleteFocusedSchematicShape(app) {
         app._hideCrosshair?.();
         app.viewport.svg.style.cursor = '';
         if (splitting) {
-            app._selectedShapeNode = null;
-            app._selectedShapeSegment = null;
-            app.renderShapes(true);
-            app._updatePropertiesPanel?.(app.selection.getSelection());
+            finishShapeRefinement(app);
             return true;
         }
     }
     if (shape.nodes.has(nodeId)) return deleteSchematicShapeNode(app, shape, nodeId);
     deleteWireSegment(app, shape, edgeId);
-    app._selectedShapeNode = null;
-    app._selectedShapeSegment = null;
-    app.fileManager?.setDirty?.(true);
-    app._updatePropertiesPanel?.(app.selection.getSelection());
     return true;
 }
 
@@ -800,12 +802,7 @@ export function showSegmentContextMenu(app, shape, edgeId, clientX, clientY) {
 function deleteSchematicShape(app, shape) {
     if (shape.locked) return;
     app.history.execute(new DeleteShapesCommand(app, [shape]));
-    app.selection.clearSelection();
-    app._selectedShapeNode = null;
-    app._selectedShapeSegment = null;
-    app.fileManager?.setDirty?.(true);
-    app.renderShapes(true);
-    app._updatePropertiesPanel?.(app.selection.getSelection());
+    finishShapeRemoval(app);
 }
 
 export function appendArcToLineCommand(app, batch, shape, state = shape.captureState()) {
@@ -824,13 +821,11 @@ export function setSchematicShapeSegmentType(app, shape, edgeId, type, { floatin
         const batch = new BatchCommand('Convert arc to line');
         const line = appendArcToLineCommand(app, batch, shape);
         app.history.execute(batch);
-        app.selection.clearSelection();
-        app.selection.select(line, false);
         app._selectedShapeSegment = { shapeId: line.id, edgeId: [...line.edges.keys()][0] };
         app._selectedShapeNode = null;
+        app.selection.select(line, false);
         app.fileManager?.setDirty?.(true);
         app.renderShapes(true);
-        app._updatePropertiesPanel?.(app.selection.getSelection());
         return true;
     }
     if (shape?.type !== 'polyline' || shape.locked || !shape.edges.has(edgeId)) return false;
@@ -867,7 +862,6 @@ export function setSchematicShapeSegmentType(app, shape, edgeId, type, { floatin
         app._selectedShapeNode = null;
         app.selection.select(arc, false);
         app.renderShapes(true);
-        app._updatePropertiesPanel?.(app.selection.getSelection());
         return true;
     }
     const before = shape.captureState();
@@ -897,7 +891,7 @@ export function setSchematicShapeSegmentType(app, shape, edgeId, type, { floatin
         app.history.execute(new ModifyShapeCommand(app, shape, before, after));
         app.fileManager?.setDirty?.(true);
     }
-    app._updatePropertiesPanel?.(app.selection.getSelection());
+    app.selection._notifySelectionChanged();
     return true;
 }
 
@@ -921,7 +915,6 @@ export function decomposeShapeCorners(app, shape) {
     app.selection?.select?.(result, false);
     app.renderShapes(true);
     app.fileManager?.setDirty?.(true);
-    app._updatePropertiesPanel?.(app.selection?.getSelection?.() || []);
     return true;
 }
 

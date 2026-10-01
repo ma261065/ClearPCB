@@ -231,6 +231,7 @@ function appFor(shape) {
         selection: {
             hitTest() { return shape; },
             getSelection() { return selected; },
+            _notifySelectionChanged: SelectionManager.prototype._notifySelectionChanged,
             select(candidate) {
                 selected.splice(0, selected.length, candidate);
                 candidate.selected = true;

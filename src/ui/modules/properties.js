@@ -8,6 +8,7 @@ import { canDecomposeRoundedCorners } from '../../shapes/shape-decompose.js';
 import { decomposeShapeCorners, appendArcToLineCommand } from './context-menu.js';
 import { hasAny3DModel, openComponent3DFromData } from '../../components/model3d-source.js';
 import { redrawPropertyPreview, createPropertyPreview } from '../../shapes/property-preview.js';
+import { canRoundPathNode } from '../../shapes/path-geometry.js';
 
 /**
  * Initializes the properties panel and subscribes to `selectionChanged`
@@ -250,6 +251,9 @@ export function updatePropertiesPanel(app, selection) {
     const singlePolyline = selection.length === 1 && selection[0].type === 'polyline'
         ? selection[0]
         : null;
+    const selectedNodePath = selectedNode ? selectedNode.shape.toEditablePath() : null;
+    const showNodeCornerRadius = selectedNodePath && canRoundPathNode(selectedNodePath,
+        Object.values(selectedNodePath.nodeIds).indexOf(selectedNode.nodeId));
     const previewPolylineWidth = (value) => {
         if (!singlePolyline) return;
         if (selectedSegment) {
@@ -307,7 +311,8 @@ export function updatePropertiesPanel(app, selection) {
             }
 
             const descriptors = selectedNode
-                ? [{ key: 'cornerRadius', label: 'Corner radius', type: 'number', min: 0, max: 25, step: 0.5 }]
+                ? (showNodeCornerRadius
+                    ? [{ key: 'cornerRadius', label: 'Corner radius', type: 'number', min: 0, max: 25, step: 0.5 }] : [])
                 : selectedSegment
                     ? mergeDescriptors(selection).filter((desc) => desc.key === 'lineWidth')
                     : mergeDescriptors(selection);

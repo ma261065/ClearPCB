@@ -3,7 +3,8 @@ import { ProjectDocument } from '../src/core/ProjectDocument.js';
 import { CommandHistory } from '../src/core/CommandHistory.js';
 import { bulgeRatio } from '../src/core/geometry.js';
 import { showBoardShapeProperties, getBoardShapePropertyPreview, getBoardShapeRotationPreview, createBoardShapeSelectionAdapter,
-    renderBoardShape, startBoardShapeDrag, handleBoardShapeDrag, endBoardShapeDrag } from '../src/pcb/modules/board-shapes.js';
+    renderBoardShape, startBoardShapeDrag, handleBoardShapeDrag, endBoardShapeDrag,
+    deleteBoardShapeVertex, captureBoardShapeState } from '../src/pcb/modules/board-shapes.js';
 import { setPcbSelection } from '../src/pcb/modules/selection-registry.js';
 import { cancelPictureCopperRefresh } from '../src/pcb/modules/picture-refresh.js';
 import { loadPcb } from '../src/pcb/modules/project-state.js';
@@ -121,6 +122,68 @@ function fixture(kind, count = 1, unrelatedCount = 1) {
     renderBoardShape(app, unrelated[0]);
     showBoardShapeProperties(app, shapes[0]);
     return { app, model, project, shapes, adapters, group, unrelated, pours: () => pours };
+}
+
+for (const index of [0, 1]) for (const action of ['Delete', 'Backspace', 'context']) {
+    const { app, model, shapes } = fixture('nodeRadius');
+    const shape = shapes[0];
+    shape.kind = 'line';
+    shape.points = shape.points.slice(0, 2);
+    app._selectedBoardShapeNode = { shapeId: shape.id, index };
+    let activeTab = 'pcb-properties';
+    app._setActiveRibbonTab = tab => { activeTab = tab; };
+    showBoardShapeProperties(app, shape);
+    const before = captureBoardShapeState(shape);
+    if (action === 'context') assert.equal(deleteBoardShapeVertex(app, shape, index), true);
+    else assert.equal(PCBApp.prototype.handleKeyDown.call(app, { key: action }), true);
+    assert.equal(model.boardShapes.includes(shape), false);
+    assert.equal(fields.has('pcbPropShapeNodeX'), false, 'Deleted endpoint Properties must be removed');
+    assert.equal(fields.has('pcbPropShapeNodeCornerRadius'), false);
+    assert.equal(activeTab, 'pcb-home', 'Deleting a two-node line leaves Properties');
+    assert.equal(app._selectedBoardShapeNode, null);
+    assert.equal(app._selectedBoardShapeSegment, null);
+    assert.equal(app.history.undoStack.length, 1);
+    app.history.undo();
+    assert.ok(model.boardShapes.includes(shape));
+    assert.deepEqual(captureBoardShapeState(shape), before);
+    app.history.redo();
+    assert.equal(model.boardShapes.includes(shape), false);
+}
+
+for (const index of [0, 2]) {
+    const { app, model, shapes } = fixture('nodeRadius');
+    const shape = shapes[0];
+    shape.kind = 'line';
+    shape.points = shape.points.slice(0, 3);
+    app._selectedBoardShapeNode = { shapeId: shape.id, index };
+    let activeTab = 'pcb-properties';
+    app._setActiveRibbonTab = tab => { activeTab = tab; };
+    showBoardShapeProperties(app, shape);
+    assert.equal(deleteBoardShapeVertex(app, shape, index), true);
+    assert.ok(model.boardShapes.includes(shape));
+    assert.equal(shape.points.length, 2);
+    assert.equal(activeTab, 'pcb-properties', 'A surviving longer line keeps Properties');
+    assert.equal(fields.has('pcbPropShapeNodeX'), false);
+    assert.ok(fields.has('pcbPropShapeLineWidth'), 'Surviving lines return to whole-object controls');
+}
+
+for (const [kind, points, bulges, expected] of [
+    ['line', [{ x: 0, y: 0 }, { x: 10, y: 0 }], {}, [false, false]],
+    ['line', [{ x: 0, y: 0 }, { x: 10, y: 0 }, { x: 10, y: 10 }], {}, [false, true, false]],
+    ['line', [{ x: 0, y: 0 }, { x: 5, y: 0 }, { x: 10, y: 0 }], {}, [false, false, false]],
+    ['polygon', [{ x: 0, y: 0 }, { x: 10, y: 0 }, { x: 10, y: 10 }], {}, [true, true, true]],
+    ['line', [{ x: 0, y: 0 }, { x: 10, y: 0 }, { x: 10, y: 10 }], { 0: 0.25 }, [false, false, false]],
+]) {
+    const { app, shapes } = fixture('nodeRadius');
+    Object.assign(shapes[0], { kind, points, segmentBulges: bulges });
+    const before = captureBoardShapeState(shapes[0]);
+    for (const [index, showRadius] of expected.entries()) {
+        app._selectedBoardShapeNode = { shapeId: shapes[0].id, index };
+        showBoardShapeProperties(app, shapes[0]);
+        assert.equal(fields.has('pcbPropShapeNodeCornerRadius'), showRadius, `${kind} node ${index}: radius is only for a corner`);
+        assert.ok(fields.has('pcbPropShapeNodeX'), 'Non-corner nodes still expose their position');
+    }
+    assert.deepEqual(captureBoardShapeState(shapes[0]), before, 'Control visibility does not alter authored geometry');
 }
 
 let checked = 0;

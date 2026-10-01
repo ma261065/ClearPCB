@@ -17,7 +17,7 @@
 import { bulgeRatio, bulgePointFromRatio, distanceToSegment } from '../../core/geometry.js';
 import { formatNumberInput, formatNumberInputValue } from '../../core/number-inputs.js';
 import { projectArcBulge, snapArcBulgeToChord, arcBulgeRatio, arcBulgeFromRatio } from '../../shapes/arc-edit.js';
-import { pathHandleDescriptors, pathSegmentAt } from '../../shapes/path-geometry.js';
+import { canRoundPathNode, pathHandleDescriptors, pathSegmentAt } from '../../shapes/path-geometry.js';
 import { joinPaths, remapPathNodes, splitPathSegmentMetadata, deletePathVertex, collapseCollinearPath, deletePathSegment, closePathIfCoincident, resizeRectanglePoints, pointsFormAxisAlignedRect, setPathSegmentType, splitPathAtNode } from '../../shapes/path-operations.js';
 import { validBoardOutline } from './board-outline.js';
 import { shapeFromPoints, shapePreviewPath, advanceShapeDrawing, canFinishShapeAtPoint } from '../../shapes/shape-drawing.js';
@@ -1279,6 +1279,13 @@ export function splitBoardShapeSegmentMetadata(shape, segment) {
     splitPathSegmentMetadata(shape, segment);
 }
 
+function finishBoardShapeRemoval(app) {
+    app._selectedBoardShapeNode = null;
+    app._selectedBoardShapeSegment = null;
+    app._clearProperties?.();
+    app._setActiveRibbonTab?.('pcb-home');
+}
+
 export function deleteSelectedBoardShape(app) {
     const s = getPcbSelection(app, 'shape')[0] || null;
     if (!s) return false;
@@ -1286,7 +1293,7 @@ export function deleteSelectedBoardShape(app) {
     if (isLayerLocked(s.layer)) return false;
     app.history.execute(new RemoveBoardShapeCommand(app, s));
     selectBoardShape(app, null);
-    app._clearProperties?.();
+    finishBoardShapeRemoval(app);
     return true;
 }
 
@@ -1646,6 +1653,7 @@ export function deleteBoardShapeSegment(app, shape, segment) {
     if (shape.kind === 'arc' && segment === 0 && !isLayerLocked(shape.layer)) {
         setPcbSelection(app, []);
         app.history.execute(new RemoveBoardShapeCommand(app, shape));
+        finishBoardShapeRemoval(app);
         return true;
     }
     const count = shape.kind === 'line' ? shape.points.length - 1 : shape.points?.length;
@@ -1657,6 +1665,7 @@ export function deleteBoardShapeSegment(app, shape, segment) {
     setPcbSelection(app, []);
     app.history.execute(new CompoundCommand([new RemoveBoardShapeCommand(app, shape),
         ...parts.map(part => new AddBoardShapeCommand(app, part))]));
+    if (parts.length === 0) finishBoardShapeRemoval(app);
     return true;
 }
 
@@ -1696,6 +1705,7 @@ export function deleteBoardShapeVertex(app, shape, vertexIndex) {
     if (shape.kind === 'line' && points.length <= 2) {
         setPcbSelection(app, []);
         app.history.execute(new RemoveBoardShapeCommand(app, shape));
+        finishBoardShapeRemoval(app);
         return true;
     }
     const before = shapeSnapshot(shape);
@@ -1730,6 +1740,7 @@ export function showBoardShapeContextMenu(app, shape, clientX, clientY, worldPos
     const remove = () => {
         setPcbSelection(app, []);
         app.history.execute(new RemoveBoardShapeCommand(app, shape));
+        finishBoardShapeRemoval(app);
     };
     const items = pathContextActions({ node, segment: segmentIndex != null, curved,
         standalone: shape.kind === 'arc' || (shape.kind === 'line' && shape.points.length === 2),
@@ -2334,7 +2345,7 @@ export function showBoardShapeProperties(app, shape) {
     items.innerHTML = selectedNode != null
         ? `<div class="prop-row"><label>X (mm)</label><span id="pcbPropShapeNodeX">${formatNumberInputValue(shape.points[selectedNode].x)}</span></div>
                 <div class="prop-row"><label>Y (mm)</label><span id="pcbPropShapeNodeY">${formatNumberInputValue(shape.points[selectedNode].y)}</span></div>
-                <div class="prop-row"><label>Corner Radius (mm)</label><input type="number" id="pcbPropShapeNodeCornerRadius" min="0" max="25" step="0.5" value="${formatNumberInputValue(boardShapeNodeCornerRadius(shape, selectedNode))}"></div>`
+                ${canRoundPathNode(shape, selectedNode) ? `<div class="prop-row"><label>Corner Radius (mm)</label><input type="number" id="pcbPropShapeNodeCornerRadius" min="0" max="25" step="0.5" value="${formatNumberInputValue(boardShapeNodeCornerRadius(shape, selectedNode))}"></div>` : ''}`
         : selectedSegment != null
         ? `${hasOutline ? '' : `<div class="prop-row" id="pcbPropShapeLineWidthRow"><label>Width (mm)</label><input type="number" id="pcbPropShapeLineWidth" min="${lineWidthMinimum}" step="0.05" value="${initialLineWidth.toFixed(2)}"></div>`}${bulgeHtml}`
         : `

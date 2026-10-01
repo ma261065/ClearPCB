@@ -139,6 +139,15 @@ radius and bulge previews. Their focused controls synchronize current values,
 mixed-state placeholders and coupled dimensions in place. Structural changes
 still rebuild the panel: straightening an arc removes its obsolete Bulge field.
 
+Both editors use `canRoundPathNode` from `shapes/path-geometry.js` to decide
+whether Node Properties offers a corner-radius control. Open endpoints,
+straight/degenerate joins and nodes adjacent to curved edges do not offer it;
+eligible interior and closed-path corners retain the existing numeric editor.
+This presentation rule does not change stored radii or rendered geometry.
+Deleting either endpoint of a two-node line removes the whole line, clears
+refinement/Properties and returns Home. Removing an endpoint from a longer
+line retains its surviving geometry and whole-object Properties.
+
 An image Properties refresh supplies its canonical target identity. Rebuilding
 controls for that same image does not cancel its pointer rotation; changing to
 another target (even one with the same ID), clearing the panel or replacing the
@@ -1426,9 +1435,20 @@ mode; it is not a release requirement. Remaining ownership work is tracked in
   This covers shape/segment/node geometry, text size and reference rotation.
 - Schematic focused Delete and shape context menus share node/segment deletion
   actions; without refinement, Delete still removes the entire selection.
-  Deletion uses `SelectionManager.clearSelection()` and completes the scene
-  redraw so the independent segment-selection SVG disappears immediately,
-  rather than waiting for another pointer event.
+  Shape removal/replacement finishes selection and refinement cleanup after
+  its command, then publishes one final selection notification even when the
+  command already removed the selected IDs. Properties and other selection
+  subscribers update together, without a second local Properties rebuild.
+  The final scene redraw removes the independent segment-selection SVG
+  immediately. In-place wire edits retain their selection; split wires publish
+  the surviving selection after the whole batch completes.
+  Retained-shape node deletion and split cancellation use the same final
+  refinement notification, restoring whole-shape Properties and the selection
+  tip together. Conversions establish their final refinement and interaction
+  state before notifying selection subscribers. Replacement selection,
+  in-place conversion and corner decomposition each rebuild Properties through
+  that notification, without a second direct panel refresh; floating curvature
+  edits retain their existing gesture and history ownership.
   Standalone arc menus support conversion and deletion. Shape splits retain
   one pre-split snapshot and an optional temporary remainder; placement commits
   one batch and Escape restores the original without leaving a remainder.
