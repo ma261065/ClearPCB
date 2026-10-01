@@ -1313,6 +1313,22 @@ pad attachments, bounds caches and serialization remain unchanged during edits.
 Snapping and connection resolution use the projected graph; merge, layer
 transition, net propagation and split commands preserve exact undo/redo.
 
+Track selection adapters expose the unrounded edge graph through the shared
+one-screen-pixel editing guide used by board Lines. Guides follow the displayed
+preview during node/segment dragging, including focused-node drags, without
+changing copper geometry or corner radii. Authored arc edges remain arcs;
+branches and disconnected edges stay separate and hidden-layer edges are
+excluded. Idle node focus hides the whole-path guide, matching Line selection.
+
+On drop, transient crosshair, axis/snap and nearest-net guides are cleared before
+connection validation and history execution. Final cleanup repeats this safely
+for cancellation/errors; commit ordering and repaint scheduling are unchanged.
+Node-drop validation reuses the seed-reachable physical-contact traversal from
+`collectBondedCopper`: cheap node/coincidence joins establish seed groups, then
+exact stationary terminal/artwork contacts are tested only as those groups are
+reached. Transitive contacts, layer bridges, net conflicts and foreign-pour
+rules remain intact; unrelated artwork groups do not block the drop's repaint.
+
 Repeated resolved pointer positions skip SVG and derived work. Translation
 constraints and starting points are reused within each gesture. Cancel, no-op,
 locked/hidden layers, deactivation/loading, missing targets and command failures
@@ -1686,6 +1702,53 @@ mode; it is not a release requirement. Remaining ownership work is tracked in
 - Track / SVG-group ids use the long form: `'top-copper' | 'bottom-copper'`.
 
 ## PCB Data Model
+
+### 3D Outline Clipping
+
+`src/pcb/modules/board3d-mesh-ops.js` triangulates concave board outlines and
+clips each surface against those convex regions. A bounded spatial grid over
+region bounds assigns only overlapping source faces to each region, in original
+face order. Bounds are inclusive, and candidate faces still use the unchanged
+per-triangle bounds check and exact clipping calculations. Vertices, face
+winding/order, interpolated heights and material colors match the exhaustive
+path; convex outlines retain their existing direct path.
+
+The index is local to one clipping call and owns no mutable model/cache state.
+The worker still completes the full surface batch before the viewer updates
+surfaces and component bodies together. Camera depth handling, artwork detail
+and hole subtraction are unchanged.
+
+### Stationary 3D Silkscreen Caching
+
+`board3d.js` builds component silk and authored board artwork as separate
+surfaces, using the same silk material, opacity, depth bias and layer order.
+`createSilkArtworkMeshCache()` belongs to one viewer and snapshots authored
+board shapes and silk color. Equal inputs reuse the expanded source mesh;
+component movement does not rebuild or compare hundreds of thousands of
+generated artwork triangles. Each generated silk mesh owns its color snapshot,
+so palette changes cannot mutate cached inputs.
+
+The existing surface builder compares the artwork mesh together with current
+drills and outline. Unchanged artwork reuses completed worker buffers and its
+GPU mesh. Hole/outline changes reclip it; artwork/layer/color changes regenerate
+the source as required. Deletion yields an empty surface, and reopening creates
+a fresh viewer cache. Both silk surfaces and component bodies still publish in
+the same completed update, never as separate asynchronous visual steps.
+
+### Independent 3D Solder-Mask Faces
+
+The viewer submits `maskCoatTop` and `maskCoatBottom` separately to the existing
+surface cache. Each input contains the same board outline and shared drills,
+but only that side's mask openings. Moving a top-side SMD component therefore
+reuses the bottom face's worker buffers and GPU mesh, and vice versa. Shared
+drill/cutout or outline changes still invalidate both faces. Generated face
+meshes own detached solder-mask color snapshots so palette edits also invalidate
+both faces without mutating retained cache inputs.
+
+Both faces share the existing mask material, opacity, depth bias and render
+order. Hole subtraction and concave clipping are unchanged; completed surfaces
+and component bodies still publish together. Side changes update the affected
+openings on both sides rather than moving a stale cached surface.
 
 ### Built-In Component 3D Models
 

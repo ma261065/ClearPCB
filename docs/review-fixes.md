@@ -267,6 +267,131 @@ tip. Top/bottom, mirrored and rotated placements and explicit height offsets
 are tested. All 32 SMT model OBJs are also byte-identical to the committed
 versions. No browser testing, full routing gate or commit for this change.
 
+### Concave 3D outline candidate filtering
+
+Preserved the concave-outline triangulation and exact clipping calculations,
+but added a bounded spatial grid over the clipping regions. Source faces are
+assigned conservatively in original order, avoiding repeated whole-mesh scans
+without changing output winding, interpolated height, colors or synchronized
+scene publication. A trial using the shared sweep helper was discarded after
+browser measurements showed its sorting/allocation overhead was slower.
+
+Nine focused 3D/view-sync suites pass, including exact exhaustive/indexed
+geometry and buffer parity for notched/rounded outlines in both windings,
+vertical/sloped faces, border contacts, polygon fans, empty/drilled meshes and
+translated coordinates. The dense-artwork fixture visits 108,495 source faces
+instead of 350,000; its regression checks at least 60% fewer visits rather than
+a fragile wall-clock threshold. Existing camera-depth coverage passes all
+1,080 configurations. Checked source/test diagnostics are clean.
+
+An isolated browser loaded the user's `untitled.cpcb` and performed four actual
+5 mm ESP32 drags in each variant, after initial models and surfaces had settled.
+Fresh exhaustive-baseline updates took 4.40-4.90 s (median 4.61 s); indexed
+updates took 3.17-3.65 s (median 3.43 s), about 26% less elapsed time.
+Median outline clipping across rebuilt surfaces fell from 2.15 s to 0.95 s
+(56%); median silkscreen clipping fell from 1.59 s to 0.74 s. Measurements
+include normal fill settling and synchronized scene adoption, ending two
+animation frames after adoption, not at a GPU fence. All eight surface
+position/normal/color buffer hashes and lengths match the baseline exactly.
+Oblique top/bottom and near-grazing views were checked in the browser; no
+camera, material or component-rendering behavior was changed.
+No quality reduction, asynchronous body-only update, cache repartitioning or
+full routing gate was introduced. The input project was not saved or modified.
+
+### Stationary 3D silkscreen cache
+
+Separated component silk from fixed board artwork while retaining the existing
+silk material, depth bias, opacity and layer order. A viewer-owned source cache
+compares detached authored-shape/color snapshots rather than expanded image
+triangles. The existing worker/buffer/GPU cache then reuses the fixed-artwork
+surface across component moves. Changed holes or outlines still reclip it, and
+artwork, layer, deletion/restoration and color edits invalidate the appropriate
+inputs. Silk colors are copied into generated meshes to prevent mutable palette
+arrays from altering retained cache inputs. Scene publication remains atomic.
+
+Eleven focused 3D/view-sync/image suites pass. New lifecycle coverage exercises
+the actual viewer surface-input wiring, source and buffer identity, component
+movement/rotation/mirroring/side/removal, artwork edits, layers, hole/outline
+changes, colors, deletion/restoration, cancellation and independent viewer
+caches. Split and combined output contain identical triangles, normals, colors
+and overlap multiplicity (draw partition/order differs).
+
+Four real ESP32 drags per variant on an isolated `untitled.cpcb` browser fixture
+compare the spatial-grid version against that same version plus artwork caching.
+Median drop-to-update time fell from 3.32 s to 2.03 s (39%); ranges were
+3.13-3.90 s and 1.94-2.25 s. Median worker time fell from 2.40 s to 1.22 s.
+All four cached runs reused `silkArtwork`, dispatching no artwork processing.
+Completion uses two animation frames after synchronized adoption, not a GPU
+fence. Existing solder-mask processing remains the largest worker cost.
+
+Browser comparisons covered fixed oblique top/bottom and grazing cameras at
+100% and 50% silk opacity. Opaque top and grazing images matched exactly; other
+captures differed in at most 15 of 355,946 pixels (bottom: one channel level;
+translucent top: four pixels, maximum channel delta 11). No missing geometry or
+component disappearance was observed. The real style control updated both silk
+partitions to matching colors. Source/test diagnostics and whitespace are clean.
+No full routing gate, project-file save, or commit was performed.
+
+### Independent 3D solder-mask face caches
+
+Split the mask coating into top and bottom cache entries while keeping the
+same material, transparency, depth order and exact hole/clipping algorithms.
+Each face uses shared drills plus its own side's openings. The existing cache
+now skips unchanged opposite-side processing and GPU replacement; shared
+hole/cutout, outline and color changes still update both faces. Face meshes
+snapshot their colors so in-place palette updates cannot hide invalidation.
+No face is published separately from the completed scene/body update.
+
+Thirteen focused geometry/cache/view-sync/image/material regression suites
+pass. New coverage checks actual viewer input wiring, per-face buffer identity,
+split/combined triangle multisets including winding/normals/colors, top/bottom
+component moves, rotation/mirroring, mask toggles, side changes, both-side pads,
+authored opening edits, deletion/restoration, drills/cutouts, concave outline
+edits/winding, palette ownership and stale cancellation. Diagnostics and
+whitespace are clean; this was not a full routing gate.
+
+A fresh paired browser comparison used four real ESP32 drags per variant on
+the isolated user board, with both the earlier spatial grid and stationary-silk
+cache enabled in both variants. Median drop-to-update time fell from 2.21 s to
+1.46 s (34%); ranges were 1.97-2.56 s and 1.44-1.76 s. Median worker time fell
+from 1.28 s to 0.75 s and mask processing from 1.00 s to 0.52 s. All four moves
+reused the bottom mask's completed buffers and the actual GPU mesh. Timing
+ends two animation frames after synchronized adoption, not at a GPU fence.
+
+All nine fixed-camera image comparisons were pixel-identical: top/bottom
+oblique and near-grazing views at the default mask opacity, 100%, and 50%.
+Combined vertex counts also match. The real solder-mask color control changed
+both faces together and restoring it restored both colors. The remaining mask
+work is predominantly hole subtraction (median 0.44 s), not outline clipping
+(0.07 s); those algorithms were deliberately left unchanged in this step.
+The input project was not saved or modified, and no commit was made.
+
+### Track-drop repaint latency
+
+Moving guide cleanup ahead of drop validation did not remove the visible pause:
+browser instrumentation showed the crosshair hidden within 1 ms, followed by
+0.58-0.70 s of synchronous node-connection validation. Most of that was exact
+physical contact testing between stationary copper objects, including groups
+unreachable from the dropped node.
+
+Extracted the existing seed-reachable traversal from `collectBondedCopper` and
+reused it after node/coincidence joins in `collectNodeConnections`. Broad-phase
+candidates remain conservative; exact contact checks run only for reachable
+groups. Node-versus-crossing semantics, transitive terminal/artwork contacts,
+through-layer bridges, net conflict rejection/adoption and new-route foreign-pour
+clearance rules are unchanged. No asynchronous commit or deferred validation
+was introduced.
+
+Seven focused regression suites pass, including exact history/cancellation,
+net propagation and connection-intent coverage. A deterministic exhaustive
+oracle agrees across 300 mixed-layer/group cases. Its unrelated dense-contact
+fixture reduces exact tests from 3,160 to 234 (over 90% fewer). Browser profiling
+of the same isolated board/node reduced complete drop processing from
+0.59-0.70 s to 0.052-0.096 s across four valid follow-up drags; first animation
+frame opportunities arrived in 0.056-0.102 s. These are instrumented observations,
+not a GPU fence or general wall-clock guarantee. The user confirmed the visible
+delay was fixed. Diagnostics and whitespace are clean; the project was not saved.
+
 ### Component picker close control
 
 Added an accessible header X with a nonshrinking 36-by-36-pixel target and a

@@ -5,10 +5,12 @@ import { Track } from '../src/shapes/track.js';
 import { Via } from '../src/shapes/via.js';
 import { MoveVertexCommand, RemoveTrackCommand, previewPlacementPoses, finishPlacementPreview } from '../src/pcb/modules/track-commands.js';
 import { renderTrack, renderVia, buildTrackLayerRuns } from '../src/pcb/modules/track-render.js';
-import { createTrackSelectionAdapter, selectTrackOrVia, setHoverHighlight } from '../src/pcb/modules/track-select.js';
+import { createTrackSelectionAdapter, selectTrackNode, selectTrackOrVia, setHoverHighlight } from '../src/pcb/modules/track-select.js';
+import { renderPcbSelectionAnchors } from '../src/pcb/modules/selection-anchors.js';
+import { arcEdgePathD } from '../src/shapes/arc-edge.js';
 import { startVertexDrag, updateVertexDrag, finishVertexDrag, cancelVertexDrag,
     startMidpointInsertDrag, splitTrackNodeAndDrag, startViaDrag, updateViaDrag, finishViaDrag, cancelViaDrag } from '../src/pcb/modules/track-drag.js';
-import { syncPcbSelection, getPcbSelection } from '../src/pcb/modules/selection-registry.js';
+import { syncPcbSelection, getPcbSelection, clearPcbSelection } from '../src/pcb/modules/selection-registry.js';
 import { finishSelectionInteraction } from '../src/pcb/modules/selection-interaction.js';
 import { prepareFabricationSnapshot } from '../src/pcb/modules/fabrication-snapshot.js';
 import { loadPcb } from '../src/pcb/modules/project-state.js';
@@ -124,6 +126,107 @@ function fixture(mode, deferred = false, unrelatedCount = 1) {
     };
     return { app, project, model, track, edgeId, nodeId, unrelated, groups, adapter, initial, start,
         artwork, assertArtwork, work: () => [allocations, fills, clearances, boardRefreshes], fills: () => fills };
+}
+
+{
+    const { app, track, adapter, groups } = fixture('node');
+    const nodeId = [...track.nodes.keys()][1];
+    track.setNodeCornerRadius(nodeId, 4);
+    const before = track.captureState();
+    const guide = `M ${Math.PI} ${-Math.E} L 20 ${-Math.E} M 20 ${-Math.E} L 20 20`;
+    assert.equal(adapter.getEditPath(), guide, 'Guides use authored nodes, not global or per-node corner rounding');
+    const guideElement = () => groups.get('selection-overlay').querySelectorAll('.pcb-selection-anchors')
+        .flatMap(group => group.children).find(child => child.tag === 'path' && child.getAttribute('d') === adapter.getEditPath());
+    selectTrackNode(app, track, nodeId);
+    assert.equal(adapter.getEditPath(), '', 'Idle node focus suppresses the whole-path guide, like Lines');
+    for (const commit of [false, true]) {
+        assert.equal(adapter.beginAnchorDrag(nodeId, track.nodes.get(nodeId)), true);
+        adapter.updateAnchorDrag({ x: 23, y: 4 });
+        const moved = `M ${Math.PI} ${-Math.E} L 23 4 M 23 4 L 20 20`;
+        assert.equal(adapter.getEditPath(), moved, 'Focused-node dragging shows the live unrounded path');
+        assert.deepEqual(track.captureState(), before, 'Guides do not mutate authored geometry');
+        const path = guideElement();
+        assert.ok(path, 'Drag refresh renders the shared selection guide');
+        assert.equal(path.getAttribute('stroke-width'), '1');
+        assert.equal(path.getAttribute('vector-effect'), 'non-scaling-stroke');
+        assert.equal(path.getAttribute('pointer-events'), 'none');
+        app.viewport.scale = 50;
+        renderPcbSelectionAnchors(app);
+        assert.equal(guideElement().getAttribute('stroke-width'), '1', 'Guide thickness remains screen-space');
+        adapter.endAnchorDrag(commit, { moved: true });
+        assert.equal(adapter.getEditPath(), '', 'Ending the gesture restores node-focus presentation');
+        if (commit) {
+            selectTrackOrVia(app, { type: 'track', track });
+            assert.equal(adapter.getEditPath(), moved);
+            app.history.undo();
+            assert.equal(adapter.getEditPath(), guide, 'Undo restores the guide with the original graph');
+            app.history.redo();
+            assert.equal(adapter.getEditPath(), moved, 'Redo restores the committed guide');
+        } else assert.deepEqual(track.captureState(), before);
+    }
+    clearPcbSelection(app);
+    renderPcbSelectionAnchors(app);
+    assert.equal(groups.get('selection-overlay').querySelectorAll('.pcb-selection-anchors').length, 0,
+        'Deselecting removes editing guides');
+}
+
+{
+    const { app, track, adapter, edgeId, groups } = fixture('bulge');
+    const branch = track.addNode(30, 20);
+    track.addEdge([...track.nodes.keys()][1], branch);
+    const from = track.addNode(40, 0), to = track.addNode(50, 0);
+    track.addEdge(from, to, { layer: 'bottom-copper' });
+    const edge = track.edges.get(edgeId);
+    const arc = arcEdgePathD(track.nodes.get(edge.from), track.nodes.get(edge.to), 0.25);
+    const visible = `${arc} M 20 ${-Math.E} L 20 20 M 20 ${-Math.E} L 30 20`;
+    assert.equal(adapter.getEditPath(), `${visible} M 40 0 L 50 0`,
+        'Branch and disconnected edges remain separate, preserving authored arcs');
+    const bottom = PCB_LAYERS.find(layer => layer.id === 'bottom-copper');
+    const previousVisible = bottom.visible;
+    try {
+        bottom.visible = false;
+        assert.equal(adapter.getEditPath(), visible, 'Hidden-layer edges do not leak through the guide');
+        track.visible = false;
+        renderPcbSelectionAnchors(app);
+        assert.equal(groups.get('selection-overlay').querySelectorAll('.pcb-selection-anchors').length, 0);
+    } finally {
+        bottom.visible = previousVisible;
+    }
+}
+
+for (const finish of ['commit', 'failure', 'no-op', 'cancel']) {
+    const { app, track, initial, start, groups } = fixture('node');
+    const before = track.captureState();
+    assert.equal(start(), true);
+    if (finish !== 'no-op') updateVertexDrag(app, { x: initial.x + 2, y: initial.y + 3 });
+    let crosshairVisible = true;
+    app.viewport.hideCrosshair = () => { crosshairVisible = false; };
+    const guide = new Element('line'), marker = new Element('circle');
+    groups.get('selection-overlay').appendChild(guide);
+    groups.get('selection-overlay').appendChild(marker);
+    app._netGuideLine = guide;
+    app._trackSnapMarker = marker;
+    const assertCleared = () => {
+        assert.equal(crosshairVisible, false, 'Crosshair hides before drop validation or history work');
+        assert.equal(app._netGuideLine, null, 'Nearest-net guide clears before drop processing');
+        assert.equal(app._trackSnapMarker, null);
+        assert.equal(guide.parentNode, null);
+        assert.equal(marker.parentNode, null);
+    };
+    Object.defineProperty(app, '_active', { get() { assertCleared(); return true; } });
+    const execute = app.history.execute.bind(app.history);
+    app.history.execute = command => {
+        assertCleared();
+        if (finish === 'failure') throw new Error('Rejected drop after guide cleanup');
+        execute(command);
+    };
+    if (finish === 'failure') assert.throws(() => finishVertexDrag(app), /Rejected drop after guide cleanup/);
+    else if (finish === 'cancel') cancelVertexDrag(app);
+    else finishVertexDrag(app);
+    assertCleared();
+    assert.equal(app._vertexDrag, null);
+    assert.equal(app.history.undoStack.length, finish === 'commit' ? 1 : 0);
+    if (finish !== 'commit') assert.deepEqual(track.captureState(), before);
 }
 
 let cases = 0;

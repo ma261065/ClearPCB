@@ -990,38 +990,36 @@ export function collectBondedCopper(app, seed, { includeShapes = false, newTrack
         const contacts = _clusterCopperContacts(app, clusters).map(contact => ({
             ...contact, root: find(contact.index),
         }));
-        const bounds = contact => contact.resolved.bounds;
-        const neighbours = new Map();
-        const addCandidates = pairs => {
-            for (const [first, second] of pairs) {
-                if (first.root === second.root
-                    || (first.layer !== 'all' && second.layer !== 'all' && first.layer !== second.layer)) continue;
-                const fill = first.shape?.type === 'fill' ? first.shape
-                    : second.shape?.type === 'fill' ? second.shape : null;
-                const track = first.track || second.track;
-                // The cached pour predates this route. Repouring will cut
-                // clearance around a new foreign-net Track, not bond to it.
-                if (fill?.net && newTracks?.has(track) && fill.net !== track.net) continue;
-                for (const [from, to] of [[first, second], [second, first]]) {
-                    if (!neighbours.has(from.root)) neighbours.set(from.root, []);
-                    neighbours.get(from.root).push([from, to]);
-                }
-            }
-        };
-        addCandidates(spatialPairs(contacts, bounds, 1e-7));
-        // Narrow-phase geometry is needed only for candidates reachable from
-        // this route, not for every pair of artwork/fill objects on the board.
-        const pending = [...roots];
-        for (let index = 0; index < pending.length; index++) {
-            for (const [from, to] of neighbours.get(pending[index]) || []) {
-                if (roots.has(to.root)) continue;
-                if (!copperContactsTouch(from.resolved, to.resolved)) continue;
-                roots.add(to.root);
-                pending.push(to.root);
-            }
-        }
+        expandCopperContactRoots(contacts, roots, newTracks);
     }
     return bondedCopperFromClusters(clusters.filter((_, index) => roots.has(find(index))));
+}
+
+function expandCopperContactRoots(contacts, roots, newTracks = null) {
+    const neighbours = new Map();
+    for (const [first, second] of spatialPairs(contacts, contact => contact.resolved.bounds, 1e-7)) {
+        if (first.root === second.root
+            || (first.layer !== 'all' && second.layer !== 'all' && first.layer !== second.layer)) continue;
+        const fill = first.shape?.type === 'fill' ? first.shape
+            : second.shape?.type === 'fill' ? second.shape : null;
+        const track = first.track || second.track;
+        // Repouring cuts clearance around new foreign-net Tracks instead of bonding them.
+        if (fill?.net && newTracks?.has(track) && fill.net !== track.net) continue;
+        for (const [from, to] of [[first, second], [second, first]]) {
+            if (!neighbours.has(from.root)) neighbours.set(from.root, []);
+            neighbours.get(from.root).push([from, to]);
+        }
+    }
+    // Only resolve exact contacts reachable from the seed's existing connections.
+    const pending = [...roots];
+    for (let index = 0; index < pending.length; index++) {
+        for (const [from, to] of neighbours.get(pending[index]) || []) {
+            if (roots.has(to.root)) continue;
+            if (!copperContactsTouch(from.resolved, to.resolved)) continue;
+            roots.add(to.root);
+            pending.push(to.root);
+        }
+    }
 }
 
 function buildBondedClusters(app, includeShapes) {
@@ -1097,16 +1095,13 @@ export function collectNodeConnections(app, placedNodes) {
         if (fill?.net && placedNodes.has(node.track) && fill.net !== node.track.net) continue;
         union(node.index, target.index);
     }
-    // Shapes and terminals retain their existing physical group propagation.
-    const terminals = contacts.filter(contact => !contact.track);
-    for (const [first, second] of spatialPairs(terminals, contact => contact.resolved.bounds, 1e-7)) {
-        if (find(first.index) !== find(second.index)
-            && (first.layer === 'all' || second.layer === 'all' || first.layer === second.layer)
-            && copperContactsTouch(first.resolved, second.resolved)) {
-            union(first.index, second.index);
-        }
-    }
     const roots = new Set(seeds.map(find));
+    if (roots.size) {
+        const terminals = contacts.filter(contact => !contact.track).map(contact => ({
+            ...contact, root: find(contact.index),
+        }));
+        expandCopperContactRoots(terminals, roots);
+    }
     return bondedCopperFromClusters(clusters.filter((_, index) => roots.has(find(index))));
 }
 

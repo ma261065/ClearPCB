@@ -3,7 +3,8 @@ import { pictureTriangles, pictureCirclesDisjoint, picturePoints } from './pictu
 import { ArcballController } from '../../shared/3d/ArcballController.js';
 import { createBoardViewSync } from './board-view-sync.js';
 import { getComputedFill } from './computed-fill-cache.js';
-import { createSurfaceBuilder } from './board3d-surface-client.js?v=8';
+import { createSurfaceBuilder } from './board3d-surface-client.js?v=9';
+import { surfaceInputsEqual } from './board3d-surface-equality.js';
 import { parseObjModel, meshToGeometry, makeMaterial, makeComponentMaterial, makeComponentGroupMaterials, COLOR_COMPONENT } from '../../shared/3d/model-rendering.js';
 export { ArcballController } from '../../shared/3d/ArcballController.js';
 export { parseObjModel, meshToGeometry, makeMaterial, makeComponentMaterial, makeComponentGroupMaterials } from '../../shared/3d/model-rendering.js';
@@ -1744,8 +1745,9 @@ export function collectMaskOpeningHoles(boardShapes = [], side = 'top', placemen
  * @param {boolean} reverse winding for bottom face
  * @returns {{verts:Array, faces:Array}}
  */
-function buildMaskFaceMesh(outline, y, reverse = false) {
+export function buildMaskFaceMesh(outline, y, reverse = false) {
     const mesh = emptyMesh();
+    const color = [...COLOR_SOLDERMASK];
     const outer = outline.map((p) => ({ x: p.x, y: p.z }));
     let tri = null;
     try { tri = triangulateWithHoles(outer, []); } catch { tri = null; }
@@ -1757,7 +1759,7 @@ function buildMaskFaceMesh(outline, y, reverse = false) {
             idx: reverse
                 ? [base + t[2], base + t[1], base + t[0]]
                 : [base + t[0], base + t[1], base + t[2]],
-            color: COLOR_SOLDERMASK,
+            color,
         });
     }
     return mesh;
@@ -2099,6 +2101,7 @@ export function buildSilkMesh(app) {
     const placements = app?.placements || [];
     const circles = (app?.boardShapes || []).filter((shape) => shape?.kind === 'circle');
     const mesh = emptyMesh();
+    const color = [...COLOR_SILK];
     // Footprint silk shapes via the shared resolver. Each descriptor carries
     // its effective side, so both faces are built from one pass. Stroke width
     // and the `filled` flag now match the 2D preview and Gerber output (the 3D
@@ -2107,14 +2110,14 @@ export function buildSilkMesh(app) {
         const bottom = sk.side === 'bottom';
         const y = bottom ? Y_BOT - SILK_EPS : Y_TOP + SILK_EPS;
         if (sk.kind === 'line') {
-            appendMesh(mesh, ribbonMesh(sk.x1, sk.y1, sk.x2, sk.y2, sk.width, y, COLOR_SILK));
-            appendMesh(mesh, discMesh(sk.x1, sk.y1, sk.width / 2, y, COLOR_SILK, 8));
-            appendMesh(mesh, discMesh(sk.x2, sk.y2, sk.width / 2, y, COLOR_SILK, 8));
+            appendMesh(mesh, ribbonMesh(sk.x1, sk.y1, sk.x2, sk.y2, sk.width, y, color));
+            appendMesh(mesh, discMesh(sk.x1, sk.y1, sk.width / 2, y, color, 8));
+            appendMesh(mesh, discMesh(sk.x2, sk.y2, sk.width / 2, y, color, 8));
         } else if (sk.kind === 'circle' && sk.r > 0) {
             if (sk.filled) {
-                appendMesh(mesh, discMesh(sk.cx, sk.cy, sk.r + sk.width / 2, y, COLOR_SILK, 24));
+                appendMesh(mesh, discMesh(sk.cx, sk.cy, sk.r + sk.width / 2, y, color, 24));
             } else {
-                appendMesh(mesh, flatRingMesh(sk.cx, sk.cy, sk.r, sk.width, y, COLOR_SILK, 28));
+                appendMesh(mesh, flatRingMesh(sk.cx, sk.cy, sk.r, sk.width, y, color, 28));
             }
         } else if (sk.kind === 'path') {
             // Filled silk paths (e.g. pin-1 triangles) render solid, matching
@@ -2129,13 +2132,13 @@ export function buildSilkMesh(app) {
                     const base = mesh.verts.length;
                     for (const p of tri.pts) mesh.verts.push({ x: p.x, y, z: p.y });
                     for (const t of tri.tris) {
-                        mesh.faces.push({ idx: [base + t[0], base + t[1], base + t[2]], color: COLOR_SILK });
+                        mesh.faces.push({ idx: [base + t[0], base + t[1], base + t[2]], color });
                     }
                 }
             }
             // The resolver returns already-posed polylines, so map (x,y)→(x,z).
             appendMesh(mesh, strokePolysToMesh(
-                sk.polys, sk.width, y, COLOR_SILK,
+                sk.polys, sk.width, y, color,
                 (px, py) => ({ x: px, z: py })));
         }
     }
@@ -2152,8 +2155,8 @@ export function buildSilkMesh(app) {
         const bottom = layer.startsWith('bottom-');
         const y = bottom ? Y_BOT - SILK_EPS : Y_TOP + SILK_EPS;
         const geometry = resolveBoardShapeGeometry(c);
-        if (geometry.filled) appendMesh(mesh, discMesh(c.x, c.y, geometry.circle.outerRadius, y, COLOR_SILK, FILLED_CIRCLE_SEGMENTS));
-        else appendMesh(mesh, flatRingMesh(c.x, c.y, geometry.circle.radius, geometry.lineWidth, y, COLOR_SILK, 32));
+        if (geometry.filled) appendMesh(mesh, discMesh(c.x, c.y, geometry.circle.outerRadius, y, color, FILLED_CIRCLE_SEGMENTS));
+        else appendMesh(mesh, flatRingMesh(c.x, c.y, geometry.circle.radius, geometry.lineWidth, y, color, 32));
     }
     // Free-standing board shapes (rect/polygon/arc) on the silk layers.
     for (const s of (app.boardShapes || [])) {
@@ -2166,7 +2169,7 @@ export function buildSilkMesh(app) {
         const bottom = layer.startsWith('bottom-');
         const y = bottom ? Y_BOT - SILK_EPS : Y_TOP + SILK_EPS;
         if (s.kind === 'image') {
-            appendMesh(mesh, imageArtworkMesh(s, y, COLOR_SILK));
+            appendMesh(mesh, imageArtworkMesh(s, y, color));
             continue;
         }
         if (geometry.filled && o.length >= 3) {
@@ -2176,24 +2179,37 @@ export function buildSilkMesh(app) {
                 const base = mesh.verts.length;
                 for (const p of tri.pts) mesh.verts.push({ x: p.x, y, z: p.y });
                 for (const t of tri.tris) {
-                    mesh.faces.push({ idx: [base + t[0], base + t[1], base + t[2]], color: COLOR_SILK });
+                    mesh.faces.push({ idx: [base + t[0], base + t[1], base + t[2]], color });
                 }
             }
         }
         if (!geometry.filled && geometry.strokeSegments?.length) {
-            appendResolvedFlatStroke(mesh, geometry, y, COLOR_SILK);
+            appendResolvedFlatStroke(mesh, geometry, y, color);
         } else {
             const poly = geometry.pathClosed ? o.concat([o[0]]) : o;
             appendMesh(mesh, strokePolysToMesh(
                 [poly],
                 geometry.lineWidth,
                 y,
-                COLOR_SILK,
+                color,
                 (px, py) => ({ x: px, z: py }),
             ));
         }
     }
     return mesh;
+}
+
+/** Viewer-owned immutable mesh cache; compare authored inputs, not expanded image triangles. */
+export function createSilkArtworkMeshCache() {
+    let cached = null;
+    return (boardShapes) => {
+        const input = { boardShapes, color: [...COLOR_SILK] };
+        if (cached && surfaceInputsEqual(cached.input, input)) return cached.mesh;
+        const snapshot = structuredClone(input);
+        const mesh = buildSilkMesh({ boardShapes });
+        cached = { input: snapshot, mesh };
+        return mesh;
+    };
 }
 
 /**
@@ -3422,15 +3438,17 @@ export async function openBoard3DViewer(app, opts = {}) {
     // can swap it without disturbing the camera or the component bodies. Every
     // surface is clipped to the board outline so copper/via/silk/text/pads that
     // overhang the edge are trimmed at the boundary rather than floating.
-    /** @type {{board:THREE.Mesh|null,maskOpenings:THREE.Mesh|null,copper:THREE.Mesh|null,via:THREE.Mesh|null,pads:THREE.Mesh|null,maskCoat:THREE.Mesh|null,silk:THREE.Mesh|null,text:THREE.Mesh|null}} */
+    /** @type {{board:THREE.Mesh|null,maskOpenings:THREE.Mesh|null,copper:THREE.Mesh|null,via:THREE.Mesh|null,pads:THREE.Mesh|null,maskCoatTop:THREE.Mesh|null,maskCoatBottom:THREE.Mesh|null,silk:THREE.Mesh|null,silkArtwork:THREE.Mesh|null,text:THREE.Mesh|null}} */
     const surf = {
         board: null,
         maskOpenings: null,
         copper: null,
         via: null,
         pads: null,
-        maskCoat: null,
+        maskCoatTop: null,
+        maskCoatBottom: null,
         silk: null,
+        silkArtwork: null,
         text: null,
     };
     // Painting order for the coplanar board layers (all share one tiny depth
@@ -3445,8 +3463,10 @@ export async function openBoard3DViewer(app, opts = {}) {
         copper: 2,
         via: 3,
         pads: 4,
-        maskCoat: 5,
+        maskCoatTop: 5,
+        maskCoatBottom: 5,
         silk: 7,
+        silkArtwork: 7,
         text: 8,
     };
     const appliedSurfaceBuffers = new Map();
@@ -3467,6 +3487,7 @@ export async function openBoard3DViewer(app, opts = {}) {
         return geometry;
     };
     let hasSurfaces = false;
+    const silkArtworkMesh = createSilkArtworkMeshCache();
     rebuildSurfaces = async (syncComponentBodies = false) => {
         try {
             const w = app._boardWidth || 100;
@@ -3609,15 +3630,18 @@ export async function openBoard3DViewer(app, opts = {}) {
                 { mesh: padEdgeMesh, holes: copperSubtractHoles },
             ]);
             if (SHOW_SOLDERMASK) {
-                addSurface('maskCoat', [
+                addSurface('maskCoatTop', [
                     { mesh: buildMaskFaceMesh(outline, Y_TOP + COPPER_EPS, false),
                         holes: drilledHoles.concat(collectMaskOpeningHoles(app.boardShapes || [], 'top', app.placements, app.pads)) },
+                ]);
+                addSurface('maskCoatBottom', [
                     { mesh: buildMaskFaceMesh(outline, Y_BOT - COPPER_EPS, true),
                         holes: drilledHoles.concat(collectMaskOpeningHoles(app.boardShapes || [], 'bottom', app.placements, app.pads)) },
                 ]);
             }
             // Document-layer circles expose raw board material above mask/copper.
-            addSurface('silk', [{ mesh: buildSilkMesh(app), holes: drilledHoles }]);
+            addSurface('silk', [{ mesh: buildSilkMesh({ placements: app.placements }), holes: drilledHoles }]);
+            addSurface('silkArtwork', [{ mesh: silkArtworkMesh(app.boardShapes || []), holes: drilledHoles }]);
             addSurface('text', [{ mesh: buildTextMesh(app), holes: drilledHoles }]);
             const result = await surfaceBuilder.build(surfaces, { takeOwnership: true });
             if (!result || panel.closed || !scene) return false;
@@ -3629,8 +3653,8 @@ export async function openBoard3DViewer(app, opts = {}) {
             }
             const materials = { board: scene.boardMaterial, maskOpenings: scene.maskOpeningMaterial,
                 copper: scene.copperMaterial, via: scene.viaMaterial, pads: scene.padMaterial,
-                maskCoat: scene.maskCoatMaterial,
-                silk: scene.silkMaterial, text: scene.textMaterial };
+                maskCoatTop: scene.maskCoatMaterial, maskCoatBottom: scene.maskCoatMaterial,
+                silk: scene.silkMaterial, silkArtwork: scene.silkMaterial, text: scene.textMaterial };
             for (const key of Object.keys(surf)) swapSurface(key, result[key], materials[key]);
             if (syncComponentBodies) syncBodies();
             scene.positionGlint(boundary.x + boundary.w / 2, boundary.y + boundary.h / 2, Math.max(boundary.w, boundary.h));

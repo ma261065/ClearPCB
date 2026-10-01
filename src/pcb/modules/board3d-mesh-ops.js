@@ -34,10 +34,61 @@ export function clipMeshToOutline(mesh, outline) {
     });
     if (concave) {
         const indices = earcut(outline.flatMap(point => [point.x, point.z]));
-        const combined = emptyMesh();
+        const regions = [];
+        const bounds = (points) => {
+            const box = { minX: Infinity, minZ: Infinity, maxX: -Infinity, maxZ: -Infinity };
+            for (const point of points) {
+                if (!point) continue;
+                box.minX = Math.min(box.minX, point.x);
+                box.maxX = Math.max(box.maxX, point.x);
+                box.minZ = Math.min(box.minZ, point.z);
+                box.maxZ = Math.max(box.maxZ, point.z);
+            }
+            return box;
+        };
         for (let index = 0; index < indices.length; index += 3) {
-            const region = [outline[indices[index]], outline[indices[index + 1]], outline[indices[index + 2]]];
-            const clipped = clipMeshToOutline(mesh, region);
+            const points = [outline[indices[index]], outline[indices[index + 1]], outline[indices[index + 2]]];
+            regions.push({ points, bounds: bounds(points), faces: [], lastFace: -1 });
+        }
+        const extent = bounds(outline);
+        const gridSide = Math.max(1, Math.min(32, Math.ceil(Math.sqrt(regions.length))));
+        const cellWidth = (extent.maxX - extent.minX) / gridSide || 1;
+        const cellHeight = (extent.maxZ - extent.minZ) / gridSide || 1;
+        const cell = (value, min, size) => Math.max(0, Math.min(gridSide - 1, Math.floor((value - min) / size)));
+        const buckets = Array.from({ length: gridSide * gridSide }, () => []);
+        for (const region of regions) {
+            const box = region.bounds;
+            for (let z = cell(box.minZ, extent.minZ, cellHeight); z <= cell(box.maxZ, extent.minZ, cellHeight); z++) {
+                for (let x = cell(box.minX, extent.minX, cellWidth); x <= cell(box.maxX, extent.minX, cellWidth); x++) {
+                    buckets[z * gridSide + x].push(region);
+                }
+            }
+        }
+        // Query in source order so candidate lists preserve the exhaustive path's exact output order.
+        for (const [index, face] of mesh.faces.entries()) {
+            const idx = face.idx;
+            if (!idx || idx.length < 3) continue;
+            const box = bounds(idx.map(index => mesh.verts[index]));
+            if (box.maxX < extent.minX || box.minX > extent.maxX
+                || box.maxZ < extent.minZ || box.minZ > extent.maxZ) continue;
+            const x0 = cell(box.minX, extent.minX, cellWidth), x1 = cell(box.maxX, extent.minX, cellWidth);
+            const z0 = cell(box.minZ, extent.minZ, cellHeight), z1 = cell(box.maxZ, extent.minZ, cellHeight);
+            for (let z = z0; z <= z1; z++) for (let x = x0; x <= x1; x++) {
+                for (const region of buckets[z * gridSide + x]) {
+                    if (region.lastFace === index) continue;
+                    region.lastFace = index;
+                    const other = region.bounds;
+                    if (box.maxX < other.minX || box.minX > other.maxX
+                        || box.maxZ < other.minZ || box.minZ > other.maxZ) continue;
+                    region.faces.push(face);
+                }
+            }
+        }
+        const combined = emptyMesh();
+        for (const region of regions) {
+            const clipped = clipMeshToOutline({
+                verts: mesh.verts, faces: region.faces,
+            }, region.points);
             const base = combined.verts.length;
             for (const vertex of clipped.verts) combined.verts.push(vertex);
             for (const face of clipped.faces) combined.faces.push({
@@ -389,4 +440,3 @@ export function punchHolesInFlatMesh(mesh, holes, seg = 48) {
     }
     return out;
 }
-

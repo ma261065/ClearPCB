@@ -1621,6 +1621,7 @@ export function finishVertexDrag(app) {
     if (!drag) return;
     let committed = false;
     try {
+        clearTrackPointerGuides(app, drag);
         if (app._active === false || [...drag.layers].some(layer => isLayerLocked(layer) || !isLayerVisible(layer))) return;
         if (!drag.preview && drag.snapTargetNode) beginTrackPointerPreview(app, drag);
         if (!drag.preview) return;
@@ -1755,6 +1756,13 @@ export function cancelVertexDrag(app) {
     endTrackPointer(app, drag, false);
 }
 
+function clearTrackPointerGuides(app, drag) {
+    if (drag.mode !== 'bulge') app.viewport?.hideCrosshair();
+    clearTrackAxisGlow(app);
+    clearTrackSnapMarker(app);
+    clearNetGuideLine(app);
+}
+
 function endTrackPointer(app, drag, committed) {
     const interaction = app._pcbSelectionInteraction;
     if (interaction?.adapter?.kind === 'track'
@@ -1763,10 +1771,7 @@ function endTrackPointer(app, drag, committed) {
     }
     app._vertexDrag = null;
     try {
-        if (drag.mode !== 'bulge') app.viewport?.hideCrosshair();
-        clearTrackAxisGlow(app);
-        clearTrackSnapMarker(app);
-        clearNetGuideLine(app);
+        clearTrackPointerGuides(app, drag);
         const present = (app.pcbDocument?.tracks || app.tracks).includes(drag.original);
         if (!present) {
             removeTrackElements(drag.original);

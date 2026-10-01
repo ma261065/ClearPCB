@@ -68,7 +68,7 @@ import {
 import { lockPositionOutsideOutline, renderPcbSelectionAnchors } from './selection-anchors.js';
 import { formatNumberInputValue } from '../../core/number-inputs.js';
 import { resolveTrackEdgePaths, resolveTrackSegments } from './board-geometry.js';
-import { arcFromBulge } from '../../shapes/arc-edge.js';
+import { arcEdgePathD, arcFromBulge } from '../../shapes/arc-edge.js';
 import { pathMoveInteraction, pathContextActions, showPathContextMenu, dismissPathContextMenu } from './path-edit.js';
 import { padOutline } from '../../shapes/pad-geometry.js';
 import { viaBounds, viaHitTest } from '../../shapes/via.js';
@@ -200,6 +200,16 @@ export function createTrackSelectionAdapter(app, track, id) {
         },
         getBounds() { return current().getBounds(); },
         hitTest(point, tolerance) { return trackHitTest(current(), point, tolerance); },
+        getEditPath() {
+            if (app._trackEdit?.track === track && app._trackEdit.nodeId != null
+                && app._vertexDrag?.original !== track) return '';
+            const display = current();
+            return [...display.edges.entries()].flatMap(([edgeId, edge]) => {
+                if (!isLayerVisible(display.getEdgeLayer(edgeId))) return [];
+                const start = display.nodes.get(edge.from), end = display.nodes.get(edge.to);
+                return start && end ? [arcEdgePathD(start, end, edge.bulge || 0)] : [];
+            }).join(' ');
+        },
         getAnchors() {
             const display = current();
             const visibleEdges = [...display.edges.entries()].filter(([edgeId]) => isLayerVisible(display.getEdgeLayer(edgeId)));

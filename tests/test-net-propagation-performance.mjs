@@ -56,5 +56,8 @@ if (!process.argv.includes('--worker')) {
     assert.ok(connected.shapes.has(shapes[1]));
     const connectedMs = performance.now() - connectedStart;
     assert.ok(connectedMs < 1000, `Connected artwork blocked propagation for ${connectedMs.toFixed(1)} ms`);
+    const connectedNode = collectNodeConnections(app, new Map([[track, new Set(track.nodes.keys())]]));
+    assert.ok(connectedNode.shapes.has(shapes[0]));
+    assert.ok(connectedNode.shapes.has(shapes[1]), 'Node validation follows transitive stationary artwork contacts');
     console.log(`PASS bounded Net traversal: unrelated ${unrelatedMs.toFixed(1)} ms, node targets ${nodeMs.toFixed(1)} ms, artwork contacts ${contactMs.toFixed(1)} ms, connected ${connectedMs.toFixed(1)} ms`);
 }
