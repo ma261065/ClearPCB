@@ -115,7 +115,7 @@ for (const side of ['top', 'bottom']) for (const mirror of [false, true]) {
     assert.equal(bottom.padConnections.size, 0);
     for (const track of [duplicate, legacy, unrelated, mixed]) assert.equal(track.padConnections.size, 1);
     for (const [index, track] of tracks.entries()) {
-        assert.deepEqual(track.captureState().nodes, before[index].nodes, 'Disconnecting never moves a trace');
+        assert.deepEqual(track.captureState().nodes, before[index].nodes, 'Disconnecting never moves a track');
         assert.deepEqual(track.captureState().edges, before[index].edges);
     }
     assert.equal(disconnectIncompatiblePadNodes(tracks, 'U1', pads).size, 0);

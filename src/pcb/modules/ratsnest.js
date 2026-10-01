@@ -5,7 +5,7 @@
  * Each net produces a minimum spanning tree of thin dashed lines
  * from every pad to at least one other pad on the same net.
  * This gives the user a visual guide of which pads need to be
- * connected by copper traces.
+ * connected by copper tracks.
  */
 
 const NS = 'http://www.w3.org/2000/svg';

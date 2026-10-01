@@ -25,8 +25,8 @@ self.addEventListener('message', async (event) => {
             onProgress: (done, total, net, meta = {}) => {
                 self.postMessage({ type: 'progress', done, total, net, meta });
             },
-            onNetRouted: (netTraces) => {
-                self.postMessage({ type: 'netRouted', netTraces });
+            onNetRouted: (netTracks) => {
+                self.postMessage({ type: 'netRouted', netTracks });
             },
             onNetFailed: (conn) => {
                 self.postMessage({ type: 'netFailed', conn });

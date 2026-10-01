@@ -25,7 +25,7 @@ Cloudflare zone, repository secrets, local testing, and security limitations.
 `release_*`, and can be started manually. Its **Regression gate** job runs
 `node tools/regression.mjs` on Node 22: every root regression test plus the
 autorouter clearance baseline. Any test failure or hard baseline failure
-fails the job. Trace/via-count differences remain visible soft warnings,
+fails the job. Track/via-count differences remain visible soft warnings,
 not evidence that routing quality is unchanged.
 
 **Publish Stable Release** independently runs the same gate against the checked-out

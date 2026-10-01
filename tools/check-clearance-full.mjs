@@ -1,28 +1,28 @@
 // Comprehensive clearance check for autorouter results.
-// Verifies trace-pad, trace-trace, and via clearances.
-// Usage: node tools/check-clearance-full.mjs [boardFile] [traceWidth] [clearance] [viaDia]
+// Verifies track-pad, track-track, and via clearances.
+// Usage: node tools/check-clearance-full.mjs [boardFile] [trackWidth] [clearance] [viaDia]
 
 import { readFileSync } from 'fs';
 import { routeAll } from '../src/pcb/modules/autorouter-maze.js';
 
 const boardFile = process.argv[2] || 'test-board.json';
-const traceWidth = parseFloat(process.argv[3] ?? '0.2');
+const trackWidth = parseFloat(process.argv[3] ?? '0.2');
 const clearance  = parseFloat(process.argv[4] ?? '0.1');
 const viaDiameter = parseFloat(process.argv[5] ?? '0.4');
 
 const board = JSON.parse(readFileSync(boardFile, 'utf8'));
-board.traceWidth = traceWidth;
+board.trackWidth = trackWidth;
 board.clearance = clearance;
 board.viaDiameter = viaDiameter;
 if (!board.gridStep) board.gridStep = 0.5;
 
-console.log(`board=${boardFile} traceWidth=${traceWidth} clearance=${clearance} viaDia=${viaDiameter}`);
+console.log(`board=${boardFile} trackWidth=${trackWidth} clearance=${clearance} viaDia=${viaDiameter}`);
 
 const result = await routeAll(board);
 const routed = result.totalConnectionCount - result.failedConnectionCount;
-console.log(`Routed ${routed}/${result.totalConnectionCount} connections, ${result.traces.length} traces, ${result.vias?.length || 0} vias`);
+console.log(`Routed ${routed}/${result.totalConnectionCount} connections, ${result.tracks.length} tracks, ${result.vias?.length || 0} vias`);
 
-const halfTrace = traceWidth / 2;
+const halfTrack = trackWidth / 2;
 const viaRadius = viaDiameter / 2;
 const EPS = 1e-4;
 
@@ -91,30 +91,30 @@ function addVio(category, msg) {
     violations.push({ category, msg });
 }
 
-// ─── 1. Trace ↔ Pad ────────────────────────────────────────────────────
-for (const trace of result.traces) {
-    const pts = trace.points;
+// ─── 1. Track ↔ Pad ────────────────────────────────────────────────────
+for (const track of result.tracks) {
+    const pts = track.points;
     for (let i = 0; i < pts.length - 1; i++) {
         const a = pts[i], b = pts[i + 1];
         for (const pad of board.allObstaclePads) {
             const padLayer = pad.layer || 'both';
-            if (padLayer !== 'both' && padLayer !== trace.layer) continue;
+            if (padLayer !== 'both' && padLayer !== track.layer) continue;
             const padNetSet = padNets.get(keyOf(pad.x, pad.y));
-            if (padNetSet && padNetSet.has(trace.net)) continue;
+            if (padNetSet && padNetSet.has(track.net)) continue;
             const d = segPointMin(a.x, a.y, b.x, b.y, (x, y) => padPointDist(x, y, pad));
-            const required = halfTrace + clearance;
+            const required = halfTrack + clearance;
             if (d < required - EPS) {
-                addVio('trace↔pad', `net=${trace.net} layer=${trace.layer} d=${d.toFixed(4)} < ${required.toFixed(4)} pad@(${pad.x.toFixed(2)},${pad.y.toFixed(2)})`);
+                addVio('track↔pad', `net=${track.net} layer=${track.layer} d=${d.toFixed(4)} < ${required.toFixed(4)} pad@(${pad.x.toFixed(2)},${pad.y.toFixed(2)})`);
             }
         }
     }
 }
 
-// ─── 2. Trace ↔ Trace (different nets, same layer) ──────────────────────
-for (let i = 0; i < result.traces.length; i++) {
-    const t1 = result.traces[i];
-    for (let j = i + 1; j < result.traces.length; j++) {
-        const t2 = result.traces[j];
+// ─── 2. Track ↔ Track (different nets, same layer) ──────────────────────
+for (let i = 0; i < result.tracks.length; i++) {
+    const t1 = result.tracks[i];
+    for (let j = i + 1; j < result.tracks.length; j++) {
+        const t2 = result.tracks[j];
         if (t1.net === t2.net) continue;
         if (t1.layer !== t2.layer) continue;
         for (let k = 0; k < t1.points.length - 1; k++) {
@@ -122,9 +122,9 @@ for (let i = 0; i < result.traces.length; i++) {
             for (let l = 0; l < t2.points.length - 1; l++) {
                 const c = t2.points[l], d = t2.points[l + 1];
                 const dist = segToSegDist(a.x, a.y, b.x, b.y, c.x, c.y, d.x, d.y);
-                const required = traceWidth + clearance;
+                const required = trackWidth + clearance;
                 if (dist < required - EPS) {
-                    addVio('trace↔trace', `${t1.net}↔${t2.net} layer=${t1.layer} d=${dist.toFixed(4)} < ${required.toFixed(4)} t1=(${a.x.toFixed(2)},${a.y.toFixed(2)})→(${b.x.toFixed(2)},${b.y.toFixed(2)}) t2=(${c.x.toFixed(2)},${c.y.toFixed(2)})→(${d.x.toFixed(2)},${d.y.toFixed(2)})`);
+                    addVio('track↔track', `${t1.net}↔${t2.net} layer=${t1.layer} d=${dist.toFixed(4)} < ${required.toFixed(4)} t1=(${a.x.toFixed(2)},${a.y.toFixed(2)})→(${b.x.toFixed(2)},${b.y.toFixed(2)}) t2=(${c.x.toFixed(2)},${c.y.toFixed(2)})→(${d.x.toFixed(2)},${d.y.toFixed(2)})`);
                 }
             }
         }
@@ -160,17 +160,17 @@ for (let i = 0; i < vias.length; i++) {
     }
 }
 
-// ─── 5. Via ↔ Trace (different net, on either layer since via spans both) ─
+// ─── 5. Via ↔ Track (different net, on either layer since via spans both) ─
 for (const via of vias) {
-    for (const trace of result.traces) {
-        if (trace.net === via.net) continue;
-        const pts = trace.points;
+    for (const track of result.tracks) {
+        if (track.net === via.net) continue;
+        const pts = track.points;
         for (let k = 0; k < pts.length - 1; k++) {
             const a = pts[k], b = pts[k + 1];
             const d = pointToSegDist(via.x, via.y, a.x, a.y, b.x, b.y);
-            const required = viaRadius + halfTrace + clearance;
+            const required = viaRadius + halfTrack + clearance;
             if (d < required - EPS) {
-                addVio('via↔trace', `via.net=${via.net} trace.net=${trace.net} layer=${trace.layer} d=${d.toFixed(4)} < ${required.toFixed(4)}`);
+                addVio('via↔track', `via.net=${via.net} track.net=${track.net} layer=${track.layer} d=${d.toFixed(4)} < ${required.toFixed(4)}`);
             }
         }
     }

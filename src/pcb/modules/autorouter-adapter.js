@@ -2,20 +2,20 @@
  * Convert autorouter output into Track + Via model objects.
  *
  * The autorouter emits one polyline per (net, layer, connection) plus a
- * parallel array of via positions on each trace. For the Phase 1 model:
+ * parallel array of via positions on each track. For the Phase 1 model:
  *
- *   - Each `trace` (one net, one layer, polyline of points) becomes one
- *     single-layer Track. Per-edge layer is set to the trace's layer
+ *   - Each `track` (one net, one layer, polyline of points) becomes one
+ *     single-layer Track. Per-edge layer is set to the track's layer
  *     for every edge.
- *   - Each via in `trace.vias` becomes a standalone Via with the trace's
+ *   - Each via in `track.vias` becomes a standalone Via with the track's
  *     net assigned. (Future work: when stitching across layers, detect
- *     pairs of (top-trace endpoint, bottom-trace endpoint, via at same
+ *     pairs of (top-track endpoint, bottom-track endpoint, via at same
  *     position) and merge them into a single multi-layer Track with
  *     an implicit-via node rather than separate Tracks + standalone
  *     Vias.)
  *
  * @param {object} routeResult - Autorouter result
- * @param {Array<object>} routeResult.traces - [{net, layer, points, vias?}, ...]
+ * @param {Array<object>} routeResult.tracks - [{net, layer, points, vias?}, ...]
  * @param {object} [opts]
  * @param {number} [opts.trackWidth=0.2]
  * @param {number} [opts.viaDiameter=0.6]
@@ -53,30 +53,30 @@ export function tracksFromAutorouterResult(routeResult, opts = {}) {
         console.warn('tracksFromAutorouterResult: opts.placements must be a Map; pads will not link to components');
     }
 
-    const sourceTraces = Array.isArray(routeResult?.traces) ? routeResult.traces : [];
+    const sourceTracks = Array.isArray(routeResult?.tracks) ? routeResult.tracks : [];
     const sourceVias = Array.isArray(routeResult?.vias) ? routeResult.vias : [];
 
-    // Dedupe vias by position (rounded to 4dp) so the per-trace .vias arrays
+    // Dedupe vias by position (rounded to 4dp) so the per-track .vias arrays
     // and top-level .vias array don't produce duplicates.
     const viaSeen = new Set();
     const key = (x, y) => `${Math.round(x * 10000)},${Math.round(y * 10000)}`;
 
-    for (const trace of sourceTraces) {
-        if (!trace || !Array.isArray(trace.points) || trace.points.length < 2) continue;
+    for (const track of sourceTracks) {
+        if (!track || !Array.isArray(track.points) || track.points.length < 2) continue;
 
-        const layerId = trace.layer === 'bottom' ? 'bottom-copper' : 'top-copper';
-        const track = _buildSingleLayerTrack({
-            net: trace.net || '',
+        const layerId = track.layer === 'bottom' ? 'bottom-copper' : 'top-copper';
+        const modelTrack = _buildSingleLayerTrack({
+            net: track.net || '',
             width: trackWidth,
             layer: layerId,
-            points: trace.points,
+            points: track.points,
             padByPos,
         });
-        if (track) tracks.push(track);
+        if (modelTrack) tracks.push(modelTrack);
     }
 
     // Top-level master via list first (preferred — already deduplicated by
-    // the autorouter). Then any per-trace vias the adapter sees as a
+    // the autorouter). Then any per-track vias the adapter sees as a
     // fallback, in case the caller passed a partial result without the
     // top-level array (e.g. incremental progress messages).
     for (const v of sourceVias) {
@@ -91,9 +91,9 @@ export function tracksFromAutorouterResult(routeResult, opts = {}) {
             net: v.net || '',
         }));
     }
-    for (const trace of sourceTraces) {
-        if (!Array.isArray(trace?.vias)) continue;
-        for (const v of trace.vias) {
+    for (const track of sourceTracks) {
+        if (!Array.isArray(track?.vias)) continue;
+        for (const v of track.vias) {
             const k = key(v.x, v.y);
             if (viaSeen.has(k)) continue;
             viaSeen.add(k);
@@ -102,7 +102,7 @@ export function tracksFromAutorouterResult(routeResult, opts = {}) {
                 y: v.y,
                 diameter: viaDiameter,
                 drill: viaDrill,
-                net: trace.net || '',
+                net: track.net || '',
             }));
         }
     }

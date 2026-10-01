@@ -334,7 +334,7 @@ function _shouldHideNetLabel(app, track) {
  * Re-glue track endpoints to the pads they are bonded to. For every
  * Track node whose padConnections entry references `compId`, move the
  * node to its pad's current world position and re-render that track.
- * This keeps hand-drawn / routed traces attached when a component is
+ * This keeps hand-drawn / routed tracks attached when a component is
  * moved (the schematic Wire "sticky pin" behaviour, applied to pads).
  *
  * Pad world positions are read live from the placement, so the caller

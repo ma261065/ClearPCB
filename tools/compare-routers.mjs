@@ -13,7 +13,7 @@ function load() {
 function summarize(name, result, ms) {
     const routed = result.totalConnectionCount - result.failedConnectionCount;
     let segs = 0, diagSegs = 0, bends = 0;
-    for (const tr of result.traces) {
+    for (const tr of result.tracks) {
         const p = tr.path || tr.points || [];
         for (let i = 1; i < p.length; i++) {
             segs++;
@@ -32,7 +32,7 @@ function summarize(name, result, ms) {
     }
     console.log(
         `${name.padEnd(11)} routed=${routed}/${result.totalConnectionCount} ` +
-        `traces=${result.traces.length} vias=${result.vias?.length || 0} ` +
+        `tracks=${result.tracks.length} vias=${result.vias?.length || 0} ` +
         `segs=${segs} diagSegs=${diagSegs} bends=${bends} time=${(ms / 1000).toFixed(1)}s`
     );
 }

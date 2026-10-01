@@ -1,31 +1,31 @@
 // Run the autorouter on a test board and verify no clearance violations.
-// Usage: node tools/check-clearance.mjs [boardFile] [traceWidth] [clearance] [viaDia]
+// Usage: node tools/check-clearance.mjs [boardFile] [trackWidth] [clearance] [viaDia]
 
 import { readFileSync } from 'fs';
 import { routeAll } from '../src/pcb/modules/autorouter-maze.js';
 
 const boardFile = process.argv[2] || 'test-board.json';
-const traceWidth = parseFloat(process.argv[3] ?? '0.2');
+const trackWidth = parseFloat(process.argv[3] ?? '0.2');
 const clearance  = parseFloat(process.argv[4] ?? '0.1');
 const viaDiameter = parseFloat(process.argv[5] ?? '0.4');
 
 const board = JSON.parse(readFileSync(boardFile, 'utf8'));
-board.traceWidth = traceWidth;
+board.trackWidth = trackWidth;
 board.clearance = clearance;
 board.viaDiameter = viaDiameter;
 if (!board.gridStep) board.gridStep = 0.5;
 
-console.log(`board=${boardFile} traceWidth=${traceWidth} clearance=${clearance} viaDia=${viaDiameter}`);
+console.log(`board=${boardFile} trackWidth=${trackWidth} clearance=${clearance} viaDia=${viaDiameter}`);
 console.log(`connections=${board.connections.length} pads=${board.allObstaclePads.length}`);
 
 const result = await routeAll(board);
 const routed = result.totalConnectionCount - result.failedConnectionCount;
-console.log(`\nRouted ${routed}/${result.totalConnectionCount} connections, ${result.traces.length} traces, ${result.vias?.length || 0} vias`);
+console.log(`\nRouted ${routed}/${result.totalConnectionCount} connections, ${result.tracks.length} tracks, ${result.vias?.length || 0} vias`);
 
 // ---- clearance check ----------------------------------------------------
 // Build pad index.
 const pads = board.allObstaclePads;
-const halfTrace = traceWidth / 2;
+const halfTrack = trackWidth / 2;
 
 // For each pad, find the set of nets it belongs to (from connections).
 const padNets = new Map();   // "x,y" → Set<net>
@@ -80,26 +80,26 @@ function segDistToPad(ax, ay, bx, by, pad) {
 
 let violations = 0;
 const vioList = [];
-for (const trace of result.traces) {
-    const pts = trace.points;
+for (const track of result.tracks) {
+    const pts = track.points;
     for (let i = 0; i < pts.length - 1; i++) {
         const a = pts[i], b = pts[i + 1];
         for (const pad of pads) {
             // Only check pads on the same layer.
             const padLayer = pad.layer || 'both';
-            if (padLayer !== 'both' && padLayer !== trace.layer) continue;
+            if (padLayer !== 'both' && padLayer !== track.layer) continue;
             const k = keyOf(pad.x, pad.y);
             const padNetSet = padNets.get(k);
-            // If the pad belongs to the same net as the trace, skip — same-net contact is allowed at endpoints.
-            if (padNetSet && padNetSet.has(trace.net)) continue;
+            // If the pad belongs to the same net as the track, skip — same-net contact is allowed at endpoints.
+            if (padNetSet && padNetSet.has(track.net)) continue;
             const d = segDistToPad(a.x, a.y, b.x, b.y, pad);
-            const required = halfTrace + clearance;
+            const required = halfTrack + clearance;
             if (d < required - 1e-6) {
                 violations++;
                 if (vioList.length < 10) {
                     vioList.push({
-                        net: trace.net,
-                        layer: trace.layer,
+                        net: track.net,
+                        layer: track.layer,
                         seg: [a, b],
                         pad: { x: pad.x, y: pad.y, w: pad.width, h: pad.height, shape: pad.shape, layer: padLayer, net: padNetSet ? [...padNetSet].join(',') : '<obstacle>' },
                         dist: d,

@@ -1,7 +1,7 @@
 /**
- * Track – Graph-based copper trace for PCB
+ * Track – Graph-based copper track for PCB
  *
- * Models a routed (or hand-drawn) PCB trace as a graph: nodes connected
+ * Models a routed (or hand-drawn) PCB track as a graph: nodes connected
  * by edges, where each edge carries its own copper layer. This mirrors
  * the schematic Wire's graph data model so that interactive editing
  * (segment drag, T-junction insert, mid-segment branch) works the same
@@ -31,7 +31,7 @@ import { distanceToSegment } from '../core/geometry.js';
 /** Default copper layer for a Track if none is specified. */
 const DEFAULT_LAYER = 'top-copper';
 
-/** Default trace width in mm. */
+/** Default track width in mm. */
 const DEFAULT_WIDTH = 0.2;
 
 export class Track extends PolylineGraph {
@@ -51,7 +51,7 @@ export class Track extends PolylineGraph {
      * @param {object} [options]
      * @param {string} [options.id]
      * @param {string} [options.net] - Net name (e.g. 'VCC', 'Net0034')
-     * @param {number} [options.width] - Trace width in mm (track-wide default)
+     * @param {number} [options.width] - Track width in mm (track-wide default)
      * @param {string} [options.layer] - Default copper layer for new edges
      *   when edgeLayers is not provided. Edges fall back to this layer.
      * @param {object} [options.edgeLayers] - Map of edgeId → layer name

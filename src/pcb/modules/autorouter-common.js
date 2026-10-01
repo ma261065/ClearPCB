@@ -36,7 +36,7 @@
  *   features the router must avoid but never rip up: copper text, copper
  *   fills/rectangles, arcs, keep-outs, imported artwork, etc. See
  *   {@link insertCopperObstacles}.
- * @property {number} traceWidth - trace width in mm (required)
+ * @property {number} trackWidth - track width in mm (required)
  * @property {number} clearance - clearance in mm (required)
  * @property {number} viaDiameter - via diameter in mm (required)
  * @property {number} gridStep - routing grid step in mm (required)
@@ -45,7 +45,7 @@
 
 /**
  * @typedef {Object} RouteResult
- * @property {Array<{net: string, points: Array<{x: number, y: number}>, layer: string}>} traces
+ * @property {Array<{net: string, points: Array<{x: number, y: number}>, layer: string}>} tracks
  * @property {string[]} failed - net names that couldn't be routed
  * @property {number} [failedConnectionCount] - number of unrouted connections
  * @property {number} [totalConnectionCount] - total connections
@@ -114,7 +114,7 @@ export function createMinHeap() {
 // ── Spatial Hash Index ────────────────────────────────────────────
 
 /**
- * Obstacle stored in the spatial hash. Either a pad (isPad=true) or a trace segment.
+ * Obstacle stored in the spatial hash. Either a pad (isPad=true) or a track segment.
  * @typedef {Object} SpatialObstacle
  * @property {string} net - owning net name
  * @property {string} [id] - pad identifier (pads only)
@@ -122,7 +122,7 @@ export function createMinHeap() {
  * @property {string} layer - 'top', 'bottom', or 'both'
  * @property {boolean} [isPad] - true for pads/vias
  * @property {boolean} [isVia] - true for via obstacles
- * @property {number} hw - half-width (pads) or half-trace-width (segments)
+ * @property {number} hw - half-width (pads) or half-track-width (segments)
  * @property {number} [cx] - pad center X (pads only)
  * @property {number} [cy] - pad center Y (pads only)
  * @property {number} [hh] - half-height (pads only)
@@ -159,7 +159,7 @@ export class SpatialHash {
     /**
      * Insert a line segment obstacle with half-width clearance.
      * @param {number} x1 @param {number} y1 @param {number} x2 @param {number} y2
-     * @param {number} hw - half-width (trace radius + clearance)
+     * @param {number} hw - half-width (track radius + clearance)
      * @param {string} net - which net this belongs to (same-net doesn't block)
      * @param {string} [layer='top']
      * @param {string} [connId]
@@ -270,7 +270,7 @@ export class SpatialHash {
      * @param {number} x @param {number} y @param {number} clearance
      * @param {string|Set<string>} skipIds - obstacle IDs to skip (source/dest pads)
      * @param {string|null} [layer=null] - restrict to this layer
-     * @param {string|null} [skipNet=null] - skip same-net traces (not pads)
+     * @param {string|null} [skipNet=null] - skip same-net tracks (not pads)
      * @returns {boolean}
      */
     isBlocked(x, y, clearance, skipIds, layer = null, skipNet = null) {
@@ -284,11 +284,11 @@ export class SpatialHash {
                 for (const obj of objs) {
                     const objId = obj.net || obj.id;
                     if (isSet ? skipIds.has(objId) : objId === skipIds) continue;
-                    // Skip same-net traces (not pads) when routing another connection of the same net
+                    // Skip same-net tracks (not pads) when routing another connection of the same net
                     if (skipNet && ((!obj.isPad && obj.net === skipNet) || (obj.fixedCopper && obj.netName === skipNet))) continue;
                     // Layer check: obstacles only block on the same layer.
                     // Pads with layer='both' block all layers; single-layer pads
-                    // only block their own layer. Traces only block same layer.
+                    // only block their own layer. Tracks only block same layer.
                     if (layer) {
                         const objLayer = obj.layer || 'both';
                         if (objLayer !== 'both' && objLayer !== layer) continue;
@@ -327,7 +327,7 @@ export class SpatialHash {
                 for (const obj of objs) {
                     const objId = obj.net || obj.id;
                     if (isSet ? skipIds.has(objId) : objId === skipIds) continue;
-                    // Skip same-net traces when routing another connection of the same net
+                    // Skip same-net tracks when routing another connection of the same net
                     if (skipNet && ((!obj.isPad && obj.net === skipNet) || (obj.fixedCopper && obj.netName === skipNet))) continue;
                     if (layer) {
                         const objLayer = obj.layer || 'both';
@@ -346,7 +346,7 @@ export class SpatialHash {
     }
 
     /**
-     * Find which nets' traces block a segment (for rip-up).
+     * Find which nets' tracks block a segment (for rip-up).
      * @param {number} ax1 @param {number} ay1 @param {number} ax2 @param {number} ay2
      * @param {number} clearance @param {string|Set<string>} skipIds
      * @param {string|null} [layer=null]
@@ -380,7 +380,7 @@ export class SpatialHash {
     }
 
     /**
-     * Find which foreign connection IDs' traces block a segment (for rip-up).
+     * Find which foreign connection IDs' tracks block a segment (for rip-up).
      * @param {number} ax1 @param {number} ay1 @param {number} ax2 @param {number} ay2
      * @param {number} clearance @param {string|Set<string>} skipIds
      * @param {string|null} [layer=null]
@@ -463,7 +463,7 @@ export class SpatialHash {
                         if (d < bestDist) {
                             bestDist = d;
                             best = {
-                                kind: 'trace',
+                                kind: 'track',
                                 net: obj.net || null,
                                 connId: obj.connId || null,
                                 obstacleId: objId || null,
@@ -509,7 +509,7 @@ export class SpatialHash {
     }
 
     /**
-     * Find which connection IDs' traces a point overlaps.
+     * Find which connection IDs' tracks a point overlaps.
      * Returns set of connId strings. Pads are ignored.
      */
     crossingConnIdsAtPoint(x, y, clearance, skipIds, layer = null) {
@@ -538,7 +538,7 @@ export class SpatialHash {
     }
 
     /**
-     * Find which connection IDs' traces a segment crosses.
+     * Find which connection IDs' tracks a segment crosses.
      */
     crossingConnIdsForSegment(ax1, ay1, ax2, ay2, clearance, skipIds, layer = null) {
         const crossed = new Set();
@@ -779,9 +779,9 @@ export function segmentToSegmentDist(ax1, ay1, ax2, ay2, bx1, by1, bx2, by2) {
 // ── Pad clearance geometry ────────────────────────────────────────
 //
 // All pad-vs-something tests use true Minkowski-sum distance — i.e. the
-// trace center-line must stay strictly more than `clearance` away from the
+// track center-line must stay strictly more than `clearance` away from the
 // pad's actual copper boundary. This is mathematically equivalent to (and
-// numerically identical to) putting the clearance envelope on the trace
+// numerically identical to) putting the clearance envelope on the track
 // instead of the pad; the per-shape distance function is intrinsic either
 // way. Earlier code used an AABB-inflation approximation which over-blocked
 // at corners (square corners on the inflated rect instead of the rounded
@@ -922,7 +922,7 @@ export class CongestionGrid {
         s.add(net);
     }
 
-    /** Record usage along a trace segment. */
+    /** Record usage along a track segment. */
     recordSegment(x1, y1, x2, y2, net) {
         const dist = Math.hypot(x2 - x1, y2 - y1);
         const steps = Math.max(1, Math.ceil(dist / this.cellSize));
@@ -938,10 +938,10 @@ export class CongestionGrid {
         return s ? s.size : 0;
     }
 
-    /** Build from an iterable of trace objects [{net, points: [{x,y},...]}]. */
-    buildFromTraces(traces) {
+    /** Build from an iterable of track objects [{net, points: [{x,y},...]}]. */
+    buildFromTracks(tracks) {
         this.cells.clear();
-        for (const t of traces) {
+        for (const t of tracks) {
             const pts = t.points;
             if (!pts || pts.length < 2) continue;
             for (let i = 0; i < pts.length - 1; i++) {
@@ -965,12 +965,12 @@ export class CongestionGrid {
  *   - present demand: distinct nets currently using this cell this iteration
  *   - history penalty: accumulated overuse penalty from prior iterations
  *
- * Capacity is 1 (a cell can host one net's trace without conflict).
+ * Capacity is 1 (a cell can host one net's track without conflict).
  * Pathfinder cost for A*: `history + presentFactor * overuse`, where
  * `presentFactor` grows each iteration to force nets to negotiate away from
  * shared resources.
  *
- * Layer-aware: traces on different layers don't conflict; vias consume
+ * Layer-aware: tracks on different layers don't conflict; vias consume
  * both layers at their position.
  */
 export class PathfinderGrid {
@@ -1101,13 +1101,13 @@ export function packNodeKey(x, y, layer) {
  * @param {SpatialHash} obstacles
  * @param {string|Set<string>} skipIds - pad IDs to skip
  * @param {number} gridStep - routing grid resolution (mm)
- * @param {number} traceWidth - trace width (mm)
+ * @param {number} trackWidth - track width (mm)
  * @param {number} clearance - min clearance from obstacles (mm)
  * @param {number} [greedyWeight=3.0] - A* greedy multiplier
  * @param {boolean} [allowVias=true] - allow layer transitions
  * @returns {Promise<{path: Array<{x: number, y: number, layer: string}>, vias: Array<{x: number, y: number}>}|null>}
  */
-export async function astarRoute(sx, sy, ex, ey, obstacles, skipIds, gridStep, traceWidth, clearance, greedyWeight = 2.5, allowVias = true, startLayer = 'top', endPadLayer = 'both', options = {}) {
+export async function astarRoute(sx, sy, ex, ey, obstacles, skipIds, gridStep, trackWidth, clearance, greedyWeight = 2.5, allowVias = true, startLayer = 'top', endPadLayer = 'both', options = {}) {
     const {
         maxIter = 800000,
         stagnationIters = 80000,
@@ -1137,15 +1137,15 @@ export async function astarRoute(sx, sy, ex, ey, obstacles, skipIds, gridStep, t
         startPad = null,
         endPad = null,
     } = options;
-    const halfTrace = traceWidth / 2;
-    const totalClear = halfTrace + clearance;
-    const viaRadius = optViaRadius || (clearance + halfTrace);
+    const halfTrack = trackWidth / 2;
+    const totalClear = halfTrack + clearance;
+    const viaRadius = optViaRadius || (clearance + halfTrack);
     const VIA_COST = gridStep * 30 * viaCostScale;
     const BEND_COST = gridStep * 0.5 * bendCostScale;
     const PAD_DIAG_COST = gridStep * 5 * padDiagCostScale;
     // Centerline-exit preference: scale factor applied to (perpendicular
     // distance from the pad's long-axis centerline) for cells inside or
-    // immediately outside an elongated own start/end pad. Encourages traces
+    // immediately outside an elongated own start/end pad. Encourages tracks
     // to enter/leave through the centre of the pad's short edge rather
     // than the corners — the standard PCB convention.
     const PAD_CENTER_COST = 6.0;
@@ -1176,7 +1176,7 @@ export async function astarRoute(sx, sy, ex, ey, obstacles, skipIds, gridStep, t
         else              mode = 'vertical';   // long axis is Y → align X
         // Margin scales with effectiveStep so the cell one step out from
         // the pad is still in the pull zone for long-route step sizes.
-        // Also extend by the pad's short half-dim so the trace walks
+        // Also extend by the pad's short half-dim so the track walks
         // straight along the centerline for a few cells past the pad
         // edge instead of bending immediately on exit.
         const shortHalf = Math.min(w, h) / 2;
@@ -1368,15 +1368,15 @@ export async function astarRoute(sx, sy, ex, ey, obstacles, skipIds, gridStep, t
             //     corridor). ALWAYS run the segment check unless we're
             //     walking entirely inside the pad copper.
             //   Near own pad: skip only the radial point check (which falsely
-            //     blocks traces escaping between tight pads) but keep the full
+            //     blocks tracks escaping between tight pads) but keep the full
             //     perpendicular segment check with totalClear — this correctly
-            //     prevents traces from overlapping neighboring pads.
+            //     prevents tracks from overlapping neighboring pads.
             //   Further out: full point + segment checks with totalClear.
             //
             // Note: we DO run these checks even when nKey == endpoint key.
-            // Own pads are filtered via skipIds; foreign traces / pads are
+            // Own pads are filtered via skipIds; foreign tracks / pads are
             // NOT skipped, so they correctly block landing on a destination
-            // cell that has been previously occupied by a foreign trace.
+            // cell that has been previously occupied by a foreign track.
             const insideStartN = startPad && isInsidePad(nx, ny, startPad);
             const insideEndN   = endPad   && isInsidePad(nx, ny, endPad);
             const insideStartC = startPad && isInsidePad(current.x, current.y, startPad);
@@ -1391,7 +1391,7 @@ export async function astarRoute(sx, sy, ex, ey, obstacles, skipIds, gridStep, t
                     // but keep the FULL totalClear segment check. Own-net
                     // source/dest pads are already in skipIds so they cannot
                     // block; foreign pads must still be respected at the full
-                    // halfTrace+clearance distance.
+                    // halfTrack+clearance distance.
                     if (obstacles.isSegmentBlocked(current.x, current.y, nx, ny, totalClear, skipIds, current.layer, routingNet)) continue;
                 } else {
                     // Open field: full radial point check + segment check
@@ -1422,7 +1422,7 @@ export async function astarRoute(sx, sy, ex, ey, obstacles, skipIds, gridStep, t
             }
             dirPenalty *= dirPenaltyScale;
 
-            // Pad exit/entry penalty: strongly prefer orthogonal traces near pads
+            // Pad exit/entry penalty: strongly prefer orthogonal tracks near pads
             let padDiagPenalty = 0;
             if (isDiag) {
                 const nearPad = obstacles.isOnPad(current.x, current.y, effectiveStep * 2);
@@ -1481,11 +1481,11 @@ export async function astarRoute(sx, sy, ex, ey, obstacles, skipIds, gridStep, t
             if (!closed.has(viaKey)) {
                 // Check the via position is clear on BOTH layers.
                 // Use viaRadius + clearance (not totalClear) because the via copper
-                // footprint is larger than a trace — its edge must maintain design
+                // footprint is larger than a track — its edge must maintain design
                 // clearance from all other copper.
-                // Foreign traces and other-net pads MUST be respected even at
+                // Foreign tracks and other-net pads MUST be respected even at
                 // endpoints; only own-net pads (in skipIds) are skipped. Without
-                // this, a via could land on a previously-routed foreign trace
+                // this, a via could land on a previously-routed foreign track
                 // that happens to pass through the source/dest pad position on
                 // the opposite layer.
                 const viaClear = viaRadius + clearance;
@@ -1526,15 +1526,15 @@ export async function astarRoute(sx, sy, ex, ey, obstacles, skipIds, gridStep, t
 // ── Cost-based Rip-up Probe ───────────────────────────────────────
 
 /**
- * Lightweight A* probe that treats existing traces as crossable (with a high
+ * Lightweight A* probe that treats existing tracks as crossable (with a high
  * penalty) instead of impassable. Returns the set of foreign connection IDs
- * whose traces the cheapest path actually crossed, or null if no path was found at
+ * whose tracks the cheapest path actually crossed, or null if no path was found at
  * all (e.g. pads in the way).
  *
  * This is used during rip-up to surgically identify which connections to rip
  * instead of blasting every net along the direct bounding-box path.
  */
-export async function astarProbe(sx, sy, ex, ey, obstacles, skipIds, gridStep, traceWidth, clearance, startLayer = 'top', endPadLayer = 'both', options = {}) {
+export async function astarProbe(sx, sy, ex, ey, obstacles, skipIds, gridStep, trackWidth, clearance, startLayer = 'top', endPadLayer = 'both', options = {}) {
     const {
         maxIter = 120000,
         cancelToken = null,
@@ -1543,9 +1543,9 @@ export async function astarProbe(sx, sy, ex, ey, obstacles, skipIds, gridStep, t
         bounds = null,
         routingNet = null,
     } = options;
-    const halfTrace = traceWidth / 2;
-    const totalClear = halfTrace + clearance;
-    const viaRadius = clearance + halfTrace;  // conservative estimate for probing
+    const halfTrack = trackWidth / 2;
+    const totalClear = halfTrack + clearance;
+    const viaRadius = clearance + halfTrack;  // conservative estimate for probing
     const CROSS_PENALTY = gridStep * 60;  // heavy but not infinite
     const VIA_COST = gridStep * 30;
     const routeDist = Math.hypot(ex - sx, ey - sy);
@@ -1618,9 +1618,9 @@ export async function astarProbe(sx, sy, ex, ey, obstacles, skipIds, gridStep, t
             const padBlocked = obstacles.isBlocked(nx, ny, totalClear, skipIds, current.layer);
             let isPadBlock = false;
             if (padBlocked) {
-                // If there are no trace crossings at this point, it must be a pad blocking
-                const traceConns = obstacles.crossingConnIdsAtPoint(nx, ny, totalClear, skipIds, current.layer);
-                isPadBlock = traceConns.size === 0;
+                // If there are no track crossings at this point, it must be a pad blocking
+                const trackConns = obstacles.crossingConnIdsAtPoint(nx, ny, totalClear, skipIds, current.layer);
+                isPadBlock = trackConns.size === 0;
             }
             if (isPadBlock) continue;  // hard-blocked by pad, skip
 

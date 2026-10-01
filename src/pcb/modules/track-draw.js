@@ -1298,7 +1298,7 @@ function _unionViaTrackOverlaps(clusters, union, requireSameNet) {
  * Find the nearest point of net `net`'s existing copper (pads, vias and
  * tracks) to `from`. Drives the live guide line drawn from the tip of a track
  * being routed (or a node being dragged) toward the closest place it still
- * needs to connect. Copper the trace is ALREADY electrically connected to is
+ * needs to connect. Copper the track is ALREADY electrically connected to is
  * excluded via `excludeTracks`/`excludeVias`/`excludePadKeys` (a precomputed
  * bonded cluster) so the guide never points back at it.
  *
@@ -1412,7 +1412,7 @@ export function nearestPointOnNet(app, net, from, opts = {}) {
 }
 
 /**
- * Precompute the copper a trace seeded on `seedTrack` is already bonded to,
+ * Precompute the copper a track seeded on `seedTrack` is already bonded to,
  * shaped for `nearestPointOnNet`'s exclusion options. Returns null when there
  * is no seed Track or terminal. Computed once at draw/drag start and reused per frame.
  *

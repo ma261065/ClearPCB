@@ -169,7 +169,7 @@ unsupported forms at the model boundary. Do not silently substitute another shap
 ### F3. Gerber clips some objects by centre rather than material (P1, reproduced for tracks)
 
 [Track export](../src/pcb/modules/gerber.js#L243) clips the centreline without its
-stroke width. A 1 mm-wide vertical trace at x=100.1 beside a 100 mm board contributes
+stroke width. A 1 mm-wide vertical track at x=100.1 beside a 100 mm board contributes
 0.4 mm of copper inside the board, but emits no draw. Copper text already passes
 its width to the same clipping helper.
 

@@ -1293,7 +1293,7 @@ function appendMesh(dst, src) {
     }
 }
 
-/** Flat filled disc on the y-plane (used for round trace end-caps / pads). */
+/** Flat filled disc on the y-plane (used for round track end-caps / pads). */
 function discMesh(cx, cz, r, y, color, seg = 14) {
     const verts = [{ x: cx, y, z: cz }];
     for (let i = 0; i < seg; i++) {
@@ -1308,7 +1308,7 @@ function discMesh(cx, cz, r, y, color, seg = 14) {
     return { verts, faces };
 }
 
-/** Flat rectangle of the given width from A→B on the y-plane (a trace body). */
+/** Flat rectangle of the given width from A→B on the y-plane (a track body). */
 function ribbonMesh(ax, az, bx, bz, width, y, color) {
     const dx = bx - ax, dz = bz - az;
     const len = Math.hypot(dx, dz) || 1;

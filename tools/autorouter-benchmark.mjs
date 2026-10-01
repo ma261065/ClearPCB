@@ -394,7 +394,7 @@ async function runOne(routeInput, sweepCase, opts, index, total) {
     const elapsedMs = performance.now() - start;
 
     const totalNets = routeInput.connections.length;
-    const routedNets = new Set(result.traces.map(t => t.net)).size;
+    const routedNets = new Set(result.tracks.map(t => t.net)).size;
     const failedNets = Array.isArray(result.failed) ? result.failed.slice() : [];
     const failed = failedNets.length;
 
@@ -407,7 +407,7 @@ async function runOne(routeInput, sweepCase, opts, index, total) {
         failed,
         failedNets,
         timedOut,
-        segments: result.traces.length,
+        segments: result.tracks.length,
         vias: result.vias?.length || 0,
         elapsedMs: Math.round(elapsedMs),
         lastProgress: latestProgress,
@@ -510,7 +510,7 @@ async function runPathfinderOne(routeInput, pfCase, opts, index, total) {
 
     const elapsedMs = performance.now() - start;
     const totalNets = routeInput.connections.length;
-    const routedNets = new Set(result.traces.map(t => t.net)).size;
+    const routedNets = new Set(result.tracks.map(t => t.net)).size;
     const failedNets = Array.isArray(result.failed) ? result.failed.slice() : [];
     const failed = failedNets.length;
 
@@ -524,7 +524,7 @@ async function runPathfinderOne(routeInput, pfCase, opts, index, total) {
         failed,
         failedNets,
         timedOut,
-        segments: result.traces.length,
+        segments: result.tracks.length,
         vias: result.vias?.length || 0,
         elapsedMs: Math.round(elapsedMs),
         lastProgress: latestProgress,

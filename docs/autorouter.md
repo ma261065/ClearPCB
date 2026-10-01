@@ -4,6 +4,13 @@ Two connection-oriented routers — a maze router with rip-up-and-reroute
 (inspired by [Freerouting](https://github.com/freerouting/freerouting)) and a
 negotiated-congestion pathfinder — sharing a common geometry / A* core.
 
+PCB conductors are called **tracks** in the UI, reports and documentation.
+Routing payloads use `tracks`, `trackWidth` and `netTracks` consistently.
+These internal APIs and routing JSON fixtures have no legacy-name aliases;
+authored `.cpcb` board data already uses tracks and its format is unchanged.
+DSN/SES syntax retains the external format's `wire` and `path` keywords.
+Image tracing is an unrelated image-conversion operation.
+
 ## Architecture
 
 ```
@@ -45,7 +52,7 @@ thread communicates via `postMessage`:
 | Message (worker → UI)  | Purpose                                     |
 |------------------------|---------------------------------------------|
 | `progress`             | Phase/pass progress for status bar           |
-| `netRouted`            | New traces drawn — render incrementally      |
+| `netRouted`            | `netTracks` array — render incrementally      |
 | `netFailed`            | Connection could not be routed               |
 | `connRipped`           | Connection removed during rip-up             |
 | `netPendingChanged`    | Update ratsnest visibility for a net         |
@@ -67,7 +74,7 @@ Passed from `PCBApp._buildRouteInput()` to the worker.
 |-------------------|---------------------|-------------------------------------|
 | `connections`     | `Array<{net, pads}>` | Net name + ordered pad array       |
 | `allObstaclePads` | `Array<Pad>`        | All pads (including non-netlist)    |
-| `traceWidth`      | `number`            | Trace width in mm (default 0.254)  |
+| `trackWidth`      | `number`            | Required track width in mm        |
 | `clearance`       | `number`            | Min clearance in mm (default 0.2)  |
 | `viaDiameter`     | `number`            | Via diameter in mm (default 0.6)   |
 | `gridStep`        | `number`            | Grid resolution in mm (default 0.5)|
@@ -77,7 +84,7 @@ Passed from `PCBApp._buildRouteInput()` to the worker.
 
 | Field                  | Type           | Description                          |
 |------------------------|----------------|--------------------------------------|
-| `traces`               | `Array`        | Routed trace segments                |
+| `tracks`               | `Array`        | Routed track segments                |
 | `vias`                 | `Array`        | Via locations `{net, x, y}`          |
 | `failed`               | `string[]`     | Unrouted net names                   |
 | `failedConnectionCount`| `number`       | Number of unrouted connections       |
@@ -94,17 +101,17 @@ Stores two types of obstacles:
 Key operations:
 - `isBlocked(x, y, clearance, skipIds, layer, skipNet)` — point query
 - `isSegmentBlocked(...)` — segment query
-- `insert(x1, y1, x2, y2, hw, net, layer, connId)` — add trace segment
+- `insert(x1, y1, x2, y2, hw, net, layer, connId)` — add track segment
 - `removeConnection(connId)` — surgical removal for rip-up
 - `isOnPad(x, y, clearance, skipNet)` — via placement check
 
-The `skipNet` parameter enables **same-net transparency**: traces belonging to
+The `skipNet` parameter enables **same-net transparency**: tracks belonging to
 the same net are invisible to A\*, so connections within a multi-pad net don't
 block each other.
 
 ### CongestionGrid
 
-Tracks how many different nets use each spatial cell. Built from routed traces
+Tracks how many different nets use each spatial cell. Built from routed tracks
 plus demand lines from failed connections. Used during rip-up passes to steer
 A\* away from congested corridors.
 
@@ -121,7 +128,7 @@ score = manhattan_distance + local_pad_density × gridStep
 
 For multi-pad nets (≥3 pads), pads are reordered using a **nearest-neighbor
 chain** starting from the pad farthest from the centroid. This prevents
-redundant parallel traces.
+redundant parallel tracks.
 
 Each connection attempts routing in three stages:
 1. **Direct line** — if H/V/45° and unblocked on a shared layer
@@ -168,11 +175,11 @@ Up to `MAX_PASSES` (default 4) passes while failed connections remain.
 
 Before each pass, a **CongestionGrid** is rebuilt and
 `activeHistoryWeight = 0.3 × pass`. This implements **negotiated congestion**:
-later passes penalize congested areas more aggressively, spreading traces.
+later passes penalize congested areas more aggressively, spreading tracks.
 
 For each failed connection:
 
-1. **Probe** — `astarProbe` finds the cheapest path treating traces as
+1. **Probe** — `astarProbe` finds the cheapest path treating tracks as
    crossable (with heavy penalty). Returns the set of foreign connection IDs
    crossed.
 2. **Identify blockers** — If probe fails, fall back to
@@ -187,7 +194,7 @@ For each failed connection:
 ### Best-State Tracking
 
 After each successful routing, `captureBestIfImproved()` snapshots
-`routedTraces` if the routed connection count exceeds the previous best.
+`routedTracks` if the routed connection count exceeds the previous best.
 The final output uses the best snapshot, so transient rip-up degradation
 doesn't affect the result.
 
@@ -217,15 +224,15 @@ This enables:
 - **Independent ordering**: connections sorted by global difficulty regardless
   of which net they belong to
 - **Surgical rip-up**: only the specific blocking connection is removed, not
-  the entire net's traces
-- **Same-net transparency**: `skipNet` makes same-net traces invisible to A\*,
+  the entire net's tracks
+- **Same-net transparency**: `skipNet` makes same-net tracks invisible to A\*,
   so routing order within a net doesn't matter
 
 ### Nearest-Neighbor Pad Ordering
 
 Multi-pad nets have pads reordered by a greedy nearest-neighbor chain starting
 from the outlier pad. This prevents the common failure mode of two long
-parallel traces to a distant pad instead of one long trace + short hops.
+parallel tracks to a distant pad instead of one long track + short hops.
 
 ### Via-Pad Clearance
 
@@ -236,9 +243,9 @@ IC pins).
 
 ### Negotiated Congestion
 
-The `CongestionGrid` records both actual trace usage and demand from failed
+The `CongestionGrid` records both actual track usage and demand from failed
 connections. During rip-up, A\* penalizes paths through high-congestion cells
-with a weight that increases each pass (`0.3 × pass`). This spreads traces
+with a weight that increases each pass (`0.3 × pass`). This spreads tracks
 across the board and resolves routing-order butterfly effects.
 
 ## File Structure
@@ -272,6 +279,6 @@ src/ui/
 └── PCBApp.js                 # UI integration
     ├── _buildRouteInput()
     ├── _runAutoRouteInWorker()
-    ├── _renderNetTraces()
+    ├── _renderNetTracks()
     └── _clearIncrementalConnection()
 ```

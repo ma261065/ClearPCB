@@ -6,7 +6,7 @@
  *   can route the board.
  *
  * SES (Session) — imports routed wires back from the external router
- *   and returns them as trace arrays for rendering.
+ *   and returns them as track arrays for rendering.
  */
 
 // ── DSN Export ────────────────────────────────────────────────────
@@ -18,15 +18,15 @@
  * @param {Map<string, object>} opts.placements  - componentId → { x, y, reference, padOffsets }
  * @param {Array<{net: string, pins: Array<{componentId: string, pinNumber: string}>}>} opts.netlist
  * @param {{minX: number, minY: number, maxX: number, maxY: number}} [opts.bounds]
- * @param {number} opts.traceWidth - required, mm
+ * @param {number} opts.trackWidth - required, mm
  * @param {number} opts.clearance - required, mm
  * @param {number} opts.viaDiameter - required, mm
  * @returns {string}
  */
 export function exportDSN(opts) {
-    const { placements, netlist, traceWidth, clearance, viaDiameter } = opts;
-    if (typeof traceWidth !== 'number' || !Number.isFinite(traceWidth) || traceWidth <= 0) {
-        throw new Error(`exportDSN: opts.traceWidth must be a positive number, got ${traceWidth}`);
+    const { placements, netlist, trackWidth, clearance, viaDiameter } = opts;
+    if (typeof trackWidth !== 'number' || !Number.isFinite(trackWidth) || trackWidth <= 0) {
+        throw new Error(`exportDSN: opts.trackWidth must be a positive number, got ${trackWidth}`);
     }
     if (typeof clearance !== 'number' || !Number.isFinite(clearance) || clearance <= 0) {
         throw new Error(`exportDSN: opts.clearance must be a positive number, got ${clearance}`);
@@ -132,7 +132,7 @@ export function exportDSN(opts) {
     const classDef = allNetNames.length
         ? `    (class default ${allNetNames.join(' ')}\n` +
           `      (circuit (use_via via_default))\n` +
-          `      (rule (width ${u(traceWidth)}) (clearance ${u(clearance)}))\n` +
+          `      (rule (width ${u(trackWidth)}) (clearance ${u(clearance)}))\n` +
           `    )`
         : '';
 
@@ -153,7 +153,7 @@ export function exportDSN(opts) {
       (path signal 0 ${u(minX)} ${u(-minY)} ${u(maxX)} ${u(-minY)} ${u(maxX)} ${u(-maxY)} ${u(minX)} ${u(-maxY)} ${u(minX)} ${u(-minY)})
     )
     (via via_default)
-    (rule (width ${u(traceWidth)}) (clearance ${u(clearance)}))
+    (rule (width ${u(trackWidth)}) (clearance ${u(clearance)}))
   )
   (placement
 ${placementDefs.join('\n')}
@@ -234,7 +234,7 @@ export function importDSN(dsnText) {
     if (!clearanceNode || clearanceNode[1] == null) {
         throw new Error('Invalid DSN: missing (rule (clearance ...)) inside (structure ...)');
     }
-    const traceWidth = toMM(widthNode[1]);
+    const trackWidth = toMM(widthNode[1]);
     const clearance = toMM(clearanceNode[1]);
 
     // Parse board bounds from boundary path
@@ -393,7 +393,7 @@ export function importDSN(dsnText) {
         routeInput: {
             connections,
             allObstaclePads,
-            traceWidth,
+            trackWidth,
             clearance,
             viaDiameter,
             gridStep: 0.5,
@@ -423,17 +423,17 @@ function _q(name) {
  *
  * @param {string} sesText - contents of the .ses file
  * @param {number} resolution - DSN resolution (units per mm), default 1000
- * @returns {{ traces: Array<{net: string, points: Array<{x: number, y: number}>, layer: string}>, vias: Array<{net: string, x: number, y: number}> }}
+ * @returns {{ tracks: Array<{net: string, points: Array<{x: number, y: number}>, layer: string}>, vias: Array<{net: string, x: number, y: number}> }}
  */
 export function importSES(sesText, resolution = 1000) {
-    const traces = [];
+    const tracks = [];
     const tree = _parseSExp(sesText);
-    if (!tree) { console.warn('[SES] Failed to parse S-expression'); return { traces, vias: [] }; }
+    if (!tree) { console.warn('[SES] Failed to parse S-expression'); return { tracks, vias: [] }; }
 
     // Find (routes ...) → (network_out ...) → (net ...) → (wire ...)
     const session = Array.isArray(tree) ? tree : [tree];
     const routes = _findNode(session, 'routes');
-    if (!routes) { console.warn('[SES] No (routes) node found'); return { traces, vias: [] }; }
+    if (!routes) { console.warn('[SES] No (routes) node found'); return { tracks, vias: [] }; }
 
     // Parse resolution — handles (resolution mm 1000) or (resolution um 10) etc.
     let toMM = 1 / resolution; // default: assume mm with given resolution
@@ -455,7 +455,7 @@ export function importSES(sesText, resolution = 1000) {
     const fromU = (v) => parseFloat(v) * toMM;
 
     const networkOut = _findNode(routes, 'network_out');
-    if (!networkOut) { console.warn('[SES] No (network_out) node found'); return { traces, vias: [] }; }
+    if (!networkOut) { console.warn('[SES] No (network_out) node found'); return { tracks, vias: [] }; }
 
     // Auto-detect actual scale: check first wire's width field.
     // Freerouting often outputs in nm regardless of declared resolution.
@@ -471,7 +471,7 @@ export function importSES(sesText, resolution = 1000) {
                 const widthMM = rawWidth * toMM;
                 if (widthMM > 1) {
                     // Width seems way too big — auto-correct
-                    // Expected trace width ~0.1-0.5mm; find the right power of 10
+                    // Expected track width ~0.1-0.5mm; find the right power of 10
                     scaleCorrection = 1;
                     while (rawWidth * toMM * scaleCorrection > 1) scaleCorrection /= 10;
                     toMM *= scaleCorrection;
@@ -511,7 +511,7 @@ export function importSES(sesText, resolution = 1000) {
                     });
                 }
                 if (points.length >= 2) {
-                    traces.push({ net: netName, points, layer });
+                    tracks.push({ net: netName, points, layer });
                 }
             } else if (wireOrVia[0] === 'via') {
                 // (via via_default x y) or (via padstack_name x y ...)
@@ -524,8 +524,8 @@ export function importSES(sesText, resolution = 1000) {
         }
     }
 
-    console.log(`[SES] Imported ${traces.length} trace segments, ${vias.length} vias`);
-    return { traces, vias };
+    console.log(`[SES] Imported ${tracks.length} track segments, ${vias.length} vias`);
+    return { tracks, vias };
 }
 
 /**

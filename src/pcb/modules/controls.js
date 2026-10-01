@@ -4,6 +4,7 @@ import { bindRecentsDropdown } from '../../ui/modules/recents.js';
 import { showPictureImport } from './picture-import.js';
 import { bindDesignSettings } from './design-settings.js';
 import { runPcbHistoryAction, savePcbProject } from './editor-actions.js';
+import { PCB_SHAPE_TOOLS as SHAPE_TOOLS, normalizePcbTool, selectPcbTool } from './tool-lifecycle.js';
 
 /**
  * Binds PCB-specific UI controls for tools and layers.
@@ -41,9 +42,6 @@ export function bindPcbControls(app) {
     const redoBtn = document.getElementById('pcbRedoBtn');
 
     const toolBtns = [selectBtn, trackBtn, viaBtn, padBtn, holeBtn, shapesBtn, textBtn, fillBtn];
-    const validTools = new Set(['select', 'track', 'pad', 'via', 'line', 'circle', 'arc', 'rect', 'polygon', 'text', 'fill']);
-    // Tools grouped under the "Shapes" dropdown button.
-    const SHAPE_TOOLS = new Set(['line', 'circle', 'arc', 'rect', 'polygon']);
     // Icon shown beside the stable Shapes dropdown label.
     const SHAPE_ICONS = {
         line: '/',
@@ -66,65 +64,12 @@ export function bindPcbControls(app) {
     };
 
     const syncHomeToolHighlight = () => {
-        const tool = typeof app.currentTool === 'string' && validTools.has(app.currentTool)
-            ? app.currentTool
-            : 'select';
+        const tool = normalizePcbTool(app.currentTool);
+        if (shapesBtn && SHAPE_TOOLS.has(tool)) shapesBtn.textContent = `${SHAPE_ICONS[tool]} Shapes`;
         setToolButtonActive(tool);
     };
 
-    const setTool = (tool) => {
-        const nextTool = validTools.has(tool) ? tool : 'select';
-        // Cancel any in-progress Track draw (and drop the pre-draw hover snap
-        // marker) when switching away from the track tool.
-        if (nextTool !== 'track') {
-            app._cancelTrackDraw?.();
-        }
-        // Cancel any in-progress copper-fill outline when leaving the fill tool.
-        if (app._fillDraw && nextTool !== 'fill') {
-            app._cancelFillDraw?.();
-        }
-        // Cancel any in-progress shape draw when switching to another tool.
-        if (app._shapeDraw && app._shapeDraw.kind !== nextTool) {
-            app._cancelShapeDraw?.();
-        }
-        app.currentTool = nextTool;
-        // Reflect the active shape through its icon while retaining the
-        // consistent Shapes button label.
-        if (shapesBtn && SHAPE_TOOLS.has(nextTool)) {
-            shapesBtn.textContent = `${SHAPE_ICONS[nextTool]} Shapes`;
-        }
-        // Clear any component hover outline when leaving the select tool.
-        if (nextTool !== 'select') app._hoverComponent?.(null);
-        // Clear a selected reference designator when leaving the select tool.
-        if (nextTool !== 'select') app._selectRefText?.(null);
-        setToolButtonActive(nextTool);
-        app._updateCursorForTool?.();
-        app._setPcbStatus?.();
-        // Shape-like drawing tools configure themselves through Properties.
-        if (nextTool === 'via') {
-            app._hideToolOptions?.();
-            app._showViaToolProperties?.();
-        } else if (nextTool === 'pad') {
-            app._hideToolOptions?.();
-            app._showPadToolProperties?.();
-        } else if (nextTool === 'track') {
-            app._hideToolOptions?.();
-            app._showTrackDrawProperties?.();
-        } else if (nextTool === 'text') {
-            app._hideToolOptions?.();
-            app._showTextToolProperties?.();
-        } else if (nextTool === 'fill') {
-            app._showFillToolOptions?.();
-        } else if (nextTool === 'circle') {
-            app._hideToolOptions?.();
-            app._showBoardShapeToolProperties?.('circle');
-        } else if (SHAPE_TOOLS.has(nextTool)) {
-            app._hideToolOptions?.();
-            app._showBoardShapeToolProperties?.(nextTool);
-        } else {
-            app._hideToolOptions?.();
-        }
-    };
+    const setTool = tool => selectPcbTool(app, tool);
 
     app._syncPcbHomeToolHighlight = syncHomeToolHighlight;
 

@@ -9,7 +9,7 @@ const cl = parseFloat(process.argv[4] ?? '0.1');
 const vd = parseFloat(process.argv[5] ?? '0.4');
 
 const board = JSON.parse(readFileSync(file, 'utf8'));
-board.traceWidth = tw; board.clearance = cl; board.viaDiameter = vd;
+board.trackWidth = tw; board.clearance = cl; board.viaDiameter = vd;
 if (!board.gridStep) board.gridStep = 0.5;
 
 const r = await routeAll(board);

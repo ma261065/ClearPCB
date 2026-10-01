@@ -23,6 +23,7 @@ import { exportDSN, importSES } from '../pcb/modules/dsn.js';
 import { scheduleDrcRefresh, runDrcNow, invalidateDrcRefresh, disposeDrcRefresh } from '../pcb/modules/drc-refresh.js';
 import { cancelPcbPosePreviews, disposePcbPropertyEditors, hasPcbEditInProgress } from '../pcb/modules/edit-lifecycle.js';
 import { runPcbHistoryAction, savePcbProject } from '../pcb/modules/editor-actions.js';
+import { PCB_CROSSHAIR_TOOLS, cancelPcbDrawingMode, resetPcbTool, preparePcbRibbonTransition } from '../pcb/modules/tool-lifecycle.js';
 import { buildCopperObstacles } from '../pcb/modules/copper-obstacles.js';
 import { hasFabricationContent } from '../pcb/modules/fabrication-snapshot.js';
 import { openPanelizeDialog, renderPanelPreview } from '../pcb/modules/panelization-ui.js';
@@ -210,11 +211,6 @@ function measureStrokeTextVerticalBounds(text, size, strokeWidth = 0) {
  * visible.  If the PCB pane is already visible the rebuild happens
  * immediately (debounced).
  */
-const PCB_CROSSHAIR_TOOLS = new Set([
-    'track', 'via', 'pad', 'text', 'fill',
-    'line', 'circle', 'rect', 'polygon', 'arc',
-]);
-
 export default class PCBApp {
     get _deferDragOverlays() { return this._fillOverlayDeferred; }
     set _deferDragOverlays(value) {
@@ -2029,18 +2025,7 @@ export default class PCBApp {
     }
 
     _cancelDrawingMode() {
-        if (!PCB_CROSSHAIR_TOOLS.has(this.currentTool)
-            && !this._trackDraw && !this._fillDraw && !this._shapeDraw && !this._textEdit) return false;
-        if (this._textEdit) this._endTextInlineEdit(false);
-        this._cancelTrackDraw();
-        this._cancelFillDraw();
-        this._cancelShapeDraw();
-        this.currentTool = 'select';
-        this._updateCursorForTool?.();
-        this._syncPcbHomeToolHighlight?.();
-        this._setPcbStatus?.();
-        this._hideToolOptions?.();
-        return true;
+        return cancelPcbDrawingMode(this);
     }
 
     /** Get (or lazily create) the shared <defs> in the editor SVG. */
@@ -2529,11 +2514,7 @@ export default class PCBApp {
                 clearSelectionInteractionUi(this);
                 clearBoxSelection(this);
                 this._clearProperties?.();
-                this.currentTool = 'select';
-                this._updateCursorForTool?.();
-                this._syncPcbHomeToolHighlight?.();
-                this._setPcbStatus?.();
-                this._hideToolOptions?.();
+                resetPcbTool(this);
                 this._setActiveRibbonTab?.('pcb-home');
                 return true;
             }
@@ -2624,7 +2605,7 @@ export default class PCBApp {
     _commitTracks(tracks, vias = [], destinationShapes = []) {
         const list = Array.isArray(tracks) ? tracks : [tracks];
         // Fuse any drawn endpoint that lands on an existing same-net/
-        // same-layer track node into that track, so joined traces render
+        // same-layer track node into that track, so joined tracks render
         // as one continuous polyline instead of two coincident objects.
         const command = buildDrawnTrackCommands(this, list, vias, destinationShapes);
         if (command === false) return false;
@@ -2801,7 +2782,7 @@ export default class PCBApp {
             'top-copper-knockout',
             'bottom-copper-pad-drills', 'top-copper-pad-drills',
             'vias',
-            // Track labels remain readable where a connected trace terminates
+            // Track labels remain readable where a connected track terminates
             // beneath a via, while still following copper-layer visibility.
             'bottom-copper-track-labels',
             'top-copper-track-labels',
@@ -3087,14 +3068,8 @@ export default class PCBApp {
         const retainRibbonHeight = bindRibbonHeight(this.ribbon);
         this._retainRibbonHeight = retainRibbonHeight;
 
-        const setActive = (tabId) => {
-            if (this._shapeDraw && activeTabId !== tabId) {
-                this._cancelShapeDraw();
-                this.currentTool = 'select';
-                this._updateCursorForTool?.();
-                this._setPcbStatus?.();
-                this._hideToolOptions?.();
-            }
+        const setActive = (tabId, userInitiated = false) => {
+            preparePcbRibbonTransition(this, activeTabId, tabId, userInitiated);
             retainRibbonHeight();
             tabs.forEach(tab => {
                 const tabEl = /** @type {HTMLElement} */ (tab);
@@ -3128,11 +3103,7 @@ export default class PCBApp {
             tab.addEventListener('click', () => {
                 const tabEl = /** @type {HTMLElement} */ (tab);
                 if (!tabEl.dataset.tab) return;
-                const currentTab = /** @type {HTMLElement|null} */ (
-                    this.ribbon.querySelector('.ribbon-tab.active')
-                )?.dataset.tab || null;
-                if (currentTab !== tabEl.dataset.tab) this._cancelDrawingMode();
-                setActive(tabEl.dataset.tab);
+                setActive(tabEl.dataset.tab, true);
             });
         });
     }
@@ -6815,7 +6786,7 @@ export default class PCBApp {
         // Always honour the current UI design rules, even when the source is a
         // test-board JSON that embedded its own values.
         const uiParams = this._getRoutingParams();
-        routeInput.traceWidth = uiParams.trackWidth;
+        routeInput.trackWidth = uiParams.trackWidth;
         routeInput.clearance = uiParams.clearance;
         routeInput.viaDiameter = uiParams.viaDiameter;
         // A stored test-board input pre-dates any copper text the user has
@@ -6835,7 +6806,7 @@ export default class PCBApp {
 
             if (cancelToken.cancelled) {
                 // Keep and finalize partial routes so users can continue from this point.
-                this._clearIncrementalTraces();
+                this._clearIncrementalTracks();
                 this._renderRouteResult(result);
                 const routedConns = result.totalConnectionCount - (result.failedConnectionCount || 0);
                 const totalConns2 = result.totalConnectionCount || routeInput.connections.length;
@@ -6852,8 +6823,8 @@ export default class PCBApp {
             const elapsedRemSec = elapsedSec % 60;
             const elapsed = `${elapsedMin} min ${String(elapsedRemSec).padStart(2, '0')} sec`;
 
-            // Clear incremental traces and do final clean render
-            this._clearIncrementalTraces();
+            // Clear incremental tracks and do final clean render
+            this._clearIncrementalTracks();
             this._renderRouteResult(result);
 
             const totalConns = result.totalConnectionCount || routeInput.connections.length;
@@ -6864,7 +6835,7 @@ export default class PCBApp {
             const unroutedConns = result.failedConnectionCount || 0;
             const routedConns = totalConns - unroutedConns;
 
-            this._setStatus(`Routed ${routedConns} of ${totalConns} connections (${unroutedConns} unrouted), ${result.traces.length} segments, ${viaCount} vias in ${elapsed}`);
+            this._setStatus(`Routed ${routedConns} of ${totalConns} connections (${unroutedConns} unrouted), ${result.tracks.length} segments, ${viaCount} vias in ${elapsed}`);
             this._routeNetUnrouted = null;
 
         } catch (e) {
@@ -6919,17 +6890,17 @@ export default class PCBApp {
                         break;
                     }
                     case 'netRouted': {
-                        const netTraces = msg.netTraces || [];
+                        const netTracks = msg.netTracks || [];
                         this._clearTryingLines();
                         // Clear old visuals for specific connections before rendering new paths
-                        for (const trace of netTraces) {
-                            if (trace.connId) this._clearIncrementalConnection(trace.connId);
+                        for (const track of netTracks) {
+                            if (track.connId) this._clearIncrementalConnection(track.connId);
                         }
-                        const netName = netTraces?.[0]?.net;
+                        const netName = netTracks?.[0]?.net;
                         if (netName) {
                             this._setRouteNetUnrouted(netName, false);
                         }
-                        this._renderNetTraces(netTraces);
+                        this._renderNetTracks(netTracks);
                         break;
                     }
                     case 'netFailed': {
@@ -7296,7 +7267,7 @@ export default class PCBApp {
             connections,
             allObstaclePads,
             copperObstacles,
-            traceWidth: params.trackWidth,
+            trackWidth: params.trackWidth,
             clearance: params.clearance,
             viaDiameter: params.viaDiameter,
             gridStep: 0.5,
@@ -7331,7 +7302,7 @@ export default class PCBApp {
 
     /**
      * Toggle a faint ghost halo showing the clearance band around every
-    * pad, via, trace, and copper/hole shape. The halo width equals the **Clearance** value
+    * pad, via, track, and copper/hole shape. The halo width equals the **Clearance** value
      * from the routing tab — i.e. the minimum copper-to-copper gap any
      * other net's copper must keep from this object's edge.
      *
@@ -7454,13 +7425,13 @@ export default class PCBApp {
             this._padHaloGroups.set(compId, grp);
         }
 
-        // Halos for routed traces. Computed as the Minkowski-sum offset
-        // polygon of each trace centerline by (traceR + OUTLINE_W/2),
+        // Halos for routed tracks. Computed as the Minkowski-sum offset
+        // polygon of each track centerline by (trackR + OUTLINE_W/2),
         // rendered as a closed <polygon> stroked with width OUTLINE_W. Pure
         // vector — no masks, no rasterization, zero per-frame cost on
         // zoom/pan.
         //
-        // Construction (per trace):
+        // Construction (per track):
         //   - Walk each segment; emit perpendicular offsets on the right
         //     side going forward, then on the left side going backward.
         //   - At interior vertices: insert a short arc fan on the OUTSIDE
@@ -7468,29 +7439,29 @@ export default class PCBApp {
         //     intersection point.
         //   - At endpoints: insert a semicircular cap (round-cap).
         //
-        // Where two traces meet at a junction, their polygons overlap and
+        // Where two tracks meet at a junction, their polygons overlap and
         // the stroked outlines visibly cross — same artifact as pad/via
         // halos already have. Acceptable.
         //
-        // Halo radius is sized per-trace from each rendered run's stroke
-        // width (tracks may carry per-segment widths); see the trace loop.
+        // Halo radius is sized per-track from each rendered run's stroke
+        // width (tracks may carry per-segment widths); see the track loop.
         // Arc tessellation: number of segments per FULL CIRCLE. Each arc
         // emits a proportional fraction of these. Higher = smoother caps
         // and corners at the cost of more polygon vertices.
         const ARC_STEPS_FULL = 64;
 
-        const traceToPoints = (trace) => {
+        const trackToPoints = (track) => {
             const out = [];
             const push = (x, y) => {
                 const xn = parseFloat(x), yn = parseFloat(y);
                 if (Number.isFinite(xn) && Number.isFinite(yn)) out.push([xn, yn]);
             };
-            if (trace.tagName === 'polyline') {
-                const tokens = (trace.getAttribute('points') || '').trim().split(/[\s,]+/);
+            if (track.tagName === 'polyline') {
+                const tokens = (track.getAttribute('points') || '').trim().split(/[\s,]+/);
                 for (let i = 0; i + 1 < tokens.length; i += 2) push(tokens[i], tokens[i + 1]);
-            } else if (trace.tagName === 'line') {
-                push(trace.getAttribute('x1'), trace.getAttribute('y1'));
-                push(trace.getAttribute('x2'), trace.getAttribute('y2'));
+            } else if (track.tagName === 'line') {
+                push(track.getAttribute('x1'), track.getAttribute('y1'));
+                push(track.getAttribute('x2'), track.getAttribute('y2'));
             }
             // De-dupe consecutive identical points.
             const dedup = [];
@@ -7658,18 +7629,18 @@ export default class PCBApp {
             if (layerId === 'top-copper' && !topVisible) continue;
             if (layerId === 'bottom-copper' && !bottomVisible) continue;
             const sourceGroup = this._getLayerGroup(layerId);
-            // Both the legacy incremental render ('.pcb-routed-trace') and
-            // the model-driven render ('.pcb-track') are valid trace sources.
-            const traces = [...sourceGroup.querySelectorAll('.pcb-routed-trace, .pcb-track')];
-            if (traces.length === 0) continue;
+            // Both the legacy incremental render ('.pcb-routed-track') and
+            // the model-driven render ('.pcb-track') are valid track sources.
+            const tracks = [...sourceGroup.querySelectorAll('.pcb-routed-track, .pcb-track')];
+            if (tracks.length === 0) continue;
 
-            for (const trace of traces) {
-                const pts = traceToPoints(trace);
+            for (const track of tracks) {
+                const pts = trackToPoints(track);
                 if (pts.length < 2) continue;
                 // Each rendered run carries its own stroke-width (tracks can
-                // have per-segment widths), so size the halo from THIS trace's
+                // have per-segment widths), so size the halo from THIS track's
                 // width rather than the global routing width.
-                const sw = parseFloat(trace.getAttribute('stroke-width'));
+                const sw = parseFloat(track.getAttribute('stroke-width'));
                 const ringR = (Number.isFinite(sw) && sw > 0 ? sw / 2 : params.trackWidth / 2) + halo;
                 const poly = offsetPolygon(pts, ringR);
                 if (poly.length < 3) continue;
@@ -7682,10 +7653,10 @@ export default class PCBApp {
                 el.setAttribute('vector-effect', 'non-scaling-stroke');
                 el.setAttribute('stroke-linejoin', 'round');
                 el.setAttribute('pointer-events', 'none');
-                // Tag with the source trace's net so a footprint drag can hide
+                // Tag with the source track's net so a footprint drag can hide
                 // the halos of the nets it moves (their tracks shift mid-drag,
                 // leaving the deferred halo stranded at the old position).
-                const tnet = trace.dataset?.net;
+                const tnet = track.dataset?.net;
                 if (tnet) el.dataset.net = tnet;
                 overlay.appendChild(el);
             }
@@ -8343,22 +8314,22 @@ export default class PCBApp {
     }
 
     /**
-     * Render a single net's traces incrementally during routing animation.
+     * Render a single net's tracks incrementally during routing animation.
      */
-    _renderNetTraces(netTraces) {
+    _renderNetTracks(netTracks) {
         const NS = 'http://www.w3.org/2000/svg';
         const topCopper = this._getLayerGroup('top-copper');
         const bottomCopper = this._getLayerGroup('bottom-copper');
         const params = this._getRoutingParams();
 
-        for (const trace of netTraces) {
-            if (trace.points.length < 2) continue;
-            const parent = trace.layer === 'bottom' ? bottomCopper : topCopper;
-            const color = trace.layer === 'bottom' ? '#0066ff' : '#ff3333';
+        for (const track of netTracks) {
+            if (track.points.length < 2) continue;
+            const parent = track.layer === 'bottom' ? bottomCopper : topCopper;
+            const color = track.layer === 'bottom' ? '#0066ff' : '#ff3333';
 
             const polyline = document.createElementNS(NS, 'polyline');
-            polyline.setAttribute('class', 'pcb-routed-trace pcb-route-anim');
-            const ptsStr = trace.points.map(p => `${p.x},${p.y}`).join(' ');
+            polyline.setAttribute('class', 'pcb-routed-track pcb-route-anim');
+            const ptsStr = track.points.map(p => `${p.x},${p.y}`).join(' ');
             polyline.setAttribute('points', ptsStr);
             polyline.setAttribute('fill', 'none');
             polyline.setAttribute('stroke', color);
@@ -8366,16 +8337,16 @@ export default class PCBApp {
             polyline.setAttribute('stroke-linecap', 'round');
             polyline.setAttribute('stroke-linejoin', 'round');
             polyline.setAttribute('opacity', '0.6');
-            if (trace.net) polyline.dataset.net = trace.net;
-            if (trace.connId) polyline.dataset.connid = trace.connId;
+            if (track.net) polyline.dataset.net = track.net;
+            if (track.connId) polyline.dataset.connid = track.connId;
             parent.appendChild(polyline);
 
-            // Render vias for this trace
-            if (trace.vias?.length) {
+            // Render vias for this track
+            if (track.vias?.length) {
                 const viaLayer = this._getLayerGroup('vias');
                 const viaRadius = params.viaDiameter / 2;
                 const drillRadius = params.viaDrill / 2;
-                for (const v of trace.vias) {
+                for (const v of track.vias) {
                     const ring = document.createElementNS(NS, 'path');
                     ring.setAttribute('class', 'pcb-routed-via pcb-route-anim');
                     ring.setAttribute('d', viaCopperPathD({
@@ -8387,8 +8358,8 @@ export default class PCBApp {
                     ring.setAttribute('data-via-x', String(v.x));
                     ring.setAttribute('data-via-y', String(v.y));
                     ring.setAttribute('data-via-radius', String(viaRadius));
-                    if (trace.net) ring.dataset.net = trace.net;
-                    if (trace.connId) ring.dataset.connid = trace.connId;
+                    if (track.net) ring.dataset.net = track.net;
+                    if (track.connId) ring.dataset.connid = track.connId;
                     viaLayer.appendChild(ring);
                 }
             }
@@ -8413,9 +8384,9 @@ export default class PCBApp {
     }
 
     /**
-     * Remove incremental animation traces (replaced by final clean render).
+     * Remove incremental animation tracks (replaced by final clean render).
      */
-    _clearIncrementalTraces() {
+    _clearIncrementalTracks() {
         const anims = this.viewport?.svg?.querySelectorAll('.pcb-route-anim');
         if (anims) {
             for (const el of anims) el.remove();
@@ -8425,7 +8396,7 @@ export default class PCBApp {
 
     /**
      * If the clearance overlay is currently visible, redraw it. Call this
-     * after any operation that adds, removes, or relocates traces/vias so the
+     * after any operation that adds, removes, or relocates tracks/vias so the
      * halos stay in sync (rip-ups in particular leave orphaned halos otherwise).
      */
     _refreshBoardShapeClearance(shape) {
@@ -8869,7 +8840,7 @@ export default class PCBApp {
     /**
      * Render routing result onto copper layers and hide routed ratlines.
      *
-     * Converts the autorouter's raw {traces, vias} payload into Track and
+     * Converts the autorouter's raw {tracks, vias} payload into Track and
      * Via model instances stored on this.tracks / this.vias, then renders
      * those via the track-render module. All downstream selection/edit/
      * undo operations operate on the model, not on raw SVG.
@@ -8891,8 +8862,8 @@ export default class PCBApp {
         // Also clear any stale incremental-render SVG (from progress msgs).
         const topCopper = this._getLayerGroup('top-copper');
         const bottomCopper = this._getLayerGroup('bottom-copper');
-        if (topCopper) topCopper.querySelectorAll('.pcb-routed-trace, .pcb-route-anim').forEach(el => el.remove());
-        if (bottomCopper) bottomCopper.querySelectorAll('.pcb-routed-trace, .pcb-route-anim').forEach(el => el.remove());
+        if (topCopper) topCopper.querySelectorAll('.pcb-routed-track, .pcb-route-anim').forEach(el => el.remove());
+        if (bottomCopper) bottomCopper.querySelectorAll('.pcb-routed-track, .pcb-route-anim').forEach(el => el.remove());
         const viaLayerEarly = this._getLayerGroup('vias');
         if (viaLayerEarly) viaLayerEarly.querySelectorAll('.pcb-routed-via, .pcb-route-anim').forEach(el => el.remove());
 
@@ -8950,7 +8921,7 @@ export default class PCBApp {
     }
 
     /**
-     * Clear all routed traces/vias and restore all ratlines.
+     * Clear all routed tracks/vias and restore all ratlines.
      */
     clearRoutes() {
         if (this._ratsnestVisibilityRaf) {
@@ -8970,7 +8941,7 @@ export default class PCBApp {
 
         // Remove any stray legacy SVG (incremental render, SES import, etc.)
         for (const [, g] of this._layerGroups) {
-            g.querySelectorAll('.pcb-routed-trace, .pcb-routed-via, .pcb-track, .pcb-via, .pcb-route-anim').forEach(el => el.remove());
+            g.querySelectorAll('.pcb-routed-track, .pcb-routed-via, .pcb-track, .pcb-via, .pcb-route-anim').forEach(el => el.remove());
         }
 
         // Rebuild the ratsnest from scratch now that all routed copper is
@@ -9018,7 +8989,7 @@ export default class PCBApp {
         const dsn = exportDSN({
             placements: this.placements,
             netlist: this.netlist,
-            traceWidth: params.trackWidth,
+            trackWidth: params.trackWidth,
             clearance: params.clearance,
             viaDiameter: params.viaDiameter,
         });
@@ -9239,7 +9210,7 @@ export default class PCBApp {
     }
 
     /**
-     * Prompt user to select an SES file and import routed traces.
+     * Prompt user to select an SES file and import routed tracks.
      */
     importSES() {
         const input = document.createElement('input');
@@ -9252,16 +9223,16 @@ export default class PCBApp {
             reader.onload = () => {
                 const text = /** @type {string} */ (reader.result);
                 const result = importSES(text);
-                if (!result.traces.length) {
+                if (!result.tracks.length) {
                     this._setStatus('No routes found in SES file');
                     return;
                 }
                 // Clear existing routes first
                 this.clearRoutes();
-                // Log first trace for debugging coordinates
-                if (result.traces.length) {
-                    const t = result.traces[0];
-                    console.log(`[SES] First trace: net=${t.net} layer=${t.layer} pts=${t.points.length}`, t.points);
+                // Log first track for debugging coordinates
+                if (result.tracks.length) {
+                    const t = result.tracks[0];
+                    console.log(`[SES] First track: net=${t.net} layer=${t.layer} pts=${t.points.length}`, t.points);
                     // Log placement coords for comparison
                     for (const [, pl] of this.placements) {
                         for (const [num, pos] of pl.pads) {
@@ -9271,9 +9242,9 @@ export default class PCBApp {
                         break;
                     }
                 }
-                // Render imported traces (and their vias)
-                this._renderRouteResult({ traces: result.traces, vias: result.vias || [], failed: [] });
-                this._setStatus(`Imported ${result.traces.length} trace(s), ${result.vias?.length || 0} via(s) from SES`);
+                // Render imported tracks (and their vias)
+                this._renderRouteResult({ tracks: result.tracks, vias: result.vias || [], failed: [] });
+                this._setStatus(`Imported ${result.tracks.length} track(s), ${result.vias?.length || 0} via(s) from SES`);
             };
             reader.readAsText(file);
         });

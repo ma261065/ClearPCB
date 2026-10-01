@@ -150,6 +150,21 @@ Save requests resolve `app.project` at invocation, never a global bootstrap.
 The project still owns snapshot readiness, I/O and ordinary failure reporting;
 the shared action shows the saved toast only after a successful result.
 
+`pcb/modules/tool-lifecycle.js` owns the tool catalog, tool selection,
+drawing-mode cancellation and pre-navigation policy. Controls retain icons,
+button highlighting and Shapes-menu memory; the ribbon retains panel switching,
+height measurement and DRC visibility. Both call the lifecycle boundary before
+adopting a new mode. Escape and cancellation share a single return-to-Select
+routine, including cursor, Home highlighting, status and tool-options cleanup.
+Reselecting the same tool preserves its drawing. An explicit change of ribbon
+tab cancels drawing/inline text; same-tab requests do not. Programmatic
+navigation retains track/fill sessions when their Properties UI opens, while
+preserving the existing shape-draw cancellation on an actual tab change.
+Cleanup failures propagate before adopting the destination tool or tab.
+This boundary does not change per-tool Enter/Escape completion or property
+commit behavior, and does not make all interactions follow one cancellation
+policy.
+
 Schematic history/dirty callbacks update their own UI, then call
 `ProjectDocument.notifySchematicChanged()`. The project calls the registered
 PCB's `onSchematicChanged()`; PCB never replaces another editor's callbacks.
@@ -1533,7 +1548,7 @@ and `'pathfinder'`.
 {
   connections: [{ net, pads: [{ x, y, width, height, layer, shape, alternates? }] }],
   allObstaclePads,
-  traceWidth, clearance, viaDiameter,
+  trackWidth, clearance, viaDiameter,
   gridStep,
   bounds,
 }
@@ -1543,7 +1558,7 @@ and `'pathfinder'`.
 
 ```js
 {
-  traces: [{ net, layer: 'top'|'bottom', points: [{x,y}], vias?: [{x,y}] }],
+  tracks: [{ net, layer: 'top'|'bottom', points: [{x,y}], vias?: [{x,y}] }],
   vias: [{ x, y, net? }],
   failed: [...],
   failedConnectionCount,
@@ -1553,7 +1568,7 @@ and `'pathfinder'`.
 
 ### Design-Rule Single Source of Truth
 
-`clearance`, `traceWidth`, `viaDiameter` are **never** hardcoded in
+`clearance`, `trackWidth`, `viaDiameter` are **never** hardcoded in
 the router or DSN code. They flow from `#pcbClearance`,
 `#pcbTrackWidth`, `#pcbViaDiameter` HTML inputs through
 `PCBApp._getRoutingParams()`. `routeAll`, `routeAllPathfinder`,

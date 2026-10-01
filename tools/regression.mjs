@@ -17,10 +17,10 @@
 //   - clearance violations == 0
 //
 // SOFT checks (warn only):
-//   - trace count == baseline   (routing-output stability indicator)
+//   - track count == baseline   (routing-output stability indicator)
 //   - via count == baseline     (routing-output stability indicator)
 //
-// Soft checks exist so legitimate quality wins (e.g. fewer traces for the
+// Soft checks exist so legitimate quality wins (e.g. fewer tracks for the
 // same routed count) don't fail the gate — but any divergence is logged so
 // the change author can review whether the routing change was intended.
 
@@ -37,7 +37,7 @@ const BASELINE = {
     board: 'test-board.json',
     routed: 65,
     total: 76,
-    traces: 239,
+    tracks: 239,
     vias: 174,
     violations: 0,
 };
@@ -85,7 +85,7 @@ console.log('\n--- [2/2] full clearance check on test-board.json ---');
     const r = run(process.execPath, ['tools/check-clearance-full.mjs', BASELINE.board]);
     hardCheck(r.code === 0, 'check-clearance-full exits cleanly');
 
-    const routedMatch = r.out.match(/Routed (\d+)\/(\d+) connections, (\d+) traces, (\d+) vias/);
+    const routedMatch = r.out.match(/Routed (\d+)\/(\d+) connections, (\d+) tracks, (\d+) vias/);
     const violMatch = r.out.match(/Total violations:\s*(\d+)/);
 
     if (!routedMatch || !violMatch) {
@@ -94,7 +94,7 @@ console.log('\n--- [2/2] full clearance check on test-board.json ---');
     } else {
         const routed = parseInt(routedMatch[1], 10);
         const total = parseInt(routedMatch[2], 10);
-        const traces = parseInt(routedMatch[3], 10);
+        const tracks = parseInt(routedMatch[3], 10);
         const vias = parseInt(routedMatch[4], 10);
         const violations = parseInt(violMatch[1], 10);
 
@@ -104,8 +104,8 @@ console.log('\n--- [2/2] full clearance check on test-board.json ---');
             `routed >= ${BASELINE.routed} (got ${routed})`);
         hardCheck(violations === BASELINE.violations,
             `clearance violations == ${BASELINE.violations} (got ${violations})`);
-        softCheck(traces === BASELINE.traces,
-            `traces == ${BASELINE.traces} (got ${traces})`);
+        softCheck(tracks === BASELINE.tracks,
+            `tracks == ${BASELINE.tracks} (got ${tracks})`);
         softCheck(vias === BASELINE.vias,
             `vias == ${BASELINE.vias} (got ${vias})`);
 

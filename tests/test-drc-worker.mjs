@@ -472,7 +472,7 @@ try {
         assert.deepEqual(app._collectRatlines(), svg(), 'Incremental rebuild preserves unaffected/failed records');
         app._flushRatsnestVisibilityQueue = () => {};
         app._refreshClearanceHalos = () => {};
-        app._renderRouteResult({ traces: [], vias: [], failedConnections: [
+        app._renderRouteResult({ tracks: [], vias: [], failedConnections: [
             { net: 'failed-again', from: { x: -0, y: Math.E }, to: { x: 8.123456789, y: 9.987654321 } },
         ] });
         assert.deepEqual(app._collectRatlines(), svg(), 'Actual autorouter failed-line producer publishes neutral data too');

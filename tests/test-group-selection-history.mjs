@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { PcbDocument } from '../src/core/PcbDocument.js';
+import { resetPcbTool } from '../src/pcb/modules/tool-lifecycle.js';
 
 function element() {
     return {
@@ -83,6 +84,7 @@ const keyboardStart = source.indexOf('    handleKeyDown(e) {');
 const keyboardEnd = source.indexOf('    _commitTrack(', keyboardStart);
 assert.ok(keyboardStart >= 0 && keyboardEnd > keyboardStart);
 const keyboardDependencies = {
+    resetPcbTool,
     getPcbSelection,
     getPcbSelectionEntries,
     beginGroupDrag, updateGroupDrag, endGroupDrag,

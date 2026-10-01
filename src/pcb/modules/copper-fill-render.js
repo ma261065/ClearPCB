@@ -7,7 +7,7 @@
  * and selectable even where copper has been etched away).
  *
  * The poured copper sits in a dedicated 'top-fill' / 'bottom-fill' layer
- * group that is ordered *below* the matching copper traces/pads, so
+ * group that is ordered *below* the matching copper tracks/pads, so
  * tracks and pads paint on top of the pour.
  */
 

@@ -635,7 +635,7 @@ export class STEPPreview {
 
             // Map each ADVANCED_FACE to the shell (solid) that owns it, and the
             // size of each shell. KiCad builds the body as one large shell and
-            // each pad / antenna trace as its own small shell. When a pad sits
+            // each pad / antenna track as its own small shell. When a pad sits
             // flush on the body, the body carries a redundant sub-face matching
             // the pad outline — coincident with the pad face and the true cause
             // of the "shimmer". Shell membership lets us drop the right (body)
@@ -781,7 +781,7 @@ export class STEPPreview {
 
     /**
      * KiCad STEP models build the body as one large shell (solid) and each pad,
-     * castellation or antenna trace as its own small shell sitting on the body.
+     * castellation or antenna track as its own small shell sitting on the body.
      * Where a detail rests on the body, the body shell carries a face in the
      * *same plane* that overlaps the detail's face — two coplanar surfaces
      * (body colour vs copper colour) at the same depth. They z-fight ("shimmer")

@@ -79,9 +79,9 @@ const HALO_CLASS = 'pcb-track-selection';
 const HOVER_CLASS = 'pcb-track-hover';
 const VIA_BATCH_HALO_CLASS = 'pcb-box-via-sel';
 
-/** Halo stroke colour — translucent white overlays the trace so the
+/** Halo stroke colour — translucent white overlays the track so the
  *  underlying copper colour still reads through. Kept low-opacity so a
- *  selected trace only brightens slightly and its layer colour (top vs
+ *  selected track only brightens slightly and its layer colour (top vs
  *  bottom) stays clearly distinguishable. */
 const HALO_COLOR = '#ffffff';
 const HALO_OPACITY_SELECTED = PCB_SELECTION_HIGHLIGHT_OPACITY;
@@ -328,7 +328,7 @@ export function hitTestTrack(app, worldPos, pxTol = HIT_TOL_PX) {
     const scale = app.viewport?.scale || 1;
     const worldTol = pxTol / scale;
 
-    // Vias first (smaller targets, should win over coincident traces).
+    // Vias first (smaller targets, should win over coincident tracks).
     // Skip them entirely when the via layers are locked or hidden.
     if (!isViaLocked() && isViaVisible()) {
         for (let i = app.vias.length - 1; i >= 0; i--) {
@@ -927,7 +927,7 @@ function _drawTrackHalo(app, track, cls = HALO_CLASS, opacity = HALO_OPACITY_SEL
     if (getPcbSelection(app).length === 1 && app._trackEdit?.track === canonicalTrack(app, track)
         && track.nodes.has(app._trackEdit.nodeId)) return;
     // Lay a translucent white overlay along each layer-run, at the same
-    // width as the trace itself, so it brightens the copper in place
+    // width as the track itself, so it brightens the copper in place
     // instead of producing an outer glow that lags behind moves.
     const runs = buildTrackLayerRuns(track);
     for (const run of runs) {
@@ -983,7 +983,7 @@ function _drawSegmentHalo(app, track, edgeId, cls = HALO_CLASS, opacity = HALO_O
 /**
  * Highlight every pad the track is connected to with the same
  * translucent-white overlay, so the user can see which component pins
- * the trace lands on.
+ * the track lands on.
  */
 function _drawPadHighlights(app, track, cls, opacity) {
     if (!track.padConnections?.size || !app.placements) return;

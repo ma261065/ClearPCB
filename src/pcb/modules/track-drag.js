@@ -12,7 +12,7 @@
  *   - A via colocated with a dragged NODE is left behind: moving a node
  *     disconnects it from the via. A via on an endpoint of a dragged
  *     SEGMENT instead stays anchored while a new bridge segment grows
- *     from the via to the moving endpoint, keeping the trace connected.
+ *     from the via to the moving endpoint, keeping the track connected.
  *     Only dragging the via itself carries its attached track nodes
  *     along (see startViaDrag).
  *   - Mouseup commits a MoveVertexCommand (or a CompoundCommand for a
@@ -228,7 +228,7 @@ const SPLIT_ENDPOINT_EPS = 0.05;
 
 /**
  * Scan every Track for an edge whose interior passes under `worldPos`
- * (within the trace half-width + pixel tolerance). Returns the closest
+ * (within the track half-width + pixel tolerance). Returns the closest
  * match with the perpendicular projection point on that edge, or null.
  * Projections that land on (or very near) an endpoint node are rejected
  * so that mid-segment drops split while end drops attach.
@@ -670,7 +670,7 @@ class AdoptDroppedCopperNetCommand {
 /**
  * Build the history command(s) that commit freshly drawn tracks/vias,
  * fusing any drawn endpoint that lands on an existing track's node (same
- * net, same copper layer) into that existing track. Joined traces become
+ * net, same copper layer) into that existing track. Joined tracks become
  * one continuous polyline instead of two coincident Track objects (which
  * render with a doubled round end-cap at the join).
  *
@@ -1039,7 +1039,7 @@ function droppedNodeCommands(app, view, drag) {
         cmds.push(new ModifyTrackGraphCommand(app, drag.original, drag.before, after));
     } else {
         // Cross-track, same layer: pull the other track's graph in, fuse the
-        // shared node into one continuous trace, inherit its net if we had
+        // shared node into one continuous track, inherit its net if we had
         // none, then drop the now-empty other track.
         const remap = track.absorb(target.track);
         const absorbedNid = remap.get(target.nodeId);
@@ -1136,7 +1136,7 @@ export function startVertexDrag(app, track, worldPos, opts = {}) {
 
     // If an endpoint of the dragged segment sits on a via, keep the via
     // anchored where it is and grow a new "bridge" segment from the via
-    // to the moving endpoint, so the trace stays connected through the
+    // to the moving endpoint, so the track stays connected through the
     // via instead of tearing away from it. Remember the pins now; the first
     // changed preview stages the bridge geometry for an atomic undo.
     const segAttrs = track._cloneEdge(track.edges.get(hit.edgeId));
