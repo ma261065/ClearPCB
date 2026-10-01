@@ -402,6 +402,7 @@ for (const scope of ['whole', 'segment']) {
     assert.equal(app.tracks[0].edges.get(edgeId).bulge, Number(formatNumberInputValue(-0.123456789)));
     input.emit('input', 0);
     input.emit('blur');
+    await Promise.resolve();
     assert.equal(track.edges.get(edgeId).bulge, 0);
     assert.equal(f.input('Bulge'), undefined, 'Straightening rebuilds the existing segment panel');
     input.emit('change', 0.9);
@@ -410,6 +411,78 @@ for (const scope of ['whole', 'segment']) {
     assert.equal(track.edges.get(edgeId).bulge, 0.25);
     showTrackSelectionProperties(app, track);
     assert.ok(f.input('Bulge'));
+    cases++;
+}
+
+for (const [scope, field, value] of [
+    ['whole', 'Width', 2], ['segment', 'Width', 2], ['whole', 'CornerRadius', 2],
+    ['node', 'CornerRadius', 2], ['bulge', 'Bulge', 0.6],
+]) for (const invalid of ['', 'bad', '2junk', 'Infinity', '-Infinity', ...(field === 'Width' ? ['0', '-1'] : [])]) {
+    for (const finish of ['change', 'blur', 'binding', 'pointer', 'cancel', 'net', 'layer']) {
+        if ((finish === 'net' || finish === 'layer') && scope === 'node') continue;
+        const f = fixture(scope, finish === 'layer' ? 0 : 1), { app, model, track } = f;
+        const input = f.input(field), before = model.captureGeometry();
+        const redo = { execute() {}, undo() {} };
+        app.history.redoStack.push(redo);
+        input.emit('input', value);
+        input.emit('input', invalid);
+        if (finish === 'binding') app._trackPropertyBinding.commit();
+        else if (finish === 'pointer') {
+            assert.equal(startVertexDrag(app, track, { x: 20, y: 20 }, { whole: true }), true);
+            cancelVertexDrag(app);
+        } else if (finish === 'cancel') input.emit('keydown', input.value, { key: 'Escape' });
+        else if (finish === 'net') f.input('Net').emit('change', 'SIGNAL');
+        else if (finish === 'layer') inputs.get(scope === 'whole' ? 'pcbPropTrackLayer' : 'pcbPropSegLayer')
+            .emit('change', 'bottom-copper');
+        else input.emit(finish);
+        await Promise.resolve();
+        assert.equal(getTrackPropertyPreview(app), undefined, `${scope} ${field}: ${finish} ends invalid preview`);
+        assert.equal(app.isSectionEditing(), false);
+        const discrete = finish === 'net' || finish === 'layer';
+        assert.equal(app.history.undoStack.length, discrete ? 1 : 0);
+        assert.ok(Number.isFinite(Number(input.value)) && input.value !== '', 'Invalid text is restored');
+        if (discrete) app.history.undo();
+        else assert.equal(app.history.redoStack[0], redo, 'Rejected numeric completion preserves redo');
+        assert.deepEqual(model.captureGeometry(), before, `${scope} ${field}: ${finish} rejects intermediate value`);
+        f.assertArtwork(track);
+        cases++;
+    }
+}
+
+for (const invalidFirst of [false, true]) for (const invalidSecond of [false, true]) {
+    const f = fixture(), { app, model, track } = f;
+    const before = model.captureGeometry(), radius = f.input('CornerRadius'), width = f.input('Width');
+    radius.emit('input', 2);
+    if (invalidFirst) radius.emit('input', '');
+    radius.emit('blur');
+    width.emit('input', invalidSecond ? '' : 3);
+    assert.equal(track.cornerRadius, invalidFirst ? 0.345678912 : 2);
+    await Promise.resolve();
+    assert.equal(!!getTrackPropertyPreview(app), !invalidSecond, 'Old blur does not finish the new field');
+    if (!invalidSecond) assert.equal(width.value, '3', 'Canceling the previous field preserves incoming text');
+    width.emit('change');
+    assert.equal(app.history.undoStack.length, Number(!invalidFirst) + Number(!invalidSecond));
+    while (app.history.canUndo()) app.history.undo();
+    assert.deepEqual(model.captureGeometry(), before);
+    cases++;
+}
+
+for (const finish of ['binding', 'blur', 'pointer']) {
+    const f = fixture(), { app, model, track } = f;
+    const before = model.captureGeometry(), input = f.input('Width');
+    input.emit('input', 2);
+    if (finish === 'binding') app._trackPropertyBinding.commit();
+    else if (finish === 'blur') { input.emit('blur'); await Promise.resolve(); }
+    else {
+        assert.equal(startVertexDrag(app, track, { x: 20, y: 20 }, { whole: true }), true);
+        cancelVertexDrag(app);
+    }
+    assert.equal(track.width, 2);
+    assert.equal(app.history.undoStack.length, 1, 'Valid handoff commits exactly once');
+    input.emit('change');
+    assert.equal(app.history.undoStack.length, 1);
+    app.history.undo();
+    assert.deepEqual(model.captureGeometry(), before);
     cases++;
 }
 

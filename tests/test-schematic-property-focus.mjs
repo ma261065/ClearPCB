@@ -53,8 +53,10 @@ globalThis.document = {
     createElement: tag => new Element(tag),
     getElementById: id => document.body.querySelector(`#${id}`),
 };
-const { updatePropertiesPanel } = await import('../src/ui/modules/properties.js');
-const { bindKeyboardShortcuts } = await import('../src/ui/modules/keyboard.js');
+const { updatePropertiesPanel, hasSchematicPropertyPreview } = await import('../src/ui/modules/properties.js');
+const { bindKeyboardShortcuts, runSchematicHistoryAction } = await import('../src/ui/modules/keyboard.js');
+const { ProjectDocument } = await import('../src/core/ProjectDocument.js');
+const { default: SchematicApp } = await import('../src/ui/SchematicApp.js');
 
 function fixture(shapes, refinement = {}) {
     document.body.innerHTML = '';
@@ -572,4 +574,102 @@ for (const closed of [false, true]) for (const boundary of ['uniform', 'width', 
         } finally { dispose(); }
     }
 }
-console.log('PASS schematic numeric focus, keyboard ownership, exact history, mixed values, constraints, refinement and structural refresh');
+for (const action of ['undo', 'redo']) {
+    const shape = new Circle({ radius: 5 });
+    const { app, dispose } = fixture([shape]);
+    try {
+        let input = document.getElementById('prop_diameter');
+        input.focus();
+        input.value = '12'; input.fire('input'); input.fire('change');
+        if (action === 'redo') {
+            app.history.undo();
+            app._updatePropertiesPanel(app.selection.getSelection());
+            input = document.getElementById('prop_diameter');
+        }
+        input.value = '20'; input.fire('input');
+        assert.equal(hasSchematicPropertyPreview(app), true);
+        runSchematicHistoryAction(app, action);
+        const expected = action === 'undo' ? 10 : 12;
+        assert.equal(shape.diameter, expected);
+        assert.equal(hasSchematicPropertyPreview(app), false);
+        assert.equal(Number(document.getElementById('prop_diameter').value), expected);
+        input.fire('blur');
+        await Promise.resolve();
+        assert.equal(shape.diameter, expected, 'Old blur cannot commit over history');
+        assert.equal(app.history.undoStack.length, action === 'undo' ? 0 : 1);
+    } finally { dispose(); }
+}
+
+{
+    const originals = Object.fromEntries(['setInterval', 'clearInterval', 'requestIdleCallback',
+        'cancelIdleCallback', 'localStorage'].map(key => [key, globalThis[key]]));
+    const timers = new Map(), idle = new Map(), stored = new Map();
+    let nextId = 0;
+    globalThis.setInterval = callback => { timers.set(++nextId, callback); return nextId; };
+    globalThis.clearInterval = id => timers.delete(id);
+    globalThis.requestIdleCallback = callback => { idle.set(++nextId, callback); return nextId; };
+    globalThis.cancelIdleCallback = id => idle.delete(id);
+    globalThis.localStorage = {
+        getItem: key => stored.get(key) ?? null,
+        setItem: (key, value) => stored.set(key, value),
+        removeItem: key => stored.delete(key),
+    };
+    const flushIdle = () => {
+        for (const [id, callback] of [...idle]) { idle.delete(id); callback(); }
+    };
+    try {
+        for (const queuedBefore of [false, true]) for (const commit of [false, true]) {
+            for (const replaceRoot of [false, true]) {
+                stored.clear();
+                const shape = new Circle({ radius: 5 });
+                const { app, dispose } = fixture([shape]);
+                const project = new ProjectDocument();
+                app.project = project;
+                app.fileManager = project.fileManager;
+                app.isSectionEditing = SchematicApp.prototype.isSectionEditing;
+                project.schematicDocument.shapes = app.shapes;
+                project.registerView('schematic', app);
+                project.fileManager.setDirty(true);
+                project.startAutoSave();
+                const tick = () => timers.get(project.fileManager.autoSaveTimer)();
+                const key = project.fileManager.autoSavePrefix + encodeURIComponent(project.fileManager.fileName);
+                try {
+                    if (queuedBefore) tick();
+                    const input = document.getElementById('prop_diameter');
+                    input.focus();
+                    input.value = '20'; input.fire('input');
+                    if (replaceRoot) {
+                        document.body.innerHTML = '';
+                        app.ui.propertiesPanel = new Element('div');
+                        document.body.appendChild(app.ui.propertiesPanel);
+                        app._updatePropertiesPanel(app.selection.getSelection());
+                    }
+                    assert.equal(project.canSerialize(), false, 'Pending edit remains visible across panel replacement');
+                    assert.throws(() => project.serialize(), /Finish the current edit before saving/);
+                    if (!queuedBefore) tick();
+                    flushIdle();
+                    assert.equal(stored.has(key), false, 'Autosave cannot persist reversible schematic geometry');
+                    assert.equal(project.fileManager._lastAutoSave, null, 'Blocked autosave retains the pending revision');
+                    if (commit) {
+                        input.fire('blur');
+                        await Promise.resolve();
+                    } else runSchematicHistoryAction(app, 'undo');
+                    assert.equal(shape.radius, commit ? 10 : 5);
+                    assert.equal(app.history.undoStack.length, commit ? 1 : 0);
+                    assert.equal(project.canSerialize(), true);
+                    tick();
+                    flushIdle();
+                    const saved = JSON.parse(stored.get(key)).data.schematic;
+                    assert.equal(saved.shapes[0].r, commit ? 10 : 5);
+                    assert.deepEqual(saved, JSON.parse(JSON.stringify(project.serialize().schematic)));
+                } finally { project.fileManager.stopAutoSave(); dispose(); }
+            }
+        }
+    } finally {
+        for (const [key, value] of Object.entries(originals)) {
+            if (value === undefined) delete globalThis[key];
+            else globalThis[key] = value;
+        }
+    }
+}
+console.log('PASS schematic numeric focus, history boundaries, pending-preview autosave, constraints, refinement and structural refresh');

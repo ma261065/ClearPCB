@@ -1123,6 +1123,7 @@ function createTrackPropertyBinding(app, track, scope = {}) {
     };
     const finish = commit => {
         if (!preview) return;
+        commit = commit && Number.isFinite(field.spec.parse(field.input));
         const refreshFills = field.spec.fills;
         preview = null;
         field = null;
@@ -1165,13 +1166,13 @@ function createTrackPropertyBinding(app, track, scope = {}) {
             fields.push(entry);
             const update = () => {
                 if (!editable()) { binding.cancel(); return; }
-                const value = spec.parse(input);
-                if (!Number.isFinite(value)) return;
                 if (field && field !== entry) {
                     const text = input.value;
                     binding.commit();
                     input.value = text;
                 }
+                const value = spec.parse(input);
+                if (!Number.isFinite(value)) return;
                 const current = preview?.track || track;
                 if (!spec.changed(current, value)) return;
                 preview ||= beginTrackPropertyPreview(app, track, scope);
@@ -1187,11 +1188,19 @@ function createTrackPropertyBinding(app, track, scope = {}) {
                 if (event.type === 'change') update();
                 const changed = !!preview;
                 binding.commit();
+                if (!Number.isFinite(spec.parse(input))) {
+                    const value = spec.read(track);
+                    input.value = Number.isFinite(value) ? String(value) : '';
+                }
                 if (changed && spec.rebuild) showTrackSelectionProperties(app, track);
             };
             input.addEventListener('input', update);
             input.addEventListener('change', commit);
-            if (spec.blur) input.addEventListener('blur', commit);
+            input.addEventListener('blur', () => {
+                queueMicrotask(() => {
+                    if (!disposed && field === entry) commit({ type: 'blur' });
+                });
+            });
             input.addEventListener('keydown', event => {
                 if (disposed || event.key !== 'Escape') return;
                 binding.cancel();
@@ -1207,7 +1216,7 @@ function createTrackPropertyBinding(app, track, scope = {}) {
 function bindTrackCornerRadius(binding, nodeId = null) {
     binding.bind('pcbPropTrackCornerRadius', {
         read: track => nodeId == null ? track.cornerRadius : track.nodeCornerRadius(nodeId),
-        parse: input => Math.max(0, input.valueAsNumber),
+        parse: input => Number.isFinite(input.valueAsNumber) ? Math.max(0, input.valueAsNumber) : NaN,
         changed: (track, radius) => Math.abs((nodeId == null ? track.cornerRadius : track.nodeCornerRadius(nodeId)) - radius) >= 1e-9
             || (nodeId == null && Object.keys(track.nodeCornerRadii || {}).length > 0),
         apply: (track, radius, before) => {
@@ -1221,7 +1230,7 @@ function bindTrackCornerRadius(binding, nodeId = null) {
                 track.invalidate();
             } else track.setNodeCornerRadius(nodeId, radius);
         },
-        fills: true, blur: true,
+        fills: true,
     });
 }
 
@@ -1229,7 +1238,7 @@ function bindTrackWidth(binding, edgeId = null) {
     binding.bind('pcbPropTrackWidth', {
         read: track => edgeId == null ? track.width : track.getEdgeWidth(edgeId),
         parse: input => {
-            const value = parseFloat(input.value);
+            const value = input.value.trim() === '' ? NaN : Number(input.value);
             return value > 0 ? value : NaN;
         },
         changed: (track, width) => edgeId == null
@@ -1392,7 +1401,7 @@ function _showTrackSegmentProperties(app, track, edgeId) {
             ? Number(formatNumberInputValue(Math.max(-1, Math.min(1, input.valueAsNumber)))) : NaN,
         changed: (track, bulge) => (track.edges.get(edgeId)?.bulge || 0) !== bulge,
         apply: (track, bulge) => track.setEdgeAttr(edgeId, 'bulge', bulge),
-        fills: true, blur: true, rebuild: true,
+        fills: true, rebuild: true,
     });
     const baseline = { net: track.net || '' };
     const netEl = /** @type {HTMLInputElement|null} */ (document.getElementById('pcbPropTrackNet'));
@@ -1662,6 +1671,7 @@ export function showViaProperties(app, via) {
         renderFrame = null;
     };
     const validValue = (key, value) => {
+        if (!Number.isFinite(value)) return NaN;
         const current = limits();
         return key === 'diameter'
             ? Math.max(value, current.minDiameter)
@@ -1678,6 +1688,9 @@ export function showViaProperties(app, via) {
     };
     const finish = commit => {
         if (!preview) return;
+        const input = activeProperty === 'diameter' ? diaEl : drlEl;
+        const value = readValue(activeProperty, input);
+        commit = commit && Number.isFinite(value) && value > 0;
         preview = null;
         activeProperty = null;
         cancelLiveRender();
@@ -1708,17 +1721,21 @@ export function showViaProperties(app, via) {
         },
     };
     app._viaPropertyBinding = binding;
+    const readValue = (key, input) => validValue(key, input.value.trim() === '' ? NaN : Number(input.value));
     const live = (key) => (e) => {
         if (!editable()) {
             binding.cancel();
             return;
         }
         const input = /** @type {HTMLInputElement} */ (e.target);
-        const raw = parseFloat(input.value);
-        const v = validValue(key, raw);
+        if (preview && activeProperty !== key) {
+            const text = input.value;
+            binding.commit();
+            input.value = text;
+        }
+        const v = readValue(key, input);
         if (Number.isFinite(v) && v > 0) {
             if (Number(input.value) !== v) input.value = String(v);
-            if (preview && activeProperty !== key) binding.commit();
             if (vias.every(target => (preview?.copies.get(target) || target)[key] === v)) return;
             preview ??= beginViaPropertyPreview(app, vias);
             activeProperty = key;
@@ -1735,6 +1752,12 @@ export function showViaProperties(app, via) {
         input?.addEventListener('change', event => {
             onInput(event);
             binding.commit();
+            if (!disposed && !(readValue(key, input) > 0)) resetFields();
+        });
+        input?.addEventListener('blur', () => {
+            queueMicrotask(() => {
+                if (!disposed && preview && activeProperty === key) binding.commit();
+            });
         });
         input?.addEventListener('keydown', event => {
             if (disposed || event.key !== 'Escape') return;

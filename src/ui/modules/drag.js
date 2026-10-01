@@ -41,6 +41,57 @@ export function clearDragState(app) {
     app.pendingAnchorDrag = null;
 }
 
+/** Restore a pointer edit before Escape, history or a tool transition. */
+export function cancelSchematicPointerInteraction(app) {
+    const state = app.interactionState;
+    if (state === 'overlapCycle') {
+        app._overlapCyclePress = null;
+        app.interactionState = 'idle';
+        app.skipClickSelection = true;
+        return true;
+    }
+    if (state === 'anchorDrag' || state === 'segmentDrag') {
+        if (state === 'anchorDrag') {
+            cancelSchematicShapeConversion(app);
+            cancelSchematicPathSplit(app);
+        }
+        if (app.drag?.beforeState && (state === 'anchorDrag' || app.drag.shape?.type === 'polyline')) {
+            app._applyShapeState(app.drag.shape, app.drag.beforeState);
+        }
+        for (const [wire, beforeState] of app.drag?.wireStates || []) {
+            app._applyShapeState(wire, beforeState);
+        }
+        const shape = app.drag?.shape;
+        clearDragState(app);
+        app.didDrag = false;
+        app.viewport.svg.style.cursor = '';
+        app._hideCrosshair();
+        app.interactionState = 'idle';
+        if (shape) shape.selected = true;
+        app.renderShapes(true);
+        return true;
+    }
+    if (state === 'moveDrag' || state === 'boxSelect') {
+        clearDragState(app);
+        app.didDrag = false;
+        app._removeBoxSelectElement();
+        app.viewport.svg.style.cursor = '';
+        app.interactionState = 'idle';
+        app.renderShapes(true);
+        return true;
+    }
+    if (app.pendingAnchorDrag) {
+        const { shape, preInsertState } = app.pendingAnchorDrag;
+        if (preInsertState) app._applyShapeState(shape, preInsertState);
+        if (shape) shape.selected = true;
+        app.pendingAnchorDrag = null;
+        app.viewport.svg.style.cursor = '';
+        app.renderShapes(true);
+        return true;
+    }
+    return false;
+}
+
 export function cancelSchematicPathSplit(app) {
     if (!app.drag?.pathSplit) return false;
     const remainder = app.drag.splitRemainder;

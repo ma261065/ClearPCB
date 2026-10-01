@@ -1,5 +1,6 @@
 import { updateSnapHighlight } from './wire.js';
 import { ShapeValidator } from '../../core/ShapeValidator.js';
+import { cancelSchematicPointerInteraction } from './drag.js';
 import {
     buildNetGroundBarsPath,
     buildNetSymbolPath,
@@ -105,6 +106,7 @@ export function saveToolOptions(options) {
  * @param {string} tool - Tool identifier to activate.
  */
 export function onToolSelected(app, tool) {
+    cancelSchematicPointerInteraction(app);
     app._cancelDrawing();
     
     // Clear any snap highlight left from the previous tool (e.g. wire hover dot)

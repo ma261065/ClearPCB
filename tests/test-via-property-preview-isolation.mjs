@@ -405,4 +405,102 @@ for (const commit of [false, true]) {
     assert.equal(getViaPropertyPreview(app), undefined);
     cases++;
 }
+for (const count of [1, 4]) for (const [field, value] of [['Dia', 2], ['Drill', 0.6]]) {
+    for (const invalid of ['', 'bad', '2junk', 'Infinity', '-Infinity', ...(field === 'Drill' ? ['0', '-1'] : [])]) {
+        for (const finish of ['change', 'blur', 'binding', 'pointer', 'cancel', 'net']) {
+            const f = fixture(count), { app, model, vias } = f;
+            const input = f.input(field), before = model.captureGeometry();
+            const redo = { execute() {}, undo() {} };
+            app.history.redoStack.push(redo);
+            input.emit('input', value);
+            input.emit('input', invalid);
+            if (finish === 'binding') app._viaPropertyBinding.commit();
+            else if (finish === 'pointer') {
+                const adapter = createViaSelectionAdapter(app, vias[0], vias[0].id);
+                assert.equal(adapter.beginMove(vias[0]), true);
+                adapter.updateMove({ x: vias[0].x + 3, y: vias[0].y + 2 });
+                adapter.endMove(false);
+            } else if (finish === 'cancel') input.emit('keydown', input.value, { key: 'Escape' });
+            else if (finish === 'net') f.input('Net').emit('change', 'SIGNAL');
+            else input.emit(finish);
+            await Promise.resolve();
+            flushFrames();
+            assert.equal(getViaPropertyPreview(app), undefined, `${field}: ${finish} ends invalid preview`);
+            assert.equal(app.isSectionEditing(), false);
+            assert.equal(app.history.undoStack.length, finish === 'net' ? 1 : 0);
+            assert.ok(Number.isFinite(Number(input.value)) && input.value !== '', 'Invalid text is restored');
+            if (finish === 'net') app.history.undo();
+            else assert.equal(app.history.redoStack[0], redo, 'Rejected numeric completion preserves redo');
+            assert.deepEqual(model.captureGeometry(), before, `${field}: ${finish} rejects intermediate value`);
+            cases++;
+        }
+    }
+}
+
+for (const invalidFirst of [false, true]) for (const invalidSecond of [false, true]) {
+    const f = fixture(4), { app, model, vias } = f;
+    const before = model.captureGeometry(), diameter = f.input('Dia'), drill = f.input('Drill');
+    diameter.emit('input', 2);
+    if (invalidFirst) diameter.emit('input', '');
+    diameter.emit('blur');
+    drill.emit('input', invalidSecond ? '' : 1.8);
+    assert.ok(vias.every(via => via.diameter === (invalidFirst ? 1.234567891 : 2)));
+    await Promise.resolve();
+    assert.equal(!!getViaPropertyPreview(app), !invalidSecond, 'Old blur does not finish the new field');
+    if (!invalidSecond) {
+        const expected = invalidFirst ? 1.234567891 : 1.8;
+        assert.equal(Number(drill.value), expected, 'Clamp against canonical limits after rejected diameter handoff');
+        assert.ok(app.vias.slice(0, 4).every(via => via.drill === expected));
+    }
+    drill.emit('change');
+    assert.equal(app.history.undoStack.length, Number(!invalidFirst) + Number(!invalidSecond));
+    while (app.history.canUndo()) app.history.undo();
+    assert.deepEqual(model.captureGeometry(), before);
+    cases++;
+}
+
+for (const finish of ['binding', 'blur', 'pointer']) {
+    const f = fixture(), { app, model, vias } = f;
+    const before = model.captureGeometry(), input = f.input('Dia');
+    input.emit('input', 2);
+    if (finish === 'binding') app._viaPropertyBinding.commit();
+    else if (finish === 'blur') { input.emit('blur'); await Promise.resolve(); }
+    else {
+        const adapter = createViaSelectionAdapter(app, vias[0], vias[0].id);
+        assert.equal(adapter.beginMove(vias[0]), true);
+        adapter.updateMove({ x: vias[0].x + 3, y: vias[0].y + 2 });
+        adapter.endMove(false);
+    }
+    assert.equal(vias[0].diameter, 2);
+    assert.equal(app.history.undoStack.length, 1, 'Valid handoff commits exactly once');
+    input.emit('change');
+    assert.equal(app.history.undoStack.length, 1);
+    app.history.undo();
+    assert.deepEqual(model.captureGeometry(), before);
+    cases++;
+}
+
+for (const moves of [1, 2, 5]) for (const commit of [false, true]) {
+    const f = fixture(), { app, model, vias, attached } = f;
+    const before = model.captureGeometry(), adapter = createViaSelectionAdapter(app, vias[0], vias[0].id);
+    app.viewport.shiftHeld = false;
+    assert.equal(adapter.beginMove(vias[0]), true);
+    for (let i = 0; i < moves; i++) adapter.updateMove({ x: 0, y: 0 });
+    assert.equal(app._viaDrag.snapTargetTrack.track, attached, 'Snap target retains canonical track identity');
+    assert.deepEqual(model.captureGeometry(), before, 'Snapping does not mutate authored geometry');
+    adapter.endMove(commit);
+    assert.equal(app._viaDrag, null);
+    assert.equal(app.history.undoStack.length, commit ? 1 : 0);
+    if (commit) {
+        assert.equal(vias[0].x, 0);
+        assert.equal(vias[0].y, 0);
+        const after = model.captureGeometry();
+        app.history.undo();
+        assert.deepEqual(model.captureGeometry(), before);
+        app.history.redo();
+        assert.deepEqual(model.captureGeometry(), after);
+    } else assert.deepEqual(model.captureGeometry(), before);
+    cases++;
+}
+
 console.log(`PASS ${cases} via property isolation cases: model/geometry isolation, work counts, SVG/hover, precise history, constraints and lifecycle`);

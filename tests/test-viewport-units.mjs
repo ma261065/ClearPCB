@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import { Viewport } from '../src/core/Viewport.js';
 
@@ -28,6 +29,49 @@ function close(actual, expected, description) {
     assert.ok(Math.abs(actual - expected) <= Math.max(1, Math.abs(expected)) * 1e-12,
         `${description}: expected ${expected}, got ${actual}`);
 }
+
+test('Shared viewport applies the light canvas palette and restores dark grid and rulers', () => {
+    const css = readFileSync(new URL('../src/ui/schematic.css', import.meta.url), 'utf8');
+    const readTokens = pattern => Object.fromEntries(
+        [...css.match(pattern)[1].matchAll(/(--[\w-]+):\s*([^;]+);/g)]
+            .map(([, name, value]) => [name, value.trim()]));
+    const dark = readTokens(/:root\s*\{([^}]+)\}/);
+    const light = { ...dark, ...readTokens(/\[data-theme="light"\]\s*\{([^}]+)\}/) };
+    const originalGetComputedStyle = globalThis.getComputedStyle;
+    let tokens = dark;
+    globalThis.getComputedStyle = () => ({ getPropertyValue: name => tokens[name] || '' });
+    try {
+        for (const gridStyle of ['lines', 'dots']) {
+            const viewport = new TestViewport();
+            viewport.gridStyle = gridStyle;
+            viewport._getThemeColors = Viewport.prototype._getThemeColors;
+            viewport._createGrid = Viewport.prototype._createGrid;
+            viewport._createRulers = Viewport.prototype._createRulers;
+            viewport._drawPaperOutline = () => {};
+            for (const theme of ['dark', 'light', 'dark']) {
+                tokens = theme === 'light' ? light : dark;
+                viewport._rulerBuildState = { previousTheme: true };
+                viewport.updateTheme();
+                const expected = theme === 'light'
+                    ? { canvas: '#ffffff', grid: '#e0e0e0', dots: '#d9d9d9', axis: '#999999', ruler: '#e8e8e8' }
+                    : { canvas: '#1e1e1e', grid: 'rgba(255, 255, 255, 0.15)',
+                        dots: 'rgba(255, 255, 255, 0.22)', axis: 'rgba(255, 255, 255, 0.4)', ruler: '#1e1e1e' };
+                assert.equal(tokens['--bg-canvas'], expected.canvas, 'Initial and refreshed canvas backgrounds agree');
+                assert.equal(viewport.svg.style.backgroundColor, expected.canvas);
+                assert.equal(viewport.themeColors.rulerBg, expected.ruler);
+                assert.ok(viewport.gridLayer.innerHTML.includes(gridStyle === 'lines'
+                    ? `stroke="${expected.grid}"` : `fill="${expected.dots}"`));
+                assert.ok(viewport.axesLayer.innerHTML.includes(`stroke="${expected.axis}"`));
+                assert.ok(viewport.rulerContainer.innerHTML.includes(`fill="${expected.ruler}"`));
+                assert.ok(viewport.rulerContainer.innerHTML.includes(`fill="${tokens['--text-secondary']}"`));
+                assert.equal(viewport._rulerBuildState.previousTheme, undefined, 'Theme changes invalidate cached ruler colors');
+            }
+        }
+    } finally {
+        if (originalGetComputedStyle === undefined) delete globalThis.getComputedStyle;
+        else globalThis.getComputedStyle = originalGetComputedStyle;
+    }
+});
 
 test('Viewport uses the exact inch/mm relationship in both directions', () => {
     const viewport = new TestViewport();

@@ -5,6 +5,7 @@ import { createPcbText } from '../src/core/pcb-text.js';
 import { measureText } from '../src/pcb/modules/stroke-font.js';
 import { cancelPictureCopperRefresh } from '../src/pcb/modules/picture-refresh.js';
 import { EditTextCommand, getTextPosePreviewTexts } from '../src/pcb/modules/text-commands.js';
+import { createPcbTextSelectionAdapter } from '../src/pcb/modules/pcb-text-selection.js';
 
 globalThis.window = { addEventListener() {} };
 globalThis.document = { getElementById: () => null, querySelector: () => null };
@@ -233,6 +234,37 @@ for (const finish of ['commit', 'cancel', 'panel-change', 'deactivate', 'failure
         app._textPropertyBinding.cancel();
         assert.equal(app.texts.get(text.id), text, 'Cancelling a property edit does not write even to a frozen model');
     } finally { cancelPictureCopperRefresh(app); }
+}
+
+for (const value of ['', '-', 'Infinity', '3']) {
+    for (const handoff of ['change', 'commit', 'field', 'move', 'rotate']) {
+        const { app, text, inputs } = fixture();
+        const before = { ...text }, valid = value === '3';
+        app.viewport = { scale: 100, svg: { style: {} }, setCrosshair() {}, hideCrosshair() {} };
+        app._snapToGrid = point => point;
+        inputs.get('pcbPropTextSize').fire('input', 3);
+        inputs.get('pcbPropTextSize').value = value;
+        try {
+            if (handoff === 'change') inputs.get('pcbPropTextSize').fire('change');
+            else if (handoff === 'commit') app._textPropertyBinding.commit();
+            else if (handoff === 'field') inputs.get('pcbPropTextLW').fire('change', 0.4);
+            else if (handoff === 'move') {
+                PCBApp.prototype._beginTextDrag.call(app, app.texts.get(text.id), { x: text.x, y: text.y });
+                PCBApp.prototype._updateTextDrag.call(app, { x: text.x + 2, y: text.y });
+                PCBApp.prototype._endTextDrag.call(app, true);
+            } else {
+                const adapter = createPcbTextSelectionAdapter(app, text, `text:${text.id}`);
+                adapter.beginAnchorDrag('rotate', { x: text.x + 10, y: text.y });
+                adapter.updateAnchorDrag({ x: text.x, y: text.y - 10 });
+                adapter.endAnchorDrag(true);
+            }
+            assert.equal(text.size, valid ? 3 : before.size, `${handoff}: completion validates the current source field`);
+            assert.equal(app.history.undoStack.length, Number(valid) + Number(!['change', 'commit'].includes(handoff)));
+            assert.equal(getTextPosePreviewTexts(app), undefined);
+            while (app.history.canUndo()) app.history.undo();
+            assert.deepEqual(text, before);
+        } finally { cancelPictureCopperRefresh(app); }
+    }
 }
 
 delete globalThis.window;

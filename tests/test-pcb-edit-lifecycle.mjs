@@ -76,7 +76,7 @@ for (const mode of ['cycle', 'anchor', 'floating-anchor', 'move-adapter', 'move'
 }
 }
 
-for (const key of ['_textPropertyBinding', '_padPropertyBinding', '_viaPropertyBinding',
+for (const key of ['_textPropertyBinding', '_refPropertyBinding', '_padPropertyBinding', '_viaPropertyBinding',
     '_trackPropertyBinding', '_boardShapePropertyBinding', '_boardDimensionPropertyBinding']) {
     for (const boundary of ['cancel', 'deactivate', 'panel', 'replace']) {
         const { app } = fixture();

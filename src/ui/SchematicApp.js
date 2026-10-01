@@ -16,8 +16,8 @@ import { getComponentLibrary } from '../components/index.js';
 // exports (wire, drawing, components, files, export) use namespace imports
 // to keep the import block manageable.
 import { bindMouseEvents } from './modules/mouse.js';
-import { handleEscape, bindKeyboardShortcuts } from './modules/keyboard.js';
-import { bindPropertiesPanel, applyCommonProperty, updatePropertiesPanel } from './modules/properties.js';
+import { handleEscape, bindKeyboardShortcuts, runSchematicHistoryAction } from './modules/keyboard.js';
+import { bindPropertiesPanel, applyCommonProperty, updatePropertiesPanel, hasSchematicPropertyPreview } from './modules/properties.js';
 import { bindRibbon, updateShapePanelOptions } from './modules/ribbon.js';
 import { getToolIconPath, setToolCursor } from './modules/cursor.js';
 import { bindViewportControls, updateGridDropdown, fitToContent } from './modules/viewport.js';
@@ -1037,15 +1037,11 @@ export default class SchematicApp {
         
         // Undo/Redo buttons
         this.ui.undoBtn.addEventListener('click', () => {
-            if (this.history.undo()) {
-                this.renderShapes();
-            }
+            runSchematicHistoryAction(this, 'undo');
         });
         
         this.ui.redoBtn.addEventListener('click', () => {
-            if (this.history.redo()) {
-                this.renderShapes();
-            }
+            runSchematicHistoryAction(this, 'redo');
         });
         
         // Theme toggle
@@ -1394,6 +1390,11 @@ export default class SchematicApp {
     }
 
     // ── ProjectDocument view interface ────────────────────────────────
+
+    isSectionEditing() {
+        return !!(hasSchematicPropertyPreview(this) || this.drag || this.pendingAnchorDrag
+            || this.isDrawing || this.textEdit || this.pastingClipboard || this.placingComponent);
+    }
 
     onDocumentReplaced() {
         this._setActiveRibbonTab?.('home');

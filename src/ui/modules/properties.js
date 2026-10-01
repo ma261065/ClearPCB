@@ -13,6 +13,15 @@ import { canRoundPathNode } from '../../shapes/path-geometry.js';
 
 // Retire panel callbacks on rebuild without losing pending numeric completion.
 const propertyPanels = new WeakMap();
+const propertyBindings = new WeakMap();
+
+export function hasSchematicPropertyPreview(app) {
+    return !!propertyBindings.get(app)?.active;
+}
+
+export function cancelSchematicPropertyPreview(app) {
+    return propertyBindings.get(app)?.cancel() || false;
+}
 
 /**
  * Initializes the properties panel and subscribes to `selectionChanged`
@@ -237,7 +246,9 @@ function renderNewShapeProperties(app, panel, tool, isCurrent) {
 export function updatePropertiesPanel(app, selection) {
     const panel = app.ui.propertiesPanel;
     if (!panel) return;
-    const binding = propertyPanels.get(panel)?.binding || createPropertyBinding();
+    // A replaced panel root must not hide an unfinished edit from save/history.
+    const binding = propertyBindings.get(app) || createPropertyBinding();
+    propertyBindings.set(app, binding);
     const currentPanel = { binding };
     propertyPanels.set(panel, currentPanel);
     const refreshControls = [];
@@ -871,7 +882,7 @@ function _bindActionButtons(app, isCurrent) {
  * @param {*} value - New value for the property.
  */
 export function applyCommonProperty(app, prop, value) {
-    if (propertyPanels.get(app.ui?.propertiesPanel)?.binding.prepare() === false) return;
+    if (propertyBindings.get(app)?.prepare() === false) return;
     const selection = app.selection.getSelection();
     if (selection.length === 0) return;
 

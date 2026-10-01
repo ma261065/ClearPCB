@@ -107,7 +107,7 @@ completed autosave into a storage-failure warning or cause it to be retried.
 
 Browser idle time is not an edit-completion signal. Registered views may report
 `isSectionEditing()`; `ProjectDocument.canSerialize()` uses that neutral readiness
-contract without inspecting editor fields. Pending PCB edits block project
+contract without inspecting editor fields. Pending PCB and schematic edits block project
 snapshots rather than silently saving committed geometry that differs from the
 displayed preview. Autosave retains its existing idle scheduling and rechecks readiness
 both before scheduling and at idle execution, leaving the pending revision
@@ -116,6 +116,16 @@ Manual Save/Save As report a snapshot failure through the existing failure UI
 without opening or writing a file. Headless serialization remains available.
 This readiness policy is independent of the detached per-family preview
 ownership described below.
+
+The schematic view includes reversible numeric Properties previews, pointer
+edits, pre-threshold splits, drawing, placement and inline text in this readiness
+query. Numeric ownership is per editor rather than per DOM root, so replacing
+Properties cannot hide an unfinished edit from save or history. Schematic
+keyboard and ribbon Undo/Redo share a completion boundary: restore numeric and
+pointer previews before advancing history, cancel placement/inline text without
+advancing history, and leave in-progress drawing alone. Failed rollback prevents
+history traversal. Escape, history and tool switches reuse the same pointer
+rollback, including linked-wire snapshots and provisional shape conversions.
 
 `pcb/modules/edit-lifecycle.js` owns cross-family preview cancellation,
 property-editor disposal and the PCB snapshot-readiness query. The facade
@@ -616,6 +626,12 @@ rulers; ordinary panning still translates cached ticks without rebuilding them.
 Metric labels omit trailing zeros, and extreme-zoom output stays bounded.
 These presentation changes do not alter
 authored geometry, grid presets or file-save precision.
+
+Both editors share the viewport's light-mode palette: a white canvas, subtle
+gray grid, medium-gray origin axes and pale-gray rulers. The `--bg-ruler` token
+separates ruler shading from the rest of the UI; without it, rulers retain the
+existing `--bg-primary` background. Dark mode and electrical layer/net colors
+are unchanged.
 
 Saved board dimensions live in `PcbDocument.board`. The editor's `_boardWidth`,
 `_boardHeight` and `_boardRadius` expose the detached dimension projection during
@@ -1153,6 +1169,9 @@ Net changes stay discrete, commit any pending numeric field first, and retain
 bonded-copper propagation and schematic-assigned net rejection. Selection and
 hover resolve displayed copies without losing canonical command identity;
 starting a via drag commits pending properties before movement pickup.
+Via movement resolves snapped track targets to canonical identities while its
+preview mapping is still available. Repeated pointer updates over an attached
+track node therefore retain the same valid command target when the preview ends.
 Panel replacement, Escape, deactivation, loading, locks and visibility changes
 clean up previews and queued frames, and save/export readiness includes them.
 
@@ -1436,7 +1455,7 @@ mode; it is not a release requirement. Remaining ownership work is tracked in
   commit policy, Escape consumption and deferred blur completion. PCB's
   binding supplies pointer/rotation handoff and layer checks; its detached
   copies and schematic's reversible live snapshots remain separate adapters.
-  Schematic ownership survives a panel rebuild so an already-pending blur can
+  Schematic ownership survives a panel rebuild or root replacement so an already-pending blur can
   finish against its original target without rebuilding the newer panel.
   Starting another numeric field settles that previous edit first, preventing
   overlapping whole-shape snapshots from combining independent field edits.
@@ -1446,6 +1465,14 @@ mode; it is not a release requirement. Remaining ownership work is tracked in
   pending preview rather than committing the last valid intermediate value.
   Completion preserves the caller's no-rebuild request and cannot disturb a
   newer field; geometry finalization still forces structural rebuilds.
+  Specialized track, via, pad, text and board-dimension editors also validate
+  their active field inside owner-driven completion, including pointer pickup
+  and cross-field handoff. Invalid final text cancels the preceding preview
+  without consuming history; deferred callbacks cannot finish a newer field.
+  Their electrical constraints and preview representations remain local.
+  PCB reference styles retain a registered property binding: pending edits
+  block snapshots, cancellation restores only reference-style fields, and
+  disposed controls cannot author late changes.
   Schematic discrete property application also prepares this owner before
   reading selection and recording its command, matching PCB Properties actions.
   Checkbox, text and dropdown changes therefore cannot enter a pending numeric

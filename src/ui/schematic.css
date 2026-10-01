@@ -88,7 +88,8 @@
     --ribbon-group-label: #444444;
     --ribbon-divider: rgba(68, 68, 68, 0.4);
     --panel-bg: #f0f0f0;
-    --bg-canvas: #ececec;
+    --bg-canvas: #ffffff;
+    --bg-ruler: #e8e8e8;
     --schematic-component: #444444;
     --component-icon-bg: #f3f3f3;
     --select-bg: rgba(0, 0, 0, 0.04);
@@ -98,9 +99,9 @@
     --btn-hover-border: rgba(0, 0, 0, 0.1);
     
     /* === Schematic Canvas === */
-    --sch-background: #ececec;
-    --sch-grid: rgba(0, 0, 0, 0.1);
-    --sch-grid-major: rgba(0, 0, 0, 0.16);
+    --sch-background: #ffffff;
+    --sch-grid: #e0e0e0;
+    --sch-grid-major: #d9d9d9;
     --sch-selection: #0066cc;
     --sch-selection-fill: rgba(0, 102, 204, 0.2);
     
@@ -141,7 +142,7 @@
     --sch-sheet-fill: rgba(170, 0, 170, 0.1);
     
     /* === Axes & Paper === */
-    --sch-axis: rgba(0, 0, 0, 0.3);
+    --sch-axis: #999999;
     --sch-paper-outline: rgba(0, 0, 0, 0.18);
     --sch-paper-label: rgba(0, 0, 0, 0.22);
 }

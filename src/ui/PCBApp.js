@@ -2751,6 +2751,8 @@ export default class PCBApp {
         if (!visible && this._trackPropertyBinding?.affectsLayer(layerId)) this._trackPropertyBinding.dispose();
         if (!visible && this._boardShapePropertyBinding?.affectsLayer(layerId)) this._boardShapePropertyBinding.dispose();
         if (!visible && layerId === 'vias') this._viaPropertyBinding?.dispose();
+        if (!visible && this._textPropertyBinding?.model.layer === layerId) this._textPropertyBinding.dispose();
+        if (!visible && this._refPropertyBinding?.affectsLayer(layerId)) this._refPropertyBinding.dispose();
         if (!visible && this._padPropertyBinding?.pads.some(pad => padLayers(pad).includes(layerId))) {
             this._padPropertyBinding.dispose();
         }
@@ -2841,6 +2843,7 @@ export default class PCBApp {
         if (locked && this._boardShapePropertyBinding?.affectsLayer(layerId)) this._boardShapePropertyBinding.cancel();
         if (locked && layerId === 'vias') this._viaPropertyBinding?.cancel();
         if (locked && this._textPropertyBinding?.model.layer === layerId) this._textPropertyBinding.cancel();
+        if (locked && this._refPropertyBinding?.affectsLayer(layerId)) this._refPropertyBinding.cancel();
         if (locked && this._padPropertyBinding?.pads.some(pad => padLayers(pad).includes(layerId))) {
             this._padPropertyBinding.cancel();
         }
@@ -3425,6 +3428,7 @@ export default class PCBApp {
         let preview = null;
         let activeProperty = null;
         const fields = new Map();
+        const minimums = new Map();
         const apply = (property, value) => {
             if (disposed) return;
             finish(true);
@@ -3476,6 +3480,10 @@ export default class PCBApp {
         };
         const finish = commit => {
             if (!preview) return;
+            if (commit && !editable()) commit = false;
+            const input = fields.get(activeProperty);
+            if (commit && (!input?.value.trim() || !Number.isFinite(Number(input.value))
+                || Number(input.value) < minimums.get(activeProperty))) commit = false;
             preview = null;
             activeProperty = null;
             cancelLiveRender();
@@ -3509,6 +3517,7 @@ export default class PCBApp {
             const input = /** @type {HTMLInputElement|null} */ (items.querySelector(id));
             if (!input) return;
             fields.set(property, input);
+            minimums.set(property, minimum);
             bindPictureRefreshHold(this, input);
             const onInput = () => {
                 if (!editable()) {
@@ -3541,7 +3550,11 @@ export default class PCBApp {
                     if (this._lastCrosshairWorld) this._updatePadPreview(this._lastCrosshairWorld);
                     return;
                 }
-                if (preview && activeProperty !== property) binding.commit();
+                if (preview && activeProperty !== property) {
+                    const pending = input.value;
+                    binding.commit();
+                    input.value = pending;
+                }
                 if (pads.every(target => (preview?.copies.get(target) || target)[property] === value)) return;
                 preview ??= beginPadPropertyPreview(this, pads);
                 activeProperty = property;
@@ -4996,6 +5009,8 @@ export default class PCBApp {
     }
 
     _beginTextDrag(text, worldPos) {
+        this._textPropertyBinding?.commit();
+        text = text && this.pcbDocument.texts.get(text.id);
         if (!text || !this.texts.has(text.id) || isLayerLocked(text.layer) || !isLayerVisible(text.layer)) return false;
         this._textDrag = {
             textId: text.id,
@@ -5313,6 +5328,7 @@ export default class PCBApp {
     }
 
     _beginRefTextDrag(compId, worldPos) {
+        this._refPropertyBinding?.commit();
         const pl = this.placements.get(compId);
         if (!pl || isRefTextLocked(pl)) return false;
         this._refDrag = {
@@ -5434,6 +5450,7 @@ export default class PCBApp {
 
     /** Rotate the selected reference designator by 90° (through history). */
     _rotateRefText(compId) {
+        this._refPropertyBinding?.commit();
         const pl = this.placements.get(compId);
         if (!pl || isRefTextLocked(pl)) return;
         const cur = ((pl.refRot || 0) % 360 + 360) % 360;
@@ -5574,6 +5591,8 @@ export default class PCBApp {
             return ((Math.round(n) % 360) + 360) % 360;
         };
         this._textPropertyBinding = this._bindStrokeTextProps(items, text, {
+            editable: () => this._active !== false && this.pcbDocument.texts.get(text.id) === text
+                && !isLayerLocked(text.layer) && isLayerVisible(text.layer),
             fields: [
                 { id: 'pcbPropTextLayer', field: 'layer', parse: (v) => TEXT_LAYERS.includes(v) ? v : null, apply: layerApply },
                 { id: 'pcbPropTextSize', field: 'size', parse: num(0.1) },
@@ -5636,21 +5655,31 @@ export default class PCBApp {
      * can diff against the pre-edit state.
      * @param {Element} items container holding the inputs
      * @param {any} model object whose fields the inputs drive
-     * @param {{fields: Array<{id:string, field:string, parse:(v:string)=>any, apply?:(m:any,v:any)=>void, wrap?:boolean}>, begin?:(m:any)=>any, cancel?:()=>void, preview:(m:any)=>void, commit:(m:any, snap:any)=>void}} spec
+     * @param {{fields: Array<{id:string, field:string, parse:(v:string)=>any, apply?:(m:any,v:any)=>void, value?:(m:any)=>any, wrap?:boolean}>, editable?:()=>boolean, begin?:(m:any)=>any, cancel?:(snap:any)=>void, preview:(m:any)=>void, commit:(m:any, snap:any)=>void}} spec
      */
     _bindStrokeTextProps(items, model, spec) {
         let snapshot = null;
         let target = model;
         let disposed = false;
+        let activeField = null;
+        const controls = new Map(spec.fields.map(f => [f, items.querySelector('#' + f.id)]));
+        const editable = () => !disposed && (!spec.editable || spec.editable());
         const resetFields = () => {
             for (const f of spec.fields) {
-                const el = /** @type {HTMLInputElement|HTMLSelectElement|null} */ (items.querySelector('#' + f.id));
-                if (el) el.value = String(f.wrap ? Math.round(model[f.field]) % 360 : model[f.field]);
+                const el = controls.get(f);
+                const value = f.value ? f.value(model) : model[f.field];
+                if (el) el.value = String(f.wrap ? Math.round(value) % 360 : value);
             }
         };
         const onInput = (f) => () => {
             if (disposed) return;
-            const el = /** @type {HTMLInputElement|HTMLSelectElement|null} */ (items.querySelector('#' + f.id));
+            if (!editable()) { binding.cancel(); return; }
+            const el = controls.get(f);
+            if (snapshot && activeField !== f) {
+                const pending = el.value;
+                onCommit();
+                el.value = pending;
+            }
             const v = f.parse(el ? el.value : '');
             if (v === null || v === undefined) return;
             if (target[f.field] === v) return;
@@ -5658,14 +5687,20 @@ export default class PCBApp {
                 target = spec.begin ? spec.begin(model) : model;
                 snapshot = { ...target };
             }
+            activeField = f;
             if (f.apply) f.apply(target, v); else target[f.field] = v;
             if (typeof target.content === 'string') schedulePictureCopperRefresh(this, target);
             spec.preview(target);
         };
         const onCommit = () => {
             if (disposed || !snapshot) return;
+            if (!editable() || activeField.parse(controls.get(activeField)?.value || '') == null) {
+                binding.cancel();
+                return;
+            }
             const snap = snapshot;
             snapshot = null;
+            activeField = null;
             const edited = target;
             target = model;
             let committed = false;
@@ -5673,11 +5708,14 @@ export default class PCBApp {
                 spec.commit(edited, snap);
                 committed = true;
             } finally {
-                if (!committed) resetFields();
+                if (!committed) {
+                    spec.cancel?.(snap);
+                    resetFields();
+                }
             }
         };
         for (const f of spec.fields) {
-            const el = /** @type {HTMLInputElement|HTMLSelectElement|null} */ (items.querySelector('#' + f.id));
+            const el = controls.get(f);
             if (!el) continue;
             bindPictureRefreshHold(this, el);
             const handler = onInput(f);
@@ -5685,8 +5723,15 @@ export default class PCBApp {
             // Spinner step clicks on number inputs fire 'change' without 'input'.
             el.addEventListener('change', handler);
             el.addEventListener('change', onCommit);
+            el.addEventListener('keydown', event => {
+                if (disposed || event.key !== 'Escape' || !snapshot) return;
+                binding.cancel();
+                event.preventDefault();
+                event.stopPropagation();
+            });
             if (f.wrap) {
                 const wrapDeg = () => {
+                    if (disposed) return;
                     const n = parseFloat(el.value);
                     if (!Number.isFinite(n)) return;
                     const wrapped = ((Math.round(n) % 360) + 360) % 360;
@@ -5701,14 +5746,16 @@ export default class PCBApp {
             commit: onCommit,
             cancel: () => {
                 if (!snapshot) return;
+                const snap = snapshot;
                 snapshot = null;
+                activeField = null;
                 target = model;
-                spec.cancel?.();
+                spec.cancel?.(snap);
                 resetFields();
             },
             dispose: () => {
-                binding.cancel();
-                disposed = true;
+                if (disposed) return;
+                try { binding.cancel(); } finally { disposed = true; }
             },
         };
         return binding;
@@ -5749,15 +5796,31 @@ export default class PCBApp {
             if (!Number.isFinite(n)) return null;
             return ((n % 360) + 360) % 360;
         };
-        this._bindStrokeTextProps(items, pl, {
+        const styleFields = ['refSize', 'refStrokeWidth', 'refRot'];
+        const restoreStyle = snapshot => {
+            for (const key of styleFields) {
+                if (Object.hasOwn(snapshot, key)) pl[key] = snapshot[key];
+                else delete pl[key];
+            }
+        };
+        this._refPropertyBinding = this._bindStrokeTextProps(items, pl, {
+            editable: () => this._active !== false && this.placements.get(compId) === pl
+                && !isRefTextLocked(pl) && pl.refVisible !== false
+                && isLayerVisible(pl.side === 'bottom' ? 'bottom-silk' : 'top-silk'),
             fields: [
-                { id: 'pcbPropRefSize', field: 'refSize', parse: num(0.1) },
-                { id: 'pcbPropRefRot', field: 'refRot', parse: rotParse, wrap: true },
-                { id: 'pcbPropRefLW', field: 'refStrokeWidth', parse: num(0.01) },
+                { id: 'pcbPropRefSize', field: 'refSize', parse: num(0.1), value: m => m.refSize || REF_DEFAULT_SIZE },
+                { id: 'pcbPropRefRot', field: 'refRot', parse: rotParse, wrap: true, value: m => m.refRot || 0 },
+                { id: 'pcbPropRefLW', field: 'refStrokeWidth', parse: num(0.01), value: m => m.refStrokeWidth || REF_DEFAULT_STROKE },
             ],
             preview: () => {
                 this._rerenderRef(compId);
                 if (isPcbSelected(this, 'reftext', compId)) this._drawRefOverlay(compId, true);
+            },
+            cancel: snapshot => {
+                restoreStyle(snapshot);
+                if (this.placements.get(compId) !== pl) return;
+                this._rerenderRef(compId);
+                if (isPcbSelected(this, 'reftext', compId)) this._drawRefOverlay(compId, false);
             },
             commit: (m, snap) => {
                 const before = { refSize: snap.refSize, refStrokeWidth: snap.refStrokeWidth, refRot: snap.refRot };
@@ -5771,6 +5834,7 @@ export default class PCBApp {
                 this.history.execute(new SetRefStyleCommand(this, compId, before, after));
             },
         });
+        this._refPropertyBinding.affectsLayer = layer => (pl.side === 'bottom' ? 'bottom-silk' : 'top-silk') === layer;
         this._setActiveRibbonTab?.('pcb-properties');
     }
 

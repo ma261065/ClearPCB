@@ -362,4 +362,38 @@ for (const commit of [false, true]) {
     assert.equal(app._padDefaults.ratio, 2, 'Detached default controls cannot alter the next tool');
     cases++;
 }
+for (const count of [1, 4]) for (const value of ['', '-', 'Infinity', '0.01', '3']) {
+    for (const handoff of ['change', 'commit', 'Shape', 'Ratio', 'move', 'rotate']) {
+        const { app, pads, model, input } = fixture(count);
+        const before = model.captureGeometry(), originalSize = pads[0].size;
+        input('Size').emit('input', 3);
+        input('Size').value = value;
+        const valid = value === '3', additional = !['change', 'commit'].includes(handoff);
+        if (handoff === 'change') input('Size').emit('change');
+        else if (handoff === 'commit') app._padPropertyBinding.commit();
+        else if (handoff === 'Shape') input('Shape').emit('change', 'oval');
+        else if (handoff === 'Ratio') input('Ratio').emit('change', 4);
+        else {
+            const adapter = createPadSelectionAdapter(app, pads[0], `pad:${pads[0].id}`);
+            const start = { x: pads[0].x + 10, y: pads[0].y };
+            if (handoff === 'move') {
+                adapter.beginMove(start);
+                adapter.updateMove({ x: start.x + 2, y: start.y });
+                adapter.endMove(true);
+            } else {
+                adapter.beginAnchorDrag('rotate', start);
+                adapter.updateAnchorDrag({ x: pads[0].x, y: pads[0].y - 10 });
+                adapter.endAnchorDrag(true);
+            }
+        }
+        assert.equal(getPadPropertyPreview(app), undefined);
+        assert.ok(pads.every(pad => pad.size === (valid ? 3 : originalSize)));
+        assert.equal(app.history.undoStack.length, Number(valid) + Number(additional),
+            `${handoff}: history contains only valid source/destination edits`);
+        while (app.history.canUndo()) app.history.undo();
+        assert.deepEqual(model.captureGeometry(), before);
+        cancelPictureCopperRefresh(app);
+        cases++;
+    }
+}
 console.log(`PASS ${cases} pad property isolation cases: numeric events, model/geometry isolation, stable previews, SVG, history and lifecycle`);

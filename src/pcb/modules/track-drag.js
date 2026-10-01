@@ -1924,7 +1924,9 @@ export function updateViaDrag(app, worldPos) {
                 px: snap.trackNode.x, py: snap.trackNode.y }
             : findSplittableTrackEdge(app, targetPos, 6, { excludeTracks: attachedTracks, layers: drag.layers });
     if (trackTarget) pos = { x: trackTarget.px, y: trackTarget.py };
-    drag.snapTargetTrack = trackTarget;
+    drag.snapTargetTrack = trackTarget
+        ? { ...trackTarget, track: canonicalTrack(app, trackTarget.track) }
+        : null;
 
     // Yellow target circle when locked onto a hard copper target.
     if (snap.snapType === 'pad' || snap.snapType === 'track-node' || trackTarget) {

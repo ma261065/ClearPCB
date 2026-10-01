@@ -10,7 +10,7 @@ import { disposeFillRefresh } from './fill-refresh.js';
 import { disposeDrcRefresh } from './drc-refresh.js';
 
 const PROPERTY_EDITORS = [
-    '_textPropertyBinding', '_padPropertyBinding', '_viaPropertyBinding',
+    '_textPropertyBinding', '_refPropertyBinding', '_padPropertyBinding', '_viaPropertyBinding',
     '_trackPropertyBinding', '_boardShapePropertyBinding',
 ];
 

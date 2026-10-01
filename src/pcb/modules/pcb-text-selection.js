@@ -31,6 +31,7 @@ export function createPcbTextSelectionAdapter(app, text, id) {
         getPosition() { const text = current(); return { x: text.x, y: text.y }; },
         getAnchors() { return [rotationHandleAnchor(pcbTextBounds(current()), app.viewport?.scale)]; },
         beginAnchorDrag(anchorId, worldPos) {
+            app._textPropertyBinding?.commit();
             const text = current();
             if (anchorId !== 'rotate' || isLayerLocked(text.layer) || !isLayerVisible(text.layer)) return false;
             rotationDrag = { center: { x: text.x, y: text.y }, start: { ...worldPos }, rotation: text.rotation || 0 };

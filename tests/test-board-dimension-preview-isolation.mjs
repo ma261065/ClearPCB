@@ -220,8 +220,8 @@ console.log(`PASS ${cases} generic dimension isolation cases: numeric/resize, se
     assert.equal(app.history.undoStack.length, 0, 'Escape suppresses the following native change');
     input.value = '56'; input.emit('input');
     input.value = ''; input.emit('change');
-    assert.match(input.validity, /finite/);
-    assert.equal(binding.active, true, 'Invalid text cannot commit an earlier preview');
+    assert.equal(input.value, String(before.width));
+    assert.equal(binding.active, false, 'Invalid completion cancels an earlier preview');
     binding.cancel();
     input.value = '57'; input.emit('input');
     app._setPcbPropsTitle('Other');
@@ -262,6 +262,36 @@ for (const numeric of [false, true]) {
     finishBoardDimensionPreview(app);
 }
 console.log('PASS precision/no-op/native event sequencing, disposed callbacks, input validation and renderer failure cleanup');
+
+for (const value of ['', '-', 'Infinity', '56']) for (const handoff of ['change', 'commit', 'resize']) {
+    const { app, model, inputs, bind } = fixture();
+    const before = model.captureGeometry(), binding = bind(), input = inputs.get(fields.width);
+    const redo = { execute() {}, undo() {} };
+    app.history.redoStack.push(redo);
+    input.value = '56'; input.emit('input');
+    input.value = value;
+    if (handoff === 'change') input.emit('change');
+    else if (handoff === 'commit') binding.commit();
+    else {
+        const start = boardOutlineHandles(app).find(handle => handle.id === 'width');
+        const began = beginBoardOutlineResize(app, start);
+        if (began) endBoardOutlineResize(app, false);
+    }
+    assert.equal(binding.active, false);
+    if (value === '56') {
+        assert.equal(model.board.width, 56);
+        assert.equal(app.history.undoStack.length, 1);
+        app.history.undo();
+        assert.deepEqual(model.captureGeometry(), before);
+    } else {
+        assert.deepEqual(model.captureGeometry(), before, `${handoff}: invalid text never authorizes the previous preview`);
+        assert.equal(app.history.undoStack.length, 0);
+        assert.deepEqual(app.history.redoStack, [redo]);
+        assert.equal(input.value, String(model.board.width));
+        input.emit('change');
+        assert.equal(app.history.undoStack.length, 0, 'Following native change cannot revive the cancelled preview');
+    }
+}
 
 for (const key of [{ key: 'Escape' }, { key: 'z', ctrlKey: true }, { key: 'y', ctrlKey: true },
     { key: 'z', ctrlKey: true, shiftKey: true }]) {

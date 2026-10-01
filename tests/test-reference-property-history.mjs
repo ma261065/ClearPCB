@@ -3,6 +3,7 @@ import { PcbDocument } from '../src/core/PcbDocument.js';
 import { CommandHistory } from '../src/core/CommandHistory.js';
 import { capturePlacementOverride } from '../src/core/PcbPlacementState.js';
 import { setPcbSelection } from '../src/pcb/modules/selection-registry.js';
+import { PCB_LAYERS } from '../src/pcb/modules/layers.js';
 
 globalThis.window = { addEventListener() {} };
 const { default: PCBApp } = await import('../src/ui/PCBApp.js');
@@ -13,9 +14,11 @@ class Input {
         if (!this.listeners.has(type)) this.listeners.set(type, []);
         this.listeners.get(type).push(listener);
     }
-    fire(type, value = this.value) {
+    fire(type, value = this.value, extra = {}) {
         this.value = String(value);
-        for (const listener of this.listeners.get(type) || []) listener({ type });
+        for (const listener of this.listeners.get(type) || []) {
+            listener({ type, preventDefault() {}, stopPropagation() {}, ...extra });
+        }
     }
 }
 
@@ -142,5 +145,96 @@ for (const saved of [false, true]) for (const selected of [false, true]) {
     assert.equal(f.placement.refRot, 345);
 }
 
+globalThis.document = { getElementById: () => null, querySelector: () => null };
+for (const value of ['', '-', 'Infinity', '3']) for (const handoff of ['change', 'commit', 'field', 'move', 'rotate']) {
+    const f = fixture(true), { app, placement, inputs } = f;
+    const before = capturePlacementOverride(placement), valid = value === '3';
+    app.viewport = { svg: { style: {} } };
+    inputs.get('pcbPropRefSize').fire('input', 3);
+    inputs.get('pcbPropRefSize').value = value;
+    assert.equal(PCBApp.prototype.isSectionEditing.call(app), true);
+    if (handoff === 'change') inputs.get('pcbPropRefSize').fire('change');
+    else if (handoff === 'commit') app._refPropertyBinding.commit();
+    else if (handoff === 'field') inputs.get('pcbPropRefLW').fire('change', 0.4);
+    else if (handoff === 'move') {
+        PCBApp.prototype._beginRefTextDrag.call(app, 'part', { x: 0, y: 0 });
+        PCBApp.prototype._endRefDrag.call(app, false);
+    } else PCBApp.prototype._rotateRefText.call(app, 'part');
+    assert.equal(placement.refSize, valid ? 3 : before.refSize);
+    assert.equal(app._refPropertyBinding.active, false);
+    assert.equal(PCBApp.prototype.isSectionEditing.call(app), false);
+    assert.equal(app.history.undoStack.length, Number(valid) + Number(['field', 'rotate'].includes(handoff)));
+    while (app.history.canUndo()) app.history.undo();
+    assert.deepEqual(capturePlacementOverride(placement), before);
+}
+
+for (const finish of ['cancel', 'escape', 'panel', 'deactivate', 'failure', 'replace', 'lock', 'hide']) {
+    const f = fixture(true), { app, placement, inputs } = f;
+    const before = capturePlacementOverride(placement);
+    const saved = structuredClone(app.placementState.overrides);
+    const input = inputs.get('pcbPropRefSize');
+    const layer = PCB_LAYERS.find(layer => layer.id === 'bottom-silk');
+    const oldLocked = layer.locked, oldVisible = layer.visible;
+    input.fire('input', 3);
+    placement.x += 2;
+    placement.refDx += 2;
+    try {
+        if (finish === 'cancel') PCBApp.prototype._cancelPosePreviews.call(app);
+        else if (finish === 'escape') input.fire('keydown', input.value, { key: 'Escape' });
+        else if (finish === 'panel') PCBApp.prototype._setPcbPropsTitle.call(app, 'Other');
+        else if (finish === 'deactivate') {
+            app._cancelPosePreviews = PCBApp.prototype._cancelPosePreviews;
+            app._cancelDrawingMode = () => {};
+            PCBApp.prototype.deactivate.call(app);
+        } else if (finish === 'failure') {
+            app.history.execute = () => { throw new Error('Reference commit failed'); };
+            assert.throws(() => input.fire('change'), /Reference commit failed/);
+        } else if (finish === 'replace') {
+            const replacement = { ...placement, refSize: 7 };
+            app.placements.set('part', replacement);
+            input.fire('change', 4);
+            assert.equal(replacement.refSize, 7, 'Obsolete controls cannot author a replacement placement');
+        } else {
+            if (finish === 'lock') layer.locked = true;
+            else layer.visible = false;
+            app._refPropertyBinding.commit();
+        }
+        assert.equal(placement.refSize, before.refSize, `${finish}: restores the reference style`);
+        assert.equal(placement.x, before.x + 2, 'Rollback does not own component pose');
+        assert.equal(placement.refDx, before.refDx + 2, 'Rollback does not own reference position');
+        assert.deepEqual(app.placementState.overrides, saved);
+        assert.equal(app.history.undoStack.length, 0);
+        assert.equal(PCBApp.prototype.isSectionEditing.call(app), false);
+        if (finish !== 'failure') {
+            input.fire('change');
+            assert.equal(app.history.undoStack.length, 0, 'Late native change cannot recommit a cancelled preview');
+        }
+        if (finish === 'panel' || finish === 'deactivate' || finish === 'replace') {
+            input.fire('input', 9);
+            input.fire('change');
+            assert.equal(placement.refSize, before.refSize, 'Obsolete controls cannot restart previewing');
+            assert.equal(app.history.undoStack.length, 0);
+        }
+    } finally {
+        layer.locked = oldLocked;
+        layer.visible = oldVisible;
+    }
+}
+{
+    const { app, placement, inputs } = fixture(false);
+    delete placement.refSize;
+    delete placement.refStrokeWidth;
+    delete placement.refRot;
+    inputs.get('pcbPropRefSize').fire('input', 3);
+    app._refPropertyBinding.cancel();
+    assert.equal(Object.hasOwn(placement, 'refSize'), false, 'Cancellation preserves absent default fields');
+    assert.equal(inputs.get('pcbPropRefSize').value, '0.9');
+    assert.equal(inputs.get('pcbPropRefLW').value, '0.15');
+    assert.equal(inputs.get('pcbPropRefRot').value, '0');
+    inputs.get('pcbPropRefSize').fire('change', 2);
+    assert.equal(app.history.undoStack.length, 1, 'Cancellation leaves the retained controls reusable');
+}
+
+delete globalThis.document;
 delete globalThis.window;
 console.log('PASS reference property preview handoff, precise history, automatic placement baselines and no-op edits');

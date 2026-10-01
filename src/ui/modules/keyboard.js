@@ -1,10 +1,10 @@
-import { clearDragState } from './mouse.js';
-import { cancelSchematicPathSplit, cancelSchematicShapeConversion } from './drag.js';
+import { cancelSchematicPointerInteraction } from './drag.js';
 import { ModifyPropertyCommand, MoveShapesCommand } from '../../schematic/modules/commands.js';
 import { rotateNetOrientation } from '../../shapes/net.js';
 import { resolveWireSnapPosition, PIN_SNAP_TOL } from './wire.js';
 import { updateToolGhost } from './tool.js';
 import { ModalManager } from '../../core/ModalManager.js';
+import { cancelSchematicPropertyPreview } from './properties.js';
 
 /**
  * Single-letter shortcuts that simply select a tool. Overloaded keys
@@ -35,24 +35,6 @@ function canActOnSelection(app) {
 }
 
 /**
- * Tear down an active anchor/segment drag and return to idle, keeping
- * the dragged shape selected. Shared by the segmentDrag/anchorDrag
- * Escape branches (callers revert geometry first).
- * @param {object} app
- */
-function cancelDragToIdle(app) {
-    const shape = app.drag?.shape;
-    clearDragState(app);
-    app.pendingAnchorDrag = null;
-    app.didDrag = false;
-    app.viewport.svg.style.cursor = '';
-    app._hideCrosshair();
-    app.interactionState = 'idle';
-    if (shape) shape.selected = true;
-    app.renderShapes(true);
-}
-
-/**
  * Central Escape handler. Encodes the full cancellation precedence in
  * one place so a single Escape always cancels the most specific active
  * thing first. Each step returns once it consumes the key:
@@ -73,51 +55,10 @@ export function handleEscape(app) {
         return;
     }
 
-    // 2. Cancel an in-progress drag.
+    // 2-3. Active pointer edits and pre-threshold midpoint splits.
+    if (cancelSchematicPointerInteraction(app)) return;
+
     switch (app.interactionState) {
-        case 'overlapCycle':
-            app._overlapCyclePress = null;
-            app.interactionState = 'idle';
-            app.skipClickSelection = true;
-            return;
-        case 'segmentDrag':
-            // Revert bridge insertions from segment drag start.
-            if (app.drag?.shape?.type === 'polyline' && app.drag.beforeState) {
-                app._applyShapeState(app.drag.shape, app.drag.beforeState);
-            }
-            if (app.drag?.wireStates) {
-                for (const [wire, beforeState] of app.drag.wireStates) {
-                    app._applyShapeState(wire, beforeState);
-                }
-            }
-            cancelDragToIdle(app);
-            return;
-
-        case 'anchorDrag':
-            cancelSchematicShapeConversion(app);
-            cancelSchematicPathSplit(app);
-            // Revert shape and linked wires to pre-drag state.
-            if (app.drag?.beforeState) {
-                app._applyShapeState(app.drag.shape, app.drag.beforeState);
-            }
-            if (app.drag?.wireStates) {
-                for (const [wire, beforeState] of app.drag.wireStates) {
-                    app._applyShapeState(wire, beforeState);
-                }
-            }
-            cancelDragToIdle(app);
-            return;
-
-        case 'moveDrag':
-        case 'boxSelect':
-            clearDragState(app);
-            app.didDrag = false;
-            app._removeBoxSelectElement();
-            app.viewport.svg.style.cursor = '';
-            app.interactionState = 'idle';
-            app.renderShapes(true);
-            return;
-
         case 'drawing':
             if (app.currentTool === 'wire') {
                 app._cancelWireDrawing();
@@ -138,17 +79,6 @@ export function handleEscape(app) {
         case 'toolActive':
             app._onToolSelected('select');
             return;
-    }
-
-    // 3. Pending (pre-threshold) midpoint split.
-    if (app.pendingAnchorDrag) {
-        const { shape, preInsertState } = app.pendingAnchorDrag;
-        if (preInsertState) app._applyShapeState(shape, preInsertState);
-        if (shape) shape.selected = true;
-        app.pendingAnchorDrag = null;
-        app.viewport.svg.style.cursor = '';
-        app.renderShapes(true);
-        return;
     }
 
     // 4. Component picker.
@@ -185,6 +115,29 @@ export function handleEscape(app) {
     if (app.currentTool !== 'select') {
         app._onToolSelected('select');
     }
+}
+
+/** Settle reversible edits before either keyboard or ribbon history advances. */
+export function runSchematicHistoryAction(app, action) {
+    if (app.isDrawing || app.interactionState === 'drawing') return false;
+    if (app.textEdit) {
+        app._endTextEdit(false);
+        return true;
+    }
+    if (app.pastingClipboard) {
+        app._cancelPaste();
+        return true;
+    }
+    if (app.placingComponent) {
+        app._cancelComponentPlacement();
+        return true;
+    }
+    const cancelledProperty = cancelSchematicPropertyPreview(app);
+    cancelSchematicPointerInteraction(app);
+    const changed = app.history[action]();
+    if (changed) app.renderShapes(true);
+    if (changed || cancelledProperty) app._updatePropertiesPanel?.(app.selection.getSelection());
+    return true;
 }
 
 /** Flip the placing component / selected components horizontally. */
@@ -348,15 +301,11 @@ export function bindKeyboardShortcuts(app) {
                     break;
                 case 'z':
                     e.preventDefault();
-                    if (e.shiftKey) {
-                        if (app.history.redo()) app.renderShapes(true);
-                    } else {
-                        if (app.history.undo()) app.renderShapes(true);
-                    }
+                    runSchematicHistoryAction(app, e.shiftKey ? 'redo' : 'undo');
                     break;
                 case 'y':
                     e.preventDefault();
-                    if (app.history.redo()) app.renderShapes(true);
+                    runSchematicHistoryAction(app, 'redo');
                     break;
                 case 'a':
                     e.preventDefault();

@@ -244,7 +244,8 @@ export class Viewport {
             axis: style.getPropertyValue('--sch-axis').trim() || 'rgba(255, 255, 255, 0.25)',
             paperOutline: style.getPropertyValue('--sch-paper-outline').trim() || 'rgba(255, 255, 255, 0.12)',
             paperLabel: style.getPropertyValue('--sch-paper-label').trim() || 'rgba(255, 255, 255, 0.15)',
-            rulerBg: style.getPropertyValue('--bg-primary').trim() || '#1a1a1a',
+            rulerBg: style.getPropertyValue('--bg-ruler').trim()
+                || style.getPropertyValue('--bg-primary').trim() || '#1a1a1a',
             rulerText: style.getPropertyValue('--text-secondary').trim() || '#888',
             rulerLine: style.getPropertyValue('--text-muted').trim() || '#666',
             rulerBorder: style.getPropertyValue('--border-color').trim() || '#444'

@@ -100,6 +100,10 @@ export function bindBoardDimensionProperties(app, items) {
         sync: remember,
         commit() {
             if (disposed) return;
+            if (inputs.some(({ input }) => input && !Number.isFinite(parseFloat(input.value)))) {
+                binding.cancel();
+                return;
+            }
             try { finishBoardDimensionPreview(app, true); } finally { reset(); }
         },
         cancel() {
@@ -134,7 +138,7 @@ export function bindBoardDimensionProperties(app, items) {
     };
     for (const entry of inputs) if (entry.input) {
         entry.input.addEventListener('input', () => update(entry));
-        entry.input.addEventListener('change', () => { if (update(entry)) binding.commit(); });
+        entry.input.addEventListener('change', () => { update(entry); binding.commit(); });
         entry.input.addEventListener('keydown', event => {
             if (disposed || event.key !== 'Escape') return;
             binding.cancel();
