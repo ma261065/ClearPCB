@@ -101,6 +101,9 @@ function fixture(active) {
         _clearAllShapes() { this.shapes = []; }, _clearAllComponents() { this.components = []; },
         viewport: { resetView() {}, setTitleBlockData() {} }, _updateTitle() {},
         _notifyDocumentReplaced: SchematicApp.prototype._notifyDocumentReplaced,
+        // UI-host prompts surface the underlying failure instead of a missing-method TypeError.
+        _alert(message) { assert.fail(`Unexpected UI-host alert: ${message}`); },
+        async _confirm(message) { assert.fail(`Unexpected UI-host confirm: ${message}`); },
     };
     project.registerView('pcb', app);
     project.registerView('schematic', host, { isUiHost: true, lifecycle: { new: () => newFile(host) } });
@@ -219,6 +222,12 @@ delete globalThis.bootstrap;
         const node = createElement(tag);
         if (tag === 'div') {
             const controls = new Map([
+                ['#boardDlgShape', Object.assign(element('select'), { value: 'rect' })],
+                ['#boardDlgRectangleSizes', element('div')],
+                ['#boardDlgCircleSizes', element('div')],
+                ['#boardDlgDiameter', Object.assign(element('input'), {
+                    value: '80', setCustomValidity() {}, reportValidity() {},
+                })],
                 ['#boardDlgWidth', Object.assign(element('input'), { value: '100' })],
                 ['#boardDlgHeight', Object.assign(element('input'), { value: '80' })],
                 ['#boardDlgRadius', Object.assign(element('input'), { value: '0' })],
