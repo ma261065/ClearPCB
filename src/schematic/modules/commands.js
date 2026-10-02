@@ -463,25 +463,16 @@ export class DeleteComponentsCommand extends Command {
         if (parent) parent.removeChild(layer);
         for (const data of this.componentsData) {
             const comp = data.component;
-            if (comp.hovered) {
-                comp.hovered = false;
-                if (app.selection.hovered === comp.id) app.selection.hovered = null;
-            }
+            app.selection.dropHover(comp);
             if (comp.element?.parentNode) comp.element.parentNode.removeChild(comp.element);
             for (const ft of comp.getFieldTexts()) {
                 ftsToRemove.add(ft);
-                if (ft.hovered) {
-                    ft.hovered = false;
-                    if (app.selection.hovered === ft.id) app.selection.hovered = null;
-                }
+                app.selection.dropHover(ft);
                 if (ft.element?.parentNode) ft.element.parentNode.removeChild(ft.element);
             }
         }
         for (const label of attachedToRemove) {
-            if (label.hovered) {
-                label.hovered = false;
-                if (app.selection.hovered === label.id) app.selection.hovered = null;
-            }
+            app.selection.dropHover(label);
             if (label.element?.parentNode) label.element.parentNode.removeChild(label.element);
             if (label.anchorsGroup?.parentNode) label.anchorsGroup.parentNode.removeChild(label.anchorsGroup);
         }
@@ -533,7 +524,7 @@ export class DeleteComponentsCommand extends Command {
         const shapeSet = new Set(app.shapes);
         for (const data of sorted) {
             const comp = data.component;
-            comp.hovered = false;
+            app.selection.dropHover(comp);
             if (!comp.element) comp.createSymbolElement();
             const idx = Math.min(data.index, app.components.length);
             app.components.splice(idx, 0, comp);
@@ -877,7 +868,7 @@ export class PasteCommand extends Command {
             }
         }
         app._updateSelectableItems();
-        app.selection._invalidateHitTestCache();
+        app.selection.invalidateHitCache();
         app.fileManager.setDirty(true);
     }
 
@@ -895,24 +886,15 @@ export class PasteCommand extends Command {
             for (const ft of comp.getFieldTexts()) {
                 ftsToRemove.add(ft);
                 if (ft.element?.parentNode) ft.element.parentNode.removeChild(ft.element);
-                if (ft.selected) {
-                    ft.selected = false;
-                    app.selection.selected.delete(ft.id);
-                }
+                app.selection.dropSelected(ft);
             }
-            if (comp.selected) {
-                comp.selected = false;
-                app.selection.selected.delete(comp.id);
-            }
+            app.selection.dropSelected(comp);
         }
         // Remove shape DOM
         for (const shape of this.shapes) {
             if (shape.element?.parentNode) shape.element.parentNode.removeChild(shape.element);
             if (shape.anchorsGroup?.parentNode) shape.anchorsGroup.parentNode.removeChild(shape.anchorsGroup);
-            if (shape.selected) {
-                shape.selected = false;
-                app.selection.selected.delete(shape.id);
-            }
+            app.selection.dropSelected(shape);
         }
         // In-place filter shapes array: O(N) instead of O(N²)
         let writeIdx = 0;
@@ -931,9 +913,8 @@ export class PasteCommand extends Command {
         }
         app.components.length = writeIdx;
         // One-time bookkeeping
-        app.selection._selectionCache = null;
-        app.selection._invalidateHitTestCache();
-        app.selection._notifySelectionChanged();
+        app.selection.invalidateHitCache();
+        app.selection.notifyChanged();
         app._updateSelectableItems();
         app.fileManager.setDirty(true);
     }

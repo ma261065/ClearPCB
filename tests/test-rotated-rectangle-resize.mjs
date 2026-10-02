@@ -9,6 +9,7 @@ import { CommandHistory } from '../src/core/CommandHistory.js';
 import { distanceToSegment } from '../src/core/geometry.js';
 import { CORNER_CHORD_TOLERANCE } from '../src/shapes/rounded-path.js';
 import { PcbDocument } from '../src/core/PcbDocument.js';
+import { SelectionManager } from '../src/core/SelectionManager.js';
 
 globalThis.window = { addEventListener() {} };
 globalThis.document = {
@@ -93,7 +94,10 @@ for (const rotation of [0, 17.3, 30, 45, 89.999, 90, 137.5, 180, 270, 359.9999])
 function appFor(shape) {
     const pcbDocument = new PcbDocument();
     pcbDocument.boardShapes.push(shape);
+    const selection = new SelectionManager();
+    selection.setShapes([shape]);
     return {
+        selection,
         pcbDocument, boardShapes: pcbDocument.boardShapes, shapes: [shape], components: [], _shapeElements: new Map(),
         placements: new Map(), tracks: [], vias: [], texts: new Map(),
         history: new CommandHistory(), getLayerGroup() { return null; }, renderShapes() {},
@@ -187,6 +191,7 @@ for (const rotation of [30, 90, 137.5]) {
             assert.equal(commitAnchorDrag(graphApp, graph, graphBefore), true);
             const graphAfter = graph.toJSON();
             assert.equal(graph.isRect, true);
+            assert.equal(graphApp.selection.isSelected(graph) && graph.selected, true);
             graphApp.history.undo();
             assert.deepEqual(graph.toJSON(), originalRecord);
             graphApp.history.redo();

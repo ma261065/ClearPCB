@@ -403,6 +403,19 @@ enforces the rule for every PCB adapter kind: sampled around awkward geometry
 at three zooms, selected and unselected, `hitTest()` may only succeed inside
 the bounds `SelectionManager` pre-filters with.
 
+`SelectionManager` is the only writer of entity `selected`/`hovered` flags and
+of its own selection, hover and cache fields, so the logical selection and what
+is drawn cannot drift apart. Editor code uses its public API: `keepSelected()`
+re-asserts a tracked shape after an edit (silently; untracked shapes are
+ignored), `dropSelected()`/`dropHover()`/`forget()` release a shape leaving the
+document, `clearSelection({ notify: false })` and `notifyChanged()` batch a
+change into one notification, and `invalidateHitCache()` discards cached hits.
+`test-selection-state-seam` checks the API and fails on any new direct flag
+write or private access outside the manager (entity constructors and the PCB
+registry's sync are the listed exceptions). `browser-tests/schematic-smoke.mjs`
+checks in a real browser that flags and the manager agree through anchor drag
+commit/cancel, wire start, delete, undo and redo.
+
 `syncPcbSelection()` runs on every hover and click query, so it reuses one
 adapter per model object (adapters read live state lazily). It rebuilds the
 entry list and selection flags only when the set of entities changes;

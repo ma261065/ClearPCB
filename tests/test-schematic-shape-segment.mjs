@@ -235,6 +235,12 @@ function appFor(shape) {
             hitTest() { return shape; },
             getSelection() { return selected; },
             _notifySelectionChanged: SelectionManager.prototype._notifySelectionChanged,
+            notifyChanged: SelectionManager.prototype.notifyChanged,
+            keepSelected(candidate) {
+                if (!candidate) return;
+                if (!selected.includes(candidate)) selected.push(candidate);
+                candidate.selected = true;
+            },
             select(candidate) {
                 selected.splice(0, selected.length, candidate);
                 candidate.selected = true;
@@ -267,8 +273,12 @@ function commandAppFor(shape) {
             item.selected = true;
         },
         clearSelection() { selected.length = 0; },
-        _clearSelection() { selected.length = 0; },
-        _notifySelectionChanged() {},
+        keepSelected(item) {
+            if (!item) return;
+            if (!selected.includes(item)) selected.push(item);
+            item.selected = true;
+        },
+        notifyChanged() {},
     };
     Object.assign(app, {
         renderShapes() {}, _showCrosshair() {}, _hideCrosshair() {}, _updateCrosshair() {}, _updatePropertiesPanel() {},

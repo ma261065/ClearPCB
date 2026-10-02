@@ -293,7 +293,6 @@ export function deleteJunction(app, junctionInfo) {
     // Select the freed wire and enter anchor drag mode
     app.selection.clearSelection();
     app.selection.select(dragWire, false);
-    dragWire.selected = true;
 
     app.drag = {
         mode: 'anchor',
@@ -322,13 +321,13 @@ export function deleteJunction(app, junctionInfo) {
 function finishShapeRefinement(app) {
     app._selectedShapeNode = null;
     app._selectedShapeSegment = null;
-    app.selection._notifySelectionChanged();
+    app.selection.notifyChanged();
     app.renderShapes(true);
 }
 
 function finishShapeRemoval(app) {
     // Commands already remove selected IDs, so clearSelection() may not notify.
-    app.selection._clearSelection();
+    app.selection.clearSelection({ notify: false });
     finishShapeRefinement(app);
 }
 
@@ -410,7 +409,7 @@ export function deleteWireSegment(app, wire, edgeId) {
     }
 
     app.history.execute(batch);
-    app.selection._notifySelectionChanged();
+    app.selection.notifyChanged();
 }
 
 /**
@@ -488,7 +487,6 @@ export function splitAnchorAndDrag(app, shape, anchorId, clientX, clientY) {
         if (remainder) {
             remainder.applyEditablePath(split.remainder);
             remainder.fill = false;
-            remainder.selected = false;
             app._commandAddShape(remainder);
         }
         shape.applyEditablePath(split.moving);
@@ -543,7 +541,6 @@ export function splitAnchorAndDrag(app, shape, anchorId, clientX, clientY) {
 
     app.selection.clearSelection();
     app.selection.select(shape, false);
-    shape.selected = true;
 
     app.drag = {
         mode: 'anchor',
@@ -602,7 +599,6 @@ function disconnectPinAndDrag(app, wire, anchorId) {
 
     app.selection.clearSelection();
     app.selection.select(wire, false);
-    wire.selected = true;
 
     app.drag = {
         mode: 'anchor',
@@ -704,7 +700,7 @@ export function showAnchorContextMenu(app, shape, anchorId, clientX, clientY, ca
                         batch.add(new DeleteShapesCommand(app, attachedNCs));
                     }
                     app.history.execute(batch);
-                    shape.selected = true;
+                    app.selection.keepSelected(shape);
                     app._updatePropertiesPanel?.(app.selection?.getSelection?.() || []);
                 }
             }
@@ -891,7 +887,7 @@ export function setSchematicShapeSegmentType(app, shape, edgeId, type, { floatin
         app.history.execute(new ModifyShapeCommand(app, shape, before, after));
         app.fileManager?.setDirty?.(true);
     }
-    app.selection._notifySelectionChanged();
+    app.selection.notifyChanged();
     return true;
 }
 

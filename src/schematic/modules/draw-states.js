@@ -96,10 +96,10 @@ function selectOnlyShapeAndRender(app, shape) {
 }
 
 function selectContextTargetShape(app, shape) {
-    if (!shape.selected) {
+    if (!app.selection.isSelected(shape)) {
         selectOnlyShapeAndRender(app, shape);
     }
-    shape.selected = true;
+    app.selection.keepSelected(shape);
 }
 
 function collectMovingComponentIds(selection) {
@@ -1315,9 +1315,6 @@ export const toolActiveState = {
         const tool = app.currentTool;
 
         if (tool === 'wire') {
-            // Deselect everything
-            for (const shape of app.shapes) { if (shape.selected) { shape.selected = false; shape.invalidate(); } }
-            for (const component of app.components) { if (component.selected) { component.selected = false; component.invalidate(); } }
             app.selection.clearSelection();
             app.renderShapes(true);
             const snap = resolveWireSnapPosition(app, worldPos, { pinTolerance: 0.5 });
@@ -1724,7 +1721,7 @@ export const anchorDragState = {
         if (app.viewport.isPanning) return;
 
         app.didDrag = true;
-        app.drag.shape.selected = true;
+        app.selection.keepSelected(app.drag.shape);
 
         const snapMode = app.drag.shape.getAnchorSnapMode(app.drag.anchorId);
         let anchorPos = snapMode === 'none' ? worldPos : snapped;
@@ -1923,7 +1920,7 @@ export const boxSelectState = {
         app._removeBoxSelectElement();
         if (app.didDrag) {
             app.selection.syncBoxSelection(bounds, !!app.drag?.additive, 'contain');
-            app.selection._notifySelectionChanged();
+            app.selection.notifyChanged();
             app.renderShapes(true);
         }
 

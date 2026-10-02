@@ -52,7 +52,7 @@ export function addShapeInternal(app, shape) {
         _connectNetToWires(app, netShape);
     }
     app._updateSelectableItems();
-    app.selection._invalidateHitTestCache();
+    app.selection.invalidateHitCache();
     app.fileManager.setDirty(true);
     return shape;
 }
@@ -99,7 +99,7 @@ export function commandAddShapeInternal(app, shape, linkedLabelText = null) {
     }
 
     app._updateSelectableItems();
-    app.selection._invalidateHitTestCache();
+    app.selection.invalidateHitCache();
     return labelText;
 }
 
@@ -180,7 +180,7 @@ export function removeShapeInternal(app, shape, options = {}) {
             shape.anchorsGroup.parentNode.removeChild(shape.anchorsGroup);
         }
         app.selection.deselect(shape);
-        app.selection._invalidateHitTestCache();
+        app.selection.invalidateHitCache();
         app._updateSelectableItems();
         app.fileManager.setDirty(true);
     }
@@ -239,19 +239,11 @@ export function commandDeleteShapesInternal(app, shapesData, linkedLabelData) {
         const shape = data.shape;
         if (shape.element?.parentNode) shape.element.parentNode.removeChild(shape.element);
         if (shape.anchorsGroup?.parentNode) shape.anchorsGroup.parentNode.removeChild(shape.anchorsGroup);
-        if (shape.selected) {
-            shape.selected = false;
-            app.selection.selected.delete(shape.id);
-        }
-        if (shape.hovered) {
-            shape.hovered = false;
-            if (app.selection.hovered === shape.id) app.selection.hovered = null;
-        }
+        app.selection.forget(shape);
     }
     if (parent) parent.insertBefore(layer, nextSib);
 
-    app.selection._selectionCache = null;
-    app.selection._invalidateHitTestCache();
+    app.selection.invalidateHitCache();
     app._updateSelectableItems();
     app.fileManager.setDirty(true);
 }
@@ -270,7 +262,7 @@ export function commandRestoreShapesInternal(app, shapesData, linkedLabelData) {
     if (parent) parent.removeChild(layer);
 
     for (const data of allData) {
-        data.shape.hovered = false;
+        app.selection.dropHover(data.shape);
         data.shape.render(app.viewport.scale);
         app.viewport.addContent(data.shape.element);
     }
@@ -296,7 +288,7 @@ export function commandRestoreShapesInternal(app, shapesData, linkedLabelData) {
     }
 
     app._updateSelectableItems();
-    app.selection._invalidateHitTestCache();
+    app.selection.invalidateHitCache();
     app.fileManager.setDirty(true);
 }
 
@@ -310,7 +302,7 @@ export function renderShapes(app, force = false) {
     syncAttachedLabels(app);
 
     if (force && app.selection) {
-        app.selection._invalidateHitTestCache();
+        app.selection.invalidateHitCache();
     }
     const scale = app.viewport.scale;
     for (const shape of app.shapes) {
@@ -347,7 +339,7 @@ export function renderShapes(app, force = false) {
     // their anchor groups) as the last children of contentLayer so they
     // always paint on top.  Skip when shapes are selected so anchor
     // handles remain accessible during editing.
-    if (!app.selection?.selected?.size) {
+    if (!app.selection?.count) {
         const cl = app.viewport.contentLayer;
         for (const shape of app.shapes) {
             if (shape._culled || !shape.element) continue;

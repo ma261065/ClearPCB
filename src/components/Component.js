@@ -449,19 +449,6 @@ export class Component {
     }
 
     /**
-     * Set selection state and update visual
-     * @param {boolean} selected
-     */
-    setSelected(selected) {
-        this.selected = selected;
-        this._updateHighlight();
-        // Invalidate field texts so they update their color to reflect parent selection
-        for (const ft of this.getFieldTexts()) {
-            ft.invalidate();
-        }
-    }
-
-    /**
      * Called by SelectionManager to update visual state
      */
     invalidate() {

@@ -67,7 +67,7 @@ export function cancelSchematicPointerInteraction(app) {
         app.viewport.svg.style.cursor = '';
         app._hideCrosshair();
         app.interactionState = 'idle';
-        if (shape) shape.selected = true;
+        app.selection.keepSelected(shape);
         app.renderShapes(true);
         return true;
     }
@@ -83,7 +83,7 @@ export function cancelSchematicPointerInteraction(app) {
     if (app.pendingAnchorDrag) {
         const { shape, preInsertState } = app.pendingAnchorDrag;
         if (preInsertState) app._applyShapeState(shape, preInsertState);
-        if (shape) shape.selected = true;
+        app.selection.keepSelected(shape);
         app.pendingAnchorDrag = null;
         app.viewport.svg.style.cursor = '';
         app.renderShapes(true);
@@ -338,7 +338,7 @@ export function commitAnchorDrag(app, dragShape, beforeState, anchorWireStates =
 
         // Select surviving dragged wire
         if (app.shapes.includes(dragShape)) {
-            if (dragShape.edges.size > 0) dragShape.selected = true;
+            if (dragShape.edges.size > 0) app.selection.keepSelected(dragShape);
         }
         return true;
     }
@@ -409,7 +409,7 @@ export function commitAnchorDrag(app, dragShape, beforeState, anchorWireStates =
             disconnectNetFromWires(app, dragShape);
             connectNetToWires(app, dragShape);
         }
-        dragShape.selected = true;
+        app.selection.keepSelected(dragShape);
     }
     app._updatePropertiesPanel?.(app.selection?.getSelection?.() || []);
     return true;
@@ -479,7 +479,7 @@ export function resolveAnchorDragOnMouseUp(app, dragShape, beforeState, didDrag,
         return true;
     }
 
-    if (dragShape) dragShape.selected = true;
+    app.selection.keepSelected(dragShape);
     return true;
 }
 

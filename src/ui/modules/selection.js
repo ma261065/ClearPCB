@@ -33,7 +33,7 @@ export function deleteSelected(app) {
     const toDelete = app.selection.getSelection().filter(item => !item.locked);
     if (toDelete.length === 0) return;
 
-    app.selection._clearSelection();
+    app.selection.clearSelection({ notify: false });
 
     const shapeSet = new Set(app.shapes);
     const compSet = new Set(app.components);
@@ -87,7 +87,7 @@ export function deleteSelected(app) {
         app.history.execute(new DeleteComponentsCommand(app, componentsToDelete));
     }
 
-    app.selection._notifySelectionChanged();
+    app.selection.notifyChanged();
 }
 
 /**

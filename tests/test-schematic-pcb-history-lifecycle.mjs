@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { ProjectDocument } from '../src/core/ProjectDocument.js';
 import { Component } from '../src/components/Component.js';
+import { SelectionManager } from '../src/core/SelectionManager.js';
 import { Track } from '../src/shapes/track.js';
 import { CommandHistory } from '../src/core/CommandHistory.js';
 import { AddTrackCommand } from '../src/core/pcb-track-commands.js';
@@ -18,7 +19,7 @@ const definition = {
 function schematicView(project) {
     return {
         components: project.schematicDocument.components, shapes: project.schematicDocument.shapes,
-        viewport: { contentLayer: {}, addComponentContent() {} }, selection: {},
+        viewport: { contentLayer: {}, addComponentContent() {} }, selection: new SelectionManager(),
         _updateSelectableItems() {}, fileManager: project.fileManager,
     };
 }

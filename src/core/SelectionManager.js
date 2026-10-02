@@ -336,8 +336,14 @@ export class SelectionManager {
     
     /**
      * Clear selection
+     * @param {{notify?: boolean}} [options] - `notify: false` clears without
+     *   firing onSelectionChanged, for callers that notify once after a batch.
      */
-    clearSelection() {
+    clearSelection({ notify = true } = {}) {
+        if (!notify) {
+            this._clearSelection();
+            return;
+        }
         if (this.selected.size > 0) {
             this._clearSelection();
             this._notifySelectionChanged();
@@ -418,6 +424,70 @@ export class SelectionManager {
         }
         
         return true;  // Changed
+    }
+
+    /**
+     * Keep a tracked shape selected after an edit, without notifying listeners.
+     * Untracked shapes are ignored so the selection never names a shape it cannot find.
+     * @param {Shape|null|undefined} shape
+     */
+    keepSelected(shape) {
+        if (!shape || this._shapeMap.get(shape.id) !== shape) return;
+        if (this.selected.has(shape.id)) {
+            if (!shape.selected) {
+                shape.selected = true;
+                shape.invalidate();
+            }
+            return;
+        }
+        this.selected.add(shape.id);
+        this._selectionCache = null;
+        this._invalidateHitTestCache();
+        shape.selected = true;
+        shape.invalidate();
+        this._invalidateLinkedSelectionVisuals(shape);
+    }
+
+    /**
+     * Drop a shape that is leaving the document from the selection, without notifying.
+     * @param {Shape|null|undefined} shape
+     */
+    dropSelected(shape) {
+        if (!shape) return;
+        shape.selected = false;
+        if (this.selected.delete(shape.id)) {
+            this._selectionCache = null;
+            this._invalidateHitTestCache();
+        }
+    }
+
+    /**
+     * Drop a shape that is leaving or re-entering the document from hover state.
+     * @param {Shape|null|undefined} shape
+     */
+    dropHover(shape) {
+        if (!shape) return;
+        shape.hovered = false;
+        if (this.hovered === shape.id) this.hovered = null;
+    }
+
+    /**
+     * Drop a shape from both selection and hover state, without notifying.
+     * @param {Shape|null|undefined} shape
+     */
+    forget(shape) {
+        this.dropSelected(shape);
+        this.dropHover(shape);
+    }
+
+    /** Discard cached hit results after shape geometry or membership changes. */
+    invalidateHitCache() {
+        this._invalidateHitTestCache();
+    }
+
+    /** Tell listeners about a selection change made without notification. */
+    notifyChanged() {
+        this._notifySelectionChanged();
     }
     
     /**
