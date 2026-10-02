@@ -10,7 +10,8 @@
 //   node tools/regression.mjs
 //
 // HARD checks (cause exit code 1):
-//   - geometry primitive test exits cleanly
+//   - import boundaries match tools/import-baseline.json
+//   - regression suite exits cleanly
 //   - check-clearance-full exits cleanly
 //   - total connection count matches baseline
 //   - routed connection count >= baseline (must not route fewer)
@@ -76,15 +77,22 @@ function softCheck(cond, msg) {
 
 console.log('=== ClearPCB Autorouter Regression Gate ===');
 
-// 1. Geometry primitive smoke test
-console.log('\n--- [1/2] isolated regression suite ---');
+// 1. Documented import-direction rules
+console.log('\n--- [1/3] import boundaries ---');
+{
+    const r = run(process.execPath, ['tools/check-imports.mjs']);
+    hardCheck(r.code === 0, 'import boundaries match tools/import-baseline.json');
+}
+
+// 2. Isolated regression suite
+console.log('\n--- [2/3] isolated regression suite ---');
 {
     const r = run(process.execPath, ['tools/test.mjs']);
     hardCheck(r.code === 0, 'regression suite exits cleanly');
 }
 
-// 2. Full clearance regression on test-board.json
-console.log('\n--- [2/2] full clearance check on test-board.json ---');
+// 3. Full clearance regression on test-board.json
+console.log('\n--- [3/3] full clearance check on test-board.json ---');
 {
     const r = run(process.execPath, ['tools/check-clearance-full.mjs', BASELINE.board], true);
     hardCheck(r.code === 0, 'check-clearance-full exits cleanly');

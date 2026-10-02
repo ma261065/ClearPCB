@@ -26,3 +26,18 @@ jobs:
           node-version: '22'
       - name: Run full regression gate
         run: node tools/regression.mjs
+
+  typecheck:
+    # Report only until tools/typecheck-baseline.json exists; then it ratchets.
+    name: Type check
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install pinned TypeScript
+        run: npm install --no-save --no-package-lock --ignore-scripts typescript@5.9.3
+      - name: Type check src/
+        run: node tools/typecheck.mjs

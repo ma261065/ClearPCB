@@ -334,14 +334,15 @@ against your fabricator's limits before using the result on silk or copper.
 
 ## Testing
 
-The repo has a single regression gate that should be run before committing
-changes to the autorouter:
+The repo has a single regression gate; run it before committing:
 
 ```
 node tools/regression.mjs
 ```
 
-It runs every `tests/test-*.mjs` in an isolated process plus a full clearance check on
+It first checks the documented import directions (`tools/check-imports.mjs`
+against `tools/import-baseline.json`), then runs every `tests/test-*.mjs` in an
+isolated process plus a full clearance check on
 `test-board.json` (`tools/check-clearance-full.mjs`) and asserts against a
 documented baseline (currently: 65/76 connections routed, 0 violations).
 Suite output streams directly to the terminal or CI log without a capture-buffer
@@ -349,6 +350,9 @@ limit; only clearance stdout is captured for baseline parsing. The gate drains
 pending output before exiting so failures and the final summary remain visible.
 The run takes roughly two minutes. See `tools/regression.mjs` for the exact
 HARD vs SOFT check criteria.
+
+CI also runs `node tools/typecheck.mjs` against `jsconfig.json` with a pinned
+TypeScript; see [releases](docs/releases.md#automated-regression-gate).
 
 ## Troubleshooting
 

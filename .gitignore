@@ -11,3 +11,6 @@ ClearPCB-v*.zip
 
 # MCP Worker dependencies
 mcp-worker/node_modules/
+
+# CI-only tooling (TypeScript for tools/typecheck.mjs)
+/node_modules/

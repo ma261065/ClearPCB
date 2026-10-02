@@ -44,13 +44,14 @@ for (const [summary, violations, expectedExit] of [
     runInNewContext(gate, {
         fileURLToPath: value => value, dirname: () => '.', join: (...parts) => parts.join('\\'),
         console: { log: message => output.push(message), error: message => output.push(message) },
-        spawnSync() {
+        spawnSync(_cmd, args) {
             calls++;
-            return { status: 0, stdout: calls === 1 ? '' : `${summary}\nTotal violations: ${violations}\n`, stderr: '' };
+            const clearance = args[0] === 'tools/check-clearance-full.mjs';
+            return { status: 0, stdout: clearance ? `${summary}\nTotal violations: ${violations}\n` : '', stderr: '' };
         },
         process: gateProcess,
     });
-    assert.equal(calls, 2);
+    assert.equal(calls, 3, 'Import boundaries, regression suite and clearance check each run once');
     assert.equal(gateProcess.exitCode, expectedExit, 'Terminology must not bypass gate failures');
     if (expectedExit === 0) {
         assert.ok(output.includes('WARN  tracks == 239 (got 288)'), 'Keep the original count threshold');

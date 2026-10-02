@@ -8,7 +8,11 @@ const root = fileURLToPath(new URL('../', import.meta.url));
 const fixture = mkdtempSync(join(root, '.regression-runner-'));
 const bytes = 2 * 1024 * 1024;
 
-function runGate({ suiteExit = 0, clearanceExit = 0, summary = 'Routed 65/76 connections, 239 tracks, 174 vias', violations = 0 } = {}) {
+function runGate({ suiteExit = 0, clearanceExit = 0, importsExit = 0, summary = 'Routed 65/76 connections, 239 tracks, 174 vias', violations = 0 } = {}) {
+    writeFileSync(join(fixture, 'tools', 'check-imports.mjs'), `
+        console.log('Import boundaries: stub');
+        process.exitCode = ${importsExit};
+    `);
     writeFileSync(join(fixture, 'tests', 'test-output.mjs'), `
         process.stdout.write('o'.repeat(${bytes}));
         console.log('SUITE-STDOUT-END');
@@ -57,6 +61,13 @@ try {
         assert.equal(result.status, 1, 'Clearance failures must remain hard failures');
         assert.match(result.stdout, /REGRESSION GATE: FAIL\s*$/);
     }
+
+    const boundaries = runGate({ importsExit: 1 });
+    assert.ifError(boundaries.error);
+    assert.equal(boundaries.status, 1, 'Import-boundary failures are hard failures');
+    assert.match(boundaries.stdout, /FAIL  import boundaries match tools\/import-baseline\.json/);
+    assert.match(boundaries.stdout, /PASS  regression suite exits cleanly/, 'Later checks still run');
+    assert.match(boundaries.stdout, /REGRESSION GATE: FAIL\s*$/);
 
     const warning = runGate({ summary: 'Routed 65/76 connections, 238 tracks, 173 vias' });
     assert.ifError(warning.error);

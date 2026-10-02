@@ -73,6 +73,12 @@ clearpcb/
 - `src/ui/AppBootstrap.js` is shared orchestration only (startup, mode
   switching, platform launch hooks).
 - `src/easyeda/*` is import-only (read EasyEDA files into our model).
+- Shared code (`core`, `shapes`, `components`, `shared`, `easyeda`) must not
+  import either editor.
+
+`node tools/check-imports.mjs` enforces these import directions as part of the
+regression gate. Known violations are listed in `tools/import-baseline.json`;
+new ones fail, and fixed ones must be removed from the baseline so it only shrinks.
 
 `ProjectDocument` dispatches successful file-action completion through registered
 views' `onDocumentReplaced(reason)` hooks (`new`, `open`, or `import`). Each editor
@@ -1691,7 +1697,9 @@ mode; it is not a release requirement. Remaining ownership work is tracked in
   supplies the DRC broad phase.
 
 `node tools/test.mjs` runs every `tests/test-*.mjs` in an isolated process.
-`node tools/regression.mjs` also runs the autorouter baseline. See
+`node tools/regression.mjs` also checks import boundaries and runs the autorouter
+baseline. `node tools/typecheck.mjs` summarises `checkJs` errors; CI installs a
+pinned TypeScript for it because none is vendored. See
 [review-fixes.md](review-fixes.md) for the review mapping and verification limits.
 
 ## Coordinate & Layer Conventions
