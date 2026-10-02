@@ -7,6 +7,7 @@ import { ComponentProperties } from '../pcb/modules/component-properties.js';
 import { bindPcbControls } from '../pcb/modules/controls.js';
 import { Viewport } from '../core/Viewport.js';
 import { snapToViewportGrid } from '../core/grid-snap.js';
+import { displayRotationDegrees } from '../core/number-inputs.js';
 import { PcbDocument } from '../core/PcbDocument.js';
 import { commitDesignInput, renderDesignSettings } from '../pcb/modules/design-settings.js';
 import { loadAndApplyTheme, toggleTheme as toggleSharedTheme, syncThemeToggleButtons } from '../shared/ui/theme.js';
@@ -414,12 +415,7 @@ export default class PCBApp {
             // schematic.fileManager.setDirty() \u2014 avoids triggering
             // the schematic\u2192PCB stale-sync listener that would
             // otherwise rebuild and wipe PCB-only edits.
-            onChanged: () => {
-                invalidateFillRefresh(this);
-                this._markDirty();
-                this._syncHistoryButtons?.();
-                refreshBoxSelectionHighlights(this);
-            },
+            onChanged: () => this._onHistoryChanged(),
         });
         /** Debug tooltip for showing raw footprintShapes data */
         this._debugTooltip = null;
@@ -736,6 +732,21 @@ export default class PCBApp {
         return new Viewport(container);
     }
 
+    /** After every history change: refresh derived pours, dirty state, buttons and selection overlays. */
+    _onHistoryChanged() {
+        invalidateFillRefresh(this);
+        this._markDirty();
+        this._syncHistoryButtons?.();
+        refreshBoxSelectionHighlights(this);
+    }
+
+    /** Panning dismisses the net tooltip; clearance halos stay visible throughout. */
+    _bindViewportPanHooks() {
+        this.viewport.onPanStart = () => {
+            this._hideNetTooltip();
+        };
+    }
+
     _ensureViewport() {
         if (this.viewport || !this.canvasContainer) return;
 
@@ -840,9 +851,7 @@ export default class PCBApp {
             if (this._drcSelectedId) this._updateDRCConnector();
         };
 
-        this.viewport.onPanStart = () => {
-            this._hideNetTooltip();
-        };
+        this._bindViewportPanHooks();
 
         // Bind mouse events for panning
         this._bindMouseEvents();
@@ -5331,7 +5340,7 @@ export default class PCBApp {
         items.innerHTML = `
             <div class="prop-row"><label>Layer</label><select id="pcbPropTextToolLayer">${layerOpts}</select></div>
             <div class="prop-row"><label>Size (mm)</label><input type="number" id="pcbPropTextToolSize" value="${d.size}" min="0.2" max="20" step="0.1"></div>
-            <div class="prop-row"><label>Rotation (°)</label><input type="number" id="pcbPropTextToolRot" data-number-format="rotation" value="${Math.round(d.rotation) % 360}" step="1"></div>
+            <div class="prop-row"><label>Rotation (°)</label><input type="number" id="pcbPropTextToolRot" data-number-format="rotation" value="${displayRotationDegrees(d.rotation)}" step="1"></div>
             <div class="prop-row"><label>Line W (mm)</label><input type="number" id="pcbPropTextToolLW" value="${d.strokeWidth}" min="0.05" max="2" step="0.05"></div>
             <div class="prop-row"><label><input type="checkbox" id="pcbPropTextToolBorder"${d.border ? ' checked' : ''}> Border</label></div>
         `;
@@ -5412,7 +5421,7 @@ export default class PCBApp {
         items.innerHTML = `
             <div class="prop-row"><label>Layer</label><select id="pcbPropTextLayer"${disabled}>${layerOpts}</select></div>
             <div class="prop-row"><label>Size (mm)</label><input type="number" id="pcbPropTextSize" value="${text.size}" min="0.2" step="0.1"${disabled}></div>
-            <div class="prop-row"><label>Rotation (°)</label><input type="number" id="pcbPropTextRot" data-number-format="rotation" value="${Math.round(text.rotation) % 360}" step="1"${disabled}></div>
+            <div class="prop-row"><label>Rotation (°)</label><input type="number" id="pcbPropTextRot" data-number-format="rotation" value="${displayRotationDegrees(text.rotation)}" step="1"${disabled}></div>
             <div class="prop-row"><label>Line W (mm)</label><input type="number" id="pcbPropTextLW" value="${text.strokeWidth}" min="0.05" step="0.05"${disabled}></div>
             <div class="prop-row"><label><input type="checkbox" id="pcbPropTextBorder"${text.border ? ' checked' : ''}${disabled}> Border</label></div>
             ${insertRow}
@@ -7225,6 +7234,13 @@ export default class PCBApp {
      * after any operation that adds, removes, or relocates tracks/vias so the
      * halos stay in sync (rip-ups in particular leave orphaned halos otherwise).
      */
+    /** The halo cache's only geometry work: clearance outlines for a board shape or free text. */
+    _computeClearanceOutlines(shape, clearance) {
+        return typeof shape.content === 'string'
+            ? pcbTextClearanceOutlines(shape, clearance)
+            : boardShapeClearanceOutlines(shape, clearance);
+    }
+
     _refreshBoardShapeClearance(shape) {
         if (this._pasteDrop) return;
         if (!this._clearancesVisible) return;
@@ -7265,7 +7281,7 @@ export default class PCBApp {
             if (element.parentNode === overlay) overlay.removeChild(element);
         }
         const elements = [];
-        if (visible) for (const outline of (isText ? pcbTextClearanceOutlines(shape, clearance) : boardShapeClearanceOutlines(shape, clearance))) {
+        if (visible) for (const outline of this._computeClearanceOutlines(shape, clearance)) {
             const element = document.createElementNS('http://www.w3.org/2000/svg', 'polygon');
             element.setAttribute('class', 'debug-clearance');
             element.setAttribute('fill', 'none');

@@ -1,7 +1,6 @@
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
 import { PcbDocument } from '../src/core/PcbDocument.js';
-import { runPcbDeleteAction, runPcbEscapeAction, runPcbNudgeAction } from '../src/pcb/modules/editor-actions.js';
+import { runPcbNudgeAction } from '../src/pcb/modules/editor-actions.js';
 import { createPropertyPreview } from '../src/shapes/property-preview.js';
 import { setPropertyEditor } from '../src/pcb/modules/property-editors.js';
 import { areDragOverlaysDeferred } from '../src/pcb/modules/refresh-state.js';
@@ -24,12 +23,15 @@ function element() {
 }
 
 globalThis.window = { addEventListener() {} };
-globalThis.document = { createElementNS: element };
+globalThis.document = { createElementNS: element, createElement: element, body: element(),
+    documentElement: { getAttribute: () => 'dark' }, getElementById: () => null,
+    querySelector: () => null, querySelectorAll: () => [], addEventListener() {} };
+globalThis.localStorage = { getItem: () => null, setItem() {}, removeItem() {} };
+const { default: PCBApp } = await import('../src/ui/PCBApp.js');
 const { CommandHistory } = await import('../src/core/CommandHistory.js');
 const { beginGroupDrag, updateGroupDrag, endGroupDrag, refreshBoxSelectionHighlights } =
     await import('../src/pcb/modules/box-select.js');
 const { getTextPosePreviewTexts } = await import('../src/pcb/modules/text-commands.js');
-const { invalidateFillRefresh } = await import('../src/pcb/modules/fill-refresh.js');
 const { registerPcbSelectionAdapter, setPcbSelection, getPcbSelection, getPcbSelectionEntries, clearPcbSelection } =
     await import('../src/pcb/modules/selection-registry.js');
 
@@ -52,12 +54,7 @@ const app = {
     getLayerGroup(id) { return this._layerGroups.get(id); },
     _markDirty() {}, _syncHistoryButtons() {}, refreshText() {}, _removeTextElement() {}, _renderText() {},
 };
-const source = readFileSync(new URL('../src/ui/PCBApp.js', import.meta.url), 'utf8');
-const callback = source.match(/onChanged: \(\) => \{([\s\S]*?)\n            \},/);
-assert.ok(callback, 'PCB history callback exists');
-const onChanged = new Function('refreshBoxSelectionHighlights', 'invalidateFillRefresh', callback[1])
-    .bind(app, refreshBoxSelectionHighlights, invalidateFillRefresh);
-app.history = new CommandHistory({ onChanged });
+app.history = new CommandHistory({ onChanged: () => PCBApp.prototype._onHistoryChanged.call(app) });
 setPcbSelection(app, texts.map(object => ({ kind: 'text', object })));
 
 function coordinates() {
@@ -83,26 +80,8 @@ refreshBoxSelectionHighlights(app);
 assert.deepEqual(coordinates(), [], 'empty selection removes remaining handles');
 console.log('PASS: group move, undo, redo, and deselection replace selection overlays');
 
-const keyboardStart = source.indexOf('    handleKeyDown(e) {');
-const keyboardEnd = source.indexOf('    _commitTrack(', keyboardStart);
-assert.ok(keyboardStart >= 0 && keyboardEnd > keyboardStart);
-const keyboardDependencies = {
-    runPcbDeleteAction,
-    runPcbEscapeAction,
-    runPcbNudgeAction,
-    getPcbSelection,
-    getPcbSelectionEntries,
-    cancelShapeDraw(target) { target._shapeDraw = null; },
-    cancelTrackDraw(target) { target._trackDraw = null; },
-    cancelFillDraw(target) { target._fillDraw = null; },
-    finishSelectionInteraction() { return false; },
-    clearSelectionInteractionUi() {},
-    clearBoxSelection: clearPcbSelection,
-    hasBoxSelection(target) { return getPcbSelection(target).length > 0; },
-    getSelectedTrack() { return null; }, getSelectedVia() { return null; },
-};
-const handleKeyDown = new Function(...Object.keys(keyboardDependencies),
-    `return ({ ${source.slice(keyboardStart, keyboardEnd)} }).handleKeyDown;`)(...Object.values(keyboardDependencies));
+// The real keyboard handler, run against this test's editor.
+const handleKeyDown = PCBApp.prototype.handleKeyDown;
 app._active = true;
 app.currentTool = 'select';
 app.viewport.snapToGrid = true;
@@ -284,12 +263,7 @@ for (const tool of ['line', 'rect', 'polygon', 'circle', 'arc', 'track', 'fill']
 }
 console.log('PASS: drawing cancellation takes two Escapes with or without an existing selection');
 
-const statusStart = source.indexOf('    setPcbStatus() {');
-const statusEnd = source.indexOf('\n    /** Enable/disable PCB home-tab', statusStart);
-assert.ok(statusStart >= 0 && statusEnd > statusStart);
-const { resolveShapeDrawLayer } = await import('../src/pcb/modules/board-shapes.js');
-const setStatus = new Function('getPcbSelection', 'resolveShapeDrawLayer',
-    `return ({ ${source.slice(statusStart, statusEnd)} }).setPcbStatus;`)(getPcbSelection, resolveShapeDrawLayer);
+const setStatus = PCBApp.prototype.setPcbStatus;
 app.status = { modeStatus: { textContent: '' } };
 app.activeLayer = 'hole';
 for (const [tool, settings, expected] of [

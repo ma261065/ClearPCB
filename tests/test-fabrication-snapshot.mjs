@@ -1,11 +1,11 @@
 import assert from 'node:assert/strict';
 import { getComputedFill } from '../src/pcb/modules/computed-fill-cache.js';
-import fs from 'node:fs';
 import { Worker as NodeWorker } from 'node:worker_threads';
 import { inflateRawSync } from 'node:zlib';
 import { unzipSync, strFromU8 } from '../assets/vendor/fflate.module.js';
 import { CopperFill } from '../src/shapes/copper-fill.js';
 import { Track } from '../src/shapes/track.js';
+import { PcbDocument } from '../src/core/PcbDocument.js';
 import { createPcbText, serializePcbText, TEXT_LAYERS } from '../src/core/pcb-text.js';
 globalThis.window = { addEventListener() {} };
 const { exportGerbers, buildZip } = await import('../src/pcb/modules/gerber.js');
@@ -197,7 +197,6 @@ try {
     await actualWorker.terminate();
 }
 
-const pcbSource = fs.readFileSync(new URL('../src/ui/PCBApp.js', import.meta.url), 'utf8');
 const { default: PCBApp } = await import('../src/ui/PCBApp.js');
 for (const name of ['app', 'bootstrap']) Object.defineProperty(window, name, {
     get() { assert.fail('Export naming must not consult global project owners'); },
@@ -227,86 +226,102 @@ PCBApp.prototype.exportPickAndPlace.call(csvApp);
 await Promise.resolve();
 assert.deepEqual(csvNames, ['owned.rev2-bom.csv', 'owned.rev2-pick-and-place.csv']);
 
-const methodSource = name => {
-    const start = pcbSource.indexOf(`    async ${name}(`);
-    assert.ok(start >= 0, `${name} exists`);
-    const end = pcbSource.indexOf('\n    }', start);
-    return pcbSource.slice(start, end + 6).trim();
-};
+// The real export methods, observed through browser APIs the test supplies: the save
+// picker on `window`, the Gerber progress element, and the worker that builds the ZIP.
 const events = [];
 let finishWrite;
 const writing = new Promise(resolve => { finishWrite = resolve; });
-const saveWindow = {
-    app: { fileManager: { fileName: 'unrelated.cpcb' } },
-    showSaveFilePicker(options) {
-        events.push('picker');
-        assert.equal(options.suggestedName, 'owned.rev2-gerber.zip');
-        return Promise.resolve({
-            async createWritable() {
-                events.push('createWritable');
-                return {
-                    async write(blob) {
-                        assert.ok(blob instanceof Blob);
-                        events.push('write');
-                        await writing;
-                    },
-                    async close() { events.push('close'); },
-                };
-            },
-        });
-    },
+const progressLabels = [];
+const progressHost = {
+    hidden: true, title: '',
+    label: { textContent: '' },
+    bar: { current: null, get value() { return this.current; },
+        set value(next) { this.current = next; recordProgress(); }, removeAttribute() { this.current = null; recordProgress(); } },
+    querySelector(selector) { return selector === 'progress' ? this.bar : this.label; },
 };
-const saveBlob = new Function('window', 'document',
-    `return ({ ${methodSource('_saveBlob')} })._saveBlob;`)(saveWindow, {});
-const progressEvents = [];
-const exportGerber = new Function('window', 'hasFabricationContent', 'generateGerberArchive',
-    'showGerberProgress', `return ({ ${methodSource('exportGerber')} }).exportGerber;`)(
-    saveWindow, () => true,
-    async () => { events.push('prepare'); return { blob: new Blob(['zip']), fileCount: 1 }; },
-    (...progress) => progressEvents.push(progress),
-);
-const exportApp = { project: ownedProject, _exportBaseName: PCBApp.prototype._exportBaseName,
-    _saveBlob: saveBlob, setStatus(message) { events.push(message); } };
-const saving = exportGerber.call(exportApp);
+globalThis.document = { getElementById: id => id === 'pcbGerberProgress' ? progressHost : null };
+const recordProgress = () => progressLabels.push(progressHost.hidden ? null : [progressHost.label.textContent, progressHost.bar.value]);
+const workerSnapshots = [];
+globalThis.Worker = class {
+    postMessage(snapshot) {
+        events.push('prepare');
+        workerSnapshots.push(snapshot);
+        setTimeout(() => this.onmessage({ data: { type: 'complete', blob: new Blob(['zip']), fileCount: 1 } }), 0);
+    }
+    terminate() {}
+};
+window.showSaveFilePicker = options => {
+    events.push('picker');
+    assert.equal(options.suggestedName, 'owned.rev2-gerber.zip');
+    return Promise.resolve({
+        async createWritable() {
+            events.push('createWritable');
+            return {
+                async write(blob) {
+                    assert.ok(blob instanceof Blob);
+                    events.push('write');
+                    await writing;
+                },
+                async close() { events.push('close'); },
+            };
+        },
+    });
+};
+const exportPcbDocument = new PcbDocument();
+exportPcbDocument.tracks.push(new Track({ net: 'N', layer: 'top-copper', width: 0.25,
+    points: [{ x: 2, y: -2 }, { x: 8, y: -2 }] }));
+const exportApp = Object.assign(Object.create(PCBApp.prototype), {
+    pcbDocument: exportPcbDocument, placements: new Map(), project: ownedProject,
+    setStatus(message) { events.push(message); },
+});
+const saving = exportApp.exportGerber();
 assert.deepEqual(events, ['picker'], 'Picker opens synchronously before fabrication preparation');
 assert.equal(exportApp._exportGerberPending, true);
-await exportGerber.call(exportApp);
+await exportApp.exportGerber();
 assert.equal(events.filter(event => event === 'picker').length, 1, 'Duplicate export is blocked');
 finishWrite();
 await saving;
 assert.deepEqual(events, ['picker', 'prepare', 'createWritable', 'write', 'close', 'Gerbers exported (1 files)']);
 assert.equal(exportApp._exportGerberPending, false);
-assert.deepEqual(progressEvents, [['Saving ZIP', 100], [null]], 'Progress remains through saving, then clears');
+assert.equal(workerSnapshots.length, 1, 'One fabrication snapshot is sent to the worker');
+assert.equal(workerSnapshots[0].tracks.length, 1, 'The snapshot carries the board copper');
+assert.equal(typeof workerSnapshots[0].tracks[0].getEdgeWidth, 'undefined', 'Snapshot tracks are plain data');
+assert.deepEqual(progressLabels.filter(Boolean).map(([label]) => label),
+    ['Gerber: Capturing board', 'Gerber: Starting export', 'Gerber: Saving ZIP'],
+    'Progress shows capture, export and saving');
+assert.equal(progressHost.bar.value, null);
+assert.equal(progressHost.hidden, true, 'Progress clears after saving');
 
 events.length = 0;
-progressEvents.length = 0;
-saveWindow.showSaveFilePicker = async () => {
+progressLabels.length = 0;
+window.showSaveFilePicker = async () => {
     events.push('cancel');
     throw Object.assign(new Error('Cancelled'), { name: 'AbortError' });
 };
-await exportGerber.call(exportApp);
+await exportApp.exportGerber();
 assert.deepEqual(events, ['cancel'], 'Cancelling does not prepare or save fabrication data');
 assert.equal(exportApp._exportGerberPending, false);
-assert.deepEqual(progressEvents, [[null]], 'Cancellation leaves no progress indicator');
+assert.equal(workerSnapshots.length, 1, 'Cancelling sends nothing to the worker');
+assert.equal(progressHost.hidden, true, 'Cancellation leaves no progress indicator');
+assert.ok(progressLabels.every(entry => entry === null), 'Cancellation never shows progress');
 
-saveWindow.showSaveFilePicker = async () => {
+window.showSaveFilePicker = async () => {
     throw new Error('Picker failed');
 };
-await assert.rejects(saveBlob.call(exportApp, async () => new Blob(), 'board.zip'), /Picker failed/);
+await assert.rejects(exportApp._saveBlob(async () => new Blob(), 'board.zip'), /Picker failed/);
+delete window.showSaveFilePicker;
 
 const downloadEvents = [];
-const downloadDocument = {
+const downloadWindow = { document: {
     body: { appendChild() { downloadEvents.push('append'); } },
     createElement() {
         return { click() { downloadEvents.push('download'); }, remove() { downloadEvents.push('remove'); } };
     },
-};
-const fallbackSave = new Function('window', 'document',
-    `return ({ ${methodSource('_saveBlob')} })._saveBlob;`)({}, downloadDocument);
-assert.equal(await fallbackSave(async () => {
+} };
+assert.equal(await exportApp._saveBlob(async () => {
     downloadEvents.push('prepare');
     return new Blob(['zip']);
-}, 'board.zip'), true);
+}, 'board.zip', { win: downloadWindow }), true);
 assert.deepEqual(downloadEvents, ['prepare', 'append', 'download', 'remove']);
-assert.equal(await fallbackSave(new Blob(['existing caller']), 'board.zip'), true);
+assert.equal(await exportApp._saveBlob(new Blob(['existing caller']), 'board.zip', { win: downloadWindow }), true);
 console.log('PASS fresh detached fabrication snapshot, asynchronous isolation and artwork-only export');

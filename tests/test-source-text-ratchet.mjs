@@ -17,15 +17,11 @@ const ALLOWED = new Set([
     'test-builtin-package-lifecycle.mjs',
     'test-component-index-lifecycle.mjs',
     'test-document-layers.mjs',
-    'test-fabrication-snapshot.mjs',
-    'test-group-selection-history.mjs',
     'test-node-connection-locality.mjs',
     'test-pcb-deferred-load.mjs',
     'test-pcb-paste-preview-isolation.mjs',
     'test-pcb-selection-layer-locks.mjs',
     'test-reference-selection-overlay.mjs',
-    'test-rotation-handle.mjs',
-    'test-shape-clearance-overlay.mjs',
     'test-track-terminology.mjs',
 ]);
 

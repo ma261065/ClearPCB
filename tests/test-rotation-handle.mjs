@@ -2,7 +2,6 @@ import assert from 'node:assert/strict';
 import { PcbDocument } from '../src/core/PcbDocument.js';
 import { readFileSync } from 'node:fs';
 import { rotationHandleAnchor, pointerRotation, rotatedImagePoints, ROTATION_CURSOR } from '../src/pcb/modules/rotation-handle.js';
-import { isLayerLocked, isLayerVisible } from '../src/pcb/modules/layers.js';
 
 const bounds = { minX: -4, minY: -2, maxX: 4, maxY: 2 };
 for (const scale of [0.1, 1, 20]) {
@@ -51,11 +50,13 @@ const { createPcbTextSelectionAdapter } = await import('../src/pcb/modules/pcb-t
 const { Pad } = await import('../src/shapes/pad.js');
 const { createPadSelectionAdapter } = await import('../src/pcb/modules/pad-selection.js');
 const { setPcbSelection, getPcbSelection, isPcbSelected } = await import('../src/pcb/modules/selection-registry.js');
-const { MoveTextCommand, getTextPosePreviewTexts, previewTextPose, finishTextPosePreview } = await import('../src/pcb/modules/text-commands.js');
+const { getTextPosePreviewTexts } = await import('../src/pcb/modules/text-commands.js');
 const { pcbTextBounds } = await import('../src/pcb/modules/pcb-text.js');
 const { renderPcbSelectionAnchors, hitTestPcbSelectionAnchor } = await import('../src/pcb/modules/selection-anchors.js');
 const { cancelPictureCopperRefresh } = await import('../src/pcb/modules/picture-refresh.js');
 const { beginSelectionInteraction, updateSelectionInteraction, finishSelectionInteraction, selectionInteractionCursor } = await import('../src/pcb/modules/selection-interaction.js');
+const { displayRotationDegrees } = await import('../src/core/number-inputs.js');
+const { default: PCBApp } = await import('../src/ui/PCBApp.js');
 const originalTimeout = globalThis.setTimeout;
 const originalClearTimeout = globalThis.clearTimeout;
 const originalRaf = globalThis.requestAnimationFrame;
@@ -206,32 +207,19 @@ try {
     }
     const source = readFileSync(new URL('../src/ui/PCBApp.js', import.meta.url), 'utf8').replace(/\r\n/g, '\n');
     const imageSource = readFileSync(new URL('../src/pcb/modules/board-shape-properties.js', import.meta.url), 'utf8');
-    for (const [inputId, modelName, panelSource] of [
-        ['pcbPropTextRot', 'text', source], ['pcbPropTextToolRot', 'd', source],
-        ['pcbPropImageRot', 'rotation', imageSource],
+    for (const [inputId, panelSource] of [
+        ['pcbPropTextRot', source], ['pcbPropTextToolRot', source], ['pcbPropImageRot', imageSource],
     ]) {
         const template = panelSource.match(new RegExp(`<input[^>]*id="${inputId}"[^>]*>`))[0];
         assert.match(template, /step="1"/, `${inputId} increments by one degree`);
-        const expression = template.match(/value="\$\{([^}]+)\}"/)[1];
-        const displayRotation = new Function(modelName, `return ${expression};`);
-        for (const [rotation, expected] of [[12.34567, 12], [12.6, 13], [42, 42], [359.99999, 0]]) {
-            assert.equal(displayRotation(modelName === 'rotation' ? rotation : { rotation }), expected,
-                `${inputId} displays whole degrees`);
-        }
+        assert.match(template, /value="\$\{displayRotationDegrees\(/, `${inputId} displays through the shared whole-degree formatter`);
     }
-    const methodsStart = source.indexOf('    _selectText(text) {');
-    const methodsEnd = source.indexOf('\n    //', source.indexOf('    _endTextDrag(commit = true) {', methodsStart));
-    assert.ok(methodsStart >= 0 && methodsEnd > methodsStart);
-    const { getPropertyEditor } = await import('../src/pcb/modules/property-editors.js');
-    const { areDragOverlaysDeferred, setDragOverlaysDeferred } = await import('../src/pcb/modules/refresh-state.js');
-    const textPrototype = new Function('getPcbSelection', 'setPcbSelection', 'MoveTextCommand', 'isLayerLocked', 'isLayerVisible',
-        'previewTextPose', 'finishTextPosePreview', 'renderPcbSelectionAnchors', 'getPropertyEditor',
-        'areDragOverlaysDeferred', 'setDragOverlaysDeferred',
-        `return (class { ${source.slice(methodsStart, methodsEnd)} }).prototype;`)(
-        getPcbSelection, setPcbSelection, MoveTextCommand, isLayerLocked, isLayerVisible, previewTextPose, finishTextPosePreview,
-        renderPcbSelectionAnchors, getPropertyEditor, areDragOverlaysDeferred, setDragOverlaysDeferred);
-    const textMethods = Object.fromEntries(Object.getOwnPropertyNames(textPrototype)
-        .filter(name => name !== 'constructor').map(name => [name, textPrototype[name]]));
+    for (const [rotation, expected] of [[12.34567, 12], [12.6, 13], [42, 42], [359.99999, 0]]) {
+        assert.equal(displayRotationDegrees(rotation), expected, 'rotation inputs display whole degrees');
+    }
+    // The real text selection and drag methods.
+    const textMethods = Object.fromEntries(['_selectText', '_beginTextDrag', '_updateTextDrag', '_handleTextDrag',
+        '_endTextDrag'].map(name => [name, PCBApp.prototype[name]]));
     const movingText = { id: 'moving-text', content: 'Move', x: 0, y: 0, size: 2, strokeWidth: 0.2,
         rotation: 0, layer: 'top-copper' };
     const movingOverlay = element('g');

@@ -2,6 +2,11 @@ export function formatNumberInputValue(value) {
     return value.toFixed(2);
 }
 
+/** Whole degrees shown by `data-number-format="rotation"` inputs. */
+export function displayRotationDegrees(rotation) {
+    return Math.round(rotation) % 360;
+}
+
 export function formatNumberInput(input) {
     if (!input.matches('input[type="number"]') || ['rotation', 'precise'].includes(input.dataset.numberFormat)) return;
     const value = input.valueAsNumber;

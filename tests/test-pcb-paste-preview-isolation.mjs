@@ -108,7 +108,7 @@ function fixture(deferred = false) {
     for (const method of ['_hasPcbClipboardData', 'pasteSelection', '_beginPasteDrop', '_updatePasteDrop', '_endPasteDrop',
         '_cancelPasteDrop', '_cancelPosePreviews', '_snapToGrid', '_renderText', 'refreshText', '_removeTextElement',
         'isSectionEditing', '_onLayerVisibilityChanged', '_onLayerLockChanged',
-        '_refreshBoardShapeClearance']) app[method] = PCBApp.prototype[method];
+        '_refreshBoardShapeClearance', '_computeClearanceOutlines']) app[method] = PCBApp.prototype[method];
     project.registerView('pcb', app);
     renderTrack(track, app.getLayerGroup); renderVia(via, app.getLayerGroup); renderPad(pad, app.getLayerGroup);
     [rect, circle, arc, image].forEach(shape => renderBoardShape(app, shape));

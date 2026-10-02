@@ -6,7 +6,7 @@
  */
 
 import { bulgePointFromRatio } from '../../core/geometry.js';
-import { formatNumberInput, formatNumberInputValue } from '../../core/number-inputs.js';
+import { displayRotationDegrees, formatNumberInput, formatNumberInputValue } from '../../core/number-inputs.js';
 import { canRoundPathNode } from '../../shapes/path-geometry.js';
 import { SHAPE_KINDS, applyShapeGeometry, applyShapeSnapshot, captureBoardShapeState as shapeSnapshot } from '../../core/pcb-board-shapes.js';
 import { isLayerLocked, PCB_LAYERS, pcbLayerOptionHtml, setPcbLayerLocked } from './layers.js';
@@ -224,7 +224,7 @@ function showImageProperties(app, shape, items) {
             pcbLayerOptionHtml(layer.id, layer.name, layer.id === shape.layer)).join('')}</select></div>
         <div class="prop-row"><label>Width (mm)</label><input id="pcbPropImageWidth" type="number" min="0.1" max="500" step="0.1" value="${width.toFixed(2)}"></div>
         <div class="prop-row"><label>Height (mm)</label><input id="pcbPropImageHeight" type="number" min="0.1" max="500" step="0.1" value="${height.toFixed(2)}"></div>
-        <div class="prop-row"><label>Rotation (°)</label><input id="pcbPropImageRot" type="number" step="1" data-number-format="rotation" value="${Math.round(rotation) % 360}"></div>
+        <div class="prop-row"><label>Rotation (°)</label><input id="pcbPropImageRot" type="number" step="1" data-number-format="rotation" value="${displayRotationDegrees(rotation)}"></div>
         <div class="prop-row"><label for="pcbPropImageInvert">Invert</label><input id="pcbPropImageInvert" type="checkbox"${shape.artwork.invert ? ' checked' : ''}></div>
         <div class="prop-row"><label for="pcbPropImageFlipHorizontal">Flip Horizontal</label><input id="pcbPropImageFlipHorizontal" type="checkbox"${shape.artwork.flipHorizontal ? ' checked' : ''}></div>
         <div class="prop-row"><label for="pcbPropImageFlipVertical">Flip Vertical</label><input id="pcbPropImageFlipVertical" type="checkbox"${shape.artwork.flipVertical ? ' checked' : ''}></div>
