@@ -110,31 +110,60 @@ function wireNetNames(app) {
         .sort((a, b) => a.localeCompare(b));
 }
 
-/** Append an editable Net field with suggestions from the current schematic. */
-function appendWireNetField(app, content, id, value, onChange, { allowAuto = false, isCurrent = () => true } = {}) {
+/** Append an editable Net field with a menu of the current schematic's nets (same control as the PCB editor). */
+function appendWireNetField(app, content, id, value, onChange, { allowAuto = false, isCurrent = () => true, readOnly = false } = {}) {
     const row = document.createElement('div');
     row.className = 'prop-row';
     const label = document.createElement('label');
     label.setAttribute('for', id);
     label.textContent = 'Net';
+    const control = document.createElement('span');
+    control.className = 'prop-net-control';
     const input = document.createElement('input');
     input.type = 'text';
     input.id = id;
     input.value = value || '';
-    if (allowAuto) input.placeholder = 'Auto';
-    const listId = `${id}_options`;
-    input.setAttribute('list', listId);
-    const list = document.createElement('datalist');
-    list.id = listId;
-    for (const net of wireNetNames(app)) {
-        const option = document.createElement('option');
-        option.value = net;
-        list.appendChild(option);
+    input.placeholder = allowAuto ? 'Auto' : 'None';
+    const menu = document.createElement('details');
+    menu.className = 'prop-net-menu';
+    const summary = document.createElement('summary');
+    summary.setAttribute('aria-label', 'Select existing net');
+    const options = document.createElement('div');
+    for (const net of ['', ...wireNetNames(app)]) {
+        const option = document.createElement('button');
+        option.type = 'button';
+        option.dataset.net = net;
+        option.textContent = net || input.placeholder;
+        options.appendChild(option);
     }
-    input.addEventListener('change', () => {
+    menu.append(summary, options);
+    const commit = () => {
         if (isCurrent()) onChange(input.value.trim());
+    };
+    input.addEventListener('change', commit);
+    menu.addEventListener('click', (event) => {
+        const target = /** @type {Element|null} */ (event.target);
+        const option = /** @type {HTMLElement|null} */ (target?.closest?.('button[data-net]') || null);
+        if (!option) return;
+        input.value = option.dataset.net || '';
+        commit();
+        menu.open = false;
     });
-    row.append(label, input, list);
+    menu.addEventListener('toggle', () => {
+        if (!menu.open) return;
+        const current = input.value.trim();
+        for (const option of /** @type {NodeListOf<HTMLElement>} */ (options.querySelectorAll('button[data-net]'))) {
+            option.toggleAttribute('aria-current', option.dataset.net === current);
+        }
+    });
+    control.append(input);
+    if (readOnly) {
+        input.readOnly = true;
+        input.style.opacity = '0.7';
+    } else {
+        control.append(menu);
+    }
+    row.append(label, control);
     content.appendChild(row);
 }
 
@@ -322,12 +351,7 @@ export function updatePropertiesPanel(app, selection) {
             // should appear before the lock checkbox.
             if (singleWire) {
                 if (allLocked) {
-                    appendWireNetField(app, sec.content, 'prop_net', singleWire.net, () => {});
-                    const netInput = /** @type {HTMLInputElement|null} */ (sec.content.querySelector('#prop_net'));
-                    if (netInput) {
-                        netInput.readOnly = true;
-                        netInput.style.opacity = '0.7';
-                    }
+                    appendWireNetField(app, sec.content, 'prop_net', singleWire.net, () => {}, { readOnly: true });
                 } else {
                     appendWireNetField(app, sec.content, 'prop_net', singleWire.net, (net) => {
                         if (!net) {

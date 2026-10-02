@@ -432,6 +432,28 @@ for (const [tool, nextTool, id, key, value] of [
     } finally { dispose(); }
 }
 
+{
+    // Wire Net fields use the same existing-net menu as the PCB editor, not a browser datalist.
+    const wire = { type: 'wire', net: 'SIG' };
+    const { app, dispose } = fixture([], { currentTool: 'wire', shapes: [wire], toolOptions: { wireNet: '' } });
+    try {
+        const input = document.getElementById('prop_newWireNet');
+        const control = input.parentNode;
+        assert.equal(control.className, 'prop-net-control');
+        const menu = control.children.find(child => child.tagName === 'DETAILS');
+        assert.equal(menu?.className, 'prop-net-menu', 'The Net field offers the shared net menu');
+        assert.equal(control.children.some(child => child.tagName === 'DATALIST'), false);
+        const options = menu.children.find(child => child.tagName === 'DIV').children;
+        assert.deepEqual(options.map(option => [option.dataset.net, option.textContent]), [['', 'Auto'], ['SIG', 'SIG']]);
+        options[1].closest = () => options[1];
+        menu.open = true;
+        menu.fire('click', { target: options[1] });
+        assert.equal(input.value, 'SIG');
+        assert.equal(app.toolOptions.wireNet, 'SIG', 'Picking a net applies it');
+        assert.equal(menu.open, false, 'Picking closes the menu');
+    } finally { dispose(); }
+}
+
 for (const replacement of ['escape', 'commit', 'refresh', 'selection']) {
     const shape = new Circle({ radius: 5, lineWidth: 0.5 });
     const { app, dispose } = fixture([shape]);
