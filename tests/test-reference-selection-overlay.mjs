@@ -1,9 +1,7 @@
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
 import { CommandHistory } from '../src/core/CommandHistory.js';
 import { connectBoxOutlines, connectPointToBoxOutline } from '../src/core/geometry.js';
 import { getTextEditBoxWorldCorners } from '../src/core/text-edit-geometry.js';
-import { applyTextConnectionGuide } from '../src/shared/ui/inline-text-overlay.js';
 import { clearPcbSelection, setPcbSelection, togglePcbSelection }
     from '../src/pcb/modules/selection-registry.js';
 import '../src/pcb/modules/component-selection.js';
@@ -54,33 +52,31 @@ console.log('PASS: moved reference box clears on component selection, retargets 
 
 globalThis.window = { addEventListener() {} };
 globalThis.HTMLElement = class {};
+const alerts = [];
+const htmlElement = () => ({
+    style: {}, dataset: {}, children: [], classList: { add() {}, remove() {}, toggle() {}, contains: () => false },
+    setAttribute() {}, appendChild(child) { this.children.push(child); return child; },
+    addEventListener() {}, removeEventListener() {}, focus() {}, remove() {}, querySelector: () => null,
+});
 globalThis.document = {
     createElementNS() { return { setAttribute() {}, appendChild() {} }; },
+    createElement: htmlElement,
+    // Alerts are observed where the real showAlert() puts them: modal overlays on the body.
+    body: { appendChild(overlay) { if (overlay.className === 'app-modal-overlay') alerts.push(overlay); }, contains: () => false },
     getElementById() { return null; },
     querySelector() { return null; },
+    addEventListener() {}, removeEventListener() {},
 };
 const { ProjectDocument } = await import('../src/core/ProjectDocument.js');
 const { default: SchematicApp } = await import('../src/ui/SchematicApp.js');
 const { default: PCBApp } = await import('../src/ui/PCBApp.js');
 const { idleState } = await import('../src/schematic/modules/draw-states.js');
-const source = readFileSync(new URL('../src/ui/PCBApp.js', import.meta.url), 'utf8').replace(/\r\n/g, '\n');
-const method = source.match(/    _tryEditReferenceAt\(worldPos\) \{([\s\S]*?)\n    \}/);
-assert.ok(method, 'PCB reference inline-edit entry point exists');
-let layerLocked = false;
-let layerVisible = true;
-const dependencies = {
-    showAlert: message => alerts.push(message),
-    REF_DEFAULT_SIZE: 0.9,
-    REF_DEFAULT_STROKE: 0.15,
-    isLayerLocked: () => layerLocked,
-    isLayerVisible: () => layerVisible,
-};
-const startReferenceEdit = new Function(...Object.keys(dependencies), `return function(worldPos) {${method[1]}\n};`)
-    (...Object.values(dependencies));
+const { PCB_LAYERS } = await import('../src/pcb/modules/layers.js');
+const topSilk = PCB_LAYERS.find(layer => layer.id === 'top-silk');
+const startReferenceEdit = PCBApp.prototype._tryEditReferenceAt;
 const component = { id: 'component-1', reference: 'R1', invalidate() {},
     definition: { name: 'Part' }, symbol: { pins: [{ number: '1' }] },
     refText: { text: 'R1', invalidate() {} } };
-const alerts = [];
 const project = new ProjectDocument();
 assert.equal(project.getComponentInfo('missing'), null);
 assert.deepEqual(project.getNetlist(), []);
@@ -191,12 +187,12 @@ assert.equal(editor.history.undoStack.length, 1);
 assert.equal(referencePanels.length, 5);
 assert.equal(referenceRatsnestUpdates, 3);
 assert.equal(referenceBoardUpdates, 3);
-layerLocked = true;
-assert.equal(startReferenceEdit.call(editor, { x: 10, y: 20 }), false);
-layerLocked = false;
-layerVisible = false;
-assert.equal(startReferenceEdit.call(editor, { x: 10, y: 20 }), false);
-layerVisible = true;
+topSilk.locked = true;
+assert.equal(startReferenceEdit.call(editor, { x: 10, y: 20 }), false, 'A locked silk layer blocks reference editing');
+topSilk.locked = false;
+topSilk.visible = false;
+assert.equal(startReferenceEdit.call(editor, { x: 10, y: 20 }), false, 'A hidden silk layer blocks reference editing');
+topSilk.visible = true;
 component.locked = true;
 assert.equal(startReferenceEdit.call(editor, { x: 10, y: 20 }), false);
 console.log('PASS: PCB reference rename updates both views, validates names, cancels, and supports undo/redo');
@@ -325,15 +321,7 @@ for (const rotation of [0, 37, 90]) for (const mirrored of [false, true]) {
     assert.equal(guideLayer.children.length, 0, 'Deselecting clears the guide');
 }
 
-const shapeSource = readFileSync(new URL('../src/schematic/modules/shape-management.js', import.meta.url), 'utf8');
-const renderBody = shapeSource.match(/export function renderShapes\(app, force = false\) \{([\s\S]*?)\n\}/);
-assert.ok(renderBody);
-const renderDependencies = {
-    syncAttachedLabels() {}, renderShapeSegmentSelection() {}, refreshAxisGlow() {},
-    OVERLAY_TYPES: new Set(), updateLabelGuide,
-};
-const renderShapes = new Function(...Object.keys(renderDependencies), `return function(app, force = false) {${renderBody[1]}\n};`)
-    (...Object.values(renderDependencies));
+const { renderShapes } = await import('../src/schematic/modules/shape-management.js');
 let renderedX = 10;
 const renderReference = { id: 'schematic-reference', type: 'text', selected: true,
     textAnchor: 'middle', get x() { return renderedX; }, y: 0,
@@ -385,12 +373,8 @@ assert.notEqual(Number(netGuideApp._labelGuide.attributes.x1), netLabel.x,
     'Net-label guide must stop at the visible edit box, not the text anchor');
 console.log('PASS: net-label guide clips to the shared edit-box boundary');
 
-const { isPcbSelected } = await import('../src/pcb/modules/selection-registry.js');
 const { textColorForLayer } = await import('../src/pcb/modules/pcb-text.js');
-const highlightBody = source.match(/    _refreshRefHighlight\(compId\) \{([\s\S]*?)\n    \}/);
-assert.ok(highlightBody);
-const refreshRefHighlight = new Function('isPcbSelected', 'textColorForLayer',
-    `return function(compId) {${highlightBody[1]}\n};`)(isPcbSelected, textColorForLayer);
+const refreshRefHighlight = PCBApp.prototype._refreshRefHighlight;
 let theme = 'dark';
 document.documentElement = { getAttribute() { return theme; } };
 const refElement = { attributes: {}, setAttribute(name, value) { this.attributes[name] = value; } };
@@ -425,12 +409,7 @@ const referenceOverlay = { children: [], get firstChild() { return this.children
 document.createElementNS = (namespace, tagName) => ({ tagName, attributes: {},
     setAttribute(name, value) { this.attributes[name] = String(value); } });
 highlightApp._ensureRefOverlay = () => referenceOverlay;
-const overlayBody = source.match(/    _drawRefOverlay\(compId, withTether\) \{([\s\S]*?)\n    \}/);
-assert.ok(overlayBody);
-const drawRefOverlay = new Function(
-    'placementTransform', 'isPcbSelected', 'connectBoxOutlines', 'applyTextConnectionGuide',
-    `return function(compId, withTether) {${overlayBody[1]}\n};`,
-)(() => 'translate(10,20)', isPcbSelected, connectBoxOutlines, applyTextConnectionGuide);
+const drawRefOverlay = PCBApp.prototype._drawRefOverlay;
 drawRefOverlay.call(highlightApp, 'ref', false);
 assert.equal(referenceOverlay.children.length, 1, 'Reference selection retains only the associated component outline');
 assert.equal(referenceOverlay.children[0].attributes.class, 'pcb-ref-component-outline');

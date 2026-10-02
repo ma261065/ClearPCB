@@ -195,8 +195,8 @@ state snapshots, used by generic modify commands.
 - `node tools/bench-pcb-hit-test.mjs [scale]` — PCB selection sync and pointer hit
   query cost on a large synthetic board.
 - Tests call real functions; editor methods run on `tests/pcb-editor-fixture.mjs` or
-  via `PCBApp.prototype.method.call(fixture)`. `test-source-text-ratchet` lists the
-  legacy tests that still evaluate sliced source text; the list only shrinks.
+  via `PCBApp.prototype.method.call(fixture)`. `test-source-text-ratchet` fails any test that
+  evaluates sliced source text; add a small seam when a collaborator must be observed.
 
 ## Coding & Tooling Conventions
 

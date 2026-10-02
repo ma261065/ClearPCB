@@ -1,55 +1,134 @@
-import { areDragOverlaysDeferred, isFillRefreshPending } from '../src/pcb/modules/refresh-state.js';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
 import { PcbDocument } from '../src/core/PcbDocument.js';
 import { PANEL_DEFAULTS } from '../src/core/pcb-panelization.js';
-import { disposePcbPropertyEditors } from '../src/pcb/modules/edit-lifecycle.js';
 
-const source = readFileSync(new URL('../src/pcb/modules/project-state.js', import.meta.url), 'utf8');
-const start = source.indexOf('export function loadPcb(');
-assert.ok(start >= 0);
+// Real renderers run against this minimal SVG DOM. Each layer group reports what
+// lands in it, so render order is observed where the editor's DOM receives it.
+function svgElement(tagName = 'g') {
+    return {
+        tagName, attributes: new Map(), children: [], parentNode: null, style: {}, dataset: {}, textContent: '',
+        classList: { add() {}, remove() {}, toggle() {}, contains: () => false },
+        setAttribute(name, value) { this.attributes.set(name, String(value)); },
+        getAttribute(name) { return this.attributes.get(name) ?? null; },
+        removeAttribute(name) { this.attributes.delete(name); },
+        hasAttribute(name) { return this.attributes.has(name); },
+        appendChild(child) {
+            child.parentNode?.removeChild(child);
+            child.parentNode = this;
+            this.children.push(child);
+            return child;
+        },
+        insertBefore(child) { return this.appendChild(child); },
+        removeChild(child) {
+            this.children = this.children.filter(other => other !== child);
+            child.parentNode = null;
+            return child;
+        },
+        remove() { this.parentNode?.removeChild(this); },
+        get firstChild() { return this.children[0] || null; },
+        querySelector(selector) { return this.querySelectorAll(selector)[0] || null; },
+        querySelectorAll(selector) {
+            const matches = child => selector.startsWith('#')
+                ? child.getAttribute('id') === selector.slice(1)
+                : selector.startsWith('.') && (child.getAttribute('class') || '').split(' ').includes(selector.slice(1));
+            return this.children.flatMap(child => [...(matches(child) ? [child] : []), ...child.querySelectorAll(selector)]);
+        },
+    };
+}
+const storage = new Map();
+let onDesignDefaultsSaved = null;
+globalThis.window = { addEventListener() {}, dispatchEvent() {} };
+globalThis.document = {
+    createElementNS: (namespace, tagName) => svgElement(tagName), createElement: tagName => svgElement(tagName),
+    body: svgElement('body'), documentElement: { getAttribute: () => 'dark' }, getElementById: () => null,
+    querySelector: () => null, querySelectorAll: () => [], addEventListener() {}, removeEventListener() {},
+};
+globalThis.localStorage = {
+    getItem: key => storage.get(key) ?? null,
+    setItem(key, value) {
+        storage.set(key, value);
+        if (key === 'clearpcb_pcb_design_params') onDesignDefaultsSaved?.(JSON.parse(value));
+    },
+    removeItem: key => storage.delete(key),
+};
+globalThis.requestAnimationFrame = () => 0;
+globalThis.cancelAnimationFrame = () => {};
+globalThis.HTMLElement = class {};
+
+const { loadPcb, preparePcb, serializePcb } = await import('../src/pcb/modules/project-state.js');
+const { getBoardOutline } = await import('../src/shared/pcb/board-outline.js');
+const { Track } = await import('../src/shapes/track.js');
+const { Via } = await import('../src/shapes/via.js');
+const { Pad } = await import('../src/shapes/pad.js');
+const { CopperFill } = await import('../src/shapes/copper-fill.js');
+const { createPcbText } = await import('../src/core/pcb-text.js');
+const { pictureShape } = await import('../src/shared/pcb/picture-raster.js');
+const { serializeBoardShapes } = await import('../src/pcb/modules/board-shapes.js');
+
 const calls = [];
 const previews = [];
 const record = name => () => calls.push(name);
-const dependencies = {
-    disposePcbPropertyEditors,
-    removeTrackElements() {}, removeViaElements() {}, removePadElements() {},
-    removeBoardShapeElement() {},
-    clearTrackSelection() {},
-    resetPcbSelection() {}, syncPcbSelection() {}, clearPcbSelectionAnchors() {}, setHoveredBoardShape() {},
-    resetPanelPreview() {},
-    renderPanelPreview(app) { previews.push({ app, settings: app.pcbDocument?.serializePanelization() }); },
-    getBoardOutline: app => app.boardShapes.find(shape => shape.layer === 'board-outline'),
-    renderTrack: record('track'), renderVia: record('via'), renderPad: record('pad'),
-    renderBoardShape(app, shape, options) {
-        assert.equal(options?.skipCopperUpdate, true, 'Batch rendering must defer copper clipping');
-        calls.push(shape.layer === 'board-outline' ? 'outline-shape' : 'shape');
-    },
-    reconcileRatsnest: record('ratsnest'), restoreGridSettings: record('grid'), getSelectedTrack: () => null,
-    refreshDesignSettings(app) {
-        assert.deepEqual(app.designSettings.values, data.design, 'Presentation reads settings already adopted by the model');
-        assert.equal(app._placementOverrides.get('U1').rotation, 90, 'Content adoption includes saved placements');
-    },
-    REF_DEFAULT_SIZE: 0.9, REF_DEFAULT_STROKE: 0.15,
+/** Consecutive duplicates collapse: one entity may append several elements to its group. */
+const events = () => calls.filter((call, index) => call !== calls[index - 1]);
+// Which entity an append into each group represents (the fixture keeps them on distinct layers).
+const GROUP_EVENTS = {
+    'bottom-copper': 'track', vias: 'via', 'top-copper': 'pad',
+    'top-silk': 'shape', hole: 'shape', 'board-outline': 'outline-shape',
 };
-const loadPcb = new Function(...Object.keys(dependencies),
-    `${source.slice(start).replace('export function', 'function')}\nreturn loadPcb;`)(...Object.values(dependencies));
+function layerGroups() {
+    const groups = new Map();
+    return id => {
+        // The ratsnest reconcile draws into this group; asking for it is the observable step.
+        if (id === 'ratlines') calls.push('ratsnest');
+        if (!groups.has(id)) {
+            const group = svgElement('g');
+            const append = group.appendChild;
+            group.appendChild = function (child) {
+                if (GROUP_EVENTS[id]) calls.push(GROUP_EVENTS[id]);
+                return append.call(this, child);
+            };
+            groups.set(id, group);
+        }
+        return groups.get(id);
+    };
+}
+const viewportStub = (extra = {}) => ({
+    units: 'mm', gridSize: 1, gridStyle: 'lines', gridVisible: true, snapToGrid: true,
+    setUnits(units) { this.units = units; }, setGridStyle(style) { this.gridStyle = style; },
+    setGridVisible(visible) { this.gridVisible = visible; },
+    setGridSize(size) { this.gridSize = size; calls.push('grid'); },
+    getGridOptions: () => [{ value: 0.5, label: '0.5 mm' }, { value: 1, label: '1 mm' }],
+    ...extra,
+});
+
+const pictureArt = { ...pictureShape({ width: 3, height: 3, rectangles: [{ x: 0, y: 0, width: 3, height: 1 }] },
+    { widthMm: 6, layer: 'top-silk', center: { x: 20, y: -12 } }), id: 'image' };
+// A board hole affects copper cuts, so rendering it without the batch flag would refresh cuts early.
+const boardHole = { id: 'board-hole', kind: 'circle', layer: 'hole', x: 30, y: -15, radius: 1, lineWidth: 0.1, filled: true };
+const authored = new PcbDocument();
+authored.tracks.push(new Track({ net: 'N', layer: 'bottom-copper', points: [{ x: 2, y: -2 }, { x: 8, y: -2 }] }));
+authored.vias.push(new Via({ x: 8, y: -2 }));
+authored.pads.push(new Pad({ x: 12, y: -4, layers: 'top-copper' }));
+authored.texts.set('text', createPcbText({ id: 'text', content: 'T', x: 3, y: -6 }));
+authored.boardShapes.push(pictureArt, boardHole,
+    new CopperFill({ id: 'fill_1', layer: 'top-copper', outline: [{ x: 1, y: -1 }, { x: 10, y: -1 }, { x: 10, y: -10 }] }));
 const data = {
+    ...authored.serialize(),
     stackup: { copperLayers: ['top-copper', 'bottom-copper'] },
     design: { trackWidth: 0.25, clearance: 0.2, viaDiameter: 0.6, viaDrill: 0.3, units: 'mm', router: 'pathfinder' },
     board: { width: 43, height: 27, radius: 2 }, settings: { gridSize: 0.5 },
     placements: { U1: { x: 3, y: -5, rotation: 90, locked: true } } };
-const prepared = {
-    tracks: [{ id: 'track' }], vias: [{ id: 'via' }], pads: [{ id: 'pad' }],
-    texts: [{ id: 'text' }], shapeIdCounter: 3,
-    boardShapes: [{ id: 'image', kind: 'image' }, { id: 'fill', type: 'fill' }],
-};
+const prepared = PcbDocument.prepare(data);
 const makeApp = active => {
     const pcbDocument = new PcbDocument();
     const placementState = pcbDocument.placementState;
     return {
     pcbDocument, designSettings: pcbDocument.designSettings,
-    get panelization() { return pcbDocument.panelization; },
+    // renderPanelPreview(app) reads this as its default argument at the moment it renders.
+    get panelization() {
+        previews.push({ app: this, settings: pcbDocument.serializePanelization() });
+        return pcbDocument.panelization;
+    },
     set panelization(value) { pcbDocument.loadPanelization(value); },
     _active: active, _stale: false, tracks: pcbDocument.tracks, vias: pcbDocument.vias, pads: pcbDocument.pads,
     boardShapes: pcbDocument.boardShapes, texts: pcbDocument.texts,
@@ -63,13 +142,31 @@ const makeApp = active => {
     set _boardRadius(value) { pcbDocument.board.radius = value; },
     placements: new Map([['U1', {}]]), _shapeElements: new Map(), _textElements: new Map(),
     placementState, _placementOverrides: placementState.overrides, history: { clear() {} },
-    _ensureViewport: record('viewport'), getLayerGroup: () => null,
+    viewport: viewportStub(),
+    _ensureViewport: record('viewport'), getLayerGroup: layerGroups(), getRoutingParams: () => ({}),
     _drawBoardOutline() { this._boardOutlineDrawn = true; calls.push('outline'); },
     _applyPlacementOverrides: record('placements'),
     _renderText: record('text'), refreshClearanceHalos: record('clearance'), refreshFills: record('fills'),
     updateCopperCuts() { this.cutRefreshes = (this.cutRefreshes || 0) + 1; },
     markSectionClean() { this._isDirty = false; },
     };
+};
+// Design settings presentation saves the adopted values as defaults. Its storage errors are
+// caught and logged, so snapshots are recorded here and checked once loading returns.
+let designApp = null;
+const designSaves = [];
+onDesignDefaultsSaved = values => designSaves.push({
+    values, rotation: designApp?._placementOverrides.get('U1')?.rotation,
+});
+const load = (app, loaded, ...rest) => {
+    designApp = app;
+    designSaves.length = 0;
+    try { loadPcb(app, loaded, ...rest); } finally { designApp = null; }
+    assert.equal(designSaves.length, loaded?.design ? 1 : 0, 'Loaded design settings are presented once');
+    for (const save of designSaves) {
+        assert.deepEqual(save.values, loaded.design, 'Presentation reads settings already adopted by the model');
+        assert.equal(save.rotation, 90, 'Content adoption includes saved placements');
+    }
 };
 
 const hidden = makeApp(false);
@@ -83,11 +180,11 @@ hidden._removeTextElement = id => {
     assert.equal(hidden.pcbDocument.texts.get(id), oldText, 'Old text SVG is removed before the model is cleared');
     hidden._textElements.delete(id);
 };
-loadPcb(hidden, data, prepared);
+load(hidden, data, prepared);
 assert.equal(cancelledComponentPreview, true, 'Loading ends component projections before replacing their model');
 assert.equal(hidden.texts, textMap, 'Loading preserves the project-owned text map');
 assert.equal(textMap.has(oldText.id), false);
-assert.deepEqual(calls, ['viewport', 'grid'], 'hidden load does not render objects or compute derived copper');
+assert.deepEqual(events(), ['viewport', 'grid'], 'hidden load does not render objects or compute derived copper');
 assert.equal(hidden._stale, true);
 assert.equal(hidden._boardOutlineDrawn, true, 'saved dimensions remain available before rendering');
 assert.deepEqual([hidden._boardWidth, hidden._boardHeight, hidden._boardRadius], [43, 27, 2]);
@@ -104,9 +201,9 @@ assert.equal(hidden.cutRefreshes, 1, 'Hidden loading only clears the previous do
 
 calls.length = 0;
 const active = makeApp(true);
-loadPcb(active, data, prepared);
-assert.deepEqual(calls, ['viewport', 'grid', 'outline', 'placements', 'track', 'via', 'pad', 'shape', 'text', 'clearance', 'ratsnest', 'fills'],
-    'active loads still render immediately');
+load(active, data, PcbDocument.prepare(data));
+assert.deepEqual(events(), ['viewport', 'grid', 'outline', 'placements', 'track', 'via', 'pad', 'shape', 'text',
+    'clearance', 'fills', 'ratsnest', 'fills'], 'active loads still render immediately');
 assert.equal(active.cutRefreshes, 2, 'Active loading clears old cuts and refreshes once after all shapes');
 
 {
@@ -114,16 +211,17 @@ assert.equal(active.cutRefreshes, 2, 'Active loading clears old cuts and refresh
         { id: 'outline', kind: 'circle', layer: 'board-outline', x: 30, y: -20, radius: 10 },
     ] };
     calls.length = 0;
-    loadPcb(makeApp(true), saved, PcbDocument.prepare(saved));
+    load(makeApp(true), saved, PcbDocument.prepare(saved));
     assert.equal(calls.filter(call => call === 'outline').length, 1);
     assert.equal(calls.includes('outline-shape'), false, 'Active loading must not render the saved outline twice');
 }
 
 for (const active of [true, false]) {
     const paneApp = makeApp(active);
+    // Without a viewport the preview stops after reading its settings (no panel raster).
+    paneApp.viewport = null;
     const panelization = { ...PANEL_DEFAULTS, rows: 3, noteCreated: true };
     const stages = [];
-    const count = previews.length;
     for (const name of ['_drawBoardOutline', '_renderText', 'refreshFills']) {
         const original = paneApp[name];
         paneApp[name] = function (...args) {
@@ -132,14 +230,16 @@ for (const active of [true, false]) {
             return original.apply(this, args);
         };
     }
-    loadPcb(paneApp, { ...data, panelization }, { ...prepared, panelization });
+    const count = previews.length;
+    load(paneApp, { ...data, panelization }, { ...PcbDocument.prepare(data), panelization });
     assert.deepEqual(paneApp.pcbDocument.panelization, panelization);
     assert.notEqual(paneApp.pcbDocument.panelization, panelization, 'Loaded settings do not alias their prepared snapshot');
-    assert.deepEqual(stages, active ? ['_drawBoardOutline', '_renderText', 'refreshFills'] : []);
+    // The ratsnest reconcile refreshes pours first, then loading refreshes them once more.
+    assert.deepEqual(stages, active ? ['_drawBoardOutline', '_renderText', 'refreshFills', 'refreshFills'] : []);
     assert.equal(previews.length, count + (active ? 1 : 0));
     if (active) assert.deepEqual(previews.at(-1), { app: paneApp, settings: panelization },
         'The final preview sees restored model settings');
-    loadPcb(paneApp, null, { tracks: [], vias: [], pads: [], texts: [], boardShapes: [], shapeIdCounter: 1 });
+    load(paneApp, null, { tracks: [], vias: [], pads: [], texts: [], boardShapes: [], shapeIdCounter: 1 });
     assert.equal(paneApp.pcbDocument.panelization, null, 'New removes saved panelization in active and hidden editors');
     assert.deepEqual(paneApp.designSettings.values, data.design, 'New retains last-used design settings');
     assert.equal(paneApp._placementOverrides.size, 0);
@@ -148,7 +248,7 @@ for (const active of [true, false]) {
 calls.length = 0;
 hidden._board3d = { refresh: record('3d') };
 hidden.netlist = [{ net: 'GND' }];
-loadPcb(hidden, null, { tracks: [], vias: [], texts: [], boardShapes: [], shapeIdCounter: 1 });
+load(hidden, null, { tracks: [], vias: [], texts: [], boardShapes: [], shapeIdCounter: 1 });
 assert.equal(textMap.size, 0, 'New clears authoritative text even in the hidden editor');
 assert.equal(hidden.texts, textMap);
 assert.deepEqual(calls, ['viewport', '3d']);
@@ -159,31 +259,20 @@ assert.equal(hidden.placements.size, 0);
 assert.deepEqual(hidden.netlist, []);
 console.log('PASS: hidden PCB loading restores models and settings without rendering or derived copper work');
 
-const pcbSource = readFileSync(new URL('../src/ui/PCBApp.js', import.meta.url), 'utf8');
+const { default: PCBApp } = await import('../src/ui/PCBApp.js');
 let components = [];
-const methodDependencies = {
-    ...dependencies,
-    getPcbSelection: () => [], refreshBoxSelectionHighlights() {}, updateGridDropdown() {},
-    setInlineTextInputActive() {}, isFillRefreshPending,
-};
-const method = name => {
-    const methodStart = pcbSource.indexOf(`    ${name}(`);
-    const methodEnd = pcbSource.indexOf('\n    }', methodStart) + '\n    }'.length;
-    assert.ok(methodStart >= 0 && methodEnd > methodStart);
-    return new Function(...Object.keys(methodDependencies), `return ({${pcbSource.slice(methodStart, methodEnd)}}).${name};`)
-        (...Object.values(methodDependencies));
-};
 for (const withComponents of [false, true]) {
     components = withComponents ? [{ id: 'U1' }] : [];
     const app = makeApp(false);
     Object.assign(app, {
         project: { schematicDocument: {},
             synchronizePcbLayout: () => ({ placements: new Map(components.map(component => [component.id, component])), netlist: [] }) },
-        activate: method('activate'), preload: method('preload'), _syncFromSchematic: method('_syncFromSchematic'),
-        _renderPersistentObjects: method('_renderPersistentObjects'),
+        activate: PCBApp.prototype.activate, preload: PCBApp.prototype.preload,
+        _syncFromSchematic: PCBApp.prototype._syncFromSchematic,
+        _renderPersistentObjects: PCBApp.prototype._renderPersistentObjects,
         initialize() {}, _updateCursorForTool() {}, _updateViewportStatus() {},
         _retainRibbonHeight: record('ribbon-height'),
-        viewport: { _onResize: record('viewport-resize') },
+        viewport: viewportStub({ _onResize: record('viewport-resize') }),
         setPcbStatus() {}, setStatus() {}, _fitToPlacedContent() {},
         _drcShouldRun: () => false, _scheduleDRC: record('drc'),
         _clearPCBContent() { this.placements.clear(); calls.push('clear'); },
@@ -192,7 +281,7 @@ for (const withComponents of [false, true]) {
         _board3d: { refresh: record('3d') },
     });
     Object.defineProperty(app, 'copperFills', { get: () => app.boardShapes.filter(shape => shape.type === 'fill') });
-    loadPcb(app, data, prepared);
+    load(app, data, PcbDocument.prepare(data));
     calls.length = 0;
     app._syncFromSchematic();
     assert.deepEqual(calls, [], 'a queued sync must not render a hidden board');
@@ -225,9 +314,6 @@ for (const withComponents of [false, true]) {
 }
 console.log('PASS: first activation renders each restored image once, with or without schematic components');
 
-globalThis.window = { addEventListener() {} };
-globalThis.document = { getElementById: () => null };
-const { default: PCBApp } = await import('../src/ui/PCBApp.js');
 for (const pcb of [
     null,
     { settings: { units: 'mm', gridSize: 0.5 } },
@@ -240,22 +326,20 @@ for (const pcb of [
         const pcbDocument = new PcbDocument();
         if (pcb) pcbDocument.load({ ...pcb, stackup: data.stackup });
         const before = pcbDocument.serializeSection();
-        const outline = dependencies.getBoardOutline(pcbDocument);
+        const outline = getBoardOutline(pcbDocument);
         const app = new PCBApp({ pcbDocument, schematicDocument: {},
             synchronizePcbLayout: () => ({ placements: new Map(components.map(component => [component.id, component])), netlist: [] }) });
         assert.equal(app._boardOutlineDrawn, !!outline, 'Editor attachment recognizes an existing model outline');
         components = withComponents ? [{ id: 'U1' }] : [];
         Object.assign(app, {
-            activate: method('activate'), preload: method('preload'), _syncFromSchematic: method('_syncFromSchematic'),
-            _renderPersistentObjects: method('_renderPersistentObjects'),
             initialize() {}, _ensureViewport() {}, _retainRibbonHeight() {},
             _updateCursorForTool() {}, _syncPcbHomeToolHighlight() {}, _updateViewportStatus() {},
             setPcbStatus() {}, setStatus() {}, _clearPCBContent() {},
-            getLayerGroup: () => null, _drawBoardOutline: record('outline'),
+            getLayerGroup: layerGroups(), _drawBoardOutline: record('outline'),
             _placeFootprints: record('footprints'), _fitToPlacedContent() {},
             refreshClearanceHalos() {}, updateRatsnest() {}, updateCopperCuts() {},
             _showBoardDimensionsDialog: record('dimensions-dialog'),
-            viewport: { _onResize() {} },
+            viewport: viewportStub({ _onResize() {} }),
         });
         calls.length = 0;
         if (preload) {
@@ -268,22 +352,19 @@ for (const pcb of [
         assert.equal(calls.includes('outline-shape'), false, 'Rebuilds must not render the outline again with other artwork');
         assert.equal(calls.includes('dimensions-dialog'), !outline,
             'Only boards without an outline need the dimensions prompt');
-        assert.equal(dependencies.getBoardOutline(pcbDocument), outline, 'Attachment preserves outline identity');
+        assert.equal(getBoardOutline(pcbDocument), outline, 'Attachment preserves outline identity');
         assert.deepEqual(pcbDocument.serializeSection(), before, 'Attachment and activation do not edit authored data');
         assert.equal(app.isSectionDirty(), false);
     }
 }
-const { preparePcb, serializePcb } = await import('../src/pcb/modules/project-state.js');
 const { compactProjectAliases } = await import('../src/core/project-field-aliases.js');
-const { pictureShape } = await import('../src/shared/pcb/picture-raster.js');
-const { serializeBoardShapes } = await import('../src/pcb/modules/board-shapes.js');
 const artwork = { width: 20, height: 20, circles: [{ x: Math.PI, y: 5, radius: 1 / 3 }] };
 const image = { ...pictureShape(artwork, { widthMm: 12, layer: 'top-silk' }), id: 'pshape_1' };
 const saved = { ...data, boardShapes: serializeBoardShapes({ boardShapes: [image] }) };
 const restored = makeApp(false);
 restored.getRoutingParams = () => ({ trackWidth: 0.25, clearance: 0.2, viaDiameter: 0.6, viaDrill: 0.3 });
 restored._getRouterMode = () => 'pathfinder';
-loadPcb(restored, saved, preparePcb(saved));
+load(restored, saved, preparePcb(saved));
 const snapshot = serializePcb(restored);
 const expectedSaved = compactProjectAliases({ pcb: saved }).pcb;
 assert.deepEqual(snapshot.board, expectedSaved.board);
@@ -293,39 +374,19 @@ assert.deepEqual(snapshot.placements, expectedSaved.placements);
 assert.deepEqual(restored.boardShapes[0].artwork, artwork);
 console.log('PASS: image geometry, board dimensions, and placements survive save before first activation');
 
-const { boardShapeCopperCuts, getBoardShapeRotationPreview } = await import('../src/pcb/modules/board-shapes.js');
-function clipNode() {
-    return {
-        attributes: new Map(), children: [], parent: null,
-        setAttribute(name, value) { this.attributes.set(name, value); },
-        removeAttribute(name) { this.attributes.delete(name); },
-        get firstChild() { return this.children[0]; },
-        appendChild(child) { child.parent = this; this.children.push(child); },
-        removeChild(child) { this.children.splice(this.children.indexOf(child), 1); child.parent = null; },
-        remove() { this.parent?.removeChild(this); },
-        querySelector(selector) { return this.children.find(child => `#${child.attributes.get('id')}` === selector); },
-    };
-}
-const clipDefs = clipNode();
+const clipDefs = svgElement('defs');
 let geometryCalls = 0;
-const clipDependencies = {
-    getBoardShapeRotationPreview, areDragOverlaysDeferred,
-    document: { createElementNS: () => clipNode() },
-    boardShapeCopperCuts(app, layer) { geometryCalls++; return boardShapeCopperCuts(app, layer); },
-    setCopperFillClip(group, id) { group.clipId = id; },
-};
-const clipStart = pcbSource.indexOf('    updateCopperCuts(');
-const clipEnd = pcbSource.indexOf('\n    }', clipStart) + '\n    }'.length;
-assert.ok(clipStart >= 0 && clipEnd > clipStart);
-const updateCuts = new Function(...Object.keys(clipDependencies),
-    `return ({${pcbSource.slice(clipStart, clipEnd)}}).updateCopperCuts;`)(...Object.values(clipDependencies));
+const updateCuts = PCBApp.prototype.updateCopperCuts;
 let visibleBounds = { minX: 0, minY: 0, maxX: 30, maxY: 20 };
 const removal = { id: 'cut', kind: 'circle', x: 5, y: 5, radius: 2,
     layer: 'top-copper', copperMode: 'remove-copper', filled: true, lineWidth: 0.2 };
+const cutShapes = [removal];
 const clipApp = {
-    boardShapes: [removal], _ensureSvgDefs: () => clipDefs,
+    // Resolving one side's cut geometry reads the board shapes exactly once.
+    get boardShapes() { geometryCalls++; return cutShapes; },
+    _ensureSvgDefs: () => clipDefs,
     viewport: { getVisibleBounds: () => visibleBounds },
-    _layerGroups: new Map(['top-copper', 'bottom-copper', 'top-fill', 'bottom-fill'].map(id => [id, clipNode()])),
+    _layerGroups: new Map(['top-copper', 'bottom-copper', 'top-fill', 'bottom-fill'].map(id => [id, svgElement('g')])),
 };
 const currentPath = () => clipDefs.querySelector('#pcb-copper-cut-top')?.firstChild?.attributes.get('d');
 updateCuts.call(clipApp, { geometryChanged: false });
@@ -353,8 +414,8 @@ removal.layer = 'bottom-copper';
 updateCuts.call(clipApp);
 assert.equal(currentPath(), undefined, 'Changing layer clears the old side');
 assert.ok(clipDefs.querySelector('#pcb-copper-cut-bottom'));
-assert.equal(clipApp._layerGroups.get('top-fill').clipId, null);
-assert.equal(clipApp._layerGroups.get('bottom-fill').clipId, 'pcb-copper-cut-bottom');
+assert.equal(clipApp._layerGroups.get('top-fill').getAttribute('data-copper-cut'), null);
+assert.equal(clipApp._layerGroups.get('bottom-fill').getAttribute('data-copper-cut'), 'pcb-copper-cut-bottom');
 removal.layer = 'hole';
 updateCuts.call(clipApp);
 assert.ok(currentPath(), 'Board holes clip both sides');
@@ -364,13 +425,13 @@ const beforeRebuild = geometryCalls;
 updateCuts.call(clipApp, { geometryChanged: false });
 assert.ok(currentPath(), 'Missing SVG clip is restored from cached geometry');
 assert.equal(geometryCalls, beforeRebuild);
-clipApp.boardShapes.length = 0;
+cutShapes.length = 0;
 updateCuts.call(clipApp);
 assert.equal(clipApp._hasCopperCuts, false, 'Deleting the last cut clears the active flag');
 for (const side of ['top', 'bottom']) {
-    assert.equal(clipDefs.querySelector(`#pcb-copper-cut-${side}`), undefined);
+    assert.equal(clipDefs.querySelector(`#pcb-copper-cut-${side}`), null);
     assert.equal(clipApp._layerGroups.get(`${side}-copper`).attributes.has('clip-path'), false);
-    assert.equal(clipApp._layerGroups.get(`${side}-fill`).clipId, null);
+    assert.equal(clipApp._layerGroups.get(`${side}-fill`).getAttribute('data-copper-cut'), null);
 }
 const afterDelete = geometryCalls;
 updateCuts.call(clipApp, { geometryChanged: false });
