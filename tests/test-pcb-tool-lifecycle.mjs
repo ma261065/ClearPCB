@@ -56,7 +56,7 @@ function fixture() {
         _hoverComponent(value) { assert.equal(value, null); events.push('hover'); },
         _selectRefText(value) { assert.equal(value, null); events.push('reference'); },
         _updateCursorForTool() { events.push(`cursor:${this.currentTool}`); },
-        _setPcbStatus() { events.push(`status:${this.currentTool}`); },
+        setPcbStatus() { events.push(`status:${this.currentTool}`); },
         _hideToolOptions() { events.push('hide-options'); },
         _showViaToolProperties() { events.push('properties:via'); },
         _showPadToolProperties() { events.push('properties:pad'); },

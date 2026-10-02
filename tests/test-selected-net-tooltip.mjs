@@ -42,7 +42,7 @@ try {
     app.netlist = [];
     app._netTooltip = null;
     app._netTooltipTimer = 0;
-    app._setPcbStatus = () => {};
+    app.setPcbStatus = () => {};
 
     setPcbSelection(app, [{ kind: 'via', object: via }]);
     app._updateNetTooltip({ clientX: 20, clientY: 30 }, { type: 'via', via });

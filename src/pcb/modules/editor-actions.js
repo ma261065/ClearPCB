@@ -113,7 +113,7 @@ export function runPcbEscapeAction(app) {
     if (app.currentTool !== 'select') {
         clearSelectionInteractionUi(app);
         clearBoxSelection(app);
-        app._clearProperties?.();
+        app.clearProperties?.();
         resetPcbTool(app);
         app._setActiveRibbonTab?.('pcb-home');
         return true;
@@ -125,23 +125,23 @@ export function runPcbEscapeAction(app) {
     }
     if (getPcbSelection(app, 'text').length) {
         app._selectText(null);
-        app._clearProperties?.();
+        app.clearProperties?.();
         app._setActiveRibbonTab?.('pcb-home');
         return true;
     }
     if (getSelectedTrack(app) || getSelectedVia(app)) {
         clearTrackSelection(app);
-        app._clearProperties?.();
+        app.clearProperties?.();
         return true;
     }
     if (getPcbSelection(app, 'fill').length) {
-        app._selectFill(null);
-        app._clearProperties?.();
+        app.selectFill(null);
+        app.clearProperties?.();
         return true;
     }
     if (getPcbSelection(app, 'reftext').length) {
         app._selectRefText(null);
-        app._clearProperties?.();
+        app.clearProperties?.();
         app._setActiveRibbonTab?.('pcb-home');
         return true;
     }

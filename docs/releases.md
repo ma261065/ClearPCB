@@ -23,10 +23,10 @@ Cloudflare zone, repository secrets, local testing, and security limitations.
 
 **Regression Checks** runs on pushes and pull requests targeting `dev` and
 `release_*`, and can be started manually. Its **Regression gate** job runs
-`node tools/regression.mjs` on Node 22: the import-boundary check, every root
-regression test, and the autorouter clearance baseline. Any test failure or hard
-baseline failure fails the job. Track/via-count differences remain visible soft
-warnings, not evidence that routing quality is unchanged.
+`node tools/regression.mjs` on Node 22: the import-boundary and PCB editor-access
+checks, every root regression test, and the autorouter clearance baseline. Any test
+failure or hard baseline failure fails the job. Track/via-count differences remain
+visible soft warnings, not evidence that routing quality is unchanged.
 
 Its **Type check** job installs TypeScript 5.9.3 and runs `node tools/typecheck.mjs`,
 which writes per-file error counts to the job summary. Until

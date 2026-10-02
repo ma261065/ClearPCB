@@ -82,14 +82,14 @@ function fixture(active) {
             lifecycle.push('dimensions');
         },
         _ensureViewport() {},
-        _getLayerGroup(id) {
+        getLayerGroup(id) {
             if (!layers.has(id)) layers.set(id, element('g'));
             return layers.get(id);
         },
-        _updateCopperCuts() {}, _clearFillGroups() {}, _closeDRCPanel() {}, _clearDRCMarker() {},
-        _refreshBoardShapeClearance() {}, _setPcbStatus() {}, _syncClipboardButtons() {}, _scheduleRemovalHatchRender() {},
+        updateCopperCuts() {}, _clearFillGroups() {}, _closeDRCPanel() {}, _clearDRCMarker() {},
+        _refreshBoardShapeClearance() {}, setPcbStatus() {}, syncClipboardButtons() {}, _scheduleRemovalHatchRender() {},
         _updateCursorForTool() {}, _syncPcbHomeToolHighlight() {}, _hideToolOptions() {},
-        _refreshClearanceHalos() {}, _refreshFills() {},
+        refreshClearanceHalos() {}, refreshFills() {},
     });
     const host = {
         document: project.schematicDocument,
@@ -122,7 +122,7 @@ function fixture(active) {
     assert.equal(app.boardShapes.length, 1);
     assert.equal(outline.cornerRadius, 2);
     assert.deepEqual([app._boardWidth, app._boardHeight], [43, 27]);
-    assert.equal(app._getLayerGroup('board-outline').querySelectorAll('.pcb-board-outline').length, 1,
+    assert.equal(app.getLayerGroup('board-outline').querySelectorAll('.pcb-board-outline').length, 1,
         'Legacy outline rendering is not duplicated');
 }
 
@@ -138,7 +138,7 @@ for (const active of [true, false]) {
         ];
         app.boardShapes.push(...shapes);
         for (const item of shapes) renderBoardShape(app, item);
-        const layer = app._getLayerGroup('top-silk'), overlay = app._getLayerGroup('selection-overlay');
+        const layer = app.getLayerGroup('top-silk'), overlay = app.getLayerGroup('selection-overlay');
         assert.equal(layer.children.length, shapes.length);
         if (selected) {
             setPcbSelection(app, shapes.map(object => ({ kind: 'shape', object })));
@@ -184,7 +184,7 @@ for (const replacement of [null, { stackup: { copperLayers: ['top-copper', 'bott
     assert.equal(preview.parentNode, null, 'New/Open removes drawing previews before dropping their state');
     assert.equal(app._shapeDraw, null);
     assert.equal(app.currentTool, 'select');
-    assert.equal(app._getLayerGroup('selection-overlay').children.length, 0);
+    assert.equal(app.getLayerGroup('selection-overlay').children.length, 0);
 }
 
 {
@@ -200,7 +200,7 @@ for (const replacement of [null, { stackup: { copperLayers: ['top-copper', 'bott
     assert.deepEqual(lifecycle, [], 'Cancelling New must not prompt or change tabs');
     assert.equal(app.boardShapes[0], old, 'Cancelling New preserves the current document');
     assert.equal(getPcbSelectionEntries(app)[0].object, old);
-    assert.equal(app._getLayerGroup('selection-overlay').querySelectorAll('.pcb-selection-anchors').length, 1);
+    assert.equal(app.getLayerGroup('selection-overlay').querySelectorAll('.pcb-selection-anchors').length, 1);
 
     loadPcb(app, { stackup: { copperLayers: ['top-copper', 'bottom-copper'] },
         boardShapes: [{ ...old, x: 50, y: -20 }] });
@@ -209,9 +209,9 @@ for (const replacement of [null, { stackup: { copperLayers: ['top-copper', 'bott
     assert.equal(getPcbSelectionEntries(app).length, 0, 'Open cannot transfer old selection to a reused object ID');
     project.notifyDocumentReplaced('open');
     assert.deepEqual(lifecycle, ['pcb-home'], 'Open does not trigger the New-board setup prompt');
-    assert.equal(app._getLayerGroup('selection-overlay').children.length, 0);
+    assert.equal(app.getLayerGroup('selection-overlay').children.length, 0);
     clearPcbSelection(app);
-    assert.equal(app._getLayerGroup('top-silk').children.length, 1, 'Open retains only the new document artwork');
+    assert.equal(app.getLayerGroup('top-silk').children.length, 1, 'Open retains only the new document artwork');
 }
 delete globalThis.bootstrap;
 {

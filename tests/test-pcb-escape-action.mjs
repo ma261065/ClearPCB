@@ -20,14 +20,14 @@ function fixture() {
     const app = {
         _active: true, currentTool: 'via', history,
         placements: new Map(), tracks: [], vias: [], pads: [], boardShapes: [], texts: new Map(),
-        _layerGroups: new Map(), _getLayerGroup: () => null,
-        _refreshText() {},
+        _layerGroups: new Map(), getLayerGroup: () => null,
+        refreshText() {},
         viewport: { svg: { style: {} }, hideCrosshair() { events.push('hide-crosshair'); } },
         _clearCursorCrosshair() { events.push('clear-crosshair'); },
-        _clearProperties() { events.push('clear-properties'); },
+        clearProperties() { events.push('clear-properties'); },
         _updateCursorForTool() { events.push('cursor'); },
         _syncPcbHomeToolHighlight() { events.push('highlight'); },
-        _setPcbStatus() { events.push('status'); },
+        setPcbStatus() { events.push('status'); },
         _hideToolOptions() { events.push('hide-options'); },
         _setActiveRibbonTab(tab) { events.push(tab); },
         handleKeyDown: PCBApp.prototype.handleKeyDown,
@@ -149,7 +149,7 @@ function drawingFixture(tool) {
     app.currentTool = tool;
     const key = tool === 'track' ? '_trackDraw' : tool === 'fill' ? '_fillDraw' : '_shapeDraw';
     app[key] = { kind: tool, points: [{ x: 1, y: 2 }], preview, previewElements: [preview] };
-    if (tool === 'fill') app._getLayerGroup = id => id === 'selection-overlay'
+    if (tool === 'fill') app.getLayerGroup = id => id === 'selection-overlay'
         ? { querySelectorAll: () => [preview] } : null;
     app._lastCrosshairWorld = { x: Math.PI, y: -Math.E };
     app.viewport.setCrosshair(app._lastCrosshairWorld);

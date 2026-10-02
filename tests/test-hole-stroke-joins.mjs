@@ -72,12 +72,12 @@ for (const shape of shapes) {
         assert.equal(boardShapeRemovalPathD({ ...shape, layer }), path, 'physical open stroke is layer-independent');
     }
     const rendered = element();
-    renderBoardShape({ _shapeElements: new Map(), _getLayerGroup: () => rendered }, shape);
+    renderBoardShape({ _shapeElements: new Map(), getLayerGroup: () => rendered }, shape);
     assert.equal(checkInsideBorder(rendered.children[0], path).getAttribute('fill-rule'), 'evenodd',
         'hole renderer preserves nested contours');
     for (const state of ['normal', 'selected', 'hovered']) {
         const group = element(), app = {
-            _shapeElements: new Map(), _getLayerGroup: () => group,
+            _shapeElements: new Map(), getLayerGroup: () => group,
             _pcbSelection: { isSelected: () => state === 'selected' },
         };
         for (const layer of ['hole', 'top-copper', 'top-silk', 'hole']) {
@@ -128,7 +128,7 @@ for (const fixture of [
 ]) {
     const shape = { id: fixture.kind, layer: 'hole', lineWidth: 0.8, ...fixture };
     const before = structuredClone(shape), group = element();
-    renderBoardShape({ _shapeElements: new Map(), _getLayerGroup: () => group }, shape);
+    renderBoardShape({ _shapeElements: new Map(), getLayerGroup: () => group }, shape);
     const painted = checkInsideBorder(group.children[0], boardShapeRemovalPathD(shape));
     assert.equal(painted.getAttribute('fill-rule'), shape.kind === 'image' ? 'nonzero' : 'evenodd',
         'clipping respects both compound contours and overlapping picture circles');

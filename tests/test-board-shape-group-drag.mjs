@@ -70,7 +70,7 @@ function expect(name, actual, expected) {
         pcbDocument, placements: new Map(),
         get texts() { return getTextPosePreviewTexts(this) || this.pcbDocument.texts; },
         viewport: { snapToGrid: true, gridVisible: true, gridSize: 1 },
-        _refreshText() { redraws++; },
+        refreshText() { redraws++; },
     };
     setPcbSelection(app, [{ kind: 'text', object: text }]);
     beginGroupDrag(app, { x: 0, y: 0 });
@@ -122,9 +122,9 @@ for (const test of cases) {
         const crosshairs = [];
         const app = Object.assign(topologyApp([shape]), {
             _deferDragOverlays: false, _shapeElements: new Map(), _layerGroups: new Map(),
-            _getLayerGroup() { return null; },
+            getLayerGroup() { return null; },
             _snapToGrid(point) { return point; },
-            _refreshFills() { refreshes.push(this._deferDragOverlays); },
+            refreshFills() { refreshes.push(this._deferDragOverlays); },
             viewport: { scale: 100, setCrosshair(point) { crosshairs.push(point); }, hideCrosshair() {} },
             history: { execute(command) { command.execute(); } },
         });
@@ -186,7 +186,7 @@ const additiveShape = {
 const dragApp = {
     _deferDragOverlays: false,
     boardShapes: [additiveShape], _shapeElements: new Map(), _layerGroups: new Map(),
-    _getLayerGroup() { return null; },
+    getLayerGroup() { return null; },
     viewport: { scale: 100, setCrosshair() {}, hideCrosshair() {} },
 };
 startBoardShapeDrag(dragApp, additiveShape, { x: 5, y: 5 });
@@ -258,7 +258,7 @@ for (const shape of [
         boardShapes: [shape],
         _deferDragOverlays: false,
         _shapeElements: new Map(),
-        _getLayerGroup() { return null; },
+        getLayerGroup() { return null; },
         _snapToGrid(point) { return point; },
         viewport: { scale: 100, setCrosshair() {} },
     };
@@ -316,7 +316,7 @@ for (const shape of [
         boardShapes: [shape], placements: new Map(), tracks: [], vias: [], texts: new Map(),
         _deferDragOverlays: false,
         _shapeElements: new Map(),
-        _getLayerGroup() { return null; },
+        getLayerGroup() { return null; },
         _snapToGrid(point) { return point; },
         viewport: { scale: 100, setCrosshair() {}, hideCrosshair() {} },
     };
@@ -345,7 +345,7 @@ for (const shape of [
         boardShapes: [shape],
         _deferDragOverlays: false,
         _shapeElements: new Map(),
-        _getLayerGroup() { return null; },
+        getLayerGroup() { return null; },
         _snapToGrid(point) { return point; },
         viewport: { scale: 100, setCrosshair() {} },
     };
@@ -399,7 +399,7 @@ function topologyApp(shapes) {
         get boardShapes() { return getGroupPreview(this)?.boardShapes || getBoardShapePointerPreview(this)?.boardShapes || pcbDocument.boardShapes; },
         placements: new Map(), tracks: [], vias: [], texts: new Map(),
         _shapeElements: new Map(), _shapeIdCounter: 1, _deferDragOverlays: false,
-        _getLayerGroup() { return null; }, _snapToGrid(point) { return point; },
+        getLayerGroup() { return null; }, _snapToGrid(point) { return point; },
         viewport: { scale: 100, snapToGrid: false, setCrosshair() {}, hideCrosshair() {} },
         history: { execute(command) { command.execute(); } },
     };

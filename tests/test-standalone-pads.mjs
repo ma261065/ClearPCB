@@ -67,7 +67,7 @@ const movingViewport = {
 const movingApp = {
     pcbDocument: new PcbDocument(),
     viewport: movingViewport,
-    _getLayerGroup: () => null,
+    getLayerGroup: () => null,
     history: { execute() {} },
 };
 movingApp.pcbDocument.pads.push(movingPad);
@@ -104,7 +104,7 @@ const rotationInput = { value: '' };
 globalThis.document = { getElementById: id => id === 'pcbPropPadRotation' ? rotationInput : null };
 const rotationApp = {
     pcbDocument: new PcbDocument(),
-    viewport: { scale: 1 }, _getLayerGroup: () => null,
+    viewport: { scale: 1 }, getLayerGroup: () => null,
     history: { execute() {} },
 };
 rotationApp.pcbDocument.pads.push(rotatingPad);

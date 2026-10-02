@@ -23,8 +23,8 @@ Object.assign(app, {
     _pcbPropsItems: () => items,
     _setPcbPropsTitle() {},
     _setActiveRibbonTab() {},
-    _setPcbStatus() {},
-    _syncClipboardButtons() {},
+    setPcbStatus() {},
+    syncClipboardButtons() {},
 });
 syncPcbSelection(app);
 

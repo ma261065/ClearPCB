@@ -136,7 +136,7 @@ function connectivityApp(viaY) {
             placements: new Map(),
             boardShapes: [],
             copperFills: [],
-            _getLayerGroup: () => ({ children, appendChild: (element) => children.push(element) }),
+            getLayerGroup: () => ({ children, appendChild: (element) => children.push(element) }),
             _followDRCRatline() {
                 drcFollowCount++;
                 drcFollowSawRatline = children.length > 0;

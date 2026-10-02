@@ -4,7 +4,7 @@ import { boardBoundary } from './board-outline.js';
 
 /** @returns {import('./copper-fill-geom.js').FillContext} */
 export function buildFillContext(app) {
-    const params = app._getRoutingParams?.() || {};
+    const params = app.getRoutingParams?.() || {};
     return {
         tracks: app.tracks, vias: app.vias,
         texts: [...app.texts.values()], fills: [...app.copperFills],

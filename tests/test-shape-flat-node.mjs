@@ -56,7 +56,7 @@ for (const reversed of [false, true]) {
         assert.ok(originalCap.every(point => Math.abs(Math.hypot(point.x, point.y) - 1) < 0.003),
             'Default joins follow the half-width circle without pointed miters');
         const commands = [];
-        const app = { boardShapes: [shape], _shapeElements: new Map(), _getLayerGroup() { return null; },
+        const app = { boardShapes: [shape], _shapeElements: new Map(), getLayerGroup() { return null; },
             viewport: { scale: 1000, setCrosshair() {}, hideCrosshair() {} }, _snapToGrid(point) { return point; },
             history: { execute(command) { commands.push(command); command.execute(); } } };
         const node = reversed ? 2 : 0;
@@ -88,7 +88,7 @@ for (const moved of [false, true]) {
     const shape = { id: 'insert-round', kind: 'polygon', layer: 'top-copper', lineWidth: 2,
         points: [{ x: 0, y: 0 }, { x: 20, y: 0 }, { x: 20, y: 16 }, { x: 0, y: 16 }],
         nodeCornerRadii: { 2: 0 } };
-    const app = { boardShapes: [shape], _shapeElements: new Map(), _getLayerGroup() { return null; },
+    const app = { boardShapes: [shape], _shapeElements: new Map(), getLayerGroup() { return null; },
         viewport: { scale: 1000, setCrosshair() {}, hideCrosshair() {} }, _snapToGrid(point) { return point; },
         history: { execute(command) { command.execute(); } } };
     startBoardShapeDrag(app, shape, { x: 10, y: 0 }, 'mid:0');
@@ -103,7 +103,7 @@ for (const reversed of [false, true]) {
     const points = [{ x: 0, y: 20 }, { x: 0, y: 0 }, { x: 10, y: 0 }, { x: 20, y: 0 }, { x: 20, y: 20 }];
     if (reversed) points.reverse();
     const shape = { id: 'inward-v', kind: 'polygon', layer: 'top-copper', lineWidth: 2, points };
-    const app = { boardShapes: [shape], _shapeElements: new Map(), _getLayerGroup() { return null; },
+    const app = { boardShapes: [shape], _shapeElements: new Map(), getLayerGroup() { return null; },
         viewport: { scale: 1000, setCrosshair() {}, hideCrosshair() {} }, _snapToGrid(point) { return point; },
         history: { execute(command) { command.execute(); } } };
     startBoardShapeDrag(app, shape, { x: 10, y: 0 }, 2);

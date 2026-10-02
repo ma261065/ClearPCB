@@ -65,18 +65,18 @@ try {
                 pcbDocument, get boardShapes() { return Object.getOwnPropertyDescriptor(PCBApp.prototype, 'boardShapes').get.call(this); },
                 placements: new Map(), texts: new Map(),
                 tracks: [], vias: [], pads: [], _shapeElements: new Map(), _layerGroups: groups,
-                history: new CommandHistory(), _ensureSvgDefs: () => defs, _getLayerGroup: id => groups.get(id),
+                history: new CommandHistory(), _ensureSvgDefs: () => defs, getLayerGroup: id => groups.get(id),
                 viewport: { scale: 10, gridVisible: false, svg: new Element('svg'),
                     setCrosshair() {}, hideCrosshair() {},
                     getVisibleBounds: () => ({ minX: 0, minY: 0, maxX: 40, maxY: 40 }) },
-                _updateCopperCuts: PCBApp.prototype._updateCopperCuts,
+                updateCopperCuts: PCBApp.prototype.updateCopperCuts,
             };
             for (const side of ['top', 'bottom']) {
                 const fill = new CopperFill({ layer: `${side}-copper`, outline: [
                     { x: 0, y: 0 }, { x: 40, y: 0 }, { x: 40, y: 40 }, { x: 0, y: 40 },
                 ] });
                 setComputedFill(fill, [{ outer: fill.outline, holes: [] }]);
-                renderCopperFill(fill, app._getLayerGroup);
+                renderCopperFill(fill, app.getLayerGroup);
             }
             renderBoardShape(app, shape);
             const sides = layer === 'hole' ? ['top', 'bottom'] : [layer.split('-')[0]];
@@ -105,9 +105,9 @@ try {
             const movedCuts = Object.fromEntries(sides.map(side => [side, boardShapeCopperCuts(app, `${side}-copper`).d]));
             assert.notDeepEqual(movedCuts, initialCuts);
             app.viewport.getVisibleBounds = () => ({ minX: 4, minY: 4, maxX: 30, maxY: 30 });
-            app._updateCopperCuts({ geometryChanged: false });
+            app.updateCopperCuts({ geometryChanged: false });
             assertCuts(initialCuts);
-            app._updateCopperCuts();
+            app.updateCopperCuts();
             assertCuts(initialCuts);
             if (group) {
                 if (commit) endGroupDrag(app);
@@ -144,15 +144,15 @@ try {
             const app = {
                 pcbDocument, get boardShapes() { return getBoardShapeRotationPreview(this)?.boardShapes || pcbDocument.boardShapes; },
                 history: new CommandHistory(), _shapeElements: new Map(), _layerGroups: groups,
-                _ensureSvgDefs: () => defs, _getLayerGroup: id => groups.get(id),
-                _updateCopperCuts: PCBApp.prototype._updateCopperCuts,
+                _ensureSvgDefs: () => defs, getLayerGroup: id => groups.get(id),
+                updateCopperCuts: PCBApp.prototype.updateCopperCuts,
                 viewport: { scale: 10, getVisibleBounds: () => ({ minX: 0, minY: 0, maxX: 40, maxY: 40 }) },
             };
             const fill = new CopperFill({ layer: `${side}-copper`, outline: [
                 { x: 0, y: 0 }, { x: 40, y: 0 }, { x: 40, y: 40 }, { x: 0, y: 40 },
             ] });
             setComputedFill(fill, [{ outer: fill.outline, holes: [] }]);
-            renderCopperFill(fill, app._getLayerGroup);
+            renderCopperFill(fill, app.getLayerGroup);
             renderBoardShape(app, shape);
             const initial = boardShapeCopperCuts(app, shape.layer).d;
             const clipId = `pcb-copper-cut-${side}`;
@@ -173,8 +173,8 @@ try {
             const rotated = boardShapeCopperCuts(app, shape.layer).d;
             assert.notEqual(rotated, initial);
             flush();
-            app._updateCopperCuts({ geometryChanged: false });
-            app._updateCopperCuts();
+            app.updateCopperCuts({ geometryChanged: false });
+            app.updateCopperCuts();
             assertCut(initial);
             adapter.endAnchorDrag(commit);
             assertCut(initial);

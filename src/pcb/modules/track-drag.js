@@ -81,7 +81,7 @@ function _beginVertexDragOverlayDeferral(app) {
 
 function _endVertexDragOverlayDeferral(app, drag) {
     app._deferDragOverlays = drag.previousDeferDragOverlays;
-    if (!app._deferDragOverlays) app._refreshClearanceHalos?.();
+    if (!app._deferDragOverlays) app.refreshClearanceHalos?.();
     else if (drag.preview) app._refreshTrackClearance?.(drag.original);
 }
 
@@ -154,8 +154,8 @@ function _viaAtPoint(app, x, y) {
 
 function _opts(app, track = app._vertexDrag?.track) {
     return {
-        viaDiameter: app._getRoutingParams?.()?.viaDiameter,
-        viaDrill: app._getRoutingParams?.()?.viaDrill,
+        viaDiameter: app.getRoutingParams?.()?.viaDiameter,
+        viaDrill: app.getRoutingParams?.()?.viaDrill,
         hideNetLabel: !!track && (track === getPcbSelection(app, 'track')[0] || track === app._vertexDrag?.track),
     };
 }
@@ -484,7 +484,7 @@ export function splitTrackNodeAndDrag(app, track, nodeId) {
     copy.setNodeCornerRadius(newNodeId, copy.nodeCornerRadius(nodeId));
     drag.nodes[0].nodeId = newNodeId;
     drag.splitNodeId = newNodeId;
-    renderTrack(copy, id => app._getLayerGroup(id), _opts(app));
+    renderTrack(copy, id => app.getLayerGroup(id), _opts(app));
 
     // Float the freshly-detached node under the cursor. The whole split
     // (topology + move) commits atomically via the topology branch in
@@ -534,7 +534,7 @@ export function startMidpointInsertDrag(app, track, edgeId) {
     // Freeze 3D board-view sync for the drag; it rebuilds once on commit
     // rather than live from the in-flight (uncommitted) node positions.
     app._suspendBoardViewRefresh = true;
-    renderTrack(copy, (id) => app._getLayerGroup(id), _opts(app));
+    renderTrack(copy, (id) => app.getLayerGroup(id), _opts(app));
     refreshTrackSelectionHalo(app);
     reconcileRatsnest(app);
     return true;
@@ -802,7 +802,7 @@ function _hasViaAt(app, x, y) {
 
 /** Build a standalone Via at `(x, y)` on `net` using the app's routing params. */
 function _makeViaAt(app, x, y, net) {
-    const p = app._getRoutingParams?.() || {};
+    const p = app.getRoutingParams?.() || {};
     const diameter = Number.isFinite(p.viaDiameter) && p.viaDiameter > 0 ? p.viaDiameter : 0.6;
     const drill = Number.isFinite(p.viaDrill) && p.viaDrill > 0 ? p.viaDrill : 0.3;
     return new Via({ x, y, diameter, drill, net: net || '' });
@@ -1207,9 +1207,9 @@ export function updateVertexDrag(app, worldPos) {
         if ((edge.bulge || 0) === bulge) return;
         const copy = beginTrackPointerPreview(app, drag);
         copy.setEdgeAttr(drag.edgeId, 'bulge', bulge);
-        renderTrack(copy, layer => app._getLayerGroup(layer), _opts(app));
+        renderTrack(copy, layer => app.getLayerGroup(layer), _opts(app));
         app._refreshTrackClearance?.(copy);
-        app._refreshSelectedDRCMarker?.();
+        app.refreshSelectedDRCMarker?.();
         refreshTrackSelectionHalo(app);
         const input = document.getElementById('pcbPropTrackBulge');
         if (input) input.value = formatNumberInputValue(bulge);
@@ -1257,7 +1257,7 @@ export function updateVertexDrag(app, worldPos) {
         drag.track.invalidate();
         if (anchor) app.viewport?.setCrosshair({ x: anchor.x, y: anchor.y });
         renderTrackAxisGlow(app, _incidentSegments(drag.track, drag.nodes));
-        renderTrack(drag.track, (id) => app._getLayerGroup(id), _opts(app));
+        renderTrack(drag.track, (id) => app.getLayerGroup(id), _opts(app));
         app._refreshTrackClearance?.(drag.track);
         renderTrackAxisGlowTop(app);
         refreshTrackSelectionHalo(app);
@@ -1362,7 +1362,7 @@ export function updateVertexDrag(app, worldPos) {
 
     drag.track.invalidate();
     renderTrackAxisGlow(app, _incidentSegments(drag.track, drag.nodes));
-    renderTrack(drag.track, (id) => app._getLayerGroup(id), _opts(app));
+    renderTrack(drag.track, (id) => app.getLayerGroup(id), _opts(app));
     app._refreshTrackClearance?.(drag.track);
     renderTrackAxisGlowTop(app);
     // Keep the selection halo glued to the new geometry.
@@ -1777,12 +1777,12 @@ function endTrackPointer(app, drag, committed) {
             removeTrackElements(drag.original);
             if (app._trackEdit?.track === drag.original) app._trackEdit = null;
             syncPcbSelection(app);
-            app._clearProperties?.();
+            app.clearProperties?.();
         }
         if (drag.preview) {
             removeTrackElements(drag.track);
             if (!committed && present) {
-                renderTrack(drag.original, id => app._getLayerGroup(id), _opts(app, drag.original));
+                renderTrack(drag.original, id => app.getLayerGroup(id), _opts(app, drag.original));
             }
             refreshTrackSelectionHalo(app);
         }
@@ -1897,18 +1897,18 @@ function restoreTerminalArtwork(app, drag, committed) {
     if (!committed) {
         const collection = drag.kind === 'pad' ? 'pads' : 'vias';
         if (app.pcbDocument[collection].includes(drag.original)) {
-            drag.render(drag.original, id => app._getLayerGroup(id));
+            drag.render(drag.original, id => app.getLayerGroup(id));
         }
         for (const track of drag.preview.copies.keys()) {
             if (app.pcbDocument.tracks.includes(track)) {
-                renderTrack(track, id => app._getLayerGroup(id), _opts(app, track));
+                renderTrack(track, id => app.getLayerGroup(id), _opts(app, track));
             }
         }
         refreshTrackSelectionHalo(app);
         reconcileRatsnest(app, { skipFillRefresh: true });
     }
     if (!app._deferDragOverlays) {
-        if (!committed) app._refreshClearanceHalos?.();
+        if (!committed) app.refreshClearanceHalos?.();
     } else {
         if (drag.kind === 'via') app._refreshViaClearance?.(drag.original);
         for (const track of drag.preview.copies.keys()) app._refreshTrackClearance?.(track);
@@ -2022,10 +2022,10 @@ export function updateViaDrag(app, worldPos) {
     for (const [track, nodes] of byTrack) glowSegs.push(..._incidentSegments(track, nodes));
     renderTrackAxisGlow(app, glowSegs);
     for (const t of touched) {
-        renderTrack(t, (id) => app._getLayerGroup(id), _opts(app, t));
+        renderTrack(t, (id) => app.getLayerGroup(id), _opts(app, t));
         app._refreshTrackClearance?.(t);
     }
-    drag.render(drag.via, (id) => app._getLayerGroup(id));
+    drag.render(drag.via, (id) => app.getLayerGroup(id));
     if (drag.kind === 'via') app._refreshViaClearance?.(drag.via);
     renderTrackAxisGlowTop(app);
     refreshTrackSelectionHalo(app);

@@ -97,9 +97,9 @@ for (const [create, render, remove] of [
     const track = makeTrack();
     const layers = groups();
     const app = { tracks: [track], vias: [], pads: [], boardShapes: [], texts: new Map(),
-        placements: new Map(), _getLayerGroup: id => layers.get(id) };
+        placements: new Map(), getLayerGroup: id => layers.get(id) };
     const labels = () => children(layers).filter(element => element.getAttribute('class') === 'pcb-track-label');
-    renderTrack(track, app._getLayerGroup);
+    renderTrack(track, app.getLayerGroup);
     assert.ok(labels().length > 0);
     selectTrackOrVia(app, { type: 'track', track });
     const original = labels();
@@ -109,7 +109,7 @@ for (const [create, render, remove] of [
     assert.deepEqual(labels(), original, 'Deselection restores existing labels without rebuilding artwork');
     assert.ok(labels().every(element => element.style.display === ''));
     selectTrackOrVia(app, { type: 'track', track });
-    renderTrack(track, app._getLayerGroup, { hideNetLabel: true });
+    renderTrack(track, app.getLayerGroup, { hideNetLabel: true });
     assert.equal(labels().length, 0);
     clearTrackSelection(app);
     assert.equal(labels().length, original.length, 'Deselection rebuilds labels omitted during a selected redraw');

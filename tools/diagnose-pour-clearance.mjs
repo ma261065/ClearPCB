@@ -25,7 +25,7 @@ const app = {
     texts: new Map((pcb.texts || []).map((item) => [item.id, item])),
     netlist: extractNetlist({ components, shapes: (schematic.shapes || []).map(createShape) }),
     _boardWidth: pcb.board.width, _boardHeight: pcb.board.height, _boardRadius: pcb.board.radius,
-    _getRoutingParams: () => pcb.design,
+    getRoutingParams: () => pcb.design,
     get copperFills() { return this.boardShapes.filter((shape) => shape.type === 'fill'); },
 };
 for (const component of components) {

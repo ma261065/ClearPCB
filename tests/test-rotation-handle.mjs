@@ -84,8 +84,8 @@ try {
             const app = { pcbDocument, boardShapes: pcbDocument.boardShapes,
                 get texts() { return getTextPosePreviewTexts(this) || pcbDocument.texts; },
                 tracks: [], vias: [], placements: new Map(), _shapeElements: new Map(),
-                viewport: { scale: 10, svg: element('svg') }, history: new CommandHistory(), _getLayerGroup() { return null; },
-                _pcbPropsItems() { return null; }, _refreshText() {},
+                viewport: { scale: 10, svg: element('svg') }, history: new CommandHistory(), getLayerGroup() { return null; },
+                _pcbPropsItems() { return null; }, refreshText() {},
                 _showTextProperties(text) { inputs.get('pcbPropTextRot').value = String(text.rotation); } };
             setPcbSelection(app, [{ kind: kind === 'image' ? 'shape' : 'text', object }]);
             const adapter = kind === 'image' ? createBoardShapeSelectionAdapter(app, object, `shape:${object.id}`)
@@ -127,7 +127,7 @@ try {
             cancelPictureCopperRefresh(app);
 
             const overlay = element('g');
-            app._getLayerGroup = id => id === 'selection-overlay' ? overlay : null;
+            app.getLayerGroup = id => id === 'selection-overlay' ? overlay : null;
             renderPcbSelectionAnchors(app);
             const handles = overlay.children.flatMap(group => group.children);
             assert.equal(handles.filter(handle => handle.tag === 'line').length, 0, 'Rotation control has no connector');
@@ -238,9 +238,9 @@ try {
         get texts() { return getTextPosePreviewTexts(this) || movingDocument.texts; },
         placements: new Map(), tracks: [], vias: [], history: new CommandHistory(),
         viewport: { scale: 10, svg: element('svg'), setCrosshair() {}, hideCrosshair() {} },
-        _getLayerGroup(id) { return id === 'selection-overlay' ? movingOverlay : null; },
+        getLayerGroup(id) { return id === 'selection-overlay' ? movingOverlay : null; },
         _snapToGrid(point) { return point; },
-        _refreshText() { if (isPcbSelected(this, 'text', movingText)) renderPcbSelectionAnchors(this); },
+        refreshText() { if (isPcbSelected(this, 'text', movingText)) renderPcbSelectionAnchors(this); },
     };
     movingApp._selectText(movingText);
     const assertMovingHandle = () => {

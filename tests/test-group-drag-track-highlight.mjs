@@ -44,14 +44,14 @@ for (const count of [1, 2]) {
         get boardShapes() { return getGroupPreview(this)?.boardShapes || this.pcbDocument.boardShapes; },
         vias: [], placements: new Map(), texts: new Map(),
         _shapeElements: new Map(), _layerGroups: layers,
-        _getLayerGroup(name) {
+        getLayerGroup(name) {
             for (const track of tracks) assert.deepEqual(track.getBounds(), track._calculateBounds(),
                 'Group movement invalidates track bounds before rendering');
             return layers.get(name) || null;
         },
         viewport: { scale: 10 },
         history: { execute(command) { command.execute(); } },
-        _updateRatsnest() { if (!this._deferDragOverlays) refreshTrackSelectionHalo(this); },
+        updateRatsnest() { if (!this._deferDragOverlays) refreshTrackSelectionHalo(this); },
     };
     setPcbSelection(app, [...tracks.map((object) => ({ kind: 'track', object })), { kind: 'shape', object: rectangle }]);
     refreshBoxSelectionHighlights(app);

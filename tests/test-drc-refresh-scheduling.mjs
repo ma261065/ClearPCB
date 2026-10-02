@@ -55,8 +55,8 @@ function fixture(withFill = true) {
             points: rectangle(-20, -20, 20, 20) }, shape, ...(withFill ? [new CopperFill({ net: 'GND', layer: 'top-copper',
             outline: rectangle(-10, -10, 10, 10) })] : [])], _shapeElements: new Map(),
         _drcViolations: [], _drcSelectedId: null,
-        _getRoutingParams: () => ({ clearance: 0.2 }),
-        _getLayerGroup: () => null, _clearFillGroups() {}, _updateCopperCuts() {},
+        getRoutingParams: () => ({ clearance: 0.2 }),
+        getLayerGroup: () => null, _clearFillGroups() {}, updateCopperCuts() {},
         _refreshBoardShapeClearance() {}, _collectRatlines: () => [],
         _drcShouldRun: () => true, _renderDRCList() {},
         _updateDRCStatus(result, pending) { if (!pending) reports.push(result); },
@@ -165,7 +165,7 @@ try {
             this.children.push(line);
             line.remove = () => this.children.splice(this.children.indexOf(line), 1);
         } };
-        edited._getLayerGroup = layer => layer === 'ratlines' ? ratlines : null;
+        edited.getLayerGroup = layer => layer === 'ratlines' ? ratlines : null;
         const fill = edited.copperFills[0], before = fill.captureState();
         if (operation === 'add') edited.boardShapes.splice(edited.boardShapes.indexOf(fill), 1);
         const edit = operation === 'add' ? new AddFillCommand(edited, fill)

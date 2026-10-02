@@ -65,11 +65,11 @@ let clearedProperties = 0;
 Object.assign(app, {
     _active: true, currentTool: 'select', placements: new Map(), boardShapes: [],
     _pcbSelection: new SelectionManager(), viewport: { isPanning: false },
-    _getLayerGroup: () => null,
-    _selectComponent() {}, _selectText() {}, _selectRefText() {}, _selectFill() {},
+    getLayerGroup: () => null,
+    _selectComponent() {}, _selectText() {}, _selectRefText() {}, selectFill() {},
     _selectBoardOutline(selected) { this._boardOutlineSelected = selected; },
-    _clearProperties() { clearedProperties++; },
-    _refreshText() {}, _updateDRCStatus() {},
+    clearProperties() { clearedProperties++; },
+    refreshText() {}, _updateDRCStatus() {},
 });
 const objects = [{ id: 'via:one', kind: 'via', object: { id: 'one', x: 5, y: 6 } },
     { id: 'via:two', kind: 'via', object: { id: 'two', x: 7, y: 8 } },

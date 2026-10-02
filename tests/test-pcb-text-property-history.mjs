@@ -39,7 +39,7 @@ function fixture(options = {}) {
         pcbDocument, history: new CommandHistory(),
         _pcbPropsItems: () => items, _setPcbPropsTitle() {}, _layerLabel: layer => layer,
         _bindStrokeTextProps: PCBApp.prototype._bindStrokeTextProps,
-        _refreshText: () => renders.push({ ...app.texts.get(text.id) }),
+        refreshText: () => renders.push({ ...app.texts.get(text.id) }),
         _refreshBoardShapeClearance: current => clearances.push({ ...current }),
     };
     Object.defineProperty(app, 'texts', Object.getOwnPropertyDescriptor(PCBApp.prototype, 'texts'));

@@ -17,7 +17,7 @@ const rectangle = (left, top, right, bottom) => [
 const board = clearance => ({
     placements: new Map(), netlist: [], tracks: [], vias: [], pads: [], boardShapes: [], texts: new Map(),
     copperFills: [new CopperFill({ net: 'GND', layer: 'top-copper', outline: rectangle(-30, -30, 30, 30) })],
-    _getRoutingParams: () => ({ clearance }),
+    getRoutingParams: () => ({ clearance }),
 });
 const pour = app => {
     const fill = app.copperFills[0];

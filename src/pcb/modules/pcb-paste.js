@@ -91,7 +91,7 @@ function removeArtwork(app, payload) {
     for (const text of payload.texts) {
         app._removeTextElement(text.id);
         const current = app.pcbDocument.texts.get(text.id);
-        if (current && current !== text) app._refreshText(text.id);
+        if (current && current !== text) app.refreshText(text.id);
         else {
             const clearance = app._boardShapeClearanceCache?.get(text.id);
             for (const element of clearance?.elements || []) element.remove();
@@ -99,28 +99,28 @@ function removeArtwork(app, payload) {
         }
     }
     for (const fill of payload.fills) {
-        removeCopperFillElements(fill, id => app._getLayerGroup(id));
+        removeCopperFillElements(fill, id => app.getLayerGroup(id));
         const current = app.pcbDocument.boardShapes.find(item => item.id === fill.id && item !== fill);
-        if (current?.type === 'fill') renderCopperFill(current, id => app._getLayerGroup(id));
+        if (current?.type === 'fill') renderCopperFill(current, id => app.getLayerGroup(id));
     }
 }
 
 function renderPayload(app, payload, preview) {
-    const layer = id => app._getLayerGroup(id);
+    const layer = id => app.getLayerGroup(id);
     for (const track of payload.tracks) renderTrack(track, layer, {
-        viaDiameter: app._getRoutingParams?.()?.viaDiameter, viaDrill: app._getRoutingParams?.()?.viaDrill,
+        viaDiameter: app.getRoutingParams?.()?.viaDiameter, viaDrill: app.getRoutingParams?.()?.viaDrill,
     });
     payload.vias.forEach(via => renderVia(via, layer));
     payload.pads.forEach(pad => renderPad(pad, layer));
     for (const shape of payload.shapes) renderBoardShape(app, shape,
         { liveDrag: preview, skipCopperUpdate: preview, interactionOnly: preview });
-    for (const text of payload.texts) app._refreshText(text.id);
+    for (const text of payload.texts) app.refreshText(text.id);
     for (const fill of payload.fills) renderCopperFill(fill, layer, { outlineOnly: preview });
 }
 
 function refreshAuthoredPaste(app) {
-    app._updateCopperCuts?.();
-    app._refreshClearanceHalos?.();
+    app.updateCopperCuts?.();
+    app.refreshClearanceHalos?.();
     reconcileRatsnest(app);
     if (!app._suspendBoardViewRefresh) app._board3d?.refresh?.();
 }
@@ -185,8 +185,8 @@ export function beginPcbPaste(app, source, { select = false } = {}) {
     const payload = Object.fromEntries(kinds.map(kind => [kind, [...(source[kind] || [])]]));
     if (!kinds.some(kind => payload[kind].length)) throw new Error('PCB paste requires at least one entity.');
     assertFresh(app.pcbDocument, payload);
-    if (!editable(payload)) { app._setStatus?.('Cannot paste onto a hidden or locked layer.'); return false; }
-    app._clearProperties?.();
+    if (!editable(payload)) { app.setStatus?.('Cannot paste onto a hidden or locked layer.'); return false; }
+    app.clearProperties?.();
     const points = [
         ...payload.tracks.flatMap(track => [...track.nodes.values()]),
         ...payload.vias, ...payload.pads, ...payload.texts,
@@ -267,12 +267,12 @@ function release(app, state) {
     Object.assign(app, state.flags);
     if (pendingFill) app._fillRefreshPending = true;
     app._updateCursorForTool?.();
-    app._syncClipboardButtons?.();
+    app.syncClipboardButtons?.();
     app._syncHistoryButtons?.();
 }
 
 function resumePendingFill(app) {
-    if (app._fillRefreshPending && !app._deferDragOverlays && !app._suspendFillRefresh) app._refreshFills?.();
+    if (app._fillRefreshPending && !app._deferDragOverlays && !app._suspendFillRefresh) app.refreshFills?.();
 }
 
 export function cancelPcbPaste(app) {

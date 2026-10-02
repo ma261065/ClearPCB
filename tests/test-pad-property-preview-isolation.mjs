@@ -91,20 +91,20 @@ function fixture(count = 1, layers = 'both', unrelatedCount = 1) {
         Object.defineProperty(app, key, Object.getOwnPropertyDescriptor(PCBApp.prototype, key));
     }
     for (const key of ['_showPadEditor', '_toolNetOptions', '_setPcbPropsTitle', '_bindToolNetControl',
-        '_clearProperties', '_cancelPosePreviews', 'isSectionEditing', 'deactivate',
+        'clearProperties', '_cancelPosePreviews', 'isSectionEditing', 'deactivate',
         '_onLayerLockChanged', '_onLayerVisibilityChanged']) app[key] = PCBApp.prototype[key];
     Object.assign(app, {
         project, pcbDocument: model, placements: new Map(), netlist: [], history: new CommandHistory(),
         _active: true, _layerGroups: new Map(), _textElements: new Map(), _shapeElements: new Map(),
         viewport: { scale: 100, svg: new Element('svg'), shiftHeld: true, setCrosshair() {}, hideCrosshair() {} },
-        _pcbPropsItems: () => items, _getLayerGroup: id => groups.get(id) || null,
-        _setActiveRibbonTab() {}, _setPcbStatus() {}, _refreshFills() {}, _refreshClearanceHalos() {},
+        _pcbPropsItems: () => items, getLayerGroup: id => groups.get(id) || null,
+        _setActiveRibbonTab() {}, setPcbStatus() {}, refreshFills() {}, refreshClearanceHalos() {},
         _cancelDrawingMode() {}, _ensureViewport() {}, markSectionClean() {},
         _refreshPcbSelectionHighlights() {}, _scheduleRemovalHatchRender() {},
     });
     project.registerView('pcb', app);
     setPcbSelection(app, pads.map(object => ({ kind: 'pad', object })));
-    for (const pad of [...pads, unrelated[0]].filter(Boolean)) renderPad(pad, app._getLayerGroup);
+    for (const pad of [...pads, unrelated[0]].filter(Boolean)) renderPad(pad, app.getLayerGroup);
     app._showPadEditor(pads[0]);
     const artwork = () => [...groups.values()].flatMap(group => group.children);
     return { app, project, model, pads, unrelated, attached, artwork, input: name => inputs.get(`pcbPropPad${name}`) };
@@ -177,7 +177,7 @@ for (const count of [1, 4]) for (const layers of ['top-copper', 'bottom-copper',
                     input.emit('input', baseline[0][property]);
                     input.emit('change');
                 } else if (finish === 'panel') {
-                    app._clearProperties();
+                    app.clearProperties();
                     input.emit('input', value + 1);
                     input.emit('change');
                 } else if (finish === 'deactivate') {
@@ -357,7 +357,7 @@ for (const commit of [false, true]) {
     assert.equal(getPadPropertyPreview(app), undefined);
     assert.equal(app.history.canUndo(), false, 'Placement defaults remain outside document history');
     const stale = input('Ratio');
-    app._clearProperties();
+    app.clearProperties();
     stale.emit('change', 4);
     assert.equal(app._padDefaults.ratio, 2, 'Detached default controls cannot alter the next tool');
     cases++;

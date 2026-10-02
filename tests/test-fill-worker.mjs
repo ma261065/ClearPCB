@@ -65,14 +65,14 @@ function fixture() {
     for (const [id, group] of app._layerGroups) group.setAttribute('data-copper-cut', `${id}-cut`);
     const counts = { clear: 0, drc: 0, views: 0, rats: 0, sync: 0 }, drcStates = [];
     const ratlines = { get children() { counts.rats++; return []; }, appendChild() {} };
-    app._getLayerGroup = id => id === 'ratlines' ? ratlines : app._layerGroups.get(id) || null;
+    app.getLayerGroup = id => id === 'ratlines' ? ratlines : app._layerGroups.get(id) || null;
     app._clearFillGroups = () => { counts.clear++; PCBApp.prototype._clearFillGroups.call(app); };
     app._scheduleDRC = () => { counts.drc++; drcStates.push([app._fillRefreshPending, app._fillRefreshError]); };
     app._board3d = { refresh() { counts.views++; } };
     app._recomputeFillsNow = () => { counts.sync++; return PCBApp.prototype._recomputeFillsNow.call(app); };
-    app._setStatus = message => { app.lastStatus = message; };
+    app.setStatus = message => { app.lastStatus = message; };
     app._cancelDrawingMode = () => {};
-    app._renderText = app._refreshText = app._selectText = () => {};
+    app._renderText = app.refreshText = app._selectText = () => {};
     app.history = new CommandHistory({ onChanged: () => invalidateFillRefresh(app) });
     const fill = new CopperFill({ id: 'top', kind: 'rect', net: 'GND',
         outline: rectangle(1.123456789, -39, 45, 37), cornerRadius: 0.312345678 });
@@ -374,8 +374,8 @@ for (const content of [null, 'reload']) {
         f.app._textElements = new Map();
         f.app._shapeElements = new Map();
         for (const method of ['_ensureViewport', '_closeDRCPanel', '_clearDRCMarker',
-            '_closeBoardDimensionsDialog', '_selectBoardOutline', '_syncClipboardButtons',
-            '_updateCopperCuts', 'markSectionClean']) f.app[method] = () => {};
+            '_closeBoardDimensionsDialog', '_selectBoardOutline', 'syncClipboardButtons',
+            'updateCopperCuts', 'markSectionClean']) f.app[method] = () => {};
         f.app._active = false;
         loadPcb(f.app, data);
         const counts = { ...f.counts }, saved = f.model.serialize();

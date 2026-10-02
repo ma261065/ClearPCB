@@ -11,7 +11,7 @@ const rectangle = (left, top, right, bottom) => [
 function ratlines(options) {
     const lines = [];
     reconcileRatsnest({ boardShapes: [], copperFills: [], tracks: [], vias: [], placements: new Map(), netlist: [],
-        _getLayerGroup: () => ({ children: [], appendChild(line) { lines.push(line); } }), ...options });
+        getLayerGroup: () => ({ children: [], appendChild(line) { lines.push(line); } }), ...options });
     return lines.length;
 }
 const image = pictureShape({ width: 10, height: 10, rectangles: [{ x: 0, y: 0, width: 1, height: 1 }] },

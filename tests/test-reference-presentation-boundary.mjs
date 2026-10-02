@@ -41,7 +41,7 @@ for (const side of ['top', 'bottom']) for (const mirror of [false, true]) {
         pcbDocument, placementState: pcbDocument.placementState,
         placements: new Map([['part', placement]]),
         get tracks() { assert.fail('Reference presentation must not scan track bonds'); },
-        _refreshClearanceHalos() { assert.fail('Reference presentation must not refresh physical clearance'); },
+        refreshClearanceHalos() { assert.fail('Reference presentation must not refresh physical clearance'); },
         viewport: { svg: { style: {} }, snapToGrid: false, gridVisible: true },
         _markDirty: () => dirty++, _drawRefOverlay: () => overlays++,
         _board3d: { refresh: () => boardRefreshes++ },

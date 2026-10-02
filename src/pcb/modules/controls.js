@@ -136,7 +136,7 @@ export function bindPcbControls(app) {
     cutPropsBtn?.addEventListener('click', doCut);
     pasteHomeBtn?.addEventListener('click', doPaste);
     pastePropsBtn?.addEventListener('click', doPaste);
-    app._syncClipboardButtons?.();
+    app.syncClipboardButtons?.();
 
     undoBtn?.addEventListener('click', () => runPcbHistoryAction(app, 'undo'));
     redoBtn?.addEventListener('click', () => runPcbHistoryAction(app, 'redo'));

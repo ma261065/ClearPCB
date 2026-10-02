@@ -27,10 +27,10 @@ function fixture(count) {
             x: index * 3, y: index % 2, shape: 'rectangle', layers: 'both', rotation: index * 10,
         })),
         tracks: [], vias: [], boardShapes: [], placements: new Map(), netlist: [], texts: new Map(),
-        _getLayerGroup() { return null; },
+        getLayerGroup() { return null; },
         viewport: { setCrosshair() {}, hideCrosshair() {} },
         _pcbPropsItems: () => ({ innerHTML: '', querySelector: selector => controls.get(selector) }),
-        _setPcbPropsTitle() {}, _setActiveRibbonTab() {}, _setPcbStatus() {}, _refreshFills() {},
+        _setPcbPropsTitle() {}, _setActiveRibbonTab() {}, setPcbStatus() {}, refreshFills() {},
         _bindToolNetControl(items, id, apply) {
             items.querySelector(`#${id}`).addEventListener('change', event => apply(event.target.value));
         },

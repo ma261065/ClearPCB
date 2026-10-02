@@ -30,7 +30,7 @@ const board = () => {
     svg.appendChild(ratLayer);
     return {
         tracks: [], vias: [], pads: [], boardShapes: [], placements: new Map(), netlist: [], ratLayer,
-        _trackToolNet: 'GND', _getLayerGroup(id) { return id === 'ratlines' ? ratLayer : null; },
+        _trackToolNet: 'GND', getLayerGroup(id) { return id === 'ratlines' ? ratLayer : null; },
         viewport: { svg, scale: 100, gridVisible: false, setCrosshair() {}, hideCrosshair() {} },
     };
 };
@@ -140,7 +140,7 @@ try {
         const app = board(), layer = element();
         app.viewport.svg.appendChild(layer);
         layer.style.display = visible ? '' : 'none';
-        app._getLayerGroup = id => id === 'ratlines' ? layer : null;
+        app.getLayerGroup = id => id === 'ratlines' ? layer : null;
         app.pads = [
             new Pad({ x: 0, y: 0, net: 'GND' }),
             new Pad({ x: 20, y: 0, net: 'GND', layers: 'top-copper' }),
@@ -189,7 +189,7 @@ try {
     }
     {
         const app = board(), layer = element();
-        app._getLayerGroup = id => id === 'ratlines' ? layer : null;
+        app.getLayerGroup = id => id === 'ratlines' ? layer : null;
         const source = new Track({ points: [{ x: 0, y: 0 }, { x: 5, y: 0 }], net: 'GND' });
         const target = new Track({ points: [{ x: 20, y: -5 }, { x: 20, y: 5 }], net: 'GND' });
         target.edges.values().next().value.bulge = 0.5;

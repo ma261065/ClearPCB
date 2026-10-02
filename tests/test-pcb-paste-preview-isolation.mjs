@@ -90,12 +90,12 @@ function fixture(deferred = false) {
         _deferDragOverlays: deferred, _suspendFillRefresh: deferred, _suspendBoardViewRefresh: deferred, _fillRefreshPending: false,
         viewport: { scale: 10, gridVisible: false, svg: new Element('svg'), currentMouseWorld: { x: 10.123456789, y: -12.345678912 },
             setCrosshair() { crosshairs++; }, hideCrosshair() {} },
-        _getLayerGroup: id => groups.get(id) || null,
-        _refreshFills() { if (!this._deferDragOverlays && !this._suspendFillRefresh) derived++; },
-        _updateCopperCuts() { derived++; }, _refreshClearanceHalos() { derived++; },
-        _clearancesVisible: true, _getRoutingParams: () => ({ clearance: 0.25 }),
-        _board3d: { refresh() { derived++; } }, _syncClipboardButtons() {}, _updateCursorForTool() {},
-        _clearProperties() {}, _pcbPropsItems: () => null, _setPcbPropsTitle() {}, _setPcbStatus() {},
+        getLayerGroup: id => groups.get(id) || null,
+        refreshFills() { if (!this._deferDragOverlays && !this._suspendFillRefresh) derived++; },
+        updateCopperCuts() { derived++; }, refreshClearanceHalos() { derived++; },
+        _clearancesVisible: true, getRoutingParams: () => ({ clearance: 0.25 }),
+        _board3d: { refresh() { derived++; } }, syncClipboardButtons() {}, _updateCursorForTool() {},
+        clearProperties() {}, _pcbPropsItems: () => null, _setPcbPropsTitle() {}, setPcbStatus() {},
         _cancelDrawingMode() {}, _ensureViewport() {}, markSectionClean() {}, _refreshPcbSelectionHighlights() {},
         _showPcbMultiSelectionProperties() {}, _showTextProperties() {},
     };
@@ -103,13 +103,13 @@ function fixture(deferred = false) {
         Object.defineProperty(app, key, Object.getOwnPropertyDescriptor(PCBApp.prototype, key));
     }
     for (const method of ['_hasPcbClipboardData', 'pasteSelection', '_beginPasteDrop', '_updatePasteDrop', '_endPasteDrop',
-        '_cancelPasteDrop', '_cancelPosePreviews', '_snapToGrid', '_renderText', '_refreshText', '_removeTextElement',
+        '_cancelPasteDrop', '_cancelPosePreviews', '_snapToGrid', '_renderText', 'refreshText', '_removeTextElement',
         'isSectionEditing', '_onLayerVisibilityChanged', '_onLayerLockChanged',
         '_refreshBoardShapeClearance']) app[method] = PCBApp.prototype[method];
     project.registerView('pcb', app);
-    renderTrack(track, app._getLayerGroup); renderVia(via, app._getLayerGroup); renderPad(pad, app._getLayerGroup);
+    renderTrack(track, app.getLayerGroup); renderVia(via, app.getLayerGroup); renderPad(pad, app.getLayerGroup);
     [rect, circle, arc, image].forEach(shape => renderBoardShape(app, shape));
-    renderCopperFill(fill, app._getLayerGroup); renderCopperFill(circleFill, app._getLayerGroup); app._renderText(text);
+    renderCopperFill(fill, app.getLayerGroup); renderCopperFill(circleFill, app.getLayerGroup); app._renderText(text);
     const clipboard = { tracks: [track.toJSON()], vias: [via.toJSON()], pads: [pad.toJSON()],
         shapes: [rect, circle, arc, image].map(shape => structuredClone(shape)),
         texts: [{ ...text }], fills: [fill.captureState(), circleFill.captureState()] };
@@ -191,9 +191,9 @@ for (const imageOnly of [false, true]) for (const deferred of [false, true]) for
                 app.history.execute = () => { throw new Error('Rejected paste command'); };
                 assert.throws(() => app._endPasteDrop(), /Rejected paste command/);
             } else if (finish === 'render-failure') {
-                const get = app._getLayerGroup;
+                const get = app.getLayerGroup;
                 let fail = true;
-                app._getLayerGroup = id => { if (fail) { fail = false; throw new Error('Paste render failed'); } return get(id); };
+                app.getLayerGroup = id => { if (fail) { fail = false; throw new Error('Paste render failed'); } return get(id); };
                 assert.throws(() => app._endPasteDrop(), /Paste render failed/);
             } else if (finish === 'document') {
                 app.pcbDocument = new ProjectDocument().pcbDocument;
@@ -340,10 +340,10 @@ console.log('PASS toolbar undo/redo, cut discard, ID collision ownership and par
     const defs = new Element('defs');
     app._ensureSvgDefs = () => defs;
     app.pasteSelection();
-    PCBApp.prototype._updateCopperCuts.call(app);
+    PCBApp.prototype.updateCopperCuts.call(app);
     assert.equal(app._copperCutGeometry.top.count, 0, 'Cold cut-cache initialization excludes detached pasted cutters');
     app._endPasteDrop();
-    PCBApp.prototype._updateCopperCuts.call(app);
+    PCBApp.prototype.updateCopperCuts.call(app);
     assert.equal(app._copperCutGeometry.top.count, 1, 'Acceptance publishes the cutter for canonical derived geometry');
 }
 {
@@ -351,7 +351,7 @@ console.log('PASS toolbar undo/redo, cut discard, ID collision ownership and par
     let resumed = 0;
     app.pasteSelection();
     app._fillRefreshPending = true;
-    app._refreshFills = () => { resumed++; };
+    app.refreshFills = () => { resumed++; };
     app._cancelPasteDrop();
     assert.equal(resumed, 1, 'An unrelated fill refresh deferred while floating is resumed, not lost');
 }

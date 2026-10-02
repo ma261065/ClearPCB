@@ -101,11 +101,11 @@ const app = Object.assign(Object.create(null, {
     tracks: pcbDocument.tracks, vias: pcbDocument.vias, pads: pcbDocument.pads, texts: pcbDocument.texts,
     copperFills: [], boardShapes: pcbDocument.boardShapes,
     _boardWidth: 20, _boardHeight: 10, _boardRadius: 0,
-    _getRoutingParams: () => ({ clearance: 0.2, trackWidth: 0.25, viaDiameter: 0.6, viaDrill: 0.3 }),
+    getRoutingParams: () => ({ clearance: 0.2, trackWidth: 0.25, viaDiameter: 0.6, viaDrill: 0.3 }),
     _getRouterMode: () => 'pathfinder',
-    _renderText() {}, _removeTextElement() {}, _refreshText() {},
+    _renderText() {}, _removeTextElement() {}, refreshText() {},
 });
-app.designSettings.update({ ...app._getRoutingParams(), router: 'pathfinder' });
+app.designSettings.update({ ...app.getRoutingParams(), router: 'pathfinder' });
 const originalOutline = structuredClone(app.boardShapes);
 const layout = buildPanelLayout(app, PANEL_DEFAULTS);
 assert.equal(layout.instances.length, 4);
@@ -575,7 +575,7 @@ try {
     const previewApp = {
         boardShapes: [rectangleBoardOutline(20, 10)], panelization: { ...PANEL_DEFAULTS },
         viewport: { svg: root, scale: 1, addContent: node => root.appendChild(node) }, _layerGroups: layers,
-        _getLayerGroup(id) { return this._layerGroups.get(id); },
+        getLayerGroup(id) { return this._layerGroups.get(id); },
     };
     let preview = renderPanelPreview(previewApp);
     assert.match(layers.get('hole').getAttribute('clip-path'), /pcb-panel-artwork-\d+-holes/,

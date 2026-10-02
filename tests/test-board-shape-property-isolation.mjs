@@ -105,15 +105,15 @@ function fixture(kind, count = 1, unrelatedCount = 1, shapeLayer = 'top-copper')
         project, pcbDocument: model, history: new CommandHistory(), placements: new Map(), netlist: [],
         _active: true, _deferDragOverlays: false, _shapeElements: new Map(), _textElements: new Map(), _layerGroups: new Map(),
         viewport: { scale: 100, svg: new Element(), setCrosshair() {}, hideCrosshair() {} },
-        _getLayerGroup: id => id === 'selection-overlay' ? null : group,
+        getLayerGroup: id => id === 'selection-overlay' ? null : group,
         _pcbPropsItems: () => items, _setActiveRibbonTab() {}, _refreshPcbSelectionHighlights() {},
-        _refreshFills() { pours++; }, _refreshBoardShapeClearance() {}, _scheduleRemovalHatchRender() {},
+        refreshFills() { pours++; }, _refreshBoardShapeClearance() {}, _scheduleRemovalHatchRender() {},
         _cancelDrawingMode() {}, _ensureViewport() {}, markSectionClean() {},
     };
     for (const key of ['boardShapes', 'tracks', 'vias', 'pads', 'texts', '_shapeIdCounter']) {
         Object.defineProperty(app, key, Object.getOwnPropertyDescriptor(PCBApp.prototype, key));
     }
-    for (const key of ['_cancelPosePreviews', 'isSectionEditing', '_setPcbPropsTitle', '_clearProperties',
+    for (const key of ['_cancelPosePreviews', 'isSectionEditing', '_setPcbPropsTitle', 'clearProperties',
         '_onLayerLockChanged', '_onLayerVisibilityChanged']) app[key] = PCBApp.prototype[key];
     project.registerView('pcb', app);
     const adapters = shapes.map(shape => createBoardShapeSelectionAdapter(app, shape, shape.id));

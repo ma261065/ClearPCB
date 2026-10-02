@@ -81,7 +81,7 @@ const probes = ring(9, 16).map((point, index) => ({
 const lines = [];
 const ratLayer = { children: [], appendChild(line) { lines.push(line); } };
 const app = { boardShapes: [...probes, fill], copperFills: [fill], tracks: [], vias: [], pads: [],
-    placements: new Map(), netlist: [], _getLayerGroup: () => ratLayer };
+    placements: new Map(), netlist: [], getLayerGroup: () => ratLayer };
 reconcileRatsnest(app);
 assert.equal(lines.length, 0, 'The annular pour connects all sixteen isolated copper probes');
 const every = Array.prototype.every;

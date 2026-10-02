@@ -57,8 +57,8 @@ function fixture(shape = 'rectangle', layers = 'both') {
     const app = {
         project, pcbDocument: model, placements: new Map(), netlist: [], history: new CommandHistory(), _active: true,
         viewport: { scale: 100, svg: new Element('svg') },
-        _getLayerGroup: id => groups.get(id) || null,
-        _refreshClearanceHalos() {}, _refreshFills() { fills++; },
+        getLayerGroup: id => groups.get(id) || null,
+        refreshClearanceHalos() {}, refreshFills() { fills++; },
         _cancelPosePreviews: PCBApp.prototype._cancelPosePreviews,
         isSectionEditing: PCBApp.prototype.isSectionEditing,
         _cancelDrawingMode() {}, _clearCursorCrosshair() {}, markSectionClean() {}, _ensureViewport() {},
@@ -70,7 +70,7 @@ function fixture(shape = 'rectangle', layers = 'both') {
     project.registerView('pcb', app);
     const adapter = createPadSelectionAdapter(app, pad, `pad:${pad.id}`);
     setPcbSelection(app, [{ kind: 'pad', object: pad }]);
-    for (const item of model.pads) renderPad(item, app._getLayerGroup);
+    for (const item of model.pads) renderPad(item, app.getLayerGroup);
     const start = { x: pad.x + 10, y: pad.y };
     const pointFor = rotation => {
         const radians = (pad.rotation - rotation) * Math.PI / 180;

@@ -120,7 +120,7 @@ const { default: PCBApp } = await import('../src/ui/PCBApp.js');
             footprintRenders++;
             assert.equal(placements.get('part').side, 'bottom');
         },
-        _getLayerGroup: () => null, _refreshClearanceHalos() {}, _updateRatsnest() {}, _setStatus() {},
+        getLayerGroup: () => null, refreshClearanceHalos() {}, updateRatsnest() {}, setStatus() {},
     };
     PCBApp.prototype._syncFromSchematic.call(app);
     assert.equal(persistentRenders, 1);

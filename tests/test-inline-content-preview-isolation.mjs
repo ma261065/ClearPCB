@@ -67,14 +67,14 @@ function fixture(layer, extraTexts = 0, isNew = false) {
         placements: new Map(), tracks: [], vias: [], pads: [], boardShapes: [],
         _textElements: new Map(), _shapeElements: new Map(),
         viewport: { svg: new Element('svg'), addInteractionOverlay: group => overlay.appendChild(group) },
-        _getLayerGroup: id => groups.get(id) || null,
+        getLayerGroup: id => groups.get(id) || null,
         _pcbPropsItems: () => properties, _setPcbPropsTitle() {}, _layerLabel: id => id,
-        _clearProperties() {}, _exitTextTool() {}, _refreshBoardShapeClearance() {},
+        clearProperties() {}, _exitTextTool() {}, _refreshBoardShapeClearance() {},
         _cancelTrackDraw() {}, _cancelFillDraw() {}, _cancelShapeDraw() {}, _ensureViewport() {}, markSectionClean() {},
         _renderText(value) { renders++; PCBApp.prototype._renderText.call(this, value); },
     };
     Object.defineProperty(app, 'texts', Object.getOwnPropertyDescriptor(PCBApp.prototype, 'texts'));
-    for (const name of ['_startTextInlineEdit', '_endTextInlineEdit', '_refreshText', '_removeTextElement', '_selectText',
+    for (const name of ['_startTextInlineEdit', '_endTextInlineEdit', 'refreshText', '_removeTextElement', '_selectText',
         '_showTextProperties', '_bindStrokeTextProps', '_cancelPosePreviews', '_cancelDrawingMode']) app[name] = PCBApp.prototype[name];
     if (isNew) app.history.execute(new AddTextCommand(app, text));
     else app._renderText(text);

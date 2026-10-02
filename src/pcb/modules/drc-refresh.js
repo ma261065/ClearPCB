@@ -11,7 +11,7 @@ const stateFor = app => {
 const visible = app => app._active !== false && !app._drcDisposed && app._drcShouldRun();
 const deferred = app => app._deferDragOverlays || app._suspendFillRefresh || app._pictureCopperRefreshPending
     || app._fillRefreshScheduled || (app._fillRefreshPending && !app._fillRefreshError) || app.isSectionEditing?.();
-const rulesFor = app => ({ clearance: app._getRoutingParams().clearance, minAnnularRing: 0.05,
+const rulesFor = app => ({ clearance: app.getRoutingParams().clearance, minAnnularRing: 0.05,
     ratlines: app._collectRatlines() });
 const clearRetry = state => {
     if (state.retry !== null) clearTimeout(state.retry);
@@ -39,7 +39,7 @@ function report(app, error) {
     app._drcError = error;
     app._drcPending = true;
     console.error('[DRC] check failed', error);
-    app._setStatus?.(`DRC check failed: ${error instanceof Error ? error.message : String(error)}`);
+    app.setStatus?.(`DRC check failed: ${error instanceof Error ? error.message : String(error)}`);
     app._updateDRCStatus?.(null, true);
 }
 export function invalidateDrcRefresh(app) {

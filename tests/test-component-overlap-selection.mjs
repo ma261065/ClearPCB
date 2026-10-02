@@ -57,18 +57,18 @@ function pcbFixture(withShape = false) {
         _shapeElements: new Map(), _active: true, currentTool: 'select', activeLayer: 'top-copper',
         viewport: { scale: 10, svg: { style: {} }, snapToGrid: false, hideCrosshair() {} },
         status: { modeStatus: {}, tipStatus: { hidden: true, textContent: '' } },
-        _getLayerGroup: () => null, _selectComponent() {}, _selectBoardOutline() {},
-        _selectText() {}, _selectRefText() {}, _selectFill() {}, _clearProperties() {},
+        getLayerGroup: () => null, _selectComponent() {}, _selectBoardOutline() {},
+        _selectText() {}, _selectRefText() {}, selectFill() {}, clearProperties() {},
         _showPcbMultiSelectionProperties() {}, _hoverComponent(id) { this.hoveredComponent = id; },
-        _hideNetTooltip() {}, _updateRatsnest() {}, _netsForComponent: () => new Set(),
-        _markDirty() {}, _updatePcbCulling() {}, _refreshClearanceHalos() {},
+        _hideNetTooltip() {}, updateRatsnest() {}, _netsForComponent: () => new Set(),
+        _markDirty() {}, _updatePcbCulling() {}, refreshClearanceHalos() {},
         _hitTestBoardOutline: () => false, _hoverBoardOutline() {},
         _hitTestPad: () => null, _updateNetTooltip() {}, _hitTestText: () => null,
         _hitTestRefText: () => null, _setTextHover() {},
         _screenToWorld: event => ({ x: event.clientX, y: event.clientY }),
     };
     for (const name of ['_hitTestComponent', '_worldToPlacementLocal', '_beginComponentDrag',
-        '_updateComponentDrag', '_endDrag', '_snapToGrid', '_setPcbStatus', '_scheduleHoverUpdate']) {
+        '_updateComponentDrag', '_endDrag', '_snapToGrid', 'setPcbStatus', '_scheduleHoverUpdate']) {
         app[name] = PCBApp.prototype[name];
     }
     syncPcbSelection(app);
@@ -185,7 +185,7 @@ for (const withShape of [false, true]) for (const shiftDrag of [false, true]) {
     assert.equal(app.status.tipStatus.hidden, true, 'PCB tip disappears away from overlaps');
     app._overlapHitCount = 2;
     app.currentTool = 'pan';
-    app._setPcbStatus();
+    app.setPcbStatus();
     assert.equal(app.status.tipStatus.hidden, true, 'PCB overlap tip is select-tool-only');
 }
 

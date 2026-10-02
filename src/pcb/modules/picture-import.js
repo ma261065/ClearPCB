@@ -377,7 +377,7 @@ export function showPictureImport(app) {
         const payload = preparePcbPaste(app, { shapes: [imported] });
         close();
         app._beginPasteDrop(payload, { select: true });
-        app._setStatus?.('Click to place image');
+        app.setStatus?.('Click to place image');
     });
     dialog.querySelector('[data-cancel]').addEventListener('click', close);
     dialog.addEventListener('cancel', event => { event.preventDefault(); close(); });

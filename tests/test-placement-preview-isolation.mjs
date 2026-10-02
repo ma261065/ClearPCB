@@ -37,13 +37,13 @@ function fixture() {
         project, pcbDocument: project.pcbDocument, placementState: project.pcbDocument.placementState,
         placements: project.resolvePcbLayout().placements, history: new CommandHistory(),
         get tracks() { return getPlacementPreviewTracks(this) || this.pcbDocument.tracks; },
-        _getLayerGroup(id) {
+        getLayerGroup(id) {
             if (!groups.has(id)) groups.set(id, new Element('g'));
             return groups.get(id);
         },
         _markDirty: () => dirty++,
     };
-    for (const track of app.tracks) renderTrack(track, id => app._getLayerGroup(id));
+    for (const track of app.tracks) renderTrack(track, id => app.getLayerGroup(id));
     const lines = () => [...groups.values()].flatMap(group => group.children)
         .filter(element => element.tag === 'polyline');
     return { app, project, first, second, unrelated, lines, dirty: () => dirty };

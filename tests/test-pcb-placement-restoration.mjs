@@ -114,11 +114,11 @@ let refreshes = 0;
 const app = {
     project, placements: new Map(),
     get tracks() { assert.fail('Restoration presentation cannot read track models'); },
-    _getLayerGroup(id) {
+    getLayerGroup(id) {
         if (!groups.has(id)) groups.set(id, new Element());
         return groups.get(id);
     },
-    _updateRatsnest: () => refreshes++, _refreshRefHighlight() {},
+    updateRatsnest: () => refreshes++, _refreshRefHighlight() {},
 };
 for (const method of ['_placeFootprints', '_buildLodPlaceholder', '_refBox', '_rerenderRef', '_applyPlacementOverrides']) {
     app[method] = PCBApp.prototype[method];
@@ -129,7 +129,7 @@ const untouched = app.placements.get('outside');
 const automatic = app.placements.get('automatic');
 state.overrides.delete('outside');
 const background = new Element('rect');
-app._getLayerGroup('board-outline').appendChild(background);
+app.getLayerGroup('board-outline').appendChild(background);
 
 for (const side of ['bottom', 'top']) {
     const previous = app.placements.get('part');

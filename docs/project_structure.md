@@ -80,6 +80,13 @@ clearpcb/
 regression gate. Known violations are listed in `tools/import-baseline.json`;
 new ones fail, and fixed ones must be removed from the baseline so it only shrinks.
 
+PCB modules use the editor's public services, listed and typed in
+`pcb/modules/pcb-editor-api.js` (`getLayerGroup`, `getRoutingParams`,
+`refreshFills`, `updateRatsnest`, `setStatus`, …), rather than its `_`-prefixed
+members. `node tools/check-pcb-editor-access.mjs` ratchets the remaining private
+accesses per module against `tools/pcb-editor-access-baseline.json` in the same
+way; promote a member to a service instead of adding a new private access.
+
 `ProjectDocument` dispatches successful file-action completion through registered
 views' `onDocumentReplaced(reason)` hooks (`new`, `open`, or `import`). Each editor
 owns its own Home-tab navigation; the PCB view also owns new-board setup timing
@@ -1973,7 +1980,7 @@ and `'pathfinder'`.
 `clearance`, `trackWidth`, `viaDiameter` are **never** hardcoded in
 the router or DSN code. They flow from `#pcbClearance`,
 `#pcbTrackWidth`, `#pcbViaDiameter` HTML inputs through
-`PCBApp._getRoutingParams()`. `routeAll`, `routeAllPathfinder`,
+`PCBApp.getRoutingParams()`. `routeAll`, `routeAllPathfinder`,
 `exportDSN`, and `importDSN` all throw if any of these are missing
 or non-positive. DSN round-trips `viaDiameter` via the
 `via_default` padstack circle radius.

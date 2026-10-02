@@ -62,7 +62,7 @@ for (const theme of ['light', 'dark']) {
                 horizontalPositioningHoles: true, verticalPositioningHoles: true },
             viewport: { svg: root, scale, gridVisible: false,
                 addContent: child => root.appendChild(child), setCrosshair() {}, hideCrosshair() {} },
-            _layerGroups: layers, _getLayerGroup(id) { return layers.get(id); },
+            _layerGroups: layers, getLayerGroup(id) { return layers.get(id); },
         };
         const source = JSON.stringify(app.boardShapes);
         const layout = renderPanelPreview(app);

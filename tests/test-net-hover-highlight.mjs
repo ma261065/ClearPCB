@@ -81,7 +81,7 @@ const app = {
     texts: new Map(),
     viewport: { scale: 10 },
     _layerGroups: groups,
-    _getLayerGroup(id) { return groups.get(id) || null; },
+    getLayerGroup(id) { return groups.get(id) || null; },
 };
 
 setHoverHighlight(app, { type: 'via', via: viaA });

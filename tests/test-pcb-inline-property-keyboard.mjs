@@ -49,7 +49,7 @@ const completions = [];
 const app = {
     _active: true,
     viewport: { svg: {}, addInteractionOverlay: group => container.appendChild(group) },
-    _getLayerGroup: () => container,
+    getLayerGroup: () => container,
     _endTextInlineEdit: commit => completions.push(commit),
 };
 const text = { content: 'R12', size: 1.2, strokeWidth: 0.15, layer: 'top-silk' };

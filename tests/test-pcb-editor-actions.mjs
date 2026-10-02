@@ -38,7 +38,7 @@ function fixture() {
     const app = {
         _active: true, currentTool: 'select', history,
         placements: new Map(), tracks: [], vias: [], pads: [], boardShapes: [], texts: new Map(),
-        _getLayerGroup: () => null, _layerGroups: new Map(),
+        getLayerGroup: () => null, _layerGroups: new Map(),
         viewport: { gridSize: 1, getGridOptions: () => [{ value: 1, label: '1 mm' }],
             hideCrosshair() { events.push('crosshair'); } },
         _clearCursorCrosshair() { events.push('cursor'); },

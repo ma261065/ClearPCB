@@ -22,10 +22,10 @@ function fixture({ isNew = false, content = 'Original' } = {}) {
     const app = {
         pcbDocument, history: new CommandHistory({ onChanged: change => historyChanges.push(change) }),
         _renderText: current => renders.push({ ...current }),
-        _refreshText(id) { const current = this.texts.get(id); if (current) this._renderText(current); },
+        refreshText(id) { const current = this.texts.get(id); if (current) this._renderText(current); },
         _removeTextElement: id => removals.push(id),
         _refreshBoardShapeClearance: current => clearances.push({ ...current }),
-        _clearProperties: () => cleared++, _exitTextTool: () => exited++,
+        clearProperties: () => cleared++, _exitTextTool: () => exited++,
         _selectText: PCBApp.prototype._selectText,
     };
     Object.defineProperty(app, 'texts', Object.getOwnPropertyDescriptor(PCBApp.prototype, 'texts'));

@@ -52,7 +52,7 @@ export function loadPcb(app, data, prepared = preparePcb(data)) {
     app._hoveredShape = null;
     app._shapeDraw = null;
     app._shapeDrag = null;
-    app._updateCopperCuts?.();
+    app.updateCopperCuts?.();
     // Copper pours live in boardShapes; clear their SVG state.
     app._clearFillGroups?.();
     app.history.clear?.();
@@ -68,7 +68,7 @@ export function loadPcb(app, data, prepared = preparePcb(data)) {
     // dimensions (a brand-new board) prompts for them on activation, and a
     // loaded document gets a clean slate before its outline is restored.
     app._selectBoardOutline?.(false);
-    app._getLayerGroup('board-outline')
+    app.getLayerGroup('board-outline')
         ?.querySelector('.pcb-board-outline')?.remove();
     app._boardOutlineDrawn = false;
 
@@ -97,32 +97,32 @@ export function loadPcb(app, data, prepared = preparePcb(data)) {
     }
 
     for (const track of app.tracks) {
-        if (render) renderTrack(track, (id) => app._getLayerGroup(id), {
-            viaDiameter: app._getRoutingParams?.()?.viaDiameter,
-            viaDrill: app._getRoutingParams?.()?.viaDrill,
+        if (render) renderTrack(track, (id) => app.getLayerGroup(id), {
+            viaDiameter: app.getRoutingParams?.()?.viaDiameter,
+            viaDrill: app.getRoutingParams?.()?.viaDrill,
             hideNetLabel: track === getSelectedTrack(app),
         });
     }
     for (const via of app.vias) {
-        if (render) renderVia(via, (id) => app._getLayerGroup(id));
+        if (render) renderVia(via, (id) => app.getLayerGroup(id));
     }
     for (const pad of app.pads) {
-        if (render) renderPad(pad, (id) => app._getLayerGroup(id));
+        if (render) renderPad(pad, (id) => app.getLayerGroup(id));
     }
     for (const shape of prepared.boardShapes) {
         if (!render || shape.type === 'fill' || shape.layer === 'board-outline') continue;
         renderBoardShape(app, shape, { skipCopperUpdate: true });
     }
-    if (render) app._updateCopperCuts?.();
+    if (render) app.updateCopperCuts?.();
     for (const text of app.texts.values()) {
         if (render) app._renderText(text);
     }
     // Re-evaluate ratlines once the model is in place.
     if (render) {
-        app._refreshClearanceHalos?.();
+        app.refreshClearanceHalos?.();
         reconcileRatsnest(app);
         // Compute and render the pours now that obstacles are loaded.
-        app._refreshFills();
+        app.refreshFills();
     }
     // Loading a document is not a user edit — start from a clean slate so
     // a freshly opened/recovered board isn't immediately treated as having

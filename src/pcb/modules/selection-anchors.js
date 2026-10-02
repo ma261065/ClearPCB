@@ -135,7 +135,7 @@ export function hitTestPcbSelectionAnchor(app, point, kinds = null) {
 /** Rebuild all selected adapter anchor handles at the current viewport scale. */
 export function renderPcbSelectionAnchors(app) {
     clearPcbSelectionAnchors(app);
-    const overlay = app._getLayerGroup?.('selection-overlay');
+    const overlay = app.getLayerGroup?.('selection-overlay');
     if (!overlay) return;
     const size = anchorSize(app);
     const scale = Math.max(0.01, app.viewport?.scale || 1);
@@ -262,7 +262,7 @@ export function renderPcbSelectionAnchors(app) {
 
 /** Remove every adapter-driven anchor overlay. */
 export function clearPcbSelectionAnchors(app) {
-    const overlay = app._getLayerGroup?.('selection-overlay');
+    const overlay = app.getLayerGroup?.('selection-overlay');
     overlay?.querySelectorAll(`.${HANDLE_CLASS}`).forEach((element) => element.remove());
     overlay?.querySelectorAll('.pcb-selection-lock-icon').forEach((element) => element.remove());
 }

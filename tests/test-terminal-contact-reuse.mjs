@@ -52,7 +52,7 @@ const rectangle = (x, y, width, height) => [
 function fixture(model = new PcbDocument()) {
     const groups = new Map(['ratlines', 'top-fill', 'bottom-fill'].map(id => [id, new Element()]));
     const app = { pcbDocument: model, placements: new Map(), netlist: [],
-        _getLayerGroup: id => groups.get(id),
+        getLayerGroup: id => groups.get(id),
         _clearFillGroups() {
             for (const id of ['top-fill', 'bottom-fill']) {
                 const group = groups.get(id);

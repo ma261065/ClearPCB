@@ -122,7 +122,7 @@ export function finishTrackPropertyPreview(app, commit) {
         }
     } finally {
         if (!committed && app.pcbDocument.tracks.includes(preview.original)) {
-            renderTrack(preview.original, id => app._getLayerGroup(id), _opts(app, preview.original));
+            renderTrack(preview.original, id => app.getLayerGroup(id), _opts(app, preview.original));
         }
     }
 }
@@ -190,7 +190,7 @@ export function finishViaPropertyPreview(app, commit) {
         const changed = new Set(committed ? changes.map(change => change.via) : []);
         const available = new Set(app.pcbDocument.vias);
         for (const via of preview.copies.keys()) {
-            if (available.has(via) && !changed.has(via)) renderVia(via, id => app._getLayerGroup(id));
+            if (available.has(via) && !changed.has(via)) renderVia(via, id => app.getLayerGroup(id));
         }
     }
 }
@@ -253,7 +253,7 @@ export function previewPlacementPoses(app, poses, deferredTrackIds) {
     }
     for (const track of touched) {
         if (!preview.rendered.has(track)) removeTrackElements(preview.originals.get(track));
-        if (!deferredTrackIds?.has(track.id)) renderTrack(track, id => app._getLayerGroup(id), _opts(app, track));
+        if (!deferredTrackIds?.has(track.id)) renderTrack(track, id => app.getLayerGroup(id), _opts(app, track));
         preview.rendered.add(track);
     }
     refreshEditedTrackClearance(app);
@@ -288,12 +288,12 @@ export function finishPlacementPreview(app, commit) {
             removeTrackElements(track);
             const original = preview.originals.get(track);
             if (currentTracks.has(original) && (!committed || !hasTrackElements(original))) {
-                renderTrack(original, id => app._getLayerGroup(id), _opts(app, original));
+                renderTrack(original, id => app.getLayerGroup(id), _opts(app, original));
             }
         }
         if (preview && commit && !committed) {
             refreshEditedTrackClearance(app);
-            app._updateRatsnest?.();
+            app.updateRatsnest?.();
         }
     }
     return !!preview;
@@ -310,18 +310,18 @@ function deselectRemovedTrack(app, track) {
     clearTrackSelection(app);
     togglePcbSelection(app, 'track', track);
     refreshTrackSelectionHalo(app);
-    app._clearProperties?.();
+    app.clearProperties?.();
 }
 
 function refreshEditedTrackClearance(app) {
     if (deferDerivedUpdate(app, 'clearance', () => refreshEditedTrackClearance(app))) return;
-    if (!app._deferDragOverlays) app._refreshClearanceHalos?.();
+    if (!app._deferDragOverlays) app.refreshClearanceHalos?.();
 }
 
 function _opts(app, track) {
     return {
-        viaDiameter: app._getRoutingParams?.()?.viaDiameter,
-        viaDrill: app._getRoutingParams?.()?.viaDrill,
+        viaDiameter: app.getRoutingParams?.()?.viaDiameter,
+        viaDrill: app.getRoutingParams?.()?.viaDrill,
         hideNetLabel: _shouldHideNetLabel(app, track),
     };
 }
@@ -350,7 +350,7 @@ export function repositionPadConnectedNodes(app, compId) {
     if (!pl?.pads) return null;
     const touched = repositionPadConnectedNodesData(app.tracks || [], compId, pl.pads);
     for (const track of touched) {
-        renderTrack(track, (id) => app._getLayerGroup(id), _opts(app, track));
+        renderTrack(track, (id) => app.getLayerGroup(id), _opts(app, track));
     }
     return touched;
 }
@@ -440,9 +440,9 @@ export class AddTrackCommand extends ModelAddTrackCommand {
 
     execute() {
         super.execute();
-        renderTrack(this.track, (id) => this.app._getLayerGroup(id), _opts(this.app, this.track));
+        renderTrack(this.track, (id) => this.app.getLayerGroup(id), _opts(this.app, this.track));
         for (const v of this.vias) {
-            renderVia(v, (id) => this.app._getLayerGroup(id));
+            renderVia(v, (id) => this.app.getLayerGroup(id));
         }
         refreshEditedTrackClearance(this.app);
         reconcileRatsnest(this.app);
@@ -496,7 +496,7 @@ export class RemoveTrackCommand extends ModelRemoveTrackCommand {
     }
     undo() {
         super.undo();
-        renderTrack(this.track, (id) => this.app._getLayerGroup(id), _opts(this.app, this.track));
+        renderTrack(this.track, (id) => this.app.getLayerGroup(id), _opts(this.app, this.track));
         refreshEditedTrackClearance(this.app);
         reconcileRatsnest(this.app);
     }
@@ -514,7 +514,7 @@ export class ModifyTrackCommand extends ModelModifyTrackCommand {
     _apply(state) {
         if (this.app._vertexDrag?.original === this.track) cancelVertexDrag(this.app);
         super._apply(state);
-        renderTrack(this.track, (id) => this.app._getLayerGroup(id), _opts(this.app, this.track));
+        renderTrack(this.track, (id) => this.app.getLayerGroup(id), _opts(this.app, this.track));
         refreshEditedTrackClearance(this.app);
         reconcileRatsnest(this.app);
     }
@@ -529,7 +529,7 @@ export class MoveVertexCommand extends ModelMoveVertexCommand {
     _set(pt) {
         if (this.app._vertexDrag?.original === this.track) cancelVertexDrag(this.app);
         super._set(pt);
-        renderTrack(this.track, (id) => this.app._getLayerGroup(id), _opts(this.app, this.track));
+        renderTrack(this.track, (id) => this.app.getLayerGroup(id), _opts(this.app, this.track));
         refreshEditedTrackClearance(this.app);
         reconcileRatsnest(this.app);
         refreshTrackSelectionHalo(this.app);
@@ -550,7 +550,7 @@ export class ModifyTrackGraphCommand extends ModelModifyTrackGraphCommand {
     _apply(state) {
         if (this.app._vertexDrag?.original === this.track) cancelVertexDrag(this.app);
         super._apply(state);
-        renderTrack(this.track, (id) => this.app._getLayerGroup(id), _opts(this.app, this.track));
+        renderTrack(this.track, (id) => this.app.getLayerGroup(id), _opts(this.app, this.track));
         refreshEditedTrackClearance(this.app);
         reconcileRatsnest(this.app);
         refreshTrackSelectionHalo(this.app);
@@ -561,7 +561,7 @@ export class AddViaCommand extends ModelAddViaCommand {
     constructor(app, via) { super(app.pcbDocument, via); this.app = app; }
     execute() {
         super.execute();
-        renderVia(this.via, (id) => this.app._getLayerGroup(id));
+        renderVia(this.via, (id) => this.app.getLayerGroup(id));
         refreshEditedTrackClearance(this.app);
         reconcileRatsnest(this.app);
     }
@@ -583,7 +583,7 @@ export class RemoveViaCommand extends ModelRemoveViaCommand {
     }
     undo() {
         super.undo();
-        renderVia(this.via, (id) => this.app._getLayerGroup(id));
+        renderVia(this.via, (id) => this.app.getLayerGroup(id));
         refreshEditedTrackClearance(this.app);
         reconcileRatsnest(this.app);
     }
@@ -596,7 +596,7 @@ export class ModifyViaCommand extends ModelModifyViaCommand {
     }
     _apply(state) {
         super._apply(state);
-        renderVia(this.via, (id) => this.app._getLayerGroup(id));
+        renderVia(this.via, (id) => this.app.getLayerGroup(id));
         refreshEditedTrackClearance(this.app);
         reconcileRatsnest(this.app);
         refreshTrackSelectionHalo(this.app);
@@ -612,7 +612,7 @@ export class ModifyViasCommand extends ModelModifyViasCommand {
     _apply(stateKey) {
         super._apply(stateKey);
         for (const change of this.changes) {
-            renderVia(change.via, (id) => this.app._getLayerGroup(id));
+            renderVia(change.via, (id) => this.app.getLayerGroup(id));
         }
         refreshEditedTrackClearance(this.app);
         reconcileRatsnest(this.app);
@@ -628,7 +628,7 @@ export class MoveViaCommand extends ModelMoveViaCommand {
     }
     _set(pt) {
         super._set(pt);
-        renderVia(this.via, (id) => this.app._getLayerGroup(id));
+        renderVia(this.via, (id) => this.app.getLayerGroup(id));
         refreshEditedTrackClearance(this.app);
         refreshTrackSelectionHalo(this.app);
     }
@@ -642,12 +642,12 @@ function presentPlacementPose(app, compId, result) {
         renderPlacementPose(app, compId);
     }
     for (const track of result.tracks) {
-        renderTrack(track, id => app._getLayerGroup(id), _opts(app, track));
+        renderTrack(track, id => app.getLayerGroup(id), _opts(app, track));
     }
     refreshEditedTrackClearance(app);
     app._markDirty?.();
-    app._updateRatsnest?.();
-    app._refreshFills?.();
+    app.updateRatsnest?.();
+    app.refreshFills?.();
     app._board3d?.refresh?.();
     app._refreshPcbSelectionHighlights?.();
 }
@@ -849,7 +849,7 @@ export function disconnectIncompatiblePadNodes(app, compId) {
     if (!pl) return;
     const touched = disconnectIncompatiblePadNodesData(app.tracks || [], compId, pl.padOffsets || []);
     for (const track of touched) {
-        renderTrack(track, (id) => app._getLayerGroup(id), _opts(app, track));
+        renderTrack(track, (id) => app.getLayerGroup(id), _opts(app, track));
     }
 }
 
@@ -880,7 +880,7 @@ export function renderPlacementSide(app, compId, side) {
         const base = el.getAttribute('data-fp-layer');
         if (!base) continue;
         const target = flip ? (FP_LAYER_FLIP[base] || base) : base;
-        const group = app._getLayerGroup?.(target);
+        const group = app.getLayerGroup?.(target);
         if (group && el.parentNode !== group) group.appendChild(el);
         // Recolour SMD pads to the copper colour of the side they now sit on
         // (top = red, bottom = blue). Through-hole pads stay gold.
@@ -926,7 +926,7 @@ export class SetBoardOutlineCommand extends ModelSetBoardOutlineCommand {
         super._apply(s);
         this.app._drawBoardOutline?.();
         this.app._syncBoardOutlineInputs?.();
-        this.app._refreshFills?.();
+        this.app.refreshFills?.();
     }
 }
 

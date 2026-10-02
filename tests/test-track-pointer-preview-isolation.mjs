@@ -88,22 +88,22 @@ function fixture(mode, deferred = false, unrelatedCount = 1) {
     for (const key of ['pads', 'vias', 'tracks', 'boardShapes', 'texts']) {
         Object.defineProperty(app, key, Object.getOwnPropertyDescriptor(PCBApp.prototype, key));
     }
-    for (const key of ['_setPcbPropsTitle', '_clearProperties', '_cancelPosePreviews', 'isSectionEditing',
+    for (const key of ['_setPcbPropsTitle', 'clearProperties', '_cancelPosePreviews', 'isSectionEditing',
         'deactivate', '_onLayerLockChanged', '_onLayerVisibilityChanged']) app[key] = PCBApp.prototype[key];
     Object.assign(app, {
         project, pcbDocument: model, placements: new Map(), netlist: [], history: new CommandHistory(),
         _active: true, _layerGroups: groups, _textElements: new Map(), _shapeElements: new Map(),
         _deferDragOverlays: deferred, _suspendBoardViewRefresh: deferred,
         viewport: { scale: 100, svg: new Element('svg'), shiftHeld: true, setCrosshair() {}, hideCrosshair() {} },
-        _pcbPropsItems: () => ({ innerHTML: '' }), _getLayerGroup: id => groups.get(id) || null,
-        _setActiveRibbonTab() {}, _setPcbStatus() {}, _refreshFills() { fills++; },
-        _refreshClearanceHalos() { clearances++; }, _board3d: { refresh() { boardRefreshes++; } },
+        _pcbPropsItems: () => ({ innerHTML: '' }), getLayerGroup: id => groups.get(id) || null,
+        _setActiveRibbonTab() {}, setPcbStatus() {}, refreshFills() { fills++; },
+        refreshClearanceHalos() { clearances++; }, _board3d: { refresh() { boardRefreshes++; } },
         _cancelDrawingMode() {}, _ensureViewport() {}, markSectionClean() {},
         _refreshPcbSelectionHighlights() {}, _scheduleRemovalHatchRender() {},
         _alert(message) { this.lastAlert = message; },
     });
     project.registerView('pcb', app);
-    for (const object of [track, unrelated[0]].filter(Boolean)) renderTrack(object, app._getLayerGroup);
+    for (const object of [track, unrelated[0]].filter(Boolean)) renderTrack(object, app.getLayerGroup);
     selectTrackOrVia(app, { type: 'track', track });
     const adapter = createTrackSelectionAdapter(app, track, track.id);
     const initial = mode === 'bulge' ? adapter.getAnchors().find(anchor => anchor.id === `bulge:${edgeId}`)
@@ -352,15 +352,15 @@ function enableClearances({ app, groups }) {
             return query(selector);
         };
     }
-    app._getRoutingParams = () => ({ clearance: 0.25, trackWidth: 0.2 });
+    app.getRoutingParams = () => ({ clearance: 0.25, trackWidth: 0.2 });
     app.showClearances = (show, liveTrack) => {
         if (!liveTrack) work.fullRedraws++;
         return PCBApp.prototype.showClearances.call(app, show, liveTrack);
     };
     app._refreshTrackClearance = PCBApp.prototype._refreshTrackClearance;
     app._refreshViaClearance = PCBApp.prototype._refreshViaClearance;
-    app._refreshClearanceHalos = PCBApp.prototype._refreshClearanceHalos;
-    app.history.onChanged = () => app._refreshClearanceHalos();
+    app.refreshClearanceHalos = PCBApp.prototype.refreshClearanceHalos;
+    app.history.onChanged = () => app.refreshClearanceHalos();
     return work;
 }
 
@@ -392,7 +392,7 @@ for (const targetKind of ['same-track', 'same-layer', 'cross-layer', 'conflict',
             layer: targetKind === 'cross-layer' ? 'bottom-copper' : 'top-copper', net: 'SIGNAL' });
         targetId = target.nodes.keys().next().value;
         model.tracks.push(target);
-        renderTrack(target, app._getLayerGroup);
+        renderTrack(target, app.getLayerGroup);
     }
     if (targetKind === 'conflict') track.net = 'OTHER';
     const original = model.captureGeometry(), serialized = model.serialize();
@@ -505,7 +505,7 @@ for (const commandKind of ['remove', 'move']) {
 {
     const f = fixture('whole', false, 0), { app, track, model, initial } = f;
     track.applyState(new Track({ points: Array.from({ length: 4000 }, (_, i) => ({ x: i, y: i % 2 })) }).captureState());
-    renderTrack(track, app._getLayerGroup);
+    renderTrack(track, app.getLayerGroup);
     const before = model.captureGeometry();
     f.start();
     assert.equal(app._vertexDrag.preview, undefined);
@@ -649,7 +649,7 @@ for (const mode of ['whole', 'segment', 'node', 'midpoint', 'split', 'bulge']) {
             const edgeId = [...track.edges.keys()].at(-1);
             track.setEdgeAttr(edgeId, 'width', 0.8);
             track.setEdgeAttr(edgeId, 'layer', 'bottom-copper');
-            renderTrack(track, app._getLayerGroup);
+            renderTrack(track, app.getLayerGroup);
         }
         app.showClearances(true);
         const haloPoints = () => (app._trackClearanceElements.get(track.id) || [])
@@ -704,8 +704,8 @@ for (const deferred of [false, true]) for (const coincident of [false, true]) {
     const bottom = new Track({ layer: 'bottom-copper', width: 0.7,
         points: [initial, { x: initial.x - 10, y: initial.y - 10 }] });
     model.tracks.push(bottom);
-    renderTrack(bottom, app._getLayerGroup);
-    for (const object of model.vias) renderVia(object, app._getLayerGroup);
+    renderTrack(bottom, app.getLayerGroup);
+    for (const object of model.vias) renderVia(object, app.getLayerGroup);
     app.showClearances(true);
     const overlay = groups.get('clearance-overlay');
     const halo = object => app._viaClearanceCache.get(app._viaClearanceKeys.get(object.id))?.element;

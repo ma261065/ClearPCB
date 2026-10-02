@@ -341,7 +341,8 @@ node tools/regression.mjs
 ```
 
 It first checks the documented import directions (`tools/check-imports.mjs`
-against `tools/import-baseline.json`), then runs every `tests/test-*.mjs` in an
+against `tools/import-baseline.json`) and PCB modules' use of private editor
+members (`tools/check-pcb-editor-access.mjs`), then runs every `tests/test-*.mjs` in an
 isolated process plus a full clearance check on
 `test-board.json` (`tools/check-clearance-full.mjs`) and asserts against a
 documented baseline (currently: 65/76 connections routed, 0 violations).

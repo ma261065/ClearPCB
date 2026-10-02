@@ -28,11 +28,11 @@ function board() {
         copperFills: [new CopperFill({ net: 'GND', outline: [
             { x: -5, y: -5 }, { x: 5, y: -5 }, { x: 5, y: 5 }, { x: -5, y: 5 },
         ] })],
-        _getLayerGroup: () => ratLayer,
-        _getRoutingParams: () => ({ clearance: 0.2 }),
-        _refreshClearanceHalos() { counts.halos++; },
+        getLayerGroup: () => ratLayer,
+        getRoutingParams: () => ({ clearance: 0.2 }),
+        refreshClearanceHalos() { counts.halos++; },
         _clearFillGroups() { counts.clears++; },
-        _refreshFills() { return scheduleFillRefresh(this); },
+        refreshFills() { return scheduleFillRefresh(this); },
         _recomputeFillsNow() {
             if (this._deferDragOverlays || this._suspendFillRefresh) {
                 this._fillRefreshPending = true;

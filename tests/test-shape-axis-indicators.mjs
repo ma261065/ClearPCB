@@ -70,7 +70,7 @@ function glowFor(point, scale = 1) {
         boardShapes: [shape],
         viewport: { scale, setCrosshair() {} },
         _snapToGrid(value) { return value; },
-        _getLayerGroup() { return overlay; },
+        getLayerGroup() { return overlay; },
         _shapeElements: new Map(),
     };
     startBoardShapeDrag(app, shape, { x: 0, y: 0 }, 0);
@@ -119,7 +119,7 @@ for (const [name, target, expectedKind, diagonal] of [
     const app = {
         boardShapes: [shape], viewport: { scale: 20, gridSize: 1, snapToGrid: true, setCrosshair() {} },
         _snapToGrid(point) { return { x: Math.round(point.x), y: Math.round(point.y) }; },
-        _getLayerGroup() { return overlay; }, _shapeElements: new Map(),
+        getLayerGroup() { return overlay; }, _shapeElements: new Map(),
     };
     const anchor = getBoardShapeAnchors(shape)[0];
     startBoardShapeDrag(app, shape, anchor, 0);
@@ -149,7 +149,7 @@ for (const [name, target, expectedKind, diagonal] of [
         points: [{ x: 0, y: 0 }, { x: 10, y: 0 }, { x: 10, y: 8 }, { x: 0, y: 8 }] };
     const overlay = element('g');
     const app = { boardShapes: [shape], viewport: { scale: 20, setCrosshair() {} },
-        _shapeElements: new Map(), _getLayerGroup() { return overlay; }, _snapToGrid(point) { return point; } };
+        _shapeElements: new Map(), getLayerGroup() { return overlay; }, _snapToGrid(point) { return point; } };
     const midpoint = getBoardShapeAnchors(shape).find(anchor => anchor.id === 'mid:0');
     expect('rectangle plus handle is on the centerline', midpoint.x === 5 && midpoint.y === 0);
     startBoardShapeDrag(app, shape, midpoint, midpoint.id);
@@ -170,7 +170,7 @@ for (const [name, target, expectedKind, diagonal] of [
         boardShapes: [shape],
         viewport: { scale: 10, setCrosshair() {} },
         _snapToGrid(value) { return value; },
-        _getLayerGroup() { return overlay; },
+        getLayerGroup() { return overlay; },
         _shapeElements: new Map(),
     };
     startBoardShapeDrag(app, shape, { x: 5, y: 0 });
@@ -195,7 +195,7 @@ for (const commit of [false, true]) {
     const shape = { id: 'placement-cursor', kind: 'rect', layer: 'top-copper', lineWidth: 2,
         points: [{ x: 0, y: 0 }, { x: 20, y: 0 }, { x: 20, y: 16 }, { x: 0, y: 16 }] };
     const app = {
-        boardShapes: [shape], viewport, _shapeElements: new Map(), _getLayerGroup() { return null; },
+        boardShapes: [shape], viewport, _shapeElements: new Map(), getLayerGroup() { return null; },
         _snapToGrid(point) { return point; }, history: { execute(command) { command.execute(); } },
     };
     const midpoint = getBoardShapeAnchors(shape).find(anchor => anchor.id === 'mid:0');
@@ -226,7 +226,7 @@ for (const reversed of [false, true]) {
         const originalAnchors = getBoardShapeAnchors(shape).filter(anchor => !anchor.midpoint);
         const midpoint = getBoardShapeAnchors(shape).find(anchor => anchor.id === `mid:${segment}`);
         const app = {
-            boardShapes: [shape], _shapeElements: new Map(), _getLayerGroup() { return null; },
+            boardShapes: [shape], _shapeElements: new Map(), getLayerGroup() { return null; },
             viewport: { scale: 20, setCrosshair() {} }, _snapToGrid(point) { return point; },
         };
         startBoardShapeDrag(app, shape, midpoint, midpoint.id);
@@ -253,7 +253,7 @@ for (const mode of ['move', 'segment', 'insert']) {
         points: [{ x: 100, y: 100 }, { x: 200, y: 100 }, { x: 200, y: 180 }, { x: 100, y: 180 }] };
     let crosshair = null;
     const app = {
-        boardShapes: [shape], _shapeElements: new Map(), _getLayerGroup() { return null; },
+        boardShapes: [shape], _shapeElements: new Map(), getLayerGroup() { return null; },
         viewport: { scale: 20, setCrosshair(point) { crosshair = point; } },
         _snapToGrid(point) { return point; },
     };
@@ -273,7 +273,7 @@ for (const mode of ['move', 'segment', 'insert']) {
         points: [{ x: 0, y: 0 }, { x: 20, y: 0 }, { x: 20, y: 16 }, { x: 0, y: 16 }] };
     let crosshair;
     const app = {
-        boardShapes: [shape], _shapeElements: new Map(), _getLayerGroup() { return null; },
+        boardShapes: [shape], _shapeElements: new Map(), getLayerGroup() { return null; },
         viewport: { scale: 1e9, setCrosshair(point) { crosshair = point; } },
         _snapToGrid(point) { return point; },
     };
@@ -296,7 +296,7 @@ for (const variableWidth of [false, true]) {
         points: [{ x: 0, y: 0 }, { x: 100, y: 0 }, { x: 100, y: 80 }, { x: 0, y: 80 }],
         ...(variableWidth ? { segmentWidths: { 0: 4 } } : {}) };
     const app = {
-        boardShapes: [shape], _shapeElements: new Map(), _getLayerGroup() { return null; },
+        boardShapes: [shape], _shapeElements: new Map(), getLayerGroup() { return null; },
         viewport: { scale: 20, setCrosshair() {}, hideCrosshair() {} },
         _snapToGrid(point) { return point; },
     };
@@ -316,7 +316,7 @@ for (const kind of ['arc', 'line']) {
                 ? { start: { x: 0, y: 0 }, end: { x: 10, y: 0 }, bulge: { x: 5, y: 2 } }
                 : { points: [{ x: 0, y: 0 }, { x: 10, y: 0 }, { x: 20, y: 10 }], segmentBulges: { 0: 0.4 } }) };
         const overlay = element('g');
-        const app = { boardShapes: [shape], _shapeElements: new Map(), _getLayerGroup() { return overlay; },
+        const app = { boardShapes: [shape], _shapeElements: new Map(), getLayerGroup() { return overlay; },
             viewport: { scale: 100, setCrosshair() {}, hideCrosshair() {} }, _snapToGrid(point) { return point; } };
         const handle = kind === 'arc' ? 'bulge' : 'bulge:0';
         startBoardShapeDrag(app, shape, { x: 5, y: 2 }, handle);
@@ -550,7 +550,7 @@ for (const commit of [false, true]) {
     const app = {
         viewport: { scale: 20, shiftHeld: true }, activeLayer: 'top-silk',
         _shapeDefaults: { lineWidth: 0.4 }, _shapeIdCounter: 0,
-        _getLayerGroup() { return layer; }, history: { execute() {} },
+        getLayerGroup() { return layer; }, history: { execute() {} },
         _shapeDraw: { kind: 'rect', layer: 'top-silk', points: [{ x: 0, y: 0 }], preview: element('path') },
     };
     updateShapeDrawPreview(app, { x: 10, y: 10 });
@@ -587,7 +587,7 @@ for (const mode of ['corner', 'segment', 'move']) {
             points: [{ x: 0, y: 0 }, { x: 10, y: 0 }, { x: 10, y: height }, { x: 0, y: height }] };
         const layer = element('g');
         const app = {
-            boardShapes: [shape], _shapeElements: new Map(), _getLayerGroup() { return layer; },
+            boardShapes: [shape], _shapeElements: new Map(), getLayerGroup() { return layer; },
             viewport: { scale: 20, shiftHeld: true, setCrosshair() {}, hideCrosshair() {} },
             _snapToGrid(point) { return point; }, history: { execute() {} },
         };
@@ -615,7 +615,7 @@ for (const height of [8, 10]) {
         points: [{ x: 0, y: 0 }, { x: 10, y: 0 }, { x: 10, y: height }, { x: 0, y: height }] };
     const layer = element('g');
     const app = {
-        boardShapes: [shape], _shapeElements: new Map(), _getLayerGroup() { return layer; },
+        boardShapes: [shape], _shapeElements: new Map(), getLayerGroup() { return layer; },
         viewport: { scale: 20, shiftHeld: false, snapToGrid: false, setCrosshair() {}, hideCrosshair() {} },
         _snapToGrid(point) { return point; }, history: { execute() {} },
     };
@@ -668,7 +668,7 @@ for (const index of [0, 2]) {
         points: points.map(point => ({ ...point })) };
     shape.points[index].y += 1;
     const layer = element('g');
-    const app = { boardShapes: [shape], _shapeElements: new Map(), _getLayerGroup() { return layer; },
+    const app = { boardShapes: [shape], _shapeElements: new Map(), getLayerGroup() { return layer; },
         viewport: { scale: 20, shiftHeld: false, snapToGrid: false, setCrosshair() {}, hideCrosshair() {} },
         _snapToGrid(point) { return point; },
         history: { execute() {} } };
@@ -686,7 +686,7 @@ for (const index of [0, 2]) {
     const layer = element('g');
     const app = { viewport: { scale: 20, shiftHeld: false, snapToGrid: false }, _shapeDefaults: { lineWidth: 0.4 },
         _snapToGrid(point) { return point; },
-        _getLayerGroup() { return layer; },
+        getLayerGroup() { return layer; },
         _shapeDraw: { kind: 'line', layer: 'top-copper', points: [{ x: 0, y: 0 }, { x: 10, y: 3 }], preview: element('path') } };
     updateShapeDrawPreview(app, { x: 20, y: 6.15 });
     expect('PCB drawing preview shows collinear continuation', app._axisGlowResolved.length === 2
@@ -758,7 +758,7 @@ for (const index of [0, 2]) {
     }
     const shape = { id: 'segment-continuation', kind: 'line', layer: 'top-silk', lineWidth: 0.2, points: points.map(point => ({ ...point })) };
     const app = { boardShapes: [shape], viewport: { scale: 100, setCrosshair() {}, hideCrosshair() {} },
-        _getLayerGroup() { return null; }, _snapToGrid(point) { return point; }, _shapeElements: new Map() };
+        getLayerGroup() { return null; }, _snapToGrid(point) { return point; }, _shapeElements: new Map() };
     startBoardShapeDrag(app, shape, { x: 24, y: 10.5 }, null, { allowSegment: true });
     handleBoardShapeDrag(app, { x: 24, y: 10.55 });
     expect('PCB segment uses the same oblique continuation snap', onContinuation(app._shapeDrag.shape.points[2]));

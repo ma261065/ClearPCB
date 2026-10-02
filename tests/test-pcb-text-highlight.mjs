@@ -51,9 +51,9 @@ app.pcbDocument = new PcbDocument();
 app.texts = new Map([[text.id, text]]);
 app._textElements = new Map();
 app._hoveredText = null;
-app._getLayerGroup = () => layer;
+app.getLayerGroup = () => layer;
 app._refreshBoardShapeClearance = () => {};
-app._setPcbStatus = () => {};
+app.setPcbStatus = () => {};
 
 setPcbSelection(app, [{ kind: 'text', object: text }]);
 app._renderText(text);

@@ -14,7 +14,7 @@ const polygon = (left, top, right, bottom, options = {}) => ({
 function ratlines(shapes) {
     const lines = [];
     const app = { boardShapes: shapes, copperFills: [], tracks: [], vias: [], placements: new Map(), netlist: [],
-        _getLayerGroup: () => ({ children: [], appendChild(line) { lines.push(line); } }) };
+        getLayerGroup: () => ({ children: [], appendChild(line) { lines.push(line); } }) };
     reconcileRatsnest(app);
     return lines.length;
 }

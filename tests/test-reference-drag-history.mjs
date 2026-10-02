@@ -33,7 +33,7 @@ function fixture({ saved = true, rotation = 37, side = 'bottom', mirror = true }
         _active: true, currentTool: 'select', history: new CommandHistory(),
         viewport: { svg: { style: { cursor: 'grabbing' } }, snapToGrid: false,
             gridVisible: true, scale: 4, gridSize: 10, hideCrosshair() {} },
-        _getLayerGroup: () => null,
+        getLayerGroup: () => null,
         _drawRefOverlay: (id, withTether) => overlays.push({ id, withTether, ...offsets() }),
         _markDirty: () => dirty++, _board3d: { refresh: () => boardRefreshes++ },
         _screenToWorld: event => ({ x: event.clientX, y: event.clientY }),

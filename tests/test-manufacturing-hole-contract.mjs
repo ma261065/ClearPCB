@@ -46,7 +46,7 @@ assert.ok(Math.abs(restored.getPcbFootprint('part').padOffsets[2].slotAngle
 
 const board = placements => ({ placements, tracks: [], vias: [], pads: [], texts: new Map(),
     boardShapes: [], copperFills: [], _boardWidth: 40, _boardHeight: 40, _boardRadius: 0,
-    _getRoutingParams: () => ({ clearance: 0.2 }) });
+    getRoutingParams: () => ({ clearance: 0.2 }) });
 const drillCommand = drill => `X${drill.x.toFixed(3)}Y${(-drill.y).toFixed(3)}`
     + (drill.slot ? `G85X${drill.slot.x2.toFixed(3)}Y${(-drill.slot.y2).toFixed(3)}` : '');
 for (const side of ['top', 'bottom']) for (const mirror of [false, true]) for (const rotation of [0, 37, 90]) {

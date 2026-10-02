@@ -638,7 +638,7 @@ function createBoardShapePropertyPreview(app, targets, { liveDrag = false, befor
 }
 
 export function renderBoardShape(app, shape, opts = {}) {
-    if (!opts.interactionOnly) app._refreshSelectedDRCMarker?.();
+    if (!opts.interactionOnly) app.refreshSelectedDRCMarker?.();
     shape = displayedBoardShape(app, shape);
     removeBoardShapeElement(app, shape.id, { skipHatchUpdate: true, preserveInteraction: true });
     const selectedSegment = app._selectedBoardShapeSegment?.shapeId === shape.id
@@ -714,7 +714,7 @@ export function renderBoardShape(app, shape, opts = {}) {
     }
     const root = st.isHoleLayer ? insideStrokeGroup(el) : el;
     root.setAttribute('data-board-shape-layer', shape.layer || '');
-    app._getLayerGroup(st.targetLayer)?.appendChild(root);
+    app.getLayerGroup(st.targetLayer)?.appendChild(root);
     app._shapeElements.set(shape.id, root);
     if (!opts.interactionOnly) app._refreshBoardShapeClearance?.(shape);
     if (!opts.interactionOnly && (!opts.liveDrag || st.isCopperRemoval)) app._scheduleRemovalHatchRender?.();
@@ -729,9 +729,9 @@ export function renderBoardShape(app, shape, opts = {}) {
     if (!opts.skipCopperUpdate) {
         const affectsCuts = shapeAffectsCopperCuts(shape);
         if (opts.liveDrag) {
-            if (affectsCuts) app._updateCopperCuts?.();
+            if (affectsCuts) app.updateCopperCuts?.();
         } else if (affectsCuts || app._hasCopperCuts) {
-            app._updateCopperCuts?.();
+            app.updateCopperCuts?.();
         }
     }
 }
@@ -814,7 +814,7 @@ export function selectBoardShape(app, shape) {
     } else if (!next) {
         setPcbSelection(app, getPcbSelectionEntries(app).filter(entry => entry.kind !== 'shape'));
     }
-    app._syncClipboardButtons?.();
+    app.syncClipboardButtons?.();
     for (const previous of previousShapes) {
         if (app.boardShapes.includes(previous)) renderBoardShape(app, previous);
     }
@@ -822,7 +822,7 @@ export function selectBoardShape(app, shape) {
     clearBoardShapeHandles(app);
     if (next) renderBoardShapeHandles(app, next);
     renderBoardShapeSegmentSelection(app);
-    app._setPcbStatus?.();
+    app.setPcbStatus?.();
 }
 
 // ── Resize handles ───────────────────────────────────────────────────────────
@@ -1071,7 +1071,7 @@ export function clearBoardShapeHandles(app) {
 
 /** Remove obsolete standalone segment overlays after selection changes. */
 export function renderBoardShapeSegmentSelection(app) {
-    const overlay = app._getLayerGroup?.('selection-overlay');
+    const overlay = app.getLayerGroup?.('selection-overlay');
     if (!overlay) return;
     for (const element of [...overlay.querySelectorAll('.pcb-shape-segment-selection')]) element.remove();
     const selected = app._selectedBoardShapeSegment;
@@ -1246,7 +1246,7 @@ export function splitBoardShapeSegmentMetadata(shape, segment) {
 function finishBoardShapeRemoval(app) {
     app._selectedBoardShapeNode = null;
     app._selectedBoardShapeSegment = null;
-    app._clearProperties?.();
+    app.clearProperties?.();
     app._setActiveRibbonTab?.('pcb-home');
 }
 
@@ -1386,7 +1386,7 @@ export function startBoardShapeDrag(app, shape, worldPos, anchorId = null, optio
         vertexBefore: cloneShapeGeometry(shape),
         ratsnestNets,
     });
-    app._setPcbStatus?.();
+    app.setPcbStatus?.();
     app._deferDragOverlays = true;
     if (mode === 'vertex' || mode === 'segment') schedulePictureCopperRefresh(app, shape);
     const vertex = midpointMatch ? shape.points[handle] : handle != null
@@ -1456,7 +1456,7 @@ export function handleBoardShapeDrag(app, worldPos) {
         syncCircleDiameterProperty(app, s);
         syncShapeBulgeProperty(app, s);
         if (['line', 'polygon', 'rect', 'arc'].includes(s.kind)) renderPolygonAxisIndicators(app, s, d.handle);
-        if (d.ratsnestNets) app._updateRatsnest?.({ nets: d.ratsnestNets });
+        if (d.ratsnestNets) app.updateRatsnest?.({ nets: d.ratsnestNets });
         return;
     }
     if (d.mode === 'segment' && ['line', 'polygon', 'rect'].includes(s.kind) && d.segment != null) {
@@ -1475,7 +1475,7 @@ export function handleBoardShapeDrag(app, worldPos) {
         if (['line', 'polygon', 'rect'].includes(s.kind)) {
             renderPolygonAxisIndicators(app, s, [firstIndex, secondIndex], [d.segment]);
         }
-        if (d.ratsnestNets) app._updateRatsnest?.({ nets: d.ratsnestNets });
+        if (d.ratsnestNets) app.updateRatsnest?.({ nets: d.ratsnestNets });
         return;
     }
     const dx = worldPos.x - d.startWorld.x;
@@ -1489,7 +1489,7 @@ export function handleBoardShapeDrag(app, worldPos) {
     renderBoardShape(app, s, { liveDrag: true });
     renderBoardShapeHandles(app, s);
     renderAxisGlow(app, boardSquareIndicators(s));
-    if (d.ratsnestNets) app._updateRatsnest?.({ nets: d.ratsnestNets });
+    if (d.ratsnestNets) app.updateRatsnest?.({ nets: d.ratsnestNets });
 }
 
 export function endBoardShapeDrag(app, commit) {
@@ -1499,7 +1499,7 @@ export function endBoardShapeDrag(app, commit) {
     const interaction = app._pcbSelectionInteraction;
     if (interaction?.adapter?.kind === 'shape'
         || (interaction?.mode === 'move-adapter' && interaction.entry.kind === 'shape')) app._pcbSelectionInteraction = null;
-    app._setPcbStatus?.();
+    app.setPcbStatus?.();
     app.viewport?.hideCrosshair();
     clearPolygonAxisIndicators(app);
     app._deferDragOverlays = d.previousDeferDragOverlays;
@@ -1570,7 +1570,7 @@ export function endBoardShapeDrag(app, commit) {
             syncCircleDiameterProperty(app, original);
             syncShapeBulgeProperty(app, original);
         }
-        if (d.ratsnestNets) app._updateRatsnest?.({ nets: d.ratsnestNets, skipFillRefresh: !committed });
+        if (d.ratsnestNets) app.updateRatsnest?.({ nets: d.ratsnestNets, skipFillRefresh: !committed });
     }
 }
 
@@ -1743,7 +1743,7 @@ function makePreview(app) {
     preview.setAttribute('opacity', '0.6');
     preview.setAttribute('vector-effect', 'non-scaling-stroke');
     preview.setAttribute('stroke-linejoin', 'round');
-    app._getLayerGroup('selection-overlay')?.appendChild(preview);
+    app.getLayerGroup('selection-overlay')?.appendChild(preview);
     return preview;
 }
 
@@ -2027,7 +2027,7 @@ export function showBoardShapeToolProperties(app, kind) {
                 return;
             }
             app.activeLayer = next;
-            app._setPcbStatus?.();
+            app.setPcbStatus?.();
             if (app._shapeDraw?.kind === kind) app._shapeDraw.layer = next;
             updateShapeDrawPreview(app, app._lastCrosshairWorld || app._shapeDraw?.points.at(-1));
             syncAvailability();
@@ -2038,7 +2038,7 @@ export function showBoardShapeToolProperties(app, kind) {
             updateShapeDrawPreview(app, app._lastCrosshairWorld || app._shapeDraw?.points.at(-1));
         });
         syncAvailability();
-        app._setPcbStatus?.();
+        app.setPcbStatus?.();
         app._setActiveRibbonTab?.('pcb-properties');
 }
 
@@ -2218,7 +2218,7 @@ export function showBoardShapeProperties(app, shape) {
     const items = app._pcbPropsItems?.();
     if (!items || !shape) return;
     syncPcbSelection(app);
-    app._setPcbStatus?.();
+    app.setPcbStatus?.();
 
     const selectedTargets = getPcbSelection(app, 'shape');
     const propertyOriginals = (selectedTargets.length > 0 ? selectedTargets : [shape])
@@ -2770,7 +2770,7 @@ export function refreshBoardShapeProperties(app, shape) {
 
 /**
  * SVG sub-paths for board shapes that subtract copper on the given copper
- * layer. Returns { count, d } to fold into PCBApp._updateCopperCuts.
+ * layer. Returns { count, d } to fold into PCBApp.updateCopperCuts.
  */
 export function boardShapeCopperCuts(app, copperLayer) {
     let d = '';

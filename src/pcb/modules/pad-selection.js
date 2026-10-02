@@ -41,13 +41,13 @@ export function createPadSelectionAdapter(app, pad, id) {
         },
         updateMove(worldPos) {
             updateViaDrag(app, worldPos);
-            updatePadHighlightGeometry(current(), app._getLayerGroup('selection-overlay'));
+            updatePadHighlightGeometry(current(), app.getLayerGroup('selection-overlay'));
         },
         endMove(commit) {
             if (commit) finishViaDrag(app);
             else cancelViaDrag(app);
-            updatePadHighlightGeometry(pad, app._getLayerGroup('selection-overlay'));
-            if (!app._deferDragOverlays) app._refreshClearanceHalos?.();
+            updatePadHighlightGeometry(pad, app.getLayerGroup('selection-overlay'));
+            if (!app._deferDragOverlays) app.refreshClearanceHalos?.();
         },
         beginAnchorDrag(anchorId, worldPos) {
             if (anchorId !== 'rotate') return false;
@@ -63,8 +63,8 @@ export function createPadSelectionAdapter(app, pad, id) {
             );
             if (current().rotation === rotation) return;
             const copy = previewPadRotation(app, pad, rotation);
-            renderPad(copy, layer => app._getLayerGroup(layer));
-            updatePadHighlightGeometry(copy, app._getLayerGroup('selection-overlay'));
+            renderPad(copy, layer => app.getLayerGroup(layer));
+            updatePadHighlightGeometry(copy, app.getLayerGroup('selection-overlay'));
             const input = /** @type {HTMLInputElement|null} */ (document.getElementById('pcbPropPadRotation'));
             if (input) input.value = String(Math.round(rotation) % 360);
         },
@@ -76,7 +76,7 @@ export function createPadSelectionAdapter(app, pad, id) {
                 ? () => app.history.execute(new ModifyPadCommand(app, pad, before, { ...before, rotation }))
                 : undefined);
         },
-        invalidate() { renderPad(current(), layer => app._getLayerGroup(layer)); },
+        invalidate() { renderPad(current(), layer => app.getLayerGroup(layer)); },
     };
 }
 

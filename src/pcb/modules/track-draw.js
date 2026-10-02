@@ -698,7 +698,7 @@ export function toggleTrackLayer(app) {
     if (!ctx) return;
     const idx = TOGGLE_LAYERS.indexOf(ctx.currentLayer);
     ctx.currentLayer = TOGGLE_LAYERS[(idx + 1) % TOGGLE_LAYERS.length];
-    app._setPcbStatus?.();
+    app.setPcbStatus?.();
     // Re-render preview so the trailing rubber-band uses the new layer's
     // colour and an implicit-via marker appears at the toggle anchor.
     const last = ctx.points[ctx.points.length - 1];
@@ -729,22 +729,22 @@ export function finishTrackDraw(app) {
         } else {
             for (const shape of ctx.endCopperShapes || []) {
                 shape.net = ctx.net;
-                if (shape.type === 'fill') app._refreshFills?.();
+                if (shape.type === 'fill') app.refreshFills?.();
                 else renderBoardShape(app, shape);
             }
             for (const track of tracks) {
                 app.tracks.push(track);
-                renderTrack(track, (id) => app._getLayerGroup(id), _renderOptsFromApp(app));
+                renderTrack(track, (id) => app.getLayerGroup(id), _renderOptsFromApp(app));
             }
             for (const v of newVias) {
                 app.vias.push(v);
                 // Render lazily to avoid a hard import cycle.
                 import('./track-render.js').then(({ renderVia }) => {
-                    renderVia(v, (id) => app._getLayerGroup(id));
-                    app._refreshClearanceHalos?.();
+                    renderVia(v, (id) => app.getLayerGroup(id));
+                    app.refreshClearanceHalos?.();
                 });
             }
-            app._refreshClearanceHalos?.();
+            app.refreshClearanceHalos?.();
             reconcileRatsnest(app);
         }
     }
@@ -809,7 +809,7 @@ export function popTrackWaypoint(app) {
  *   fill pass.
  */
 export function reconcileRatsnest(app, opts) {
-    app._refreshSelectedDRCMarker?.();
+    app.refreshSelectedDRCMarker?.();
     const liveShapeDrag = app._shapeDrag?.ratsnestNets && opts?.nets === app._shapeDrag.ratsnestNets;
     if (app._pictureCopperRefreshPending && !liveShapeDrag) return;
     if (deferDerivedUpdate(app, 'ratsnest', () => reconcileRatsnest(app))) return;
@@ -822,10 +822,10 @@ export function reconcileRatsnest(app, opts) {
     // rebuilding clearance geometry) on each frame is the single biggest cost
     // on boards that have them. _endDrag() forces one full reconcile on drop.
     if (!app._deferDragOverlays) {
-        if (!opts?.skipFillRefresh && app._refreshFills?.() === true) return;
+        if (!opts?.skipFillRefresh && app.refreshFills?.() === true) return;
     }
 
-    const ratLayer = app._getLayerGroup?.('ratlines');
+    const ratLayer = app.getLayerGroup?.('ratlines');
     if (!ratLayer) return;
     const ratlines = (app._drcRatlinesModel === (app.pcbDocument || app) ? app._drcRatlines || [] : [])
         .filter(line => line.failed || (onlyNets && !onlyNets.has(line.net)));
@@ -1521,7 +1521,7 @@ function refreshNetGuideLine(app) {
     const state = netGuideSources.get(app);
     if (!state) return;
     clearNetGuideLine(app);
-    const layer = app._getLayerGroup?.('ratlines');
+    const layer = app.getLayerGroup?.('ratlines');
     let best = null, bestDistance = Infinity;
     for (const line of layer?.children || []) {
         if (line.dataset?.net !== state.net || !line.classList?.contains('ratsnest-line')
@@ -1645,7 +1645,7 @@ function _renderPreview(app, ctx, livePt) {
         const align = _axisAlignment(a, b);
         if (!align) return null;
         const layerId = segLayers[segLayers.length - 1];
-        const parent = app._getLayerGroup(layerId);
+        const parent = app.getLayerGroup(layerId);
         if (!parent) return null;
         const dashKind = align === 'd' ? 'dashed' : 'solid';
         const seg = { a, b, width: ctx.width || _getTrackWidth(app) };
@@ -1663,7 +1663,7 @@ function _renderPreview(app, ctx, livePt) {
     for (let i = 1; i <= segLayers.length; i++) {
         if (i === segLayers.length || segLayers[i] !== segLayers[runStart]) {
             const layerId = segLayers[runStart];
-            const parent = app._getLayerGroup(layerId);
+            const parent = app.getLayerGroup(layerId);
             if (parent) {
                 const poly = _previewElement(ctx, `run:${runStart}`, 'polyline', used);
                 poly.setAttribute('class', PREVIEW_CLASS);
@@ -1692,7 +1692,7 @@ function _renderPreview(app, ctx, livePt) {
     // Implicit-via markers: any committed anchor where adjacent committed
     // edges differ in layer, PLUS the trailing anchor if currentLayer
     // differs from the last committed edge's layer.
-    const viaLayer = app._getLayerGroup('vias');
+    const viaLayer = app.getLayerGroup('vias');
     if (viaLayer) {
         const opts = _renderOptsFromApp(app);
         const viaDia = opts.viaDiameter || 0.6;
@@ -1878,14 +1878,14 @@ function _layerColor(layerId) {
 
 function _getTrackWidth(app) {
     try {
-        return app._getRoutingParams?.()?.trackWidth || 0.2;
+        return app.getRoutingParams?.()?.trackWidth || 0.2;
     } catch (_) {
         return 0.2;
     }
 }
 
 function _renderOptsFromApp(app) {
-    const p = app._getRoutingParams?.() || {};
+    const p = app.getRoutingParams?.() || {};
     return {
         viaDiameter: p.viaDiameter,
         viaDrill: p.viaDrill,

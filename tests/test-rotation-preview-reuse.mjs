@@ -50,8 +50,8 @@ for (const kind of ['text', 'pad']) {
     const app = {
         pcbDocument, get texts() { return getTextPosePreviewTexts(this) || pcbDocument.texts; },
         pads: pcbDocument.pads, history: new CommandHistory(),
-        _getLayerGroup: layer => layer === 'top-copper' ? copper : layer === 'selection-overlay' ? overlay : null,
-        _refreshText: () => renders++,
+        getLayerGroup: layer => layer === 'top-copper' ? copper : layer === 'selection-overlay' ? overlay : null,
+        refreshText: () => renders++,
         _boardShapeClearanceCache: new Map([[object.id, { elements: [{
             parentNode: { removeChild: () => clearanceInvalidations++ },
         }] }]]),
@@ -159,7 +159,7 @@ for (const layer of ['top-silk', 'bottom-copper']) {
     pcbDocument.boardShapes.push(shape);
     const app = {
         pcbDocument, boardShapes: pcbDocument.boardShapes, history: new CommandHistory(), _shapeElements: new Map(),
-        _getLayerGroup: id => id === layer ? group : null,
+        getLayerGroup: id => id === layer ? group : null,
         _refreshBoardShapeClearance: () => clearanceRequests++,
     };
     const adapter = createBoardShapeSelectionAdapter(app, shape, `shape:${shape.id}`);

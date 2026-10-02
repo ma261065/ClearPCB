@@ -473,10 +473,10 @@ export default class PCBApp {
 
         // Rebuild if schematic changed while we were away
         if (this._stale) this._syncFromSchematic();
-        if (this._fillRefreshPending) this._refreshFills();
+        if (this._fillRefreshPending) this.refreshFills();
         if (this._drcPending || this._drcShouldRun()) this._scheduleDRC();
 
-        this._setPcbStatus();
+        this.setPcbStatus();
         if (this.viewport) {
             this.viewport._notifyViewChanged?.();
         }
@@ -510,7 +510,7 @@ export default class PCBApp {
         this._drcPresentation?.dispose();
     }
 
-    _setPcbStatus() {
+    setPcbStatus() {
         if (!this.status.modeStatus) return;
         const rawTool = this.currentTool || 'select';
         const shapeTool = ['line', 'circle', 'rect', 'polygon', 'arc'].includes(rawTool);
@@ -557,7 +557,7 @@ export default class PCBApp {
                 : showSegmentTip ? 'Tip: Click again to select a segment or node' : '';
         }
         this.status.modeStatus.textContent = `${toolLabel} | ${layerLabel}`;
-        this._syncClipboardButtons?.();
+        this.syncClipboardButtons?.();
         this._syncHistoryButtons?.();
     }
 
@@ -630,11 +630,11 @@ export default class PCBApp {
         setPcbSelection(this, selected);
         refreshBoxSelectionHighlights(this);
         showPcbSelectionProperties(this);
-        this._syncClipboardButtons();
+        this.syncClipboardButtons();
     }
 
     /** Enable/disable PCB ribbon clipboard buttons to match current state. */
-    _syncClipboardButtons() {
+    syncClipboardButtons() {
         const canCopyCut = this._canCopyCutPcbSelection();
         const canPaste = this._hasPcbClipboardData();
         for (const id of ['pcbCopyHome', 'pcbCopyProps', 'pcbCutHome', 'pcbCutProps', 'pcbPasteHome', 'pcbPasteProps']) {
@@ -673,11 +673,11 @@ export default class PCBApp {
                 this._showComponentPopup(componentId,
                     "Components can't be copied from PCB. Copy them in the schematic editor.");
             }
-            this._syncClipboardButtons();
+            this.syncClipboardButtons();
             return false;
         }
         this._pcbClipboard = payload;
-        this._syncClipboardButtons();
+        this.syncClipboardButtons();
         return true;
     }
 
@@ -686,8 +686,8 @@ export default class PCBApp {
         if (this._pasteDrop) { this._cancelPasteDrop(); return true; }
         if (!this.copySelection()) return false;
         const deleted = deleteBoxSelection(this);
-        if (deleted) this._clearProperties();
-        this._syncClipboardButtons();
+        if (deleted) this.clearProperties();
+        this.syncClipboardButtons();
         return deleted;
     }
 
@@ -717,12 +717,12 @@ export default class PCBApp {
     /** Stage the current PCB clipboard payload at the cursor without authoring it. */
     pasteSelection() {
         if (!this._hasPcbClipboardData()) {
-            this._syncClipboardButtons();
+            this.syncClipboardButtons();
             return false;
         }
         const pasted = preparePcbPaste(this, this._pcbClipboard);
         const started = this._beginPasteDrop(pasted);
-        this._syncClipboardButtons();
+        this.syncClipboardButtons();
         return started;
     }
 
@@ -777,7 +777,7 @@ export default class PCBApp {
                 }
             }
             this._updatePcbCulling();
-            if (this._hasCopperCuts) this._updateCopperCuts({ geometryChanged: false });
+            if (this._hasCopperCuts) this.updateCopperCuts({ geometryChanged: false });
             if (this._drcSelectedId) this._updateDRCConnector();
         };
 
@@ -824,7 +824,7 @@ export default class PCBApp {
             this._scheduleRemovalHatchRender();
             // Keep the copper-removal clip rectangle following the viewport
             // during a live pan (viewBox moves without firing onViewChanged).
-            if (this._hasCopperCuts) this._updateCopperCuts({ geometryChanged: false });
+            if (this._hasCopperCuts) this.updateCopperCuts({ geometryChanged: false });
             // The viewBox moves continuously during a pan without firing
             // onViewChanged, so keep the DRC leader anchored here too.
             if (this._drcSelectedId) this._updateDRCConnector();
@@ -1061,7 +1061,7 @@ export default class PCBApp {
                 }
                 // Any other click drops the current fill selection (it may be
                 // re-selected below if the click lands on a fill region).
-                this._selectFill(null);
+                this.selectFill(null);
                 selectBoardShape(this, null);
 
                 // If a track is already selected, try to start a vertex
@@ -1157,7 +1157,7 @@ export default class PCBApp {
                     this._selectBoardOutline(false);
                     this._selectText(null);
                     this._selectRefText(null);
-                    this._selectFill(null);
+                    this.selectFill(null);
                     selectBoardShape(this, shapeHit);
                     showBoardShapeProperties(this, shapeHit);
                     if (startBoardShapeDrag(this, shapeHit, worldPos)) {
@@ -1259,20 +1259,20 @@ export default class PCBApp {
                     }
                 } else if (this._hitTestBoardOutline(worldPos)) {
                     this._selectComponent(null);
-                    this._selectFill(null);
+                    this.selectFill(null);
                     this._selectBoardOutline(true);
                     this._showBoardOutlineProperties();
                 } else if (this._hitTestFill(worldPos)) {
                     const fillHit = this._hitTestFill(worldPos);
                     this._selectComponent(null);
                     this._selectBoardOutline(false);
-                    this._selectFill(fillHit);
+                    this.selectFill(fillHit);
                     this._showFillProperties(fillHit);
                 } else {
                     this._selectComponent(null);
                     this._selectBoardOutline(false);
-                    this._selectFill(null);
-                    this._clearProperties();
+                    this.selectFill(null);
+                    this.clearProperties();
                     // Empty canvas: arm a box-select. The marquee only
                     // materialises once the pointer crosses the drag
                     // threshold (see the mousemove handler).
@@ -1313,7 +1313,7 @@ export default class PCBApp {
                 // A via spans both copper layers — refuse if either is locked.
                 if (isViaLocked()) return;
                 const snap = resolveTrackSnap(this, worldPos, {});
-                const p = this._getRoutingParams?.() || {};
+                const p = this.getRoutingParams?.() || {};
                 const diameter = Number.isFinite(p.viaDiameter) && p.viaDiameter > 0 ? p.viaDiameter : 0.6;
                 const drill = Number.isFinite(p.viaDrill) && p.viaDrill > 0 ? p.viaDrill : 0.3;
                 const selectedNet = String(this._viaToolNet || '').trim();
@@ -1821,7 +1821,7 @@ export default class PCBApp {
         const svg = this.viewport?.svg;
         if (!svg) return;
         const snap = resolveTrackSnap(this, worldPos, {});
-        const p = this._getRoutingParams?.() || {};
+        const p = this.getRoutingParams?.() || {};
         const dia = Number.isFinite(p.viaDiameter) && p.viaDiameter > 0 ? p.viaDiameter : 0.6;
         const drill = Number.isFinite(p.viaDrill) && p.viaDrill > 0 ? p.viaDrill : 0.3;
         const scale = this.viewport.scale || 1;
@@ -2116,7 +2116,7 @@ export default class PCBApp {
      * blows past the GPU's maximum texture size when zoomed in and gets
      * silently dropped, which made the copper "fill back in".
      */
-    _updateCopperCuts({ geometryChanged = true } = {}) {
+    updateCopperCuts({ geometryChanged = true } = {}) {
         const defs = this._ensureSvgDefs();
         if (!defs) return;
         const NS = 'http://www.w3.org/2000/svg';
@@ -2491,7 +2491,7 @@ export default class PCBApp {
         this.onDocumentChanged?.();
         // Keep the clearance overlay in sync after any committed edit (e.g. an
         // undo/redo that relocates a via leaves orphaned halos otherwise).
-        this._refreshClearanceHalos?.();
+        this.refreshClearanceHalos?.();
         this._scheduleDRC();
     }
 
@@ -2628,7 +2628,7 @@ export default class PCBApp {
      * @param {string} layerId
      * @returns {SVGGElement}
      */
-    _getLayerGroup(layerId) {
+    getLayerGroup(layerId) {
         let g = this._layerGroups.get(layerId);
         if (!g) {
             g = document.createElementNS('http://www.w3.org/2000/svg', 'g');
@@ -2708,23 +2708,23 @@ export default class PCBApp {
             if ((selectedTrack && selectedTrack.layer === layerId) ||
                 (selectedVia && viaAffected)) {
                 clearTrackSelection(this);
-                this._clearProperties();
+                this.clearProperties();
             }
             const selectedText = getPcbSelection(this, 'text')[0] || null;
             if (selectedText && selectedText.layer === layerId) {
                 this._selectText(null);
-                this._clearProperties();
+                this.clearProperties();
             }
             const selectedShape = getPcbSelection(this, 'shape')[0] || null;
             if (selectedShape && selectedShape.layer === layerId) {
                 selectBoardShape(this, null);
-                this._clearProperties();
+                this.clearProperties();
             }
             if (this._boardOutlineSelected && layerId === 'board-outline') {
                 this._selectBoardOutline(false);
             }
             if (hasBoxSelection(this)) clearBoxSelection(this);
-            if (selectedScopedEntity) this._clearProperties();
+            if (selectedScopedEntity) this.clearProperties();
             setHoverHighlight(this, null);
         }
         this._refreshPcbSelectionHighlights?.();
@@ -2860,7 +2860,7 @@ export default class PCBApp {
             });
             activeTabId = tabId;
 
-            this._syncClipboardButtons?.();
+            this.syncClipboardButtons?.();
 
             if (tabId === 'pcb-home') {
                 this._syncPcbHomeToolHighlight?.();
@@ -3015,7 +3015,7 @@ export default class PCBApp {
      * Draw (or redraw) the board outline on the board-outline layer.
      */
     _drawBoardOutline() {
-        const layer = this._getLayerGroup('board-outline');
+        const layer = this.getLayerGroup('board-outline');
         const old = layer.querySelector('.pcb-board-outline');
         if (old) old.remove();
         const shape = getBoardOutline(this);
@@ -3062,7 +3062,7 @@ export default class PCBApp {
      * Set board outline hover state.
      */
     _hoverBoardOutline(hovered) {
-        const outline = this._getLayerGroup('board-outline').querySelector('.pcb-board-outline');
+        const outline = this.getLayerGroup('board-outline').querySelector('.pcb-board-outline');
         if (!outline) return;
         if (this._boardOutlineSelected) return; // don't override selection highlight
         if (hovered) {
@@ -3087,7 +3087,7 @@ export default class PCBApp {
         if (!selected) this._boardDimensionPropertyBinding?.dispose();
         this._boardOutlineSelected = selected;
         renderBoardOutlineHandles(this);
-        const outline = this._getLayerGroup('board-outline').querySelector('.pcb-board-outline');
+        const outline = this.getLayerGroup('board-outline').querySelector('.pcb-board-outline');
         if (!outline) return;
         if (selected) {
             outline.setAttribute('stroke', '#ffffff');
@@ -3138,7 +3138,7 @@ export default class PCBApp {
                     }
                     this._fillToolLayer = next;
                     if (this._fillDraw) this._fillDraw.layer = this._fillToolLayer;
-                    this._setPcbStatus();
+                    this.setPcbStatus();
                 });
             });
     }
@@ -3146,13 +3146,13 @@ export default class PCBApp {
     /**
      * Clear the properties panel to its default state.
      */
-    _clearProperties() {
+    clearProperties() {
         this._setPcbPropsTitle('Properties');
         const items = this._pcbPropsItems();
         if (items) {
             items.innerHTML = '<span style="font-size:11px;color:var(--text-muted)">Click an object to see its properties</span>';
         }
-        this._syncClipboardButtons?.();
+        this.syncClipboardButtons?.();
     }
 
     /**
@@ -3218,11 +3218,11 @@ export default class PCBApp {
 
     /** Show Track draw defaults and live draw settings in Properties. */
     _showTrackDrawProperties() {
-        this._setPcbStatus();
+        this.setPcbStatus();
         const items = this._pcbPropsItems();
         if (!items) return;
         const ctx = this._trackDraw;
-        const p = this._getRoutingParams?.() || {};
+        const p = this.getRoutingParams?.() || {};
         const width = ctx?.width || (Number.isFinite(p.trackWidth) && p.trackWidth > 0 ? p.trackWidth : 0.2);
         const layer = ctx?.currentLayer || (this._trackToolLayer === 'bottom-copper' ? 'bottom-copper' : 'top-copper');
         const net = ctx?.net ?? String(this._trackToolNet || '');
@@ -3251,7 +3251,7 @@ export default class PCBApp {
             }
             this._trackToolLayer = next;
             if (ctx) ctx.currentLayer = next;
-            this._setPcbStatus();
+            this.setPcbStatus();
         });
         widthEl?.addEventListener('input', () => {
             if (!commitDesignInput(this, 'trackWidth', widthEl, 'mm')) return;
@@ -3272,7 +3272,7 @@ export default class PCBApp {
     _showViaToolProperties() {
         const items = this._pcbPropsItems();
         if (!items) return;
-        const p = this._getRoutingParams?.() || {};
+        const p = this.getRoutingParams?.() || {};
         const diameter = Number.isFinite(p.viaDiameter) && p.viaDiameter > 0 ? p.viaDiameter : 0.6;
         const drill = Number.isFinite(p.viaDrill) && p.viaDrill > 0 ? p.viaDrill : 0.3;
         const net = String(this._viaToolNet || '');
@@ -3399,7 +3399,7 @@ export default class PCBApp {
             if (!pad || renderFrame !== null) return;
             renderFrame = requestAnimationFrame(() => {
                 renderFrame = null;
-                for (const target of preview?.copies.values() || []) renderPad(target, layer => this._getLayerGroup(layer));
+                for (const target of preview?.copies.values() || []) renderPad(target, layer => this.getLayerGroup(layer));
                 refreshBoxSelectionHighlights(this);
             });
         };
@@ -3785,15 +3785,15 @@ export default class PCBApp {
             // Persistent copper shapes can carry nets without any schematic
             // components. Their SVG was restored above, so rebuild their
             // ratlines before this component-less-board early return.
-            this._refreshClearanceHalos();
-            this._updateRatsnest();
-            this._setStatus('No components in schematic');
+            this.refreshClearanceHalos();
+            this.updateRatsnest();
+            this.setStatus('No components in schematic');
             this._board3d?.refresh?.();
             return;
         }
 
         // Ratsnest goes to its own layer group
-        this._ratsnestGroup = this._getLayerGroup('ratlines');
+        this._ratsnestGroup = this.getLayerGroup('ratlines');
 
         // Place footprints (elements distributed to correct layer groups)
         this._placeFootprints(placements);
@@ -3804,11 +3804,11 @@ export default class PCBApp {
             if (s.type === 'fill' || (this._boardOutlineDrawn && s.layer === 'board-outline')) continue;
             renderBoardShape(this, s, { skipCopperUpdate: true });
         }
-        this._updateCopperCuts?.();
+        this.updateCopperCuts?.();
 
         // Draw ratsnest
-        this._refreshClearanceHalos();
-        this._updateRatsnest();
+        this.refreshClearanceHalos();
+        this.updateRatsnest();
 
         // Only fit-to-content on the first sync so we don't
         // reset the user's pan/zoom on every change
@@ -3818,7 +3818,7 @@ export default class PCBApp {
         }
 
         const netCount = netlist.length;
-        this._setStatus(`${placements.size} component(s), ${netCount} net(s)`);
+        this.setStatus(`${placements.size} component(s), ${netCount} net(s)`);
 
         // A schematic-driven rebuild (e.g. a component added or deleted) does
         // not pass through the PCB history, so refresh any open 3D view here.
@@ -3834,7 +3834,7 @@ export default class PCBApp {
      * are invisible. Idempotent: removes any stale SVG first.
      */
     _renderPersistentObjects({ renderShapes = true } = {}) {
-        const getGroup = (id) => this._getLayerGroup(id);
+        const getGroup = (id) => this.getLayerGroup(id);
 
         // Board outline. Its model (width/height/radius) survives the rebuild
         // but its SVG is wiped by _clearPCBContent, so redraw it here.
@@ -3849,7 +3849,7 @@ export default class PCBApp {
         }
 
         // Tracks and vias.
-        const routeParams = this._getRoutingParams?.();
+        const routeParams = this.getRoutingParams?.();
         for (const t of this.tracks) {
             removeTrackElements(t);
             renderTrack(t, getGroup, {
@@ -3869,7 +3869,7 @@ export default class PCBApp {
                 || (this._boardOutlineDrawn && s.layer === 'board-outline')) continue;
             renderBoardShape(this, s, { skipCopperUpdate: true });
         }
-        if (renderShapes) this._updateCopperCuts?.();
+        if (renderShapes) this.updateCopperCuts?.();
         if (getPcbSelection(this).length) refreshBoxSelectionHighlights(this);
 
         // Copper pours. Their model (copperFills) survives the rebuild but
@@ -3878,7 +3878,7 @@ export default class PCBApp {
         // footprint placement in the same sync pass has finished, so the pour
         // clips against the up-to-date obstacles.
         if (this.copperFills.length) {
-            this._refreshFills();
+            this.refreshFills();
         }
     }
 
@@ -3908,7 +3908,7 @@ export default class PCBApp {
             setCopperFillClip(this._layerGroups.get(`${side}-fill`), null);
         }
         // DOM is now in the cleared (no-cut) state; keep the path-string cache
-        // in sync so the next _updateCopperCuts re-applies cuts from scratch.
+        // in sync so the next updateCopperCuts re-applies cuts from scratch.
         this._copperCutCache = { top: null, bottom: null };
         this._hasCopperCuts = false;
     }
@@ -3927,7 +3927,7 @@ export default class PCBApp {
             /** @type {SVGGElement[]} */
             const elements = [];
             for (const [layerId, layerGroup] of fpLayers) {
-                this._getLayerGroup(layerId).appendChild(layerGroup);
+                this.getLayerGroup(layerId).appendChild(layerGroup);
                 elements.push(layerGroup);
             }
 
@@ -3973,7 +3973,7 @@ export default class PCBApp {
         rect.setAttribute('height', String(pl.bounds.height));
         rect.setAttribute('pointer-events', 'none');
         rect.setAttribute('transform', placementTransform(pl));
-        this._getLayerGroup('fp-lod').appendChild(rect);
+        this.getLayerGroup('fp-lod').appendChild(rect);
         pl.lodEl = rect;
         pl._culled = false;
         pl._lodFar = false;
@@ -4091,7 +4091,7 @@ export default class PCBApp {
     /**
      * Rebuild the ratsnest lines from the current netlist and placements.
      */
-    _updateRatsnest(opts) {
+    updateRatsnest(opts) {
         // Net-based rebuild — draws guide lines between every disconnected
         // cluster of same-net copper (pads, tracks and vias alike). When
         // `opts.nets` is supplied (live footprint drag) only those nets are
@@ -4157,7 +4157,7 @@ export default class PCBApp {
      * Update the PCB status bar text.
      * @param {string} text
      */
-    _setStatus(text) {
+    setStatus(text) {
         if (this.status.modeStatus) {
             this.status.modeStatus.textContent = text;
         }
@@ -4327,7 +4327,7 @@ export default class PCBApp {
             const overlapHitCount = selectionHits.length;
             if (overlapHitCount !== this._overlapHitCount) {
                 this._overlapHitCount = overlapHitCount;
-                this._setPcbStatus();
+                this.setPcbStatus();
             }
             // Cursor feedback: a diagonal double-arrow (matching the
             // schematic editor's graph anchors) when the pointer is over a
@@ -4491,7 +4491,7 @@ export default class PCBApp {
             pl.lodEl?.remove();
         }
         this._placeFootprints(placements);
-        this._updateRatsnest?.();
+        this.updateRatsnest?.();
     }
 
     /**
@@ -4529,7 +4529,7 @@ export default class PCBApp {
         }
 
         setPcbSelection(this, compId ? [{ kind: 'component', object: compId }] : []);
-        this._syncClipboardButtons?.();
+        this.syncClipboardButtons?.();
 
         if (!compId) {
             renderPcbSelectionAnchors(this);
@@ -4603,7 +4603,7 @@ export default class PCBApp {
         const snap = this._snapToGrid({ x: newX, y: newY });
         if (pl.x === snap.x && pl.y === snap.y) return;
         previewPlacementPose(this, this._drag.compId, { x: snap.x, y: snap.y });
-        this._updateRatsnest({ nets: this._drag.nets });
+        this.updateRatsnest({ nets: this._drag.nets });
     }
 
     /**
@@ -4750,8 +4750,8 @@ export default class PCBApp {
             });
         } else {
             finishPlacementPreview(this);
-            this._refreshClearanceHalos();
-            this._updateRatsnest();
+            this.refreshClearanceHalos();
+            this.updateRatsnest();
         }
     }
 
@@ -4788,7 +4788,7 @@ export default class PCBApp {
      */
     _renderText(text) {
         this._removeTextElement(text.id);
-        const layerG = this._getLayerGroup(text.layer);
+        const layerG = this.getLayerGroup(text.layer);
         if (!layerG) return;
         const isSel = isPcbSelected(this, 'text', text);
         const isHover = !isSel && this._hoveredText?.id === text.id;
@@ -4827,16 +4827,16 @@ export default class PCBApp {
         const next = text || null;
         if (prev === next || (prev && next && prev.id === next.id)) return;
         this._hoveredText = next;
-        if (prev && (!next || prev.id !== next.id)) this._refreshText(prev.id);
-        if (next) this._refreshText(next.id);
+        if (prev && (!next || prev.id !== next.id)) this.refreshText(prev.id);
+        if (next) this.refreshText(next.id);
     }
 
     /** Re-render an existing text in place (e.g. after a property change). */
-    _refreshText(id) {
+    refreshText(id) {
         const t = this.texts.get(id);
         if (!t) return;
         this._renderText(t);
-        this._refreshSelectedDRCMarker?.();
+        this.refreshSelectedDRCMarker?.();
     }
 
     /**
@@ -4857,13 +4857,13 @@ export default class PCBApp {
         const prev = getPcbSelection(this, 'text')[0] || null;
         const next = text || null;
         // No-op when selection doesn't change — important because
-        // _refreshText removes & re-creates the SVG element, which
+        // refreshText removes & re-creates the SVG element, which
         // breaks the browser's same-target requirement for `dblclick`.
         if (prev === next || (prev && next && prev.id === next.id)) return;
         setPcbSelection(this, next ? [{ kind: 'text', object: next }] : []);
-        this._syncClipboardButtons?.();
-        if (prev && (!next || prev.id !== next.id)) this._refreshText(prev.id);
-        if (next) this._refreshText(next.id);
+        this.syncClipboardButtons?.();
+        if (prev && (!next || prev.id !== next.id)) this.refreshText(prev.id);
+        if (next) this.refreshText(next.id);
         else renderPcbSelectionAnchors(this);
     }
 
@@ -4893,7 +4893,7 @@ export default class PCBApp {
         if (text.x === snap.x && text.y === snap.y) return;
         previewTextPose(this, text.id, snap);
         this.viewport?.setCrosshair({ x: snap.x, y: snap.y });
-        this._refreshText(text.id);
+        this.refreshText(text.id);
     }
 
     /** Drag an already-selected text. */
@@ -4989,7 +4989,7 @@ export default class PCBApp {
                             this._showRefProperties(compId);
                         }
                         this.netlist = this.project.getNetlist();
-                        this._updateRatsnest();
+                        this.updateRatsnest();
                         this._board3d?.refresh?.();
                     };
                     this.history.execute({
@@ -5182,7 +5182,7 @@ export default class PCBApp {
             return;
         }
         setPcbSelection(this, next ? [{ kind: 'reftext', object: next }] : []);
-        this._syncClipboardButtons?.();
+        this.syncClipboardButtons?.();
         this._drawRefOverlay(next, false);
     }
 
@@ -5342,7 +5342,7 @@ export default class PCBApp {
         const borderEl = /** @type {HTMLInputElement|null} */ (items.querySelector('#pcbPropTextToolBorder'));
         layerEl?.addEventListener('change', () => {
             if (TEXT_LAYERS.includes(layerEl.value)) this._textDefaults.layer = layerEl.value;
-            this._setPcbStatus();
+            this.setPcbStatus();
         });
         sizeEl?.addEventListener('input', () => {
             const size = parseFloat(sizeEl.value);
@@ -5460,7 +5460,7 @@ export default class PCBApp {
             ],
             begin: (t) => beginTextPropertyPreview(this, t.id),
             cancel: () => finishTextPropertyPreview(this),
-            preview: (t) => this._refreshText(t.id),
+            preview: (t) => this.refreshText(t.id),
             commit: (t, snap) => {
                 const after = {};
                 for (const k of ['layer', 'size', 'rotation', 'strokeWidth', 'x', 'y']) {
@@ -5640,7 +5640,7 @@ export default class PCBApp {
         if (!text || isLayerLocked(text.layer) || !isLayerVisible(text.layer)) return false;
         const id = text.id;
         this.history.execute(new RemoveTextCommand(this, id));
-        this._clearProperties?.();
+        this.clearProperties?.();
         return true;
     }
 
@@ -5675,7 +5675,7 @@ export default class PCBApp {
         document.body.appendChild(input);
         setInlineTextInputActive(input, this._active);
 
-        const layerG = this._getLayerGroup(text.layer);
+        const layerG = this.getLayerGroup(text.layer);
         const overlay = createInlineTextOverlay(
             group => {
                 if (typeof this.viewport.addInteractionOverlay === 'function') {
@@ -5766,7 +5766,7 @@ export default class PCBApp {
             if (text.content !== input.value) {
                 text.content = input.value;
                 if (opts.render) opts.render();
-                else this._refreshText(text.id);
+                else this.refreshText(text.id);
             }
             updateCaret();
             keepVisible();
@@ -5970,13 +5970,13 @@ export default class PCBApp {
                 } else if (commit && finalContent !== originalContent) {
                     this.history.execute(new EditTextCommand(this, text.id, { content: finalContent }));
                 } else {
-                    this._refreshText(text.id);
+                    this.refreshText(text.id);
                 }
             });
         } finally {
             if (!blank || wasSelected) {
                 this._selectText(null);
-                this._clearProperties?.();
+                this.clearProperties?.();
             }
             this._exitTextTool();
         }
@@ -6347,7 +6347,7 @@ export default class PCBApp {
             }
         }
         this._setActiveRibbonTab?.('pcb-properties');
-        this._syncClipboardButtons?.();
+        this.syncClipboardButtons?.();
     }
 
     /** Routing adapters expose model operations, never the application itself. */
@@ -6358,7 +6358,7 @@ export default class PCBApp {
                 editing: hasPcbEditInProgress(this) || isPcbDrawing(this),
                 model: this.pcbDocument, placements: this.placements, netlist: this.netlist,
                 undo: this.history.undoStack, redo: this.history.redoStack,
-                rules: this._getRoutingParams(),
+                rules: this.getRoutingParams(),
             }),
             takeRouteInput: () => {
                 const testInput = this._testBoardRouteInput;
@@ -6370,13 +6370,13 @@ export default class PCBApp {
             getRouterMode: () => this._getRouterMode(),
             adoptResult: result => this._renderRouteResult(result),
             reconcileRatsnest: () => reconcileRatsnest(this),
-            setStatus: message => this._setStatus(message),
+            setStatus: message => this.setStatus(message),
             presentation: {
                 getProgressHost: () => this.status.modeStatus,
-                getLayerGroup: id => this._getLayerGroup(id),
+                getLayerGroup: id => this.getLayerGroup(id),
                 getSvg: () => this.viewport?.svg,
-                getRoutingParams: () => this._getRoutingParams(),
-                refreshClearanceHalos: () => this._refreshClearanceHalos(),
+                getRoutingParams: () => this.getRoutingParams(),
+                refreshClearanceHalos: () => this.refreshClearanceHalos(),
             },
         });
         return this._autorouter;
@@ -6412,10 +6412,10 @@ export default class PCBApp {
 
             // Rebuild ratsnest
             if (!this._ratsnestGroup) {
-                this._ratsnestGroup = this._getLayerGroup('ratlines');
+                this._ratsnestGroup = this.getLayerGroup('ratlines');
             }
-            this._refreshClearanceHalos();
-            this._updateRatsnest();
+            this.refreshClearanceHalos();
+            this.updateRatsnest();
 
             // Fit viewport to board bounds
             if (routeInput.bounds && this.viewport) {
@@ -6427,14 +6427,14 @@ export default class PCBApp {
                 );
             }
 
-            this._setStatus(`Loaded ${filename} — ${routeInput.connections.length} nets, click Auto Route to route`);
+            this.setStatus(`Loaded ${filename} — ${routeInput.connections.length} nets, click Auto Route to route`);
 
             // Store the original route input so runAutoRoute uses it directly
             // instead of rebuilding from placements/netlist
             this._testBoardRouteInput = routeInput;
 
         } catch (err) {
-            this._setStatus(`Error loading test board: ${err.message}`);
+            this.setStatus(`Error loading test board: ${err.message}`);
             console.error(err);
         }
     }
@@ -6444,8 +6444,8 @@ export default class PCBApp {
      */
     _renderTestBoardPads(routeInput) {
         const NS = 'http://www.w3.org/2000/svg';
-        const topCopper = this._getLayerGroup('top-copper');
-        const bottomCopper = this._getLayerGroup('bottom-copper');
+        const topCopper = this.getLayerGroup('top-copper');
+        const bottomCopper = this.getLayerGroup('bottom-copper');
         const pads = routeInput.allObstaclePads || [];
         for (const pad of pads) {
             const rect = document.createElementNS(NS, 'rect');
@@ -6623,7 +6623,7 @@ export default class PCBApp {
             }
         }
 
-        const params = this._getRoutingParams();
+        const params = this.getRoutingParams();
         return {
             connections,
             allObstaclePads,
@@ -6681,7 +6681,7 @@ export default class PCBApp {
         const HALO_CLASS = 'debug-clearance';
         const OVERLAY_LAYER = 'clearance-overlay';
 
-        const overlay = this._getLayerGroup(OVERLAY_LAYER);
+        const overlay = this.getLayerGroup(OVERLAY_LAYER);
         this._trackClearanceElements ??= new Map();
         if (liveTrack) {
             for (const element of this._trackClearanceElements.get(liveTrack.id) || []) element.remove();
@@ -6707,7 +6707,7 @@ export default class PCBApp {
             return;
         }
 
-        const params = this._getRoutingParams();
+        const params = this.getRoutingParams();
         const halo = params.clearance;
 
         const HALO_STROKE = 'rgba(255, 255, 255, 0.55)';
@@ -7005,7 +7005,7 @@ export default class PCBApp {
                     || point.x !== run.points[index - 1].x || point.y !== run.points[index - 1].y)
                     .map(point => [point.x, point.y]), width: run.width,
                 id: liveTrack.id, net: liveTrack.net,
-            })) : [...this._getLayerGroup(layerId).querySelectorAll('.pcb-routed-track, .pcb-track')]
+            })) : [...this.getLayerGroup(layerId).querySelectorAll('.pcb-routed-track, .pcb-track')]
                 .map(track => ({ points: trackToPoints(track), width: parseFloat(track.getAttribute('stroke-width')),
                     id: track.dataset?.trackId, net: track.dataset?.net }));
             if (tracks.length === 0) continue;
@@ -7058,15 +7058,15 @@ export default class PCBApp {
         return this._drcPresentation ??= new DrcPresentation({
             requestRefresh: () => this._scheduleDRC(),
             collectRatlines: () => this._collectRatlines(),
-            resolvePairMarker: violation => resolveDrcPairMarker(this, violation, this._getRoutingParams()),
+            resolvePairMarker: violation => resolveDrcPairMarker(this, violation, this.getRoutingParams()),
             clearBoardSelection: () => {
                 if (!getPcbSelection(this).length && !this._boardOutlineSelected && !this._trackEdit) return;
                 clearSelectionInteractionUi(this);
                 clearBoxSelection(this);
-                this._clearProperties?.();
+                this.clearProperties?.();
             },
             getLayerGroup: (id, create = false) => create
-                ? this._getLayerGroup(id) : this._layerGroups?.get(id),
+                ? this.getLayerGroup(id) : this._layerGroups?.get(id),
             getViewport: () => {
                 const vp = this.viewport;
                 return vp ? {
@@ -7106,11 +7106,11 @@ export default class PCBApp {
 
     /** Request a visible live check, coalesced to one per animation frame. */
     _scheduleDRC() {
-        this._refreshSelectedDRCMarker?.();
+        this.refreshSelectedDRCMarker?.();
         scheduleDrcRefresh(this);
     }
 
-    _refreshSelectedDRCMarker() {
+    refreshSelectedDRCMarker() {
         this._drcPresentation?.scheduleMarkerRefresh();
     }
 
@@ -7211,7 +7211,7 @@ export default class PCBApp {
     /**
      * Read canonical millimetre values, independent of ribbon display rounding.
      */
-    _getRoutingParams() {
+    getRoutingParams() {
         return this.designSettings.getRoutingParams();
     }
 
@@ -7227,7 +7227,7 @@ export default class PCBApp {
     _refreshBoardShapeClearance(shape) {
         if (this._pasteDrop) return;
         if (!this._clearancesVisible) return;
-        const overlay = this._getLayerGroup('clearance-overlay');
+        const overlay = this.getLayerGroup('clearance-overlay');
         if (!overlay) return;
         this._boardShapeClearanceCache ??= new Map();
         const previous = this._boardShapeClearanceCache.get(shape.id);
@@ -7237,7 +7237,7 @@ export default class PCBApp {
             }
             return;
         }
-        const clearance = this._getRoutingParams().clearance;
+        const clearance = this.getRoutingParams().clearance;
         const layer = this._layerGroups.get(shape.layer);
         const visible = !!layer && layer.style.display !== 'none';
         const isText = typeof shape.content === 'string';
@@ -7282,7 +7282,7 @@ export default class PCBApp {
             points: points.map(point => ({ x: point.x, y: point.y })), elements });
     }
 
-    _refreshClearanceHalos() {
+    refreshClearanceHalos() {
         if (this._clearancesVisible) this.showClearances(true);
     }
 
@@ -7292,8 +7292,8 @@ export default class PCBApp {
 
     _refreshViaClearance(via = null) {
         if (!this._clearancesVisible) return;
-        const overlay = this._getLayerGroup('clearance-overlay');
-        const layer = this._getLayerGroup('vias');
+        const overlay = this.getLayerGroup('clearance-overlay');
+        const layer = this.getLayerGroup('vias');
         if (!overlay) return;
         this._viaClearanceCache ??= new Map();
         this._viaClearanceKeys ??= new Map();
@@ -7331,7 +7331,7 @@ export default class PCBApp {
                     parseFloat(rendered.getAttribute(path ? 'data-via-radius' : 'r')), rendered.dataset?.net);
             }
         }
-        const clearance = this._getRoutingParams().clearance;
+        const clearance = this.getRoutingParams().clearance;
         for (const key of affected) {
             const entry = this._viaClearanceCache.get(key);
             entry.element?.remove();
@@ -7371,7 +7371,7 @@ export default class PCBApp {
      * from reconcileRatsnest() (every copper mutation) and on routing-
      * parameter changes, as well as during fill editing.
      */
-    _refreshFills() {
+    refreshFills() {
         invalidateDrcRefresh(this);
         return scheduleFillRefresh(this);
     }
@@ -7386,7 +7386,7 @@ export default class PCBApp {
         if (this._deferDragOverlays) return;
         if (!this.copperFills || this.copperFills.length === 0) return;
         for (const fill of this.copperFills) {
-            renderCopperFill(fill, (id) => this._getLayerGroup(id), {
+            renderCopperFill(fill, (id) => this.getLayerGroup(id), {
                 selected: isPcbSelected(this, 'fill', fill),
             });
         }
@@ -7483,7 +7483,7 @@ export default class PCBApp {
     }
 
     /** Select (or clear) the active pour and refresh its highlight. */
-    _selectFill(fill) {
+    selectFill(fill) {
         const prev = getPcbSelection(this, 'fill')[0] || null;
         if (prev === fill) {
             if (fill) renderPcbSelectionAnchors(this);
@@ -7491,10 +7491,10 @@ export default class PCBApp {
         }
         const next = fill || null;
         setPcbSelection(this, next ? [{ kind: 'fill', object: next }] : []);
-        this._syncClipboardButtons?.();
+        this.syncClipboardButtons?.();
         // Re-render the previously- and newly-selected fills to update the
         // boundary highlight.
-        const getGroup = (id) => this._getLayerGroup(id);
+        const getGroup = (id) => this.getLayerGroup(id);
         if (prev) {
             renderCopperFill(prev, getGroup, { selected: false });
         }
@@ -7629,7 +7629,7 @@ export default class PCBApp {
      * @param {import('../pcb/modules/autorouter-common.js').RouteResult} result
      */
     _renderRouteResult(result) {
-        const params = this._getRoutingParams();
+        const params = this.getRoutingParams();
         const { tracks, vias } = tracksFromAutorouterResult(result, {
             trackWidth: params.trackWidth,
             viaDiameter: params.viaDiameter,
@@ -7640,12 +7640,12 @@ export default class PCBApp {
     }
 
     _renderRoutedCopper(failedRatlines = []) {
-        const params = this._getRoutingParams();
+        const params = this.getRoutingParams();
         for (const id of ['top-copper', 'bottom-copper', 'vias']) {
-            this._getLayerGroup(id)?.querySelectorAll('.pcb-routed-track, .pcb-routed-via, .pcb-route-anim')
+            this.getLayerGroup(id)?.querySelectorAll('.pcb-routed-track, .pcb-routed-via, .pcb-route-anim')
                 .forEach(el => el.remove());
         }
-        const getGroup = (id) => this._getLayerGroup(id);
+        const getGroup = (id) => this.getLayerGroup(id);
         for (const t of this.pcbDocument.tracks) renderTrack(t, getGroup, {
             viaDiameter: params.viaDiameter,
             viaDrill: params.viaDrill,
@@ -7654,7 +7654,7 @@ export default class PCBApp {
 
         // Reconcile final ratsnest: hide all original ratlines, then draw
         // per-connection ratlines for each failed connection.
-        const ratLayer = this._getLayerGroup('ratlines');
+        const ratLayer = this.getLayerGroup('ratlines');
         ratLayer?.querySelectorAll('.ratsnest-failed').forEach(el => el.remove());
         for (const el of [...(ratLayer?.children || [])]) {
             /** @type {HTMLElement} */ (el).style.display = 'none';
@@ -7684,9 +7684,9 @@ export default class PCBApp {
         syncPcbSelection(this);
         refreshBoxSelectionHighlights(this);
         showPcbSelectionProperties(this);
-        this._setPcbStatus?.();
+        this.setPcbStatus?.();
 
-        this._refreshClearanceHalos();
+        this.refreshClearanceHalos();
         this._scheduleDRC();
     }
 
@@ -7700,7 +7700,7 @@ export default class PCBApp {
         command.description = 'Clear routed copper';
         if (this.pcbDocument.tracks.length || this.pcbDocument.vias.length) this.history.execute(command);
         else this._renderRoutedCopper();
-        this._setStatus('Routes cleared');
+        this.setStatus('Routes cleared');
     }
 
     // ── PDF / Print ───────────────────────────────────────────────
@@ -7728,11 +7728,11 @@ export default class PCBApp {
      */
     exportDSN() {
         if (!this.placements.size || !this.netlist.length) {
-            this._setStatus('Nothing to export');
+            this.setStatus('Nothing to export');
             return;
         }
 
-        const params = this._getRoutingParams();
+        const params = this.getRoutingParams();
         const dsn = exportDSN({
             placements: this.placements,
             netlist: this.netlist,
@@ -7749,7 +7749,7 @@ export default class PCBApp {
         a.click();
         URL.revokeObjectURL(url);
 
-        this._setStatus('DSN exported — open in Freerouting, then Import SES');
+        this.setStatus('DSN exported — open in Freerouting, then Import SES');
     }
 
     /**
@@ -7765,7 +7765,7 @@ export default class PCBApp {
     async exportGerber() {
         if (this._exportGerberPending) return;
         if (!hasFabricationContent(this)) {
-            this._setStatus('Nothing to export');
+            this.setStatus('Nothing to export');
             return;
         }
         this._exportGerberPending = true;
@@ -7781,10 +7781,10 @@ export default class PCBApp {
                 description: 'Gerber ZIP archive',
                 accept: { 'application/zip': ['.zip'] },
             });
-            if (saved) this._setStatus(`Gerbers exported (${fileCount} files)`);
+            if (saved) this.setStatus(`Gerbers exported (${fileCount} files)`);
         } catch (err) {
             console.error('Gerber export failed:', err);
-            this._setStatus(`Gerber export failed: ${err?.message || err}`);
+            this.setStatus(`Gerber export failed: ${err?.message || err}`);
         } finally {
             showGerberProgress(null);
             this._exportGerberPending = false;
@@ -7796,7 +7796,7 @@ export default class PCBApp {
      */
     exportBOM() {
         if (!this.placements.size) {
-            this._setStatus('No components to export');
+            this.setStatus('No components to export');
             return;
         }
         let blob;
@@ -7805,7 +7805,7 @@ export default class PCBApp {
             blob = new Blob([csv], { type: 'text/csv' });
         } catch (err) {
             console.error('BOM export failed:', err);
-            this._setStatus(`BOM export failed: ${err?.message || err}`);
+            this.setStatus(`BOM export failed: ${err?.message || err}`);
             return;
         }
         const suggestedName = `${this._exportBaseName()}-bom.csv`;
@@ -7813,10 +7813,10 @@ export default class PCBApp {
             description: 'CSV file',
             accept: { 'text/csv': ['.csv'] },
         }).then(saved => {
-            if (saved) this._setStatus(`BOM exported (${this.placements.size} parts)`);
+            if (saved) this.setStatus(`BOM exported (${this.placements.size} parts)`);
         }).catch(err => {
             console.error('BOM save failed:', err);
-            this._setStatus(`BOM save failed: ${err?.message || err}`);
+            this.setStatus(`BOM save failed: ${err?.message || err}`);
         });
     }
 
@@ -7825,7 +7825,7 @@ export default class PCBApp {
      */
     exportPickAndPlace() {
         if (!this.placements.size) {
-            this._setStatus('No components to export');
+            this.setStatus('No components to export');
             return;
         }
         let blob;
@@ -7834,7 +7834,7 @@ export default class PCBApp {
             blob = new Blob([csv], { type: 'text/csv' });
         } catch (err) {
             console.error('Pick-and-place export failed:', err);
-            this._setStatus(`Pick-and-place export failed: ${err?.message || err}`);
+            this.setStatus(`Pick-and-place export failed: ${err?.message || err}`);
             return;
         }
         const suggestedName = `${this._exportBaseName()}-pick-and-place.csv`;
@@ -7842,10 +7842,10 @@ export default class PCBApp {
             description: 'CSV file',
             accept: { 'text/csv': ['.csv'] },
         }).then(saved => {
-            if (saved) this._setStatus(`Pick-and-place exported (${this.placements.size} parts)`);
+            if (saved) this.setStatus(`Pick-and-place exported (${this.placements.size} parts)`);
         }).catch(err => {
             console.error('Pick-and-place save failed:', err);
-            this._setStatus(`Pick-and-place save failed: ${err?.message || err}`);
+            this.setStatus(`Pick-and-place save failed: ${err?.message || err}`);
         });
     }
 
@@ -7971,7 +7971,7 @@ export default class PCBApp {
                 const text = /** @type {string} */ (reader.result);
                 const result = importSES(text);
                 if (!result.tracks.length) {
-                    this._setStatus('No routes found in SES file');
+                    this.setStatus('No routes found in SES file');
                     return;
                 }
                 this._cancelAutoRoute();
@@ -7990,7 +7990,7 @@ export default class PCBApp {
                 }
                 // Render imported tracks (and their vias)
                 this._renderRouteResult({ tracks: result.tracks, vias: result.vias || [], failed: [] });
-                this._setStatus(`Imported ${result.tracks.length} track(s), ${result.vias?.length || 0} via(s) from SES`);
+                this.setStatus(`Imported ${result.tracks.length} track(s), ${result.vias?.length || 0} via(s) from SES`);
             };
             reader.readAsText(file);
         });

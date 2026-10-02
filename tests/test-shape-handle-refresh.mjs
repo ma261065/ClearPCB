@@ -53,12 +53,12 @@ try {
                 history: new CommandHistory(), _shapeElements: new Map(),
                 _boardShapeClearanceCache: new Map([[shape.id, { elements: [halo] }]]),
                 viewport: { scale: 10, snapToGrid: false, setCrosshair() {}, hideCrosshair() {} },
-                _getLayerGroup() { return null; }, _snapToGrid(point) { return point; }, _snapActive() { return false; },
-                _refreshFills() { return scheduleFillRefresh(this); },
+                getLayerGroup() { return null; }, _snapToGrid(point) { return point; }, _snapActive() { return false; },
+                refreshFills() { return scheduleFillRefresh(this); },
                 _clearFillGroups() { fills++; },
                 _refreshBoardShapeClearance() { if (!this._pictureCopperRefreshPending) halos++; },
-                _refreshClearanceHalos() { halos++; },
-                _updateRatsnest(options) { reconcileRatsnest(this, options); },
+                refreshClearanceHalos() { halos++; },
+                updateRatsnest(options) { reconcileRatsnest(this, options); },
             };
             assert.equal(startBoardShapeDrag(app, shape, start, handle), true);
             assert.equal(halo.parentNode, expectedHaloParent,

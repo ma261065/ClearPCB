@@ -319,7 +319,7 @@ function showPdfExportDialog(app) {
                     .map((c) => /** @type {HTMLInputElement} */ (c).value)
             );
             if (layers.size === 0) {
-                app._setStatus?.('Select at least one layer to export');
+                app.setStatus?.('Select at least one layer to export');
                 return;
             }
             const colorMode = /** @type {HTMLInputElement} */ (
@@ -408,10 +408,10 @@ export async function savePcbPdf(app) {
 
         const pdfBlob = pdf.output('blob');
         await saveBlobAsFile(pdfBlob, pdfFileName, 'application/pdf', ['.pdf']);
-        app._setStatus?.('PCB exported to PDF');
+        app.setStatus?.('PCB exported to PDF');
     } catch (err) {
         console.error('PCB PDF export failed:', err);
-        app._setStatus?.(`PDF export failed: ${err?.message || err}`);
+        app.setStatus?.(`PDF export failed: ${err?.message || err}`);
     }
 }
 
@@ -479,6 +479,6 @@ export async function printPcb(app) {
         }
     } catch (err) {
         console.error('PCB print failed:', err);
-        app._setStatus?.(`Print failed: ${err?.message || err}`);
+        app.setStatus?.(`Print failed: ${err?.message || err}`);
     }
 }

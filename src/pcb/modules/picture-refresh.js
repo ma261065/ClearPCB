@@ -23,7 +23,7 @@ function refreshEditedClearances(app) {
 function flushCopperCuts(app) {
     if (!app._deferredShapeCopperCuts) return;
     app._deferredShapeCopperCuts = false;
-    app._updateCopperCuts?.();
+    app.updateCopperCuts?.();
     app._scheduleRemovalHatchRender?.();
 }
 
@@ -63,7 +63,7 @@ export function cancelPictureCopperRefresh(app) {
 }
 
 export function schedulePictureCopperRefresh(app, shape = null) {
-    app._refreshSelectedDRCMarker?.();
+    app.refreshSelectedDRCMarker?.();
     const timer = pendingRefreshes.get(app);
     if (timer !== undefined) clearTimeout(timer);
     pendingRefreshes.delete(app);
@@ -85,8 +85,8 @@ export function schedulePictureCopperRefresh(app, shape = null) {
         app._pictureCopperRefreshPending = false;
         flushCopperCuts(app);
         refreshEditedClearances(app);
-        if (app._refreshFills?.() !== true) {
-            app._updateRatsnest?.({ skipFillRefresh: true });
+        if (app.refreshFills?.() !== true) {
+            app.updateRatsnest?.({ skipFillRefresh: true });
             app._scheduleDRC?.();
         }
         app._board3d?.refresh?.();

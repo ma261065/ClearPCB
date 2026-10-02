@@ -55,9 +55,9 @@ function fixture(layer = 'top-copper', unrelatedCount = 1) {
     const app = {
         project, pcbDocument: model, placements: new Map(), netlist: [], history: new CommandHistory(), _active: true,
         viewport: { scale: 100, svg: new Element('svg'), hideCrosshair() {}, setCrosshair() {} },
-        _getLayerGroup: id => groups.get(id) || null, _layerGroups: groups,
+        getLayerGroup: id => groups.get(id) || null, _layerGroups: groups,
         _shapeElements: new Map(), _textElements: new Map(),
-        _refreshFills() { fills++; }, _refreshBoardShapeClearance() { clearances++; },
+        refreshFills() { fills++; }, _refreshBoardShapeClearance() { clearances++; },
         _cancelDrawingMode() {}, _clearCursorCrosshair() {}, markSectionClean() {}, _ensureViewport() {},
         _scheduleRemovalHatchRender() {}, _refreshPcbSelectionHighlights() {},
         _pcbPropsItems: () => null,
@@ -66,7 +66,7 @@ function fixture(layer = 'top-copper', unrelatedCount = 1) {
         Object.defineProperty(app, key, Object.getOwnPropertyDescriptor(PCBApp.prototype, key));
     }
     for (const key of ['_cancelPosePreviews', 'isSectionEditing', '_onLayerVisibilityChanged', '_onLayerLockChanged',
-        '_setPcbPropsTitle', '_clearProperties']) app[key] = PCBApp.prototype[key];
+        '_setPcbPropsTitle', 'clearProperties']) app[key] = PCBApp.prototype[key];
     project.registerView('pcb', app);
     const adapter = createBoardShapeSelectionAdapter(app, shape, `shape:${shape.id}`);
     setPcbSelection(app, [{ kind: 'shape', object: shape }]);

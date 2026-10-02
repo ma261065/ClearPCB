@@ -27,7 +27,7 @@ function board(extra = {}) {
     const ratlines = { children: [], appendChild(line) { line.parent = this; this.children.push(line); } };
     return { tracks: [], vias: [], pads: [], boardShapes: [], copperFills: [], placements: new Map(),
         texts: new Map(), netlist: [], _shapeElements: new Map(), viewport: { scale: 100, gridVisible: false },
-        _trackToolLayer: 'top-copper', _getLayerGroup: id => id === 'ratlines' ? ratlines : null, ...extra };
+        _trackToolLayer: 'top-copper', getLayerGroup: id => id === 'ratlines' ? ratlines : null, ...extra };
 }
 const shapes = [
     { kind: 'line', points: [{ x: -2, y: 0 }, { x: 2, y: 0 }] },
@@ -50,7 +50,7 @@ for (const source of shapes) {
         assert.equal(nearestPointOnNet(app, 'N', { x: 0, y: 0 }), null, 'removal artwork is not a live guide target');
         app.vias = [0, 10].map((x, id) => ({ id: `v${id}`, x, y: 0, diameter: 0.6, drill: 0.3, net: 'N' }));
         reconcileRatsnest(app);
-        assert.equal(app._getLayerGroup('ratlines').children.length, 1, 'removal artwork adds no ratline island or bridge');
+        assert.equal(app.getLayerGroup('ratlines').children.length, 1, 'removal artwork adds no ratline island or bridge');
         assert.equal(collectBondedCopper(app, { via: app.vias[0] }, { includeShapes: true }).shapes.size, 0);
     }
 }
@@ -83,21 +83,21 @@ for (const copperMode of modes) {
     const app = board({ boardShapes: [shape] });
     app.vias = [-1, 1].map((x, id) => ({ id: `v${id}`, x, y: 0, diameter: 0.6, drill: 0.3, net: 'N' }));
     let refreshes = 0;
-    app._updateRatsnest = () => { refreshes++; reconcileRatsnest(app); };
-    app._updateRatsnest();
-    assert.equal(app._getLayerGroup('ratlines').children.length, 0, 'additive shape bridges the Vias');
+    app.updateRatsnest = () => { refreshes++; reconcileRatsnest(app); };
+    app.updateRatsnest();
+    assert.equal(app.getLayerGroup('ratlines').children.length, 0, 'additive shape bridges the Vias');
     const before = captureBoardShapeState(shape);
     const command = new ModifyBoardShapeCommand(app, shape, before, { ...before, copperMode });
     command.execute();
     assert.equal(refreshes, 2, 'switching to a removal mode refreshes connectivity immediately');
     assert.equal(app._pictureCopperRefreshPending, false, 'a semantic mode change is not a deferred geometry edit');
-    assert.equal(app._getLayerGroup('ratlines').children.length, 1, 'removed additive bridge is no longer connected');
+    assert.equal(app.getLayerGroup('ratlines').children.length, 1, 'removed additive bridge is no longer connected');
     command.undo();
     assert.equal(refreshes, 3);
-    assert.equal(app._getLayerGroup('ratlines').children.length, 0, 'Undo restores the additive bridge');
+    assert.equal(app.getLayerGroup('ratlines').children.length, 0, 'Undo restores the additive bridge');
     command.execute();
     assert.equal(refreshes, 4);
-    assert.equal(app._getLayerGroup('ratlines').children.length, 1, 'Redo excludes the removal shape again');
+    assert.equal(app.getLayerGroup('ratlines').children.length, 1, 'Redo excludes the removal shape again');
 }
 
 {
@@ -108,8 +108,8 @@ for (const copperMode of modes) {
         new Track({ net: 'B', points: [{ x: 0, y: -2 }, { x: 0, y: 0 }, { x: 0, y: 2 }] }),
     ] });
     let violations;
-    app._updateRatsnest = () => { violations = runDRC(app, { clearance: 0.5 }).violations; };
-    app._updateRatsnest();
+    app.updateRatsnest = () => { violations = runDRC(app, { clearance: 0.5 }).violations; };
+    app.updateRatsnest();
     assert.deepEqual(violations.map(v => v.rule), ['short']);
     const before = captureBoardShapeState(shape);
     const command = new ModifyBoardShapeCommand(app, shape, before, { ...before, copperMode: 'remove-copper' });

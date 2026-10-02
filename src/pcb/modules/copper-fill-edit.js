@@ -115,7 +115,7 @@ export function updateFillEdit(app, point) {
         } else fill.move(delta.x, delta.y);
     }
     drag.lastPoint = { ...point };
-    renderCopperFill(fill, id => app._getLayerGroup(id), { selected: true, outlineOnly: true });
+    renderCopperFill(fill, id => app.getLayerGroup(id), { selected: true, outlineOnly: true });
     renderPcbSelectionAnchors(app);
 }
 
@@ -142,9 +142,9 @@ export function endFillEdit(app, commit) {
         if (!committed) {
             if (changed) app._fillEdit = drag.previousFocus;
             if (app.pcbDocument.boardShapes.includes(original)) {
-                renderCopperFill(original, id => app._getLayerGroup(id), { selected: isPcbSelected(app, 'fill', original) });
+                renderCopperFill(original, id => app.getLayerGroup(id), { selected: isPcbSelected(app, 'fill', original) });
                 app._refreshFillProperties?.(original);
-            } else removeCopperFillElements(original, id => app._getLayerGroup(id));
+            } else removeCopperFillElements(original, id => app.getLayerGroup(id));
         }
         renderPcbSelectionAnchors(app);
     }

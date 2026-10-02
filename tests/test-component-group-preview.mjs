@@ -53,7 +53,7 @@ function fixture(saved) {
         get tracks() { return getPlacementPreviewTracks(this) || this.pcbDocument.tracks; },
         vias: [], pads: [], boardShapes: [], texts: new Map(), history: new CommandHistory(),
         viewport: { scale: 10, gridVisible: false, snapToGrid: false, svg: { style: {} } },
-        _getLayerGroup(id) {
+        getLayerGroup(id) {
             if (id !== 'top-copper') return null;
             trackRenders++;
             return copper;
@@ -62,7 +62,7 @@ function fixture(saved) {
         _cancelPosePreviews: PCBApp.prototype._cancelPosePreviews, _cancelDrawingMode: () => false,
     };
     setPcbSelection(app, [{ kind: 'component', object: 'a' }, { kind: 'component', object: 'b' }]);
-    for (const track of app.tracks) renderTrack(track, id => app._getLayerGroup(id));
+    for (const track of app.tracks) renderTrack(track, id => app.getLayerGroup(id));
     trackRenders = 0;
     return { app, project, shared, unrelated, trackRenders: () => trackRenders,
         lines: () => copper.children.filter(element => element.tag === 'polyline').length };

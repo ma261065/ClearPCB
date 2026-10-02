@@ -35,7 +35,7 @@ const { setPcbSelection } = await import('../src/pcb/modules/selection-registry.
 const image = { ...pictureShape({ width: 4, height: 2, rectangles: [{ x: 0, y: 0, width: 1, height: 2 }] },
     { widthMm: 4, layer: 'top-silk' }), id: 'pshape_1' };
 const app = { boardShapes: [image], placements: new Map(), tracks: [], vias: [], texts: new Map(),
-    _shapeElements: new Map(), _getLayerGroup() { return null; }, viewport: { scale: 10, setCrosshair() {}, hideCrosshair() {} },
+    _shapeElements: new Map(), getLayerGroup() { return null; }, viewport: { scale: 10, setCrosshair() {}, hideCrosshair() {} },
     history: new CommandHistory(), _pcbPropsItems() { return items; }, _snapToGrid(point) { return point; } };
 setPcbSelection(app, [{ kind: 'shape', object: image }]);
 showBoardShapeProperties(app, image);
@@ -140,10 +140,10 @@ let ratsnestRefreshes = 0;
 let copperCutRefreshes = 0;
 let hatchRefreshes = 0;
 app._hasCopperCuts = true;
-app._updateCopperCuts = () => { copperCutRefreshes++; };
+app.updateCopperCuts = () => { copperCutRefreshes++; };
 app._scheduleRemovalHatchRender = () => { hatchRefreshes++; };
-app._refreshFills = () => { fillRefreshes++; };
-app._updateRatsnest = () => { ratsnestRefreshes++; };
+app.refreshFills = () => { fillRefreshes++; };
+app.updateRatsnest = () => { ratsnestRefreshes++; };
 for (let step = 1; step <= 20; step++) fields.get('pcbPropImageWidth').change(String(4 + step / 10));
 fields.get('pcbPropImageRot').input('90');
 fields.get('pcbPropImageRot').change('90');
@@ -185,7 +185,7 @@ app._refreshBoardShapeClearance = shape => {
     if (app._pictureCopperRefreshPending && app._pendingShapeClearances?.has(shape.id)) return;
     imageClearanceRefreshes++;
 };
-app._updateRatsnest = options => {
+app.updateRatsnest = options => {
     ratsnestRefreshes++;
 };
 const cutsBeforeBurst = copperCutRefreshes;

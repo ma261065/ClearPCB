@@ -39,7 +39,7 @@ for (const side of ['top', 'bottom']) {
         placements: new Map([['part', placement]]), history: new CommandHistory(),
         viewport: { scale: 10, svg: { style: {} }, snapToGrid: false },
         tracks: [], vias: [], boardShapes: [], texts: new Map(), _layerGroups: new Map(),
-        _getLayerGroup: () => null, _drawRefOverlay() {}, _refreshRefHighlight() {},
+        getLayerGroup: () => null, _drawRefOverlay() {}, _refreshRefHighlight() {},
         _refBox: () => ({ bx: -1, by: -1, bw: 2, bh: 2, cx: 0, cy: 0 }),
         _pcbPropsItems: () => items, _setPcbPropsTitle: () => propertyShows++,
         _layerLabel: value => value, _screenToWorld: event => ({ x: event.clientX, y: event.clientY }),
@@ -75,12 +75,12 @@ for (const side of ['top', 'bottom']) {
         const overlay = element();
         let lockOwner;
         overlay.dispatchEvent = event => { lockOwner = event.detail.shape; };
-        app._getLayerGroup = () => overlay;
+        app.getLayerGroup = () => overlay;
         renderPcbSelectionAnchors(app);
         overlay.children[0].listeners.get('click')({ stopPropagation() {} });
         assert.equal(lockOwner.componentId, 'part', 'Reference lock icons retain the owning component for object unlock');
         assert.equal(typeof lockOwner.unlock, 'function', 'Reference lock icons also support independent layer unlock');
-        app._getLayerGroup = () => null;
+        app.getLayerGroup = () => null;
 
         const beforeUnlockProperties = propertyShows;
         adapter.unlock();

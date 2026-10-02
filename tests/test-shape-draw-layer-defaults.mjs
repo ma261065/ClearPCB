@@ -46,10 +46,10 @@ const app = {
     vias: model.vias, pads: model.pads, texts: model.texts, placements: new Map(),
     history: new CommandHistory(), _shapeElements: new Map(), _shapeIdCounter: 1,
     _layerGroups: new Map(), _hoveredTrackOrVia: null,
-    viewport: { scale: 100 }, _snapToGrid: point => point, _getLayerGroup: () => null,
+    viewport: { scale: 100 }, _snapToGrid: point => point, getLayerGroup: () => null,
     _pcbPropsItems: () => items, _setActiveRibbonTab() {},
     status: { modeStatus: { textContent: '' } },
-    _setPcbStatus: PCBApp.prototype._setPcbStatus,
+    setPcbStatus: PCBApp.prototype.setPcbStatus,
     _onLayerLockChanged: PCBApp.prototype._onLayerLockChanged,
 };
 const locks = PCB_LAYERS.map(layer => layer.locked);

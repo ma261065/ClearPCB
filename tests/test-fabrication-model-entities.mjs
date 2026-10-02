@@ -75,7 +75,7 @@ for (const layer of ['top-copper', 'bottom-copper']) {
         tracks: model.tracks, vias: model.vias, pads: model.pads, texts: model.texts,
         boardShapes: model.boardShapes, copperFills: [fill],
         _boardWidth: model.board.width, _boardHeight: model.board.height, _boardRadius: model.board.radius,
-        _getRoutingParams: () => model.designSettings.getRoutingParams() };
+        getRoutingParams: () => model.designSettings.getRoutingParams() };
     const expected = await prepareFabricationSnapshot(legacy, { computeFills: false });
     const pending = prepareFabricationSnapshot(app);
     track.nodes.values().next().value.x = 100;

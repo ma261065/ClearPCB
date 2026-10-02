@@ -78,8 +78,8 @@ for (const layer of ['top-silk', 'bottom-silk', 'top-copper', 'bottom-copper']) 
     const pcbDocument = new PcbDocument();
     pcbDocument.boardShapes.push(original);
     const app = { pcbDocument, boardShapes: pcbDocument.boardShapes, placements: new Map(), tracks: [], vias: [], texts: new Map(),
-        _shapeElements: new Map(), _getLayerGroup() { return null; }, viewport: { scale: 10 },
-        _refreshFills() { fills++; }, _board3d: { refresh() { views++; } } };
+        _shapeElements: new Map(), getLayerGroup() { return null; }, viewport: { scale: 10 },
+        refreshFills() { fills++; }, _board3d: { refresh() { views++; } } };
     setPcbSelection(app, [{ kind: 'shape', object: original }]);
     const history = new CommandHistory();
     history.execute(new AddBoardShapeCommand(app, image));

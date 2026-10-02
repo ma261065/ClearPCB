@@ -61,7 +61,7 @@ function fixture(prepareModel = () => {}) {
     const app = new PCBApp(project);
     const changes = { dirty: 0, fills: 0, halos: 0, board3d: 0 };
     app._markDirty = () => { changes.dirty++; };
-    app._refreshFills = () => { changes.fills++; };
+    app.refreshFills = () => { changes.fills++; };
     app.showClearances = () => { changes.halos++; };
     app._clearancesVisible = true;
     app._board3d = { refresh() { changes.board3d++; } };
@@ -103,7 +103,7 @@ for (const id of ids) {
 app.pcbDocument.load({ stackup: defaultPcbStackup(), design: precise });
 refreshDesignSettings(app);
 assert.equal(elements.get('pcbClearance').value, '0.123', 'Existing display precision is preserved');
-assert.equal(app._getRoutingParams().clearance, 0.1234, 'Routing uses exact loaded data, not displayed text');
+assert.equal(app.getRoutingParams().clearance, 0.1234, 'Routing uses exact loaded data, not displayed text');
 assert.equal(changes.dirty, 0, 'Loading is not an edit');
 const updateDesign = app.designSettings.update;
 app.designSettings.update = () => assert.fail('Presentation refresh must not adopt or rewrite model data');
@@ -115,7 +115,7 @@ assert.deepEqual(JSON.parse(storage.get('clearpcb_pcb_design_params')), precise,
 assert.deepEqual(changes, { dirty: 0, fills: 0, halos: 0, board3d: 0 });
 const lookup = document.getElementById;
 document.getElementById = () => assert.fail('Routing and serialization must not read the DOM');
-assert.deepEqual(app._getRoutingParams(), expectedRouting);
+assert.deepEqual(app.getRoutingParams(), expectedRouting);
 assert.equal(app._getRouterMode(), 'pathfinder');
 assert.deepEqual(normalizePcbSection(serializePcb(app)).design, precise);
 document.getElementById = lookup;
@@ -123,7 +123,7 @@ for (let count = 0; count < 50; count++) {
     for (const unit of ['inch', 'mm']) {
         elements.get('pcbRouteUnits').value = unit;
         elements.get('pcbRouteUnits').fire('change');
-        assert.deepEqual(app._getRoutingParams(), expectedRouting);
+        assert.deepEqual(app.getRoutingParams(), expectedRouting);
     }
 }
 assert.deepEqual(normalizePcbSection(serializePcb(app)).design, precise, 'Repeated display conversions cannot change saved design rules');
@@ -137,14 +137,14 @@ for (const invalid of ['', '0', '-1', 'Infinity', 'abc']) {
     field.fire('input');
     field.fire('change');
     assert.match(field.validationMessage, /positive finite/);
-    assert.equal(app._getRoutingParams().trackWidth, 0.2);
+    assert.equal(app.getRoutingParams().trackWidth, 0.2);
     assert.equal(changes.dirty, 100);
 }
 assert.equal(field.reports, 5);
 field.value = '0.2345';
 field.fire('input');
 assert.equal(field.validationMessage, '');
-assert.equal(app._getRoutingParams().trackWidth, 0.2345);
+assert.equal(app.getRoutingParams().trackWidth, 0.2345);
 assert.deepEqual(changes, { dirty: 101, fills: 1, halos: 1, board3d: 1 });
 elements.get('pcbRouterMode').value = 'maze';
 elements.get('pcbRouterMode').fire('change');
@@ -153,14 +153,14 @@ assert.equal(changes.dirty, 102);
 app.pcbDocument.load({ stackup: defaultPcbStackup(), design: { ...precise, units: 'inch' } });
 refreshDesignSettings(app);
 assert.equal(elements.get('pcbTrackWidth').value, '0.0079');
-assert.equal(app._getRoutingParams().trackWidth, 0.2, 'Loading inch display must not change 0.2 mm to 0.20066 mm');
+assert.equal(app.getRoutingParams().trackWidth, 0.2, 'Loading inch display must not change 0.2 mm to 0.20066 mm');
 assert.equal(changes.dirty, 102);
 assert.deepEqual(fixture().app.designSettings.values, { ...precise, units: 'inch' },
     'Canonical defaults retain precision across startup');
 storage.set('clearpcb_pcb_design_params', JSON.stringify({ units: 'inch', router: 'maze',
     pcbTrackWidth: '0.01', pcbClearance: '0.005', pcbViaDiameter: '0.02', pcbViaDrill: '0.01' }));
 const legacy = fixture().app;
-assert.equal(legacy._getRoutingParams().trackWidth, 0.254, 'Legacy display-unit defaults remain readable');
+assert.equal(legacy.getRoutingParams().trackWidth, 0.254, 'Legacy display-unit defaults remain readable');
 assert.throws(() => preparePcb({ ...serializePcb(legacy), design: { ...precise, clearance: 0 } }), /positive finite/);
 console.log('PASS canonical PCB design settings, load/save/unit precision, legacy defaults, validation and dirty/refresh routing');
 
@@ -172,28 +172,28 @@ const toolInputs = new Map([['#pcbPropTrackToolWidth', width],
     ['#pcbPropViaToolDiameter', diameter], ['#pcbPropViaToolDrill', drill]]);
 const panel = { innerHTML: '', querySelector: id => toolInputs.get(id) || null };
 tools._pcbPropsItems = () => panel;
-tools._setPcbPropsTitle = tools._setPcbStatus = tools._setActiveRibbonTab = tools._bindToolNetControl = () => {};
+tools._setPcbPropsTitle = tools.setPcbStatus = tools._setActiveRibbonTab = tools._bindToolNetControl = () => {};
 tools._toolNetOptions = () => ({ escape: value => value, options: '' });
 tools._showTrackDrawProperties();
 assert.match(panel.innerHTML, /pcbPropTrackToolWidth[^>]*data-number-format="precise"/);
 width.value = '0.45';
 width.fire('input');
-assert.equal(tools._getRoutingParams().trackWidth, 0.45);
+assert.equal(tools.getRoutingParams().trackWidth, 0.45);
 assert.equal(ribbon.get('pcbTrackWidth').value, '0.0177', 'Millimetre tool edits render correctly in an inch ribbon');
 tools._showViaToolProperties();
 diameter.value = '0.8';
 diameter.fire('input');
 drill.value = '0.4';
 drill.fire('input');
-assert.equal(tools._getRoutingParams().viaDiameter, 0.8);
-assert.equal(tools._getRoutingParams().viaDrill, 0.4);
+assert.equal(tools.getRoutingParams().viaDiameter, 0.8);
+assert.equal(tools.getRoutingParams().viaDrill, 0.4);
 assert.equal(ribbon.get('pcbViaDrill').value, '0.0157');
 drill.value = '1.2';
 drill.fire('input');
-assert.equal(tools._getRoutingParams().viaDrill, 0.8, 'Via tool preserves its diameter/drill clamp');
+assert.equal(tools.getRoutingParams().viaDrill, 0.8, 'Via tool preserves its diameter/drill clamp');
 diameter.value = '';
 diameter.fire('input');
 diameter.fire('change');
 assert.equal(diameter.reports, 1);
-assert.equal(tools._getRoutingParams().viaDiameter, 0.8);
+assert.equal(tools.getRoutingParams().viaDiameter, 0.8);
 console.log('PASS track/via tool editors share canonical millimetre state and field validation');

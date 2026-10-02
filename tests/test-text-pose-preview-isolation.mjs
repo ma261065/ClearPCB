@@ -35,12 +35,12 @@ function fixture(layer) {
         pcbDocument, history: new CommandHistory({ onChanged: () => changes++ }),
         viewport: { svg: { style: {} }, scale: 10, snapToGrid: false, setCrosshair() {}, hideCrosshair() {} },
         placements: new Map(), tracks: [], vias: [], pads: [], boardShapes: [],
-        _getLayerGroup: id => id === layer ? group : null, _textElements: new Map(), _shapeElements: new Map(),
+        getLayerGroup: id => id === layer ? group : null, _textElements: new Map(), _shapeElements: new Map(),
         _refreshBoardShapeClearance() {}, _cancelDrawingMode() {}, _ensureViewport() {}, markSectionClean() {},
     };
     Object.defineProperty(app, 'texts', Object.getOwnPropertyDescriptor(PCBApp.prototype, 'texts'));
     for (const name of ['_beginTextDrag', '_updateTextDrag', '_endTextDrag', '_snapToGrid', '_renderText',
-        '_refreshText', '_removeTextElement', '_cancelPosePreviews']) app[name] = PCBApp.prototype[name];
+        'refreshText', '_removeTextElement', '_cancelPosePreviews']) app[name] = PCBApp.prototype[name];
     setPcbSelection(app, [{ kind: 'text', object: text }]);
     app._renderText(text);
     app._renderText(unrelated);

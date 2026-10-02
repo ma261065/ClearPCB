@@ -35,8 +35,8 @@ const board = shape => ({
     boardShapes: [shape], tracks: [], vias: [], pads: [], copperFills: [],
     placements: new Map(), texts: new Map(), netlist: [],
     ratLayer: element(),
-    _getLayerGroup() { return this.ratLayer; },
-    _getRoutingParams: () => ({ clearance: 0.2 }),
+    getLayerGroup() { return this.ratLayer; },
+    getRoutingParams: () => ({ clearance: 0.2 }),
 });
 const ratlines = app => {
     reconcileRatsnest(app);

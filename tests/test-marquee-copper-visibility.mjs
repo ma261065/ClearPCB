@@ -46,10 +46,10 @@ function fixture(tracks) {
         .map(layer => [layer, new Element()]));
     return {
         tracks, vias: [], pads: [], boardShapes: [], texts: new Map(), placements: new Map(),
-        _layerGroups: layers, _getLayerGroup: id => layers.get(id),
+        _layerGroups: layers, getLayerGroup: id => layers.get(id),
         viewport: { scale: 10, contentLayer: new Element() },
         _showPcbMultiSelectionProperties() { refreshBoxSelectionHighlights(this); },
-        _syncClipboardButtons() {},
+        syncClipboardButtons() {},
     };
 }
 function drag(app, end = { x: 12, y: 12 }) {
@@ -60,7 +60,7 @@ function release(app) {
     if (finishBoxSelect(app)) showPcbSelectionProperties(app);
     refreshBoxSelectionHighlights(app);
 }
-const halos = app => app._getLayerGroup('selection-overlay').children
+const halos = app => app.getLayerGroup('selection-overlay').children
     .filter(element => ['pcb-track-selection', 'pcb-box-track-sel'].includes(element.getAttribute('class')));
 try {
     top.locked = bottom.locked = false;

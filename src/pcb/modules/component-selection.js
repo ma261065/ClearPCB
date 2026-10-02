@@ -97,7 +97,7 @@ export function createComponentSelectionAdapter(app, componentId, id) {
             const rotation = pointerRotation(rotationDrag.center, rotationDrag.start, worldPos, rotationDrag.rotation, true);
             if ((placement.rotation || 0) === rotation) return;
             previewPlacementPose(app, componentId, { rotation });
-            app._updateRatsnest?.({ nets: rotationDrag.nets, skipFillRefresh: true });
+            app.updateRatsnest?.({ nets: rotationDrag.nets, skipFillRefresh: true });
         },
         endAnchorDrag(commit) {
             if (!rotationDrag) return;
@@ -117,9 +117,9 @@ export function createComponentSelectionAdapter(app, componentId, id) {
             } else if (after !== before) {
                 placement.rotation = before;
                 restorePlacementPosePreview(app);
-                app._updateRatsnest?.();
+                app.updateRatsnest?.();
             } else if (finishPlacementPreview(app)) {
-                app._updateRatsnest?.();
+                app.updateRatsnest?.();
             }
         },
         invalidate() { app._updatePcbCulling?.(); },

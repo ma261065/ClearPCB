@@ -53,7 +53,7 @@ for (const kinds of [['line'], ['polygon'], ['line', 'polygon']]) {
         const before = structuredClone(shapes);
         const track = new Track({ points: [{ x: 20, y: 0 }, { x: 30, y: 0 }] });
         const app = { ...shapeModel(shapes, [track]), placements: new Map(), texts: new Map(),
-            _shapeElements: new Map(), _getLayerGroup() { return null; }, viewport: { scale: 20 } };
+            _shapeElements: new Map(), getLayerGroup() { return null; }, viewport: { scale: 20 } };
         setPcbSelection(app, [...shapes.map(shape => ({ kind: 'shape', object: shape })),
             ...(keepTrack ? [{ kind: 'track', object: track }] : [])]);
         for (const shape of shapes) {
@@ -134,9 +134,9 @@ for (const commit of [true, false]) {
     const refreshes = { clearance: 0, fills: 0, board: 0 };
     const commands = [];
     const app = { ...shapeModel([], [track]), placements: new Map(), texts: new Map(),
-        _getLayerGroup() { return null; }, viewport: { scale: 100, shiftHeld: true },
-        _refreshClearanceHalos() { refreshes.clearance++; },
-        _refreshFills() { refreshes.fills++; },
+        getLayerGroup() { return null; }, viewport: { scale: 100, shiftHeld: true },
+        refreshClearanceHalos() { refreshes.clearance++; },
+        refreshFills() { refreshes.fills++; },
         _board3d: { refresh() { refreshes.board++; } },
         history: { execute(command) { commands.push(command); command.execute(); } } };
     selectTrackOrVia(app, { type: 'track', track });
@@ -163,10 +163,10 @@ for (const commit of [true, false]) {
 {
     const shape = { id: 'native-arc-highlight', kind: 'arc', layer: 'top-silk', lineWidth: 0.2,
         start: { x: 0, y: 0 }, end: { x: 100, y: 0 }, bulge: { x: 50, y: 25 } };
-    const app = { ...shapeModel([shape]), _shapeElements: new Map(), _getLayerGroup() { return null; } };
+    const app = { ...shapeModel([shape]), _shapeElements: new Map(), getLayerGroup() { return null; } };
     selectBoardShape(app, shape);
     const overlay = document.createElementNS('', 'g');
-    app._getLayerGroup = () => overlay;
+    app.getLayerGroup = () => overlay;
     app._selectedBoardShapeSegment = { shapeId: shape.id, segment: 0 };
     renderBoardShapeSegmentSelection(app);
     const path = overlay.children.at(-1).getAttribute('d');
@@ -186,7 +186,7 @@ for (const kind of ['line', 'track']) {
         const items = { innerHTML: '' };
         const app = { ...shapeModel(kind === 'track' ? [] : [object], kind === 'track' ? [object] : []),
             placements: new Map(), texts: new Map(), _shapeElements: new Map(), _shapeIdCounter: 1,
-            _getLayerGroup() { return null; }, _snapToGrid(point) { return point; },
+            getLayerGroup() { return null; }, _snapToGrid(point) { return point; },
             _pcbPropsItems() { return items; }, _setPcbPropsTitle(value) { title = value; },
             viewport: { scale: 100, setCrosshair() {}, hideCrosshair() {} },
             history: { execute(command) { commands.push(command); command.execute(); } } };
@@ -252,7 +252,7 @@ for (const kind of ['line', 'polygon', 'rect', 'track']) {
         : { id: `node-gesture-${kind}`, kind, layer: 'top-silk', lineWidth: 0.2, points };
     const app = { ...shapeModel(kind === 'track' ? [] : [object], kind === 'track' ? [object] : []),
         placements: new Map(), texts: new Map(), _shapeElements: new Map(),
-        _getLayerGroup() { return null; }, _snapToGrid(point) { return point; },
+        getLayerGroup() { return null; }, _snapToGrid(point) { return point; },
         viewport: { scale: 100, setCrosshair() {}, hideCrosshair() {} },
         history: { execute(command) { command.execute(); } } };
     const focusedNode = () => kind === 'track' ? app._trackEdit?.nodeId : app._selectedBoardShapeNode?.index;
@@ -282,7 +282,7 @@ for (const kind of ['line', 'track']) {
         const commands = [];
         const app = { ...shapeModel(kind === 'track' ? [] : [object], kind === 'track' ? [object] : []),
             placements: new Map(), texts: new Map(), _shapeElements: new Map(),
-            _getLayerGroup() { return null; }, _snapToGrid(point) { return point; },
+            getLayerGroup() { return null; }, _snapToGrid(point) { return point; },
             viewport: { scale: 100, setCrosshair() {}, hideCrosshair() {} },
             history: { execute(command) { commands.push(command); command.execute(); } } };
         const positions = () => kind === 'track' ? [...(app._vertexDrag?.track || object).nodes.values()] : (app._shapeDrag?.shape || object).points;
@@ -322,7 +322,7 @@ for (const kind of ['line', 'polygon', 'rect', 'arc', 'circle', 'track']) {
         : { id: `magnet-${kind}`, kind, layer: 'top-silk', lineWidth: 0.2, points };
     const app = { ...shapeModel(kind === 'track' ? [] : [object], kind === 'track' ? [object] : []),
         placements: new Map(), texts: new Map(), _shapeElements: new Map(),
-        _getLayerGroup() { return null; },
+        getLayerGroup() { return null; },
         viewport: { scale: 100, gridSize: 1, gridVisible: true, snapToGrid: true, shiftHeld: false,
             setCrosshair() {}, hideCrosshair() {} },
         _snapToGrid: point => ({ x: Math.round(point.x), y: Math.round(point.y) }),
@@ -354,7 +354,7 @@ for (const layer of ['top-silk', 'board-outline']) {
                     { x: fixed, y: 10 }, { x: 0, y: 10 }].map(orient),
                 segmentBulges: { 1: 0.25 } };
             const app = { ...shapeModel([shape]), placements: new Map(), texts: new Map(),
-                _shapeElements: new Map(), _getLayerGroup() { return null; },
+                _shapeElements: new Map(), getLayerGroup() { return null; },
                 viewport: { scale: 100, gridSize: 1, gridVisible: true, shiftHeld: false,
                     setCrosshair() {}, hideCrosshair() {} } };
             const adapter = createBoardShapeSelectionAdapter(app, shape, shape.id);
@@ -399,7 +399,7 @@ for (const bulge of [0, 0.25]) {
     const shape = { id: 'live-segment-width', kind: 'line', layer: 'top-silk', lineWidth: 0.2,
         points: [{ x: 0, y: 0 }, { x: 20, y: 0 }, { x: 30, y: 10 }], segmentBulges: { 0: bulge } };
     const commands = [];
-    const app = { ...shapeModel([shape]), _shapeElements: new Map(), _getLayerGroup() { return null; },
+    const app = { ...shapeModel([shape]), _shapeElements: new Map(), getLayerGroup() { return null; },
         viewport: { scale: 100 }, _pcbPropsItems() { return { innerHTML: '' }; },
         history: { execute(command) { commands.push(command); command.execute(); } } };
     selectBoardShape(app, shape);
@@ -407,7 +407,7 @@ for (const bulge of [0, 0.25]) {
     const overlay = document.createElementNS('', 'g');
     overlay.querySelectorAll = selector => overlay.children.filter(
         child => (child.getAttribute('class') || '').split(' ').includes(selector.slice(1)));
-    app._getLayerGroup = layer => layer === 'selection-overlay' ? overlay : null;
+    app.getLayerGroup = layer => layer === 'selection-overlay' ? overlay : null;
     const width = propertyInput(0.2);
     document.getElementById = id => id === 'pcbPropShapeLineWidth' ? width : null;
     showBoardShapeProperties(app, shape);
@@ -464,7 +464,7 @@ for (const kind of ['line', 'polygon', 'rect', 'arc']) {
             points: [{ x: 0, y: 0 }, { x: 20, y: 0 }, { x: 20, y: 20 }, { x: 0, y: 20 }],
             start: { x: 0, y: 0 }, end: { x: 20, y: 0 }, bulge: { x: 10, y: -5 } };
         const commands = [];
-        const app = { ...shapeModel([shape]), _shapeElements: new Map(), _getLayerGroup() { return null; },
+        const app = { ...shapeModel([shape]), _shapeElements: new Map(), getLayerGroup() { return null; },
             _pcbPropsItems() { return { innerHTML: '' }; },
             history: { execute(command) { commands.push(command); command.execute(); } } };
         const width = propertyInput(overall);
@@ -512,7 +512,7 @@ for (const overall of [2, 3]) {
     track.setEdgeAttr(edgeId, 'width', 4);
     const commands = [];
     const app = { ...shapeModel([], [track]), placements: new Map(), texts: new Map(),
-        viewport: { scale: 100 }, _getLayerGroup() { return null; },
+        viewport: { scale: 100 }, getLayerGroup() { return null; },
         _pcbPropsItems() { return { innerHTML: '' }; },
         history: { execute(command) { commands.push(command); command.execute(); } } };
     const radius = propertyInput(overall);
@@ -555,7 +555,7 @@ for (const overall of [2, 3]) {
     const items = { innerHTML: '' };
     let title = '';
     const app = { ...shapeModel([shape]), placements: new Map(), texts: new Map(),
-        _shapeElements: new Map(), _getLayerGroup() { return null; },
+        _shapeElements: new Map(), getLayerGroup() { return null; },
         viewport: { scale: 100, setCrosshair() {}, hideCrosshair() {} }, _snapToGrid(point) { return point; },
         _pcbPropsItems() { return items; }, _setPcbPropsTitle(value) { title = value; },
         history: { execute(command) { command.execute(); } } };
@@ -572,7 +572,7 @@ for (const overall of [2, 3]) {
     assert.equal(adapter.getEditPath(), '', 'Node focus hides the parent editing path');
     assert.equal(adapter.getAnchors().filter(anchor => anchor.selected).length, 1);
     const overlay = document.createElementNS();
-    app._getLayerGroup = layer => layer === 'selection-overlay' ? overlay : null;
+    app.getLayerGroup = layer => layer === 'selection-overlay' ? overlay : null;
     renderPcbSelectionAnchors(app);
     const ring = overlay.children.at(-1).children.find(child => child.getAttribute('class') === 'pcb-node-selection-ring');
     assert.ok(ring, 'A selected line node has a circular selection ring');
@@ -598,7 +598,7 @@ for (const overall of [2, 3]) {
             assert.equal(handle.getAttribute('fill'), '#ffffff', 'Handles obscure the path beneath them');
         }
     }
-    app._getLayerGroup = () => null;
+    app.getLayerGroup = () => null;
     finishSelectionInteraction(app, false);
     assert.deepEqual(shape.points, [{ x: 0, y: 0 }, { x: 10, y: 0 }]);
 }
@@ -606,11 +606,11 @@ for (const overall of [2, 3]) {
 {
     const track = new Track({ points: [{ x: 0, y: 0 }, { x: 10, y: 0 }] });
     const app = { ...shapeModel([], [track]), placements: new Map(), texts: new Map(),
-        viewport: { scale: 100 }, _getLayerGroup() { return null; } };
+        viewport: { scale: 100 }, getLayerGroup() { return null; } };
     selectTrackOrVia(app, { type: 'track', track });
     const overlay = document.createElementNS();
     const copper = document.createElementNS();
-    app._getLayerGroup = layer => layer === 'selection-overlay' ? overlay : copper;
+    app.getLayerGroup = layer => layer === 'selection-overlay' ? overlay : copper;
     const nodeId = track.nodes.keys().next().value;
     selectTrackNode(app, track, nodeId);
     drawTrackHalo(app, track, 'pcb-box-track-sel');
@@ -623,7 +623,7 @@ for (const guideClick of [false, true]) {
     const shape = { id: 'rounded-segment', kind: 'rect', layer: 'top-copper', lineWidth: 0.2, cornerRadius: 8,
         points: [{ x: 0, y: 0 }, { x: 40, y: 0 }, { x: 40, y: 30 }, { x: 0, y: 30 }] };
     const app = { ...shapeModel([shape]), placements: new Map(), texts: new Map(),
-        _shapeElements: new Map(), _getLayerGroup() { return null; },
+        _shapeElements: new Map(), getLayerGroup() { return null; },
         viewport: { scale: 100, setCrosshair() {}, hideCrosshair() {} }, _snapToGrid(point) { return point; },
         history: { execute(command) { command.execute(); } } };
     const first = { x: 12, y: 0 };
@@ -639,7 +639,7 @@ for (const guideClick of [false, true]) {
     assert.equal(app._selectedBoardShapeSegment?.segment, 0, 'Second click selects the segment');
     assert.equal(adapter.getEditPath(), guide, 'Segment selection retains the complete straight node guide');
     const overlay = document.createElementNS();
-    app._getLayerGroup = layer => layer === 'selection-overlay' ? overlay : null;
+    app.getLayerGroup = layer => layer === 'selection-overlay' ? overlay : null;
     renderPcbSelectionAnchors(app);
     renderBoardShapeSegmentSelection(app);
     const guidePath = overlay.children[0].children[0];
@@ -658,7 +658,7 @@ for (const kind of ['line', 'polygon']) {
             points: [{ x: 0, y: 0 }, { x: 10, y: 0 }, { x: 20, y: 10 }], segmentBulges: { 0: 0.25 } };
         let title = '';
         const app = { ...shapeModel([shape]), placements: new Map(), texts: new Map(),
-            _shapeElements: new Map(), _getLayerGroup() { return null; },
+            _shapeElements: new Map(), getLayerGroup() { return null; },
             viewport: { scale: 100, setCrosshair() {}, hideCrosshair() {} }, _snapToGrid(point) { return point; },
             _pcbPropsItems() { return { innerHTML: '' }; }, _setPcbPropsTitle(value) { title = value; },
             history: { execute(command) { command.execute(); } } };
@@ -676,7 +676,7 @@ for (const kind of ['line', 'polygon']) {
                 if (index !== -1) overlay.children.splice(index, 1);
             };
         };
-        app._getLayerGroup = layer => layer === 'selection-overlay' ? overlay : null;
+        app.getLayerGroup = layer => layer === 'selection-overlay' ? overlay : null;
         const segmentHighlights = () => overlay.querySelectorAll('.pcb-shape-segment-selection');
         const handle = getBoardShapeAnchors(shape).find(anchor => anchor.id === 'bulge:0');
         assert.ok(beginSelectionInteraction(app, handle, false), 'Rendered bulge handle starts a selection interaction');
@@ -740,7 +740,7 @@ for (const [kind, zeroOffset] of ['arc', 'line', 'polygon'].flatMap(kind =>
     const originalGetElementById = document.getElementById;
     document.getElementById = id => id === 'pcbPropShapeBulge' ? input : null;
     const app = { ...shapeModel([shape]), placements: new Map(), texts: new Map(),
-        _shapeElements: new Map(), _getLayerGroup() { return null; },
+        _shapeElements: new Map(), getLayerGroup() { return null; },
         viewport: { scale: 100, setCrosshair() {}, hideCrosshair() {} }, _snapToGrid(point) { return point; },
         _pcbPropsItems() { return items; }, _setPcbPropsTitle(value) { title = value; },
         history: { execute(command) { commands.push(command); command.execute(); } } };

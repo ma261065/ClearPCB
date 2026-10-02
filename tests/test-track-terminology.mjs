@@ -9,10 +9,10 @@ assert.match(html, /Clear all tracks and restore ratlines/);
 assert.match(html, /Tracks and vias will appear/);
 
 const pcb = read('src/ui/PCBApp.js');
-const status = pcb.split('\n').find(line => line.includes('this._setStatus(`Imported ${result.tracks.length}'));
+const status = pcb.split('\n').find(line => line.includes('this.setStatus(`Imported ${result.tracks.length}'));
 assert.ok(status);
 let displayed;
-new Function('result', status).call({ _setStatus: message => { displayed = message; } },
+new Function('result', status).call({ setStatus: message => { displayed = message; } },
     { tracks: [1, 2], vias: [1] });
 assert.equal(displayed, 'Imported 2 track(s), 1 via(s) from SES');
 
@@ -51,7 +51,7 @@ for (const [summary, violations, expectedExit] of [
         },
         process: gateProcess,
     });
-    assert.equal(calls, 3, 'Import boundaries, regression suite and clearance check each run once');
+    assert.equal(calls, 4, 'Both boundary checks, the regression suite and the clearance check each run once');
     assert.equal(gateProcess.exitCode, expectedExit, 'Terminology must not bypass gate failures');
     if (expectedExit === 0) {
         assert.ok(output.includes('WARN  tracks == 239 (got 288)'), 'Keep the original count threshold');

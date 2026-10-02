@@ -48,12 +48,12 @@ function fixture(saved = true) {
         _clearancesVisible: true, _padHaloGroups: new Map([['part', padHalo]]),
         _layerGroups: new Map([['clearance-overlay', overlay]]),
         viewport: { svg: { style: {} }, snapToGrid: false, gridVisible: true, hideCrosshair() {} },
-        _getLayerGroup: () => null, _hoverComponent() {}, _hideNetTooltip() {},
+        getLayerGroup: () => null, _hoverComponent() {}, _hideNetTooltip() {},
         _netsForComponent: () => new Set(['GND']),
-        _updateRatsnest: options => ratsnestUpdates.push(options),
+        updateRatsnest: options => ratsnestUpdates.push(options),
         _screenToWorld: event => ({ x: event.clientX, y: event.clientY }),
         _markDirty: () => dirty++,
-        _refreshClearanceHalos() {
+        refreshClearanceHalos() {
             clearanceRefreshes++;
             padHalo.style.display = '';
             trackHalo.style.display = '';

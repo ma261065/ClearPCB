@@ -104,20 +104,20 @@ function fixture(scope = 'whole', unrelatedCount = 1) {
     for (const key of ['pads', 'vias', 'tracks', 'boardShapes', 'texts']) {
         Object.defineProperty(app, key, Object.getOwnPropertyDescriptor(PCBApp.prototype, key));
     }
-    for (const key of ['_setPcbPropsTitle', '_clearProperties', '_cancelPosePreviews', 'isSectionEditing',
+    for (const key of ['_setPcbPropsTitle', 'clearProperties', '_cancelPosePreviews', 'isSectionEditing',
         'deactivate', '_onLayerLockChanged', '_onLayerVisibilityChanged']) app[key] = PCBApp.prototype[key];
     Object.assign(app, {
         project, pcbDocument: model, placements: new Map(), netlist: [], history: new CommandHistory(),
         _active: true, _layerGroups: groups, _textElements: new Map(), _shapeElements: new Map(),
         viewport: { scale: 100, svg: new Element('svg'), shiftHeld: true, setCrosshair() {}, hideCrosshair() {} },
-        _pcbPropsItems: () => items, _getLayerGroup: id => groups.get(id) || null,
-        _setActiveRibbonTab() {}, _setPcbStatus() {}, _refreshFills() { fills++; },
-        _refreshClearanceHalos() { clearances++; },
+        _pcbPropsItems: () => items, getLayerGroup: id => groups.get(id) || null,
+        _setActiveRibbonTab() {}, setPcbStatus() {}, refreshFills() { fills++; },
+        refreshClearanceHalos() { clearances++; },
         _cancelDrawingMode() {}, _ensureViewport() {}, markSectionClean() {},
         _refreshPcbSelectionHighlights() {}, _scheduleRemovalHatchRender() {},
     });
     project.registerView('pcb', app);
-    for (const object of [track, unrelated[0]].filter(Boolean)) renderTrack(object, app._getLayerGroup);
+    for (const object of [track, unrelated[0]].filter(Boolean)) renderTrack(object, app.getLayerGroup);
     selectTrackOrVia(app, { type: 'track', track });
     if (scope === 'node') selectTrackNode(app, track, nodeId);
     else if (scope !== 'whole') selectTrackSegment(app, track, edgeId);
@@ -226,7 +226,7 @@ for (const [scope, field, value] of [
             input.emit('input', initialValue);
             input.emit('change');
         } else if (finish === 'panel') {
-            app._clearProperties();
+            app.clearProperties();
             input.emit('input', value + 1);
             input.emit('change');
         } else if (finish === 'deactivate') {

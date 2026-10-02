@@ -254,8 +254,8 @@ function previewFixture() {
     const app = {
         pcbDocument: new PcbDocument(), placements: new Map(), netlist: [], copperFills: [],
         history: new CommandHistory(), _shapeElements: new Map(), _textElements: new Map(),
-        _getLayerGroup: () => null, _refreshClearanceHalos() {}, _refreshFills: () => false,
-        _getRoutingParams: () => ({ trackWidth: 0.2, clearance: 0.2, viaDiameter: 0.6, viaDrill: 0.3 }),
+        getLayerGroup: () => null, refreshClearanceHalos() {}, refreshFills: () => false,
+        getRoutingParams: () => ({ trackWidth: 0.2, clearance: 0.2, viaDiameter: 0.6, viaDrill: 0.3 }),
         viewport: { scale: 100, gridVisible: false, shiftHeld: true, setCrosshair() {}, hideCrosshair() {} },
         _alert(message) { assert.fail(message); }, _commitTracks: PCBApp.prototype._commitTracks,
     };

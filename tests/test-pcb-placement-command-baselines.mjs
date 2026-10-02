@@ -74,7 +74,7 @@ for (const saved of [false, true]) for (const mode of ['headless', 'stale-seed',
     const app = {
         project, pcbDocument: project.pcbDocument, placementState: state,
         placements: new Map([['part', stale]]), tracks: project.pcbDocument.tracks,
-        _getLayerGroup: () => null, _markDirty: () => dirty++,
+        getLayerGroup: () => null, _markDirty: () => dirty++,
     };
     const api = mode === 'editor' ? editorCommands : modelCommands;
     const owner = mode === 'editor' ? app : test.physical ? project : state;

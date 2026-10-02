@@ -11,6 +11,7 @@
 //
 // HARD checks (cause exit code 1):
 //   - import boundaries match tools/import-baseline.json
+//   - PCB editor access matches tools/pcb-editor-access-baseline.json
 //   - regression suite exits cleanly
 //   - check-clearance-full exits cleanly
 //   - total connection count matches baseline
@@ -77,11 +78,13 @@ function softCheck(cond, msg) {
 
 console.log('=== ClearPCB Autorouter Regression Gate ===');
 
-// 1. Documented import-direction rules
-console.log('\n--- [1/3] import boundaries ---');
+// 1. Documented import-direction rules and PCB editor access
+console.log('\n--- [1/3] architecture boundaries ---');
 {
-    const r = run(process.execPath, ['tools/check-imports.mjs']);
-    hardCheck(r.code === 0, 'import boundaries match tools/import-baseline.json');
+    const imports = run(process.execPath, ['tools/check-imports.mjs']);
+    hardCheck(imports.code === 0, 'import boundaries match tools/import-baseline.json');
+    const access = run(process.execPath, ['tools/check-pcb-editor-access.mjs']);
+    hardCheck(access.code === 0, 'PCB editor access matches tools/pcb-editor-access-baseline.json');
 }
 
 // 2. Isolated regression suite

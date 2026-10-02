@@ -17,7 +17,7 @@ function fixture(options = {}) {
     const model = new PcbDocument();
     model.boardShapes.push(fill);
     const app = { pcbDocument: model, boardShapes: model.boardShapes, placements: new Map(),
-        history: new CommandHistory(), viewport: { scale: 100 }, _getLayerGroup() { return null; } };
+        history: new CommandHistory(), viewport: { scale: 100 }, getLayerGroup() { return null; } };
     return { app, model, fill };
 }
 

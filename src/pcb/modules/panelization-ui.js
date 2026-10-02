@@ -91,7 +91,7 @@ export function renderPanelPreview(app, settings = app.panelization) {
         const note = renderPcbText({ id: 'panel-error', content: `Panel invalid: ${error.message}`,
             x: 0, y: -app._boardHeight - 5, size: 1.2, rotation: 0, strokeWidth: 0.15, layer: 'top-document' });
         note.style.pointerEvents = 'none';
-        app._getLayerGroup('top-document').appendChild(note);
+        app.getLayerGroup('top-document').appendChild(note);
         previewState.set(app, { group: svg('g'), note });
         return null;
     }
@@ -168,7 +168,7 @@ export function renderPanelPreview(app, settings = app.panelization) {
         group.appendChild(svg('circle', { cx: mark.x, cy: mark.y, r: mark.diameter / 2,
             fill: PCB_LAYERS.find(layer => layer.id === 'top-copper')?.color || '#e05050' }));
     }
-    const overlay = app._getLayerGroup('clearance-overlay') || app._getLayerGroup('selection-overlay');
+    const overlay = app.getLayerGroup('clearance-overlay') || app.getLayerGroup('selection-overlay');
     if (overlay?.parentNode) overlay.parentNode.insertBefore(group, overlay);
     else app.viewport.addContent(group);
     previewState.set(app, { group, layout, key, viewport: app.viewport, layers: [...app._layerGroups], dispose });

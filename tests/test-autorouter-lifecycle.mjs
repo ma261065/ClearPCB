@@ -36,13 +36,13 @@ function fixture() {
         netlist: [{ net: 'ORIGINAL', pins: [] }], _active: true, currentTool: 'select', status: {},
         _layerGroups: new Map(),
         _textElements: new Map(), _shapeElements: new Map(),
-        _getLayerGroup: () => null,
-        _getRoutingParams: () => ({ trackWidth: 0.23456789, clearance: 0.1, viaDiameter: 0.6, viaDrill: 0.3 }),
+        getLayerGroup: () => null,
+        getRoutingParams: () => ({ trackWidth: 0.23456789, clearance: 0.1, viaDiameter: 0.6, viaDrill: 0.3 }),
         _getRouterMode: () => 'maze',
         _buildRouteInput: () => ({ connections: [{ net: 'ORIGINAL', pads: [] }] }),
-        _setStatus(message) { this.lastStatus = message; },
-        _refreshClearanceHalos() {}, _scheduleDRC() {},
-        _refreshFills: () => false, _ensureViewport() {}, _resetDRC() {}, _updateCopperCuts() {},
+        setStatus(message) { this.lastStatus = message; },
+        refreshClearanceHalos() {}, _scheduleDRC() {},
+        refreshFills: () => false, _ensureViewport() {}, _resetDRC() {}, updateCopperCuts() {},
         _closeDRCPanel() {}, _clearDRCMarker() {}, _selectBoardOutline() {},
         _closeBoardDimensionsDialog() {}, _clearFillGroups() {},
     });
@@ -103,7 +103,7 @@ for (const operation of ['command', 'document', 'clear-document', 'deactivate', 
     if (operation === 'dispose') app.dispose();
     if (operation === 'preview') app._viaPropertyBinding = { active: true, cancel() {} };
     if (operation === 'drawing') app._trackDraw = {};
-    if (operation === 'rules') app._getRoutingParams = () => ({ trackWidth: 0.9, clearance: 0.1, viaDiameter: 0.6, viaDrill: 0.3 });
+    if (operation === 'rules') app.getRoutingParams = () => ({ trackWidth: 0.9, clearance: 0.1, viaDiameter: 0.6, viaDrill: 0.3 });
     if (operation === 'schematic') {
         app._active = false;
         app.onSchematicChanged();

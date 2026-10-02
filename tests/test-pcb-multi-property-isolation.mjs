@@ -89,11 +89,11 @@ function fixture(kind, object) {
     app._shapeElements = new Map();
     app._boardShapeClearanceCache = new Map([[object.id, { elements: [], authored: object }]]);
     let work = 0;
-    app._getLayerGroup = () => null;
-    app._getRoutingParams = () => ({ viaDiameter: 0.6, viaDrill: 0.3 });
+    app.getLayerGroup = () => null;
+    app.getRoutingParams = () => ({ viaDiameter: 0.6, viaDrill: 0.3 });
     app._pcbPropsItems = () => null;
-    app._refreshFills = app._recomputeFillsNow = app._refreshFillProperties = () => { work++; };
-    app._updateCopperCuts = app._updateRatsnest = app._refreshClearanceHalos = () => { work++; };
+    app.refreshFills = app._recomputeFillsNow = app._refreshFillProperties = () => { work++; };
+    app.updateCopperCuts = app.updateRatsnest = app.refreshClearanceHalos = () => { work++; };
     app._refreshBoardShapeClearance = () => { work++; };
     app._board3d = { refresh() { work++; } };
     return { app, model, object, cachedFill, work: () => work,

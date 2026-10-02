@@ -153,7 +153,7 @@ console.log('PASS placement commands persist into project state through execute/
         querySelectorAll() { return [ref]; },
     }];
     editor.viewport = { svg: { style: {} } };
-    editor._getLayerGroup = () => null;
+    editor.getLayerGroup = () => null;
     editor._recordPlacementOverride = () => assert.fail('Metadata adapters must not persist generated artwork back into the model');
     editor._markDirty = () => { dirtyNotifications++; stages.push('dirty'); };
     editor._refreshPcbSelectionHighlights = () => stages.push('highlights');

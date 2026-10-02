@@ -68,7 +68,7 @@ export function createCopperFillSelectionAdapter(app, fill, id) {
             end: commit => endFillEdit(app, commit),
         }),
         invalidate() {
-            renderCopperFill(current(), (layerId) => app._getLayerGroup(layerId), {
+            renderCopperFill(current(), (layerId) => app.getLayerGroup(layerId), {
                 selected: isPcbSelected(app, 'fill', fill),
                 outlineOnly: app._fillDrag?.original === fill && app._fillDrag.fill !== fill,
             });

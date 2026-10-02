@@ -98,7 +98,7 @@ globalThis.document = {
 };
 const ui = Object.create(PCBApp.prototype);
 const overlay = new Element('g');
-ui._getLayerGroup = () => overlay;
+ui.getLayerGroup = () => overlay;
 ui._drcViolations = [violation];
 ui._drcConnectorLine = new Element('polyline');
 const connector = new Element('svg');

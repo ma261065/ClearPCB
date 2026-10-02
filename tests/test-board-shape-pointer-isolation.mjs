@@ -75,15 +75,15 @@ function fixture(mode, deferred = false, unrelatedCount = 1) {
         pcbDocument: model, project, placements: new Map(), netlist: [], history: new CommandHistory(),
         _active: true, _deferDragOverlays: deferred, _shapeElements: new Map(), _textElements: new Map(),
         _layerGroups: new Map(), viewport: { scale: 100, shiftHeld: true, svg: new Element(), setCrosshair() {}, hideCrosshair() {} },
-        _getLayerGroup: id => id === 'selection-overlay' ? null : group,
-        _refreshFills() { fills++; }, _refreshBoardShapeClearance() {},
+        getLayerGroup: id => id === 'selection-overlay' ? null : group,
+        refreshFills() { fills++; }, _refreshBoardShapeClearance() {},
         _pcbPropsItems: () => null, _cancelDrawingMode() {}, _ensureViewport() {}, markSectionClean() {},
         _scheduleRemovalHatchRender() {}, _refreshPcbSelectionHighlights() {},
     };
     for (const key of ['boardShapes', 'tracks', 'vias', 'pads', 'texts', '_shapeIdCounter']) {
         Object.defineProperty(app, key, Object.getOwnPropertyDescriptor(PCBApp.prototype, key));
     }
-    for (const key of ['_cancelPosePreviews', 'isSectionEditing', '_onLayerLockChanged', '_onLayerVisibilityChanged', '_clearProperties']) {
+    for (const key of ['_cancelPosePreviews', 'isSectionEditing', '_onLayerLockChanged', '_onLayerVisibilityChanged', 'clearProperties']) {
         app[key] = PCBApp.prototype[key];
     }
     project.registerView('pcb', app);

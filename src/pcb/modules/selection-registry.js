@@ -60,7 +60,7 @@ function manager(app) {
                 );
                 if (segment && !segmentStillSelected) {
                     app._selectedBoardShapeSegment = null;
-                    const overlay = app._getLayerGroup?.('selection-overlay');
+                    const overlay = app.getLayerGroup?.('selection-overlay');
                     for (const element of [...(overlay?.querySelectorAll?.('.pcb-shape-segment-selection') || [])]) {
                         element.remove();
                     }
@@ -72,7 +72,7 @@ function manager(app) {
                 if (node && !nodeStillSelected) app._selectedBoardShapeNode = null;
                 if (app._fillEdit && !selected.some(item => item.kind === 'fill'
                     && item.object?.id === app._fillEdit.fillId)) app._fillEdit = null;
-                app._setPcbStatus?.();
+                app.setPcbStatus?.();
                 refreshPcbReferenceOverlay(app);
             },
         });

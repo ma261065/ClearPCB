@@ -102,7 +102,7 @@ export function finishTextPropertyPreview(app, commit) {
             syncTextContentPreview(app, id);
             if (!committed) {
                 schedulePictureCopperRefresh(app, getTextPosePreviewTexts(app)?.get(id) || text);
-                if (commit || changed) app._refreshText(id);
+                if (commit || changed) app.refreshText(id);
             }
         }
     }
@@ -124,7 +124,7 @@ export function finishTextPosePreview(app, commit) {
                 const text = app.pcbDocument.texts.get(id);
                 if (!text) app._removeTextElement(id);
                 else if (commit || ['x', 'y', 'rotation'].some(key => text[key] !== copy[key])) {
-                    app._refreshText(id);
+                    app.refreshText(id);
                 }
             }
         }
@@ -193,7 +193,7 @@ export class MoveTextCommand extends ModelMoveTextCommand {
         super._set(x, y);
         syncTextContentPreview(this.app, this.id);
         schedulePictureCopperRefresh(this.app);
-        this.app._refreshText(this.id);
+        this.app.refreshText(this.id);
     }
 }
 
@@ -212,7 +212,7 @@ export class EditTextCommand extends ModelEditTextCommand {
         syncTextContentPreview(this.app, this.id);
         const t = this.document.texts.get(this.id);
         schedulePictureCopperRefresh(this.app, getTextPosePreviewTexts(this.app)?.get(this.id) || t);
-        this.app._refreshText(this.id);
+        this.app.refreshText(this.id);
         if ('layer' in patch && isPcbSelected(this.app, 'text', t)) {
             refreshTextLayerProperties(this.app);
         }

@@ -95,23 +95,23 @@ function fixture(deferred = false, component = false) {
         netlist: [], history: new CommandHistory(), _active: true, _layerGroups: groups, _shapeElements: new Map(), _textElements: new Map(),
         _deferDragOverlays: deferred, _suspendBoardViewRefresh: deferred,
         viewport: { scale: 10, gridVisible: false, svg: new Element('svg'), setCrosshair() {}, hideCrosshair() {} },
-        _getLayerGroup: id => groups.get(id) || null, _refreshText() {}, _refreshFills() { fills++; },
-        _updateRatsnest() { ratsnest++; }, _board3d: { refresh() { board++; } },
-        _refreshClearanceHalos() {}, _netsForComponent: () => new Set(),
+        getLayerGroup: id => groups.get(id) || null, refreshText() {}, refreshFills() { fills++; },
+        updateRatsnest() { ratsnest++; }, _board3d: { refresh() { board++; } },
+        refreshClearanceHalos() {}, _netsForComponent: () => new Set(),
         _cancelPosePreviews: PCBApp.prototype._cancelPosePreviews, isSectionEditing: PCBApp.prototype.isSectionEditing,
-        _cancelDrawingMode: () => false, _ensureViewport() {}, markSectionClean() {}, _setActiveRibbonTab() {}, _setPcbStatus() {},
+        _cancelDrawingMode: () => false, _ensureViewport() {}, markSectionClean() {}, _setActiveRibbonTab() {}, setPcbStatus() {},
         _pcbPropsItems: () => ({ innerHTML: '' }), _setPcbPropsTitle: PCBApp.prototype._setPcbPropsTitle,
         _selectText() {}, _removeTextElement() {}, _renderText() {},
-        _clearProperties: PCBApp.prototype._clearProperties,
+        clearProperties: PCBApp.prototype.clearProperties,
         _onLayerLockChanged: PCBApp.prototype._onLayerLockChanged,
         _onLayerVisibilityChanged: PCBApp.prototype._onLayerVisibilityChanged,
         _onCopperFillLockChanged: PCBApp.prototype._onCopperFillLockChanged,
         _onCopperFillVisibilityChanged: PCBApp.prototype._onCopperFillVisibilityChanged,
     });
     project.registerView('pcb', app);
-    for (const item of model.tracks) renderTrack(item, app._getLayerGroup);
-    renderVia(via, app._getLayerGroup); renderPad(pad, app._getLayerGroup);
-    renderBoardShape(app, shape); renderCopperFill(fill, app._getLayerGroup);
+    for (const item of model.tracks) renderTrack(item, app.getLayerGroup);
+    renderVia(via, app.getLayerGroup); renderPad(pad, app.getLayerGroup);
+    renderBoardShape(app, shape); renderCopperFill(fill, app.getLayerGroup);
     setPcbSelection(app, [
         ...(component ? [{ kind: 'component', object: 'a' }] : []),
         ...Object.entries({ track, via, pad, shape, fill, text }).map(([kind, object]) => ({ kind, object })),

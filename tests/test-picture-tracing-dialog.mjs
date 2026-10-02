@@ -98,7 +98,7 @@ const pcbDocument = new PcbDocument();
 let placed = null;
 const app = { viewport: { scale: 10, offset: { x: 0, y: 0 }, container: element() },
     pcbDocument, boardShapes: pcbDocument.boardShapes, placements: new Map(), tracks: [], vias: [], texts: new Map(), _shapeElements: new Map(),
-    _shapeIdCounter: 1, history: new CommandHistory(), _getLayerGroup() { return null; },
+    _shapeIdCounter: 1, history: new CommandHistory(), getLayerGroup() { return null; },
     _beginPasteDrop(result) { placed = result; },
 };
 showPictureImport(app);

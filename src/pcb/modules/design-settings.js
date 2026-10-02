@@ -98,7 +98,7 @@ export function commitDesignInput(app, key, element, units) {
         saveDefaults(app);
         app._markDirty?.();
         if (app._clearancesVisible) app.showClearances?.(true);
-        app._refreshFills?.();
+        app.refreshFills?.();
         app._board3d?.refresh?.();
     }
     return true;

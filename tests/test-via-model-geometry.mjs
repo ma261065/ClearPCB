@@ -68,7 +68,7 @@ try {
     const target = new Via({ x: 0, y: 0, diameter: 1 });
     for (const scale of [1, 10, 100]) {
         const app = { tracks: [], vias: [target], pads: [], boardShapes: [], texts: new Map(),
-            placements: new Map(), netlist: [], _layerGroups: new Map(), _getLayerGroup: () => null,
+            placements: new Map(), netlist: [], _layerGroups: new Map(), getLayerGroup: () => null,
             viewport: { scale, gridVisible: false, hideCrosshair() {}, setCrosshair() {} } };
         const tolerance = 6 / scale;
         const inside = { x: 0.5 + tolerance - 1e-6, y: 0 };
@@ -102,7 +102,7 @@ try {
     for (const [offset, expectedCount] of [[-1e-6, 0], [0, 1], [1e-6, 1]]) {
         const target = new Via({ x: 10, y: 10, diameter: 1 });
         const app = { tracks: [], vias: [target], pads: [], boardShapes: [], texts: new Map(),
-            placements: new Map(), _layerGroups: new Map(), _getLayerGroup: () => null,
+            placements: new Map(), _layerGroups: new Map(), getLayerGroup: () => null,
             viewport: { scale: 10, contentLayer: { appendChild() {} } } };
         armBoxSelect(app, { x: 0, y: 0 }, { x: 0, y: 0 });
         assert.equal(maybeStartBoxSelect(app, { clientX: 100, clientY: 100 },

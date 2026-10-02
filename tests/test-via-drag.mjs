@@ -78,14 +78,14 @@ function appFor(via) {
         placements: new Map(),
         netlist: [],
         _layerGroups: new Map(),
-        _getLayerGroup() {
+        getLayerGroup() {
             for (const track of this.tracks) assert.deepEqual(track.getBounds(), track._calculateBounds(),
                 'Track bounds follow preview geometry before rendering');
             return null;
         },
-        _refreshFills() { fillRefreshes++; },
+        refreshFills() { fillRefreshes++; },
         fillRefreshes() { return fillRefreshes; },
-        _refreshClearanceHalos() { clearanceRefreshes++; },
+        refreshClearanceHalos() { clearanceRefreshes++; },
         clearanceRefreshes() { return clearanceRefreshes; },
         crosshairs,
         viewport: {
@@ -121,15 +121,15 @@ function trackAppFor(track, previousDeferral = false) {
         copperFills: [],
         _layerGroups: new Map(),
         _deferDragOverlays: previousDeferral,
-        _getLayerGroup() {
+        getLayerGroup() {
             for (const track of this.tracks) assert.deepEqual(track.getBounds(), track._calculateBounds(),
                 'Track bounds follow preview geometry before rendering');
             return null;
         },
-        _refreshFills() { fillRefreshes++; },
+        refreshFills() { fillRefreshes++; },
         _snapToGrid(point) { return point; },
         fillRefreshes() { return fillRefreshes; },
-        _refreshClearanceHalos() { clearanceRefreshes++; },
+        refreshClearanceHalos() { clearanceRefreshes++; },
         clearanceRefreshes() { return clearanceRefreshes; },
         viewport: {
             scale: 100,
@@ -398,7 +398,7 @@ for (const previousDeferral of [false, true]) {
     } };
     const renderedStates = [];
     let reconciles = 0;
-    app._getLayerGroup = id => {
+    app.getLayerGroup = id => {
         if (id === 'ratlines') reconciles++;
         if (id !== 'vias') return null;
         renderedStates.push(vias.map(via => via.captureState()));
@@ -475,8 +475,8 @@ for (const previousDeferral of [false, true]) {
     const copper = layer(), holes = layer();
     const observedOwnership = [];
     let reconciles = 0, propertyClears = 0;
-    app._clearProperties = () => { propertyClears++; };
-    app._getLayerGroup = id => {
+    app.clearProperties = () => { propertyClears++; };
+    app.getLayerGroup = id => {
         if (id === 'ratlines') reconciles++;
         if (id !== 'top-copper' && id !== 'vias') return null;
         observedOwnership.push([app.tracks.includes(route), app.vias.includes(routeVia)]);
@@ -543,7 +543,7 @@ for (const previousDeferral of [false, true]) {
     const app = trackAppFor(track);
     app.project.schematicDocument.components.push(component);
     const group = { children: [], appendChild(child) { this.children.push(child); child.parentNode = this; } };
-    app._getLayerGroup = id => id === 'top-copper' ? group : null;
+    app.getLayerGroup = id => id === 'top-copper' ? group : null;
     const stages = [];
     const attributes = new Map();
     const placement = {
@@ -563,10 +563,10 @@ for (const previousDeferral of [false, true]) {
     const pads = placement.pads;
     app.placements.set(component.id, placement);
     app._recordPlacementOverride = () => assert.fail('Physical adapters must not re-record generated placements');
-    app._refreshClearanceHalos = () => stages.push('clearance');
+    app.refreshClearanceHalos = () => stages.push('clearance');
     app._markDirty = () => stages.push('dirty');
-    app._updateRatsnest = () => stages.push('ratsnest');
-    app._refreshFills = () => stages.push('fills');
+    app.updateRatsnest = () => stages.push('ratsnest');
+    app.refreshFills = () => stages.push('fills');
     app._board3d = { refresh() { stages.push('3d'); } };
     const verify = () => {
         const pose = app.placementState.overrides.get(component.id);
@@ -681,7 +681,7 @@ for (const previousDeferral of [false, true]) {
     placement.lodEl = svg({});
     const halo = svg({});
     app._padHaloGroups = new Map([['component', halo]]);
-    app._getLayerGroup = id => layers.get(id) || null;
+    app.getLayerGroup = id => layers.get(id) || null;
     app.placements.set('component', placement);
     app._recordPlacementOverride = () => assert.fail('Side adapters must not re-record generated placement data');
     let dirty = 0;

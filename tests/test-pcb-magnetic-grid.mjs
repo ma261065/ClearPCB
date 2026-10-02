@@ -19,8 +19,8 @@ function fixture(viewport) {
     const placement = { x: 0, y: 0, pads: new Map(), refDx: 0, refDy: 0 };
     const app = {
         viewport, pcbDocument, placements: new Map([['part', placement]]),
-        tracks: [], _getLayerGroup: () => null,
-        _refreshText() {}, _removeTextElement() {}, _updateRatsnest() {}, _drawRefOverlay() {}, _drawBoardOutline() {},
+        tracks: [], getLayerGroup: () => null,
+        refreshText() {}, _removeTextElement() {}, updateRatsnest() {}, _drawRefOverlay() {}, _drawBoardOutline() {},
         _screenToWorld: event => ({ x: event.clientX, y: event.clientY }),
         _textDrag: { textId: text.id, startWorld: { x: 0, y: 0 }, startPos: { x: 0, y: 0 } },
         _drag: { compId: 'part', startWorld: { x: 0, y: 0 }, startPos: { x: 0, y: 0 }, nets: new Set() },

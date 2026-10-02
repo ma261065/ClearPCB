@@ -241,7 +241,7 @@ for (const filled of [false, true]) {
     let element;
     renderBoardShape({
         boardShapes: [shape], _shapeElements: new Map(),
-        _getLayerGroup() { return { appendChild(child) { element = child; } }; },
+        getLayerGroup() { return { appendChild(child) { element = child; } }; },
     }, shape);
     check(`filled=${filled} rectangle SVG uses round caps and joins`,
         element.getAttribute('stroke-linecap') === 'round'
@@ -262,7 +262,7 @@ for (const shape of [
     const original = cloneShapeGeometry(shape);
     const handleApp = {
         boardShapes: [shape], _shapeElements: new Map(),
-        _snapToGrid(point) { return point; }, _getLayerGroup() { return null; },
+        _snapToGrid(point) { return point; }, getLayerGroup() { return null; },
     };
     for (const anchor of anchors.filter(anchor => !anchor.midpoint)) {
         moveBoardShapeAnchor(handleApp, shape, anchor.id, anchor);
@@ -352,7 +352,7 @@ const app = {
     activeLayer: 'top-silk',
     _shapeIdCounter: 1,
     _snapToGrid: (point) => ({ x: Math.round(point.x), y: Math.round(point.y) }),
-    _getLayerGroup: () => ({ appendChild() {}, insertBefore() {} }),
+    getLayerGroup: () => ({ appendChild() {}, insertBefore() {} }),
     history: { execute(command) { app.boardShapes.push(command.shape); } },
     viewport: { scale: 100, gridSize: 1, setCrosshair() {} },
 };
@@ -552,7 +552,7 @@ for (const reversed of [false, true]) {
         const dragApp = {
             boardShapes: [shape], placements: new Map(), tracks: [], vias: [], texts: new Map(),
             _shapeElements: new Map(), viewport: { scale: 100, gridSize: 1, setCrosshair() {} },
-            _getLayerGroup() { return null; },
+            getLayerGroup() { return null; },
             _snapToGrid(point) { return { x: Math.round(point.x), y: Math.round(point.y) }; },
         };
         startBoardShapeDrag(dragApp, shape, anchor, corner);
@@ -570,7 +570,7 @@ for (const reversed of [false, true]) {
     showBoardShapeProperties({
         boardShapes: [shape], placements: new Map(), tracks: [], vias: [], texts: new Map(),
         _shapeElements: new Map(), viewport: { scale: 1 },
-        _getLayerGroup() { return null; }, _pcbPropsItems() { return propertyItems; },
+        getLayerGroup() { return null; }, _pcbPropsItems() { return propertyItems; },
         history: { execute(command) { command.execute(); } },
     }, shape);
     for (const width of [2, 0.1, 100]) {
@@ -595,7 +595,7 @@ for (const kind of ['rect', 'polygon']) {
         const widthApp = {
             boardShapes: [shape], placements: new Map(), tracks: [], vias: [], texts: new Map(),
             _shapeElements: new Map(), viewport: { scale: 1 },
-            _getLayerGroup() { return null; }, _pcbPropsItems() { return propertyItems; },
+            getLayerGroup() { return null; }, _pcbPropsItems() { return propertyItems; },
             history: { execute(command) { commands.push(command); command.execute(); } },
         };
         showBoardShapeProperties(widthApp, shape);
@@ -654,10 +654,10 @@ for (const layer of ['hole', 'top-copper', 'bottom-copper']) {
         const diameterApp = {
             boardShapes: [editableCircle], placements: new Map(), tracks: [], vias: [], texts: new Map(),
             viewport: { scale: 1 }, _shapeElements: new Map(),
-            _getLayerGroup() { return null; },
+            getLayerGroup() { return null; },
             _pcbPropsItems() { return diameterItems; },
             _setPcbPropsTitle() {}, _setActiveRibbonTab() {},
-            _refreshFills() { fillRefreshes++; },
+            refreshFills() { fillRefreshes++; },
             _refreshPcbSelectionHighlights() { selectionRefreshes++; },
             history: { execute(command) { commands.push(command); command.execute(); } },
         };
@@ -832,7 +832,7 @@ renderBoardShape({
     boardShapes: [selectedFilledRect],
     _shapeElements: new Map(),
     _pcbSelection: { isSelected() { return true; } },
-    _getLayerGroup() { return { appendChild(element) { renderedFilledShape = element; } }; },
+    getLayerGroup() { return { appendChild(element) { renderedFilledShape = element; } }; },
 }, selectedFilledRect, { skipCopperUpdate: true });
 check('selected filled shape changes its interior color',
     renderedFilledShape?.getAttribute('fill') === shapeSelectionColor(selectedFilledRect));
@@ -845,7 +845,7 @@ let renderedRemovalShape = null;
 renderBoardShape({
     boardShapes: [removalCircle],
     _shapeElements: new Map(),
-    _getLayerGroup() { return { appendChild(element) { renderedRemovalShape = element; } }; },
+    getLayerGroup() { return { appendChild(element) { renderedRemovalShape = element; } }; },
 }, removalCircle, { skipCopperUpdate: true });
 check('copper-removal shape uses a thin outline independent of line width',
     renderedRemovalShape?.getAttribute('stroke-width') === '1'
@@ -861,7 +861,7 @@ renderBoardShape({
     boardShapes: [holeCircle],
     _shapeElements: new Map(),
     _pcbSelection: { isSelected() { return false; } },
-    _getLayerGroup() { return { appendChild(element) { renderedHoleCircle = element.children.at(-1); } }; },
+    getLayerGroup() { return { appendChild(element) { renderedHoleCircle = element.children.at(-1); } }; },
 }, holeCircle, { skipCopperUpdate: true });
 check('hole-layer circle display reaches the physical cutout edge',
     renderedHoleCircle?.getAttribute('d').includes('M 8 5'));
@@ -874,7 +874,7 @@ renderBoardShape({
     boardShapes: [holeLine],
     _shapeElements: new Map(),
     _pcbSelection: { isSelected() { return false; } },
-    _getLayerGroup() { return { appendChild(element) { renderedHoleLine = element.children.at(-1); } }; },
+    getLayerGroup() { return { appendChild(element) { renderedHoleLine = element.children.at(-1); } }; },
 }, holeLine, { skipCopperUpdate: true });
 check('hole-layer line fills its slot with the canvas background like other cutouts',
     renderedHoleLine?.getAttribute('fill') === 'var(--bg-canvas, #000000)'

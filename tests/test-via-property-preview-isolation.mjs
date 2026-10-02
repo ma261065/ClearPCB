@@ -103,21 +103,21 @@ function fixture(count = 1, unrelatedCount = 1) {
     for (const key of ['pads', 'vias', 'tracks', 'boardShapes', 'texts']) {
         Object.defineProperty(app, key, Object.getOwnPropertyDescriptor(PCBApp.prototype, key));
     }
-    for (const key of ['_setPcbPropsTitle', '_clearProperties', '_cancelPosePreviews', 'isSectionEditing',
+    for (const key of ['_setPcbPropsTitle', 'clearProperties', '_cancelPosePreviews', 'isSectionEditing',
         'deactivate', '_onLayerLockChanged', '_onLayerVisibilityChanged']) app[key] = PCBApp.prototype[key];
     Object.assign(app, {
         project, pcbDocument: model, placements: new Map(), netlist: [], history: new CommandHistory(),
         _active: true, _layerGroups: groups, _textElements: new Map(), _shapeElements: new Map(),
         viewport: { scale: 100, svg: new Element('svg'), shiftHeld: true, setCrosshair() {}, hideCrosshair() {} },
-        _pcbPropsItems: () => items, _getLayerGroup: id => groups.get(id) || null,
-        _setActiveRibbonTab() {}, _setPcbStatus() {}, _refreshFills() { fills++; },
-        _refreshClearanceHalos() { clearances++; },
+        _pcbPropsItems: () => items, getLayerGroup: id => groups.get(id) || null,
+        _setActiveRibbonTab() {}, setPcbStatus() {}, refreshFills() { fills++; },
+        refreshClearanceHalos() { clearances++; },
         _cancelDrawingMode() {}, _ensureViewport() {}, markSectionClean() {},
         _refreshPcbSelectionHighlights() {}, _scheduleRemovalHatchRender() {},
     });
     project.registerView('pcb', app);
     setPcbSelection(app, vias.map(object => ({ kind: 'via', object })));
-    for (const via of [...vias, unrelated[0]].filter(Boolean)) renderVia(via, app._getLayerGroup);
+    for (const via of [...vias, unrelated[0]].filter(Boolean)) renderVia(via, app.getLayerGroup);
     showViaProperties(app, vias[0]);
     const artwork = () => groups.get('vias').children.filter(element => element.dataset.viaId);
     return { app, project, model, vias, unrelated, attached, groups, artwork,
@@ -203,7 +203,7 @@ for (const count of [1, 4]) for (const [name, key, value] of [
                 input.emit('input', baseline[0][key]);
                 input.emit('change');
             } else if (finish === 'panel') {
-                app._clearProperties();
+                app.clearProperties();
                 input.emit('input', value + 1);
                 input.emit('change');
             } else if (finish === 'deactivate') {

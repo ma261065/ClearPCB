@@ -55,7 +55,7 @@ let crosshair = null;
 const app = { viewport: { scale: 10, shiftHeld: true,
     setCrosshair(point) { crosshair = { ...point }; }, hideCrosshair() { crosshair = null; } }, placements: new Map(),
     tracks: [], vias: [], texts: new Map(), boardShapes: [],
-    _getLayerGroup() { return null; }, _refreshFillProperties() {},
+    getLayerGroup() { return null; }, _refreshFillProperties() {},
     history: { execute(command) { commands.push(command); command.execute(); } } };
 app.pcbDocument = new PcbDocument();
 Object.defineProperty(app, 'boardShapes', {
@@ -167,7 +167,7 @@ for (const region of [rounded, circle, new CopperFill({ outline, segmentBulges: 
         computeFillPolygons({ layer: region.layer, net: region.net, outline: region.getOutline() }, context, clipper),
         'Pour uses sampled curves rather than the control polygon');
     const snapshot = await prepareFabricationSnapshot({ ...app, boardShapes: [region], copperFills: [region],
-        netlist: [], _boardWidth: 20, _boardHeight: 20, _getRoutingParams: () => ({ clearance: 0.1 }) });
+        netlist: [], _boardWidth: 20, _boardHeight: 20, getRoutingParams: () => ({ clearance: 0.1 }) });
     assert.deepEqual(snapshot.fills[0].outline, region.getOutline());
     assert.ok(snapshot.fills[0]._computed.length > 0);
 }

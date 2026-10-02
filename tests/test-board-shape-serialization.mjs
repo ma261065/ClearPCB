@@ -183,7 +183,7 @@ for (const invalid of [
 
 const snapshot = await prepareFabricationSnapshot({
     placements: new Map(), tracks: [], vias: [], texts: new Map(), copperFills: [], boardShapes: [...shapes, image],
-    _boardWidth: 200, _boardHeight: 100, _boardRadius: 0, _getRoutingParams: () => ({ clearance: 0.2 }),
+    _boardWidth: 200, _boardHeight: 100, _boardRadius: 0, getRoutingParams: () => ({ clearance: 0.2 }),
 });
 assert.equal(snapshot.boardShapes[0].radius, shapes[0].radius);
 assert.deepEqual(snapshot.boardShapes[1].points, shapes[1].points);
@@ -221,10 +221,10 @@ placementState.overrides.set('comp_4', placement);
 const app = { pcbDocument, tracks: pcbDocument.tracks, vias: pcbDocument.vias, boardShapes: pcbDocument.boardShapes, texts: pcbDocument.texts,
     placementState, _placementOverrides: placementState.overrides, designSettings: pcbDocument.designSettings,
     _boardWidth: 100.123456, _boardHeight: 80.00000000000001, _boardRadius: 1.234567,
-    _getRoutingParams: () => ({ trackWidth: 0.20000000000000004, clearance: 0.123456,
+    getRoutingParams: () => ({ trackWidth: 0.20000000000000004, clearance: 0.123456,
         viaDiameter: 0.6000000000000001, viaDrill: 0.30000000000000004 }),
     _getRouterMode: () => 'pathfinder' };
-app.designSettings.update({ ...app._getRoutingParams(), router: 'pathfinder' });
+app.designSettings.update({ ...app.getRoutingParams(), router: 'pathfinder' });
 const savedPcb = serializePcb(app);
 assert.deepEqual(savedPcb.stackup, { cl: ['top-copper', 'bottom-copper'] });
 assert.doesNotThrow(() => preparePcb(savedPcb), 'A saved two-layer board can be prepared again');

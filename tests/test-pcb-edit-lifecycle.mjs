@@ -24,7 +24,7 @@ function fixture() {
         _layerGroups: new Map(), _shapeElements: new Map(), _textElements: new Map(),
         viewport: { scale: 10, svg: { style: {} }, snapToGrid: false },
         currentTool: 'select', _active: true,
-        _getLayerGroup: () => null, _drawRefOverlay() {}, _ensureViewport() {},
+        getLayerGroup: () => null, _drawRefOverlay() {}, _ensureViewport() {},
         _refreshRefHighlight() {}, markSectionClean() {},
     };
     for (const name of ['_beginRefTextDrag', '_updateRefTextDrag', '_endRefDrag',

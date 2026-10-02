@@ -66,7 +66,7 @@ function fixture(mode, deferred) {
         pcbDocument: model, boardShapes: model.boardShapes, tracks: [], vias: [], pads: [], texts: model.texts,
         placements: new Map(), history: new CommandHistory(), _deferDragOverlays: deferred,
         viewport: { scale: 100, shiftHeld: true, svg: { style: {} }, setCrosshair() {}, hideCrosshair() {} },
-        _getLayerGroup: id => id === 'top-fill' ? layer : null,
+        getLayerGroup: id => id === 'top-fill' ? layer : null,
         _refreshFillProperties() {}, _showFillProperties() {},
         get copperFills() { return model.copperFills; },
         _rerenderFills: PCBApp.prototype._rerenderFills,
@@ -74,7 +74,7 @@ function fixture(mode, deferred) {
             recomputes++;
             for (const item of model.copperFills) {
                 setComputedFill(item, [{ outer: item.getOutline(), holes: [] }]);
-                renderCopperFill(item, app._getLayerGroup);
+                renderCopperFill(item, app.getLayerGroup);
             }
             return true;
         },
@@ -85,7 +85,7 @@ function fixture(mode, deferred) {
     };
     const adapter = createCopperFillSelectionAdapter(app, fill, `fill:${fill.id}`);
     setPcbSelection(app, [{ kind: 'fill', object: fill }]);
-    renderCopperFill(fill, app._getLayerGroup);
+    renderCopperFill(fill, app.getLayerGroup);
     const anchor = { vertex: 0, midpoint: 'mid:0', bulge: 'bulge:0', center: 'center', radius: 'radius' }[mode] ?? null;
     const start = mode === 'bulge' ? adapter.getAnchors().find(item => item.id === anchor)
         : mode === 'radius' ? { x: 8, y: 5 }

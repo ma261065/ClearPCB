@@ -23,7 +23,7 @@ function fixture(kind = 'via', chain = false) {
         pcbDocument: new PcbDocument(),
         tracks: [track], vias: kind === 'via' ? [terminal] : [], pads: kind === 'pad' ? [pad, terminal] : [pad],
         placements: new Map(), netlist: [], boardShapes: [],
-        _getLayerGroup() { return null; },
+        getLayerGroup() { return null; },
         viewport: { scale: 100, gridVisible: false, setCrosshair() {}, hideCrosshair() {} },
         history: { execute(command) { commands.push(command); command.execute(); } },
         _alert(message) { this.lastAlert = message; },

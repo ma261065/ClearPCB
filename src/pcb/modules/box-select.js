@@ -287,7 +287,7 @@ export function toggleBoxShapeSelection(app, shape) {
     if (!shape) return;
     togglePcbSelection(app, 'shape', shape);
     _applyHighlights(app);
-    app._syncClipboardButtons?.();
+    app.syncClipboardButtons?.();
 }
 
 /* ─────────────────────── containment test ───────────────────────── */
@@ -368,7 +368,7 @@ function _computeEnclosed(app, bounds) {
         ))) selected.push({ kind: 'fill', object: fill });
     }
     setPcbSelection(app, selected);
-    app._syncClipboardButtons?.();
+    app.syncClipboardButtons?.();
 }
 
 /* ─────────────────────── highlight rendering ─────────────────────── */
@@ -383,7 +383,7 @@ function _applyHighlights(app) {
     }
     for (const via of getPcbSelection(app, 'via')) drawViaHalo(app, via, VIA_HALO_CLASS);
     for (const pad of getPcbSelection(app, 'pad')) drawStandalonePadHalo(app, pad, PAD_HALO_CLASS);
-    for (const text of getPcbSelection(app, 'text')) app._refreshText?.(text.id);
+    for (const text of getPcbSelection(app, 'text')) app.refreshText?.(text.id);
     // Selection highlight only — re-render pours from cached geometry rather
     // than triggering a full Clipper recompute.
     if (getPcbSelection(app, 'fill').length) app._rerenderFills?.();
@@ -396,7 +396,7 @@ function _clearHighlights(app) {
     removeHalosByClass(app, TRACK_HALO_CLASS);
     removeHalosByClass(app, VIA_HALO_CLASS);
     removeHalosByClass(app, PAD_HALO_CLASS);
-    app._getLayerGroup?.('selection-overlay')?.querySelectorAll('.pcb-board-shape-handles')?.forEach((el) => el.remove());
+    app.getLayerGroup?.('selection-overlay')?.querySelectorAll('.pcb-board-shape-handles')?.forEach((el) => el.remove());
     clearPcbSelectionAnchors(app);
     for (const [, pl] of app.placements || []) {
         if (pl.elements) {
@@ -430,9 +430,9 @@ export function clearBoxSelection(app) {
     const selectedPads = getPcbSelection(app, 'pad');
     _clearHighlights(app);
     clearPcbSelection(app);
-    for (const textId of selectedTextIds) app._refreshText?.(textId);
-    for (const pad of selectedPads) renderPad(pad, id => app._getLayerGroup(id));
-    app._syncClipboardButtons?.();
+    for (const textId of selectedTextIds) app.refreshText?.(textId);
+    for (const pad of selectedPads) renderPad(pad, id => app.getLayerGroup(id));
+    app.syncClipboardButtons?.();
 }
 
 /* ─────────────────────────── group drag ─────────────────────────── */
@@ -613,13 +613,13 @@ function updateGroupPreview(app, worldPos, snap) {
         const via = display(vEntry.via);
         via.x = vEntry.x + dx;
         via.y = vEntry.y + dy;
-        renderVia(via, (id) => app._getLayerGroup(id));
+        renderVia(via, (id) => app.getLayerGroup(id));
     }
     for (const entry of g.pads || []) {
         const pad = display(entry.pad);
         pad.x = entry.before.x + dx;
         pad.y = entry.before.y + dy;
-        renderPad(pad, id => app._getLayerGroup(id));
+        renderPad(pad, id => app.getLayerGroup(id));
     }
     for (const tEntry of g.tracks) {
         const track = display(tEntry.track);
@@ -628,7 +628,7 @@ function updateGroupPreview(app, worldPos, snap) {
             if (n) { n.x = start.x + dx; n.y = start.y + dy; }
         }
         track.invalidate();
-        renderTrack(track, (id) => app._getLayerGroup(id), _trackOpts(app, track));
+        renderTrack(track, (id) => app.getLayerGroup(id), _trackOpts(app, track));
     }
     for (const entry of (g.shapes || [])) {
         const shape = display(entry.shape);
@@ -645,9 +645,9 @@ function updateGroupPreview(app, worldPos, snap) {
             point.x = entry.before.outline[index].x + dx;
             point.y = entry.before.outline[index].y + dy;
         });
-        renderCopperFill(fill, id => app._getLayerGroup(id), { selected: true, outlineOnly: true });
+        renderCopperFill(fill, id => app.getLayerGroup(id), { selected: true, outlineOnly: true });
     }
-    if (g.ratsnestNets.size) app._updateRatsnest?.({ nets: g.ratsnestNets });
+    if (g.ratsnestNets.size) app.updateRatsnest?.({ nets: g.ratsnestNets });
     refreshTrackSelectionHalo(app);
     _applyHighlights(app);
 }
@@ -762,9 +762,9 @@ function finishGroupPreview(app, g, committed) {
         if (g.preview && !committed) {
             const model = app.pcbDocument || app;
             for (const [entries, key, collection, render] of [
-                [g.tracks, 'track', model.tracks, track => renderTrack(track, id => app._getLayerGroup(id), _trackOpts(app, track))],
-                [g.vias, 'via', model.vias, via => renderVia(via, id => app._getLayerGroup(id))],
-                [g.pads, 'pad', model.pads, pad => renderPad(pad, id => app._getLayerGroup(id))],
+                [g.tracks, 'track', model.tracks, track => renderTrack(track, id => app.getLayerGroup(id), _trackOpts(app, track))],
+                [g.vias, 'via', model.vias, via => renderVia(via, id => app.getLayerGroup(id))],
+                [g.pads, 'pad', model.pads, pad => renderPad(pad, id => app.getLayerGroup(id))],
             ]) {
                 if (!entries.length) continue;
                 const present = new Set(collection);
@@ -776,8 +776,8 @@ function finishGroupPreview(app, g, committed) {
                 else removeBoardShapeElement(app, entry.shape.id);
             }
             for (const entry of g.fills) {
-                if (shapes.has(entry.fill)) renderCopperFill(entry.fill, id => app._getLayerGroup(id), { selected: true });
-                else removeCopperFillElements(entry.fill, id => app._getLayerGroup(id));
+                if (shapes.has(entry.fill)) renderCopperFill(entry.fill, id => app.getLayerGroup(id), { selected: true });
+                else removeCopperFillElements(entry.fill, id => app.getLayerGroup(id));
             }
         }
     } finally {
@@ -787,15 +787,15 @@ function finishGroupPreview(app, g, committed) {
         if (g.preview) syncPcbSelection(app);
     }
     if (!app._deferDragOverlays && (g.comps?.length || g.vias?.length || g.tracks?.length)) {
-        app._refreshClearanceHalos?.();
+        app.refreshClearanceHalos?.();
     }
-    app._updateRatsnest?.();
+    app.updateRatsnest?.();
     if (!app._suspendBoardViewRefresh) app._board3d?.refresh?.();
     _applyHighlights(app);
 }
 
 function _trackOpts(app, track) {
-    const p = app._getRoutingParams?.() || {};
+    const p = app.getRoutingParams?.() || {};
     return { viaDiameter: p.viaDiameter, viaDrill: p.viaDrill };
 }
 
@@ -827,7 +827,7 @@ export function deleteBoxSelection(app) {
 
     if (cmds.length === 0) return false;
     app.history?.execute(cmds.length === 1 ? cmds[0] : new CompoundCommand(cmds));
-    app._clearProperties?.();
+    app.clearProperties?.();
     app._setActiveRibbonTab?.('pcb-home');
     return true;
 }

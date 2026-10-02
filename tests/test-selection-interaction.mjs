@@ -74,10 +74,10 @@ function expect(name, condition) {
         placements: new Map(), tracks: [], vias: [], boardShapes: [below, top, unrelated], texts: new Map(),
         _shapeElements: new Map(),
         viewport: { scale: 1 },
-        _syncClipboardButtons() {}, _setPcbStatus() {},
-        _selectComponent() {}, _selectBoardOutline() {}, _selectText() {}, _selectRefText() {}, _selectFill() {},
-        _clearProperties() {}, _showPcbMultiSelectionProperties() {},
-        _getLayerGroup() { return null; },
+        syncClipboardButtons() {}, setPcbStatus() {},
+        _selectComponent() {}, _selectBoardOutline() {}, _selectText() {}, _selectRefText() {}, selectFill() {},
+        clearProperties() {}, _showPcbMultiSelectionProperties() {},
+        getLayerGroup() { return null; },
     };
     setPcbSelection(app, [{ kind: 'shape', object: top }]);
     expect('Ctrl-click consumes an overlapping PCB selection',
@@ -126,9 +126,9 @@ function expect(name, condition) {
     const app = {
         placements: new Map(), tracks: [], vias: [], boardShapes: [locked], texts: new Map(),
         _shapeElements: new Map(), viewport: { scale: 1 },
-        _syncClipboardButtons() {}, _setPcbStatus() {},
-        _selectComponent() {}, _selectBoardOutline() {}, _selectText() {}, _selectRefText() {}, _selectFill() {},
-        _clearProperties() {}, _getLayerGroup() { return null; },
+        syncClipboardButtons() {}, setPcbStatus() {},
+        _selectComponent() {}, _selectBoardOutline() {}, _selectText() {}, _selectRefText() {}, selectFill() {},
+        clearProperties() {}, getLayerGroup() { return null; },
     };
     expect('Locked object remains directly selectable',
         beginSelectionInteraction(app, { x: 5, y: 5 }, false));
@@ -154,9 +154,9 @@ function expect(name, condition) {
     const app = {
         placements: new Map(), tracks: [], vias: [top], boardShapes: [below], texts: new Map(),
         _shapeElements: new Map(), viewport: { scale: 1 },
-        _syncClipboardButtons() {}, _setPcbStatus() {},
-        _selectComponent() {}, _selectBoardOutline() {}, _selectText() {}, _selectRefText() {}, _selectFill() {},
-        _clearProperties() {}, _getLayerGroup() { return null; },
+        syncClipboardButtons() {}, setPcbStatus() {},
+        _selectComponent() {}, _selectBoardOutline() {}, _selectText() {}, _selectRefText() {}, selectFill() {},
+        clearProperties() {}, getLayerGroup() { return null; },
     };
     for (const shiftDrag of [false, true]) {
         setPcbSelection(app, [{ kind: 'via', object: top }]);
@@ -194,10 +194,10 @@ function expect(name, condition) {
     const app = {
         placements: new Map(), tracks: [], vias: [], boardShapes: [shape], texts: new Map(),
         viewport: { scale: 1 },
-        _getLayerGroup() {
+        getLayerGroup() {
             return { querySelectorAll() { return [{ remove() { removed++; } }]; } };
         },
-        _setPcbStatus() {},
+        setPcbStatus() {},
     };
     setPcbSelection(app, [{ kind: 'shape', object: shape }]);
     app._selectedBoardShapeSegment = { shapeId: shape.id, segment: 0 };
@@ -327,7 +327,7 @@ for (const kind of ['shape', 'track', 'fill']) for (const anchorId of [0, 'mid:0
             hideCrosshair() {},
         },
         _layerGroups: new Map(),
-        _getLayerGroup() { return null; },
+        getLayerGroup() { return null; },
         _pcbPropsItems() { return null; },
     };
     const adapter = createTrackSelectionAdapter(app, track, `track:${track.id}`);

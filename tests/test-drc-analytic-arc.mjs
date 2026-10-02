@@ -115,7 +115,7 @@ for (const radius of [5, 100]) {
                 bulge: arcPoint(curve, (curve.startAngle + curve.endAngle) / 2) };
             const pour = new CopperFill({ net: 'GND', outline: rectangle(-radius * 2, -radius * 2, radius * 2, radius * 2) });
             const target = { placements: new Map(), tracks: [], vias: [], texts: new Map(),
-                boardShapes: [shape], copperFills: [pour], _getRoutingParams: () => ({ clearance: 0.5 }) };
+                boardShapes: [shape], copperFills: [pour], getRoutingParams: () => ({ clearance: 0.5 }) };
             setComputedFill(pour, computeFillPolygons(pour, buildFillContext(target)));
             assert.ok(getComputedFill(pour).length);
             const result = runDRC(target, { clearance: 0.5 });

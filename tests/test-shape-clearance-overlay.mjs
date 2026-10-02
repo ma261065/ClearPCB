@@ -50,7 +50,7 @@ for (const filled of [false, true]) {
     assert.ok(physicalTip - clearanceTip >= 0.24 && physicalTip - clearanceTip < 0.29,
         'Clearance extends by the requested distance beyond the actual acute tip');
     let rendered;
-    renderBoardShape({ _shapeElements: new Map(), _getLayerGroup() { return { appendChild(child) { rendered = child; } }; } }, polygon);
+    renderBoardShape({ _shapeElements: new Map(), getLayerGroup() { return { appendChild(child) { rendered = child; } }; } }, polygon);
     assert.equal(rendered.attributes.get('d'), boardShapeRemovalPathD(polygon),
         'SVG uses the same physical contour as clearance and exports');
     assert.equal(rendered.attributes.get('stroke'), 'none', 'Physical contour is not stroked a second time');
@@ -110,7 +110,7 @@ assert.ok(viaStart >= 0 && viaEnd > viaStart);
 const refreshVia = new Function('hasViaElements',
     `return ({ ${source.slice(viaStart, viaEnd)} })._refreshViaClearance;`)(hasViaElements);
 const refreshStart = source.indexOf('    _refreshBoardShapeClearance(shape) {');
-const refreshEnd = source.indexOf('\n    _refreshClearanceHalos()', refreshStart);
+const refreshEnd = source.indexOf('\n    refreshClearanceHalos()', refreshStart);
 let outlineCalls = 0;
 let textOutlineCalls = 0;
 const refreshShape = new Function('boardShapeClearanceOutlines', 'pcbTextClearanceOutlines', 'shouldDeferShapeClearance',
@@ -132,8 +132,8 @@ pcbDocument.boardShapes.push(circle, rectangle, hole, line, arc);
 const app = {
     pcbDocument, texts: pcbDocument.texts,
     placements: new Map(), boardShapes: pcbDocument.boardShapes,
-    _layerGroups: groups, _getLayerGroup(id) { return groups.get(id); },
-    _getRoutingParams() { return { clearance, trackWidth: 0.2 }; }, showClearances, _refreshViaClearance: refreshVia,
+    _layerGroups: groups, getLayerGroup(id) { return groups.get(id); },
+    getRoutingParams() { return { clearance, trackWidth: 0.2 }; }, showClearances, _refreshViaClearance: refreshVia,
     _refreshBoardShapeClearance: refreshShape, _shapeElements: new Map(),
 };
 let hatchSchedules = 0;
@@ -258,12 +258,12 @@ try {
     globalThis.setTimeout = callback => { deferred = callback; return 1; };
     globalThis.clearTimeout = () => { deferred = null; };
     app._pendingShapeClearances = null;
-    app._refreshFills = () => false;
-    app._updateRatsnest = options => {
+    app.refreshFills = () => false;
+    app.updateRatsnest = options => {
         assert.deepEqual(options, { skipFillRefresh: true }, 'No clearance flags are needed for connectivity');
     };
     app.texts.set(text.id, text);
-    app._refreshText = id => refreshShape.call(app, app.texts.get(id));
+    app.refreshText = id => refreshShape.call(app, app.texts.get(id));
     app.viewport = { svg: { style: {} }, hideCrosshair() {} };
     const commands = [];
     app.history = { execute(command) { commands.push(command); command.execute(); } };
@@ -275,7 +275,7 @@ try {
     app._deferDragOverlays = true;
     text.x += 7;
     text.y -= 2;
-    app._refreshText(text.id);
+    app.refreshText(text.id);
     const assertTextHaloRetained = transform => {
         assert.equal(textOutlineCalls, calculationsBeforeDrop, 'Text movement never recalculates clearance geometry');
         for (const { child, removals } of cachedTextHalos) {
@@ -296,7 +296,7 @@ try {
     let drcRefreshes = 0;
     app._drcShouldRun = () => true;
     app._scheduleDRC = () => { drcRefreshes++; };
-    app._refreshFills = () => { movedTextPourRefreshes++; return false; };
+    app.refreshFills = () => { movedTextPourRefreshes++; return false; };
     deferred();
     assert.equal(movedTextPourRefreshes, 1, 'Moved text still refreshes copper pours after the debounce');
     assert.equal(drcRefreshes, 1, 'Moved text schedules DRC even without pours');
@@ -318,7 +318,7 @@ try {
             const historyCount = commands.length;
             let pours = 0;
             drcRefreshes = 0;
-            app._refreshFills = () => { pours++; return pourQueued; };
+            app.refreshFills = () => { pours++; return pourQueued; };
             deferred = null;
             startBoardShapeDrag(app, shape, { x: 1000, y: 1000 });
             assert.equal(app._shapeDrag.mode, 'move');
@@ -429,7 +429,7 @@ for (const [kind, filled] of [['line', false], ['polygon', false], ['polygon', t
                 : [{ x: 0, y: 0 }, { x: 10, y: 0 }, { x: 10, y: 10 }, { x: 0, y: 10 }] };
         const layers = new Map([layer, 'clearance-overlay'].map(id => [id, element()]));
         const curveApp = { _clearancesVisible: true, _shapeElements: new Map(), _layerGroups: layers,
-            _getLayerGroup: id => layers.get(id), _getRoutingParams: () => ({ clearance }),
+            getLayerGroup: id => layers.get(id), getRoutingParams: () => ({ clearance }),
             _refreshBoardShapeClearance: refreshShape };
         const haloPoints = () => curveApp._boardShapeClearanceCache.get(shape.id).elements
             .map(child => child.getAttribute('points'));

@@ -29,8 +29,8 @@ const { refreshTrackDrawPreview, toggleTrackLayer, popTrackWaypoint, cancelTrack
 const layers = new Map(['top-copper', 'bottom-copper', 'vias', 'hole'].map((name) => [name, element('g')]));
 const context = () => ({ points: [{ x: 0, y: 0 }], edgeLayers: [], currentLayer: 'top-copper',
     width: 0.2, net: '', previewElements: [], snap: { x: 3, y: 1 } });
-const app = { _trackDraw: context(), _getLayerGroup: (name) => layers.get(name),
-    viewport: { scale: 100, hideCrosshair() {} }, _getRoutingParams: () => ({ viaDiameter: 0.8, viaDrill: 0.4 }),
+const app = { _trackDraw: context(), getLayerGroup: (name) => layers.get(name),
+    viewport: { scale: 100, hideCrosshair() {} }, getRoutingParams: () => ({ viaDiameter: 0.8, viaDrill: 0.4 }),
     _commitTracks() {} };
 refreshTrackDrawPreview(app);
 const ctx = app._trackDraw;

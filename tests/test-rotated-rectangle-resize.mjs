@@ -96,8 +96,8 @@ function appFor(shape) {
     return {
         pcbDocument, boardShapes: pcbDocument.boardShapes, shapes: [shape], components: [], _shapeElements: new Map(),
         placements: new Map(), tracks: [], vias: [], texts: new Map(),
-        history: new CommandHistory(), _getLayerGroup() { return null; }, renderShapes() {},
-        _refreshFills() {}, _refreshFillProperties() {},
+        history: new CommandHistory(), getLayerGroup() { return null; }, renderShapes() {},
+        refreshFills() {}, _refreshFillProperties() {},
         _captureShapeState: item => item.captureState(), _applyShapeState: (item, state) => item.applyState(state),
         viewport: { scale: 20, shiftHeld: true, setCrosshair(point) { this.crosshair = { x: point.x, y: point.y }; },
             hideCrosshair() { this.crosshair = null; } },

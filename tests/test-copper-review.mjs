@@ -24,7 +24,7 @@ const rectangle = (left, top, right, bottom) => [
     { x: left, y: top }, { x: right, y: top }, { x: right, y: bottom }, { x: left, y: bottom },
 ];
 const board = () => ({ tracks: [], vias: [], texts: new Map(), boardShapes: [], copperFills: [],
-    placements: new Map(), netlist: [], _getRoutingParams: () => ({ clearance: 0.2 }) });
+    placements: new Map(), netlist: [], getRoutingParams: () => ({ clearance: 0.2 }) });
 const app = board();
 app.placements.set('U1', { x: 5, y: 0, rotation: 0, padOffsets: [
     { number: '1', padId: '1', dx: 0, dy: 0, width: 1, height: 1, layer: 'top' },
@@ -89,7 +89,7 @@ const clearanceCases = [
 for (const fixture of clearanceCases) {
     for (const clearance of [0.1, 0.2, 0.5, 1.67]) {
         const target = board();
-        target._getRoutingParams = () => ({ clearance });
+        target.getRoutingParams = () => ({ clearance });
         const moveObstacle = fixture.populate(target);
         const pour = new CopperFill({ net: 'GND', outline: rectangle(-10, -10, 10, 10) });
         target.copperFills = [pour];
@@ -107,7 +107,7 @@ const contains = (polygons, point) => polygons.some((polygon) => pointInPolygon(
 for (const clearance of [0.1, 0.5, 1.67]) {
     for (const layer of ['top-copper', 'bottom-copper']) {
         const target = board();
-        target._getRoutingParams = () => ({ clearance });
+        target.getRoutingParams = () => ({ clearance });
         const circle = { id: 'pshape_4', kind: 'circle', layer, filled: false, copperMode: 'add',
             net: '', x: 44.45, y: -55.88, radius: 16.51, lineWidth: 5.1 };
         target.boardShapes = [circle];
@@ -193,7 +193,7 @@ const dragApp = {
     get tracks() { return getGroupPreview(this)?.tracks || getPlacementPreviewTracks(this) || model.tracks; },
     get vias() { return getGroupPreview(this)?.vias || model.vias; },
 };
-dragApp._getLayerGroup = () => null;
+dragApp.getLayerGroup = () => null;
 dragApp._layerGroups = new Map();
 const draggedTrack = new Track({ net: 'GND', points: [{ x: 0, y: 0 }, { x: 3, y: 0 }] });
 const originalTrack = draggedTrack.captureState();
@@ -202,7 +202,7 @@ const draggedVia = new Via({ x: 2, y: 3, diameter: 0.6, drill: 0.3 });
 model.vias.push(draggedVia);
 const before = model.serialize();
 let fillRefreshes = 0;
-dragApp._refreshFills = () => { fillRefreshes++; };
+dragApp.refreshFills = () => { fillRefreshes++; };
 setPcbSelection(dragApp, [
     { kind: 'component', object: 'U1' }, { kind: 'track', object: draggedTrack }, { kind: 'via', object: draggedVia },
 ]);

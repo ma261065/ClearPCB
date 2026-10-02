@@ -26,7 +26,7 @@ function fixture(options = {}) {
             hideCrosshair: () => hiddenCrosshairs++,
         },
         _screenToWorld: event => ({ x: event.clientX, y: event.clientY }),
-        _refreshText: () => renders.push({ ...app.texts.get(text.id) }),
+        refreshText: () => renders.push({ ...app.texts.get(text.id) }),
     };
     Object.defineProperty(app, 'texts', Object.getOwnPropertyDescriptor(PCBApp.prototype, 'texts'));
     for (const name of ['_beginTextDrag', '_updateTextDrag', '_handleTextDrag', '_endTextDrag',

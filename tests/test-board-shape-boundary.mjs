@@ -53,7 +53,7 @@ const { updateSelectionInteraction, finishSelectionInteraction, placeFloatingSel
     const commands = [];
     const app = { pcbDocument, boardShapes: pcbDocument.boardShapes, _shapeElements: new Map(), tracks: [], vias: [], placements: new Map(),
         texts: new Map(), viewport: { scale: 20, hideCrosshair() {}, setCrosshair() {} },
-        _getLayerGroup() { return null; }, _snapToGrid(point) { return point; },
+        getLayerGroup() { return null; }, _snapToGrid(point) { return point; },
         history: { execute(command) { commands.push(command); command.execute(); } } };
     assert.equal(validBoardOutline(shape), true);
     assert.equal(openBoardShape(app, shape, 0), false);
@@ -132,10 +132,10 @@ const { updateSelectionInteraction, finishSelectionInteraction, placeFloatingSel
     const app = {
         ...shapeModel(shape, remote), placements: new Map(), tracks: [], vias: [], texts: new Map(), netlist: [],
         _shapeElements: new Map(), viewport: { scale: 20, setCrosshair() {}, hideCrosshair() {} },
-        _getLayerGroup(layer) { return layer === 'ratlines' ? ratLayer : null; },
+        getLayerGroup(layer) { return layer === 'ratlines' ? ratLayer : null; },
         _pcbPropsItems() { return { innerHTML: '' }; }, _setPcbPropsTitle(value) { title = value; },
         _setActiveRibbonTab() {}, _snapToGrid(point) { return point; },
-        _updateRatsnest(options) { reconcileRatsnest(this, options); },
+        updateRatsnest(options) { reconcileRatsnest(this, options); },
         history: { execute(command) { commands.push(command); command.execute(); } },
     };
     Object.defineProperty(app, 'boardShapes', { get() { return this._shapeDrag?.preview?.boardShapes || this.pcbDocument.boardShapes; } });
@@ -185,7 +185,7 @@ const { updateSelectionInteraction, finishSelectionInteraction, placeFloatingSel
         for (const anchor of [null, kind === 'arc' ? 'end' : 1]) {
             const start = anchor == null ? { x: 3, y: 4 } : { ...endpoints[1] };
             startBoardShapeDrag(app, shape, start, anchor);
-            app._updateRatsnest({ nets: app._shapeDrag.ratsnestNets });
+            app.updateRatsnest({ nets: app._shapeDrag.ratsnestNets });
             assert.equal(app._pictureCopperRefreshPending, true);
             assert.equal(ratLayer.children.length, 1);
             const coordinates = () => ['x1', 'y1', 'x2', 'y2'].map(name => ratLayer.children[0].getAttribute(name));
@@ -241,7 +241,7 @@ console.log('PASS standalone conversion uses native shape kinds, menus, properti
     const app = {
         ...shapeModel(shape), placements: new Map(), tracks: [], vias: [], texts: new Map(),
         _shapeElements: new Map(), viewport: { scale: 20, setCrosshair() {}, hideCrosshair() {} },
-        _getLayerGroup(layer) { return layer === 'selection-overlay' ? overlay : null; },
+        getLayerGroup(layer) { return layer === 'selection-overlay' ? overlay : null; },
         _pcbPropsItems() { return { innerHTML: '' }; }, _setPcbPropsTitle(value) { title = value; },
         _setActiveRibbonTab() {}, history: { execute(command) { commands.push(command); command.execute(); } },
     };
@@ -341,7 +341,7 @@ console.log('PASS line and polygon segments support undoable curved geometry and
     const makeApp = shape => ({
         ...shapeModel(shape), _shapeElements: new Map(), tracks: [], vias: [], placements: new Map(), texts: new Map(),
         viewport: { scale: 20, shiftHeld: true, setCrosshair() {}, hideCrosshair() {} },
-        _getLayerGroup() { return null; },
+        getLayerGroup() { return null; },
         history: { commands: [], execute(command) { this.commands.push(command); command.execute(); } },
     });
     const notch = [{ x: 0, y: -80 }, { x: 100, y: -80 }, { x: 100, y: -65 },
@@ -439,7 +439,7 @@ for (const cornerRadius of [0, 2]) {
     const before = cloneShapeGeometry(shape);
     const listeners = new Map();
     const input = { value: '5', valueAsNumber: 5, addEventListener(type, listener) { listeners.set(type, listener); } };
-    const app = { ...shapeModel(shape), _shapeElements: new Map(), _getLayerGroup() { return null; },
+    const app = { ...shapeModel(shape), _shapeElements: new Map(), getLayerGroup() { return null; },
         _pcbPropsItems() { return { innerHTML: '' }; } };
     document.getElementById = id => id === 'pcbPropShapeLineWidth' ? input : null;
     showBoardShapeProperties(app, shape);
@@ -500,7 +500,7 @@ for (const commit of [false, true]) {
         points: [{ x: 0, y: 0 }, { x: 20, y: 0 }, { x: 20, y: 16 }, { x: 0, y: 16 }] };
     const before = cloneShapeGeometry(shape);
     const commands = [];
-    const app = { ...shapeModel(shape), _shapeElements: new Map(), _getLayerGroup() { return null; },
+    const app = { ...shapeModel(shape), _shapeElements: new Map(), getLayerGroup() { return null; },
         viewport: { scale: 100, setCrosshair() {}, hideCrosshair() {} }, _snapToGrid(point) { return point; },
         history: { execute(command) { commands.push(command); command.execute(); } } };
     startBoardShapeDrag(app, shape, { x: 10, y: 0 }, 'mid:0');
@@ -534,7 +534,7 @@ console.log('PASS centreline editing, symmetric hit tests, unchanged circles, mi
     };
     const app = { pcbDocument: model, boardShapes: model.boardShapes, tracks: [], vias: [], pads: [],
         texts: new Map(), placements: new Map(), _shapeElements: new Map(),
-        _getLayerGroup() { assertDimensions(); return null; }, _snapToGrid(point) { return point; },
+        getLayerGroup() { assertDimensions(); return null; }, _snapToGrid(point) { return point; },
         viewport: { scale: 100, snapToGrid: false, setCrosshair() {}, hideCrosshair() {} },
         history: new CommandHistory() };
     for (const key of ['_boardWidth', '_boardHeight', '_boardRadius']) {
@@ -663,7 +663,7 @@ for (const reversed of [false, true]) {
     if (reversed) points.reverse();
     const shape = { id: 'crossing-direction', kind: 'rect', layer: 'top-copper', lineWidth: 1, points };
     const commands = [];
-    const app = { ...shapeModel(shape), _shapeElements: new Map(), _getLayerGroup() { return null; },
+    const app = { ...shapeModel(shape), _shapeElements: new Map(), getLayerGroup() { return null; },
         viewport: { scale: 100, setCrosshair() {}, hideCrosshair() {} }, _snapToGrid(point) { return point; },
         history: { execute(command) { commands.push(command); command.execute(); } } };
     const midpoint = getBoardShapeAnchors(shape).find(anchor => anchor.midpoint && anchor.y === 0);

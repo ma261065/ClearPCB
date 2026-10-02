@@ -15,7 +15,7 @@ const shape = (x, net, extra = {}) => ({ id: `shape-${x}`, kind: 'rect', layer: 
     ...extra });
 const via = (x, net) => ({ id: `via-${x}`, x, y: 0, diameter: 1, drill: 0.3, net });
 const board = () => ({ tracks: [], vias: [], boardShapes: [], placements: new Map(), netlist: [],
-    _trackToolLayer: 'top-copper', _getLayerGroup: () => null,
+    _trackToolLayer: 'top-copper', getLayerGroup: () => null,
     viewport: { scale: 100, gridVisible: false, setCrosshair() {}, hideCrosshair() {} },
     _commitTracks(tracks, _vias, destinationShapes = []) {
         this.tracks.push(...tracks);

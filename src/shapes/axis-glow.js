@@ -59,7 +59,7 @@ export function pathAlignmentSegments(points, closed, indices, widths = [], bulg
 }
 
 function layerFor(app, segment) {
-    return app._getLayerGroup ? app._getLayerGroup(segment.layerId) : app.viewport?.contentLayer;
+    return app.getLayerGroup ? app.getLayerGroup(segment.layerId) : app.viewport?.contentLayer;
 }
 
 export function squareAlignmentSegments(points, widths = []) {

@@ -9,7 +9,7 @@ export function captureFillInputs(app) {
         tracks: model.tracks, vias: model.vias, pads: model.pads,
         texts: model.texts, boardShapes: model.boardShapes, copperFills: model.copperFills,
         placements: app.placements, netlist: app.netlist,
-        _getRoutingParams: () => model.designSettings?.getRoutingParams() || app._getRoutingParams?.() || {},
+        getRoutingParams: () => model.designSettings?.getRoutingParams() || app.getRoutingParams?.() || {},
         _boardWidth: model.board?.width ?? app._boardWidth,
         _boardHeight: model.board?.height ?? app._boardHeight,
         _boardRadius: model.board?.radius ?? app._boardRadius,

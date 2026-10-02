@@ -63,9 +63,9 @@ function fixture(existing = true, deferred = false) {
         _deferDragOverlays: deferred, _suspendBoardViewRefresh: deferred,
         viewport: { scale: 100, snapToGrid: false, svg: new Element(), fitToBounds() { fits++; },
             hideCrosshair() {} },
-        _getLayerGroup: id => id === 'board-outline' ? group : null,
+        getLayerGroup: id => id === 'board-outline' ? group : null,
         _drawBoardOutline() { draws++; PCBApp.prototype._drawBoardOutline.call(this); },
-        _refreshFills() { assert.equal(this._deferDragOverlays, deferred); pours++; },
+        refreshFills() { assert.equal(this._deferDragOverlays, deferred); pours++; },
         _board3d: { refresh() { refresh3d++; } },
         _showBoardOutlineProperties() {}, _pcbPropsItems: () => null,
         _cancelDrawingMode() {}, _ensureViewport() {}, markSectionClean() {},
@@ -76,7 +76,7 @@ function fixture(existing = true, deferred = false) {
         Object.defineProperty(app, key, Object.getOwnPropertyDescriptor(PCBApp.prototype, key));
     }
     for (const key of ['_cancelPosePreviews', '_syncBoardOutlineInputs', 'isSectionEditing',
-        '_onLayerLockChanged', '_onLayerVisibilityChanged', '_clearProperties', '_setPcbPropsTitle', '_selectBoardOutline']) {
+        '_onLayerLockChanged', '_onLayerVisibilityChanged', 'clearProperties', '_setPcbPropsTitle', '_selectBoardOutline']) {
         app[key] = PCBApp.prototype[key];
     }
     project.registerView('pcb', app);

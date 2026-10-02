@@ -63,7 +63,7 @@ for (const layer of ['top-copper', 'bottom-copper']) for (const options of cases
     const app = {
         placements: new Map(), tracks: [], vias: [], pads: [], texts: new Map(), netlist: [],
         boardShapes: [fill], copperFills: [fill], _boardWidth: 30, _boardHeight: 30, _boardRadius: 0,
-        _getRoutingParams: () => ({ clearance: 0.2 }),
+        getRoutingParams: () => ({ clearance: 0.2 }),
     };
     const pending = prepareFabricationSnapshot(app, { computeFills: false });
     fill.move(1, 2);

@@ -19,7 +19,7 @@ function fixture(layers = 'both') {
     pcbDocument.tracks.push(top, bottom);
     const app = {
         pcbDocument, placements: new Map(), netlist: [],
-        _getLayerGroup() { return null; },
+        getLayerGroup() { return null; },
         viewport: { scale: 100, gridVisible: false, setCrosshair() {}, hideCrosshair() {} },
         history: { execute(command) { commands.push(command); command.execute(); } },
         _alert(message) { this.lastAlert = message; },

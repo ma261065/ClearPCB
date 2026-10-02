@@ -62,11 +62,11 @@ const makeApp = active => {
     set _boardRadius(value) { pcbDocument.board.radius = value; },
     placements: new Map([['U1', {}]]), _shapeElements: new Map(), _textElements: new Map(),
     placementState, _placementOverrides: placementState.overrides, history: { clear() {} },
-    _ensureViewport: record('viewport'), _getLayerGroup: () => null,
+    _ensureViewport: record('viewport'), getLayerGroup: () => null,
     _drawBoardOutline() { this._boardOutlineDrawn = true; calls.push('outline'); },
     _applyPlacementOverrides: record('placements'),
-    _renderText: record('text'), _refreshClearanceHalos: record('clearance'), _refreshFills: record('fills'),
-    _updateCopperCuts() { this.cutRefreshes = (this.cutRefreshes || 0) + 1; },
+    _renderText: record('text'), refreshClearanceHalos: record('clearance'), refreshFills: record('fills'),
+    updateCopperCuts() { this.cutRefreshes = (this.cutRefreshes || 0) + 1; },
     markSectionClean() { this._isDirty = false; },
     };
 };
@@ -123,7 +123,7 @@ for (const active of [true, false]) {
     const panelization = { ...PANEL_DEFAULTS, rows: 3, noteCreated: true };
     const stages = [];
     const count = previews.length;
-    for (const name of ['_drawBoardOutline', '_renderText', '_refreshFills']) {
+    for (const name of ['_drawBoardOutline', '_renderText', 'refreshFills']) {
         const original = paneApp[name];
         paneApp[name] = function (...args) {
             assert.equal(this.pcbDocument.panelization, null, 'Panel settings stay absent while artwork/pours are restored');
@@ -134,7 +134,7 @@ for (const active of [true, false]) {
     loadPcb(paneApp, { ...data, panelization }, { ...prepared, panelization });
     assert.deepEqual(paneApp.pcbDocument.panelization, panelization);
     assert.notEqual(paneApp.pcbDocument.panelization, panelization, 'Loaded settings do not alias their prepared snapshot');
-    assert.deepEqual(stages, active ? ['_drawBoardOutline', '_renderText', '_refreshFills'] : []);
+    assert.deepEqual(stages, active ? ['_drawBoardOutline', '_renderText', 'refreshFills'] : []);
     assert.equal(previews.length, count + (active ? 1 : 0));
     if (active) assert.deepEqual(previews.at(-1), { app: paneApp, settings: panelization },
         'The final preview sees restored model settings');
@@ -183,10 +183,10 @@ for (const withComponents of [false, true]) {
         initialize() {}, _updateCursorForTool() {}, _updateViewportStatus() {},
         _retainRibbonHeight: record('ribbon-height'),
         viewport: { _onResize: record('viewport-resize') },
-        _setPcbStatus() {}, _setStatus() {}, _fitToPlacedContent() {},
+        setPcbStatus() {}, setStatus() {}, _fitToPlacedContent() {},
         _drcShouldRun: () => false, _scheduleDRC: record('drc'),
         _clearPCBContent() { this.placements.clear(); calls.push('clear'); },
-        _placeFootprints: record('footprints'), _updateRatsnest: record('ratsnest'),
+        _placeFootprints: record('footprints'), updateRatsnest: record('ratsnest'),
         _showBoardDimensionsDialog: record('dimensions-dialog'),
         _board3d: { refresh: record('3d') },
     });
@@ -249,10 +249,10 @@ for (const pcb of [
             _renderPersistentObjects: method('_renderPersistentObjects'),
             initialize() {}, _ensureViewport() {}, _retainRibbonHeight() {},
             _updateCursorForTool() {}, _syncPcbHomeToolHighlight() {}, _updateViewportStatus() {},
-            _setPcbStatus() {}, _setStatus() {}, _clearPCBContent() {},
-            _getLayerGroup: () => null, _drawBoardOutline: record('outline'),
+            setPcbStatus() {}, setStatus() {}, _clearPCBContent() {},
+            getLayerGroup: () => null, _drawBoardOutline: record('outline'),
             _placeFootprints: record('footprints'), _fitToPlacedContent() {},
-            _refreshClearanceHalos() {}, _updateRatsnest() {}, _updateCopperCuts() {},
+            refreshClearanceHalos() {}, updateRatsnest() {}, updateCopperCuts() {},
             _showBoardDimensionsDialog: record('dimensions-dialog'),
             viewport: { _onResize() {} },
         });
@@ -280,7 +280,7 @@ const artwork = { width: 20, height: 20, circles: [{ x: Math.PI, y: 5, radius: 1
 const image = { ...pictureShape(artwork, { widthMm: 12, layer: 'top-silk' }), id: 'pshape_1' };
 const saved = { ...data, boardShapes: serializeBoardShapes({ boardShapes: [image] }) };
 const restored = makeApp(false);
-restored._getRoutingParams = () => ({ trackWidth: 0.25, clearance: 0.2, viaDiameter: 0.6, viaDrill: 0.3 });
+restored.getRoutingParams = () => ({ trackWidth: 0.25, clearance: 0.2, viaDiameter: 0.6, viaDrill: 0.3 });
 restored._getRouterMode = () => 'pathfinder';
 loadPcb(restored, saved, preparePcb(saved));
 const snapshot = serializePcb(restored);
@@ -313,11 +313,11 @@ const clipDependencies = {
     boardShapeCopperCuts(app, layer) { geometryCalls++; return boardShapeCopperCuts(app, layer); },
     setCopperFillClip(group, id) { group.clipId = id; },
 };
-const clipStart = pcbSource.indexOf('    _updateCopperCuts(');
+const clipStart = pcbSource.indexOf('    updateCopperCuts(');
 const clipEnd = pcbSource.indexOf('\n    }', clipStart) + '\n    }'.length;
 assert.ok(clipStart >= 0 && clipEnd > clipStart);
 const updateCuts = new Function(...Object.keys(clipDependencies),
-    `return ({${pcbSource.slice(clipStart, clipEnd)}})._updateCopperCuts;`)(...Object.values(clipDependencies));
+    `return ({${pcbSource.slice(clipStart, clipEnd)}}).updateCopperCuts;`)(...Object.values(clipDependencies));
 let visibleBounds = { minX: 0, minY: 0, maxX: 30, maxY: 20 };
 const removal = { id: 'cut', kind: 'circle', x: 5, y: 5, radius: 2,
     layer: 'top-copper', copperMode: 'remove-copper', filled: true, lineWidth: 0.2 };
@@ -390,8 +390,8 @@ const pcb = Object.assign(Object.create(PCBApp.prototype), {
     pcbDocument: project.pcbDocument,
     project: null, _active: true, _stale: true, boardShapes: [],
     _ensureViewport() { syncs++; }, _clearPCBContent() {}, _renderPersistentObjects() {},
-    _placeFootprints(items) { placed = items; }, _getLayerGroup: () => null,
-    _refreshClearanceHalos() {}, _updateRatsnest() {}, _fitToPlacedContent() {}, _setStatus() {},
+    _placeFootprints(items) { placed = items; }, getLayerGroup: () => null,
+    refreshClearanceHalos() {}, updateRatsnest() {}, _fitToPlacedContent() {}, setStatus() {},
 });
 pcb._syncFromSchematic();
 assert.equal(pcb._stale, true, 'Missing project must not acknowledge a pending sync');

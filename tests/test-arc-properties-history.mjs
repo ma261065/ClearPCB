@@ -45,7 +45,7 @@ for (const offset of [-0.5, 0, 0.5]) {
     };
     document.getElementById = id => id === 'pcbPropShapeBulge' ? input : null;
     const app = { boardShapes: [shape], placements: new Map(), tracks: [], vias: [], texts: new Map(),
-        _shapeElements: new Map(), _getLayerGroup() { return null; },
+        _shapeElements: new Map(), getLayerGroup() { return null; },
         viewport: { scale: 100, setCrosshair() {}, hideCrosshair() {} }, _snapToGrid(point) { return point; },
         _pcbPropsItems() { return items; }, _setPcbPropsTitle(value) { title = value; },
         history: new CommandHistory() };

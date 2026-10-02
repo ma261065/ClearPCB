@@ -18,7 +18,7 @@ const app = {
     pcbDocument: { texts: new Map([[text.id, text]]) }, placements: new Map(),
     get texts() { return getTextPosePreviewTexts(this) || this.pcbDocument.texts; },
     viewport: { snapToGrid: true, gridVisible: true, gridSize: 1 },
-    _refreshText() { redraws++; },
+    refreshText() { redraws++; },
     history: { execute(command) { commands.push(command); command.execute(); } },
 };
 const begin = () => {

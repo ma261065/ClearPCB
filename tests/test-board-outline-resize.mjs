@@ -80,7 +80,7 @@ const app = Object.assign(Object.create(dimensionPrototype), {
     _boardWidth: 100, _boardHeight: 80, _boardRadius: 3,
     viewport: { scale: 10, snapToGrid: true, gridVisible: true, gridSize: 1 },
     _drawBoardOutline() { redraws++; },
-    _refreshFills() {
+    refreshFills() {
         fills++;
         fillDimensions.push([this._boardWidth, this._boardHeight, this._boardRadius]);
     },
@@ -156,7 +156,7 @@ const makeElement = () => ({
 });
 globalThis.document = { createElementNS: makeElement, getElementById: id => inputs.get(id) || null };
 const overlay = makeElement();
-app._getLayerGroup = () => overlay;
+app.getLayerGroup = () => overlay;
 app._boardOutlineSelected = true;
 for (const scale of [10, 20]) {
     app.viewport.scale = scale;
@@ -217,14 +217,14 @@ console.log('PASS board resize handles, snapping, minimum dimensions, undo/redo,
             pcbDocument, boardShapes: pcbDocument.boardShapes, _shapeElements: new Map(),
             _boardOutlineDrawn: !!geometry,
             viewport: { fitToBounds(...args) { fitCalls.push(args); } },
-            _getLayerGroup(id) { return id === 'board-outline' ? outlineLayer : null; },
+            getLayerGroup(id) { return id === 'board-outline' ? outlineLayer : null; },
             _drawBoardOutline() {
                 assert.ok(getBoardOutline(pcbDocument), 'The model has adopted the outline before the command invokes rendering');
                 stages.push('draw');
                 PCBApp.prototype._drawBoardOutline.call(this);
             },
             _syncBoardOutlineInputs() { stages.push('inputs'); syncInputs.call(this); },
-            _refreshFills() { stages.push('fills'); },
+            refreshFills() { stages.push('fills'); },
         });
         const command = new SetBoardOutlineCommand(view, originalDimensions, { width: 40, height: 30, radius: 2 });
         command.execute();
@@ -251,7 +251,7 @@ console.log('PASS board resize handles, snapping, minimum dimensions, undo/redo,
     const view = Object.assign(Object.create(dimensionPrototype), {
         pcbDocument, boardShapes: pcbDocument.boardShapes, _shapeElements: new Map(),
         _boardOutlineDrawn: false, viewport: { fitToBounds(...args) { fitCalls.push(args); } },
-        _getLayerGroup(id) { return id === 'board-outline' ? outlineLayer : null; },
+        getLayerGroup(id) { return id === 'board-outline' ? outlineLayer : null; },
     });
     PCBApp.prototype._drawBoardOutline.call(view);
     assert.equal(getBoardOutline(pcbDocument), null, 'Drawing an empty model must not create authored geometry');

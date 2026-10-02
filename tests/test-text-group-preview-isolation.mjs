@@ -54,10 +54,10 @@ function fixture(mixed) {
         placements, history: new CommandHistory(), vias: [], pads: [], boardShapes: [],
         viewport: { svg: { style: {} }, scale: 10, snapToGrid: true, gridVisible: true, gridSize: 1 },
         _textElements: new Map(), _shapeElements: new Map(),
-        _getLayerGroup: id => groups.get(id) || null,
+        getLayerGroup: id => groups.get(id) || null,
         _refreshBoardShapeClearance() {}, _ensureViewport() {}, markSectionClean() {}, _cancelDrawingMode() {},
         _cancelPosePreviews: PCBApp.prototype._cancelPosePreviews,
-        _refreshText: PCBApp.prototype._refreshText, _removeTextElement: PCBApp.prototype._removeTextElement,
+        refreshText: PCBApp.prototype.refreshText, _removeTextElement: PCBApp.prototype._removeTextElement,
         _renderText(text) { renders++; PCBApp.prototype._renderText.call(this, text); },
     };
     for (const key of ['texts', 'tracks']) Object.defineProperty(app, key, Object.getOwnPropertyDescriptor(PCBApp.prototype, key));

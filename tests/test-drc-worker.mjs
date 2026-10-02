@@ -44,13 +44,13 @@ function fixture() {
     const counts = { accepted: 0, pending: 0, lists: 0, markers: 0, cleared: 0, connectors: 0 };
     Object.assign(app, {
         pcbDocument: model, placements: new Map(), netlist: [], _active: true, _drcViolations: [],
-        _drcSelectedId: null, _drcRatlines: [], _getRoutingParams: () => ({ clearance: 0.2 }),
-        _drcShouldRun: () => true, _getLayerGroup: id => id === 'ratlines' ? layer : null,
+        _drcSelectedId: null, _drcRatlines: [], getRoutingParams: () => ({ clearance: 0.2 }),
+        _drcShouldRun: () => true, getLayerGroup: id => id === 'ratlines' ? layer : null,
         _updateDRCStatus(result, pending) {
             if (pending) counts.pending++;
             else { counts.accepted++; app.lastResult = result; }
         },
-        _setStatus(message) { app.lastStatus = message; },
+        setStatus(message) { app.lastStatus = message; },
         _cancelDrawingMode() {}, _closeBoardDimensionsDialog() {},
     });
     Object.assign(app._getDrcPresentation(), {
@@ -100,7 +100,7 @@ const nativeCases = [];
     const keys = ['tracks', 'pads', 'vias', 'texts', 'boardShapes', 'copperFills'];
     for (const key of keys) Object.defineProperty(app, key, { configurable: true,
         get() { throw new Error(`Editor projection read: ${key}`); } });
-    app._getLayerGroup = () => { throw new Error('SVG traversal during capture'); };
+    app.getLayerGroup = () => { throw new Error('SVG traversal during capture'); };
     const inputs = captureDrcInputs(app, rules());
     assert.deepEqual(runDrcInputs(inputs), expected);
     assert.equal(inputs.rules.ratlines[0].x1, Math.PI);
@@ -440,16 +440,16 @@ try {
     {
         const { app, counts } = fixture();
         app._runDRCLive();
-        const previous = app._drcViolations, before = counts.accepted, rules = app._getRoutingParams;
+        const previous = app._drcViolations, before = counts.accepted, rules = app.getRoutingParams;
         const log = console.error; console.error = () => {};
         try {
             app._scheduleDRC(); flush();
-            app._getRoutingParams = () => { throw new Error('Synchronous fallback failed'); };
+            app.getRoutingParams = () => { throw new Error('Synchronous fallback failed'); };
             workers.at(-1).onerror({ message: 'Transport failed' }); await tick();
             assert.equal(counts.accepted, before);
             assert.equal(app._drcViolations, previous);
             assert.ok(app._drcPending && app._drcError);
-            app._getRoutingParams = rules;
+            app.getRoutingParams = rules;
             app._scheduleDRC(); flush();
             assert.equal(counts.accepted, before + 1, 'A later request can recover after both transport and fallback failure');
             assert.equal(app._drcError, null);
@@ -474,17 +474,17 @@ try {
         reconcileRatsnest(app, { nets: new Set(['N']), skipFillRefresh: true });
         assert.deepEqual(app._collectRatlines(), svg(), 'Incremental rebuild preserves unaffected/failed records');
         app._flushRatsnestVisibilityQueue = () => {};
-        app._refreshClearanceHalos = () => {};
+        app.refreshClearanceHalos = () => {};
         app.history = new CommandHistory();
-        app._refreshFills = () => false;
-        app._clearProperties = () => {};
+        app.refreshFills = () => false;
+        app.clearProperties = () => {};
         app.status = {};
         app._renderRouteResult({ tracks: [], vias: [], failedConnections: [
             { net: 'failed-again', from: { x: -0, y: Math.E }, to: { x: 8.123456789, y: 9.987654321 } },
         ] });
         assert.deepEqual(app._collectRatlines(), svg(), 'Actual autorouter failed-line producer publishes neutral data too');
         const expected = app._collectRatlines();
-        app._getLayerGroup = () => { throw new Error('Ratline capture traversed SVG'); };
+        app.getLayerGroup = () => { throw new Error('Ratline capture traversed SVG'); };
         assert.deepEqual(app._collectRatlines(), expected);
         const plain = { _drcRatlines: app._drcRatlines };
         plain._drcRatlinesModel = plain;

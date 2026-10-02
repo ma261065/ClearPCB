@@ -45,7 +45,7 @@ function appFor(track) {
         boardShapes: pcbDocument.boardShapes,
         _shapeIdCounter: 1,
         _shapeElements: new Map(),
-        _getLayerGroup() { return null; },
+        getLayerGroup() { return null; },
         history: { execute(command) { command.execute(); } },
     };
     return app;

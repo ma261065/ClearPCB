@@ -47,8 +47,8 @@ const app = {
     pcbDocument, get texts() { return getTextPosePreviewTexts(this) || pcbDocument.texts; },
     viewport: { scale: 8, snapToGrid: false },
     _layerGroups: new Map([['selection-overlay', overlay]]),
-    _getLayerGroup(id) { return this._layerGroups.get(id); },
-    _markDirty() {}, _syncHistoryButtons() {}, _refreshText() {}, _removeTextElement() {}, _renderText() {},
+    getLayerGroup(id) { return this._layerGroups.get(id); },
+    _markDirty() {}, _syncHistoryButtons() {}, refreshText() {}, _removeTextElement() {}, _renderText() {},
 };
 const source = readFileSync(new URL('../src/ui/PCBApp.js', import.meta.url), 'utf8');
 const callback = source.match(/onChanged: \(\) => \{([\s\S]*?)\n            \},/);
@@ -282,12 +282,12 @@ for (const tool of ['line', 'rect', 'polygon', 'circle', 'arc', 'track', 'fill']
 }
 console.log('PASS: drawing cancellation takes two Escapes with or without an existing selection');
 
-const statusStart = source.indexOf('    _setPcbStatus() {');
+const statusStart = source.indexOf('    setPcbStatus() {');
 const statusEnd = source.indexOf('\n    /** Enable/disable PCB home-tab', statusStart);
 assert.ok(statusStart >= 0 && statusEnd > statusStart);
 const { resolveShapeDrawLayer } = await import('../src/pcb/modules/board-shapes.js');
 const setStatus = new Function('getPcbSelection', 'resolveShapeDrawLayer',
-    `return ({ ${source.slice(statusStart, statusEnd)} })._setPcbStatus;`)(getPcbSelection, resolveShapeDrawLayer);
+    `return ({ ${source.slice(statusStart, statusEnd)} }).setPcbStatus;`)(getPcbSelection, resolveShapeDrawLayer);
 app.status = { modeStatus: { textContent: '' } };
 app.activeLayer = 'hole';
 for (const [tool, settings, expected] of [

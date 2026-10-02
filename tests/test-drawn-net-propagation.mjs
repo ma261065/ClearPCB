@@ -29,7 +29,7 @@ function fixture() {
         ],
         placements: new Map([['U1', { pads: new Map([['1', { x: 20, y: 0, number: '1' }]]) }]]),
         _commitTracks: PCBApp.prototype._commitTracks,
-        _getLayerGroup() { return null; },
+        getLayerGroup() { return null; },
         _shapeElements: new Map(),
         _alert(message) { this.lastAlert = message; },
         viewport: { scale: 100, gridVisible: false, setCrosshair() {}, hideCrosshair() {} },
@@ -84,21 +84,21 @@ await loadClipper();
 for (const clearance of [0.025, 0.1, 0.3, 0.5]) {
     const app = fixture();
     app.texts = new Map();
-    app._getRoutingParams = () => ({ clearance });
+    app.getRoutingParams = () => ({ clearance });
     const via = new Via({ x: 0, y: 0 });
     const ground = new CopperFill({ layer: 'top-copper', net: 'GND',
         outline: rectangle(-5, -5, 25, 5).points });
     app.vias.push(via);
     app.boardShapes.push(ground);
     app.copperFills.push(ground);
-    app._refreshFills = () => {
+    app.refreshFills = () => {
         const context = buildFillContext(app);
         assert.equal(context.params.clearance, clearance);
         setComputedFill(ground, computeFillPolygons(ground, context));
         return false;
     };
     const hasCopper = point => getComputedFill(ground).some(region => pointInCopperRegion(point, region));
-    app._refreshFills();
+    app.refreshFills();
     assert.ok(hasCopper({ x: 10, y: 0 }), 'GND copper initially occupies the future route');
     startTrackDraw(app, { x: 20, y: 0 });
     addTrackWaypoint(app, { x: 0, y: 0 });

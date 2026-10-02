@@ -29,8 +29,8 @@ const track = (points, net = 'A', extra = {}) => new Track({ points, net, width:
 function fixture() {
     const app = { pcbDocument: new PcbDocument(), placements: new Map(), netlist: [], copperFills: [],
         history: new CommandHistory(), _shapeElements: new Map(), _textElements: new Map(),
-        _getLayerGroup: () => null, _refreshClearanceHalos() {}, _refreshFills: () => false,
-        _getRoutingParams: () => ({ trackWidth: 0.4, clearance: 0.2, viaDiameter: 0.6, viaDrill: 0.3 }),
+        getLayerGroup: () => null, refreshClearanceHalos() {}, refreshFills: () => false,
+        getRoutingParams: () => ({ trackWidth: 0.4, clearance: 0.2, viaDiameter: 0.6, viaDrill: 0.3 }),
         viewport: { scale: 100, gridVisible: false, shiftHeld: true, setCrosshair() {}, hideCrosshair() {} },
         _alert(message) { this.alerts.push(message); }, alerts: [],
         _commitTracks: PCBApp.prototype._commitTracks,

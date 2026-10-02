@@ -39,7 +39,7 @@ const app = Object.assign(Object.create(copperPrototype), {
     boardShapes: [],
     copperFills: [],
     _layerGroups: new Map(),
-    _getLayerGroup() { return null; },
+    getLayerGroup() { return null; },
     history: {
         command: null,
         execute(command) {

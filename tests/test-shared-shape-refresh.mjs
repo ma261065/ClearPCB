@@ -38,10 +38,10 @@ const pcbDocument = new PcbDocument();
 const app = {
     pcbDocument, boardShapes: [], texts: pcbDocument.texts, placements: new Map(), tracks: [], vias: [],
     _shapeElements: new Map(), _boardShapeClearanceCache: new Map(),
-    _getLayerGroup() { return null; },
-    _refreshFills() { refreshes++; return false; },
-    _updateRatsnest() {}, _renderText() {}, _removeTextElement() {}, _selectText() {},
-    _refreshText() { assert.equal(this._pictureCopperRefreshPending, true); },
+    getLayerGroup() { return null; },
+    refreshFills() { refreshes++; return false; },
+    updateRatsnest() {}, _renderText() {}, _removeTextElement() {}, _selectText() {},
+    refreshText() { assert.equal(this._pictureCopperRefreshPending, true); },
 };
 const snapshot = shape => ({ kind: shape.kind, geom: cloneShapeGeometry(shape), layer: shape.layer,
     net: shape.net || '', lineWidth: shape.lineWidth, filled: shape.filled, copperMode: 'add' });
@@ -88,7 +88,7 @@ try {
         let command;
         bindText.call(app, { querySelector() { return input; } }, text, {
             fields: [{ id: 'test', field, parse: value => Number(value), wrap: field === 'rotation' }],
-            preview(model) { app._refreshText(model.id); },
+            preview(model) { app.refreshText(model.id); },
             commit(model, before) {
                 const after = { [field]: model[field] };
                 Object.assign(model, before);

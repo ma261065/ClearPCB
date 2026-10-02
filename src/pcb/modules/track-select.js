@@ -131,7 +131,7 @@ export function createTrackSelectionAdapter(app, track, id) {
     const current = () => displayedTrack(app, track);
     const beginDrag = (worldPos, options) => {
         const started = startVertexDrag(app, track, worldPos, options);
-        app._setPcbStatus?.();
+        app.setPcbStatus?.();
         return started;
     };
     const updateDrag = (worldPos) => {
@@ -145,7 +145,7 @@ export function createTrackSelectionAdapter(app, track, id) {
         if (!commit) {
             cancelVertexDrag(app);
             if ((app.pcbDocument?.tracks || app.tracks).includes(track)) showTrackSelectionProperties(app, track);
-            app._setPcbStatus?.();
+            app.setPcbStatus?.();
             return;
         }
         const drag = app._vertexDrag;
@@ -157,7 +157,7 @@ export function createTrackSelectionAdapter(app, track, id) {
                 if (selectedTrack === track && track.nodes.has(nodeId)) selectTrackNode(app, track, nodeId);
                 else selectTrackOrVia(app, { type: 'track', track: selectedTrack });
             }
-            app._setPcbStatus?.();
+            app.setPcbStatus?.();
             return;
         }
         const clickedNodeId = !options.moved && drag?.mode === 'node' ? drag.nodes[0].nodeId : null;
@@ -165,7 +165,7 @@ export function createTrackSelectionAdapter(app, track, id) {
         if (getSelectedTrack(app) === track && clickedNodeId != null && track.nodes.has(clickedNodeId)) {
             selectTrackNode(app, track, clickedNodeId);
         } else if (getSelectedTrack(app) === track && app._trackEdit?.nodeId != null) showTrackSelectionProperties(app, track);
-        app._setPcbStatus?.();
+        app.setPcbStatus?.();
     };
     return {
         id,
@@ -273,8 +273,8 @@ export function createTrackSelectionAdapter(app, track, id) {
             update: updateDrag,
             end: commit => finishNodeMove(commit, { moved: true }),
         }),
-        invalidate() { renderTrack(current(), (layerId) => app._getLayerGroup(layerId)); },
-        render() { renderTrack(current(), (layerId) => app._getLayerGroup(layerId)); },
+        invalidate() { renderTrack(current(), (layerId) => app.getLayerGroup(layerId)); },
+        render() { renderTrack(current(), (layerId) => app.getLayerGroup(layerId)); },
     };
 }
 
@@ -313,8 +313,8 @@ export function createViaSelectionAdapter(app, via, id) {
         },
         updateMove(worldPos) { updateViaDrag(app, worldPos); },
         endMove(commit) { if (commit) finishViaDrag(app); else cancelViaDrag(app); },
-        invalidate() { renderVia(current(), (layerId) => app._getLayerGroup(layerId)); },
-        render() { renderVia(current(), (layerId) => app._getLayerGroup(layerId)); },
+        invalidate() { renderVia(current(), (layerId) => app.getLayerGroup(layerId)); },
+        render() { renderVia(current(), (layerId) => app.getLayerGroup(layerId)); },
     };
 }
 
@@ -407,8 +407,8 @@ export function selectTrackOrVia(app, hit) {
     _removeHalos(app, HOVER_CLASS);
     app._hoveredTrackOrVia = null;
     if (!hit) {
-        app._clearProperties?.();
-        app._syncClipboardButtons?.();
+        app.clearProperties?.();
+        app.syncClipboardButtons?.();
         return;
     }
     if (hit.type === 'track') {
@@ -422,7 +422,7 @@ export function selectTrackOrVia(app, hit) {
         showViaProperties(app, hit.via);
     }
     renderPcbSelectionAnchors(app);
-    app._syncClipboardButtons?.();
+    app.syncClipboardButtons?.();
 }
 
 /**
@@ -451,8 +451,8 @@ export function selectTrackSegment(app, track, edgeId) {
     _drawSegmentHalo(app, track, edgeId);
     _showTrackSegmentProperties(app, track, edgeId);
     renderPcbSelectionAnchors(app);
-    app._setPcbStatus?.();
-    app._syncClipboardButtons?.();
+    app.setPcbStatus?.();
+    app.syncClipboardButtons?.();
 }
 
 export function selectTrackNode(app, track, nodeId) {
@@ -461,7 +461,7 @@ export function selectTrackNode(app, track, nodeId) {
     app._trackEdit = { track, nodeId };
     _showTrackNodeProperties(app, track, nodeId);
     refreshTrackSelectionHalo(app);
-    app._setPcbStatus?.();
+    app.setPcbStatus?.();
 }
 
 export function showTrackSelectionProperties(app, track) {
@@ -486,13 +486,13 @@ export function clearTrackSelection(app) {
         // (hideNetLabel) — in that case re-render now to rebuild them.
         const restored = setTrackLabelsVisible(prev, true);
         if (!restored) {
-            renderTrack(prev, (id) => app._getLayerGroup(id), {
-                viaDiameter: app._getRoutingParams?.()?.viaDiameter,
-                viaDrill: app._getRoutingParams?.()?.viaDrill,
+            renderTrack(prev, (id) => app.getLayerGroup(id), {
+                viaDiameter: app.getRoutingParams?.()?.viaDiameter,
+                viaDrill: app.getRoutingParams?.()?.viaDrill,
             });
         }
     }
-    app._syncClipboardButtons?.();
+    app.syncClipboardButtons?.();
 }
 
 /**
@@ -738,7 +738,7 @@ function _drawSinglePadHighlight(app, componentId, pinNumber, cls, opacity) {
     const rot = pl.rotation || 0;
     const rotAttr = rot ? `rotate(${rot} ${pos.x} ${pos.y})` : '';
     for (const layerId of layers) {
-        const parent = app._getLayerGroup(layerId);
+        const parent = app.getLayerGroup(layerId);
         if (!parent) continue;
         let el;
         if (shape === 'ellipse') {
@@ -788,7 +788,7 @@ export function drawViaHalo(app, via, cls, opacity = HALO_OPACITY_SELECTED) {
 }
 
 export function drawStandalonePadHalo(app, pad, cls, opacity = HALO_OPACITY_SELECTED) {
-    const parent = app._getLayerGroup?.('selection-overlay');
+    const parent = app.getLayerGroup?.('selection-overlay');
     if (!parent) return;
     const points = padOutline({ ...pad, x: 0, y: 0 });
     const polygon = document.createElementNS(NS, 'polygon');
@@ -829,7 +829,7 @@ export function deleteSelectedTrack(app) {
             app._trackEdit = null;
             if (app.tracks.includes(track)) showTrackSelectionProperties(app, track);
             else clearTrackSelection(app);
-            app._setPcbStatus?.();
+            app.setPcbStatus?.();
             return;
         }
         deleteTrackSegmentAt(app, track, edgeId);
@@ -934,7 +934,7 @@ function _drawTrackHalo(app, track, cls = HALO_CLASS, opacity = HALO_OPACITY_SEL
     const runs = buildTrackLayerRuns(track);
     for (const run of runs) {
         if (!isLayerVisible(run.layer)) continue;
-        const parent = app._getLayerGroup(cls === HOVER_CLASS ? run.layer : 'selection-overlay');
+        const parent = app.getLayerGroup(cls === HOVER_CLASS ? run.layer : 'selection-overlay');
         if (!parent) continue;
         const poly = document.createElementNS(NS, 'polyline');
         poly.setAttribute('class', cls);
@@ -965,7 +965,7 @@ function _drawSegmentHalo(app, track, edgeId, cls = HALO_CLASS, opacity = HALO_O
     if (!a || !b) return;
     const layerId = track.getEdgeLayer(edgeId) || 'top-copper';
     if (track.visible === false || !isLayerVisible(layerId)) return;
-    const parent = app._getLayerGroup(cls === HOVER_CLASS ? layerId : 'selection-overlay');
+    const parent = app.getLayerGroup(cls === HOVER_CLASS ? layerId : 'selection-overlay');
     if (parent) {
         const line = document.createElementNS(NS, 'polyline');
         line.setAttribute('class', cls);
@@ -1006,7 +1006,7 @@ function _drawPadHighlights(app, track, cls, opacity) {
         const h = off?.height || 1.2;
         const shape = off?.shape || 'rect';
         for (const layerId of layers) {
-            const parent = app._getLayerGroup(layerId);
+            const parent = app.getLayerGroup(layerId);
             if (!parent) continue;
             let el;
             if (shape === 'ellipse') {
@@ -1037,7 +1037,7 @@ function _drawPadHighlights(app, track, cls, opacity) {
 }
 
 function _drawViaHalo(app, via, cls = HALO_CLASS, opacity = HALO_OPACITY_SELECTED) {
-    const layer = app._getLayerGroup('vias');
+    const layer = app.getLayerGroup('vias');
     if (!layer) return;
     const c = document.createElementNS(NS, 'circle');
     c.setAttribute('class', cls);
@@ -1058,7 +1058,7 @@ function _drawViaHalo(app, via, cls = HALO_CLASS, opacity = HALO_OPACITY_SELECTE
  *   - select → the X plus a filled disc
  */
 function _drawHoleHalo(app, hole, cls = HALO_CLASS, opacity = HALO_OPACITY_SELECTED) {
-    const layer = app._getLayerGroup('hole');
+    const layer = app.getLayerGroup('hole');
     if (!layer) return;
     const dia = hole.diameter || 0.8;
     const r = dia / 2;
@@ -1139,8 +1139,8 @@ function createTrackPropertyBinding(app, track, scope = {}) {
             if (!committed) resetFields();
             refreshTrackSelectionHalo(app);
             if (!committed) {
-                app._refreshClearanceHalos?.();
-                if (refreshFills) app._refreshFills?.();
+                app.refreshClearanceHalos?.();
+                if (refreshFills) app.refreshFills?.();
             }
         }
     };
@@ -1180,10 +1180,10 @@ function createTrackPropertyBinding(app, track, scope = {}) {
                 preview ||= beginTrackPropertyPreview(app, track, scope);
                 field = entry;
                 spec.apply(preview.track, value, preview.before);
-                renderTrack(preview.track, layerId => app._getLayerGroup(layerId), { hideNetLabel: true });
+                renderTrack(preview.track, layerId => app.getLayerGroup(layerId), { hideNetLabel: true });
                 refreshTrackSelectionHalo(app);
-                app._refreshClearanceHalos?.();
-                if (spec.fills) app._refreshFills?.();
+                app.refreshClearanceHalos?.();
+                if (spec.fills) app.refreshFills?.();
             };
             const commit = event => {
                 if (disposed) return;
@@ -1661,7 +1661,7 @@ export function showViaProperties(app, via) {
         if (renderFrame !== null) return;
         renderFrame = requestAnimationFrame(() => {
             renderFrame = null;
-            for (const target of preview?.copies.values() || []) renderVia(target, (id) => app._getLayerGroup(id));
+            for (const target of preview?.copies.values() || []) renderVia(target, (id) => app.getLayerGroup(id));
             // renderVia replaces the circles that the existing selection halo
             // was painted above, so rebuild that overlay after the redraw.
             refreshTrackSelectionHalo(app);

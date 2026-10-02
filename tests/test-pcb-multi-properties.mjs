@@ -26,8 +26,8 @@ app.netlist = [];
 app._pcbPropsItems = () => items;
 app._setPcbPropsTitle = () => {};
 app._setActiveRibbonTab = () => {};
-app._syncClipboardButtons = () => {};
-app._setPcbStatus = () => {};
+app.syncClipboardButtons = () => {};
+app.setPcbStatus = () => {};
 app._recomputeFillsNow = () => {};
 app._refreshFillProperties = () => {};
 
@@ -68,7 +68,7 @@ app.pads = [
     makePad('p3', 'GND', 30),
     makePad('p4', '', 45),
 ];
-app._getLayerGroup = () => null;
+app.getLayerGroup = () => null;
 setPcbSelection(app, app.pads.map(object => ({ kind: 'pad', object })));
 const controls = new Map();
 for (const selector of ['#pcbPropPadShape', '#pcbPropPadLayers', '#pcbPropPadSize',
@@ -91,7 +91,7 @@ app._bindToolNetControl = (_items, inputId, onChange) => {
 };
 let lastCommand = null;
 app.history = { execute(command) { lastCommand = command; command.execute(); } };
-app._refreshFills = () => {};
+app.refreshFills = () => {};
 app._showPadProperties(app.pads[0]);
 assert.match(items.innerHTML, /id="pcbPropPadNet" value="" placeholder="Mixed"/,
    'multiple Pads with different Nets show a mixed Net value');

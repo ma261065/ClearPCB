@@ -26,7 +26,7 @@ Object.freeze(fill);
 let checks = 0, previews = 0;
 const app = { placements: new Map(), tracks: [], vias: [], pads: [], texts: new Map(), netlist: [],
     boardShapes: model.boardShapes, copperFills: [fill], _boardWidth: 10, _boardHeight: 10, _boardRadius: 0,
-    _getRoutingParams: () => ({ clearance: 0.2 }), _getLayerGroup: () => null,
+    getRoutingParams: () => ({ clearance: 0.2 }), getLayerGroup: () => null,
     _clearFillGroups() {}, _fillContext() { return buildFillContext(this); },
     _scheduleDRC() { checks++; }, _board3d: { refresh() { previews++; } } };
 assert.equal(getComputedFill(fill), null);

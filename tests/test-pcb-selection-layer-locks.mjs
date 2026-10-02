@@ -91,8 +91,8 @@ const app = {
     placements: new Map([[lockedPlacement.id, lockedPlacement]]),
     pcbDocument: new PcbDocument(), history: new CommandHistory(),
     get texts() { return getTextPosePreviewTexts(this) || this.pcbDocument.texts; },
-    tracks: [], vias: [], boardShapes: [fill, shape], _refreshText() {},
-    _syncClipboardButtons() {}, _getLayerGroup() { return null; }, selected: [],
+    tracks: [], vias: [], boardShapes: [fill, shape], refreshText() {},
+    syncClipboardButtons() {}, getLayerGroup() { return null; }, selected: [],
 };
 for (const select of [() => selectAll.call(app), () => marquee(app, { minX: 0, minY: 0, maxX: 10, maxY: 10 })]) {
     select();
@@ -189,7 +189,7 @@ const hitFill = new Function(...Object.keys(layers),
 const visibleFill = new CopperFill({ outline: points, layer: 'top-copper' });
 const fillApp = {
     boardShapes: [visibleFill], copperFills: [visibleFill], viewport: { scale: 10 },
-    _getLayerGroup() { return null; },
+    getLayerGroup() { return null; },
 };
 const previousVisibility = topLayer.visible;
 try {
@@ -243,8 +243,8 @@ let hatchRedraws = 0;
 let selectionRefreshes = 0;
 fillApp._scheduleRemovalHatchRender = () => { hatchRedraws++; };
 fillApp._refreshPcbSelectionHighlights = () => { selectionRefreshes++; };
-fillApp._selectFill = () => { throw new Error('Copper visibility must not clear a visible fill'); };
-fillApp._clearProperties = () => { throw new Error('Visible fill properties must remain available'); };
+fillApp.selectFill = () => { throw new Error('Copper visibility must not clear a visible fill'); };
+fillApp.clearProperties = () => { throw new Error('Visible fill properties must remain available'); };
 onVisibility.call(fillApp, 'top-copper', false);
 assert.equal(hatchRedraws, 1, 'Hiding top copper invalidates the separate hatch canvas');
 assert.equal(selectionRefreshes, 1, 'Hiding an outline layer removes its selection lock overlay');

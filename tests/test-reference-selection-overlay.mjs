@@ -116,7 +116,7 @@ const editor = {
     _rerenderRef(id) { referenceRenders.push(this.placements.get(id)?.reference); },
     _drawRefOverlay(id) { referenceOverlays.push(this.placements.get(id)?.reference); },
     _showRefProperties(id) { referencePanels.push(this.placements.get(id)?.reference); },
-    _updateRatsnest() { referenceRatsnestUpdates++; },
+    updateRatsnest() { referenceRatsnestUpdates++; },
     _board3d: { refresh() { referenceBoardUpdates++; } },
 };
 assert.equal(startReferenceEdit.call(editor, { x: 10, y: 20 }), true);

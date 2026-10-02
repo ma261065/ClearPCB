@@ -26,11 +26,11 @@ const via = () => ({ id: 'via', x: 0, y: 0, diameter: 2, drill: 0.8, net: 'Net00
 function board(extra = {}) {
     const layer = { children: [], appendChild(line) { line.parent = this; this.children.push(line); } };
     return { pads: [], vias: [], tracks: [], boardShapes: [], copperFills: [],
-        placements: new Map(), netlist: [], texts: new Map(), _getLayerGroup: () => layer, ...extra };
+        placements: new Map(), netlist: [], texts: new Map(), getLayerGroup: () => layer, ...extra };
 }
 function check(app, expected, message, options) {
     reconcileRatsnest(app, options);
-    const ratlines = app._getLayerGroup().children.map(line => ({
+    const ratlines = app.getLayerGroup().children.map(line => ({
         net: line.dataset.net, ...Object.fromEntries(['x1', 'y1', 'x2', 'y2'].map(key => [key, +line.attributes[key]])),
     }));
     assert.equal(ratlines.length, expected, message);

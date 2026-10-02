@@ -15,7 +15,7 @@ const outline = [{ x: 1, y: -1 }, { x: 19, y: -1 }, { x: 19, y: -19 }, { x: 1, y
 const fill = new CopperFill({ net: 'GND', outline });
 const app = { placements: new Map(), tracks: [], vias: [], texts: new Map(), netlist: [],
     boardShapes: [fill], copperFills: [fill], _boardWidth: 20, _boardHeight: 20, _boardRadius: 0,
-    _getRoutingParams: () => ({ clearance: 0.2 }), _fillRefreshScheduled: true };
+    getRoutingParams: () => ({ clearance: 0.2 }), _fillRefreshScheduled: true };
 assert.equal(hasFabricationContent(app), true);
 const pending = prepareFabricationSnapshot(app);
 fill.outline[0].x = 5;
@@ -102,7 +102,7 @@ for (const layer of TEXT_LAYERS) for (const border of [false, true]) {
     const authored = serializePcbText(text);
     const textApp = { placements: new Map(), tracks: [], vias: [], pads: [], texts: new Map([[text.id, text]]),
         boardShapes: [], copperFills: [], _boardWidth: 20, _boardHeight: 20, _boardRadius: 0,
-        _getRoutingParams: () => ({ clearance: 0.2 }) };
+        getRoutingParams: () => ({ clearance: 0.2 }) };
     const clean = await prepareFabricationSnapshot(textApp, { computeFills: false });
     const expectedGerbers = exportGerbers(clean);
     text.element = { uncloneable() {} };
@@ -215,7 +215,7 @@ const csvApp = {
     project: ownedProject, _exportBaseName: PCBApp.prototype._exportBaseName,
     placements: new Map([['U1', { reference: 'U1', value: 'Part', footprint: 'Package' }]]),
     async _saveBlob(blob, name) { assert.ok(blob instanceof Blob); csvNames.push(name); return true; },
-    _setStatus() {},
+    setStatus() {},
 };
 PCBApp.prototype.exportBOM.call(csvApp);
 PCBApp.prototype.exportPickAndPlace.call(csvApp);
@@ -261,7 +261,7 @@ const exportGerber = new Function('window', 'hasFabricationContent', 'generateGe
     (...progress) => progressEvents.push(progress),
 );
 const exportApp = { project: ownedProject, _exportBaseName: PCBApp.prototype._exportBaseName,
-    _saveBlob: saveBlob, _setStatus(message) { events.push(message); } };
+    _saveBlob: saveBlob, setStatus(message) { events.push(message); } };
 const saving = exportGerber.call(exportApp);
 assert.deepEqual(events, ['picker'], 'Picker opens synchronously before fabrication preparation');
 assert.equal(exportApp._exportGerberPending, true);

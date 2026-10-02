@@ -24,7 +24,7 @@ const pcbDocument = new PcbDocument();
 pcbDocument.boardShapes.push(image);
 const app = { pcbDocument, boardShapes: pcbDocument.boardShapes, placements: new Map(), tracks: [], vias: [], texts: new Map(),
     _shapeElements: new Map(), _boardShapeClearanceCache: new Map(), viewport: { scale: 10 },
-    _getLayerGroup(id) { return id === 'top-copper' ? layer : null; } };
+    getLayerGroup(id) { return id === 'top-copper' ? layer : null; } };
 setPcbSelection(app, [{ kind: 'shape', object: image }]);
 setBoardShapeHover(app, image);
 const halo = element();

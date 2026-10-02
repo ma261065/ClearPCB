@@ -180,7 +180,7 @@ const groups = new Map();
 const app = {
     placements: new Map(),
     get tracks() { assert.fail('Footprint rendering must not read or mutate track models'); },
-    _getLayerGroup(id) {
+    getLayerGroup(id) {
         if (!groups.has(id)) groups.set(id, element());
         return groups.get(id);
     },

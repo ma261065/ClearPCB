@@ -19,7 +19,7 @@ export async function prepareFabricationSnapshot(app, { computeFills = true } = 
         throw new Error('Finish the current edit before exporting.');
     }
     const model = app.pcbDocument;
-    const params = model ? model.designSettings.getRoutingParams() : { ...app._getRoutingParams?.() };
+    const params = model ? model.designSettings.getRoutingParams() : { ...app.getRoutingParams?.() };
     const board = model ? { ...model.board }
         : { width: app._boardWidth, height: app._boardHeight, radius: app._boardRadius };
     const panelization = model ? model.serializePanelization()
@@ -44,7 +44,7 @@ export async function prepareSnapshotFills(snapshot, onProgress = (done, total) 
     const { fills, params } = snapshot;
     if (!fills.length) return;
     const context = buildFillContext({ ...snapshot, texts: new Map(snapshot.texts.map(text => [text.id, text])),
-        copperFills: fills, _getRoutingParams: () => params,
+        copperFills: fills, getRoutingParams: () => params,
         _boardWidth: snapshot.boardWidth, _boardHeight: snapshot.boardHeight, _boardRadius: snapshot.boardRadius });
     const clipper = await loadClipper();
     for (const [index, fill] of fills.entries()) {

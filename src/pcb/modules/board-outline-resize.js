@@ -162,7 +162,7 @@ export function boardOutlineHandles(app) {
 }
 
 export function renderBoardOutlineHandles(app) {
-    const overlay = app._getLayerGroup?.('selection-overlay');
+    const overlay = app.getLayerGroup?.('selection-overlay');
     if (!overlay) return;
     overlay.querySelectorAll('.pcb-board-outline-handles').forEach(element => element.remove());
     const handles = boardOutlineHandles(app);

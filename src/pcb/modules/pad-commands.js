@@ -73,7 +73,7 @@ export function finishPadPropertyPreview(app, commit) {
         const available = new Set(app.pcbDocument.pads);
         for (const pad of preview.copies.keys()) {
             if (!available.has(pad)) continue;
-            if (!changed.has(pad)) renderPad(pad, id => app._getLayerGroup(id));
+            if (!changed.has(pad)) renderPad(pad, id => app.getLayerGroup(id));
             schedulePictureCopperRefresh(app, pad);
         }
     }
@@ -129,10 +129,10 @@ export function finishPadRotationPreview(app, commit) {
         }
     } finally {
         if (preview?.pads && !committed && app.pcbDocument.pads.includes(preview.original)) {
-            renderPad(preview.original, id => app._getLayerGroup(id));
+            renderPad(preview.original, id => app.getLayerGroup(id));
         }
         if (preview) {
-            updatePadHighlightGeometry(preview.original, app._getLayerGroup('selection-overlay'));
+            updatePadHighlightGeometry(preview.original, app.getLayerGroup('selection-overlay'));
             const input = /** @type {HTMLInputElement|null} */ (document.getElementById('pcbPropPadRotation'));
             if (input) input.value = String(preview.original.rotation);
         }
@@ -140,7 +140,7 @@ export function finishPadRotationPreview(app, commit) {
 }
 
 function refresh(app, pad) {
-    renderPad(pad, id => app._getLayerGroup(id));
+    renderPad(pad, id => app.getLayerGroup(id));
     schedulePictureCopperRefresh(app, pad);
 }
 

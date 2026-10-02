@@ -39,7 +39,7 @@ export function clearSelectionInteractionUi(app) {
     app._selectBoardOutline?.(false);
     app._selectText?.(null);
     app._selectRefText?.(null);
-    app._selectFill?.(null);
+    app.selectFill?.(null);
     selectBoardShape(app, null);
 }
 
@@ -58,7 +58,7 @@ function showSingleProperties(app, entry) {
     else if (entry.kind === 'via') showViaProperties(app, entry.object);
     else if (entry.kind === 'pad') app._showPadProperties?.(entry.object);
     else if (entry.kind === 'fill') {
-        app._selectFill?.(entry.object);
+        app.selectFill?.(entry.object);
         app._showFillProperties?.(entry.object);
     }
 }
@@ -67,7 +67,7 @@ function showSingleProperties(app, entry) {
 export function showPcbSelectionProperties(app) {
     const selected = getPcbSelectionEntries(app);
     if (!selected.length) {
-        app._clearProperties?.();
+        app.clearProperties?.();
         return;
     }
     if (selected.length === 1) {

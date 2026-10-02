@@ -49,9 +49,9 @@ for (const layer of ['hole', 'top-copper', 'top-silk']) {
         const app = {
             _active: true,
             pcbDocument, boardShapes: pcbDocument.boardShapes, placements: new Map(), tracks: [], vias: [], texts: new Map(),
-            _shapeElements: new Map(), _getLayerGroup() { return null; },
+            _shapeElements: new Map(), getLayerGroup() { return null; },
             history: new CommandHistory(),
-            _clearProperties() {
+            clearProperties() {
                 assert.equal(this.boardShapes.length, 0);
                 assert.deepEqual(getPcbSelection(this), []);
                 properties = 'Properties';
@@ -92,8 +92,8 @@ function fixture() {
     const app = {
         _active: true, _shapeIdCounter: 1, pcbDocument: model, placements: model.placements,
         tracks: model.tracks, vias: model.vias, pads: model.pads, texts: model.texts, boardShapes: model.boardShapes,
-        history: new CommandHistory(), _shapeElements: new Map(), _getLayerGroup() { return null; },
-        _clearProperties() { events.push('properties'); }, _setActiveRibbonTab(tab) { events.push(tab); },
+        history: new CommandHistory(), _shapeElements: new Map(), getLayerGroup() { return null; },
+        clearProperties() { events.push('properties'); }, _setActiveRibbonTab(tab) { events.push(tab); },
         _cancelPasteDrop() { this._pasteDrop = null; events.push('paste'); },
     };
     const shape = { id: 'rect', kind: 'rect', layer: 'top-silk', lineWidth: 0.234567,

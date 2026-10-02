@@ -58,8 +58,8 @@ function fixture(kind, deferred = false) {
         history: new CommandHistory(), _deferDragOverlays: deferred,
         viewport: { scale: 100, shiftHeld: true, gridVisible: false,
             setCrosshair() {}, hideCrosshair() {}, svg: new Element('svg') },
-        _getLayerGroup: id => groups.get(id) || null,
-        _refreshClearanceHalos() {}, _refreshFills() { fills++; },
+        getLayerGroup: id => groups.get(id) || null,
+        refreshClearanceHalos() {}, refreshFills() { fills++; },
         _cancelPosePreviews: PCBApp.prototype._cancelPosePreviews,
         _cancelDrawingMode() {}, markSectionClean() {}, _ensureViewport() {},
         _textElements: new Map(), _shapeElements: new Map(),
@@ -71,8 +71,8 @@ function fixture(kind, deferred = false) {
     const factory = kind === 'via' ? createViaSelectionAdapter : createPadSelectionAdapter;
     const adapter = factory(app, terminal, `${kind}:${terminal.id}`);
     setPcbSelection(app, [{ kind, object: terminal }]);
-    for (const track of model.tracks) renderTrack(track, app._getLayerGroup);
-    (kind === 'via' ? renderVia : renderPad)(terminal, app._getLayerGroup);
+    for (const track of model.tracks) renderTrack(track, app.getLayerGroup);
+    (kind === 'via' ? renderVia : renderPad)(terminal, app.getLayerGroup);
     return { app, model, terminal, shared, unrelated, adapter, factory, collection, groups,
         fills: () => fills,
         artwork: () => [...groups.values()].flatMap(group => group.children)

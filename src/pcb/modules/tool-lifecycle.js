@@ -12,7 +12,7 @@ export function resetPcbTool(app) {
     app.currentTool = 'select';
     app._updateCursorForTool?.();
     app._syncPcbHomeToolHighlight?.();
-    app._setPcbStatus?.();
+    app.setPcbStatus?.();
     app._hideToolOptions?.();
 }
 
@@ -33,7 +33,7 @@ export function selectPcbTool(app, tool) {
     }
     app._syncPcbHomeToolHighlight?.();
     app._updateCursorForTool?.();
-    app._setPcbStatus?.();
+    app.setPcbStatus?.();
     if (next === 'fill') {
         app._showFillToolOptions?.();
         return;

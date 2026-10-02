@@ -27,7 +27,7 @@ const app = {
         titles.push(title);
         presentedLayers.push(getPcbSelectionEntries(app).map(entry => entry.object.layer));
     },
-    _refreshText() {},
+    refreshText() {},
 };
 for (const name of ['_showTextProperties', '_showPcbMultiSelectionProperties',
     '_pcbMultiPropertyCapabilities', '_bindStrokeTextProps', '_layerLabel']) app[name] = PCBApp.prototype[name];

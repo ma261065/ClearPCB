@@ -46,7 +46,7 @@ export function createPcbTextSelectionAdapter(app, text, id) {
             if (text.rotation === rotation) return;
             previewTextPose(app, text.id, { rotation });
             schedulePictureCopperRefresh(app, current());
-            app._refreshText(text.id);
+            app.refreshText(text.id);
             const input = /** @type {HTMLInputElement|null} */ (document.getElementById('pcbPropTextRot'));
             if (input) input.value = String(Math.round(rotation) % 360);
         },
@@ -71,7 +71,7 @@ export function createPcbTextSelectionAdapter(app, text, id) {
         beginMove(worldPos) { return app._beginTextDrag(current(), worldPos); },
         updateMove(worldPos) { app._updateTextDrag(worldPos); },
         endMove(commit) { app._endTextDrag(commit); },
-        invalidate() { app._refreshText(text.id); },
+        invalidate() { app.refreshText(text.id); },
         render() { renderPcbText(current()); },
     };
 }

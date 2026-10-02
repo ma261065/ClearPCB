@@ -90,7 +90,7 @@ export function finishFillDraw(app) {
     app.history.execute(new AddFillCommand(app, fill));
     // Select the new fill so the user can assign a net immediately.
     setPcbSelection(app, [{ kind: 'fill', object: fill }]);
-    app._selectFill?.(fill);
+    app.selectFill?.(fill);
     app._showFillProperties?.(fill);
 }
 
@@ -104,7 +104,7 @@ export function cancelFillDraw(app) {
 /* ───────────────────────────── preview ───────────────────────────── */
 
 function previewGroup(app) {
-    return app._getLayerGroup('selection-overlay');
+    return app.getLayerGroup('selection-overlay');
 }
 
 function clearPreview(app) {

@@ -24,7 +24,7 @@ const deferred = app => app._pictureCopperRefreshPending || app._deferDragOverla
 function reportFailure(app, message, error) {
     app._fillRefreshError = error;
     console.error(message, error);
-    app._setStatus?.(`${message} ${error instanceof Error ? error.message : String(error)}`);
+    app.setStatus?.(`${message} ${error instanceof Error ? error.message : String(error)}`);
 }
 
 function clearRetry(state) {
@@ -89,7 +89,7 @@ export function adoptFillResults(app, fills, results, contacts) {
     if (contacts) results.forEach((regions, index) => regions.forEach((region, regionIndex) =>
         validateCopperRegionContact(region, contacts[index]?.[regionIndex])));
     const previous = fills.map(getComputedFill);
-    const groups = new Map(['top-fill', 'bottom-fill'].map(id => [id, app._getLayerGroup(id)]));
+    const groups = new Map(['top-fill', 'bottom-fill'].map(id => [id, app.getLayerGroup(id)]));
     const staged = new Map([...groups].map(([id, group]) => [id, group?.cloneNode(false)]));
     const previousChildren = new Map([...groups].map(([id, group]) => [id, [...(group?.children || [])]]));
     try {

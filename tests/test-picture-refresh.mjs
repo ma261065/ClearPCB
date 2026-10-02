@@ -18,9 +18,9 @@ const pcbDocument = new PcbDocument();
 const app = {
     pcbDocument, pads: pcbDocument.pads,
     value: 0,
-    _getLayerGroup: () => null,
-    _refreshFills() { fills++; observedValue = this.value; return poursHandleRatsnest; },
-    _updateRatsnest(options) { assert.equal(options.skipFillRefresh, true); ratsnest++; },
+    getLayerGroup: () => null,
+    refreshFills() { fills++; observedValue = this.value; return poursHandleRatsnest; },
+    updateRatsnest(options) { assert.equal(options.skipFillRefresh, true); ratsnest++; },
     _scheduleDRC() { drcRequests++; },
 };
 const shape = { id: 'image', kind: 'image' };
@@ -118,7 +118,7 @@ try {
         assert.equal(fills, before + 1, 'Refresh occurs 100 ms after release');
     }
     let cutRefreshes = 0;
-    app._updateCopperCuts = () => { cutRefreshes++; };
+    app.updateCopperCuts = () => { cutRefreshes++; };
     app._deferredShapeCopperCuts = true;
     schedulePictureCopperRefresh(app);
     schedulePictureCopperRefresh(app);
