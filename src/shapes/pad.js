@@ -3,6 +3,8 @@ import { IdAllocator } from '../core/id-allocator.js';
 
 const padIds = new IdAllocator('pad');
 const round4 = value => Math.round(value * 10000) / 10000;
+// Bounds are read by every pointer query's pre-filter; pads change by field assignment.
+const boundsCache = new WeakMap();
 
 export const PAD_SHAPES = ['round', 'stadium', 'square', 'rectangle', 'oval'];
 export const PAD_LAYERS = ['top-copper', 'bottom-copper', 'both'];
@@ -49,7 +51,14 @@ export class Pad {
     }
 
     getBounds() {
-        return padBounds(this);
+        const cached = boundsCache.get(this);
+        if (cached && cached.x === this.x && cached.y === this.y && cached.shape === this.shape
+            && cached.size === this.size && cached.ratio === this.ratio && cached.rotation === this.rotation
+            && cached.drill === this.drill) return { ...cached.bounds };
+        const bounds = padBounds(this);
+        boundsCache.set(this, { x: this.x, y: this.y, shape: this.shape, size: this.size, ratio: this.ratio,
+            rotation: this.rotation, drill: this.drill, bounds });
+        return { ...bounds };
     }
 
     /** Test the outer pad area, including the drill centre for selection. */

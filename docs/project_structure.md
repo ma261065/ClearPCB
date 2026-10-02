@@ -188,6 +188,8 @@ state snapshots, used by generic modify commands.
 - `node tools/test.mjs [filter…]` — only the regression tests, optionally filtered.
 - `node tools/typecheck.mjs` — `checkJs` error report (CI installs TypeScript).
 - `node tools/bench-pointer-dispatch.mjs` — PCB pointer-move routing cost.
+- `node tools/bench-pcb-hit-test.mjs [scale]` — PCB selection sync and pointer hit
+  query cost on a large synthetic board.
 
 ## Coding & Tooling Conventions
 

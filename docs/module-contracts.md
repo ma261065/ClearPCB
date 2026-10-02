@@ -390,6 +390,15 @@ their unrounded edges and nodes stay hittable outside large corner radii
 enforces the rule for every PCB adapter kind: sampled around awkward geometry
 at three zooms, selected and unselected, `hitTest()` may only succeed inside
 the bounds `SelectionManager` pre-filters with.
+
+`syncPcbSelection()` runs on every hover and click query, so it reuses one
+adapter per model object (adapters read live state lazily). It rebuilds the
+entry list and selection flags only when the set of entities changes;
+otherwise it just resets the hit caches. Pad bounds and copper-fill outlines
+are memoised on their geometry fields, because the bounds pre-filter reads them
+for every entity on every query. `test-pcb-selection-sync-reuse` guards the
+work counts and correctness; `node tools/bench-pcb-hit-test.mjs` times a
+1,110-entity board (pointer query 8.4 ms → 0.8 ms when introduced).
 Bounds remain entity-owned derived data, not authored state.
 Schematic `Text` remains a measured-layout exception: drawing clears its bounds
 so the next query uses the updated SVG font metrics rather than an earlier

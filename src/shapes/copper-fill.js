@@ -22,6 +22,25 @@ import { IdAllocator } from '../core/id-allocator.js';
 const fillIds = new IdAllocator('fill');
 const round4 = value => Math.round(value * 10000) / 10000;
 
+// Hit tests and bounds read the rounded outline on every pointer query; fills are
+// edited in place, so the memo key is rebuilt from every outline input on each read.
+const outlineCache = new WeakMap();
+
+function recordKey(record) {
+    let key = '';
+    if (record) for (const name in record) key += `${name}:${record[name]},`;
+    return key;
+}
+
+function resolvedOutline(fill) {
+    let key = `${fill.kind}|${fill.x}|${fill.y}|${fill.radius}|${fill.cornerRadius}|`
+        + `${recordKey(fill.nodeCornerRadii)}|${recordKey(fill.segmentBulges)}|`;
+    for (const point of fill.outline) key += `${point.x},${point.y};`;
+    let cached = outlineCache.get(fill);
+    if (cached?.key !== key) outlineCache.set(fill, cached = { key, points: fill.getOutline(), bounds: null });
+    return cached;
+}
+
 function storedField(data, compact, long) {
     if (Object.hasOwn(data, compact) && Object.hasOwn(data, long)) {
         throw new Error(`Ambiguous copper-fill fields: ${compact} and ${long}.`);
@@ -101,21 +120,24 @@ export class CopperFill {
 
     /** Axis-aligned bounds of the outline, or null when empty. */
     getBounds() {
-        const boundary = this.getOutline();
-        if (boundary.length === 0) return null;
-        let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-        for (const p of boundary) {
-            if (p.x < minX) minX = p.x;
-            if (p.y < minY) minY = p.y;
-            if (p.x > maxX) maxX = p.x;
-            if (p.y > maxY) maxY = p.y;
+        const resolved = resolvedOutline(this);
+        if (resolved.points.length === 0) return null;
+        if (!resolved.bounds) {
+            let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+            for (const p of resolved.points) {
+                if (p.x < minX) minX = p.x;
+                if (p.y < minY) minY = p.y;
+                if (p.x > maxX) maxX = p.x;
+                if (p.y > maxY) maxY = p.y;
+            }
+            resolved.bounds = { minX, minY, maxX, maxY };
         }
-        return { minX, minY, maxX, maxY };
+        return { ...resolved.bounds };
     }
 
     /** Point-in-polygon test against the outline (world coords). */
     containsPoint(x, y) {
-        const pts = this.getOutline();
+        const pts = resolvedOutline(this).points;
         const n = pts.length;
         if (n < 3) return false;
         let inside = false;
@@ -131,7 +153,7 @@ export class CopperFill {
 
     /** Distance from a point to the nearest outline edge (world coords). */
     distanceToEdge(x, y) {
-        const pts = this.getOutline();
+        const pts = resolvedOutline(this).points;
         const n = pts.length;
         if (n < 2) return Infinity;
         let best = Infinity;

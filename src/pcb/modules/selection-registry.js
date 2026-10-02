@@ -47,6 +47,31 @@ function querySelectionHits(app, point) {
 /** Register a factory implementing the SelectionManager shape contract. */
 export function registerPcbSelectionAdapter(kind, factory) {
     adapterFactories.set(kind, factory);
+    adapterCaches = new WeakMap();
+}
+
+// Adapters read live model state lazily, so one per model object is reused across
+// syncs instead of rebuilding every adapter on each hover/hit query. Objects are
+// keyed weakly; component/reference IDs are pruned when their placement goes.
+let adapterCaches = new WeakMap();
+
+function adapter(app, kind, object) {
+    let caches = adapterCaches.get(app);
+    if (!caches) adapterCaches.set(app, caches = new Map());
+    let cache = caches.get(kind);
+    if (!cache) caches.set(kind, cache = typeof object === 'object' ? new WeakMap() : new Map());
+    let entry = cache.get(object);
+    if (!entry) cache.set(object, entry = createAdapter(app, kind, object));
+    return entry;
+}
+
+function pruneIdAdapters(app) {
+    for (const kind of ['component', 'reftext']) {
+        const cache = adapterCaches.get(app)?.get(kind);
+        if (cache?.size > (app.placements?.size || 0)) {
+            for (const id of cache.keys()) if (!app.placements?.has(id)) cache.delete(id);
+        }
+    }
 }
 
 function manager(app) {
@@ -80,7 +105,7 @@ function manager(app) {
     return app._pcbSelection;
 }
 
-function adapter(app, kind, object) {
+function createAdapter(app, kind, object) {
     const factory = adapterFactories.get(kind);
     if (factory) {
         const original = app._groupDrag?.preview?.originals.get(object) || object;
@@ -132,9 +157,20 @@ function entries(app) {
 /** Synchronize current PCB model entities while retaining selected keys. */
 export function syncPcbSelection(app) {
     const selection = manager(app);
-    const selected = new Set(selection.selected);
-    selection.setShapes(entries(app));
-    selection.selected = new Set([...selected].filter((id) => selection._getShape(id)));
+    const next = entries(app);
+    const previous = selection.shapes;
+    let unchanged = previous.length === next.length;
+    for (let index = 0; unchanged && index < next.length; index++) unchanged = previous[index] === next[index];
+    // Reused adapters keep the id map, selected ids and their flags valid (SelectionManager
+    // maintains flags itself); geometry may still have moved, so hit caches always reset.
+    if (unchanged) {
+        selection._invalidateHitTestCache();
+        selection._selectionCache = null;
+        return;
+    }
+    selection.setShapes(next);
+    pruneIdAdapters(app);
+    selection.selected = new Set([...selection.selected].filter((id) => selection._getShape(id)));
     for (const item of selection.shapes) item.selected = selection.selected.has(item.id);
     selection._selectionCache = null;
 }
@@ -159,6 +195,7 @@ export function resetPcbSelection(app) {
     selection.clearSelection();
     selection.setHovered(null);
     selection.setShapes([]);
+    adapterCaches.delete(app);
 }
 
 /** @param {string|null} [kind] */
