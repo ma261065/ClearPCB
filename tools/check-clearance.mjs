@@ -2,6 +2,7 @@
 // Usage: node tools/check-clearance.mjs [boardFile] [trackWidth] [clearance] [viaDia]
 
 import { readFileSync } from 'fs';
+import { routingSummary } from './routing-summary.mjs';
 import { routeAll } from '../src/pcb/modules/autorouter-maze.js';
 
 const boardFile = process.argv[2] || 'test-board.json';
@@ -20,7 +21,7 @@ console.log(`connections=${board.connections.length} pads=${board.allObstaclePad
 
 const result = await routeAll(board);
 const routed = result.totalConnectionCount - result.failedConnectionCount;
-console.log(`\nRouted ${routed}/${result.totalConnectionCount} connections, ${result.tracks.length} tracks, ${result.vias?.length || 0} vias`);
+console.log(`\n${routingSummary(result, routed)}`);
 
 // ---- clearance check ----------------------------------------------------
 // Build pad index.

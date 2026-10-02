@@ -119,6 +119,7 @@ import {
     refreshBoxSelectionHighlights,
     toggleBoxShapeSelection,
     clearBoxSelection,
+    deselectHiddenPcbSelection,
     hasBoxSelection,
     pointInBoxSelection,
     beginGroupDrag,
@@ -2700,12 +2701,9 @@ export default class PCBApp {
         }
         // A newly-hidden layer must not keep anything on it selected or
         // hovered — hidden objects are non-interactive (can't be selected,
-        // dragged or deleted), mirroring the locked-layer behaviour.
+        // dragged or deleted), mirroring the locked-layer behaviour. Objects
+        // that stay visible keep their selection.
         if (!visible) {
-            const selectedScopedEntity = getPcbSelection(this).some(
-                (item) => item.type !== 'fill' && this.boardShapes.includes(item)
-                    && item.layer === layerId,
-            );
             const viaAffected = layerId === 'vias' && !isViaVisible();
             const selectedTrack = getSelectedTrack(this);
             const selectedVia = getSelectedVia(this);
@@ -2714,21 +2712,23 @@ export default class PCBApp {
                 clearTrackSelection(this);
                 this.clearProperties();
             }
+            // Single-object teardown (node focus, text refresh); multi-selections
+            // are pruned below so objects on other layers stay selected.
+            const single = getPcbSelectionEntries(this).length === 1;
             const selectedText = getPcbSelection(this, 'text')[0] || null;
-            if (selectedText && selectedText.layer === layerId) {
+            if (single && selectedText && selectedText.layer === layerId) {
                 this._selectText(null);
                 this.clearProperties();
             }
             const selectedShape = getPcbSelection(this, 'shape')[0] || null;
-            if (selectedShape && selectedShape.layer === layerId) {
+            if (single && selectedShape && selectedShape.layer === layerId) {
                 selectBoardShape(this, null);
                 this.clearProperties();
             }
             if (this._boardOutlineSelected && layerId === 'board-outline') {
                 this._selectBoardOutline(false);
             }
-            if (hasBoxSelection(this)) clearBoxSelection(this);
-            if (selectedScopedEntity) this.clearProperties();
+            if (deselectHiddenPcbSelection(this)) showPcbSelectionProperties(this);
             setHoverHighlight(this, null);
         }
         this._refreshPcbSelectionHighlights?.();

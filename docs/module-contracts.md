@@ -405,6 +405,10 @@ are memoised on their geometry fields, because the bounds pre-filter reads them
 for every entity on every query. `test-pcb-selection-sync-reuse` guards the
 work counts and correctness; `node tools/bench-pcb-hit-test.mjs` times a
 1,110-entity board (pointer query 8.4 ms → 0.8 ms when introduced).
+Hiding a layer deselects only the entries whose adapter now reports
+`visible === false` (`deselectHiddenPcbSelection()` in `box-select.js`); objects
+on other layers, and pours that stay visible, remain selected and the
+Properties panel follows what is left (`test-pcb-selection-layer-locks`).
 Bounds remain entity-owned derived data, not authored state.
 Schematic `Text` remains a measured-layout exception: drawing clears its bounds
 so the next query uses the updated SVG font metrics rather than an earlier

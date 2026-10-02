@@ -4,7 +4,6 @@ import { CommandHistory } from '../src/core/CommandHistory.js';
 import { getTextPosePreviewTexts } from '../src/pcb/modules/text-commands.js';
 import { cancelPictureCopperRefresh } from '../src/pcb/modules/picture-refresh.js';
 import { getComputedFill, setComputedFill } from '../src/pcb/modules/computed-fill-cache.js';
-import { readFileSync } from 'node:fs';
 import * as layers from '../src/pcb/modules/layers.js';
 import { trackIsSelectable } from '../src/pcb/modules/track-select.js';
 import { viaBounds } from '../src/shapes/via.js';
@@ -59,27 +58,28 @@ const sampledArcLock = lockPositionOutsideOutline(
 assert.ok(sampledArcLock.y + LOCK_BOUNDS.maxY < -6,
     'fat sampled arc uses the nearest centreline segment when painted widths overlap');
 
-const source = readFileSync(new URL('../src/ui/PCBApp.js', import.meta.url), 'utf8');
-const start = source.indexOf('    _selectAllPcb() {');
-const end = source.indexOf('\n    /** Enable/disable PCB ribbon', start);
-assert.ok(start >= 0 && end > start);
-const marqueeSource = readFileSync(new URL('../src/pcb/modules/box-select.js', import.meta.url), 'utf8');
-const marqueeStart = marqueeSource.indexOf('function _computeEnclosed(');
-const marqueeEnd = marqueeSource.indexOf('\n/* ', marqueeStart);
-assert.ok(marqueeStart >= 0 && marqueeEnd > marqueeStart);
-const dependencies = {
-    ...layers,
-    trackIsSelectable,
-    viaBounds,
-    window: {},
-    setPcbSelection(app, selected) { app.selected = selected; },
-    refreshBoxSelectionHighlights() {}, showPcbSelectionProperties() {},
-    shapeOutline(shape) { return shape.points; }, pcbTextBounds() { return {}; },
+globalThis.window = { addEventListener() {} };
+const domElement = () => ({
+    style: {}, children: [], attributes: new Map(), classList: { add() {}, remove() {}, toggle() {}, contains: () => false },
+    setAttribute(name, value) { this.attributes.set(name, String(value)); },
+    getAttribute(name) { return this.attributes.get(name) ?? null; },
+    removeAttribute(name) { this.attributes.delete(name); },
+    appendChild(child) { this.children.push(child); child.parentNode = this; return child; },
+    insertBefore(child) { return this.appendChild(child); },
+    remove() { if (this.parentNode) this.parentNode.children = this.parentNode.children.filter(el => el !== this); },
+    querySelector: () => null, querySelectorAll: () => [],
+});
+globalThis.document = {
+    createElement: domElement, createElementNS: domElement, body: domElement(),
+    documentElement: { getAttribute: () => 'dark' }, getElementById: () => null,
+    querySelector: () => null, querySelectorAll: () => [], addEventListener() {},
 };
-const selectAll = new Function(...Object.keys(dependencies),
-    `return ({ ${source.slice(start, end)} })._selectAllPcb;`)(...Object.values(dependencies));
-const marquee = new Function(...Object.keys(dependencies),
-    `${marqueeSource.slice(marqueeStart, marqueeEnd)}\nreturn _computeEnclosed;`)(...Object.values(dependencies));
+globalThis.localStorage = { getItem: () => null, setItem() {}, removeItem() {} };
+globalThis.requestAnimationFrame = () => 0;
+globalThis.cancelAnimationFrame = () => {};
+const { default: PCBApp } = await import('../src/ui/PCBApp.js');
+const { selectEnclosed } = await import('../src/pcb/modules/box-select.js');
+const { getPcbSelectionEntries: selectionEntries } = await import('../src/pcb/modules/selection-registry.js');
 const topLayer = layers.PCB_LAYERS.find(layer => layer.id === 'top-copper');
 const topPour = layers.PCB_COPPER_FILLS.find(layer => layer.id === 'top-copper');
 const points = [{ x: 1, y: 1 }, { x: 2, y: 1 }, { x: 2, y: 2 }];
@@ -92,9 +92,11 @@ const app = {
     pcbDocument: new PcbDocument(), history: new CommandHistory(),
     get texts() { return getTextPosePreviewTexts(this) || this.pcbDocument.texts; },
     tracks: [], vias: [], boardShapes: [fill, shape], refreshText() {},
-    syncClipboardButtons() {}, getLayerGroup() { return null; }, selected: [],
+    syncClipboardButtons() {}, getLayerGroup() { return null; }, _shapeElements: new Map(),
+    get selected() { return selectionEntries(this); },
 };
-for (const select of [() => selectAll.call(app), () => marquee(app, { minX: 0, minY: 0, maxX: 10, maxY: 10 })]) {
+for (const select of [() => PCBApp.prototype._selectAllPcb.call(app),
+    () => selectEnclosed(app, { minX: 0, minY: 0, maxX: 10, maxY: 10 })]) {
     select();
     assert.ok(!app.selected.some(entry => entry.object === lockedPlacement.id),
         'Locked component is excluded from bulk selection');
@@ -129,8 +131,6 @@ for (const select of [() => selectAll.call(app), () => marquee(app, { minX: 0, m
 }
 console.log('PASS Select All and marquee respect pour, copper-layer, and object locks and visibility');
 
-globalThis.window = { addEventListener() {} };
-globalThis.document = {};
 const { setPcbSelection, getPcbSelectionEntries, getPcbSelection } = await import('../src/pcb/modules/selection-registry.js');
 const { beginGroupDrag, updateGroupDrag, endGroupDrag } = await import('../src/pcb/modules/box-select.js');
 let pourMoves = 0;
@@ -181,11 +181,7 @@ cancelPictureCopperRefresh(app);
 const { CopperFill } = await import('../src/shapes/copper-fill.js');
 const { createCopperFillSelectionAdapter } = await import('../src/pcb/modules/copper-fill-selection.js');
 const { hitTestPcbSelection } = await import('../src/pcb/modules/selection-registry.js');
-const hitStart = source.indexOf('    _hitTestFill(worldPos) {');
-const hitEnd = source.indexOf('\n    /** Select (or clear)', hitStart);
-assert.ok(hitStart >= 0 && hitEnd > hitStart);
-const hitFill = new Function(...Object.keys(layers),
-    `return ({ ${source.slice(hitStart, hitEnd)} })._hitTestFill;`)(...Object.values(layers));
+const hitFill = PCBApp.prototype._hitTestFill;
 const visibleFill = new CopperFill({ outline: points, layer: 'top-copper' });
 const fillApp = {
     boardShapes: [visibleFill], copperFills: [visibleFill], viewport: { scale: 10 },
@@ -223,22 +219,7 @@ try {
 }
 console.log('PASS visible fill selection and dragging are independent of copper visibility');
 
-const visibilityStart = source.indexOf('    _onLayerVisibilityChanged(layerId, visible) {');
-const visibilityEnd = source.indexOf('\n    /**', visibilityStart);
-assert.ok(visibilityStart >= 0 && visibilityEnd > visibilityStart);
-const { trackPointerTouchesLayer, cancelVertexDrag } = await import('../src/pcb/modules/track-drag.js');
-const { finishSelectionInteraction } = await import('../src/pcb/modules/selection-interaction.js');
-const { getBoardShapeRotationPreview, finishBoardShapeRotationPreview } = await import('../src/pcb/modules/board-shapes.js');
-const { getPropertyEditor, eachPropertyEditorOnLayer } = await import('../src/pcb/modules/property-editors.js');
-const visibilityDependencies = {
-    ...layers, getPcbSelection, getPcbSelectionEntries, saveLayerPrefs() {},
-    trackPointerTouchesLayer, cancelVertexDrag, finishSelectionInteraction,
-    getBoardShapeRotationPreview, finishBoardShapeRotationPreview, getPropertyEditor, eachPropertyEditorOnLayer,
-    getSelectedTrack() { return null; }, getSelectedVia() { return null; },
-    hasBoxSelection() { return false; }, setHoverHighlight() {},
-};
-const onVisibility = new Function(...Object.keys(visibilityDependencies),
-    `return ({ ${source.slice(visibilityStart, visibilityEnd)} })._onLayerVisibilityChanged;`)(...Object.values(visibilityDependencies));
+const onVisibility = PCBApp.prototype._onLayerVisibilityChanged;
 fillApp._layerGroups = new Map();
 let hatchRedraws = 0;
 let selectionRefreshes = 0;
@@ -257,30 +238,42 @@ assert.equal(hatchRedraws, 4, 'Showing and hiding either copper side refreshes h
 onVisibility.call(fillApp, 'top-silk', true);
 assert.equal(hatchRedraws, 4, 'Unrelated layer visibility does not redraw copper hatching');
 assert.equal(selectionRefreshes, 5, 'Every layer eye change refreshes selection affordances');
+{
+    const copperShape = { kind: 'polygon', id: 'hidden-copper-shape', layer: 'top-copper', points };
+    const silkShape = { kind: 'polygon', id: 'kept-silk-shape', layer: 'top-silk', points };
+    const keptVia = { id: 'kept-via', x: 5, y: 5, diameter: 0.6, drill: 0.3 };
+    let shownProperties = null;
+    const layerApp = {
+        placements: new Map(), pcbDocument: new PcbDocument(), tracks: [], vias: [keptVia], pads: [],
+        boardShapes: [copperShape, silkShape], _layerGroups: new Map(), _shapeElements: new Map(),
+        viewport: { scale: 10 }, getLayerGroup() { return null; }, refreshText() {}, syncClipboardButtons() {},
+        _scheduleRemovalHatchRender() {}, clearProperties() {},
+        _showPcbMultiSelectionProperties(selected) { shownProperties = new Set(selected.map(entry => entry.object)); },
+        get texts() { return this.pcbDocument.texts; },
+    };
+    setPcbSelection(layerApp, [
+        { kind: 'shape', object: copperShape }, { kind: 'shape', object: silkShape }, { kind: 'via', object: keptVia },
+    ]);
+    const previous = topLayer.visible;
+    try {
+        topLayer.visible = false;
+        onVisibility.call(layerApp, 'top-copper', false);
+    } finally {
+        topLayer.visible = previous;
+    }
+    assert.deepEqual(new Set(getPcbSelection(layerApp)), new Set([silkShape, keptVia]),
+        'Hiding a layer deselects only its objects; selections on visible layers are kept');
+    assert.deepEqual(shownProperties, new Set([silkShape, keptVia]), 'Properties follow the remaining selection');
+}
+console.log('PASS hiding a layer deselects only the objects it hides');
 
-const fillVisibilityStart = source.indexOf('    _onCopperFillVisibilityChanged(copperLayerId, visible) {');
-const fillVisibilityEnd = source.indexOf('\n    /**', fillVisibilityStart);
-assert.ok(fillVisibilityStart >= 0 && fillVisibilityEnd > fillVisibilityStart);
-const onFillVisibility = new Function('fillGroupId', 'saveLayerPrefs',
-    `return ({ ${source.slice(fillVisibilityStart, fillVisibilityEnd)} })._onCopperFillVisibilityChanged;`)(
-    layer => layer, () => {},
-);
+const onFillVisibility = PCBApp.prototype._onCopperFillVisibilityChanged;
 fillApp._cancelPosePreviews = function () { this._groupDrag = null; };
 onFillVisibility.call(fillApp, 'top-copper', false);
 assert.equal(fillApp._groupDrag, null, 'Hiding a pour discards an active mixed-group preview');
 assert.equal(selectionRefreshes, 6, 'Hiding copper-fill outlines removes their selection lock overlay');
 
-const lockStart = source.indexOf('    _onCopperFillLockChanged(copperLayerId, locked) {');
-const lockEnd = source.indexOf('\n    /** Hit-test a world point', lockStart);
-assert.ok(lockStart >= 0 && lockEnd > lockStart);
-const lockDependencies = {
-    setPcbSelection, getPcbSelection, getPcbSelectionEntries,
-    fillGroupId: layer => layer, saveLayerPrefs() {},
-    refreshBoxSelectionHighlights() {}, showPcbSelectionProperties() {},
-    document: { getElementById() { return null; } },
-};
-const onLock = new Function(...Object.keys(lockDependencies),
-    `return ({ ${source.slice(lockStart, lockEnd)} })._onCopperFillLockChanged;`)(...Object.values(lockDependencies));
+const onLock = PCBApp.prototype._onCopperFillLockChanged;
 const bottomFill = { ...fill, id: 'bottom-pour', layer: 'bottom-copper' };
 const secondTopFill = { ...fill, id: 'second-top-pour' };
 app.boardShapes.push(bottomFill, secondTopFill);

@@ -1,5 +1,4 @@
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
 import { ProjectDocument } from '../src/core/ProjectDocument.js';
 import { CommandHistory } from '../src/core/CommandHistory.js';
 import { Component } from '../src/components/Component.js';
@@ -269,17 +268,12 @@ for (const key of ['Escape', 'Delete', 'z', 'y']) {
 console.log('PASS single-kind/repeated paste, keyboard discard, invalid and missing preview cleanup');
 
 {
-    const { runPcbHistoryAction } = await import('../src/pcb/modules/editor-actions.js');
-    const controls = readFileSync(new URL('../src/pcb/modules/controls.js', import.meta.url), 'utf8');
-    const start = controls.indexOf("    undoBtn?.addEventListener('click'");
-    const end = controls.indexOf('    app._syncHistoryButtons?.();', start);
-    assert.ok(start >= 0 && end > start);
+    const { bindPcbHistoryButtons } = await import('../src/pcb/modules/controls.js');
     for (const action of ['undo', 'redo']) {
         const { app, model } = fixture(), before = model.captureGeometry();
         let callback;
         const button = { addEventListener(name, fn) { callback = fn; } };
-        new Function('app', 'undoBtn', 'redoBtn', 'runPcbHistoryAction', controls.slice(start, end))(
-            app, action === 'undo' ? button : null, action === 'redo' ? button : null, runPcbHistoryAction);
+        bindPcbHistoryButtons(app, action === 'undo' ? button : null, action === 'redo' ? button : null);
         app.pasteSelection();
         callback();
         assert.equal(app._pasteDrop, null);

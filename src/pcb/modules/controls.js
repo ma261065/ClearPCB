@@ -138,9 +138,7 @@ export function bindPcbControls(app) {
     pastePropsBtn?.addEventListener('click', doPaste);
     app.syncClipboardButtons?.();
 
-    undoBtn?.addEventListener('click', () => runPcbHistoryAction(app, 'undo'));
-    redoBtn?.addEventListener('click', () => runPcbHistoryAction(app, 'redo'));
-    app._syncHistoryButtons?.();
+    bindPcbHistoryButtons(app, undoBtn, redoBtn);
 
     // Auto Route button
     const autoRouteBtn = document.getElementById('pcbAutoRoute');
@@ -312,6 +310,19 @@ export function bindPcbControls(app) {
     syncGridSettings(app);
 
     bindPcbFileMenu(app);
+}
+
+/**
+ * Undo/Redo buttons route through the same history action as the keyboard
+ * shortcuts, so a floating paste or drag is cancelled before history moves.
+ * @param {object} app
+ * @param {HTMLElement | null} undoBtn
+ * @param {HTMLElement | null} redoBtn
+ */
+export function bindPcbHistoryButtons(app, undoBtn, redoBtn) {
+    undoBtn?.addEventListener('click', () => runPcbHistoryAction(app, 'undo'));
+    redoBtn?.addEventListener('click', () => runPcbHistoryAction(app, 'redo'));
+    app._syncHistoryButtons?.();
 }
 
 /**

@@ -1024,7 +1024,7 @@ export function collectBondedCopper(app, seed, { includeShapes = false, newTrack
     return bondedCopperFromClusters(clusters.filter((_, index) => roots.has(find(index))));
 }
 
-function expandCopperContactRoots(contacts, roots, newTracks = null) {
+export function expandCopperContactRoots(contacts, roots, newTracks = null, touches = copperContactsTouch) {
     const neighbours = new Map();
     for (const [first, second] of spatialPairs(contacts, contact => contact.resolved.bounds, 1e-7)) {
         if (first.root === second.root
@@ -1044,7 +1044,7 @@ function expandCopperContactRoots(contacts, roots, newTracks = null) {
     for (let index = 0; index < pending.length; index++) {
         for (const [from, to] of neighbours.get(pending[index]) || []) {
             if (roots.has(to.root)) continue;
-            if (!copperContactsTouch(from.resolved, to.resolved)) continue;
+            if (!touches(from.resolved, to.resolved)) continue;
             roots.add(to.root);
             pending.push(to.root);
         }

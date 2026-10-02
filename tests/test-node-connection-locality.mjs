@@ -1,13 +1,5 @@
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
-import { spatialPairs } from '../src/core/spatial-pairs.js';
-
-const source = readFileSync(new URL('../src/pcb/modules/track-draw.js', import.meta.url), 'utf8');
-const start = source.indexOf('function expandCopperContactRoots(');
-const end = source.indexOf('\nfunction buildBondedClusters(', start);
-assert.ok(start >= 0 && end > start);
-const createTraversal = new Function('spatialPairs', 'copperContactsTouch',
-    `${source.slice(start, end)}\nreturn expandCopperContactRoots;`);
+import { expandCopperContactRoots } from '../src/pcb/modules/track-draw.js';
 const key = (a, b) => [a, b].sort((x, y) => x - y).join(':');
 const contact = (id, root = id, layer = 'top-copper') => ({
     root, layer, resolved: { id, bounds: { minX: 0, minY: 0, maxX: 1, maxY: 1 } },
@@ -35,10 +27,10 @@ function compare(contacts, seeds, links, newTracks = null) {
         }
     } while (changed);
     const actual = new Set(seeds);
-    createTraversal(spatialPairs, (a, b) => {
+    expandCopperContactRoots(contacts, actual, newTracks, (a, b) => {
         calls++;
         return links.has(key(a.id, b.id));
-    })(contacts, actual, newTracks);
+    });
     assert.deepEqual([...actual].sort((a, b) => a - b), [...expected].sort((a, b) => a - b),
         'Seed-reachable contacts match exhaustive physical connectivity');
     assert.ok(calls <= exhaustiveCalls);

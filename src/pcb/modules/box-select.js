@@ -68,6 +68,7 @@ import {
     clearPcbSelection,
     getComponentSelectionHits,
     getPcbSelection,
+    getPcbSelectionEntries,
     hasPcbSelection,
     refreshPcbReferenceOverlay,
     setPcbSelection,
@@ -250,7 +251,7 @@ function _flushMarqueeUpdate(app) {
 function _updateMarquee(app, worldPos) {
     updateBoxSelectElement(app, worldPos);
     const bounds = getBoxSelectBounds(app, worldPos);
-    _computeEnclosed(app, bounds);
+    selectEnclosed(app, bounds);
     _applyHighlights(app);
 }
 
@@ -295,7 +296,7 @@ export function toggleBoxShapeSelection(app, shape) {
 /* ─────────────────────── containment test ───────────────────────── */
 
 /** Replace the selection sets with everything fully inside `bounds`. */
-function _computeEnclosed(app, bounds) {
+export function selectEnclosed(app, bounds) {
     const selected = [];
     const { minX, minY, maxX, maxY } = bounds;
 
@@ -435,6 +436,25 @@ export function clearBoxSelection(app) {
     for (const textId of selectedTextIds) app.refreshText?.(textId);
     for (const pad of selectedPads) renderPad(pad, id => app.getLayerGroup(id));
     app.syncClipboardButtons?.();
+}
+
+/**
+ * Deselect only the selected objects that are no longer visible (e.g. after a
+ * layer is hidden), keeping the rest of the selection. Returns true when
+ * anything was deselected.
+ */
+export function deselectHiddenPcbSelection(app) {
+    const selected = getPcbSelectionEntries(app);
+    const hidden = selected.filter((entry) => entry.visible === false);
+    if (!hidden.length) return false;
+    _clearHighlights(app);
+    setPcbSelection(app, selected.filter((entry) => entry.visible !== false));
+    for (const entry of hidden) {
+        if (entry.kind === 'text') app.refreshText?.(entry.object.id);
+        else if (entry.kind === 'pad') renderPad(entry.object, id => app.getLayerGroup(id));
+    }
+    app.syncClipboardButtons?.();
+    return true;
 }
 
 /* ─────────────────────────── group drag ─────────────────────────── */

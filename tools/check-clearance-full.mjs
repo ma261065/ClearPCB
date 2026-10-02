@@ -3,6 +3,7 @@
 // Usage: node tools/check-clearance-full.mjs [boardFile] [trackWidth] [clearance] [viaDia]
 
 import { readFileSync } from 'fs';
+import { routingSummary } from './routing-summary.mjs';
 import { routeAll } from '../src/pcb/modules/autorouter-maze.js';
 
 const boardFile = process.argv[2] || 'test-board.json';
@@ -20,7 +21,7 @@ console.log(`board=${boardFile} trackWidth=${trackWidth} clearance=${clearance} 
 
 const result = await routeAll(board);
 const routed = result.totalConnectionCount - result.failedConnectionCount;
-console.log(`Routed ${routed}/${result.totalConnectionCount} connections, ${result.tracks.length} tracks, ${result.vias?.length || 0} vias`);
+console.log(routingSummary(result, routed));
 
 const halfTrack = trackWidth / 2;
 const viaRadius = viaDiameter / 2;

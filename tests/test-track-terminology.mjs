@@ -8,26 +8,44 @@ assert.doesNotMatch(html, /\btraces?\b/i, 'PCB help and tooltips consistently sa
 assert.match(html, /Clear all tracks and restore ratlines/);
 assert.match(html, /Tracks and vias will appear/);
 
-const pcb = read('src/ui/PCBApp.js');
-const status = pcb.split('\n').find(line => line.includes('this.setStatus(`Imported ${result.tracks.length}'));
-assert.ok(status);
-let displayed;
-new Function('result', status).call({ setStatus: message => { displayed = message; } },
-    { tracks: [1, 2], vias: [1] });
+// Drive the real SES import: file picker -> FileReader -> parser -> status line.
+let picker;
+globalThis.window = { addEventListener() {} };
+globalThis.document = {
+    createElement: () => (picker = { files: [], listeners: {}, clicked: 0, click() { this.clicked++; }, addEventListener(name, fn) { this.listeners[name] = fn; } }),
+    createElementNS: () => ({}), body: {}, documentElement: { getAttribute: () => 'dark' }, getElementById: () => null,
+    querySelector: () => null, querySelectorAll: () => [], addEventListener() {},
+};
+globalThis.localStorage = { getItem: () => null, setItem() {}, removeItem() {} };
+globalThis.FileReader = class { readAsText(text) { this.result = text; this.onload(); } };
+const { pcbEditorFixture } = await import('./pcb-editor-fixture.mjs');
+let displayed, rendered;
+const editor = pcbEditorFixture({
+    setStatus: message => { displayed = message; }, _cancelAutoRoute() {},
+    _renderRouteResult: result => { rendered = result; },
+});
+const quietLog = console.log;
+console.log = () => {};
+try {
+    editor.importSES();
+    assert.equal(picker.clicked, 1, 'Import opens the file picker');
+    picker.files = [`(session fixture (routes (resolution mm 1000) (network_out (net N1
+        (wire (path F.Cu 200 0 0 1000 0)) (wire (path B.Cu 200 1000 0 1000 1000)) (via via_default 1000 0)))))`];
+    picker.listeners.change();
+} finally {
+    console.log = quietLog;
+}
+assert.equal(rendered.tracks.length, 2);
 assert.equal(displayed, 'Imported 2 track(s), 1 via(s) from SES');
 
-const summaries = [];
+const { routingSummary } = await import('../tools/routing-summary.mjs');
+const routedSummary = routingSummary({ tracks: Array(288), vias: Array(214), totalConnectionCount: 76 }, 74);
+assert.equal(routedSummary, 'Routed 74/76 connections, 288 tracks, 214 vias');
 for (const name of ['check-clearance', 'check-clearance-full', 'check-clearance-pathfinder']) {
     const source = read(`tools/${name}.mjs`);
-    const line = source.split('\n').find(line => line.startsWith('console.log(`') && line.includes('Routed ${routed}'));
-    assert.ok(line);
-    let summary;
-    new Function('console', 'result', 'routed', line)(
-        { log: message => { summary = message; } },
-        { tracks: Array(288), vias: Array(214), totalConnectionCount: 76 }, 74);
-    assert.equal(summary.trim(), 'Routed 74/76 connections, 288 tracks, 214 vias');
+    assert.match(source, /console\.log\((?:`\\n\$\{)?routingSummary\(result, routed\)/,
+        'Each clearance tool prints the shared summary the gate parses');
     assert.doesNotMatch(source, /addVio\('(?:trace|via↔trace)/);
-    summaries.push(summary);
 }
 
 // Exercise the real gate parser/checks without rerunning the router for a label change.
@@ -36,7 +54,7 @@ const gate = read('tools/regression.mjs')
     .replace(/^import .*;\r?\n/gm, '')
     .replace(/import\.meta\.url/g, "'fixture'");
 for (const [summary, violations, expectedExit] of [
-    [summaries[1], 0, 0], [summaries[1], 1, 1], ['unrecognized output', 0, 1],
+    [routedSummary, 0, 0], [routedSummary, 1, 1], ['unrecognized output', 0, 1],
 ]) {
     const output = [];
     let calls = 0;

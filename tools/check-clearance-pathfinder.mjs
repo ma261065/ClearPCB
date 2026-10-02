@@ -5,6 +5,7 @@
 // Usage: node tools/check-clearance-pathfinder.mjs [boardFile] [trackWidth] [clearance] [viaDia]
 
 import { readFileSync } from 'fs';
+import { routingSummary } from './routing-summary.mjs';
 import { routeAllPathfinder } from '../src/pcb/modules/autorouter-pathfinder.js';
 
 const boardFile = process.argv[2] || 'test-board.json';
@@ -24,7 +25,7 @@ const t0 = Date.now();
 const result = await routeAllPathfinder(board);
 const elapsed = Date.now() - t0;
 const routed = result.totalConnectionCount - result.failedConnectionCount;
-console.log(`Routed ${routed}/${result.totalConnectionCount} connections, ${result.tracks.length} tracks, ${result.vias?.length || 0} vias`);
+console.log(routingSummary(result, routed));
 console.log(`Converged: ${result.pathfinderConverged}, iterations: ${result.pathfinderIterations}, emitted iter: ${result.pathfinderEmittedIter}, emitted overused cells: ${result.pathfinderEmittedOverusedCells}, emitted conflicted nets: ${result.pathfinderEmittedOverusedNets}`);
 console.log(`(last iter: overused cells=${result.pathfinderFinalOverusedCells}, conflicted nets=${result.pathfinderFinalOverusedNets})`);
 
