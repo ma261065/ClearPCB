@@ -197,7 +197,7 @@ export function refreshBoardShapeToolLayer(app) {
     if ((select.value || null) !== layer) showBoardShapeToolProperties(app, app.currentTool);
 }
 
-function showImageProperties(app, shape, items) {
+export function showImageProperties(app, shape, items) {
     if (getPropertyEditor(app, 'boardShape')?.committing) return;
     shape = canonicalBoardShape(app, shape);
     getPropertyEditor(app, 'boardShape')?.dispose();

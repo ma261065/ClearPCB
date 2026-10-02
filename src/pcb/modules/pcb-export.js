@@ -68,7 +68,7 @@ const ARTWORK_LAYER_IDS = [
  * @param {object} app PCBApp instance.
  * @returns {Array<{id: string, name: string, color: string, populated: boolean}>}
  */
-function listArtworkLayers(app) {
+export function listArtworkLayers(app) {
     const meta = new Map(PCB_LAYERS.map((l) => [l.id, l]));
     const out = [];
     for (const id of ARTWORK_LAYER_IDS) {

@@ -1,6 +1,5 @@
 import assert from 'node:assert/strict';
 import { PcbDocument } from '../src/core/PcbDocument.js';
-import { readFileSync } from 'node:fs';
 import { rotationHandleAnchor, pointerRotation, rotatedImagePoints, ROTATION_CURSOR } from '../src/pcb/modules/rotation-handle.js';
 
 const bounds = { minX: -4, minY: -2, maxX: 4, maxY: 2 };
@@ -205,14 +204,28 @@ try {
             assert.equal(visibleRotationParts().length, 2, 'Returning to a single image/text restores rotation');
         }
     }
-    const source = readFileSync(new URL('../src/ui/PCBApp.js', import.meta.url), 'utf8').replace(/\r\n/g, '\n');
-    const imageSource = readFileSync(new URL('../src/pcb/modules/board-shape-properties.js', import.meta.url), 'utf8');
-    for (const [inputId, panelSource] of [
-        ['pcbPropTextRot', source], ['pcbPropTextToolRot', source], ['pcbPropImageRot', imageSource],
-    ]) {
-        const template = panelSource.match(new RegExp(`<input[^>]*id="${inputId}"[^>]*>`))[0];
+    // Render the real Properties panels and read the rotation inputs from their markup.
+    const { showImageProperties } = await import('../src/pcb/modules/board-shape-properties.js');
+    const panelMarkup = render => {
+        const items = { innerHTML: '', querySelector: () => null, querySelectorAll: () => [] };
+        try { render(items); } catch { /* listener binding needs a DOM; the markup is already written */ }
+        return items.innerHTML;
+    };
+    const panelApp = { _pcbPropsItems: () => panelItems, _setPcbPropsTitle() {}, _layerLabel: PCBApp.prototype._layerLabel,
+        _textDefaults: { size: 1, rotation: 37.6, layer: 'top-silk', strokeWidth: 0.15, border: false },
+        pcbDocument: { texts: new Map([['t', { id: 't', content: 'T', x: 0, y: 0, size: 1, rotation: 12.34567,
+            layer: 'top-silk', strokeWidth: 0.15 }]]) } };
+    let panelItems;
+    const markup = {
+        pcbPropTextToolRot: panelMarkup(items => { panelItems = items; PCBApp.prototype._showTextToolProperties.call(panelApp); }),
+        pcbPropTextRot: panelMarkup(items => { panelItems = items; PCBApp.prototype._showTextProperties.call(panelApp, { id: 't' }); }),
+        pcbPropImageRot: panelMarkup(items => showImageProperties(panelApp, { ...pictureShape({ width: 4, height: 2, rectangles: [{ x: 0, y: 0, width: 4, height: 2 }] }, { widthMm: 8, layer: 'top-silk' }), rotation: 359.99999 }, items)),
+    };
+    for (const [inputId, expected] of [['pcbPropTextToolRot', '38'], ['pcbPropTextRot', '12'], ['pcbPropImageRot', '0']]) {
+        const template = markup[inputId].match(new RegExp(`<input[^>]*id="${inputId}"[^>]*>`))?.[0];
+        assert.ok(template, `${inputId} is rendered`);
         assert.match(template, /step="1"/, `${inputId} increments by one degree`);
-        assert.match(template, /value="\$\{displayRotationDegrees\(/, `${inputId} displays through the shared whole-degree formatter`);
+        assert.match(template, new RegExp(`value="${expected}"`), `${inputId} displays whole degrees`);
     }
     for (const [rotation, expected] of [[12.34567, 12], [12.6, 13], [42, 42], [359.99999, 0]]) {
         assert.equal(displayRotationDegrees(rotation), expected, 'rotation inputs display whole degrees');

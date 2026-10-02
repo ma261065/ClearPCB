@@ -1,5 +1,4 @@
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
 import { createSurfaceBuilder } from '../src/pcb/modules/board3d-surface-client.js';
 import { buildSurfaceBuffers } from '../src/pcb/modules/board3d-surface-build.js';
 import { decodeSurfaceInputs } from '../src/pcb/modules/board3d-surface-transfer.js';
@@ -8,9 +7,8 @@ import { pictureShape } from '../src/shared/pcb/picture-raster.js';
 globalThis.localStorage = { getItem: () => null, setItem() {}, removeItem() {} };
 globalThis.window = { addEventListener() {}, dispatchEvent() {} };
 globalThis.document = { body: { contains: () => false } };
-const { buildSilkMesh, createSilkArtworkMeshCache, buildBoardSurfaceInputs, getLayerStylesAppearance, setLayerStylesAppearance } =
-    await import('../src/pcb/modules/board3d.js');
-const source = readFileSync(new URL('../src/pcb/modules/board3d.js', import.meta.url), 'utf8');
+const { buildSilkMesh, createSilkArtworkMeshCache, buildBoardSurfaceInputs, getLayerStylesAppearance, setLayerStylesAppearance,
+    BOARD_SURFACE_ORDER, boardSurfaceMaterials } = await import('../src/pcb/modules/board3d.js');
 const artworkMesh = createSilkArtworkMeshCache();
 const placement = { x: 5, y: 5, rotation: 0, side: 'top', silks: [
     { layer: 'top-silk', type: 'line', x1: -2, y1: 0, x2: 2, y2: 0, strokeWidth: 0.3 },
@@ -127,6 +125,8 @@ assert.equal(await stale, null, 'Cancelled geometry cannot publish a partial art
 await build([]);
 builder.dispose();
 assert.notEqual(createSilkArtworkMeshCache()(saved), artworkMesh(saved), 'Reopened viewers own fresh caches');
-assert.match(source, /silkArtwork: scene\.silkMaterial/, 'Both silk partitions share opacity/depth material');
-assert.match(source, /silkArtwork: 7/, 'Artwork retains the silk layer order');
+const silkMaterial = {};
+assert.equal(boardSurfaceMaterials({ silkMaterial }).silkArtwork, silkMaterial, 'Both silk partitions share opacity/depth material');
+assert.equal(boardSurfaceMaterials({ silkMaterial }).silk, silkMaterial);
+assert.equal(BOARD_SURFACE_ORDER.silkArtwork, BOARD_SURFACE_ORDER.silk, 'Artwork retains the silk layer order');
 console.log('PASS cached source artwork, changed-only worker jobs, split/combined geometry parity, edits, layers, holes, outline, palette, deletion, restoration and cancellation');

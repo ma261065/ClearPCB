@@ -1,12 +1,11 @@
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
 import { createSurfaceBuilder } from '../src/pcb/modules/board3d-surface-client.js';
 import { buildSurfaceBuffers } from '../src/pcb/modules/board3d-surface-build.js';
 import { decodeSurfaceInputs } from '../src/pcb/modules/board3d-surface-transfer.js';
 
 globalThis.window = { addEventListener() {} };
-const { buildMaskFaceMesh, collectMaskOpeningHoles, buildBoardSurfaceInputs } = await import('../src/pcb/modules/board3d.js');
-const source = readFileSync(new URL('../src/pcb/modules/board3d.js', import.meta.url), 'utf8');
+const { buildMaskFaceMesh, collectMaskOpeningHoles, buildBoardSurfaceInputs, BOARD_SURFACE_ORDER, boardSurfaceMaterials,
+    publishBoardSurfaces } = await import('../src/pcb/modules/board3d.js');
 const top = 'maskCoatTop', bottom = 'maskCoatBottom';
 const both = [top, bottom];
 const placement = { x: 3, y: 3, side: 'top', rotation: 0, padOffsets: [
@@ -138,8 +137,14 @@ assert.equal(await stale, null, 'Cancelled face builds cannot publish half a mas
 worker.onmessage({ data: { id: staleJob.id, surfaces: buildSurfaceBuffers(staleJob.surfaces) } });
 await build([]);
 builder.dispose();
-assert.match(source, /maskCoatTop: scene\.maskCoatMaterial, maskCoatBottom: scene\.maskCoatMaterial/);
-assert.match(source, /maskCoatTop: 5,\s+maskCoatBottom: 5/);
-assert.match(source, /for \(const key of Object\.keys\(surf\)\) swapSurface\(key, result\[key\], materials\[key\]\);\s+if \(syncComponentBodies\) syncBodies\(\);/,
-    'All completed faces and component bodies publish together');
+const sceneMaterials = { maskCoatMaterial: { name: 'mask' }, silkMaterial: { name: 'silk' } };
+const materials = boardSurfaceMaterials(sceneMaterials);
+assert.equal(materials.maskCoatTop, sceneMaterials.maskCoatMaterial, 'Both faces share the mask material');
+assert.equal(materials.maskCoatBottom, sceneMaterials.maskCoatMaterial);
+assert.equal(BOARD_SURFACE_ORDER.maskCoatTop, BOARD_SURFACE_ORDER.maskCoatBottom, 'Both faces share the mask paint order');
+const published = [];
+publishBoardSurfaces((key, data, material) => published.push([key, data, material]), ['maskCoatTop', 'maskCoatBottom'],
+    { maskCoatTop: 'top', maskCoatBottom: 'bottom' }, materials);
+assert.deepEqual(published, [['maskCoatTop', 'top', materials.maskCoatTop], ['maskCoatBottom', 'bottom', materials.maskCoatBottom]],
+    'All completed faces publish in one pass');
 console.log('PASS independent mask faces, unchanged buffer reuse, split/combined triangle parity, side/pad/shape/drill/outline/color edits and cancellation');

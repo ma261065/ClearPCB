@@ -1,5 +1,4 @@
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
 import { generateFootprint } from '../src/shared/pcb/footprint.js';
 
 globalThis.document = { body: { contains() { return false; } } };
@@ -8,7 +7,8 @@ globalThis.localStorage = { getItem() { return null; } };
 const { PCB_LAYERS } = await import('../src/pcb/modules/layers.js');
 const { Board2D } = await import('../src/pcb/modules/board2d.js');
 const { exportGerbers } = await import('../src/pcb/modules/gerber.js');
-const { collectCopperSubtractHoles, buildSilkMesh, buildTextMesh } = await import('../src/pcb/modules/board3d.js');
+const { collectCopperSubtractHoles, buildSilkMesh, buildTextMesh, boardSurfaceFrame, buildBoardSurfaceInputs, createSilkArtworkMeshCache } =
+    await import('../src/pcb/modules/board3d.js');
 const { resolveSilk } = await import('../src/shared/pcb/board-geometry.js');
 
 const fixtures = [
@@ -62,16 +62,33 @@ for (const side of ['top', 'bottom']) {
 }
 assert.equal(preview._drawDocumentCutouts, undefined);
 
-const source = readFileSync(new URL('../src/pcb/modules/board3d.js', import.meta.url), 'utf8').replace(/\r\n/g, '\n');
 for (const build of [buildSilkMesh, buildTextMesh]) {
     assert.deepEqual(build(app), { verts: [], faces: [] });
 }
-assert.ok(!source.includes('documentCutout'));
+const surfaceFaces = shapes => {
+    const board = { ...app, boardShapes: shapes, pads: [], copperFills: [], texts: new Map(),
+        _boardWidth: 50, _boardHeight: 40 };
+    const surfaces = buildBoardSurfaceInputs(board, boardSurfaceFrame(board), createSilkArtworkMeshCache());
+    return Object.fromEntries(Object.entries(surfaces).map(([key, surface]) =>
+        [key, surface.parts.reduce((count, part) => count + part.mesh.faces.length, 0)]));
+};
+assert.deepEqual(surfaceFaces(boardShapes), surfaceFaces([]),
+    'Document graphics add no geometry to any 3D surface (no board cutouts, mask openings or artwork)');
 
-for (const relativePath of ['../src/pcb/modules/pcb-export.js', '../src/ui/PCBApp.js']) {
-    const content = readFileSync(new URL(relativePath, import.meta.url), 'utf8');
-    assert.ok(!content.includes("'document'"), `${relativePath} must not register a combined document layer`);
-    assert.ok(content.includes("'top-document'") && content.includes("'bottom-document'"));
+const { listArtworkLayers } = await import('../src/pcb/modules/pcb-export.js');
+const exportIds = listArtworkLayers({ _layerGroups: new Map() }).map(layer => layer.id);
+globalThis.document.createElementNS = () => ({ setAttribute() {} });
+globalThis.document.getElementById = () => null;
+globalThis.document.querySelector = () => null;
+globalThis.document.querySelectorAll = () => [];
+globalThis.document.documentElement = { getAttribute: () => 'dark' };
+globalThis.document.addEventListener = () => {};
+const { default: PCBApp } = await import('../src/ui/PCBApp.js');
+const editorGroups = { _layerGroups: new Map(), viewport: { addContent() {} } };
+PCBApp.prototype._createLayerGroups.call(editorGroups);
+for (const [owner, ids] of [['PDF/print export', exportIds], ['editor', [...editorGroups._layerGroups.keys()]]]) {
+    assert.ok(!ids.includes('document'), `The ${owner} must not register a combined document layer`);
+    assert.ok(ids.includes('top-document') && ids.includes('bottom-document'), `The ${owner} has both document layers`);
 }
 const { renderPlacementSide } = await import('../src/pcb/modules/track-commands.js');
 const groups = new Map(['top-document', 'bottom-document'].map(id => [id, {

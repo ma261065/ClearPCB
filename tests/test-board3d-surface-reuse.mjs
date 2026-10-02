@@ -143,7 +143,7 @@ globalThis.localStorage = { getItem: () => null, setItem() {}, removeItem() {} }
 globalThis.window = { addEventListener() {}, dispatchEvent() {} };
 globalThis.document = { body: { contains: () => false } };
 const { createSurfacePublisher } = await import('../src/pcb/modules/board3d.js');
-assert.match(source, /const swapSurface = createSurfacePublisher\(\{ getScene: \(\) => scene, surf, order: SURFACE_ORDER \}\);/,
+assert.match(source, /const swapSurface = createSurfacePublisher\(\{ getScene: \(\) => scene, surf, order: BOARD_SURFACE_ORDER \}\);/,
     'The viewer publishes finished buffers through the shared surface publisher');
 let added = 0;
 let removedMeshes = 0;

@@ -2630,7 +2630,7 @@ class ThreeScene {
         // and no slope-scaled bias (→ no peter-panning over the bore/edge
         // walls). Stack from the board up: mask-opening cutouts < copper < via <
         // pad < mask-coat < document-cutouts < silk < text;
-        // renderOrder (SURFACE_ORDER) matches so the paint order agrees with the
+        // renderOrder (BOARD_SURFACE_ORDER) matches so the paint order agrees with the
         // depth order. Component bodies use the neutral `material`.
         //
         // The units are spaced widely: a polygonOffset "unit" is only the
@@ -3232,6 +3232,40 @@ export function buildBoardSurfaceInputs(app, { outline, drilledHoles, boardHoles
     return surfaces;
 }
 
+/**
+ * Painting order for the coplanar board layers. They share one tiny depth bias,
+ * so where two overlap the depth test ties and the later-drawn one wins: board
+ * behind, then mask openings, copper, via, pads, both mask coats, silk (component
+ * and artwork alike) and text on top. Without it layers paint in mesh-add order.
+ */
+export const BOARD_SURFACE_ORDER = Object.freeze({
+    board: 0, maskOpenings: 1, copper: 2, via: 3, pads: 4,
+    maskCoatTop: 5, maskCoatBottom: 5, silk: 7, silkArtwork: 7, text: 8,
+});
+
+/**
+ * Material for each board surface. Both mask coats share the mask material, and
+ * component silk and authored silk artwork share the silk material (same
+ * opacity and depth bias).
+ * @param {any} scene
+ */
+export function boardSurfaceMaterials(scene) {
+    return { board: scene.boardMaterial, maskOpenings: scene.maskOpeningMaterial,
+        copper: scene.copperMaterial, via: scene.viaMaterial, pads: scene.padMaterial,
+        maskCoatTop: scene.maskCoatMaterial, maskCoatBottom: scene.maskCoatMaterial,
+        silk: scene.silkMaterial, silkArtwork: scene.silkMaterial, text: scene.textMaterial };
+}
+
+/**
+ * Publish every surface of one completed build in a single synchronous pass, so
+ * the viewer never shows a mix of old and new layers.
+ * @param {(key: string, data: any, material: any) => void} swap
+ * @param {string[]} keys @param {Record<string, any>} result @param {Record<string, any>} materials
+ */
+export function publishBoardSurfaces(swap, keys, result, materials) {
+    for (const key of keys) swap(key, result[key], materials[key]);
+}
+
 /** Upload one surface's finished worker buffers as a Three.js geometry. */
 export function surfaceBufferGeometry(data) {
     const geometry = new THREE.BufferGeometry();
@@ -3710,25 +3744,7 @@ export async function openBoard3DViewer(app, opts = {}) {
         silkArtwork: null,
         text: null,
     };
-    // Painting order for the coplanar board layers (all share one tiny depth
-    // bias, so where two layers overlap the depth test ties and the LATER-drawn
-    // one wins — this fixes the order: board behind, then mask openings,
-    // copper, via, pad, mask coat, silk and text on top).
-    // Without this the layers would
-    // paint in mesh-add order.
-    const SURFACE_ORDER = {
-        board: 0,
-        maskOpenings: 1,
-        copper: 2,
-        via: 3,
-        pads: 4,
-        maskCoatTop: 5,
-        maskCoatBottom: 5,
-        silk: 7,
-        silkArtwork: 7,
-        text: 8,
-    };
-    const swapSurface = createSurfacePublisher({ getScene: () => scene, surf, order: SURFACE_ORDER });
+    const swapSurface = createSurfacePublisher({ getScene: () => scene, surf, order: BOARD_SURFACE_ORDER });
     let hasSurfaces = false;
     const silkArtworkMesh = createSilkArtworkMeshCache();
     rebuildSurfaces = async (syncComponentBodies = false) => {
@@ -3744,11 +3760,7 @@ export async function openBoard3DViewer(app, opts = {}) {
                 viewSync.invalidate();
                 return false;
             }
-            const materials = { board: scene.boardMaterial, maskOpenings: scene.maskOpeningMaterial,
-                copper: scene.copperMaterial, via: scene.viaMaterial, pads: scene.padMaterial,
-                maskCoatTop: scene.maskCoatMaterial, maskCoatBottom: scene.maskCoatMaterial,
-                silk: scene.silkMaterial, silkArtwork: scene.silkMaterial, text: scene.textMaterial };
-            for (const key of Object.keys(surf)) swapSurface(key, result[key], materials[key]);
+            publishBoardSurfaces(swapSurface, Object.keys(surf), result, boardSurfaceMaterials(scene));
             if (syncComponentBodies) syncBodies();
             scene.positionGlint(boundary.x + boundary.w / 2, boundary.y + boundary.h / 2, Math.max(boundary.w, boundary.h));
             if (!hasSurfaces) { hasSurfaces = true; scene.frameAll(); }
