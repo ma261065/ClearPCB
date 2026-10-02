@@ -19,7 +19,7 @@ import { formatNumberInput, formatNumberInputValue } from '../../core/number-inp
 import { projectArcBulge, snapArcBulgeToChord, arcBulgeRatio, arcBulgeFromRatio } from '../../shapes/arc-edit.js';
 import { canRoundPathNode, pathHandleDescriptors, pathSegmentAt } from '../../shapes/path-geometry.js';
 import { joinPaths, remapPathNodes, splitPathSegmentMetadata, deletePathVertex, collapseCollinearPath, deletePathSegment, closePathIfCoincident, resizeRectanglePoints, pointsFormAxisAlignedRect, setPathSegmentType, splitPathAtNode } from '../../shapes/path-operations.js';
-import { validBoardOutline } from './board-outline.js';
+import { validBoardOutline } from '../../shared/pcb/board-outline.js';
 import { shapeFromPoints, shapePreviewPath, advanceShapeDrawing, canFinishShapeAtPoint } from '../../shapes/shape-drawing.js';
 import { CopperFill } from '../../shapes/copper-fill.js';
 import { SHAPE_KINDS, loadBoardShapeData, cloneShapeGeometry, applyShapeGeometry,
@@ -66,11 +66,11 @@ import {
     canDrawPictureCircles,
     resizePicturePoints,
     PICTURE_LAYERS,
-} from './picture-raster.js';
+} from '../../shared/pcb/picture-raster.js';
 import { bindPictureRefreshHold, cancelPictureCopperRefresh, schedulePictureCopperRefresh } from './picture-refresh.js';
 import { rotationHandleAnchor, pointerRotation, rotatedImagePoints } from './rotation-handle.js';
 import { BULGE_EPS, arcFromBulge } from '../../shapes/arc-edge.js';
-import { syncBoardOutlineDimensions, boardBoundary } from './board-outline.js';
+import { syncBoardOutlineDimensions, boardBoundary } from '../../shared/pcb/board-outline.js';
 import { getPropertyEditor, releasePropertyEditor, setPropertyEditor } from './property-editors.js';
 import { areDragOverlaysDeferred, isPictureCopperRefreshPending, setDragOverlaysDeferred } from './refresh-state.js';
 
@@ -94,7 +94,7 @@ import {
     normalizedBoardShapeLineWidth,
     boardShapeSegmentWidth,
     resolveBoardShapeGeometry,
-} from './board-shape-geometry.js';
+} from '../../shared/pcb/board-shape-geometry.js';
 
 const NS = 'http://www.w3.org/2000/svg';
 const HOLE_BORDER_WIDTH = 0.05;

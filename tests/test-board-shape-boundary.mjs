@@ -31,7 +31,7 @@ globalThis.document = {
     },
 };
 const { resolveBoardShapeGeometry, boardShapeHitTest, boardShapeBounds, shapePathD } =
-    await import('../src/pcb/modules/board-shape-geometry.js');
+    await import('../src/shared/pcb/board-shape-geometry.js');
 const { getBoardShapeAnchors, serializeBoardShapes, loadBoardShapes, cloneShapeGeometry,
     createBoardShapeSelectionAdapter, startBoardShapeDrag, handleBoardShapeDrag, endBoardShapeDrag,
     showBoardShapeProperties, showBoardShapeContextMenu, setBoardShapeSegmentType, getBoardShapePropertyPreview } = await import('../src/pcb/modules/board-shapes.js');
@@ -41,7 +41,7 @@ const { updateSelectionInteraction, finishSelectionInteraction, placeFloatingSel
     await import('../src/pcb/modules/selection-interaction.js');
 
 {
-    const { rectangleBoardOutline, boardBoundary, validBoardOutline } = await import('../src/pcb/modules/board-outline.js');
+    const { rectangleBoardOutline, boardBoundary, validBoardOutline } = await import('../src/shared/pcb/board-outline.js');
     const { openBoardShape, deleteBoardShapeSegment, deleteBoardShapeVertex } = await import('../src/pcb/modules/board-shapes.js');
     const { RemoveBoardShapeCommand, AddBoardShapeCommand, MoveBoardShapeCommand } = await import('../src/pcb/modules/shape-commands.js');
     const { preparePcb } = await import('../src/pcb/modules/project-state.js');
@@ -523,7 +523,7 @@ for (const commit of [false, true]) {
 console.log('PASS centreline editing, symmetric hit tests, unchanged circles, migration and undo');
 
 {
-    const { boardBoundary, rectangleBoardOutline } = await import('../src/pcb/modules/board-outline.js');
+    const { boardBoundary, rectangleBoardOutline } = await import('../src/shared/pcb/board-outline.js');
     const { renderBoardShape, setBoardShapeHover, selectBoardShape } = await import('../src/pcb/modules/board-shapes.js');
     const { beginGroupDrag, updateGroupDrag, cancelGroupDrag } = await import('../src/pcb/modules/box-select.js');
     const { CommandHistory } = await import('../src/core/CommandHistory.js');

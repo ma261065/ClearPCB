@@ -2,7 +2,7 @@
  * Free-standing PCB text annotations.
  *
  * Text is rendered as stroked polylines using the shared Hershey font
- * (src/pcb/modules/stroke-font.js), so the editor canvas and Gerber
+ * (src/shared/pcb/stroke-font.js), so the editor canvas and Gerber
  * export are visually identical.
  *
  * Each text lives on a single layer (top-silk / bottom-silk /
@@ -18,7 +18,7 @@
  * Creation assigns an ID if missing; PcbDocument owns the text collection.
  */
 
-import { stringToPolylines, measureText } from './stroke-font.js';
+import { stringToPolylines, measureText } from '../../shared/pcb/stroke-font.js';
 import { PCB_LAYERS } from './layers.js';
 export { TEXT_LAYERS, createPcbText, serializePcbText } from '../../core/pcb-text.js';
 

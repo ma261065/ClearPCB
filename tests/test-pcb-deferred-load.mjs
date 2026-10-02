@@ -275,7 +275,7 @@ for (const pcb of [
 }
 const { preparePcb, serializePcb } = await import('../src/pcb/modules/project-state.js');
 const { compactProjectAliases } = await import('../src/core/project-field-aliases.js');
-const { pictureShape } = await import('../src/pcb/modules/picture-raster.js');
+const { pictureShape } = await import('../src/shared/pcb/picture-raster.js');
 const { serializeBoardShapes } = await import('../src/pcb/modules/board-shapes.js');
 const artwork = { width: 20, height: 20, circles: [{ x: Math.PI, y: 5, radius: 1 / 3 }] };
 const image = { ...pictureShape(artwork, { widthMm: 12, layer: 'top-silk' }), id: 'pshape_1' };

@@ -3,7 +3,7 @@ import { PcbDocument } from '../src/core/PcbDocument.js';
 import { CommandHistory } from '../src/core/CommandHistory.js';
 import { SetBoardOutlineCommand } from '../src/core/pcb-outline-commands.js';
 import { defaultPcbStackup } from '../src/core/project-format.js';
-import { getBoardOutline, rectangleBoardOutline, boardBoundary } from '../src/pcb/modules/board-outline.js';
+import { getBoardOutline, rectangleBoardOutline, boardBoundary } from '../src/shared/pcb/board-outline.js';
 
 assert.equal(typeof document, 'undefined');
 assert.equal(typeof window, 'undefined');

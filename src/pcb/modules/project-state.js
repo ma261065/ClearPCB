@@ -2,9 +2,9 @@ import { renderTrack, renderVia, removeTrackElements, removeViaElements } from '
 import { reconcileRatsnest } from './track-draw.js';
 import { clearTrackSelection, getSelectedTrack } from './track-select.js';
 import { removeBoardShapeElement, renderBoardShape } from './board-shapes.js';
-import { getBoardOutline } from './board-outline.js';
+import { getBoardOutline } from '../../shared/pcb/board-outline.js';
 import { renderPad, removePadElements } from './pad.js';
-import { serializeGridSettings, restoreGridSettings } from '../../ui/modules/viewport.js';
+import { serializeGridSettings, restoreGridSettings } from '../../shared/ui/viewport.js';
 import { renderPanelPreview, resetPanelPreview } from './panelization-ui.js';
 import { resetPcbSelection, syncPcbSelection } from './selection-registry.js';
 import { clearPcbSelectionAnchors } from './selection-anchors.js';

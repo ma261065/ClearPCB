@@ -5,7 +5,7 @@ import { areDragOverlaysDeferred } from '../src/pcb/modules/refresh-state.js';
 
 globalThis.window = { addEventListener() {} };
 globalThis.document = {};
-const { shapeOutline } = await import('../src/pcb/modules/board-shape-geometry.js');
+const { shapeOutline } = await import('../src/shared/pcb/board-shape-geometry.js');
 const { getBoardShapeAnchors, loadBoardShapes, serializeBoardShapes } = await import('../src/pcb/modules/board-shapes.js');
 const { beginFillEdit, updateFillEdit, endFillEdit, deleteFillNode, deleteFocusedFillPart,
     commitFillEdit, startFillEditAt } = await import('../src/pcb/modules/copper-fill-edit.js');

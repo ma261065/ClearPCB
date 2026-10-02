@@ -10,7 +10,7 @@ globalThis.document = { createElementNS: () => ({
 const { reconcileRatsnest, collectBondedCopper } = await import('../src/pcb/modules/track-draw.js');
 const { runDRC } = await import('../src/pcb/modules/drc.js');
 const { Track } = await import('../src/shapes/track.js');
-const { pictureShape } = await import('../src/pcb/modules/picture-raster.js');
+const { pictureShape } = await import('../src/shared/pcb/picture-raster.js');
 
 const rectangle = (left, top, right, bottom) => [
     { x: left, y: top }, { x: right, y: top }, { x: right, y: bottom }, { x: left, y: bottom },

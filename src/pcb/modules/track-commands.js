@@ -16,8 +16,8 @@ import { reconcileRatsnest } from './track-draw.js';
 import { clearTrackSelection, refreshTrackSelectionHalo } from './track-select.js';
 import { getPcbSelection, togglePcbSelection } from './selection-registry.js';
 import { batchDerivedUpdates, deferDerivedUpdate } from '../../core/DerivedUpdates.js';
-import { isPlacementMirrored } from './board-geometry.js';
-export { isPlacementMirrored } from './board-geometry.js';
+import { isPlacementMirrored } from '../../shared/pcb/board-geometry.js';
+export { isPlacementMirrored } from '../../shared/pcb/board-geometry.js';
 import {
     updatePlacementPadPositions,
     repositionPadConnectedNodes as repositionPadConnectedNodesData,

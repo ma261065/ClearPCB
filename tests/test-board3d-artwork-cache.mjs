@@ -4,7 +4,7 @@ import { createSurfaceBuilder } from '../src/pcb/modules/board3d-surface-client.
 import { buildSurfaceBuffers } from '../src/pcb/modules/board3d-surface-build.js';
 import { decodeSurfaceInputs } from '../src/pcb/modules/board3d-surface-transfer.js';
 import { surfaceInputsEqual } from '../src/pcb/modules/board3d-surface-equality.js';
-import { pictureShape } from '../src/pcb/modules/picture-raster.js';
+import { pictureShape } from '../src/shared/pcb/picture-raster.js';
 
 globalThis.localStorage = { getItem: () => null, setItem() {}, removeItem() {} };
 globalThis.window = { addEventListener() {}, dispatchEvent() {} };

@@ -133,6 +133,13 @@ clearpcb/
 │   ├── pcb/
 │   │   └── modules/            # PCB rendering, interactions and command adapters
 │   │
+│   ├── shared/                 # Code used by both editors and the project model
+│   │   ├── 3d/                 # Arcball controller, model rendering
+│   │   ├── pcb/                # PCB geometry: board outline/shapes, footprints,
+│   │   │                       # reference text, stroke font, picture artwork
+│   │   └── ui/                 # Shared UI: modal, viewport/grid, cursor, export,
+│   │                           # box selection, recents, ribbon height, inline text, theme
+│   │
 │   └── ui/                     # Application layer
 │       ├── AppBootstrap.js     # Shared startup; owns ProjectDocument + mode switching
 │       ├── SchematicApp.js     # Schematic view — delegates to modules
@@ -148,17 +155,13 @@ clearpcb/
 │           ├── components.js   # Component placement, rotation, mirroring
 │           ├── clipboard.js    # Copy, cut, paste with preview
 │           ├── selection.js    # Selection helpers, lock toggle
-│           ├── box-selection.js# Box-select rectangle management
 │           ├── text-edit.js    # Inline text editing overlay
 │           ├── value-dialog.js # Component value edit dialog
 │           ├── properties.js   # Properties panel binding
 │           ├── ribbon.js       # Ribbon toolbar binding
-│           ├── cursor.js       # Crosshair and tool cursors
 │           ├── theme.js        # Light/dark theme toggle
-│           ├── viewport.js     # Viewport UI controls (grid, zoom)
 │           ├── shape-management.js # Add/remove/render shapes
 │           ├── files.js        # Open, save, serialise documents
-│           ├── export.js       # PDF, print, SVG export
 │           ├── paper.js        # Paper/title-block events
 │           ├── tool.js         # Tool selection, option persistence
 │           ├── callbacks.js    # Event-bus wiring

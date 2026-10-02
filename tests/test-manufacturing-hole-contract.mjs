@@ -6,14 +6,14 @@ import { captureResolvedPlacement, applyPlacementSide } from '../src/core/pcb-pl
 import { FlipPlacementCommand } from '../src/core/pcb-placement-commands.js';
 import { prepareFabricationSnapshot } from '../src/pcb/modules/fabrication-snapshot.js';
 import { generatePickAndPlace } from '../src/pcb/modules/assembly.js';
-import { resolvePlacementDrills, resolvePadFlashes, placementPose } from '../src/pcb/modules/board-geometry.js';
+import { resolvePlacementDrills, resolvePadFlashes, placementPose } from '../src/shared/pcb/board-geometry.js';
 import { resolveCopperPads } from '../src/pcb/modules/copper-model.js';
 import { buildFillContext } from '../src/pcb/modules/fill-context.js';
 import { computeFillPolygons, loadClipper } from '../src/pcb/modules/copper-fill-geom.js';
 import { CopperFill } from '../src/shapes/copper-fill.js';
 import { pointInPolygon } from '../src/core/geometry.js';
 import { PANEL_DEFAULTS, buildPanelLayout } from '../src/pcb/modules/panelization.js';
-import { rectangleBoardOutline } from '../src/pcb/modules/board-outline.js';
+import { rectangleBoardOutline } from '../src/shared/pcb/board-outline.js';
 
 globalThis.window = { addEventListener() {} };
 const { KiCadFetcher } = await import('../src/components/KiCadFetcher.js');

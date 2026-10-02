@@ -1,7 +1,7 @@
 import { isLayerLocked, isLayerVisible } from './layers.js';
 import { SetBoardOutlineCommand } from './track-commands.js';
 import { snapToViewportGrid } from '../../core/grid-snap.js';
-import { getBoardOutline, rectangleBoardOutline } from './board-outline.js';
+import { getBoardOutline, rectangleBoardOutline } from '../../shared/pcb/board-outline.js';
 import { removeBoardShapeElement } from './board-shapes.js';
 import { getPropertyEditor, releasePropertyEditor, setPropertyEditor } from './property-editors.js';
 import { areDragOverlaysDeferred, isBoardViewRefreshSuspended, setBoardViewRefreshSuspended, setDragOverlaysDeferred } from './refresh-state.js';

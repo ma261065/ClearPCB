@@ -1,5 +1,5 @@
 import ClipperLib from '../../../assets/vendor/clipper.esm.js';
-import { resolveBoardShapeGeometry, boardShapeArcGeometry, normalizeShapeCopperMode } from './board-shape-geometry.js';
+import { resolveBoardShapeGeometry, boardShapeArcGeometry, normalizeShapeCopperMode } from '../../shared/pcb/board-shape-geometry.js';
 import { contourRegions } from './region-geometry.js';
 import { spatialCrossPairs } from '../../core/spatial-pairs.js';
 

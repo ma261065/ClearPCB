@@ -3,7 +3,7 @@ import { CopperFill } from '../src/shapes/copper-fill.js';
 import { Polyline } from '../src/shapes/polyline.js';
 import { createShape } from '../src/shapes/index.js';
 import { collapseRoundedPolygon } from '../src/shapes/path-operations.js';
-import { validBoardOutline } from '../src/pcb/modules/board-outline.js';
+import { validBoardOutline } from '../src/shared/pcb/board-outline.js';
 import { validateProject, defaultPcbStackup } from '../src/core/project-format.js';
 import { FileManager, readProjectFile } from '../src/core/FileManager.js';
 import { PcbDocument } from '../src/core/PcbDocument.js';

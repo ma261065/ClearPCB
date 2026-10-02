@@ -1,5 +1,5 @@
 import ImageTracer from '../../../assets/vendor/imagetracer.js';
-import { MAX_PICTURE_VERTICES, MAX_TRACE_RESOLUTION, validatePictureArtwork } from './picture-raster.js';
+import { MAX_PICTURE_VERTICES, MAX_TRACE_RESOLUTION, validatePictureArtwork } from '../../shared/pcb/picture-raster.js';
 
 export function tracePicture(raster, { simplify = 1, despeckle = 0, preserveCorners = true } = {}) {
     if (!Number.isFinite(simplify) || simplify < 0 || simplify > 5

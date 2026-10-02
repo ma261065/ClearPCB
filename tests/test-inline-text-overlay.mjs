@@ -3,7 +3,7 @@ import {
     applyTextConnectionGuide,
     createInlineTextOverlay,
     setInlineTextInputActive,
-} from '../src/ui/modules/inline-text-overlay.js';
+} from '../src/shared/ui/inline-text-overlay.js';
 import { setTextCaretFromScreen } from '../src/ui/modules/text-edit.js';
 
 function element(tagName) {

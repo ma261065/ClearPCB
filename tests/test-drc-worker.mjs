@@ -12,7 +12,7 @@ import { captureDrcInputs } from '../src/pcb/modules/drc-worker-inputs.js';
 import { createDrcWorker } from '../src/pcb/modules/drc-worker-client.js';
 import { disposeDrcRefresh, invalidateDrcRefresh } from '../src/pcb/modules/drc-refresh.js';
 import { setComputedFill, getComputedFill } from '../src/pcb/modules/computed-fill-cache.js';
-import { resolveTrackSegments } from '../src/pcb/modules/board-geometry.js';
+import { resolveTrackSegments } from '../src/shared/pcb/board-geometry.js';
 import { setDragOverlaysDeferred, setFillRefreshError, setFillRefreshPending, setFillRefreshScheduled, setFillRefreshSuspended, setPictureCopperRefreshPending } from '../src/pcb/modules/refresh-state.js';
 
 class Element {

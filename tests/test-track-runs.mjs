@@ -14,7 +14,7 @@ globalThis.document = {
 const { Track } = await import('../src/shapes/track.js');
 const { buildTrackLayerRuns } = await import('../src/pcb/modules/track-render.js');
 const { CORNER_CHORD_TOLERANCE, roundedPathCorners, sampleRoundedCorner,
-    resolveTrackEdgePaths, resolveTrackSegments } = await import('../src/pcb/modules/board-geometry.js');
+    resolveTrackEdgePaths, resolveTrackSegments } = await import('../src/shared/pcb/board-geometry.js');
 const { collectBondedCopper, reconcileRatsnest } = await import('../src/pcb/modules/track-draw.js');
 
 let failures = 0;

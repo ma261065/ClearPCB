@@ -1,6 +1,6 @@
 // Build Hershey font data → stroke-font glyph table.
 // Run with: node tools/build-hershey.mjs
-// Reads futural.jhf (public domain), writes src/pcb/modules/hershey-data.js
+// Reads futural.jhf (public domain), writes src/shared/pcb/hershey-data.js
 import { readFileSync, writeFileSync } from 'node:fs';
 
 const txt = readFileSync('futural.jhf', 'utf8');
@@ -90,5 +90,5 @@ for (const ch of Object.keys(out)) {
     js += `  ${key}: { w: ${g.w}, s: ${s} },\n`;
 }
 js += '};\n';
-writeFileSync('src/pcb/modules/hershey-data.js', js);
-console.log('wrote', Object.keys(out).length, 'glyphs to src/pcb/modules/hershey-data.js');
+writeFileSync('src/shared/pcb/hershey-data.js', js);
+console.log('wrote', Object.keys(out).length, 'glyphs to src/shared/pcb/hershey-data.js');

@@ -7,11 +7,11 @@ globalThis.document = {
         return { style: {}, setAttribute() {}, getAttribute() { return null; }, removeAttribute() {}, appendChild() {}, remove() {}, querySelectorAll() { return []; } };
     },
 };
-const { resolveBoardShapeGeometry, shapePathD, shapeOutline } = await import('../src/pcb/modules/board-shape-geometry.js');
+const { resolveBoardShapeGeometry, shapePathD, shapeOutline } = await import('../src/shared/pcb/board-shape-geometry.js');
 const { startBoardShapeDrag, handleBoardShapeDrag, endBoardShapeDrag,
     serializeBoardShapes, loadBoardShapes, applyShapeSnapshot,
     setBoardShapeNodeCornerRadius } = await import('../src/pcb/modules/board-shapes.js');
-const { CORNER_CHORD_TOLERANCE } = await import('../src/pcb/modules/board-geometry.js');
+const { CORNER_CHORD_TOLERANCE } = await import('../src/shared/pcb/board-geometry.js');
 
 for (const radius of [0.05, 2, 50]) {
     const outline = shapeOutline({ kind: 'rect', cornerRadius: radius,

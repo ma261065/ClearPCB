@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
-import { layoutReferenceText, referenceAnchor, resolveReferenceText } from '../src/pcb/modules/reference-text.js';
-import { placementPose } from '../src/pcb/modules/board-geometry.js';
+import { layoutReferenceText, referenceAnchor, resolveReferenceText } from '../src/shared/pcb/reference-text.js';
+import { placementPose } from '../src/shared/pcb/board-geometry.js';
 import { createRefTextSelectionAdapter } from '../src/pcb/modules/ref-text-selection.js';
 import { lockPositionOutsideOutline } from '../src/pcb/modules/selection-anchors.js';
 import { PCB_LAYERS } from '../src/pcb/modules/layers.js';

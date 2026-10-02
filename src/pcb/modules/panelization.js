@@ -1,5 +1,5 @@
 import ClipperLib from '../../../assets/vendor/clipper.esm.js';
-import { boardBoundary, getBoardOutline, validBoardOutline } from './board-outline.js';
+import { boardBoundary, getBoardOutline, validBoardOutline } from '../../shared/pcb/board-outline.js';
 import { panelSettings } from '../../core/pcb-panelization.js';
 export { PANEL_DEFAULTS, panelSettings } from '../../core/pcb-panelization.js';
 

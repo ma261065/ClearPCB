@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { BuiltInComponents } from '../src/components/BuiltInComponents.js';
 import { getBuiltInPackageOptions, withBuiltInPackage } from '../src/components/BuiltInPackages.js';
 import { getBuiltInModel3D } from '../src/components/BuiltInModels3D.js';
-import { generateFootprint } from '../src/pcb/modules/footprint.js';
+import { generateFootprint } from '../src/shared/pcb/footprint.js';
 import { parseObjModel } from '../src/shared/3d/model-rendering.js';
 
 const canonical = new Map(BuiltInComponents.map(definition => [definition.name, definition]));

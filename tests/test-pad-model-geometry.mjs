@@ -15,7 +15,7 @@ assert.equal(ellipse.hitTest({ x: 2, y: 0.9 }), false);
 assert.equal(stadium.hitTest({ x: 2, y: 0.9 }), true, 'Stadium and ellipse retain distinct geometry');
 
 const { padOutline, padBounds, padHitTest, padLayers, padFlash } = await import('../src/pcb/modules/pad.js');
-const { padFlashOutline } = await import('../src/pcb/modules/board-geometry.js');
+const { padFlashOutline } = await import('../src/shared/pcb/board-geometry.js');
 const { resolveCopperPads } = await import('../src/pcb/modules/copper-model.js');
 const { createPadSelectionAdapter } = await import('../src/pcb/modules/pad-selection.js');
 const { PCB_LAYERS } = await import('../src/pcb/modules/layers.js');

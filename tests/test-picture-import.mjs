@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { CommandHistory } from '../src/core/CommandHistory.js';
 import { PcbDocument } from '../src/core/PcbDocument.js';
-import { rasterizePicture, pictureShape } from '../src/pcb/modules/picture-raster.js';
+import { rasterizePicture, pictureShape } from '../src/shared/pcb/picture-raster.js';
 import { pointInPolygon } from '../src/core/geometry.js';
 
 globalThis.window = { addEventListener() {} };
@@ -13,7 +13,7 @@ globalThis.document = { getElementById() { return null; }, createElementNS() {
 } };
 const { AddBoardShapeCommand, MoveBoardShapeCommand, ModifyBoardShapeCommand } = await import('../src/pcb/modules/shape-commands.js');
 const { setPcbSelection, getPcbSelectionEntries } = await import('../src/pcb/modules/selection-registry.js');
-const { boardShapeBounds, boardShapeHitTest, resolveBoardShapeGeometry } = await import('../src/pcb/modules/board-shape-geometry.js');
+const { boardShapeBounds, boardShapeHitTest, resolveBoardShapeGeometry } = await import('../src/shared/pcb/board-shape-geometry.js');
 const { serializeBoardShapes, loadBoardShapes,
     cloneShapeGeometry, translateShapeGeometry } = await import('../src/pcb/modules/board-shapes.js');
 const { boardShapeClearanceOutlines } = await import('../src/pcb/modules/copper-fill-geom.js');

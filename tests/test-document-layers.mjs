@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { generateFootprint } from '../src/pcb/modules/footprint.js';
+import { generateFootprint } from '../src/shared/pcb/footprint.js';
 
 globalThis.document = { body: { contains() { return false; } } };
 globalThis.window = { addEventListener() {}, dispatchEvent() {} };
@@ -9,7 +9,7 @@ const { PCB_LAYERS } = await import('../src/pcb/modules/layers.js');
 const { Board2D } = await import('../src/pcb/modules/board2d.js');
 const { exportGerbers } = await import('../src/pcb/modules/gerber.js');
 const { collectCopperSubtractHoles, buildSilkMesh, buildTextMesh } = await import('../src/pcb/modules/board3d.js');
-const { resolveSilk } = await import('../src/pcb/modules/board-geometry.js');
+const { resolveSilk } = await import('../src/shared/pcb/board-geometry.js');
 
 const fixtures = [
     layer => `TRACK~1~${layer}~~10 20 30 40~id~0`,

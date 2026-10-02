@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { getComputedFill, setComputedFill } from '../src/pcb/modules/computed-fill-cache.js';
 import { distanceToSegment, pointInPolygon } from '../src/core/geometry.js';
-import { pictureShape, pictureContours } from '../src/pcb/modules/picture-raster.js';
+import { pictureShape, pictureContours } from '../src/shared/pcb/picture-raster.js';
 
 function element() {
     return {

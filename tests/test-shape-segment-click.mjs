@@ -35,7 +35,7 @@ globalThis.document = {
 globalThis.requestAnimationFrame = callback => { callback(); return 1; };
 const { beginSelectionInteraction, updateSelectionInteraction, finishSelectionInteraction,
     placeFloatingSelectionInteraction } = await import('../src/pcb/modules/selection-interaction.js');
-const { boardShapeHitTest } = await import('../src/pcb/modules/board-shape-geometry.js');
+const { boardShapeHitTest } = await import('../src/shared/pcb/board-shape-geometry.js');
 const { createBoardShapeSelectionAdapter, getBoardShapeAnchors,
     renderBoardShapeSegmentSelection, selectBoardShape, showBoardShapeProperties,
     startBoardShapeDrag, handleBoardShapeDrag, endBoardShapeDrag, openBoardShape, getBoardShapePropertyPreview } = await import('../src/pcb/modules/board-shapes.js');

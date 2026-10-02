@@ -1,4 +1,4 @@
-import { MAX_PICTURE_CIRCLES, MAX_TRACE_RESOLUTION, validatePictureArtwork } from './picture-raster.js';
+import { MAX_PICTURE_CIRCLES, MAX_TRACE_RESOLUTION, validatePictureArtwork } from '../../shared/pcb/picture-raster.js';
 
 export function halftonePicture(image, { widthMm = 30, dotSizeMm = 0.8, invert = false } = {}) {
     const { width, height, data } = image;

@@ -6,7 +6,7 @@ globalThis.window = { addEventListener() {} };
 globalThis.document = { createElementNS: () => ({ setAttribute() {}, appendChild() {} }) };
 const { createCopperDistanceChecker, collectCopper, runDRC } = await import('../src/pcb/modules/drc.js');
 const { Track } = await import('../src/shapes/track.js');
-const { resolveTrackSegments } = await import('../src/pcb/modules/board-geometry.js');
+const { resolveTrackSegments } = await import('../src/shared/pcb/board-geometry.js');
 
 for (const kind of ['track', 'line', 'polygon', 'rect']) {
     for (const filled of kind === 'polygon' || kind === 'rect' ? [false, true] : [false]) {

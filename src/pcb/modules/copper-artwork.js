@@ -1,6 +1,6 @@
-import { resolveBoardShapeGeometry, boardShapeArcGeometry, normalizeShapeCopperMode } from './board-shape-geometry.js';
+import { resolveBoardShapeGeometry, boardShapeArcGeometry, normalizeShapeCopperMode } from '../../shared/pcb/board-shape-geometry.js';
 import { pcbTextSegments } from './pcb-text.js';
-import { pictureRegions } from './picture-raster.js';
+import { pictureRegions } from '../../shared/pcb/picture-raster.js';
 import { getComputedFill } from './computed-fill-cache.js';
 
 export function collectCopperArtwork(app, { pictureBounds = false } = {}) {

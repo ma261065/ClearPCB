@@ -29,14 +29,20 @@ clearpcb/
 │   │                           # LCSCFetcher, STEPPreview, VRMLPreview)
 │   ├── easyeda/                # EasyEDA importers (schematic-importer.js)
 │   ├── shared/
-│   │   └── ui/theme.js         # Shared theme tokens
+│   │   ├── 3d/                 # Arcball controller, model rendering
+│   │   ├── pcb/                # PCB geometry used by the project model and editor
+│   │   │                       # (board-outline, board-shape-geometry, board-geometry,
+│   │   │                       # footprint, reference-text, stroke-font, picture-*)
+│   │   └── ui/                 # UI helpers used by both editors (theme, modal,
+│   │                           # viewport, cursor, export, box-selection, recents,
+│   │                           # ribbon-height, inline-text-overlay, …)
 │   ├── schematic/
 │   │   └── modules/            # Schematic-only interaction modules
 │   │                           # (draw-states, files, shape-management, wire)
 │   ├── pcb/
 │   │   └── modules/            # PCB-only interaction + I/O modules
-│   │                           # (autorouter family, controls, dsn, footprint,
-│   │                           # gerber, layers, ratsnest, track-*)
+│   │                           # (autorouter family, controls, dsn, gerber,
+│   │                           # layers, ratsnest, track-*)
 │   └── ui/
 │       ├── AppBootstrap.js     # Shared startup + mode switching
 │       ├── SchematicApp.js     # Schematic editor facade
@@ -44,8 +50,7 @@ clearpcb/
 │       ├── schematic.css
 │       └── modules/            # Schematic interaction modules
 │                               # (mouse, keyboard, drag, drawing, clipboard,
-│                               # context-menu, modal, files, export, paper,
-│                               # box-selection, label-attachment,
+│                               # context-menu, files, paper, label-attachment,
 │                               # pin-wire-connect, net-validation, …)
 ├── workers/
 │   └── cors-proxy.js
@@ -75,17 +80,24 @@ clearpcb/
 - `src/easyeda/*` is import-only (read EasyEDA files into our model).
 - Shared code (`core`, `shapes`, `components`, `shared`, `easyeda`) must not
   import either editor.
+- `src/shared/ui/*` holds UI helpers both editors use (modal dialogs, viewport
+  grid controls, cursors, export helpers, box selection, recents, ribbon height,
+  inline text, theme). `src/shared/pcb/*` holds PCB geometry that the project
+  model in `core` and the PCB editor both need (board outline and shape
+  geometry, footprint generation, reference text, stroke font, picture artwork).
+  Promote code there, rather than importing across editors, when both sides need it.
 
 `node tools/check-imports.mjs` enforces these import directions as part of the
-regression gate. Known violations are listed in `tools/import-baseline.json`;
-new ones fail, and fixed ones must be removed from the baseline so it only shrinks.
+regression gate. `tools/import-baseline.json` lists known violations (currently
+none); new ones fail, and fixed ones must be removed so the baseline only shrinks.
 
 PCB modules use the editor's public services, listed and typed in
 `pcb/modules/pcb-editor-api.js` (`getLayerGroup`, `getRoutingParams`,
 `refreshFills`, `updateRatsnest`, `setStatus`, …), rather than its `_`-prefixed
 members. `node tools/check-pcb-editor-access.mjs` ratchets the remaining private
-accesses per module against `tools/pcb-editor-access-baseline.json` in the same
-way; promote a member to a service instead of adding a new private access.
+accesses per module in `src/pcb` and `src/shared/pcb` against
+`tools/pcb-editor-access-baseline.json` in the same way; promote a member to a
+service instead of adding a new private access.
 
 `ProjectDocument` dispatches successful file-action completion through registered
 views' `onDocumentReplaced(reason)` hooks (`new`, `open`, or `import`). Each editor
@@ -437,7 +449,7 @@ headless estimate or stale text measurement.
 
 Track bounds, hit tests and centreline distances use the shared copper paths in
 `shapes/track-geometry.js`, including per-edge widths, bulged edges and rounded
-corners. `pcb/modules/board-geometry.js` re-exports the same resolvers, so existing
+corners. `shared/pcb/board-geometry.js` re-exports the same resolvers, so existing
 rendering, connectivity and export consumers retain their geometry and sampling
 tolerance. Model queries do not consult layer visibility; the editor's hit tests
 still filter hidden copper. Selection pruning reuses model bounds including
@@ -460,7 +472,7 @@ and retain the existing rotation, sampling and drill-centre selection behavior.
 The pad selection adapter delegates geometric queries to the model while keeping
 layer visibility, locks, handles and drag interactions in the editor.
 Existing helper exports from `pcb/modules/pad.js` and
-`pcb/modules/board-geometry.js` remain available.
+`shared/pcb/board-geometry.js` remain available.
 
 Shared physical geometry is not shared output conversion. The model owns
 authored data; neutral helpers calculate physical outlines and bounds.
@@ -1447,7 +1459,7 @@ live-sync side helper retains its data-plus-presentation behavior.
 `core/pcb-placement-geometry.js` owns renderer-free world-pad updates, bonded
 track-node movement, side-dependent pad/paste layers and incompatible-bond
 removal. It uses the shared affine transform and mirror predicate in
-`pcb/modules/board-geometry.js`; editor wrappers retain SVG updates and redraw
+`shared/pcb/board-geometry.js`; editor wrappers retain SVG updates and redraw
 only touched tracks. Moved tracks invalidate their geometry bounds independently
 of rendering. Bond compatibility uses physical pad IDs, not potentially repeated
 logical pad numbers, so duplicate through-hole pads retain compatible bonds.
@@ -1466,7 +1478,7 @@ replacement, rather than retaining a geometry snapshot in history or adding
 another cache. It does not create placement overrides or a saved PCB section.
 Missing/non-physical components return null; physical components with no
 footprint data retain the existing empty geometry result. The existing pure
-parser remains in `pcb/modules/footprint.js` alongside its rendering exports.
+parser remains in `shared/pcb/footprint.js` alongside its rendering exports.
 All four physical placement commands use this source. Entity/render and derived
 cache coupling, live-preview mutation ownership and the
 explicit viewport-preference boundary still need closure review; physical command
@@ -1490,7 +1502,7 @@ values. The adapter in `pcb/modules/design-settings.js` handles display units,
 local defaults, validation and refresh/dirty notifications. Unit changes convert
 the display from the model, not from previously rounded controls.
 
-Both editors use `ui/modules/ribbon-height.js` to retain the tallest static
+Both editors use `shared/ui/ribbon-height.js` to retain the tallest static
 ribbon panel. A cached container width and retained style avoid cycling every
 tab through forced layout on each activation or tab change. Width changes and
 font completion trigger fresh measurements; hidden ribbons retain their last
@@ -1570,7 +1582,7 @@ mode; it is not a release requirement. Remaining ownership work is tracked in
   and curvature-preserving endpoint edits. `shapes/arc-edge.js` owns bulged edges.
 - `shapes/rounded-path.js` owns corner clamping, entry/exit points, SVG paths,
   and sampling. Uniform rectangles use circular corners; polygon and per-node
-  rounding use quadratic corners. `pcb/modules/board-geometry.js` re-exports
+  rounding use quadratic corners. `shared/pcb/board-geometry.js` re-exports
   the helpers for existing consumers.
 - `shapes/path-geometry.js` owns stroke decomposition, open-stroke hit tests,
   bounds accumulation, circle hit tests, and indexed/graph handle descriptors.
@@ -1817,7 +1829,7 @@ and KiCad models retain their existing minimum-Z seating.
 
 ### Board-Shape Geometry Contract
 
-`resolveBoardShapeGeometry()` in `src/pcb/modules/board-shape-geometry.js` is the
+`resolveBoardShapeGeometry()` in `src/shared/pcb/board-shape-geometry.js` is the
 single source of truth for generic PCB shape semantics across lines,
 rectangles, polygons, arcs, and circles. It resolves:
 
@@ -1864,7 +1876,7 @@ separate imports for the two responsibilities.
 For headless tools and board-design agents:
 
 ```js
-import { resolveBoardShapeGeometry, boardShapeBounds } from './src/pcb/modules/board-shape-geometry.js';
+import { resolveBoardShapeGeometry, boardShapeBounds } from './src/shared/pcb/board-shape-geometry.js';
 
 const shape = {
   kind: 'circle', layer: 'top-copper', x: 10, y: 20,

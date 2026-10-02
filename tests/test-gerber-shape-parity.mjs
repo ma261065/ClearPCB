@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict';
 import { closestPointOnSegment, pointInPolygon } from '../src/core/geometry.js';
 import { Track } from '../src/shapes/track.js';
-import { pictureShape } from '../src/pcb/modules/picture-raster.js';
-import { resolveBoardShapeGeometry, boardShapeFilledRemovalOutlines } from '../src/pcb/modules/board-shape-geometry.js';
+import { pictureShape } from '../src/shared/pcb/picture-raster.js';
+import { resolveBoardShapeGeometry, boardShapeFilledRemovalOutlines } from '../src/shared/pcb/board-shape-geometry.js';
 
 globalThis.window = { addEventListener() {} };
 const { exportGerbers } = await import('../src/pcb/modules/gerber.js');

@@ -38,7 +38,7 @@ const { FileManager, readProjectFile } = await import('../src/core/FileManager.j
 const { validateProject } = await import('../src/core/project-format.js');
 const { extractComponents } = await import('../src/core/netlist.js');
 const { ProjectDocument } = await import('../src/core/ProjectDocument.js');
-const { generateFootprint, REF_DEFAULT_SIZE, REF_DEFAULT_STROKE } = await import('../src/pcb/modules/footprint.js');
+const { generateFootprint, REF_DEFAULT_SIZE, REF_DEFAULT_STROKE } = await import('../src/shared/pcb/footprint.js');
 const { hasAny3DModel } = await import('../src/components/model3d-source.js');
 const { parseObjModel } = await import('../src/shared/3d/model-rendering.js');
 const definitions = new Map(BuiltInComponents.map(definition => [definition.name, definition]));

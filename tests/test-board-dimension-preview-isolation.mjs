@@ -3,7 +3,7 @@ import { ProjectDocument } from '../src/core/ProjectDocument.js';
 import { CommandHistory } from '../src/core/CommandHistory.js';
 import { CopperFill } from '../src/shapes/copper-fill.js';
 import { setComputedFill, getComputedFill } from '../src/pcb/modules/computed-fill-cache.js';
-import { getBoardOutline, rectangleBoardOutline, boardBoundary } from '../src/pcb/modules/board-outline.js';
+import { getBoardOutline, rectangleBoardOutline, boardBoundary } from '../src/shared/pcb/board-outline.js';
 import { getBoardDimensionPreview, previewBoardDimensions, finishBoardDimensionPreview,
     bindBoardDimensionProperties, beginBoardOutlineResize, updateBoardOutlineResize,
     endBoardOutlineResize, boardOutlineHandles } from '../src/pcb/modules/board-outline-resize.js';

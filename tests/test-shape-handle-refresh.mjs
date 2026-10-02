@@ -12,7 +12,7 @@ globalThis.document = {
     },
 };
 const { startBoardShapeDrag, handleBoardShapeDrag, endBoardShapeDrag, cloneShapeGeometry } = await import('../src/pcb/modules/board-shapes.js');
-const { pictureShape } = await import('../src/pcb/modules/picture-raster.js');
+const { pictureShape } = await import('../src/shared/pcb/picture-raster.js');
 const { scheduleFillRefresh } = await import('../src/pcb/modules/fill-refresh.js');
 const { reconcileRatsnest } = await import('../src/pcb/modules/track-draw.js');
 const fixtures = [

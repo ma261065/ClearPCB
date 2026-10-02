@@ -6,7 +6,7 @@ import {
     measureTextAdvance,
     measureTextGlyphBBox,
 } from '../../core/text-edit-geometry.js';
-import { createInlineTextOverlay } from './inline-text-overlay.js';
+import { createInlineTextOverlay } from '../../shared/ui/inline-text-overlay.js';
 
 /**
  * Update wires connected to a Net label to use its current net name.

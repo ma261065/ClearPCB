@@ -4,7 +4,7 @@ import { CommandHistory } from '../src/core/CommandHistory.js';
 import { createPcbText, TEXT_LAYERS } from '../src/core/pcb-text.js';
 import { AddTextCommand, getTextPosePreviewTexts } from '../src/pcb/modules/text-commands.js';
 import { cancelPictureCopperRefresh } from '../src/pcb/modules/picture-refresh.js';
-import { measureText } from '../src/pcb/modules/stroke-font.js';
+import { measureText } from '../src/shared/pcb/stroke-font.js';
 import { loadPcb } from '../src/pcb/modules/project-state.js';
 
 class Element {

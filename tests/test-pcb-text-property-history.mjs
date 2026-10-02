@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { PcbDocument } from '../src/core/PcbDocument.js';
 import { CommandHistory } from '../src/core/CommandHistory.js';
 import { createPcbText } from '../src/core/pcb-text.js';
-import { measureText } from '../src/pcb/modules/stroke-font.js';
+import { measureText } from '../src/shared/pcb/stroke-font.js';
 import { cancelPictureCopperRefresh } from '../src/pcb/modules/picture-refresh.js';
 import { EditTextCommand, getTextPosePreviewTexts } from '../src/pcb/modules/text-commands.js';
 import { createPcbTextSelectionAdapter } from '../src/pcb/modules/pcb-text-selection.js';

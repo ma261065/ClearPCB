@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { ProjectDocument } from '../src/core/ProjectDocument.js';
 import { CommandHistory } from '../src/core/CommandHistory.js';
-import { shapePathD, boardShapeBounds } from '../src/pcb/modules/board-shape-geometry.js';
+import { shapePathD, boardShapeBounds } from '../src/shared/pcb/board-shape-geometry.js';
 import { createBoardShapeSelectionAdapter, renderBoardShape, startBoardShapeDrag, handleBoardShapeDrag,
     endBoardShapeDrag, openBoardShape, setBoardShapeSegmentType, selectBoardShape, deleteFocusedBoardShape } from '../src/pcb/modules/board-shapes.js';
 import { setPcbSelection, getPcbSelection, syncPcbSelection } from '../src/pcb/modules/selection-registry.js';

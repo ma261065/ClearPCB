@@ -1,7 +1,7 @@
 /**
  * PCB-specific PDF/print export and shared export naming.
  *
- * The schematic exporter in `ui/modules/export.js` is tied to schematic
+ * The schematic exporter in `shared/ui/export.js` is tied to schematic
  * concepts (paper size, selection, monochrome line art). The PCB needs a
  * different treatment: bounds come from the board outline, layers keep
  * their colours, and on-screen aids (grid, axes, ratlines, clearance
@@ -13,9 +13,9 @@ import {
     loadVectorPdfLibs,
     saveBlobAsFile,
     inlineSvgComputedStyles,
-} from '../../ui/modules/export.js';
+} from '../../shared/ui/export.js';
 import { PCB_LAYERS } from './layers.js';
-import { boardBoundary } from './board-outline.js';
+import { boardBoundary } from '../../shared/pcb/board-outline.js';
 import { ModalManager } from '../../core/ModalManager.js';
 
 const SVG_NS = 'http://www.w3.org/2000/svg';

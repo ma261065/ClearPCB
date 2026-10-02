@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { bindRibbonHeight } from '../src/ui/modules/ribbon-height.js';
+import { bindRibbonHeight } from '../src/shared/ui/ribbon-height.js';
 
 function fixture() {
     const frames = [], listeners = {}, fontListeners = {};

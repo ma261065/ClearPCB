@@ -78,7 +78,7 @@ correctness or browser recovery behavior.
   connectivity, preservation of earlier history, and normal undo for valid moves.
 - Hole-shape hits now precede overlapping vias/tracks in PCB selection. The
   existing selection-interaction and hit-query regressions pass.
-- [Reference geometry](../src/pcb/modules/reference-text.js) now owns glyph layout,
+- [Reference geometry](../src/shared/pcb/reference-text.js) now owns glyph layout,
   bounds, default anchors and world-space reference poses. SVG uses its local
   layout; Canvas, Three.js and Gerber use its posed polylines. The no-outline
   baseline is consistently -2.8 mm, preserving the existing SVG/Gerber position.
@@ -117,7 +117,7 @@ layer or renderer rewrite is not justified by this audit.
 | Routing obstacles | `_buildCopperObstacles` adapts text and shapes; router obstacle infrastructure is shared. | Bounding envelopes can be intentional. Per-edge width is lost for unfilled shapes (F8). Full autorouter algorithms were not audited. |
 | Persistence / refresh | Project state serialization/preparation, command snapshots, derived-update batching and view synchronization. | Image/shape round trips and stale-view tests exist. No uniform export freshness barrier; lifecycle regression currently cannot complete (F7, Verification). |
 
-Principal owners: [board geometry](../src/pcb/modules/board-geometry.js),
+Principal owners: [board geometry](../src/shared/pcb/board-geometry.js),
 [board shapes](../src/pcb/modules/board-shapes.js#L1071),
 [electrical pads](../src/pcb/modules/copper-model.js),
 [electrical clusters](../src/pcb/modules/copper-connectivity.js),
@@ -263,7 +263,7 @@ No full routing run was performed to measure resulting route violations.
   `spatial-cross-pairs`, and `drc-analytic-circle`. The circle collection fixture
   now uses the stored outer-radius convention; its exact clearance boundary
   and inner/outer radius assertions remain unchanged and pass.
-- [Footprint import](../src/pcb/modules/footprint.js#L298) keeps only orthogonal
+- [Footprint import](../src/shared/pcb/footprint.js#L298) keeps only orthogonal
   per-pad orientation through width/height swapping; polygon pads become rectangles.
   These are import/model fidelity limits: all downstream consumers can agree and still
   differ from the source footprint. They need supported-subset documentation or rejection.

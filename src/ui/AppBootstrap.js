@@ -6,7 +6,7 @@ import { ProjectDocument } from '../core/ProjectDocument.js';
 import { readProjectFile } from '../core/FileManager.js';
 import { installNumberInputFormatting } from '../core/number-inputs.js';
 import { ModalManager } from '../core/ModalManager.js';
-import { renderRecentFiles } from './modules/recents.js';
+import { renderRecentFiles } from '../shared/ui/recents.js';
 import { McpBridge } from '../core/McpBridge.js';
 import { createMcpSessionUi } from './modules/mcp-session.js';
 

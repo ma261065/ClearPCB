@@ -5,8 +5,8 @@ import { PcbDocument } from '../src/core/PcbDocument.js';
 globalThis.window = { addEventListener() {} };
 const { serializeBoardShapes, loadBoardShapes } = await import('../src/pcb/modules/board-shapes.js');
 const { prepareFabricationSnapshot } = await import('../src/pcb/modules/fabrication-snapshot.js');
-const { decodePictureArtwork } = await import('../src/pcb/modules/picture-storage.js');
-const { validatePicturePoints } = await import('../src/pcb/modules/picture-raster.js');
+const { decodePictureArtwork } = await import('../src/shared/pcb/picture-storage.js');
+const { validatePicturePoints } = await import('../src/shared/pcb/picture-raster.js');
 const round4 = value => Math.round(value * 10000) / 10000 || 0;
 const frameFields = ['x', 'y', 'width', 'height', 'rotation', 'reversed'];
 const legacyRecord = (record, points) => ({

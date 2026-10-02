@@ -21,7 +21,7 @@ import { renderPcbSelectionAnchors } from './selection-anchors.js';
 import { getPcbSelectionEntries, setPcbSelection } from './selection-registry.js';
 import { finishSelectionInteraction } from './selection-interaction.js';
 import { cancelPictureCopperRefresh, schedulePictureCopperRefresh } from './picture-refresh.js';
-import { normalizeShapeCopperMode } from './board-shape-geometry.js';
+import { normalizeShapeCopperMode } from '../../shared/pcb/board-shape-geometry.js';
 import { getPropertyEditor } from './property-editors.js';
 import {
     AddBoardShapeCommand as ModelAddBoardShapeCommand,

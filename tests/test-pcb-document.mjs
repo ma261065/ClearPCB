@@ -9,7 +9,7 @@ import { Pad } from '../src/shapes/pad.js';
 import { createPcbText, serializePcbText, TEXT_LAYERS } from '../src/core/pcb-text.js';
 import { loadBoardShapeData, serializeBoardShapes } from '../src/core/pcb-board-shapes.js';
 import { CopperFill } from '../src/shapes/copper-fill.js';
-import { boardBoundary, rectangleBoardOutline } from '../src/pcb/modules/board-outline.js';
+import { boardBoundary, rectangleBoardOutline } from '../src/shared/pcb/board-outline.js';
 import { PANEL_DEFAULTS, panelSettings } from '../src/core/pcb-panelization.js';
 import { buildPanelLayout } from '../src/pcb/modules/panelization.js';
 

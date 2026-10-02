@@ -1,7 +1,7 @@
 import { ModalManager } from '../../core/ModalManager.js';
 import { isLayerLocked, isLayerVisible } from './layers.js';
 import { preparePcbPaste } from './pcb-paste.js';
-import { rasterizePicture, pictureShape, drawPicture, MAX_PICTURE_REGIONS, MAX_PICTURE_VERTICES, MAX_PICTURE_CIRCLES, MAX_TRACE_RESOLUTION } from './picture-raster.js';
+import { rasterizePicture, pictureShape, drawPicture, MAX_PICTURE_REGIONS, MAX_PICTURE_VERTICES, MAX_PICTURE_CIRCLES, MAX_TRACE_RESOLUTION } from '../../shared/pcb/picture-raster.js';
 
 export function showPictureImport(app) {
     if (document.getElementById('pcb-picture-import')) return;

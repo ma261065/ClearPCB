@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { getComputedFill, setComputedFill } from '../src/pcb/modules/computed-fill-cache.js';
 import { distanceToSegment, pointInPolygon } from '../src/core/geometry.js';
-import { padFlashOutline } from '../src/pcb/modules/board-geometry.js';
+import { padFlashOutline } from '../src/shared/pcb/board-geometry.js';
 import { padCopperOutline } from '../src/pcb/modules/copper-model.js';
 import { buildFillContext } from '../src/pcb/modules/fill-context.js';
 import { computeFillPolygons, loadClipper } from '../src/pcb/modules/copper-fill-geom.js';

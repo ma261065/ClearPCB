@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { padFlashOutline, resolvePadFlashes } from '../src/pcb/modules/board-geometry.js';
+import { padFlashOutline, resolvePadFlashes } from '../src/shared/pcb/board-geometry.js';
 import { Track } from '../src/shapes/track.js';
 globalThis.window = { addEventListener() {} };
 const { exportGerbers } = await import('../src/pcb/modules/gerber.js');

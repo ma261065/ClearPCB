@@ -9,7 +9,7 @@
  *     derived from the schematic netlist and are never deleted here.
  *
  * The marquee rectangle itself is drawn with the shared helpers in
- * ../../ui/modules/box-selection.js (it reads `app.drag.start`,
+ * ../../shared/ui/box-selection.js (it reads `app.drag.start`,
  * `app.viewport.scale` and `app.viewport.contentLayer`).
  */
 
@@ -19,7 +19,7 @@ import {
     updateBoxSelectElement,
     removeBoxSelectElement,
     getBoxSelectBounds,
-} from '../../ui/modules/box-selection.js';
+} from '../../shared/ui/box-selection.js';
 import {
     drawStandalonePadHalo,
     drawTrackHalo,
@@ -42,7 +42,7 @@ import {
     removeBoardShapeElement,
     translateShapeGeometry,
 } from './board-shapes.js';
-import { boardShapeHitTest, normalizeShapeCopperMode, shapeOutline } from './board-shape-geometry.js';
+import { boardShapeHitTest, normalizeShapeCopperMode, shapeOutline } from '../../shared/pcb/board-shape-geometry.js';
 import {
     CompoundCommand,
     RemoveTrackCommand,

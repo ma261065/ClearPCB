@@ -31,11 +31,11 @@
  */
 
 import { resolveCopperPads } from './copper-model.js';
-import { resolveTrackSegments } from './board-geometry.js';
+import { resolveTrackSegments } from '../../shared/pcb/board-geometry.js';
 import { collectCopperArtwork } from './copper-artwork.js';
 import { getComputedFill } from './computed-fill-cache.js';
 import { subtractCopperArtwork } from './copper-removal.js';
-import { normalizeShapeCopperMode } from './board-shape-geometry.js';
+import { normalizeShapeCopperMode } from '../../shared/pcb/board-shape-geometry.js';
 import { spatialPairs, prepareSpatialOrder, filterSpatialOrder, spatialCrossPairsPrepared } from '../../core/spatial-pairs.js';
 import { pointInPolygon } from '../../core/geometry.js';
 import { circleCircleDistance, circleSegmentDistance } from './circle-clearance.js';

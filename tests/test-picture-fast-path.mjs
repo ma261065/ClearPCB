@@ -1,10 +1,10 @@
 import assert from 'node:assert/strict';
 import Clipper from '../assets/vendor/clipper.esm.js';
-import { pictureShape, drawPicture, drawPictureCached, pictureCirclePathD, canDrawPictureCircles, pictureRegions, pictureTriangles } from '../src/pcb/modules/picture-raster.js';
+import { pictureShape, drawPicture, drawPictureCached, pictureCirclePathD, canDrawPictureCircles, pictureRegions, pictureTriangles } from '../src/shared/pcb/picture-raster.js';
 import { pointInPolygon } from '../src/core/geometry.js';
 
 globalThis.window = { addEventListener() {} };
-const { boardShapeRemovalPathD, resolveBoardShapeGeometry } = await import('../src/pcb/modules/board-shape-geometry.js');
+const { boardShapeRemovalPathD, resolveBoardShapeGeometry } = await import('../src/shared/pcb/board-shape-geometry.js');
 const { boardShapeClearanceOutlines, computeFillPolygons } = await import('../src/pcb/modules/copper-fill-geom.js');
 const { collectCopperArtwork } = await import('../src/pcb/modules/copper-artwork.js');
 const { Board2D } = await import('../src/pcb/modules/board2d.js');

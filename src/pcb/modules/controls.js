@@ -1,6 +1,6 @@
-import { syncGridSettings } from '../../ui/modules/viewport.js';
+import { syncGridSettings } from '../../shared/ui/viewport.js';
 import { PCB_LAYERS, buildLayerPanel } from './layers.js';
-import { bindRecentsDropdown } from '../../ui/modules/recents.js';
+import { bindRecentsDropdown } from '../../shared/ui/recents.js';
 import { showPictureImport } from './picture-import.js';
 import { bindDesignSettings } from './design-settings.js';
 import { runPcbHistoryAction, savePcbProject } from './editor-actions.js';

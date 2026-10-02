@@ -1,4 +1,4 @@
-import { placementPose } from '../pcb/modules/board-geometry.js';
+import { placementPose } from '../shared/pcb/board-geometry.js';
 
 const resolvedPlacementFields = ['x', 'y', 'rotation', 'mirror', 'side', 'padOffsets', 'pasteOffsets', 'silks',
     'pads', 'name', 'reference', 'outline', 'refVisible', 'refDx', 'refDy', 'refRot', 'refSize', 'refStrokeWidth'];

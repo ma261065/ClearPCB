@@ -22,7 +22,7 @@
  * which is the modern standard for sub-micron precision in mm.
  */
 
-import { resolveReferenceText } from './reference-text.js';
+import { resolveReferenceText } from '../../shared/pcb/reference-text.js';
 import {
     orthoSwap as _orthoSwap,
     resolvePlacementDrills,
@@ -31,14 +31,14 @@ import {
     MASK_EXPANSION,
     TENT_VIAS,
     padFlashOutline,
-} from './board-geometry.js';
-import { resolveTrackSegments } from './board-geometry.js';
-import { resolveBoardShapeGeometry, boardShapeFilledRemovalOutlines } from './board-shape-geometry.js';
+} from '../../shared/pcb/board-geometry.js';
+import { resolveTrackSegments } from '../../shared/pcb/board-geometry.js';
+import { resolveBoardShapeGeometry, boardShapeFilledRemovalOutlines } from '../../shared/pcb/board-shape-geometry.js';
 import { pcbTextSegments } from './pcb-text.js';
 import ClipperLib from '../../../assets/vendor/clipper.esm.js';
 import { deflateSync } from '../../../assets/vendor/fflate.module.js';
 import { regionFillContours } from './region-geometry.js';
-import { getBoardOutline, boardBoundary, rectangleBoardOutline } from './board-outline.js';
+import { getBoardOutline, boardBoundary, rectangleBoardOutline } from '../../shared/pcb/board-outline.js';
 import { buildPanelLayout } from './panelization.js';
 import { closestPointOnSegment, pointInPolygon } from '../../core/geometry.js';
 

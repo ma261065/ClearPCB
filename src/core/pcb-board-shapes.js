@@ -2,10 +2,10 @@ import { CopperFill, updateFillIdCounter } from '../shapes/copper-fill.js';
 import { collapseRoundedPolygon } from '../shapes/path-operations.js';
 import { hasRectangleFrame, rectangleFrameFromPoints, rectangleFramePoints } from '../shapes/rectangle-frame.js';
 import { BULGE_EPS } from '../shapes/arc-edge.js';
-import { validBoardOutline } from '../pcb/modules/board-outline.js';
-import { normalizeShapeCopperMode, rectCornerRadius, polygonCornerRadius } from '../pcb/modules/board-shape-geometry.js';
-import { normalizePicturePoints, validatePicturePoints, PICTURE_LAYERS } from '../pcb/modules/picture-raster.js';
-import { encodePictureArtwork, decodePictureArtwork } from '../pcb/modules/picture-storage.js';
+import { validBoardOutline } from '../shared/pcb/board-outline.js';
+import { normalizeShapeCopperMode, rectCornerRadius, polygonCornerRadius } from '../shared/pcb/board-shape-geometry.js';
+import { normalizePicturePoints, validatePicturePoints, PICTURE_LAYERS } from '../shared/pcb/picture-raster.js';
+import { encodePictureArtwork, decodePictureArtwork } from '../shared/pcb/picture-storage.js';
 
 export const SHAPE_KINDS = new Set(['line', 'rect', 'polygon', 'arc', 'circle', 'image']);
 const r4 = n => Math.round(n * 10000) / 10000;

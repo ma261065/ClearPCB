@@ -81,7 +81,7 @@ for (const kind of ['pad', 'via', 'pour', 'circle', 'polygon']) {
     assert.ok(shortErrors(target).length, 'a surviving thin bridge still shorts its ends');
 }
 
-const { pictureShape } = await import('../src/pcb/modules/picture-raster.js');
+const { pictureShape } = await import('../src/shared/pcb/picture-raster.js');
 {
     const target = board();
     target.tracks = [track('first', 'GND', [[-0.3, 0], [0.3, 0]]), track('second', 'VCC', [[0, -0.3], [0, 0.3]])];

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { halftonePicture } from '../src/pcb/modules/picture-halftone.js';
-import { pictureShape, pictureContours } from '../src/pcb/modules/picture-raster.js';
+import { pictureShape, pictureContours } from '../src/shared/pcb/picture-raster.js';
 
 function image(width, height, shade, alpha = 255) {
     const data = new Uint8ClampedArray(width * height * 4);

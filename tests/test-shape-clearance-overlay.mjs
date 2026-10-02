@@ -36,7 +36,7 @@ const element = () => ({
 });
 globalThis.document = { createElementNS: element, getElementById() { return null; } };
 const { boardShapeClearanceOutlines, pcbTextClearanceOutlines } = await import('../src/pcb/modules/copper-fill-geom.js');
-const { resolveBoardShapeGeometry, boardShapeRemovalPathD } = await import('../src/pcb/modules/board-shape-geometry.js');
+const { resolveBoardShapeGeometry, boardShapeRemovalPathD } = await import('../src/shared/pcb/board-shape-geometry.js');
 const { getBoardShapeAnchors, renderBoardShape } = await import('../src/pcb/modules/board-shapes.js');
 for (const filled of [false, true]) {
     const polygon = { id: 'acute', kind: 'polygon', layer: 'top-copper', lineWidth: 2, cornerRadius: 0, filled,
@@ -179,7 +179,7 @@ renderBoardShape(app, circle, { liveDrag: true });
 assert.equal(outlineCalls, callsBeforeMove + 1, 'Resize recalculates only the edited shape');
 assert.ok(!overlay.children.includes(circleHalo));
 console.log('PASS live shape clearance translation, resize and cancellation');
-const { pictureShape } = await import('../src/pcb/modules/picture-raster.js');
+const { pictureShape } = await import('../src/shared/pcb/picture-raster.js');
 const image = { ...pictureShape({ width: 3, height: 1, rectangles: [{ x: 0, y: 0, width: 3, height: 1 }] },
     { widthMm: 3, layer: 'top-copper' }), id: 'image' };
 app.boardShapes.push(image);

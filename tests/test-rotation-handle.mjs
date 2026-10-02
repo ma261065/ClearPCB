@@ -45,7 +45,7 @@ function element(tag) {
 }
 globalThis.document = { getElementById: id => inputs.get(id) || null, createElementNS: (namespace, tag) => element(tag) };
 const { CommandHistory } = await import('../src/core/CommandHistory.js');
-const { pictureShape } = await import('../src/pcb/modules/picture-raster.js');
+const { pictureShape } = await import('../src/shared/pcb/picture-raster.js');
 const { createBoardShapeSelectionAdapter } = await import('../src/pcb/modules/board-shapes.js');
 const { createPcbTextSelectionAdapter } = await import('../src/pcb/modules/pcb-text-selection.js');
 const { Pad } = await import('../src/shapes/pad.js');

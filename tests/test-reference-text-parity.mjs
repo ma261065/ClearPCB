@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
-import { layoutReferenceText, referenceAnchor, resolveReferenceText } from '../src/pcb/modules/reference-text.js';
-import { applyRefGeometry } from '../src/pcb/modules/footprint.js';
+import { layoutReferenceText, referenceAnchor, resolveReferenceText } from '../src/shared/pcb/reference-text.js';
+import { applyRefGeometry } from '../src/shared/pcb/footprint.js';
 import { PcbPlacementState } from '../src/core/PcbPlacementState.js';
 
 const element = () => ({ attributes: {}, children: [],

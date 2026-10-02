@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { PcbDocument } from '../src/core/PcbDocument.js';
 import { CommandHistory } from '../src/core/CommandHistory.js';
 import { MoveRefTextCommand, RotateRefTextCommand, SetRefStyleCommand } from '../src/pcb/modules/track-commands.js';
-import { applyRefGeometry } from '../src/pcb/modules/footprint.js';
+import { applyRefGeometry } from '../src/shared/pcb/footprint.js';
 
 class Element {
     attributes = new Map();

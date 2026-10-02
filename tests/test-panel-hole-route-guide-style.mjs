@@ -38,7 +38,7 @@ globalThis.setTimeout = callback => { timers.set(++timerId, callback); return ti
 globalThis.clearTimeout = id => timers.delete(id);
 const { renderPanelPreview, resetPanelPreview } = await import('../src/pcb/modules/panelization-ui.js');
 const { renderBoardShape } = await import('../src/pcb/modules/board-shapes.js');
-const { rectangleBoardOutline } = await import('../src/pcb/modules/board-outline.js');
+const { rectangleBoardOutline } = await import('../src/shared/pcb/board-outline.js');
 const { startTrackDraw, updateTrackDraw, cancelTrackDraw, reconcileRatsnest } =
     await import('../src/pcb/modules/track-draw.js');
 const { Pad } = await import('../src/shapes/pad.js');

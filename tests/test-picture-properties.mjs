@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { CommandHistory } from '../src/core/CommandHistory.js';
-import { pictureShape } from '../src/pcb/modules/picture-raster.js';
+import { pictureShape } from '../src/shared/pcb/picture-raster.js';
 import { isPictureCopperRefreshPending } from '../src/pcb/modules/refresh-state.js';
 
 const fields = new Map();

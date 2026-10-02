@@ -1,11 +1,12 @@
 #!/usr/bin/env node
-// Ratchets pcb/modules' use of the PCB editor's private (`app._x`) members down.
+// Ratchets PCB code's use of the PCB editor's private (`app._x`) members down.
 //
 // Modules should use the public services in src/pcb/modules/pcb-editor-api.js.
 // tools/pcb-editor-access-baseline.json lists the private members each module still
 // uses. A module using a private member not listed for it fails, and so does a listed
-// member it no longer uses, so the baseline only shrinks. Modules always name the
-// editor `app`; dynamic `app[key]` access is not tracked.
+// member it no longer uses, so the baseline only shrinks. Scans src/pcb and the shared
+// PCB code in src/shared/pcb. Modules always name the editor `app`; dynamic `app[key]`
+// access is not tracked.
 //
 // Usage:
 //   node tools/check-pcb-editor-access.mjs            check against the baseline
@@ -16,7 +17,7 @@ import { join, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
-const pcbRoot = join(root, 'src', 'pcb');
+const scanRoots = [join(root, 'src', 'pcb'), join(root, 'src', 'shared', 'pcb')];
 const baselinePath = join(root, 'tools', 'pcb-editor-access-baseline.json');
 
 const listJs = dir => readdirSync(dir, { withFileTypes: true }).flatMap(entry => {
@@ -34,7 +35,7 @@ export function privateEditorMembers(source) {
 /** @returns {Record<string, string[]>} Module path -> private members, for modules that use any. */
 export function currentAccess() {
     const access = {};
-    for (const file of listJs(pcbRoot).sort()) {
+    for (const file of scanRoots.flatMap(listJs).sort()) {
         const members = privateEditorMembers(readFileSync(file, 'utf8'));
         if (members.length) access[relative(root, file).split(sep).join('/')] = members;
     }

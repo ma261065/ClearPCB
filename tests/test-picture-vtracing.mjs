@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict';
 import { installVTracerEnvironment } from './helpers/vtracer-environment.mjs';
 import { tracePicture } from '../src/pcb/modules/picture-vtrace.js';
-import { pictureShape, pictureContours } from '../src/pcb/modules/picture-raster.js';
-import { flattenSvgPath } from '../src/pcb/modules/board-geometry.js';
+import { pictureShape, pictureContours } from '../src/shared/pcb/picture-raster.js';
+import { flattenSvgPath } from '../src/shared/pcb/board-geometry.js';
 
 const environment = installVTracerEnvironment();
 function raster(width, height, material) {

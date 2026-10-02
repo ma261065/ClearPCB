@@ -1,5 +1,5 @@
 export { punchHolesInFlatMesh } from './board3d-mesh-ops.js';
-import { pictureTriangles, pictureCirclesDisjoint, picturePoints } from './picture-raster.js';
+import { pictureTriangles, pictureCirclesDisjoint, picturePoints } from '../../shared/pcb/picture-raster.js';
 import { ArcballController } from '../../shared/3d/ArcballController.js';
 import { createBoardViewSync } from './board-view-sync.js';
 import { getComputedFill } from './computed-fill-cache.js';
@@ -58,8 +58,8 @@ import ClipperLib from '../../../assets/vendor/clipper.esm.js';
 
 import { resolveObjFromModelUrl } from '../../components/model3d-source.js';
 import { getComponentLibrary } from '../../components/index.js';
-import { resolveReferenceText } from './reference-text.js';
-import { boardBoundary } from './board-outline.js';
+import { resolveReferenceText } from '../../shared/pcb/reference-text.js';
+import { boardBoundary } from '../../shared/pcb/board-outline.js';
 import { pointInPolygon, distanceToSegment } from '../../core/geometry.js';
 import {
     Board2D,
@@ -73,11 +73,11 @@ import {
     resolvePadMaskOpenings,
     padFlashOutline,
     MASK_EXPANSION,
-} from './board-geometry.js';
-import { CORNER_CHORD_TOLERANCE } from './board-geometry.js';
+} from '../../shared/pcb/board-geometry.js';
+import { CORNER_CHORD_TOLERANCE } from '../../shared/pcb/board-geometry.js';
 import { buildTrackLayerRuns } from './track-render.js';
 import { regionFillContours } from './region-geometry.js';
-import { boardShapeFilledRemovalOutlines, resolveBoardShapeGeometry } from './board-shape-geometry.js';
+import { boardShapeFilledRemovalOutlines, resolveBoardShapeGeometry } from '../../shared/pcb/board-shape-geometry.js';
 import { pcbTextPolylines } from './pcb-text.js';
 import { loadClipper, isClipperReady, getClipper } from './copper-fill-geom.js';
 import { createViewerBackgroundTexture, VIEWER_BACKGROUND } from './viewer-background.js';

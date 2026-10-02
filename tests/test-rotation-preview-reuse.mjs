@@ -129,7 +129,7 @@ for (const kind of ['text', 'pad']) {
     }
 }
 globalThis.window = { addEventListener() {} };
-const { pictureShape } = await import('../src/pcb/modules/picture-raster.js');
+const { pictureShape } = await import('../src/shared/pcb/picture-raster.js');
 const { createBoardShapeSelectionAdapter } = await import('../src/pcb/modules/board-shapes.js');
 const { rotatedImagePoints } = await import('../src/pcb/modules/rotation-handle.js');
 for (const layer of ['top-silk', 'bottom-copper']) {

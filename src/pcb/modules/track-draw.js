@@ -40,15 +40,15 @@ import { renderTrack, viaCopperPathD } from './track-render.js';
 import { pointInPolygon, distanceToSegment } from '../../core/geometry.js';
 import { closestPointOnArcEdge } from '../../shapes/arc-edge.js';
 import { copperLayer, resolveCopperPads } from './copper-model.js';
-import { padFlashOutline, placementPose, resolveTrackSegments } from './board-geometry.js';
+import { padFlashOutline, placementPose, resolveTrackSegments } from '../../shared/pcb/board-geometry.js';
 import { snapNodeToAxis, snapNodeToCollinear } from '../../shapes/path-snap.js';
 export { snapNodeToAxis, snapNodeToCollinear } from '../../shapes/path-snap.js';
-import { normalizeShapeCopperMode, shapeOutline } from './board-shape-geometry.js';
+import { normalizeShapeCopperMode, shapeOutline } from '../../shared/pcb/board-shape-geometry.js';
 import { renderBoardShape } from './board-shapes.js';
 import { resolveTrackContactGeometry, copperShapesTouch, copperContactsTouch, copperRegionShape, copperSegmentShape, copperSegmentContact, resolveTerminalCopperContact, pointInCopperRegion } from './track-contact-geometry.js';
 import { spatialClusterMST } from './cluster-mst.js';
 import { spatialPairs, spatialCrossPairs } from '../../core/spatial-pairs.js';
-import { showAlert } from '../../ui/modules/modal.js';
+import { showAlert } from '../../shared/ui/modal.js';
 import { areDragOverlaysDeferred, isPictureCopperRefreshPending } from './refresh-state.js';
 import {
     clearAxisGlow,

@@ -1,6 +1,6 @@
 import initialize, { vectorize_rgba } from '../../../assets/vendor/vtracer_wasm.js';
-import { flattenSvgPath } from './board-geometry.js';
-import { MAX_PICTURE_VERTICES, MAX_TRACE_RESOLUTION, validatePictureArtwork } from './picture-raster.js';
+import { flattenSvgPath } from '../../shared/pcb/board-geometry.js';
+import { MAX_PICTURE_VERTICES, MAX_TRACE_RESOLUTION, validatePictureArtwork } from '../../shared/pcb/picture-raster.js';
 
 export async function tracePicture(raster, { smooth = 1, speckle = 0 } = {}) {
     if (!Number.isFinite(smooth) || smooth < 0 || smooth > 5

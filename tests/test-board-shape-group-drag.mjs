@@ -43,7 +43,7 @@ const {
     getBoardShapePointerPreview,
 } = await import('../src/pcb/modules/board-shapes.js');
 const { boardShapeNodeCornerRadius, boardShapeSegmentBulge, boardShapeSegmentWidth,
-    resolveBoardShapeGeometry, shapeOutline, shapePathD } = await import('../src/pcb/modules/board-shape-geometry.js');
+    resolveBoardShapeGeometry, shapeOutline, shapePathD } = await import('../src/shared/pcb/board-shape-geometry.js');
 const { beginGroupDrag, updateGroupDrag, endGroupDrag, cancelGroupDrag, getGroupPreview } = await import('../src/pcb/modules/box-select.js');
 const { getTextPosePreviewTexts } = await import('../src/pcb/modules/text-commands.js');
 const { setPcbSelection } = await import('../src/pcb/modules/selection-registry.js');

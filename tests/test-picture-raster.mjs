@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { rasterizePicture, pictureShape, pictureContours } from '../src/pcb/modules/picture-raster.js';
+import { rasterizePicture, pictureShape, pictureContours } from '../src/shared/pcb/picture-raster.js';
 
 const data = new Uint8ClampedArray([
     255, 255, 255, 255, 255, 255, 255, 255, 0, 0, 0, 255,

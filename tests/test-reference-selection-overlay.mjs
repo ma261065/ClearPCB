@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 import { CommandHistory } from '../src/core/CommandHistory.js';
 import { connectBoxOutlines, connectPointToBoxOutline } from '../src/core/geometry.js';
 import { getTextEditBoxWorldCorners } from '../src/core/text-edit-geometry.js';
-import { applyTextConnectionGuide } from '../src/ui/modules/inline-text-overlay.js';
+import { applyTextConnectionGuide } from '../src/shared/ui/inline-text-overlay.js';
 import { clearPcbSelection, setPcbSelection, togglePcbSelection }
     from '../src/pcb/modules/selection-registry.js';
 import '../src/pcb/modules/component-selection.js';

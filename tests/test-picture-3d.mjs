@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import Clipper from '../assets/vendor/clipper.esm.js';
-import { pictureShape } from '../src/pcb/modules/picture-raster.js';
+import { pictureShape } from '../src/shared/pcb/picture-raster.js';
 import { pointInPolygon } from '../src/core/geometry.js';
 
 globalThis.indexedDB = { open() { throw new Error('IndexedDB disabled in test'); } };

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
-import { applyRefGeometry } from '../src/pcb/modules/footprint.js';
-import { layoutReferenceText } from '../src/pcb/modules/reference-text.js';
+import { applyRefGeometry } from '../src/shared/pcb/footprint.js';
+import { layoutReferenceText } from '../src/shared/pcb/reference-text.js';
 
 class Element {
     attributes = new Map();

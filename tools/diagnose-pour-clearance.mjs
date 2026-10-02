@@ -5,7 +5,7 @@ globalThis.window = { addEventListener() {} };
 globalThis.document = { createElementNS: () => ({ setAttribute() {}, appendChild() {} }) };
 const { createShape } = await import('../src/shapes/index.js');
 const { Via } = await import('../src/shapes/via.js');
-const { generateFootprint } = await import('../src/pcb/modules/footprint.js');
+const { generateFootprint } = await import('../src/shared/pcb/footprint.js');
 const { extractNetlist } = await import('../src/core/netlist.js');
 const { loadBoardShapes } = await import('../src/pcb/modules/board-shapes.js');
 const { buildFillContext } = await import('../src/pcb/modules/fill-context.js');

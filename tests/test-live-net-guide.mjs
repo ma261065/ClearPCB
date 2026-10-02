@@ -24,7 +24,7 @@ const { startVertexDrag, updateVertexDrag, cancelVertexDrag } = await import('..
 const { PCB_OVERLAYS } = await import('../src/pcb/modules/layers.js');
 const { Pad } = await import('../src/shapes/pad.js');
 const { Track } = await import('../src/shapes/track.js');
-const { pictureShape } = await import('../src/pcb/modules/picture-raster.js');
+const { pictureShape } = await import('../src/shared/pcb/picture-raster.js');
 const board = () => {
     const ratLayer = element(), svg = element();
     svg.appendChild(ratLayer);

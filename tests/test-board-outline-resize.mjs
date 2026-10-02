@@ -23,7 +23,7 @@ const { getPropertyEditor } = await import('../src/pcb/modules/property-editors.
 const syncInputs = new Function('getPropertyEditor',
     `return ({ ${source.slice(syncStart, syncEnd)} })._syncBoardOutlineInputs;`)(getPropertyEditor);
 {
-    const { boardBoundary } = await import('../src/pcb/modules/board-outline.js');
+    const { boardBoundary } = await import('../src/shared/pcb/board-outline.js');
     const fitStart = source.indexOf('    _fitToContent() {');
     const fitEnd = source.indexOf('\n    _bindRibbonTabs()', fitStart);
     assert.ok(fitStart >= 0 && fitEnd > fitStart);
@@ -191,7 +191,7 @@ console.log('PASS board resize handles, snapping, minimum dimensions, undo/redo,
 
 {
     const { SetBoardOutlineCommand } = await import('../src/pcb/modules/track-commands.js');
-    const { getBoardOutline, rectangleBoardOutline, boardBoundary } = await import('../src/pcb/modules/board-outline.js');
+    const { getBoardOutline, rectangleBoardOutline, boardBoundary } = await import('../src/shared/pcb/board-outline.js');
     const makeOutlineElement = () => ({
         attributes: new Map(), children: [], style: {},
         setAttribute(name, value) { this.attributes.set(name, String(value)); },

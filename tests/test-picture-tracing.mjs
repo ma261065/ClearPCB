@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { pictureShape, pictureRegions, validatePictureArtwork } from '../src/pcb/modules/picture-raster.js';
+import { pictureShape, pictureRegions, validatePictureArtwork } from '../src/shared/pcb/picture-raster.js';
 import { pointInPolygon } from '../src/core/geometry.js';
 import { tracePicture } from '../src/pcb/modules/picture-trace.js';
 

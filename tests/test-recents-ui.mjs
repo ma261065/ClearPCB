@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { renderRecentFiles } from '../src/ui/modules/recents.js';
+import { renderRecentFiles } from '../src/shared/ui/recents.js';
 
 class FakeElement {
     constructor(tagName) {

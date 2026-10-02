@@ -32,7 +32,7 @@ import { snapShapePoint, snapShapeBulge, renderShapeAlignment, shapeContinuation
 import { refinePathSegment } from '../../shapes/path-interaction.js';
 import { DRAWING_SHAPES } from '../../shapes/shape-drawing.js';
 import { shapeDrawingClick } from '../../ui/modules/drawing.js';
-import { findInlineEditableHit, isUnmodifiedPrimaryDoublePress } from '../../ui/modules/inline-edit-activation.js';
+import { findInlineEditableHit, isUnmodifiedPrimaryDoublePress } from '../../shared/ui/inline-edit-activation.js';
 // ─── Constants ─────────────────────────────────────────────────────
 
 const DRAWING_TOOLS = new Set(['line', 'rect', 'circle', 'polygon']);

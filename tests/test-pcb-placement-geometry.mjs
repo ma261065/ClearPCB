@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { Track } from '../src/shapes/track.js';
 import { updatePlacementPadPositions, repositionPadConnectedNodes, applyPlacementSide,
     disconnectIncompatiblePadNodes } from '../src/core/pcb-placement-geometry.js';
-import { isPlacementMirrored } from '../src/pcb/modules/board-geometry.js';
+import { isPlacementMirrored } from '../src/shared/pcb/board-geometry.js';
 
 assert.equal(typeof document, 'undefined');
 assert.equal(typeof window, 'undefined');

@@ -187,8 +187,8 @@ export function loadVectorPdfLibs(app) {
     });
 
     app._pdfVectorLoader = (async () => {
-        await loadScript('./assets/vendor/jspdf.umd.min.js');
-        await loadScript('./assets/vendor/svg2pdf.umd.min.js');
+        await loadScript('../../ui/modules/assets/vendor/jspdf.umd.min.js');
+        await loadScript('../../ui/modules/assets/vendor/svg2pdf.umd.min.js');
 
         const w = /** @type {any} */ (window);
         const svg2pdfFn = w.svg2pdf?.svg2pdf || w.svg2pdf?.default || w.svg2pdf;

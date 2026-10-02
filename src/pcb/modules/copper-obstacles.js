@@ -1,5 +1,5 @@
 import { pcbTextObstacles } from './pcb-text.js';
-import { boardShapeBounds, resolveBoardShapeGeometry } from './board-shape-geometry.js';
+import { boardShapeBounds, resolveBoardShapeGeometry } from '../../shared/pcb/board-shape-geometry.js';
 
 export function buildCopperObstacles(app) {
     const obstacles = [];

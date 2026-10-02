@@ -1,6 +1,6 @@
 import { resolveCopperPads } from './copper-model.js';
-import { resolvePlacementDrills } from './board-geometry.js';
-import { boardBoundary } from './board-outline.js';
+import { resolvePlacementDrills } from '../../shared/pcb/board-geometry.js';
+import { boardBoundary } from '../../shared/pcb/board-outline.js';
 
 /** @returns {import('./copper-fill-geom.js').FillContext} */
 export function buildFillContext(app) {

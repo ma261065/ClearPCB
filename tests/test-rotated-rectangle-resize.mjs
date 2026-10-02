@@ -4,7 +4,7 @@ import { rectangleFramePoints, validateRectanglePoints } from '../src/shapes/rec
 import { createShape } from '../src/shapes/index.js';
 import { CopperFill } from '../src/shapes/copper-fill.js';
 import { closedShapeOutline } from '../src/shapes/closed-outline.js';
-import { resizePicturePoints, pictureContours } from '../src/pcb/modules/picture-raster.js';
+import { resizePicturePoints, pictureContours } from '../src/shared/pcb/picture-raster.js';
 import { CommandHistory } from '../src/core/CommandHistory.js';
 import { distanceToSegment } from '../src/core/geometry.js';
 import { CORNER_CHORD_TOLERANCE } from '../src/shapes/rounded-path.js';
@@ -22,7 +22,7 @@ const { applyBoardShapeVertexResize, startBoardShapeDrag, handleBoardShapeDrag, 
     serializeBoardShapes, loadBoardShapes } = await import('../src/pcb/modules/board-shapes.js');
 const { beginFillEdit, updateFillEdit, endFillEdit } = await import('../src/pcb/modules/copper-fill-edit.js');
 const { cancelPictureCopperRefresh } = await import('../src/pcb/modules/picture-refresh.js');
-const { rectCornerRadius } = await import('../src/pcb/modules/board-shape-geometry.js');
+const { rectCornerRadius } = await import('../src/shared/pcb/board-shape-geometry.js');
 const { commitAnchorDrag } = await import('../src/ui/modules/drag.js');
 
 const near = (actual, expected, tolerance = 1e-9) =>

@@ -57,8 +57,8 @@ import {
     unlockPcbLayer,
 } from './layers.js';
 import { canRestoreTrackToSourceBoardShape, restoreTrackToSourceBoardShape, setBoardShapeNetHover } from './board-shapes.js';
-import { normalizeShapeCopperMode } from './board-shape-geometry.js';
-import { showAlert } from '../../ui/modules/modal.js';
+import { normalizeShapeCopperMode } from '../../shared/pcb/board-shape-geometry.js';
+import { showAlert } from '../../shared/ui/modal.js';
 import {
     getPcbSelection,
     isPcbSelected,
@@ -67,7 +67,7 @@ import {
 } from './selection-registry.js';
 import { lockPositionOutsideOutline, renderPcbSelectionAnchors } from './selection-anchors.js';
 import { formatNumberInputValue } from '../../core/number-inputs.js';
-import { resolveTrackEdgePaths, resolveTrackSegments } from './board-geometry.js';
+import { resolveTrackEdgePaths, resolveTrackSegments } from '../../shared/pcb/board-geometry.js';
 import { arcEdgePathD, arcFromBulge } from '../../shapes/arc-edge.js';
 import { pathMoveInteraction, pathContextActions, showPathContextMenu, dismissPathContextMenu } from './path-edit.js';
 import { padOutline } from '../../shapes/pad-geometry.js';

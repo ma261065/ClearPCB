@@ -10,16 +10,16 @@ import { snapToViewportGrid } from '../core/grid-snap.js';
 import { PcbDocument } from '../core/PcbDocument.js';
 import { commitDesignInput, renderDesignSettings } from '../pcb/modules/design-settings.js';
 import { loadAndApplyTheme, toggleTheme as toggleSharedTheme, syncThemeToggleButtons } from '../shared/ui/theme.js';
-import { renderFootprint, applyRefGeometry, REF_DEFAULT_SIZE, REF_DEFAULT_STROKE } from '../pcb/modules/footprint.js';
-import { updateGridDropdown, restoreGridSettings, serializeGridSettings } from './modules/viewport.js';
-import { setToolCursor } from './modules/cursor.js';
-import { bindRibbonHeight } from './modules/ribbon-height.js';
-import { isUnmodifiedPrimaryDoublePress } from './modules/inline-edit-activation.js';
+import { renderFootprint, applyRefGeometry, REF_DEFAULT_SIZE, REF_DEFAULT_STROKE } from '../shared/pcb/footprint.js';
+import { updateGridDropdown, restoreGridSettings, serializeGridSettings } from '../shared/ui/viewport.js';
+import { setToolCursor } from '../shared/ui/cursor.js';
+import { bindRibbonHeight } from '../shared/ui/ribbon-height.js';
+import { isUnmodifiedPrimaryDoublePress } from '../shared/ui/inline-edit-activation.js';
 import {
     applyTextConnectionGuide,
     createInlineTextOverlay,
     setInlineTextInputActive,
-} from './modules/inline-text-overlay.js';
+} from '../shared/ui/inline-text-overlay.js';
 import { PCB_LAYERS, PCB_OVERLAYS, PCB_COPPER_FILLS, isLayerLocked, isViaLocked, isLayerVisible, isViaVisible, pcbLayerHoverColor, pcbLayerSelectionColor, pcbLayerOptionHtml, refreshPcbLayerOptions, showLockedLayerBubble, isCopperFillLocked, isCopperFillVisible, saveLayerPrefs, setPcbCopperFillLocked, setPcbLayerLocked } from '../pcb/modules/layers.js';
 import { exportDSN, importSES } from '../pcb/modules/dsn.js';
 import { DrcPresentation } from '../pcb/modules/drc-presentation.js';
@@ -88,7 +88,7 @@ import {
 } from '../pcb/modules/track-commands.js';
 import { renderPcbText, pcbTextEditBox, pcbTextHitTest, textColorForLayer } from '../pcb/modules/pcb-text.js';
 import { createPcbText, serializePcbText, TEXT_LAYERS } from '../core/pcb-text.js';
-import { showAlert } from './modules/modal.js';
+import { showAlert } from '../shared/ui/modal.js';
 import { connectBoxOutlines } from '../core/geometry.js';
 import {
     AddTextCommand,
@@ -104,7 +104,7 @@ import {
 } from '../pcb/modules/text-commands.js';
 import { shapeDrawClick, cancelShapeDraw, finishPolygonDraw, finishLineDraw, finishShapeDrawAtPoint, hitTestBoardShape, setBoardShapeHover, selectBoardShape, startBoardShapeDrag, endBoardShapeDrag, showBoardShapeProperties, showBoardShapeToolProperties, refreshBoardShapeToolLayer, resolveShapeDrawLayer, boardShapeCopperCuts, renderBoardShape, hitTestBoardShapeVertex, showBoardShapeContextMenu, dismissBoardShapeContextMenu, captureBoardShapeState, applyShapeSnapshot } from '../pcb/modules/board-shapes.js';
 import { ModifyBoardShapeCommand } from '../pcb/modules/shape-commands.js';
-import { shapeOutline, normalizeShapeCopperMode, boardShapeRemovalPathD, boardShapeBounds } from '../pcb/modules/board-shape-geometry.js';
+import { shapeOutline, normalizeShapeCopperMode, boardShapeRemovalPathD, boardShapeBounds } from '../shared/pcb/board-shape-geometry.js';
 import { hitTestPcbSelectionAnchor, renderPcbSelectionAnchors } from '../pcb/modules/selection-anchors.js';
 import { refreshAxisGlow } from '../pcb/modules/axis-glow.js';
 import { buildFillContext } from '../pcb/modules/fill-context.js';
@@ -133,7 +133,7 @@ import {
     placeFloatingSelectionInteraction,
 } from '../pcb/modules/selection-interaction.js';
 import { getPcbSelection, getPcbSelectionEntries, getPcbSelectionHits, isPcbSelected, setPcbSelection, syncPcbSelection } from '../pcb/modules/selection-registry.js';
-import { measureText as measureStrokeText, stringToPolylines } from '../pcb/modules/stroke-font.js';
+import { measureText as measureStrokeText, stringToPolylines } from '../shared/pcb/stroke-font.js';
 import { CommandHistory } from '../core/CommandHistory.js';
 import { Track } from '../shapes/track.js';
 import { Via } from '../shapes/via.js';
@@ -147,7 +147,7 @@ import {
 import '../pcb/modules/pad-selection.js';
 import { boardShapeClearanceOutlines, pcbTextClearanceOutlines } from '../pcb/modules/copper-fill-geom.js';
 import { bindPictureRefreshHold, schedulePictureCopperRefresh, shouldDeferShapeClearance } from '../pcb/modules/picture-refresh.js';
-import { PICTURE_LAYERS } from '../pcb/modules/picture-raster.js';
+import { PICTURE_LAYERS } from '../shared/pcb/picture-raster.js';
 import { renderCopperFill, fillGroupId, setCopperFillClip } from '../pcb/modules/copper-fill-render.js';
 import { RemoveFillCommand, ModifyFillCommand } from '../pcb/modules/copper-fill-commands.js';
 import '../pcb/modules/copper-fill-selection.js';
@@ -163,7 +163,7 @@ import {
     cancelFillDraw,
 } from '../pcb/modules/copper-fill-draw.js';
 import { preparePcbPaste, beginPcbPaste, updatePcbPaste, endPcbPaste, cancelPcbPaste, isPcbPasteEditable } from '../pcb/modules/pcb-paste.js';
-import { getBoardOutline, boardBoundary } from '../pcb/modules/board-outline.js';
+import { getBoardOutline, boardBoundary } from '../shared/pcb/board-outline.js';
 import { eachPropertyEditorOnLayer, getPropertyEditor, setPropertyEditor } from '../pcb/modules/property-editors.js';
 import { areDragOverlaysDeferred, isFillRefreshPending, onRefreshSuspended, setDragOverlaysDeferred } from '../pcb/modules/refresh-state.js';
 import {

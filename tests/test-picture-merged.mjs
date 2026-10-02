@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { pictureShape, pictureContours, pictureRegions, pictureTriangles, rasterizePicture } from '../src/pcb/modules/picture-raster.js';
+import { pictureShape, pictureContours, pictureRegions, pictureTriangles, rasterizePicture } from '../src/shared/pcb/picture-raster.js';
 import ClipperLib from '../assets/vendor/clipper.esm.js';
 import { pointInPolygon } from '../src/core/geometry.js';
 const execute = ClipperLib.Clipper.prototype.Execute;

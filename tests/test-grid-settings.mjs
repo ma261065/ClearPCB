@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { serializeGridSettings, restoreGridSettings, bindViewportControls, updateGridDropdown } from '../src/ui/modules/viewport.js';
+import { serializeGridSettings, restoreGridSettings, bindViewportControls, updateGridDropdown } from '../src/shared/ui/viewport.js';
 import { Viewport } from '../src/core/Viewport.js';
 import { snapToGridLines } from '../src/core/grid-snap.js';
 import { PcbDocument } from '../src/core/PcbDocument.js';

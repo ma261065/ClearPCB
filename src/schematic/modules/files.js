@@ -3,7 +3,7 @@ import { createNetText } from './shape-management.js';
 import { attachLabelToTarget } from '../../ui/modules/label-attachment.js';
 import { importEasyEDASchematic } from '../../easyeda/schematic-importer.js';
 import { deserializeComponent } from '../../core/SchematicDocument.js';
-import { serializeGridSettings, restoreGridSettings } from '../../ui/modules/viewport.js';
+import { serializeGridSettings, restoreGridSettings } from '../../shared/ui/viewport.js';
 import { cancelSchematicPointerInteraction } from '../../ui/modules/drag.js';
 import { cancelSchematicPropertyPreview } from '../../ui/modules/properties.js';
 

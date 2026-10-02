@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { MAX_PICTURE_CIRCLES, pictureShape, pictureContours, pictureTriangles, validatePictureArtwork } from '../src/pcb/modules/picture-raster.js';
+import { MAX_PICTURE_CIRCLES, pictureShape, pictureContours, pictureTriangles, validatePictureArtwork } from '../src/shared/pcb/picture-raster.js';
 import { pointInPolygon } from '../src/core/geometry.js';
 
 const artwork = { width: 100, height: 80, circles: [{ x: 20, y: 30, radius: 5 }, { x: 70, y: 50, radius: 10 }] };

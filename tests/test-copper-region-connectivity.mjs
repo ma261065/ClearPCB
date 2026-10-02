@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { setComputedFill } from '../src/pcb/modules/computed-fill-cache.js';
-import { pictureShape } from '../src/pcb/modules/picture-raster.js';
+import { pictureShape } from '../src/shared/pcb/picture-raster.js';
 
 globalThis.window = { addEventListener() {} };
 globalThis.document = { createElementNS: () => ({ setAttribute() {}, dataset: {} }) };

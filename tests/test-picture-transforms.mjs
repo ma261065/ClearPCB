@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { pictureShape, pictureRegions, pictureTriangles, validatePictureArtwork } from '../src/pcb/modules/picture-raster.js';
+import { pictureShape, pictureRegions, pictureTriangles, validatePictureArtwork } from '../src/shared/pcb/picture-raster.js';
 import { pointInPolygon } from '../src/core/geometry.js';
 
 const raster = { width: 4, height: 3, rectangles: [{ x: 0, y: 0, width: 1, height: 1 }] };

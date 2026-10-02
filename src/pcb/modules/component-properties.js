@@ -1,4 +1,4 @@
-import { REF_DEFAULT_SIZE, REF_DEFAULT_STROKE } from './footprint.js';
+import { REF_DEFAULT_SIZE, REF_DEFAULT_STROKE } from '../../shared/pcb/footprint.js';
 import { isLayerVisible } from './layers.js';
 import { isRefTextLocked } from './ref-text-selection.js';
 import { hasAny3DModel } from '../../components/model3d-source.js';

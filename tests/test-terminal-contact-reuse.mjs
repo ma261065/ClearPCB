@@ -6,7 +6,7 @@ import { Track } from '../src/shapes/track.js';
 import { Pad } from '../src/shapes/pad.js';
 import { Via } from '../src/shapes/via.js';
 import { CopperFill } from '../src/shapes/copper-fill.js';
-import { padFlashOutline } from '../src/pcb/modules/board-geometry.js';
+import { padFlashOutline } from '../src/shared/pcb/board-geometry.js';
 import { buildCopperClusters } from '../src/pcb/modules/copper-connectivity.js';
 import { getComputedFill, setComputedFill } from '../src/pcb/modules/computed-fill-cache.js';
 import {

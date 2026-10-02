@@ -1,5 +1,5 @@
 import { collectDrcInputs } from './drc.js';
-import { normalizeShapeCopperMode } from './board-shape-geometry.js';
+import { normalizeShapeCopperMode } from '../../shared/pcb/board-shape-geometry.js';
 import { fillRefreshError, isFillRefreshPending } from './refresh-state.js';
 
 const featureFields = ['kind', 'pin', 'componentId', 'padId', 'number', 'drill', 'slot', 'net', 'layer',

@@ -1,4 +1,4 @@
-import { generateFootprint } from '../pcb/modules/footprint.js';
+import { generateFootprint } from '../shared/pcb/footprint.js';
 
 /**
  * Resolve footprint artwork data and physical pad descriptors without rendering.

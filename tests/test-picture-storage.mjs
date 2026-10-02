@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { encodePictureArtwork, decodePictureArtwork } from '../src/pcb/modules/picture-storage.js';
+import { encodePictureArtwork, decodePictureArtwork } from '../src/shared/pcb/picture-storage.js';
 import { pointInPolygon } from '../src/core/geometry.js';
 
 const artworks = [
@@ -38,7 +38,7 @@ for (const invalid of [
 console.log(`PASS: lossless image storage; 6400-dot fixture ${JSON.stringify(artworks[3]).length} -> ${JSON.stringify(encoded).length} JSON bytes`);
 
 globalThis.window = { addEventListener() {} };
-const { pictureShape } = await import('../src/pcb/modules/picture-raster.js');
+const { pictureShape } = await import('../src/shared/pcb/picture-raster.js');
 const { serializeBoardShapes, loadBoardShapes } = await import('../src/pcb/modules/board-shapes.js');
 const first = { ...pictureShape(large, { widthMm: 20, layer: 'top-silk' }), id: 'pshape_1' };
 const second = { ...pictureShape(large, { widthMm: 30, layer: 'bottom-silk', center: { x: 5, y: 7 } }), id: 'pshape_2' };

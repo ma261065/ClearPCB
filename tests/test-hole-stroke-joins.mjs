@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { distanceToSegment, pointInPolygon } from '../src/core/geometry.js';
-import { boardShapeRemovalPathD, resolveBoardShapeGeometry } from '../src/pcb/modules/board-shape-geometry.js';
+import { boardShapeRemovalPathD, resolveBoardShapeGeometry } from '../src/shared/pcb/board-shape-geometry.js';
 
 globalThis.window = { addEventListener() {} };
 const element = (localName = 'g') => ({

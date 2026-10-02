@@ -1,6 +1,6 @@
 import { hasClipboard } from './clipboard.js';
-import { bindRecentsDropdown } from './recents.js';
-import { bindRibbonHeight } from './ribbon-height.js';
+import { bindRecentsDropdown } from '../../shared/ui/recents.js';
+import { bindRibbonHeight } from '../../shared/ui/ribbon-height.js';
 
 /**
  * Binds all ribbon tab buttons, tool buttons, file commands, edit commands,

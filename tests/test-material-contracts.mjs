@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { pointInPolygon } from '../src/core/geometry.js';
-import { resolvePadMaskOpenings } from '../src/pcb/modules/board-geometry.js';
+import { resolvePadMaskOpenings } from '../src/shared/pcb/board-geometry.js';
 globalThis.window = { addEventListener() {} };
 const { buildCopperObstacles } = await import('../src/pcb/modules/copper-obstacles.js');
 const {

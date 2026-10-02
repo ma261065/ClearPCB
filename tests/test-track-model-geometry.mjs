@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { Track } from '../src/shapes/track.js';
-import { resolveTrackEdgePaths, resolveTrackSegments } from '../src/pcb/modules/board-geometry.js';
+import { resolveTrackEdgePaths, resolveTrackSegments } from '../src/shared/pcb/board-geometry.js';
 import { CommandHistory } from '../src/core/CommandHistory.js';
 import { ModifyTrackGraphCommand } from '../src/core/pcb-track-commands.js';
 import { SelectionManager } from '../src/core/SelectionManager.js';

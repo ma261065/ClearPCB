@@ -1,4 +1,4 @@
-import { inlineSvgComputedStyles } from '../../ui/modules/export.js';
+import { inlineSvgComputedStyles } from '../../shared/ui/export.js';
 
 const NS = 'http://www.w3.org/2000/svg';
 

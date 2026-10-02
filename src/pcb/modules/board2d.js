@@ -14,19 +14,19 @@
  * axis), which also mirrors bottom silk so it reads correctly.
  */
 
-import { resolveReferenceText } from './reference-text.js';
-import { getBoardOutline, boardBoundary } from './board-outline.js';
+import { resolveReferenceText } from '../../shared/pcb/reference-text.js';
+import { getBoardOutline, boardBoundary } from '../../shared/pcb/board-outline.js';
 import {
     resolvePlacementDrills,
     resolvePadFlashes,
     resolveSilk,
     resolvePadMaskOpenings,
     MASK_EXPANSION,
-} from './board-geometry.js';
-import { resolveTrackSegments } from './board-geometry.js';
-import { boardShapeFilledRemovalOutlines, resolveBoardShapeGeometry } from './board-shape-geometry.js';
+} from '../../shared/pcb/board-geometry.js';
+import { resolveTrackSegments } from '../../shared/pcb/board-geometry.js';
+import { boardShapeFilledRemovalOutlines, resolveBoardShapeGeometry } from '../../shared/pcb/board-shape-geometry.js';
 import { pcbTextSegments } from './pcb-text.js';
-import { drawPictureCached } from './picture-raster.js';
+import { drawPictureCached } from '../../shared/pcb/picture-raster.js';
 import { paintViewerBackground } from './viewer-background.js';
 import { getComputedFill } from './computed-fill-cache.js';
 

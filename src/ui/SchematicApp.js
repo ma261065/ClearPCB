@@ -19,24 +19,24 @@ import { bindMouseEvents } from './modules/mouse.js';
 import { handleEscape, bindKeyboardShortcuts, runSchematicHistoryAction } from './modules/keyboard.js';
 import { bindPropertiesPanel, applyCommonProperty, updatePropertiesPanel, hasSchematicPropertyPreview } from './modules/properties.js';
 import { bindRibbon, updateShapePanelOptions } from './modules/ribbon.js';
-import { getToolIconPath, setToolCursor } from './modules/cursor.js';
-import { bindViewportControls, updateGridDropdown, fitToContent } from './modules/viewport.js';
+import { getToolIconPath, setToolCursor } from '../shared/ui/cursor.js';
+import { bindViewportControls, updateGridDropdown, fitToContent } from '../shared/ui/viewport.js';
 import { bindThemeToggle, toggleTheme, loadTheme, updateComponentColors } from './modules/theme.js';
 import { toggleSelectionLock, deleteSelected, captureShapeState, applyShapeState } from './modules/selection.js';
 import { copySelection, cutSelection, beginPastePreview, updatePastePreview, confirmPaste, cancelPaste } from './modules/clipboard.js';
-import { createBoxSelectElement, updateBoxSelectElement, removeBoxSelectElement, getBoxSelectBounds } from './modules/box-selection.js';
+import { createBoxSelectElement, updateBoxSelectElement, removeBoxSelectElement, getBoxSelectBounds } from '../shared/ui/box-selection.js';
 import { bindPaperEvents } from './modules/paper.js';
 import * as WireTools from '../schematic/modules/wire.js';
 import * as DrawingTools from './modules/drawing.js';
 import * as ComponentTools from './modules/components.js';
 import * as FileTools from '../schematic/modules/files.js';
-import * as ExportTools from './modules/export.js';
+import * as ExportTools from '../shared/ui/export.js';
 import { onToolSelected, onComponentPickerClosed, onOptionsChanged, loadToolOptions } from './modules/tool.js';
 import { adaptShortcutsInDOM } from './modules/platform-keys.js';
 import { setupCallbacks } from './modules/callbacks.js';
 import { updateUndoRedoButtons, makeHelpPanelDraggable, flashAutoSaveIndicator } from './modules/ui-utils.js';
 import { needsValueDialog, showValueDialog } from './modules/value-dialog.js';
-import { showAlert, showConfirm, showPrompt } from './modules/modal.js';
+import { showAlert, showConfirm, showPrompt } from '../shared/ui/modal.js';
 import {
     startTextEdit,
     endTextEdit,

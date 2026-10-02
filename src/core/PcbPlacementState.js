@@ -1,4 +1,4 @@
-import { REF_DEFAULT_SIZE, REF_DEFAULT_STROKE } from '../pcb/modules/reference-text.js';
+import { REF_DEFAULT_SIZE, REF_DEFAULT_STROKE } from '../shared/pcb/reference-text.js';
 import { createPcbFootprint } from './pcb-footprint.js';
 import { applyPlacementSide, updatePlacementPadPositions } from './pcb-placement-geometry.js';
 

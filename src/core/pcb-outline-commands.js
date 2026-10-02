@@ -1,4 +1,4 @@
-import { getBoardOutline, rectangleBoardOutline } from '../pcb/modules/board-outline.js';
+import { getBoardOutline, rectangleBoardOutline } from '../shared/pcb/board-outline.js';
 
 export class SetBoardOutlineCommand {
     /** @param {import('./PcbDocument.js').PcbDocument} document */

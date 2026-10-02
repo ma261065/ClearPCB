@@ -21,7 +21,7 @@
  */
 
 import { renderTrack, removeTrackElements, removeViaElements } from './track-render.js';
-import { resolveTrackSegments } from './board-geometry.js';
+import { resolveTrackSegments } from '../../shared/pcb/board-geometry.js';
 import { renderVia } from './track-render.js';
 import {
     resolveTrackSnap,
@@ -45,7 +45,7 @@ import {
 import { refreshTrackSelectionHalo } from './track-select.js';
 import { MoveVertexCommand, MoveViaCommand, CompoundCommand, ModifyTrackGraphCommand, RemoveTrackCommand, AddViaCommand, AddTrackCommand, ModifyTrackCommand, ModifyViaCommand, canonicalTrack, getPlacementPreviewTracks } from './track-commands.js';
 import { pointsCollinear, collinearSnap } from '../../core/geometry.js';
-import { showAlert } from '../../ui/modules/modal.js';
+import { showAlert } from '../../shared/ui/modal.js';
 import { Via, viaHitTest } from '../../shapes/via.js';
 import { Track } from '../../shapes/track.js';
 import { Pad } from '../../shapes/pad.js';

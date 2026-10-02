@@ -15,7 +15,7 @@ if (!process.argv.includes('--worker')) {
     const { Via } = await import('../src/shapes/via.js');
     const { collectBondedCopper, collectNodeConnections } = await import('../src/pcb/modules/track-draw.js');
     const { copperShapesTouch } = await import('../src/pcb/modules/track-contact-geometry.js');
-    const { pictureShape } = await import('../src/pcb/modules/picture-raster.js');
+    const { pictureShape } = await import('../src/shared/pcb/picture-raster.js');
     const artwork = offset => ({
         width: 100, height: 100,
         rectangles: Array.from({ length: 400 }, (_, index) => ({

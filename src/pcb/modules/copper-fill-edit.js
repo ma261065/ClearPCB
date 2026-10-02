@@ -1,7 +1,7 @@
 import { applyBoardShapeVertexResize, getBoardShapeAnchors,
     splitBoardShapeSegmentMetadata, remapBoardShapeNodeRadii } from './board-shapes.js';
-import { shapePathD } from './board-shape-geometry.js';
-import { validBoardOutline } from './board-outline.js';
+import { shapePathD } from '../../shared/pcb/board-shape-geometry.js';
+import { validBoardOutline } from '../../shared/pcb/board-outline.js';
 import { ModifyFillCommand, RemoveFillCommand } from './copper-fill-commands.js';
 import { renderCopperFill, removeCopperFillElements } from './copper-fill-render.js';
 import { renderPcbSelectionAnchors } from './selection-anchors.js';

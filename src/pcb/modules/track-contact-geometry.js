@@ -1,5 +1,5 @@
-import { resolveBoardShapeGeometry } from './board-shape-geometry.js';
-import { padFlashOutline } from './board-geometry.js';
+import { resolveBoardShapeGeometry } from '../../shared/pcb/board-shape-geometry.js';
+import { padFlashOutline } from '../../shared/pcb/board-geometry.js';
 import { distanceToSegment, pointInPolygon } from '../../core/geometry.js';
 import { spatialCrossPairs, prepareSpatialOrder, filterSpatialOrder, spatialCrossPairsPrepared } from '../../core/spatial-pairs.js';
 import earcut from '../../../assets/vendor/earcut.module.js';

@@ -18,7 +18,7 @@
  * testing and incremental cleanup.
  */
 
-import { resolveTrackEdgePaths } from './board-geometry.js';
+import { resolveTrackEdgePaths } from '../../shared/pcb/board-geometry.js';
 import { renderDrillBore } from './drill-bore.js';
 
 const NS = 'http://www.w3.org/2000/svg';

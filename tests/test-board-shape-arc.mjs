@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 
-const pcbShapeGeometry = await import('../src/pcb/modules/board-shape-geometry.js');
+const pcbShapeGeometry = await import('../src/shared/pcb/board-shape-geometry.js');
 const {
     boardShapeLineWidthMinimum, boardShapeArcGeometry, boardShapeBounds, boardShapeHitTest,
     boardShapeFilledRemovalOutlines, boardShapeRemovalPathD, circleFilledRadius,
@@ -98,7 +98,7 @@ const { exportGerbers } = await import('../src/pcb/modules/gerber.js');
 const { pointInPolygon } = await import('../src/core/geometry.js');
 const { pcbTextPolylines, pcbTextSegments } = await import('../src/pcb/modules/pcb-text.js');
 const { pcbLayerSelectionColor } = await import('../src/pcb/modules/layers.js');
-const { flattenSvgPath } = await import('../src/pcb/modules/board-geometry.js');
+const { flattenSvgPath } = await import('../src/shared/pcb/board-geometry.js');
 const { Polyline } = await import('../src/shapes/polyline.js');
 const { Arc } = await import('../src/shapes/arc.js');
 const { Circle } = await import('../src/shapes/circle.js');
@@ -106,7 +106,7 @@ const { shapeFromPoints, advanceShapeDrawing, primitiveShapePath } = await impor
 const { projectArcBulge } = await import('../src/shapes/arc-edit.js');
 const { joinPaths, deletePathSegment, closePathIfCoincident, collapseCollinearPath, pointsFormAxisAlignedRect } = await import('../src/shapes/path-operations.js');
 const { roundedPathCorners, sampleRoundedCorner } = await import('../src/shapes/rounded-path.js');
-const pcbCornerGeometry = await import('../src/pcb/modules/board-geometry.js');
+const pcbCornerGeometry = await import('../src/shared/pcb/board-geometry.js');
 const { Board2D } = await import('../src/pcb/modules/board2d.js');
 const { computeFillPolygons, loadClipper } = await import('../src/pcb/modules/copper-fill-geom.js');
 

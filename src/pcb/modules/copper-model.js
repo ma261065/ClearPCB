@@ -1,4 +1,4 @@
-import { placementPose, padFlashOutline } from './board-geometry.js';
+import { placementPose, padFlashOutline } from '../../shared/pcb/board-geometry.js';
 
 export function padCopperOutline(pad) {
     return padFlashOutline({ x: pad.x, y: pad.y, w: pad.width, h: pad.height, shape: pad.shape }, 0.001, true);

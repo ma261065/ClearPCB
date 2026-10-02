@@ -6,8 +6,8 @@ import { CopperFill } from '../src/shapes/copper-fill.js';
 import { cloneShapeGeometry, captureBoardShapeState, applyShapeGeometry } from '../src/core/pcb-board-shapes.js';
 import { AddBoardShapeCommand, RemoveBoardShapeCommand, MoveBoardShapeCommand,
     ModifyBoardShapeCommand } from '../src/core/pcb-shape-commands.js';
-import { rectangleBoardOutline } from '../src/pcb/modules/board-outline.js';
-import { pictureShape } from '../src/pcb/modules/picture-raster.js';
+import { rectangleBoardOutline } from '../src/shared/pcb/board-outline.js';
+import { pictureShape } from '../src/shared/pcb/picture-raster.js';
 
 assert.equal(typeof document, 'undefined');
 assert.equal(typeof window, 'undefined');

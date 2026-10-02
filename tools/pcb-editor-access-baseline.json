@@ -11,11 +11,6 @@
     "_showBoardOutlineProperties",
     "_syncBoardOutlineInputs"
   ],
-  "src/pcb/modules/board-outline.js": [
-    "_boardHeight",
-    "_boardRadius",
-    "_boardWidth"
-  ],
   "src/pcb/modules/board-shapes.js": [
     "_active",
     "_boardShapeClearanceCache",
@@ -425,5 +420,10 @@
     "_trackEdit",
     "_updateVertexDragCrosshair",
     "_vertexDrag"
+  ],
+  "src/shared/pcb/board-outline.js": [
+    "_boardHeight",
+    "_boardRadius",
+    "_boardWidth"
   ]
 }

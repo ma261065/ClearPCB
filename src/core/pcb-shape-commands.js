@@ -1,5 +1,5 @@
 import { applyShapeGeometry, applyShapeSnapshot } from './pcb-board-shapes.js';
-import { validBoardOutline } from '../pcb/modules/board-outline.js';
+import { validBoardOutline } from '../shared/pcb/board-outline.js';
 
 function applyEdit(document, shape, state, apply) {
     if (shape.layer === 'board-outline') {

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import * as placementGeometry from '../src/core/pcb-placement-geometry.js';
 import { CopperFill } from '../src/shapes/copper-fill.js';
-import { resolvePlacementDrills } from '../src/pcb/modules/board-geometry.js';
+import { resolvePlacementDrills } from '../src/shared/pcb/board-geometry.js';
 
 assert.equal(typeof window, 'undefined');
 assert.equal(typeof document, 'undefined');

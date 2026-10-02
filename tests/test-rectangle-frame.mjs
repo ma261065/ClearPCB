@@ -8,8 +8,8 @@ import { createShape } from '../src/shapes/index.js';
 globalThis.window = { addEventListener() {} };
 const { serializeBoardShapes, loadBoardShapes } = await import('../src/pcb/modules/board-shapes.js');
 const { preparePcb } = await import('../src/pcb/modules/project-state.js');
-const { decodePictureArtwork } = await import('../src/pcb/modules/picture-storage.js');
-const { pictureContours } = await import('../src/pcb/modules/picture-raster.js');
+const { decodePictureArtwork } = await import('../src/shared/pcb/picture-storage.js');
+const { pictureContours } = await import('../src/shared/pcb/picture-raster.js');
 const { prepareFabricationSnapshot } = await import('../src/pcb/modules/fabrication-snapshot.js');
 const project = shapes => ({
     type: 'clearpcb-project', version: '1.0', schematic: { shapes: [], components: [] },

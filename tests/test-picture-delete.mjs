@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { PcbDocument } from '../src/core/PcbDocument.js';
-import { pictureShape } from '../src/pcb/modules/picture-raster.js';
+import { pictureShape } from '../src/shared/pcb/picture-raster.js';
 
 const element = () => ({
     children: [], parentNode: null, style: {}, attributes: new Map(),

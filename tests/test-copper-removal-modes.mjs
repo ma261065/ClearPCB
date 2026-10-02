@@ -16,7 +16,7 @@ const { reconcileRatsnest, collectBondedCopper, resolveTrackDrawSnap, nearestPoi
 const { boardShapeClearanceOutlines } = await import('../src/pcb/modules/copper-fill-geom.js');
 const { captureBoardShapeState } = await import('../src/pcb/modules/board-shapes.js');
 const { ModifyBoardShapeCommand } = await import('../src/pcb/modules/shape-commands.js');
-const { pictureShape } = await import('../src/pcb/modules/picture-raster.js');
+const { pictureShape } = await import('../src/shared/pcb/picture-raster.js');
 const { Track } = await import('../src/shapes/track.js');
 
 const modes = ['remove-copper', 'remove-solder-mask', 'remove-copper-mask'];

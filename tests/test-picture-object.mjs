@@ -6,7 +6,7 @@ import {
     validatePictureArtwork,
     validatePicturePoints,
     MAX_PICTURE_REGIONS,
-} from '../src/pcb/modules/picture-raster.js';
+} from '../src/shared/pcb/picture-raster.js';
 
 const raster = { width: 4, height: 2, rectangles: [{ x: 0, y: 0, width: 1, height: 2 }, { x: 3, y: 0, width: 1, height: 2 }] };
 const image = pictureShape(raster, { widthMm: 4, layer: 'top-silk' });
@@ -35,7 +35,7 @@ assert.throws(() => validatePictureArtwork({ ...raster, width: 513 }), /Invalid 
 console.log('PASS single image object, internal artwork contours and proportional resizing');
 
 globalThis.window = { addEventListener() {} };
-const { boardShapeHitTest, boardShapeBounds, resolveBoardShapeGeometry } = await import('../src/pcb/modules/board-shape-geometry.js');
+const { boardShapeHitTest, boardShapeBounds, resolveBoardShapeGeometry } = await import('../src/shared/pcb/board-shape-geometry.js');
 const { getBoardShapeAnchors,
     serializeBoardShapes, loadBoardShapes, applyBoardShapeVertexResize } = await import('../src/pcb/modules/board-shapes.js');
 image.id = 'pshape_1';
