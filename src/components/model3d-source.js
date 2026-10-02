@@ -113,6 +113,9 @@ async function _resolveObjFromModelUrl(modelUrl, proxyUrl) {
     if (/\.(wrl|vrml)(\?|$)/i.test(modelUrl) || /^#\s*VRML/i.test(text)) {
         const geom = VRMLPreview.parseVRMLWithColors(text);
         if (geom?.vertices?.length && geom?.faces?.length) {
+            // KiCad VRML models are authored in 0.1-inch units (KiCad scales them
+            // by 2.54 on load); STEP models are already in millimetres.
+            geom.vertices = geom.vertices.map(v => ({ x: v.x * 2.54, y: v.y * 2.54, z: v.z * 2.54 }));
             objText = _coloredMeshToObj(geom);
         }
     }

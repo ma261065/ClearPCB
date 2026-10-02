@@ -1802,7 +1802,23 @@ The OBJ parser identifies the procedural-package header as source `builtin`;
 the board viewer preserves that authored mounting plane rather than raising
 the model by its lowest pin tip. Top/bottom placement, mirroring, rotation and
 explicit model height offsets retain their normal behavior. Imported EasyEDA
-and KiCad models retain their existing minimum-Z seating.
+models retain their minimum-Z seating.
+
+### KiCad Footprints and 3D Models
+
+KiCad `.kicad_mod` footprints are Y-down like ClearPCB, so
+`KiCadFetcher._parseFootprintPreview()` uses their coordinates as written (only
+`.kicad_sym` symbols, which are Y-up, are negated). Pad rotation is
+counter-clockwise on screen, so a slot's axis angle is `base − rotation` in
+Y-down coordinates. KiCad 3D models share the footprint's origin (often pin 1,
+not the body centre) and put Z = 0 on the board surface; `objModelToMesh()`
+therefore seats them by their raw origin at the footprint's `model3d` offset
+(no bounding-box centring, no lift to the lowest lead tip), reflecting only the
+model's Y-up axis. VRML models are in KiCad's 0.1-inch units and are scaled to
+millimetres when converted; STEP models are already in millimetres.
+`test-kicad-footprint-model-alignment` checks orientation, lead-to-pad seating
+at 0°/90° and VRML units. Footprints imported before this fix were mirrored
+and need re-importing.
 
 ### Board-Shape Geometry Contract
 

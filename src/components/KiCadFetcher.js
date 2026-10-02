@@ -1192,6 +1192,8 @@ export class KiCadFetcher {
     /**
      * Parse a `.kicad_mod` S-expression into a simplified pad-shapes array
      * with a bounding box, suitable for rendering a footprint preview.
+     * KiCad footprint files are Y-down like ClearPCB, so coordinates are used as
+     * written (unlike `.kicad_sym` symbols, which are Y-up).
      * @param {string} content - Raw `.kicad_mod` file content
      * @returns {{shapes: Array, bbox: Object}|null}
      */
@@ -1228,8 +1230,8 @@ export class KiCadFetcher {
                 let sx = 0, sy = 0, ex = 0, ey = 0, layer = '', sw = 0.12;
                 for (const sub of item) {
                     if (!Array.isArray(sub)) continue;
-                    if (sub[0] === 'start') { sx = parseFloat(sub[1]) || 0; sy = -(parseFloat(sub[2]) || 0); }
-                    else if (sub[0] === 'end') { ex = parseFloat(sub[1]) || 0; ey = -(parseFloat(sub[2]) || 0); }
+                    if (sub[0] === 'start') { sx = parseFloat(sub[1]) || 0; sy = parseFloat(sub[2]) || 0; }
+                    else if (sub[0] === 'end') { ex = parseFloat(sub[1]) || 0; ey = parseFloat(sub[2]) || 0; }
                     else if (sub[0] === 'layer') { layer = typeof sub[1] === 'string' ? sub[1].replace(/"/g, '') : ''; }
                     else if (sub[0] === 'stroke') {
                         for (const ssub of sub) {
@@ -1252,8 +1254,8 @@ export class KiCadFetcher {
                 let cx2 = 0, cy2 = 0, endx = 0, endy = 0, layer = '', sw = 0.12;
                 for (const sub of item) {
                     if (!Array.isArray(sub)) continue;
-                    if (sub[0] === 'center') { cx2 = parseFloat(sub[1]) || 0; cy2 = -(parseFloat(sub[2]) || 0); }
-                    else if (sub[0] === 'end') { endx = parseFloat(sub[1]) || 0; endy = -(parseFloat(sub[2]) || 0); }
+                    if (sub[0] === 'center') { cx2 = parseFloat(sub[1]) || 0; cy2 = parseFloat(sub[2]) || 0; }
+                    else if (sub[0] === 'end') { endx = parseFloat(sub[1]) || 0; endy = parseFloat(sub[2]) || 0; }
                     else if (sub[0] === 'layer') { layer = typeof sub[1] === 'string' ? sub[1].replace(/"/g, '') : ''; }
                     else if (sub[0] === 'stroke') {
                         for (const ssub of sub) {
@@ -1277,9 +1279,9 @@ export class KiCadFetcher {
                 let sx = 0, sy = 0, mx = 0, my = 0, ex = 0, ey = 0, layer = '', sw = 0.12;
                 for (const sub of item) {
                     if (!Array.isArray(sub)) continue;
-                    if (sub[0] === 'start') { sx = parseFloat(sub[1]) || 0; sy = -(parseFloat(sub[2]) || 0); }
-                    else if (sub[0] === 'mid') { mx = parseFloat(sub[1]) || 0; my = -(parseFloat(sub[2]) || 0); }
-                    else if (sub[0] === 'end') { ex = parseFloat(sub[1]) || 0; ey = -(parseFloat(sub[2]) || 0); }
+                    if (sub[0] === 'start') { sx = parseFloat(sub[1]) || 0; sy = parseFloat(sub[2]) || 0; }
+                    else if (sub[0] === 'mid') { mx = parseFloat(sub[1]) || 0; my = parseFloat(sub[2]) || 0; }
+                    else if (sub[0] === 'end') { ex = parseFloat(sub[1]) || 0; ey = parseFloat(sub[2]) || 0; }
                     else if (sub[0] === 'layer') { layer = typeof sub[1] === 'string' ? sub[1].replace(/"/g, '') : ''; }
                     else if (sub[0] === 'stroke') {
                         for (const ssub of sub) {
@@ -1304,8 +1306,8 @@ export class KiCadFetcher {
                 let sx = 0, sy = 0, ex = 0, ey = 0, layer = '', sw = 0.12;
                 for (const sub of item) {
                     if (!Array.isArray(sub)) continue;
-                    if (sub[0] === 'start') { sx = parseFloat(sub[1]) || 0; sy = -(parseFloat(sub[2]) || 0); }
-                    else if (sub[0] === 'end') { ex = parseFloat(sub[1]) || 0; ey = -(parseFloat(sub[2]) || 0); }
+                    if (sub[0] === 'start') { sx = parseFloat(sub[1]) || 0; sy = parseFloat(sub[2]) || 0; }
+                    else if (sub[0] === 'end') { ex = parseFloat(sub[1]) || 0; ey = parseFloat(sub[2]) || 0; }
                     else if (sub[0] === 'layer') { layer = typeof sub[1] === 'string' ? sub[1].replace(/"/g, '') : ''; }
                     else if (sub[0] === 'stroke') {
                         for (const ssub of sub) {
@@ -1338,7 +1340,7 @@ export class KiCadFetcher {
                     else if (sub[0] === 'pts') {
                         for (const xy of sub) {
                             if (Array.isArray(xy) && xy[0] === 'xy') {
-                                pts.push([parseFloat(xy[1]) || 0, -(parseFloat(xy[2]) || 0)]);
+                                pts.push([parseFloat(xy[1]) || 0, parseFloat(xy[2]) || 0]);
                             }
                         }
                     }
@@ -1385,7 +1387,7 @@ export class KiCadFetcher {
                 if (!Array.isArray(padItem)) continue;
                 if (padItem[0] === 'at') {
                     atX = parseFloat(padItem[1]) || 0;
-                    atY = -(parseFloat(padItem[2]) || 0);
+                    atY = parseFloat(padItem[2]) || 0;
                     rotation = padItem.length > 3 ? parseFloat(padItem[3]) || 0 : 0;
                 } else if (padItem[0] === 'size') {
                     sizeX = parseFloat(padItem[1]) || 0;
@@ -1413,8 +1415,9 @@ export class KiCadFetcher {
             }
 
             if (!sizeX || !sizeY) continue;
-            // KiCad rotates counterclockwise; the imported Y reflection reverses that direction.
-            slotAngle += rotation * Math.PI / 180;
+            // KiCad pad rotation is counter-clockwise on screen, which is negative in
+            // KiCad's (and ClearPCB's) Y-down footprint coordinates.
+            slotAngle -= rotation * Math.PI / 180;
 
             if (padKind === 'np_thru_hole') {
                 if (drill > 0) {

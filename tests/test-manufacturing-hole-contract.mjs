@@ -36,7 +36,11 @@ assert.deepEqual(footprint.padOffsets.map(pad => pad.number), ['1', '2', '3'],
     'Mechanical holes never invent numbered copper pads or electrical terminals');
 assert.equal(footprint.geometry.silks.filter(shape => shape.layer === 'hole').length, 2);
 assert.equal(footprint.padOffsets[2].slotLength, 3);
-assert.ok(Math.abs(footprint.padOffsets[2].slotAngle - (Math.PI / 2 + 37 * Math.PI / 180)) < 1e-12);
+// KiCad footprint files are Y-down like ClearPCB: a vertical slot on a pad rotated 37°
+// counter-clockwise (on screen) lies at 90° − 37° in Y-down coordinates.
+assert.ok(Math.abs(footprint.padOffsets[2].slotAngle - (Math.PI / 2 - 37 * Math.PI / 180)) < 1e-12);
+assert.ok(footprint.padOffsets[0].dy < footprint.padOffsets[1].dy,
+    'KiCad footprints are not mirrored: pad 1 (y = -8) stays above pad 2 (y = 8)');
 const restored = new ProjectDocument();
 await restored.load(project.serialize());
 assert.equal(restored.getPcbFootprint('part').geometry.silks.filter(shape => shape.layer === 'hole').length, 2);

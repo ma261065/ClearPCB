@@ -992,6 +992,11 @@ export function objModelToMesh(parsed, pl) {
     // projected XY bounding-box centre, not its raw OBJ origin. Seat the model
     // by its XY bbox centre so an off-centre OBJ lands correctly — and so the
     // intrinsic Z rotation spins about that same centre (matching EasyEDA).
+    // KiCad models follow KiCad's own convention instead: the model origin IS
+    // the footprint origin (often pin 1, not the body centre) and model Z = 0 is
+    // the board surface, so they keep their raw origin and height (see the
+    // KiCad model3d offset in shared/pcb/footprint.js).
+    const kicad = parsed.source === 'kicad';
     let minZ = Infinity;
     let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
     for (const v of parsed.vertices) {
@@ -1002,10 +1007,10 @@ export function objModelToMesh(parsed, pl) {
         if (v.y > maxY) maxY = v.y;
     }
     if (!isFinite(minZ)) minZ = 0;
-    // Built-in leads extend below their authored mounting plane; do not lift the body.
-    const mountingZ = parsed.source === 'builtin' ? 0 : minZ;
-    const ocx = isFinite(minX) ? (minX + maxX) / 2 : 0;
-    const ocy = isFinite(minY) ? (minY + maxY) / 2 : 0;
+    // Built-in and KiCad leads extend below their authored mounting plane; do not lift the body.
+    const mountingZ = parsed.source === 'builtin' || kicad ? 0 : minZ;
+    const ocx = !kicad && isFinite(minX) ? (minX + maxX) / 2 : 0;
+    const ocy = !kicad && isFinite(minY) ? (minY + maxY) / 2 : 0;
 
     // EasyEDA seats the model with an intrinsic Z rotation and an origin
     // offset relative to the footprint centroid (model3dPlacement). The
@@ -1020,15 +1025,9 @@ export function objModelToMesh(parsed, pl) {
     // for the common 0°/180° parts (−180≡180) and correctly 180°-reorients the
     // 90°/270° parts (e.g. a TSSOP whose pin-1 otherwise lands on the far end).
     //
-    // KiCad WRL/STEP models are authored yawed 180° about the vertical axis
-    // relative to EasyEDA's pin-1 convention, so their body/can otherwise lands
-    // on the opposite footprint end (e.g. the ESP32-S3-WROOM-1 metal can). Add a
-    // 180° spin for KiCad sources — a proper rotation (det +1) that reseats the
-    // body without mirroring it (text stays readable, model stays right-side up).
-    // The Y-reflection (my below) is the standard Z-up→Y-up conversion and is
-    // kept for BOTH sources; only the in-plane yaw differs.
-    const kicadYaw = parsed.source === 'kicad' ? Math.PI : 0;
-    const spin = ((-(mp.rotation || 0)) * Math.PI) / 180 + kicadYaw;
+    // The Y-reflection (my below) is the standard Z-up→Y-up conversion for BOTH
+    // sources: KiCad and EasyEDA models are Y-up while footprints are Y-down.
+    const spin = ((-(mp.rotation || 0)) * Math.PI) / 180;
     const sct = Math.cos(spin);
     const sst = Math.sin(spin);
     // Placement rotation (orients the whole footprint on the board).
@@ -3667,7 +3666,7 @@ export async function openBoard3DViewer(app, opts = {}) {
                 // SAME colored OBJ (inline `newmtl`/`Kd`) the synchronous
                 // model3dObj path uses — not a flat-grey STEP mesh. This keeps
                 // KiCad bodies coloured AND routed through objModelToMesh (which
-                // applies the KiCad 180° yaw), so both paths render identically.
+                // applies KiCad's origin and height convention), so both paths render identically.
                 const objText = await resolveObjFromModelUrl(avail.modelUrl, fetcher.corsProxy || '');
                 return objText || null;
             } catch (err) {
