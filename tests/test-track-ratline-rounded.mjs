@@ -39,7 +39,8 @@ const distanceToCopper = (track, point) => Math.min(...resolveTrackSegments(trac
     assert.ok(distanceToCopper(track, end) < 1e-9, 'ratline ends on the drawn centreline');
     const nearest = Math.min(...resolveTrackSegments(track).flatMap(segment => [segment.start, segment.end])
         .map(point => Math.hypot(point.x - 14, point.y + 4)));
-    assert.ok(Math.abs(Math.hypot(end.x - 14, end.y + 4) - nearest) < 1e-9, 'it is the drawn point nearest the pad');
+    // Curves offer a few on-curve points, so the end is near (not exactly at) the nearest drawn point.
+    assert.ok(Math.hypot(end.x - 14, end.y + 4) - nearest < 0.5, 'it is close to the drawn point nearest the pad');
 }
 
 {
@@ -57,9 +58,9 @@ const distanceToCopper = (track, point) => Math.min(...resolveTrackSegments(trac
 {
     const track = new Track({ net: 'N', layer: 'top-copper', width: 0.25, cornerRadius: 6,
         points: [{ x: 0, y: 0 }, { x: 10, y: 0 }, { x: 10, y: 10 }], edgeBulges: { e1: 0.5 } });
-    // Rounding is skipped beside an arc edge, and arcs keep their end nodes as targets.
+    // Rounding is skipped beside an arc edge; the arc itself offers points along it, all on copper.
     const end = trackEnd(ratlines(board({ tracks: [track], pads: [pad()] }))[0]);
-    assert.deepEqual(end, { x: 10, y: 0 }, 'an arc-adjacent corner keeps its on-copper node');
+    assert.ok(distanceToCopper(track, end) < 1e-9, 'an arc-adjacent corner ends on copper');
 }
 
 {

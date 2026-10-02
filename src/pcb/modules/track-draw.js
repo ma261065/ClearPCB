@@ -40,11 +40,12 @@ import { renderTrack, viaCopperPathD } from './track-render.js';
 import { pointInPolygon, distanceToSegment } from '../../core/geometry.js';
 import { closestPointOnArcEdge } from '../../shapes/arc-edge.js';
 import { resolveTrackEdgePaths } from '../../shapes/track-geometry.js';
+import { curveRatlineTargets } from '../../shapes/path-geometry.js';
 import { copperLayer, resolveCopperPads } from './copper-model.js';
 import { padFlashOutline, placementPose, resolveTrackSegments } from '../../shared/pcb/board-geometry.js';
 import { snapNodeToAxis, snapNodeToCollinear } from '../../shapes/path-snap.js';
 export { snapNodeToAxis, snapNodeToCollinear } from '../../shapes/path-snap.js';
-import { normalizeShapeCopperMode, shapeOutline } from '../../shared/pcb/board-shape-geometry.js';
+import { boardShapeRatlineTargets, normalizeShapeCopperMode, shapeOutline } from '../../shared/pcb/board-shape-geometry.js';
 import { renderBoardShape } from './board-shapes.js';
 import { resolveTrackContactGeometry, copperShapesTouch, copperContactsTouch, copperRegionShape, copperSegmentShape, copperSegmentContact, resolveTerminalCopperContact, pointInCopperRegion } from './track-contact-geometry.js';
 import { spatialClusterMST } from './cluster-mst.js';
@@ -810,27 +811,28 @@ export function popTrackWaypoint(app) {
  *   a fill recompute to consume its new geometry without scheduling another
  *   fill pass.
  */
-function trackHasRoundedCorners(track) {
-    return Number(track.cornerRadius) >= 0.01
-        || Object.values(track.nodeCornerRadii || {}).some(radius => Number(radius) >= 0.01);
+function trackHasCurves(track) {
+    if (Number(track.cornerRadius) >= 0.01
+        || Object.values(track.nodeCornerRadii || {}).some(radius => Number(radius) >= 0.01)) return true;
+    for (const edge of track.edges.values()) if (edge.bulge) return true;
+    return false;
 }
 
 /**
- * Ratline endpoints for a Track cluster. A rounded corner's node lies off the
- * copper, so rounded Tracks expose their rendered centreline instead; arc edges
- * keep their on-copper end nodes, as curved shapes do. Nodes still bond junctions.
+ * Ratline endpoints for a Track cluster, by the same rule as board shapes
+ * (boardShapeRatlineTargets): nodes the copper passes through plus a few points
+ * along every curve. A rounded corner's node lies off the copper, so curved
+ * Tracks use their rendered centreline. Nodes still bond junctions.
  */
 function trackRatlineTargets(cluster, pathsByTrack) {
     const { track, edgeIds } = cluster;
-    if (!edgeIds?.size || !trackHasRoundedCorners(track)) return cluster.points;
+    if (!edgeIds?.size || !trackHasCurves(track)) return cluster.points;
     let paths = pathsByTrack.get(track);
     if (!paths) pathsByTrack.set(track, paths = resolveTrackEdgePaths(track));
     const targets = [];
     for (const edgeId of edgeIds) {
         const path = paths.get(edgeId);
-        if (!path?.length) continue;
-        if (track.edges.get(edgeId)?.bulge) targets.push(path[0], path[path.length - 1]);
-        else targets.push(...path);
+        if (path?.length) targets.push(...curveRatlineTargets(path));
     }
     return targets.length ? targets : cluster.points;
 }
@@ -935,11 +937,9 @@ export function reconcileRatsnest(app, opts) {
         let sn = supernodes.get(r);
         if (!sn) { sn = { net: clusters[i].net, points: [] }; supernodes.set(r, sn); }
         const shape = clusters[i].copperShape;
+        // Pour regions (with a source fill) keep their empty target list.
         const targets = clusters[i].kind === 'track' ? trackRatlineTargets(clusters[i], trackPaths)
-            : shape?.kind === 'arc' ? [shape.start, shape.end]
-            : ['line', 'polygon'].includes(shape?.kind)
-                && Object.values(shape.segmentBulges || {}).some(value => Number(value) !== 0)
-                ? shape.points : clusters[i].points;
+            : shape && !clusters[i].source ? boardShapeRatlineTargets(shape) : clusters[i].points;
         for (const point of targets) sn.points.push(point);
     }
 

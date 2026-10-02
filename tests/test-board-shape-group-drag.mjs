@@ -240,11 +240,20 @@ for (const shape of [
         cornerRadius: 2,
         segmentWidths: { 0: 0.7 },
     };
-    const thickSegments = resolveBoardShapeGeometry(shape).strokeSegments
-        .filter((segment) => segment.lineWidth === 0.7);
-    expect('rounded rectangle keeps the overridden width on its straight edge', thickSegments, [{
+    const segments = resolveBoardShapeGeometry(shape).strokeSegments;
+    const thickSegments = segments.filter((segment) => segment.lineWidth === 0.7);
+    expect('rounded rectangle keeps the overridden width on its straight edge', thickSegments.filter(
+        (segment) => segment.start.y === 0 && segment.end.y === 0), [{
         start: { x: 2, y: 0 }, end: { x: 8, y: 0 }, lineWidth: 0.7,
     }]);
+    // Each half of a rounded corner takes its segment's width: only the halves beside the top side widen.
+    const cornerSag = 2 * (1 - Math.SQRT1_2);
+    expect('the overridden width reaches only the adjacent corner halves', [
+        thickSegments.length > 1,
+        thickSegments.every((segment) => Math.max(segment.start.y, segment.end.y) <= cornerSag + 0.05),
+        segments.filter((segment) => Math.min(segment.start.y, segment.end.y) > cornerSag + 1e-9)
+            .every((segment) => segment.lineWidth === 0.2),
+    ], [true, true, true]);
 }
 
 {

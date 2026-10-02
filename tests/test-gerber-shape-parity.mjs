@@ -48,8 +48,12 @@ for (const [layer, file] of [['top-copper', 'board.gtl'], ['bottom-copper', 'boa
         for (const stroke of strokes) {
             const incoming = stroke.start.y === -10 && stroke.end.y === -10;
             const outgoing = stroke.start.x === 30 && stroke.end.x === 30;
-            const expectedWidth = incoming ? 0.4 : outgoing ? outgoingWidth : shape.lineWidth;
-            assert.equal(stroke.width, expectedWidth, `${label}: straight overrides and shape-wide corner width are preserved`);
+            // The 8 mm corner at (30, -10) splits at its midpoint (28, -12): each half takes its segment's width.
+            const firstHalf = Math.max(stroke.start.x, stroke.end.x) <= 28 + 1e-5;
+            const incomingWidth = variable ? 0.4 : shape.lineWidth;
+            const expectedWidth = incoming ? incomingWidth : outgoing ? outgoingWidth
+                : firstHalf ? incomingWidth : outgoingWidth;
+            assert.equal(stroke.width, expectedWidth, `${label}: straight overrides and adjacent-segment corner widths are preserved`);
         }
         // Aperture batching may reorder draws; the physical path must still join exactly.
         const key = point => `${point.x},${point.y}`;
@@ -71,11 +75,15 @@ for (const [layer, file] of [['top-copper', 'board.gtl'], ['bottom-copper', 'boa
         // Wider straight-edge round caps legitimately extend into the curve at its ends.
         for (let sample = variable ? 10 : 1; sample < (variable ? 91 : 100); sample++) {
             const fraction = sample / 100;
+            const incomingWidth = variable ? 0.4 : shape.lineWidth;
+            // Each corner half takes its segment's width; the wider half's round end overlaps the midpoint.
+            if (incomingWidth !== outgoingWidth && Math.abs(fraction - 0.5) < 0.06) continue;
+            const halfWidth = (fraction < 0.5 ? incomingWidth : outgoingWidth) / 2;
             const point = { x: 30 - 8 * (1 - fraction) ** 2, y: -10 - 8 * fraction ** 2 };
             const length = Math.hypot(fraction, 1 - fraction);
             const normal = { x: fraction / length, y: (1 - fraction) / length };
             for (const side of [-1, 1]) {
-                const inside = shape.lineWidth / 2 - 0.005, outside = shape.lineWidth / 2 + 0.005;
+                const inside = halfWidth - 0.005, outside = halfWidth + 0.005;
                 assert.ok(covers({ x: point.x + side * normal.x * inside, y: point.y + side * normal.y * inside }),
                     `${label}: no notches along either curve boundary at ${fraction}`);
                 assert.equal(covers({ x: point.x + side * normal.x * outside, y: point.y + side * normal.y * outside }), false,

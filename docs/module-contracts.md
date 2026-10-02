@@ -338,17 +338,28 @@ Unchanged previews reuse that input. Cancel/commit removes the provisional input
 and restores the normal graph. DRC's existing pending-edit guard prevents checking
 an unfinished gesture; guide styling itself never removes neutral ratline records.
 
-Ratline endpoints sit on drawn copper. Copper shapes offer their (rounded)
-outline. A Track with rounded corners offers its rendered centreline from
-`resolveTrackEdgePaths()`, because a rounded corner's node lies off the copper.
-Arc edges and sharp Tracks offer their nodes. Junction bonding still uses the
-exact node positions (`test-track-ratline-rounded`).
+A copper shape and the Track it converts to are the same copper, so they follow
+one set of rules. `test-copper-path-parity` converts rounded, bulged,
+mixed-width, open and closed shapes and checks that selection hits, pad/via
+connectivity and ratline endpoints agree between the two models:
+- Ratline endpoints sit on drawn copper: nodes the copper passes through, plus
+  at most `RATLINE_CURVE_POINTS` on-curve points per rounded corner or arc
+  (`curveRatlineTargets()`), which bounds the cost of the spanning tree. Shapes
+  use `boardShapeRatlineTargets()`; curved Tracks use their rendered centreline
+  from `resolveTrackEdgePaths()`, never a rounded corner's off-copper node.
+  Junction bonding still uses exact node positions (`test-track-ratline-rounded`).
+- Strokes hit within half their width plus the pick tolerance
+  (`hitTestStrokeSegments()`), for Track edges, Line/arc shapes, closed-shape
+  contours and schematic polylines, arcs and wires alike.
+- Each half of a rounded corner takes the width of the segment it joins.
 
 Assigning a net to an unfilled copper polygon or rectangle converts it to a
 closed-loop Track, as for open copper Lines (`e<i>` is segment `i`, the last
-edge closes the loop). Clearing the net restores it as a polygon, or a rectangle
-when still axis-aligned. Filled copper shapes are areas and keep the net as a
-shape (`test-track-restoration`).
+edge closes the loop). A rectangle's circular corners become explicit arc
+edges, because Track corner rounding is quadratic. Clearing the net restores a
+polygon, or a rectangle when it is still an axis-aligned four-node loop.
+Filled copper shapes are areas and keep the net as a shape
+(`test-track-restoration`).
 
 `pcb/modules/autorouter-session.js` owns the routing session, worker, cancellation
 polling, result-adoption guard and disposal. It receives explicit capabilities

@@ -45,6 +45,7 @@ import {
 } from './shape-commands.js';
 import { AddTrackCommand, RemoveTrackCommand, CompoundCommand } from './track-commands.js';
 import { Track } from '../../shapes/track.js';
+import { roundedPathCorners } from '../../shapes/rounded-path.js';
 import { clearAxisGlow, renderAxisGlow, pathAlignmentSegments, squareAlignmentSegments } from '../../shapes/axis-glow.js';
 import { pathContinuationConstraints, pathSegmentConstraints } from '../../shapes/path-snap.js';
 import { redrawPropertyPreview, createPropertyBinding, commitPropertyPreviewInput,
@@ -78,6 +79,7 @@ import { areDragOverlaysDeferred, isPictureCopperRefreshPending, setDragOverlays
 import {
     normalizeShapeCopperMode,
     isMaskLayer,
+    boardShapeHasCircularCorners,
     rectCornerRadius,
     polygonCornerRadius,
     boardShapeNodeCornerRadius,
@@ -223,6 +225,7 @@ function canConvertBoardLineToTrack(shape, net = shape?.net) {
 
 /** Track with the shape's nodes `n<i>` and segments `e<i>`; closed shapes get the closing edge. */
 function trackFromBoardShape(shape, net) {
+    if (boardShapeHasCircularCorners(shape) && rectCornerRadius(shape) >= 0.01) return trackFromRoundedRect(shape, net);
     const count = shape.points.length;
     const edgeCount = shape.kind === 'line' ? count - 1 : count;
     const byEdge = (record) => Object.fromEntries(Object.entries(record || {}).map(([index, value]) => [`e${index}`, value]));
@@ -237,6 +240,55 @@ function trackFromBoardShape(shape, net) {
         edgeBulges: byEdge(shape.segmentBulges),
         cornerRadius: shape.kind === 'rect' ? rectCornerRadius(shape) : shape.cornerRadius,
         nodeCornerRadii: Object.fromEntries(Object.entries(shape.nodeCornerRadii || {}).map(([index, radius]) => [`n${index}`, radius])),
+        sourceBoardShape: sourceBoardShapeForTrack(shape),
+    });
+}
+
+/**
+ * Rounded rectangles draw circular corners, which Track corner rounding (quadratic)
+ * cannot reproduce, so each corner becomes an explicit arc edge between its
+ * tangent points, built by the same construction the rectangle renderer uses.
+ */
+function trackFromRoundedRect(shape, net) {
+    const radius = rectCornerRadius(shape);
+    const corners = roundedPathCorners(shape.points, shape.points.map(() => radius), true, true);
+    const graphNodes = {}, graphEdges = {}, edgeBulges = {}, edgeWidths = {};
+    let nodeCount = 0, edgeCount = 0;
+    const addNode = (point) => {
+        const id = `n${nodeCount++}`;
+        graphNodes[id] = { x: point.x, y: point.y };
+        return id;
+    };
+    const addEdge = (from, to) => {
+        const id = `e${edgeCount++}`;
+        graphEdges[id] = { from, to };
+        return id;
+    };
+    const ends = corners.map((corner) => {
+        if (!corner.rounded) {
+            const id = addNode(corner.vertex);
+            return { entry: id, exit: id };
+        }
+        return { entry: addNode(corner.entry), exit: addNode(corner.exit) };
+    });
+    const segmentWidth = (index) => shape.segmentWidths?.[(index + corners.length) % corners.length];
+    corners.forEach((corner, index) => {
+        if (corner.rounded) {
+            const arc = addEdge(ends[index].entry, ends[index].exit);
+            edgeBulges[arc] = corner.bulge;
+            // An arc edge has one width: keep a width shared by both neighbouring sides.
+            if (segmentWidth(index - 1) != null && segmentWidth(index - 1) === segmentWidth(index)) {
+                edgeWidths[arc] = segmentWidth(index);
+            }
+        }
+        const side = addEdge(ends[index].exit, ends[(index + 1) % ends.length].entry);
+        if (segmentWidth(index) != null) edgeWidths[side] = segmentWidth(index);
+    });
+    return new Track({
+        net: String(net).trim(),
+        width: Math.max(0.05, Number(shape.lineWidth) || 0.2),
+        layer: shape.layer,
+        graphNodes, graphEdges, edgeBulges, edgeWidths,
         sourceBoardShape: sourceBoardShapeForTrack(shape),
     });
 }

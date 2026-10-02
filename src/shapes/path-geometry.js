@@ -29,18 +29,37 @@ export function pathStrokeSegments(points, closed, widths, bulges, radii, corner
             start, end: samples[index + 1], lineWidth: widths[logicalSegment], logicalSegment,
         }));
     });
-    const curved = corners.flatMap(corner => {
+    // Each half of a rounded corner takes the width of the segment it joins, as Tracks do.
+    const curved = corners.flatMap((corner, index) => {
         const samples = sampleRoundedCorner(corner);
-        return samples.slice(0, -1).map((start, index) => ({
-            start, end: samples[index + 1], lineWidth: cornerWidth, logicalSegment: null,
+        const middle = (samples.length - 1) / 2;
+        const before = widths[(index + points.length - 1) % points.length] ?? cornerWidth;
+        const after = widths[index] ?? cornerWidth;
+        return samples.slice(0, -1).map((start, sample) => ({
+            start, end: samples[sample + 1], lineWidth: sample < middle ? before : after, logicalSegment: null,
         }));
     });
     return [...curved, ...straight];
 }
 
+/** Points a curve offers as ratline endpoints: evenly spaced samples on it, ends included. */
+export const RATLINE_CURVE_POINTS = 9;
+
+/**
+ * Thin a curve's samples to at most RATLINE_CURVE_POINTS. Every point stays on
+ * the curve, and ratline spanning trees compare clusters point by point, so
+ * this bounds their cost however finely the curve is drawn.
+ */
+export function curveRatlineTargets(samples) {
+    if (samples.length <= RATLINE_CURVE_POINTS) return samples;
+    const step = (samples.length - 1) / (RATLINE_CURVE_POINTS - 1);
+    return Array.from({ length: RATLINE_CURVE_POINTS }, (_, index) => samples[Math.round(index * step)]);
+}
+
+/** One stroke reach for every editor: within half the stroke width plus the pick tolerance. */
 export function hitTestStrokeSegments(point, segments, tolerance) {
     return segments.some(segment => distanceToSegment(point, segment.start, segment.end)
-        <= Math.max(tolerance, segment.lineWidth / 2 + 0.12));
+        <= segment.lineWidth / 2 + tolerance);
 }
 
 export function pointsBounds(points, margin = 0) {

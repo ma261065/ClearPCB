@@ -1,7 +1,7 @@
 import { pointInPolygon, distanceToSegment } from '../../core/geometry.js';
 import { roundedPathCorners, sampleRoundedCorner as sampleRoundedPolygonCorner, roundedPathData } from '../../shapes/rounded-path.js';
 import { controlArcGeometry, sampleControlArc } from '../../shapes/arc-edit.js';
-import { pathStrokeSegments, hitTestStrokeSegments, pointsBounds, circleOuterRadius, circleHitTest } from '../../shapes/path-geometry.js';
+import { pathStrokeSegments, hitTestStrokeSegments, pointsBounds, circleOuterRadius, circleHitTest, curveRatlineTargets } from '../../shapes/path-geometry.js';
 import { primitiveShapePath } from '../../shapes/shape-drawing.js';
 import ClipperLib from '../../../assets/vendor/clipper.esm.js';
 import { pictureContours, pictureCirclePathD } from './picture-raster.js';
@@ -132,6 +132,37 @@ export function shapeOutline(shape) {
     return (shape.points || []).map((p) => ({ x: p.x, y: p.y }));
 }
 
+/** Rectangles without per-node radii round with circular arcs; other paths use quadratic corners. */
+export function boardShapeHasCircularCorners(shape) {
+    return shape?.kind === 'rect' && !Object.keys(shape.nodeCornerRadii || {}).length;
+}
+
+/**
+ * Ratline endpoints on a shape's drawn copper, by the same rule as Tracks:
+ * nodes the copper passes through, plus a few points along every curve (rounded
+ * corners and arc segments), never the off-copper node of a rounded corner.
+ */
+export function boardShapeRatlineTargets(shape) {
+    if (shape.kind === 'arc') return curveRatlineTargets(arcSamples(shape));
+    if (!['line', 'rect', 'polygon'].includes(shape.kind)) return shapeOutline(shape);
+    const points = shape.points || [];
+    const closed = shape.kind !== 'line';
+    const bulges = points.map((_, index) => boardShapeSegmentBulge(shape, index));
+    // Corners beside an arc segment stay sharp, as in pathStrokeSegments.
+    const radii = points.map((_, index) => bulges[(index + points.length - 1) % points.length] || bulges[index]
+        ? 0 : boardShapeNodeCornerRadius(shape, index));
+    const corners = roundedPathCorners(points, radii, closed, boardShapeHasCircularCorners(shape));
+    const targets = [];
+    corners.forEach((corner, index) => {
+        targets.push(...curveRatlineTargets(sampleRoundedPolygonCorner(corner)));
+        const next = corners[(index + 1) % corners.length];
+        if (bulges[index] && (closed || index < corners.length - 1)) {
+            targets.push(...curveRatlineTargets([corner.exit, ...sampleArcEdge(corner.exit, next.entry, bulges[index], 64)]));
+        }
+    });
+    return targets;
+}
+
 /** Outline edges as [p, q] pairs (closed for rect/polygon, open for arcs/lines). */
 function shapeSegments(shape) {
     if (shape.kind === 'arc') {
@@ -157,7 +188,7 @@ export function boardShapeStrokeSegments(shape) {
             points.map((_, index) => boardShapeSegmentBulge(shape, index)),
             points.map((_, index) => boardShapeNodeCornerRadius(shape, index)),
             normalizedBoardShapeLineWidth(shape, shape.lineWidth),
-            shape.kind === 'rect' && !Object.keys(shape.nodeCornerRadii || {}).length);
+            boardShapeHasCircularCorners(shape));
     }
     return shapeSegments(shape).map(([start, end], index) => ({
         start, end, lineWidth: boardShapeSegmentWidth(shape, index), logicalSegment: index,

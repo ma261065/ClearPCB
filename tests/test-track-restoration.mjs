@@ -222,17 +222,36 @@ function appFor(track) {
 }
 
 {
+    // Circular rectangle corners become explicit arc edges so the Track's copper is exact.
     const rect = { id: 'pshape_rect', kind: 'rect', layer: 'bottom-copper', lineWidth: 0.3, filled: false,
         copperMode: 'add', net: '', cornerRadius: 50,
         points: [{ x: 0, y: 0 }, { x: 10, y: 0 }, { x: 10, y: 4 }, { x: 0, y: 4 }] };
     const app = appFor(null);
     app.boardShapes.push(rect);
     const track = convertBoardLineToTrack(app, rect, 'N');
-    expect('an unfilled rectangle converts to a closed-loop Track', track?.edges.size === 4);
-    expect('the rectangle radius is clamped as drawn', track.cornerRadius === 2);
+    const arcs = [...(track?.edges.values() || [])].filter(edge => edge.bulge);
+    expect('a rounded rectangle converts to a closed loop of 4 sides and 4 corner arcs',
+        track?.nodes.size === 8 && track.edges.size === 8 && arcs.length === 4);
+    expect('corner arcs are quarter circles of the clamped radius', arcs.every(edge =>
+        Math.abs(Math.abs(edge.bulge) - Math.tan(Math.PI / 8)) < 1e-12) && !track.cornerRadius
+        && [...track.nodes.values()].some(node => Math.abs(node.x - 2) < 1e-9 && Math.abs(node.y) < 1e-9));
+    restoreTrackToSourceBoardShape(app, track);
+    const restored = app.boardShapes[0];
+    expect('clearing the net restores a polygon with its arc corners', restored?.kind === 'polygon'
+        && restored.points.length === 8 && Object.keys(restored.segmentBulges).length === 4
+        && restored.layer === 'bottom-copper');
+}
+
+{
+    const rect = { id: 'pshape_sharp', kind: 'rect', layer: 'top-copper', lineWidth: 0.3, filled: false,
+        copperMode: 'add', net: '', points: [{ x: 0, y: 0 }, { x: 10, y: 0 }, { x: 10, y: 4 }, { x: 0, y: 4 }] };
+    const app = appFor(null);
+    app.boardShapes.push(rect);
+    const track = convertBoardLineToTrack(app, rect, 'N');
+    expect('a sharp rectangle converts to a 4-node loop', track?.nodes.size === 4 && track.edges.size === 4);
     restoreTrackToSourceBoardShape(app, track);
     expect('an axis-aligned loop restores as a rectangle', app.boardShapes[0]?.kind === 'rect'
-        && app.boardShapes[0].layer === 'bottom-copper');
+        && app.boardShapes[0].id === rect.id);
 }
 
 {
