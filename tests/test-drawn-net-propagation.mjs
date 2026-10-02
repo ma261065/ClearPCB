@@ -81,6 +81,26 @@ for (const gap of [0.001, 0.025, 0.1, 0.5]) {
 }
 
 await loadClipper();
+{
+    // Starting on a SIGNAL pin and bending/finishing inside a GND pour reserves clearance;
+    // the pour is not copper the new Track connects to.
+    const app = fixture();
+    const pin = app.placements.get('U1').pads.get('1');
+    pin.width = pin.height = 1.2;
+    const ground = new CopperFill({ layer: 'top-copper', net: 'GND' });
+    setComputedFill(ground, [{ outer: rectangle(-5, -5, 25, 5).points, holes: [rectangle(19, -1, 21, 1).points] }]);
+    app.boardShapes.push(ground);
+    const draw = startTrackDraw(app, { x: 20, y: 0 });
+    assert.equal(draw?.net, 'SIGNAL', 'The draw starts on the pin despite the surrounding GND pour');
+    addTrackWaypoint(app, { x: 10, y: 3 });
+    assert.equal(app._trackDraw?.points.length, 2, 'A bend inside a foreign-net pour is accepted, not a Net conflict');
+    addTrackWaypoint(app, { x: 5, y: 3 });
+    addTrackWaypoint(app, { x: 5, y: 3 });
+    assert.equal(app._trackDraw, null, 'Finishing inside the pour completes the Track');
+    assert.equal(app.tracks.length, 1);
+    assert.equal(app.tracks[0].net, 'SIGNAL');
+    assert.equal(ground.net, 'GND');
+}
 for (const clearance of [0.025, 0.1, 0.3, 0.5]) {
     const app = fixture();
     app.texts = new Map();

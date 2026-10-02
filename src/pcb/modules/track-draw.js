@@ -404,34 +404,6 @@ function pickAxis(lastPt, worldPos, diagBand = 0.3) {
     return dx >= dy ? 'horizontal' : 'vertical';
 }
 
-/**
- * If the dragged node is within `threshold` world units of forming an
- * H / V / 45° segment with any neighbour, snap the node so that segment is
- * exactly aligned. Each neighbour offers three candidate axes (horizontal,
- * vertical, 45°); a candidate qualifies when the node sits within
- * `threshold` of the aligned line, and across all neighbours/axes the one
- * needing the smallest nudge wins. The band is a perpendicular *distance*
- * (so the pull feels the same regardless of segment length), matching the
- * collinear snap band.
- *
- * @param {{x:number,y:number}} pos current dragged-node position
- * @param {Array<{x:number,y:number}>} neighbours positions of adjacent nodes
- * @param {number} [threshold] perpendicular pull distance (world mm); when
- *   omitted, falls back to the legacy angular test (any alignment accepted).
- * @returns {{x:number,y:number}}
- */
-/**
- * Straight-line (collinear) snap for a degree-2 waypoint: when the node
- * has exactly two neighbours and sits within `threshold` world units of
- * the line connecting them, project it onto that line so its two incident
- * segments become exactly collinear (a straight run at ANY angle). Returns
- * the projected position, or null when not applicable / out of range.
- *
- * @param {{x:number,y:number}} pos current dragged-node position
- * @param {Array<{x:number,y:number}>} neighbours positions of adjacent nodes
- * @param {number} threshold perpendicular pull distance (world mm)
- * @returns {{x:number,y:number}|null}
- */
 /* ──────────────────────────── lifecycle ──────────────────────────── */
 
 function shapeCopperContains(contact, point) {
@@ -461,7 +433,14 @@ export function resolveTrackDrawSnap(app, worldPos, options = {}) {
     const snap = resolveTrackSnap(app, worldPos, options);
     const layer = app._trackDraw?.currentLayer || app._trackToolLayer || 'top-copper';
     if (!TOGGLE_LAYERS.includes(layer)) return { ...snap, contactNets: [], copperContact: false };
-    const shapes = (app.boardShapes || []).filter((shape) => shape.layer === layer && shape.visible !== false);
+    const sourceNet = snap.pad?.net || snap.trackNode?.track.net || '';
+    // A pour of another net is re-poured with clearance around the new track,
+    // so it is not copper the track connects to (matching collectNodeConnections).
+    const drawNet = String(options.net || sourceNet || app._trackToolNet || '').trim();
+    const foreignFill = (shape) => shape?.type === 'fill' && !!drawNet
+        && !!String(shape.net || '').trim() && String(shape.net).trim() !== drawNet;
+    const shapes = (app.boardShapes || []).filter((shape) => shape.layer === layer && shape.visible !== false
+        && !foreignFill(shape));
     const geometry = new Map(shapes.filter((shape) => shape.type !== 'fill')
         .map((shape) => [shape, resolveTrackContactGeometry(shape)]));
     const contactsAt = (point) => shapes.filter((shape) => shape.type === 'fill'
@@ -495,11 +474,11 @@ export function resolveTrackDrawSnap(app, worldPos, options = {}) {
     contacts ??= contactsAt(target);
     const vias = (app.vias || []).filter((candidate) => candidate.visible !== false
         && Math.hypot(target.x - candidate.x, target.y - candidate.y) <= candidate.diameter / 2);
-    const sourceNet = snap.pad?.net || snap.trackNode?.track.net || '';
     const nodeNets = [];
     if (options.checkNodeContacts) {
         const clusters = buildBondedClusters(app, true);
         for (const [, contact] of nodeTargetPairs([{ ...target, layer }], _clusterCopperContacts(app, clusters))) {
+            if (foreignFill(contact.shape)) continue;
             nodeNets.push(clusters[contact.index].net);
         }
     }
@@ -785,32 +764,7 @@ export function popTrackWaypoint(app) {
     _renderPreview(app, ctx, live);
 }
 
-/**
- * Rebuild the ratsnest from net connectivity.
- *
- * The ratsnest is derived purely from net names: any pad, Track or Via
- * that carries a net name is a "terminal" on that net. Terminals are
- * grouped into clusters of physically-connected copper, then for every
- * net with two or more disconnected clusters a minimum-spanning-tree of
- * dashed guide lines is drawn between the nearest points of each cluster.
- *
- * Connectivity rules (all within a single net):
- *   - Each connected component of a Track's graph is one cluster.
- *   - A Via is a cluster (a single point).
- *   - A pad is a cluster (net assigned from the schematic netlist).
- *   - Two clusters merge when any of their points coincide — this is how
- *     a routed Track joins the pads / vias it lands on, removing the rat
- *     line automatically.
- *
- * Autorouter "failed" lines (class `ratsnest-failed`) have their own
- * lifecycle and are left untouched.
- *
- * @param {object} app - PCBApp
- * @param {{nets?: Set<string>, skipFillRefresh?:boolean}} [opts] - Incremental
- *   mode can restrict ratline work to `nets`. `skipFillRefresh` is used after
- *   a fill recompute to consume its new geometry without scheduling another
- *   fill pass.
- */
+/** True when a Track has rounded corners or arc edges. */
 function trackHasCurves(track) {
     if (Number(track.cornerRadius) >= 0.01
         || Object.values(track.nodeCornerRadii || {}).some(radius => Number(radius) >= 0.01)) return true;
@@ -837,6 +791,32 @@ function trackRatlineTargets(cluster, pathsByTrack) {
     return targets.length ? targets : cluster.points;
 }
 
+/**
+ * Rebuild the ratsnest from net connectivity.
+ *
+ * The ratsnest is derived purely from net names: any pad, Track or Via
+ * that carries a net name is a "terminal" on that net. Terminals are
+ * grouped into clusters of physically-connected copper, then for every
+ * net with two or more disconnected clusters a minimum-spanning-tree of
+ * dashed guide lines is drawn between the nearest points of each cluster.
+ *
+ * Connectivity rules (all within a single net):
+ *   - Each connected component of a Track's graph is one cluster.
+ *   - A Via is a cluster (a single point).
+ *   - A pad is a cluster (net assigned from the schematic netlist).
+ *   - Two clusters merge when any of their points coincide — this is how
+ *     a routed Track joins the pads / vias it lands on, removing the rat
+ *     line automatically.
+ *
+ * Autorouter "failed" lines (class `ratsnest-failed`) have their own
+ * lifecycle and are left untouched.
+ *
+ * @param {object} app - PCBApp
+ * @param {{nets?: Set<string>, skipFillRefresh?:boolean}} [opts] - Incremental
+ *   mode can restrict ratline work to `nets`. `skipFillRefresh` is used after
+ *   a fill recompute to consume its new geometry without scheduling another
+ *   fill pass.
+ */
 export function reconcileRatsnest(app, opts) {
     app.refreshSelectedDRCMarker?.();
     const liveShapeDrag = app._shapeDrag?.ratsnestNets && opts?.nets === app._shapeDrag.ratsnestNets;
