@@ -263,6 +263,7 @@ function getSolderMaskAppearance() {
     };
 }
 
+/** @param {{greenness?: number, opacity?: number}} [appearance] */
 function setSolderMaskAppearance({ greenness, opacity } = {}) {
     const patch = {};
     if (greenness !== undefined) {
@@ -345,6 +346,7 @@ function getMetalAppearance() {
     };
 }
 
+/** @param {{copperHue?: number, padHue?: number}} [appearance] */
 function setMetalAppearance({ copperHue, padHue } = {}) {
     setLayerStylesAppearance({
         tracks: copperHue !== undefined ? { h: copperHue } : undefined,
@@ -742,7 +744,7 @@ function pointToSegmentDistance(point, a, b) {
  * and mounting holes read as actual openings. Falls back to a solid prism if
  * the holes can't be triangulated (e.g. overlapping or off-board).
  * @param {Array<{x:number,z:number}>} outline
- * @param {Array<{x:number,z:number,r:number}>} holeList world-space holes
+ * @param {Array<{x:number,z:number,r:number,ring?:Array<{x:number,z:number}>}>} holeList world-space holes
  * @param {number} yBottom @param {number} yTop
  * @param {number[]} color @param {number[]} edgeColor
  * @returns {{verts: Array, faces: Array}}
@@ -981,8 +983,8 @@ export function boardSlabWithCutouts(outline, holeList, crossingRings, yBottom, 
  * Transform a parsed OBJ model ({@link parseObjModel}) into a placed mesh.
  * Preserves per-face material colour.
  *
- * @param {{vertices:Array<{x:number,y:number,z:number}>, faces:Array<{idx:number[], color:number[]}>}} parsed
- * @param {{x:number,y:number,rotation?:number,model3dPlacement?:{dx?:number,dy?:number,rotation?:number,z?:number}}} pl placement
+ * @param {{vertices:Array<{x:number,y:number,z:number}>, faces:Array<{idx:number[], color:number[]}>, source?: string}} parsed
+ * @param {{x:number,y:number,rotation?:number,side?:string,mirror?:boolean,model3dPlacement?:{dx?:number,dy?:number,rotation?:number,z?:number}}} pl placement
  * @returns {{verts: Array, faces: Array, cull?: boolean}|null}
  */
 export function objModelToMesh(parsed, pl) {
@@ -1071,7 +1073,7 @@ export function objModelToMesh(parsed, pl) {
 
 /**
  * Build a fallback box mesh for a placement from its footprint bounds.
- * @param {{x:number,y:number,rotation?:number,bounds?:{x:number,y:number,width:number,height:number}}} pl
+ * @param {{x:number,y:number,rotation?:number,side?:string,bounds?:{x:number,y:number,width:number,height:number}}} pl
  * @returns {{verts: Array, faces: Array}}
  */
 function fallbackBoxMesh(pl) {
@@ -1426,9 +1428,10 @@ function strokePolysToMesh(polys, strokeWidth, y, color, toWorld) {
 }
 
 /**
- * Build one combined copper mesh from all routed Tracks. Each edge becomes a
- * flat ribbon on its layer's surface with round end-caps so joints look smooth.
- * @param {Array} tracks
+ * Flat mesh for a picture board shape's raster artwork, at one elevation.
+ * @param {any} shape picture board shape
+ * @param {number} elevation
+ * @param {number[]} color
  * @returns {{verts:Array, faces:Array}}
  */
 export function imageArtworkMesh(shape, elevation, color) {
@@ -1465,6 +1468,13 @@ export function imageArtworkMesh(shape, elevation, color) {
     return mesh;
 }
 
+/**
+ * Build one combined copper mesh from all routed Tracks. Each edge becomes a
+ * flat ribbon on its layer's surface with round end-caps so joints look smooth.
+ * @param {Array} tracks
+ * @param {Array} [circles] @param {Array} [boardShapes] @param {any} [texts] a Map of texts or an array
+ * @returns {{verts:Array, faces:Array}}
+ */
 function buildCopperMesh(tracks, circles = [], boardShapes = [], texts = []) {
     const mesh = emptyMesh();
     for (const track of tracks || []) {
@@ -1870,14 +1880,7 @@ function buildPlatedShapeHoleMesh(drilledHoles) {
     return mesh;
 }
 
-/**
- * Collect drilled-hole positions (plated pad drills + bare HOLE shapes) from
- * all component placements, in world board-plane coordinates. These are bored
- * clean through the board slab by {@link boardWithHoles}; plated holes are
- * additionally lined with a gold barrel by {@link padMesh}.
- * @param {Iterable<[string, object]>} placements
- * @returns {Array<{x:number,z:number,r:number,plated:boolean}>}
- */
+/** Copper flash of a standalone pad, optionally grown by a mask/paste expansion. */
 function standalonePadFlash(pad, expansion = 0) {
     const ratio = ['stadium', 'rectangle', 'oval'].includes(pad.shape) ? pad.ratio || 2 : 1;
     return {
@@ -2001,6 +2004,15 @@ export function boardCutoutEdgeRings(drilledHoles) {
         .map(ring => ring.map(point => ({ x: point.x, z: point.y })));
 }
 
+/**
+ * Collect drilled-hole positions (plated pad drills + bare HOLE shapes) from
+ * all component placements, in world board-plane coordinates. These are bored
+ * clean through the board slab by {@link boardWithHoles}; plated holes are
+ * additionally lined with a gold barrel by {@link padMesh}.
+ * @param {Iterable<[string, object]>} placements
+ * @param {Array} [pads] standalone pads
+ * @returns {Array<{x:number,z:number,r:number,plated:boolean,boardShape?:boolean,ring?:Array<{x:number,z:number}>}>}
+ */
 function collectBoardHoles(placements, pads = []) {
     const holes = [];
     for (const drill of resolvePlacementDrills(placements)) {
@@ -2036,7 +2048,7 @@ function collectBoardHoles(placements, pads = []) {
  * Drawn BETWEEN board and copper, so copper shows where it exists and raw
  * board remains where it does not.
  * Legacy mask-layer circles are treated as area openings (filled).
- * @param {Array} circles
+ * @param {Array} boardShapes
  * @returns {{verts:Array, faces:Array}}
  */
 function buildMaskOpeningMesh(boardShapes = []) {
@@ -2457,7 +2469,7 @@ function ensure3DStyles(doc) {
  * The same host can live in-page (split panel) or be adopted into a torn-off
  * pop-up window, so it is a self-contained element tree, not a whole document.
  * @param {Document} doc
- * @returns {{host:HTMLElement, canvas:HTMLCanvasElement, status:HTMLElement,
+ * @returns {{host:HTMLElement, canvas:HTMLCanvasElement, canvas2d:HTMLCanvasElement, status:HTMLElement,
  *   spinner:HTMLElement, btnParts:HTMLElement,
  *   btnTop:HTMLElement, btnIso:HTMLElement, btnFit:HTMLElement,
  *   btn2dTop:HTMLElement, btn2dBottom:HTMLElement, btn2dSave:HTMLElement,
@@ -2468,7 +2480,7 @@ function ensure3DStyles(doc) {
  *   styleSVal:HTMLOutputElement, styleVVal:HTMLOutputElement,
  *   styleOVal:HTMLOutputElement, styleChip:HTMLElement,
  *   styleChipOpaque:HTMLElement, styleRgb:HTMLOutputElement,
- *   stylePaint:HTMLOutputElement}}
+ *   stylePaint:HTMLOutputElement, hint:HTMLElement}}
  */
 function build3DHost(doc) {
     ensure3DStyles(doc);
@@ -3345,7 +3357,8 @@ export async function openBoard3DViewer(app, opts = {}) {
     // The docked host is already an absolute overlay, so opening/closing only
     // animates its translateX. The editor underneath is never touched.
     let slideTimer = 0;
-    const slideIn = (/** @type {(()=>void)=} */ onDone) => {
+    /** @param {() => void} [onDone] */
+    const slideIn = (onDone) => {
         if (slideTimer) { window.clearTimeout(slideTimer); slideTimer = 0; }
         host.style.display = '';
         splitter.style.display = 'none';

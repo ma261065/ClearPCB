@@ -1078,10 +1078,11 @@ function droppedNodeCommands(app, view, drag) {
  * @param {object} app
  * @param {object} track
  * @param {{x:number,y:number}} worldPos
- * @param {{allowMidpointInsert?:boolean}} [opts] - When `allowMidpointInsert`
+ * @param {{allowMidpointInsert?:boolean, nodeId?:string, edgeId?:string, whole?:boolean}} [opts] - When `allowMidpointInsert`
  *   is false, a click on a midpoint "+" handle is ignored (it won't start a
  *   split). Used on the click that first selects a track so the plus requires
- *   a separate, deliberate second click.
+ *   a separate, deliberate second click. `nodeId` / `edgeId` name an already
+ *   hit node or edge (skipping the hit test); `whole` drags the entire track.
  */
 export function startVertexDrag(app, track, worldPos, opts = {}) {
     if (app._vertexDrag?.preparingSplit

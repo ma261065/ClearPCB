@@ -36,6 +36,22 @@ export function pathSegmentConstraints(points, closed, segment, bulges = []) {
     });
 }
 
+/**
+ * If the dragged node is within `threshold` world units of forming an
+ * H / V / 45° segment with any neighbour, snap the node so that segment is
+ * exactly aligned. Each neighbour offers three candidate axes (horizontal,
+ * vertical, 45°); a candidate qualifies when the node sits within
+ * `threshold` of the aligned line, and across all neighbours/axes the one
+ * needing the smallest nudge wins. The band is a perpendicular *distance*
+ * (so the pull feels the same regardless of segment length), matching the
+ * collinear snap band.
+ *
+ * @param {{x:number,y:number}} point current dragged-node position
+ * @param {Array<{x:number,y:number}>} neighbours positions of adjacent nodes
+ * @param {number} [threshold] perpendicular pull distance (world mm); any alignment when omitted
+ * @param {{x:number,y:number}} [fallback] position returned when nothing aligns
+ * @returns {{x:number,y:number}}
+ */
 export function snapNodeToAxis(point, neighbours, threshold = Infinity, fallback = point) {
     let bestX = null, bestY = null, bestDiagonal = null;
     for (const [index, neighbour] of neighbours.entries()) {
@@ -59,6 +75,18 @@ export function snapNodeToAxis(point, neighbours, threshold = Infinity, fallback
     return best;
 }
 
+/**
+ * Straight-line (collinear) snap for a degree-2 waypoint: when the node
+ * has exactly two neighbours and sits within `threshold` world units of
+ * the line connecting them, project it onto that line so its two incident
+ * segments become exactly collinear (a straight run at ANY angle). Returns
+ * the projected position, or null when not applicable / out of range.
+ *
+ * @param {{x:number,y:number}} point current dragged-node position
+ * @param {Array<{x:number,y:number}>} neighbours positions of adjacent nodes
+ * @param {number} threshold perpendicular pull distance (world mm)
+ * @returns {{x:number,y:number}|null}
+ */
 export function snapNodeToCollinear(point, neighbours, threshold) {
     return neighbours.length === 2 ? collinearSnap(neighbours[0], point, neighbours[1], threshold) : null;
 }

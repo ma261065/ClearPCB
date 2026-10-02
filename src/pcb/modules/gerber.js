@@ -166,6 +166,11 @@ function _shapeContourRegion(contours, bounds) {
  * @param {number} [opts.boardRadius=0]           corner radius, mm
  * @param {number} [opts.boardX=0]                bottom-left X of board, mm
  * @param {number} [opts.boardY=0]                bottom-left Y of board, mm
+ * @param {Array<object>} [opts.pads]             standalone pads
+ * @param {Array<object>} [opts.texts]           free-standing PCB texts
+ * @param {Array<object>} [opts.fills]            copper pours
+ * @param {Array<object>} [opts.boardShapes]      board shapes (outline, cutouts, artwork)
+ * @param {object|null} [opts.panelization]       panel settings, when panelized
  * @returns {Map<string, string>} filename → file contents
  */
 export function exportGerbers(opts, onProgress = (done, total, name) => {}) {
@@ -297,20 +302,6 @@ const _fmt = (mm) => String(_fx(mm));
 const _fmtY = (mm) => String(_fx(-mm));
 
 /* ──────────────────────────── copper layers ──────────────────────────── */
-
-/**
- * Build the world-space point transform for a placement's pose, matching
- * applyPlacementPose exactly: a local offset (dx,dy) is mirrored (user flip
- * XOR bottom side), rotated by the placement angle and translated to the
- * placement position. Footprint geometry is authored in local mm and oriented
- * purely by this transform, so every pad/silk point must pass through it —
- * otherwise a rotated or flipped part exports at its un-posed position.
- * @param {object} pl
- * @returns {(dx:number, dy:number) => {x:number, y:number}}
- */
-function _poseXform(pl) {
-    return placementPose(pl).xf;
-}
 
 function _standalonePadFlash(pad, expansion = 0) {
     const ratio = ['stadium', 'rectangle', 'oval'].includes(pad.shape) ? pad.ratio || 2 : 1;
@@ -546,6 +537,11 @@ function _apertureBody(key) {
  * @param {boolean} opts.includeVias        include standalone vias
  * @param {boolean} opts.includeSmd         include SMD (non-drilled) pads
  * @param {string}  opts.title              human-readable header text
+ * @param {boolean} [opts.respectPaste]     only pads that carry a paste opening
+ * @param {boolean} [opts.respectMask]      only pads that carry a mask opening
+ * @param {boolean} [opts.pasteApertures]   add paste-only stencil apertures
+ * @param {Array<object>} [opts.shapeOpenings] board-shape openings on this layer
+ * @param {Array<object>} [opts.standalonePads] standalone pads
  */
 function _buildPadLayer(placements, vias, side, bounds, opts) {
     const {
@@ -1060,8 +1056,9 @@ function _collectBoardShapeSlots(boardShapes, plated, bounds = null) {
 }
 
 /**
- * Build an Excellon drill file from a flat list of {dia, x, y} drills.
- * @param {Array<{dia:number,x:number,y:number}>} drills
+ * Build an Excellon drill file from a flat list of {dia, x, y} drills; slots
+ * also carry their end point (x2, y2).
+ * @param {Array<{dia:number,x:number,y:number,x2?:number,y2?:number}>} drills
  * @param {object} bounds   board clip bounds
  * @param {boolean} [nonPlated]  annotate the header as non-plated
  */
@@ -1073,6 +1070,7 @@ function _buildDrill(drills, bounds, nonPlated = false, panel = null) {
         bounds = null;
     }
     /** @type {Map<number, Array<{x:number,y:number}>>} drill mm → positions */
+    /** @type {Map<number, Array<{x:number,y:number,x2?:number,y2?:number}>>} */
     const tools = new Map();
     for (const d of drills) {
         if (!d.dia || d.dia <= 0) continue;
@@ -1136,7 +1134,7 @@ function _buildDrill(drills, bounds, nonPlated = false, panel = null) {
  */
 export function buildZip(files) {
     const encoder = new TextEncoder();
-    /** @type {Uint8Array[]} */
+    /** @type {Uint8Array<ArrayBuffer>[]} */
     const chunks = [];
     const central = [];
     let offset = 0;

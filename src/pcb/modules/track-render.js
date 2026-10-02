@@ -43,6 +43,9 @@ const viaElements = new WeakMap();
  * @param {object} [opts]
  * @param {string} [opts.topColor='#e74c3c']
  * @param {string} [opts.bottomColor='#2479b5']
+ * @param {boolean} [opts.hideNetLabel] omit the net label (e.g. while selected or dragged)
+ * @param {number} [opts.viaDiameter] routing defaults some callers pass; unused here
+ * @param {number} [opts.viaDrill] routing defaults some callers pass; unused here
  */
 export function renderTrack(track, getLayerGroup, opts = {}) {
     removeTrackElements(track);
