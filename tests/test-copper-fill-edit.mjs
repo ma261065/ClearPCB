@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { CopperFill } from '../src/shapes/copper-fill.js';
 import { PcbDocument } from '../src/core/PcbDocument.js';
+import { areDragOverlaysDeferred } from '../src/pcb/modules/refresh-state.js';
 
 globalThis.window = { addEventListener() {} };
 globalThis.document = {};
@@ -77,7 +78,7 @@ endFillEdit(app, false);
 assert.equal(crosshair, null, 'Cancel hides the crosshair');
 assert.deepEqual(fill.captureState(), before, 'Cancel restores vertices and metadata');
 assert.equal(commands.length, 0);
-assert.equal(app._deferDragOverlays, false);
+assert.equal(areDragOverlaysDeferred(app), false);
 
 beginFillEdit(app, fill, { x: 10, y: -2 }, 'mid:0');
 updateFillEdit(app, { x: 10, y: -1 });

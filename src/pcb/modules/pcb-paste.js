@@ -23,7 +23,7 @@ import { renderPcbSelectionAnchors } from './selection-anchors.js';
 import { reconcileRatsnest } from './track-draw.js';
 import { trackIsSelectable } from './track-select.js';
 import { showPcbSelectionProperties } from './selection-interaction.js';
-import { isFillRefreshPending, setFillRefreshPending } from './refresh-state.js';
+import { areDragOverlaysDeferred, isBoardViewRefreshSuspended, isFillRefreshPending, isFillRefreshSuspended, setBoardViewRefreshSuspended, setDragOverlaysDeferred, setFillRefreshPending, setFillRefreshSuspended } from './refresh-state.js';
 
 const kinds = ['tracks', 'vias', 'pads', 'shapes', 'texts', 'fills'];
 
@@ -123,7 +123,7 @@ function refreshAuthoredPaste(app) {
     app.updateCopperCuts?.();
     app.refreshClearanceHalos?.();
     reconcileRatsnest(app);
-    if (!app._suspendBoardViewRefresh) app._board3d?.refresh?.();
+    if (!isBoardViewRefreshSuspended(app)) app._board3d?.refresh?.();
 }
 
 class PastePcbCommand {
@@ -212,12 +212,15 @@ export function beginPcbPaste(app, source, { select = false } = {}) {
             pads: [...model.pads, ...payload.pads], texts: new Map([...model.texts, ...payload.texts.map(text => [text.id, text])]),
             boardShapes: [...model.boardShapes, ...payload.shapes, ...payload.fills],
         },
-        flags: Object.fromEntries(['_deferDragOverlays', '_suspendFillRefresh', '_suspendBoardViewRefresh',
-            '_deferredShapeCopperCuts'].map(key => [key, app[key]])),
+        flags: { _deferredShapeCopperCuts: app._deferredShapeCopperCuts },
+        suspensions: { overlays: areDragOverlaysDeferred(app), fill: isFillRefreshSuspended(app),
+            boardView: isBoardViewRefreshSuspended(app) },
         fillPending: isFillRefreshPending(app),
     };
     app._pasteDrop = state;
-    app._deferDragOverlays = app._suspendFillRefresh = app._suspendBoardViewRefresh = true;
+    setBoardViewRefreshSuspended(app, true);
+    setFillRefreshSuspended(app, true);
+    setDragOverlaysDeferred(app, true);
     try {
         app._syncHistoryButtons?.();
         if (select) setPcbSelection(app, payload.shapes.map(object => ({ kind: 'shape', object })));
@@ -266,6 +269,9 @@ export function updatePcbPaste(app, world) {
 function release(app, state) {
     const pendingFill = isFillRefreshPending(app);
     app._pasteDrop = null;
+    setDragOverlaysDeferred(app, state.suspensions.overlays);
+    setFillRefreshSuspended(app, state.suspensions.fill);
+    setBoardViewRefreshSuspended(app, state.suspensions.boardView);
     Object.assign(app, state.flags);
     // Pours owed before the paste, or requested during it, remain owed.
     setFillRefreshPending(app, state.fillPending || pendingFill);
@@ -275,7 +281,7 @@ function release(app, state) {
 }
 
 function resumePendingFill(app) {
-    if (isFillRefreshPending(app) && !app._deferDragOverlays && !app._suspendFillRefresh) app.refreshFills?.();
+    if (isFillRefreshPending(app) && !areDragOverlaysDeferred(app) && !isFillRefreshSuspended(app)) app.refreshFills?.();
 }
 
 export function cancelPcbPaste(app) {

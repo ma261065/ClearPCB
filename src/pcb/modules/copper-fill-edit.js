@@ -11,6 +11,7 @@ import { snapPathPoint, snapPathTranslation, pathContextActions, showPathContext
 import { distanceToArcEdge, arcEdgePathD } from '../../shapes/arc-edge.js';
 import { formatNumberInputValue } from '../../core/number-inputs.js';
 import { CopperFill, normalizeCopperFillKind } from '../../shapes/copper-fill.js';
+import { areDragOverlaysDeferred, setDragOverlaysDeferred } from './refresh-state.js';
 
 export function canEditFill(fill) {
     return fill && !fill.locked && fill.visible !== false && !isLayerLocked(fill.layer)
@@ -81,8 +82,8 @@ export function beginFillEdit(app, fill, point, anchor = null, segment = null) {
     app._fillEdit = { fillId: fill.id, node: typeof anchor === 'number' ? anchor : null,
         segment: bulge ? Number(bulge[1]) : segment };
     app._fillDrag = { original, fill, before, editBefore: fill.captureState(), anchor, segment,
-        start: { ...point }, lastPoint: { ...point }, previousFocus, previousDeferDragOverlays: !!app._deferDragOverlays };
-    app._deferDragOverlays = true;
+        start: { ...point }, lastPoint: { ...point }, previousFocus, previousDeferDragOverlays: !!areDragOverlaysDeferred(app) };
+    setDragOverlaysDeferred(app, true);
     updateFillHandleCrosshair(app, fill, anchor);
     return true;
 }
@@ -124,7 +125,7 @@ export function endFillEdit(app, commit) {
     if (!drag) return;
     app._fillDrag = null;
     if (drag.anchor != null) app.viewport?.hideCrosshair?.();
-    app._deferDragOverlays = drag.previousDeferDragOverlays;
+    setDragOverlaysDeferred(app, drag.previousDeferDragOverlays);
     const { original, fill, before } = drag;
     if (fill !== original && (drag.anchor != null || drag.segment != null)) normalizeCopperFillKind(fill);
     const after = fill.captureState();

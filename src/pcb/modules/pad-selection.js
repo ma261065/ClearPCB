@@ -10,6 +10,7 @@ import {
 } from './pad-commands.js';
 import { startPadDrag, updateViaDrag, finishViaDrag, cancelViaDrag } from './track-drag.js';
 import { getPropertyEditor } from './property-editors.js';
+import { areDragOverlaysDeferred } from './refresh-state.js';
 
 export function createPadSelectionAdapter(app, pad, id) {
     pad = canonicalPad(app, pad);
@@ -48,7 +49,7 @@ export function createPadSelectionAdapter(app, pad, id) {
             if (commit) finishViaDrag(app);
             else cancelViaDrag(app);
             updatePadHighlightGeometry(pad, app.getLayerGroup('selection-overlay'));
-            if (!app._deferDragOverlays) app.refreshClearanceHalos?.();
+            if (!areDragOverlaysDeferred(app)) app.refreshClearanceHalos?.();
         },
         beginAnchorDrag(anchorId, worldPos) {
             if (anchorId !== 'rotate') return false;

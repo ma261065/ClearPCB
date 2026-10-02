@@ -8,6 +8,7 @@ import { disposeDrcRefresh } from './drc-refresh.js';
 import { hasPcbGesture } from './pcb-interactions.js';
 import { cancelPcbPointerGestures } from './pcb-interaction-routing.js';
 import { PANEL_EDITOR_KINDS, getPropertyEditor, setPropertyEditor, hasActivePropertyEditor } from './property-editors.js';
+import { areDragOverlaysDeferred, isFillRefreshSuspended } from './refresh-state.js';
 
 /** Cancel one active property preview without disposing its controls.
  * @param {import('../../ui/PCBApp.js').default} app
@@ -33,7 +34,7 @@ export function hasPcbInteractionInProgress(app) {
 /** @param {import('../../ui/PCBApp.js').default} app */
 export function hasPcbEditInProgress(app) {
     return !!(hasPcbInteractionInProgress(app)
-        || app._deferDragOverlays || app._suspendFillRefresh
+        || areDragOverlaysDeferred(app) || isFillRefreshSuspended(app)
         || hasActivePropertyEditor(app));
 }
 

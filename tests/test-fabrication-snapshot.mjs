@@ -10,7 +10,7 @@ import { createPcbText, serializePcbText, TEXT_LAYERS } from '../src/core/pcb-te
 globalThis.window = { addEventListener() {} };
 const { exportGerbers, buildZip } = await import('../src/pcb/modules/gerber.js');
 const { prepareFabricationSnapshot, prepareSnapshotFills, hasFabricationContent } = await import('../src/pcb/modules/fabrication-snapshot.js');
-const { setFillRefreshScheduled } = await import('../src/pcb/modules/refresh-state.js');
+const { setDragOverlaysDeferred, setFillRefreshScheduled, setFillRefreshSuspended } = await import('../src/pcb/modules/refresh-state.js');
 const { generateGerberArchive } = await import('../src/pcb/modules/gerber-export.js');
 const outline = [{ x: 1, y: -1 }, { x: 19, y: -1 }, { x: 19, y: -19 }, { x: 1, y: -19 }];
 const fill = new CopperFill({ net: 'GND', outline });
@@ -33,9 +33,12 @@ const fillProgress = [];
 await prepareSnapshotFills(deferred, (done, total) => fillProgress.push([done, total]));
 assert.ok(deferred.fills[0]._computed.length > 0);
 assert.deepEqual(fillProgress, [[0, 1], [1, 1]]);
+const suspensionSetters = { _deferDragOverlays: setDragOverlaysDeferred, _suspendFillRefresh: setFillRefreshSuspended };
 for (const state of ['_deferDragOverlays', '_suspendFillRefresh', '_rotationHandleDrag', '_shapeDrag',
     '_vertexDrag', '_viaDrag', '_textEdit', '_boardOutlineResize']) {
-    await assert.rejects(prepareFabricationSnapshot({ ...app, [state]: {} }),
+    const target = suspensionSetters[state] ? { ...app } : { ...app, [state]: {} };
+    suspensionSetters[state]?.(target, true);
+    await assert.rejects(prepareFabricationSnapshot(target),
         /Finish the current edit before exporting/, `${state} must not leak preview state into manufacturing output`);
 }
 assert.equal(hasFabricationContent({ placements: new Map(), tracks: [], vias: [], texts: new Map(),

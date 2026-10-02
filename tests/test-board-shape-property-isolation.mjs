@@ -12,6 +12,7 @@ import { prepareFabricationSnapshot } from '../src/pcb/modules/fabrication-snaps
 import { PCB_LAYERS } from '../src/pcb/modules/layers.js';
 import { beginPcbAnchorInteraction, updateSelectionInteraction, finishSelectionInteraction } from '../src/pcb/modules/selection-interaction.js';
 import { getPropertyEditor } from '../src/pcb/modules/property-editors.js';
+import { areDragOverlaysDeferred } from '../src/pcb/modules/refresh-state.js';
 
 let allocations = 0;
 class Element {
@@ -104,7 +105,7 @@ function fixture(kind, count = 1, unrelatedCount = 1, shapeLayer = 'top-copper')
     let pours = 0;
     const app = {
         project, pcbDocument: model, history: new CommandHistory(), placements: new Map(), netlist: [],
-        _active: true, _deferDragOverlays: false, _shapeElements: new Map(), _textElements: new Map(), _layerGroups: new Map(),
+        _active: true, _shapeElements: new Map(), _textElements: new Map(), _layerGroups: new Map(),
         viewport: { scale: 100, svg: new Element(), setCrosshair() {}, hideCrosshair() {} },
         getLayerGroup: id => id === 'selection-overlay' ? null : group,
         _pcbPropsItems: () => items, _setActiveRibbonTab() {}, _refreshPcbSelectionHighlights() {},
@@ -307,7 +308,7 @@ for (const [kind, id, value] of cases) for (const count of ['lineWidth', 'corner
             }
             assert.equal(getBoardShapePropertyPreview(app), undefined);
             assert.equal(app.boardShapes, model.boardShapes);
-            assert.equal(app._deferDragOverlays, false);
+            assert.equal(areDragOverlaysDeferred(app), false);
             if (finish !== 'missing' && finish !== 'load') assert.equal(group.children.length, count + 1);
             checked++;
         } finally {
@@ -421,7 +422,7 @@ for (const replacement of ['refresh', 'selection']) {
     assert.throws(() => input.fire('input'), /missing board shape/);
     assert.equal(app._shapeElements.has(shapes[0].id), false);
     assert.equal(getBoardShapePropertyPreview(app), undefined);
-    assert.equal(app._deferDragOverlays, false);
+    assert.equal(areDragOverlaysDeferred(app), false);
 }
 console.log('PASS cross-field image dimensions, first-change baselines and pre-pickup missing-target cleanup');
 

@@ -49,7 +49,7 @@ import { resolveTrackContactGeometry, copperShapesTouch, copperContactsTouch, co
 import { spatialClusterMST } from './cluster-mst.js';
 import { spatialPairs, spatialCrossPairs } from '../../core/spatial-pairs.js';
 import { showAlert } from '../../ui/modules/modal.js';
-import { isPictureCopperRefreshPending } from './refresh-state.js';
+import { areDragOverlaysDeferred, isPictureCopperRefreshPending } from './refresh-state.js';
 import {
     clearAxisGlow,
     makeAxisGlowCenterline,
@@ -822,7 +822,7 @@ export function reconcileRatsnest(app, opts) {
     // invisible eye-candy, and re-pouring every fill via polygon clipping (or
     // rebuilding clearance geometry) on each frame is the single biggest cost
     // on boards that have them. _endDrag() forces one full reconcile on drop.
-    if (!app._deferDragOverlays) {
+    if (!areDragOverlaysDeferred(app)) {
         if (!opts?.skipFillRefresh && app.refreshFills?.() === true) return;
     }
 

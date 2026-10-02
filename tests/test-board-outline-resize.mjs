@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { PcbDocument } from '../src/core/PcbDocument.js';
+import { isBoardViewRefreshSuspended } from '../src/pcb/modules/refresh-state.js';
 globalThis.window = { addEventListener() {} };
 const inputs = new Map([
     ['pcbPropBoardW', { value: '100' }], ['pcbPropBoardH', { value: '80' }],
@@ -99,7 +100,7 @@ await assert.rejects(prepareFabricationSnapshot(app, { computeFills: false }),
     /Finish the current edit before exporting/, 'Export must not capture uncommitted model dimensions');
 assert.deepEqual([...inputs.values()].map(input => input.value), ['110.00', '85.00'], 'Spinners update before mouse-up');
 assert.equal(commands.length, 0, 'Updating spinners must not commit the active drag');
-assert.equal(app._suspendBoardViewRefresh, true);
+assert.equal(isBoardViewRefreshSuspended(app), true);
 assert.equal(fills, 0);
 updateBoardOutlineResize(app, { x: 110.3, y: -85.3 });
 assert.equal(redraws, 1);
@@ -107,7 +108,7 @@ endBoardOutlineResize(app);
 assert.equal(commands.length, 1);
 assert.equal(fills, 1);
 assert.deepEqual(fillDimensions, [[110, 85, 3]], 'Commit refreshes pours once with the new dimensions');
-assert.equal(app._suspendBoardViewRefresh, false);
+assert.equal(isBoardViewRefreshSuspended(app), false);
 commands[0].undo();
 assert.equal(fills, 2, 'Undo refreshes pours once');
 assert.deepEqual(fillDimensions.at(-1), [100, 80, 3], 'Undo refresh uses the restored dimensions');

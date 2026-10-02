@@ -1,18 +1,20 @@
 /**
- * Owner of each PCB editor's derived-refresh status.
+ * Owner of each PCB editor's derived-refresh status and refresh suspensions.
  *
  * fill-refresh.js writes the copper-pour status and picture-refresh.js the deferred
  * picture-copper refresh; other modules only read them. Paste restores the pour flag
  * it found when it started. (DRC status is owned by drc-presentation.js.)
- * Import-free: drc.js reads the pour status inside the DRC worker.
+ * Import-free: drc.js reads the pour status inside the DRC worker, and the fabrication
+ * snapshot reads the suspensions inside the Gerber worker.
  */
 
-/** @type {WeakMap<object, {fillPending: boolean, fillScheduled: boolean, fillError: any, pictureCopperPending: boolean}>} */
+/** @type {WeakMap<object, {fillPending: boolean, fillScheduled: boolean, fillError: any, pictureCopperPending: boolean, overlaysDeferred: boolean, fillSuspended: boolean, boardViewSuspended: boolean}>} */
 const states = new WeakMap();
 const stateFor = app => {
     let state = states.get(app);
     if (!state) {
-        state = { fillPending: false, fillScheduled: false, fillError: null, pictureCopperPending: false };
+        state = { fillPending: false, fillScheduled: false, fillError: null, pictureCopperPending: false,
+            overlaysDeferred: false, fillSuspended: false, boardViewSuspended: false };
         states.set(app, state);
     }
     return state;
@@ -34,10 +36,48 @@ export const setFillRefreshError = (app, error) => { stateFor(app).fillError = e
 export const isPictureCopperRefreshPending = app => states.get(app)?.pictureCopperPending ?? false;
 export const setPictureCopperRefreshPending = (app, pending) => { stateFor(app).pictureCopperPending = !!pending; };
 
-const IDLE = Object.freeze({ fillPending: false, fillScheduled: false, fillError: null, pictureCopperPending: false });
+const IDLE = Object.freeze({ fillPending: false, fillScheduled: false, fillError: null, pictureCopperPending: false,
+    overlaysDeferred: false, fillSuspended: false, boardViewSuspended: false });
 
 /**
- * Read-only view of every status above in one lookup, for predicates that test several.
- * @returns {Readonly<{fillPending: boolean, fillScheduled: boolean, fillError: any, pictureCopperPending: boolean}>}
+ * Read-only view of every status in one lookup, for predicates that test several.
+ * @returns {Readonly<typeof IDLE>}
  */
 export const refreshStatus = app => states.get(app) ?? IDLE;
+
+// -- Suspensions --------------------------------------------------------
+// Gestures save the current value, set it, and restore the saved value when they
+// finish. Raising overlay deferral or fill suspension notifies subscribers first,
+// so pending pour/DRC work is invalidated before the suspended state is observed.
+
+/** @type {{overlays: Array<(app: object) => void>, fill: Array<(app: object) => void>}} */
+const suspensionListeners = { overlays: [], fill: [] };
+
+/**
+ * Run `listener(app)` whenever overlay deferral or fill suspension is raised.
+ * @param {'overlays'|'fill'} kind
+ * @param {(app: object) => void} listener
+ */
+export function onRefreshSuspended(kind, listener) {
+    suspensionListeners[kind].push(listener);
+}
+
+/** Drag previews defer derived overlays (pours, clearance halos, DRC) until they finish. */
+export const areDragOverlaysDeferred = app => states.get(app)?.overlaysDeferred ?? false;
+export function setDragOverlaysDeferred(app, deferred) {
+    const state = stateFor(app);
+    if (deferred && !state.overlaysDeferred) for (const listener of suspensionListeners.overlays) listener(app);
+    state.overlaysDeferred = !!deferred;
+}
+
+/** Floating paste suspends pour recomputation. */
+export const isFillRefreshSuspended = app => states.get(app)?.fillSuspended ?? false;
+export function setFillRefreshSuspended(app, suspended) {
+    const state = stateFor(app);
+    if (suspended && !state.fillSuspended) for (const listener of suspensionListeners.fill) listener(app);
+    state.fillSuspended = !!suspended;
+}
+
+/** Gestures suspend refreshing the external 2D/3D board views. */
+export const isBoardViewRefreshSuspended = app => states.get(app)?.boardViewSuspended ?? false;
+export const setBoardViewRefreshSuspended = (app, suspended) => { stateFor(app).boardViewSuspended = !!suspended; };

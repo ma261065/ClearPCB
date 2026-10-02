@@ -7,7 +7,7 @@ import { loadClipper } from '../src/pcb/modules/copper-fill-geom.js';
 import { runDRC } from '../src/pcb/modules/drc.js';
 import { collectCopperArtwork } from '../src/pcb/modules/copper-artwork.js';
 import { prepareFabricationSnapshot } from '../src/pcb/modules/fabrication-snapshot.js';
-import { fillRefreshError, isFillRefreshPending, setFillRefreshPending } from '../src/pcb/modules/refresh-state.js';
+import { fillRefreshError, isFillRefreshPending, setDragOverlaysDeferred, setFillRefreshPending, setFillRefreshSuspended } from '../src/pcb/modules/refresh-state.js';
 
 globalThis.window = { addEventListener() {} };
 globalThis.document = { getElementById: () => null };
@@ -43,11 +43,12 @@ assert.equal(collectCopperArtwork(app).areas.length, result.length);
 assert.deepEqual(model.serialize(), before, 'Recomputation leaves authored model data unchanged');
 assert.equal(fill.outline[0].x, 1.123456, 'Recomputation does not round live geometry');
 
+const suspensionSetters = { _deferDragOverlays: setDragOverlaysDeferred, _suspendFillRefresh: setFillRefreshSuspended };
 for (const flag of ['_deferDragOverlays', '_suspendFillRefresh']) {
-    app[flag] = true;
+    suspensionSetters[flag](app, true);
     assert.equal(PCBApp.prototype._recomputeFillsNow.call(app), undefined);
     assert.equal(getComputedFill(fill), result, 'Deferred edits retain the prior result until refresh');
-    app[flag] = false;
+    suspensionSetters[flag](app, false);
 }
 assert.equal(checks, 1);
 assert.equal(previews, 1);

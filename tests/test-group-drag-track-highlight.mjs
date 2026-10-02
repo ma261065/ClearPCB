@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { areDragOverlaysDeferred } from '../src/pcb/modules/refresh-state.js';
 
 class Element {
     attributes = new Map();
@@ -51,7 +52,7 @@ for (const count of [1, 2]) {
         },
         viewport: { scale: 10 },
         history: { execute(command) { command.execute(); } },
-        updateRatsnest() { if (!this._deferDragOverlays) refreshTrackSelectionHalo(this); },
+        updateRatsnest() { if (!areDragOverlaysDeferred(this)) refreshTrackSelectionHalo(this); },
     };
     setPcbSelection(app, [...tracks.map((object) => ({ kind: 'track', object })), { kind: 'shape', object: rectangle }]);
     refreshBoxSelectionHighlights(app);

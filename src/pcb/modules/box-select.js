@@ -63,6 +63,7 @@ import { renderPad, removePadElements } from './pad.js';
 import { pcbTextBounds, pcbTextHitTest } from './pcb-text.js';
 import { clearPcbSelectionAnchors, renderPcbSelectionAnchors } from './selection-anchors.js';
 import { commitPropertyEditors } from './property-editors.js';
+import { areDragOverlaysDeferred, isBoardViewRefreshSuspended, setBoardViewRefreshSuspended, setDragOverlaysDeferred } from './refresh-state.js';
 import {
     clearPcbSelection,
     getComponentSelectionHits,
@@ -541,11 +542,11 @@ export function beginGroupDrag(app, worldPos) {
         posePreview: true,
         ratsnestNets,
         padCrosshairStart: pads.length ? { x: pads[0].before.x, y: pads[0].before.y } : null,
-        previousDeferDragOverlays: !!app._deferDragOverlays,
-        previousSuspendBoardViewRefresh: !!app._suspendBoardViewRefresh,
+        previousDeferDragOverlays: !!areDragOverlaysDeferred(app),
+        previousSuspendBoardViewRefresh: !!isBoardViewRefreshSuspended(app),
     };
-    app._deferDragOverlays = true;
-    app._suspendBoardViewRefresh = true;
+    setDragOverlaysDeferred(app, true);
+    setBoardViewRefreshSuspended(app, true);
     if (app._groupDrag.padCrosshairStart) {
         app.viewport?.setCrosshair(app._groupDrag.padCrosshairStart);
     }
@@ -668,7 +669,7 @@ export function endGroupDrag(app) {
         removeGroupPreviewArtwork(app, g);
         finishPlacementPreview(app, () => finishTextPosePreview(app, () => {
             syncPcbSelection(app);
-            app._deferDragOverlays = g.previousDeferDragOverlays;
+            setDragOverlaysDeferred(app, g.previousDeferDragOverlays);
             app.history.execute(command);
         }));
         committed = true;
@@ -778,16 +779,16 @@ function finishGroupPreview(app, g, committed) {
             }
         }
     } finally {
-        app._deferDragOverlays = g.previousDeferDragOverlays;
-        app._suspendBoardViewRefresh = g.previousSuspendBoardViewRefresh;
+        setDragOverlaysDeferred(app, g.previousDeferDragOverlays);
+        setBoardViewRefreshSuspended(app, g.previousSuspendBoardViewRefresh);
         if (g.padCrosshairStart) app.viewport?.hideCrosshair();
         if (g.preview) syncPcbSelection(app);
     }
-    if (!app._deferDragOverlays && (g.comps?.length || g.vias?.length || g.tracks?.length)) {
+    if (!areDragOverlaysDeferred(app) && (g.comps?.length || g.vias?.length || g.tracks?.length)) {
         app.refreshClearanceHalos?.();
     }
     app.updateRatsnest?.();
-    if (!app._suspendBoardViewRefresh) app._board3d?.refresh?.();
+    if (!isBoardViewRefreshSuspended(app)) app._board3d?.refresh?.();
     _applyHighlights(app);
 }
 

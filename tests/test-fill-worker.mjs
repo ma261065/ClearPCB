@@ -18,7 +18,7 @@ import { getComputedFill } from '../src/pcb/modules/computed-fill-cache.js';
 import { schedulePictureCopperRefresh, cancelPictureCopperRefresh } from '../src/pcb/modules/picture-refresh.js';
 import { EditTextCommand } from '../src/pcb/modules/text-commands.js';
 import { loadPcb } from '../src/pcb/modules/project-state.js';
-import { fillRefreshError, isFillRefreshPending, setPictureCopperRefreshPending } from '../src/pcb/modules/refresh-state.js';
+import { fillRefreshError, isFillRefreshPending, setDragOverlaysDeferred, setPictureCopperRefreshPending } from '../src/pcb/modules/refresh-state.js';
 
 class Element {
     constructor() { this.children = []; this.attributes = new Map(); this.style = {}; this.dataset = {}; }
@@ -317,8 +317,8 @@ for (const mode of ['preview', 'preview-roundtrip', 'picture', 'sync', 'history'
     try {
         scheduleFillRefresh(f.app); flush();
         const worker = workers.at(-1), job = worker.jobs[0];
-        if (mode.startsWith('preview')) f.app._deferDragOverlays = true;
-        if (mode === 'preview-roundtrip') f.app._deferDragOverlays = false;
+        if (mode.startsWith('preview')) setDragOverlaysDeferred(f.app, true);
+        if (mode === 'preview-roundtrip') setDragOverlaysDeferred(f.app, false);
         if (mode === 'picture') setPictureCopperRefreshPending(f.app, true);
         if (mode === 'sync') f.app._recomputeFillsNow();
         if (mode === 'history') f.app.history.execute(new EditTextCommand(f.app, 'text', { size: 3.123456789 }));
@@ -337,7 +337,7 @@ for (const mode of ['preview', 'preview-roundtrip', 'picture', 'sync', 'history'
             assert.deepEqual(paths(f.app), f.artwork);
         }
         if (mode.startsWith('preview') || mode === 'picture') {
-            if (mode.startsWith('preview')) f.app._deferDragOverlays = false;
+            if (mode.startsWith('preview')) setDragOverlaysDeferred(f.app, false);
             else setPictureCopperRefreshPending(f.app, false);
             await wait(70); flush();
             const latest = workers.at(-1);

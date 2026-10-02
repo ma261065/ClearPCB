@@ -15,6 +15,7 @@ import { finishSelectionInteraction } from '../src/pcb/modules/selection-interac
 import { prepareFabricationSnapshot } from '../src/pcb/modules/fabrication-snapshot.js';
 import { loadPcb } from '../src/pcb/modules/project-state.js';
 import { PCB_LAYERS } from '../src/pcb/modules/layers.js';
+import { areDragOverlaysDeferred, isBoardViewRefreshSuspended, setBoardViewRefreshSuspended, setDragOverlaysDeferred } from '../src/pcb/modules/refresh-state.js';
 
 let allocations = 0;
 globalThis.requestAnimationFrame = () => 1;
@@ -85,6 +86,8 @@ function fixture(mode, deferred = false, unrelatedCount = 1) {
     const groups = new Map(['top-copper', 'bottom-copper', 'selection-overlay'].map(id => [id, new Element('g')]));
     let fills = 0, clearances = 0, boardRefreshes = 0;
     const app = {};
+    setDragOverlaysDeferred(app, deferred);
+    setBoardViewRefreshSuspended(app, deferred);
     for (const key of ['pads', 'vias', 'tracks', 'boardShapes', 'texts']) {
         Object.defineProperty(app, key, Object.getOwnPropertyDescriptor(PCBApp.prototype, key));
     }
@@ -93,7 +96,6 @@ function fixture(mode, deferred = false, unrelatedCount = 1) {
     Object.assign(app, {
         project, pcbDocument: model, placements: new Map(), netlist: [], history: new CommandHistory(),
         _active: true, _layerGroups: groups, _textElements: new Map(), _shapeElements: new Map(),
-        _deferDragOverlays: deferred, _suspendBoardViewRefresh: deferred,
         viewport: { scale: 100, svg: new Element('svg'), shiftHeld: true, setCrosshair() {}, hideCrosshair() {} },
         _pcbPropsItems: () => ({ innerHTML: '' }), getLayerGroup: id => groups.get(id) || null,
         _setActiveRibbonTab() {}, setPcbStatus() {}, refreshFills() { fills++; },
@@ -329,8 +331,8 @@ for (const mode of ['whole', 'segment', 'bridge', 'node', 'midpoint', 'split', '
             assert.equal(f.fills(), 0, 'Discarding a preview does not repour unchanged copper');
         }
         assert.equal(app._vertexDrag, null);
-        assert.equal(app._deferDragOverlays, deferred);
-        assert.equal(app._suspendBoardViewRefresh, deferred);
+        assert.equal(areDragOverlaysDeferred(app), deferred);
+        assert.equal(isBoardViewRefreshSuspended(app), deferred);
         assert.equal(rebuilt.object, track);
         assert.equal(app.tracks, model.tracks);
         if (finish === 'load' || finish === 'missing') assert.equal(f.artwork().length, 0);
@@ -459,8 +461,8 @@ for (const removed of ['node', 'edge', 'terminal', 'before-preview']) {
         assert.deepEqual(track.captureState(), before);
     }
     assert.equal(app._vertexDrag, null);
-    assert.equal(app._deferDragOverlays, false);
-    assert.equal(app._suspendBoardViewRefresh, false);
+    assert.equal(areDragOverlaysDeferred(app), false);
+    assert.equal(isBoardViewRefreshSuspended(app), false);
     assert.equal(app.history.canUndo(), false);
     cases++;
 }
@@ -575,7 +577,7 @@ for (const mode of ['whole', 'segment', 'node', 'midpoint', 'split', 'bulge']) {
     assert.throws(() => updateVertexDrag(app, { x: NaN, y: 2 }), /finite position/);
     assert.equal(app._vertexDrag, null);
     assert.deepEqual(track.captureState(), before);
-    assert.equal(app._deferDragOverlays, false);
+    assert.equal(areDragOverlaysDeferred(app), false);
     cases++;
 }
 
@@ -611,12 +613,12 @@ for (const mode of ['node', 'bulge']) for (const commit of [false, true]) {
 
 for (const deferred of [false, true]) {
     const f = fixture('node', deferred), { app, initial } = f;
-    app._suspendBoardViewRefresh = !deferred;
+    setBoardViewRefreshSuspended(app, !deferred);
     f.start();
     updateVertexDrag(app, { x: initial.x + 2, y: initial.y + 3 });
     cancelVertexDrag(app);
-    assert.equal(app._deferDragOverlays, deferred);
-    assert.equal(app._suspendBoardViewRefresh, !deferred, 'Independent nesting flags are restored separately');
+    assert.equal(areDragOverlaysDeferred(app), deferred);
+    assert.equal(isBoardViewRefreshSuspended(app), !deferred, 'Independent nesting flags are restored separately');
     cases++;
 }
 
@@ -681,7 +683,7 @@ for (const mode of ['whole', 'segment', 'node', 'midpoint', 'split', 'bulge']) {
         app.showClearances(true);
         cancelVertexDrag(app);
         assert.deepEqual(haloPoints(), before, `${mode}: cancellation restores clearance, including nested deferral`);
-        assert.equal(app._deferDragOverlays, deferred);
+        assert.equal(areDragOverlaysDeferred(app), deferred);
         f.start();
         updateVertexDrag(app, position);
         finishVertexDrag(app);
@@ -740,7 +742,7 @@ for (const deferred of [false, true]) for (const coincident of [false, true]) {
     app.showClearances(true);
     cancelViaDrag(app);
     assert.deepEqual(snapshot(), before, 'cancel restores via and attached halos, even under nested deferral');
-    assert.equal(app._deferDragOverlays, deferred);
+    assert.equal(areDragOverlaysDeferred(app), deferred);
     startViaDrag(app, via, initial);
     updateViaDrag(app, position);
     finishViaDrag(app);

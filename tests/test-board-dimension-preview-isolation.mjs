@@ -11,6 +11,7 @@ import { prepareFabricationSnapshot } from '../src/pcb/modules/fabrication-snaps
 import { loadPcb } from '../src/pcb/modules/project-state.js';
 import { PCB_LAYERS } from '../src/pcb/modules/layers.js';
 import { getPropertyEditor } from '../src/pcb/modules/property-editors.js';
+import { areDragOverlaysDeferred, isBoardViewRefreshSuspended, setBoardViewRefreshSuspended, setDragOverlaysDeferred } from '../src/pcb/modules/refresh-state.js';
 
 let allocations = 0;
 class Element {
@@ -61,17 +62,18 @@ function fixture(existing = true, deferred = false) {
         project, pcbDocument: model, history: new CommandHistory(), placements: new Map(), netlist: [],
         _active: true, _shapeElements: new Map(), _textElements: new Map(), _layerGroups: new Map(),
         _boardOutlineSelected: true, _boardOutlineDrawn: existing,
-        _deferDragOverlays: deferred, _suspendBoardViewRefresh: deferred,
         viewport: { scale: 100, snapToGrid: false, svg: new Element(), fitToBounds() { fits++; },
             hideCrosshair() {} },
         getLayerGroup: id => id === 'board-outline' ? group : null,
         _drawBoardOutline() { draws++; PCBApp.prototype._drawBoardOutline.call(this); },
-        refreshFills() { assert.equal(this._deferDragOverlays, deferred); pours++; },
+        refreshFills() { assert.equal(areDragOverlaysDeferred(this), deferred); pours++; },
         _board3d: { refresh() { refresh3d++; } },
         _showBoardOutlineProperties() {}, _pcbPropsItems: () => null,
         _cancelDrawingMode() {}, _ensureViewport() {}, markSectionClean() {},
         _refreshPcbSelectionHighlights() {},
     };
+    setDragOverlaysDeferred(app, deferred);
+    setBoardViewRefreshSuspended(app, deferred);
     for (const key of ['boardShapes', 'tracks', 'vias', 'pads', 'texts', '_shapeIdCounter',
         '_boardWidth', '_boardHeight', '_boardRadius']) {
         Object.defineProperty(app, key, Object.getOwnPropertyDescriptor(PCBApp.prototype, key));
@@ -184,8 +186,8 @@ for (const mode of ['width', 'height', 'both', 'property-width', 'property-heigh
             }
             assert.equal(getBoardDimensionPreview(app), undefined);
             assert.equal(app._boardOutlineResize ?? null, null);
-            assert.equal(app._deferDragOverlays, deferred);
-            assert.equal(app._suspendBoardViewRefresh, deferred);
+            assert.equal(areDragOverlaysDeferred(app), deferred);
+            assert.equal(isBoardViewRefreshSuspended(app), deferred);
             assert.equal(app.boardShapes, model.boardShapes);
             if (finish !== 'load') assert.equal(group.children.length, getBoardOutline(model) ? 1 : 0,
                 'Discard/commit leaves only current canonical artwork');
@@ -249,8 +251,8 @@ for (const numeric of [false, true]) {
     }
     assert.equal(getBoardDimensionPreview(app), undefined);
     assert.equal(app._boardOutlineResize ?? null, null);
-    assert.equal(app._deferDragOverlays, false);
-    assert.equal(app._suspendBoardViewRefresh, false);
+    assert.equal(areDragOverlaysDeferred(app), false);
+    assert.equal(isBoardViewRefreshSuspended(app), false);
     assert.deepEqual(model.captureGeometry(), before);
 }
 {
@@ -312,7 +314,7 @@ for (const key of [{ key: 'Escape' }, { key: 'z', ctrlKey: true }, { key: 'y', c
         assert.equal(PCBApp.prototype.handleKeyDown.call(app, key), true);
         assert.deepEqual(model.captureGeometry(), before);
         assert.equal(getBoardDimensionPreview(app), undefined);
-        assert.equal(app._suspendBoardViewRefresh, false);
+        assert.equal(isBoardViewRefreshSuspended(app), false);
         if (numeric) {
             inputs.get(fields.width).value = '56'; inputs.get(fields.width).emit('input');
             assert.ok(getBoardDimensionPreview(app), 'Keyboard cancellation leaves the visible panel editable');

@@ -9,6 +9,7 @@ import { setPcbSelection } from '../src/pcb/modules/selection-registry.js';
 import { beginGroupDrag, updateGroupDrag, scheduleGroupDrag, endGroupDrag, cancelGroupDrag } from '../src/pcb/modules/box-select.js';
 import { renderTrack, hasTrackElements } from '../src/pcb/modules/track-render.js';
 import { loadPcb } from '../src/pcb/modules/project-state.js';
+import { areDragOverlaysDeferred, setDragOverlaysDeferred } from '../src/pcb/modules/refresh-state.js';
 
 class Element {
     constructor(tag) { this.tag = tag; this.attributes = new Map(); this.dataset = {}; this.children = []; }
@@ -148,7 +149,7 @@ for (const saved of [false, true]) for (const finish of ['commit', 'cancel', 'no
     assert.equal(app.tracks, project.pcbDocument.tracks);
     assert.equal(getPlacementPreviewTracks(app), undefined);
     assert.equal(app._groupDrag, null);
-    assert.equal(app._deferDragOverlays, false);
+    assert.equal(areDragOverlaysDeferred(app), false);
     assert.equal(f.lines(), lines);
     assert.ok(hasTrackElements(shared));
     assert.equal(hasTrackElements(projected), false);
@@ -156,7 +157,7 @@ for (const saved of [false, true]) for (const finish of ['commit', 'cancel', 'no
 
 for (const finish of ['commit', 'cancel', 'no-op']) {
     const { app } = fixture(false);
-    app._deferDragOverlays = true;
+    setDragOverlaysDeferred(app, true);
     app.viewport.gridVisible = app.viewport.snapToGrid = true;
     app.viewport.gridSize = 1;
     const poses = new Map([...app.placements].map(([id, pose]) => [id, capturePlacementOverride(pose)]));
@@ -176,7 +177,7 @@ for (const finish of ['commit', 'cancel', 'no-op']) {
         if (finish === 'no-op') updateGroupDrag(app, { x: 0.1, y: 0.1 });
         endGroupDrag(app);
     }
-    assert.equal(app._deferDragOverlays, true, 'Group completion preserves outer overlay deferral');
+    assert.equal(areDragOverlaysDeferred(app), true, 'Group completion preserves outer overlay deferral');
     assert.equal(app.history.canRedo(), finish !== 'commit');
     if (finish !== 'commit') assert.equal(app.history.redoStack[0], redo);
 }

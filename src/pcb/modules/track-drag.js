@@ -64,6 +64,7 @@ import { snapPathTranslation, snapPathPoint, beginPathSplit } from './path-edit.
 import { createTrackSelectionAdapter } from './track-select.js';
 import { closestPointOnArcEdge } from '../../shapes/arc-edge.js';
 import { commitPropertyEditors, getPropertyEditor } from './property-editors.js';
+import { areDragOverlaysDeferred, isBoardViewRefreshSuspended, setBoardViewRefreshSuspended, setDragOverlaysDeferred } from './refresh-state.js';
 
 /** Screen-px hit tolerance for selecting a Track node to drag. */
 const NODE_HIT_PX = 8;
@@ -75,14 +76,14 @@ const VIA_NODE_EPS = 1e-4;
 const NODE_MERGE_EPS = 1e-3;
 
 function _beginVertexDragOverlayDeferral(app) {
-    const previous = !!app._deferDragOverlays;
-    app._deferDragOverlays = true;
+    const previous = !!areDragOverlaysDeferred(app);
+    setDragOverlaysDeferred(app, true);
     return previous;
 }
 
 function _endVertexDragOverlayDeferral(app, drag) {
-    app._deferDragOverlays = drag.previousDeferDragOverlays;
-    if (!app._deferDragOverlays) app.refreshClearanceHalos?.();
+    setDragOverlaysDeferred(app, drag.previousDeferDragOverlays);
+    if (!areDragOverlaysDeferred(app)) app.refreshClearanceHalos?.();
     else if (drag.preview) app._refreshTrackClearance?.(drag.original);
 }
 
@@ -102,9 +103,9 @@ function beginTrackPointer(app, track, details) {
     if (app._active === false || [...layers].some(layer => isLayerLocked(layer) || !isLayerVisible(layer))) return null;
     const drag = { ...details, original: track, track, layers, lastDx: 0, lastDy: 0,
         previousDeferDragOverlays: _beginVertexDragOverlayDeferral(app),
-        previousSuspendBoardViewRefresh: !!app._suspendBoardViewRefresh };
+        previousSuspendBoardViewRefresh: !!isBoardViewRefreshSuspended(app) };
     app._vertexDrag = drag;
-    app._suspendBoardViewRefresh = true;
+    setBoardViewRefreshSuspended(app, true);
     return drag;
 }
 
@@ -532,7 +533,7 @@ export function startMidpointInsertDrag(app, track, edgeId) {
     drag.nodes = [{ nodeId: res.newNodeId, startX: mid.x, startY: mid.y, padLink: null }];
     // Freeze 3D board-view sync for the drag; it rebuilds once on commit
     // rather than live from the in-flight (uncommitted) node positions.
-    app._suspendBoardViewRefresh = true;
+    setBoardViewRefreshSuspended(app, true);
     renderTrack(copy, (id) => app.getLayerGroup(id), _opts(app));
     refreshTrackSelectionHalo(app);
     reconcileRatsnest(app);
@@ -1121,7 +1122,7 @@ export function startVertexDrag(app, track, worldPos, opts = {}) {
         if (!drag) return false;
         // Freeze 3D board-view sync for the drag; it rebuilds once on commit
         // rather than live from the in-flight (uncommitted) node positions.
-        app._suspendBoardViewRefresh = true;
+        setBoardViewRefreshSuspended(app, true);
         app.viewport?.setCrosshair({ x: n.x, y: n.y });
         return true;
     }
@@ -1181,7 +1182,7 @@ export function startVertexDrag(app, track, worldPos, opts = {}) {
     if (!drag) return false;
     // Freeze 3D board-view sync for the drag; it rebuilds once on commit
     // rather than live from the in-flight (uncommitted) node positions.
-    app._suspendBoardViewRefresh = true;
+    setBoardViewRefreshSuspended(app, true);
     app.viewport?.setCrosshair({ x: a.x, y: a.y });
     return true;
 }
@@ -1786,10 +1787,10 @@ function endTrackPointer(app, drag, committed) {
             refreshTrackSelectionHalo(app);
         }
     } finally {
-        app._suspendBoardViewRefresh = drag.previousSuspendBoardViewRefresh;
+        setBoardViewRefreshSuspended(app, drag.previousSuspendBoardViewRefresh);
         _endVertexDragOverlayDeferral(app, drag);
         if (drag.preview) reconcileRatsnest(app, { skipFillRefresh: !committed });
-        if (!app._suspendBoardViewRefresh && drag.preview) app._board3d?.refresh?.();
+        if (!isBoardViewRefreshSuspended(app) && drag.preview) app._board3d?.refresh?.();
     }
 }
 
@@ -1850,9 +1851,9 @@ function startTerminalDrag(app, via, worldPos, kind) {
         grabX: worldPos.x,
         grabY: worldPos.y,
         attached,
-        previousDeferDragOverlays: !!app._deferDragOverlays,
+        previousDeferDragOverlays: !!areDragOverlaysDeferred(app),
     };
-    app._deferDragOverlays = true;
+    setDragOverlaysDeferred(app, true);
     app.viewport?.setCrosshair({ x: via.x, y: via.y });
     return true;
 }
@@ -1906,7 +1907,7 @@ function restoreTerminalArtwork(app, drag, committed) {
         refreshTrackSelectionHalo(app);
         reconcileRatsnest(app, { skipFillRefresh: true });
     }
-    if (!app._deferDragOverlays) {
+    if (!areDragOverlaysDeferred(app)) {
         if (!committed) app.refreshClearanceHalos?.();
     } else {
         if (drag.kind === 'via') app._refreshViaClearance?.(drag.original);
@@ -2039,7 +2040,7 @@ export function finishViaDrag(app) {
     const drag = app._viaDrag;
     if (!drag) return;
     app._viaDrag = null;
-    app._deferDragOverlays = drag.previousDeferDragOverlays;
+    setDragOverlaysDeferred(app, drag.previousDeferDragOverlays);
     app.viewport?.hideCrosshair();
     clearTrackAxisGlow(app);
     clearTrackSnapMarker(app);
@@ -2101,7 +2102,7 @@ export function cancelViaDrag(app) {
     const drag = app._viaDrag;
     if (!drag) return;
     app._viaDrag = null;
-    app._deferDragOverlays = drag.previousDeferDragOverlays;
+    setDragOverlaysDeferred(app, drag.previousDeferDragOverlays);
     app.viewport?.hideCrosshair();
     clearTrackAxisGlow(app);
     clearTrackSnapMarker(app);

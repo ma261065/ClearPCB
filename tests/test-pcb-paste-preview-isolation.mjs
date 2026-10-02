@@ -17,7 +17,7 @@ import { getPcbSelectionEntries, setPcbSelection } from '../src/pcb/modules/sele
 import { prepareFabricationSnapshot } from '../src/pcb/modules/fabrication-snapshot.js';
 import { loadPcb } from '../src/pcb/modules/project-state.js';
 import { PCB_LAYERS } from '../src/pcb/modules/layers.js';
-import { setFillRefreshPending } from '../src/pcb/modules/refresh-state.js';
+import { areDragOverlaysDeferred, isBoardViewRefreshSuspended, isFillRefreshSuspended, setBoardViewRefreshSuspended, setDragOverlaysDeferred, setFillRefreshPending, setFillRefreshSuspended } from '../src/pcb/modules/refresh-state.js';
 
 let allocations = 0;
 class Element {
@@ -88,11 +88,10 @@ function fixture(deferred = false) {
     let derived = 0, crosshairs = 0;
     const app = { project, pcbDocument: model, history: new CommandHistory(), placements, netlist: [], _active: true,
         _layerGroups: groups, _shapeElements: new Map(), _textElements: new Map(),
-        _deferDragOverlays: deferred, _suspendFillRefresh: deferred, _suspendBoardViewRefresh: deferred,
         viewport: { scale: 10, gridVisible: false, svg: new Element('svg'), currentMouseWorld: { x: 10.123456789, y: -12.345678912 },
             setCrosshair() { crosshairs++; }, hideCrosshair() {} },
         getLayerGroup: id => groups.get(id) || null,
-        refreshFills() { if (!this._deferDragOverlays && !this._suspendFillRefresh) derived++; },
+        refreshFills() { if (!areDragOverlaysDeferred(this) && !isFillRefreshSuspended(this)) derived++; },
         updateCopperCuts() { derived++; }, refreshClearanceHalos() { derived++; },
         _clearancesVisible: true, getRoutingParams: () => ({ clearance: 0.25 }),
         _board3d: { refresh() { derived++; } }, syncClipboardButtons() {}, _updateCursorForTool() {},
@@ -100,6 +99,9 @@ function fixture(deferred = false) {
         _cancelDrawingMode() {}, _ensureViewport() {}, markSectionClean() {}, _refreshPcbSelectionHighlights() {},
         _showPcbMultiSelectionProperties() {}, _showTextProperties() {},
     };
+    setDragOverlaysDeferred(app, deferred);
+    setFillRefreshSuspended(app, deferred);
+    setBoardViewRefreshSuspended(app, deferred);
     for (const key of ['tracks', 'vias', 'pads', 'boardShapes', 'texts', '_shapeIdCounter']) {
         Object.defineProperty(app, key, Object.getOwnPropertyDescriptor(PCBApp.prototype, key));
     }
@@ -216,9 +218,9 @@ for (const imageOnly of [false, true]) for (const deferred of [false, true]) for
             }
         }
         assert.equal(app._pasteDrop, null);
-        assert.equal(app._deferDragOverlays, deferred);
-        assert.equal(app._suspendFillRefresh, deferred);
-        assert.equal(app._suspendBoardViewRefresh, deferred);
+        assert.equal(areDragOverlaysDeferred(app), deferred);
+        assert.equal(isFillRefreshSuspended(app), deferred);
+        assert.equal(isBoardViewRefreshSuspended(app), deferred);
         if (finish !== 'commit' && finish !== 'load' && finish !== 'document') {
             for (const shape of payload.shapes) assert.equal(app._shapeElements.has(shape.id), false);
             for (const text of payload.texts) assert.equal(app._textElements.has(text.id), false);

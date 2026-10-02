@@ -7,6 +7,7 @@ import { pointInPolygon } from '../src/core/geometry.js';
 import { ProjectDocument } from '../src/core/ProjectDocument.js';
 import { Component } from '../src/components/Component.js';
 import { Via } from '../src/shapes/via.js';
+import { areDragOverlaysDeferred } from '../src/pcb/modules/refresh-state.js';
 
 globalThis.window = { addEventListener() {} };
 globalThis.document = { createElementNS: () => ({ setAttribute() {}, appendChild() {} }) };
@@ -214,7 +215,7 @@ assert.deepEqual(model.serialize(), before, 'Group preview does not author coppe
 assert.deepEqual(draggedTrack.captureState(), originalTrack);
 cancelGroupDrag(dragApp);
 assert.equal(dragApp._groupDrag, null);
-assert.equal(dragApp._deferDragOverlays, false);
+assert.equal(areDragOverlaysDeferred(dragApp), false);
 assert.equal(dragApp.placements.get('U1').x, 0);
 assert.deepEqual([draggedVia.x, draggedVia.y], [2, 3]);
 assert.deepEqual(draggedTrack.captureState(), originalTrack);

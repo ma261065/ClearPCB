@@ -9,7 +9,7 @@ import { prepareFabricationSnapshot } from '../src/pcb/modules/fabrication-snaps
 import { loadPcb } from '../src/pcb/modules/project-state.js';
 import { cancelPictureCopperRefresh } from '../src/pcb/modules/picture-refresh.js';
 import { PCB_LAYERS } from '../src/pcb/modules/layers.js';
-import { isPictureCopperRefreshPending } from '../src/pcb/modules/refresh-state.js';
+import { areDragOverlaysDeferred, isPictureCopperRefreshPending, setDragOverlaysDeferred } from '../src/pcb/modules/refresh-state.js';
 
 let allocations = 0;
 class Element {
@@ -74,13 +74,14 @@ function fixture(mode, deferred = false, unrelatedCount = 1) {
     const group = new Element();
     const app = {
         pcbDocument: model, project, placements: new Map(), netlist: [], history: new CommandHistory(),
-        _active: true, _deferDragOverlays: deferred, _shapeElements: new Map(), _textElements: new Map(),
+        _active: true, _shapeElements: new Map(), _textElements: new Map(),
         _layerGroups: new Map(), viewport: { scale: 100, shiftHeld: true, svg: new Element(), setCrosshair() {}, hideCrosshair() {} },
         getLayerGroup: id => id === 'selection-overlay' ? null : group,
         refreshFills() { fills++; }, _refreshBoardShapeClearance() {},
         _pcbPropsItems: () => null, _cancelDrawingMode() {}, _ensureViewport() {}, markSectionClean() {},
         _scheduleRemovalHatchRender() {}, _refreshPcbSelectionHighlights() {},
     };
+    setDragOverlaysDeferred(app, deferred);
     for (const key of ['boardShapes', 'tracks', 'vias', 'pads', 'texts', '_shapeIdCounter']) {
         Object.defineProperty(app, key, Object.getOwnPropertyDescriptor(PCBApp.prototype, key));
     }
@@ -186,7 +187,7 @@ for (const mode of ['move', 'segment', 'vertex', 'midpoint', 'bulge', 'outline',
                 assert.equal(fills(), 0, 'Discarding an isolated edit retains settled pours');
             }
             assert.equal(app._shapeDrag, null);
-            assert.equal(app._deferDragOverlays, deferred);
+            assert.equal(areDragOverlaysDeferred(app), deferred);
             assert.equal(app.boardShapes, model.boardShapes);
             assert.equal(rebuilt.object, shape);
             if (finish !== 'load') assert.equal(app._shapeElements.get(unrelated[0].id), otherElement);

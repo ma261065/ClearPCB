@@ -12,6 +12,7 @@ import {
 } from '../../core/pcb-fill-commands.js';
 import { isPcbSelected } from './selection-registry.js';
 import { renderPcbSelectionAnchors } from './selection-anchors.js';
+import { areDragOverlaysDeferred } from './refresh-state.js';
 
 function refresh(app) {
     // Empty or deferred pours still need connectivity, without requesting another pour.
@@ -63,7 +64,7 @@ export class ModifyFillCommand extends ModelModifyFillCommand {
     }
     _apply(state) {
         super._apply(state);
-        if (!this.app._deferDragOverlays) {
+        if (!areDragOverlaysDeferred(this.app)) {
             refresh(this.app);
         }
         this.app._refreshFillProperties?.(this.fill);

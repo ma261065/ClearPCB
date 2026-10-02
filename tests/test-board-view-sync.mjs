@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { createBoardViewSync } from '../src/pcb/modules/board-view-sync.js';
-import { isFillRefreshPending, isFillRefreshScheduled, isPictureCopperRefreshPending, refreshStatus, setFillRefreshPending, setFillRefreshScheduled } from '../src/pcb/modules/refresh-state.js';
+import { isFillRefreshPending, isFillRefreshScheduled, isPictureCopperRefreshPending, refreshStatus, setBoardViewRefreshSuspended, setDragOverlaysDeferred, setFillRefreshPending, setFillRefreshScheduled, setFillRefreshSuspended } from '../src/pcb/modules/refresh-state.js';
 
 {
     const pcbSource = readFileSync(new URL('../src/ui/PCBApp.js', import.meta.url), 'utf8');
@@ -135,7 +135,7 @@ const cleanup = source.match(/if \(syncFrame\) \{ window.cancelAnimationFrame\(s
 assert.ok(cleanup, 'Closing the view must cancel the pending animation frame');
 const frames = new Map();
 const panel = { closed: false, hidden: false, view: '3d' };
-const app = { _suspendBoardViewRefresh: false };
+const app = {};
 let frameCount = 0;
 let revision = 0;
 const refreshed = [];
@@ -172,7 +172,9 @@ assert.deepEqual(refreshed, []);
 fireFrame();
 assert.deepEqual(refreshed, [revision], 'The next frame must refresh the latest state');
 app.copperFills = [{}];
-const refreshSetters = { _fillRefreshScheduled: setFillRefreshScheduled, _fillRefreshPending: setFillRefreshPending };
+const refreshSetters = { _fillRefreshScheduled: setFillRefreshScheduled, _fillRefreshPending: setFillRefreshPending,
+    _suspendBoardViewRefresh: setBoardViewRefreshSuspended, _deferDragOverlays: setDragOverlaysDeferred,
+    _suspendFillRefresh: setFillRefreshSuspended };
 const setFlag = (target, property, value) => {
     if (target === app && refreshSetters[property]) refreshSetters[property](target, value);
     else target[property] = value;

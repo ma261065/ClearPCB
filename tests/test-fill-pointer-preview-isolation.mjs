@@ -11,6 +11,7 @@ import { beginPcbAnchorInteraction, finishSelectionInteraction, updateSelectionI
     placeFloatingSelectionInteraction } from '../src/pcb/modules/selection-interaction.js';
 import { loadPcb } from '../src/pcb/modules/project-state.js';
 import { refreshBoxSelectionHighlights } from '../src/pcb/modules/box-select.js';
+import { areDragOverlaysDeferred, setDragOverlaysDeferred } from '../src/pcb/modules/refresh-state.js';
 
 let allocations = 0;
 class Element {
@@ -64,7 +65,7 @@ function fixture(mode, deferred) {
     let recomputes = 0;
     const app = {
         pcbDocument: model, boardShapes: model.boardShapes, tracks: [], vias: [], pads: [], texts: model.texts,
-        placements: new Map(), history: new CommandHistory(), _deferDragOverlays: deferred,
+        placements: new Map(), history: new CommandHistory(),
         viewport: { scale: 100, shiftHeld: true, svg: { style: {} }, setCrosshair() {}, hideCrosshair() {} },
         getLayerGroup: id => id === 'top-fill' ? layer : null,
         _refreshFillProperties() {}, _showFillProperties() {},
@@ -83,6 +84,7 @@ function fixture(mode, deferred) {
         _textElements: new Map(), _shapeElements: new Map(),
         _clearFillGroups() { for (const child of [...layer.children]) child.remove(); },
     };
+    setDragOverlaysDeferred(app, deferred);
     const adapter = createCopperFillSelectionAdapter(app, fill, `fill:${fill.id}`);
     setPcbSelection(app, [{ kind: 'fill', object: fill }]);
     renderCopperFill(fill, app.getLayerGroup);
@@ -177,7 +179,7 @@ for (const mode of ['move', 'segment', 'vertex', 'midpoint', 'bulge', 'center', 
         assert.equal(app._fillDrag, null);
         assert.equal(app._pcbSelectionInteraction, null);
         assert.equal(frames.size, 0);
-        assert.equal(app._deferDragOverlays, deferred);
+        assert.equal(areDragOverlaysDeferred(app), deferred);
         assert.equal(rebuilt.object, fill);
         assert.equal(layer.querySelectorAll('.pcb-fill-outline').length, ['missing', 'load'].includes(finish) ? 0 : 1);
         cases++;

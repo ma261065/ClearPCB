@@ -18,6 +18,7 @@ import { setPcbSelection, getPcbSelectionEntries, syncPcbSelection } from '../sr
 import { prepareFabricationSnapshot } from '../src/pcb/modules/fabrication-snapshot.js';
 import { loadPcb } from '../src/pcb/modules/project-state.js';
 import { PCB_LAYERS, PCB_COPPER_FILLS } from '../src/pcb/modules/layers.js';
+import { areDragOverlaysDeferred, isBoardViewRefreshSuspended, setBoardViewRefreshSuspended, setDragOverlaysDeferred } from '../src/pcb/modules/refresh-state.js';
 
 let allocations = 0;
 const trackRenders = new Map();
@@ -88,12 +89,13 @@ function fixture(deferred = false, component = false) {
     const groups = new Map(['top-copper', 'bottom-copper', 'hole', 'top-silk', 'top-fill', 'selection-overlay'].map(id => [id, new Element('g')]));
     let fills = 0, ratsnest = 0, board = 0;
     const app = {};
+    setDragOverlaysDeferred(app, deferred);
+    setBoardViewRefreshSuspended(app, deferred);
     for (const key of ['tracks', 'vias', 'pads', 'boardShapes', 'texts']) {
         Object.defineProperty(app, key, Object.getOwnPropertyDescriptor(PCBApp.prototype, key));
     }
     Object.assign(app, { project, pcbDocument: model, placements, placementState: model.placementState,
         netlist: [], history: new CommandHistory(), _active: true, _layerGroups: groups, _shapeElements: new Map(), _textElements: new Map(),
-        _deferDragOverlays: deferred, _suspendBoardViewRefresh: deferred,
         viewport: { scale: 10, gridVisible: false, svg: new Element('svg'), setCrosshair() {}, hideCrosshair() {} },
         getLayerGroup: id => groups.get(id) || null, refreshText() {}, refreshFills() { fills++; },
         updateRatsnest() { ratsnest++; }, _board3d: { refresh() { board++; } },
@@ -221,8 +223,8 @@ for (const component of [false, true]) for (const deferred of [false, true]) for
     }
     assert.equal(app._groupDrag, null);
     assert.equal(getGroupPreview(app), undefined);
-    assert.equal(app._deferDragOverlays, deferred);
-    assert.equal(app._suspendBoardViewRefresh, deferred);
+    assert.equal(areDragOverlaysDeferred(app), deferred);
+    assert.equal(isBoardViewRefreshSuspended(app), deferred);
     assert.equal(frames.size, 0);
     if (finish !== 'load') {
         assert.equal(f.artwork().length, 1);

@@ -7,6 +7,7 @@ import { createPcbTextSelectionAdapter } from '../src/pcb/modules/pcb-text-selec
 import { setPcbSelection } from '../src/pcb/modules/selection-registry.js';
 import { cancelPictureCopperRefresh } from '../src/pcb/modules/picture-refresh.js';
 import { beginTextContentPreview } from '../src/pcb/modules/text-commands.js';
+import { areDragOverlaysDeferred } from '../src/pcb/modules/refresh-state.js';
 
 globalThis.window = { addEventListener() {} };
 globalThis.document = {
@@ -81,7 +82,7 @@ for (const layerId of TEXT_LAYERS) {
         adapter.endMove(true);
         assert.deepEqual(text, original, 'A now-locked drag restores its original position on drop');
         assert.equal(app.history.canUndo(), false);
-        assert.equal(app._deferDragOverlays, false);
+        assert.equal(areDragOverlaysDeferred(app), false);
 
         layer.locked = false;
         adapter.beginMove({ x: 0, y: 0 });

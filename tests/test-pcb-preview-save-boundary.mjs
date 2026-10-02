@@ -1,3 +1,4 @@
+import { setDragOverlaysDeferred, setFillRefreshSuspended } from '../src/pcb/modules/refresh-state.js';
 import assert from 'node:assert/strict';
 import { ProjectDocument } from '../src/core/ProjectDocument.js';
 import { Component } from '../src/components/Component.js';
@@ -134,11 +135,16 @@ try {
         '_viaDrag', '_fillDrag', '_pasteDrop', '_textEdit', '_boardOutlineResize', '_pcbSelectionInteraction',
         '_rotationHandleDrag', '_deferDragOverlays', '_suspendFillRefresh']) {
         const f = fixture();
-        f.app[flag] = {};
+        const suspensionSetters = { _deferDragOverlays: setDragOverlaysDeferred, _suspendFillRefresh: setFillRefreshSuspended };
+        const setFlag = value => {
+            if (suspensionSetters[flag]) suspensionSetters[flag](f.app, value);
+            else f.app[flag] = value;
+        };
+        setFlag({});
         f.tick();
         flushIdle();
         assert.equal(stored.has(f.key), false, `${flag}: active PCB preview defers autosave`);
-        f.app[flag] = null;
+        setFlag(null);
         f.tick();
         flushIdle();
         assert.ok(stored.has(f.key), `${flag}: cleared preview allows the pending revision to save`);

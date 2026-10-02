@@ -7,7 +7,7 @@ import { getPcbSelection, isPcbSelected } from './selection-registry.js';
 import { renderPcbSelectionAnchors } from './selection-anchors.js';
 import { reconcileRatsnest } from './track-draw.js';
 import { installCopperRegionContact, validateCopperRegionContact } from './track-contact-geometry.js';
-import { isFillRefreshPending, isPictureCopperRefreshPending, setFillRefreshError, setFillRefreshPending, setFillRefreshScheduled } from './refresh-state.js';
+import { areDragOverlaysDeferred, isFillRefreshPending, isFillRefreshSuspended, isPictureCopperRefreshPending, refreshStatus, setFillRefreshError, setFillRefreshPending, setFillRefreshScheduled } from './refresh-state.js';
 
 const states = new WeakMap();
 function stateFor(app) {
@@ -19,8 +19,10 @@ function stateFor(app) {
     return state;
 }
 const fillsFor = app => (app.pcbDocument || app).copperFills || [];
-const deferred = app => isPictureCopperRefreshPending(app) || app._deferDragOverlays
-    || app._suspendFillRefresh || app.isSectionEditing?.();
+const deferred = app => {
+    const status = refreshStatus(app);
+    return status.pictureCopperPending || status.overlaysDeferred || status.fillSuspended || app.isSectionEditing?.();
+};
 
 function reportFailure(app, message, error) {
     setFillRefreshError(app, error);
@@ -129,7 +131,7 @@ export function adoptFillResults(app, fills, results, contacts) {
 /** Command callers retain synchronous computation and the existing true/undefined contract. */
 export function recomputeFillsNow(app) {
     const state = cancelScheduled(app);
-    if (app._deferDragOverlays || app._suspendFillRefresh) {
+    if (areDragOverlaysDeferred(app) || isFillRefreshSuspended(app)) {
         retryWhenSettled(app, state);
         return;
     }

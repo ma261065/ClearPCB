@@ -5,6 +5,7 @@ import { computeFillPolygons, loadClipper } from './copper-fill-geom.js';
 import { panelSettings } from './panelization.js';
 import { blocksPcbExport } from './pcb-interactions.js';
 import { hasActivePropertyEditor } from './property-editors.js';
+import { areDragOverlaysDeferred, isFillRefreshSuspended } from './refresh-state.js';
 
 export function hasFabricationContent(app) {
     const entities = app.pcbDocument || app;
@@ -14,7 +15,7 @@ export function hasFabricationContent(app) {
 }
 
 export async function prepareFabricationSnapshot(app, { computeFills = true } = {}) {
-    if (app._deferDragOverlays || app._suspendFillRefresh || blocksPcbExport(app)
+    if (areDragOverlaysDeferred(app) || isFillRefreshSuspended(app) || blocksPcbExport(app)
         || hasActivePropertyEditor(app, ['pad', 'via', 'track', 'boardShape'])) {
         throw new Error('Finish the current edit before exporting.');
     }

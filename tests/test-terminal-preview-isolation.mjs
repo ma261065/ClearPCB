@@ -11,6 +11,7 @@ import { createPadSelectionAdapter } from '../src/pcb/modules/pad-selection.js';
 import { setPcbSelection, syncPcbSelection, getPcbSelection } from '../src/pcb/modules/selection-registry.js';
 import { finishSelectionInteraction } from '../src/pcb/modules/selection-interaction.js';
 import { loadPcb } from '../src/pcb/modules/project-state.js';
+import { areDragOverlaysDeferred, setDragOverlaysDeferred } from '../src/pcb/modules/refresh-state.js';
 
 let allocations = 0;
 class Element {
@@ -55,7 +56,7 @@ function fixture(kind, deferred = false) {
     let fills = 0;
     const app = {
         pcbDocument: model, placements: new Map(), netlist: [],
-        history: new CommandHistory(), _deferDragOverlays: deferred,
+        history: new CommandHistory(),
         viewport: { scale: 100, shiftHeld: true, gridVisible: false,
             setCrosshair() {}, hideCrosshair() {}, svg: new Element('svg') },
         getLayerGroup: id => groups.get(id) || null,
@@ -65,6 +66,7 @@ function fixture(kind, deferred = false) {
         _textElements: new Map(), _shapeElements: new Map(),
         _alert(message) { this.lastAlert = message; },
     };
+    setDragOverlaysDeferred(app, deferred);
     for (const key of ['tracks', 'vias', 'pads', 'boardShapes', 'texts']) {
         Object.defineProperty(app, key, Object.getOwnPropertyDescriptor(PCBApp.prototype, key));
     }
@@ -164,7 +166,7 @@ for (const kind of ['via', 'pad']) for (const deferred of [false, true]) {
         }
         assert.equal(app._viaDrag, null);
         assert.equal(app._pcbSelectionInteraction, null);
-        assert.equal(app._deferDragOverlays, deferred);
+        assert.equal(areDragOverlaysDeferred(app), deferred);
         assert.equal(app.tracks, model.tracks);
         assert.equal(app[collection], model[collection]);
         assert.equal(during.object, terminal, 'Adapters created during preview return to canonical identity');

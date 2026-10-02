@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { PcbDocument } from '../src/core/PcbDocument.js';
+import { areDragOverlaysDeferred } from '../src/pcb/modules/refresh-state.js';
 
 globalThis.window = { addEventListener() {} };
 globalThis.document = { getElementById() { return null; } };
@@ -45,7 +46,7 @@ for (const layers of ['both', 'top-copper', 'bottom-copper']) {
     }
     adapter.endMove(true);
     assert.equal(commands.length, 1);
-    assert.equal(app._deferDragOverlays, false);
+    assert.equal(areDragOverlaysDeferred(app), false);
     commands[0].undo();
     assert.deepEqual([pad.x, pad.y], [0, 0]);
     for (const track of [top, bottom]) assert.deepEqual([...track.nodes.values()][0], { x: 0, y: 0 });

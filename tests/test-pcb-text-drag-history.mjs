@@ -4,7 +4,7 @@ import { CommandHistory } from '../src/core/CommandHistory.js';
 import { createPcbText } from '../src/core/pcb-text.js';
 import { createPcbTextSelectionAdapter } from '../src/pcb/modules/pcb-text-selection.js';
 import { cancelPictureCopperRefresh } from '../src/pcb/modules/picture-refresh.js';
-import { isPictureCopperRefreshPending } from '../src/pcb/modules/refresh-state.js';
+import { areDragOverlaysDeferred, isPictureCopperRefreshPending, setDragOverlaysDeferred } from '../src/pcb/modules/refresh-state.js';
 
 globalThis.window = { addEventListener() {} };
 const { default: PCBApp } = await import('../src/ui/PCBApp.js');
@@ -44,7 +44,7 @@ function fixture(options = {}) {
         assert.equal(adapter.beginMove({ x: 0, y: 0 }), true);
         assert.deepEqual(crosshairs.at(-1), { x: text.x, y: text.y },
             'Pickup crosshair marks the same text origin that snapping uses');
-        assert.equal(app._deferDragOverlays, true);
+        assert.equal(areDragOverlaysDeferred(app), true);
         for (let index = 0; index < 100; index++) {
             adapter.updateMove({ x: 5 + index / 1000, y: 7 + index / 1000 });
         }
@@ -64,7 +64,7 @@ function fixture(options = {}) {
         assert.deepEqual(renders.slice(beforeDrop), [final],
             'Drop renders the committed position once, never the rollback position');
         assert.equal(app._textDrag, null);
-        assert.equal(app._deferDragOverlays, false);
+        assert.equal(areDragOverlaysDeferred(app), false);
         assert.equal(hiddenCrosshairs(), 1);
         assert.equal(app.viewport.svg.style.cursor, 'default');
         assert.equal(app.history.undoStack.length, 1);
@@ -123,14 +123,14 @@ for (const layer of ['top-silk', 'bottom-silk']) {
 for (const previousDefer of [false, true]) {
     const { app, text, adapter, renders } = fixture();
     try {
-        app._deferDragOverlays = previousDefer;
+        setDragOverlaysDeferred(app, previousDefer);
         const original = { ...text };
         adapter.beginMove({ x: 0, y: 0 });
         adapter.updateMove({ x: 5, y: 6 });
         adapter.endMove(false);
         assert.deepEqual(text, original, 'Cancel restores the starting model position');
         assert.deepEqual(renders.at(-1), original);
-        assert.equal(app._deferDragOverlays, previousDefer);
+        assert.equal(areDragOverlaysDeferred(app), previousDefer);
         assert.equal(app.history.canUndo(), false);
         adapter.beginMove({ x: 0, y: 0 });
         adapter.updateMove({ x: 3, y: 4 });
@@ -140,7 +140,7 @@ for (const previousDefer of [false, true]) {
         assert.deepEqual(text, original);
         assert.equal(renders.length, beforeDrop, 'An out-and-back drag needs no commit repaint');
         assert.equal(app.history.canUndo(), false);
-        assert.equal(app._deferDragOverlays, previousDefer);
+        assert.equal(areDragOverlaysDeferred(app), previousDefer);
         adapter.beginMove({ x: 0, y: 0 });
         adapter.updateMove({ x: 0.01, y: -0.01 });
         adapter.endMove(true);
@@ -181,7 +181,7 @@ for (const previousDefer of [false, true]) {
     adapter.updateMove({ x: 10, y: 20 });
     adapter.endMove(true);
     assert.equal(app._textDrag, null);
-    assert.equal(app._deferDragOverlays, false);
+    assert.equal(areDragOverlaysDeferred(app), false);
     assert.equal(app.history.canUndo(), false, 'Disappeared text is not recreated on drop');
 }
 

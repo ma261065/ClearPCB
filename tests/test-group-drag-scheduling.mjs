@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { areDragOverlaysDeferred } from '../src/pcb/modules/refresh-state.js';
 
 const frames = new Map();
 let frameId = 0;
@@ -46,7 +47,7 @@ endGroupDrag(app);
 assert.deepEqual([text.x, text.y], [35, 50], 'Commit must apply the latest pending position');
 assert.equal(frames.size, 0);
 assert.equal(commands.length, 1);
-assert.equal(app._deferDragOverlays, false);
+assert.equal(areDragOverlaysDeferred(app), false);
 begin();
 scheduleGroupDrag(app, { x: 5, y: 5 });
 flush();

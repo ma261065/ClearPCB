@@ -72,7 +72,7 @@ import { rotationHandleAnchor, pointerRotation, rotatedImagePoints } from './rot
 import { BULGE_EPS, arcFromBulge } from '../../shapes/arc-edge.js';
 import { syncBoardOutlineDimensions, boardBoundary } from './board-outline.js';
 import { getPropertyEditor, releasePropertyEditor, setPropertyEditor } from './property-editors.js';
-import { isPictureCopperRefreshPending } from './refresh-state.js';
+import { areDragOverlaysDeferred, isPictureCopperRefreshPending, setDragOverlaysDeferred } from './refresh-state.js';
 
 import {
     normalizeShapeCopperMode,
@@ -546,7 +546,7 @@ function createBoardShapePropertyPreview(app, targets, { liveDrag = false, befor
         state = null;
         binding.release(control);
         boardShapePropertyPreviews.delete(app);
-        app._deferDragOverlays = preview.previousDeferDragOverlays;
+        setDragOverlaysDeferred(app, preview.previousDeferDragOverlays);
         let committed = false;
         try {
             if (commit && originals.some(shape => !collection().includes(shape))) {
@@ -614,12 +614,12 @@ function createBoardShapePropertyPreview(app, targets, { liveDrag = false, befor
                     originals, copies, copiesByOriginal,
                     originalsByCopy: new Map(copies.map((copy, index) => [copy, originals[index]])),
                     before: originals.map(shapeSnapshot),
-                    previousDeferDragOverlays: app._deferDragOverlays,
+                    previousDeferDragOverlays: areDragOverlaysDeferred(app),
                     previousPictureRefreshPending: !!isPictureCopperRefreshPending(app),
                     boardShapes: collection().map(shape => copiesByOriginal.get(shape) || shape),
                 };
                 boardShapePropertyPreviews.set(app, state);
-                app._deferDragOverlays = true;
+                setDragOverlaysDeferred(app, true);
             }
             try {
                 mutate(state.before, state.copies);
@@ -1344,7 +1344,7 @@ export function startBoardShapeDrag(app, shape, worldPos, anchorId = null, optio
     const drag = {
         original: shape, shape, id: shape.id, before, beforeState,
         startWorld: { x: worldPos.x, y: worldPos.y }, sourceAnchorId: anchorId,
-        previousDeferDragOverlays: !!app._deferDragOverlays,
+        previousDeferDragOverlays: !!areDragOverlaysDeferred(app),
     };
     if (['line', 'polygon', 'rect'].includes(shape.kind) && midpointMatch) {
         segment = Number(midpointMatch[1]);
@@ -1389,7 +1389,7 @@ export function startBoardShapeDrag(app, shape, worldPos, anchorId = null, optio
         ratsnestNets,
     });
     app.setPcbStatus?.();
-    app._deferDragOverlays = true;
+    setDragOverlaysDeferred(app, true);
     if (mode === 'vertex' || mode === 'segment') schedulePictureCopperRefresh(app, shape);
     const vertex = midpointMatch ? shape.points[handle] : handle != null
         ? shapeHandlePoints(shape).find((point) => point.key === handle)
@@ -1504,7 +1504,7 @@ export function endBoardShapeDrag(app, commit) {
     app.setPcbStatus?.();
     app.viewport?.hideCrosshair();
     clearPolygonAxisIndicators(app);
-    app._deferDragOverlays = d.previousDeferDragOverlays;
+    setDragOverlaysDeferred(app, d.previousDeferDragOverlays);
     const s = d.shape, original = d.original;
     const originals = app.pcbDocument?.boardShapes || app.boardShapes;
     const present = originals.includes(original);

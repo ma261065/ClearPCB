@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { getComputedFill, setComputedFill } from '../src/pcb/modules/computed-fill-cache.js';
-import { isFillRefreshPending, setFillRefreshPending, setPictureCopperRefreshPending } from '../src/pcb/modules/refresh-state.js';
+import { areDragOverlaysDeferred, isFillRefreshPending, isFillRefreshSuspended, setDragOverlaysDeferred, setFillRefreshPending, setFillRefreshSuspended, setPictureCopperRefreshPending } from '../src/pcb/modules/refresh-state.js';
 
 globalThis.window = { addEventListener() {} };
 globalThis.document = { createElementNS: () => ({ setAttribute() {}, appendChild() {},
@@ -35,7 +35,7 @@ function board() {
         _clearFillGroups() { counts.clears++; },
         refreshFills() { return scheduleFillRefresh(this); },
         _recomputeFillsNow() {
-            if (this._deferDragOverlays || this._suspendFillRefresh) {
+            if (areDragOverlaysDeferred(this) || isFillRefreshSuspended(this)) {
                 setFillRefreshPending(this, true);
                 return;
             }
@@ -94,23 +94,23 @@ try {
     assert.equal(frames.length, 0);
 
     const drag = board();
-    drag._deferDragOverlays = true;
+    setDragOverlaysDeferred(drag, true);
     reconcileRatsnest(drag);
     assert.equal(drag.counts.rebuilds, 1);
     assert.equal(drag.counts.halos, 0);
     assert.equal(frames.length, 0);
-    drag._deferDragOverlays = false;
+    setDragOverlaysDeferred(drag, false);
     reconcileRatsnest(drag);
     flush();
     assert.equal(drag.counts.rebuilds, 2);
 
     const suspended = board();
-    suspended._suspendFillRefresh = true;
+    setFillRefreshSuspended(suspended, true);
     reconcileRatsnest(suspended);
     assert.equal(suspended.counts.rebuilds, 1);
     assert.equal(isFillRefreshPending(suspended), true);
     assert.equal(frames.length, 0);
-    suspended._suspendFillRefresh = false;
+    setFillRefreshSuspended(suspended, false);
     reconcileRatsnest(suspended);
     flush();
     assert.equal(suspended.counts.rebuilds, 2);
@@ -118,11 +118,11 @@ try {
 
     const interrupted = board();
     reconcileRatsnest(interrupted);
-    interrupted._deferDragOverlays = true;
+    setDragOverlaysDeferred(interrupted, true);
     flush();
     assert.equal(interrupted.counts.pours, 0);
     assert.equal(isFillRefreshPending(interrupted), true);
-    interrupted._deferDragOverlays = false;
+    setDragOverlaysDeferred(interrupted, false);
     reconcileRatsnest(interrupted);
     flush();
     assert.equal(interrupted.counts.rebuilds, 1);

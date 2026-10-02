@@ -171,9 +171,15 @@ fabrication-snapshot guard, which the Gerber worker loads, queries it.
 `pcb/modules/refresh-state.js` owns each editor's derived-refresh status in a
 WeakMap: copper-pour pending, scheduled and last error (written by
 `fill-refresh.js`) and the batched picture-copper refresh (written by
-`picture-refresh.js`). Predicates that test several flags read
-`refreshStatus(app)` once. It is import-free because `drc.js` reads the pour
-status inside the DRC worker; detached DRC snapshots pass the editor's status
+`picture-refresh.js`). It also owns the refresh suspensions gestures hold while
+previewing: drag-overlay deferral, fill-refresh suspension (paste) and
+board-view refresh suspension. Gestures save the current value, set it and
+restore the saved value when they finish. Raising overlay deferral or fill
+suspension first notifies `onRefreshSuspended` subscribers; `PCBApp.js`
+subscribes to invalidate in-flight pour and DRC work on its instances.
+Predicates that test several flags read `refreshStatus(app)` once. The module
+is import-free because `drc.js` (DRC worker) and the fabrication snapshot
+(Gerber worker) read it; detached DRC snapshots pass the editor's pour status
 to `collectDrcInputs` explicitly. DRC status itself remains with
 `drc-presentation.js` behind the editor's `_drcPending` accessor.
 

@@ -7,10 +7,8 @@
     "_boardOutlineSelected",
     "_boardRadius",
     "_boardWidth",
-    "_deferDragOverlays",
     "_drawBoardOutline",
     "_showBoardOutlineProperties",
-    "_suspendBoardViewRefresh",
     "_syncBoardOutlineInputs"
   ],
   "src/pcb/modules/board-outline.js": [
@@ -21,7 +19,6 @@
   "src/pcb/modules/board-shapes.js": [
     "_active",
     "_boardShapeClearanceCache",
-    "_deferDragOverlays",
     "_deferredShapeCopperCuts",
     "_ensureCopperRemovalHatch",
     "_hasCopperCuts",
@@ -55,12 +52,9 @@
     "_boardWidth",
     "_boardX",
     "_boardY",
-    "_deferDragOverlays",
     "_exportBaseName",
     "_last2DSide",
     "_saveBlob",
-    "_suspendBoardViewRefresh",
-    "_suspendFillRefresh",
     "_update3DButtonState"
   ],
   "src/pcb/modules/box-select.js": [
@@ -71,14 +65,12 @@
     "_boxSelectArm",
     "_boxSelectFrame",
     "_boxSelectPendingWorld",
-    "_deferDragOverlays",
     "_groupDrag",
     "_netsForComponent",
     "_pcbSelectionInteraction",
     "_refreshPcbSelectionHighlights",
     "_rerenderFills",
-    "_setActiveRibbonTab",
-    "_suspendBoardViewRefresh"
+    "_setActiveRibbonTab"
   ],
   "src/pcb/modules/component-selection.js": [
     "_beginComponentDrag",
@@ -100,7 +92,6 @@
     "_updateGridDropdown"
   ],
   "src/pcb/modules/copper-fill-commands.js": [
-    "_deferDragOverlays",
     "_recomputeFillsNow",
     "_refreshFillProperties"
   ],
@@ -111,7 +102,6 @@
     "_snapToGrid"
   ],
   "src/pcb/modules/copper-fill-edit.js": [
-    "_deferDragOverlays",
     "_fillDrag",
     "_fillEdit",
     "_refreshFillProperties",
@@ -131,7 +121,6 @@
     "_active",
     "_adoptDRCResult",
     "_collectRatlines",
-    "_deferDragOverlays",
     "_drcDisposed",
     "_drcError",
     "_drcPending",
@@ -139,14 +128,11 @@
     "_drcRatlines",
     "_drcShouldRun",
     "_runDRCLive",
-    "_suspendFillRefresh",
     "_updateDRCStatus"
   ],
   "src/pcb/modules/edit-lifecycle.js": [
-    "_deferDragOverlays",
     "_drcPending",
-    "_scheduleDRC",
-    "_suspendFillRefresh"
+    "_scheduleDRC"
   ],
   "src/pcb/modules/editor-actions.js": [
     "_active",
@@ -179,9 +165,7 @@
     "_boardRadius",
     "_boardWidth",
     "_boardX",
-    "_boardY",
-    "_deferDragOverlays",
-    "_suspendFillRefresh"
+    "_boardY"
   ],
   "src/pcb/modules/fill-context.js": [
     "_boardHeight",
@@ -191,12 +175,10 @@
     "_active",
     "_board3d",
     "_clearFillGroups",
-    "_deferDragOverlays",
     "_fillContext",
     "_fillRefreshDisposed",
     "_recomputeFillsNow",
-    "_scheduleDRC",
-    "_suspendFillRefresh"
+    "_scheduleDRC"
   ],
   "src/pcb/modules/fill-worker-geometry.js": [
     "_boardHeight",
@@ -214,9 +196,6 @@
   "src/pcb/modules/pad-commands.js": [
     "_rotationHandleDrag",
     "_viaDrag"
-  ],
-  "src/pcb/modules/pad-selection.js": [
-    "_deferDragOverlays"
   ],
   "src/pcb/modules/panelization-ui.js": [
     "_boardHeight",
@@ -265,12 +244,10 @@
     "_board3d",
     "_boardShapeClearanceCache",
     "_cancelPosePreviews",
-    "_deferDragOverlays",
+    "_deferredShapeCopperCuts",
     "_pasteDrop",
     "_removeTextElement",
     "_snapToGrid",
-    "_suspendBoardViewRefresh",
-    "_suspendFillRefresh",
     "_syncHistoryButtons",
     "_updateCursorForTool"
   ],
@@ -396,7 +373,6 @@
   ],
   "src/pcb/modules/track-commands.js": [
     "_board3d",
-    "_deferDragOverlays",
     "_drawBoardOutline",
     "_drawRefOverlay",
     "_drcRatlines",
@@ -416,18 +392,15 @@
     "_active",
     "_alert",
     "_board3d",
-    "_deferDragOverlays",
     "_pcbSelectionInteraction",
     "_refreshTrackClearance",
     "_refreshViaClearance",
-    "_suspendBoardViewRefresh",
     "_trackEdit",
     "_vertexDrag",
     "_viaDrag"
   ],
   "src/pcb/modules/track-draw.js": [
     "_commitTracks",
-    "_deferDragOverlays",
     "_drcRatlines",
     "_drcRatlinesModel",
     "_followDRCRatline",

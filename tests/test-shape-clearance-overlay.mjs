@@ -4,7 +4,7 @@ import { PcbDocument } from '../src/core/PcbDocument.js';
 import { isLayerLocked, isLayerVisible } from '../src/pcb/modules/layers.js';
 import { shouldDeferShapeClearance } from '../src/pcb/modules/picture-refresh.js';
 import { hasViaElements } from '../src/pcb/modules/track-render.js';
-import { setPictureCopperRefreshPending } from '../src/pcb/modules/refresh-state.js';
+import { setDragOverlaysDeferred, setPictureCopperRefreshPending } from '../src/pcb/modules/refresh-state.js';
 
 globalThis.window = { addEventListener() {} };
 const element = () => ({
@@ -250,8 +250,9 @@ const { startBoardShapeDrag, handleBoardShapeDrag, endBoardShapeDrag } = await i
 const dropStart = source.indexOf('    _endTextDrag(commit = true) {');
 const dropEnd = source.indexOf('\n    //', dropStart);
 assert.ok(dropStart >= 0 && dropEnd > dropStart);
-const endTextDrag = new Function('MoveTextCommand', 'isLayerLocked', 'isLayerVisible', 'finishTextPosePreview',
-    `return ({ ${source.slice(dropStart, dropEnd)} })._endTextDrag;`)(MoveTextCommand, isLayerLocked, isLayerVisible, finishTextPosePreview);
+const endTextDrag = new Function('MoveTextCommand', 'isLayerLocked', 'isLayerVisible', 'finishTextPosePreview', 'setDragOverlaysDeferred',
+    `return ({ ${source.slice(dropStart, dropEnd)} })._endTextDrag;`)(MoveTextCommand, isLayerLocked, isLayerVisible, finishTextPosePreview,
+    setDragOverlaysDeferred);
 const originalSetTimeout = globalThis.setTimeout;
 const originalClearTimeout = globalThis.clearTimeout;
 let deferred;
@@ -273,7 +274,7 @@ try {
     const calculationsBeforeDrop = textOutlineCalls;
     const startPos = { x: text.x, y: text.y };
     app._textDrag = { textId: text.id, startPos, previousDeferDragOverlays: false };
-    app._deferDragOverlays = true;
+    setDragOverlaysDeferred(app, true);
     text.x += 7;
     text.y -= 2;
     app.refreshText(text.id);

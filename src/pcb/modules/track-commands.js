@@ -55,6 +55,7 @@ import {
 } from '../../core/pcb-via-commands.js';
 import { cancelVertexDrag } from './track-drag.js';
 import { getPropertyEditor } from './property-editors.js';
+import { areDragOverlaysDeferred } from './refresh-state.js';
 
 const placementPreviews = new WeakMap();
 const viaPropertyPreviews = new WeakMap();
@@ -316,7 +317,7 @@ function deselectRemovedTrack(app, track) {
 
 function refreshEditedTrackClearance(app) {
     if (deferDerivedUpdate(app, 'clearance', () => refreshEditedTrackClearance(app))) return;
-    if (!app._deferDragOverlays) app.refreshClearanceHalos?.();
+    if (!areDragOverlaysDeferred(app)) app.refreshClearanceHalos?.();
 }
 
 function _opts(app, track) {

@@ -81,7 +81,7 @@ import { boardShapeFilledRemovalOutlines, resolveBoardShapeGeometry } from './bo
 import { pcbTextPolylines } from './pcb-text.js';
 import { loadClipper, isClipperReady, getClipper } from './copper-fill-geom.js';
 import { createViewerBackgroundTexture, VIEWER_BACKGROUND } from './viewer-background.js';
-import { isFillRefreshPending, isFillRefreshScheduled, refreshStatus } from './refresh-state.js';
+import { areDragOverlaysDeferred, isBoardViewRefreshSuspended, isFillRefreshPending, isFillRefreshScheduled, isFillRefreshSuspended, refreshStatus } from './refresh-state.js';
 
 export function board2DDataFromApp(app) {
     return {
@@ -3379,7 +3379,7 @@ export async function openBoard3DViewer(app, opts = {}) {
             host.classList.remove('cpcb3d-mode2d');
             const alreadyStarted = build3DStarted;
             ensure3D();
-            if (alreadyStarted && !panel.hidden && !panel.closed && !app._suspendBoardViewRefresh) viewSync.flush('3d');
+            if (alreadyStarted && !panel.hidden && !panel.closed && !isBoardViewRefreshSuspended(app)) viewSync.flush('3d');
             scene?.resize();
             scene?.requestRender();
             if (dom.hint) dom.hint.textContent =
@@ -3647,8 +3647,8 @@ export async function openBoard3DViewer(app, opts = {}) {
             const result = await surfaceBuilder.build(surfaces, { takeOwnership: true });
             if (!result || panel.closed || !scene) return false;
             if (panel.hidden || panel.view !== '3d'
-                || app._deferDragOverlays || app._suspendFillRefresh || isFillRefreshScheduled(app)
-                || app._suspendBoardViewRefresh || (isFillRefreshPending(app) && app.copperFills?.length)) {
+                || areDragOverlaysDeferred(app) || isFillRefreshSuspended(app) || isFillRefreshScheduled(app)
+                || isBoardViewRefreshSuspended(app) || (isFillRefreshPending(app) && app.copperFills?.length)) {
                 viewSync.invalidate();
                 return false;
             }
@@ -3869,8 +3869,8 @@ export async function openBoard3DViewer(app, opts = {}) {
         if (panel.closed || panel.hidden) return false;
         const status = refreshStatus(app);
         return !status.pictureCopperPending
-            && !app._suspendBoardViewRefresh && !app._deferDragOverlays
-            && !app._suspendFillRefresh && !status.fillScheduled
+            && !status.boardViewSuspended && !status.overlaysDeferred
+            && !status.fillSuspended && !status.fillScheduled
             && !(status.fillPending && app.copperFills?.length);
     };
     function schedulePendingSync() {

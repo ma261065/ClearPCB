@@ -1,4 +1,4 @@
-import { isFillRefreshPending } from '../src/pcb/modules/refresh-state.js';
+import { areDragOverlaysDeferred, isFillRefreshPending } from '../src/pcb/modules/refresh-state.js';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { PcbDocument } from '../src/core/PcbDocument.js';
@@ -309,7 +309,7 @@ function clipNode() {
 const clipDefs = clipNode();
 let geometryCalls = 0;
 const clipDependencies = {
-    getBoardShapeRotationPreview,
+    getBoardShapeRotationPreview, areDragOverlaysDeferred,
     document: { createElementNS: () => clipNode() },
     boardShapeCopperCuts(app, layer) { geometryCalls++; return boardShapeCopperCuts(app, layer); },
     setCopperFillClip(group, id) { group.clipId = id; },

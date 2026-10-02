@@ -5,6 +5,8 @@ import { fileURLToPath } from 'node:url';
 import {
     isFillRefreshPending, setFillRefreshPending, isFillRefreshScheduled, setFillRefreshScheduled,
     fillRefreshError, setFillRefreshError, isPictureCopperRefreshPending, setPictureCopperRefreshPending, refreshStatus,
+    onRefreshSuspended, areDragOverlaysDeferred, setDragOverlaysDeferred, isFillRefreshSuspended, setFillRefreshSuspended,
+    isBoardViewRefreshSuspended, setBoardViewRefreshSuspended,
 } from '../src/pcb/modules/refresh-state.js';
 import { collectDrcInputs } from '../src/pcb/modules/drc.js';
 import { importSpecifiers } from '../tools/check-imports.mjs';
@@ -29,12 +31,41 @@ assert.equal(fillRefreshError(app), null);
 
 // One-lookup status view: live for a known editor, frozen idle defaults otherwise.
 const status = refreshStatus(app);
-assert.deepEqual({ ...status }, { fillPending: true, fillScheduled: true, fillError: null, pictureCopperPending: true });
+assert.deepEqual({ ...status }, { fillPending: true, fillScheduled: true, fillError: null, pictureCopperPending: true,
+    overlaysDeferred: false, fillSuspended: false, boardViewSuspended: false });
 setPictureCopperRefreshPending(app, false);
 assert.equal(refreshStatus(app).pictureCopperPending, false);
 const idle = refreshStatus({});
-assert.deepEqual({ ...idle }, { fillPending: false, fillScheduled: false, fillError: null, pictureCopperPending: false });
+assert.deepEqual({ ...idle }, { fillPending: false, fillScheduled: false, fillError: null, pictureCopperPending: false,
+    overlaysDeferred: false, fillSuspended: false, boardViewSuspended: false });
 assert.ok(Object.isFrozen(idle), 'Unknown editors share an immutable idle status');
+
+// Suspensions keep save/set/restore semantics; raising one notifies before it is observable.
+{
+    const editor = {}, events = [];
+    onRefreshSuspended('overlays', target => {
+        if (target === editor) events.push(['overlays', areDragOverlaysDeferred(target)]);
+    });
+    onRefreshSuspended('fill', target => {
+        if (target === editor) events.push(['fill', isFillRefreshSuspended(target)]);
+    });
+    const saved = areDragOverlaysDeferred(editor);
+    setDragOverlaysDeferred(editor, true);
+    setDragOverlaysDeferred(editor, {});
+    setFillRefreshSuspended(editor, true);
+    setBoardViewRefreshSuspended(editor, true);
+    assert.deepEqual(events, [['overlays', false], ['fill', false]], 'Only a rising edge notifies, before the value is stored');
+    assert.deepEqual([areDragOverlaysDeferred(editor), isFillRefreshSuspended(editor), isBoardViewRefreshSuspended(editor)],
+        [true, true, true]);
+    setDragOverlaysDeferred(editor, saved);
+    setFillRefreshSuspended(editor, null);
+    setBoardViewRefreshSuspended(editor, false);
+    assert.deepEqual([areDragOverlaysDeferred(editor), isFillRefreshSuspended(editor), isBoardViewRefreshSuspended(editor)],
+        [false, false, false]);
+    assert.equal(events.length, 2, 'Restoring does not notify');
+    assert.deepEqual([areDragOverlaysDeferred(other), isFillRefreshSuspended(other), isBoardViewRefreshSuspended(other)],
+        [false, false, false]);
+}
 
 // DRC reads the editor's pour status by default; detached snapshots pass it explicitly.
 setFillRefreshPending(app, true);
@@ -68,7 +99,7 @@ assert.ok(reachable('src/pcb/modules/drc-worker.js').has(file), 'DRC reads pour 
 // The former editor fields cannot reappear.
 const listJs = dir => readdirSync(dir, { withFileTypes: true }).flatMap(entry => entry.isDirectory()
     ? listJs(join(dir, entry.name)) : entry.name.endsWith('.js') ? [join(dir, entry.name)] : []);
-const legacy = /\b_(?:fillRefreshPending|fillRefreshError|fillRefreshScheduled|pictureCopperRefreshPending)\b/;
+const legacy = /\b_(?:fillRefreshPending|fillRefreshError|fillRefreshScheduled|pictureCopperRefreshPending|deferDragOverlays|suspendFillRefresh|suspendBoardViewRefresh|fillOverlayDeferred|drcFillSuspended)\b/;
 for (const source of listJs(join(root, 'src'))) {
     assert.doesNotMatch(readFileSync(source, 'utf8'), legacy, `${source} uses refresh-state.js instead of editor fields`);
 }

@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { PcbDocument } from '../src/core/PcbDocument.js';
 import { ProjectDocument } from '../src/core/ProjectDocument.js';
 import { Component } from '../src/components/Component.js';
+import { areDragOverlaysDeferred, setDragOverlaysDeferred } from '../src/pcb/modules/refresh-state.js';
 
 globalThis.window = { addEventListener() {} };
 globalThis.document = {
@@ -109,7 +110,7 @@ function trackAppFor(track, previousDeferral = false) {
     pcbDocument.tracks.push(track);
     let fillRefreshes = 0;
     let clearanceRefreshes = 0;
-    return {
+    const app = {
         project,
         pcbDocument,
         placementState: pcbDocument.placementState,
@@ -120,7 +121,6 @@ function trackAppFor(track, previousDeferral = false) {
         boardShapes: [],
         copperFills: [],
         _layerGroups: new Map(),
-        _deferDragOverlays: previousDeferral,
         getLayerGroup() {
             for (const track of this.tracks) assert.deepEqual(track.getBounds(), track._calculateBounds(),
                 'Track bounds follow preview geometry before rendering');
@@ -140,6 +140,8 @@ function trackAppFor(track, previousDeferral = false) {
         history: { execute(command) { command.execute(); } },
         _alert(message, options) { this.lastAlert = { message, options }; },
     };
+    setDragOverlaysDeferred(app, previousDeferral);
+    return app;
 }
 
 for (const commit of [false, true]) {
@@ -204,12 +206,12 @@ for (const commit of [false, true]) {
     const via = new Via({ x: 1, y: 2, diameter: 0.6, drill: 0.3 });
     const app = appFor(via);
     expect('via pickup begins derived-overlay deferral', startViaDrag(app, via, { x: 1, y: 2 })
-        && app._deferDragOverlays === true);
+        && areDragOverlaysDeferred(app) === true);
     updateViaDrag(app, { x: 4, y: 5 });
     expect('via mousemove does not refresh copper pours', app.fillRefreshes() === 0);
     expect('via mousemove does not rebuild clearance', app.clearanceRefreshes() === 0);
     finishViaDrag(app);
-    expect('via drop restores derived-overlay refreshes', app._deferDragOverlays === false);
+    expect('via drop restores derived-overlay refreshes', areDragOverlaysDeferred(app) === false);
     expect('via drop refreshes copper pours once', app.fillRefreshes() === 1);
     expect('via drop explicitly refreshes clearance once', app.clearanceRefreshes() === 1);
 }
@@ -220,7 +222,7 @@ for (const commit of [false, true]) {
     startViaDrag(app, via, { x: 1, y: 2 });
     updateViaDrag(app, { x: 4, y: 5 });
     cancelViaDrag(app);
-    expect('via cancel restores derived-overlay refreshes', app._deferDragOverlays === false);
+    expect('via cancel restores derived-overlay refreshes', areDragOverlaysDeferred(app) === false);
     expect('via cancel does not refresh unchanged copper pours', app.fillRefreshes() === 0);
     expect('via cancel restores its original position', via.x === 1 && via.y === 2);
     expect('via cancel restores clearance', app.clearanceRefreshes() === 1);
@@ -267,12 +269,12 @@ for (const commit of [false, true]) {
     const track = new Track({ points: [{ x: 0, y: 0 }, { x: 10, y: 0 }], net: 'GND' });
     const app = trackAppFor(track);
     expect('track pickup begins derived-overlay deferral', startVertexDrag(app, track, { x: 0, y: 0 })
-        && app._deferDragOverlays === true);
+        && areDragOverlaysDeferred(app) === true);
     updateVertexDrag(app, { x: 2, y: 2 });
     expect('track mousemove does not refresh copper pours', app.fillRefreshes() === 0);
     expect('track mousemove does not rebuild clearance', app.clearanceRefreshes() === 0);
     finishVertexDrag(app);
-    expect('track drop restores derived-overlay refreshes', app._deferDragOverlays === false);
+    expect('track drop restores derived-overlay refreshes', areDragOverlaysDeferred(app) === false);
     expect('track drop refreshes copper pours once', app.fillRefreshes() === 1);
     expect('track drop explicitly refreshes clearance once', app.clearanceRefreshes() === 1);
 }
@@ -283,7 +285,7 @@ for (const commit of [false, true]) {
     startVertexDrag(app, track, { x: 0, y: 0 });
     updateVertexDrag(app, { x: 2, y: 2 });
     cancelVertexDrag(app);
-    expect('track cancel restores derived-overlay refreshes', app._deferDragOverlays === false);
+    expect('track cancel restores derived-overlay refreshes', areDragOverlaysDeferred(app) === false);
     expect('track cancel does not refresh unchanged copper pours', app.fillRefreshes() === 0);
     expect('track cancel restores its original position', track.nodes.get('n0')?.x === 0 && track.nodes.get('n0')?.y === 0);
     expect('track cancel restores clearance', app.clearanceRefreshes() === 1);
@@ -321,7 +323,7 @@ for (const commit of [false, true]) {
     startVertexDrag(app, track, { x: 0, y: 0 });
     updateVertexDrag(app, { x: 2, y: 2 });
     finishVertexDrag(app);
-    expect('track drop preserves an existing overlay deferral', app._deferDragOverlays === true);
+    expect('track drop preserves an existing overlay deferral', areDragOverlaysDeferred(app) === true);
     expect('nested track drop does not refresh copper pours', app.fillRefreshes() === 0);
     expect('nested track drop does not rebuild clearance', app.clearanceRefreshes() === 0);
 }
@@ -410,7 +412,7 @@ for (const previousDeferral of [false, true]) {
         via, before: before[index], after: after[index],
     })));
     for (const deferred of [false, true]) {
-        app._deferDragOverlays = deferred;
+        setDragOverlaysDeferred(app, deferred);
         for (const [action, expected] of [['execute', after], ['undo', before]]) {
             renderedStates.length = 0;
             const counts = [app.clearanceRefreshes(), app.fillRefreshes(), reconciles];
@@ -423,7 +425,7 @@ for (const previousDeferral of [false, true]) {
             assert.equal(reconciles - counts[2], 1, 'Batch property edits reconcile only once');
         }
     }
-    app._deferDragOverlays = false;
+    setDragOverlaysDeferred(app, false);
     const compound = new CompoundCommand(vias.map(via =>
         new ModifyViaCommand(app, via, { net: via.net }, { net: 'COMPOUND' })));
     const counts = [app.clearanceRefreshes(), app.fillRefreshes(), reconciles];

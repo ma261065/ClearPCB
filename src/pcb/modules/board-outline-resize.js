@@ -4,6 +4,7 @@ import { snapToViewportGrid } from '../../core/grid-snap.js';
 import { getBoardOutline, rectangleBoardOutline } from './board-outline.js';
 import { removeBoardShapeElement } from './board-shapes.js';
 import { getPropertyEditor, releasePropertyEditor, setPropertyEditor } from './property-editors.js';
+import { areDragOverlaysDeferred, isBoardViewRefreshSuspended, setBoardViewRefreshSuspended, setDragOverlaysDeferred } from './refresh-state.js';
 
 const dimensionPreviews = new WeakMap();
 
@@ -27,12 +28,12 @@ export function previewBoardDimensions(app, dimensions) {
             model, original, originalBoard: model.board, before: { ...model.board }, board: { ...model.board }, outline,
             boardShapes: original ? model.boardShapes.map(shape => shape === original ? outline : shape)
                 : [...model.boardShapes, outline],
-            previousSuspend: !!app._suspendBoardViewRefresh, previousDefer: !!app._deferDragOverlays,
+            previousSuspend: !!isBoardViewRefreshSuspended(app), previousDefer: !!areDragOverlaysDeferred(app),
             wasDrawn: app._boardOutlineDrawn,
         };
         dimensionPreviews.set(app, preview);
-        app._suspendBoardViewRefresh = true;
-        app._deferDragOverlays = true;
+        setBoardViewRefreshSuspended(app, true);
+        setDragOverlaysDeferred(app, true);
     }
     Object.assign(preview.board, dimensions);
     const { width, height, radius } = dimensions;
@@ -64,7 +65,7 @@ export function finishBoardDimensionPreview(app, commit = false) {
                 throw new Error('The board outline is no longer available.');
             }
             if (['width', 'height', 'radius'].some(key => preview.before[key] !== preview.board[key])) {
-                app._deferDragOverlays = preview.previousDefer;
+                setDragOverlaysDeferred(app, preview.previousDefer);
                 app.history.execute(new SetBoardOutlineCommand(app, preview.before, preview.board));
                 committed = true;
             }
@@ -76,12 +77,12 @@ export function finishBoardDimensionPreview(app, commit = false) {
                 app._drawBoardOutline();
             }
         } finally {
-            app._suspendBoardViewRefresh = preview.previousSuspend;
-            app._deferDragOverlays = preview.previousDefer;
+            setBoardViewRefreshSuspended(app, preview.previousSuspend);
+            setDragOverlaysDeferred(app, preview.previousDefer);
             renderBoardOutlineHandles(app);
         }
     }
-    if (committed && !app._suspendBoardViewRefresh) app._board3d?.refresh?.();
+    if (committed && !isBoardViewRefreshSuspended(app)) app._board3d?.refresh?.();
 }
 
 export function bindBoardDimensionProperties(app, items) {
@@ -200,9 +201,9 @@ export function beginBoardOutlineResize(app, point) {
     app._boardOutlineResize = {
         handle: handle.id, start: { ...point },
         before: { width: app._boardWidth, height: app._boardHeight, radius: app._boardRadius },
-        previousSuspend: !!app._suspendBoardViewRefresh,
+        previousSuspend: !!isBoardViewRefreshSuspended(app),
     };
-    app._suspendBoardViewRefresh = true;
+    setBoardViewRefreshSuspended(app, true);
     return true;
 }
 
@@ -242,9 +243,9 @@ export function endBoardOutlineResize(app, commit = true) {
     try {
         finishBoardDimensionPreview(app, commit);
     } finally {
-        app._suspendBoardViewRefresh = drag.previousSuspend;
+        setBoardViewRefreshSuspended(app, drag.previousSuspend);
         app._syncBoardOutlineInputs?.();
         app._showBoardOutlineProperties?.();
-        if (!app._suspendBoardViewRefresh) app._board3d?.refresh?.();
+        if (!isBoardViewRefreshSuspended(app)) app._board3d?.refresh?.();
     }
 }

@@ -12,6 +12,7 @@ import { getPlacementPreviewTracks } from '../src/pcb/modules/track-commands.js'
 import { getTextPosePreviewTexts, previewTextPoses } from '../src/pcb/modules/text-commands.js';
 import { cancelPictureCopperRefresh } from '../src/pcb/modules/picture-refresh.js';
 import { loadPcb } from '../src/pcb/modules/project-state.js';
+import { areDragOverlaysDeferred, setDragOverlaysDeferred } from '../src/pcb/modules/refresh-state.js';
 
 class Element {
     constructor() { this.attributes = new Map(); this.children = []; this.dataset = {}; }
@@ -79,7 +80,7 @@ for (const mixed of [false, true]) for (const deferred of [false, true]) {
         const redo = { execute() {}, undo() {} };
         app.history.execute(redo);
         app.history.undo();
-        app._deferDragOverlays = deferred;
+        setDragOverlaysDeferred(app, deferred);
         beginGroupDrag(app, { x: 0, y: 0 });
         app._pcbSelectionInteraction = { mode: 'move' };
         assert.equal(app._groupDrag.posePreview, true);
@@ -167,7 +168,7 @@ for (const mixed of [false, true]) for (const deferred of [false, true]) {
             assert.equal(app.texts, app.pcbDocument.texts);
             assert.equal(app._groupDrag, null);
             assert.equal(app._pcbSelectionInteraction, null);
-            assert.equal(app._deferDragOverlays, deferred);
+            assert.equal(areDragOverlaysDeferred(app), deferred);
             assert.equal(frames.size, 0);
         } finally { cancelPictureCopperRefresh(app); }
     }

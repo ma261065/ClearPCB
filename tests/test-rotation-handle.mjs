@@ -223,11 +223,13 @@ try {
     const methodsEnd = source.indexOf('\n    //', source.indexOf('    _endTextDrag(commit = true) {', methodsStart));
     assert.ok(methodsStart >= 0 && methodsEnd > methodsStart);
     const { getPropertyEditor } = await import('../src/pcb/modules/property-editors.js');
+    const { areDragOverlaysDeferred, setDragOverlaysDeferred } = await import('../src/pcb/modules/refresh-state.js');
     const textPrototype = new Function('getPcbSelection', 'setPcbSelection', 'MoveTextCommand', 'isLayerLocked', 'isLayerVisible',
         'previewTextPose', 'finishTextPosePreview', 'renderPcbSelectionAnchors', 'getPropertyEditor',
+        'areDragOverlaysDeferred', 'setDragOverlaysDeferred',
         `return (class { ${source.slice(methodsStart, methodsEnd)} }).prototype;`)(
         getPcbSelection, setPcbSelection, MoveTextCommand, isLayerLocked, isLayerVisible, previewTextPose, finishTextPosePreview,
-        renderPcbSelectionAnchors, getPropertyEditor);
+        renderPcbSelectionAnchors, getPropertyEditor, areDragOverlaysDeferred, setDragOverlaysDeferred);
     const textMethods = Object.fromEntries(Object.getOwnPropertyNames(textPrototype)
         .filter(name => name !== 'constructor').map(name => [name, textPrototype[name]]));
     const movingText = { id: 'moving-text', content: 'Move', x: 0, y: 0, size: 2, strokeWidth: 0.2,

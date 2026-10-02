@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { getComputedFill } from '../src/pcb/modules/computed-fill-cache.js';
 import { PcbDocument } from '../src/core/PcbDocument.js';
-import { isFillRefreshScheduled, isPictureCopperRefreshPending } from '../src/pcb/modules/refresh-state.js';
+import { isFillRefreshScheduled, isPictureCopperRefreshPending, setDragOverlaysDeferred } from '../src/pcb/modules/refresh-state.js';
 
 globalThis.window = { addEventListener() {} };
 globalThis.document = {
@@ -194,14 +194,14 @@ try {
     let deferredRecomputes = 0;
     deferredFillApp._recomputeFillsNow = () => { deferredRecomputes++; return true; };
     deferredFillApp._refreshFillProperties = fill => fillProperties.push(fill.net);
-    deferredFillApp._deferDragOverlays = true;
+    setDragOverlaysDeferred(deferredFillApp, true);
     const fillEdit = new ModifyFillCommand(deferredFillApp, deferredFill, beforeFill, { ...beforeFill, net: 'POWER' });
     fillEdit.execute();
     fillEdit.undo();
     fillEdit.execute();
     assert.equal(deferredRecomputes, 0, 'Authored fill history preserves drag-time pour deferral');
     assert.deepEqual(fillProperties, ['POWER', 'GND', 'POWER'], 'Properties observe each applied model state');
-    deferredFillApp._deferDragOverlays = false;
+    setDragOverlaysDeferred(deferredFillApp, false);
     fillEdit.undo();
     assert.equal(deferredRecomputes, 1, 'Settled history still recomputes pours synchronously once');
     assert.deepEqual(fillProperties, ['POWER', 'GND', 'POWER', 'GND']);

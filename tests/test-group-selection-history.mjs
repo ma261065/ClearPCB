@@ -4,6 +4,7 @@ import { PcbDocument } from '../src/core/PcbDocument.js';
 import { runPcbDeleteAction, runPcbEscapeAction, runPcbNudgeAction } from '../src/pcb/modules/editor-actions.js';
 import { createPropertyPreview } from '../src/shapes/property-preview.js';
 import { setPropertyEditor } from '../src/pcb/modules/property-editors.js';
+import { areDragOverlaysDeferred } from '../src/pcb/modules/refresh-state.js';
 
 function element() {
     return {
@@ -131,7 +132,7 @@ for (const [key, dx, dy] of [
     assert.deepEqual(texts.map(text => [text.x, text.y]), after, `${key}: redo moves the group`);
     assert.deepEqual(getPcbSelection(app, 'text'), texts);
     assert.equal(app._groupDrag, null);
-    assert.equal(app._deferDragOverlays, false);
+    assert.equal(areDragOverlaysDeferred(app), false);
 }
 }
 app.viewport.snapToGrid = false;

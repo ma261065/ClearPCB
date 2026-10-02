@@ -11,8 +11,8 @@ const stateFor = app => {
 };
 const visible = app => app._active !== false && !app._drcDisposed && app._drcShouldRun();
 const deferred = app => {
-    if (app._deferDragOverlays || app._suspendFillRefresh) return true;
     const status = refreshStatus(app);
+    if (status.overlaysDeferred || status.fillSuspended) return true;
     return status.pictureCopperPending || status.fillScheduled || (status.fillPending && !status.fillError)
         || app.isSectionEditing?.();
 };

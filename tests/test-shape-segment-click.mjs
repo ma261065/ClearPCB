@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { PcbDocument } from '../src/core/PcbDocument.js';
+import { areDragOverlaysDeferred, isBoardViewRefreshSuspended } from '../src/pcb/modules/refresh-state.js';
 
 function shapeModel(shapes = [], tracks = []) {
     const pcbDocument = new PcbDocument();
@@ -143,16 +144,16 @@ for (const commit of [true, false]) {
     const adapter = createTrackSelectionAdapter(app, track, track.id);
     assert.ok(adapter.beginAnchorDrag('bulge:e0', { x: 5, y: 1.25 }));
     const initialRefreshes = { ...refreshes };
-    assert.equal(app._deferDragOverlays, true);
-    assert.equal(app._suspendBoardViewRefresh, true);
+    assert.equal(areDragOverlaysDeferred(app), true);
+    assert.equal(isBoardViewRefreshSuspended(app), true);
     adapter.updateAnchorDrag({ x: 5, y: 2 });
     adapter.updateAnchorDrag({ x: 5, y: 3 });
     assert.notDeepEqual(adapter.object.captureState(), before, 'Displayed bulge geometry updates immediately');
     assert.deepEqual(track.captureState(), before, 'Authored bulge stays unchanged during the gesture');
     assert.deepEqual(refreshes, initialRefreshes, 'Bulge motion does not request expensive derived refreshes');
     adapter.endAnchorDrag(commit);
-    assert.equal(app._deferDragOverlays, false);
-    assert.equal(app._suspendBoardViewRefresh, false);
+    assert.equal(areDragOverlaysDeferred(app), false);
+    assert.equal(isBoardViewRefreshSuspended(app), false);
     for (const key of ['clearance', 'board']) assert.ok(refreshes[key] > initialRefreshes[key]);
     assert.equal(refreshes.fills > initialRefreshes.fills, commit, 'Cancellation does not repour unchanged copper');
     assert.equal(commands.length, commit ? 1 : 0);

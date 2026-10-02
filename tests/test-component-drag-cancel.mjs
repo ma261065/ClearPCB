@@ -5,6 +5,7 @@ import { Track } from '../src/shapes/track.js';
 import { CommandHistory } from '../src/core/CommandHistory.js';
 import { updatePlacementPadPositions } from '../src/core/pcb-placement-geometry.js';
 import { createComponentSelectionAdapter } from '../src/pcb/modules/component-selection.js';
+import { areDragOverlaysDeferred } from '../src/pcb/modules/refresh-state.js';
 
 const frames = new Map();
 let frameId = 0;
@@ -86,7 +87,7 @@ for (const saved of [false, true]) for (const shared of [true, false]) {
     app.history.undo();
     const redo = [...app.history.redoStack];
     f.begin(shared);
-    assert.equal(app._deferDragOverlays, true);
+    assert.equal(areDragOverlaysDeferred(app), true);
     assert.equal(f.padHalo.style.display, 'none');
     assert.equal(f.trackHalo.style.display, 'none');
     adapter.updateMove({ x: 4.234567, y: -5.345678 });
@@ -107,7 +108,7 @@ for (const saved of [false, true]) for (const shared of [true, false]) {
         'Cancel discards the pending move and presents only the restored pose');
     assert.equal(frames.size, 0);
     assert.equal(app._pendingDragEvent, null);
-    assert.equal(app._deferDragOverlays, false);
+    assert.equal(areDragOverlaysDeferred(app), false);
     assert.equal(f.overlay.style.willChange, '');
     assert.equal(f.padHalo.style.display, '');
     assert.equal(f.trackHalo.style.display, '');

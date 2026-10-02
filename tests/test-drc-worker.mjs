@@ -13,7 +13,7 @@ import { createDrcWorker } from '../src/pcb/modules/drc-worker-client.js';
 import { disposeDrcRefresh, invalidateDrcRefresh } from '../src/pcb/modules/drc-refresh.js';
 import { setComputedFill, getComputedFill } from '../src/pcb/modules/computed-fill-cache.js';
 import { resolveTrackSegments } from '../src/pcb/modules/board-geometry.js';
-import { setFillRefreshError, setFillRefreshPending, setFillRefreshScheduled, setPictureCopperRefreshPending } from '../src/pcb/modules/refresh-state.js';
+import { setDragOverlaysDeferred, setFillRefreshError, setFillRefreshPending, setFillRefreshScheduled, setFillRefreshSuspended, setPictureCopperRefreshPending } from '../src/pcb/modules/refresh-state.js';
 
 class Element {
     constructor() { this.children = []; this.attributes = new Map(); this.dataset = {}; this.style = {}; }
@@ -273,7 +273,8 @@ try {
         assert.deepEqual(model.serialize(), saved);
         disposeDrcRefresh(app);
     }
-    const refreshSetters = { _pictureCopperRefreshPending: setPictureCopperRefreshPending, _fillRefreshScheduled: setFillRefreshScheduled };
+    const refreshSetters = { _pictureCopperRefreshPending: setPictureCopperRefreshPending, _fillRefreshScheduled: setFillRefreshScheduled,
+        _deferDragOverlays: setDragOverlaysDeferred, _suspendFillRefresh: setFillRefreshSuspended };
     for (const flag of ['_deferDragOverlays', '_suspendFillRefresh', '_pictureCopperRefreshPending',
         '_fillRefreshScheduled', '_textEdit']) {
         const { app, counts } = fixture();
@@ -289,6 +290,20 @@ try {
         retry();
         workers.at(-1).finish(); await tick();
         assert.equal(counts.accepted, 1, `Deferred debt resumes after ${flag}`);
+        disposeDrcRefresh(app);
+    }
+    // Raising a suspension invalidates an in-flight check, even if it is lowered before the result arrives.
+    for (const [label, suspend] of [['overlay deferral', setDragOverlaysDeferred], ['fill suspension', setFillRefreshSuspended]]) {
+        const { app, counts } = fixture();
+        app._scheduleDRC(); flush();
+        const stale = workers.at(-1).jobs.at(-1);
+        suspend(app, true);
+        suspend(app, false);
+        workers.at(-1).finish(stale); await tick();
+        assert.equal(counts.accepted, 0, `${label}: a check started before the suspension is discarded`);
+        retry();
+        workers.at(-1).finish(); await tick();
+        assert.equal(counts.accepted, 1, `${label}: a fresh check runs afterwards`);
         disposeDrcRefresh(app);
     }
     {
