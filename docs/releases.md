@@ -47,7 +47,8 @@ and ruleset configuration must be verified in GitHub; a local pass does not
 prove those settings are active.
 
 The current hardening checklist and outstanding release evidence are maintained
-in [Code Review Follow-Up](review-fixes.md#release-readiness-tracker).
+in [Release Readiness](release-readiness.md); completed milestones are archived in
+[archive/review-fixes.md](archive/review-fixes.md).
 
 ## Patch Release Using the GitHub Website
 

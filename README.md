@@ -174,7 +174,9 @@ clearpcb/
 │
 └── docs/
   ├── clearpcb_file_format.md # Canonical project JSON format
-  └── project_structure.md    # Detailed ownership and architecture notes
+  ├── project_structure.md    # Layout, enforced import rules, state owners
+  ├── module-contracts.md     # Detailed per-module behaviour contracts
+  └── release-readiness.md    # Open release items and working agreements
 ```
 
 ## Architecture
