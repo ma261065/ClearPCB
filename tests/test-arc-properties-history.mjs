@@ -13,8 +13,9 @@ globalThis.document = {
             appendChild(child) { this.children.push(child); }, remove() {}, querySelectorAll() { return []; } };
     },
 };
-const { showBoardShapeProperties, startBoardShapeDrag, handleBoardShapeDrag, endBoardShapeDrag,
+const { startBoardShapeDrag, handleBoardShapeDrag, endBoardShapeDrag,
     cloneShapeGeometry } = await import('../src/pcb/modules/board-shapes.js');
+const { showBoardShapeProperties } = await import('../src/pcb/modules/board-shape-properties.js');
 const { setPcbSelection } = await import('../src/pcb/modules/selection-registry.js');
 const { cancelPictureCopperRefresh } = await import('../src/pcb/modules/picture-refresh.js');
 

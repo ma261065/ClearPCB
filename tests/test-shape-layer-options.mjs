@@ -9,8 +9,9 @@ globalThis.document = {
 
 const { default: PCBApp } = await import('../src/ui/PCBApp.js');
 const { PCB_LAYERS, isViaVisible, isViaLocked } = await import('../src/pcb/modules/layers.js');
-const { showBoardShapeToolProperties, showBoardShapeProperties, resolveShapeDrawLayer } =
+const { resolveShapeDrawLayer } =
     await import('../src/pcb/modules/board-shapes.js');
+const { showBoardShapeToolProperties, showBoardShapeProperties } = await import('../src/pcb/modules/board-shape-properties.js');
 const { syncPcbSelection } = await import('../src/pcb/modules/selection-registry.js');
 
 const items = { innerHTML: '', querySelector() { return null; } };

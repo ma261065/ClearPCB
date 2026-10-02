@@ -2,9 +2,10 @@ import assert from 'node:assert/strict';
 import { ProjectDocument } from '../src/core/ProjectDocument.js';
 import { CommandHistory } from '../src/core/CommandHistory.js';
 import { bulgeRatio } from '../src/core/geometry.js';
-import { showBoardShapeProperties, getBoardShapePropertyPreview, getBoardShapeRotationPreview, createBoardShapeSelectionAdapter,
+import { getBoardShapePropertyPreview, getBoardShapeRotationPreview, createBoardShapeSelectionAdapter,
     renderBoardShape, startBoardShapeDrag, handleBoardShapeDrag, endBoardShapeDrag,
     deleteBoardShapeVertex, captureBoardShapeState } from '../src/pcb/modules/board-shapes.js';
+import { showBoardShapeProperties } from '../src/pcb/modules/board-shape-properties.js';
 import { setPcbSelection } from '../src/pcb/modules/selection-registry.js';
 import { cancelPictureCopperRefresh } from '../src/pcb/modules/picture-refresh.js';
 import { loadPcb } from '../src/pcb/modules/project-state.js';

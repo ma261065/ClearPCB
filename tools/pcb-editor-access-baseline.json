@@ -11,6 +11,19 @@
     "_showBoardOutlineProperties",
     "_syncBoardOutlineInputs"
   ],
+  "src/pcb/modules/board-shape-properties.js": [
+    "_lastCrosshairWorld",
+    "_pcbPropsItems",
+    "_refreshPcbSelectionHighlights",
+    "_selectedBoardShapeNode",
+    "_selectedBoardShapeSegment",
+    "_setActiveRibbonTab",
+    "_setPcbPropsTitle",
+    "_shapeDefaults",
+    "_shapeDrag",
+    "_shapeDraw",
+    "_showPcbMultiSelectionProperties"
+  ],
   "src/pcb/modules/board-shapes.js": [
     "_active",
     "_boardShapeClearanceCache",
@@ -18,9 +31,7 @@
     "_ensureCopperRemovalHatch",
     "_hasCopperCuts",
     "_hoveredShape",
-    "_lastCrosshairWorld",
     "_netHoveredShapeIds",
-    "_pcbPropsItems",
     "_pcbSelectionInteraction",
     "_pendingShapeClearances",
     "_refreshBoardShapeClearance",
@@ -30,13 +41,11 @@
     "_selectedBoardShapeNode",
     "_selectedBoardShapeSegment",
     "_setActiveRibbonTab",
-    "_setPcbPropsTitle",
     "_shapeDefaults",
     "_shapeDrag",
     "_shapeDraw",
     "_shapeElements",
     "_shapeIdCounter",
-    "_showPcbMultiSelectionProperties",
     "_snapActive",
     "_snapToGrid"
   ],

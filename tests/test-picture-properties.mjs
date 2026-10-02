@@ -31,7 +31,8 @@ globalThis.document = { getElementById(id) { return fields.get(id) || null; }, c
     return { style: {}, setAttribute(name, value) { attributes.set(name, value); }, getAttribute(name) { return attributes.get(name); },
         removeAttribute(name) { attributes.delete(name); }, appendChild() {}, remove() {}, querySelectorAll() { return []; } };
 } };
-const { showBoardShapeProperties, cloneShapeGeometry, createBoardShapeSelectionAdapter } = await import('../src/pcb/modules/board-shapes.js');
+const { cloneShapeGeometry, createBoardShapeSelectionAdapter } = await import('../src/pcb/modules/board-shapes.js');
+const { showBoardShapeProperties } = await import('../src/pcb/modules/board-shape-properties.js');
 const { setPcbSelection } = await import('../src/pcb/modules/selection-registry.js');
 const image = { ...pictureShape({ width: 4, height: 2, rectangles: [{ x: 0, y: 0, width: 1, height: 2 }] },
     { widthMm: 4, layer: 'top-silk' }), id: 'pshape_1' };

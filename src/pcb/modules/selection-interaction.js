@@ -10,8 +10,8 @@ import {
 } from './selection-registry.js';
 import {
     selectBoardShape,
-    showBoardShapeProperties,
 } from './board-shapes.js';
+import { showBoardShapeProperties } from './board-shape-properties.js';
 import { clearTrackSelection, showTrackSelectionProperties, showViaProperties } from './track-select.js';
 import {
     beginGroupDrag,

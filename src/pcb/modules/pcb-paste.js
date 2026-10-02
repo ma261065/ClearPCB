@@ -13,7 +13,8 @@ import { AddFillCommand } from '../../core/pcb-fill-commands.js';
 import { batchDerivedUpdates } from '../../core/DerivedUpdates.js';
 import { createPcbText } from './pcb-text.js';
 import { cloneShapeGeometry, translateShapeGeometry, applyShapeGeometry, renderBoardShape,
-    removeBoardShapeElement, showBoardShapeProperties } from './board-shapes.js';
+    removeBoardShapeElement } from './board-shapes.js';
+import { showBoardShapeProperties } from './board-shape-properties.js';
 import { renderTrack, renderVia, removeTrackElements, removeViaElements } from './track-render.js';
 import { renderPad, removePadElements } from './pad.js';
 import { renderCopperFill, removeCopperFillElements } from './copper-fill-render.js';

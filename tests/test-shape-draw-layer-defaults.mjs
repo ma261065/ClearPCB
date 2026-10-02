@@ -25,8 +25,9 @@ globalThis.document = {
     },
 };
 const { PCB_LAYERS } = await import('../src/pcb/modules/layers.js');
-const { showBoardShapeToolProperties, resolveShapeDrawLayer, shapeDrawClick, cancelShapeDraw } =
+const { resolveShapeDrawLayer, shapeDrawClick, cancelShapeDraw } =
     await import('../src/pcb/modules/board-shapes.js');
+const { showBoardShapeToolProperties } = await import('../src/pcb/modules/board-shape-properties.js');
 const { default: PCBApp } = await import('../src/ui/PCBApp.js');
 let html = '';
 const items = {

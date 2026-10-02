@@ -37,8 +37,9 @@ const { beginSelectionInteraction, updateSelectionInteraction, finishSelectionIn
     placeFloatingSelectionInteraction } = await import('../src/pcb/modules/selection-interaction.js');
 const { boardShapeHitTest } = await import('../src/shared/pcb/board-shape-geometry.js');
 const { createBoardShapeSelectionAdapter, getBoardShapeAnchors,
-    renderBoardShapeSegmentSelection, selectBoardShape, showBoardShapeProperties,
+    renderBoardShapeSegmentSelection, selectBoardShape,
     startBoardShapeDrag, handleBoardShapeDrag, endBoardShapeDrag, openBoardShape, getBoardShapePropertyPreview } = await import('../src/pcb/modules/board-shapes.js');
+const { showBoardShapeProperties } = await import('../src/pcb/modules/board-shape-properties.js');
 const { renderPcbSelectionAnchors } = await import('../src/pcb/modules/selection-anchors.js');
 const { Track } = await import('../src/shapes/track.js');
 const { selectTrackOrVia, selectTrackNode, drawTrackHalo, createTrackSelectionAdapter } = await import('../src/pcb/modules/track-select.js');

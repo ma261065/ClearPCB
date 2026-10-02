@@ -102,7 +102,8 @@ import {
     beginTextPropertyPreview,
     finishTextPropertyPreview,
 } from '../pcb/modules/text-commands.js';
-import { shapeDrawClick, cancelShapeDraw, finishPolygonDraw, finishLineDraw, finishShapeDrawAtPoint, hitTestBoardShape, setBoardShapeHover, selectBoardShape, startBoardShapeDrag, endBoardShapeDrag, showBoardShapeProperties, showBoardShapeToolProperties, refreshBoardShapeToolLayer, resolveShapeDrawLayer, boardShapeCopperCuts, renderBoardShape, hitTestBoardShapeVertex, showBoardShapeContextMenu, dismissBoardShapeContextMenu, captureBoardShapeState, applyShapeSnapshot } from '../pcb/modules/board-shapes.js';
+import { shapeDrawClick, cancelShapeDraw, finishPolygonDraw, finishLineDraw, finishShapeDrawAtPoint, hitTestBoardShape, setBoardShapeHover, selectBoardShape, startBoardShapeDrag, endBoardShapeDrag, resolveShapeDrawLayer, boardShapeCopperCuts, renderBoardShape, hitTestBoardShapeVertex, showBoardShapeContextMenu, dismissBoardShapeContextMenu, captureBoardShapeState, applyShapeSnapshot } from '../pcb/modules/board-shapes.js';
+import { showBoardShapeProperties, showBoardShapeToolProperties, refreshBoardShapeToolLayer } from '../pcb/modules/board-shape-properties.js';
 import { ModifyBoardShapeCommand } from '../pcb/modules/shape-commands.js';
 import { shapeOutline, normalizeShapeCopperMode, boardShapeRemovalPathD, boardShapeBounds } from '../shared/pcb/board-shape-geometry.js';
 import { hitTestPcbSelectionAnchor, renderPcbSelectionAnchors } from '../pcb/modules/selection-anchors.js';

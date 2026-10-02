@@ -9,7 +9,6 @@
 import {
     renderBoardShape,
     removeBoardShapeElement,
-    refreshBoardShapeProperties,
     renderBoardShapeSegmentSelection,
     canonicalBoardShape,
     getBoardShapeRotationPreview,
@@ -17,6 +16,7 @@ import {
     finishBoardShapeRotationPreview,
     endBoardShapeDrag,
 } from './board-shapes.js';
+import { refreshBoardShapeProperties } from './board-shape-properties.js';
 import { renderPcbSelectionAnchors } from './selection-anchors.js';
 import { getPcbSelectionEntries, setPcbSelection } from './selection-registry.js';
 import { finishSelectionInteraction } from './selection-interaction.js';

@@ -87,9 +87,9 @@ const {
     shapeHoverColor,
     shapeSelectionColor,
     shapeDrawClick,
-    showBoardShapeProperties,
     updateShapeDrawPreview,
 } = await import('../src/pcb/modules/board-shapes.js');
+const { showBoardShapeProperties } = await import('../src/pcb/modules/board-shape-properties.js');
 const boardShapeEditor = await import('../src/pcb/modules/board-shapes.js');
 for (const name of Object.keys(pcbShapeGeometry)) {
     assert.equal(Object.hasOwn(boardShapeEditor, name), false, `${name}: geometry is exported only by its owning module`);

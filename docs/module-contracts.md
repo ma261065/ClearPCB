@@ -1837,9 +1837,11 @@ they do not enlarge the cutout when switching from copper or silk. The shared
 subtree and preserves the visible border width. Panel positioning holes use
 the same treatment; geometry, hit tests and exports are not inset.
 
-`board-shapes.js` owns interaction, mutation, commands, SVG rendering, and
-properties. It does not re-export geometry functions. All geometry consumers,
-including editor adapters and tests, import directly from
+`board-shapes.js` owns interaction, mutation, commands, SVG rendering, the
+selection adapter and Track conversion; `board-shape-properties.js` owns the
+Properties panel (markup, input bindings and committing edits through
+previews and commands). Neither re-exports geometry functions. All geometry
+consumers, including editor adapters and tests, import directly from
 `board-shape-geometry.js`. Consumers that also need editor operations use
 separate imports for the two responsibilities.
 

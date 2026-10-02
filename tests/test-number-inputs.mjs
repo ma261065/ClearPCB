@@ -79,7 +79,7 @@ dispose();
 assert.equal(disconnected, true);
 assert.equal(listeners.size, 0);
 for (const [path, ids] of [
-    ['../src/pcb/modules/board-shapes.js', ['pcbPropImageRot']],
+    ['../src/pcb/modules/board-shape-properties.js', ['pcbPropImageRot']],
     ['../src/ui/PCBApp.js', ['pcbPropTextToolRot', 'pcbPropTextRot']],
     ['../src/pcb/modules/component-properties.js', ['pcbPropRefRot']],
 ]) {

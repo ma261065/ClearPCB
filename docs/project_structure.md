@@ -138,6 +138,8 @@ PCB editor:
   snapshot readiness; `tool-lifecycle.js` — tool selection and drawing cancellation.
 - `pcb/modules/editor-actions.js` — Undo, Redo, Save, Delete, nudge and Escape entry points.
 - `pcb/modules/project-state.js` — PCB serialization, preparation and restoration.
+- `pcb/modules/board-shapes.js` — board-shape rendering, selection, interaction and
+  Track conversion; `board-shape-properties.js` — their Properties panel.
 
 Derived PCB work:
 
