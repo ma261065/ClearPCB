@@ -158,6 +158,16 @@ Property-panel rebuilding and document replacement share the same disposal
 routine; deactivation retains reusable property controls after cancellation.
 Cleanup errors propagate and unresolved editors continue to block snapshots.
 
+`pcb/modules/property-editors.js` owns each editor's Properties-panel bindings
+(`text`, `component`, `pad`, `via`, `track`, `boardShape`, `boardDimension`) in
+a WeakMap. The module that creates a binding claims its slot with
+`setPropertyEditor` and releases it with `releasePropertyEditor`, which cannot
+clear a newer owner; others read it with `getPropertyEditor`. Every binding
+declares `affectsLayer(layerId)`, so hiding or locking a layer releases editors
+through one ordered `eachPropertyEditorOnLayer`. Group commits and activity
+checks name the kinds they cover. The module has no imports because the
+fabrication-snapshot guard, which the Gerber worker loads, queries it.
+
 `pcb/modules/pcb-interactions.js` is the one list of in-progress editor fields
 (`_drag`, `_trackDraw`, `_pcbSelectionInteraction`, …) in pointer-move priority,
 with each field's category (`gesture` or `drawing`) and whether it blocks export.

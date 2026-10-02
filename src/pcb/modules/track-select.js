@@ -73,6 +73,7 @@ import { pathMoveInteraction, pathContextActions, showPathContextMenu, dismissPa
 import { padOutline } from '../../shapes/pad-geometry.js';
 import { viaBounds, viaHitTest } from '../../shapes/via.js';
 import { beginPcbAnchorInteraction } from './selection-interaction.js';
+import { getPropertyEditor, releasePropertyEditor, setPropertyEditor } from './property-editors.js';
 
 const NS = 'http://www.w3.org/2000/svg';
 const HALO_CLASS = 'pcb-track-selection';
@@ -236,7 +237,7 @@ export function createTrackSelectionAdapter(app, track, id) {
             return [...nodes, ...midpoints];
         },
         beginAnchorDrag(anchorId, worldPos) {
-            app._trackPropertyBinding?.commit();
+            getPropertyEditor(app, 'track')?.commit();
             if (String(anchorId).startsWith('bulge:')) {
                 const edgeId = String(anchorId).slice(6);
                 if (!track.edges.has(edgeId)) return false;
@@ -308,7 +309,7 @@ export function createViaSelectionAdapter(app, via, id) {
         hitTest(point, tolerance) { return viaHitTest(current(), point, tolerance); },
         getPosition() { const via = current(); return { x: via.x, y: via.y }; },
         beginMove(worldPos) {
-            app._viaPropertyBinding?.commit();
+            getPropertyEditor(app, 'via')?.commit();
             return startViaDrag(app, via, worldPos);
         },
         updateMove(worldPos) { updateViaDrag(app, worldPos); },
@@ -476,7 +477,7 @@ export function showTrackSelectionProperties(app, track) {
 
 /** Remove any track/via selection halos and clear stored references. */
 export function clearTrackSelection(app) {
-    app._trackPropertyBinding?.dispose();
+    getPropertyEditor(app, 'track')?.dispose();
     const prev = getSelectedTrack(app);
     app._trackEdit = null;
     _removeHalos(app, HALO_CLASS);
@@ -813,7 +814,7 @@ export function removeHalosByClass(app, cls) {
  * and update the properties panel.
  */
 export function deleteSelectedTrack(app) {
-    app._trackPropertyBinding?.cancel();
+    getPropertyEditor(app, 'track')?.cancel();
     // A single highlighted segment deletes just that edge (the rest of the
     // track survives as its remaining connected pieces). The focused edge is
     // explicit edit state, so verify its Track is still registry-selected.
@@ -854,7 +855,7 @@ export function deleteSelectedTrack(app) {
  */
 export function deleteTrackSegmentAt(app, track, edgeId) {
     track = canonicalTrack(app, track);
-    app._trackPropertyBinding?.cancel();
+    getPropertyEditor(app, 'track')?.cancel();
     if (!track || !edgeId) return;
     const parts = deleteTrackSegment(track, edgeId);
     clearTrackSelection(app);
@@ -885,7 +886,7 @@ export function dismissTrackContextMenu() {
 export function showTrackContextMenu(app, hit, clientX, clientY, worldPos) {
     if (hit.type === 'track') {
         hit = { ...hit, track: canonicalTrack(app, hit.track) };
-        app._trackPropertyBinding?.commit();
+        getPropertyEditor(app, 'track')?.commit();
     }
     dismissTrackContextMenu();
     selectTrackOrVia(app, hit);
@@ -1107,7 +1108,7 @@ function trackCornerRadiusProperty(track, nodeId = null) {
 }
 
 function createTrackPropertyBinding(app, track, scope = {}) {
-    app._trackPropertyBinding?.dispose();
+    getPropertyEditor(app, 'track')?.dispose();
     let preview = null;
     let field = null;
     let disposed = false;
@@ -1154,7 +1155,7 @@ function createTrackPropertyBinding(app, track, scope = {}) {
             if (disposed) return;
             disposed = true;
             finish(false);
-            if (app._trackPropertyBinding === binding) app._trackPropertyBinding = null;
+            releasePropertyEditor(app, 'track', binding);
         },
         prepare() {
             if (disposed) return false;
@@ -1211,7 +1212,7 @@ function createTrackPropertyBinding(app, track, scope = {}) {
             });
         },
     };
-    app._trackPropertyBinding = binding;
+    setPropertyEditor(app, 'track', binding);
     return binding;
 }
 
@@ -1713,6 +1714,7 @@ export function showViaProperties(app, via) {
     const editable = () => !disposed && app._active !== false && !isViaLocked() && isViaVisible()
         && vias.every(target => !target.locked && target.visible !== false);
     const binding = {
+        affectsLayer: layerId => layerId === 'vias',
         get active() { return preview !== null; },
         commit: () => finish(editable()),
         cancel: () => finish(false),
@@ -1722,7 +1724,7 @@ export function showViaProperties(app, via) {
             cancelLiveRender();
         },
     };
-    app._viaPropertyBinding = binding;
+    setPropertyEditor(app, 'via', binding);
     const readValue = (key, input) => validValue(key, input.value.trim() === '' ? NaN : Number(input.value));
     const live = (key) => (e) => {
         if (!editable()) {

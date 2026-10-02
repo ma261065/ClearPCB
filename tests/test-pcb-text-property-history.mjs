@@ -6,6 +6,7 @@ import { measureText } from '../src/pcb/modules/stroke-font.js';
 import { cancelPictureCopperRefresh } from '../src/pcb/modules/picture-refresh.js';
 import { EditTextCommand, getTextPosePreviewTexts } from '../src/pcb/modules/text-commands.js';
 import { createPcbTextSelectionAdapter } from '../src/pcb/modules/pcb-text-selection.js';
+import { getPropertyEditor } from '../src/pcb/modules/property-editors.js';
 
 globalThis.window = { addEventListener() {} };
 globalThis.document = { getElementById: () => null, querySelector: () => null };
@@ -194,7 +195,7 @@ for (const finish of ['commit', 'cancel', 'panel-change', 'deactivate', 'failure
             app.history.redo();
             assert.equal(text.size, 2.1);
         } else {
-            if (finish === 'cancel') app._textPropertyBinding.cancel();
+            if (finish === 'cancel') getPropertyEditor(app, 'text').cancel();
             else if (finish === 'panel-change') PCBApp.prototype._setPcbPropsTitle.call(app, 'Component');
             else if (finish === 'deactivate') {
                 app._cancelPosePreviews = PCBApp.prototype._cancelPosePreviews;
@@ -231,7 +232,7 @@ for (const finish of ['commit', 'cancel', 'panel-change', 'deactivate', 'failure
         assert.equal(renders.length, 0);
         Object.freeze(text);
         inputs.get('pcbPropTextSize').fire('input', 3);
-        app._textPropertyBinding.cancel();
+        getPropertyEditor(app, 'text').cancel();
         assert.equal(app.texts.get(text.id), text, 'Cancelling a property edit does not write even to a frozen model');
     } finally { cancelPictureCopperRefresh(app); }
 }
@@ -246,7 +247,7 @@ for (const value of ['', '-', 'Infinity', '3']) {
         inputs.get('pcbPropTextSize').value = value;
         try {
             if (handoff === 'change') inputs.get('pcbPropTextSize').fire('change');
-            else if (handoff === 'commit') app._textPropertyBinding.commit();
+            else if (handoff === 'commit') getPropertyEditor(app, 'text').commit();
             else if (handoff === 'field') inputs.get('pcbPropTextLW').fire('change', 0.4);
             else if (handoff === 'move') {
                 PCBApp.prototype._beginTextDrag.call(app, app.texts.get(text.id), { x: text.x, y: text.y });

@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs';
 import { PcbDocument } from '../src/core/PcbDocument.js';
 import { runPcbDeleteAction, runPcbEscapeAction, runPcbNudgeAction } from '../src/pcb/modules/editor-actions.js';
 import { createPropertyPreview } from '../src/shapes/property-preview.js';
+import { setPropertyEditor } from '../src/pcb/modules/property-editors.js';
 
 function element() {
     return {
@@ -153,7 +154,7 @@ app.history.undo();
             });
         },
     });
-    app._textPropertyBinding = binding;
+    setPropertyEditor(app, 'text', binding);
     binding.update(() => { texts[0].size = 2.4; });
     assert.equal(handleKeyDown.call(app, { key: 'ArrowRight' }), true);
     assert.equal(binding.active, false, 'Nudging preserves the existing property-commit handoff');
@@ -170,18 +171,18 @@ app.history.undo();
     assert.deepEqual(texts.map(text => [text.x, text.y]), before.map(([x, y]) => [x + 1, y]));
     app.history.undo();
     app.history.undo();
-    app._textPropertyBinding = null;
+    setPropertyEditor(app, 'text', null);
 }
 {
     const failure = new Error('Fixture property commit failed');
     const beforeUndo = [...app.history.undoStack], beforeRedo = [...app.history.redoStack];
-    app._padPropertyBinding = { active: true, commit() { throw failure; } };
+    setPropertyEditor(app, 'pad', { active: true, commit() { throw failure; } });
     assert.throws(() => handleKeyDown.call(app, { key: 'ArrowLeft' }), error => error === failure);
     assert.deepEqual(texts.map(text => [text.x, text.y]), beforeUnsnapped);
     assert.equal(app._groupDrag, null, 'A failed handoff must not start movement');
     assert.deepEqual(app.history.undoStack, beforeUndo);
     assert.deepEqual(app.history.redoStack, beforeRedo);
-    app._padPropertyBinding = null;
+    setPropertyEditor(app, 'pad', null);
 }
 for (const event of [
     { key: 'ArrowUp', target: { tagName: 'INPUT' } },

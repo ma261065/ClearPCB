@@ -3,6 +3,7 @@ import { SetBoardOutlineCommand } from './track-commands.js';
 import { snapToViewportGrid } from '../../core/grid-snap.js';
 import { getBoardOutline, rectangleBoardOutline } from './board-outline.js';
 import { removeBoardShapeElement } from './board-shapes.js';
+import { getPropertyEditor, releasePropertyEditor, setPropertyEditor } from './property-editors.js';
 
 const dimensionPreviews = new WeakMap();
 
@@ -114,11 +115,11 @@ export function bindBoardDimensionProperties(app, items) {
             if (disposed) return;
             try { binding.cancel(); } finally {
                 disposed = true;
-                if (app._boardDimensionPropertyBinding === binding) app._boardDimensionPropertyBinding = null;
+                releasePropertyEditor(app, 'boardDimension', binding);
             }
         },
     };
-    app._boardDimensionPropertyBinding = binding;
+    setPropertyEditor(app, 'boardDimension', binding);
     remember();
     const update = entry => {
         if (disposed) return false;
@@ -192,7 +193,7 @@ export function hitTestBoardOutlineHandle(app, point) {
 }
 
 export function beginBoardOutlineResize(app, point) {
-    app._boardDimensionPropertyBinding?.commit();
+    getPropertyEditor(app, 'boardDimension')?.commit();
     if (app._boardOutlineResize) endBoardOutlineResize(app, false);
     const handle = hitTestBoardOutlineHandle(app, point);
     if (!handle) return false;

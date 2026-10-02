@@ -4,6 +4,7 @@ import { CommandHistory } from '../src/core/CommandHistory.js';
 import { capturePlacementOverride } from '../src/core/PcbPlacementState.js';
 import { createRefTextSelectionAdapter } from '../src/pcb/modules/ref-text-selection.js';
 import { loadPcb } from '../src/pcb/modules/project-state.js';
+import { PROPERTY_EDITOR_KINDS, getPropertyEditor, setPropertyEditor } from '../src/pcb/modules/property-editors.js';
 
 globalThis.window = { addEventListener() {} };
 globalThis.document = { querySelector: () => null, getElementById: () => null };
@@ -76,17 +77,16 @@ for (const mode of ['cycle', 'anchor', 'floating-anchor', 'move-adapter', 'move'
 }
 }
 
-for (const key of ['_textPropertyBinding', '_componentProperties', '_padPropertyBinding', '_viaPropertyBinding',
-    '_trackPropertyBinding', '_boardShapePropertyBinding', '_boardDimensionPropertyBinding']) {
+for (const key of PROPERTY_EDITOR_KINDS) {
     for (const boundary of ['cancel', 'deactivate', 'panel', 'replace']) {
         const { app } = fixture();
         let disposed = 0, cancelled = 0;
         const binding = {
             active: true,
             cancel() { if (this.active) cancelled++; this.active = false; },
-            dispose() { disposed++; this.cancel(); app[key] = null; },
+            dispose() { disposed++; this.cancel(); setPropertyEditor(app, key, null); },
         };
-        app[key] = binding;
+        setPropertyEditor(app, key, binding);
         assert.equal(app.isSectionEditing(), true, `${key}: block snapshots during editing`);
         if (boundary === 'replace') loadPcb(app, null);
         else if (boundary === 'panel') app._setPcbPropsTitle('Next');
@@ -94,10 +94,10 @@ for (const key of ['_textPropertyBinding', '_componentProperties', '_padProperty
         else app._cancelPosePreviews();
         assert.equal(cancelled, 1, `${key}/${boundary}: cancel the old edit once`);
         assert.equal(app.isSectionEditing(), false);
-        const shouldDispose = ['panel', 'replace'].includes(boundary) || key === '_boardDimensionPropertyBinding';
+        const shouldDispose = ['panel', 'replace'].includes(boundary) || key === 'boardDimension';
         assert.equal(disposed, shouldDispose ? 1 : 0, `${key}/${boundary}: dispose only at its lifetime boundary`);
-        if (shouldDispose) assert.equal(app[key], null);
-        else assert.equal(app[key], binding, 'View deactivation retains reusable property controls');
+        if (shouldDispose) assert.equal(getPropertyEditor(app, key), null);
+        else assert.equal(getPropertyEditor(app, key), binding, 'View deactivation retains reusable property controls');
         assert.equal(app.history.canUndo(), false);
     }
 }
@@ -106,14 +106,14 @@ for (const boundary of ['cancel', 'panel', 'replace']) {
     const { app } = fixture();
     const failure = new Error('Fixture editor cleanup failed');
     const binding = { active: true, cancel() { throw failure; }, dispose() { throw failure; } };
-    app._padPropertyBinding = binding;
+    setPropertyEditor(app, 'pad', binding);
     const original = app.pcbDocument.serialize();
     assert.throws(() => {
         if (boundary === 'replace') loadPcb(app, null);
         else if (boundary === 'panel') app._setPcbPropsTitle('Next');
         else app._cancelPosePreviews();
     }, error => error === failure);
-    assert.equal(app._padPropertyBinding, binding, 'Failed cleanup retains the unresolved editor');
+    assert.equal(getPropertyEditor(app, 'pad'), binding, 'Failed cleanup retains the unresolved editor');
     assert.equal(app.isSectionEditing(), true, 'Failed cleanup must not permit a success-shaped snapshot');
     assert.deepEqual(app.pcbDocument.serialize(), original, 'Cleanup failure precedes document clearing');
 }

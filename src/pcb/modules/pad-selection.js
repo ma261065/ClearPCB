@@ -9,6 +9,7 @@ import {
     canonicalPad, displayedPad,
 } from './pad-commands.js';
 import { startPadDrag, updateViaDrag, finishViaDrag, cancelViaDrag } from './track-drag.js';
+import { getPropertyEditor } from './property-editors.js';
 
 export function createPadSelectionAdapter(app, pad, id) {
     pad = canonicalPad(app, pad);
@@ -36,7 +37,7 @@ export function createPadSelectionAdapter(app, pad, id) {
                 ? [] : [rotationHandleAnchor(pad.getBounds(), app.viewport?.scale)];
         },
         beginMove(worldPos) {
-            app._padPropertyBinding?.commit();
+            getPropertyEditor(app, 'pad')?.commit();
             return startPadDrag(app, pad, worldPos);
         },
         updateMove(worldPos) {
@@ -51,7 +52,7 @@ export function createPadSelectionAdapter(app, pad, id) {
         },
         beginAnchorDrag(anchorId, worldPos) {
             if (anchorId !== 'rotate') return false;
-            app._padPropertyBinding?.commit();
+            getPropertyEditor(app, 'pad')?.commit();
             beginPadRotationPreview(app, pad, worldPos);
             return true;
         },

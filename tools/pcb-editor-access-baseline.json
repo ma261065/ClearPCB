@@ -1,7 +1,6 @@
 {
   "src/pcb/modules/board-outline-resize.js": [
     "_board3d",
-    "_boardDimensionPropertyBinding",
     "_boardHeight",
     "_boardOutlineDrawn",
     "_boardOutlineResize",
@@ -22,7 +21,6 @@
   "src/pcb/modules/board-shapes.js": [
     "_active",
     "_boardShapeClearanceCache",
-    "_boardShapePropertyBinding",
     "_deferDragOverlays",
     "_deferredShapeCopperCuts",
     "_ensureCopperRemovalHatch",
@@ -72,7 +70,6 @@
   "src/pcb/modules/box-select.js": [
     "_active",
     "_board3d",
-    "_boardShapePropertyBinding",
     "_boxHighlightFrame",
     "_boxSelectActive",
     "_boxSelectArm",
@@ -81,15 +78,11 @@
     "_deferDragOverlays",
     "_groupDrag",
     "_netsForComponent",
-    "_padPropertyBinding",
     "_pcbSelectionInteraction",
     "_refreshPcbSelectionHighlights",
     "_rerenderFills",
     "_setActiveRibbonTab",
-    "_suspendBoardViewRefresh",
-    "_textPropertyBinding",
-    "_trackPropertyBinding",
-    "_viaPropertyBinding"
+    "_suspendBoardViewRefresh"
   ],
   "src/pcb/modules/component-selection.js": [
     "_beginComponentDrag",
@@ -166,7 +159,6 @@
     "_fillRefreshPending"
   ],
   "src/pcb/modules/edit-lifecycle.js": [
-    "_boardDimensionPropertyBinding",
     "_deferDragOverlays",
     "_drcPending",
     "_scheduleDRC",
@@ -174,9 +166,7 @@
   ],
   "src/pcb/modules/editor-actions.js": [
     "_active",
-    "_boardDimensionPropertyBinding",
     "_boardOutlineResize",
-    "_boardShapePropertyBinding",
     "_boxSelectActive",
     "_boxSelectArm",
     "_cancelPasteDrop",
@@ -197,22 +187,17 @@
     "_showComponentPopup",
     "_showSaveToast",
     "_trackEdit",
-    "_trackPropertyBinding",
     "_vertexDrag",
     "_viaDrag"
   ],
   "src/pcb/modules/fabrication-snapshot.js": [
     "_boardHeight",
     "_boardRadius",
-    "_boardShapePropertyBinding",
     "_boardWidth",
     "_boardX",
     "_boardY",
     "_deferDragOverlays",
-    "_padPropertyBinding",
-    "_suspendFillRefresh",
-    "_trackPropertyBinding",
-    "_viaPropertyBinding"
+    "_suspendFillRefresh"
   ],
   "src/pcb/modules/fill-context.js": [
     "_boardHeight",
@@ -251,8 +236,7 @@
     "_viaDrag"
   ],
   "src/pcb/modules/pad-selection.js": [
-    "_deferDragOverlays",
-    "_padPropertyBinding"
+    "_deferDragOverlays"
   ],
   "src/pcb/modules/panelization-ui.js": [
     "_boardHeight",
@@ -316,7 +300,6 @@
     "_endTextDrag",
     "_rotationHandleDrag",
     "_showTextProperties",
-    "_textPropertyBinding",
     "_updateTextDrag"
   ],
   "src/pcb/modules/picture-import.js": [
@@ -325,7 +308,6 @@
   "src/pcb/modules/picture-refresh.js": [
     "_board3d",
     "_boardShapeClearanceCache",
-    "_boardShapePropertyBinding",
     "_deferredShapeCopperCuts",
     "_pendingShapeClearances",
     "_pictureCopperRefreshPending",
@@ -403,7 +385,6 @@
   ],
   "src/pcb/modules/shape-commands.js": [
     "_board3d",
-    "_boardShapePropertyBinding",
     "_pendingShapeClearances",
     "_shapeDrag"
   ],
@@ -450,7 +431,6 @@
     "_showRefProperties",
     "_syncBoardOutlineInputs",
     "_syncComponentRotationInput",
-    "_trackPropertyBinding",
     "_vertexDrag",
     "_viaDrag"
   ],
@@ -459,16 +439,13 @@
     "_alert",
     "_board3d",
     "_deferDragOverlays",
-    "_padPropertyBinding",
     "_pcbSelectionInteraction",
     "_refreshTrackClearance",
     "_refreshViaClearance",
     "_suspendBoardViewRefresh",
     "_trackEdit",
-    "_trackPropertyBinding",
     "_vertexDrag",
-    "_viaDrag",
-    "_viaPropertyBinding"
+    "_viaDrag"
   ],
   "src/pcb/modules/track-draw.js": [
     "_commitTracks",
@@ -496,9 +473,7 @@
     "_setActiveRibbonTab",
     "_setPcbPropsTitle",
     "_trackEdit",
-    "_trackPropertyBinding",
     "_updateVertexDragCrosshair",
-    "_vertexDrag",
-    "_viaPropertyBinding"
+    "_vertexDrag"
   ]
 }

@@ -11,6 +11,7 @@ import { prepareFabricationSnapshot } from '../src/pcb/modules/fabrication-snaps
 import { loadPcb } from '../src/pcb/modules/project-state.js';
 import { PCB_LAYERS } from '../src/pcb/modules/layers.js';
 import { cancelPictureCopperRefresh } from '../src/pcb/modules/picture-refresh.js';
+import { getPropertyEditor } from '../src/pcb/modules/property-editors.js';
 
 let allocations = 0, frameId = 0, timerId = 0, inputs = new Map();
 const frames = new Map(), timers = new Map();
@@ -292,7 +293,7 @@ for (const commit of [false, true]) {
     input('Size').emit('input', 3);
     assert.ok(frames.size);
     if (commit) input('Size').emit('change');
-    else app._padPropertyBinding.cancel();
+    else getPropertyEditor(app, 'pad').cancel();
     const rendered = allocations;
     flushFrames();
     assert.equal(allocations, rendered, 'Completion cancels a pending preview frame');
@@ -370,7 +371,7 @@ for (const count of [1, 4]) for (const value of ['', '-', 'Infinity', '0.01', '3
         input('Size').value = value;
         const valid = value === '3', additional = !['change', 'commit'].includes(handoff);
         if (handoff === 'change') input('Size').emit('change');
-        else if (handoff === 'commit') app._padPropertyBinding.commit();
+        else if (handoff === 'commit') getPropertyEditor(app, 'pad').commit();
         else if (handoff === 'Shape') input('Shape').emit('change', 'oval');
         else if (handoff === 'Ratio') input('Ratio').emit('change', 4);
         else {

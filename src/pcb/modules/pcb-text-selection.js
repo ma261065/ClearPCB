@@ -5,6 +5,7 @@ import { lockPositionOutsideOutline } from './selection-anchors.js';
 import { rotationHandleAnchor, pointerRotation } from './rotation-handle.js';
 import { schedulePictureCopperRefresh } from './picture-refresh.js';
 import { EditTextCommand, previewTextPose, finishTextPosePreview } from './text-commands.js';
+import { getPropertyEditor } from './property-editors.js';
 
 export function createPcbTextSelectionAdapter(app, text, id) {
     let rotationDrag = null;
@@ -31,7 +32,7 @@ export function createPcbTextSelectionAdapter(app, text, id) {
         getPosition() { const text = current(); return { x: text.x, y: text.y }; },
         getAnchors() { return [rotationHandleAnchor(pcbTextBounds(current()), app.viewport?.scale)]; },
         beginAnchorDrag(anchorId, worldPos) {
-            app._textPropertyBinding?.commit();
+            getPropertyEditor(app, 'text')?.commit();
             const text = current();
             if (anchorId !== 'rotate' || isLayerLocked(text.layer) || !isLayerVisible(text.layer)) return false;
             rotationDrag = { center: { x: text.x, y: text.y }, start: { ...worldPos }, rotation: text.rotation || 0 };

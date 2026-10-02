@@ -63,6 +63,7 @@ import { ModifyFillCommand } from './copper-fill-commands.js';
 import { snapPathTranslation, snapPathPoint, beginPathSplit } from './path-edit.js';
 import { createTrackSelectionAdapter } from './track-select.js';
 import { closestPointOnArcEdge } from '../../shapes/arc-edge.js';
+import { commitPropertyEditors, getPropertyEditor } from './property-editors.js';
 
 /** Screen-px hit tolerance for selecting a Track node to drag. */
 const NODE_HIT_PX = 8;
@@ -87,9 +88,7 @@ function _endVertexDragOverlayDeferral(app, drag) {
 
 function prepareTrackPointer(app, track) {
     track = canonicalTrack(app, track);
-    app._trackPropertyBinding?.commit();
-    app._viaPropertyBinding?.commit();
-    app._padPropertyBinding?.commit();
+    commitPropertyEditors(app, ['track', 'via', 'pad']);
     if (app._viaDrag) finishViaDrag(app);
     if (app._vertexDrag || getPlacementPreviewTracks(app)) return null;
     return track;
@@ -1825,7 +1824,7 @@ export function startPadDrag(app, pad, worldPos) {
 
 function startTerminalDrag(app, via, worldPos, kind) {
     if (app._vertexDrag) finishVertexDrag(app);
-    app._trackPropertyBinding?.commit();
+    getPropertyEditor(app, 'track')?.commit();
     const layers = kind === 'pad' ? padLayers(via) : ['top-copper', 'bottom-copper'];
     // Find every Track node at the via's current (x, y). Track endpoints
     // and layer-change nodes commonly sit exactly on a via.

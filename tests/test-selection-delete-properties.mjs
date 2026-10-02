@@ -4,6 +4,7 @@ import { CommandHistory } from '../src/core/CommandHistory.js';
 import { Track } from '../src/shapes/track.js';
 import { CopperFill } from '../src/shapes/copper-fill.js';
 import { captureBoardShapeState } from '../src/core/pcb-board-shapes.js';
+import { setPropertyEditor } from '../src/pcb/modules/property-editors.js';
 
 globalThis.window = { addEventListener() {} };
 globalThis.document = {
@@ -107,7 +108,7 @@ for (const dispatch of dispatches.slice(1)) {
     for (const guard of ['_active', '_trackDraw', '_fillDraw', '_shapeDraw', '_pasteDrop']) {
         const { app, shape, events } = fixture();
         app[guard] = guard === '_active' ? false : {};
-        app._boardShapePropertyBinding = { cancel() { assert.fail('Guarded deletion must not cancel Properties'); } };
+        setPropertyEditor(app, 'boardShape', { cancel() { assert.fail('Guarded deletion must not cancel Properties'); } });
         assert.equal(dispatch(app), guard === '_pasteDrop');
         assert.deepEqual(app.boardShapes, [shape]);
         assert.deepEqual(getPcbSelection(app, 'shape'), [shape]);
@@ -116,8 +117,8 @@ for (const dispatch of dispatches.slice(1)) {
     }
     {
         const { app, shape, events } = fixture();
-        app._boardShapePropertyBinding = { cancel() { events.push('shape-preview'); } };
-        app._trackPropertyBinding = { cancel() { events.push('track-preview'); } };
+        setPropertyEditor(app, 'boardShape', { cancel() { events.push('shape-preview'); } });
+        setPropertyEditor(app, 'track', { cancel() { events.push('track-preview'); } });
         const execute = app.history.execute.bind(app.history);
         app.history.execute = command => { events.push('execute'); execute(command); };
         assert.equal(dispatch(app), true);
@@ -127,7 +128,7 @@ for (const dispatch of dispatches.slice(1)) {
     }
     {
         const { app, shape } = fixture();
-        app._boardShapePropertyBinding = { cancel() { throw new Error('Rejected property cancellation'); } };
+        setPropertyEditor(app, 'boardShape', { cancel() { throw new Error('Rejected property cancellation'); } });
         assert.throws(() => dispatch(app), /Rejected property cancellation/);
         assert.deepEqual(app.boardShapes, [shape], 'Cleanup failure must not proceed to deletion');
         assert.equal(app.history.undoStack.length, 0);

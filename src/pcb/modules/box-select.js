@@ -62,6 +62,7 @@ import { padBounds, padHitTest, padLayers } from '../../shapes/pad-geometry.js';
 import { renderPad, removePadElements } from './pad.js';
 import { pcbTextBounds, pcbTextHitTest } from './pcb-text.js';
 import { clearPcbSelectionAnchors, renderPcbSelectionAnchors } from './selection-anchors.js';
+import { commitPropertyEditors } from './property-editors.js';
 import {
     clearPcbSelection,
     getComponentSelectionHits,
@@ -495,11 +496,7 @@ function _pointSegDist(p, a, b) {
 /** Snapshot start positions of every selected object for a group drag. */
 export function beginGroupDrag(app, worldPos) {
     if (app._groupDrag) cancelGroupDrag(app);
-    app._textPropertyBinding?.commit();
-    app._padPropertyBinding?.commit();
-    app._viaPropertyBinding?.commit();
-    app._trackPropertyBinding?.commit();
-    app._boardShapePropertyBinding?.commit();
+    commitPropertyEditors(app, ['text', 'pad', 'via', 'track', 'boardShape']);
     const comps = [];
     for (const compId of getPcbSelection(app, 'component')) {
         const pl = app.placements.get(compId);

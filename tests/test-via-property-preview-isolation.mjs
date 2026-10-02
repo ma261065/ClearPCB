@@ -11,6 +11,7 @@ import { setPcbSelection, syncPcbSelection, getPcbSelection } from '../src/pcb/m
 import { prepareFabricationSnapshot } from '../src/pcb/modules/fabrication-snapshot.js';
 import { loadPcb } from '../src/pcb/modules/project-state.js';
 import { PCB_LAYERS } from '../src/pcb/modules/layers.js';
+import { getPropertyEditor } from '../src/pcb/modules/property-editors.js';
 
 let allocations = 0, frameId = 0, inputs = new Map();
 const frames = new Map();
@@ -308,7 +309,7 @@ for (const commit of [false, true]) {
     input('Dia').emit('input', 2);
     assert.ok(frames.size);
     if (commit) input('Dia').emit('change');
-    else app._viaPropertyBinding.cancel();
+    else getPropertyEditor(app, 'via').cancel();
     const rendered = allocations;
     flushFrames();
     assert.equal(allocations, rendered);
@@ -414,7 +415,7 @@ for (const count of [1, 4]) for (const [field, value] of [['Dia', 2], ['Drill', 
             app.history.redoStack.push(redo);
             input.emit('input', value);
             input.emit('input', invalid);
-            if (finish === 'binding') app._viaPropertyBinding.commit();
+            if (finish === 'binding') getPropertyEditor(app, 'via').commit();
             else if (finish === 'pointer') {
                 const adapter = createViaSelectionAdapter(app, vias[0], vias[0].id);
                 assert.equal(adapter.beginMove(vias[0]), true);
@@ -463,7 +464,7 @@ for (const finish of ['binding', 'blur', 'pointer']) {
     const f = fixture(), { app, model, vias } = f;
     const before = model.captureGeometry(), input = f.input('Dia');
     input.emit('input', 2);
-    if (finish === 'binding') app._viaPropertyBinding.commit();
+    if (finish === 'binding') getPropertyEditor(app, 'via').commit();
     else if (finish === 'blur') { input.emit('blur'); await Promise.resolve(); }
     else {
         const adapter = createViaSelectionAdapter(app, vias[0], vias[0].id);

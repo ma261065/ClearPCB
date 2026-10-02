@@ -229,10 +229,11 @@ assert.ok(visibilityStart >= 0 && visibilityEnd > visibilityStart);
 const { trackPointerTouchesLayer, cancelVertexDrag } = await import('../src/pcb/modules/track-drag.js');
 const { finishSelectionInteraction } = await import('../src/pcb/modules/selection-interaction.js');
 const { getBoardShapeRotationPreview, finishBoardShapeRotationPreview } = await import('../src/pcb/modules/board-shapes.js');
+const { getPropertyEditor, eachPropertyEditorOnLayer } = await import('../src/pcb/modules/property-editors.js');
 const visibilityDependencies = {
     ...layers, getPcbSelection, getPcbSelectionEntries, saveLayerPrefs() {},
     trackPointerTouchesLayer, cancelVertexDrag, finishSelectionInteraction,
-    getBoardShapeRotationPreview, finishBoardShapeRotationPreview,
+    getBoardShapeRotationPreview, finishBoardShapeRotationPreview, getPropertyEditor, eachPropertyEditorOnLayer,
     getSelectedTrack() { return null; }, getSelectedVia() { return null; },
     hasBoxSelection() { return false; }, setHoverHighlight() {},
 };

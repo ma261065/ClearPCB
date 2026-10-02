@@ -14,6 +14,7 @@ import { prepareFabricationSnapshot } from '../src/pcb/modules/fabrication-snaps
 import { loadPcb } from '../src/pcb/modules/project-state.js';
 import { PCB_LAYERS } from '../src/pcb/modules/layers.js';
 import { formatNumberInputValue } from '../src/core/number-inputs.js';
+import { getPropertyEditor } from '../src/pcb/modules/property-editors.js';
 
 let allocations = 0, inputs = new Map();
 globalThis.requestAnimationFrame = () => 1;
@@ -426,7 +427,7 @@ for (const [scope, field, value] of [
         app.history.redoStack.push(redo);
         input.emit('input', value);
         input.emit('input', invalid);
-        if (finish === 'binding') app._trackPropertyBinding.commit();
+        if (finish === 'binding') getPropertyEditor(app, 'track').commit();
         else if (finish === 'pointer') {
             assert.equal(startVertexDrag(app, track, { x: 20, y: 20 }, { whole: true }), true);
             cancelVertexDrag(app);
@@ -471,7 +472,7 @@ for (const finish of ['binding', 'blur', 'pointer']) {
     const f = fixture(), { app, model, track } = f;
     const before = model.captureGeometry(), input = f.input('Width');
     input.emit('input', 2);
-    if (finish === 'binding') app._trackPropertyBinding.commit();
+    if (finish === 'binding') getPropertyEditor(app, 'track').commit();
     else if (finish === 'blur') { input.emit('blur'); await Promise.resolve(); }
     else {
         assert.equal(startVertexDrag(app, track, { x: 20, y: 20 }, { whole: true }), true);

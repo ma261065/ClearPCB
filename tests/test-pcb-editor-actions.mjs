@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { CommandHistory } from '../src/core/CommandHistory.js';
 import { bindPcbControls } from '../src/pcb/modules/controls.js';
 import { savePcbProject } from '../src/pcb/modules/editor-actions.js';
+import { setPropertyEditor } from '../src/pcb/modules/property-editors.js';
 
 const elements = new Map();
 globalThis.window = { addEventListener() {} };
@@ -61,7 +62,7 @@ for (const source of ['keyboard', 'ribbon']) for (const action of ['undo', 'redo
         if (preview === 'paste') app._pasteDrop = {};
         else if (preview === 'dimensions') {
             app._boardOutlineResize = { previousSuspend: false };
-            app._boardDimensionPropertyBinding = { cancel() { f.events.push('cancel-dimensions'); } };
+            setPropertyEditor(app, 'boardDimension', { cancel() { f.events.push('cancel-dimensions'); } });
         } else if (preview === 'group') {
             app._groupDrag = { posePreview: true, tracks: [], vias: [], pads: [], shapes: [], fills: [],
                 previousDeferDragOverlays: false, previousSuspendBoardViewRefresh: false };

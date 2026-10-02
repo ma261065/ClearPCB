@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { PcbDocument } from '../src/core/PcbDocument.js';
+import { getPropertyEditor } from '../src/pcb/modules/property-editors.js';
 
 function shapeModel(...shapes) {
     const pcbDocument = new PcbDocument();
@@ -449,7 +450,7 @@ for (const cornerRadius of [0, 2]) {
     assert.deepEqual(getBoardShapeAnchors(shape), anchors);
     assert.equal(getBoardShapePropertyPreview(app).copies[0].lineWidth, 5);
     assert.equal(shape.lineWidth, 1, 'Typing preserves authored width');
-    app._boardShapePropertyBinding.cancel();
+    getPropertyEditor(app, 'boardShape').cancel();
     document.getElementById = () => null;
     const serialized = serializeBoardShapes(app);
     const loaded = { boardShapes: [], _shapeIdCounter: 1 };

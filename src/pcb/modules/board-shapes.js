@@ -71,6 +71,7 @@ import { bindPictureRefreshHold, cancelPictureCopperRefresh, schedulePictureCopp
 import { rotationHandleAnchor, pointerRotation, rotatedImagePoints } from './rotation-handle.js';
 import { BULGE_EPS, arcFromBulge } from '../../shapes/arc-edge.js';
 import { syncBoardOutlineDimensions, boardBoundary } from './board-outline.js';
+import { getPropertyEditor, releasePropertyEditor, setPropertyEditor } from './property-editors.js';
 
 import {
     normalizeShapeCopperMode,
@@ -515,24 +516,24 @@ function redrawBoardShapePropertyPreview(app, targets, { liveDrag = false } = {}
 }
 
 function createBoardShapePropertyBinding(app) {
-    app._boardShapePropertyBinding?.dispose();
+    getPropertyEditor(app, 'boardShape')?.dispose();
     const binding = createPropertyBinding({
         beforeActivate() {
             if (app._shapeDrag) endBoardShapeDrag(app, true);
             if (getBoardShapeRotationPreview(app)) finishBoardShapeRotationPreview(app, true);
         },
         onDispose() {
-            if (app._boardShapePropertyBinding === binding) app._boardShapePropertyBinding = null;
+            releasePropertyEditor(app, 'boardShape', binding);
         },
     });
     binding.affectsLayer = layer =>
         boardShapePropertyPreviews.get(app)?.originals.some(shape => shape.layer === layer) || false;
-    app._boardShapePropertyBinding = binding;
+    setPropertyEditor(app, 'boardShape', binding);
     return binding;
 }
 
 function createBoardShapePropertyPreview(app, targets, { liveDrag = false, beforeCommit = () => false } = {}) {
-    const binding = app._boardShapePropertyBinding;
+    const binding = getPropertyEditor(app, 'boardShape');
     const originals = targets.map(target => canonicalBoardShape(app, target));
     const collection = () => app.pcbDocument?.boardShapes || app.boardShapes;
     const editable = () => !binding.disposed && app._active !== false
@@ -797,7 +798,7 @@ export function setBoardShapeNetHover(app, shapes) {
 export function selectBoardShape(app, shape) {
     shape = canonicalBoardShape(app, shape);
     const properties = boardShapePropertyPreviews.get(app);
-    if (properties && !properties.originals.includes(shape)) app._boardShapePropertyBinding.dispose();
+    if (properties && !properties.originals.includes(shape)) getPropertyEditor(app, 'boardShape').dispose();
     if (app._shapeDrag && app._shapeDrag.original !== shape) endBoardShapeDrag(app, false);
     const rotation = boardShapeRotationPreviews.get(app);
     if (rotation && rotation.original !== shape) {
@@ -955,7 +956,7 @@ export function createBoardShapeSelectionAdapter(app, shape, id) {
         moveAnchor(anchorId, x, y) { moveBoardShapeAnchor(app, shape, anchorId, { x, y }); },
         beginAnchorDrag(anchorId, worldPos) {
             if (anchorId !== 'rotate' || shape.kind !== 'image') return startBoardShapeDrag(app, shape, worldPos, anchorId);
-            app._boardShapePropertyBinding?.commit();
+            getPropertyEditor(app, 'boardShape')?.commit();
             if (isLayerLocked(shape.layer) || !isLayerVisible(shape.layer)) return false;
             if (boardShapeRotationPreviews.has(app) || app._rotationHandleDrag || app._shapeDrag) {
                 throw new Error('Finish the current shape preview before rotating an image.');
@@ -1325,7 +1326,7 @@ export function setBoardShapeSegmentType(app, shape, segment, type, { floating =
 
 export function startBoardShapeDrag(app, shape, worldPos, anchorId = null, options = {}) {
     shape = canonicalBoardShape(app, shape);
-    app._boardShapePropertyBinding?.commit();
+    getPropertyEditor(app, 'boardShape')?.commit();
     if (!shape || isLayerLocked(shape.layer) || !isLayerVisible(shape.layer)) return false;
     if (app._shapeDrag?.preparing && app._shapeDrag.original === shape) return true;
     if (app._shapeDrag) throw new Error('Finish the current shape drag before starting another.');
@@ -2051,9 +2052,9 @@ export function refreshBoardShapeToolLayer(app) {
 }
 
 function showImageProperties(app, shape, items) {
-    if (app._boardShapePropertyBinding?.committing) return;
+    if (getPropertyEditor(app, 'boardShape')?.committing) return;
     shape = canonicalBoardShape(app, shape);
-    app._boardShapePropertyBinding?.dispose();
+    getPropertyEditor(app, 'boardShape')?.dispose();
     app._setPcbPropsTitle?.('Image', shape);
     const binding = createBoardShapePropertyBinding(app);
     const geometryValues = () => {
@@ -2211,9 +2212,9 @@ function showImageProperties(app, shape, items) {
 }
 
 export function showBoardShapeProperties(app, shape) {
-    if (app._boardShapePropertyBinding?.committing) return;
+    if (getPropertyEditor(app, 'boardShape')?.committing) return;
     shape = canonicalBoardShape(app, shape);
-    app._boardShapePropertyBinding?.dispose();
+    getPropertyEditor(app, 'boardShape')?.dispose();
     if (app._shapeDrag?.original === shape) shape = app._shapeDrag.shape;
     const items = app._pcbPropsItems?.();
     if (!items || !shape) return;

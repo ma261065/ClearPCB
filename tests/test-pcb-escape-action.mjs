@@ -5,6 +5,7 @@ import { getPcbSelection, setPcbSelection } from '../src/pcb/modules/selection-r
 import { Viewport } from '../src/core/Viewport.js';
 import { cancelTrackDraw, finishTrackDraw, popTrackWaypoint } from '../src/pcb/modules/track-draw.js';
 import { selectPcbTool, preparePcbRibbonTransition } from '../src/pcb/modules/tool-lifecycle.js';
+import { getPropertyEditor, setPropertyEditor } from '../src/pcb/modules/property-editors.js';
 
 globalThis.window = { addEventListener() {} };
 globalThis.document = { getElementById: () => null, querySelector: () => null };
@@ -35,8 +36,7 @@ function fixture() {
     return { app, events, escape: target => app.handleKeyDown({ key: 'Escape', target }) };
 }
 
-const propertyKeys = ['_boardShapePropertyBinding', '_trackPropertyBinding', '_textPropertyBinding',
-    '_padPropertyBinding', '_viaPropertyBinding', '_boardDimensionPropertyBinding'];
+const propertyKeys = ['boardShape', 'track', 'text', 'pad', 'via', 'boardDimension'];
 for (const key of propertyKeys) {
     const { app, events, escape } = fixture();
     let value = Math.PI;
@@ -45,8 +45,8 @@ for (const key of propertyKeys) {
         redraw: phase => events.push(phase),
         commit() { assert.fail('Escape must not commit a property preview'); },
     });
-    binding.dispose = () => { binding.cancel(); app[key] = null; };
-    app[key] = binding;
+    binding.dispose = () => { binding.cancel(); setPropertyEditor(app, key, null); };
+    setPropertyEditor(app, key, binding);
     binding.update(() => { value = Math.E; });
     events.length = 0;
     const redo = [...app.history.redoStack];
@@ -55,7 +55,7 @@ for (const key of propertyKeys) {
     assert.equal(value, Math.PI, `${key}: restore full-precision original value`);
     assert.deepEqual(events, ['cancel'], `${key}: do not clear selection, rebuild Properties or navigate`);
     assert.equal(app.currentTool, 'via');
-    assert.equal(app[key], binding, 'Cancellation retains the reusable binding');
+    assert.equal(getPropertyEditor(app, key), binding, 'Cancellation retains the reusable binding');
     assert.deepEqual(app.history.redoStack, redo);
     assert.equal(app.history.canUndo(), false);
     events.length = 0;
@@ -71,7 +71,7 @@ for (const key of propertyKeys) {
     app.texts.set(text.id, text);
     setPcbSelection(app, [{ kind: 'text', object: text }]);
     for (const key of propertyKeys) {
-        app[key] = { active: true, cancel() { events.push(key); this.active = false; }, dispose() { this.cancel(); } };
+        setPropertyEditor(app, key, { active: true, cancel() { events.push(key); this.active = false; }, dispose() { this.cancel(); } });
     }
     events.length = 0;
     for (const key of propertyKeys) {
@@ -110,16 +110,16 @@ for (const kind of ['component', 'shape', 'track', 'via', 'pad', 'fill', 'text',
 for (const key of propertyKeys) {
     const { app, events, escape } = fixture();
     const failure = new Error('Fixture cancellation failed');
-    app[key] = { active: true, cancel() { throw failure; } };
+    setPropertyEditor(app, key, { active: true, cancel() { throw failure; } });
     assert.throws(() => escape(), error => error === failure);
     assert.equal(app.currentTool, 'via');
-    assert.equal(app[key].active, true);
+    assert.equal(getPropertyEditor(app, key).active, true);
     assert.deepEqual(events, [], 'Failed cancellation must not fall through to selection or navigation');
 }
 
 for (const target of [{ tagName: 'INPUT' }, { tagName: 'TEXTAREA' }, { tagName: 'SELECT' }, { isContentEditable: true }]) {
     const { app, events, escape } = fixture();
-    app._trackPropertyBinding = { active: true, cancel() { assert.fail('Input owns Escape'); } };
+    setPropertyEditor(app, 'track', { active: true, cancel() { assert.fail('Input owns Escape'); } });
     assert.equal(escape(target), false);
     assert.deepEqual(events, []);
 }

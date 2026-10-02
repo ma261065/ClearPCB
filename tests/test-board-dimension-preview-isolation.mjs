@@ -10,6 +10,7 @@ import { getBoardDimensionPreview, previewBoardDimensions, finishBoardDimensionP
 import { prepareFabricationSnapshot } from '../src/pcb/modules/fabrication-snapshot.js';
 import { loadPcb } from '../src/pcb/modules/project-state.js';
 import { PCB_LAYERS } from '../src/pcb/modules/layers.js';
+import { getPropertyEditor } from '../src/pcb/modules/property-editors.js';
 
 let allocations = 0;
 class Element {
@@ -315,7 +316,7 @@ for (const key of [{ key: 'Escape' }, { key: 'z', ctrlKey: true }, { key: 'y', c
         if (numeric) {
             inputs.get(fields.width).value = '56'; inputs.get(fields.width).emit('input');
             assert.ok(getBoardDimensionPreview(app), 'Keyboard cancellation leaves the visible panel editable');
-            app._boardDimensionPropertyBinding.cancel();
+            getPropertyEditor(app, 'boardDimension').cancel();
         }
     }
 }

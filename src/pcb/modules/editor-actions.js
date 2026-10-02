@@ -9,6 +9,7 @@ import { getSelectedTrack, getSelectedVia, clearTrackSelection, deleteSelectedTr
 import { canEditFill, deleteFocusedFillPart } from './copper-fill-edit.js';
 import { resetPcbTool } from './tool-lifecycle.js';
 import { isPcbDrawing } from './pcb-interactions.js';
+import { getPropertyEditor } from './property-editors.js';
 
 /**
  * Delete the current refinement or selection, retaining drawing/paste ownership
@@ -19,8 +20,8 @@ export function runPcbDeleteAction(app) {
     if (app._active === false || isPcbDrawing(app)) return false;
     if (app._pasteDrop) { app._cancelPasteDrop(); return true; }
     if (app._groupDrag) app._cancelPosePreviews();
-    app._boardShapePropertyBinding?.cancel();
-    app._trackPropertyBinding?.cancel();
+    getPropertyEditor(app, 'boardShape')?.cancel();
+    getPropertyEditor(app, 'track')?.cancel();
     if (deleteFocusedBoardShape(app)) return true;
     const focusedFill = getPcbSelection(app, 'fill')[0];
     if (focusedFill && canEditFill(focusedFill) && deleteFocusedFillPart(app, focusedFill)) return true;
@@ -75,8 +76,8 @@ export function runPcbEscapeAction(app) {
         app.viewport.svg.style.cursor = 'default';
         return true;
     }
-    if (app._boardDimensionPropertyBinding?.active) {
-        app._boardDimensionPropertyBinding.cancel();
+    if (getPropertyEditor(app, 'boardDimension')?.active) {
+        getPropertyEditor(app, 'boardDimension').cancel();
         return true;
     }
     if (finishSelectionInteraction(app, false)) {
@@ -162,7 +163,7 @@ export function runPcbHistoryAction(app, action) {
         return true;
     }
     if (getBoardDimensionPreview(app) || app._boardOutlineResize) {
-        app._boardDimensionPropertyBinding?.cancel();
+        getPropertyEditor(app, 'boardDimension')?.cancel();
         endBoardOutlineResize(app, false);
         finishBoardDimensionPreview(app);
         return true;

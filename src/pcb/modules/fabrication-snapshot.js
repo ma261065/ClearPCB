@@ -4,6 +4,7 @@ import { buildFillContext } from './fill-context.js';
 import { computeFillPolygons, loadClipper } from './copper-fill-geom.js';
 import { panelSettings } from './panelization.js';
 import { blocksPcbExport } from './pcb-interactions.js';
+import { hasActivePropertyEditor } from './property-editors.js';
 
 export function hasFabricationContent(app) {
     const entities = app.pcbDocument || app;
@@ -14,8 +15,7 @@ export function hasFabricationContent(app) {
 
 export async function prepareFabricationSnapshot(app, { computeFills = true } = {}) {
     if (app._deferDragOverlays || app._suspendFillRefresh || blocksPcbExport(app)
-        || app._padPropertyBinding?.active || app._viaPropertyBinding?.active || app._trackPropertyBinding?.active
-        || app._boardShapePropertyBinding?.active) {
+        || hasActivePropertyEditor(app, ['pad', 'via', 'track', 'boardShape'])) {
         throw new Error('Finish the current edit before exporting.');
     }
     const model = app.pcbDocument;

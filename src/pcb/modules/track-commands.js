@@ -54,6 +54,7 @@ import {
     MoveViaCommand as ModelMoveViaCommand,
 } from '../../core/pcb-via-commands.js';
 import { cancelVertexDrag } from './track-drag.js';
+import { getPropertyEditor } from './property-editors.js';
 
 const placementPreviews = new WeakMap();
 const viaPropertyPreviews = new WeakMap();
@@ -487,7 +488,7 @@ export class RemoveTrackCommand extends ModelRemoveTrackCommand {
     }
     execute() {
         if (this.app._vertexDrag?.original === this.track) cancelVertexDrag(this.app);
-        if (this.app._trackPropertyBinding?.track === this.track) this.app._trackPropertyBinding.dispose();
+        if (getPropertyEditor(this.app, 'track')?.track === this.track) getPropertyEditor(this.app, 'track').dispose();
         deselectRemovedTrack(this.app, this.track);
         removeTrackElements(this.track);
         super.execute();

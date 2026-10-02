@@ -164,6 +164,7 @@ import {
 } from '../pcb/modules/copper-fill-draw.js';
 import { preparePcbPaste, beginPcbPaste, updatePcbPaste, endPcbPaste, cancelPcbPaste, isPcbPasteEditable } from '../pcb/modules/pcb-paste.js';
 import { getBoardOutline, boardBoundary } from '../pcb/modules/board-outline.js';
+import { eachPropertyEditorOnLayer, getPropertyEditor, setPropertyEditor } from '../pcb/modules/property-editors.js';
 import {
     beginBoardOutlineResize, updateBoardOutlineResize, endBoardOutlineResize,
     renderBoardOutlineHandles, hitTestBoardOutlineHandle,
@@ -2648,7 +2649,7 @@ export default class PCBApp {
     _onLayerVisibilityChanged(layerId, visible) {
         if (this._pasteDrop && !visible && !isPcbPasteEditable(this)) this._cancelPasteDrop();
         if (!visible && layerId === 'board-outline') {
-            this._boardDimensionPropertyBinding?.dispose();
+            getPropertyEditor(this, 'boardDimension')?.dispose();
             endBoardOutlineResize(this, false);
         }
         if (!visible && this._groupDrag && getPcbSelectionEntries(this).some(entry => entry.visible === false)) {
@@ -2663,14 +2664,7 @@ export default class PCBApp {
         if (!visible && getBoardShapeRotationPreview(this)?.original.layer === layerId) {
             if (!finishSelectionInteraction(this, false)) finishBoardShapeRotationPreview(this);
         }
-        if (!visible && this._trackPropertyBinding?.affectsLayer(layerId)) this._trackPropertyBinding.dispose();
-        if (!visible && this._boardShapePropertyBinding?.affectsLayer(layerId)) this._boardShapePropertyBinding.dispose();
-        if (!visible && layerId === 'vias') this._viaPropertyBinding?.dispose();
-        if (!visible && this._textPropertyBinding?.model.layer === layerId) this._textPropertyBinding.dispose();
-        if (!visible && this._componentProperties?.affectsLayer(layerId)) this._componentProperties.dispose();
-        if (!visible && this._padPropertyBinding?.pads.some(pad => padLayers(pad).includes(layerId))) {
-            this._padPropertyBinding.dispose();
-        }
+        if (!visible) eachPropertyEditorOnLayer(this, layerId, editor => editor.dispose());
         const g = this._layerGroups.get(layerId);
         if (g) {
             g.style.display = visible ? '' : 'none';
@@ -2739,7 +2733,7 @@ export default class PCBApp {
     _onLayerLockChanged(layerId, locked) {
         if (this._pasteDrop && locked && !isPcbPasteEditable(this)) this._cancelPasteDrop();
         if (locked && layerId === 'board-outline') {
-            this._boardDimensionPropertyBinding?.cancel();
+            getPropertyEditor(this, 'boardDimension')?.cancel();
             endBoardOutlineResize(this, false);
         }
         if (locked && this._groupDrag && getPcbSelectionEntries(this).some(entry => entry.locked)) {
@@ -2754,14 +2748,7 @@ export default class PCBApp {
         if (locked && getBoardShapeRotationPreview(this)?.original.layer === layerId) {
             if (!finishSelectionInteraction(this, false)) finishBoardShapeRotationPreview(this);
         }
-        if (locked && this._trackPropertyBinding?.affectsLayer(layerId)) this._trackPropertyBinding.cancel();
-        if (locked && this._boardShapePropertyBinding?.affectsLayer(layerId)) this._boardShapePropertyBinding.cancel();
-        if (locked && layerId === 'vias') this._viaPropertyBinding?.cancel();
-        if (locked && this._textPropertyBinding?.model.layer === layerId) this._textPropertyBinding.cancel();
-        if (locked && this._componentProperties?.affectsLayer(layerId)) this._componentProperties.cancel();
-        if (locked && this._padPropertyBinding?.pads.some(pad => padLayers(pad).includes(layerId))) {
-            this._padPropertyBinding.cancel();
-        }
+        if (locked) eachPropertyEditorOnLayer(this, layerId, editor => editor.cancel());
         const draggingReference = this.placements?.get(this._refDrag?.compId);
         if (locked && draggingReference
             && (draggingReference.side === 'bottom' ? 'bottom-silk' : 'top-silk') === layerId) {
@@ -2895,7 +2882,7 @@ export default class PCBApp {
      */
     _showBoardDimensionsDialog() {
         if (this._boardDimensionsOverlay) return;
-        this._boardDimensionPropertyBinding?.commit();
+        getPropertyEditor(this, 'boardDimension')?.commit();
         if (this._boardOutlineResize) endBoardOutlineResize(this);
         const overlay = document.createElement('div');
         overlay.className = 'app-modal-overlay';
@@ -3084,7 +3071,7 @@ export default class PCBApp {
             return;
         }
         if (!selected && this._boardOutlineResize) endBoardOutlineResize(this, false);
-        if (!selected) this._boardDimensionPropertyBinding?.dispose();
+        if (!selected) getPropertyEditor(this, 'boardDimension')?.dispose();
         this._boardOutlineSelected = selected;
         renderBoardOutlineHandles(this);
         const outline = this.getLayerGroup('board-outline').querySelector('.pcb-board-outline');
@@ -3172,7 +3159,7 @@ export default class PCBApp {
      * with the base Properties group as the sole panel content.
      */
     _pcbPropsItems() {
-        this._componentProperties?.clearExtras();
+        getPropertyEditor(this, 'component')?.clearExtras();
         return document.getElementById('pcbPropsItems');
     }
 
@@ -3440,6 +3427,7 @@ export default class PCBApp {
             && target.visible !== false && !padLayers(target).some(isLayerLocked) && padLayers(target).some(isLayerVisible)));
         const binding = {
             pads,
+            affectsLayer: layerId => pads.some(target => padLayers(target).includes(layerId)),
             get active() { return preview !== null; },
             commit: () => finish(editable()),
             cancel: () => finish(false),
@@ -3449,7 +3437,7 @@ export default class PCBApp {
                 cancelLiveRender();
             },
         };
-        this._padPropertyBinding = binding;
+        setPropertyEditor(this, 'pad', binding);
         const bindLiveNumber = (id, property, minimum) => {
             const input = /** @type {HTMLInputElement|null} */ (items.querySelector(id));
             if (!input) return;
@@ -3540,14 +3528,14 @@ export default class PCBApp {
             const input = /** @type {HTMLInputElement|null} */ (document.getElementById(id));
             if (input) input.value = Number(value).toFixed(2);
         }
-        this._boardDimensionPropertyBinding?.sync();
+        getPropertyEditor(this, 'boardDimension')?.sync();
     }
 
     /**
      * Show board outline properties and switch to Properties tab.
      */
     _showBoardOutlineProperties() {
-        this._boardDimensionPropertyBinding?.dispose();
+        getPropertyEditor(this, 'boardDimension')?.dispose();
         const outline = getBoardOutline(this);
         if (outline) {
             showBoardShapeProperties(this, outline);
@@ -3575,7 +3563,7 @@ export default class PCBApp {
     }
 
     _getComponentProperties() {
-        return this._componentProperties ??= new ComponentProperties({
+        return getPropertyEditor(this, 'component') ?? setPropertyEditor(this, 'component', new ComponentProperties({
             getPlacement: id => this.placements.get(id),
             isActive: () => this._active !== false,
             isSelected: (kind, id) => isPcbSelected(this, kind, id),
@@ -3596,11 +3584,11 @@ export default class PCBApp {
             renderReference: id => this._rerenderRef(id),
             drawReferenceOverlay: (id, tether) => this._drawRefOverlay(id, tether),
             setReferenceStyle: (id, before, after) => this.history.execute(new SetRefStyleCommand(this, id, before, after)),
-        });
+        }));
     }
 
     _syncComponentRotationInput(compId) {
-        this._componentProperties?.syncRotationInput(compId);
+        getPropertyEditor(this, 'component')?.syncRotationInput(compId);
     }
 
     /** Show properties for a single placed component. */
@@ -4868,7 +4856,7 @@ export default class PCBApp {
     }
 
     _beginTextDrag(text, worldPos) {
-        this._textPropertyBinding?.commit();
+        getPropertyEditor(this, 'text')?.commit();
         text = text && this.pcbDocument.texts.get(text.id);
         if (!text || !this.texts.has(text.id) || isLayerLocked(text.layer) || !isLayerVisible(text.layer)) return false;
         this._textDrag = {
@@ -5187,7 +5175,7 @@ export default class PCBApp {
     }
 
     _beginRefTextDrag(compId, worldPos) {
-        this._componentProperties?.commit();
+        getPropertyEditor(this, 'component')?.commit();
         const pl = this.placements.get(compId);
         if (!pl || isRefTextLocked(pl)) return false;
         this._refDrag = {
@@ -5309,7 +5297,7 @@ export default class PCBApp {
 
     /** Rotate the selected reference designator by 90° (through history). */
     _rotateRefText(compId) {
-        this._componentProperties?.commit();
+        getPropertyEditor(this, 'component')?.commit();
         const pl = this.placements.get(compId);
         if (!pl || isRefTextLocked(pl)) return;
         const cur = ((pl.refRot || 0) % 360 + 360) % 360;
@@ -5449,7 +5437,7 @@ export default class PCBApp {
             if (!Number.isFinite(n)) return null;
             return ((Math.round(n) % 360) + 360) % 360;
         };
-        this._textPropertyBinding = this._bindStrokeTextProps(items, text, {
+        setPropertyEditor(this, 'text', this._bindStrokeTextProps(items, text, {
             editable: () => this._active !== false && this.pcbDocument.texts.get(text.id) === text
                 && !isLayerLocked(text.layer) && isLayerVisible(text.layer),
             fields: [
@@ -5471,7 +5459,7 @@ export default class PCBApp {
                 finishTextPropertyPreview(this, Object.keys(after).length
                     ? () => this.history.execute(new EditTextCommand(this, t.id, after)) : undefined);
             },
-        });
+        }));
         const borderEl = /** @type {HTMLInputElement|null} */ (items.querySelector('#pcbPropTextBorder'));
         borderEl?.addEventListener('change', () => {
             this.history.execute(new EditTextCommand(this, text.id, { border: borderEl.checked }));
@@ -5601,6 +5589,7 @@ export default class PCBApp {
         }
         const binding = {
             model,
+            affectsLayer: layerId => model.layer === layerId,
             get active() { return snapshot !== null; },
             commit: onCommit,
             cancel: () => {
@@ -5929,8 +5918,8 @@ export default class PCBApp {
     _endTextInlineEdit(commit) {
         const state = this._textEdit;
         if (!state) return;
-        if (commit) this._textPropertyBinding?.commit();
-        else this._textPropertyBinding?.cancel();
+        if (commit) getPropertyEditor(this, 'text')?.commit();
+        else getPropertyEditor(this, 'text')?.cancel();
         if (commit && state.options?.validate && !state.options.validate(state.input.value)) return false;
         state.committed = true;
         this._textEdit = null;

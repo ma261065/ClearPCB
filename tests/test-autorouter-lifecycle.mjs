@@ -5,6 +5,7 @@ import { Via } from '../src/shapes/via.js';
 import { CommandHistory } from '../src/core/CommandHistory.js';
 import { AddTrackCommand } from '../src/pcb/modules/track-commands.js';
 import { getPcbSelection, setPcbSelection } from '../src/pcb/modules/selection-registry.js';
+import { setPropertyEditor } from '../src/pcb/modules/property-editors.js';
 
 globalThis.window = { addEventListener() {} };
 globalThis.document = { getElementById: () => null, querySelector: () => null };
@@ -59,7 +60,7 @@ for (const stopped of [false, true]) {
     const before = app.pcbDocument.captureGeometry();
     let disposed = false;
     setPcbSelection(app, [{ kind: 'track', object: track }, { kind: 'via', object: via }]);
-    app._viaPropertyBinding = { active: false, dispose() { disposed = true; app._viaPropertyBinding = null; } };
+    setPropertyEditor(app, 'via', { active: false, dispose() { disposed = true; setPropertyEditor(app, 'via', null); } });
     const run = app.runAutoRoute(), worker = workers.at(-1);
     assert.equal(app.isSectionEditing(), true, 'Saving cannot capture temporary routing presentation');
     assert.deepEqual(app.pcbDocument.captureGeometry(), before, 'Routing never clears authored copper at startup');
@@ -101,7 +102,7 @@ for (const operation of ['command', 'document', 'clear-document', 'deactivate', 
     if (operation === 'clear-document') app.loadFromData(null);
     if (operation === 'deactivate') app.deactivate();
     if (operation === 'dispose') app.dispose();
-    if (operation === 'preview') app._viaPropertyBinding = { active: true, cancel() {} };
+    if (operation === 'preview') setPropertyEditor(app, 'via', { active: true, cancel() {} });
     if (operation === 'drawing') app._trackDraw = {};
     if (operation === 'rules') app.getRoutingParams = () => ({ trackWidth: 0.9, clearance: 0.1, viaDiameter: 0.6, viaDrill: 0.3 });
     if (operation === 'schematic') {

@@ -11,6 +11,7 @@ import { loadPcb } from '../src/pcb/modules/project-state.js';
 import { prepareFabricationSnapshot } from '../src/pcb/modules/fabrication-snapshot.js';
 import { PCB_LAYERS } from '../src/pcb/modules/layers.js';
 import { beginPcbAnchorInteraction, updateSelectionInteraction, finishSelectionInteraction } from '../src/pcb/modules/selection-interaction.js';
+import { getPropertyEditor } from '../src/pcb/modules/property-editors.js';
 
 let allocations = 0;
 class Element {
@@ -310,7 +311,7 @@ for (const [kind, id, value] of cases) for (const count of ['lineWidth', 'corner
             if (finish !== 'missing' && finish !== 'load') assert.equal(group.children.length, count + 1);
             checked++;
         } finally {
-            app._boardShapePropertyBinding?.dispose();
+            getPropertyEditor(app, 'boardShape')?.dispose();
             cancelPictureCopperRefresh(app);
         }
     }
@@ -352,11 +353,11 @@ for (const [kind, id, value] of cases) {
     app.history.undo();
     input.value = String(value); input.fire('input');
     input.value = String(initial); input.fire('input');
-    app._boardShapePropertyBinding.commit();
+    getPropertyEditor(app, 'boardShape').commit();
     assert.equal(app.history.undoStack.length, 0, `${kind} return to baseline`);
     assert.equal(app.history.redoStack.length, 1);
     assert.deepEqual(model.captureGeometry(), before);
-    app._boardShapePropertyBinding?.dispose();
+    getPropertyEditor(app, 'boardShape')?.dispose();
     input.value = String(value); input.fire('input'); input.fire('change');
     assert.equal(getBoardShapePropertyPreview(app), undefined, 'Disposed controls cannot restart a preview');
     assert.deepEqual(model.captureGeometry(), before);
@@ -432,7 +433,7 @@ for (const [kind, id, values] of [
     const { app, model, shapes } = fixture(kind);
     app.currentTool = 'select';
     const before = model.captureGeometry();
-    const input = fields.get(id), binding = app._boardShapePropertyBinding;
+    const input = fields.get(id), binding = getPropertyEditor(app, 'boardShape');
     input.focus();
     const center = () => ({ x: (shapes[0].points[0].x + shapes[0].points[2].x) / 2,
         y: (shapes[0].points[0].y + shapes[0].points[2].y) / 2 });
@@ -446,7 +447,7 @@ for (const [kind, id, values] of [
         input.fire('change');
         assert.equal(fields.get(id), input, `${kind}: native input/change must not replace the focused field`);
         assert.equal(document.activeElement, input, `${kind}: repeated arrow keys retain focus`);
-        assert.equal(app._boardShapePropertyBinding, binding);
+        assert.equal(getPropertyEditor(app, 'boardShape'), binding);
         assert.equal(getBoardShapePropertyPreview(app), undefined);
         const points = shapes[0].points;
         if (kind === 'imageRotation') {
@@ -486,7 +487,7 @@ for (const [kind, id, value] of cases.filter(([kind]) => !kind.startsWith('image
         const { app, model, shapes } = fixture(kind, count);
         app.currentTool = 'select';
         const before = model.captureGeometry();
-        const input = fields.get(id), binding = app._boardShapePropertyBinding;
+        const input = fields.get(id), binding = getPropertyEditor(app, 'boardShape');
         const propertyValue = shape => kind === 'lineWidth' ? shape.lineWidth
             : kind === 'segmentWidth' ? shape.segmentWidths[0]
                 : kind === 'cornerRadius' ? shape.cornerRadius
@@ -501,7 +502,7 @@ for (const [kind, id, value] of cases.filter(([kind]) => !kind.startsWith('image
             input.value = String(next); input.fire('input'); input.fire('change');
             assert.equal(fields.get(id), input, `${kind}: retain the focused numeric control across native changes`);
             assert.equal(document.activeElement, input);
-            assert.equal(app._boardShapePropertyBinding, binding);
+            assert.equal(getPropertyEditor(app, 'boardShape'), binding);
             assert.equal(getBoardShapePropertyPreview(app), undefined);
             for (const shape of shapes) assert.ok(Math.abs(propertyValue(shape) - next) < 1e-9, `${kind}: apply the numeric value`);
         }
@@ -634,7 +635,7 @@ for (const kind of ['arcBulge', 'segmentBulge']) for (const completion of ['fiel
         showBoardShapeProperties(app, shape);
     }
     const before = model.captureGeometry(), width = shape.lineWidth;
-    const binding = app._boardShapePropertyBinding;
+    const binding = getPropertyEditor(app, 'boardShape');
     const bulge = fields.get('pcbPropShapeBulge'), next = fields.get('pcbPropShapeLineWidth');
     bulge.focus();
     bulge.value = '0'; bulge.fire('input');
@@ -649,7 +650,7 @@ for (const kind of ['arcBulge', 'segmentBulge']) for (const completion of ['fiel
     assert.notEqual(fields.get('pcbPropShapeLineWidth'), next);
     assert.equal(shape.lineWidth, width);
     assert.equal(app.history.undoStack.length, 1);
-    assert.equal(app._boardShapePropertyBinding.active, false);
+    assert.equal(getPropertyEditor(app, 'boardShape').active, false);
     const after = model.captureGeometry();
     bulge.fire('blur'); next.fire('change');
     await Promise.resolve();
@@ -694,7 +695,7 @@ for (const kind of ['cornerRadius', 'imageWidth', 'arcBulge']) {
     for (const completion of ['field', 'prepare', 'commit']) {
         const { app, model } = fixture(kind);
         const before = model.captureGeometry();
-        const binding = app._boardShapePropertyBinding;
+        const binding = getPropertyEditor(app, 'boardShape');
         const previous = fields.get(kind === 'imageWidth' ? 'pcbPropImageWidth'
             : kind === 'arcBulge' ? 'pcbPropShapeBulge' : 'pcbPropShapeLineWidth');
         const next = fields.get(kind === 'imageWidth' ? 'pcbPropImageHeight'

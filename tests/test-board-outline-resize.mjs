@@ -18,7 +18,9 @@ const source = readFileSync(new URL('../src/ui/PCBApp.js', import.meta.url), 'ut
 const syncStart = source.indexOf('    _syncBoardOutlineInputs() {');
 const syncEnd = source.indexOf('\n    /**', syncStart);
 assert.ok(syncStart >= 0 && syncEnd > syncStart);
-const syncInputs = new Function(`return ({ ${source.slice(syncStart, syncEnd)} })._syncBoardOutlineInputs;`)();
+const { getPropertyEditor } = await import('../src/pcb/modules/property-editors.js');
+const syncInputs = new Function('getPropertyEditor',
+    `return ({ ${source.slice(syncStart, syncEnd)} })._syncBoardOutlineInputs;`)(getPropertyEditor);
 {
     const { boardBoundary } = await import('../src/pcb/modules/board-outline.js');
     const fitStart = source.indexOf('    _fitToContent() {');

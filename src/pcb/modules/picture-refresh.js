@@ -1,3 +1,4 @@
+import { getPropertyEditor } from './property-editors.js';
 const pendingRefreshes = new WeakMap();
 const activeHolds = new WeakMap();
 
@@ -78,7 +79,7 @@ export function schedulePictureCopperRefresh(app, shape = null) {
             element.parentNode?.removeChild(element);
         }
     }
-    if (activeHolds.has(app) || app._rotationHandleDrag || app._boardShapePropertyBinding?.active
+    if (activeHolds.has(app) || app._rotationHandleDrag || getPropertyEditor(app, 'boardShape')?.active
         || ['vertex', 'segment'].includes(app._shapeDrag?.mode)) return;
     pendingRefreshes.set(app, setTimeout(() => {
         pendingRefreshes.delete(app);
