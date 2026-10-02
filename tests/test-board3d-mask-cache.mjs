@@ -5,14 +5,8 @@ import { buildSurfaceBuffers } from '../src/pcb/modules/board3d-surface-build.js
 import { decodeSurfaceInputs } from '../src/pcb/modules/board3d-surface-transfer.js';
 
 globalThis.window = { addEventListener() {} };
-const { buildMaskFaceMesh, collectMaskOpeningHoles } = await import('../src/pcb/modules/board3d.js');
+const { buildMaskFaceMesh, collectMaskOpeningHoles, buildBoardSurfaceInputs } = await import('../src/pcb/modules/board3d.js');
 const source = readFileSync(new URL('../src/pcb/modules/board3d.js', import.meta.url), 'utf8');
-const first = source.indexOf("                addSurface('maskCoatTop',");
-const last = source.indexOf('\n            }', first);
-assert.ok(first >= 0 && last > first);
-const addMaskSurfaces = new Function('app', 'outline', 'drilledHoles', 'addSurface',
-    'buildMaskFaceMesh', 'collectMaskOpeningHoles', 'Y_TOP', 'Y_BOT', 'COPPER_EPS',
-    source.slice(first, last));
 const top = 'maskCoatTop', bottom = 'maskCoatBottom';
 const both = [top, bottom];
 const placement = { x: 3, y: 3, side: 'top', rotation: 0, padOffsets: [
@@ -20,16 +14,18 @@ const placement = { x: 3, y: 3, side: 'top', rotation: 0, padOffsets: [
 ] };
 const opening = { kind: 'circle', layer: 'top-mask', x: 6, y: 5, radius: 0.6, filled: true };
 const pad = { x: 7, y: 7, layers: 'bottom-copper', shape: 'round', size: 1, drill: 0 };
-const app = { placements: new Map([['U1', placement]]), boardShapes: [opening], pads: [pad] };
+const app = { placements: new Map([['U1', placement]]), boardShapes: [opening], pads: [pad],
+    tracks: [], vias: [], copperFills: [], texts: new Map() };
+// Mask coats sit on the board faces (copper is coplanar with them).
+const TOP_FACE = 1.6, BOTTOM_FACE = 0;
 let outline = [{ x: 0, z: 0 }, { x: 10, z: 0 }, { x: 10, z: 4 },
     { x: 8, z: 4 }, { x: 8, z: 7 }, { x: 10, z: 7 }, { x: 10, z: 10 }, { x: 0, z: 10 }];
 let holes = [{ x: 5, z: 5, r: 0.4 }];
 const inputs = () => {
-    const surfaces = {};
-    addMaskSurfaces(app, structuredClone(outline), structuredClone(holes), (key, parts) => {
-        surfaces[key] = { parts, outline: structuredClone(outline) };
-    }, buildMaskFaceMesh, collectMaskOpeningHoles, 1.6, 0, 0.01);
-    return surfaces;
+    const { maskCoatTop, maskCoatBottom } = buildBoardSurfaceInputs(app, {
+        outline: structuredClone(outline), drilledHoles: structuredClone(holes), boardHoles: [], crossingRings: [],
+    }, () => ({ verts: [], faces: [] }));
+    return { maskCoatTop, maskCoatBottom };
 };
 const triangles = buffers => Object.values(buffers).flatMap(surface => {
     const records = [];
@@ -55,8 +51,8 @@ async function build(expectedKeys) {
     } else assert.equal(jobs.length, count, 'No worker work for unchanged mask inputs');
     const result = await pending;
     const combined = buildSurfaceBuffers({ maskCoat: { outline, parts: [
-        { mesh: buildMaskFaceMesh(outline, 1.61), holes: holes.concat(collectMaskOpeningHoles(app.boardShapes, 'top', app.placements, app.pads)) },
-        { mesh: buildMaskFaceMesh(outline, -0.01, true), holes: holes.concat(collectMaskOpeningHoles(app.boardShapes, 'bottom', app.placements, app.pads)) },
+        { mesh: buildMaskFaceMesh(outline, TOP_FACE), holes: holes.concat(collectMaskOpeningHoles(app.boardShapes, 'top', app.placements, app.pads)) },
+        { mesh: buildMaskFaceMesh(outline, BOTTOM_FACE, true), holes: holes.concat(collectMaskOpeningHoles(app.boardShapes, 'bottom', app.placements, app.pads)) },
     ] } });
     assert.deepEqual(triangles(result), triangles(combined), 'Split faces preserve geometry, winding, normals, colors and multiplicity');
     for (const key of both) {

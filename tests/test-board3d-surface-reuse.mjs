@@ -139,15 +139,17 @@ ownedBuilder.dispose();
 const source = readFileSync(new URL('../src/pcb/modules/board3d.js', import.meta.url), 'utf8');
 assert.ok(source.includes('surfaceBuilder.build(surfaces, { takeOwnership: true })'),
     'The viewer hands its freshly generated geometry to the builder');
-const start = source.indexOf('    const appliedSurfaceBuffers = new Map();');
-const end = source.indexOf('    const surfaceGeometry =', start);
-assert.ok(start >= 0 && end > start);
+globalThis.localStorage = { getItem: () => null, setItem() {}, removeItem() {} };
+globalThis.window = { addEventListener() {}, dispatchEvent() {} };
+globalThis.document = { body: { contains: () => false } };
+const { createSurfacePublisher } = await import('../src/pcb/modules/board3d.js');
+assert.match(source, /const swapSurface = createSurfacePublisher\(\{ getScene: \(\) => scene, surf, order: SURFACE_ORDER \}\);/,
+    'The viewer publishes finished buffers through the shared surface publisher');
 let added = 0;
 let removedMeshes = 0;
 const scene = { removeMesh() { removedMeshes++; }, addMesh() { added++; return {}; } };
 const surf = { copper: null };
-const swap = new Function('scene', 'surf', 'surfaceGeometry', 'SURFACE_ORDER',
-    `${source.slice(start, end)}\nreturn swapSurface;`)(scene, surf, (data) => data, { copper: 2 });
+const swap = createSurfacePublisher({ getScene: () => scene, surf, order: { copper: 2 }, geometry: (data) => data });
 swap('copper', current.copper, {});
 const originalMesh = surf.copper;
 swap('copper', current.copper, {});

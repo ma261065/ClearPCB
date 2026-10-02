@@ -8,11 +8,6 @@ import assert from 'node:assert/strict';
 import { readdirSync, readFileSync } from 'node:fs';
 
 const ALLOWED = new Set([
-    'test-board3d-artwork-cache.mjs',
-    'test-board3d-mask-cache.mjs',
-    'test-board3d-surface-reuse.mjs',
-    'test-board3d-surface-worker.mjs',
-    'test-board-view-sync.mjs',
     'test-pcb-deferred-load.mjs',
     'test-reference-selection-overlay.mjs',
 ]);

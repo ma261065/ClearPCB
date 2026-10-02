@@ -1,5 +1,4 @@
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
 import { Worker } from 'node:worker_threads';
 import * as THREE from '../assets/vendor/three.module.js';
 import { buildSurfaceBuffers } from '../src/pcb/modules/board3d-surface-build.js';
@@ -125,13 +124,11 @@ for (const attribute of ['position', 'normal', 'color']) {
     assert.equal(expected.empty[attribute].length, 0);
 }
 legacy.dispose();
-const viewerSource = readFileSync(new URL('../src/pcb/modules/board3d.js', import.meta.url), 'utf8');
-const geometryStart = viewerSource.indexOf('    const surfaceGeometry = (data) => {');
-const geometryEnd = viewerSource.indexOf('    let hasSurfaces', geometryStart);
-assert.ok(geometryStart >= 0 && geometryEnd > geometryStart);
-const surfaceGeometry = new Function('THREE',
-    `${viewerSource.slice(geometryStart, geometryEnd)}\nreturn surfaceGeometry;`)(THREE);
-const reconstructed = surfaceGeometry(expected.copper);
+globalThis.localStorage = { getItem: () => null, setItem() {}, removeItem() {} };
+globalThis.window = { addEventListener() {}, dispatchEvent() {} };
+globalThis.document = { body: { contains: () => false } };
+const { surfaceBufferGeometry } = await import('../src/pcb/modules/board3d.js');
+const reconstructed = surfaceBufferGeometry(expected.copper);
 for (const attribute of ['position', 'normal', 'color']) {
     assert.deepEqual(reconstructed.getAttribute(attribute).array, expected.copper[attribute]);
 }

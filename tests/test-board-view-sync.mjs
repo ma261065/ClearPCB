@@ -3,48 +3,78 @@ import { readFileSync } from 'node:fs';
 import { createBoardViewSync } from '../src/pcb/modules/board-view-sync.js';
 import { isFillRefreshPending, isFillRefreshScheduled, isPictureCopperRefreshPending, refreshStatus, setBoardViewRefreshSuspended, setDragOverlaysDeferred, setFillRefreshPending, setFillRefreshScheduled, setFillRefreshSuspended } from '../src/pcb/modules/refresh-state.js';
 
+const svgElement = () => ({
+    attributes: new Map(), children: [], style: {}, parentNode: null,
+    classList: { add() {}, remove() {}, toggle() {}, contains: () => false },
+    setAttribute(name, value) { this.attributes.set(name, String(value)); },
+    getAttribute(name) { return this.attributes.get(name) ?? null; },
+    removeAttribute(name) { this.attributes.delete(name); },
+    appendChild(child) { child.remove?.(); child.parentNode = this; this.children.push(child); return child; },
+    insertBefore(child) { return this.appendChild(child); },
+    removeChild(child) { child.remove(); return child; },
+    remove() {
+        if (!this.parentNode) return;
+        this.parentNode.children = this.parentNode.children.filter(other => other !== this);
+        this.parentNode = null;
+    },
+    querySelector: () => null, querySelectorAll: () => [],
+});
+globalThis.window = { addEventListener() {}, dispatchEvent() {} };
+globalThis.document = {
+    createElement: svgElement, createElementNS: svgElement, body: svgElement(),
+    documentElement: { getAttribute: () => 'dark' }, getElementById: () => null,
+    querySelector: () => null, querySelectorAll: () => [], addEventListener() {},
+};
+globalThis.localStorage = { getItem: () => null, setItem() {}, removeItem() {} };
+globalThis.requestAnimationFrame = () => 0;
+globalThis.cancelAnimationFrame = () => {};
 {
-    const pcbSource = readFileSync(new URL('../src/ui/PCBApp.js', import.meta.url), 'utf8');
-    const start = pcbSource.indexOf('    _renderPersistentObjects(');
-    const end = pcbSource.indexOf('\n    /**', start);
-    assert.ok(start >= 0 && end > start);
-    const elements = new Set();
-    const renders = new Map();
-    const renderShape = (board, shape) => {
-        renders.set(shape.id, (renders.get(shape.id) || 0) + 1);
-        elements.delete(board._shapeElements.get(shape.id));
-        const element = { id: shape.id, geometry: shape.geometry };
-        elements.add(element);
-        board._shapeElements.set(shape.id, element);
-    };
-    const rebuild = new Function('renderBoardShape', 'getPcbSelection',
-        `return ({ ${pcbSource.slice(start, end)} })._renderPersistentObjects;`)(renderShape, () => []);
-    const outline = { id: 'board-outline', layer: 'board-outline', geometry: 'rectangle' };
-    const artwork = { id: 'artwork', layer: 'top-silk', geometry: 'circle' };
-    const board = {
-        _boardOutlineDrawn: true,
-        boardShapes: [outline, artwork],
-        _shapeElements: new Map(), _textElements: new Map(), texts: new Map(),
-        tracks: [], vias: [], copperFills: [],
-        _drawBoardOutline() { renderShape(this, outline); },
-    };
+    const { pcbEditorFixture } = await import('./pcb-editor-fixture.mjs');
+    const { renderBoardShape } = await import('../src/pcb/modules/board-shapes.js');
+    // renderBoardShape registers every rendered element here, so renders are counted
+    // at the editor's own element registry rather than by stubbing the renderer.
+    const renders = new Map(), shapeOf = new Map();
+    class RenderRegistry extends Map {
+        set(id, element) {
+            renders.set(id, (renders.get(id) || 0) + 1);
+            shapeOf.set(element, id);
+            return super.set(id, element);
+        }
+    }
+    const groups = new Map();
+    const board = pcbEditorFixture({
+        getLayerGroup(id) {
+            if (!groups.has(id)) groups.set(id, svgElement());
+            return groups.get(id);
+        },
+        _shapeElements: new RenderRegistry(), _textElements: new Map(), _boardOutlineDrawn: true,
+        updateCopperCuts() {}, refreshFills() {}, getRoutingParams: () => ({}),
+    });
+    const outline = { id: 'board-outline', kind: 'rect', layer: 'board-outline', lineWidth: 0.1,
+        points: [{ x: 0, y: 0 }, { x: 20, y: 0 }, { x: 20, y: -10 }, { x: 0, y: -10 }] };
+    const artwork = { id: 'artwork', kind: 'circle', layer: 'top-silk', x: 5, y: -5, radius: 1, lineWidth: 0.2 };
+    board.boardShapes.push(outline, artwork);
+    const live = id => [...groups.values()].flatMap(group => group.children).filter(element => shapeOf.get(element) === id);
     for (const renderShapes of [true, false, true]) {
         renders.clear();
-        rebuild.call(board, { renderShapes });
+        board._renderPersistentObjects({ renderShapes });
         assert.equal(renders.get(outline.id), 1, 'Each rebuild renders the outline only once');
         assert.equal(renders.get(artwork.id) || 0, renderShapes ? 1 : 0);
-        assert.equal([...elements].filter(element => element.id === outline.id).length, 1,
+        assert.equal(live(outline.id).length, 1,
             'A rebuild must not orphan the outline rendered before the other shapes');
-        assert.ok(elements.has(board._shapeElements.get(outline.id)), 'The visible outline remains registered');
+        assert.equal(live(outline.id)[0], board._shapeElements.get(outline.id), 'The visible outline remains registered');
     }
     board._boardOutlineDrawn = false;
     renders.clear();
-    rebuild.call(board);
+    board._renderPersistentObjects();
     assert.equal(renders.get(outline.id), 1, 'An outline not drawn by the dedicated path still renders');
-    outline.geometry = 'polygon-with-inserted-node';
-    renderShape(board, outline);
-    assert.equal(elements.size, 2, 'Editing replaces the outline without leaving its old geometry behind');
-    assert.equal([...elements].some(element => element.geometry === 'rectangle'), false);
+    const rectanglePath = live(outline.id)[0].getAttribute('d');
+    outline.kind = 'polygon';
+    outline.points.splice(1, 0, { x: 10, y: 2 });
+    renderBoardShape(board, outline);
+    assert.equal(live(outline.id).length + live(artwork.id).length, 2,
+        'Editing replaces the outline without leaving its old geometry behind');
+    assert.notEqual(live(outline.id)[0].getAttribute('d'), rectanglePath);
 }
 
 let sourceRevision = 0;
@@ -127,12 +157,10 @@ assert.equal(delayed.is3DDirty(), false, 'A successful retry acknowledges the la
 assert.deepEqual(settled.map(item => [item.revision, item.applied]), [[2, false], [1, true], [2, true]]);
 console.log('PASS: visible-view refresh, deferred 3D catch-up, coalescing, retry, and reentrant invalidation');
 
+const { createBoard3DSyncScheduler } = await import('../src/pcb/modules/board3d.js');
 const source = readFileSync(new URL('../src/pcb/modules/board3d.js', import.meta.url), 'utf8');
-const scheduleStart = source.indexOf('    let syncFrame = 0;');
-const scheduleEnd = source.indexOf('    // Public hook', scheduleStart);
-assert.ok(scheduleStart >= 0 && scheduleEnd > scheduleStart);
-const cleanup = source.match(/if \(syncFrame\) \{ window.cancelAnimationFrame\(syncFrame\); syncFrame = 0; \}/);
-assert.ok(cleanup, 'Closing the view must cancel the pending animation frame');
+assert.match(source, /panel\.closed = true;[\s\S]{0,200}syncScheduler\.cancel\(\);/,
+    'Closing the view must cancel the pending animation frame');
 const frames = new Map();
 const panel = { closed: false, hidden: false, view: '3d' };
 const app = {};
@@ -143,22 +171,22 @@ const scheduledSync = createBoardViewSync({
     refresh3D() { refreshed.push(revision); },
     refresh2D() {},
 });
-const { schedule, cancel } = new Function('window', 'panel', 'app', 'viewSync', 'surfaceBuilder',
-    'isPictureCopperRefreshPending', 'isFillRefreshScheduled', 'isFillRefreshPending', 'refreshStatus',
-    `${source.slice(scheduleStart, scheduleEnd)}\nreturn { schedule: scheduleSync, cancel() { ${cleanup[0]} } };`)(
-    {
+const builderInvalidations = [];
+const { schedule, cancel } = createBoard3DSyncScheduler({
+    app, panel, viewSync: scheduledSync,
+    surfaceBuilder: { invalidate(options) { builderInvalidations.push(options); } },
+    win: {
         requestAnimationFrame(callback) {
             frames.set(++frameCount, callback);
             return frameCount;
         },
         cancelAnimationFrame(frame) { frames.delete(frame); },
     },
-    panel, app, scheduledSync, { invalidate() {} },
-    isPictureCopperRefreshPending, isFillRefreshScheduled, isFillRefreshPending, refreshStatus,
-);
-assert.match(source.slice(scheduleStart, scheduleEnd),
-    /surfaceBuilder\.invalidate\(\{ cancelActive: true \}\)/,
-    'Committed edits preempt obsolete 3D worker jobs');
+});
+schedule();
+assert.deepEqual(builderInvalidations, [{ cancelActive: true }], 'Committed edits preempt obsolete 3D worker jobs');
+cancel();
+frameCount = 0;
 const fireFrame = () => {
     assert.equal(frames.size, 1);
     const [frame, callback] = frames.entries().next().value;
