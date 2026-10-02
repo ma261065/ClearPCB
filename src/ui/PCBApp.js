@@ -26,6 +26,8 @@ import { DrcPresentation } from '../pcb/modules/drc-presentation.js';
 import { resolveDrcPairMarker } from '../pcb/modules/drc.js';
 import { scheduleDrcRefresh, runDrcNow, invalidateDrcRefresh, disposeDrcRefresh } from '../pcb/modules/drc-refresh.js';
 import { cancelPcbPosePreviews, disposePcbPropertyEditors, hasPcbEditInProgress } from '../pcb/modules/edit-lifecycle.js';
+import { dispatchPcbPointerMove } from '../pcb/modules/pcb-interaction-routing.js';
+import { isPcbDrawing } from '../pcb/modules/pcb-interactions.js';
 import { runPcbDeleteAction, runPcbEscapeAction, runPcbHistoryAction, runPcbNudgeAction, savePcbProject } from '../pcb/modules/editor-actions.js';
 import { PCB_CROSSHAIR_TOOLS, cancelPcbDrawingMode, preparePcbRibbonTransition } from '../pcb/modules/tool-lifecycle.js';
 import { buildCopperObstacles } from '../pcb/modules/copper-obstacles.js';
@@ -46,7 +48,6 @@ import {
     cancelVertexDrag,
     trackPointerTouchesLayer,
     startViaDrag,
-    updateViaDrag,
     finishViaDrag,
     hitTestTrackNode,
     findSplittableTrackEdge,
@@ -101,7 +102,7 @@ import {
     beginTextPropertyPreview,
     finishTextPropertyPreview,
 } from '../pcb/modules/text-commands.js';
-import { shapeDrawClick, updateShapeDrawPreview, cancelShapeDraw, finishPolygonDraw, finishLineDraw, finishShapeDrawAtPoint, hitTestBoardShape, setBoardShapeHover, selectBoardShape, startBoardShapeDrag, handleBoardShapeDrag, endBoardShapeDrag, showBoardShapeProperties, showBoardShapeToolProperties, refreshBoardShapeToolLayer, resolveShapeDrawLayer, boardShapeCopperCuts, renderBoardShape, hitTestBoardShapeVertex, showBoardShapeContextMenu, dismissBoardShapeContextMenu, captureBoardShapeState, applyShapeSnapshot } from '../pcb/modules/board-shapes.js';
+import { shapeDrawClick, cancelShapeDraw, finishPolygonDraw, finishLineDraw, finishShapeDrawAtPoint, hitTestBoardShape, setBoardShapeHover, selectBoardShape, startBoardShapeDrag, endBoardShapeDrag, showBoardShapeProperties, showBoardShapeToolProperties, refreshBoardShapeToolLayer, resolveShapeDrawLayer, boardShapeCopperCuts, renderBoardShape, hitTestBoardShapeVertex, showBoardShapeContextMenu, dismissBoardShapeContextMenu, captureBoardShapeState, applyShapeSnapshot } from '../pcb/modules/board-shapes.js';
 import { ModifyBoardShapeCommand } from '../pcb/modules/shape-commands.js';
 import { shapeOutline, normalizeShapeCopperMode, boardShapeRemovalPathD, boardShapeBounds } from '../pcb/modules/board-shape-geometry.js';
 import { hitTestPcbSelectionAnchor, renderPcbSelectionAnchors } from '../pcb/modules/selection-anchors.js';
@@ -120,7 +121,6 @@ import {
     pointInBoxSelection,
     beginGroupDrag,
     getGroupPreview,
-    scheduleGroupDrag,
     endGroupDrag,
     deleteBoxSelection,
 } from '../pcb/modules/box-select.js';
@@ -131,7 +131,6 @@ import {
     finishSelectionInteraction,
     selectionInteractionCursor,
     placeFloatingSelectionInteraction,
-    updateSelectionInteraction,
 } from '../pcb/modules/selection-interaction.js';
 import { getPcbSelection, getPcbSelectionEntries, getPcbSelectionHits, isPcbSelected, setPcbSelection, syncPcbSelection } from '../pcb/modules/selection-registry.js';
 import { measureText as measureStrokeText, stringToPolylines } from '../pcb/modules/stroke-font.js';
@@ -159,7 +158,6 @@ import '../pcb/modules/pcb-text-selection.js';
 import { isRefTextLocked } from '../pcb/modules/ref-text-selection.js';
 import {
     startFillDraw,
-    updateFillDraw,
     addFillWaypoint,
     finishFillDraw,
     cancelFillDraw,
@@ -1413,52 +1411,8 @@ export default class PCBApp {
                 } else if (PCB_CROSSHAIR_TOOLS.has(this.currentTool)) {
                     this._updateCursorCrosshair(this._screenToWorld(e));
                 }
-            } else if (this._boardOutlineResize) {
-                updateBoardOutlineResize(this, this._screenToWorld(e));
-            } else if (this._pasteDrop) {
-                this._updatePasteDrop(this._screenToWorld(e));
-            } else if (updateSelectionInteraction(this, this._screenToWorld(e))) {
-                svg.style.cursor = selectionInteractionCursor(this);
-            } else if (this._drag) {
-                this._scheduleDragUpdate(e);
-            } else if (this._groupDrag) {
-                scheduleGroupDrag(this, this._screenToWorld(e));
-            } else if (this._textDrag) {
-                this._handleTextDrag(e);
-            } else if (this._shapeDrag) {
-                const worldPos = this._screenToWorld(e);
-                const draggingVertex = this._shapeDrag.mode === 'vertex';
-                handleBoardShapeDrag(this, worldPos);
-                if (draggingVertex) this._updateCursorCrosshair(worldPos);
-                refreshBoxSelectionHighlights(this);
-            } else if (this._refDrag) {
-                this._handleRefDrag(e);
-            } else if (this._vertexDrag) {
-                // Preserve click-to-refine selection without treating a drag as a click.
-                if (this._vertexDragDownScreen) {
-                    const ddx = e.clientX - this._vertexDragDownScreen.x;
-                    const ddy = e.clientY - this._vertexDragDownScreen.y;
-                    if (Math.hypot(ddx, ddy) > 3) this._vertexDrag.userDragged = true;
-                }
-                updateVertexDrag(this, this._screenToWorld(e));
-                this._updateVertexDragCrosshair();
-            } else if (this._viaDrag) {
-                updateViaDrag(this, this._screenToWorld(e));
-            } else if (this._fillDrag) {
-                this._handleFillDrag(this._screenToWorld(e));
-            } else if (this._trackDraw) {
-                updateTrackDraw(this, this._screenToWorld(e));
-                if (this._trackDraw?.snap) {
-                    this._updateCursorCrosshair({ x: this._trackDraw.snap.x, y: this._trackDraw.snap.y });
-                }
-            } else if (this._fillDraw) {
-                updateFillDraw(this, this._screenToWorld(e));
-                if (this._fillDraw?.snap) {
-                    this._updateCursorCrosshair({ x: this._fillDraw.snap.x, y: this._fillDraw.snap.y });
-                }
-            } else if (this._shapeDraw) {
-                updateShapeDrawPreview(this, this._screenToWorld(e));
-                this._updateCursorCrosshair(this._screenToWorld(e));
+            } else if (dispatchPcbPointerMove(this, e)) {
+                // An in-progress interaction consumed the move; see pcb-interactions.js.
             } else if (this.currentTool === 'select') {
                 // A pending/active marquee owns the move; only fall back to
                 // hover hit-testing when no box-select is in progress.
@@ -6401,7 +6355,7 @@ export default class PCBApp {
         if (!this._autorouter) this._autorouter = new AutorouterSession({
             readBoard: () => ({
                 active: this._active !== false,
-                editing: hasPcbEditInProgress(this) || !!(this._trackDraw || this._fillDraw || this._shapeDraw),
+                editing: hasPcbEditInProgress(this) || isPcbDrawing(this),
                 model: this.pcbDocument, placements: this.placements, netlist: this.netlist,
                 undo: this.history.undoStack, redo: this.history.redoStack,
                 rules: this._getRoutingParams(),

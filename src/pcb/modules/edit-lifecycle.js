@@ -1,13 +1,12 @@
 import { finishSelectionInteraction } from './selection-interaction.js';
-import { cancelGroupDrag } from './box-select.js';
 import { cancelPcbPaste } from './pcb-paste.js';
-import { endBoardShapeDrag, finishBoardShapeRotationPreview, getBoardShapeRotationPreview } from './board-shapes.js';
+import { finishBoardShapeRotationPreview, getBoardShapeRotationPreview } from './board-shapes.js';
 import { endBoardOutlineResize, finishBoardDimensionPreview } from './board-outline-resize.js';
-import { cancelVertexDrag, cancelViaDrag } from './track-drag.js';
-import { endFillEdit } from './copper-fill-edit.js';
 import { finishPadRotationPreview } from './pad-commands.js';
 import { disposeFillRefresh } from './fill-refresh.js';
 import { disposeDrcRefresh } from './drc-refresh.js';
+import { hasPcbGesture } from './pcb-interactions.js';
+import { cancelPcbPointerGestures } from './pcb-interaction-routing.js';
 
 const PROPERTY_EDITORS = [
     '_textPropertyBinding', '_componentProperties', '_padPropertyBinding', '_viaPropertyBinding',
@@ -31,10 +30,7 @@ export function cancelPcbPropertyPreview(app) {
  * @param {import('../../ui/PCBApp.js').default} app
  */
 export function hasPcbInteractionInProgress(app) {
-    return !!(app._drag || app._refDrag || app._textDrag || app._groupDrag
-        || app._shapeDrag || app._vertexDrag || app._viaDrag || app._fillDrag
-        || app._pasteDrop || app._textEdit || app._boardOutlineResize
-        || app._pcbSelectionInteraction || app._rotationHandleDrag);
+    return hasPcbGesture(app);
 }
 
 /** @param {import('../../ui/PCBApp.js').default} app */
@@ -74,18 +70,10 @@ export function cancelPcbPosePreviews(app) {
     endBoardOutlineResize(app, false);
     finishBoardDimensionPreview(app);
 
-    // The selection state machine owns every adapter kind and gesture mode.
-    finishSelectionInteraction(app, false);
-    // Direct pointer paths may exist without a selection-state wrapper.
-    if (app._shapeDrag) endBoardShapeDrag(app, false);
-    if (app._vertexDrag) cancelVertexDrag(app);
+    // The selection state machine owns every adapter kind and gesture mode;
+    // direct pointer paths may exist without a selection-state wrapper.
+    cancelPcbPointerGestures(app);
     finishBoardShapeRotationPreview(app);
-    if (app._groupDrag?.posePreview) cancelGroupDrag(app);
-    if (app._drag) app._endDrag(false);
-    if (app._refDrag) app._endRefDrag(false);
-    if (app._textDrag) app._endTextDrag(false);
-    if (app._viaDrag) cancelViaDrag(app);
-    if (app._fillDrag) endFillEdit(app, false);
     finishPadRotationPreview(app);
     if (app._drcPending) app._scheduleDRC();
 }

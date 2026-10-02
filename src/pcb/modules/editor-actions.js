@@ -8,6 +8,7 @@ import { getPcbSelection, getPcbSelectionEntries } from './selection-registry.js
 import { getSelectedTrack, getSelectedVia, clearTrackSelection, deleteSelectedTrack } from './track-select.js';
 import { canEditFill, deleteFocusedFillPart } from './copper-fill-edit.js';
 import { resetPcbTool } from './tool-lifecycle.js';
+import { isPcbDrawing } from './pcb-interactions.js';
 
 /**
  * Delete the current refinement or selection, retaining drawing/paste ownership
@@ -15,7 +16,7 @@ import { resetPcbTool } from './tool-lifecycle.js';
  * @param {import('../../ui/PCBApp.js').default} app
  */
 export function runPcbDeleteAction(app) {
-    if (app._active === false || app._trackDraw || app._fillDraw || app._shapeDraw) return false;
+    if (app._active === false || isPcbDrawing(app)) return false;
     if (app._pasteDrop) { app._cancelPasteDrop(); return true; }
     if (app._groupDrag) app._cancelPosePreviews();
     app._boardShapePropertyBinding?.cancel();
@@ -45,7 +46,7 @@ export function runPcbDeleteAction(app) {
  */
 export function runPcbNudgeAction(app, key) {
     if (app._active === false || app.currentTool !== 'select'
-        || app._trackDraw || app._fillDraw || app._shapeDraw
+        || isPcbDrawing(app)
         || hasPcbInteractionInProgress(app) || app._boxSelectArm
         || app._boxSelectActive || app.viewport.isPanning) return false;
     const selected = getPcbSelectionEntries(app);
@@ -155,7 +156,7 @@ export function runPcbEscapeAction(app) {
  * @param {'undo'|'redo'} action
  */
 export function runPcbHistoryAction(app, action) {
-    if (app._active === false || app._trackDraw || app._fillDraw || app._shapeDraw) return false;
+    if (app._active === false || isPcbDrawing(app)) return false;
     if (app._pasteDrop) {
         app._cancelPasteDrop();
         return true;

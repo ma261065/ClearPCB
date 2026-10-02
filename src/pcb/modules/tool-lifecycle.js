@@ -1,3 +1,5 @@
+import { isPcbDrawing } from './pcb-interactions.js';
+
 export const PCB_SHAPE_TOOLS = new Set(['line', 'circle', 'arc', 'rect', 'polygon']);
 export const PCB_CROSSHAIR_TOOLS = new Set(['track', 'via', 'pad', 'text', 'fill', ...PCB_SHAPE_TOOLS]);
 
@@ -46,8 +48,7 @@ export function selectPcbTool(app, tool) {
 
 /** @param {import('../../ui/PCBApp.js').default} app */
 export function cancelPcbDrawingMode(app) {
-    if (!PCB_CROSSHAIR_TOOLS.has(app.currentTool)
-        && !app._trackDraw && !app._fillDraw && !app._shapeDraw && !app._textEdit) return false;
+    if (!PCB_CROSSHAIR_TOOLS.has(app.currentTool) && !isPcbDrawing(app) && !app._textEdit) return false;
     if (app._textEdit) app._endTextInlineEdit(false);
     app._cancelTrackDraw();
     app._cancelFillDraw();

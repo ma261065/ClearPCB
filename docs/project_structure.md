@@ -151,6 +151,19 @@ Property-panel rebuilding and document replacement share the same disposal
 routine; deactivation retains reusable property controls after cancellation.
 Cleanup errors propagate and unresolved editors continue to block snapshots.
 
+`pcb/modules/pcb-interactions.js` is the one list of in-progress editor fields
+(`_drag`, `_trackDraw`, `_pcbSelectionInteraction`, …) in pointer-move priority,
+with each field's category (`gesture` or `drawing`) and whether it blocks export.
+`hasPcbInteractionInProgress`, `isPcbDrawing` and the fabrication-snapshot guard
+derive from it. It has no imports so worker-loaded export code can use it.
+`pcb/modules/pcb-interaction-routing.js` holds each field's pointer-move and
+pose-cancel handler. Its mousemove dispatcher is deliberately straight-line code
+for speed (`node tools/bench-pointer-dispatch.mjs`); `test-pcb-interaction-registry`
+proves it follows the table's priority, and fails if a new `_…Drag`, `_…Draw`,
+`_…Drop`, `_…Resize`, `_…Edit` or `_…Interaction` field is assigned without
+being registered. At most one pointer drag is active at a time; the selection
+gesture may wrap one, and drawing sessions persist across other gestures.
+
 Image rotation and dimension number controls retain their DOM nodes during
 focused native `input`/`change` steps. Commits update the displayed numeric
 values in place rather than rebuilding the panel and losing keyboard focus;
