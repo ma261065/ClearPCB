@@ -121,6 +121,12 @@ cross-tool concerns (paste drop, floating previews, ribbon tab, inline text
 commit, double-click edit, right-button bookkeeping, pan). It then hands a
 primary press to the active tool's `_press…Tool` method through
 `PCB_TOOL_PRESS_HANDLERS`; `test-pcb-pointer-press` checks that routing.
+`_pressSelectTool` is a priority chain of phase methods, each returning whether
+it handled the press: the shared selection interaction, Ctrl/Cmd shape toggling,
+an active box selection, continuing the current selection, then selecting a new
+target. Component presses use `_beginComponentDrag`, the same start as the
+selection adapter, so locked placements never enter drag state
+(`test-pcb-select-press`).
 
 Image rotation and dimension number controls retain their DOM nodes during
 focused native `input`/`change` steps. Commits update the displayed numeric

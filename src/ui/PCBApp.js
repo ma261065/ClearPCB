@@ -1329,14 +1329,23 @@ export default class PCBApp {
     }
 
     /**
-     * Left-click with select tool: hit-test for a track/via first
-     * (smaller targets win when they overlap a component), then
-     * fall back to component / board-outline selection.
+     * Left-click with the select tool, in priority order: the shared selection
+     * interaction, Ctrl/Cmd shape toggling, an active box selection, continuing
+     * the current selection, then selecting what is under the pointer (tracks and
+     * vias before shapes, text and components, since smaller targets win).
      */
     _pressSelectTool(e, worldPos, selectedGroupHit) {
-        const svg = this.viewport.svg;
         const additiveSelection = e.ctrlKey || e.metaKey;
+        if (this._pressSelectionInteraction(e, worldPos, additiveSelection)) return;
+        if (this._pressToggleShape(worldPos, additiveSelection)) return;
+        if (this._pressBoxSelection(worldPos, selectedGroupHit)) return;
+        if (this._pressCurrentSelection(e, worldPos)) return;
+        this._pressNewTarget(e, worldPos);
+    }
 
+    /** Hand the press to the shared adapter controller (anchors, rotation, overlap cycling). */
+    _pressSelectionInteraction(e, worldPos, additiveSelection) {
+        const svg = this.viewport.svg;
         // Rectangle, arc, and circle selection is owned by the shared
         // adapter controller. Other PCB entities stay on their legacy
         // paths until their adapters implement the same contract.
@@ -1345,9 +1354,13 @@ export default class PCBApp {
             this._hoverComponent(null);
             this._hideNetTooltip();
             if (this._pcbSelectionInteraction) svg.style.cursor = selectionInteractionCursor(this);
-            return;
+            return true;
         }
+        return false;
+    }
 
+    /** Ctrl/Cmd-click toggles a board shape in the multi-selection. */
+    _pressToggleShape(worldPos, additiveSelection) {
         // Ctrl/Cmd-click mirrors the schematic editor's additive
         // selection. Promote the current single shape first, then
         // toggle the clicked shape in the marquee selection set.
@@ -1358,7 +1371,7 @@ export default class PCBApp {
                 const previousShape = getPcbSelection(this, 'shape')[0] || null;
                 if (!hasMultiSelection && previousShape?.id === shapeHit.id) {
                     selectBoardShape(this, null);
-                    return;
+                    return true;
                 }
                 if (!hasMultiSelection && previousShape && previousShape.id !== shapeHit.id) {
                     toggleBoxShapeSelection(this, previousShape);
@@ -1366,10 +1379,15 @@ export default class PCBApp {
                 selectBoardShape(this, null);
                 toggleBoxShapeSelection(this, shapeHit);
                 this._hideNetTooltip();
-                return;
+                return true;
             }
         }
+        return false;
+    }
 
+    /** Edit or drag an active box selection, or drop it when the press misses it. */
+    _pressBoxSelection(worldPos, selectedGroupHit) {
+        const svg = this.viewport.svg;
         // Box-selection group drag: clicking on any member of an
         // active multi-selection moves the whole group together.
         // Clicking elsewhere drops the multi-selection and falls
@@ -1387,7 +1405,7 @@ export default class PCBApp {
                 this._hoverComponent(null);
                 this._hideNetTooltip();
                 svg.style.cursor = 'grabbing';
-                return;
+                return true;
             }
             if (selectedGroupHit) {
                 // Clear the hover halo before dragging: hover updates
@@ -1399,11 +1417,16 @@ export default class PCBApp {
                 beginGroupDrag(this, worldPos);
                 this._hideNetTooltip();
                 svg.style.cursor = 'grabbing';
-                return;
+                return true;
             }
             clearBoxSelection(this);
         }
+        return false;
+    }
 
+    /** Continue dragging the selected fill, track, via or shape; otherwise release it. */
+    _pressCurrentSelection(e, worldPos) {
+        const svg = this.viewport.svg;
         // Continue interacting with an already-selected fill: grab a
         // vertex or drag the whole region without re-clicking.
         const selectedFill = getPcbSelection(this, 'fill')[0] || null;
@@ -1412,7 +1435,7 @@ export default class PCBApp {
                 setHoverHighlight(this, null);
                 this._hideNetTooltip();
                 svg.style.cursor = 'grabbing';
-                return;
+                return true;
             }
         }
         // Any other click drops the current fill selection (it may be
@@ -1440,7 +1463,7 @@ export default class PCBApp {
                 this._vertexDragDownScreen = { x: e.clientX, y: e.clientY };
                 this._updateVertexDragCrosshair();
                 svg.style.cursor = 'grabbing';
-                return;
+                return true;
             }
         }
         // Same for a selected via: clicking on the via begins a
@@ -1451,7 +1474,7 @@ export default class PCBApp {
                 setHoverHighlight(this, null);
                 this._hideNetTooltip();
                 svg.style.cursor = 'grabbing';
-                return;
+                return true;
             }
         }
         // Same for a selected free-standing board shape.
@@ -1464,7 +1487,7 @@ export default class PCBApp {
                     setHoverHighlight(this, null);
                     this._hideNetTooltip();
                     svg.style.cursor = 'grabbing';
-                    return;
+                    return true;
                 }
             }
         }
@@ -1477,7 +1500,12 @@ export default class PCBApp {
         if (selectedTrack) {
             commitCollinearCleanup(this, selectedTrack);
         }
+        return false;
+    }
 
+    /** Select (and start dragging) the topmost target under the pointer, or arm a box select. */
+    _pressNewTarget(e, worldPos) {
+        const svg = this.viewport.svg;
         const trackHit = hitTestTrack(this, worldPos);
         if (trackHit) {
             this._hoverComponent(null);
@@ -1555,64 +1583,7 @@ export default class PCBApp {
             this._selectComponent(hit);
             this._selectBoardOutline(false);
             this._showComponentProperties(hit);
-            const pl = this.placements.get(hit);
-            if (pl) {
-                // Clear the hover net-highlight before dragging: hover
-                // updates are suppressed while a drag is active, so a
-                // leftover halo would otherwise sit at the component's
-                // original position the whole drag.
-                setHoverHighlight(this, null);
-                this._hoverComponent(null);
-                this._hideNetTooltip();
-                this._drag = {
-                    compId: hit,
-                    startWorld: worldPos,
-                    startPos: { x: pl.x, y: pl.y },
-                    // Nets this component participates in. Only these
-                    // move during the drag, so the live ratsnest
-                    // rebuild is restricted to them (incremental mode)
-                    // instead of recomputing the whole board each frame.
-                    nets: this._netsForComponent(hit),
-                };
-                // Defer the expensive derived overlays (copper pours +
-                // clearance halos) until the drag ends; they're rebuilt
-                // once in _endDrag. Live ratsnest still updates.
-                setDragOverlaysDeferred(this, true);
-                // Hide only the DRAGGED component's clearance halos for
-                // the duration of the drag — its pad halos would track
-                // the component (forcing per-frame repaints of that
-                // geometry) and its connected-track halos would freeze
-                // stale. Every other component's halos stay visible so
-                // the user can still judge clearances while placing.
-                // _endDrag rebuilds the whole overlay at the drop point.
-                if (this._clearancesVisible) {
-                    const g = this._padHaloGroups?.get(hit);
-                    if (g) g.style.display = 'none';
-                    // Also hide the halos of the nets this component
-                    // moves: their bonded tracks/vias shift mid-drag,
-                    // so the deferred (not-recomputed) halo would
-                    // otherwise sit stranded at the old track position.
-                    const ov = this._layerGroups.get('clearance-overlay');
-                    if (ov) {
-                        for (const net of this._drag.nets) {
-                            for (const el of ov.querySelectorAll(`.debug-clearance[data-net="${CSS.escape(net)}"]`)) {
-                                /** @type {SVGElement} */ (el).style.display = 'none';
-                            }
-                        }
-                        // Promote the (now-static) clearance overlay to
-                        // its own GPU compositing layer for the drag.
-                        // Otherwise every frame's board-wide mutations
-                        // (ratsnest rebuild, bonded-track re-render)
-                        // invalidate the overlapping halo geometry and
-                        // force the browser to repaint thousands of
-                        // non-scaling-stroke vectors — the real per-
-                        // frame cost. On its own layer the overlay just
-                        // composites; it never repaints.
-                        ov.style.willChange = 'transform';
-                    }
-                }
-                svg.style.cursor = 'grabbing';
-            }
+            if (this._beginComponentDrag(hit, worldPos)) svg.style.cursor = 'grabbing';
         } else if (this._hitTestBoardOutline(worldPos)) {
             this._selectComponent(null);
             this.selectFill(null);
@@ -4581,6 +4552,9 @@ export default class PCBApp {
     _beginComponentDrag(compId, worldPos) {
         const pl = this.placements.get(compId);
         if (!pl || pl.locked) return false;
+        // Clear the hover net-highlight before dragging: hover updates are
+        // suppressed while a drag is active, so a leftover halo would otherwise
+        // sit at the component's original position the whole drag.
         setHoverHighlight(this, null);
         this._hoverComponent(null);
         this._hideNetTooltip();
@@ -4588,10 +4562,16 @@ export default class PCBApp {
             compId,
             startWorld: worldPos,
             startPos: { x: pl.x, y: pl.y },
+            // Only these nets move, so the live ratsnest rebuild is restricted
+            // to them instead of recomputing the whole board each frame.
             nets: this._netsForComponent(compId),
         };
+        // Copper pours and clearance halos are rebuilt once in _endDrag.
         setDragOverlaysDeferred(this, true);
         if (this._clearancesVisible) {
+            // Hide only the dragged component's pad halos and the halos of the
+            // nets it moves (their bonded tracks shift mid-drag); every other
+            // halo stays visible for judging clearances while placing.
             const group = this._padHaloGroups?.get(compId);
             if (group) group.style.display = 'none';
             const overlay = this._layerGroups.get('clearance-overlay');
@@ -4601,6 +4581,8 @@ export default class PCBApp {
                         /** @type {SVGElement} */ (element).style.display = 'none';
                     }
                 }
+                // Promote the now-static overlay to its own compositing layer so
+                // per-frame board mutations don't repaint thousands of halo vectors.
                 overlay.style.willChange = 'transform';
             }
         }
