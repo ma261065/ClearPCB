@@ -1,5 +1,4 @@
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
 import { PcbDocument } from '../src/core/PcbDocument.js';
 import { isBoardViewRefreshSuspended } from '../src/pcb/modules/refresh-state.js';
 globalThis.window = { addEventListener() {} };
@@ -15,20 +14,11 @@ const { boardOutlineHandles, renderBoardOutlineHandles, beginBoardOutlineResize,
 const { PCB_LAYERS } = await import('../src/pcb/modules/layers.js');
 const { prepareFabricationSnapshot } = await import('../src/pcb/modules/fabrication-snapshot.js');
 const commands = [];
-const source = readFileSync(new URL('../src/ui/PCBApp.js', import.meta.url), 'utf8');
-const syncStart = source.indexOf('    _syncBoardOutlineInputs() {');
-const syncEnd = source.indexOf('\n    /**', syncStart);
-assert.ok(syncStart >= 0 && syncEnd > syncStart);
-const { getPropertyEditor } = await import('../src/pcb/modules/property-editors.js');
-const syncInputs = new Function('getPropertyEditor',
-    `return ({ ${source.slice(syncStart, syncEnd)} })._syncBoardOutlineInputs;`)(getPropertyEditor);
+// The real methods, run against this test's minimal editors.
+const syncInputs = PCBApp.prototype._syncBoardOutlineInputs;
 {
     const { boardBoundary } = await import('../src/shared/pcb/board-outline.js');
-    const fitStart = source.indexOf('    _fitToContent() {');
-    const fitEnd = source.indexOf('\n    _bindRibbonTabs()', fitStart);
-    assert.ok(fitStart >= 0 && fitEnd > fitStart);
-    const fit = new Function('boardBoundary',
-        `return ({ ${source.slice(fitStart, fitEnd)} })._fitToContent;`)(boardBoundary);
+    const fit = PCBApp.prototype._fitToContent;
     const helper = { childNodes: [{}], getBBox() { return { x: -10000, y: -10000, width: 20000, height: 20000 }; } };
     const outlines = [
         { kind: 'rect', points: [{ x: 120, y: 40 }, { x: 180, y: 40 }, { x: 180, y: 70 }, { x: 120, y: 70 }] },

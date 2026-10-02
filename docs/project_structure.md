@@ -194,6 +194,9 @@ state snapshots, used by generic modify commands.
 - `node tools/bench-pointer-dispatch.mjs` — PCB pointer-move routing cost.
 - `node tools/bench-pcb-hit-test.mjs [scale]` — PCB selection sync and pointer hit
   query cost on a large synthetic board.
+- Tests call real functions; editor methods run on `tests/pcb-editor-fixture.mjs` or
+  via `PCBApp.prototype.method.call(fixture)`. `test-source-text-ratchet` lists the
+  legacy tests that still evaluate sliced source text; the list only shrinks.
 
 ## Coding & Tooling Conventions
 

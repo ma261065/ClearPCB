@@ -1,5 +1,4 @@
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
 import { serializeGridSettings, restoreGridSettings, bindViewportControls, updateGridDropdown } from '../src/shared/ui/viewport.js';
 import { Viewport } from '../src/core/Viewport.js';
 import { snapToGridLines } from '../src/core/grid-snap.js';
@@ -170,21 +169,23 @@ assert.deepEqual(snap(closeToGrid), closeToGrid, 'Hidden grid does not attract m
 console.log('PASS grid settings, screen-space grid magnet, controls, and autosave dirtiness');
 
 const { bindPcbControls } = await import('../src/pcb/modules/controls.js');
-const source = readFileSync(new URL('../src/ui/PCBApp.js', import.meta.url), 'utf8');
-const start = source.indexOf('    _ensureViewport() {');
-const end = source.indexOf('\n    }', start) + '\n    }'.length;
-assert.ok(start >= 0 && end > start);
+const { pcbEditorFixture } = await import('./pcb-editor-fixture.mjs');
 let creations = 0;
 class TestViewport {
     constructor() {
         creations++;
         Object.assign(this, editor().viewport);
-        this.svg = { addEventListener() {} };
+        this.svg = { addEventListener() {}, style: {} };
     }
     updateTheme() {}
 }
-const ensureViewport = new Function('Viewport', 'restoreGridSettings',
-    `return ({${source.slice(start, end)}})._ensureViewport;`)(TestViewport, restoreGridSettings);
+/** A real PCB editor with a headless viewport and the canvas wiring it does not need. */
+function attachedEditor(pcbDocument, markDirty) {
+    return pcbEditorFixture({ pcbDocument, viewport: null, canvasContainer: {},
+        _createViewport: () => new TestViewport(),
+        _bindMouseEvents() {}, _createLayerGroups() {}, _applyLayerPrefsToRender() {}, _updateViewportStatus() {},
+        _updateCursorForTool() {}, _markDirty: markDirty });
+}
 for (const controlsFirst of [true, false]) {
     const controls = new Map(['pcbGridSize', 'pcbGridStyle', 'pcbUnits', 'pcbShowGrid', 'pcbSnapToGrid']
         .map(id => [id, control()]));
@@ -194,9 +195,7 @@ for (const controlsFirst of [true, false]) {
     const settings = { gridSize: 0.123456, gridStyle: 'dots', units: 'inch', gridVisible: false, snapToGrid: false };
     pcbDocument.load({ stackup: defaultPcbStackup(), settings });
     let dirty = 0;
-    const attached = { pcbDocument, viewport: null, canvasContainer: {}, _ensureViewport: ensureViewport,
-        _bindMouseEvents() {}, _createLayerGroups() {}, _applyLayerPrefsToRender() {}, _updateViewportStatus() {},
-        _markDirty() { dirty++; } };
+    const attached = attachedEditor(pcbDocument, () => { dirty++; });
     if (controlsFirst) bindPcbControls(attached);
     attached._ensureViewport();
     assert.deepEqual(serializeGridSettings(attached.viewport), { ...settings, gridSize: 0.127 },
@@ -236,9 +235,7 @@ for (const [id, property, value, field] of [
     pcbDocument.load({ stackup: defaultPcbStackup(),
         settings: { gridSize: 0.123456, gridStyle: 'lines', units: 'mm', gridVisible: true, snapToGrid: false } });
     let dirty = 0;
-    const attached = { pcbDocument, viewport: null, canvasContainer: {}, _ensureViewport: ensureViewport,
-        _bindMouseEvents() {}, _createLayerGroups() {}, _applyLayerPrefsToRender() {}, _updateViewportStatus() {},
-        _markDirty() { dirty++; } };
+    const attached = attachedEditor(pcbDocument, () => { dirty++; });
     bindPcbControls(attached);
     const target = controls.get(id);
     target[property] = value;

@@ -1,7 +1,5 @@
 import assert from 'node:assert/strict';
 import { PcbDocument } from '../src/core/PcbDocument.js';
-import { readFileSync } from 'node:fs';
-import { bindPictureRefreshHold, schedulePictureCopperRefresh } from '../src/pcb/modules/picture-refresh.js';
 import { isPictureCopperRefreshPending } from '../src/pcb/modules/refresh-state.js';
 
 const eventTarget = () => {
@@ -17,19 +15,21 @@ const eventTarget = () => {
     };
 };
 globalThis.window = eventTarget();
+const element = () => ({ style: {}, dataset: {}, classList: { add() {}, remove() {}, toggle() {} },
+    setAttribute() {}, getAttribute: () => null, appendChild: child => child, addEventListener() {} });
 globalThis.document = { createElementNS() {
     const attributes = new Map();
     return { style: {}, setAttribute(name, value) { attributes.set(name, value); },
         getAttribute(name) { return attributes.get(name); }, appendChild() {}, remove() {} };
-} };
+}, createElement: element, body: element(), documentElement: { getAttribute: () => 'dark' },
+getElementById: () => null, querySelector: () => null, querySelectorAll: () => [], addEventListener() {} };
+globalThis.localStorage = { getItem: () => null, setItem() {}, removeItem() {} };
 const { ModifyBoardShapeCommand } = await import('../src/pcb/modules/shape-commands.js');
 const { cloneShapeGeometry } = await import('../src/pcb/modules/board-shapes.js');
 const { EditTextCommand, AddTextCommand, RemoveTextCommand } = await import('../src/pcb/modules/text-commands.js');
-const source = readFileSync(new URL('../src/ui/PCBApp.js', import.meta.url), 'utf8');
-const start = source.indexOf('    _bindStrokeTextProps(items, model, spec) {');
-const end = source.indexOf('\n    /**', start);
-const bindText = new Function('bindPictureRefreshHold', 'schedulePictureCopperRefresh',
-    `return ({ ${source.slice(start, end)} })._bindStrokeTextProps;`)(bindPictureRefreshHold, schedulePictureCopperRefresh);
+const { default: PCBApp } = await import('../src/ui/PCBApp.js');
+// The real method, run against this test's minimal editor.
+const bindText = PCBApp.prototype._bindStrokeTextProps;
 const originalSetTimeout = globalThis.setTimeout;
 const originalClearTimeout = globalThis.clearTimeout;
 const timers = new Map();

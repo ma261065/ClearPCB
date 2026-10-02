@@ -1,25 +1,31 @@
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
 
 const stored = new Map();
 globalThis.localStorage = {
     getItem(key) { return stored.get(key) ?? null; },
     setItem(key, value) { stored.set(key, value); },
+    removeItem(key) { stored.delete(key); },
 };
 globalThis.window = new EventTarget();
 globalThis.HTMLElement = class extends EventTarget {};
 const buttons = new Map(['themeToggle', 'pcbThemeToggle'].map(id => [id, new HTMLElement()]));
 const attributes = new Map();
+const element = () => ({ style: {}, dataset: {}, classList: { add() {}, remove() {}, toggle() {} },
+    setAttribute() {}, getAttribute: () => null, appendChild: child => child, addEventListener() {} });
 globalThis.document = {
     getElementById(id) { return buttons.get(id) || null; },
     documentElement: {
         setAttribute(key, value) { attributes.set(key, value); },
         removeAttribute(key) { attributes.delete(key); },
+        getAttribute(key) { return attributes.get(key) ?? null; },
     },
+    body: element(), createElement: element, createElementNS: element,
+    querySelector: () => null, querySelectorAll: () => [], addEventListener() {},
 };
 const shared = await import('../src/shared/ui/theme.js');
 const { bindThemeToggle, toggleTheme, loadTheme } = await import('../src/ui/modules/theme.js');
-const { getPcbSelection, setPcbSelection } = await import('../src/pcb/modules/selection-registry.js');
+const { setPcbSelection } = await import('../src/pcb/modules/selection-registry.js');
+const { pcbEditorFixture } = await import('./pcb-editor-fixture.mjs');
 let schematicUpdates = 0;
 let pcbUpdates = 0;
 let symbols = 0;
@@ -30,21 +36,16 @@ const schematic = {
     _loadTheme() { loadTheme(this); },
 };
 bindThemeToggle(schematic);
-const source = readFileSync(new URL('../src/ui/PCBApp.js', import.meta.url), 'utf8');
-const start = source.indexOf('    _bindThemeToggle() {');
-const end = source.indexOf('\n    //', start);
-assert.ok(start >= 0 && end > start);
-const bindPCB = new Function('toggleSharedTheme', 'syncThemeToggleButtons', 'getPcbSelection',
-    `return ({ ${source.slice(start, end)} })._bindThemeToggle;`)(shared.toggleTheme, shared.syncThemeToggleButtons, getPcbSelection);
 const highlights = [];
-const pcb = {
+const pcb = pcbEditorFixture({
     themeToggle: buttons.get('pcbThemeToggle'),
     viewport: { updateTheme() { pcbUpdates++; } },
     placements: new Map([['part', {}]]),
     _refreshRefHighlight(id) { highlights.push(id); },
-};
+});
 setPcbSelection(pcb, [{ kind: 'reftext', object: 'part' }]);
-bindPCB.call(pcb);
+highlights.length = 0;
+pcb._bindThemeToggle();
 schematicUpdates = 0;
 for (const [index, id] of ['pcbThemeToggle', 'themeToggle', 'themeToggle', 'pcbThemeToggle'].entries()) {
     buttons.get(id).dispatchEvent(new Event('click'));

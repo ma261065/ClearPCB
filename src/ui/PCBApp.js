@@ -731,10 +731,15 @@ export default class PCBApp {
         return started;
     }
 
+    /** Create the canvas viewport; headless tests substitute their own. */
+    _createViewport(container) {
+        return new Viewport(container);
+    }
+
     _ensureViewport() {
         if (this.viewport || !this.canvasContainer) return;
 
-        this.viewport = new Viewport(this.canvasContainer);
+        this.viewport = this._createViewport(this.canvasContainer);
 
         this.viewport.onMouseMove = (worldPos, snappedPos) => {
             if (!this._active) return;
