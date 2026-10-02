@@ -29,10 +29,12 @@ failure or hard baseline failure fails the job. Track/via-count differences rema
 visible soft warnings, not evidence that routing quality is unchanged.
 
 Its **Type check** job installs TypeScript 5.9.3 and runs `node tools/typecheck.mjs`,
-which writes per-file error counts to the job summary. Until
-`tools/typecheck-baseline.json` is committed it only reports; once committed, a file
-whose error count rises fails the job. To create or lower the baseline, run
-`node tools/typecheck.mjs --write-baseline` with that TypeScript version installed.
+which writes per-file error counts to the job summary and compares them with the
+committed `tools/typecheck-baseline.json`: a file whose error count rises fails the
+job. After fixing errors, lower the baseline with
+`node tools/typecheck.mjs --write-baseline` (TypeScript 5.9.3; locally, install it
+outside the repo and set `TSC=/path/to/typescript/lib/tsc.js`). Vendored modules
+are not checked: `assets/vendor/fflate.module.d.ts` declares the fflate API in use.
 
 **Publish Stable Release** independently runs the same gate against the checked-out
 release tag before packaging, uploading the downloadable ZIP, or deploying.

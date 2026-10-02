@@ -186,7 +186,7 @@ export function parseProjectJSON(text, sourceName) {
 /**
  * Promise wrapper around fflate's async `zip`.
  * @param {Record<string, Uint8Array>} files
- * @returns {Promise<Uint8Array>}
+ * @returns {Promise<Uint8Array<ArrayBuffer>>}
  */
 function _zip(files) {
     return new Promise((resolve, reject) => {

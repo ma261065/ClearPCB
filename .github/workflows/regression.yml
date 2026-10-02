@@ -28,7 +28,7 @@ jobs:
         run: node tools/regression.mjs
 
   typecheck:
-    # Report only until tools/typecheck-baseline.json exists; then it ratchets.
+    # Ratchets against tools/typecheck-baseline.json: a file whose error count rises fails.
     name: Type check
     runs-on: ubuntu-latest
     timeout-minutes: 10
