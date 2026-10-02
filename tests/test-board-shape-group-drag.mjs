@@ -1,6 +1,7 @@
 /** Headless regression tests for board-shape group-drag geometry snapshots. */
 import { PcbDocument } from '../src/core/PcbDocument.js';
 import { areDragOverlaysDeferred } from '../src/pcb/modules/refresh-state.js';
+import { getBoardShapeNodeFocus, getBoardShapeSegmentFocus } from '../src/pcb/modules/board-shape-state.js';
 
 globalThis.window = { addEventListener() {} };
 const timers = new Map();
@@ -211,7 +212,7 @@ for (const shape of [
     endBoardShapeDrag(dragApp, false);
     startBoardShapeDrag(dragApp, shape, { x: 5, y: 0 }, null, { allowSegment: true });
     expect(`${shape.kind} second-click drag selects its segment`, dragApp._shapeDrag.mode, 'segment');
-    expect(`${shape.kind} stores the refined segment`, dragApp._selectedBoardShapeSegment,
+    expect(`${shape.kind} stores the refined segment`, getBoardShapeSegmentFocus(dragApp),
         { shapeId: shape.id, segment: 0 });
     endBoardShapeDrag(dragApp, false);
 }
@@ -331,7 +332,7 @@ for (const shape of [
     const result = adapter.endAnchorDrag(true, { moved: false });
     expect('PCB node click refines selection without floating movement', {
         floating: !!result?.floating,
-        selectedNode: app._selectedBoardShapeNode,
+        selectedNode: getBoardShapeNodeFocus(app),
         dragActive: !!app._shapeDrag,
     }, {
         floating: false,
@@ -465,7 +466,7 @@ for (const kind of ['polygon', 'rect']) {
         expect(`${kind} split starts`, openBoardShape(app, shape, 2), true);
         const displayed = app._shapeDrag.shape;
         expect(`${kind} split floats the endpoint without node selection`,
-            [app._pcbSelectionInteraction?.mode, app._selectedBoardShapeNode], ['floating-anchor', null]);
+            [app._pcbSelectionInteraction?.mode, getBoardShapeNodeFocus(app)], ['floating-anchor', null]);
         expect(`${kind} split preserves every original segment`, displayed.points,
             [{ x: 10, y: 10 }, { x: 0, y: 10 }, { x: 0, y: 0 }, { x: 10, y: 0 }, { x: 10, y: 10 }]);
         expect(`${kind} split preserves widths`, displayed.segmentWidths, { 1: 0.7, 2: 0.4 });

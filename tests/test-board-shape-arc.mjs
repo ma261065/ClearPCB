@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { setBoardShapeSegmentFocus, setShapeDefaults } from '../src/pcb/modules/board-shape-state.js';
 
 const pcbShapeGeometry = await import('../src/shared/pcb/board-shape-geometry.js');
 const {
@@ -336,11 +337,12 @@ for (const reversed of [false, true]) {
 for (const layer of ['hole', 'top-copper', 'top-mask']) {
     const preview = document.createElementNS();
     preview.setAttribute('fill-opacity', '1');
-    updateShapeDrawPreview({
+    const previewApp = {
         _shapeDraw: { kind: 'line', layer, points: [{ x: 0, y: 0 }, { x: 10, y: 0 }], preview },
-        _shapeDefaults: { filled: true },
         _snapToGrid: (point) => point,
-    }, { x: 10, y: 5 });
+    };
+    setShapeDefaults(previewApp, { filled: true });
+    updateShapeDrawPreview(previewApp, { x: 10, y: 5 });
     check(`${layer} line preview stays unfilled between its endpoints`,
         preview.getAttribute('fill') === 'none'
         && preview.getAttribute('fill-opacity') === null
@@ -348,7 +350,6 @@ for (const layer of ['hole', 'top-copper', 'top-mask']) {
 }
 const app = {
     boardShapes: [],
-    _shapeDefaults: {},
     activeLayer: 'top-silk',
     _shapeIdCounter: 1,
     _snapToGrid: (point) => ({ x: Math.round(point.x), y: Math.round(point.y) }),
@@ -356,6 +357,7 @@ const app = {
     history: { execute(command) { app.boardShapes.push(command.shape); } },
     viewport: { scale: 100, gridSize: 1, setCrosshair() {} },
 };
+setShapeDefaults(app, {});
 
 shapeDrawClick(app, 'arc', { x: 0, y: 0 });
 check('PCB shape ghost matches schematic preview styling',
@@ -481,15 +483,16 @@ check('existing rectangle populates the PCB Properties panel',
     propertyItems.innerHTML.includes('pcbPropShapeLayer')
     && propertyTabs.at(-1) === 'pcb-properties');
 let segmentTitle = '';
-showBoardShapeProperties({
+const segmentApp = {
     boardShapes: [roundedRemovalRect],
     placements: new Map(), tracks: [], vias: [], texts: new Map(),
     viewport: { scale: 1 },
-    _selectedBoardShapeSegment: { shapeId: roundedRemovalRect.id, segment: 0 },
     _pcbPropsItems() { return propertyItems; },
     _setPcbPropsTitle(title) { segmentTitle = title; },
     _setActiveRibbonTab() {},
-}, roundedRemovalRect);
+};
+setBoardShapeSegmentFocus(segmentApp, { shapeId: roundedRemovalRect.id, segment: 0 });
+showBoardShapeProperties(segmentApp, roundedRemovalRect);
 check('selected PCB segment uses the Line Segment Properties title', segmentTitle === 'Line Segment');
 const holeLinePropertyItems = { innerHTML: '' };
 showBoardShapeProperties({

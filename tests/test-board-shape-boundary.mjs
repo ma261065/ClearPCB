@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { PcbDocument } from '../src/core/PcbDocument.js';
 import { getPropertyEditor } from '../src/pcb/modules/property-editors.js';
 import { isPictureCopperRefreshPending } from '../src/pcb/modules/refresh-state.js';
+import { getBoardShapeSegmentFocus } from '../src/pcb/modules/board-shape-state.js';
 
 function shapeModel(...shapes) {
     const pcbDocument = new PcbDocument();
@@ -167,7 +168,7 @@ const { updateSelectionInteraction, finishSelectionInteraction, placeFloatingSel
         }
         assert.equal(shape.kind, kind);
         assert.equal(title, label);
-        assert.deepEqual(app._selectedBoardShapeSegment, { shapeId: shape.id, segment: 0 });
+        assert.deepEqual(getBoardShapeSegmentFocus(app), { shapeId: shape.id, segment: 0 });
         assert.equal(shape.net, 'GND');
         assert.equal(shape.lineWidth, 0.7);
         assert.deepEqual(shape.segmentBulges, {});
@@ -273,7 +274,7 @@ console.log('PASS standalone conversion uses native shape kinds, menus, properti
     assert.equal(setBoardShapeSegmentType(app, shape, 0, 'line'), true);
     assert.equal(shape.segmentBulges[0], undefined);
     assert.deepEqual(shape.points, [{ x: 0, y: 0 }, { x: 20, y: 0 }]);
-    assert.equal(app._selectedBoardShapeSegment, null, 'Merged segments do not retain stale indices');
+    assert.equal(getBoardShapeSegmentFocus(app), null, 'Merged segments do not retain stale indices');
     commands.at(-1).undo();
     assert.equal(shape.points.length, 3);
     assert.deepEqual(shape.segmentBulges, { 0: 0.25 });

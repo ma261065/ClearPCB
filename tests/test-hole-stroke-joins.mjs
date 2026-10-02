@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { distanceToSegment, pointInPolygon } from '../src/core/geometry.js';
 import { boardShapeRemovalPathD, resolveBoardShapeGeometry } from '../src/shared/pcb/board-shape-geometry.js';
+import { setHoveredBoardShape } from '../src/pcb/modules/board-shape-state.js';
 
 globalThis.window = { addEventListener() {} };
 const element = (localName = 'g') => ({
@@ -83,7 +84,7 @@ for (const shape of shapes) {
         for (const layer of ['hole', 'top-copper', 'top-silk', 'hole']) {
             const target = { ...shape, layer,
                 points: shape.points.map(point => ({ x: point.x + 24, y: point.y - 13 })) };
-            app._hoveredShape = state === 'hovered' ? target : null;
+            setHoveredBoardShape(app, state === 'hovered' ? target : null);
             const previous = app._shapeElements.get(target.id);
             renderBoardShape(app, target);
             assert.equal(group.children.length, 1, 'redraw/layer changes do not leave stale clip definitions');

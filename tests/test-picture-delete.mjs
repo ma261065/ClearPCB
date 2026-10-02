@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { PcbDocument } from '../src/core/PcbDocument.js';
 import { pictureShape } from '../src/shared/pcb/picture-raster.js';
+import { getHoveredBoardShape } from '../src/pcb/modules/board-shape-state.js';
 
 const element = () => ({
     children: [], parentNode: null, style: {}, attributes: new Map(),
@@ -31,7 +32,7 @@ const halo = element();
 overlay.appendChild(halo);
 app._boardShapeClearanceCache.set(image.id, { elements: [halo] });
 renderBoardShape(app, image, { liveDrag: true });
-assert.equal(app._hoveredShape, image, 'Normal redraw preserves hover');
+assert.equal(getHoveredBoardShape(app), image, 'Normal redraw preserves hover');
 assert.equal(overlay.children.length, 1, 'Normal redraw preserves the cached halo');
 assert.equal(layer.children.length, 1);
 const deletion = new RemoveBoardShapeCommand(app, image);
@@ -41,7 +42,7 @@ assert.equal(app.boardShapes, pcbDocument.boardShapes, 'Deletion retains the can
 assert.equal(layer.children.length, 0);
 assert.equal(overlay.children.length, 0);
 assert.equal(app._boardShapeClearanceCache.has(image.id), false);
-assert.equal(app._hoveredShape, null);
+assert.equal(getHoveredBoardShape(app), null);
 assert.equal(getPcbSelectionEntries(app).length, 0);
 setBoardShapeHover(app, null);
 assert.equal(layer.children.length, 0, 'Pointer movement cannot resurrect a deleted image');

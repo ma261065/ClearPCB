@@ -15,11 +15,8 @@
     "_lastCrosshairWorld",
     "_pcbPropsItems",
     "_refreshPcbSelectionHighlights",
-    "_selectedBoardShapeNode",
-    "_selectedBoardShapeSegment",
     "_setActiveRibbonTab",
     "_setPcbPropsTitle",
-    "_shapeDefaults",
     "_shapeDrag",
     "_shapeDraw",
     "_showPcbMultiSelectionProperties"
@@ -30,18 +27,13 @@
     "_deferredShapeCopperCuts",
     "_ensureCopperRemovalHatch",
     "_hasCopperCuts",
-    "_hoveredShape",
-    "_netHoveredShapeIds",
     "_pcbSelectionInteraction",
     "_pendingShapeClearances",
     "_refreshBoardShapeClearance",
     "_refreshPcbSelectionHighlights",
     "_rotationHandleDrag",
     "_scheduleRemovalHatchRender",
-    "_selectedBoardShapeNode",
-    "_selectedBoardShapeSegment",
     "_setActiveRibbonTab",
-    "_shapeDefaults",
     "_shapeDrag",
     "_shapeDraw",
     "_shapeElements",
@@ -206,8 +198,6 @@
     "_layerGroups"
   ],
   "src/pcb/modules/path-edit.js": [
-    "_selectedBoardShapeNode",
-    "_selectedBoardShapeSegment",
     "_trackEdit"
   ],
   "src/pcb/modules/pcb-export.js": [
@@ -292,7 +282,6 @@
     "_drcSelectedId",
     "_drcViolations",
     "_ensureViewport",
-    "_hoveredShape",
     "_isDirty",
     "_removeTextElement",
     "_renderText",
@@ -338,9 +327,7 @@
     "_fillEdit",
     "_groupDrag",
     "_pcbSelection",
-    "_refOverlay",
-    "_selectedBoardShapeNode",
-    "_selectedBoardShapeSegment"
+    "_refOverlay"
   ],
   "src/pcb/modules/shape-commands.js": [
     "_board3d",

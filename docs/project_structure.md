@@ -105,8 +105,9 @@ service instead of adding a new private access.
 
 - State shared by PCB modules lives in its owning module behind functions, usually
   a WeakMap keyed by the editor, rather than as `app._x` fields:
-  `property-editors.js` (Properties bindings) and `refresh-state.js` (pour/picture
-  refresh status and refresh suspensions).
+  `property-editors.js` (Properties bindings), `refresh-state.js` (pour/picture
+  refresh status and refresh suspensions) and `board-shape-state.js` (board-shape
+  node/segment focus, hover and tool defaults).
 - In-progress interaction fields (`_drag`, `_trackDraw`, …) are listed once in
   `pcb-interactions.js`; `pcb-interaction-routing.js` holds their pointer-move and
   cancel handlers. `test-pcb-interaction-registry` fails if a new one is unregistered.
@@ -114,8 +115,9 @@ service instead of adding a new private access.
   `PCB_TOOL_PRESS_HANDLERS` in `PCBApp.js`.
 - PCB modules call the editor through `pcb-editor-api.js` services; the access
   ratchet lists the private members they still use.
-- `pcb-interactions.js`, `property-editors.js` and `refresh-state.js` have no
-  imports, because worker-loaded export and DRC code reads them.
+- `pcb-interactions.js`, `property-editors.js`, `refresh-state.js` and
+  `board-shape-state.js` have no imports, because worker-loaded export and DRC
+  code (or low-level selection plumbing) reads them.
 - Entity IDs come from `core/id-allocator.js`; board shapes use
   `PcbDocument.shapeIdCounter`.
 

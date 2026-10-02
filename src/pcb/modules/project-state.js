@@ -11,6 +11,7 @@ import { clearPcbSelectionAnchors } from './selection-anchors.js';
 import { refreshDesignSettings } from './design-settings.js';
 import { PcbDocument } from '../../core/PcbDocument.js';
 import { disposePcbPropertyEditors } from './edit-lifecycle.js';
+import { setHoveredBoardShape } from './board-shape-state.js';
 
 /** @param {any} app */
 export function serializePcb(app) {
@@ -49,7 +50,7 @@ export function loadPcb(app, data, prepared = preparePcb(data)) {
     for (const id of app._shapeElements.keys()) removeBoardShapeElement(app, id);
     app.pcbDocument.clear();
     app._resetDRC?.();
-    app._hoveredShape = null;
+    setHoveredBoardShape(app, null);
     app._shapeDraw = null;
     app._shapeDrag = null;
     app.updateCopperCuts?.();

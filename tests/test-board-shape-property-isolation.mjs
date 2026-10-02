@@ -14,6 +14,7 @@ import { PCB_LAYERS } from '../src/pcb/modules/layers.js';
 import { beginPcbAnchorInteraction, updateSelectionInteraction, finishSelectionInteraction } from '../src/pcb/modules/selection-interaction.js';
 import { getPropertyEditor } from '../src/pcb/modules/property-editors.js';
 import { areDragOverlaysDeferred } from '../src/pcb/modules/refresh-state.js';
+import { getBoardShapeNodeFocus, getBoardShapeSegmentFocus, setBoardShapeNodeFocus, setBoardShapeSegmentFocus } from '../src/pcb/modules/board-shape-state.js';
 
 let allocations = 0;
 class Element {
@@ -121,8 +122,8 @@ function fixture(kind, count = 1, unrelatedCount = 1, shapeLayer = 'top-copper')
     project.registerView('pcb', app);
     const adapters = shapes.map(shape => createBoardShapeSelectionAdapter(app, shape, shape.id));
     setPcbSelection(app, shapes.map(object => ({ kind: 'shape', object })));
-    if (kind === 'segmentWidth' || kind === 'segmentBulge') app._selectedBoardShapeSegment = { shapeId: shapes[0].id, segment: 0 };
-    if (kind === 'nodeRadius') app._selectedBoardShapeNode = { shapeId: shapes[0].id, index: 1 };
+    if (kind === 'segmentWidth' || kind === 'segmentBulge') setBoardShapeSegmentFocus(app, { shapeId: shapes[0].id, segment: 0 });
+    if (kind === 'nodeRadius') setBoardShapeNodeFocus(app, { shapeId: shapes[0].id, index: 1 });
     shapes.forEach(shape => renderBoardShape(app, shape));
     renderBoardShape(app, unrelated[0]);
     showBoardShapeProperties(app, shapes[0]);
@@ -147,7 +148,7 @@ for (const index of [0, 1]) for (const action of ['Delete', 'Backspace', 'contex
     const shape = shapes[0];
     shape.kind = 'line';
     shape.points = shape.points.slice(0, 2);
-    app._selectedBoardShapeNode = { shapeId: shape.id, index };
+    setBoardShapeNodeFocus(app, { shapeId: shape.id, index });
     let activeTab = 'pcb-properties';
     app._setActiveRibbonTab = tab => { activeTab = tab; };
     showBoardShapeProperties(app, shape);
@@ -158,8 +159,8 @@ for (const index of [0, 1]) for (const action of ['Delete', 'Backspace', 'contex
     assert.equal(fields.has('pcbPropShapeNodeX'), false, 'Deleted endpoint Properties must be removed');
     assert.equal(fields.has('pcbPropShapeNodeCornerRadius'), false);
     assert.equal(activeTab, 'pcb-home', 'Deleting a two-node line leaves Properties');
-    assert.equal(app._selectedBoardShapeNode, null);
-    assert.equal(app._selectedBoardShapeSegment, null);
+    assert.equal(getBoardShapeNodeFocus(app), null);
+    assert.equal(getBoardShapeSegmentFocus(app), null);
     assert.equal(app.history.undoStack.length, 1);
     app.history.undo();
     assert.ok(model.boardShapes.includes(shape));
@@ -173,7 +174,7 @@ for (const index of [0, 2]) {
     const shape = shapes[0];
     shape.kind = 'line';
     shape.points = shape.points.slice(0, 3);
-    app._selectedBoardShapeNode = { shapeId: shape.id, index };
+    setBoardShapeNodeFocus(app, { shapeId: shape.id, index });
     let activeTab = 'pcb-properties';
     app._setActiveRibbonTab = tab => { activeTab = tab; };
     showBoardShapeProperties(app, shape);
@@ -196,7 +197,7 @@ for (const [kind, points, bulges, expected] of [
     Object.assign(shapes[0], { kind, points, segmentBulges: bulges });
     const before = captureBoardShapeState(shapes[0]);
     for (const [index, showRadius] of expected.entries()) {
-        app._selectedBoardShapeNode = { shapeId: shapes[0].id, index };
+        setBoardShapeNodeFocus(app, { shapeId: shapes[0].id, index });
         showBoardShapeProperties(app, shapes[0]);
         assert.equal(fields.has('pcbPropShapeNodeCornerRadius'), showRadius, `${kind} node ${index}: radius is only for a corner`);
         assert.ok(fields.has('pcbPropShapeNodeX'), 'Non-corner nodes still expose their position');
@@ -217,7 +218,7 @@ for (const closed of [false, true]) for (const boundary of ['uniform', 'width-ch
     });
     const points = structuredClone(shape.points);
     const before = captureBoardShapeState(shape);
-    app._selectedBoardShapeNode = { shapeId: shape.id, index: 2 };
+    setBoardShapeNodeFocus(app, { shapeId: shape.id, index: 2 });
     showBoardShapeProperties(app, shape);
     assert.equal(PCBApp.prototype.handleKeyDown.call(app, { key: 'Delete' }), true);
     const expected = closed
@@ -582,7 +583,7 @@ for (const closed of [false, true]) for (const boundary of ['uniform', 'width', 
         if (boundary === 'curve') shape.segmentBulges[0] = 0.3;
         if (boundary === 'selected-width') shape.segmentWidths = { 1: 0.7 };
         shape.nodeCornerRadii = { 3: 0.8 };
-        app._selectedBoardShapeSegment = { shapeId: shape.id, segment: 1 };
+        setBoardShapeSegmentFocus(app, { shapeId: shape.id, segment: 1 });
         showBoardShapeProperties(app, shape);
         const points = structuredClone(shape.points), before = model.captureGeometry();
         let input = fields.get('pcbPropShapeBulge');
@@ -611,7 +612,7 @@ for (const closed of [false, true]) for (const boundary of ['uniform', 'width', 
         if (boundary === 'width') assert.equal(shape.segmentWidths[0], 0.7);
         if (boundary === 'selected-width') assert.equal(shape.segmentWidths[1], 0.7);
         assert.equal(fields.has('pcbPropShapeBulge'), false);
-        assert.deepEqual(app._selectedBoardShapeSegment,
+        assert.deepEqual(getBoardShapeSegmentFocus(app),
             boundary === 'selected-width' ? { shapeId: shape.id, segment: 1 } : null,
             'Merging indexed segments clears obsolete refinement');
         assert.equal(app.history.undoStack.length, 1);
@@ -633,7 +634,7 @@ for (const kind of ['arcBulge', 'segmentBulge']) for (const completion of ['fiel
         shape.kind = 'line';
         shape.points = [{ x: 0, y: 0 }, { x: 10, y: 0 }, { x: 20, y: 0 }, { x: 30, y: 0 }];
         shape.segmentBulges = { 1: 0.25 };
-        app._selectedBoardShapeSegment = { shapeId: shape.id, segment: 1 };
+        setBoardShapeSegmentFocus(app, { shapeId: shape.id, segment: 1 });
         showBoardShapeProperties(app, shape);
     }
     const before = model.captureGeometry(), width = shape.lineWidth;

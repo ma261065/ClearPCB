@@ -16,7 +16,7 @@ const dependencies = {
     removeTrackElements() {}, removeViaElements() {}, removePadElements() {},
     removeBoardShapeElement() {},
     clearTrackSelection() {},
-    resetPcbSelection() {}, syncPcbSelection() {}, clearPcbSelectionAnchors() {},
+    resetPcbSelection() {}, syncPcbSelection() {}, clearPcbSelectionAnchors() {}, setHoveredBoardShape() {},
     resetPanelPreview() {},
     renderPanelPreview(app) { previews.push({ app, settings: app.pcbDocument?.serializePanelization() }); },
     getBoardOutline: app => app.boardShapes.find(shape => shape.layer === 'board-outline'),

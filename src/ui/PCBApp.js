@@ -172,6 +172,7 @@ import {
     renderBoardOutlineHandles, hitTestBoardOutlineHandle,
     getBoardDimensionPreview, bindBoardDimensionProperties,
 } from '../pcb/modules/board-outline-resize.js';
+import { getBoardShapeNodeFocus, getBoardShapeSegmentFocus } from '../pcb/modules/board-shape-state.js';
 
 /**
  * On-screen size (CSS px) of a footprint's bounding box below which it is
@@ -385,19 +386,14 @@ export default class PCBApp {
         this._pcbClipboard = null;
         /** SVG <path> elements keyed by shape id for quick remove/replace. */
         this._shapeElements = new Map();
-        /** Board shape currently hovered in select mode, or null. */
-        this._hoveredShape = null;
+        // Board-shape hover, node/segment focus and tool defaults live in board-shape-state.js.
         /** Number of selectable PCB objects under the pointer. */
         this._overlapHitCount = 0;
-        /** Refined board-shape node selection for per-corner properties. */
-        this._selectedBoardShapeNode = null;
         /** Currently selected board shape, or null. */
         /** Active in-progress board-shape draw interaction, or null. */
         this._shapeDraw = null;
         /** Active board-shape drag: { id, startWorld, before } or null. */
         this._shapeDrag = null;
-        /** Defaults for the Shape tools. */
-        this._shapeDefaults = { lineWidth: 0.2 };
         /** Active paste-drop interaction (pasted items glued to cursor). */
         this._pasteDrop = null;
         /** Screen position where the current right-button pan began. */
@@ -539,8 +535,8 @@ export default class PCBApp {
             && !this._vertexDrag
             && ((selectedShape.length === 1
                 && ['line', 'rect', 'polygon'].includes(selectedShape[0]?.kind)
-                && this._selectedBoardShapeSegment?.shapeId !== selectedShape[0]?.id
-                && this._selectedBoardShapeNode?.shapeId !== selectedShape[0]?.id)
+                && getBoardShapeSegmentFocus(this)?.shapeId !== selectedShape[0]?.id
+                && getBoardShapeNodeFocus(this)?.shapeId !== selectedShape[0]?.id)
                 || (selectedTrack.length === 1 && this._trackEdit?.track !== canonicalTrack(this, selectedTrack[0])));
         const showHoleTip = rawTool === 'circle' && layer === 'hole';
         const showOverlapTip = rawTool === 'select' && this._overlapHitCount > 1;

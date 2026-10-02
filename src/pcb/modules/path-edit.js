@@ -1,6 +1,7 @@
 import { beginPcbAnchorInteraction } from './selection-interaction.js';
 import { findNearbyPad, resolveGridMagnetSnap } from './track-draw.js';
 import { resolvePathPoint, resolvePathTranslation } from '../../shapes/path-snap.js';
+import { setBoardShapeNodeFocus, setBoardShapeSegmentFocus } from './board-shape-state.js';
 export { pathMoveInteraction } from '../../shapes/path-interaction.js';
 
 export function beginPathSplit(app, adapter, anchorId, prepare) {
@@ -10,8 +11,8 @@ export function beginPathSplit(app, adapter, anchorId, prepare) {
         if (started) {
             prepare();
             if (adapter.kind === 'shape') {
-                app._selectedBoardShapeNode = null;
-                app._selectedBoardShapeSegment = null;
+                setBoardShapeNodeFocus(app, null);
+                setBoardShapeSegmentFocus(app, null);
             } else if (adapter.kind === 'track') app._trackEdit = null;
         }
         return started;

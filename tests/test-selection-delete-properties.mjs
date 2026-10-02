@@ -5,6 +5,7 @@ import { Track } from '../src/shapes/track.js';
 import { CopperFill } from '../src/shapes/copper-fill.js';
 import { captureBoardShapeState } from '../src/core/pcb-board-shapes.js';
 import { setPropertyEditor } from '../src/pcb/modules/property-editors.js';
+import { setBoardShapeNodeFocus, setBoardShapeSegmentFocus } from '../src/pcb/modules/board-shape-state.js';
 
 globalThis.window = { addEventListener() {} };
 globalThis.document = {
@@ -136,8 +137,8 @@ for (const dispatch of dispatches.slice(1)) {
     for (const focus of ['node', 'segment']) {
         const { app, shape, events } = fixture();
         const before = captureBoardShapeState(shape);
-        if (focus === 'node') app._selectedBoardShapeNode = { shapeId: shape.id, index: 1 };
-        else app._selectedBoardShapeSegment = { shapeId: shape.id, segment: 1 };
+        if (focus === 'node') setBoardShapeNodeFocus(app, { shapeId: shape.id, index: 1 });
+        else setBoardShapeSegmentFocus(app, { shapeId: shape.id, segment: 1 });
         assert.equal(dispatch(app), true);
         assert.equal(app.boardShapes.length, 1, 'Refinement deletes geometry, not the entire shape');
         assert.equal(app.boardShapes[0].points.length, focus === 'node' ? 3 : 4);

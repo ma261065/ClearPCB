@@ -12,6 +12,7 @@ import { finishSelectionInteraction } from '../src/pcb/modules/selection-interac
 import { prepareFabricationSnapshot } from '../src/pcb/modules/fabrication-snapshot.js';
 import { loadPcb } from '../src/pcb/modules/project-state.js';
 import { cancelPictureCopperRefresh } from '../src/pcb/modules/picture-refresh.js';
+import { getHoveredBoardShape } from '../src/pcb/modules/board-shape-state.js';
 
 let allocations = 0;
 class Element {
@@ -133,7 +134,7 @@ for (const layer of ['top-silk', 'bottom-silk', 'top-copper', 'bottom-copper']) 
             syncPcbSelection(app);
             assert.equal(getPcbSelection(app, 'shape')[0], copy);
             setBoardShapeHover(app, copy);
-            assert.equal(app._hoveredShape, shape, 'Hover retains canonical identity while rendering the copy');
+            assert.equal(getHoveredBoardShape(app), shape, 'Hover retains canonical identity while rendering the copy');
             renderBoardShape(app, shape, { liveDrag: true });
             assert.equal(app._shapeElements.get(shape.id).getAttribute('d'), boardShapeRemovalPathD(copy),
                 'Canonical render requests retain displayed geometry');

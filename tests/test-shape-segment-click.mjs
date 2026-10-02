@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { PcbDocument } from '../src/core/PcbDocument.js';
 import { areDragOverlaysDeferred, isBoardViewRefreshSuspended } from '../src/pcb/modules/refresh-state.js';
+import { getBoardShapeNodeFocus, getBoardShapeSegmentFocus, setBoardShapeNodeFocus, setBoardShapeSegmentFocus } from '../src/pcb/modules/board-shape-state.js';
 
 function shapeModel(shapes = [], tracks = []) {
     const pcbDocument = new PcbDocument();
@@ -65,13 +66,13 @@ for (const kinds of [['line'], ['polygon'], ['line', 'polygon']]) {
         }
         assert.equal(beginSelectionInteraction(app, { x: 1000, y: 1000 }, false), false,
             'A blank-canvas press reaches the deselection path');
-        app._selectedBoardShapeSegment = { shapeId: shapes[0].id, segment: 0 };
-        app._selectedBoardShapeNode = { shapeId: shapes[0].id, node: 0 };
+        setBoardShapeSegmentFocus(app, { shapeId: shapes[0].id, segment: 0 });
+        setBoardShapeNodeFocus(app, { shapeId: shapes[0].id, node: 0 });
         selectBoardShape(app, null);
         assert.deepEqual(getPcbSelection(app, 'shape'), [], 'Null shape selection removes all selected shapes from the registry');
         assert.deepEqual(getPcbSelection(app, 'track'), keepTrack ? [track] : [], 'Shape deselection preserves other selected kinds');
-        assert.equal(app._selectedBoardShapeSegment, null);
-        assert.equal(app._selectedBoardShapeNode, null);
+        assert.equal(getBoardShapeSegmentFocus(app), null);
+        assert.equal(getBoardShapeNodeFocus(app), null);
         selectBoardShape(app, null);
         assert.deepEqual(getPcbSelection(app), keepTrack ? [track] : [], 'Repeated deselection stays cleared');
         assert.deepEqual(shapes, before, 'Deselecting shapes does not change their geometry');
@@ -169,7 +170,7 @@ for (const commit of [true, false]) {
     selectBoardShape(app, shape);
     const overlay = document.createElementNS('', 'g');
     app.getLayerGroup = () => overlay;
-    app._selectedBoardShapeSegment = { shapeId: shape.id, segment: 0 };
+    setBoardShapeSegmentFocus(app, { shapeId: shape.id, segment: 0 });
     renderBoardShapeSegmentSelection(app);
     const path = overlay.children.at(-1).getAttribute('d');
     assert.match(path, /A/i, 'Arc selection uses a native SVG arc');
@@ -198,7 +199,7 @@ for (const kind of ['line', 'track']) {
             assert.ok(splitTrackNodeAndDrag(app, object, 'n1'));
         } else {
             selectBoardShape(app, object);
-            app._selectedBoardShapeNode = { shapeId: object.id, index: 1 };
+            setBoardShapeNodeFocus(app, { shapeId: object.id, index: 1 });
             assert.ok(openBoardShape(app, object, 1));
         }
         const state = app._pcbSelectionInteraction;
@@ -257,7 +258,7 @@ for (const kind of ['line', 'polygon', 'rect', 'track']) {
         getLayerGroup() { return null; }, _snapToGrid(point) { return point; },
         viewport: { scale: 100, setCrosshair() {}, hideCrosshair() {} },
         history: { execute(command) { command.execute(); } } };
-    const focusedNode = () => kind === 'track' ? app._trackEdit?.nodeId : app._selectedBoardShapeNode?.index;
+    const focusedNode = () => kind === 'track' ? app._trackEdit?.nodeId : getBoardShapeNodeFocus(app)?.index;
     const nodePosition = () => kind === 'track' ? object.nodes.get('n0') : object.points[0];
     if (kind === 'track') selectTrackOrVia(app, { type: 'track', track: object });
     else selectBoardShape(app, object);
@@ -405,7 +406,7 @@ for (const bulge of [0, 0.25]) {
         viewport: { scale: 100 }, _pcbPropsItems() { return { innerHTML: '' }; },
         history: { execute(command) { commands.push(command); command.execute(); } } };
     selectBoardShape(app, shape);
-    app._selectedBoardShapeSegment = { shapeId: shape.id, segment: 0 };
+    setBoardShapeSegmentFocus(app, { shapeId: shape.id, segment: 0 });
     const overlay = document.createElementNS('', 'g');
     overlay.querySelectorAll = selector => overlay.children.filter(
         child => (child.getAttribute('class') || '').split(' ').includes(selector.slice(1)));
@@ -493,7 +494,7 @@ for (const kind of ['line', 'polygon', 'rect', 'arc']) {
             assert.deepEqual(shape.nodeCornerRadii, { 1: 0, 2: 1 });
             overallCommand.execute();
             const nodeRadius = propertyInput(1);
-            app._selectedBoardShapeNode = { shapeId: shape.id, index: 1 };
+            setBoardShapeNodeFocus(app, { shapeId: shape.id, index: 1 });
             document.getElementById = id => id === 'pcbPropShapeNodeCornerRadius' ? nodeRadius : null;
             showBoardShapeProperties(app, shape);
             nodeRadius.fire('input');
@@ -564,7 +565,7 @@ for (const overall of [2, 3]) {
     selectBoardShape(app, shape);
     assert.ok(beginSelectionInteraction(app, shape.points[0], false));
     finishSelectionInteraction(app, true);
-    assert.deepEqual(app._selectedBoardShapeNode, { shapeId: shape.id, index: 0 });
+    assert.deepEqual(getBoardShapeNodeFocus(app), { shapeId: shape.id, index: 0 });
     assert.equal(app._pcbSelectionInteraction, null, 'A node click selects without starting floating placement');
     assert.equal(title, 'Line Node');
     assert.ok(items.innerHTML.includes('pcbPropShapeNodeX'));
@@ -638,7 +639,7 @@ for (const guideClick of [false, true]) {
     if (guideClick) assert.equal(boardShapeHitTest(shape, second, 0.1), false, 'Guide sample is outside the physical rounded stroke');
     assert.ok(beginSelectionInteraction(app, second, false), 'Second click on stroke or guide is consumed');
     finishSelectionInteraction(app, true);
-    assert.equal(app._selectedBoardShapeSegment?.segment, 0, 'Second click selects the segment');
+    assert.equal(getBoardShapeSegmentFocus(app)?.segment, 0, 'Second click selects the segment');
     assert.equal(adapter.getEditPath(), guide, 'Segment selection retains the complete straight node guide');
     const overlay = document.createElementNS();
     app.getLayerGroup = layer => layer === 'selection-overlay' ? overlay : null;
@@ -665,7 +666,7 @@ for (const kind of ['line', 'polygon']) {
             _pcbPropsItems() { return { innerHTML: '' }; }, _setPcbPropsTitle(value) { title = value; },
             history: { execute(command) { command.execute(); } } };
         selectBoardShape(app, shape);
-        app._selectedBoardShapeSegment = { shapeId: shape.id, segment: 0 };
+        setBoardShapeSegmentFocus(app, { shapeId: shape.id, segment: 0 });
         showBoardShapeProperties(app, shape);
         assert.equal(title, 'Arc Segment');
         const overlay = document.createElementNS();
@@ -683,7 +684,7 @@ for (const kind of ['line', 'polygon']) {
         const handle = getBoardShapeAnchors(shape).find(anchor => anchor.id === 'bulge:0');
         assert.ok(beginSelectionInteraction(app, handle, false), 'Rendered bulge handle starts a selection interaction');
         assert.equal(app._pcbSelectionInteraction?.mode, 'anchor');
-        assert.deepEqual(app._selectedBoardShapeSegment, { shapeId: shape.id, segment: 0 });
+        assert.deepEqual(getBoardShapeSegmentFocus(app), { shapeId: shape.id, segment: 0 });
         assert.equal(title, 'Arc Segment', 'Grabbing the bulge keeps segment properties');
         assert.equal(segmentHighlights().length, 1);
         const originalHighlight = segmentHighlights()[0];
@@ -697,7 +698,7 @@ for (const kind of ['line', 'polygon']) {
         showBoardShapeProperties(app, shape);
         assert.equal(title, 'Arc Segment', 'Refreshing properties during the drag keeps the segment');
         finishSelectionInteraction(app, commit);
-        assert.deepEqual(app._selectedBoardShapeSegment, { shapeId: shape.id, segment: 0 });
+        assert.deepEqual(getBoardShapeSegmentFocus(app), { shapeId: shape.id, segment: 0 });
         showBoardShapeProperties(app, shape);
         assert.equal(title, 'Arc Segment', 'Dropping or cancelling keeps segment properties');
         assert.equal(shape.segmentBulges[0], commit ? -0.5 : 0.25);
@@ -748,7 +749,7 @@ for (const [kind, zeroOffset] of ['arc', 'line', 'polygon'].flatMap(kind =>
         history: { execute(command) { commands.push(command); command.execute(); } } };
     try {
         selectBoardShape(app, shape);
-        if (kind !== 'arc') app._selectedBoardShapeSegment = { shapeId: shape.id, segment: 0 };
+        if (kind !== 'arc') setBoardShapeSegmentFocus(app, { shapeId: shape.id, segment: 0 });
         showBoardShapeProperties(app, shape);
         assert.equal(input.value, '0.25');
         const initialRebuilds = propertyRebuilds;

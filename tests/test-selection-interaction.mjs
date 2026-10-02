@@ -1,4 +1,5 @@
 /** Headless regression tests for shared PCB selection interaction state. */
+import { getBoardShapeSegmentFocus, setBoardShapeSegmentFocus } from '../src/pcb/modules/board-shape-state.js';
 
 globalThis.window = { addEventListener() {} };
 globalThis.document = { getElementById() { return null; }, querySelector() { return null; },
@@ -200,9 +201,9 @@ function expect(name, condition) {
         setPcbStatus() {},
     };
     setPcbSelection(app, [{ kind: 'shape', object: shape }]);
-    app._selectedBoardShapeSegment = { shapeId: shape.id, segment: 0 };
+    setBoardShapeSegmentFocus(app, { shapeId: shape.id, segment: 0 });
     clearPcbSelection(app);
-    expect('PCB shape deselection clears refined segment state', app._selectedBoardShapeSegment === null);
+    expect('PCB shape deselection clears refined segment state', getBoardShapeSegmentFocus(app) === null);
     expect('PCB shape deselection removes refined segment highlight', removed === 1);
 }
 

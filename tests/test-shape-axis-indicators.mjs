@@ -1,4 +1,5 @@
 /** Headless regression tests for Track-style generic-shape H/V/45 glow. */
+import { getBoardShapeSegmentFocus, setShapeDefaults } from '../src/pcb/modules/board-shape-state.js';
 
 globalThis.window = { addEventListener() {} };
 
@@ -306,7 +307,7 @@ for (const variableWidth of [false, true]) {
     adapter.endMove(true, { moved: false, startWorld });
     adapter.beginMove(startWorld, { alreadySelected: true });
     adapter.endMove(true, { moved: false, startWorld });
-    expect(`second click selects visible thick segment (variable width=${variableWidth})`, app._selectedBoardShapeSegment?.segment === 0);
+    expect(`second click selects visible thick segment (variable width=${variableWidth})`, getBoardShapeSegmentFocus(app)?.segment === 0);
 }
 
 for (const kind of ['arc', 'line']) {
@@ -549,10 +550,11 @@ for (const commit of [false, true]) {
     const layer = element('g');
     const app = {
         viewport: { scale: 20, shiftHeld: true }, activeLayer: 'top-silk',
-        _shapeDefaults: { lineWidth: 0.4 }, _shapeIdCounter: 0,
+        _shapeIdCounter: 0,
         getLayerGroup() { return layer; }, history: { execute() {} },
         _shapeDraw: { kind: 'rect', layer: 'top-silk', points: [{ x: 0, y: 0 }], preview: element('path') },
     };
+    setShapeDefaults(app, { lineWidth: 0.4 });
     updateShapeDrawPreview(app, { x: 10, y: 10 });
     expect('PCB square drawing displays all four sides on the correct layer', app._axisGlowResolved.length === 4
         && app._axisGlowResolved.every(({ segment }) => segment.square && segment.layerId === 'top-silk'));
@@ -684,10 +686,11 @@ for (const index of [0, 2]) {
 
 {
     const layer = element('g');
-    const app = { viewport: { scale: 20, shiftHeld: false, snapToGrid: false }, _shapeDefaults: { lineWidth: 0.4 },
+    const app = { viewport: { scale: 20, shiftHeld: false, snapToGrid: false },
         _snapToGrid(point) { return point; },
         getLayerGroup() { return layer; },
         _shapeDraw: { kind: 'line', layer: 'top-copper', points: [{ x: 0, y: 0 }, { x: 10, y: 3 }], preview: element('path') } };
+    setShapeDefaults(app, { lineWidth: 0.4 });
     updateShapeDrawPreview(app, { x: 20, y: 6.15 });
     expect('PCB drawing preview shows collinear continuation', app._axisGlowResolved.length === 2
         && app._axisGlowResolved.every(({ segment, dashKind }) => segment.collinear && dashKind === 'dotted'));

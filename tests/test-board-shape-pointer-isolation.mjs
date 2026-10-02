@@ -10,6 +10,7 @@ import { loadPcb } from '../src/pcb/modules/project-state.js';
 import { cancelPictureCopperRefresh } from '../src/pcb/modules/picture-refresh.js';
 import { PCB_LAYERS } from '../src/pcb/modules/layers.js';
 import { areDragOverlaysDeferred, isPictureCopperRefreshPending, setDragOverlaysDeferred } from '../src/pcb/modules/refresh-state.js';
+import { setBoardShapeNodeFocus } from '../src/pcb/modules/board-shape-state.js';
 
 let allocations = 0;
 class Element {
@@ -235,7 +236,7 @@ for (const mode of ['vertex', 'split']) {
     const before = model.captureGeometry();
     begin();
     handleBoardShapeDrag(app, target);
-    app._selectedBoardShapeNode = { shapeId: shape.id, index: 0 };
+    setBoardShapeNodeFocus(app, { shapeId: shape.id, index: 0 });
     assert.equal(deleteFocusedBoardShape(app), true);
     assert.equal(app._shapeDrag, null);
     assert.equal(app.history.undoStack.length, mode === 'split' ? 0 : 1);

@@ -37,6 +37,7 @@ import {
     shapeKindLabel,
     updateShapeDrawPreview,
 } from './board-shapes.js';
+import { getBoardShapeNodeFocus, getBoardShapeSegmentFocus, getShapeDefaults } from './board-shape-state.js';
 
 // ── Properties panel ─────────────────────────────────────────────────────────
 
@@ -82,7 +83,7 @@ function syncNetMenuSelection(menu, input) {
 export function showBoardShapeToolProperties(app, kind) {
         const items = app._pcbPropsItems?.();
         if (!items) return;
-        const defaults = app._shapeDefaults || (app._shapeDefaults = { lineWidth: 0.2 });
+        const defaults = getShapeDefaults(app);
         const currentLayer = app._shapeDraw?.layer || resolveShapeDrawLayer(app, app.activeLayer);
         if (!app._shapeDraw && currentLayer) app.activeLayer = currentLayer;
         const layerOptionsHtml = PCB_LAYERS
@@ -382,13 +383,13 @@ export function showBoardShapeProperties(app, shape) {
         return;
     }
     const selectedSegment = initialTargets.length === 1
-        && app._selectedBoardShapeSegment?.shapeId === shape.id
-        ? app._selectedBoardShapeSegment.segment
+        && getBoardShapeSegmentFocus(app)?.shapeId === shape.id
+        ? getBoardShapeSegmentFocus(app).segment
         : null;
     const selectedNode = initialTargets.length === 1
-        && app._selectedBoardShapeNode?.shapeId === shape.id
-        && shape.points?.[app._selectedBoardShapeNode.index]
-        ? app._selectedBoardShapeNode.index
+        && getBoardShapeNodeFocus(app)?.shapeId === shape.id
+        && shape.points?.[getBoardShapeNodeFocus(app).index]
+        ? getBoardShapeNodeFocus(app).index
         : null;
     const mixedKind = initialTargets.some((target) => target.kind !== initialTargets[0].kind);
     const segmentLabel = shape.kind === 'arc' || boardShapeSegmentBulge(shape, selectedSegment) ? 'Arc' : 'Line';
@@ -887,8 +888,8 @@ export function showBoardShapeProperties(app, shape) {
 export function syncShapeBulgeProperty(app, shape) {
     const input = /** @type {HTMLInputElement|null} */ (document.getElementById('pcbPropShapeBulge'));
     if (!input) return;
-    const segment = app._selectedBoardShapeSegment?.shapeId === shape.id
-        ? app._selectedBoardShapeSegment.segment : null;
+    const segment = getBoardShapeSegmentFocus(app)?.shapeId === shape.id
+        ? getBoardShapeSegmentFocus(app).segment : null;
     input.value = String(editableShapeBulge(shape, segment));
     formatNumberInput(input);
 }

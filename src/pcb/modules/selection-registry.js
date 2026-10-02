@@ -6,6 +6,7 @@
  */
 
 import { SelectionManager } from '../../core/SelectionManager.js';
+import { getBoardShapeNodeFocus, getBoardShapeSegmentFocus, setBoardShapeNodeFocus, setBoardShapeSegmentFocus } from './board-shape-state.js';
 
 const keyFor = (kind, object) => `${kind}:${kind === 'component' || kind === 'reftext' ? object : object.id}`;
 const adapterFactories = new Map();
@@ -79,22 +80,22 @@ function manager(app) {
         app._pcbSelection = new SelectionManager({
             getScale: () => app.viewport?.scale || 1,
             onSelectionChanged: (selected) => {
-                const segment = app._selectedBoardShapeSegment;
+                const segment = getBoardShapeSegmentFocus(app);
                 const segmentStillSelected = segment && selected.some(
                     (item) => item.kind === 'shape' && item.object?.id === segment.shapeId,
                 );
                 if (segment && !segmentStillSelected) {
-                    app._selectedBoardShapeSegment = null;
+                    setBoardShapeSegmentFocus(app, null);
                     const overlay = app.getLayerGroup?.('selection-overlay');
                     for (const element of [...(overlay?.querySelectorAll?.('.pcb-shape-segment-selection') || [])]) {
                         element.remove();
                     }
                 }
-                const node = app._selectedBoardShapeNode;
+                const node = getBoardShapeNodeFocus(app);
                 const nodeStillSelected = node && selected.some(
                     (item) => item.kind === 'shape' && item.object?.id === node.shapeId,
                 );
-                if (node && !nodeStillSelected) app._selectedBoardShapeNode = null;
+                if (node && !nodeStillSelected) setBoardShapeNodeFocus(app, null);
                 if (app._fillEdit && !selected.some(item => item.kind === 'fill'
                     && item.object?.id === app._fillEdit.fillId)) app._fillEdit = null;
                 app.setPcbStatus?.();

@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { getNetHoveredShapeIds } from '../src/pcb/modules/board-shape-state.js';
 
 function element(tag) {
     const attributes = new Map();
@@ -91,7 +92,7 @@ assert.equal(groups.get('selection-overlay').querySelectorAll('.pcb-track-hover'
     'hovering a via highlights every standalone pad on its net');
 assert.equal(groups.get('top-copper').querySelectorAll('.pcb-track-hover').length, 1,
     'numeric component pin identifiers still receive the net highlight');
-assert.deepEqual([...app._netHoveredShapeIds], ['shape-a'],
+assert.deepEqual([...getNetHoveredShapeIds(app)], ['shape-a'],
     'net-bearing copper shapes are included in net hover');
 assert.equal(app._shapeElements.get('shape-a').getAttribute('stroke'), shapeHoverColor(copperShape),
     'same-net copper shapes render with their hover color');
@@ -113,7 +114,7 @@ assert.equal(groups.get('top-copper').querySelectorAll('.pcb-track-hover').lengt
 setHoverHighlight(app, { type: 'shape', shape: copperShape });
 assert.equal(groups.get('vias').querySelectorAll('.pcb-track-hover').length, 1,
     'hovering a copper shape highlights the unselected vias on its net');
-assert.equal(app._netHoveredShapeIds.has(copperShape.id), true,
+assert.equal(getNetHoveredShapeIds(app).has(copperShape.id), true,
     'hovering a copper shape highlights same-net copper shapes');
 
 console.log('PASS: net hover remains active while an object is selected');
