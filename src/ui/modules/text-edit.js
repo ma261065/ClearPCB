@@ -179,7 +179,7 @@ export function endTextEdit(app, commit = true) {
         app.history.execute(command);
 
         // Sync field text back to component
-        _syncFieldToComponent(state.shape);
+        _syncFieldToComponent(app, state.shape);
     }
 
     // Refresh properties panel so it reflects the updated text
@@ -611,7 +611,7 @@ function measureCaretWithClone(app, el, textValue, caretIndex) {
 // ── field text helpers ───────────────────────────────────────────
 
 /** Sync a field Text shape's content back to its parent component or wire. */
-function _syncFieldToComponent(textShape) {
+function _syncFieldToComponent(app, textShape) {
     if (!textShape.parentComponent || !textShape.fieldKey) return;
     if (textShape.fieldKey === 'label') {
         if (textShape.parentComponent.type === 'wire') {
