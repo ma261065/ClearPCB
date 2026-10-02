@@ -330,7 +330,7 @@ export function openPanelizeDialog(app) {
     };
     const refresh = () => {
         for (const key of ['verticalTabsPerEdge', 'horizontalTabsPerEdge', 'verticalTabOffset', 'horizontalTabOffset', 'tabWidth', 'holeDiameter', 'holePitch']) {
-            const input = form.querySelector(`input[name="${key}"]`);
+            const input = /** @type {HTMLInputElement} */ (form.querySelector(`input[name="${key}"]`));
             input.disabled = select.value === 'vcut';
             if (key.endsWith('TabsPerEdge') || key.endsWith('TabOffset')) {
                 input.closest('label').style.display = select.value === 'vcut' ? 'none' : '';
@@ -366,10 +366,12 @@ export function openPanelizeDialog(app) {
     form.addEventListener('input', refresh);
     select.addEventListener('change', () => {
         if (select.value === 'vcut') {
-            for (const key of ['rowSpacing', 'columnSpacing']) form.querySelector(`input[name="${key}"]`).value = '2.00';
+            for (const key of ['rowSpacing', 'columnSpacing']) {
+                /** @type {HTMLInputElement} */ (form.querySelector(`input[name="${key}"]`)).value = '2.00';
+            }
         } else {
             for (const key of ['rowSpacing', 'columnSpacing']) {
-                const input = form.querySelector(`input[name="${key}"]`);
+                const input = /** @type {HTMLInputElement} */ (form.querySelector(`input[name="${key}"]`));
                 if (Number(input.value) < 1) input.value = '2';
             }
         }

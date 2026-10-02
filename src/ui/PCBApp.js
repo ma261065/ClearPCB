@@ -396,6 +396,18 @@ export default class PCBApp {
         this._shapeDraw = null;
         /** Active board-shape drag: { id, startWorld, before } or null. */
         this._shapeDrag = null;
+        /** Selected-track node/edge edit state (track-select.js), or null. */
+        this._trackEdit = null;
+        /** Active track vertex/edge drag (track-drag.js), or null. */
+        this._vertexDrag = null;
+        /** Active via drag (track-drag.js), or null. */
+        this._viaDrag = null;
+        /** Copper-fill outline being drawn, or null. */
+        this._fillDraw = null;
+        /** Active selection-anchor gesture (selection-interaction.js), or null. */
+        this._pcbSelectionInteraction = null;
+        /** Home-tab tool highlight sync, installed by bindPcbControls(). */
+        this._syncPcbHomeToolHighlight = null;
         /** Active paste-drop interaction (pasted items glued to cursor). */
         this._pasteDrop = null;
         /** Screen position where the current right-button pan began. */

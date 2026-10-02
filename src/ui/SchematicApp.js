@@ -127,6 +127,11 @@ export default class SchematicApp {
         this._selectedShapeSegment = null;
         /** Refined node selection for per-corner properties. */
         this._selectedShapeNode = null;
+        /** Number of selectable objects under the pointer (overlap cycling tip). */
+        this._overlapHitCount = 0;
+        /** Ribbon tab switcher and height keeper, installed by bindRibbon(). */
+        this._setActiveRibbonTab = null;
+        this._retainRibbonHeight = null;
         this._updateSelectableItems();
 
         // ── Tool / drawing state ─────────────────────────────────────

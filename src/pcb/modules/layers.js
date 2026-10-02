@@ -98,9 +98,9 @@ export function isCopperFillLocked(copperLayerId) {
 export function setPcbLayerLocked(app, layerId, locked) {
     const layer = PCB_LAYERS.find(item => item.id === layerId);
     if (!layer || layer.locked === !!locked) return;
-    const button = document.querySelector(
+    const button = /** @type {HTMLElement|null} */ (document.querySelector(
         `.pcb-layer-row[data-layer-id="${layerId}"] .lock-btn`,
-    );
+    ));
     if (button) {
         button.click();
         return;
@@ -118,9 +118,9 @@ export function unlockPcbLayer(app, layerId) {
 export function setPcbCopperFillLocked(app, layerId, locked) {
     const fill = PCB_COPPER_FILLS.find(item => item.id === layerId);
     if (!fill || fill.locked === !!locked) return;
-    const button = document.querySelector(
+    const button = /** @type {HTMLElement|null} */ (document.querySelector(
         `.pcb-layer-row[data-fill-id="${layerId}"] .lock-btn`,
-    );
+    ));
     if (button) {
         button.click();
         return;

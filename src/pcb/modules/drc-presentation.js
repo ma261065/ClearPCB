@@ -442,7 +442,7 @@ export class DrcPresentation {
         if (this.disposed || this.suspended) return;
         const list = this.dom.getElementById('pcbDrcList');
         if (!list) return;
-        const rows = [...list.querySelectorAll('.drc-item')];
+        const rows = [.../** @type {NodeListOf<HTMLElement>} */ (list.querySelectorAll('.drc-item'))];
         if (rows.length === 0) return;
         const current = rows.findIndex(row => row.dataset.drcId === this.selectedId);
         const next = current < 0
@@ -464,7 +464,7 @@ export class DrcPresentation {
         // Re-flag the active list row.
         const list = this.dom.getElementById('pcbDrcList');
         if (list) {
-            for (const li of list.querySelectorAll('.drc-item')) {
+            for (const li of /** @type {NodeListOf<HTMLElement>} */ (list.querySelectorAll('.drc-item'))) {
                 const active = li.dataset.drcId === id;
                 li.classList.toggle('drc-item-active', active);
                 li.tabIndex = active ? 0 : -1;

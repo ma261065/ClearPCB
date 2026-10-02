@@ -65,7 +65,7 @@ export class ComponentProperties {
         if (!this.capabilities.isSelected('component', compId)) return;
         if (this.panel?.kind !== 'component' || this.panel.id !== compId) return;
         const placement = this.capabilities.getPlacement(compId);
-        const input = this.panel.items.querySelector('#pcbPropCompRot');
+        const input = /** @type {HTMLInputElement|null} */ (this.panel.items.querySelector('#pcbPropCompRot'));
         if (placement && placement === this.panel.placement && input) {
             input.value = String(((Math.round(placement.rotation || 0) % 360) + 360) % 360);
         }

@@ -47,13 +47,13 @@ export function createMcpSessionUi(bridge) {
         </section>`;
     document.body.appendChild(overlay);
 
-    const status = overlay.querySelector('[data-mcp-status]');
+    const status = /** @type {HTMLElement} */ (overlay.querySelector('[data-mcp-status]'));
     const statusLabel = overlay.querySelector('[data-mcp-status-text]');
     const urlRow = overlay.querySelector('[data-mcp-url-row]');
-    const urlInput = overlay.querySelector('[data-mcp-url]');
-    const toggle = overlay.querySelector('[data-mcp-toggle]');
-    const revert = overlay.querySelector('[data-mcp-revert]');
-    const copyButton = overlay.querySelector('[data-mcp-copy]');
+    const urlInput = /** @type {HTMLInputElement} */ (overlay.querySelector('[data-mcp-url]'));
+    const toggle = /** @type {HTMLButtonElement} */ (overlay.querySelector('[data-mcp-toggle]'));
+    const revert = /** @type {HTMLButtonElement} */ (overlay.querySelector('[data-mcp-revert]'));
+    const copyButton = /** @type {HTMLButtonElement} */ (overlay.querySelector('[data-mcp-copy]'));
     let copyFeedbackTimer = 0;
     const resetCopyFeedback = () => {
         window.clearTimeout(copyFeedbackTimer);

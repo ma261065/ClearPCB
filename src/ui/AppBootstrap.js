@@ -118,9 +118,9 @@ export class AppBootstrap {
 
     _trapStartupSplashFocus(event) {
         if (event.key !== 'Tab' || !this.startupSplash || this.startupSplash.hidden) return;
-        const focusable = Array.from(this.startupSplash.querySelectorAll(
+        const focusable = /** @type {HTMLElement[]} */ (Array.from(this.startupSplash.querySelectorAll(
             'button:not(:disabled), [href], input:not(:disabled), select:not(:disabled), textarea:not(:disabled), [tabindex]:not([tabindex="-1"])'
-        ));
+        )));
         if (!focusable.length) {
             event.preventDefault();
             return;

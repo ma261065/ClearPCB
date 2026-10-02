@@ -190,7 +190,7 @@ export function bindRibbon(app) {
         });
         // Handle menu items
         importMenu.addEventListener('click', (e) => {
-            const item = /** @type {HTMLElement} */ (e.target).closest('.dropdown-item');
+            const item = /** @type {HTMLElement|null} */ (/** @type {HTMLElement} */ (e.target).closest('.dropdown-item'));
             if (!item) return;
             closeImportMenu();
             const format = item.dataset.format;

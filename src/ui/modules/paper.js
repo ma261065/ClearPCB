@@ -29,9 +29,9 @@ const TITLE_BLOCK_INFO_KEY = 'clearpcb_title_block_info';
  * @param {object} app - Application state.
  */
 export function bindPaperEvents(app) {
-    const paperSelect = document.getElementById('paperSize');
-    const orientationSelect = document.getElementById('paperOrientation');
-    const titleBlockCheckbox = document.getElementById('showTitleBlock');
+    const paperSelect = /** @type {HTMLSelectElement|null} */ (document.getElementById('paperSize'));
+    const orientationSelect = /** @type {HTMLSelectElement|null} */ (document.getElementById('paperOrientation'));
+    const titleBlockCheckbox = /** @type {HTMLInputElement|null} */ (document.getElementById('showTitleBlock'));
     
     if (!paperSelect) return;
 
@@ -41,7 +41,7 @@ export function bindPaperEvents(app) {
             titleBlockCheckbox.disabled = !hasPaper;
             titleBlockCheckbox.closest('.ribbon-checkbox')?.classList.toggle('disabled', !hasPaper);
         }
-        const tbInfo = document.getElementById('showTitleBlockInfo');
+        const tbInfo = /** @type {HTMLInputElement|null} */ (document.getElementById('showTitleBlockInfo'));
         if (tbInfo) {
             tbInfo.disabled = !hasPaper;
             tbInfo.closest('.ribbon-checkbox')?.classList.toggle('disabled', !hasPaper);
@@ -65,7 +65,7 @@ export function bindPaperEvents(app) {
     }
     
     // Restore saved title block info state
-    const titleBlockInfoCheckbox = document.getElementById('showTitleBlockInfo');
+    const titleBlockInfoCheckbox = /** @type {HTMLInputElement|null} */ (document.getElementById('showTitleBlockInfo'));
     const savedTitleBlockInfo = localStorage.getItem(TITLE_BLOCK_INFO_KEY) === 'true';
     if (titleBlockInfoCheckbox) {
         titleBlockInfoCheckbox.checked = savedTitleBlockInfo;
@@ -83,7 +83,7 @@ export function bindPaperEvents(app) {
     updatePaperCheckboxState(paperSelect.value);
     
     paperSelect.addEventListener('change', (e) => {
-        const paperSizeKey = e.target.value;
+        const paperSizeKey = /** @type {HTMLSelectElement} */ (e.target).value;
         const orientation = orientationSelect ? orientationSelect.value : 'landscape';
         
         if (!paperSizeKey || !PAPER_SIZES[paperSizeKey]) {
@@ -98,7 +98,7 @@ export function bindPaperEvents(app) {
     
     if (orientationSelect) {
         orientationSelect.addEventListener('change', (e) => {
-            const orientation = e.target.value;
+            const orientation = /** @type {HTMLSelectElement} */ (e.target).value;
             const paperSizeKey = paperSelect.value;
             
             localStorage.setItem(ORIENTATION_KEY, orientation);
@@ -111,7 +111,7 @@ export function bindPaperEvents(app) {
     
     if (titleBlockCheckbox) {
         titleBlockCheckbox.addEventListener('change', (e) => {
-            const show = e.target.checked;
+            const show = /** @type {HTMLInputElement} */ (e.target).checked;
             app.viewport.setTitleBlock(show);
             localStorage.setItem(TITLE_BLOCK_KEY, String(show));
         });
@@ -119,7 +119,7 @@ export function bindPaperEvents(app) {
 
     if (titleBlockInfoCheckbox) {
         titleBlockInfoCheckbox.addEventListener('change', (e) => {
-            const show = e.target.checked;
+            const show = /** @type {HTMLInputElement} */ (e.target).checked;
             app.viewport.setTitleBlockInfo(show);
             localStorage.setItem(TITLE_BLOCK_INFO_KEY, String(show));
         });

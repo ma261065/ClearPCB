@@ -1163,7 +1163,7 @@ function createTrackPropertyBinding(app, track, scope = {}) {
             return true;
         },
         bind(id, spec) {
-            const input = document.getElementById(id);
+            const input = /** @type {HTMLInputElement|null} */ (document.getElementById(id));
             if (!input) return;
             const entry = { input, spec };
             fields.push(entry);
@@ -1339,7 +1339,7 @@ function _showTrackProperties(app, track) {
     netMenuEl?.addEventListener('toggle', () => {
         if (!netMenuEl.open || !netEl) return;
         const current = netEl.value.trim();
-        for (const option of netMenuEl.querySelectorAll('button[data-net]')) {
+        for (const option of /** @type {NodeListOf<HTMLElement>} */ (netMenuEl.querySelectorAll('button[data-net]'))) {
             option.toggleAttribute('aria-current', option.dataset.net === current);
         }
     });
@@ -1439,7 +1439,7 @@ function _showTrackSegmentProperties(app, track, edgeId) {
     netMenuEl?.addEventListener('toggle', () => {
         if (!netMenuEl.open || !netEl) return;
         const current = netEl.value.trim();
-        for (const option of netMenuEl.querySelectorAll('button[data-net]')) {
+        for (const option of /** @type {NodeListOf<HTMLElement>} */ (netMenuEl.querySelectorAll('button[data-net]'))) {
             option.toggleAttribute('aria-current', option.dataset.net === current);
         }
     });
@@ -1748,9 +1748,9 @@ export function showViaProperties(app, via) {
             reRender();
         }
     };
-    const diaEl = document.getElementById('pcbPropViaDia');
-    const drlEl = document.getElementById('pcbPropViaDrill');
-    for (const [input, key] of [[diaEl, 'diameter'], [drlEl, 'drill']]) {
+    const diaEl = /** @type {HTMLInputElement|null} */ (document.getElementById('pcbPropViaDia'));
+    const drlEl = /** @type {HTMLInputElement|null} */ (document.getElementById('pcbPropViaDrill'));
+    for (const [input, key] of /** @type {Array<[HTMLInputElement|null, string]>} */ ([[diaEl, 'diameter'], [drlEl, 'drill']])) {
         const onInput = live(key);
         input?.addEventListener('input', onInput);
         input?.addEventListener('change', event => {
@@ -1797,7 +1797,7 @@ export function showViaProperties(app, via) {
     netMenuEl?.addEventListener('toggle', () => {
         if (disposed || !netMenuEl.open || !netEl) return;
         const current = netEl.value.trim();
-        for (const option of netMenuEl.querySelectorAll('button[data-net]')) {
+        for (const option of /** @type {NodeListOf<HTMLElement>} */ (netMenuEl.querySelectorAll('button[data-net]'))) {
             option.toggleAttribute('aria-current', option.dataset.net === current);
         }
     });

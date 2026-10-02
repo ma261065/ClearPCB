@@ -1211,7 +1211,7 @@ export function updateVertexDrag(app, worldPos) {
         app._refreshTrackClearance?.(copy);
         app.refreshSelectedDRCMarker?.();
         refreshTrackSelectionHalo(app);
-        const input = document.getElementById('pcbPropTrackBulge');
+        const input = /** @type {HTMLInputElement|null} */ (document.getElementById('pcbPropTrackBulge'));
         if (input) input.value = formatNumberInputValue(bulge);
         return;
     }

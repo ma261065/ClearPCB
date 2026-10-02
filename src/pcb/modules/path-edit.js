@@ -55,7 +55,7 @@ export function pathContextActions({ node, segment, curved, standalone = false, 
 export function dismissPathContextMenu(id) {
     const menu = document.getElementById(id);
     if (!menu) return;
-    const handlers = menu._dismiss;
+    const handlers = /** @type {any} */ (menu)._dismiss;
     if (handlers) {
         document.removeEventListener('mousedown', handlers.dismiss, { capture: true });
         document.removeEventListener('keydown', handlers.onKey, { capture: true });

@@ -27,8 +27,8 @@ export function bindPcbControls(app) {
     const zoomInBtn = document.getElementById('pcbZoomIn');
     const zoomFitBtn = document.getElementById('pcbZoomFit');
     const resetViewBtn = document.getElementById('pcbResetView');
-    const showGridInput = document.getElementById('pcbShowGrid');
-    const snapToGridInput = document.getElementById('pcbSnapToGrid');
+    const showGridInput = /** @type {HTMLInputElement|null} */ (document.getElementById('pcbShowGrid'));
+    const snapToGridInput = /** @type {HTMLInputElement|null} */ (document.getElementById('pcbSnapToGrid'));
     const gridSizeSelect = document.getElementById('pcbGridSize');
     const unitsSelect = document.getElementById('pcbUnits');
     const gridStyleSelect = document.getElementById('pcbGridStyle');
@@ -245,7 +245,7 @@ export function bindPcbControls(app) {
     });
 
     showGridInput?.addEventListener('change', (e) => {
-        const gridOn = !!e.target.checked;
+        const gridOn = !!/** @type {HTMLInputElement} */ (e.target).checked;
         const vp = ensureViewport();
         if (!vp) return;
         vp.setGridVisible(gridOn);
@@ -258,7 +258,7 @@ export function bindPcbControls(app) {
     });
 
     snapToGridInput?.addEventListener('change', (e) => {
-        const enabled = !!e.target.checked;
+        const enabled = !!/** @type {HTMLInputElement} */ (e.target).checked;
         const vp = ensureViewport();
         if (!vp || !vp.gridVisible) return;
         vp.snapToGrid = enabled;
