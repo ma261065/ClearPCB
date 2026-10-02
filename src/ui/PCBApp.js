@@ -215,6 +215,21 @@ onRefreshSuspended('fill', app => {
     if (app instanceof PCBApp) invalidateDrcRefresh(app);
 });
 
+/** PCBApp method handling a primary-button press for each tool. */
+const PCB_TOOL_PRESS_HANDLERS = Object.freeze({
+    select: '_pressSelectTool',
+    track: '_pressTrackTool',
+    fill: '_pressFillTool',
+    via: '_pressViaTool',
+    pad: '_pressPadTool',
+    line: '_pressShapeTool',
+    circle: '_pressShapeTool',
+    rect: '_pressShapeTool',
+    polygon: '_pressShapeTool',
+    arc: '_pressShapeTool',
+    text: '_pressTextTool',
+});
+
 /**
  * PCB editor application.
  *
@@ -968,427 +983,10 @@ export default class PCBApp {
                 return;
             }
 
-            // Left-click with select tool: hit-test for a track/via first
-            // (smaller targets win when they overlap a component), then
-            // fall back to component / board-outline selection.
-            if (e.button === 0 && this.currentTool === 'select') {
-                const additiveSelection = e.ctrlKey || e.metaKey;
-
-                // Rectangle, arc, and circle selection is owned by the shared
-                // adapter controller. Other PCB entities stay on their legacy
-                // paths until their adapters implement the same contract.
-                if (beginSelectionInteraction(this, worldPos, additiveSelection, e.shiftKey)) {
-                    setHoverHighlight(this, null);
-                    this._hoverComponent(null);
-                    this._hideNetTooltip();
-                    if (this._pcbSelectionInteraction) svg.style.cursor = selectionInteractionCursor(this);
-                    return;
-                }
-
-                // Ctrl/Cmd-click mirrors the schematic editor's additive
-                // selection. Promote the current single shape first, then
-                // toggle the clicked shape in the marquee selection set.
-                if (additiveSelection) {
-                    const shapeHit = hitTestBoardShape(this, worldPos);
-                    if (shapeHit) {
-                        const hasMultiSelection = hasBoxSelection(this);
-                        const previousShape = getPcbSelection(this, 'shape')[0] || null;
-                        if (!hasMultiSelection && previousShape?.id === shapeHit.id) {
-                            selectBoardShape(this, null);
-                            return;
-                        }
-                        if (!hasMultiSelection && previousShape && previousShape.id !== shapeHit.id) {
-                            toggleBoxShapeSelection(this, previousShape);
-                        }
-                        selectBoardShape(this, null);
-                        toggleBoxShapeSelection(this, shapeHit);
-                        this._hideNetTooltip();
-                        return;
-                    }
-                }
-
-                // Box-selection group drag: clicking on any member of an
-                // active multi-selection moves the whole group together.
-                // Clicking elsewhere drops the multi-selection and falls
-                // through to normal single-object selection below.
-                if (hasBoxSelection(this)) {
-                    // Match schematic behavior: an anchor belonging to a
-                    // marquee-selected shape edits only that shape, rather
-                    // than moving the entire marquee selection.
-                    const shapeWithHandle = getPcbSelection(this, 'shape').find(
-                        (shape) => hitTestBoardShapeVertex(this, shape, worldPos) != null,
-                    );
-                    if (shapeWithHandle && startBoardShapeDrag(this, shapeWithHandle, worldPos)) {
-                        selectBoardShape(this, shapeWithHandle);
-                        setHoverHighlight(this, null);
-                        this._hoverComponent(null);
-                        this._hideNetTooltip();
-                        svg.style.cursor = 'grabbing';
-                        return;
-                    }
-                    if (selectedGroupHit) {
-                        // Clear the hover halo before dragging: hover updates
-                        // are suppressed during a drag, so a leftover hover X
-                        // (e.g. on a hole/via) would otherwise sit at the
-                        // original position the whole drag.
-                        setHoverHighlight(this, null);
-                        this._hoverComponent(null);
-                        beginGroupDrag(this, worldPos);
-                        this._hideNetTooltip();
-                        svg.style.cursor = 'grabbing';
-                        return;
-                    }
-                    clearBoxSelection(this);
-                }
-
-                // Continue interacting with an already-selected fill: grab a
-                // vertex or drag the whole region without re-clicking.
-                const selectedFill = getPcbSelection(this, 'fill')[0] || null;
-                if (selectedFill) {
-                    if (this._startFillDrag(selectedFill, worldPos, e)) {
-                        setHoverHighlight(this, null);
-                        this._hideNetTooltip();
-                        svg.style.cursor = 'grabbing';
-                        return;
-                    }
-                }
-                // Any other click drops the current fill selection (it may be
-                // re-selected below if the click lands on a fill region).
-                this.selectFill(null);
-                selectBoardShape(this, null);
-
-                // If a track is already selected, try to start a vertex
-                // drag on it before doing anything else — this lets the
-                // user grab a node or bend a segment without re-clicking.
-                const selectedTrack = getSelectedTrack(this);
-                if (selectedTrack) {
-                    if (startVertexDrag(this, selectedTrack, worldPos)) {
-                        // A pure click (no drag) on a segment of the already-
-                        // selected track refines the selection down to just
-                        // that segment on mouse-up. Node grabs and drags are
-                        // unaffected.
-                        this._segmentClickEdgeId =
-                            this._vertexDrag?.mode === 'segment' ? this._vertexDrag.edgeId : null;
-                        // Clear any lingering hover halo so it doesn't sit
-                        // at the original position while the drag is live
-                        // (hover updates are suppressed during a drag).
-                        setHoverHighlight(this, null);
-                        this._hideNetTooltip();
-                        this._vertexDragDownScreen = { x: e.clientX, y: e.clientY };
-                        this._updateVertexDragCrosshair();
-                        svg.style.cursor = 'grabbing';
-                        return;
-                    }
-                }
-                // Same for a selected via: clicking on the via begins a
-                // drag without losing the selection.
-                const selectedVia = getSelectedVia(this);
-                if (selectedVia) {
-                    if (startViaDrag(this, selectedVia, worldPos)) {
-                        setHoverHighlight(this, null);
-                        this._hideNetTooltip();
-                        svg.style.cursor = 'grabbing';
-                        return;
-                    }
-                }
-                // Same for a selected free-standing board shape.
-                const selectedShape = getPcbSelection(this, 'shape')[0] || null;
-                if (selectedShape) {
-                    const selectedHit = hitTestBoardShape(this, worldPos);
-                    const onHandle = hitTestBoardShapeVertex(this, selectedShape, worldPos) != null;
-                    if (onHandle || (selectedHit && selectedHit.id === selectedShape.id)) {
-                        if (startBoardShapeDrag(this, selectedShape, worldPos)) {
-                            setHoverHighlight(this, null);
-                            this._hideNetTooltip();
-                            svg.style.cursor = 'grabbing';
-                            return;
-                        }
-                    }
-                }
-
-                // The click isn't continuing a drag of the current
-                // selection, so the selected track (if any) is about to be
-                // deselected or replaced. Tidy away any redundant collinear
-                // waypoints first — e.g. a node added by double-click but
-                // never moved is collinear by definition and is removed here.
-                if (selectedTrack) {
-                    commitCollinearCleanup(this, selectedTrack);
-                }
-
-                const trackHit = hitTestTrack(this, worldPos);
-                if (trackHit) {
-                    this._hoverComponent(null);
-                    this._selectComponent(null);
-                    this._selectBoardOutline(false);
-                    selectTrackOrVia(this, trackHit);
-                    // Fresh whole-track selection — not a segment-refine click.
-                    this._segmentClickEdgeId = null;
-                    // Begin a drag immediately so click-and-drag works in
-                    // one motion (no separate select-then-drag click).
-                    if (trackHit.type === 'via') {
-                        if (startViaDrag(this, trackHit.via, worldPos)) {
-                            this._hideNetTooltip();
-                            svg.style.cursor = 'grabbing';
-                        }
-                    } else if (trackHit.type === 'track') {
-                        if (startVertexDrag(this, trackHit.track, worldPos, { allowMidpointInsert: false })) {
-                            this._hideNetTooltip();
-                            this._vertexDragDownScreen = { x: e.clientX, y: e.clientY };
-                            this._updateVertexDragCrosshair();
-                            svg.style.cursor = 'grabbing';
-                        }
-                    }
-                    return;
-                }
-
-                // Anything else clears any track selection first.
-                clearTrackSelection(this);
-
-                const shapeHit = hitTestBoardShape(this, worldPos);
-                if (shapeHit) {
-                    this._selectComponent(null);
-                    this._selectBoardOutline(false);
-                    this._selectText(null);
-                    this._selectRefText(null);
-                    this.selectFill(null);
-                    selectBoardShape(this, shapeHit);
-                    showBoardShapeProperties(this, shapeHit);
-                    if (startBoardShapeDrag(this, shapeHit, worldPos)) {
-                        this._hideNetTooltip();
-                        svg.style.cursor = 'grabbing';
-                    }
-                    return;
-                }
-                selectBoardShape(this, null);
-                const textHit = this._hitTestText(worldPos);
-                if (textHit) {
-                    this._selectComponent(null);
-                    this._selectBoardOutline(false);
-                    this._selectText(textHit);
-                    this._showTextProperties(textHit);
-                    this._beginTextDrag(textHit, worldPos);
-                    svg.style.cursor = 'grabbing';
-                    return;
-                }
-                this._selectText(null);
-
-                // Reference-designator text hit-test. The label sits on the
-                // silkscreen above/around the body and can be dragged/rotated
-                // independently of the component, so test it before the body.
-                const refHit = this._hitTestRefText(worldPos);
-                if (refHit) {
-                    this._selectComponent(null);
-                    this._selectBoardOutline(false);
-                    this._selectRefText(refHit);
-                    const dragging = this._beginRefTextDrag(refHit, worldPos);
-                    this._showRefProperties(refHit);
-                    svg.style.cursor = dragging ? 'grabbing' : 'default';
-                    return;
-                }
-                this._selectRefText(null);
-
-                const hit = this._hitTestComponent(worldPos);
-                if (hit) {
-                    this._selectComponent(hit);
-                    this._selectBoardOutline(false);
-                    this._showComponentProperties(hit);
-                    const pl = this.placements.get(hit);
-                    if (pl) {
-                        // Clear the hover net-highlight before dragging: hover
-                        // updates are suppressed while a drag is active, so a
-                        // leftover halo would otherwise sit at the component's
-                        // original position the whole drag.
-                        setHoverHighlight(this, null);
-                        this._hoverComponent(null);
-                        this._hideNetTooltip();
-                        this._drag = {
-                            compId: hit,
-                            startWorld: worldPos,
-                            startPos: { x: pl.x, y: pl.y },
-                            // Nets this component participates in. Only these
-                            // move during the drag, so the live ratsnest
-                            // rebuild is restricted to them (incremental mode)
-                            // instead of recomputing the whole board each frame.
-                            nets: this._netsForComponent(hit),
-                        };
-                        // Defer the expensive derived overlays (copper pours +
-                        // clearance halos) until the drag ends; they're rebuilt
-                        // once in _endDrag. Live ratsnest still updates.
-                        setDragOverlaysDeferred(this, true);
-                        // Hide only the DRAGGED component's clearance halos for
-                        // the duration of the drag — its pad halos would track
-                        // the component (forcing per-frame repaints of that
-                        // geometry) and its connected-track halos would freeze
-                        // stale. Every other component's halos stay visible so
-                        // the user can still judge clearances while placing.
-                        // _endDrag rebuilds the whole overlay at the drop point.
-                        if (this._clearancesVisible) {
-                            const g = this._padHaloGroups?.get(hit);
-                            if (g) g.style.display = 'none';
-                            // Also hide the halos of the nets this component
-                            // moves: their bonded tracks/vias shift mid-drag,
-                            // so the deferred (not-recomputed) halo would
-                            // otherwise sit stranded at the old track position.
-                            const ov = this._layerGroups.get('clearance-overlay');
-                            if (ov) {
-                                for (const net of this._drag.nets) {
-                                    for (const el of ov.querySelectorAll(`.debug-clearance[data-net="${CSS.escape(net)}"]`)) {
-                                        /** @type {SVGElement} */ (el).style.display = 'none';
-                                    }
-                                }
-                                // Promote the (now-static) clearance overlay to
-                                // its own GPU compositing layer for the drag.
-                                // Otherwise every frame's board-wide mutations
-                                // (ratsnest rebuild, bonded-track re-render)
-                                // invalidate the overlapping halo geometry and
-                                // force the browser to repaint thousands of
-                                // non-scaling-stroke vectors — the real per-
-                                // frame cost. On its own layer the overlay just
-                                // composites; it never repaints.
-                                ov.style.willChange = 'transform';
-                            }
-                        }
-                        svg.style.cursor = 'grabbing';
-                    }
-                } else if (this._hitTestBoardOutline(worldPos)) {
-                    this._selectComponent(null);
-                    this.selectFill(null);
-                    this._selectBoardOutline(true);
-                    this._showBoardOutlineProperties();
-                } else if (this._hitTestFill(worldPos)) {
-                    const fillHit = this._hitTestFill(worldPos);
-                    this._selectComponent(null);
-                    this._selectBoardOutline(false);
-                    this.selectFill(fillHit);
-                    this._showFillProperties(fillHit);
-                } else {
-                    this._selectComponent(null);
-                    this._selectBoardOutline(false);
-                    this.selectFill(null);
-                    this.clearProperties();
-                    // Empty canvas: arm a box-select. The marquee only
-                    // materialises once the pointer crosses the drag
-                    // threshold (see the mousemove handler).
-                    armBoxSelect(this, { x: e.clientX, y: e.clientY }, worldPos);
-                }
-            }
-
-            // Left-click with track tool: start a new track or add a waypoint.
-            if (e.button === 0 && this.currentTool === 'track') {
-                const worldPos = this._screenToWorld(e);
-                // Can't draw on a locked layer.
-                if (!this._trackDraw && isLayerLocked(this._trackToolLayer || 'top-copper')) return;
-                if (this._trackDraw) {
-                    addTrackWaypoint(this, worldPos);
-                } else {
-                    startTrackDraw(this, worldPos);
-                    // Arm press-drag detection: if the user holds and releases
-                    // away from here it's "drag mode" (release ends the track);
-                    // a release in place is "click mode" (click again to end).
-                    this._trackLeftDown = { x: e.clientX, y: e.clientY };
-                }
-            }
-
-            // Left-click with fill tool: start a new pour region or add a vertex.
-            if (e.button === 0 && this.currentTool === 'fill') {
-                const worldPos = this._screenToWorld(e);
-                if (!this._fillDraw && isLayerLocked(this._fillToolLayer || 'top-copper')) return;
-                if (this._fillDraw) {
-                    addFillWaypoint(this, worldPos);
-                } else {
-                    startFillDraw(this, worldPos);
-                }
-            }
-
-            // Left-click with via tool: place a standalone via at the cursor.
-            if (e.button === 0 && this.currentTool === 'via') {
-                const worldPos = this._screenToWorld(e);
-                // A via spans both copper layers — refuse if either is locked.
-                if (isViaLocked()) return;
-                const snap = resolveTrackSnap(this, worldPos, {});
-                const p = this.getRoutingParams?.() || {};
-                const diameter = Number.isFinite(p.viaDiameter) && p.viaDiameter > 0 ? p.viaDiameter : 0.6;
-                const drill = Number.isFinite(p.viaDrill) && p.viaDrill > 0 ? p.viaDrill : 0.3;
-                const selectedNet = String(this._viaToolNet || '').trim();
-
-                if (snap.snapType === 'pad' || snap.snapType === 'track-node') {
-                    // Landed on an existing pad / track node: attach the via
-                    // there and inherit that net (the via sits on a node).
-                    const net = selectedNet || snap.pad?.net || snap.trackNode?.track?.net || '';
-                    const via = new Via({ x: snap.x, y: snap.y, diameter, drill, net });
-                    this.history.execute(new AddViaCommand(this, via));
-                } else {
-                    // Mid-segment? Split the host track so the via lands on a
-                    // node of each resulting half (both keep the track's net).
-                    const split = findSplittableTrackEdge(this, worldPos);
-                    if (split) {
-                        const via = new Via({
-                            x: split.px, y: split.py, diameter, drill,
-                            net: selectedNet || split.track.net || '',
-                        });
-                        const parts = splitTrackObjectAtPoint(
-                            split.track, split.edgeId, { x: split.px, y: split.py });
-                        if (parts && parts.length) {
-                            const cmds = [new RemoveTrackCommand(this, split.track)];
-                            for (const part of parts) cmds.push(new AddTrackCommand(this, part));
-                            cmds.push(new AddViaCommand(this, via));
-                            this.history.execute(new CompoundCommand(cmds));
-                        } else {
-                            this.history.execute(new AddViaCommand(this, via));
-                        }
-
-                    } else {
-                        // Empty space: a standalone via with no net assignment.
-                        const via = new Via({ x: snap.x, y: snap.y, diameter, drill, net: selectedNet });
-                        this.history.execute(new AddViaCommand(this, via));
-                    }
-                }
-            }
-
-            if (e.button === 0 && this.currentTool === 'pad') {
-                const snap = this._snapPadPlacement(this._screenToWorld(e));
-                const pad = new Pad({ ...this._padDefaults, x: snap.x, y: snap.y });
-                if (pad.layers === 'both'
-                    ? (isLayerLocked('top-copper') || isLayerLocked('bottom-copper'))
-                    : isLayerLocked(pad.layers)) return;
-                this.history.execute(new AddPadCommand(this, pad));
-                setPcbSelection(this, [{ kind: 'pad', object: pad }]);
-                this._showPadProperties(pad);
-                refreshBoxSelectionHighlights(this);
-            }
-
-            // Left-click with a shape tool: circle/rect = 2 clicks, arc = 3
-            // clicks, and Line/Polygon accept vertices until double-click or Enter.
-            if (e.button === 0 && ['line', 'circle', 'rect', 'polygon', 'arc'].includes(this.currentTool)) {
-                shapeDrawClick(this, this.currentTool, this._screenToWorld(e));
-            }
-
-            // Left-click with text tool: place a text at the cursor.
-            if (e.button === 0 && this.currentTool === 'text') {
-                const worldPos = this._screenToWorld(e);
-                const snap = this._snapToGrid(worldPos);
-                const layer = this._textDefaults.layer;
-                // Don't place text on a locked layer.
-                if (isLayerLocked(layer)) return;
-                const text = createPcbText({
-                    content: '',
-                    x: snap.x,
-                    y: snap.y,
-                    size: this._textDefaults.size,
-                    rotation: this._textDefaults.rotation,
-                    layer,
-                    strokeWidth: this._textDefaults.strokeWidth,
-                    border: this._textDefaults.border,
-                });
-                this.history.execute(new AddTextCommand(this, text));
-                // Select the freshly-placed text so the user can immediately
-                // edit it in the Properties panel.
-                this._selectText(text);
-                this._showTextProperties(text);
-                // Match the schematic editor: drop straight into inline
-                // edit mode so the user can type the content right away.
-                this._startTextInlineEdit(text, null, { isNewPlacement: true });
-            }
+            // Primary presses go to the active tool; see PCB_TOOL_PRESS_HANDLERS.
+            if (e.button !== 0) return;
+            const press = PCB_TOOL_PRESS_HANDLERS[this.currentTool];
+            if (press) this[press](e, worldPos, selectedGroupHit);
         });
 
         svg.addEventListener('mousemove', (e) => {
@@ -1731,6 +1329,444 @@ export default class PCBApp {
         // (SchematicApp uses querySelector('.ribbon') which only catches the
         //  first match — the schematic ribbon — so we handle #ribbonPCB here.)
         document.getElementById('ribbonPCB')?.addEventListener('contextmenu', (e) => e.preventDefault());
+    }
+
+    /**
+     * Left-click with select tool: hit-test for a track/via first
+     * (smaller targets win when they overlap a component), then
+     * fall back to component / board-outline selection.
+     */
+    _pressSelectTool(e, worldPos, selectedGroupHit) {
+        const svg = this.viewport.svg;
+        const additiveSelection = e.ctrlKey || e.metaKey;
+
+        // Rectangle, arc, and circle selection is owned by the shared
+        // adapter controller. Other PCB entities stay on their legacy
+        // paths until their adapters implement the same contract.
+        if (beginSelectionInteraction(this, worldPos, additiveSelection, e.shiftKey)) {
+            setHoverHighlight(this, null);
+            this._hoverComponent(null);
+            this._hideNetTooltip();
+            if (this._pcbSelectionInteraction) svg.style.cursor = selectionInteractionCursor(this);
+            return;
+        }
+
+        // Ctrl/Cmd-click mirrors the schematic editor's additive
+        // selection. Promote the current single shape first, then
+        // toggle the clicked shape in the marquee selection set.
+        if (additiveSelection) {
+            const shapeHit = hitTestBoardShape(this, worldPos);
+            if (shapeHit) {
+                const hasMultiSelection = hasBoxSelection(this);
+                const previousShape = getPcbSelection(this, 'shape')[0] || null;
+                if (!hasMultiSelection && previousShape?.id === shapeHit.id) {
+                    selectBoardShape(this, null);
+                    return;
+                }
+                if (!hasMultiSelection && previousShape && previousShape.id !== shapeHit.id) {
+                    toggleBoxShapeSelection(this, previousShape);
+                }
+                selectBoardShape(this, null);
+                toggleBoxShapeSelection(this, shapeHit);
+                this._hideNetTooltip();
+                return;
+            }
+        }
+
+        // Box-selection group drag: clicking on any member of an
+        // active multi-selection moves the whole group together.
+        // Clicking elsewhere drops the multi-selection and falls
+        // through to normal single-object selection below.
+        if (hasBoxSelection(this)) {
+            // Match schematic behavior: an anchor belonging to a
+            // marquee-selected shape edits only that shape, rather
+            // than moving the entire marquee selection.
+            const shapeWithHandle = getPcbSelection(this, 'shape').find(
+                (shape) => hitTestBoardShapeVertex(this, shape, worldPos) != null,
+            );
+            if (shapeWithHandle && startBoardShapeDrag(this, shapeWithHandle, worldPos)) {
+                selectBoardShape(this, shapeWithHandle);
+                setHoverHighlight(this, null);
+                this._hoverComponent(null);
+                this._hideNetTooltip();
+                svg.style.cursor = 'grabbing';
+                return;
+            }
+            if (selectedGroupHit) {
+                // Clear the hover halo before dragging: hover updates
+                // are suppressed during a drag, so a leftover hover X
+                // (e.g. on a hole/via) would otherwise sit at the
+                // original position the whole drag.
+                setHoverHighlight(this, null);
+                this._hoverComponent(null);
+                beginGroupDrag(this, worldPos);
+                this._hideNetTooltip();
+                svg.style.cursor = 'grabbing';
+                return;
+            }
+            clearBoxSelection(this);
+        }
+
+        // Continue interacting with an already-selected fill: grab a
+        // vertex or drag the whole region without re-clicking.
+        const selectedFill = getPcbSelection(this, 'fill')[0] || null;
+        if (selectedFill) {
+            if (this._startFillDrag(selectedFill, worldPos, e)) {
+                setHoverHighlight(this, null);
+                this._hideNetTooltip();
+                svg.style.cursor = 'grabbing';
+                return;
+            }
+        }
+        // Any other click drops the current fill selection (it may be
+        // re-selected below if the click lands on a fill region).
+        this.selectFill(null);
+        selectBoardShape(this, null);
+
+        // If a track is already selected, try to start a vertex
+        // drag on it before doing anything else — this lets the
+        // user grab a node or bend a segment without re-clicking.
+        const selectedTrack = getSelectedTrack(this);
+        if (selectedTrack) {
+            if (startVertexDrag(this, selectedTrack, worldPos)) {
+                // A pure click (no drag) on a segment of the already-
+                // selected track refines the selection down to just
+                // that segment on mouse-up. Node grabs and drags are
+                // unaffected.
+                this._segmentClickEdgeId =
+                    this._vertexDrag?.mode === 'segment' ? this._vertexDrag.edgeId : null;
+                // Clear any lingering hover halo so it doesn't sit
+                // at the original position while the drag is live
+                // (hover updates are suppressed during a drag).
+                setHoverHighlight(this, null);
+                this._hideNetTooltip();
+                this._vertexDragDownScreen = { x: e.clientX, y: e.clientY };
+                this._updateVertexDragCrosshair();
+                svg.style.cursor = 'grabbing';
+                return;
+            }
+        }
+        // Same for a selected via: clicking on the via begins a
+        // drag without losing the selection.
+        const selectedVia = getSelectedVia(this);
+        if (selectedVia) {
+            if (startViaDrag(this, selectedVia, worldPos)) {
+                setHoverHighlight(this, null);
+                this._hideNetTooltip();
+                svg.style.cursor = 'grabbing';
+                return;
+            }
+        }
+        // Same for a selected free-standing board shape.
+        const selectedShape = getPcbSelection(this, 'shape')[0] || null;
+        if (selectedShape) {
+            const selectedHit = hitTestBoardShape(this, worldPos);
+            const onHandle = hitTestBoardShapeVertex(this, selectedShape, worldPos) != null;
+            if (onHandle || (selectedHit && selectedHit.id === selectedShape.id)) {
+                if (startBoardShapeDrag(this, selectedShape, worldPos)) {
+                    setHoverHighlight(this, null);
+                    this._hideNetTooltip();
+                    svg.style.cursor = 'grabbing';
+                    return;
+                }
+            }
+        }
+
+        // The click isn't continuing a drag of the current
+        // selection, so the selected track (if any) is about to be
+        // deselected or replaced. Tidy away any redundant collinear
+        // waypoints first — e.g. a node added by double-click but
+        // never moved is collinear by definition and is removed here.
+        if (selectedTrack) {
+            commitCollinearCleanup(this, selectedTrack);
+        }
+
+        const trackHit = hitTestTrack(this, worldPos);
+        if (trackHit) {
+            this._hoverComponent(null);
+            this._selectComponent(null);
+            this._selectBoardOutline(false);
+            selectTrackOrVia(this, trackHit);
+            // Fresh whole-track selection — not a segment-refine click.
+            this._segmentClickEdgeId = null;
+            // Begin a drag immediately so click-and-drag works in
+            // one motion (no separate select-then-drag click).
+            if (trackHit.type === 'via') {
+                if (startViaDrag(this, trackHit.via, worldPos)) {
+                    this._hideNetTooltip();
+                    svg.style.cursor = 'grabbing';
+                }
+            } else if (trackHit.type === 'track') {
+                if (startVertexDrag(this, trackHit.track, worldPos, { allowMidpointInsert: false })) {
+                    this._hideNetTooltip();
+                    this._vertexDragDownScreen = { x: e.clientX, y: e.clientY };
+                    this._updateVertexDragCrosshair();
+                    svg.style.cursor = 'grabbing';
+                }
+            }
+            return;
+        }
+
+        // Anything else clears any track selection first.
+        clearTrackSelection(this);
+
+        const shapeHit = hitTestBoardShape(this, worldPos);
+        if (shapeHit) {
+            this._selectComponent(null);
+            this._selectBoardOutline(false);
+            this._selectText(null);
+            this._selectRefText(null);
+            this.selectFill(null);
+            selectBoardShape(this, shapeHit);
+            showBoardShapeProperties(this, shapeHit);
+            if (startBoardShapeDrag(this, shapeHit, worldPos)) {
+                this._hideNetTooltip();
+                svg.style.cursor = 'grabbing';
+            }
+            return;
+        }
+        selectBoardShape(this, null);
+        const textHit = this._hitTestText(worldPos);
+        if (textHit) {
+            this._selectComponent(null);
+            this._selectBoardOutline(false);
+            this._selectText(textHit);
+            this._showTextProperties(textHit);
+            this._beginTextDrag(textHit, worldPos);
+            svg.style.cursor = 'grabbing';
+            return;
+        }
+        this._selectText(null);
+
+        // Reference-designator text hit-test. The label sits on the
+        // silkscreen above/around the body and can be dragged/rotated
+        // independently of the component, so test it before the body.
+        const refHit = this._hitTestRefText(worldPos);
+        if (refHit) {
+            this._selectComponent(null);
+            this._selectBoardOutline(false);
+            this._selectRefText(refHit);
+            const dragging = this._beginRefTextDrag(refHit, worldPos);
+            this._showRefProperties(refHit);
+            svg.style.cursor = dragging ? 'grabbing' : 'default';
+            return;
+        }
+        this._selectRefText(null);
+
+        const hit = this._hitTestComponent(worldPos);
+        if (hit) {
+            this._selectComponent(hit);
+            this._selectBoardOutline(false);
+            this._showComponentProperties(hit);
+            const pl = this.placements.get(hit);
+            if (pl) {
+                // Clear the hover net-highlight before dragging: hover
+                // updates are suppressed while a drag is active, so a
+                // leftover halo would otherwise sit at the component's
+                // original position the whole drag.
+                setHoverHighlight(this, null);
+                this._hoverComponent(null);
+                this._hideNetTooltip();
+                this._drag = {
+                    compId: hit,
+                    startWorld: worldPos,
+                    startPos: { x: pl.x, y: pl.y },
+                    // Nets this component participates in. Only these
+                    // move during the drag, so the live ratsnest
+                    // rebuild is restricted to them (incremental mode)
+                    // instead of recomputing the whole board each frame.
+                    nets: this._netsForComponent(hit),
+                };
+                // Defer the expensive derived overlays (copper pours +
+                // clearance halos) until the drag ends; they're rebuilt
+                // once in _endDrag. Live ratsnest still updates.
+                setDragOverlaysDeferred(this, true);
+                // Hide only the DRAGGED component's clearance halos for
+                // the duration of the drag — its pad halos would track
+                // the component (forcing per-frame repaints of that
+                // geometry) and its connected-track halos would freeze
+                // stale. Every other component's halos stay visible so
+                // the user can still judge clearances while placing.
+                // _endDrag rebuilds the whole overlay at the drop point.
+                if (this._clearancesVisible) {
+                    const g = this._padHaloGroups?.get(hit);
+                    if (g) g.style.display = 'none';
+                    // Also hide the halos of the nets this component
+                    // moves: their bonded tracks/vias shift mid-drag,
+                    // so the deferred (not-recomputed) halo would
+                    // otherwise sit stranded at the old track position.
+                    const ov = this._layerGroups.get('clearance-overlay');
+                    if (ov) {
+                        for (const net of this._drag.nets) {
+                            for (const el of ov.querySelectorAll(`.debug-clearance[data-net="${CSS.escape(net)}"]`)) {
+                                /** @type {SVGElement} */ (el).style.display = 'none';
+                            }
+                        }
+                        // Promote the (now-static) clearance overlay to
+                        // its own GPU compositing layer for the drag.
+                        // Otherwise every frame's board-wide mutations
+                        // (ratsnest rebuild, bonded-track re-render)
+                        // invalidate the overlapping halo geometry and
+                        // force the browser to repaint thousands of
+                        // non-scaling-stroke vectors — the real per-
+                        // frame cost. On its own layer the overlay just
+                        // composites; it never repaints.
+                        ov.style.willChange = 'transform';
+                    }
+                }
+                svg.style.cursor = 'grabbing';
+            }
+        } else if (this._hitTestBoardOutline(worldPos)) {
+            this._selectComponent(null);
+            this.selectFill(null);
+            this._selectBoardOutline(true);
+            this._showBoardOutlineProperties();
+        } else if (this._hitTestFill(worldPos)) {
+            const fillHit = this._hitTestFill(worldPos);
+            this._selectComponent(null);
+            this._selectBoardOutline(false);
+            this.selectFill(fillHit);
+            this._showFillProperties(fillHit);
+        } else {
+            this._selectComponent(null);
+            this._selectBoardOutline(false);
+            this.selectFill(null);
+            this.clearProperties();
+            // Empty canvas: arm a box-select. The marquee only
+            // materialises once the pointer crosses the drag
+            // threshold (see the mousemove handler).
+            armBoxSelect(this, { x: e.clientX, y: e.clientY }, worldPos);
+        }
+    }
+
+    /**
+     * Left-click with track tool: start a new track or add a waypoint.
+     */
+    _pressTrackTool(e) {
+        const worldPos = this._screenToWorld(e);
+        // Can't draw on a locked layer.
+        if (!this._trackDraw && isLayerLocked(this._trackToolLayer || 'top-copper')) return;
+        if (this._trackDraw) {
+            addTrackWaypoint(this, worldPos);
+        } else {
+            startTrackDraw(this, worldPos);
+            // Arm press-drag detection: if the user holds and releases
+            // away from here it's "drag mode" (release ends the track);
+            // a release in place is "click mode" (click again to end).
+            this._trackLeftDown = { x: e.clientX, y: e.clientY };
+        }
+    }
+
+    /**
+     * Left-click with fill tool: start a new pour region or add a vertex.
+     */
+    _pressFillTool(e) {
+        const worldPos = this._screenToWorld(e);
+        if (!this._fillDraw && isLayerLocked(this._fillToolLayer || 'top-copper')) return;
+        if (this._fillDraw) {
+            addFillWaypoint(this, worldPos);
+        } else {
+            startFillDraw(this, worldPos);
+        }
+    }
+
+    /**
+     * Left-click with via tool: place a standalone via at the cursor.
+     */
+    _pressViaTool(e) {
+        const worldPos = this._screenToWorld(e);
+        // A via spans both copper layers — refuse if either is locked.
+        if (isViaLocked()) return;
+        const snap = resolveTrackSnap(this, worldPos, {});
+        const p = this.getRoutingParams?.() || {};
+        const diameter = Number.isFinite(p.viaDiameter) && p.viaDiameter > 0 ? p.viaDiameter : 0.6;
+        const drill = Number.isFinite(p.viaDrill) && p.viaDrill > 0 ? p.viaDrill : 0.3;
+        const selectedNet = String(this._viaToolNet || '').trim();
+
+        if (snap.snapType === 'pad' || snap.snapType === 'track-node') {
+            // Landed on an existing pad / track node: attach the via
+            // there and inherit that net (the via sits on a node).
+            const net = selectedNet || snap.pad?.net || snap.trackNode?.track?.net || '';
+            const via = new Via({ x: snap.x, y: snap.y, diameter, drill, net });
+            this.history.execute(new AddViaCommand(this, via));
+        } else {
+            // Mid-segment? Split the host track so the via lands on a
+            // node of each resulting half (both keep the track's net).
+            const split = findSplittableTrackEdge(this, worldPos);
+            if (split) {
+                const via = new Via({
+                    x: split.px, y: split.py, diameter, drill,
+                    net: selectedNet || split.track.net || '',
+                });
+                const parts = splitTrackObjectAtPoint(
+                    split.track, split.edgeId, { x: split.px, y: split.py });
+                if (parts && parts.length) {
+                    const cmds = [new RemoveTrackCommand(this, split.track)];
+                    for (const part of parts) cmds.push(new AddTrackCommand(this, part));
+                    cmds.push(new AddViaCommand(this, via));
+                    this.history.execute(new CompoundCommand(cmds));
+                } else {
+                    this.history.execute(new AddViaCommand(this, via));
+                }
+
+            } else {
+                // Empty space: a standalone via with no net assignment.
+                const via = new Via({ x: snap.x, y: snap.y, diameter, drill, net: selectedNet });
+                this.history.execute(new AddViaCommand(this, via));
+            }
+        }
+    }
+
+    /**
+     * Primary press with the pad tool.
+     */
+    _pressPadTool(e) {
+        const snap = this._snapPadPlacement(this._screenToWorld(e));
+        const pad = new Pad({ ...this._padDefaults, x: snap.x, y: snap.y });
+        if (pad.layers === 'both'
+            ? (isLayerLocked('top-copper') || isLayerLocked('bottom-copper'))
+            : isLayerLocked(pad.layers)) return;
+        this.history.execute(new AddPadCommand(this, pad));
+        setPcbSelection(this, [{ kind: 'pad', object: pad }]);
+        this._showPadProperties(pad);
+        refreshBoxSelectionHighlights(this);
+    }
+
+    /**
+     * Left-click with a shape tool: circle/rect = 2 clicks, arc = 3
+     * clicks, and Line/Polygon accept vertices until double-click or Enter.
+     */
+    _pressShapeTool(e) {
+        shapeDrawClick(this, this.currentTool, this._screenToWorld(e));
+    }
+
+    /**
+     * Left-click with text tool: place a text at the cursor.
+     */
+    _pressTextTool(e) {
+        const worldPos = this._screenToWorld(e);
+        const snap = this._snapToGrid(worldPos);
+        const layer = this._textDefaults.layer;
+        // Don't place text on a locked layer.
+        if (isLayerLocked(layer)) return;
+        const text = createPcbText({
+            content: '',
+            x: snap.x,
+            y: snap.y,
+            size: this._textDefaults.size,
+            rotation: this._textDefaults.rotation,
+            layer,
+            strokeWidth: this._textDefaults.strokeWidth,
+            border: this._textDefaults.border,
+        });
+        this.history.execute(new AddTextCommand(this, text));
+        // Select the freshly-placed text so the user can immediately
+        // edit it in the Properties panel.
+        this._selectText(text);
+        this._showTextProperties(text);
+        // Match the schematic editor: drop straight into inline
+        // edit mode so the user can type the content right away.
+        this._startTextInlineEdit(text, null, { isNewPlacement: true });
     }
 
     _updateViewportStatus() {

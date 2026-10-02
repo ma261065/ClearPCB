@@ -191,8 +191,57 @@ function shapeHasUnroundedCorners(shape) {
         && !Object.values(shape.nodeCornerRadii || {}).some((radius) => Number(radius) > 0);
 }
 
+// Clipper contours cost milliseconds and are read by every selection hit test and
+// bounds query, so each shape keeps its last two results (filled and outline-only
+// variants), keyed on every geometry input. Shapes are mutated in place, so the
+// key is rebuilt on each read rather than invalidated by callers.
+const closedContourCache = new WeakMap();
+
+function recordKey(record) {
+    let key = '';
+    if (record) for (const name in record) key += `${name}:${record[name]},`;
+    return key;
+}
+
+function closedContourKey(shape, filled, lineWidth) {
+    let key = `${shape.kind}|${shape.layer}|${filled}|${lineWidth}|${shape.lineWidth}|${shape.cornerRadius}|`;
+    for (const point of shape.points) key += `${point.x},${point.y};`;
+    return `${key}|${recordKey(shape.nodeCornerRadii)}|${recordKey(shape.segmentBulges)}|${recordKey(shape.segmentWidths)}`;
+}
+
+function freezeContours(contours) {
+    for (const contour of contours) {
+        for (const point of contour) Object.freeze(point);
+        Object.freeze(contour);
+    }
+    return Object.freeze(contours);
+}
+
+/** Shared, frozen contours; callers must copy before modifying them. */
 function closedShapeContours(shape, filled, lineWidth) {
+    return closedShapeContourEntry(shape, filled, lineWidth)?.contours ?? null;
+}
+
+function closedShapeContourEntry(shape, filled, lineWidth) {
     if (!['rect', 'polygon'].includes(shape.kind) || shape.points?.length < 3) return null;
+    if (!Array.isArray(shape.points)) return { contours: computeClosedShapeContours(shape, filled, lineWidth) };
+    const key = closedContourKey(shape, filled, lineWidth);
+    let entries = closedContourCache.get(shape);
+    const hit = entries?.find(entry => entry.key === key);
+    if (hit) return hit;
+    const entry = { key, contours: freezeContours(computeClosedShapeContours(shape, filled, lineWidth)), bounds: null };
+    if (!entries) closedContourCache.set(shape, entries = []);
+    entries.unshift(entry);
+    if (entries.length > 2) entries.pop();
+    return entry;
+}
+
+/** Physical contours of a rectangle or polygon with its resolved fill and line width. */
+function physicalClosedShapeEntry(shape) {
+    return closedShapeContourEntry(shape, shapeIsFilled(shape), resolvedBoardShapeLineWidth(shape));
+}
+
+function computeClosedShapeContours(shape, filled, lineWidth) {
     const scale = 10000;
     const path = shapeOutline(shape).map((point) => ({ X: Math.round(point.x * scale), Y: Math.round(point.y * scale) }));
     const strokes = [];
@@ -284,10 +333,14 @@ export function boardShapeRemovalPathD(shape) {
 
 /** Bounds including the visible line width, for shared selection queries. */
 export function boardShapeBounds(shape) {
-    const outline = shapeOutline(shape);
     if (['rect', 'polygon'].includes(shape.kind)) {
-        outline.push(...(resolveBoardShapeGeometry(shape).physicalContours || []).flat());
+        const entry = physicalClosedShapeEntry(shape);
+        if (entry) {
+            entry.bounds ??= pointsBounds([...shapeOutline(shape), ...entry.contours.flat()], 0);
+            return { ...entry.bounds };
+        }
     }
+    const outline = shapeOutline(shape);
     const halfWidth = ['line', 'arc'].includes(shape.kind) ? boardShapeMaxLineWidth(shape) / 2 : 0;
     return pointsBounds(outline, halfWidth);
 }
@@ -303,7 +356,7 @@ export function boardShapeHitTest(shape, worldPos, tolerance = 0) {
         return circleHitTest(shape, worldPos, tolerance, shapeIsFilled(shape), boardShapeMaxLineWidth(shape));
     }
     if (['rect', 'polygon'].includes(shape.kind)) {
-        const contours = resolveBoardShapeGeometry(shape).physicalContours || [];
+        const contours = physicalClosedShapeEntry(shape)?.contours || [];
         if (contours.reduce((inside, contour) => inside !== pointInPolygon(worldPos, contour), false)) return true;
         return contours.some(contour => contour.some((point, index) =>
             distanceToSegment(worldPos, point, contour[(index + 1) % contour.length]) <= tolerance));
@@ -372,13 +425,19 @@ function boardShapeMaxLineWidth(shape) {
     return Math.max(normalizedBoardShapeLineWidth(shape, shape?.lineWidth), ...widths);
 }
 
+/** Line width used by the physical geometry (circles cannot be thicker than their radius). */
+function resolvedBoardShapeLineWidth(shape) {
+    const radius = Math.max(0.05, Number(shape?.radius) || 0);
+    return Math.min(shape?.kind === 'circle' ? radius : Infinity, Math.max(0.05, Number(shape?.lineWidth) || 0.2));
+}
+
 /**
  * Resolve a board shape into the common geometry contract consumed by the
  * 2D/3D previews, Gerber exporter, and copper-fill engine.
  */
 export function resolveBoardShapeGeometry(shape, options = {}) {
     const radius = Math.max(0.05, Number(shape?.radius) || 0);
-    const lineWidth = Math.min(shape?.kind === 'circle' ? radius : Infinity, Math.max(0.05, Number(shape?.lineWidth) || 0.2));
+    const lineWidth = resolvedBoardShapeLineWidth(shape);
     const filled = options.filled ?? shapeIsFilled(shape);
     const centerlineShape = { ...shape, filled: false };
     const centerline = shape?.kind === 'arc'

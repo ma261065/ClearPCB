@@ -116,6 +116,12 @@ proves it follows the table's priority, and fails if a new `_…Drag`, `_…Draw
 being registered. At most one pointer drag is active at a time; the selection
 gesture may wrap one, and drawing sessions persist across other gestures.
 
+The PCB canvas mousedown listener in `PCBApp._bindMouseEvents` handles only
+cross-tool concerns (paste drop, floating previews, ribbon tab, inline text
+commit, double-click edit, right-button bookkeeping, pan). It then hands a
+primary press to the active tool's `_press…Tool` method through
+`PCB_TOOL_PRESS_HANDLERS`; `test-pcb-pointer-press` checks that routing.
+
 Image rotation and dimension number controls retain their DOM nodes during
 focused native `input`/`change` steps. Commits update the displayed numeric
 values in place rather than rebuilding the panel and losing keyboard focus;
@@ -332,6 +338,18 @@ Unchanged previews reuse that input. Cancel/commit removes the provisional input
 and restores the normal graph. DRC's existing pending-edit guard prevents checking
 an unfinished gesture; guide styling itself never removes neutral ratline records.
 
+Ratline endpoints sit on drawn copper. Copper shapes offer their (rounded)
+outline. A Track with rounded corners offers its rendered centreline from
+`resolveTrackEdgePaths()`, because a rounded corner's node lies off the copper.
+Arc edges and sharp Tracks offer their nodes. Junction bonding still uses the
+exact node positions (`test-track-ratline-rounded`).
+
+Assigning a net to an unfilled copper polygon or rectangle converts it to a
+closed-loop Track, as for open copper Lines (`e<i>` is segment `i`, the last
+edge closes the loop). Clearing the net restores it as a polygon, or a rectangle
+when still axis-aligned. Filled copper shapes are areas and keep the net as a
+shape (`test-track-restoration`).
+
 `pcb/modules/autorouter-session.js` owns the routing session, worker, cancellation
 polling, result-adoption guard and disposal. It receives explicit capabilities
 for board-state capture, route-input capture, router mode, command adoption,
@@ -350,6 +368,13 @@ invalidate both arc geometry and bounds. Track node/segment/whole drags,
 attached-via/pad movement and group translation invalidate their displayed
 copies before presentation, without invalidating canonical bounds during preview.
 Accepted model commands invalidate the authored entity's bounds.
+
+`SelectionManager` skips an entry whose bounds cannot contain the pointer before
+calling `hitTest()`. An entry whose `hitTest()` reaches beyond its visual bounds
+supplies `getHitBounds()`; `getBounds()` stays visual for box selection and group
+bounds. Selected PCB lines, rectangles and polygons use it because their
+unrounded edges and nodes stay hittable outside large corner radii
+(`test-board-shape-rounded-node-hit`).
 Bounds remain entity-owned derived data, not authored state.
 Schematic `Text` remains a measured-layout exception: drawing clears its bounds
 so the next query uses the updated SVG font metrics rather than an earlier
@@ -1538,6 +1563,10 @@ mode; it is not a release requirement. Remaining ownership work is tracked in
   use it. PCB's `_snapToGrid()` is a magnetic adapter, not nearest-grid rounding.
   Existing gesture anchors (including group deltas and local reference offsets)
   and higher-priority pin/pad/alignment constraints are unchanged.
+- `pcb/modules/path-edit.js` snaps PCB path edits. Track node, segment and
+  bulge drags lock onto Pads (`pads` flag); board shapes (including holes) and
+  copper-fill outlines use only grid, axis and collinear magnets, so moving one
+  across a Pad array never jumps between Pads (`test-board-shape-pad-snap`).
 - `shapes/property-preview.js` owns reversible live-property transactions:
   capture once, mutate and redraw, restore before committing a single history
   edit, skip unchanged commits, and restore/redraw on cancellation. Snapshots
@@ -1760,6 +1789,17 @@ history, or DOM dependency. Its calculations reuse shared `src/shapes` helpers
 and the existing image-contour utilities; PCB layer and copper-mode rules
 remain PCB-owned. `board-geometry.js` continues to own footprint and track
 geometry, rather than accumulating unrelated shape editing behavior.
+
+Rectangle and polygon `physicalContours` (Clipper offsets that cost
+milliseconds) are memoised per shape object, keeping the last two results
+(stroke and filled-removal variants). Each read rebuilds a key from every
+geometry input (kind, layer, points, corner and node radii, segment bulges and
+widths, line width, fill), so in-place edits need no explicit invalidation.
+`boardShapeBounds()` caches its bounds with the contours, and
+`boardShapeHitTest()` reads the contours directly. The shared contours are
+frozen, so consumers must copy before changing them. This took a pointer hit
+test on a 29-shape board from about 16 ms to 0.2 ms
+(`test-board-shape-contour-cache`).
 
 Open hole and copper-removal SVG outlines union round-ended segment capsules
 with Clipper before emitting compound paths. This bounds acute joins, keeps

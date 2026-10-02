@@ -205,13 +205,39 @@ export function shapeKindLabel(kind) {
                 : 'Shape';
 }
 
+/**
+ * Copper paths that are routing intent once they carry a net: open Lines, and
+ * unfilled polygons/rectangles (closed loops). Filled shapes are copper areas,
+ * which a Track cannot represent, so they keep the net as a shape.
+ */
 function canConvertBoardLineToTrack(shape, net = shape?.net) {
-    return shape?.kind === 'line'
+    const closed = shape?.kind === 'polygon' || shape?.kind === 'rect';
+    return (shape?.kind === 'line' || (closed && !shapeIsFilled(shape)))
         && (shape.layer === 'top-copper' || shape.layer === 'bottom-copper')
         && normalizeShapeCopperMode(shape.copperMode) === 'add'
         && !!String(net || '').trim()
         && Array.isArray(shape.points)
-        && shape.points.length >= 2;
+        && shape.points.length >= (closed ? 3 : 2);
+}
+
+/** Track with the shape's nodes `n<i>` and segments `e<i>`; closed shapes get the closing edge. */
+function trackFromBoardShape(shape, net) {
+    const count = shape.points.length;
+    const edgeCount = shape.kind === 'line' ? count - 1 : count;
+    const byEdge = (record) => Object.fromEntries(Object.entries(record || {}).map(([index, value]) => [`e${index}`, value]));
+    return new Track({
+        net: String(net).trim(),
+        width: Math.max(0.05, Number(shape.lineWidth) || 0.2),
+        layer: shape.layer,
+        graphNodes: Object.fromEntries(shape.points.map((point, index) => [`n${index}`, { x: point.x, y: point.y }])),
+        graphEdges: Object.fromEntries(Array.from({ length: edgeCount }, (_, index) =>
+            [`e${index}`, { from: `n${index}`, to: `n${(index + 1) % count}` }])),
+        edgeWidths: byEdge(shape.segmentWidths),
+        edgeBulges: byEdge(shape.segmentBulges),
+        cornerRadius: shape.kind === 'rect' ? rectCornerRadius(shape) : shape.cornerRadius,
+        nodeCornerRadii: Object.fromEntries(Object.entries(shape.nodeCornerRadii || {}).map(([index, radius]) => [`n${index}`, radius])),
+        sourceBoardShape: sourceBoardShapeForTrack(shape),
+    });
 }
 
 function sourceBoardShapeForTrack(shape) {
@@ -221,8 +247,9 @@ function sourceBoardShapeForTrack(shape) {
 }
 
 function simpleTrackLinePoints(track) {
-    if (!track || track.nodes.size < 2
-        || track.edges.size !== track.nodes.size - 1 || track.padConnections.size) return null;
+    if (!track || track.nodes.size < 2 || track.padConnections.size) return null;
+    const closed = track.edges.size === track.nodes.size;
+    if (!closed && track.edges.size !== track.nodes.size - 1) return null;
     /** @type {Map<string, Array<{edgeId:string, nodeId:string}>>} */
     const adjacency = new Map([...track.nodes.keys()].map((nodeId) => [nodeId, []]));
     for (const [edgeId, edge] of track.edges) {
@@ -233,7 +260,10 @@ function simpleTrackLinePoints(track) {
         toEdges.push({ edgeId, nodeId: edge.from });
     }
     const endpoints = [...adjacency].filter(([, edges]) => edges.length === 1).map(([nodeId]) => nodeId);
-    if (endpoints.length !== 2 || [...adjacency.values()].some((edges) => edges.length < 1 || edges.length > 2)) return null;
+    if ([...adjacency.values()].some((edges) => edges.length < 1 || edges.length > 2)) return null;
+    // A closed loop has no endpoints; start where the source shape's first node was.
+    if (closed ? endpoints.length || track.nodes.size < 3 : endpoints.length !== 2) return null;
+    const firstNodeId = closed ? (track.nodes.has('n0') ? 'n0' : track.nodes.keys().next().value) : endpoints[0];
 
     const points = [];
     const segmentWidths = {};
@@ -241,16 +271,15 @@ function simpleTrackLinePoints(track) {
     const nodeCornerRadii = {};
     const visitedEdges = new Set();
     let previousNodeId = null;
-    let nodeId = endpoints[0];
+    let nodeId = firstNodeId;
     let layer = null;
     while (nodeId) {
         const node = track.nodes.get(nodeId);
         if (!node) return null;
         if (Object.hasOwn(track.nodeCornerRadii || {}, nodeId)) nodeCornerRadii[points.length] = track.nodeCornerRadii[nodeId];
         points.push({ x: node.x, y: node.y });
-        const next = (adjacency.get(nodeId) || []).find((edge) => edge.nodeId !== previousNodeId);
+        const next = (adjacency.get(nodeId) || []).find((edge) => edge.nodeId !== previousNodeId && !visitedEdges.has(edge.edgeId));
         if (!next) break;
-        if (visitedEdges.has(next.edgeId)) return null;
         const edgeLayer = track.getEdgeLayer(next.edgeId);
         const edgeWidth = track.getEdgeWidth(next.edgeId);
         if (layer !== null && edgeLayer !== layer) return null;
@@ -262,9 +291,11 @@ function simpleTrackLinePoints(track) {
         layer = edgeLayer;
         previousNodeId = nodeId;
         nodeId = next.nodeId;
+        // The closing edge leads back to the first node, which is already recorded.
+        if (closed && nodeId === firstNodeId) break;
     }
     return visitedEdges.size === track.edges.size && points.length === track.nodes.size
-        ? { points, layer, width: track.width, segmentWidths, segmentBulges,
+        ? { points, layer, closed, width: track.width, segmentWidths, segmentBulges,
             cornerRadius: track.cornerRadius, nodeCornerRadii }
         : null;
 }
@@ -280,7 +311,7 @@ export function restoreTrackToSourceBoardShape(app, track) {
     const shape = {
         ...track.sourceBoardShape,
         id: track.sourceBoardShape?.id || `pshape_${app._shapeIdCounter++}`,
-        kind: 'line',
+        kind: source.closed ? 'polygon' : 'line',
         layer: source.layer,
         lineWidth: source.width,
         filled: false,
@@ -293,6 +324,8 @@ export function restoreTrackToSourceBoardShape(app, track) {
         cornerRadius: source.cornerRadius,
         nodeCornerRadii: source.nodeCornerRadii,
     };
+    // Closed loops return as a polygon, or a rectangle when still axis-aligned.
+    if (source.closed) normalizeBoardPolylineKind(shape);
     app.history.execute(new CompoundCommand([
         new RemoveTrackCommand(app, track),
         new AddBoardShapeCommand(app, shape),
@@ -304,23 +337,14 @@ export function restoreTrackToSourceBoardShape(app, track) {
 }
 
 /**
- * Move a net-assigned generic copper Line into the canonical Track model.
+ * Move a net-assigned generic copper path (an open Line, or an unfilled
+ * polygon/rectangle as a closed loop) into the canonical Track model.
  * Tracks that retain their unmodified source geometry can be restored to the
- * original Line when their net is cleared.
+ * original shape when their net is cleared.
  */
 export function convertBoardLineToTrack(app, shape, net = shape?.net) {
     if (!canConvertBoardLineToTrack(shape, net) || !app.boardShapes?.includes(shape)) return null;
-    const track = new Track({
-        net: String(net).trim(),
-        width: Math.max(0.05, Number(shape.lineWidth) || 0.2),
-        layer: shape.layer,
-        points: shape.points.map((point) => ({ x: point.x, y: point.y })),
-        edgeWidths: Object.fromEntries(Object.entries(shape.segmentWidths || {}).map(([index, width]) => [`e${index}`, width])),
-        edgeBulges: Object.fromEntries(Object.entries(shape.segmentBulges || {}).map(([index, bulge]) => [`e${index}`, bulge])),
-        cornerRadius: shape.cornerRadius,
-        nodeCornerRadii: Object.fromEntries(Object.entries(shape.nodeCornerRadii || {}).map(([index, radius]) => [`n${index}`, radius])),
-        sourceBoardShape: sourceBoardShapeForTrack(shape),
-    });
+    const track = trackFromBoardShape(shape, net);
     selectBoardShape(app, null);
     app.history.execute(new CompoundCommand([
         new RemoveBoardShapeCommand(app, shape),
@@ -931,6 +955,20 @@ export function createBoardShapeSelectionAdapter(app, shape, id) {
             );
         },
         getBounds() { return boardShapeBounds(displayed()); },
+        getHitBounds() {
+            const shape = displayed();
+            const bounds = boardShapeBounds(shape);
+            if (!bounds || !['line', 'rect', 'polygon'].includes(shape.kind) || !isPcbSelected(app, 'shape', shape)) return bounds;
+            // hitTest also accepts a selected path's unrounded edges, whose nodes can lie outside rounded corners.
+            let { minX, minY, maxX, maxY } = bounds;
+            for (const point of shape.points || []) {
+                if (point.x < minX) minX = point.x;
+                if (point.x > maxX) maxX = point.x;
+                if (point.y < minY) minY = point.y;
+                if (point.y > maxY) maxY = point.y;
+            }
+            return { minX, minY, maxX, maxY };
+        },
         hitTest(point, tolerance) {
             const shape = displayed();
             if (boardShapeHitTest(shape, point, tolerance)) return true;
@@ -1165,7 +1203,7 @@ function polygonVertexSnap(app, before, index, worldPos, closed, requireGrid = f
     const neighbours = [];
     if (index > 0 || closed) neighbours.push(points[(index + points.length - 1) % points.length]);
     if (index < points.length - 1 || closed) neighbours.push(points[(index + 1) % points.length]);
-    return snapPathPoint(app, worldPos, neighbours, true, pathContinuationConstraints(points, closed, index, bulges));
+    return snapPathPoint(app, worldPos, neighbours, false, pathContinuationConstraints(points, closed, index, bulges));
 }
 
 function clearPolygonAxisIndicators(app) {
@@ -1422,15 +1460,15 @@ export function handleBoardShapeDrag(app, worldPos) {
             || (typeof d.sourceAnchorId === 'string' && d.sourceAnchorId.startsWith('mid:'));
         const editingSegmentBulge = typeof d.handle === 'string' && d.handle.startsWith('bulge:');
         const editingArcEndpoint = s.kind === 'arc' && (d.handle === 'start' || d.handle === 'end');
-        let snap = editingSegmentBulge ? snapPathPoint(app, worldPos, [], true) : polylineDrag && typeof d.handle === 'number'
+        let snap = editingSegmentBulge ? snapPathPoint(app, worldPos, []) : polylineDrag && typeof d.handle === 'number'
             ? polygonVertexSnap(app, d.vertexBefore || before, d.handle, worldPos, beforeKind !== 'line',
                 app._snapActive?.() ?? app.viewport?.snapToGrid !== false, s.segmentBulges || [])
             : editingArcEndpoint
                 ? polygonVertexSnap(app, { points: [before.start, before.end] }, d.handle === 'start' ? 0 : 1,
                     worldPos, false, app._snapActive?.() ?? app.viewport?.snapToGrid !== false)
             : beforeKind === 'rect' && typeof d.handle === 'number'
-                ? snapPathPoint(app, worldPos, [before.points[(d.handle + 2) % 4]], true)
-            : snapPathPoint(app, worldPos, before.points || [], true);
+                ? snapPathPoint(app, worldPos, [before.points[(d.handle + 2) % 4]])
+            : snapPathPoint(app, worldPos, before.points || []);
         if (!app.viewport?.shiftHeld && (editingSegmentBulge || s.kind === 'arc' && d.handle === 'bulge')) {
             const segment = editingSegmentBulge ? Number(d.handle.slice(6)) : null;
             const start = segment == null ? s.start : s.points[segment];
@@ -1755,7 +1793,7 @@ function shapeDrawSnap(app, worldPos) {
     const previous = draw?.points.at(-1);
     const continuations = draw && ['line', 'polygon'].includes(draw.kind)
         ? pathContinuationConstraints([...draw.points, worldPos], false, draw.points.length) : [];
-    return snapPathPoint(app, worldPos, previous ? [previous] : [], true, continuations);
+    return snapPathPoint(app, worldPos, previous ? [previous] : [], false, continuations);
 }
 
 /** Left-click while a shape tool is active. */
@@ -1877,15 +1915,9 @@ export function finishShapeDraw(app) {
     if (!geometry) return;
     const shape = { ...base, ...geometry, filled: d.kind === 'arc' ? false : base.filled };
     if ('points' in shape && canConvertBoardLineToTrack(shape)) {
-        // A named copper Line is routing intent, so enter the Track model
+        // A named copper path is routing intent, so enter the Track model
         // directly instead of creating a transient generic shape first.
-        const track = new Track({
-            net: String(shape.net).trim(),
-            width: Math.max(0.05, Number(shape.lineWidth) || 0.2),
-            layer: shape.layer,
-            points: shape.points.map((point) => ({ x: point.x, y: point.y })),
-            sourceBoardShape: sourceBoardShapeForTrack(shape),
-        });
+        const track = trackFromBoardShape(shape, shape.net);
         app.history.execute(new AddTrackCommand(app, track));
         setPcbSelection(app, [{ kind: 'track', object: track }]);
         app._refreshPcbSelectionHighlights?.();
@@ -2717,7 +2749,7 @@ export function showBoardShapeProperties(app, shape) {
         const next = netEl.value.trim();
         if (!binding.prepare()) return;
         const targets = propertyTargets();
-        if (targets.length === 1 && next && targets[0].kind === 'line') {
+        if (targets.length === 1 && next && canConvertBoardLineToTrack(targets[0], next)) {
             const track = convertBoardLineToTrack(app, targets[0], next);
             if (track) return;
         }

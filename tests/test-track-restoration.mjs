@@ -198,4 +198,63 @@ function appFor(track) {
     expect('reversed traversal reverses the bulge sign', app.boardShapes[0].segmentBulges[0] === -0.4);
 }
 
+{
+    // Unfilled copper polygons are closed-loop routing intent; segment i stays edge e<i>.
+    const polygon = { id: 'pshape_loop', kind: 'polygon', layer: 'top-copper', lineWidth: 0.2, filled: false,
+        copperMode: 'add', net: '', points: [{ x: 0, y: 0 }, { x: 17, y: 29 }, { x: 28, y: 20 }, { x: 22, y: -2 }],
+        nodeCornerRadii: { 1: 9.5 }, segmentBulges: { 3: 0.3 }, segmentWidths: { 0: 0.5 } };
+    const app = appFor(null);
+    app.boardShapes.push(polygon);
+    const track = convertBoardLineToTrack(app, polygon, 'N');
+    expect('an unfilled polygon converts to a Track', !!track && app.tracks[0] === track && app.boardShapes.length === 0);
+    expect('the polygon Track is one closed loop', track.nodes.size === 4 && track.edges.size === 4
+        && track.edges.get('e3').from === 'n3' && track.edges.get('e3').to === 'n0');
+    expect('closing-edge bulge, segment width and node radius carry over', track.edges.get('e3').bulge === 0.3
+        && track.getEdgeWidth('e0') === 0.5 && track.nodeCornerRadius('n1') === 9.5);
+    expect('a converted polygon Track remains restorable', canRestoreTrackToSourceBoardShape(track));
+    expect('clearing the net restores the polygon', restoreTrackToSourceBoardShape(app, track));
+    const restored = app.boardShapes[0];
+    expect('restored polygon keeps id, kind, order and outline style', restored?.id === polygon.id
+        && restored.kind === 'polygon' && restored.filled === false
+        && JSON.stringify(restored.points) === JSON.stringify(polygon.points));
+    expect('restored polygon keeps radius, bulge and width per index', restored.nodeCornerRadii[1] === 9.5
+        && restored.segmentBulges[3] === 0.3 && restored.segmentWidths[0] === 0.5);
+}
+
+{
+    const rect = { id: 'pshape_rect', kind: 'rect', layer: 'bottom-copper', lineWidth: 0.3, filled: false,
+        copperMode: 'add', net: '', cornerRadius: 50,
+        points: [{ x: 0, y: 0 }, { x: 10, y: 0 }, { x: 10, y: 4 }, { x: 0, y: 4 }] };
+    const app = appFor(null);
+    app.boardShapes.push(rect);
+    const track = convertBoardLineToTrack(app, rect, 'N');
+    expect('an unfilled rectangle converts to a closed-loop Track', track?.edges.size === 4);
+    expect('the rectangle radius is clamped as drawn', track.cornerRadius === 2);
+    restoreTrackToSourceBoardShape(app, track);
+    expect('an axis-aligned loop restores as a rectangle', app.boardShapes[0]?.kind === 'rect'
+        && app.boardShapes[0].layer === 'bottom-copper');
+}
+
+{
+    for (const [name, shape] of [
+        ['filled polygon', { kind: 'polygon', filled: true, layer: 'top-copper' }],
+        ['silk polygon', { kind: 'polygon', filled: false, layer: 'top-silk' }],
+        ['copper-removal polygon', { kind: 'polygon', filled: false, layer: 'top-copper', copperMode: 'remove-copper' }],
+    ]) {
+        const source = { id: name, lineWidth: 0.2, copperMode: 'add', net: '', ...shape,
+            points: [{ x: 0, y: 0 }, { x: 5, y: 0 }, { x: 0, y: 5 }] };
+        const app = appFor(null);
+        app.boardShapes.push(source);
+        expect(`a ${name} keeps its net as a shape`, convertBoardLineToTrack(app, source, 'N') === null
+            && app.boardShapes[0] === source && app.tracks.length === 0);
+    }
+}
+
+{
+    const track = new Track({ graphNodes: { n0: { x: 0, y: 0 }, n1: { x: 5, y: 0 }, n2: { x: 0, y: 5 } },
+        graphEdges: { e0: { from: 'n0', to: 'n1' }, e1: { from: 'n1', to: 'n2' }, e2: { from: 'n2', to: 'n0' } } });
+    track.padConnections.set('n0', { componentId: 'R1', pinNumber: '1' });
+    expect('a pad-linked loop remains a Track', !canRestoreTrackToSourceBoardShape(track));
+}
+
 if (failures) process.exitCode = 1;

@@ -11,7 +11,7 @@ const keyFor = (kind, object) => `${kind}:${kind === 'component' || kind === 're
 const adapterFactories = new Map();
 const hitQueries = new WeakMap();
 const groupGeometryMembers = new Set([
-    'object', 'getBounds', 'hitTest', 'getPosition', 'getAnchors', 'getEditPath',
+    'object', 'getBounds', 'getHitBounds', 'hitTest', 'getPosition', 'getAnchors', 'getEditPath',
     'getLockPosition', 'invalidate', 'render',
 ]);
 

@@ -110,6 +110,8 @@ service instead of adding a new private access.
 - In-progress interaction fields (`_drag`, `_trackDraw`, …) are listed once in
   `pcb-interactions.js`; `pcb-interaction-routing.js` holds their pointer-move and
   cancel handlers. `test-pcb-interaction-registry` fails if a new one is unregistered.
+- PCB canvas presses go to one `_press…Tool` method per tool through
+  `PCB_TOOL_PRESS_HANDLERS` in `PCBApp.js`.
 - PCB modules call the editor through `pcb-editor-api.js` services; the access
   ratchet lists the private members they still use.
 - `pcb-interactions.js`, `property-editors.js` and `refresh-state.js` have no

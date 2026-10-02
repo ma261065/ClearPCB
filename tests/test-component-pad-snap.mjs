@@ -36,8 +36,9 @@ for (const scale of [1, 10, 100, 1000]) {
     assert.ok(findNearbyPad(app, { x: 10.25, y: 10 }), 'Pad boundary is included');
     assert.deepEqual(snapPathPoint(app, outside, [], true), outside, 'line editing does not snap outside');
     assert.deepEqual(snapPathPoint(app, inside, [], true), { x: 10, y: 10 });
-    assert.deepEqual(snapPathTranslation(app, [{ x: 0, y: 0 }], outside), outside);
-    const translation = snapPathTranslation(app, [{ x: 0, y: 0 }], inside);
+    assert.deepEqual(snapPathTranslation(app, [{ x: 0, y: 0 }], outside, [], [], true), outside);
+    assert.deepEqual(snapPathTranslation(app, [{ x: 0, y: 0 }], inside), inside, 'shape and fill moves ignore Pads');
+    const translation = snapPathTranslation(app, [{ x: 0, y: 0 }], inside, [], [], true);
     assert.deepEqual([translation.x, translation.y], [10, 10]);
 
     startTrackDraw(app, { x: -50, y: -20 });

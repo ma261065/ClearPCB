@@ -1237,7 +1237,7 @@ export function updateVertexDrag(app, worldPos) {
             })) : [];
         }
         const delta = snapPathTranslation(app, drag.translationPoints,
-            { x: rawDx, y: rawDy }, drag.mode === 'move' ? [drag.translationPoints[0]] : [], drag.constraints);
+            { x: rawDx, y: rawDy }, drag.mode === 'move' ? [drag.translationPoints[0]] : [], drag.constraints, true);
         const { x: dx, y: dy } = delta;
         if (dx === drag.lastDx && dy === drag.lastDy) return;
         beginTrackPointerPreview(app, drag);

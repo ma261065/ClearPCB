@@ -63,8 +63,9 @@ export class SelectionManager {
      * Shapes without usable bounds fall through to their authoritative test.
      */
     _boundsMayHit(shape, point, tolerance) {
-        if (typeof shape.getBounds !== 'function') return true;
-        const bounds = shape.getBounds();
+        // Adapters whose hitTest reaches beyond their visual bounds supply wider hit bounds.
+        const bounds = typeof shape.getHitBounds === 'function' ? shape.getHitBounds()
+            : typeof shape.getBounds === 'function' ? shape.getBounds() : null;
         if (!bounds) return true;
         const { minX, minY, maxX, maxY } = bounds;
         if (![minX, minY, maxX, maxY].every(Number.isFinite)) return true;

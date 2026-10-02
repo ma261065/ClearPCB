@@ -30,11 +30,12 @@ export function snapPathPoint(app, point, neighbours = [], pads = false, continu
     return resolvePathPoint(point, neighbours, grid, threshold, null, continuations);
 }
 
-export function snapPathTranslation(app, points, delta, neighbours = [], constraints = []) {
+/** Track paths pass `pads` to lock moved nodes onto pads; board shapes and fills do not. */
+export function snapPathTranslation(app, points, delta, neighbours = [], constraints = [], pads = false) {
     if (app.viewport?.shiftHeld) return delta;
     const threshold = 8 / Math.max(0.01, app.viewport?.scale || 1);
     return resolvePathTranslation(points, delta, neighbours, constraints, threshold,
-        (point, tolerance) => findNearbyPad(app, point, tolerance),
+        pads ? (point, tolerance) => findNearbyPad(app, point, tolerance) : () => null,
         (point, fixed) => snapPathPoint(app, point, fixed));
 }
 

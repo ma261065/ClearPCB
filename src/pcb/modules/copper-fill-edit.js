@@ -99,7 +99,7 @@ export function updateFillEdit(app, point) {
         const count = fill.outline.length;
         const neighbours = typeof anchor === 'number'
             ? [fill.outline[(anchor + count - 1) % count], fill.outline[(anchor + 1) % count]] : [];
-        const snap = snapPathPoint(app, point, neighbours, true);
+        const snap = snapPathPoint(app, point, neighbours);
         applyBoardShapeVertexResize(fill, { before: { points: editBefore.outline }, handle: anchor }, snap);
         updateFillHandleCrosshair(app, fill, anchor);
     } else {

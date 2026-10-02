@@ -399,9 +399,11 @@ for (const kind of ['shape', 'track', 'fill']) for (const anchorId of [0, 'mid:0
     const diagonal = snapPathPoint(app, { x: 2, y: 2.03 }, [{ x: 0, y: 0 }]);
     expect('shared point snap aligns to 45 degrees', Math.abs(diagonal.x - diagonal.y) < 1e-9);
     app.placements.set('R1', { pads: new Map([['1', { x: 10.02, y: 3.04 }]]) });
-    const delta = snapPathTranslation(app, [{ x: 0, y: 0 }, { x: 8, y: 0 }], { x: 2, y: 3 });
-    expect('translation snaps any moving endpoint to a pad', Math.abs(delta.x - 2.02) < 1e-9
+    const delta = snapPathTranslation(app, [{ x: 0, y: 0 }, { x: 8, y: 0 }], { x: 2, y: 3 }, [], [], true);
+    expect('Track translation snaps any moving endpoint to a pad', Math.abs(delta.x - 2.02) < 1e-9
         && Math.abs(delta.y - 3.04) < 1e-9);
+    const shapeDelta = snapPathTranslation(app, [{ x: 0, y: 0 }, { x: 8, y: 0 }], { x: 2, y: 3 });
+    expect('shape translation ignores pads', shapeDelta.x === 2 && shapeDelta.y === 3);
     app.viewport.shiftHeld = true;
     const override = snapPathPoint(app, { x: 10.03, y: 3.03 }, [{ x: 10, y: 3 }], true);
     expect('Shift disables pad, grid and axis magnets', override.x === 10.03 && override.y === 3.03);
