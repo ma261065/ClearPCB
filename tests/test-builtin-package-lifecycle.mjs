@@ -311,7 +311,13 @@ for (const material of ['external', 'm_180_188_198']) {
     assert.equal(parsed.source, material === 'external' ? 'easyeda' : 'kicad');
     const top = placedMesh(parsed, { x: 0, y: 0, side: 'top' });
     const bottom = placedMesh(parsed, { x: 0, y: 0, side: 'bottom' });
-    assert.equal(Math.min(...top.verts.map(vertex => vertex.y)), 1.6, 'imported models retain minimum-Z seating');
-    assert.equal(Math.abs(Math.max(...bottom.verts.map(vertex => vertex.y))), 0, 'bottom imported model seating unchanged');
+    if (material === 'external') {
+        assert.equal(Math.min(...top.verts.map(vertex => vertex.y)), 1.6, 'EasyEDA models retain minimum-Z seating');
+        assert.equal(Math.abs(Math.max(...bottom.verts.map(vertex => vertex.y))), 0, 'bottom imported model seating unchanged');
+    } else {
+        // KiCad models put z = 0 on the board surface, so leads below it pass through the board.
+        assert.ok(Math.abs(Math.min(...top.verts.map(vertex => vertex.y)) - (1.6 - 2.6)) < 1e-9, 'KiCad models keep their authored height');
+        assert.ok(Math.abs(Math.max(...bottom.verts.map(vertex => vertex.y)) - 2.6) < 1e-9, 'bottom KiCad models mirror that height');
+    }
 }
 console.log('PASS: package selection, undo, multi-selection, clipboard, persistence, offline preview, PCB sync and posed model contacts');
