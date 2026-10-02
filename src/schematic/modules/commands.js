@@ -251,7 +251,7 @@ export class ModifyShapeCommand extends Command {
         shape.applyState(state);
         // Sync field text changes back to parent component or wire
         if ('text' in state && shape.parentComponent && shape.fieldKey) {
-            if (shape.fieldKey === 'wireLabel' && shape.parentComponent.type === 'wire') {
+            if ((shape.fieldKey === 'wireLabel' || shape.fieldKey === 'label') && shape.parentComponent.type === 'wire') {
                 freeWireLabel(shape.parentComponent.wireLabel);
                 shape.parentComponent.wireLabel = shape.text;
                 bumpWireLabelCounter(shape.text);
@@ -265,7 +265,8 @@ export class ModifyShapeCommand extends Command {
                 if (oldName !== shape.parentComponent.net) {
                     _propagateNetNameToWires(this.app, shape.parentComponent);
                 }
-            } else {
+            } else if (shape.fieldKey !== 'label') {
+                // Generic attached labels on non-wire shapes are free text with no parent field.
                 shape.parentComponent[shape.fieldKey] = shape.text;
             }
         }
@@ -347,7 +348,7 @@ export class ModifyPropertyCommand extends Command {
                     item.parentComponent.invalidate();
                 } else if (item.fieldKey === 'reference') {
                     setComponentReference(item.parentComponent, val);
-                } else {
+                } else if (item.fieldKey !== 'label') {
                     item.parentComponent[item.fieldKey] = val;
                 }
             }

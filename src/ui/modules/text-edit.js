@@ -1,5 +1,4 @@
 import { ModifyShapeCommand } from '../../schematic/modules/commands.js';
-import { freeWireLabel, bumpWireLabelCounter, freeNetName, bumpNetNameCounter } from '../../shapes/wire.js';
 import { validateNetNameAtPoint } from './net-validation.js';
 import {
     getTextEditBoxGeometry,
@@ -7,27 +6,6 @@ import {
     measureTextGlyphBBox,
 } from '../../core/text-edit-geometry.js';
 import { createInlineTextOverlay } from '../../shared/ui/inline-text-overlay.js';
-
-/**
- * Update wires connected to a Net label to use its current net name.
- */
-function _propagateNetNameToWires(app, netShape) {
-    for (const wire of app.shapes) {
-        if (wire.type !== 'wire') continue;
-        for (const [, conn] of wire.pinConnections) {
-            if (conn.componentId === netShape.id) {
-                if (wire.net !== netShape.net) {
-                    freeNetName(wire.net);
-                    wire.net = netShape.net;
-                    bumpNetNameCounter(netShape.net);
-                    wire.invalidate();
-                }
-                break;
-            }
-        }
-    }
-    app._updatePropertiesPanel?.(app.selection?.getSelection?.() || []);
-}
 
 /**
  * Begins inline text editing on a text shape: initializes caret, creates
@@ -176,10 +154,8 @@ export function endTextEdit(app, commit = true) {
         // Temporarily revert so execute() applies the new text
         state.shape.text = state.originalText;
         const command = new ModifyShapeCommand(app, state.shape, beforeState, afterState);
+        // The command also syncs the text to its parent (Net label, wire name or component field).
         app.history.execute(command);
-
-        // Sync field text back to component
-        _syncFieldToComponent(app, state.shape);
     }
 
     // Refresh properties panel so it reflects the updated text
@@ -606,45 +582,6 @@ function measureCaretWithClone(app, el, textValue, caretIndex) {
         return null;
     }
     return null;
-}
-
-// ── field text helpers ───────────────────────────────────────────
-
-/** Sync a field Text shape's content back to its parent component or wire. */
-function _syncFieldToComponent(app, textShape) {
-    if (!textShape.parentComponent || !textShape.fieldKey) return;
-    if (textShape.fieldKey === 'label') {
-        if (textShape.parentComponent.type === 'wire') {
-            const wire = textShape.parentComponent;
-            freeWireLabel(wire.wireLabel);
-            wire.wireLabel = textShape.text;
-            bumpWireLabelCounter(textShape.text);
-            wire.invalidate();
-        }
-        return;
-    }
-    // Wire label: track label counter
-    if (textShape.fieldKey === 'wireLabel' && textShape.parentComponent.type === 'wire') {
-        const wire = textShape.parentComponent;
-        freeWireLabel(wire.wireLabel);
-        wire.wireLabel = textShape.text;
-        bumpWireLabelCounter(textShape.text);
-        wire.invalidate();
-        return;
-    }
-    if (textShape.fieldKey === 'net' && textShape.parentComponent.type === 'net') {
-        const Net = textShape.parentComponent;
-        const oldName = Net.net;
-        Net.net = textShape.text;
-        Net.syncTextOffsetFromLabelText?.();
-        Net.invalidate();
-        // Propagate renamed net to all attached wires
-        if (oldName !== Net.net) {
-            _propagateNetNameToWires(app, Net);
-        }
-        return;
-    }
-    textShape.parentComponent[textShape.fieldKey] = textShape.text;
 }
 
 /** Clean up text-edit overlay state (used for early abort). */
