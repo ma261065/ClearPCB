@@ -24,7 +24,7 @@ export function installNumberInputFormatting(root = document) {
     root.querySelectorAll('input[type="number"]').forEach(formatNumberInput);
     const observer = new MutationObserver(records => {
         for (const record of records) {
-            if (record.target?.namespaceURI === 'http://www.w3.org/2000/svg') continue;
+            if (/** @type {Element} */ (record.target)?.namespaceURI === 'http://www.w3.org/2000/svg') continue;
             if (record.type === 'attributes') formatNumberInput(record.target);
             else record.addedNodes.forEach(formatTree);
         }

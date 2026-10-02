@@ -3,6 +3,7 @@ import { pictureTriangles, pictureCirclesDisjoint, picturePoints } from '../../s
 import { ArcballController } from '../../shared/3d/ArcballController.js';
 import { createBoardViewSync } from './board-view-sync.js';
 import { getComputedFill } from './computed-fill-cache.js';
+// @ts-ignore -- cache-busting query string (see sw.js); TypeScript cannot resolve it
 import { createSurfaceBuilder } from './board3d-surface-client.js?v=9';
 import { surfaceInputsEqual } from './board3d-surface-equality.js';
 import { parseObjModel, meshToGeometry, makeMaterial, makeComponentMaterial, makeComponentGroupMaterials, COLOR_COMPONENT } from '../../shared/3d/model-rendering.js';
@@ -2998,7 +2999,7 @@ class ThreeScene {
                 obj.material = owned;
                 obj.userData.ownedMaterials = owned;
             } else {
-                obj.material = this.material;
+                obj.material = /** @type {any} */ (this.material);
             }
         }
         this.requestRender();

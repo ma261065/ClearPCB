@@ -21,6 +21,8 @@ export class Text extends Shape {
      * @param {string} [options.fontFamily='Arial'] - CSS font family.
      * @param {string} [options.textAnchor='start'] - SVG text-anchor.
      * @param {boolean} [options.border=false] - Draw a padded rectangular outline.
+     * @param {number} [options.rotation=0] - Rotation in degrees.
+     * @param {object|null} [options.attachment] - Label attachment to a parent anchor.
      */
     constructor(options = {}) {
         super(options);
@@ -63,7 +65,7 @@ export class Text extends Shape {
         let localBounds;
         if (this.element) {
             try {
-                const bbox = this.element.getBBox();
+                const bbox = /** @type {SVGGraphicsElement} */ (this.element).getBBox();
                 localBounds = {
                     minX: bbox.x, minY: bbox.y,
                     maxX: bbox.x + bbox.width, maxY: bbox.y + bbox.height
@@ -137,7 +139,7 @@ export class Text extends Shape {
         let localBounds;
         if (this.element) {
             try {
-                const bbox = this.element.getBBox();
+                const bbox = /** @type {SVGGraphicsElement} */ (this.element).getBBox();
                 localBounds = { minX: bbox.x, minY: bbox.y, maxX: bbox.x + bbox.width, maxY: bbox.y + bbox.height };
             } catch (e) { /* fall through */ }
         }
@@ -289,6 +291,7 @@ export class Text extends Shape {
                         : this.fieldKey === 'wireLabel' ? 'Name'
                         : this.fieldKey === 'label' ? 'Label'
                         : 'Value';
+            /** @type {ReturnType<import('./shape.js').Shape['getPropertyDescriptors']>} */
             const descriptors = [
                 { key: 'locked',   label: 'Locked',    type: 'checkbox' },
                 { key: 'text',     label,               type: 'text' },

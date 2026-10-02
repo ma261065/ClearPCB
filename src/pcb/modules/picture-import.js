@@ -278,6 +278,7 @@ export function showPictureImport(app) {
             if (raster) summary.textContent = `${widthMm.toFixed(2)} x ${heightMm.toFixed(2)} mm | ${(widthMm / raster.width).toFixed(3)} mm/px | Rectangles: ${raster.rectangles.length} / ${MAX_PICTURE_REGIONS}`;
             if (heightMm > 500) throw new Error('Image height must be at most 500 mm.');
             if (isLayerLocked(layer) || !isLayerVisible(layer)) throw new Error('Choose an unlocked, visible layer.');
+            /** @type {any} */
             let artwork = raster;
             if (halftoning) {
                 summary.textContent = 'Generating dots...';

@@ -2538,7 +2538,7 @@ export function computeSegmentDragSnap(app, wire, dragEdgeId, origState, target,
  * @param {Set<string>} movingCompIds
  * @param {number} proposedDx - grid-snapped dx about to be applied
  * @param {number} proposedDy - grid-snapped dy about to be applied
- * @returns {{ adjustX: number, adjustY: number, guides: Array<[{x,y},{x,y}]> }}
+ * @returns {{ adjustX: number, adjustY: number, guides: Array<{a:{x:number,y:number}, b:{x:number,y:number}, collinear?:boolean, axisKind?:string}> }}
  */
 export function computeStickyWireSnaps(app, movingCompIds, proposedDx, proposedDy) {
     const screenThreshold = SNAP_SCREEN_PX / app.viewport.scale;

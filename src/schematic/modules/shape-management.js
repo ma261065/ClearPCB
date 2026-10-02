@@ -62,7 +62,7 @@ export function addShapeInternal(app, shape) {
  * direct shape-array/DOM bookkeeping details.
  * @param {object} app
  * @param {import('../../shapes/shape.js').Shape} shape
- * @param {import('../../shapes/text.js').Text|null} [linkedWireLabelText]
+ * @param {import('../../shapes/text.js').Text|null} [linkedLabelText]
  * @returns {import('../../shapes/text.js').Text|null}
  */
 export function commandAddShapeInternal(app, shape, linkedLabelText = null) {
@@ -131,8 +131,8 @@ export function addShapeInternalAt(app, shape, index) {
  * Directly removes a shape (no undo) — splices from array, removes SVG elements,
  * deselects, invalidates hit-test cache, and marks dirty.
  * @param {object} app - Application state.
- * @param {import('../../shapes/shape.js').Shape} shape - Shape to remove.
- * @param {{ preserveWireLabelRef?: boolean }} [options] - Optional remove behavior.
+ * @param {any} shape - Shape to remove (text fields carry fieldKey/parentComponent).
+ * @param {{ preserveWireLabelRef?: boolean, preserveLinkedLabelRef?: boolean }} [options] - Optional remove behavior.
  */
 export function removeShapeInternal(app, shape, options = {}) {
     const { preserveWireLabelRef = false, preserveLinkedLabelRef = preserveWireLabelRef } = options;
@@ -210,7 +210,7 @@ export function commandRemoveShapeInternal(app, shape, options = {}) {
  * Command-layer batch delete hook to isolate shape-array/DOM internals.
  * @param {object} app
  * @param {Array<{shape: import('../../shapes/shape.js').Shape, index: number}>} shapesData
- * @param {Array<{shape: import('../../shapes/shape.js').Shape, index: number, parentWire: import('../../shapes/wire.js').Wire}>} linkedLabelData
+ * @param {Array<{shape: any, index: number, parentWire: import('../../shapes/wire.js').Wire}>} linkedLabelData
  */
 export function commandDeleteShapesInternal(app, shapesData, linkedLabelData) {
     const allData = [...shapesData, ...linkedLabelData];
@@ -260,7 +260,7 @@ export function commandDeleteShapesInternal(app, shapesData, linkedLabelData) {
  * Command-layer batch restore hook to isolate shape-array/DOM internals.
  * @param {object} app
  * @param {Array<{shape: import('../../shapes/shape.js').Shape, index: number}>} shapesData
- * @param {Array<{shape: import('../../shapes/shape.js').Shape, index: number, parentWire: import('../../shapes/wire.js').Wire}>} linkedLabelData
+ * @param {Array<{shape: any, index: number, parentWire: import('../../shapes/wire.js').Wire}>} linkedLabelData
  */
 export function commandRestoreShapesInternal(app, shapesData, linkedLabelData) {
     const allData = [...shapesData, ...linkedLabelData];

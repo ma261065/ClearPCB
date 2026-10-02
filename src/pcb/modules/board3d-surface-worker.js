@@ -1,3 +1,4 @@
+// @ts-ignore -- cache-busting query string (see sw.js); TypeScript cannot resolve it
 import { buildSurfaceBuffers } from './board3d-surface-build.js?v=7';
 import { decodeSurfaceInputs } from './board3d-surface-transfer.js';
 

@@ -98,13 +98,7 @@ export function renderTrack(track, getLayerGroup, opts = {}) {
     trackElements.set(track, created);
 }
 
-/**
- * Render a standalone Via on the hole layer.
- *
- * @param {object} via - Via instance
- * @param {(layerId: string) => SVGGElement|null} getLayerGroup
- * @param {object} [opts]
- */
+/** SVG path (outer ring with its drill as an even-odd hole) for a via's copper. */
 export function viaCopperPathD(via) {
     const outerRadius = via.diameter / 2;
     const drillRadius = Number.isFinite(via.drill) ? Math.max(0, via.drill / 2) : 0;
@@ -119,6 +113,13 @@ export function viaCopperPathD(via) {
     return path;
 }
 
+/**
+ * Render a standalone Via on the hole layer.
+ *
+ * @param {object} via - Via instance
+ * @param {(layerId: string) => SVGGElement|null} getLayerGroup
+ * @param {{viaRingColor?: string}} [opts]
+ */
 export function renderVia(via, getLayerGroup, opts = {}) {
     removeViaElements(via);
 

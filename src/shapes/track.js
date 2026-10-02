@@ -66,6 +66,10 @@ export class Track extends PolylineGraph {
      * @param {object} [options.graphNodes] - Forwarded to PolylineGraph
      * @param {object} [options.graphEdges] - Forwarded to PolylineGraph
      * @param {Array<{x:number,y:number}>} [options.points] - Forwarded
+     * @param {string} [options.color] - Forwarded to Shape
+     * @param {number} [options.lineWidth] - Forwarded to Shape
+     * @param {boolean} [options.visible] - Forwarded to Shape
+     * @param {boolean} [options.locked] - Forwarded to Shape
      */
     constructor(options = {}) {
         super(options);

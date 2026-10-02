@@ -11,6 +11,7 @@ import { getBoardShapeNodeFocus, getBoardShapeSegmentFocus, setBoardShapeNodeFoc
 const keyFor = (kind, object) => `${kind}:${kind === 'component' || kind === 'reftext' ? object : object.id}`;
 const adapterFactories = new Map();
 const hitQueries = new WeakMap();
+/** @type {Set<string|symbol>} */
 const groupGeometryMembers = new Set([
     'object', 'getBounds', 'getHitBounds', 'hitTest', 'getPosition', 'getAnchors', 'getEditPath',
     'getLockPosition', 'invalidate', 'render',

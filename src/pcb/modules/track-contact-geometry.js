@@ -86,7 +86,8 @@ class PreparedTriangle {
         this.bounds = unpackBounds(prepared.triangleBounds, index / 3 * 4);
     }
     get geometry() {
-        return this._geometry ||= polygonGeometry([
+        // Resolved lazily on first use; most triangles are rejected by their bounds first.
+        return /** @type {any} */ (this)._geometry ||= polygonGeometry([
             this.points[this.indices[this.index]], this.points[this.indices[this.index + 1]],
             this.points[this.indices[this.index + 2]],
         ]);

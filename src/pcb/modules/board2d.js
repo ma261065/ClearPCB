@@ -261,6 +261,7 @@ export function getBoard2DSolderMaskAppearance() {
     };
 }
 
+/** @param {{greenness?: number, opacity?: number}} [appearance] */
 export function setBoard2DSolderMaskAppearance({ greenness, opacity } = {}) {
     if (greenness !== undefined) _setSolderMaskGreenness(greenness);
     if (opacity !== undefined) {
@@ -277,6 +278,7 @@ export function getBoard2DMetalAppearance() {
     };
 }
 
+/** @param {{copperHue?: number, padHue?: number}} [appearance] */
 export function setBoard2DMetalAppearance({ copperHue, padHue } = {}) {
     if (copperHue !== undefined) LAYER_STYLE.tracks.h = _clampHue(copperHue, LAYER_STYLE.tracks.h);
     if (padHue !== undefined) LAYER_STYLE.pads.h = _clampHue(padHue, LAYER_STYLE.pads.h);

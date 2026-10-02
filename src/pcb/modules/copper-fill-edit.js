@@ -219,7 +219,7 @@ export function fillEditPath(app, fill) {
 
 export function addFillGeometryProperties(app, fill, items) {
     const { node, segment } = fillEditFocus(app, fill);
-    const number = (id, label, value, min, max = '') => `<div class="prop-row"><label for="${id}">${label}</label><input id="${id}" type="number" min="${min}" ${max === '' ? '' : `max="${max}"`} step="0.05" value="${formatNumberInputValue(value)}"></div>`;
+    const number = (id, label, value, min, /** @type {number|''} */ max = '') => `<div class="prop-row"><label for="${id}">${label}</label><input id="${id}" type="number" min="${min}" ${max === '' ? '' : `max="${max}"`} step="0.05" value="${formatNumberInputValue(value)}"></div>`;
     const bounds = fill.getBounds();
     items.insertAdjacentHTML('beforeend', node != null
         ? number('pcbPropFillNodeRadius', 'Corner Radius (mm)', fill.nodeCornerRadii[node] ?? fill.cornerRadius, 0)

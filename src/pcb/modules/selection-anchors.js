@@ -26,10 +26,18 @@ function boundsOutline(bounds) {
     ];
 }
 
-/** Position a lock beside the visible geometry nearest the pointer. */
+/**
+ * Position a lock beside the visible geometry nearest the pointer.
+ * @param {Array<{x:number,y:number}> | Array<Array<{x:number,y:number}>>} points outline, or separate stroked segments
+ * @param {{x:number,y:number}} pointer
+ * @param {number} scale
+ * @param {boolean} [closed]
+ * @param {number|number[]} [objectMargin] painted half-width, per segment when an array
+ */
 export function lockPositionOutsideOutline(points, pointer, scale, closed = true, objectMargin = 0) {
     if (!pointer || !Array.isArray(points) || !points.length) return null;
-    const paths = Array.isArray(points[0]) ? points : [points];
+    /** @type {Array<Array<{x:number,y:number}>>} */
+    const paths = /** @type {any} */ (Array.isArray(points[0]) ? points : [points]);
     let nearest = null;
     for (let pathIndex = 0; pathIndex < paths.length; pathIndex++) {
         const path = paths[pathIndex];

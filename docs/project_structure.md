@@ -190,8 +190,8 @@ state snapshots, used by generic modify commands.
 - `node tools/regression.mjs` — the gate CI runs: import boundaries, PCB editor
   access, every `tests/test-*.mjs` in its own process, and the autorouter baseline.
 - `node tools/test.mjs [filter…]` — only the regression tests, optionally filtered.
-- `node tools/typecheck.mjs` — `checkJs` errors against `tools/typecheck-baseline.json`;
-  a file whose count rises fails (CI installs TypeScript 5.9.3; locally set `TSC`).
+- `node tools/typecheck.mjs` — `checkJs` type check; the baseline is empty, so any error
+  fails (CI installs TypeScript 5.9.3; locally set `TSC`).
 - `node tools/bench-pointer-dispatch.mjs` — PCB pointer-move routing cost.
 - `node tools/bench-pcb-hit-test.mjs [scale]` — PCB selection sync and pointer hit
   query cost on a large synthetic board.

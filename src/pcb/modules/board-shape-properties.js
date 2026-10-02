@@ -703,8 +703,8 @@ export function showBoardShapeProperties(app, shape) {
     const netEl = /** @type {HTMLInputElement|null} */ (document.getElementById('pcbPropShapeNet'));
     const netMenuEl = /** @type {HTMLDetailsElement|null} */ (document.querySelector('.prop-net-menu'));
     for (const input of [diameterEl, lineEl, cornerRadiusEl, nodeCornerRadiusEl, bulgeEl]) bindPictureRefreshHold(app, input);
-    for (const [input, preview] of [[diameterEl, diameterPreview], [lineEl, lineWidthPreview],
-        [cornerRadiusEl, cornerRadiusPreview], [nodeCornerRadiusEl, nodeCornerRadiusPreview], [bulgeEl, bulgePreview]]) {
+    for (const [input, preview] of /** @type {Array<[HTMLInputElement|null, any]>} */ ([[diameterEl, diameterPreview], [lineEl, lineWidthPreview],
+        [cornerRadiusEl, cornerRadiusPreview], [nodeCornerRadiusEl, nodeCornerRadiusPreview], [bulgeEl, bulgePreview]])) {
         bindPropertyPreviewInput(input, preview, {
             binding, isCurrent: () => !binding.disposed, focusRoot: items,
             onCancel: () => showBoardShapeProperties(app, shape),

@@ -56,6 +56,12 @@ export function createPropertyBinding({ beforeActivate = () => {}, onDispose = (
     return binding;
 }
 
+/**
+ * @param {HTMLInputElement|null} input
+ * @param {any} preview
+ * @param {{forceRebuild?: boolean, isCurrent?: () => boolean, focusRoot?: Element|null,
+ *   commit?: (options: any) => boolean, refresh?: () => void}} [options]
+ */
 export function commitPropertyPreviewInput(input, preview, {
     forceRebuild = false, isCurrent = () => true, focusRoot = null,
     commit = options => preview.commit(options), refresh = () => {},
@@ -70,6 +76,12 @@ export function commitPropertyPreviewInput(input, preview, {
     return changed;
 }
 
+/**
+ * @param {HTMLInputElement|null} input
+ * @param {any} preview
+ * @param {{binding?: any, isCurrent?: () => boolean, focusRoot?: Element|null,
+ *   commit?: (options: any) => boolean, refresh?: () => void, onCancel?: () => void}} [options]
+ */
 export function bindPropertyPreviewInput(input, preview, {
     binding = null, isCurrent = () => true, focusRoot = null, commit = options => preview.commit(options),
     refresh = () => {}, onCancel = refresh,

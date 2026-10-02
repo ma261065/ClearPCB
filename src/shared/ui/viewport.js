@@ -1,8 +1,4 @@
-/**
- * Binds change listeners for grid size, grid style, units, show-grid,
- * snap-to-grid dropdowns/checkboxes, and zoom/fit/reset buttons.
- * @param {object} app - Application state.
- */
+/** Grid preferences to save with a document, or undefined without a viewport. */
 export function serializeGridSettings(viewport) {
     if (!viewport) return undefined;
     return {
@@ -42,6 +38,11 @@ export function syncGridSettings(app) {
     updateGridDropdown(app);
 }
 
+/**
+ * Binds change listeners for grid size, grid style, units, show-grid,
+ * snap-to-grid dropdowns/checkboxes, and zoom/fit/reset buttons.
+ * @param {object} app - Application state.
+ */
 export function bindViewportControls(app) {
     app.ui.gridSize.addEventListener('change', (e) => {
         app.viewport.setGridSize(parseFloat(e.target.value));

@@ -225,6 +225,7 @@ function layout(id, label, kind, body, pads, footprint = `ClearPCB:${id}`) {
         pads: Object.freeze(pads.map(pad => Object.freeze(pad))),
     });
 }
+/** @type {Array<[string, number, number]>} */
 const chipSizes = [
     ['0402', 1, 0.5], ['0603', 1.6, 0.8], ['0805', 2, 1.25],
     ['1206', 3.2, 1.6], ['1210', 3.2, 2.5], ['2010', 5, 2.5], ['2512', 6.3, 3.2],
@@ -245,11 +246,11 @@ for (const diameter of [4, 5, 6.3]) {
 }
 layout('do41', 'DO-41 axial, 10.16 mm pitch TH', 'axial', [5.2, 2.7, 3.1],
     [[-5.08, 0, 1.8, 1.8, 0.8], [5.08, 0, 1.8, 1.8, 0.8]]);
-for (const [id, label, length, width, height] of [
+for (const [id, label, length, width, height] of /** @type {Array<[string, string, number, number, number]>} */ ([
     ['sod123', 'SOD-123', 2.7, 1.6, 1.1],
     ['sod323', 'SOD-323', 1.7, 1.25, 0.9],
     ['sma', 'SMA (DO-214AC)', 4.5, 2.6, 2.1],
-]) {
+])) {
     layout(id, `${label} SMT`, 'diode', [length, width, height],
         [-1, 1].map(sign => [sign * (length / 2 + 0.35), 0, 1, width * 0.7, 0]));
 }
@@ -261,10 +262,10 @@ layout('to92', 'TO-92 inline TH', 'transistor', [4.6, 3, 5.7],
 layout('sot23', 'SOT-23 SMT', 'transistor', [2.9, 2.8, 1.3],
     [[-0.95, 1.1, 1, 0.6, 0], [0.95, 1.1, 1, 0.6, 0], [0, -1.1, 1, 0.6, 0]],
     'Package_TO_SOT_SMD:SOT-23');
-for (const [id, label, width, length, height, x, pitch, padWidth, padHeight] of [
+for (const [id, label, width, length, height, x, pitch, padWidth, padHeight] of /** @type {Array<[string, string, ...number[]]>} */ ([
     ['soic8', 'SOIC-8, 1.27 mm pitch SMT', 3.9, 4.9, 1.5, 2.7, 1.27, 1.4, 0.6],
     ['tssop8', 'TSSOP-8, 0.65 mm pitch SMT', 4.4, 3, 1.1, 3, 0.65, 1.4, 0.4],
-]) {
+])) {
     layout(id, label, 'ic', [width, length, height], [
         ...[-1.5, -0.5, 0.5, 1.5].map(y => [-x, y * pitch, padWidth, padHeight, 0]),
         ...[1.5, 0.5, -0.5, -1.5].map(y => [x, y * pitch, padWidth, padHeight, 0]),

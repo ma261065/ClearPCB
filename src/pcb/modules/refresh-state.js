@@ -41,7 +41,8 @@ const IDLE = Object.freeze({ fillPending: false, fillScheduled: false, fillError
 
 /**
  * Read-only view of every status in one lookup, for predicates that test several.
- * @returns {Readonly<typeof IDLE>}
+ * @returns {Readonly<{fillPending: boolean, fillScheduled: boolean, fillError: any, pictureCopperPending: boolean,
+ *   overlaysDeferred: boolean, fillSuspended: boolean, boardViewSuspended: boolean}>}
  */
 export const refreshStatus = app => states.get(app) ?? IDLE;
 

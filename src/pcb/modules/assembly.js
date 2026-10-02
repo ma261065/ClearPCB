@@ -99,7 +99,7 @@ export function generateBOM(placements) {
  * Coordinates are the component centre (placement origin), emitted in Y-up
  * millimetres. Rotation is in degrees. Layer is reported as Top/Bottom.
  *
- * @param {Map<string, {reference?: string, value?: string, footprint?: string, x?: number, y?: number, rotation?: number, side?: string}>} placements
+ * @param {Map<string, {reference?: string, value?: string, footprint?: string, x?: number, y?: number, rotation?: number, side?: string, mirror?: boolean}>} placements
  * @returns {string} CSV text (with header row)
  */
 export function generatePickAndPlace(placements) {

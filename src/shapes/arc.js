@@ -27,6 +27,7 @@ export class Arc extends Shape {
      * @param {{x:number,y:number}} [options.endPoint]   - Arc end.
      * @param {{x:number,y:number}} [options.bulgePoint]  - Arc midpoint (curvature control).
      * @param {boolean} [options.fill] - Whether to fill the chord area.
+     * @param {number} [options.fillAlpha=0.3] - Fill opacity.
      */
     constructor(options = {}) {
         super(options);

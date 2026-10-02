@@ -2068,6 +2068,7 @@ export function finishViaDrag(app) {
             }
         }
         const toX = drag.via.x, toY = drag.via.y;
+        /** @type {any[]} */
         const cmds = [drag.kind === 'pad'
             ? new MovePadCommand(app, drag.original, { x: drag.startX, y: drag.startY }, { x: toX, y: toY })
             : new MoveViaCommand(app, drag.original, drag.startX, drag.startY, toX, toY)];

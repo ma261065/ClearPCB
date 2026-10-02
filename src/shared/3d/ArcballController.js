@@ -231,7 +231,7 @@ export class ArcballController {
      * quaternion). `update()`'s lookAt re-derives the orientation from position
      * and up, so carrying `up` with the rotation lets the board flip past the
      * poles without the gimbal lock a fixed +Y up imposes.
-     * @param {THREE.Quaternion} q
+     * @param {any} q THREE.Quaternion
      */
     _setOrientation(q) {
         const dist = this.camera.position.distanceTo(this.target);
@@ -245,7 +245,7 @@ export class ArcballController {
      * Record the world-space rotation between the previous rotate frame and the
      * new orientation `q` as the coast spin axis/velocity, then store `q` for
      * the next frame. Velocity is clamped so a fast flick can't fling the view.
-     * @param {THREE.Quaternion} q
+     * @param {any} q THREE.Quaternion
      */
     _seedSpin(q) {
         const incr = q.clone().multiply(this._qPrev.clone().invert());

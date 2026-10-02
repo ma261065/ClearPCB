@@ -40,6 +40,11 @@ export function snapPathTranslation(app, points, delta, neighbours = [], constra
         (point, fixed) => snapPathPoint(app, point, fixed));
 }
 
+/**
+ * @param {{node?: boolean, segment?: boolean, curved?: boolean, standalone?: boolean, split?: (() => any)|null,
+ *   deleteNode?: (() => any)|null, convert?: (() => any)|null, deleteSegment?: (() => any)|null,
+ *   deleteObject?: (() => any)|null, label?: string}} actions
+ */
 export function pathContextActions({ node, segment, curved, standalone = false, split, deleteNode, convert, deleteSegment, deleteObject, label }) {
     if (node) return [
         split && { text: 'Split', onClick: split },
@@ -87,6 +92,6 @@ export function showPathContextMenu(id, items, clientX, clientY, refresh = () =>
         document.addEventListener('mousedown', dismiss, { capture: true });
         document.addEventListener('keydown', onKey, { capture: true });
     }, 0);
-    menu._dismiss = { dismiss, onKey };
+    /** @type {any} */ (menu)._dismiss = { dismiss, onKey };
     return menu;
 }

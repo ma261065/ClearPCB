@@ -32,7 +32,7 @@ export class RemoveTextCommand {
         this.snapshot = serializePcbText(requireText(document, textId));
     }
     execute() { this.document.texts.delete(this.snapshot.id); }
-    undo() { this.document.texts.set(this.snapshot.id, { ...this.snapshot }); }
+    undo() { this.document.texts.set(this.snapshot.id, /** @type {any} */ ({ ...this.snapshot })); }
     get description() { return `Delete text "${this.snapshot.content}"`; }
 }
 

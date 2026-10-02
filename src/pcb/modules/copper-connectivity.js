@@ -1,6 +1,23 @@
 import { copperLayer, resolveCopperPads } from './copper-model.js';
 
+/**
+ * One electrically-connected piece of copper: a Track's connected component, a
+ * Via, a Pad, or (added by track-draw) an additive copper shape or pour region.
+ * @typedef {object} CopperCluster
+ * @property {'track'|'via'|'pad'|'shape'} [kind]
+ * @property {string} net
+ * @property {Array<{x:number,y:number}>} points
+ * @property {string} [layer]
+ * @property {any} [track] @property {Set<string>} [nodeIds] @property {Set<string>} [edgeIds]
+ * @property {Array<{a:{x:number,y:number}, b:{x:number,y:number}, radius:number}>} [segments]
+ * @property {any} [via] @property {number} [viaRadius]
+ * @property {any} [pad] @property {string} [padNet] @property {string} [padKey]
+ * @property {any} [shape] @property {any} [geometry] @property {any} [copperShape] @property {any} [source]
+ */
+
+/** @returns {CopperCluster[]} */
 export function buildCopperClusters(app, nets = null) {
+    /** @type {CopperCluster[]} */
     const clusters = [];
     for (const track of app.tracks || []) {
         const net = track.net || '';

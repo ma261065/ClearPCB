@@ -164,7 +164,7 @@ export class AppBootstrap {
 
     _bindModeTabs() {
         this.slider?.addEventListener('transitionend', (event) => {
-            if (event.propertyName !== 'transform') return;
+            if (/** @type {TransitionEvent} */ (event).propertyName !== 'transform') return;
             this.schematicApp?.viewport?.invalidateLayoutCache?.();
             this.pcbApp?.viewport?.invalidateLayoutCache?.();
         });

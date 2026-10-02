@@ -945,9 +945,9 @@ export class PolylineGraph extends Shape {
                 chain[index]?.bulge || chain[(index + chain.length - 1) % chain.length]?.bulge ? 0 : this.nodeCornerRadius(id)), this.closed, this._circularCorners());
     }
 
-            _circularCorners() {
-            return this.type === 'polyline' && this.isRect && !Object.keys(this.nodeCornerRadii || {}).length;
-            }
+    _circularCorners() {
+        return this.type === 'polyline' && /** @type {any} */ (this).isRect && !Object.keys(this.nodeCornerRadii || {}).length;
+    }
 
     /**
      * Get anchor handles for the selection UI.
@@ -1021,7 +1021,10 @@ export class PolylineGraph extends Shape {
         return false;
     }
 
-    /** @override — Wire-style: anchor dragging snaps along H/V axes. */
+    /**
+     * @override — Wire-style: anchor dragging snaps along H/V axes.
+     * @returns {'none'|'axis'|'grid'}
+     */
     getAnchorSnapMode(anchorId) {
         // Bulge apex handles move freely (no axis/grid snapping).
         if (typeof anchorId === 'string' && anchorId.startsWith('bulge_')) return 'none';

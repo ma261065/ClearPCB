@@ -444,6 +444,7 @@ export class Shape {
     /**
      * Property descriptors for the properties panel.
      * Override in subclasses to customise which properties are shown.
+     * @returns {Array<{key: string, label: string, type: string, min?: number, max?: number, step?: number, [extra: string]: any}>}
      */
     getPropertyDescriptors() {
         return [

@@ -249,7 +249,7 @@ function validatePcb(pcb) {
         rejectUnknownFields(pcb.panelization, PANEL_FIELDS, 'pcb.panelization');
         requireFields(pcb.panelization, [...PANEL_FIELDS].filter(key => key !== 'noteCreated'), 'pcb.panelization');
     }
-    for (const [field, validator] of [
+    for (const [field, validator] of /** @type {Array<[string, (item: any, index: number) => void]>} */ ([
         ['tracks', (item, index) => {
             const path = `pcb.tracks[${index}]`;
             rejectUnknownFields(item, TRACK_FIELDS, path);
@@ -292,7 +292,7 @@ function validatePcb(pcb) {
             rejectUnknownFields(item, PCB_TEXT_FIELDS, path);
             requireFields(item, ['id', 'content', 'x', 'y', 'size', 'rotation', 'layer', 'strokeWidth'], path);
         }],
-    ]) {
+    ])) {
         if (pcb[field] === undefined) continue;
         if (!Array.isArray(pcb[field])) invalid(`pcb.${field}`, `PCB ${field} must be an array.`, pcb[field]);
         pcb[field].forEach(validator);

@@ -20,7 +20,7 @@ export function captureDrcInputs(app, rules = {}) {
         placements: app.placements, netlist: app.netlist,
     }, rules, { pending: isFillRefreshPending(app), error: fillRefreshError(app) });
     const anonymousTracks = new Map();
-    inputs.copper = Object.fromEntries(Object.entries(inputs.copper).map(([kind, features]) => [
+    inputs.copper = /** @type {any} */ (Object.fromEntries(Object.entries(inputs.copper).map(([kind, features]) => [
         kind, features.map(feature => {
             // Pads may carry legacy placement metadata; other collectors emit explicit physical fields.
             const data = kind === 'pads' ? pick(feature, featureFields) : { ...feature };
@@ -31,7 +31,7 @@ export function captureDrcInputs(app, rules = {}) {
             }
             return data;
         }),
-    ]));
+    ])));
     inputs.boardShapes = inputs.boardShapes.filter(shape => ['top-copper', 'bottom-copper'].includes(shape.layer)
         && ['remove-copper', 'remove-copper-mask'].includes(normalizeShapeCopperMode(shape.copperMode)))
         .map(shape => pick(shape, shapeFields));

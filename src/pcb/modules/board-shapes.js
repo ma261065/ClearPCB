@@ -608,6 +608,11 @@ export function createBoardShapePropertyBinding(app) {
     return binding;
 }
 
+/**
+ * @param {any} app
+ * @param {any[]} targets
+ * @param {{liveDrag?: boolean, beforeCommit?: (copies: any[]) => boolean|void}} [options]
+ */
 export function createBoardShapePropertyPreview(app, targets, { liveDrag = false, beforeCommit = () => false } = {}) {
     const binding = getPropertyEditor(app, 'boardShape');
     const originals = targets.map(target => canonicalBoardShape(app, target));

@@ -48,14 +48,16 @@ export function viaHitTest(via, point, tolerance = 0) {
 
 export class Via {
     /**
-     * @param {object} options
+     * @param {object} [options]
      * @param {string} [options.id]
-     * @param {number} options.x - World x in mm
-     * @param {number} options.y - World y in mm
-     * @param {number} options.diameter - Annular ring outer diameter (mm)
-     * @param {number} options.drill - Drill hole diameter (mm)
+     * @param {number} [options.x] - World x in mm
+     * @param {number} [options.y] - World y in mm
+     * @param {number} [options.diameter] - Annular ring outer diameter (mm, default 0.6)
+     * @param {number} [options.drill] - Drill hole diameter (mm, default 0.3)
      * @param {string} [options.net] - Net name (optional; set explicitly
      *   for standalone vias such as ground-plane stitches)
+     * @param {boolean} [options.locked]
+     * @param {boolean} [options.visible]
      */
     constructor(options = {}) {
         this.id = viaIds.claim(options.id);

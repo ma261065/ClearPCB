@@ -47,7 +47,7 @@ export class ProjectDocument {
         this.views = new Map();
         /** View that owns canvas-level UI (prompts, toasts, title). */
         this.uiHost = null;
-        /** @type {Record<string, () => any>} Injected lifecycle callbacks. */
+        /** @type {Record<string, (...args: any[]) => any>} Injected lifecycle callbacks. */
         this._lifecycle = {};
         /** @type {((loading: boolean) => void|Promise<void>)|null} */
         this.onLoadingChange = null;

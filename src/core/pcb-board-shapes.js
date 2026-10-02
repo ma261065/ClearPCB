@@ -170,6 +170,7 @@ export function loadBoardShapeData(state, arr, { strict = false, lineWidth = 0.2
                 .map(([index, radius]) => [index, Number(radius)]));
         }
         if (['line', 'rect', 'polygon'].includes(kind)) base.cornerRadius = Math.max(0, Number(sd.cornerRadius) || 0);
+        /** @type {any} */
         let shape;
         if ((kind === 'rect' || kind === 'image') && hasRectangleFrame(sd)) {
             if (Object.hasOwn(sd, 'points')) throw new Error('Rectangle records cannot contain both a frame and corner points.');

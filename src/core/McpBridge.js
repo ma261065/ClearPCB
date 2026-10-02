@@ -22,6 +22,10 @@ function makeSessionId() {
 }
 
 export class McpBridge {
+    /**
+     * @param {any} project
+     * @param {{onStateChanged?: (state: any) => void}} [options]
+     */
     constructor(project, { onStateChanged = () => {} } = {}) {
         this.project = project;
         this.onStateChanged = onStateChanged;

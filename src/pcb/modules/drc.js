@@ -399,7 +399,11 @@ export function collectDrcInputs(app, rules = {}, fill = { pending: isFillRefres
         fillPending: !!fill.pending, fillFailed: !!fill.error };
 }
 
-/** DOM-free checker over physical features; fragment identities are created within this pass. */
+/**
+ * DOM-free checker over physical features; fragment identities are created within this pass.
+ * @param {{copper: any, boardShapes: any[], fills: any[], fillPending?: boolean, fillFailed?: boolean,
+ *   rules?: {clearance?: number, minAnnularRing?: number, ratlines?: any[]}}} inputs
+ */
 export function runDrcInputs({ copper, boardShapes, fills, rules = {}, fillPending, fillFailed }) {
     const clearance = Number.isFinite(rules.clearance) && rules.clearance > 0 ? rules.clearance : 0.1;
     const minRing = Number.isFinite(rules.minAnnularRing) && rules.minAnnularRing > 0

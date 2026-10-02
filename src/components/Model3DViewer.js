@@ -63,6 +63,7 @@ export class Model3DViewer {
         const scene = new THREE.Scene();
         this.scene = scene;
 
+        /** @type {any} */
         const camera = new THREE.PerspectiveCamera(45, w / h, 0.1, 20000);
         camera.position.set(60, 50, 80);
         this.camera = camera;
@@ -78,9 +79,10 @@ export class Model3DViewer {
         scene.add(key);
         scene.add(fill);
         scene.add(glint);
-        this._key = key;
-        this._fill = fill;
-        this._glint = glint;
+        // The vendored three.js build is minified, so its inferred types are unusable.
+        this._key = /** @type {any} */ (key);
+        this._fill = /** @type {any} */ (fill);
+        this._glint = /** @type {any} */ (glint);
 
         const controls = new ArcballController(camera, canvas);
         controls.rotateSpeed = 1.0;

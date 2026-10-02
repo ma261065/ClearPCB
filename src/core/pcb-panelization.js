@@ -1,3 +1,17 @@
+/**
+ * @typedef {object} PanelSettings
+ * @property {number} rows @property {number} columns @property {number} rowSpacing @property {number} columnSpacing
+ * @property {'tabs'|'vcut'} separation
+ * @property {number} railTop @property {number} railBottom @property {number} railLeft @property {number} railRight
+ * @property {number} tabWidth @property {number} holeDiameter @property {number} holePitch
+ * @property {number} verticalTabsPerEdge @property {number} horizontalTabsPerEdge
+ * @property {number} verticalTabOffset @property {number} horizontalTabOffset
+ * @property {boolean} horizontalPositioningHoles @property {boolean} horizontalFiducials
+ * @property {boolean} verticalPositioningHoles @property {boolean} verticalFiducials
+ * @property {boolean} [noteCreated] the panel note text has been added to the board
+ */
+
+/** @type {Readonly<PanelSettings>} */
 export const PANEL_DEFAULTS = Object.freeze({
     rows: 2, columns: 2, rowSpacing: 2, columnSpacing: 2,
     separation: 'tabs', railTop: 5, railBottom: 5, railLeft: 0, railRight: 0,
@@ -7,8 +21,10 @@ export const PANEL_DEFAULTS = Object.freeze({
     verticalPositioningHoles: false, verticalFiducials: false,
 });
 
+/** @returns {PanelSettings} */
 export function panelSettings(value) {
     if (!value || typeof value !== 'object') throw new Error('Invalid panel settings.');
+    /** @type {PanelSettings} */
     const settings = { ...PANEL_DEFAULTS };
     for (const key of Object.keys(settings)) {
         if (value[key] !== undefined) settings[key] = value[key];

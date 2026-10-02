@@ -115,7 +115,7 @@ export const PCB_INTERACTION_ROUTES = Object.freeze({ move: routeKeys('move'), c
  * test-pcb-interaction-registry proves its order and coverage match
  * PCB_INTERACTION_ROUTES.move. That check is not run here: closures from this literal
  * share V8 type feedback, so probing with stub objects would slow the real dispatcher.
- * @param {Record<string, {move: (app: any, event: any) => (boolean|void)}>} h
+ * @param {Record<string, {move?: (app: any, event: any) => (boolean|void)}>} h
  * @returns {(app: any, event: any) => boolean} Whether an interaction consumed the move.
  */
 export function createPointerMoveDispatch(h) {

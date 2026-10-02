@@ -110,6 +110,7 @@ const TOGGLE_LAYERS = ['top-copper', 'bottom-copper'];
  */
 export function findNearbyPad(app, worldPos, tolerance = PAD_SNAP_TOL, layer = 'top-copper', excludePad = null) {
     if (!app) return null;
+    /** @type {any} */
     let best = null;
     let bestD2 = Infinity;
     for (const [compId, pl] of app.placements || []) {
@@ -222,7 +223,7 @@ export function findNearbyTrackNode(app, worldPos, tolerance = TRACK_SNAP_TOL, e
  *   (enables H/V/45° axis snapping).
  * @param {string} [options.net] - Net of the in-progress track (used
  *   to bias same-net snapping).
- * @returns {{x:number, y:number, snapType:'pad'|'track-node'|'axis'|'grid'|'free', pad?:object, trackNode?:object}}
+ * @returns {TrackSnap}
  */
 export function resolveTrackSnap(app, worldPos, options = {}) {
     if (app.viewport?.shiftHeld) return { x: worldPos.x, y: worldPos.y, snapType: 'free' };
@@ -251,6 +252,7 @@ export function resolveTrackSnap(app, worldPos, options = {}) {
     return resolveGridMagnetSnap(app, worldPos, lastPt);
 }
 
+/** @returns {TrackSnap} */
 export function resolveGridMagnetSnap(app, worldPos, lastPt = null) {
     if (app.viewport?.shiftHeld) return { x: worldPos.x, y: worldPos.y, snapType: 'free' };
     const scale = Math.max(0.01, app.viewport?.scale || 1);
@@ -429,6 +431,7 @@ function shapeCopperContains(contact, point) {
     return false;
 }
 
+/** @returns {TrackSnap & {contactNets: string[], copperContact: boolean, via?: any, copperShapes?: any[]}} */
 export function resolveTrackDrawSnap(app, worldPos, options = {}) {
     const snap = resolveTrackSnap(app, worldPos, options);
     const layer = app._trackDraw?.currentLayer || app._trackToolLayer || 'top-copper';
@@ -969,7 +972,7 @@ export function reconcileRatsnest(app, opts) {
  * requires a through Via or Pad.
  *
  * @param {object} app
- * @param {{track?:object, tracks?:Set<object>, via?:object, padKey?:string}} seed
+ * @param {{track?:any, tracks?:Set<object>, via?:object, padKey?:string, edgeId?:string, nodeId?:string}} seed
  * @param {{includeShapes?:boolean, newTracks?:Set<object>}} [options]
  *   Include physical shape contacts; new Tracks reserve clearance in foreign-net pours.
  * @returns {{tracks:Set<object>, trackNodes:Map<object,Set<string>>, vias:Set<object>, shapes:Set<object>, padNets:Set<string>, padKeys:Set<string>, padNetByKey:Map<string,string>}}
@@ -1902,6 +1905,15 @@ function _renderOptsFromApp(app) {
 }
 
 /**
+ * @typedef {object} TrackSnap
+ * @property {number} x
+ * @property {number} y
+ * @property {'pad'|'track-node'|'axis'|'grid'|'free'|'via'|string} snapType
+ * @property {any} [pad]
+ * @property {any} [trackNode]
+ */
+
+/**
  * @typedef {object} TrackDrawContext
  * @property {Array<{x:number,y:number}>} points
  * @property {string[]} edgeLayers
@@ -1916,4 +1928,8 @@ function _renderOptsFromApp(app) {
  * @property {object|null} snap
  * @property {number} [viaDiameter]
  * @property {number} [viaDrill]
+ * @property {any[]} [endCopperShapes] copper shapes the finished end lands on
+ * @property {any} [guideExclude] bonded copper the live net guide must not point back at
+ * @property {Set<any>} [guideSourceShapes]
+ * @property {Set<string>} [guideSourceKeys]
  */

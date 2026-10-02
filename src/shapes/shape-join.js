@@ -93,6 +93,7 @@ function toJoinablePolyline(shape) {
 
     if (shape.type === 'polyline') {
         const poly = shape.clone();
+        /** @type {Record<string, string>} */
         const anchorNode = {};
         for (const nid of poly.nodes.keys()) anchorNode[nid] = nid;
         return { poly, anchorNode };

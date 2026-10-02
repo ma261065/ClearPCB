@@ -197,7 +197,7 @@ export function bindPcbControls(app) {
     });
     document.addEventListener('click', (e) => {
         if (specctraFlyout?.classList.contains('open') &&
-            !specctraFlyout.contains(e.target) &&
+            !specctraFlyout.contains(/** @type {Node} */ (e.target)) &&
             e.target !== specctraHelpBtn) {
             specctraFlyout.classList.remove('open');
         }

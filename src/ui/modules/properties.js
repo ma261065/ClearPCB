@@ -110,7 +110,12 @@ function wireNetNames(app) {
         .sort((a, b) => a.localeCompare(b));
 }
 
-/** Append an editable Net field with a menu of the current schematic's nets (same control as the PCB editor). */
+/**
+ * Append an editable Net field with a menu of the current schematic's nets (same control as the PCB editor).
+ * @param {any} app @param {HTMLElement} content @param {string} id @param {string} value
+ * @param {(net: string) => void} onChange
+ * @param {{allowAuto?: boolean, isCurrent?: () => boolean, readOnly?: boolean}} [options]
+ */
 function appendWireNetField(app, content, id, value, onChange, { allowAuto = false, isCurrent = () => true, readOnly = false } = {}) {
     const row = document.createElement('div');
     row.className = 'prop-row';
@@ -553,7 +558,7 @@ export function updatePropertiesPanel(app, selection) {
                         if (desc.min != null && v < desc.min) v = desc.min;
                         if (desc.max != null && v > desc.max) v = desc.max;
                         if (['cornerRadius', 'bulge'].includes(desc.key)) input.value = v.toFixed(2);
-                        else if (parseFloat(input.value) !== v) input.value = v;
+                        else if (parseFloat(input.value) !== v) input.value = String(v);
                         previewValue(v);
                         commitPreview();
                     });
@@ -637,6 +642,7 @@ export function updatePropertiesPanel(app, selection) {
                         select.style.opacity = '0.7';
                     } else {
                         select.addEventListener('change', () => {
+                            /** @type {string|number} */
                             let v = select.value;
                             // Convert to number if the option values are numeric
                             const num = parseFloat(v);

@@ -1,3 +1,7 @@
+/**
+ * @param {{refresh3D: (revision: number) => any, refresh2D: () => void,
+ *   on3DSettled?: (state: {revision: number, applied: boolean, dirty: boolean}) => void}} options
+ */
 export function createBoardViewSync({ refresh3D, refresh2D, on3DSettled = () => {} }) {
     let sourceRevision = 0;
     let applied3DRevision = 0;

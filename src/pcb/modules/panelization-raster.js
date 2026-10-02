@@ -91,7 +91,7 @@ export function createPanelArtworkRaster(app, sourceLayers, target, bounds) {
     const observer = new MutationObserver(records => {
         const withoutCulling = value => (value || '').split(/\s+/).filter(name => name && name !== 'culled').sort().join(' ');
         if (records.every(record => record.type === 'attributes' && record.attributeName === 'class'
-            && withoutCulling(record.oldValue) === withoutCulling(record.target.getAttribute('class')))) return;
+            && withoutCulling(record.oldValue) === withoutCulling(/** @type {Element} */ (record.target).getAttribute('class')))) return;
         schedule();
     });
     for (const [, layer] of sourceLayers) {

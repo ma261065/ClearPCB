@@ -258,7 +258,7 @@ export function pcbTextObstacles(text) {
         for (let i = 0; i < poly.length - 1; i++) {
             const a = toWorld(poly[i].x, poly[i].y);
             const b = toWorld(poly[i + 1].x, poly[i + 1].y);
-            segments.push({ kind: 'segment', x1: a.x, y1: a.y, x2: b.x, y2: b.y, width, layer: routerLayer });
+            segments.push({ kind: /** @type {'segment'} */ ('segment'), x1: a.x, y1: a.y, x2: b.x, y2: b.y, width, layer: routerLayer });
         }
     }
     return segments;

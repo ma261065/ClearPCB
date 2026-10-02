@@ -1,4 +1,6 @@
+// @ts-ignore -- cache-busting query string (see sw.js); TypeScript cannot resolve it
 import { clipMeshToOutline, punchHolesInFlatMesh } from './board3d-mesh-ops.js?v=4';
+// @ts-ignore -- cache-busting query string (see sw.js); TypeScript cannot resolve it
 import { meshToGeometry } from '../../shared/3d/model-rendering.js?v=2';
 
 export function buildSurfaceBuffers(surfaces) {
