@@ -10,6 +10,7 @@ import { canEditFill, deleteFocusedFillPart } from './copper-fill-edit.js';
 import { resetPcbTool } from './tool-lifecycle.js';
 import { isPcbDrawing } from './pcb-interactions.js';
 import { getPropertyEditor } from './property-editors.js';
+import { isEditorActive } from './pcb-editor-api.js';
 
 /**
  * Delete the current refinement or selection, retaining drawing/paste ownership
@@ -17,7 +18,7 @@ import { getPropertyEditor } from './property-editors.js';
  * @param {import('../../ui/PCBApp.js').default} app
  */
 export function runPcbDeleteAction(app) {
-    if (app._active === false || isPcbDrawing(app)) return false;
+    if (!isEditorActive(app) || isPcbDrawing(app)) return false;
     if (app._pasteDrop) { app._cancelPasteDrop(); return true; }
     if (app._groupDrag) app._cancelPosePreviews();
     getPropertyEditor(app, 'boardShape')?.cancel();
@@ -46,7 +47,7 @@ export function runPcbDeleteAction(app) {
  * @param {'ArrowUp'|'ArrowDown'|'ArrowLeft'|'ArrowRight'} key
  */
 export function runPcbNudgeAction(app, key) {
-    if (app._active === false || app.currentTool !== 'select'
+    if (!isEditorActive(app) || app.currentTool !== 'select'
         || isPcbDrawing(app)
         || hasPcbInteractionInProgress(app) || app._boxSelectArm
         || app._boxSelectActive || app.viewport.isPanning) return false;
@@ -69,7 +70,7 @@ export function runPcbNudgeAction(app, key) {
  * @param {import('../../ui/PCBApp.js').default} app
  */
 export function runPcbEscapeAction(app) {
-    if (app._active === false) return false;
+    if (!isEditorActive(app)) return false;
     if (cancelPcbPropertyPreview(app)) return true;
     if (app._boardOutlineResize) {
         endBoardOutlineResize(app, false);
@@ -157,7 +158,7 @@ export function runPcbEscapeAction(app) {
  * @param {'undo'|'redo'} action
  */
 export function runPcbHistoryAction(app, action) {
-    if (app._active === false || isPcbDrawing(app)) return false;
+    if (!isEditorActive(app) || isPcbDrawing(app)) return false;
     if (app._pasteDrop) {
         app._cancelPasteDrop();
         return true;

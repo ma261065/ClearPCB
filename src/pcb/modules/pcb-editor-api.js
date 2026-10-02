@@ -35,6 +35,13 @@
  *   Enable or disable the clipboard buttons for the current selection.
  */
 
+/**
+ * Whether the PCB editor is the active (visible) tab. Editors and fixtures that
+ * never set the flag count as active; only an explicitly deactivated editor is not.
+ * @param {any} app
+ */
+export const isEditorActive = app => app._active !== false;
+
 /** Service names, checked against PCBApp by test-pcb-editor-api. */
 export const PCB_EDITOR_SERVICES = Object.freeze([
     'getLayerGroup', 'getRoutingParams', 'refreshFills', 'refreshClearanceHalos', 'updateRatsnest',

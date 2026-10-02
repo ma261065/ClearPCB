@@ -74,6 +74,7 @@ import { padOutline } from '../../shapes/pad-geometry.js';
 import { viaBounds, viaHitTest } from '../../shapes/via.js';
 import { beginPcbAnchorInteraction } from './selection-interaction.js';
 import { getPropertyEditor, releasePropertyEditor, setPropertyEditor } from './property-editors.js';
+import { isEditorActive } from './pcb-editor-api.js';
 
 const NS = 'http://www.w3.org/2000/svg';
 const HALO_CLASS = 'pcb-track-selection';
@@ -1116,7 +1117,7 @@ function createTrackPropertyBinding(app, track, scope = {}) {
     const layers = () => [...track.edges].filter(([id, edge]) => scope.edgeId != null
         ? id === scope.edgeId : scope.nodeId == null || edge.from === scope.nodeId || edge.to === scope.nodeId)
         .map(([id]) => track.getEdgeLayer(id));
-    const editable = () => !disposed && app._active !== false
+    const editable = () => !disposed && isEditorActive(app)
         && layers().every(layer => isLayerVisible(layer) && !isLayerLocked(layer));
     const resetFields = () => {
         for (const { input, spec } of fields) {
@@ -1711,7 +1712,7 @@ export function showViaProperties(app, via) {
             refreshTrackSelectionHalo(app);
         }
     };
-    const editable = () => !disposed && app._active !== false && !isViaLocked() && isViaVisible()
+    const editable = () => !disposed && isEditorActive(app) && !isViaLocked() && isViaVisible()
         && vias.every(target => !target.locked && target.visible !== false);
     const binding = {
         affectsLayer: layerId => layerId === 'vias',

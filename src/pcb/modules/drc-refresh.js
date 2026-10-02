@@ -3,13 +3,14 @@ import { captureDrcInputs } from './drc-worker-inputs.js';
 import { createDrcWorker } from './drc-worker-client.js';
 import { getComputedFill } from './computed-fill-cache.js';
 import { fillRefreshError, isFillRefreshPending, refreshStatus } from './refresh-state.js';
+import { isEditorActive } from './pcb-editor-api.js';
 
 const states = new WeakMap();
 const stateFor = app => {
     if (!states.has(app)) states.set(app, { revision: 0, frame: null, retry: null, owed: false, worker: null, failed: false });
     return states.get(app);
 };
-const visible = app => app._active !== false && !app._drcDisposed && app._drcShouldRun();
+const visible = app => isEditorActive(app) && !app._drcDisposed && app._drcShouldRun();
 const deferred = app => {
     const status = refreshStatus(app);
     if (status.overlaysDeferred || status.fillSuspended) return true;

@@ -1,3 +1,5 @@
+import { refreshBoardView } from './refresh-state.js';
+
 const STORAGE_KEY = 'clearpcb_pcb_design_params';
 const INPUTS = {
     trackWidth: 'pcbTrackWidth', clearance: 'pcbClearance',
@@ -99,7 +101,7 @@ export function commitDesignInput(app, key, element, units) {
         app._markDirty?.();
         if (app._clearancesVisible) app.showClearances?.(true);
         app.refreshFills?.();
-        app._board3d?.refresh?.();
+        refreshBoardView(app);
     }
     return true;
 }

@@ -64,7 +64,8 @@ import { snapPathTranslation, snapPathPoint, beginPathSplit } from './path-edit.
 import { createTrackSelectionAdapter } from './track-select.js';
 import { closestPointOnArcEdge } from '../../shapes/arc-edge.js';
 import { commitPropertyEditors, getPropertyEditor } from './property-editors.js';
-import { areDragOverlaysDeferred, isBoardViewRefreshSuspended, setBoardViewRefreshSuspended, setDragOverlaysDeferred } from './refresh-state.js';
+import { areDragOverlaysDeferred, isBoardViewRefreshSuspended, setBoardViewRefreshSuspended, setDragOverlaysDeferred, refreshBoardView } from './refresh-state.js';
+import { isEditorActive } from './pcb-editor-api.js';
 
 /** Screen-px hit tolerance for selecting a Track node to drag. */
 const NODE_HIT_PX = 8;
@@ -100,7 +101,7 @@ function beginTrackPointer(app, track, details) {
     const layers = new Set([...track.edges].filter(([id, edge]) => details.mode === 'move'
         || (details.mode === 'bulge' ? id === details.edgeId : nodes.has(edge.from) || nodes.has(edge.to)))
         .map(([id]) => track.getEdgeLayer(id)));
-    if (app._active === false || [...layers].some(layer => isLayerLocked(layer) || !isLayerVisible(layer))) return null;
+    if (!isEditorActive(app) || [...layers].some(layer => isLayerLocked(layer) || !isLayerVisible(layer))) return null;
     const drag = { ...details, original: track, track, layers, lastDx: 0, lastDy: 0,
         previousDeferDragOverlays: _beginVertexDragOverlayDeferral(app),
         previousSuspendBoardViewRefresh: !!isBoardViewRefreshSuspended(app) };
@@ -1623,7 +1624,7 @@ export function finishVertexDrag(app) {
     let committed = false;
     try {
         clearTrackPointerGuides(app, drag);
-        if (app._active === false || [...drag.layers].some(layer => isLayerLocked(layer) || !isLayerVisible(layer))) return;
+        if (!isEditorActive(app) || [...drag.layers].some(layer => isLayerLocked(layer) || !isLayerVisible(layer))) return;
         if (!drag.preview && drag.snapTargetNode) beginTrackPointerPreview(app, drag);
         if (!drag.preview) return;
         const tracks = app.pcbDocument?.tracks || app.tracks;
@@ -1791,7 +1792,7 @@ function endTrackPointer(app, drag, committed) {
         setBoardViewRefreshSuspended(app, drag.previousSuspendBoardViewRefresh);
         _endVertexDragOverlayDeferral(app, drag);
         if (drag.preview) reconcileRatsnest(app, { skipFillRefresh: !committed });
-        if (!isBoardViewRefreshSuspended(app) && drag.preview) app._board3d?.refresh?.();
+        if (!isBoardViewRefreshSuspended(app) && drag.preview) refreshBoardView(app);
     }
 }
 

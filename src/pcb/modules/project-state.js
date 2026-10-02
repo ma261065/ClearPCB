@@ -12,6 +12,8 @@ import { refreshDesignSettings } from './design-settings.js';
 import { PcbDocument } from '../../core/PcbDocument.js';
 import { disposePcbPropertyEditors } from './edit-lifecycle.js';
 import { setHoveredBoardShape } from './board-shape-state.js';
+import { refreshBoardView } from './refresh-state.js';
+import { isEditorActive } from './pcb-editor-api.js';
 
 /** @param {any} app */
 export function serializePcb(app) {
@@ -28,7 +30,7 @@ export function loadPcb(app, data, prepared = preparePcb(data)) {
     if (prepared.data) data = prepared.data;
     resetPanelPreview(app);
     app.panelization = null;
-    const render = app._active !== false;
+    const render = isEditorActive(app);
     if (!render) app._stale = true;
     // Need a viewport in place before we can render into layer
     // groups (autosave-recovery may call this before the user has
@@ -78,7 +80,7 @@ export function loadPcb(app, data, prepared = preparePcb(data)) {
         app.netlist = [];
         syncPcbSelection(app);
         app.markSectionClean();
-        app._board3d?.refresh?.();
+        refreshBoardView(app);
         return;
     }
 

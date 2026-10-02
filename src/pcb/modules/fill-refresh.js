@@ -7,7 +7,8 @@ import { getPcbSelection, isPcbSelected } from './selection-registry.js';
 import { renderPcbSelectionAnchors } from './selection-anchors.js';
 import { reconcileRatsnest } from './track-draw.js';
 import { installCopperRegionContact, validateCopperRegionContact } from './track-contact-geometry.js';
-import { areDragOverlaysDeferred, isFillRefreshPending, isFillRefreshSuspended, isPictureCopperRefreshPending, refreshStatus, setFillRefreshError, setFillRefreshPending, setFillRefreshScheduled } from './refresh-state.js';
+import { areDragOverlaysDeferred, isFillRefreshPending, isFillRefreshSuspended, isPictureCopperRefreshPending, refreshStatus, setFillRefreshError, setFillRefreshPending, setFillRefreshScheduled, refreshBoardView } from './refresh-state.js';
+import { isEditorActive } from './pcb-editor-api.js';
 
 const states = new WeakMap();
 function stateFor(app) {
@@ -38,7 +39,7 @@ function clearRetry(state) {
 function retryWhenSettled(app, state) {
     state.owed = true;
     setFillRefreshPending(app, true);
-    if (state.retry !== null || app._active === false || app._fillRefreshDisposed) return;
+    if (state.retry !== null || !isEditorActive(app) || app._fillRefreshDisposed) return;
     state.retry = setTimeout(() => {
         state.retry = null;
         if (states.get(app) !== state || !isFillRefreshPending(app)) return;
@@ -125,7 +126,7 @@ export function adoptFillResults(app, fills, results, contacts) {
     if (getPcbSelection(app, 'fill').length) renderPcbSelectionAnchors(app);
     reconcileRatsnest(app, { skipFillRefresh: true });
     app._scheduleDRC?.();
-    app._board3d?.refresh?.();
+    refreshBoardView(app);
 }
 
 /** Command callers retain synchronous computation and the existing true/undefined contract. */
@@ -175,7 +176,7 @@ export function scheduleFillRefresh(app) {
     const state = stateFor(app);
     state.revision++;
     state.worker?.invalidate();
-    if (app._active === false || deferred(app)) {
+    if (!isEditorActive(app) || deferred(app)) {
         retryWhenSettled(app, state);
         return !!isPictureCopperRefreshPending(app);
     }
@@ -197,7 +198,7 @@ export function scheduleFillRefresh(app) {
         state.frame = null;
         setFillRefreshScheduled(app, false);
         clearRetry(state);
-        if (app._active === false || deferred(app)) { retryWhenSettled(app, state); return; }
+        if (!isEditorActive(app) || deferred(app)) { retryWhenSettled(app, state); return; }
         if (typeof Worker !== 'function' || state.failed) { app._recomputeFillsNow(); return; }
         const fills = [...fillsFor(app)];
         if (!fills.length) { state.owed = false; setFillRefreshPending(app, false); app._clearFillGroups(); return; }
@@ -219,7 +220,7 @@ export function scheduleFillRefresh(app) {
                 }
                 return;
             }
-            if (deferred(app) || app._active === false) { retryWhenSettled(app, state); return; }
+            if (deferred(app) || !isEditorActive(app)) { retryWhenSettled(app, state); return; }
             if (batch) {
                 try {
                     adoptFillResults(app, fills, batch.results, batch.contacts);
@@ -237,7 +238,7 @@ export function scheduleFillRefresh(app) {
             state.worker?.dispose();
             state.worker = null;
             if (current(app, state, revision, model, fills)) {
-                if (deferred(app) || app._active === false) retryWhenSettled(app, state);
+                if (deferred(app) || !isEditorActive(app)) retryWhenSettled(app, state);
                 else app._recomputeFillsNow();
             }
         });

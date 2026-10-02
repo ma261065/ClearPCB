@@ -1,10 +1,10 @@
 import { isLayerLocked, isLayerVisible } from './layers.js';
 import { SetBoardOutlineCommand } from './track-commands.js';
 import { snapToViewportGrid } from '../../core/grid-snap.js';
-import { getBoardOutline, rectangleBoardOutline } from '../../shared/pcb/board-outline.js';
+import { getBoardOutline, rectangleBoardOutline, boardDimensions } from '../../shared/pcb/board-outline.js';
 import { removeBoardShapeElement } from './board-shapes.js';
 import { getPropertyEditor, releasePropertyEditor, setPropertyEditor } from './property-editors.js';
-import { areDragOverlaysDeferred, isBoardViewRefreshSuspended, setBoardViewRefreshSuspended, setDragOverlaysDeferred } from './refresh-state.js';
+import { areDragOverlaysDeferred, isBoardViewRefreshSuspended, setBoardViewRefreshSuspended, setDragOverlaysDeferred, refreshBoardView } from './refresh-state.js';
 
 const dimensionPreviews = new WeakMap();
 
@@ -82,7 +82,7 @@ export function finishBoardDimensionPreview(app, commit = false) {
             renderBoardOutlineHandles(app);
         }
     }
-    if (committed && !isBoardViewRefreshSuspended(app)) app._board3d?.refresh?.();
+    if (committed && !isBoardViewRefreshSuspended(app)) refreshBoardView(app);
 }
 
 export function bindBoardDimensionProperties(app, items) {
@@ -154,8 +154,7 @@ export function bindBoardDimensionProperties(app, items) {
 export function boardOutlineHandles(app) {
     if (!app._boardOutlineSelected || !app._boardOutlineDrawn
         || isLayerLocked('board-outline') || !isLayerVisible('board-outline')) return [];
-    const width = app._boardWidth;
-    const height = app._boardHeight;
+    const { width, height } = boardDimensions(app);
     return [
         { id: 'height', x: width / 2, y: -height, cursor: 'ns-resize' },
         { id: 'width', x: width, y: -height / 2, cursor: 'ew-resize' },
@@ -200,7 +199,7 @@ export function beginBoardOutlineResize(app, point) {
     if (!handle) return false;
     app._boardOutlineResize = {
         handle: handle.id, start: { ...point },
-        before: { width: app._boardWidth, height: app._boardHeight, radius: app._boardRadius },
+        before: boardDimensions(app),
         previousSuspend: !!isBoardViewRefreshSuspended(app),
     };
     setBoardViewRefreshSuspended(app, true);
@@ -223,7 +222,7 @@ export function updateBoardOutlineResize(app, point) {
         : Math.max(5, drag.before.width + delta.x);
     const height = drag.handle === 'width' ? drag.before.height
         : Math.max(5, drag.before.height - delta.y);
-    if (width === app._boardWidth && height === app._boardHeight) return;
+    if (width === boardDimensions(app).width && height === boardDimensions(app).height) return;
     try {
         previewBoardDimensions(app, { width, height, radius: drag.before.radius });
     } catch (error) {
@@ -246,6 +245,6 @@ export function endBoardOutlineResize(app, commit = true) {
         setBoardViewRefreshSuspended(app, drag.previousSuspend);
         app._syncBoardOutlineInputs?.();
         app._showBoardOutlineProperties?.();
-        if (!isBoardViewRefreshSuspended(app)) app._board3d?.refresh?.();
+        if (!isBoardViewRefreshSuspended(app)) refreshBoardView(app);
     }
 }

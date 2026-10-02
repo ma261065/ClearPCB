@@ -60,7 +60,7 @@ import ClipperLib from '../../../assets/vendor/clipper.esm.js';
 import { resolveObjFromModelUrl } from '../../components/model3d-source.js';
 import { getComponentLibrary } from '../../components/index.js';
 import { resolveReferenceText } from '../../shared/pcb/reference-text.js';
-import { boardBoundary } from '../../shared/pcb/board-outline.js';
+import { boardBoundary, boardDimensions } from '../../shared/pcb/board-outline.js';
 import { pointInPolygon, distanceToSegment } from '../../core/geometry.js';
 import {
     Board2D,
@@ -96,9 +96,9 @@ export function board2DDataFromApp(app) {
         texts: [...(app.texts?.values?.() || [])],
         boardX: app._boardX || 0,
         boardY: app._boardY || 0,
-        boardWidth: app._boardWidth,
-        boardHeight: app._boardHeight,
-        boardRadius: app._boardRadius,
+        boardWidth: boardDimensions(app).width,
+        boardHeight: boardDimensions(app).height,
+        boardRadius: boardDimensions(app).radius,
     };
 }
 
@@ -3065,9 +3065,10 @@ class ThreeScene {
  * @param {any} app
  */
 export function boardSurfaceFrame(app) {
-    const w = app._boardWidth || 100;
-    const h = app._boardHeight || 80;
-    const r = app._boardRadius || 0;
+    const dimensions = boardDimensions(app);
+    const w = dimensions.width || 100;
+    const h = dimensions.height || 80;
+    const r = dimensions.radius || 0;
     // PCB world: X∈[0,w], Z(=pcb y)∈[-h,0].
     const boundary = boardBoundary(app);
     const outline = boundary.points

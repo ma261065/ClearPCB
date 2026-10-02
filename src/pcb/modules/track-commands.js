@@ -55,7 +55,7 @@ import {
 } from '../../core/pcb-via-commands.js';
 import { cancelVertexDrag } from './track-drag.js';
 import { getPropertyEditor } from './property-editors.js';
-import { areDragOverlaysDeferred } from './refresh-state.js';
+import { areDragOverlaysDeferred, refreshBoardView } from './refresh-state.js';
 
 const placementPreviews = new WeakMap();
 const viaPropertyPreviews = new WeakMap();
@@ -650,7 +650,7 @@ function presentPlacementPose(app, compId, result) {
     app._markDirty?.();
     app.updateRatsnest?.();
     app.refreshFills?.();
-    app._board3d?.refresh?.();
+    refreshBoardView(app);
     app._refreshPcbSelectionHighlights?.();
 }
 
@@ -754,7 +754,7 @@ export class SetPlacementRefVisibleCommand extends ModelSetPlacementRefVisibleCo
         const saved = super._apply(v);
         applyPlacementRefVisible(this.app, this.compId, saved.refVisible);
         this.app._markDirty?.();
-        this.app._board3d?.refresh?.();
+        refreshBoardView(this.app);
         return saved;
     }
 }
@@ -777,7 +777,7 @@ export class MoveRefTextCommand extends ModelMoveRefTextCommand {
         renderPlacementPose(this.app, this.compId);
         this.app._markDirty?.();
         this.app._drawRefOverlay?.(this.compId, false);
-        this.app._board3d?.refresh?.();
+        refreshBoardView(this.app);
         return saved;
     }
 }
@@ -798,7 +798,7 @@ export class RotateRefTextCommand extends ModelRotateRefTextCommand {
         renderPlacementPose(this.app, this.compId);
         this.app._markDirty?.();
         this.app._drawRefOverlay?.(this.compId, false);
-        this.app._board3d?.refresh?.();
+        refreshBoardView(this.app);
         return saved;
     }
 }
@@ -823,7 +823,7 @@ export class SetRefStyleCommand extends ModelSetRefStyleCommand {
         this.app._rerenderRef?.(this.compId);
         this.app._markDirty?.();
         this.app._drawRefOverlay?.(this.compId, false);
-        this.app._board3d?.refresh?.();
+        refreshBoardView(this.app);
         return saved;
     }
 }

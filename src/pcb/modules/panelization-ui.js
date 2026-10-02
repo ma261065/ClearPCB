@@ -3,7 +3,7 @@ import { PCB_LAYERS } from './layers.js';
 import { createPcbText } from '../../core/pcb-text.js';
 import { renderPcbText } from './pcb-text.js';
 import { AddTextCommand } from './text-commands.js';
-import { getBoardOutline } from '../../shared/pcb/board-outline.js';
+import { getBoardOutline, boardDimensions } from '../../shared/pcb/board-outline.js';
 import { boardShapeRemovalPathD } from '../../shared/pcb/board-shape-geometry.js';
 import { createPanelArtworkRaster } from './panelization-raster.js';
 import { insideStrokeGroup } from '../../core/ui-helpers.js';
@@ -89,7 +89,7 @@ export function renderPanelPreview(app, settings = app.panelization) {
     try { layout = buildPanelLayout(app, settings); }
     catch (error) {
         const note = renderPcbText({ id: 'panel-error', content: `Panel invalid: ${error.message}`,
-            x: 0, y: -app._boardHeight - 5, size: 1.2, rotation: 0, strokeWidth: 0.15, layer: 'top-document' });
+            x: 0, y: -boardDimensions(app).height - 5, size: 1.2, rotation: 0, strokeWidth: 0.15, layer: 'top-document' });
         note.style.pointerEvents = 'none';
         app.getLayerGroup('top-document').appendChild(note);
         previewState.set(app, { group: svg('g'), note });

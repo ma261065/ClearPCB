@@ -63,7 +63,7 @@ import { renderPad, removePadElements } from './pad.js';
 import { pcbTextBounds, pcbTextHitTest } from './pcb-text.js';
 import { clearPcbSelectionAnchors, renderPcbSelectionAnchors } from './selection-anchors.js';
 import { commitPropertyEditors } from './property-editors.js';
-import { areDragOverlaysDeferred, isBoardViewRefreshSuspended, setBoardViewRefreshSuspended, setDragOverlaysDeferred } from './refresh-state.js';
+import { areDragOverlaysDeferred, isBoardViewRefreshSuspended, setBoardViewRefreshSuspended, setDragOverlaysDeferred, refreshBoardView } from './refresh-state.js';
 import {
     clearPcbSelection,
     getComponentSelectionHits,
@@ -75,6 +75,7 @@ import {
     togglePcbSelection,
     syncPcbSelection,
 } from './selection-registry.js';
+import { isEditorActive } from './pcb-editor-api.js';
 
 /** Pixel distance the pointer must travel before a marquee starts. */
 const START_THRESHOLD_PX = 3;
@@ -125,7 +126,7 @@ function beginGroupPreview(app, g) {
 }
 
 function groupIsEditable(app, g) {
-    return app._active !== false
+    return isEditorActive(app)
         && g.comps.every(entry => !app.placements.get(entry.id)?.locked)
         && g.tracks.every(entry => trackIsSelectable(entry.track))
         && g.vias.every(entry => !entry.via.locked && entry.via.visible !== false && !isViaLocked() && isViaVisible())
@@ -808,7 +809,7 @@ function finishGroupPreview(app, g, committed) {
         app.refreshClearanceHalos?.();
     }
     app.updateRatsnest?.();
-    if (!isBoardViewRefreshSuspended(app)) app._board3d?.refresh?.();
+    if (!isBoardViewRefreshSuspended(app)) refreshBoardView(app);
     _applyHighlights(app);
 }
 

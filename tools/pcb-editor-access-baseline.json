@@ -1,12 +1,8 @@
 {
   "src/pcb/modules/board-outline-resize.js": [
-    "_board3d",
-    "_boardHeight",
     "_boardOutlineDrawn",
     "_boardOutlineResize",
     "_boardOutlineSelected",
-    "_boardRadius",
-    "_boardWidth",
     "_drawBoardOutline",
     "_showBoardOutlineProperties",
     "_syncBoardOutlineInputs"
@@ -22,7 +18,6 @@
     "_showPcbMultiSelectionProperties"
   ],
   "src/pcb/modules/board-shapes.js": [
-    "_active",
     "_boardShapeClearanceCache",
     "_deferredShapeCopperCuts",
     "_ensureCopperRemovalHatch",
@@ -43,9 +38,6 @@
   ],
   "src/pcb/modules/board3d.js": [
     "_board3d",
-    "_boardHeight",
-    "_boardRadius",
-    "_boardWidth",
     "_boardX",
     "_boardY",
     "_exportBaseName",
@@ -54,8 +46,6 @@
     "_update3DButtonState"
   ],
   "src/pcb/modules/box-select.js": [
-    "_active",
-    "_board3d",
     "_boxHighlightFrame",
     "_boxSelectActive",
     "_boxSelectArm",
@@ -109,12 +99,10 @@
     "_refreshFillProperties"
   ],
   "src/pcb/modules/design-settings.js": [
-    "_board3d",
     "_clearancesVisible",
     "_markDirty"
   ],
   "src/pcb/modules/drc-refresh.js": [
-    "_active",
     "_adoptDRCResult",
     "_collectRatlines",
     "_drcDisposed",
@@ -131,7 +119,6 @@
     "_scheduleDRC"
   ],
   "src/pcb/modules/editor-actions.js": [
-    "_active",
     "_boardOutlineResize",
     "_boxSelectActive",
     "_boxSelectArm",
@@ -157,29 +144,15 @@
     "_viaDrag"
   ],
   "src/pcb/modules/fabrication-snapshot.js": [
-    "_boardHeight",
-    "_boardRadius",
-    "_boardWidth",
     "_boardX",
     "_boardY"
   ],
-  "src/pcb/modules/fill-context.js": [
-    "_boardHeight",
-    "_boardWidth"
-  ],
   "src/pcb/modules/fill-refresh.js": [
-    "_active",
-    "_board3d",
     "_clearFillGroups",
     "_fillContext",
     "_fillRefreshDisposed",
     "_recomputeFillsNow",
     "_scheduleDRC"
-  ],
-  "src/pcb/modules/fill-worker-geometry.js": [
-    "_boardHeight",
-    "_boardRadius",
-    "_boardWidth"
   ],
   "src/pcb/modules/layers.js": [
     "_lockedBubbleTimer",
@@ -194,11 +167,13 @@
     "_viaDrag"
   ],
   "src/pcb/modules/panelization-ui.js": [
-    "_boardHeight",
     "_layerGroups"
   ],
   "src/pcb/modules/path-edit.js": [
     "_trackEdit"
+  ],
+  "src/pcb/modules/pcb-editor-api.js": [
+    "_active"
   ],
   "src/pcb/modules/pcb-export.js": [
     "_layerGroups",
@@ -234,8 +209,6 @@
     "_viaDrag"
   ],
   "src/pcb/modules/pcb-paste.js": [
-    "_active",
-    "_board3d",
     "_boardShapeClearanceCache",
     "_cancelPosePreviews",
     "_deferredShapeCopperCuts",
@@ -256,7 +229,6 @@
     "_beginPasteDrop"
   ],
   "src/pcb/modules/picture-refresh.js": [
-    "_board3d",
     "_boardShapeClearanceCache",
     "_deferredShapeCopperCuts",
     "_pendingShapeClearances",
@@ -267,9 +239,7 @@
     "_shapeDrag"
   ],
   "src/pcb/modules/project-state.js": [
-    "_active",
     "_applyPlacementOverrides",
-    "_board3d",
     "_boardOutlineDrawn",
     "_cancelAutoRoute",
     "_cancelDrawingMode",
@@ -303,6 +273,9 @@
     "_refreshRefHighlight",
     "_updateRefTextDrag"
   ],
+  "src/pcb/modules/refresh-state.js": [
+    "_board3d"
+  ],
   "src/pcb/modules/selection-anchors.js": [
     "_lastPointerWorld",
     "_rotationHandleDrag"
@@ -330,7 +303,6 @@
     "_refOverlay"
   ],
   "src/pcb/modules/shape-commands.js": [
-    "_board3d",
     "_pendingShapeClearances",
     "_shapeDrag"
   ],
@@ -363,7 +335,6 @@
     "_updateCursorForTool"
   ],
   "src/pcb/modules/track-commands.js": [
-    "_board3d",
     "_drawBoardOutline",
     "_drawRefOverlay",
     "_drcRatlines",
@@ -380,9 +351,7 @@
     "_viaDrag"
   ],
   "src/pcb/modules/track-drag.js": [
-    "_active",
     "_alert",
-    "_board3d",
     "_pcbSelectionInteraction",
     "_refreshTrackClearance",
     "_refreshViaClearance",
@@ -405,7 +374,6 @@
     "_trackToolNet"
   ],
   "src/pcb/modules/track-select.js": [
-    "_active",
     "_hoveredTrackOrVia",
     "_lastPointerWorld",
     "_layerGroups",

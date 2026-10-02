@@ -1,6 +1,7 @@
 import { buildFillContext } from './fill-context.js';
 import { computeFillPolygons, loadClipper } from './copper-fill-geom.js';
 import { serializePcbText } from '../../core/pcb-text.js';
+import { boardDimensions } from '../../shared/pcb/board-outline.js';
 
 /** Capture only pour inputs, never editor projections, SVG or rounded file data. */
 export function captureFillInputs(app) {
@@ -10,9 +11,9 @@ export function captureFillInputs(app) {
         texts: model.texts, boardShapes: model.boardShapes, copperFills: model.copperFills,
         placements: app.placements, netlist: app.netlist,
         getRoutingParams: () => model.designSettings?.getRoutingParams() || app.getRoutingParams?.() || {},
-        _boardWidth: model.board?.width ?? app._boardWidth,
-        _boardHeight: model.board?.height ?? app._boardHeight,
-        _boardRadius: model.board?.radius ?? app._boardRadius,
+        _boardWidth: model.board?.width ?? boardDimensions(app).width,
+        _boardHeight: model.board?.height ?? boardDimensions(app).height,
+        _boardRadius: model.board?.radius ?? boardDimensions(app).radius,
     });
     return {
         tracks: context.tracks.map(track => track.captureCopperGeometry()),

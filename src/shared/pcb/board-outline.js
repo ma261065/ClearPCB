@@ -1,6 +1,15 @@
 import { shapeOutline } from './board-shape-geometry.js';
 import { validClosedShape } from '../../shapes/closed-outline.js';
 
+/**
+ * The editor's rectangular board dimensions (mm), exactly as stored; undefined until set.
+ * @param {any} app
+ * @returns {{width: number, height: number, radius: number}}
+ */
+export function boardDimensions(app) {
+    return { width: app._boardWidth, height: app._boardHeight, radius: app._boardRadius };
+}
+
 export function getBoardOutline(app) {
     return app.boardShapes?.find(shape => shape.layer === 'board-outline') || null;
 }

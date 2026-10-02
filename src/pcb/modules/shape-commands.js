@@ -29,6 +29,7 @@ import {
     MoveBoardShapeCommand as ModelMoveBoardShapeCommand,
     ModifyBoardShapeCommand as ModelModifyBoardShapeCommand,
 } from '../../core/pcb-shape-commands.js';
+import { refreshBoardView } from './refresh-state.js';
 
 function deselectRemovedShape(app, shape) {
     const selected = getPcbSelectionEntries(app);
@@ -50,7 +51,7 @@ export class AddBoardShapeCommand extends ModelAddBoardShapeCommand {
         renderBoardShape(this.app, this.shape);
         this.app.refreshFills?.();
         this.app.updateRatsnest?.();
-        this.app._board3d?.refresh?.();
+        refreshBoardView(this.app);
     }
 
     undo() {
@@ -61,7 +62,7 @@ export class AddBoardShapeCommand extends ModelAddBoardShapeCommand {
         this.app.updateCopperCuts?.();
         this.app.refreshFills?.();
         this.app.updateRatsnest?.();
-        this.app._board3d?.refresh?.();
+        refreshBoardView(this.app);
     }
 }
 
@@ -84,7 +85,7 @@ export class RemoveBoardShapeCommand extends ModelRemoveBoardShapeCommand {
         this.app.updateCopperCuts?.();
         this.app.refreshFills?.();
         this.app.updateRatsnest?.();
-        this.app._board3d?.refresh?.();
+        refreshBoardView(this.app);
     }
 
     undo() {
@@ -93,7 +94,7 @@ export class RemoveBoardShapeCommand extends ModelRemoveBoardShapeCommand {
         renderBoardShape(this.app, this.shape);
         this.app.refreshFills?.();
         this.app.updateRatsnest?.();
-        this.app._board3d?.refresh?.();
+        refreshBoardView(this.app);
     }
 }
 
@@ -143,7 +144,7 @@ export class ModifyBoardShapeCommand extends ModelModifyBoardShapeCommand {
                 this.app.updateRatsnest?.();
             }
         }
-        this.app._board3d?.refresh?.();
+        refreshBoardView(this.app);
         refreshBoardShapeProperties(this.app, this.shape);
         renderBoardShapeSegmentSelection(this.app);
         renderPcbSelectionAnchors(this.app);

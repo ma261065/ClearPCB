@@ -24,7 +24,8 @@ import { renderPcbSelectionAnchors } from './selection-anchors.js';
 import { reconcileRatsnest } from './track-draw.js';
 import { trackIsSelectable } from './track-select.js';
 import { showPcbSelectionProperties } from './selection-interaction.js';
-import { areDragOverlaysDeferred, isBoardViewRefreshSuspended, isFillRefreshPending, isFillRefreshSuspended, setBoardViewRefreshSuspended, setDragOverlaysDeferred, setFillRefreshPending, setFillRefreshSuspended } from './refresh-state.js';
+import { areDragOverlaysDeferred, isBoardViewRefreshSuspended, isFillRefreshPending, isFillRefreshSuspended, setBoardViewRefreshSuspended, setDragOverlaysDeferred, setFillRefreshPending, setFillRefreshSuspended, refreshBoardView } from './refresh-state.js';
+import { isEditorActive } from './pcb-editor-api.js';
 
 const kinds = ['tracks', 'vias', 'pads', 'shapes', 'texts', 'fills'];
 
@@ -124,7 +125,7 @@ function refreshAuthoredPaste(app) {
     app.updateCopperCuts?.();
     app.refreshClearanceHalos?.();
     reconcileRatsnest(app);
-    if (!isBoardViewRefreshSuspended(app)) app._board3d?.refresh?.();
+    if (!isBoardViewRefreshSuspended(app)) refreshBoardView(app);
 }
 
 class PastePcbCommand {
@@ -181,7 +182,7 @@ class PastePcbCommand {
 }
 
 export function beginPcbPaste(app, source, { select = false } = {}) {
-    if (app._active === false) throw new Error('Cannot start a paste while the PCB editor is inactive.');
+    if (!isEditorActive(app)) throw new Error('Cannot start a paste while the PCB editor is inactive.');
     app._cancelPosePreviews?.();
     cancelPcbPaste(app);
     const payload = Object.fromEntries(kinds.map(kind => [kind, [...(source[kind] || [])]]));
@@ -238,7 +239,7 @@ export function updatePcbPaste(app, world) {
     if (!state) return;
     try {
         if (app.pcbDocument !== state.model) throw new Error('The paste document is no longer available.');
-        if (app._active === false || !editable(state.payload)) { cancelPcbPaste(app); return; }
+        if (!isEditorActive(app) || !editable(state.payload)) { cancelPcbPaste(app); return; }
         if (!Number.isFinite(world?.x) || !Number.isFinite(world?.y)) throw new Error('PCB paste requires a finite pointer position.');
         const position = app._snapToGrid(world), dx = position.x - state.anchorWorld.x, dy = position.y - state.anchorWorld.y;
         if (dx === state.dx && dy === state.dy) return;
@@ -296,13 +297,13 @@ export function cancelPcbPaste(app) {
         renderPcbSelectionAnchors(app);
     } finally { release(app, state); }
     resumePendingFill(app);
-    if (app.pcbDocument === state.model && app._active !== false) showPcbSelectionProperties(app);
+    if (app.pcbDocument === state.model && isEditorActive(app)) showPcbSelectionProperties(app);
 }
 
 export function endPcbPaste(app) {
     const state = app._pasteDrop;
     if (!state) return;
-    if (app._active === false || !editable(state.payload)) { cancelPcbPaste(app); return; }
+    if (!isEditorActive(app) || !editable(state.payload)) { cancelPcbPaste(app); return; }
     const command = new PastePcbCommand(app, state.payload);
     try {
         if (app.pcbDocument !== state.model) throw new Error('The paste document is no longer available.');

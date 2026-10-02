@@ -1,5 +1,5 @@
 import { getPropertyEditor } from './property-editors.js';
-import { isPictureCopperRefreshPending, setPictureCopperRefreshPending } from './refresh-state.js';
+import { isPictureCopperRefreshPending, setPictureCopperRefreshPending, refreshBoardView } from './refresh-state.js';
 const pendingRefreshes = new WeakMap();
 const activeHolds = new WeakMap();
 
@@ -91,6 +91,6 @@ export function schedulePictureCopperRefresh(app, shape = null) {
             app.updateRatsnest?.({ skipFillRefresh: true });
             app._scheduleDRC?.();
         }
-        app._board3d?.refresh?.();
+        refreshBoardView(app);
     }, 100));
 }

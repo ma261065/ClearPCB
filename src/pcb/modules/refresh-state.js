@@ -82,3 +82,6 @@ export function setFillRefreshSuspended(app, suspended) {
 /** Gestures suspend refreshing the external 2D/3D board views. */
 export const isBoardViewRefreshSuspended = app => states.get(app)?.boardViewSuspended ?? false;
 export const setBoardViewRefreshSuspended = (app, suspended) => { stateFor(app).boardViewSuspended = !!suspended; };
+
+/** Ask an open 3D/2D board viewer to resync after a committed edit (no-op when none is open). */
+export const refreshBoardView = app => { app?._board3d?.refresh?.(); };

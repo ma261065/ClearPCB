@@ -96,6 +96,7 @@ import {
     resolveBoardShapeGeometry,
 } from '../../shared/pcb/board-shape-geometry.js';
 import { PROP_HIDDEN_LAYERS, showBoardShapeProperties, showBoardShapeToolProperties, syncCircleDiameterProperty, syncShapeBulgeProperty } from './board-shape-properties.js';
+import { isEditorActive } from './pcb-editor-api.js';
 
 const NS = 'http://www.w3.org/2000/svg';
 const HOLE_BORDER_WIDTH = 0.05;
@@ -617,7 +618,7 @@ export function createBoardShapePropertyPreview(app, targets, { liveDrag = false
     const binding = getPropertyEditor(app, 'boardShape');
     const originals = targets.map(target => canonicalBoardShape(app, target));
     const collection = () => app.pcbDocument?.boardShapes || app.boardShapes;
-    const editable = () => !binding.disposed && app._active !== false
+    const editable = () => !binding.disposed && isEditorActive(app)
         && originals.every(shape => isLayerVisible(shape.layer) && !isLayerLocked(shape.layer));
     let state = null;
     const finish = (commit, { rebuild = true } = {}) => {

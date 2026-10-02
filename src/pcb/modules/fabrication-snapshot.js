@@ -6,6 +6,7 @@ import { panelSettings } from './panelization.js';
 import { blocksPcbExport } from './pcb-interactions.js';
 import { hasActivePropertyEditor } from './property-editors.js';
 import { areDragOverlaysDeferred, isFillRefreshSuspended } from './refresh-state.js';
+import { boardDimensions } from '../../shared/pcb/board-outline.js';
 
 export function hasFabricationContent(app) {
     const entities = app.pcbDocument || app;
@@ -22,7 +23,7 @@ export async function prepareFabricationSnapshot(app, { computeFills = true } = 
     const model = app.pcbDocument;
     const params = model ? model.designSettings.getRoutingParams() : { ...app.getRoutingParams?.() };
     const board = model ? { ...model.board }
-        : { width: app._boardWidth, height: app._boardHeight, radius: app._boardRadius };
+        : boardDimensions(app);
     const panelization = model ? model.serializePanelization()
         : app.panelization ? panelSettings(app.panelization) : null;
     const placements = new Map([...app.placements].map(([id, placement]) => [id, captureResolvedPlacement(placement)]));
