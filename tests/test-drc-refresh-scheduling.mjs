@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { getComputedFill } from '../src/pcb/modules/computed-fill-cache.js';
 import { PcbDocument } from '../src/core/PcbDocument.js';
+import { isFillRefreshScheduled, isPictureCopperRefreshPending } from '../src/pcb/modules/refresh-state.js';
 
 globalThis.window = { addEventListener() {} };
 globalThis.document = {
@@ -88,7 +89,7 @@ try {
         const previous = app._drcViolations;
         const reportCount = reports.length;
         command[action]();
-        assert.equal(app._pictureCopperRefreshPending, true);
+        assert.equal(isPictureCopperRefreshPending(app), true);
         assert.ok(runDRC(app, { clearance: 0.2 }).violations.some(v =>
             v.rule === 'short' || v.rule === 'clearance'), 'stale pour really intersects the rotated geometry');
         app._scheduleDRC();
@@ -97,8 +98,8 @@ try {
         assert.equal(reports.length, reportCount, 'neither scheduled nor direct DRC publishes a stale-copper report');
         assert.equal(app._drcViolations, previous, 'retain the last coherent results during debounce');
         flushTimers();
-        assert.equal(app._pictureCopperRefreshPending, false);
-        assert.equal(app._fillRefreshScheduled, true);
+        assert.equal(isPictureCopperRefreshPending(app), false);
+        assert.equal(isFillRefreshScheduled(app), true);
         app._runDRCLive();
         assert.equal(reports.length, reportCount, 'still wait for the queued pour rebuild');
         flushFrames();

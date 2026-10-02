@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { CommandHistory } from '../src/core/CommandHistory.js';
+import { isPictureCopperRefreshPending } from '../src/pcb/modules/refresh-state.js';
 globalThis.window = { addEventListener() {} };
 globalThis.document = {
     getElementById() { return null; },
@@ -56,7 +57,7 @@ try {
                 getLayerGroup() { return null; }, _snapToGrid(point) { return point; }, _snapActive() { return false; },
                 refreshFills() { return scheduleFillRefresh(this); },
                 _clearFillGroups() { fills++; },
-                _refreshBoardShapeClearance() { if (!this._pictureCopperRefreshPending) halos++; },
+                _refreshBoardShapeClearance() { if (!isPictureCopperRefreshPending(this)) halos++; },
                 refreshClearanceHalos() { halos++; },
                 updateRatsnest(options) { reconcileRatsnest(this, options); },
             };
@@ -68,7 +69,7 @@ try {
                 flush();
                 assert.equal(halo.parentNode, expectedHaloParent,
                     `${shape.kind}: clearance visibility is preserved throughout the drag`);
-                assert.equal(app._pictureCopperRefreshPending, true);
+                assert.equal(isPictureCopperRefreshPending(app), true);
                 assert.equal(timers.size, 0, 'No timer runs during a held handle drag');
                 assert.equal(halos, 0);
                 assert.equal(fills, 0);
@@ -82,13 +83,13 @@ try {
                 assert.equal(fills, 0);
             } else {
                 assert.deepEqual(cloneShapeGeometry(shape), original, 'Cancel restores geometry immediately');
-                assert.equal(app._pictureCopperRefreshPending, false);
+                assert.equal(isPictureCopperRefreshPending(app), false);
                 assert.equal(timers.size, 0, 'Cancellation leaves no deferred refresh');
                 assert.equal(halos, 1, 'Cancel restores clearance immediately');
                 assert.equal(fills, 0, 'Cancel retains unchanged settled fills');
             }
             flush();
-            assert.equal(app._pictureCopperRefreshPending, false);
+            assert.equal(isPictureCopperRefreshPending(app), false);
             assert.equal(halos, 1);
             assert.equal(fills, commit ? 1 : 0, 'Only committed geometry refreshes fills');
             if (commit) {

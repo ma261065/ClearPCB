@@ -1,3 +1,4 @@
+import { isFillRefreshPending } from '../src/pcb/modules/refresh-state.js';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { PcbDocument } from '../src/core/PcbDocument.js';
@@ -163,7 +164,7 @@ let components = [];
 const methodDependencies = {
     ...dependencies,
     getPcbSelection: () => [], refreshBoxSelectionHighlights() {}, updateGridDropdown() {},
-    setInlineTextInputActive() {},
+    setInlineTextInputActive() {}, isFillRefreshPending,
 };
 const method = name => {
     const methodStart = pcbSource.indexOf(`    ${name}(`);

@@ -4,6 +4,7 @@ import { CommandHistory } from '../src/core/CommandHistory.js';
 import { createPcbText } from '../src/core/pcb-text.js';
 import { createPcbTextSelectionAdapter } from '../src/pcb/modules/pcb-text-selection.js';
 import { cancelPictureCopperRefresh } from '../src/pcb/modules/picture-refresh.js';
+import { isPictureCopperRefreshPending } from '../src/pcb/modules/refresh-state.js';
 
 globalThis.window = { addEventListener() {} };
 const { default: PCBApp } = await import('../src/ui/PCBApp.js');
@@ -68,7 +69,7 @@ function fixture(options = {}) {
         assert.equal(app.viewport.svg.style.cursor, 'default');
         assert.equal(app.history.undoStack.length, 1);
         assert.equal(historyChanges(), 1);
-        assert.equal(app._pictureCopperRefreshPending, true, 'Commit still schedules derived refresh');
+        assert.equal(isPictureCopperRefreshPending(app), true, 'Commit still schedules derived refresh');
         app.history.undo();
         assert.deepEqual(text, original);
         assert.deepEqual(renders.at(-1), original);

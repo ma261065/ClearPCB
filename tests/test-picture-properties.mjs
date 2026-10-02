@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { CommandHistory } from '../src/core/CommandHistory.js';
 import { pictureShape } from '../src/pcb/modules/picture-raster.js';
+import { isPictureCopperRefreshPending } from '../src/pcb/modules/refresh-state.js';
 
 const fields = new Map();
 const items = { html: '', set innerHTML(html) {
@@ -182,7 +183,7 @@ const pendingCopper = new Map();
 let copperTimerId = 0;
 let imageClearanceRefreshes = 0;
 app._refreshBoardShapeClearance = shape => {
-    if (app._pictureCopperRefreshPending && app._pendingShapeClearances?.has(shape.id)) return;
+    if (isPictureCopperRefreshPending(app) && app._pendingShapeClearances?.has(shape.id)) return;
     imageClearanceRefreshes++;
 };
 app.updateRatsnest = options => {

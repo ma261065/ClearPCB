@@ -168,6 +168,15 @@ through one ordered `eachPropertyEditorOnLayer`. Group commits and activity
 checks name the kinds they cover. The module has no imports because the
 fabrication-snapshot guard, which the Gerber worker loads, queries it.
 
+`pcb/modules/refresh-state.js` owns each editor's derived-refresh status in a
+WeakMap: copper-pour pending, scheduled and last error (written by
+`fill-refresh.js`) and the batched picture-copper refresh (written by
+`picture-refresh.js`). Predicates that test several flags read
+`refreshStatus(app)` once. It is import-free because `drc.js` reads the pour
+status inside the DRC worker; detached DRC snapshots pass the editor's status
+to `collectDrcInputs` explicitly. DRC status itself remains with
+`drc-presentation.js` behind the editor's `_drcPending` accessor.
+
 `pcb/modules/pcb-interactions.js` is the one list of in-progress editor fields
 (`_drag`, `_trackDraw`, `_pcbSelectionInteraction`, …) in pointer-move priority,
 with each field's category (`gesture` or `drawing`) and whether it blocks export.

@@ -165,6 +165,7 @@ import {
 import { preparePcbPaste, beginPcbPaste, updatePcbPaste, endPcbPaste, cancelPcbPaste, isPcbPasteEditable } from '../pcb/modules/pcb-paste.js';
 import { getBoardOutline, boardBoundary } from '../pcb/modules/board-outline.js';
 import { eachPropertyEditorOnLayer, getPropertyEditor, setPropertyEditor } from '../pcb/modules/property-editors.js';
+import { isFillRefreshPending } from '../pcb/modules/refresh-state.js';
 import {
     beginBoardOutlineResize, updateBoardOutlineResize, endBoardOutlineResize,
     renderBoardOutlineHandles, hitTestBoardOutlineHandle,
@@ -392,8 +393,6 @@ export default class PCBApp {
         this._suppressNextContextMenu = false;
         /** Suspend live copper-fill recompute while floating paste is active. */
         this._suspendFillRefresh = false;
-        /** Whether a fill refresh was requested while suspended. */
-        this._fillRefreshPending = false;
         /** Suspend external 2D/3D panel refresh while floating paste is active. */
         this._suspendBoardViewRefresh = false;
 
@@ -474,7 +473,7 @@ export default class PCBApp {
 
         // Rebuild if schematic changed while we were away
         if (this._stale) this._syncFromSchematic();
-        if (this._fillRefreshPending) this.refreshFills();
+        if (isFillRefreshPending(this)) this.refreshFills();
         if (this._drcPending || this._drcShouldRun()) this._scheduleDRC();
 
         this.setPcbStatus();

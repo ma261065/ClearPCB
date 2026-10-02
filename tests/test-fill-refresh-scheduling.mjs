@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { getComputedFill, setComputedFill } from '../src/pcb/modules/computed-fill-cache.js';
+import { isFillRefreshPending, setFillRefreshPending, setPictureCopperRefreshPending } from '../src/pcb/modules/refresh-state.js';
 
 globalThis.window = { addEventListener() {} };
 globalThis.document = { createElementNS: () => ({ setAttribute() {}, appendChild() {},
@@ -35,11 +36,11 @@ function board() {
         refreshFills() { return scheduleFillRefresh(this); },
         _recomputeFillsNow() {
             if (this._deferDragOverlays || this._suspendFillRefresh) {
-                this._fillRefreshPending = true;
+                setFillRefreshPending(this, true);
                 return;
             }
             if (!this.copperFills.length) { this._clearFillGroups(); return; }
-            this._fillRefreshPending = false;
+            setFillRefreshPending(this, false);
             counts.pours++;
             const context = buildFillContext(this);
             for (const fill of this.copperFills) setComputedFill(fill, computeFillPolygons(fill, context));
@@ -107,20 +108,20 @@ try {
     suspended._suspendFillRefresh = true;
     reconcileRatsnest(suspended);
     assert.equal(suspended.counts.rebuilds, 1);
-    assert.equal(suspended._fillRefreshPending, true);
+    assert.equal(isFillRefreshPending(suspended), true);
     assert.equal(frames.length, 0);
     suspended._suspendFillRefresh = false;
     reconcileRatsnest(suspended);
     flush();
     assert.equal(suspended.counts.rebuilds, 2);
-    assert.equal(suspended._fillRefreshPending, false);
+    assert.equal(isFillRefreshPending(suspended), false);
 
     const interrupted = board();
     reconcileRatsnest(interrupted);
     interrupted._deferDragOverlays = true;
     flush();
     assert.equal(interrupted.counts.pours, 0);
-    assert.equal(interrupted._fillRefreshPending, true);
+    assert.equal(isFillRefreshPending(interrupted), true);
     interrupted._deferDragOverlays = false;
     reconcileRatsnest(interrupted);
     flush();
@@ -129,7 +130,7 @@ try {
     const removed = board();
     const editing = board();
     reconcileRatsnest(editing);
-    editing._pictureCopperRefreshPending = true;
+    setPictureCopperRefreshPending(editing, true);
     flush();
     assert.equal(editing.counts.pours, 0, 'An already queued pour cannot run during a property edit');
     assert.equal(scheduleFillRefresh(editing), true);
@@ -137,7 +138,7 @@ try {
     assert.equal(frames.length, 0);
     assert.equal(editing.counts.halos, 0);
     assert.equal(editing.counts.rebuilds, 0);
-    editing._pictureCopperRefreshPending = false;
+    setPictureCopperRefreshPending(editing, false);
     reconcileRatsnest(editing);
     flush();
     assert.equal(editing.counts.pours, 1);

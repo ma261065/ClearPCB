@@ -4,6 +4,7 @@ import { PcbDocument } from '../src/core/PcbDocument.js';
 import { isLayerLocked, isLayerVisible } from '../src/pcb/modules/layers.js';
 import { shouldDeferShapeClearance } from '../src/pcb/modules/picture-refresh.js';
 import { hasViaElements } from '../src/pcb/modules/track-render.js';
+import { setPictureCopperRefreshPending } from '../src/pcb/modules/refresh-state.js';
 
 globalThis.window = { addEventListener() {} };
 const element = () => ({
@@ -138,7 +139,7 @@ const app = {
 };
 let hatchSchedules = 0;
 app._scheduleRemovalHatchRender = () => { hatchSchedules++; };
-app._pictureCopperRefreshPending = true;
+setPictureCopperRefreshPending(app, true);
 for (const copperMode of ['remove-copper', 'remove-solder-mask', 'remove-copper-mask']) {
     const removal = { ...circle, id: `pending-${copperMode}`, copperMode };
     renderBoardShape(app, removal, { liveDrag: true });
@@ -146,7 +147,7 @@ for (const copperMode of ['remove-copper', 'remove-solder-mask', 'remove-copper-
 assert.equal(hatchSchedules, 3, 'Every removal mode redraws its hatch during a pending node drag');
 renderBoardShape(app, { ...circle, id: 'pending-add', copperMode: 'add' }, { liveDrag: true });
 assert.equal(hatchSchedules, 3, 'Additive copper does not redraw removal hatches during a live drag');
-app._pictureCopperRefreshPending = false;
+setPictureCopperRefreshPending(app, false);
 const overlay = groups.get('clearance-overlay');
 const ids = () => new Set(overlay.children.map(child => child.attributes.get('data-shape-id')));
 toggle.call(app, 'clearance', true);
@@ -198,7 +199,7 @@ assert.equal(outlineCalls, callsBeforeImageMove + 1, 'Only the resized image is 
 showClearances.call(app, true);
 assert.equal(outlineCalls, callsBeforeImageMove + 1, 'Repeated reconciliation does not repeat image offset calculations');
 const callsBeforeHide = outlineCalls;
-app._pictureCopperRefreshPending = true;
+setPictureCopperRefreshPending(app, true);
 app._pendingShapeClearances = new Map([[image.id, image]]);
 const heldHalo = overlay.children.find(child => child.attributes.get('data-shape-id') === 'image');
 const heldPoints = heldHalo.attributes.get('points');
@@ -210,7 +211,7 @@ assert.equal(outlineCalls, callsBeforeHide, 'Other render paths cannot bypass th
 assert.ok(!overlay.children.includes(heldHalo), 'Pending edits hide stale image halos');
 assert.equal(heldHalo.attributes.get('points'), heldPoints);
 assert.equal(heldHalo.attributes.get('transform'), heldTransform, 'Halo remains at its pre-edit orientation');
-app._pictureCopperRefreshPending = false;
+setPictureCopperRefreshPending(app, false);
 showClearances.call(app, true);
 assert.equal(outlineCalls, callsBeforeHide + 1, 'Halo catches up once the debounce expires');
 assert.ok(overlay.children.some(child => child.attributes.get('data-shape-id') === 'image'),
@@ -229,12 +230,12 @@ const originalTextHalo = textHalos()[0];
 text.x += 2;
 refreshShape.call(app, text);
 assert.equal(originalTextHalo.attributes.get('transform'), 'translate(2 0)');
-app._pictureCopperRefreshPending = true;
+setPictureCopperRefreshPending(app, true);
 app._pendingShapeClearances = new Map([[text.id, text]]);
 text.rotation = 90;
 showClearances.call(app, true);
 assert.equal(textHalos().length, 0, 'Text clearance is hidden while the shared refresh is pending');
-app._pictureCopperRefreshPending = false;
+setPictureCopperRefreshPending(app, false);
 showClearances.call(app, true);
 assert.ok(textHalos().length >= 2);
 assert.ok(!overlay.children.includes(originalTextHalo), 'Rotation invalidates cached glyph clearance');

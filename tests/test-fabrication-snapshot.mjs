@@ -10,12 +10,14 @@ import { createPcbText, serializePcbText, TEXT_LAYERS } from '../src/core/pcb-te
 globalThis.window = { addEventListener() {} };
 const { exportGerbers, buildZip } = await import('../src/pcb/modules/gerber.js');
 const { prepareFabricationSnapshot, prepareSnapshotFills, hasFabricationContent } = await import('../src/pcb/modules/fabrication-snapshot.js');
+const { setFillRefreshScheduled } = await import('../src/pcb/modules/refresh-state.js');
 const { generateGerberArchive } = await import('../src/pcb/modules/gerber-export.js');
 const outline = [{ x: 1, y: -1 }, { x: 19, y: -1 }, { x: 19, y: -19 }, { x: 1, y: -19 }];
 const fill = new CopperFill({ net: 'GND', outline });
 const app = { placements: new Map(), tracks: [], vias: [], texts: new Map(), netlist: [],
     boardShapes: [fill], copperFills: [fill], _boardWidth: 20, _boardHeight: 20, _boardRadius: 0,
-    getRoutingParams: () => ({ clearance: 0.2 }), _fillRefreshScheduled: true };
+    getRoutingParams: () => ({ clearance: 0.2 }) };
+setFillRefreshScheduled(app, true);
 assert.equal(hasFabricationContent(app), true);
 const pending = prepareFabricationSnapshot(app);
 fill.outline[0].x = 5;

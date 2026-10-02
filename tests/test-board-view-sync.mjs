@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { createBoardViewSync } from '../src/pcb/modules/board-view-sync.js';
+import { isFillRefreshPending, isFillRefreshScheduled, isPictureCopperRefreshPending, refreshStatus, setFillRefreshPending, setFillRefreshScheduled } from '../src/pcb/modules/refresh-state.js';
 
 {
     const pcbSource = readFileSync(new URL('../src/ui/PCBApp.js', import.meta.url), 'utf8');
@@ -143,6 +144,7 @@ const scheduledSync = createBoardViewSync({
     refresh2D() {},
 });
 const { schedule, cancel } = new Function('window', 'panel', 'app', 'viewSync', 'surfaceBuilder',
+    'isPictureCopperRefreshPending', 'isFillRefreshScheduled', 'isFillRefreshPending', 'refreshStatus',
     `${source.slice(scheduleStart, scheduleEnd)}\nreturn { schedule: scheduleSync, cancel() { ${cleanup[0]} } };`)(
     {
         requestAnimationFrame(callback) {
@@ -152,6 +154,7 @@ const { schedule, cancel } = new Function('window', 'panel', 'app', 'viewSync', 
         cancelAnimationFrame(frame) { frames.delete(frame); },
     },
     panel, app, scheduledSync, { invalidate() {} },
+    isPictureCopperRefreshPending, isFillRefreshScheduled, isFillRefreshPending, refreshStatus,
 );
 assert.match(source.slice(scheduleStart, scheduleEnd),
     /surfaceBuilder\.invalidate\(\{ cancelActive: true \}\)/,
@@ -169,28 +172,33 @@ assert.deepEqual(refreshed, []);
 fireFrame();
 assert.deepEqual(refreshed, [revision], 'The next frame must refresh the latest state');
 app.copperFills = [{}];
+const refreshSetters = { _fillRefreshScheduled: setFillRefreshScheduled, _fillRefreshPending: setFillRefreshPending };
+const setFlag = (target, property, value) => {
+    if (target === app && refreshSetters[property]) refreshSetters[property](target, value);
+    else target[property] = value;
+};
 for (const [target, property] of [[panel, 'hidden'], [panel, 'closed'],
     ...['_suspendBoardViewRefresh', '_deferDragOverlays', '_suspendFillRefresh',
         '_fillRefreshScheduled', '_fillRefreshPending'].map((property) => [app, property])]) {
     schedule();
-    target[property] = true;
+    setFlag(target, property, true);
     const refreshCount = refreshed.length;
     fireFrame();
     assert.equal(refreshed.length, refreshCount, 'Visibility and suspension must be rechecked at execution');
     schedule();
     assert.equal(frames.size, 0, 'Hidden or suspended requests must not queue frames');
-    target[property] = false;
+    setFlag(target, property, false);
     schedule();
     fireFrame();
     assert.equal(refreshed.length, refreshCount + 1);
 }
 schedule();
-app._fillRefreshScheduled = true;
+setFillRefreshScheduled(app, true);
 const beforePour = refreshed.length;
 fireFrame();
 assert.equal(refreshed.length, beforePour, 'A pour queued before the frame must prevent stale 3D work');
 revision++;
-app._fillRefreshScheduled = false;
+setFillRefreshScheduled(app, false);
 schedule();
 fireFrame();
 assert.equal(refreshed.length, beforePour + 1);

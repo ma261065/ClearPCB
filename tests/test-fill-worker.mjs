@@ -18,6 +18,7 @@ import { getComputedFill } from '../src/pcb/modules/computed-fill-cache.js';
 import { schedulePictureCopperRefresh, cancelPictureCopperRefresh } from '../src/pcb/modules/picture-refresh.js';
 import { EditTextCommand } from '../src/pcb/modules/text-commands.js';
 import { loadPcb } from '../src/pcb/modules/project-state.js';
+import { fillRefreshError, isFillRefreshPending, setPictureCopperRefreshPending } from '../src/pcb/modules/refresh-state.js';
 
 class Element {
     constructor() { this.children = []; this.attributes = new Map(); this.style = {}; this.dataset = {}; }
@@ -67,7 +68,7 @@ function fixture() {
     const ratlines = { get children() { counts.rats++; return []; }, appendChild() {} };
     app.getLayerGroup = id => id === 'ratlines' ? ratlines : app._layerGroups.get(id) || null;
     app._clearFillGroups = () => { counts.clear++; PCBApp.prototype._clearFillGroups.call(app); };
-    app._scheduleDRC = () => { counts.drc++; drcStates.push([app._fillRefreshPending, app._fillRefreshError]); };
+    app._scheduleDRC = () => { counts.drc++; drcStates.push([isFillRefreshPending(app), fillRefreshError(app)]); };
     app._board3d = { refresh() { counts.views++; } };
     app._recomputeFillsNow = () => { counts.sync++; return PCBApp.prototype._recomputeFillsNow.call(app); };
     app.setStatus = message => { app.lastStatus = message; };
@@ -107,13 +108,13 @@ function fixture() {
     globalThis.requestAnimationFrame = callback => { coldFrames.push(callback); return coldFrames.length; };
     try {
         assert.equal(app._recomputeFillsNow(), undefined);
-        assert.equal(app._fillRefreshPending, true);
+        assert.equal(isFillRefreshPending(app), true);
         invalidateFillRefresh(app);
         await loadClipper();
         await new Promise(resolve => setTimeout(resolve, 70));
         for (const frame of coldFrames) frame();
         assert.equal(counts.clear, 1, 'Cold synchronous refresh debt survives the following history notification');
-        assert.equal(app._fillRefreshPending, false);
+        assert.equal(isFillRefreshPending(app), false);
     } finally { disposeFillRefresh(app); delete globalThis.requestAnimationFrame; }
 }
 
@@ -267,7 +268,7 @@ function unchanged(f) {
     try {
         for (let i = 0; i < 100; i++) assert.equal(scheduleFillRefresh(f.app), true);
         assert.equal(frames.length, 1);
-        assert.equal(f.app._fillRefreshPending, true);
+        assert.equal(isFillRefreshPending(f.app), true);
         assert.equal(runDRC(f.app).violations.filter(item => item.rule === 'fill'
             && /refresh is pending/.test(item.message)).length, f.model.copperFills.length);
         unchanged(f);
@@ -281,7 +282,7 @@ function unchanged(f) {
         worker.finish();
         await tick();
         assert.deepEqual(f.counts, { clear: 1, drc: 1, views: 1, rats: 1, sync: 0 });
-        assert.equal(f.app._fillRefreshPending, false);
+        assert.equal(isFillRefreshPending(f.app), false);
         assert.deepEqual(f.drcStates.at(-1), [false, null], 'Complete cache and refresh status publish before DRC observes them');
         assert.equal(paths(f.app).length, f.model.copperFills.length);
         for (const path of paths(f.app)) assert.match(path.getAttribute('clip-path'), /^url\(#(?:top|bottom)-fill-cut\)$/);
@@ -318,7 +319,7 @@ for (const mode of ['preview', 'preview-roundtrip', 'picture', 'sync', 'history'
         const worker = workers.at(-1), job = worker.jobs[0];
         if (mode.startsWith('preview')) f.app._deferDragOverlays = true;
         if (mode === 'preview-roundtrip') f.app._deferDragOverlays = false;
-        if (mode === 'picture') f.app._pictureCopperRefreshPending = true;
+        if (mode === 'picture') setPictureCopperRefreshPending(f.app, true);
         if (mode === 'sync') f.app._recomputeFillsNow();
         if (mode === 'history') f.app.history.execute(new EditTextCommand(f.app, 'text', { size: 3.123456789 }));
         if (mode === 'replacement') f.app.pcbDocument = new PcbDocument();
@@ -337,7 +338,7 @@ for (const mode of ['preview', 'preview-roundtrip', 'picture', 'sync', 'history'
         }
         if (mode.startsWith('preview') || mode === 'picture') {
             if (mode.startsWith('preview')) f.app._deferDragOverlays = false;
-            else f.app._pictureCopperRefreshPending = false;
+            else setPictureCopperRefreshPending(f.app, false);
             await wait(70); flush();
             const latest = workers.at(-1);
             latest.finish(); await tick();
@@ -434,8 +435,8 @@ for (const mode of ['error', 'messageerror', 'partial', 'malformed', 'contacts',
                 f.counts.sync = 0;
             }
             unchanged(f);
-            assert.equal(f.app._fillRefreshPending, true);
-            assert.ok(f.app._fillRefreshError);
+            assert.equal(isFillRefreshPending(f.app), true);
+            assert.ok(fillRefreshError(f.app));
             const drc = runDRC(f.app);
             assert.equal(drc.ok, false);
             assert.equal(drc.violations.filter(item => item.rule === 'fill' && /refresh failed/.test(item.message)).length,
@@ -446,8 +447,8 @@ for (const mode of ['error', 'messageerror', 'partial', 'malformed', 'contacts',
             if (mode !== 'fallback-failure') workers.at(-1).finish();
             await tick();
             assert.equal(f.counts.clear, 1, 'A later valid refresh recovers without replacing authored objects');
-            assert.equal(f.app._fillRefreshPending, false);
-            assert.equal(f.app._fillRefreshError, null);
+            assert.equal(isFillRefreshPending(f.app), false);
+            assert.equal(fillRefreshError(f.app), null);
             assert.equal(runDRC(f.app).violations.some(item => item.rule === 'fill'), false);
         } else {
             assert.equal(f.counts.sync, 1, `${mode}: current failed worker falls back synchronously`);
@@ -471,7 +472,7 @@ for (const mode of ['error', 'messageerror', 'partial', 'malformed', 'contacts',
         f.model.copperFills.forEach((fill, index) => assert.equal(getComputedFill(fill), f.old[index]));
         assert.equal(f.counts.drc, 0);
         assert.equal(f.counts.rats, 0);
-        assert.equal(f.app._fillRefreshPending, true);
+        assert.equal(isFillRefreshPending(f.app), true);
         const clone = globalThis.structuredClone;
         let snapshots = 0;
         try {
@@ -482,7 +483,7 @@ for (const mode of ['error', 'messageerror', 'partial', 'malformed', 'contacts',
         f.app._clearFillGroups = clear;
         scheduleFillRefresh(f.app); flush();
         workers.at(-1).finish(); await tick();
-        assert.equal(f.app._fillRefreshPending, false);
+        assert.equal(isFillRefreshPending(f.app), false);
     } finally { console.error = log; disposeFillRefresh(f.app); }
 }
 

@@ -72,6 +72,7 @@ import { rotationHandleAnchor, pointerRotation, rotatedImagePoints } from './rot
 import { BULGE_EPS, arcFromBulge } from '../../shapes/arc-edge.js';
 import { syncBoardOutlineDimensions, boardBoundary } from './board-outline.js';
 import { getPropertyEditor, releasePropertyEditor, setPropertyEditor } from './property-editors.js';
+import { isPictureCopperRefreshPending } from './refresh-state.js';
 
 import {
     normalizeShapeCopperMode,
@@ -614,7 +615,7 @@ function createBoardShapePropertyPreview(app, targets, { liveDrag = false, befor
                     originalsByCopy: new Map(copies.map((copy, index) => [copy, originals[index]])),
                     before: originals.map(shapeSnapshot),
                     previousDeferDragOverlays: app._deferDragOverlays,
-                    previousPictureRefreshPending: !!app._pictureCopperRefreshPending,
+                    previousPictureRefreshPending: !!isPictureCopperRefreshPending(app),
                     boardShapes: collection().map(shape => copiesByOriginal.get(shape) || shape),
                 };
                 boardShapePropertyPreviews.set(app, state);
@@ -719,7 +720,7 @@ export function renderBoardShape(app, shape, opts = {}) {
     app._shapeElements.set(shape.id, root);
     if (!opts.interactionOnly) app._refreshBoardShapeClearance?.(shape);
     if (!opts.interactionOnly && (!opts.liveDrag || st.isCopperRemoval)) app._scheduleRemovalHatchRender?.();
-    if (app._pictureCopperRefreshPending) {
+    if (isPictureCopperRefreshPending(app)) {
         if (!opts.skipCopperUpdate && (shapeAffectsCopperCuts(shape) || (!opts.liveDrag && app._hasCopperCuts))) app._deferredShapeCopperCuts = true;
         return;
     }

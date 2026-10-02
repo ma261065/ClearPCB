@@ -17,6 +17,7 @@ import { getPcbSelectionEntries, setPcbSelection } from '../src/pcb/modules/sele
 import { prepareFabricationSnapshot } from '../src/pcb/modules/fabrication-snapshot.js';
 import { loadPcb } from '../src/pcb/modules/project-state.js';
 import { PCB_LAYERS } from '../src/pcb/modules/layers.js';
+import { setFillRefreshPending } from '../src/pcb/modules/refresh-state.js';
 
 let allocations = 0;
 class Element {
@@ -87,7 +88,7 @@ function fixture(deferred = false) {
     let derived = 0, crosshairs = 0;
     const app = { project, pcbDocument: model, history: new CommandHistory(), placements, netlist: [], _active: true,
         _layerGroups: groups, _shapeElements: new Map(), _textElements: new Map(),
-        _deferDragOverlays: deferred, _suspendFillRefresh: deferred, _suspendBoardViewRefresh: deferred, _fillRefreshPending: false,
+        _deferDragOverlays: deferred, _suspendFillRefresh: deferred, _suspendBoardViewRefresh: deferred,
         viewport: { scale: 10, gridVisible: false, svg: new Element('svg'), currentMouseWorld: { x: 10.123456789, y: -12.345678912 },
             setCrosshair() { crosshairs++; }, hideCrosshair() {} },
         getLayerGroup: id => groups.get(id) || null,
@@ -350,7 +351,7 @@ console.log('PASS toolbar undo/redo, cut discard, ID collision ownership and par
     const { app } = fixture();
     let resumed = 0;
     app.pasteSelection();
-    app._fillRefreshPending = true;
+    setFillRefreshPending(app, true);
     app.refreshFills = () => { resumed++; };
     app._cancelPasteDrop();
     assert.equal(resumed, 1, 'An unrelated fill refresh deferred while floating is resumed, not lost');

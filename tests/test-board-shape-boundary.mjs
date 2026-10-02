@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { PcbDocument } from '../src/core/PcbDocument.js';
 import { getPropertyEditor } from '../src/pcb/modules/property-editors.js';
+import { isPictureCopperRefreshPending } from '../src/pcb/modules/refresh-state.js';
 
 function shapeModel(...shapes) {
     const pcbDocument = new PcbDocument();
@@ -187,7 +188,7 @@ const { updateSelectionInteraction, finishSelectionInteraction, placeFloatingSel
             const start = anchor == null ? { x: 3, y: 4 } : { ...endpoints[1] };
             startBoardShapeDrag(app, shape, start, anchor);
             app.updateRatsnest({ nets: app._shapeDrag.ratsnestNets });
-            assert.equal(app._pictureCopperRefreshPending, true);
+            assert.equal(isPictureCopperRefreshPending(app), true);
             assert.equal(ratLayer.children.length, 1);
             const coordinates = () => ['x1', 'y1', 'x2', 'y2'].map(name => ratLayer.children[0].getAttribute(name));
             const before = coordinates();

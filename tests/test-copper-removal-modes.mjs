@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { isPictureCopperRefreshPending } from '../src/pcb/modules/refresh-state.js';
 
 globalThis.window = { addEventListener() {} };
 globalThis.document = {
@@ -90,7 +91,7 @@ for (const copperMode of modes) {
     const command = new ModifyBoardShapeCommand(app, shape, before, { ...before, copperMode });
     command.execute();
     assert.equal(refreshes, 2, 'switching to a removal mode refreshes connectivity immediately');
-    assert.equal(app._pictureCopperRefreshPending, false, 'a semantic mode change is not a deferred geometry edit');
+    assert.equal(isPictureCopperRefreshPending(app), false, 'a semantic mode change is not a deferred geometry edit');
     assert.equal(app.getLayerGroup('ratlines').children.length, 1, 'removed additive bridge is no longer connected');
     command.undo();
     assert.equal(refreshes, 3);

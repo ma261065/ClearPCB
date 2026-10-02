@@ -1,9 +1,10 @@
 import { getPropertyEditor } from './property-editors.js';
+import { isPictureCopperRefreshPending, setPictureCopperRefreshPending } from './refresh-state.js';
 const pendingRefreshes = new WeakMap();
 const activeHolds = new WeakMap();
 
 export function shouldDeferShapeClearance(app, shape) {
-    return app._pictureCopperRefreshPending && app._pendingShapeClearances?.has(shape?.id)
+    return isPictureCopperRefreshPending(app) && app._pendingShapeClearances?.has(shape?.id)
         && (shape.kind === 'image' || typeof shape.content === 'string');
 }
 
@@ -41,7 +42,7 @@ export function bindPictureRefreshHold(app, input, host = window) {
             }
             for (const name of endings) host.removeEventListener(name, release, true);
             activeHolds.delete(app);
-            if (app._pictureCopperRefreshPending) schedulePictureCopperRefresh(app);
+            if (isPictureCopperRefreshPending(app)) schedulePictureCopperRefresh(app);
         };
         const endings = pointer ? ['pointerup', 'pointercancel', 'blur'] : ['keyup', 'blur'];
         activeHolds.set(app, release);
@@ -58,7 +59,7 @@ export function cancelPictureCopperRefresh(app) {
     const timer = pendingRefreshes.get(app);
     if (timer !== undefined) clearTimeout(timer);
     pendingRefreshes.delete(app);
-    app._pictureCopperRefreshPending = false;
+    setPictureCopperRefreshPending(app, false);
     flushCopperCuts(app);
     refreshEditedClearances(app);
 }
@@ -68,7 +69,7 @@ export function schedulePictureCopperRefresh(app, shape = null) {
     const timer = pendingRefreshes.get(app);
     if (timer !== undefined) clearTimeout(timer);
     pendingRefreshes.delete(app);
-    app._pictureCopperRefreshPending = true;
+    setPictureCopperRefreshPending(app, true);
     if (shape) {
         app._pendingShapeClearances ??= new Map();
         app._pendingShapeClearances.set(shape.id, shape);
@@ -83,7 +84,7 @@ export function schedulePictureCopperRefresh(app, shape = null) {
         || ['vertex', 'segment'].includes(app._shapeDrag?.mode)) return;
     pendingRefreshes.set(app, setTimeout(() => {
         pendingRefreshes.delete(app);
-        app._pictureCopperRefreshPending = false;
+        setPictureCopperRefreshPending(app, false);
         flushCopperCuts(app);
         refreshEditedClearances(app);
         if (app.refreshFills?.() !== true) {

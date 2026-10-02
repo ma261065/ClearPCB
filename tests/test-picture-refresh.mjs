@@ -3,6 +3,7 @@ import { PcbDocument } from '../src/core/PcbDocument.js';
 import { bindPictureRefreshHold, cancelPictureCopperRefresh, schedulePictureCopperRefresh } from '../src/pcb/modules/picture-refresh.js';
 import { Pad } from '../src/shapes/pad.js';
 import { AddPadCommand, RemovePadCommand, ModifyPadCommand, MovePadCommand } from '../src/pcb/modules/pad-commands.js';
+import { isPictureCopperRefreshPending } from '../src/pcb/modules/refresh-state.js';
 
 const originalSetTimeout = globalThis.setTimeout;
 const originalClearTimeout = globalThis.clearTimeout;
@@ -60,7 +61,7 @@ try {
     schedulePictureCopperRefresh(app);
     cancelPictureCopperRefresh(app);
     assert.equal(timers.size, 0, 'Immediate layer/net refresh cancels deferred work');
-    assert.equal(app._pictureCopperRefreshPending, false);
+    assert.equal(isPictureCopperRefreshPending(app), false);
     const advance = milliseconds => {
         now += milliseconds;
         for (const [id, timer] of timers) {
@@ -74,13 +75,13 @@ try {
         schedulePictureCopperRefresh(app);
         advance(50);
         assert.equal(fills, 2, 'Clicks less than 100 ms apart never trigger a refresh');
-        assert.equal(app._pictureCopperRefreshPending, true);
+        assert.equal(isPictureCopperRefreshPending(app), true);
     }
     advance(49);
     assert.equal(fills, 2);
     advance(1);
     assert.equal(fills, 3, 'Exactly 100 ms after the final click triggers one refresh');
-    assert.equal(app._pictureCopperRefreshPending, false);
+    assert.equal(isPictureCopperRefreshPending(app), false);
     const eventTarget = () => {
         const listeners = new Map();
         return {
@@ -106,7 +107,7 @@ try {
         advance(1000);
         assert.equal(fills, before, 'Initial auto-repeat delay cannot refresh clearance during a hold');
         assert.equal(timers.size, 0);
-        assert.equal(app._pictureCopperRefreshPending, true);
+        assert.equal(isPictureCopperRefreshPending(app), true);
         schedulePictureCopperRefresh(app, shape);
         advance(300);
         assert.equal(fills, before, 'Repeat events keep clearance deferred');

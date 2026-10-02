@@ -7,6 +7,7 @@ import { loadClipper } from '../src/pcb/modules/copper-fill-geom.js';
 import { runDRC } from '../src/pcb/modules/drc.js';
 import { collectCopperArtwork } from '../src/pcb/modules/copper-artwork.js';
 import { prepareFabricationSnapshot } from '../src/pcb/modules/fabrication-snapshot.js';
+import { fillRefreshError, isFillRefreshPending, setFillRefreshPending } from '../src/pcb/modules/refresh-state.js';
 
 globalThis.window = { addEventListener() {} };
 globalThis.document = { getElementById: () => null };
@@ -51,7 +52,7 @@ for (const flag of ['_deferDragOverlays', '_suspendFillRefresh']) {
 assert.equal(checks, 1);
 assert.equal(previews, 1);
 // Subsequent consumer tests install settled snapshots directly, outside the refresh service.
-app._fillRefreshPending = false;
+setFillRefreshPending(app, false);
 const replacement = CopperFill.fromJSON(fill.toJSON());
 assert.equal(replacement.id, fill.id);
 assert.equal(getComputedFill(replacement), null, 'Loaded replacements cannot inherit a same-ID cache');
@@ -116,8 +117,8 @@ try {
     console.error = logError;
 }
 assert.equal(getComputedFill(broken), regions, 'A failed batch retains settled artwork instead of publishing partial geometry');
-assert.equal(app._fillRefreshPending, true, 'Retained artwork is explicitly awaiting a successful refresh');
-assert.match(app._fillRefreshError.message, /Invalid test geometry/);
+assert.equal(isFillRefreshPending(app), true, 'Retained artwork is explicitly awaiting a successful refresh');
+assert.match(fillRefreshError(app).message, /Invalid test geometry/);
 assert.ok(runDRC(app).violations.some(item => item.rule === 'fill' && /refresh failed/.test(item.message)),
     'Retained successful geometry cannot hide the failed refresh from DRC');
 assert.equal(errors.length, 1);

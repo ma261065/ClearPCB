@@ -1,3 +1,4 @@
+import { isPictureCopperRefreshPending } from '../src/pcb/modules/refresh-state.js';
 import assert from 'node:assert/strict';
 import { ProjectDocument } from '../src/core/ProjectDocument.js';
 import { CommandHistory } from '../src/core/CommandHistory.js';
@@ -132,7 +133,7 @@ function guard(f) {
         assert.deepEqual(f.app.history.redoStack, redo);
         assert.equal(f.work(), work, 'Preparation performs no rendering or derived refresh');
         assert.equal(allocations, svg, 'Preparation allocates no SVG');
-        assert.equal(f.app._pictureCopperRefreshPending, undefined);
+        assert.equal(isPictureCopperRefreshPending(f.app), false, 'Preparation schedules no picture refresh');
     };
 }
 

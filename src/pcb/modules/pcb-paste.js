@@ -23,6 +23,7 @@ import { renderPcbSelectionAnchors } from './selection-anchors.js';
 import { reconcileRatsnest } from './track-draw.js';
 import { trackIsSelectable } from './track-select.js';
 import { showPcbSelectionProperties } from './selection-interaction.js';
+import { isFillRefreshPending, setFillRefreshPending } from './refresh-state.js';
 
 const kinds = ['tracks', 'vias', 'pads', 'shapes', 'texts', 'fills'];
 
@@ -212,7 +213,8 @@ export function beginPcbPaste(app, source, { select = false } = {}) {
             boardShapes: [...model.boardShapes, ...payload.shapes, ...payload.fills],
         },
         flags: Object.fromEntries(['_deferDragOverlays', '_suspendFillRefresh', '_suspendBoardViewRefresh',
-            '_fillRefreshPending', '_deferredShapeCopperCuts'].map(key => [key, app[key]])),
+            '_deferredShapeCopperCuts'].map(key => [key, app[key]])),
+        fillPending: isFillRefreshPending(app),
     };
     app._pasteDrop = state;
     app._deferDragOverlays = app._suspendFillRefresh = app._suspendBoardViewRefresh = true;
@@ -262,17 +264,18 @@ export function updatePcbPaste(app, world) {
 }
 
 function release(app, state) {
-    const pendingFill = app._fillRefreshPending;
+    const pendingFill = isFillRefreshPending(app);
     app._pasteDrop = null;
     Object.assign(app, state.flags);
-    if (pendingFill) app._fillRefreshPending = true;
+    // Pours owed before the paste, or requested during it, remain owed.
+    setFillRefreshPending(app, state.fillPending || pendingFill);
     app._updateCursorForTool?.();
     app.syncClipboardButtons?.();
     app._syncHistoryButtons?.();
 }
 
 function resumePendingFill(app) {
-    if (app._fillRefreshPending && !app._deferDragOverlays && !app._suspendFillRefresh) app.refreshFills?.();
+    if (isFillRefreshPending(app) && !app._deferDragOverlays && !app._suspendFillRefresh) app.refreshFills?.();
 }
 
 export function cancelPcbPaste(app) {

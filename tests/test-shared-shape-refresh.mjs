@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { PcbDocument } from '../src/core/PcbDocument.js';
 import { readFileSync } from 'node:fs';
 import { bindPictureRefreshHold, schedulePictureCopperRefresh } from '../src/pcb/modules/picture-refresh.js';
+import { isPictureCopperRefreshPending } from '../src/pcb/modules/refresh-state.js';
 
 const eventTarget = () => {
     const listeners = new Map();
@@ -41,7 +42,7 @@ const app = {
     getLayerGroup() { return null; },
     refreshFills() { refreshes++; return false; },
     updateRatsnest() {}, _renderText() {}, _removeTextElement() {}, _selectText() {},
-    refreshText() { assert.equal(this._pictureCopperRefreshPending, true); },
+    refreshText() { assert.equal(isPictureCopperRefreshPending(this), true); },
 };
 const snapshot = shape => ({ kind: shape.kind, geom: cloneShapeGeometry(shape), layer: shape.layer,
     net: shape.net || '', lineWidth: shape.lineWidth, filled: shape.filled, copperMode: 'add' });

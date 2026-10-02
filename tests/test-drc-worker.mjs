@@ -13,6 +13,7 @@ import { createDrcWorker } from '../src/pcb/modules/drc-worker-client.js';
 import { disposeDrcRefresh, invalidateDrcRefresh } from '../src/pcb/modules/drc-refresh.js';
 import { setComputedFill, getComputedFill } from '../src/pcb/modules/computed-fill-cache.js';
 import { resolveTrackSegments } from '../src/pcb/modules/board-geometry.js';
+import { setFillRefreshError, setFillRefreshPending, setFillRefreshScheduled, setPictureCopperRefreshPending } from '../src/pcb/modules/refresh-state.js';
 
 class Element {
     constructor() { this.children = []; this.attributes = new Map(); this.dataset = {}; this.style = {}; }
@@ -116,8 +117,8 @@ const nativeCases = [];
     inputs.copper.pads[0].outline[0].x += 100;
     assert.deepEqual(model.captureGeometry(), saved);
     for (const state of ['pending', 'failed', 'missing']) {
-        app._fillRefreshPending = state !== 'missing';
-        app._fillRefreshError = state === 'failed' ? new Error('pour failed') : null;
+        setFillRefreshPending(app, state !== 'missing');
+        setFillRefreshError(app, state === 'failed' ? new Error('pour failed') : null);
         if (state === 'missing') setComputedFill(fill, null);
         const inputs = captureDrcInputs(app, rules()), expected = runDRC(app, rules());
         assert.deepEqual(runDrcInputs(inputs), expected);
@@ -272,17 +273,19 @@ try {
         assert.deepEqual(model.serialize(), saved);
         disposeDrcRefresh(app);
     }
+    const refreshSetters = { _pictureCopperRefreshPending: setPictureCopperRefreshPending, _fillRefreshScheduled: setFillRefreshScheduled };
     for (const flag of ['_deferDragOverlays', '_suspendFillRefresh', '_pictureCopperRefreshPending',
         '_fillRefreshScheduled', '_textEdit']) {
         const { app, counts } = fixture();
+        const setFlag = value => { if (refreshSetters[flag]) refreshSetters[flag](app, value); else app[flag] = value; };
         app._scheduleDRC(); flush();
         const worker = workers.at(-1);
-        app[flag] = true;
+        setFlag(true);
         worker.finish(); await tick();
         assert.equal(counts.accepted, 0, `No acceptance during ${flag}`);
         retry();
         assert.equal(counts.accepted, 0);
-        app[flag] = false;
+        setFlag(false);
         retry();
         workers.at(-1).finish(); await tick();
         assert.equal(counts.accepted, 1, `Deferred debt resumes after ${flag}`);
@@ -362,11 +365,11 @@ try {
     }
     {
         const { app, counts } = fixture();
-        app._fillRefreshPending = true;
+        setFillRefreshPending(app, true);
         const before = workers.length;
         app._scheduleDRC(); flush();
         assert.equal(workers.length, before, 'Wait for outstanding pour math instead of checking stale copper');
-        app._fillRefreshError = new Error('Pour failure');
+        setFillRefreshError(app, new Error('Pour failure'));
         retry(); workers.at(-1).finish(); await tick();
         assert.equal(counts.accepted, 1);
         assert.equal(app.lastResult.ok, false);

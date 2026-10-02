@@ -1,5 +1,6 @@
 import { collectDrcInputs } from './drc.js';
 import { normalizeShapeCopperMode } from './board-shape-geometry.js';
+import { fillRefreshError, isFillRefreshPending } from './refresh-state.js';
 
 const featureFields = ['kind', 'pin', 'componentId', 'padId', 'number', 'drill', 'slot', 'net', 'layer',
     'width', 'height', 'hw', 'hh', 'shape', 'rotation', 'reference', 'outline', 'uid', 'label', 'keyId',
@@ -17,8 +18,7 @@ export function captureDrcInputs(app, rules = {}) {
         tracks: model.tracks, pads: model.pads, vias: model.vias, texts: model.texts,
         boardShapes: model.boardShapes, copperFills: model.copperFills,
         placements: app.placements, netlist: app.netlist,
-        _fillRefreshPending: app._fillRefreshPending, _fillRefreshError: app._fillRefreshError,
-    }, rules);
+    }, rules, { pending: isFillRefreshPending(app), error: fillRefreshError(app) });
     const anonymousTracks = new Map();
     inputs.copper = Object.fromEntries(Object.entries(inputs.copper).map(([kind, features]) => [
         kind, features.map(feature => {

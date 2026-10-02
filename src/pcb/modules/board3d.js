@@ -81,6 +81,7 @@ import { boardShapeFilledRemovalOutlines, resolveBoardShapeGeometry } from './bo
 import { pcbTextPolylines } from './pcb-text.js';
 import { loadClipper, isClipperReady, getClipper } from './copper-fill-geom.js';
 import { createViewerBackgroundTexture, VIEWER_BACKGROUND } from './viewer-background.js';
+import { isFillRefreshPending, isFillRefreshScheduled, refreshStatus } from './refresh-state.js';
 
 export function board2DDataFromApp(app) {
     return {
@@ -3646,8 +3647,8 @@ export async function openBoard3DViewer(app, opts = {}) {
             const result = await surfaceBuilder.build(surfaces, { takeOwnership: true });
             if (!result || panel.closed || !scene) return false;
             if (panel.hidden || panel.view !== '3d'
-                || app._deferDragOverlays || app._suspendFillRefresh || app._fillRefreshScheduled
-                || app._suspendBoardViewRefresh || (app._fillRefreshPending && app.copperFills?.length)) {
+                || app._deferDragOverlays || app._suspendFillRefresh || isFillRefreshScheduled(app)
+                || app._suspendBoardViewRefresh || (isFillRefreshPending(app) && app.copperFills?.length)) {
                 viewSync.invalidate();
                 return false;
             }
@@ -3864,11 +3865,14 @@ export async function openBoard3DViewer(app, opts = {}) {
     // drag and pour guards defer rebuilding until the board is ready.
     // Refresh the visible renderer; defer hidden 3D work until it is shown.
     let syncFrame = 0;
-    const canSync = () => !panel.closed && !panel.hidden
-        && !app._pictureCopperRefreshPending
-        && !app._suspendBoardViewRefresh && !app._deferDragOverlays
-        && !app._suspendFillRefresh && !app._fillRefreshScheduled
-        && !(app._fillRefreshPending && app.copperFills?.length);
+    const canSync = () => {
+        if (panel.closed || panel.hidden) return false;
+        const status = refreshStatus(app);
+        return !status.pictureCopperPending
+            && !app._suspendBoardViewRefresh && !app._deferDragOverlays
+            && !app._suspendFillRefresh && !status.fillScheduled
+            && !(status.fillPending && app.copperFills?.length);
+    };
     function schedulePendingSync() {
         if (!canSync() || syncFrame) return;
         syncFrame = window.requestAnimationFrame(() => {

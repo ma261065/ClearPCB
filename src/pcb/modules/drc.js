@@ -40,6 +40,7 @@ import { spatialPairs, prepareSpatialOrder, filterSpatialOrder, spatialCrossPair
 import { pointInPolygon } from '../../core/geometry.js';
 import { circleCircleDistance, circleSegmentDistance } from './circle-clearance.js';
 import { arcPoint, arcSegmentDistance, arcArcDistance, arcCircleDistance, containsArcInterior, strokedPointDistance } from './arc-clearance.js';
+import { fillRefreshError, isFillRefreshPending } from './refresh-state.js';
 
 /** Minimum acceptable via annular ring (mm) when not otherwise specified. */
 const DEFAULT_MIN_ANNULAR_RING = 0.05;
@@ -326,7 +327,7 @@ export function resolveDrcPairMarker(app, violation, rules = {}) {
         || ['remove-copper', 'remove-copper-mask'].includes(normalizeShapeCopperMode(shape.copperMode)));
     const fills = (app.copperFills || shapes.filter(shape => shape.type === 'fill'))
         .filter(fill => keys.has(`fill:${fill.id}`));
-    if (fills.length && (app._fillRefreshPending || app._fillRefreshError)) return null;
+    if (fills.length && (isFillRefreshPending(app) || fillRefreshError(app))) return null;
     const copper = collectCopper({
         tracks: (app.tracks || []).filter(track => keys.has(`trk:${track.id}`)),
         vias: (app.vias || []).filter(via => keys.has(`via:${via.id}`)),
@@ -386,14 +387,16 @@ export function runDRC(app, rules = {}) {
     return runDrcInputs(collectDrcInputs(app, rules));
 }
 
-/** Physical inputs shared by direct checks and detached worker snapshots. */
-export function collectDrcInputs(app, rules = {}) {
+/** Physical inputs shared by direct checks and detached worker snapshots.
+ * @param {{pending: boolean, error: any}} [fill] Pour status; detached snapshots pass the editor's.
+ */
+export function collectDrcInputs(app, rules = {}, fill = { pending: isFillRefreshPending(app), error: fillRefreshError(app) }) {
     const fills = (app.copperFills || (app.boardShapes || []).filter(shape => shape.type === 'fill')).map(fill => ({
         id: fill.id, point: fill.outline?.[0] || { x: fill.x || 0, y: fill.y || 0 },
         computed: getComputedFill(fill) != null,
     }));
     return { copper: collectCopper(app), boardShapes: app.boardShapes || [], fills, rules,
-        fillPending: !!app._fillRefreshPending, fillFailed: !!app._fillRefreshError };
+        fillPending: !!fill.pending, fillFailed: !!fill.error };
 }
 
 /** DOM-free checker over physical features; fragment identities are created within this pass. */

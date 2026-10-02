@@ -9,6 +9,7 @@ import { prepareFabricationSnapshot } from '../src/pcb/modules/fabrication-snaps
 import { loadPcb } from '../src/pcb/modules/project-state.js';
 import { cancelPictureCopperRefresh } from '../src/pcb/modules/picture-refresh.js';
 import { PCB_LAYERS } from '../src/pcb/modules/layers.js';
+import { isPictureCopperRefreshPending } from '../src/pcb/modules/refresh-state.js';
 
 let allocations = 0;
 class Element {
@@ -215,7 +216,7 @@ for (const invalid of [{ x: NaN, y: 0 }, { x: 0, y: Infinity }, null]) {
     assert.throws(() => handleBoardShapeDrag(app, invalid), /finite position/);
     assert.equal(app._shapeDrag, null);
     assert.deepEqual(model.captureGeometry(), before);
-    assert.equal(app._pictureCopperRefreshPending, false);
+    assert.equal(isPictureCopperRefreshPending(app), false);
 }
 {
     const { app, model, shape, begin, target } = fixture('vertex');

@@ -2,6 +2,7 @@ import { runDRC } from './drc.js';
 import { captureDrcInputs } from './drc-worker-inputs.js';
 import { createDrcWorker } from './drc-worker-client.js';
 import { getComputedFill } from './computed-fill-cache.js';
+import { fillRefreshError, isFillRefreshPending, refreshStatus } from './refresh-state.js';
 
 const states = new WeakMap();
 const stateFor = app => {
@@ -9,8 +10,12 @@ const stateFor = app => {
     return states.get(app);
 };
 const visible = app => app._active !== false && !app._drcDisposed && app._drcShouldRun();
-const deferred = app => app._deferDragOverlays || app._suspendFillRefresh || app._pictureCopperRefreshPending
-    || app._fillRefreshScheduled || (app._fillRefreshPending && !app._fillRefreshError) || app.isSectionEditing?.();
+const deferred = app => {
+    if (app._deferDragOverlays || app._suspendFillRefresh) return true;
+    const status = refreshStatus(app);
+    return status.pictureCopperPending || status.fillScheduled || (status.fillPending && !status.fillError)
+        || app.isSectionEditing?.();
+};
 const rulesFor = app => ({ clearance: app.getRoutingParams().clearance, minAnnularRing: 0.05,
     ratlines: app._collectRatlines() });
 const clearRetry = state => {
@@ -87,7 +92,7 @@ function ownership(app) {
         [...(model.texts?.values() || [])], [...(app.placements?.values() || [])]];
     const fills = model.copperFills || (model.boardShapes || []).filter(shape => shape.type === 'fill');
     return { model, lists: lists.map(list => [...list]), fills: fills.map(getComputedFill),
-        ratlines: app._drcRatlines, fillPending: app._fillRefreshPending, fillError: app._fillRefreshError };
+        ratlines: app._drcRatlines, fillPending: isFillRefreshPending(app), fillError: fillRefreshError(app) };
 }
 function unchanged(app, saved) {
     const current = ownership(app);

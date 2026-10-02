@@ -49,6 +49,7 @@ import { resolveTrackContactGeometry, copperShapesTouch, copperContactsTouch, co
 import { spatialClusterMST } from './cluster-mst.js';
 import { spatialPairs, spatialCrossPairs } from '../../core/spatial-pairs.js';
 import { showAlert } from '../../ui/modules/modal.js';
+import { isPictureCopperRefreshPending } from './refresh-state.js';
 import {
     clearAxisGlow,
     makeAxisGlowCenterline,
@@ -811,7 +812,7 @@ export function popTrackWaypoint(app) {
 export function reconcileRatsnest(app, opts) {
     app.refreshSelectedDRCMarker?.();
     const liveShapeDrag = app._shapeDrag?.ratsnestNets && opts?.nets === app._shapeDrag.ratsnestNets;
-    if (app._pictureCopperRefreshPending && !liveShapeDrag) return;
+    if (isPictureCopperRefreshPending(app) && !liveShapeDrag) return;
     if (deferDerivedUpdate(app, 'ratsnest', () => reconcileRatsnest(app))) return;
     // Incremental net filter: when present, restrict all cluster construction
     // and ratline removal/redraw to this set of nets.

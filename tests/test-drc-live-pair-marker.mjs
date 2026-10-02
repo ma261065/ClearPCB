@@ -6,6 +6,7 @@ import { Track } from '../src/shapes/track.js';
 import { Pad } from '../src/shapes/pad.js';
 import { Via } from '../src/shapes/via.js';
 import { setComputedFill } from '../src/pcb/modules/computed-fill-cache.js';
+import { setFillRefreshError, setFillRefreshPending } from '../src/pcb/modules/refresh-state.js';
 
 const element = () => ({
     style: {}, dataset: {}, setAttribute() {}, appendChild() {}, remove() {}, focus() {},
@@ -195,12 +196,12 @@ for (const kind of ['curved-track', 'pad', 'mounted-pad', 'via', 'polygon', 'cir
     translate(-10, 0);
     assert.ok(assertParity(app, violation, `${kind}: conflict returns`));
     if (kind === 'fill') {
-        app._fillRefreshPending = true;
+        setFillRefreshPending(app, true);
         assert.equal(resolveDrcPairMarker(app, violation, rules), null, 'pending pour has no live witness');
-        app._fillRefreshPending = false;
-        app._fillRefreshError = new Error('stale pour');
+        setFillRefreshPending(app, false);
+        setFillRefreshError(app, new Error('stale pour'));
         assert.equal(resolveDrcPairMarker(app, violation, rules), null, 'failed pour has no live witness');
-        app._fillRefreshError = null;
+        setFillRefreshError(app, null);
         assert.ok(resolveDrcPairMarker(app, violation, rules));
     }
 }
@@ -221,7 +222,7 @@ for (const kind of ['curved-track', 'pad', 'mounted-pad', 'via', 'polygon', 'cir
     cut.layer = 'top-copper';
     cut.points = rectangle(10, 10, 11, 11);
     assert.ok(assertParity(app, violation, 'moving removal away restores witness'));
-    app._fillRefreshPending = true;
+    setFillRefreshPending(app, true);
     assert.ok(resolveDrcPairMarker(app, violation, rules), 'unrelated pending fills do not hide a track pair');
 }
 

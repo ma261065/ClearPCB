@@ -7,6 +7,7 @@ import { getPcbSelection, isPcbSelected } from './selection-registry.js';
 import { renderPcbSelectionAnchors } from './selection-anchors.js';
 import { reconcileRatsnest } from './track-draw.js';
 import { installCopperRegionContact, validateCopperRegionContact } from './track-contact-geometry.js';
+import { isFillRefreshPending, isPictureCopperRefreshPending, setFillRefreshError, setFillRefreshPending, setFillRefreshScheduled } from './refresh-state.js';
 
 const states = new WeakMap();
 function stateFor(app) {
@@ -18,11 +19,11 @@ function stateFor(app) {
     return state;
 }
 const fillsFor = app => (app.pcbDocument || app).copperFills || [];
-const deferred = app => app._pictureCopperRefreshPending || app._deferDragOverlays
+const deferred = app => isPictureCopperRefreshPending(app) || app._deferDragOverlays
     || app._suspendFillRefresh || app.isSectionEditing?.();
 
 function reportFailure(app, message, error) {
-    app._fillRefreshError = error;
+    setFillRefreshError(app, error);
     console.error(message, error);
     app.setStatus?.(`${message} ${error instanceof Error ? error.message : String(error)}`);
 }
@@ -34,11 +35,11 @@ function clearRetry(state) {
 
 function retryWhenSettled(app, state) {
     state.owed = true;
-    app._fillRefreshPending = true;
+    setFillRefreshPending(app, true);
     if (state.retry !== null || app._active === false || app._fillRefreshDisposed) return;
     state.retry = setTimeout(() => {
         state.retry = null;
-        if (states.get(app) !== state || !app._fillRefreshPending) return;
+        if (states.get(app) !== state || !isFillRefreshPending(app)) return;
         if (deferred(app)) retryWhenSettled(app, state);
         else scheduleFillRefresh(app);
     }, 50);
@@ -58,11 +59,11 @@ export function invalidateFillRefresh(app) {
 export function disposeFillRefresh(app) {
     const state = states.get(app);
     if (!state) return;
-    if (state.owed || state.frame !== null) app._fillRefreshPending = true;
+    if (state.owed || state.frame !== null) setFillRefreshPending(app, true);
     state.worker?.dispose();
     clearRetry(state);
     states.delete(app);
-    app._fillRefreshScheduled = false;
+    setFillRefreshScheduled(app, false);
 }
 
 function cancelScheduled(app) {
@@ -73,7 +74,7 @@ function cancelScheduled(app) {
     state.owed = false;
     state.frame = null;
     clearRetry(state);
-    app._fillRefreshScheduled = false;
+    setFillRefreshScheduled(app, false);
     return state;
 }
 
@@ -117,8 +118,8 @@ export function adoptFillResults(app, fills, results, contacts) {
     }
     if (contacts) results.forEach((regions, index) => regions.forEach((region, regionIndex) =>
         installCopperRegionContact(region, contacts[index][regionIndex])));
-    app._fillRefreshPending = false;
-    app._fillRefreshError = null;
+    setFillRefreshPending(app, false);
+    setFillRefreshError(app, null);
     if (getPcbSelection(app, 'fill').length) renderPcbSelectionAnchors(app);
     reconcileRatsnest(app, { skipFillRefresh: true });
     app._scheduleDRC?.();
@@ -133,18 +134,18 @@ export function recomputeFillsNow(app) {
         return;
     }
     const fills = fillsFor(app);
-    app._fillRefreshPending = false;
+    setFillRefreshPending(app, false);
     if (!fills.length) { app._clearFillGroups(); return; }
     if (!isClipperReady()) {
         state.owed = true;
-        app._fillRefreshPending = true;
+        setFillRefreshPending(app, true);
         const revision = state.revision, model = app.pcbDocument || app;
         loadClipper().then(() => {
             if (current(app, state, revision, model, fills)) app._recomputeFillsNow();
         }).catch(error => {
             if (!current(app, state, revision, model, fills)) return;
             reportFailure(app, 'Failed to load copper-fill geometry:', error);
-            app._fillRefreshPending = true;
+            setFillRefreshPending(app, true);
         });
         return;
     }
@@ -154,13 +155,13 @@ export function recomputeFillsNow(app) {
         results = fills.map(fill => computeFillPolygons(fill, context));
     } catch (error) {
         reportFailure(app, 'Failed to compute copper fills; retaining settled pours:', error);
-        app._fillRefreshPending = true;
+        setFillRefreshPending(app, true);
         return;
     }
     try { adoptFillResults(app, fills, results); }
     catch (error) {
         reportFailure(app, 'Failed to display copper fills:', error);
-        app._fillRefreshPending = true;
+        setFillRefreshPending(app, true);
         return;
     }
     return true;
@@ -174,45 +175,45 @@ export function scheduleFillRefresh(app) {
     state.worker?.invalidate();
     if (app._active === false || deferred(app)) {
         retryWhenSettled(app, state);
-        return !!app._pictureCopperRefreshPending;
+        return !!isPictureCopperRefreshPending(app);
     }
     clearRetry(state);
     if (!fillsFor(app).length) {
         state.owed = false;
-        app._fillRefreshPending = false;
+        setFillRefreshPending(app, false);
         app._clearFillGroups();
         return false;
     }
     state.owed = true;
-    app._fillRefreshPending = true;
+    setFillRefreshPending(app, true);
     if (state.frame !== null) return typeof Worker === 'function' && !state.failed || isClipperReady();
     const frame = {};
     state.frame = frame;
-    app._fillRefreshScheduled = true;
+    setFillRefreshScheduled(app, true);
     const run = () => {
         if (states.get(app) !== state || state.frame !== frame) return;
         state.frame = null;
-        app._fillRefreshScheduled = false;
+        setFillRefreshScheduled(app, false);
         clearRetry(state);
         if (app._active === false || deferred(app)) { retryWhenSettled(app, state); return; }
         if (typeof Worker !== 'function' || state.failed) { app._recomputeFillsNow(); return; }
         const fills = [...fillsFor(app)];
-        if (!fills.length) { state.owed = false; app._fillRefreshPending = false; app._clearFillGroups(); return; }
+        if (!fills.length) { state.owed = false; setFillRefreshPending(app, false); app._clearFillGroups(); return; }
         const revision = state.revision, model = app.pcbDocument || app;
         let inputs;
         try { inputs = captureFillInputs(app); }
         catch (error) {
             reportFailure(app, 'Failed to capture copper-fill inputs; retaining settled pours:', error);
-            app._fillRefreshPending = true;
+            setFillRefreshPending(app, true);
             return;
         }
         state.worker ||= createFillWorker();
-        app._fillRefreshPending = true;
+        setFillRefreshPending(app, true);
         state.worker.build(inputs).then(batch => {
             if (!current(app, state, revision, model, fills)) {
                 if (states.get(app) === state && state.revision === revision) {
                     if ((app.pcbDocument || app) === model && fillsFor(app).length) scheduleFillRefresh(app);
-                    else { state.owed = false; app._fillRefreshPending = false; }
+                    else { state.owed = false; setFillRefreshPending(app, false); }
                 }
                 return;
             }
@@ -221,10 +222,10 @@ export function scheduleFillRefresh(app) {
                 try {
                     adoptFillResults(app, fills, batch.results, batch.contacts);
                     state.owed = false;
-                    app._fillRefreshPending = false;
+                    setFillRefreshPending(app, false);
                 } catch (error) {
                     reportFailure(app, 'Failed to display copper fills:', error);
-                    app._fillRefreshPending = true;
+                    setFillRefreshPending(app, true);
                 }
             }
         }, error => {
