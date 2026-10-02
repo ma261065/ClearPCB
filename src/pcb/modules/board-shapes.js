@@ -50,6 +50,7 @@ import { pathContinuationConstraints, pathSegmentConstraints } from '../../shape
 import { redrawPropertyPreview, createPropertyBinding, commitPropertyPreviewInput,
     bindPropertyPreviewInput } from '../../shapes/property-preview.js';
 import {
+    boundsWithPathNodes,
     getPcbSelection,
     getPcbSelectionEntries,
     hitTestPcbSelection,
@@ -958,16 +959,8 @@ export function createBoardShapeSelectionAdapter(app, shape, id) {
         getHitBounds() {
             const shape = displayed();
             const bounds = boardShapeBounds(shape);
-            if (!bounds || !['line', 'rect', 'polygon'].includes(shape.kind) || !isPcbSelected(app, 'shape', shape)) return bounds;
-            // hitTest also accepts a selected path's unrounded edges, whose nodes can lie outside rounded corners.
-            let { minX, minY, maxX, maxY } = bounds;
-            for (const point of shape.points || []) {
-                if (point.x < minX) minX = point.x;
-                if (point.x > maxX) maxX = point.x;
-                if (point.y < minY) minY = point.y;
-                if (point.y > maxY) maxY = point.y;
-            }
-            return { minX, minY, maxX, maxY };
+            return ['line', 'rect', 'polygon'].includes(shape.kind) && isPcbSelected(app, 'shape', shape)
+                ? boundsWithPathNodes(bounds, shape.points) : bounds;
         },
         hitTest(point, tolerance) {
             const shape = displayed();

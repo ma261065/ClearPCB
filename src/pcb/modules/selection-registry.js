@@ -200,6 +200,22 @@ export function hitTestPcbSelectionEntry(app, point, kinds) {
     return getPcbSelectionHits(app, point, kinds)[0] || null;
 }
 
+/**
+ * Hit bounds for a selected path: its visual bounds plus its nodes, because the
+ * unrounded edges of a selected path stay hittable outside large corner radii.
+ */
+export function boundsWithPathNodes(bounds, points) {
+    if (!bounds || !points?.length) return bounds;
+    let { minX, minY, maxX, maxY } = bounds;
+    for (const point of points) {
+        if (point.x < minX) minX = point.x;
+        if (point.x > maxX) maxX = point.x;
+        if (point.y < minY) minY = point.y;
+        if (point.y > maxY) maxY = point.y;
+    }
+    return { minX, minY, maxX, maxY };
+}
+
 export function hasPcbSelection(app) {
     return manager(app).count > 0;
 }

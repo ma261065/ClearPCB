@@ -372,9 +372,13 @@ Accepted model commands invalidate the authored entity's bounds.
 `SelectionManager` skips an entry whose bounds cannot contain the pointer before
 calling `hitTest()`. An entry whose `hitTest()` reaches beyond its visual bounds
 supplies `getHitBounds()`; `getBounds()` stays visual for box selection and group
-bounds. Selected PCB lines, rectangles and polygons use it because their
-unrounded edges and nodes stay hittable outside large corner radii
-(`test-board-shape-rounded-node-hit`).
+bounds. Selected PCB lines, rectangles, polygons and copper fills use it because
+their unrounded edges and nodes stay hittable outside large corner radii
+(`boundsWithPathNodes()` in `selection-registry.js`;
+`test-board-shape-rounded-node-hit`). `test-pcb-selection-adapter-contract`
+enforces the rule for every PCB adapter kind: sampled around awkward geometry
+at three zooms, selected and unselected, `hitTest()` may only succeed inside
+the bounds `SelectionManager` pre-filters with.
 Bounds remain entity-owned derived data, not authored state.
 Schematic `Text` remains a measured-layout exception: drawing clears its bounds
 so the next query uses the updated SVG font metrics rather than an earlier

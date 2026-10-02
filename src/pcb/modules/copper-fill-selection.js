@@ -6,7 +6,7 @@ import {
     unlockPcbLayer,
 } from './layers.js';
 import { renderCopperFill } from './copper-fill-render.js';
-import { isPcbSelected, registerPcbSelectionAdapter } from './selection-registry.js';
+import { boundsWithPathNodes, isPcbSelected, registerPcbSelectionAdapter } from './selection-registry.js';
 import { getBoardShapeAnchors } from './board-shapes.js';
 import { beginFillEdit, updateFillEdit, endFillEdit, fillSegmentAt, fillEditFocus, fillEditPath } from './copper-fill-edit.js';
 import { lockPositionOutsideOutline } from './selection-anchors.js';
@@ -35,6 +35,11 @@ export function createCopperFillSelectionAdapter(app, fill, id) {
             return lockPositionOutsideOutline(current().getOutline(), pointer, scale);
         },
         getBounds() { return current().getBounds() || { minX: 0, minY: 0, maxX: 0, maxY: 0 }; },
+        getHitBounds() {
+            const fill = current();
+            const bounds = this.getBounds();
+            return isPcbSelected(app, 'fill', fill) ? boundsWithPathNodes(bounds, fill.outline) : bounds;
+        },
         hitTest(point, tolerance) {
             const fill = current();
             return fill.distanceToEdge(point.x, point.y) <= Math.max(0.6, tolerance)
