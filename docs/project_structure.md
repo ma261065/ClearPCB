@@ -1740,6 +1740,11 @@ mode; it is not a release requirement. Remaining ownership work is tracked in
   and Shift suppresses shape snapping. Electrical wire/track connectivity,
   layer restrictions, rendering chrome, history, and fabrication contours
   remain editor-specific. Shared geometry must not import either editor.
+- `core/id-allocator.js` generates page-wide prefixed IDs (`shape_N`, `via_N`,
+  `pad_N`, `fill_N`, `comp_N`): each kind owns one `IdAllocator`, constructors
+  observe explicit IDs, and new IDs are one above the highest observed, so IDs
+  stay unique across load, New and paste (`test-id-allocation`). Board shapes
+  (`pshape_N`) use `PcbDocument.shapeIdCounter` instead.
 - `core/CommandHistory.js` contains only the history engine and base command.
   Schematic commands are in `schematic/modules/commands.js`.
 - `shared/3d/ArcballController.js` and `shared/3d/model-rendering.js` serve both

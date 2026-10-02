@@ -15,27 +15,24 @@
  * the schematic Shape pipeline.
  */
 
-let viaIdCounter = 0;
+import { IdAllocator } from '../core/id-allocator.js';
+
+const viaIds = new IdAllocator('via');
 const round4 = value => Math.round(value * 10000) / 10000;
 
 /** Reset the via ID counter (for testing / new-document). */
 export function resetViaIdCounter() {
-    viaIdCounter = 0;
+    viaIds.reset();
 }
 
 /** Update the via ID counter so newly-issued IDs don't collide on load. */
 export function updateViaIdCounter(id) {
-    if (typeof id !== 'string') return;
-    const m = id.match(/^via_(\d+)$/);
-    if (m) {
-        const n = parseInt(m[1], 10);
-        if (Number.isFinite(n) && n > viaIdCounter) viaIdCounter = n;
-    }
+    viaIds.observe(id);
 }
 
 /** Issue the next unused generated Via ID. */
 export function nextViaId() {
-    return `via_${++viaIdCounter}`;
+    return viaIds.next();
 }
 
 /** Physical bounds, also accepting detached plain via data. */
@@ -61,8 +58,7 @@ export class Via {
      *   for standalone vias such as ground-plane stitches)
      */
     constructor(options = {}) {
-        this.id = options.id || nextViaId();
-        updateViaIdCounter(this.id);
+        this.id = viaIds.claim(options.id);
         this.type = 'via';
         this.x = Number(options.x) || 0;
         this.y = Number(options.y) || 0;

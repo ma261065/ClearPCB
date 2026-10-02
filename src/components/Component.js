@@ -2,6 +2,7 @@ import { createLockIcon, lockIconMetrics, LOCK_GAP } from '../core/ui-helpers.js
 import { Text } from '../shapes/text.js';
 import { compactObjText } from './LCSCFetcher.js';
 import { getBuiltInPackageOptions, withBuiltInPackage } from './BuiltInPackages.js';
+import { IdAllocator } from '../core/id-allocator.js';
 
 /**
  * Shrink a `~`-delimited footprint shape string for storage by rounding every
@@ -49,7 +50,7 @@ function _compactShapeStr(s) {
  * }} ComponentState
  */
 
-let compIdCounter = 0;
+const componentIds = new IdAllocator('comp');
 
 /**
  * Merge component property objects while stripping dangerous keys
@@ -77,13 +78,7 @@ function _safeMergeProps(base, override) {
  * @param {string|number} id
  */
 export function updateComponentIdCounter(id) {
-    if (typeof id === 'string') {
-        const match = id.match(/^comp_(\d+)$/);
-        if (match) {
-            const num = parseInt(match[1], 10);
-            if (num >= compIdCounter) compIdCounter = num + 1;
-        }
-    }
+    componentIds.observe(id);
 }
 
 /**
@@ -109,7 +104,7 @@ export class Component {
      * @param {string} [options.packageId] - Built-in footprint/model selection
      */
     constructor(definition, options = {}) {
-        this.id = options.id || `comp_${++compIdCounter}`;
+        this.id = componentIds.claim(options.id);
         this.definition = definition;
         if (options.packageId !== undefined) this.packageId = options.packageId;
         this.x = options.x || 0;

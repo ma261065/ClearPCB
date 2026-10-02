@@ -1,24 +1,23 @@
 import { padOutline, padBounds, padHitTest } from './pad-geometry.js';
+import { IdAllocator } from '../core/id-allocator.js';
 
-let padIdCounter = 0;
+const padIds = new IdAllocator('pad');
 const round4 = value => Math.round(value * 10000) / 10000;
 
 export const PAD_SHAPES = ['round', 'stadium', 'square', 'rectangle', 'oval'];
 export const PAD_LAYERS = ['top-copper', 'bottom-copper', 'both'];
 
 export function resetPadIdCounter() {
-    padIdCounter = 0;
+    padIds.reset();
 }
 
 export function updatePadIdCounter(id) {
-    const match = typeof id === 'string' ? id.match(/^pad_(\d+)$/) : null;
-    if (match) padIdCounter = Math.max(padIdCounter, Number(match[1]));
+    padIds.observe(id);
 }
 
 export class Pad {
     constructor(options = {}) {
-        this.id = options.id || `pad_${++padIdCounter}`;
-        updatePadIdCounter(this.id);
+        this.id = padIds.claim(options.id);
         this.type = 'pad';
         this.x = Number(options.x) || 0;
         this.y = Number(options.y) || 0;

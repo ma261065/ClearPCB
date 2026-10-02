@@ -7,8 +7,9 @@
 
 import { ShapeValidator } from '../core/ShapeValidator.js';
 import { createLockIcon, lockIconMetrics, LOCK_GAP } from '../core/ui-helpers.js';
+import { IdAllocator } from '../core/id-allocator.js';
 
-let shapeIdCounter = 0;
+const shapeIds = new IdAllocator('shape');
 
 // Minimum stroke width in screen pixels
 const MIN_STROKE_PIXELS = 1;
@@ -22,22 +23,14 @@ const ANCHOR_SIZE_PIXELS = 8;
  * @param {string} id - An existing shape ID to check against
  */
 export function updateIdCounter(id) {
-    if (typeof id === 'string') {
-        const match = id.match(/^shape_(\d+)$/);
-        if (match) {
-            const num = parseInt(match[1], 10);
-            if (num >= shapeIdCounter) {
-                shapeIdCounter = num + 1;
-            }
-        }
-    }
+    shapeIds.observe(id);
 }
 
 /**
  * Reset the ID counter (useful for testing)
  */
 export function resetIdCounter() {
-    shapeIdCounter = 0;
+    shapeIds.reset();
 }
 
 export class Shape {
@@ -53,8 +46,7 @@ export class Shape {
      * @param {boolean} [options.locked=false] - Whether the shape is locked.
      */
     constructor(options = {}) {
-        this.id = options.id || `shape_${++shapeIdCounter}`;
-        if (options.id) updateIdCounter(options.id);
+        this.id = shapeIds.claim(options.id);
         this.type = 'shape';
         
         // Validate and apply common properties

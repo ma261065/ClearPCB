@@ -17,8 +17,9 @@
 import { closedShapeOutline } from './closed-outline.js';
 import { collapseRoundedPolygon } from './path-operations.js';
 import { rectangleFrameFromPoints, rectangleFramePoints, pointsFormRectangle } from './rectangle-frame.js';
+import { IdAllocator } from '../core/id-allocator.js';
 
-let fillIdCounter = 0;
+const fillIds = new IdAllocator('fill');
 const round4 = value => Math.round(value * 10000) / 10000;
 
 function storedField(data, compact, long) {
@@ -39,17 +40,12 @@ export function normalizeCopperFillKind(fill) {
 
 /** Reset the fill ID counter (for testing / new-document). */
 export function resetFillIdCounter() {
-    fillIdCounter = 0;
+    fillIds.reset();
 }
 
 /** Update the fill ID counter so newly-issued IDs don't collide on load. */
 export function updateFillIdCounter(id) {
-    if (typeof id !== 'string') return;
-    const m = id.match(/^fill_(\d+)$/);
-    if (m) {
-        const n = parseInt(m[1], 10);
-        if (Number.isFinite(n) && n >= fillIdCounter) fillIdCounter = n + 1;
-    }
+    fillIds.observe(id);
 }
 
 export class CopperFill {
@@ -71,7 +67,7 @@ export class CopperFill {
     * @param {boolean} [options.visible]
      */
     constructor(options = {}) {
-        this.id = options.id || `fill_${++fillIdCounter}`;
+        this.id = fillIds.claim(options.id);
         this.type = 'fill';
         this.layer = options.layer === 'bottom-copper' ? 'bottom-copper' : 'top-copper';
         this.net = typeof options.net === 'string' ? options.net : '';
