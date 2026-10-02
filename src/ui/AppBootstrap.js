@@ -10,8 +10,12 @@ import { renderRecentFiles } from '../shared/ui/recents.js';
 import { McpBridge } from '../core/McpBridge.js';
 import { createMcpSessionUi } from './modules/mcp-session.js';
 
-class AppBootstrap {
-    constructor() {
+const DEFAULT_SERVICES = { ProjectDocument, PCBApp, SchematicApp, McpBridge, createMcpSessionUi };
+
+export class AppBootstrap {
+    /** @param {Partial<typeof DEFAULT_SERVICES>} [services] Collaborators; tests substitute headless ones. */
+    constructor(services = {}) {
+        this._services = { ...DEFAULT_SERVICES, ...services };
         this.modeTabs = /** @type {HTMLElement[]} */ (Array.from(document.querySelectorAll('.mode-tab')));
         this.slider = document.querySelector('.app-slider');
         this.ribbonSchematic = document.getElementById('ribbonSchematic');
@@ -23,7 +27,7 @@ class AppBootstrap {
         this._pcbPreloadHandle = null;
 
         /** The neutral owner of the single project document. */
-        this.project = new ProjectDocument();
+        this.project = new this._services.ProjectDocument();
         this.project.onLoadingChange = (loading) => {
             if (loading) this._cancelPcbPreload();
             this._setTabsLoading(loading);
@@ -39,12 +43,12 @@ class AppBootstrap {
         installNumberInputFormatting();
         this._registerServiceWorker();
 
-        this.pcbApp = new PCBApp(this.project);
+        this.pcbApp = new this._services.PCBApp(this.project);
         this.pcbApp.initialize();
         // Register the PCB editor as a project view (contributes doc.pcb).
         this.project.registerView('pcb', this.pcbApp);
-        this.mcpBridge = new McpBridge(this.project);
-        this.mcpSessionUi = createMcpSessionUi(this.mcpBridge);
+        this.mcpBridge = new this._services.McpBridge(this.project);
+        this.mcpSessionUi = this._services.createMcpSessionUi(this.mcpBridge);
 
         // Install the dispatcher BEFORE SchematicApp constructs so that
         // it occupies an earlier slot in window-capture order than the
@@ -54,7 +58,7 @@ class AppBootstrap {
 
         // The schematic editor registers itself as the project's UI-host
         // view (and injects the file lifecycle) from its constructor.
-        this.schematicApp = new SchematicApp(this.project);
+        this.schematicApp = new this._services.SchematicApp(this.project);
 
         this._bindModeTabs();
         await this.schematicApp._recoverAutoSave?.();

@@ -73,11 +73,18 @@ for (const relativePath of ['../src/pcb/modules/pcb-export.js', '../src/ui/PCBAp
     assert.ok(!content.includes("'document'"), `${relativePath} must not register a combined document layer`);
     assert.ok(content.includes("'top-document'") && content.includes("'bottom-document'"));
 }
-const commandSource = readFileSync(new URL('../src/pcb/modules/track-commands.js', import.meta.url), 'utf8');
-const flipSource = /const FP_LAYER_FLIP = (\{[\s\S]*?\});/.exec(commandSource)?.[1];
-assert.ok(flipSource);
-const flip = new Function(`return ${flipSource};`)();
-assert.equal(flip['top-document'], 'bottom-document');
-assert.equal(flip['bottom-document'], 'top-document');
+const { renderPlacementSide } = await import('../src/pcb/modules/track-commands.js');
+const groups = new Map(['top-document', 'bottom-document'].map(id => [id, {
+    id, appendChild(el) { el.parentNode = this; },
+}]));
+const artwork = ['top-document', 'bottom-document'].map(layer => ({
+    parentNode: null, getAttribute: name => (name === 'data-fp-layer' ? layer : null),
+}));
+const sideApp = { placements: new Map([['part', { elements: artwork }]]), getLayerGroup: id => groups.get(id) };
+renderPlacementSide(sideApp, 'part', 'bottom');
+assert.deepEqual(artwork.map(el => el.parentNode.id), ['bottom-document', 'top-document'],
+    'Flipping a footprint swaps its document layers');
+renderPlacementSide(sideApp, 'part', 'top');
+assert.deepEqual(artwork.map(el => el.parentNode.id), ['top-document', 'bottom-document']);
 
 console.log('PASS document import, distinct layers, side mapping, preview exclusion, and Gerber exclusion');

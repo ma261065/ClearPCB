@@ -44,7 +44,7 @@ export function bindPropertiesPanel(app) {
  * Compute the intersection of property descriptors across all selected items.
  * Only properties declared by *every* item in the selection are shown.
  */
-function mergeDescriptors(selection) {
+export function mergeDescriptors(selection) {
     if (selection.length === 0) return [];
     const first = selection[0].getPropertyDescriptors();
     if (selection.length === 1) return first;

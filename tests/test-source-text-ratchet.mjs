@@ -13,10 +13,6 @@ const ALLOWED = new Set([
     'test-board3d-surface-reuse.mjs',
     'test-board3d-surface-worker.mjs',
     'test-board-view-sync.mjs',
-    'test-bootstrap-tab-readiness.mjs',
-    'test-builtin-package-lifecycle.mjs',
-    'test-component-index-lifecycle.mjs',
-    'test-document-layers.mjs',
     'test-pcb-deferred-load.mjs',
     'test-reference-selection-overlay.mjs',
 ]);

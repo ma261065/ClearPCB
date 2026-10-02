@@ -12,6 +12,7 @@ import { pointsMatch } from '../core/geometry.js';
 import { ComponentPicker } from '../components/ComponentPicker.js';
 import { createShape } from '../shapes/index.js';
 import { getComponentLibrary } from '../components/index.js';
+import { warmKiCadIndex } from '../components/KiCadFetcher.js';
 // Modules with a small public API use named imports; modules with many
 // exports (wire, drawing, components, files, export) use namespace imports
 // to keep the import block manageable.
@@ -268,8 +269,7 @@ export default class SchematicApp {
         }
 
         // Warm the index immediately so first picker use need not start a download.
-        this.componentLibrary.kicadFetcher?.ensureIndexLoaded()
-            ?.catch(err => console.warn('KiCad background index warm-up failed:', err));
+        warmKiCadIndex(this.componentLibrary);
 
         // Warn about unsaved changes in either editor (one document).
         window.addEventListener('beforeunload', (e) => {

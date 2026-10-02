@@ -1,5 +1,4 @@
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
 
 class Element {
     children = [];
@@ -23,6 +22,8 @@ globalThis.document = {
     createElementNS: () => new Element(),
     getElementById: () => null,
     body: new Element(),
+    documentElement: { getAttribute: () => 'dark' },
+    querySelector: () => null, querySelectorAll: () => [], addEventListener() {},
 };
 globalThis.fetch = () => { throw new Error('Built-in packages must not fetch remote models'); };
 
@@ -31,14 +32,16 @@ const { getBuiltInPackageOptions } = await import('../src/components/BuiltInPack
 const { Component } = await import('../src/components/Component.js');
 const { ComponentPicker } = await import('../src/components/ComponentPicker.js');
 const { CommandHistory } = await import('../src/core/CommandHistory.js');
-const { applyCommonProperty } = await import('../src/ui/modules/properties.js');
+const { applyCommonProperty, mergeDescriptors: merge } = await import('../src/ui/modules/properties.js');
 const { copySelection, confirmPaste } = await import('../src/ui/modules/clipboard.js');
 const { createComponentFromData, serializeDocument } = await import('../src/schematic/modules/files.js');
 const { FileManager, readProjectFile } = await import('../src/core/FileManager.js');
 const { validateProject } = await import('../src/core/project-format.js');
 const { extractComponents } = await import('../src/core/netlist.js');
 const { ProjectDocument } = await import('../src/core/ProjectDocument.js');
-const { generateFootprint, REF_DEFAULT_SIZE, REF_DEFAULT_STROKE } = await import('../src/shared/pcb/footprint.js');
+const { generateFootprint } = await import('../src/shared/pcb/footprint.js');
+const { default: PCBApp } = await import('../src/ui/PCBApp.js');
+const { objModelToMesh: placedMesh } = await import('../src/pcb/modules/board3d.js');
 const { hasAny3DModel } = await import('../src/components/model3d-source.js');
 const { parseObjModel } = await import('../src/shared/3d/model-rendering.js');
 const definitions = new Map(BuiltInComponents.map(definition => [definition.name, definition]));
@@ -108,10 +111,6 @@ assert.equal(alerts, 1, 'Invalid bulk selection is reported, not partly applied'
 assert.equal(resistor.packageId, '0603');
 assert.equal(history.undoStack.length, 1);
 
-const propertiesSource = readFileSync(new URL('../src/ui/modules/properties.js', import.meta.url), 'utf8');
-const mergeStart = propertiesSource.indexOf('function mergeDescriptors(');
-const mergeEnd = propertiesSource.indexOf('\nfunction headerLabel(', mergeStart);
-const merge = new Function(`${propertiesSource.slice(mergeStart, mergeEnd)}; return mergeDescriptors;`)();
 const mixed = merge([resistor, new Component(definitions.get('PMOS'))]).find(item => item.key === 'packageId');
 assert.ok(mixed.options.length > 0);
 assert.ok(!mixed.options.some(option => option.value === '0603'), 'Only mutually supported packages appear');
@@ -203,20 +202,15 @@ assert.equal(pasteCommand.components[0].value, '10k');
 assert.equal(pasteCommand.components[0].reference, 'R2');
 assert.equal(resistor.packageId, '0805');
 
-const pcbSource = readFileSync(new URL('../src/ui/PCBApp.js', import.meta.url), 'utf8');
-const placeStart = pcbSource.indexOf('    _placeFootprints(placements) {');
-const placeEnd = pcbSource.indexOf('\n    /**', placeStart);
 const renderedFootprints = new Map();
-const place = new Function('renderFootprint', 'REF_DEFAULT_SIZE', 'REF_DEFAULT_STROKE',
-    `return ({${pcbSource.slice(placeStart, placeEnd)}})._placeFootprints;`)(
-    (geometry, reference) => { renderedFootprints.set(reference, geometry); return new Map(); },
-    REF_DEFAULT_SIZE, REF_DEFAULT_STROKE);
+const place = PCBApp.prototype._placeFootprints;
 const pcbProject = new ProjectDocument();
 pcbProject.schematicDocument.components.push(resistor);
 pcbProject.pcbDocument.placementState.record(resistor.id, { x: 23, y: -17 });
 const board = {
     placements: new Map(),
-    _buildLodPlaceholder() {},
+    _buildLodPlaceholder() {}, _rerenderRef() {}, getLayerGroup: () => new Element(),
+    _renderFootprint(geometry, placement) { renderedFootprints.set(placement.reference, geometry); return new Map(); },
 };
 for (const packageId of ['default', '0603', '0805']) {
     resistor.packageId = packageId;
@@ -253,10 +247,6 @@ assert.deepEqual([...duplicatePlacement.pads], [
 ], 'Live placement retains separate physical pads and excludes stencil apertures from routing');
 assert.deepEqual(renderedFootprints.get(duplicateComponent.reference), duplicateFootprint.geometry);
 
-const board3dSource = readFileSync(new URL('../src/pcb/modules/board3d.js', import.meta.url), 'utf8');
-const meshStart = board3dSource.indexOf('function objModelToMesh(');
-const meshEnd = board3dSource.indexOf('\n/**', meshStart);
-const placedMesh = new Function('BOARD_THICKNESS', `${board3dSource.slice(meshStart, meshEnd)}; return objModelToMesh;`)(1.6);
 const metalColors = new Set(['180,188,198', '211,166,57']);
 function leadSection(mesh, height) {
     const points = [];

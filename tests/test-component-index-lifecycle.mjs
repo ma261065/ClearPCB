@@ -6,7 +6,7 @@ globalThis.document = { activeElement: null, body: { contains: () => false } };
 globalThis.localStorage = { length: 0, getItem: () => null, setItem() {} };
 globalThis.fetch = () => { throw new Error('Unexpected remote access in lifecycle fixture'); };
 const { ComponentPicker } = await import('../src/components/ComponentPicker.js');
-const { KiCadFetcher } = await import('../src/components/KiCadFetcher.js');
+const { KiCadFetcher, warmKiCadIndex } = await import('../src/components/KiCadFetcher.js');
 const { createGenerationGate, createDebouncedRunner } = await import('../src/components/async-control.js');
 const { ModalManager } = await import('../src/core/ModalManager.js');
 const { onToolSelected, onComponentPickerClosed } = await import('../src/ui/modules/tool.js');
@@ -21,9 +21,8 @@ assert.ok(Number(closeStyle.match(/font-size:\s*(\d+)px/)?.[1]) >= 24, 'Picker X
 assert.match(closeStyle, /flex-shrink:\s*0/, 'Header cannot shrink the close target');
 
 const schematic = readFileSync(new URL('../src/ui/SchematicApp.js', import.meta.url), 'utf8');
-const warmup = schematic.match(/this\.componentLibrary\.kicadFetcher\?\.ensureIndexLoaded\(\)\s*\?\.catch\([^;]+;/);
-assert.ok(warmup, 'Schematic startup immediately warms the index and handles background failures');
-const startWarmup = new Function(`${warmup[0]}\nreturn 'ready';`);
+assert.match(schematic, /^\s+warmKiCadIndex\(this\.componentLibrary\);$/m,
+    'Schematic startup immediately warms the index');
 
 function deferred() {
     let resolve, reject;
@@ -76,7 +75,7 @@ function fixture({ cached = false, mode = 'lcsc' } = {}) {
         await load.promise;
         fetcher.libraryIndex = { symbols: { Device: ['R'], Timer: ['NE555'] } };
     };
-    assert.equal(startWarmup.call({ componentLibrary: { kicadFetcher: fetcher } }), 'ready',
+    assert.equal(warmKiCadIndex({ kicadFetcher: fetcher }), undefined,
         'Startup continues without waiting for the index download');
     await started.promise;
     assert.equal(downloads, 1, 'Download begins before the picker opens');
@@ -98,15 +97,13 @@ function fixture({ cached = false, mode = 'lcsc' } = {}) {
     const load = deferred(), logged = [], warn = console.warn;
     try {
         console.warn = (...args) => logged.push(args);
-        assert.equal(startWarmup.call({ componentLibrary: {
-            kicadFetcher: { ensureIndexLoaded: () => load.promise },
-        } }), 'ready');
+        assert.equal(warmKiCadIndex({ kicadFetcher: { ensureIndexLoaded: () => load.promise } }), undefined);
         const failure = new Error('Background download failed');
         load.reject(failure);
         await flush();
         assert.equal(logged.length, 1);
         assert.deepEqual(logged[0], ['KiCad background index warm-up failed:', failure]);
-        assert.equal(startWarmup.call({ componentLibrary: {} }), 'ready');
+        assert.equal(warmKiCadIndex({}), undefined, 'A library without KiCad support is skipped');
     } finally {
         console.warn = warn;
     }

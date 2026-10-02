@@ -2928,4 +2928,14 @@ export class KiCadFetcher {
     }
 }
 
+/**
+ * Start the KiCad index download in the background without blocking startup;
+ * failures are logged and the picker retries when opened.
+ * @param {{ kicadFetcher?: KiCadFetcher }} library
+ */
+export function warmKiCadIndex(library) {
+    library.kicadFetcher?.ensureIndexLoaded()
+        ?.catch(err => console.warn('KiCad background index warm-up failed:', err));
+}
+
 export default KiCadFetcher;

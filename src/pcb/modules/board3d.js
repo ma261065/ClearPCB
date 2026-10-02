@@ -985,7 +985,7 @@ export function boardSlabWithCutouts(outline, holeList, crossingRings, yBottom, 
  * @param {{x:number,y:number,rotation?:number,model3dPlacement?:{dx?:number,dy?:number,rotation?:number,z?:number}}} pl placement
  * @returns {{verts: Array, faces: Array, cull?: boolean}|null}
  */
-function objModelToMesh(parsed, pl) {
+export function objModelToMesh(parsed, pl) {
     if (!parsed?.vertices?.length || !parsed.faces?.length) return null;
 
     // EasyEDA's c_origin (the model3dPlacement dx/dy target) is the model's

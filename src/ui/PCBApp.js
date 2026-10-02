@@ -3919,7 +3919,7 @@ export default class PCBApp {
         for (const [compId, resolved] of placements) {
             const { geometry: fpGeom, ...placement } = resolved;
             // Render SVG (returns Map<layerId, SVGGElement>)
-            const fpLayers = renderFootprint(fpGeom, placement.reference, placement.x, placement.y, placement.rotation);
+            const fpLayers = this._renderFootprint(fpGeom, placement);
 
             // Distribute each layer's group to the correct SVG layer
             /** @type {SVGGElement[]} */
@@ -3950,6 +3950,11 @@ export default class PCBApp {
             }
             if (pl.refSize !== REF_DEFAULT_SIZE || pl.refStrokeWidth !== REF_DEFAULT_STROKE) this._rerenderRef(compId);
         }
+    }
+
+    /** Render one resolved footprint's SVG layer groups (a seam for headless tests). */
+    _renderFootprint(geometry, placement) {
+        return renderFootprint(geometry, placement.reference, placement.x, placement.y, placement.rotation);
     }
 
     /**

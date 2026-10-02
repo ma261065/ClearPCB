@@ -1,14 +1,19 @@
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
 
-const source = readFileSync(new URL('../src/ui/AppBootstrap.js', import.meta.url), 'utf8');
-const start = source.indexOf('class AppBootstrap {');
-const end = source.indexOf('\ndocument.addEventListener(', start);
-assert.ok(start >= 0 && end > start);
+const quietElement = () => ({ style: {}, setAttribute() {}, appendChild() {}, classList: { add() {}, remove() {} } });
+globalThis.window = { addEventListener() {}, dispatchEvent() {} };
+globalThis.document = {
+    activeElement: null, body: { contains: () => false }, documentElement: { getAttribute: () => 'dark' },
+    createElement: quietElement, createElementNS: quietElement,
+    getElementById: () => null, querySelector: () => null, querySelectorAll: () => [], addEventListener() {},
+};
+globalThis.localStorage = { getItem: () => null, setItem() {}, removeItem() {} };
+globalThis.MutationObserver = class { observe() {} };
+const { AppBootstrap } = await import('../src/ui/AppBootstrap.js');
+const { ModalManager } = await import('../src/core/ModalManager.js');
 
 function fixture() {
     let keydown = null;
-    let modal = null;
     let finishRecovery, failRecovery;
     const recovery = new Promise((resolve, reject) => { finishRecovery = resolve; failRecovery = reject; });
     const events = [];
@@ -35,15 +40,10 @@ function fixture() {
         get() { assert.fail('Startup must not read the legacy schematic alias'); },
         set() { assert.fail('Startup must not publish the legacy schematic alias'); },
     });
-    const dependencies = {
-        ModalManager: {
-            top: () => modal,
-            push(id, onEscape) { modal = { id, onEscape }; },
-            pop(id) { if (modal?.id === id) modal = null; },
-        },
-        window,
-        document: { querySelectorAll: () => tabs, querySelector: () => null, getElementById: () => null },
-        installNumberInputFormatting() {},
+    globalThis.window = window;
+    globalThis.document = { ...globalThis.document, querySelectorAll: selector => (selector === '.mode-tab' ? tabs : []) };
+    for (let entry = ModalManager.top(); entry; entry = ModalManager.top()) ModalManager.pop(entry.id);
+    const services = {
         ProjectDocument: class {
             fileManager = { loading: false };
             registerView() {}
@@ -53,7 +53,7 @@ function fixture() {
         createMcpSessionUi() {},
         PCBApp: class {
             constructor(project) {
-                assert.ok(project instanceof dependencies.ProjectDocument, 'PCB receives its model owner at construction');
+                assert.ok(project instanceof services.ProjectDocument, 'PCB receives its model owner at construction');
                 this.project = project;
             }
             _active = false;
@@ -68,9 +68,7 @@ function fixture() {
             _recoverAutoSave() { events.push('recover'); return recovery; }
         },
     };
-    const Bootstrap = new Function(...Object.keys(dependencies), `${source.slice(start, end)}\nreturn AppBootstrap;`)
-        (...Object.values(dependencies));
-    const bootstrap = new Bootstrap();
+    const bootstrap = new AppBootstrap(services);
     bootstrap._registerServiceWorker = () => {};
     bootstrap._bindKeyboardDispatcher = () => {};
     bootstrap._setupLaunchQueue = () => events.push('launch');
@@ -78,8 +76,8 @@ function fixture() {
     const flushFrame = () => frames.shift()?.();
     const flushIdle = () => idleCallbacks.values().next().value?.();
     return { bootstrap, tabs, events, click, flushFrame, flushIdle, finishRecovery, failRecovery,
-        bindKeyboard: () => Bootstrap.prototype._bindKeyboardDispatcher.call(bootstrap),
-        key: event => keydown(event), setModal: value => { modal = value; } };
+        bindKeyboard: () => AppBootstrap.prototype._bindKeyboardDispatcher.call(bootstrap),
+        key: event => keydown(event), setModal: id => ModalManager.push(id, () => {}) };
 }
 
 {
@@ -120,10 +118,11 @@ function fixture() {
     assert.equal(pcbKeys, 0, 'mode cycling precedes PCB shortcut dispatch');
     test.key(event({ ctrlKey: false }));
     test.key(event({ defaultPrevented: true }));
-    test.setModal({ id: 'settings' });
+    test.setModal('settings');
     test.key(event({}));
     assert.equal(modes.length, 4, 'plain Tab, consumed keys, and blocking modals do not switch mode');
-    test.setModal({ id: 'text-edit' });
+    ModalManager.pop('settings');
+    test.setModal('text-edit');
     test.key(event({ target: { tagName: 'INPUT', type: 'text' } }));
     assert.equal(modes.at(-1), 'pcb', 'mode cycling remains available while editing text');
 }

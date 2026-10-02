@@ -120,7 +120,7 @@ const app = {
     },
     updateRatsnest: () => refreshes++, _refreshRefHighlight() {},
 };
-for (const method of ['_placeFootprints', '_buildLodPlaceholder', '_refBox', '_rerenderRef', '_applyPlacementOverrides']) {
+for (const method of ['_placeFootprints', '_renderFootprint', '_buildLodPlaceholder', '_refBox', '_rerenderRef', '_applyPlacementOverrides']) {
     app[method] = PCBApp.prototype[method];
 }
 const initial = project.resolvePcbLayout();
