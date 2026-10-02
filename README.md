@@ -358,7 +358,12 @@ The run takes roughly two minutes. See `tools/regression.mjs` for the exact
 HARD vs SOFT check criteria.
 
 CI also runs `node tools/typecheck.mjs` against `jsconfig.json` with a pinned
-TypeScript; see [releases](docs/releases.md#automated-regression-gate).
+TypeScript, and `node tools/browser-test.mjs`, which drives the real app in
+headless Chromium (track drawing, the 3D view, the Properties panel and
+autosave recovery); see [releases](docs/releases.md#automated-regression-gate).
+To run the browser tests locally, install Playwright outside the repo and set
+`PLAYWRIGHT` to its package folder (see the header of `tools/browser-test.mjs`).
+`node tools/serve.mjs [port]` serves the app locally without dependencies.
 
 ## Troubleshooting
 

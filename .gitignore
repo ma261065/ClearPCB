@@ -14,3 +14,6 @@ mcp-worker/node_modules/
 
 # CI-only tooling (TypeScript for tools/typecheck.mjs)
 /node_modules/
+
+# Browser-test failure screenshots (tools/browser-test.mjs)
+browser-test-failure-*.png

@@ -56,6 +56,7 @@ clearpcb/
 ├── workers/
 │   └── cors-proxy.js
 ├── tests/                      # Isolated headless regression scripts (test-*.mjs)
+├── browser-tests/              # Playwright scenarios run by tools/browser-test.mjs
 ├── tools/                      # Node-side benchmarks + DRC sanity tools
 │                               # (autorouter-benchmark, check-clearance-*,
 │                               # check-via-on-pad, regression, debug-pf-*)
@@ -193,6 +194,9 @@ state snapshots, used by generic modify commands.
 - `node tools/typecheck.mjs` — `checkJs` type check; the baseline is empty, so any error
   fails (CI installs TypeScript 5.9.3; locally set `TSC`).
 - `node tools/bench-pointer-dispatch.mjs` — PCB pointer-move routing cost.
+- `node tools/browser-test.mjs [filter]` — real-browser scenarios (headless Chromium;
+  CI installs Playwright, locally set `PLAYWRIGHT`). `node tools/serve.mjs [port]`
+  serves the app without dependencies.
 - `node tools/bench-pcb-hit-test.mjs [scale]` — PCB selection sync and pointer hit
   query cost on a large synthetic board.
 - Tests call real functions; editor methods run on `tests/pcb-editor-fixture.mjs` or

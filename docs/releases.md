@@ -36,6 +36,14 @@ job. If a baseline is ever needed again, record it with
 outside the repo and set `TSC=/path/to/typescript/lib/tsc.js`). Vendored modules
 are not checked: `assets/vendor/fflate.module.d.ts` declares the fflate API in use.
 
+Its **Browser tests** job installs Playwright 1.55.0 with Chromium and runs
+`node tools/browser-test.mjs`. Each scenario in `browser-tests/` gets a fresh
+browser context against `tools/serve.mjs`: loading and switching modes, drawing
+and undoing a track with real pointer input, the WebGL 3D view following undo/redo
+and closing cleanly, editing a track in the Properties panel, and reopening a board
+through autosave recovery. Any uncaught page error fails the scenario; failure
+screenshots are uploaded as the `browser-test-failures` artifact.
+
 **Publish Stable Release** independently runs the same gate against the checked-out
 release tag before packaging, uploading the downloadable ZIP, or deploying.
 A failed gate leaves the existing stable deployment untouched. GitHub may already
@@ -191,6 +199,22 @@ The steps below are setup reference, not tasks to repeat for each patch.
 Additional branch/tag protection rules and review requirements should be
 checked separately; they are not implied by the Pages setup. No DNS change
 is needed for local development.
+
+### Branch Protection
+
+Make the CI jobs merge-blocking (repository admin, on github.com):
+
+1. Let each job run at least once on `dev`, so GitHub knows the check names.
+2. **Settings > Rules > Rulesets > New branch ruleset**: name it
+   `dev and release branches`, set **Enforcement status** to Active, and add the
+   target branch patterns `dev` and `release_*`.
+3. Enable **Restrict deletions**, **Block force pushes** and **Require a pull
+   request before merging** (one approval for `release_*` if reviewers exist).
+4. Enable **Require status checks to pass**, tick **Require branches to be up to
+   date before merging**, and add the checks `Regression gate`, `Type check` and
+   `Browser tests` (source: GitHub Actions).
+5. Save, then open a test pull request to confirm the three checks are listed as
+   required.
 
 ## First Release
 
