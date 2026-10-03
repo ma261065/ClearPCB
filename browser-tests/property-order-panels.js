@@ -80,7 +80,7 @@ export async function collectPropertyPanels() {
 
     const schematicPanel = (name, selection, tool = 'select') => {
         schematic.currentTool = tool;
-        schematic._updatePropertiesPanel(selection);
+        schematic.updatePropertiesPanel(selection);
         panels[`schematic ${name}`] = read(schematic.ui.propertiesPanel);
     };
     const wire = new Wire({ points: [{ x: 0, y: 0 }, { x: 10, y: 0 }] });
@@ -97,6 +97,6 @@ export async function collectPropertyPanels() {
     schematicPanel('wire', [wire]);
     for (const tool of ['rect', 'text', 'net', 'wire']) schematicPanel(`new ${tool}`, [], tool);
     schematic.currentTool = 'select';
-    schematic._updatePropertiesPanel([]);
+    schematic.updatePropertiesPanel([]);
     return panels;
 }
