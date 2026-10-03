@@ -1,5 +1,31 @@
 import { arcFromBulge, sampleArcEdge } from './arc-edge.js';
 import { CORNER_CHORD_TOLERANCE, roundedPathCorners, sampleRoundedCorner } from './rounded-path.js';
+import { pointsFormAxisAlignedRect } from './path-operations.js';
+
+/**
+ * Whether a track is a rectangle: one closed, single-layer loop of four straight
+ * edges with axis-aligned sides. Without per-node radii its rounded corners are
+ * circular quarter-arcs, by the same rule as a board rectangle
+ * (boardShapeHasCircularCorners); other tracks use quadratic corners.
+ */
+export function isTrackRectangleLoop(track) {
+    if (track.nodes.size !== 4 || track.edges.size !== 4) return false;
+    const neighbours = new Map([...track.nodes.keys()].map(nodeId => [nodeId, []]));
+    for (const [edgeId, edge] of track.edges) {
+        if (edge.bulge || !neighbours.has(edge.from) || !neighbours.has(edge.to)) return false;
+        if ((track.getEdgeLayer?.(edgeId) ?? track.layer) !== track.layer) return false;
+        neighbours.get(edge.from).push(edge.to);
+        neighbours.get(edge.to).push(edge.from);
+    }
+    if ([...neighbours.values()].some(list => list.length !== 2)) return false;
+    const order = [track.nodes.keys().next().value];
+    while (order.length < 4) {
+        const next = neighbours.get(order.at(-1)).find(nodeId => !order.includes(nodeId));
+        if (!next) return false;
+        order.push(next);
+    }
+    return pointsFormAxisAlignedRect(order.map(nodeId => track.nodes.get(nodeId)));
+}
 
 /** Resolve copper centrelines identically for model queries, rendering and export. */
 export function resolveTrackEdgePaths(track) {
@@ -11,6 +37,7 @@ export function resolveTrackEdgePaths(track) {
         }
     }
     const corners = new Map();
+    const circular = !Object.keys(track.nodeCornerRadii || {}).length && isTrackRectangleLoop(track);
     for (const [nodeId, edgeIds] of adjacent) {
         const radius = Number(track.nodeCornerRadii?.[nodeId] ?? track.cornerRadius) || 0;
         if (radius < 0.01 || edgeIds.length !== 2 || track.padConnections?.has(nodeId)) continue;
@@ -23,7 +50,7 @@ export function resolveTrackEdgePaths(track) {
             return track.nodes.get(edge.from === nodeId ? edge.to : edge.from);
         });
         if (!vertex || neighbours.some(point => !point)) continue;
-        const corner = roundedPathCorners([neighbours[0], vertex, neighbours[1]], [0, radius, 0])[1];
+        const corner = roundedPathCorners([neighbours[0], vertex, neighbours[1]], [0, radius, 0], false, circular)[1];
         if (!corner.rounded) continue;
         const samples = sampleRoundedCorner(corner);
         const midpoint = (samples.length - 1) / 2;

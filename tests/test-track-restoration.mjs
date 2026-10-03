@@ -19,6 +19,7 @@ globalThis.document = {
 };
 
 const { Track } = await import('../src/shapes/track.js');
+const { isTrackRectangleLoop, resolveTrackEdgePaths } = await import('../src/shapes/track-geometry.js');
 const {
     canRestoreTrackToSourceBoardShape,
     convertBoardLineToTrack,
@@ -222,23 +223,29 @@ function appFor(track) {
 }
 
 {
-    // Circular rectangle corners become explicit arc edges so the Track's copper is exact.
+    // A rounded rectangle stays a 4-node loop with its (clamped) corner radius; a
+    // rectangular track loop rounds with the same circular corners as the rectangle.
     const rect = { id: 'pshape_rect', kind: 'rect', layer: 'bottom-copper', lineWidth: 0.3, filled: false,
         copperMode: 'add', net: '', cornerRadius: 50,
         points: [{ x: 0, y: 0 }, { x: 10, y: 0 }, { x: 10, y: 4 }, { x: 0, y: 4 }] };
     const app = appFor(null);
     app.boardShapes.push(rect);
     const track = convertBoardLineToTrack(app, rect, 'N');
-    const arcs = [...(track?.edges.values() || [])].filter(edge => edge.bulge);
-    expect('a rounded rectangle converts to a closed loop of 4 sides and 4 corner arcs',
-        track?.nodes.size === 8 && track.edges.size === 8 && arcs.length === 4);
-    expect('corner arcs are quarter circles of the clamped radius', arcs.every(edge =>
-        Math.abs(Math.abs(edge.bulge) - Math.tan(Math.PI / 8)) < 1e-12) && !track.cornerRadius
-        && [...track.nodes.values()].some(node => Math.abs(node.x - 2) < 1e-9 && Math.abs(node.y) < 1e-9));
+    expect('a rounded rectangle converts to a 4-node loop keeping its corner radius',
+        track?.nodes.size === 4 && track.edges.size === 4 && track.cornerRadius === 2
+        && isTrackRectangleLoop(track));
+    const corner = resolveTrackEdgePaths(track).get('e0');
+    expect('corners are quarter circles of the clamped radius', !!corner && corner.every(point =>
+        point.x > 2 + 1e-9 || Math.abs(Math.hypot(point.x - 2, point.y - 2) - 2) < 1e-6)
+        && corner.some(point => Math.abs(point.x - 2) < 1e-9 && Math.abs(point.y) < 1e-9));
+    const quadraticTrack = new Track({ width: 0.3, layer: 'bottom-copper', cornerRadius: 2,
+        graphNodes: { n0: { x: 0, y: 0 }, n1: { x: 10, y: 0 }, n2: { x: 10, y: 4 } },
+        graphEdges: { e0: { from: 'n0', to: 'n1' }, e1: { from: 'n1', to: 'n2' } } });
+    expect('open tracks keep quadratic corners', !isTrackRectangleLoop(quadraticTrack));
     restoreTrackToSourceBoardShape(app, track);
     const restored = app.boardShapes[0];
-    expect('clearing the net restores a polygon with its arc corners', restored?.kind === 'polygon'
-        && restored.points.length === 8 && Object.keys(restored.segmentBulges).length === 4
+    expect('clearing the net restores the rounded rectangle', restored?.kind === 'rect'
+        && restored.points.length === 4 && restored.cornerRadius === 2 && restored.id === rect.id
         && restored.layer === 'bottom-copper');
 }
 
