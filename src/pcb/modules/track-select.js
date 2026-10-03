@@ -1128,6 +1128,15 @@ function createTrackPropertyBinding(app, track, scope = {}) {
             input.value = Number.isFinite(value) ? String(value) : '';
         }
     };
+    // A node picked up from a midpoint "+" (or any unfinished drag) shows a preview
+    // copy of this track on the board. Panel edits change the real track, so drop
+    // the pickup first or the edit would miss (discrete fields) or fail (numeric fields).
+    const dropPointerPreview = () => {
+        if (app._vertexDrag?.original !== track) return;
+        app._pcbSelectionInteraction = null;
+        cancelVertexDrag(app);
+        renderPcbSelectionAnchors(app);
+    };
     const finish = commit => {
         if (!preview) return;
         commit = commit && Number.isFinite(field.spec.parse(field.input));
@@ -1163,6 +1172,7 @@ function createTrackPropertyBinding(app, track, scope = {}) {
         },
         prepare() {
             if (disposed) return false;
+            dropPointerPreview();
             binding.commit();
             return true;
         },
@@ -1173,6 +1183,7 @@ function createTrackPropertyBinding(app, track, scope = {}) {
             fields.push(entry);
             const update = () => {
                 if (!editable()) { binding.cancel(); return; }
+                dropPointerPreview();
                 if (field && field !== entry) {
                     const text = input.value;
                     binding.commit();

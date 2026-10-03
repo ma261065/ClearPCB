@@ -347,6 +347,32 @@ for (const next of ['width', 'net', 'move', 'midpoint', 'split', 'bulge', 'delet
     cases++;
 }
 
+for (const [field, value] of [['Layer', 'bottom-copper'], ['Width', 0.75]]) {
+    // A midpoint "+" click picks up a new node: the board shows a preview copy of the
+    // track until it is placed. A panel edit made meanwhile must drop the pickup and
+    // reach the real track instead of silently doing nothing.
+    const f = fixture('whole'), { app, model, track, edgeId } = f;
+    const edge = track.edges.get(edgeId), from = track.nodes.get(edge.from), to = track.nodes.get(edge.to);
+    const midpoint = { x: (from.x + to.x) / 2, y: (from.y + to.y) / 2 };
+    assert.equal(startMidpointInsertDrag(app, app.tracks[0], edgeId), true);
+    app._pcbSelectionInteraction = { mode: 'floating-anchor' };
+    assert.notEqual(app.tracks[0], track, 'the pickup shows a preview copy');
+    f.input(field).emit('change', value);
+    assert.equal(app._vertexDrag, null, `${field}: the pickup is dropped`);
+    assert.equal(app._pcbSelectionInteraction, null);
+    if (field === 'Layer') {
+        assert.ok(model.tracks.some(item => [...item.edges.keys()].some(id => item.getEdgeLayer(id) === 'bottom-copper')),
+            'the layer change reaches the track');
+    } else {
+        assert.equal(model.tracks[0], track);
+        assert.equal(track.width, 0.75, 'the width change reaches the track');
+    }
+    assert.ok(model.tracks.every(item => [...item.nodes.values()].every(node =>
+        Math.hypot(node.x - midpoint.x, node.y - midpoint.y) > 1e-6)), 'the picked-up node is not kept');
+    assert.equal(app.history.undoStack.length, 1, 'only the panel edit is recorded');
+    cases++;
+}
+
 for (const scope of ['segment', 'node']) {
     const f = fixture(scope), { app, track, edgeId, nodeId } = f;
     const input = f.input(scope === 'node' ? 'CornerRadius' : 'Width');
