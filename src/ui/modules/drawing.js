@@ -87,9 +87,13 @@ export function finishDrawing(app, worldPos) {
     const shape = createShapeFromDrawing(app);
     if (shape) {
         app.addShape(shape);
-        app.selection.select(shape);
         if (shape.type === 'text') {
+            // A new label opens straight into inline editing, which edits the selection.
+            app.selection.select(shape);
             app._startTextEdit?.(shape);
+        } else {
+            // A drawn shape is not selected; its handles appear once the user selects it.
+            app.selection.clearSelection();
         }
     }
 

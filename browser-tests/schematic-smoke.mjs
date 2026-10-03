@@ -52,6 +52,18 @@ function assertConsistent(state, label) {
     }
 }
 
+/** Click the middle of the rectangle's first edge. */
+async function clickFirstEdge(page) {
+    const edge = await page.evaluate(() => {
+        const nodes = window.bootstrap.schematicApp.shapes[0].nodes;
+        const first = nodes.get('n0'), second = nodes.get('n1');
+        return { x: (first.x + second.x) / 2, y: first.y };
+    });
+    const screen = await screenPoint(page, edge.x, edge.y);
+    await page.mouse.move(screen.x, screen.y);
+    await page.mouse.click(screen.x, screen.y);
+}
+
 async function dragFrom(page, from, to, { release = true } = {}) {
     const start = await screenPoint(page, from.x, from.y);
     const end = await screenPoint(page, to.x, to.y);
@@ -73,11 +85,19 @@ export const scenarios = [
                 await page.mouse.move(screen.x, screen.y, { steps: 3 });
                 await page.mouse.click(screen.x, screen.y);
             }
+            const handlesAfterDraw = await page.evaluate(() =>
+                window.bootstrap.schematicApp.viewport.contentLayer.querySelectorAll('.shape-anchors').length);
+            assert.equal(handlesAfterDraw, 0, 'drawing a shape shows no selection handles');
             await page.keyboard.press('v');
             let state = await selectionState(page);
             assert.equal(state.shapes.length, 1);
-            assert.equal(state.count, 1, 'a new rectangle is selected');
+            assert.equal(state.count, 0, 'a newly drawn rectangle is not selected');
             assertConsistent(state, 'after drawing');
+
+            await clickFirstEdge(page);
+            state = await selectionState(page);
+            assert.equal(state.count, 1, 'clicking the rectangle selects it');
+            assertConsistent(state, 'after selecting');
 
             const corner = state.corner;
             await dragFrom(page, corner, { x: corner.x + 10, y: corner.y + 5 });
@@ -106,14 +126,7 @@ export const scenarios = [
             await page.keyboard.press('Escape');
 
             await page.keyboard.press('v');
-            const edge = await page.evaluate(() => {
-                const nodes = window.bootstrap.schematicApp.shapes[0].nodes;
-                const first = nodes.get('n0'), second = nodes.get('n1');
-                return { x: (first.x + second.x) / 2, y: first.y };
-            });
-            const edgeScreen = await screenPoint(page, edge.x, edge.y);
-            await page.mouse.move(edgeScreen.x, edgeScreen.y);
-            await page.mouse.click(edgeScreen.x, edgeScreen.y);
+            await clickFirstEdge(page);
             assert.equal((await selectionState(page)).count, 1, 'clicking the edge selects the rectangle');
 
             await page.keyboard.press('Delete');
