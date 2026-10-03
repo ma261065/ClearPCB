@@ -48,7 +48,7 @@ const app = {
     history: new CommandHistory(), _shapeElements: new Map(), _shapeIdCounter: 1,
     _layerGroups: new Map(), _hoveredTrackOrVia: null,
     viewport: { scale: 100 }, _snapToGrid: point => point, getLayerGroup: () => null,
-    propertiesItems: () => items, _setActiveRibbonTab() {},
+    propertiesItems: () => items, setActiveRibbonTab() {},
     status: { modeStatus: { textContent: '' } },
     setPcbStatus: PCBApp.prototype.setPcbStatus,
     _onLayerLockChanged: PCBApp.prototype._onLayerLockChanged,

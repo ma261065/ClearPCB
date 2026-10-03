@@ -30,7 +30,7 @@ function fixture(count) {
         getLayerGroup() { return null; },
         viewport: { setCrosshair() {}, hideCrosshair() {} },
         propertiesItems: () => ({ innerHTML: '', querySelector: selector => controls.get(selector) }),
-        setPropertiesTitle() {}, _setActiveRibbonTab() {}, setPcbStatus() {}, refreshFills() {},
+        setPropertiesTitle() {}, setActiveRibbonTab() {}, setPcbStatus() {}, refreshFills() {},
         bindToolNetControl(items, id, apply) {
             items.querySelector(`#${id}`).addEventListener('change', event => apply(event.target.value));
         },

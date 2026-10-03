@@ -59,7 +59,7 @@ for (const layer of ['hole', 'top-copper', 'top-silk']) {
                 properties = 'Properties';
                 clearCount++;
             },
-            _setActiveRibbonTab(tab) {
+            setActiveRibbonTab(tab) {
                 assert.equal(properties, 'Properties');
                 activeTab = tab;
                 tabChanges++;
@@ -95,7 +95,7 @@ function fixture() {
         _active: true, _shapeIdCounter: 1, pcbDocument: model, placements: model.placements,
         tracks: model.tracks, vias: model.vias, pads: model.pads, texts: model.texts, boardShapes: model.boardShapes,
         history: new CommandHistory(), _shapeElements: new Map(), getLayerGroup() { return null; },
-        clearProperties() { events.push('properties'); }, _setActiveRibbonTab(tab) { events.push(tab); },
+        clearProperties() { events.push('properties'); }, setActiveRibbonTab(tab) { events.push(tab); },
         _cancelPasteDrop() { this._pasteDrop = null; events.push('paste'); },
     };
     const shape = { id: 'rect', kind: 'rect', layer: 'top-silk', lineWidth: 0.234567,

@@ -138,7 +138,7 @@ const { updateSelectionInteraction, finishSelectionInteraction, placeFloatingSel
         _shapeElements: new Map(), viewport: { scale: 20, setCrosshair() {}, hideCrosshair() {} },
         getLayerGroup(layer) { return layer === 'ratlines' ? ratLayer : null; },
         propertiesItems() { return { innerHTML: '' }; }, setPropertiesTitle(value) { title = value; },
-        _setActiveRibbonTab() {}, _snapToGrid(point) { return point; },
+        setActiveRibbonTab() {}, _snapToGrid(point) { return point; },
         updateRatsnest(options) { reconcileRatsnest(this, options); },
         history: { execute(command) { commands.push(command); command.execute(); } },
     };
@@ -247,7 +247,7 @@ console.log('PASS standalone conversion uses native shape kinds, menus, properti
         _shapeElements: new Map(), viewport: { scale: 20, setCrosshair() {}, hideCrosshair() {} },
         getLayerGroup(layer) { return layer === 'selection-overlay' ? overlay : null; },
         propertiesItems() { return { innerHTML: '' }; }, setPropertiesTitle(value) { title = value; },
-        _setActiveRibbonTab() {}, history: { execute(command) { commands.push(command); command.execute(); } },
+        setActiveRibbonTab() {}, history: { execute(command) { commands.push(command); command.execute(); } },
     };
     assert.equal(setBoardShapeSegmentType(app, shape, 0, 'arc'), true);
     assert.equal(shape.segmentBulges[0], 0.25);

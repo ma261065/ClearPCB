@@ -477,8 +477,8 @@ showBoardShapeProperties({
     viewport: { scale: 1 },
     propertiesItems() { return propertyItems; },
     setPropertiesTitle() {},
-    _setActiveRibbonTab(tab) { propertyTabs.push(tab); },
-    showPropertiesTab() { this._setActiveRibbonTab('pcb-properties'); },
+    setActiveRibbonTab(tab) { propertyTabs.push(tab); },
+    showPropertiesTab() { this.setActiveRibbonTab('pcb-properties'); },
 }, roundedRemovalRect);
 check('existing rectangle populates the PCB Properties panel',
     propertyItems.innerHTML.includes('pcbPropShapeLayer')
@@ -490,7 +490,7 @@ const segmentApp = {
     viewport: { scale: 1 },
     propertiesItems() { return propertyItems; },
     setPropertiesTitle(title) { segmentTitle = title; },
-    _setActiveRibbonTab() {},
+    setActiveRibbonTab() {},
 };
 setBoardShapeSegmentFocus(segmentApp, { shapeId: roundedRemovalRect.id, segment: 0 });
 showBoardShapeProperties(segmentApp, roundedRemovalRect);
@@ -501,7 +501,7 @@ showBoardShapeProperties({
     placements: new Map(), tracks: [], vias: [], texts: new Map(),
     viewport: { scale: 1 },
     propertiesItems() { return holeLinePropertyItems; },
-    setPropertiesTitle() {}, _setActiveRibbonTab() {},
+    setPropertiesTitle() {}, setActiveRibbonTab() {},
 }, { ...removalRect, kind: 'line', layer: 'hole', points: removalRect.points.slice(0, 2) });
 check('hole-layer Line properties include line thickness',
     holeLinePropertyItems.innerHTML.includes('pcbPropShapeLineWidth')
@@ -515,7 +515,7 @@ showBoardShapeProperties({
     boardShapes: [holeRect], placements: new Map(), tracks: [], vias: [], texts: new Map(),
     viewport: { scale: 1 },
     propertiesItems() { return holeRectPropertyItems; },
-    setPropertiesTitle() {}, _setActiveRibbonTab() {},
+    setPropertiesTitle() {}, setActiveRibbonTab() {},
 }, holeRect);
 check('other hole-layer shape properties omit line thickness',
     !holeRectPropertyItems.innerHTML.includes('pcbPropShapeLineWidth'));
@@ -525,7 +525,7 @@ showBoardShapeProperties({
     boardShapes: [circlePropertyShape], placements: new Map(), tracks: [], vias: [], texts: new Map(),
     viewport: { scale: 1 },
     propertiesItems() { return propertyItems; },
-    setPropertiesTitle() {}, _setActiveRibbonTab() {},
+    setPropertiesTitle() {}, setActiveRibbonTab() {},
 }, circlePropertyShape);
 check('circle diameter property displays the physical outside size',
     propertyItems.innerHTML.includes('pcbPropShapeDiameter')
@@ -660,7 +660,7 @@ for (const layer of ['hole', 'top-copper', 'bottom-copper']) {
             viewport: { scale: 1 }, _shapeElements: new Map(),
             getLayerGroup() { return null; },
             propertiesItems() { return diameterItems; },
-            setPropertiesTitle() {}, _setActiveRibbonTab() {},
+            setPropertiesTitle() {}, setActiveRibbonTab() {},
             refreshFills() { fillRefreshes++; },
             _refreshPcbSelectionHighlights() { selectionRefreshes++; },
             history: { execute(command) { commands.push(command); command.execute(); } },

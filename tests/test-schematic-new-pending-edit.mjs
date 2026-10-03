@@ -35,7 +35,7 @@ function fixture() {
         showCrosshair() {}, hideCrosshair() {}, updateCrosshair() {},
         updateSelectableItems() {}, _updateUndoRedoButtons() {}, _updateTitle() {},
         renderShapes() {}, removeBoxSelectElement() {}, setToolCursor() {}, updateShapePanelOptions() {},
-        invalidate() {}, _setActiveRibbonTab() {}, confirm: async () => true,
+        invalidate() {}, setActiveRibbonTab() {}, confirm: async () => true,
         alert: message => alerts.push(message),
     });
     project.registerView('schematic', app);

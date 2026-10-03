@@ -39,6 +39,8 @@
  *   Title the Properties panel (disposing editors bound to another object).
  * @property {() => void} showPropertiesTab
  *   Bring the Properties ribbon tab to the front.
+ * @property {(tabId: string) => void} setActiveRibbonTab
+ *   Bring any ribbon tab to the front; a no-op before the ribbon is bound.
  * @property {(current?: string) => {escape: (value: string) => string, options: string}} toolNetOptions
  *   HTML for the shared Net picker menu, with an escape helper.
  * @property {(items: HTMLElement, inputId: string, onChange: (net: string) => void) => void} bindToolNetControl
@@ -61,5 +63,5 @@ export const PCB_EDITOR_SERVICES = Object.freeze([
     'getLayerGroup', 'getRoutingParams', 'refreshFills', 'refreshClearanceHalos', 'updateRatsnest',
     'updateCopperCuts', 'refreshText', 'selectFill', 'refreshSelectedDRCMarker', 'clearProperties',
     'setStatus', 'setPcbStatus', 'syncClipboardButtons', 'propertiesItems', 'setPropertiesTitle', 'showPropertiesTab',
-    'toolNetOptions', 'bindToolNetControl', 'layerLabel', 'fitToContent',
+    'toolNetOptions', 'bindToolNetControl', 'layerLabel', 'fitToContent', 'setActiveRibbonTab',
 ]);

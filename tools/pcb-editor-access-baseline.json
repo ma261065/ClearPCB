@@ -25,7 +25,6 @@
     "_refreshPcbSelectionHighlights",
     "_rotationHandleDrag",
     "_scheduleRemovalHatchRender",
-    "_setActiveRibbonTab",
     "_shapeDrag",
     "_shapeDraw",
     "_shapeElements",
@@ -52,8 +51,7 @@
     "_netsForComponent",
     "_pcbSelectionInteraction",
     "_refreshPcbSelectionHighlights",
-    "_rerenderFills",
-    "_setActiveRibbonTab"
+    "_rerenderFills"
   ],
   "src/pcb/modules/component-selection.js": [
     "_beginComponentDrag",
@@ -131,7 +129,6 @@
     "_segmentClickEdgeId",
     "_selectRefText",
     "_selectText",
-    "_setActiveRibbonTab",
     "_shapeDrag",
     "_showComponentPopup",
     "_showSaveToast",

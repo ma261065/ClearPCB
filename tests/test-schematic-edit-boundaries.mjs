@@ -175,7 +175,7 @@ for (const tool of ['wire', 'line', 'rect', 'circle', 'arc', 'polygon', 'text', 
         app.componentPicker = { isOpen: false };
         app.updateShapePanelOptions = () => {};
         app.updateToolOptions = () => {};
-        app._setActiveRibbonTab = tab => { app.activeTab = tab; };
+        app.setActiveRibbonTab = tab => { app.activeTab = tab; };
         app._setActiveToolButton = toolId => { app.activeButton = toolId; };
         app.selectTool(tool);
         assert.equal(app.activeTab, 'properties');
@@ -203,7 +203,7 @@ for (const tool of ['wire', 'line', 'rect', 'circle', 'arc', 'polygon', 'text', 
     app.componentPicker = { isOpen: false };
     app.updateShapePanelOptions = () => {};
     app.activeTab = 'properties';
-    app._setActiveRibbonTab = tab => { app.activeTab = tab; };
+    app.setActiveRibbonTab = tab => { app.activeTab = tab; };
     app.selectTool('select');
     assert.equal(app.activeTab, 'properties', 'Select preserves Properties when an existing shape is selected');
 }

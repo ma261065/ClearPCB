@@ -130,7 +130,7 @@ export function bindRibbon(app) {
         setActiveToolButton(SELECT_TOOL_ID);
     };
 
-    app._setActiveRibbonTab = (tabId) => {
+    app._activateRibbonTab = (tabId) => {
         retainRibbonHeight();
         tabs.forEach(tab => {
             const t = /** @type {HTMLElement} */ (tab);
@@ -156,10 +156,10 @@ export function bindRibbon(app) {
                 if (app.currentTool === 'wire') app.cancelWireDrawing?.();
                 app.selectTool?.(SELECT_TOOL_ID);
             }
-            app._setActiveRibbonTab(t.dataset.tab);
+            app.setActiveRibbonTab(t.dataset.tab);
         });
     });
-    app._setActiveRibbonTab(HOME_TAB_ID);
+    app.setActiveRibbonTab(HOME_TAB_ID);
 
     const get = (id) => document.getElementById(id);
 
@@ -243,7 +243,7 @@ export function bindRibbon(app) {
     // ESC key goes to home tab
     const ribbonEscHandler = (e) => {
         if (e.key === 'Escape') {
-            app._setActiveRibbonTab('home');
+            app.setActiveRibbonTab('home');
         }
     };
     document.addEventListener('keydown', ribbonEscHandler);
@@ -336,9 +336,9 @@ export function bindRibbon(app) {
         updateRibbonState(app, shapes);
         
         if (shapes.length > 0) {
-            app._setActiveRibbonTab?.('properties');
+            app.setActiveRibbonTab?.('properties');
         } else {
-            app._setActiveRibbonTab?.('home');
+            app.setActiveRibbonTab?.('home');
         }
     });
 

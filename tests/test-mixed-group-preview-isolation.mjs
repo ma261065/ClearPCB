@@ -102,7 +102,7 @@ function fixture(deferred = false, component = false) {
         updateRatsnest() { ratsnest++; }, _board3d: { refresh() { board++; } },
         refreshClearanceHalos() {}, _netsForComponent: () => new Set(),
         _cancelPosePreviews: PCBApp.prototype._cancelPosePreviews, isSectionEditing: PCBApp.prototype.isSectionEditing,
-        _cancelDrawingMode: () => false, _ensureViewport() {}, markSectionClean() {}, _setActiveRibbonTab() {}, setPcbStatus() {},
+        _cancelDrawingMode: () => false, _ensureViewport() {}, markSectionClean() {}, setActiveRibbonTab() {}, setPcbStatus() {},
         propertiesItems: () => ({ innerHTML: '' }), setPropertiesTitle: PCBApp.prototype.setPropertiesTitle,
         _selectText() {}, _removeTextElement() {}, _renderText() {},
         clearProperties: PCBApp.prototype.clearProperties,

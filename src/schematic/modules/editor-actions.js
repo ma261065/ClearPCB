@@ -84,7 +84,7 @@ export function runSchematicEscapeAction(app) {
     const activeTab = (document.getElementById('ribbonSchematic') || document)
         .querySelector('.ribbon-tab.active');
     if (activeTab instanceof HTMLElement && activeTab.dataset.tab !== 'home') {
-        app._setActiveRibbonTab?.('home');
+        app.setActiveRibbonTab?.('home');
         return;
     }
 

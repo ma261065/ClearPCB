@@ -28,7 +28,6 @@
     "_segmentDragGuidesScratch",
     "_selectedShapeNode",
     "_selectedShapeSegment",
-    "_setActiveRibbonTab",
     "_shapeSegmentClickCandidate",
     "_shapeSegmentSelectionElement",
     "_wireJunctionData",
@@ -36,9 +35,6 @@
   ],
   "src/schematic/modules/drawing.js": [
     "_drawSnapResult"
-  ],
-  "src/schematic/modules/editor-actions.js": [
-    "_setActiveRibbonTab"
   ],
   "src/schematic/modules/files.js": [
     "_clearAllComponents",
@@ -65,11 +61,11 @@
     "_selectedShapeSegment"
   ],
   "src/schematic/modules/ribbon.js": [
+    "_activateRibbonTab",
     "_cleanupRibbonEsc",
     "_clearComponentCaches",
     "_importEasyEDA",
     "_retainRibbonHeight",
-    "_setActiveRibbonTab",
     "_setActiveToolButton",
     "_showSaveToast"
   ],
@@ -86,7 +82,6 @@
     "_toggleTheme"
   ],
   "src/schematic/modules/tool.js": [
-    "_setActiveRibbonTab",
     "_setActiveToolButton",
     "_toolGhost"
   ],

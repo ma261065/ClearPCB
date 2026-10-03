@@ -134,7 +134,7 @@ export default class SchematicApp {
         /** Number of selectable objects under the pointer (overlap cycling tip). */
         this._overlapHitCount = 0;
         /** Ribbon tab switcher and height keeper, installed by bindRibbon(). */
-        this._setActiveRibbonTab = null;
+        this._activateRibbonTab = null;
         this._retainRibbonHeight = null;
         this.updateSelectableItems();
 
@@ -734,6 +734,14 @@ export default class SchematicApp {
         updatePropertiesPanel(this, selection);
     }
 
+    /**
+     * Bring a ribbon tab to the front; does nothing before the ribbon is bound.
+     * @param {string} tabId - `home`, `properties`, …
+     */
+    setActiveRibbonTab(tabId) {
+        this._activateRibbonTab?.(tabId);
+    }
+
     // ==================== Mouse Events ====================
     
     /**
@@ -1053,7 +1061,7 @@ export default class SchematicApp {
     }
 
     onDocumentReplaced() {
-        this._setActiveRibbonTab?.('home');
+        this.setActiveRibbonTab?.('home');
     }
 
     onProjectChanged() {

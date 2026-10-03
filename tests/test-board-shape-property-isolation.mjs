@@ -110,7 +110,7 @@ function fixture(kind, count = 1, unrelatedCount = 1, shapeLayer = 'top-copper')
         _active: true, _shapeElements: new Map(), _textElements: new Map(), _layerGroups: new Map(),
         viewport: { scale: 100, svg: new Element(), setCrosshair() {}, hideCrosshair() {} },
         getLayerGroup: id => id === 'selection-overlay' ? null : group,
-        propertiesItems: () => items, _setActiveRibbonTab() {}, _refreshPcbSelectionHighlights() {},
+        propertiesItems: () => items, setActiveRibbonTab() {}, _refreshPcbSelectionHighlights() {},
         refreshFills() { pours++; }, _refreshBoardShapeClearance() {}, _scheduleRemovalHatchRender() {},
         _cancelDrawingMode() {}, _ensureViewport() {}, markSectionClean() {},
     };
@@ -150,7 +150,7 @@ for (const index of [0, 1]) for (const action of ['Delete', 'Backspace', 'contex
     shape.points = shape.points.slice(0, 2);
     setBoardShapeNodeFocus(app, { shapeId: shape.id, index });
     let activeTab = 'pcb-properties';
-    app._setActiveRibbonTab = tab => { activeTab = tab; };
+    app.setActiveRibbonTab = tab => { activeTab = tab; };
     showBoardShapeProperties(app, shape);
     const before = captureBoardShapeState(shape);
     if (action === 'context') assert.equal(deleteBoardShapeVertex(app, shape, index), true);
@@ -176,7 +176,7 @@ for (const index of [0, 2]) {
     shape.points = shape.points.slice(0, 3);
     setBoardShapeNodeFocus(app, { shapeId: shape.id, index });
     let activeTab = 'pcb-properties';
-    app._setActiveRibbonTab = tab => { activeTab = tab; };
+    app.setActiveRibbonTab = tab => { activeTab = tab; };
     showBoardShapeProperties(app, shape);
     assert.equal(deleteBoardShapeVertex(app, shape, index), true);
     assert.ok(model.boardShapes.includes(shape));

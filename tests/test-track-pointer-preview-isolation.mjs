@@ -98,7 +98,7 @@ function fixture(mode, deferred = false, unrelatedCount = 1) {
         _active: true, _layerGroups: groups, _textElements: new Map(), _shapeElements: new Map(),
         viewport: { scale: 100, svg: new Element('svg'), shiftHeld: true, setCrosshair() {}, hideCrosshair() {} },
         propertiesItems: () => ({ innerHTML: '' }), getLayerGroup: id => groups.get(id) || null,
-        _setActiveRibbonTab() {}, setPcbStatus() {}, refreshFills() { fills++; },
+        setActiveRibbonTab() {}, setPcbStatus() {}, refreshFills() { fills++; },
         refreshClearanceHalos() { clearances++; }, _board3d: { refresh() { boardRefreshes++; } },
         _cancelDrawingMode() {}, _ensureViewport() {}, markSectionClean() {},
         _refreshPcbSelectionHighlights() {}, _scheduleRemovalHatchRender() {},

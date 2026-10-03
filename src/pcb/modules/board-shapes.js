@@ -1296,7 +1296,7 @@ function finishBoardShapeRemoval(app) {
     setBoardShapeNodeFocus(app, null);
     setBoardShapeSegmentFocus(app, null);
     app.clearProperties?.();
-    app._setActiveRibbonTab?.('pcb-home');
+    app.setActiveRibbonTab?.('pcb-home');
 }
 
 export function deleteSelectedBoardShape(app) {

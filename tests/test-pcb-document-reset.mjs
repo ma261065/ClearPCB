@@ -73,7 +73,7 @@ function fixture(active) {
         initialize() {}, _retainRibbonHeight() {},
         _updateViewportStatus() {}, syncPcbViewToggles() {},
         _syncFromSchematic() { this._stale = false; },
-        _setActiveRibbonTab(tab) { lifecycle.push(tab); },
+        setActiveRibbonTab(tab) { lifecycle.push(tab); },
         _showBoardDimensionsDialog() {
             assert.equal(this.boardShapes.length, 0, 'Prompt follows removal of the old shapes');
             assert.equal(getPcbSelectionEntries(this).length, 0, 'Prompt follows selection disposal');

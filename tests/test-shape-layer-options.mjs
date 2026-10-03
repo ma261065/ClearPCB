@@ -23,7 +23,7 @@ Object.assign(app, {
     viewport: { scale: 1 },
     propertiesItems: () => items,
     setPropertiesTitle() {},
-    _setActiveRibbonTab() {},
+    setActiveRibbonTab() {},
     setPcbStatus() {},
     syncClipboardButtons() {},
 });

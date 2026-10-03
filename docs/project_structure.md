@@ -109,7 +109,7 @@ services, listed and typed in `pcb/modules/pcb-editor-api.js` (`getLayerGroup`,
 crosshair, `alert`/`confirm`, the cancel helpers, inline text editing, tool
 selection and the command view hooks), rather than its `_`-prefixed members.
 Services are also the seams tests stub. A service both editors offer has one name
-in both (`fitToContent`, `copySelection`).
+in both (`fitToContent`, `setActiveRibbonTab`, `copySelection`).
 `node tools/check-pcb-editor-access.mjs` ratchets the remaining private
 accesses per module in `src/pcb` and `src/shared/pcb` against
 `tools/pcb-editor-access-baseline.json` in the same way; promote a member to a

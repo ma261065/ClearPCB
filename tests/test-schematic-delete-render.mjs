@@ -134,6 +134,7 @@ function fixture(shape) {
         history: new CommandHistory(), fileManager: { setDirty() {} },
         _onSelectionChanged: SchematicApp.prototype._onSelectionChanged,
         updateShapeSelectionTip: SchematicApp.prototype.updateShapeSelectionTip,
+        setActiveRibbonTab: SchematicApp.prototype.setActiveRibbonTab,
         updateSelectableItems() { this.selection.setShapes(this.shapes); },
         updatePropertiesPanel(selection) { updatePropertiesPanel(this, selection); },
         renderShapes(force) { renderShapes(this, force); },

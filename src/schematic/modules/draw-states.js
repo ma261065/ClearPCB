@@ -93,7 +93,7 @@ function activateHomeTabIfFileTabOpen(app) {
     const ribbonEl = document.getElementById('ribbonSchematic');
     const activeTab = ribbonEl?.querySelector('.ribbon-tab.active') || document.querySelector('.ribbon-tab.active');
     if (activeTab instanceof HTMLElement && activeTab.dataset?.tab === 'file') {
-        app._setActiveRibbonTab?.('home');
+        app.setActiveRibbonTab?.('home');
     }
 }
 
@@ -1228,7 +1228,7 @@ export const idleState = {
             app.renderShapes(true);
             app.updateShapeSelectionTip?.();
             app.updatePropertiesPanel?.(app.selection.getSelection());
-            app._setActiveRibbonTab?.('properties');
+            app.setActiveRibbonTab?.('properties');
             app.skipClickSelection = true;
             event.preventDefault();
         }
@@ -1255,7 +1255,7 @@ export const idleState = {
             app.renderShapes(true);
             app.updateShapeSelectionTip?.();
             app.updatePropertiesPanel?.(app.selection.getSelection());
-            app._setActiveRibbonTab?.('properties');
+            app.setActiveRibbonTab?.('properties');
             event.preventDefault();
             return;
         }
@@ -1263,7 +1263,7 @@ export const idleState = {
         // If a non-Home ribbon tab is showing, switch back to Home
         const activeTab = (document.getElementById('ribbonSchematic') || document).querySelector('.ribbon-tab.active');
         if (activeTab instanceof HTMLElement && activeTab.dataset.tab !== 'home') {
-            app._setActiveRibbonTab('home');
+            app.setActiveRibbonTab('home');
         }
 
         const hit = app.selection.hitTest(worldPos);

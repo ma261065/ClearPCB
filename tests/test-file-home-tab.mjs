@@ -32,7 +32,7 @@ function fixture(outcome = 'success') {
             pcb: {
                 clearSection() {},
                 onDocumentReplaced: PCBApp.prototype.onDocumentReplaced,
-                _setActiveRibbonTab(tab) { tabs.pcb = tab; events.push('pcb-home'); },
+                setActiveRibbonTab(tab) { tabs.pcb = tab; events.push('pcb-home'); },
             },
             notifyDocumentReplaced: ProjectDocument.prototype.notifyDocumentReplaced,
         },
@@ -53,7 +53,7 @@ function fixture(outcome = 'success') {
         shapes: [], components: [],
         _notifyDocumentReplaced: SchematicApp.prototype._notifyDocumentReplaced,
         onDocumentReplaced: SchematicApp.prototype.onDocumentReplaced,
-        _setActiveRibbonTab(tab) { tabs.schematic = tab; events.push('schematic-home'); },
+        setActiveRibbonTab(tab) { tabs.schematic = tab; events.push('schematic-home'); },
         confirm: async () => false, alert() { events.push('alert'); },
         fitToContent() {}, _updateTitle() {},
         selection: { clearSelection() {} }, _clearAllShapes() {}, _clearAllComponents() {},

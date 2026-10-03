@@ -25,7 +25,7 @@ app.boardShapes = [];
 app.netlist = [];
 app.propertiesItems = () => items;
 app.setPropertiesTitle = () => {};
-app._setActiveRibbonTab = () => {};
+app.setActiveRibbonTab = () => {};
 app.syncClipboardButtons = () => {};
 app.setPcbStatus = () => {};
 app._recomputeFillsNow = () => {};

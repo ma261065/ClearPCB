@@ -66,6 +66,7 @@ function fixture() {
         _showBoardShapeToolProperties(kind) { events.push(`properties:${kind}`); },
         _scheduleDRC() { events.push('drc'); },
         _getDrcPresentation: PCBApp.prototype._getDrcPresentation,
+        setActiveRibbonTab: PCBApp.prototype.setActiveRibbonTab,
     };
     Object.defineProperty(app, '_drcActive', Object.getOwnPropertyDescriptor(PCBApp.prototype, '_drcActive'));
     PCBApp.prototype._bindRibbonTabs.call(app);
@@ -110,7 +111,7 @@ for (const userInitiated of [false, true]) for (const sameTab of [false, true]) 
     const before = app._trackDraw || app._fillDraw || app._shapeDraw || app._textEdit;
     const target = sameTab ? 'pcb-home' : 'pcb-properties';
     if (userInitiated) f.tabs.find(tab => tab.id === target).click();
-    else app._setActiveRibbonTab(target);
+    else app.setActiveRibbonTab(target);
     const cancelled = !sameTab && ((userInitiated && tool !== 'select') || PCB_SHAPE_TOOLS.has(tool));
     assert.equal(app.currentTool, cancelled ? 'select' : tool, `${tool}/${userInitiated}/${sameTab}`);
     if (before) assert.equal(app._trackDraw || app._fillDraw || app._shapeDraw || app._textEdit || null,
@@ -131,15 +132,15 @@ for (const userInitiated of [false, true]) for (const sameTab of [false, true]) 
     f.buttons.Hole.click();
     assert.equal(f.app.currentTool, 'circle');
     assert.equal(f.app.activeLayer, 'hole', 'Hole is still the circle tool on the hole layer');
-    f.app._setActiveRibbonTab('pcb-design');
+    f.app.setActiveRibbonTab('pcb-design');
     assert.equal(f.app._drcActive, true);
     assert.equal(f.events.filter(event => event === 'drc').length, 1);
-    f.app._setActiveRibbonTab('pcb-home');
+    f.app.setActiveRibbonTab('pcb-home');
     assert.equal(f.app._drcActive, false);
 }
 {
     const f = fixture();
-    f.app._showTrackDrawProperties = () => f.app._setActiveRibbonTab('pcb-properties');
+    f.app._showTrackDrawProperties = () => f.app.setActiveRibbonTab('pcb-properties');
     startDrawing(f.app, 'track');
     const drawing = f.app._trackDraw;
     f.clickTool('track');

@@ -954,7 +954,7 @@ export default class PCBApp {
                 && e.button !== 2 && !e.ctrlKey && !e.metaKey) {
                 const activeTab = this.ribbon?.querySelector('.ribbon-tab.active');
                 if (activeTab instanceof HTMLElement && activeTab.dataset?.tab !== 'pcb-home') {
-                    this._setActiveRibbonTab?.('pcb-home');
+                    this.setActiveRibbonTab?.('pcb-home');
                 }
             }
             // Inline text edit: any left-click on the canvas commits
@@ -2444,7 +2444,7 @@ export default class PCBApp {
 
     /** @param {'new'|'open'|'import'} reason */
     onDocumentReplaced(reason) {
-        this._setActiveRibbonTab?.('pcb-home');
+        this.setActiveRibbonTab?.('pcb-home');
         if (reason === 'new' && this._active && !this._boardOutlineDrawn) {
             this._showBoardDimensionsDialog();
         }
@@ -2885,7 +2885,7 @@ export default class PCBApp {
             this._getDrcPresentation().setDesignActive(tabId === 'pcb-design');
         };
 
-        this._setActiveRibbonTab = setActive;
+        this._activateRibbonTab = setActive;
 
         tabs.forEach(tab => {
             tab.addEventListener('click', () => {
@@ -3191,7 +3191,15 @@ export default class PCBApp {
 
     /** Bring the Properties ribbon tab to the front (after showing a panel). */
     showPropertiesTab() {
-        this._setActiveRibbonTab?.('pcb-properties');
+        this.setActiveRibbonTab('pcb-properties');
+    }
+
+    /**
+     * Bring a ribbon tab to the front; does nothing before the ribbon is bound.
+     * @param {string} tabId - `pcb-home`, `pcb-properties`, `pcb-design`, …
+     */
+    setActiveRibbonTab(tabId) {
+        this._activateRibbonTab?.(tabId);
     }
 
     /** Build the shared editable Net dropdown used by PCB tool properties. */
@@ -3283,7 +3291,7 @@ export default class PCBApp {
         widthEl?.addEventListener('change', () => {
             if (widthEl.validity.customError) widthEl.reportValidity();
         });
-        this._setActiveRibbonTab?.('pcb-properties');
+        this.setActiveRibbonTab?.('pcb-properties');
     }
 
     /** Show Via placement defaults in Properties. */
@@ -3329,7 +3337,7 @@ export default class PCBApp {
                 if (element.validity.customError) element.reportValidity();
             });
         }
-        this._setActiveRibbonTab?.('pcb-properties');
+        this.setActiveRibbonTab?.('pcb-properties');
     }
 
     _showPadToolProperties() {
@@ -3378,7 +3386,7 @@ export default class PCBApp {
             isSelected: (kind, id) => isPcbSelected(this, kind, id),
             getItems: () => this.propertiesItems(),
             setTitle: title => this.setPropertiesTitle(title),
-            activateTab: () => this._setActiveRibbonTab?.('pcb-properties'),
+            activateTab: () => this.setActiveRibbonTab?.('pcb-properties'),
             layerLabel: layer => this.layerLabel(layer),
             bindStrokeText: (items, model, spec) => this._bindStrokeTextProps(items, model, spec),
             rotate: (id, before, after) => this.history.execute(new RotatePlacementCommand(this, id, before, after)),
@@ -5545,7 +5553,7 @@ export default class PCBApp {
      * place another label.
      */
     _exitTextTool() {
-        this._setActiveRibbonTab?.('pcb-home');
+        this.setActiveRibbonTab?.('pcb-home');
     }
 
     _pcbMultiPropertyCapabilities(entry) {

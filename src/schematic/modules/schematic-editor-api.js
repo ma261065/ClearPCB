@@ -44,6 +44,8 @@
  * @property {() => void} updateShapeSelectionTip
  * @property {() => void} removeBoxSelectElement
  * @property {() => void} fitToContent
+ * @property {(tabId: string) => void} setActiveRibbonTab
+ *   Bring a ribbon tab to the front; a no-op before the ribbon is bound.
  * @property {(component: object, screenPos?: {x: number, y: number}, options?: object) => void} updateComponentCodeTooltip
  * @property {(shape: Shape, linkedWireLabelText?: string|null) => Shape} commandAddShape
  * @property {(shape: Shape, options?: object) => void} commandRemoveShape
@@ -59,6 +61,6 @@ export const SCHEMATIC_EDITOR_SERVICES = Object.freeze([
     'startTextEdit', 'endTextEdit', 'handleTextEditKey', 'updateTextEditOverlay', 'setTextEditCaretFromScreen',
     'setToolCursor', 'selectTool', 'updateToolOptions', 'updateShapePanelOptions', 'copySelection',
     'updateSelectableItems', 'updateShapeSelectionTip', 'removeBoxSelectElement', 'fitToContent',
-    'updateComponentCodeTooltip', 'commandAddShape', 'commandRemoveShape', 'commandDeleteShapes',
+    'setActiveRibbonTab', 'updateComponentCodeTooltip', 'commandAddShape', 'commandRemoveShape', 'commandDeleteShapes',
     'commandRestoreShapes',
 ]);

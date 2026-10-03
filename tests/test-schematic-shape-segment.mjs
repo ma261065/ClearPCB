@@ -718,7 +718,7 @@ for (const [name, shape] of cases) {
     app.renderShapes = () => {};
     app.updatePropertiesPanel = () => {};
     let activeTab = null;
-    app._setActiveRibbonTab = tab => { activeTab = tab; };
+    app.setActiveRibbonTab = tab => { activeTab = tab; };
     const before = shape.captureState();
     idleState.mouseup(app, { button: 0, preventDefault() {} }, { worldPos: shape.nodes.get(nodeId) });
     idleState.click(app, { preventDefault() {} }, { worldPos: shape.nodes.get(nodeId) });
@@ -739,7 +739,7 @@ for (const [name, shape] of cases) {
     const edgeId = shape.edges.keys().next().value;
     let activeTab = null;
     let propertiesSelection = null;
-    app._setActiveRibbonTab = tab => { activeTab = tab; };
+    app.setActiveRibbonTab = tab => { activeTab = tab; };
     app.updatePropertiesPanel = selection => { propertiesSelection = selection; };
     app._pendingShapeSegmentToggle = { shape, edgeId, hadSegment: false, segmentCandidateMatches: false };
     idleState.click(app, { preventDefault() {} }, { worldPos: { x: 3, y: 0 } });
@@ -777,7 +777,7 @@ for (const position of [0, 3]) {
             let updates = 0;
             let activeTab = null;
             app.updatePropertiesPanel = () => { updates++; };
-            app._setActiveRibbonTab = tab => { activeTab = tab; };
+            app.setActiveRibbonTab = tab => { activeTab = tab; };
             const before = shape.captureState();
             bindMouseEvents(app);
             const event = { button: 0, clientX: position * 100, clientY: 0, preventDefault() {} };

@@ -30,7 +30,7 @@ function fixture() {
         _syncPcbHomeToolHighlight() { events.push('highlight'); },
         setPcbStatus() { events.push('status'); },
         _hideToolOptions() { events.push('hide-options'); },
-        _setActiveRibbonTab(tab) { events.push(tab); },
+        setActiveRibbonTab(tab) { events.push(tab); },
         handleKeyDown: PCBApp.prototype.handleKeyDown,
     };
     return { app, events, escape: target => app.handleKeyDown({ key: 'Escape', target }) };

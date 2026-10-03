@@ -165,9 +165,9 @@ export function onToolSelected(app, tool) {
     app.updateShapePanelOptions(app.selection.getSelection(), tool);
     app.updatePropertiesPanel(app.selection.getSelection());
     if (tool === 'wire' || tool === 'noconnect' || tool === 'line' || tool === 'rect' || tool === 'circle' || tool === 'arc' || tool === 'polygon' || tool === 'text' || tool === 'net') {
-        app._setActiveRibbonTab?.('properties');
+        app.setActiveRibbonTab?.('properties');
     } else if (tool === 'select' && app.selection.getSelection().length === 0) {
-        app._setActiveRibbonTab?.('home');
+        app.setActiveRibbonTab?.('home');
     }
 }
 

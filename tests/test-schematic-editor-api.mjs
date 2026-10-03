@@ -20,6 +20,8 @@ assert.deepEqual(importSpecifiers(readFileSync(new URL('../src/schematic/modules
 
 // A service both editors offer has one name in both.
 const shared = SCHEMATIC_EDITOR_SERVICES.filter(name => PCB_EDITOR_SERVICES.includes(name));
-assert.ok(shared.includes('fitToContent'), 'fitToContent is a service of both editors');
+for (const name of ['fitToContent', 'setActiveRibbonTab']) {
+    assert.ok(shared.includes(name), `${name} is a service of both editors`);
+}
 
 console.log(`PASS schematic editor services: ${SCHEMATIC_EDITOR_SERVICES.length} implemented publicly, no private aliases`);

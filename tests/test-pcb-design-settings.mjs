@@ -215,7 +215,7 @@ const toolInputs = new Map([['#pcbPropTrackToolWidth', width],
     ['#pcbPropViaToolDiameter', diameter], ['#pcbPropViaToolDrill', drill]]);
 const panel = { innerHTML: '', querySelector: id => toolInputs.get(id) || null };
 tools.propertiesItems = () => panel;
-tools.setPropertiesTitle = tools.setPcbStatus = tools._setActiveRibbonTab = tools.bindToolNetControl = () => {};
+tools.setPropertiesTitle = tools.setPcbStatus = tools.setActiveRibbonTab = tools.bindToolNetControl = () => {};
 tools.toolNetOptions = () => ({ escape: value => value, options: '' });
 tools._showTrackDrawProperties();
 assert.match(panel.innerHTML, /pcbPropTrackToolWidth[^>]*data-number-format="precise"/);
