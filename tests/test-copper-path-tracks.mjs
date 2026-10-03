@@ -90,7 +90,15 @@ const triangle = [{ x: 0, y: 0 }, { x: 5, y: 0 }, { x: 0, y: 5 }];
     expect('a netless line becomes a netless track', track.net === '' && track.layer === 'top-copper' && track.width === 0.3);
     expect('widths and bulges carry over', track.getEdgeWidth('e1') === 0.6 && track.edges.get('e0').bulge === -0.4);
     expect('both radius levels carry over', track.cornerRadius === 2 && track.nodeCornerRadius('n1') === 0.7);
-    expect('the source shape is kept without its net', track.sourceBoardShape?.id === 'geometry' && track.sourceBoardShape.net === '');
+    expect('only the source shape identity is kept', JSON.stringify(track.sourceBoardShape) === '{"id":"geometry"}');
+    const plated = trackFromBoardShape({ ...line, layer: 'hole', plated: true, net: 'N' });
+    expect('a plated source keeps its plating', JSON.stringify(plated.sourceBoardShape) === '{"id":"geometry","plated":true}');
+    const legacy = new Track({ points: [{ x: 0, y: 0 }, { x: 1, y: 0 }],
+        sourceBoardShape: { ...line, net: 'OLD', layer: 'hole', plated: true } });
+    expect('a full shape copy from an older file is trimmed to id and plating',
+        JSON.stringify(legacy.sourceBoardShape) === '{"id":"geometry","plated":true}'
+        && JSON.stringify(legacy.toJSON().sbs) === '{"id":"geometry","plated":true}'
+        && JSON.stringify(legacy.captureState().sourceBoardShape) === '{"id":"geometry","plated":true}');
     expect('an explicit net is used', trackFromBoardShape(line, ' VCC ').net === 'VCC');
 }
 

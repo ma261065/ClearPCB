@@ -34,6 +34,22 @@ const DEFAULT_LAYER = 'top-copper';
 /** Default track width in mm. */
 const DEFAULT_WIDTH = 0.2;
 
+/**
+ * What a Track keeps of the board shape it was converted from: the shape id (reused
+ * when it turns back into a shape, while still free) and a hole's plating. Everything
+ * else comes from the track itself; older files stored a full shape copy, trimmed here.
+ * @param {any} source
+ * @returns {{id?: string, plated?: true}|null}
+ */
+export function sourceShapeRecord(source) {
+    if (!source || typeof source !== 'object') return null;
+    /** @type {{id?: string, plated?: true}} */
+    const record = {};
+    if (typeof source.id === 'string' && source.id) record.id = source.id;
+    if (source.plated === true) record.plated = true;
+    return Object.keys(record).length ? record : null;
+}
+
 export class Track extends PolylineGraph {
     /**
      * Per-edge attribute schema (see PolylineGraph). A Track carries a
@@ -61,8 +77,8 @@ export class Track extends PolylineGraph {
     * @param {object} [options.nodeCornerRadii]
      * @param {object} [options.padConnections] - Map of nodeId →
      *   { componentId, pinNumber }
-    * @param {object|null} [options.sourceBoardShape] - Original generic
-    *   board shape when this Track was created by shape conversion.
+    * @param {object|null} [options.sourceBoardShape] - Identity of the board
+    *   shape this Track was converted from: `{ id, plated }` only (see sourceShapeRecord).
      * @param {object} [options.graphNodes] - Forwarded to PolylineGraph
      * @param {object} [options.graphEdges] - Forwarded to PolylineGraph
      * @param {Array<{x:number,y:number}>} [options.points] - Forwarded
@@ -82,9 +98,7 @@ export class Track extends PolylineGraph {
 
         // Default layer fallback for edges with no explicit assignment.
         this.layer = options.layer || DEFAULT_LAYER;
-        this.sourceBoardShape = options.sourceBoardShape
-            ? JSON.parse(JSON.stringify(options.sourceBoardShape))
-            : null;
+        this.sourceBoardShape = sourceShapeRecord(options.sourceBoardShape);
 
         // Pad connections (mirror of Wire.pinConnections).
         this.padConnections = new Map();
@@ -219,9 +233,7 @@ export class Track extends PolylineGraph {
         s.net = this.net;
         s.width = this.width;
         s.layer = this.layer;
-        s.sourceBoardShape = this.sourceBoardShape
-            ? JSON.parse(JSON.stringify(this.sourceBoardShape))
-            : null;
+        s.sourceBoardShape = sourceShapeRecord(this.sourceBoardShape);
         s.padConnections = {};
         for (const [nid, conn] of this.padConnections) s.padConnections[nid] = { ...conn };
         return s;
@@ -246,9 +258,7 @@ export class Track extends PolylineGraph {
         if ('net' in state) this.net = state.net || '';
         if (Number.isFinite(state.width) && state.width > 0) this.width = state.width;
         if (typeof state.layer === 'string') this.layer = state.layer;
-        this.sourceBoardShape = state.sourceBoardShape
-            ? JSON.parse(JSON.stringify(state.sourceBoardShape))
-            : null;
+        this.sourceBoardShape = sourceShapeRecord(state.sourceBoardShape);
         this.padConnections = new Map();
         if (state.padConnections) {
             for (const [nid, conn] of Object.entries(state.padConnections)) {

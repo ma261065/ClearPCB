@@ -576,7 +576,7 @@ Tracks use the schematic graph base plus track fields:
 | `ncr` | Per-node corner-radius overrides keyed by node ID, including zero to retain a sharp corner. |
 | `bg` | Edge bulges keyed by edge ID. |
 | `pdc` | Pad connections keyed by node ID. |
-| `sbs` | Original board-shape snapshot when a copper line, or an unfilled copper polygon/rectangle (closed loop), became a track. |
+| `sbs` | Identity of the board shape a track was converted from: `{ id, plated }` (both optional; `plated` only when the source was a plated hole). Reused when the track turns back into a board shape, the id only while no other shape uses it. Older files stored a full shape copy here; it is read and trimmed to these fields. |
 
 Per-edge maps contain only values that differ from the shape-wide default.
 

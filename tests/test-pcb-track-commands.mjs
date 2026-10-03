@@ -21,7 +21,7 @@ const track = new Track({
     graphEdges: { e0: { from: 'n0', to: 'n1' }, e1: { from: 'n1', to: 'n2' } },
     edgeLayers: { e1: 'bottom-copper' }, edgeWidths: { e1: 0.456789 }, edgeBulges: { e0: 0.123456 },
     nodeCornerRadii: { n1: 0.567891 }, padConnections: { n0: { componentId: 'R1', pinNumber: '1' } },
-    sourceBoardShape: { id: 'source-line', kind: 'line', layer: 'top-copper', lineWidth: 0.234567,
+    sourceBoardShape: { id: 'source-line', kind: 'line', layer: 'hole', plated: true, lineWidth: 0.234567,
         points: [{ x: 1.234567, y: -2.345678 }, { x: 20, y: 0 }], segmentBulges: { 0: 0.123456 } },
 });
 const firstVia = new Via({ x: 10, y: 0 }), secondVia = new Via({ x: 20, y: 0 });
@@ -66,8 +66,8 @@ after.edges.branch = { from: 'junction', to: 'n2', layer: 'bottom-copper', width
 delete after.padConnections.n0;
 after.padConnections.junction = { componentId: 'U2', pinNumber: '3' };
 after.nodeCornerRadii.junction = 0.678912;
-after.sourceBoardShape.points[0].x = 3.456789;
-after.sourceBoardShape.segmentBulges[0] = -0.234567;
+assert.deepEqual(after.sourceBoardShape, { id: 'source-line', plated: true }, 'only the source identity is kept');
+after.sourceBoardShape.id = 'renamed-source';
 const expectedAfter = structuredClone(after);
 const graph = new ModifyTrackGraphCommand(track, before, after);
 for (const snapshot of [before, after]) {
@@ -75,8 +75,8 @@ for (const snapshot of [before, after]) {
     snapshot.edges.e0.width = 999;
     Object.values(snapshot.padConnections)[0].componentId = 'caller mutation';
     snapshot.nodeCornerRadii.n1 = 999;
-    snapshot.sourceBoardShape.points[0].x = 999;
-    snapshot.sourceBoardShape.segmentBulges[0] = 999;
+    snapshot.sourceBoardShape.id = 'caller mutation';
+    delete snapshot.sourceBoardShape.plated;
 }
 history.execute(graph);
 assert.deepEqual(track.captureState(), expectedAfter, 'Nested graph snapshots are detached from their caller');
@@ -86,8 +86,8 @@ track.nodes.get('junction').x = 888;
 track.edges.get('branch').bulge = 888;
 track.padConnections.get('junction').componentId = 'live mutation';
 track.nodeCornerRadii.n1 = 888;
-track.sourceBoardShape.points[0].x = 888;
-track.sourceBoardShape.segmentBulges[0] = 888;
+track.sourceBoardShape.id = 'live mutation';
+delete track.sourceBoardShape.plated;
 graph.execute();
 assert.deepEqual(track.captureState(), expectedAfter, 'Applying graph state does not expose the stored snapshot');
 states.push(state());

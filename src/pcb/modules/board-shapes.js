@@ -312,7 +312,6 @@ function replaceTrackWithBoardShape(app, track, { filled, net, layer = null, pla
     const id = sourceId && !app.boardShapes.some((shape) => shape.id === sourceId)
         ? sourceId : `pshape_${app._shapeIdCounter++}`;
     const shape = {
-        ...track.sourceBoardShape,
         id,
         kind,
         layer: targetLayer,

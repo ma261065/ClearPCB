@@ -6,7 +6,7 @@
  * copper areas, subtract-mode shapes cut copper, and other layers carry no
  * connectivity, so those stay board shapes.
  */
-import { Track } from '../../shapes/track.js';
+import { Track, sourceShapeRecord } from '../../shapes/track.js';
 import { normalizeShapeCopperMode, rectCornerRadius, shapeIsFilled } from './board-shape-geometry.js';
 
 /** Whether a board shape is a copper path that belongs in the Track model. */
@@ -25,7 +25,8 @@ export function isCopperPathShape(shape) {
  * Track with the shape's nodes `n<i>` and segments `e<i>`; closed shapes get the
  * closing edge. A rectangle keeps its corner radius: a rectangular track loop
  * rounds with the same circular corners (see isTrackRectangleLoop). The source
- * shape is kept so Fill can turn a loop back into a filled shape with its id.
+ * shape's id and plating are kept so turning the track back into a shape (Fill,
+ * a non-copper layer, a removal mode) can reuse them.
  * @param {any} shape
  * @param {string} [net]
  */
@@ -44,12 +45,6 @@ export function trackFromBoardShape(shape, net = shape?.net || '') {
         edgeBulges: byEdge(shape.segmentBulges),
         cornerRadius: shape.kind === 'rect' ? rectCornerRadius(shape) : shape.cornerRadius,
         nodeCornerRadii: Object.fromEntries(Object.entries(shape.nodeCornerRadii || {}).map(([index, radius]) => [`n${index}`, radius])),
-        sourceBoardShape: sourceBoardShapeForTrack(shape),
+        sourceBoardShape: sourceShapeRecord(shape),
     });
-}
-
-function sourceBoardShapeForTrack(shape) {
-    const source = JSON.parse(JSON.stringify(shape));
-    source.net = '';
-    return source;
 }
