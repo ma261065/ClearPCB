@@ -1780,6 +1780,9 @@ function shapeDrawSnap(app, worldPos) {
     return snapPathPoint(app, worldPos, previous ? [previous] : [], false, continuations);
 }
 
+/** Screen distance (px) within which a click repeats the last placed vertex. */
+const REPEAT_CLICK_PX = 4;
+
 /** Left-click while a shape tool is active. */
 export function shapeDrawClick(app, kind, worldPos) {
     if (!SHAPE_KINDS.has(kind) || kind === 'image') return;
@@ -1801,6 +1804,14 @@ export function shapeDrawClick(app, kind, worldPos) {
         return;
     }
     const d = app._shapeDraw;
+    // The second click of a double-click lands on the vertex it just placed. It
+    // must not add another: snapped against itself it can land just off-grid.
+    const last = d.points.at(-1);
+    if ((kind === 'line' || kind === 'polygon') && last
+        && Math.hypot(worldPos.x - last.x, worldPos.y - last.y) * (app.viewport?.scale || 1) < REPEAT_CLICK_PX) {
+        updateShapeDrawPreview(app, worldPos);
+        return;
+    }
     const next = advanceShapeDrawing(kind, d.points, snap);
     d.points = next.points;
     if (next.complete) finishShapeDraw(app);

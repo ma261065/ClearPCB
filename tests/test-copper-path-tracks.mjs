@@ -28,7 +28,9 @@ const { isCopperPathShape, trackFromBoardShape } = await import('../src/shared/p
 const {
     addBoardShapeOrTrackCommand,
     canFillTrackLoop,
+    finishLineDraw,
     finishShapeDraw,
+    shapeDrawClick,
     copperPathReplacementCommands,
     fillTrackLoop,
 } = await import('../src/pcb/modules/board-shapes.js');
@@ -240,6 +242,26 @@ const triangle = [{ x: 0, y: 0 }, { x: 5, y: 0 }, { x: 0, y: 5 }];
     const resaved = document.serialize();
     expect('the migrated file saves the copper line as a track', !(resaved.boardShapes || []).some(shape => shape.id === 'legacy-line')
         && (resaved.tracks || []).length === 1);
+}
+
+{
+    // Finishing a Line with a double-click: its second click repeats the last vertex
+    // and must not add another, off-grid one.
+    const app = appFor(null);
+    Object.assign(app, { activeLayer: 'top-copper', currentTool: 'line',
+        viewport: { scale: 10, gridSize: 1.27, snapToGrid: true, setCrosshair() {}, hideCrosshair() {} },
+        _snapToGrid(point) { return { x: Math.round(point.x / 1.27) * 1.27, y: Math.round(point.y / 1.27) * 1.27 }; },
+        getLayerGroup() { return null; } });
+    setShapeDefaults(app, { lineWidth: 0.25, filled: false, copperMode: 'add', net: '' });
+    const vertices = [{ x: 50.8, y: -10.16 }, { x: 66.04, y: -10.16 }, { x: 66.04, y: -20.32 }];
+    for (const point of vertices) shapeDrawClick(app, 'line', point);
+    shapeDrawClick(app, 'line', { x: 66.04 + 0.05, y: -20.32 + 0.1 });
+    expect('the second click of a double-click adds no vertex', app._shapeDraw.points.length === 3);
+    finishLineDraw(app);
+    const track = app.tracks[0];
+    expect('the finished line has exactly the clicked vertices', track?.nodes.size === 3
+        && [...track.nodes.values()].every((point, index) =>
+            Math.hypot(point.x - vertices[index].x, point.y - vertices[index].y) < 1e-6));
 }
 
 if (failures) process.exitCode = 1;
