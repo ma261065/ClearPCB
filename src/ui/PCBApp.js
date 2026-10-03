@@ -2928,7 +2928,7 @@ export default class PCBApp {
                         <input class="app-modal-input" id="boardDlgHeight" type="number" value="${this._boardHeight}" min="5" step="1" style="margin-top:2px">
                     </div>
                     <div style="flex:1">
-                        <label for="boardDlgRadius" style="font-size:11px;color:var(--text-secondary)">Corner R (mm)</label>
+                        <label for="boardDlgRadius" style="font-size:11px;color:var(--text-secondary)">Corner Radius (mm)</label>
                         <input class="app-modal-input" id="boardDlgRadius" type="number" value="${Number(this._boardRadius).toFixed(2)}" min="0" step="0.5" style="margin-top:2px">
                     </div>
                 </div>
@@ -3359,7 +3359,7 @@ export default class PCBApp {
                 ${[['round', 'Round'], ['stadium', 'Stadium'], ['square', 'Square'], ['rectangle', 'Rectangle'], ['oval', 'Oval']]
                     .map(([value, label]) => `<option value="${value}"${!mixedShape && state.shape === value ? ' selected' : ''}>${label}</option>`).join('')}
             </select></div>
-            <div class="prop-row" data-prop="layer"><label>Copper</label><select id="pcbPropPadLayers">
+            <div class="prop-row" data-prop="layer"><label>Layer</label><select id="pcbPropPadLayers">
                 ${mixedLayers ? '<option value="" selected disabled>Mixed</option>' : ''}
                 <option value="top-copper"${!mixedLayers && state.layers === 'top-copper' ? ' selected' : ''}>Top</option>
                 <option value="bottom-copper"${!mixedLayers && state.layers === 'bottom-copper' ? ' selected' : ''}>Bottom</option>
@@ -3369,7 +3369,7 @@ export default class PCBApp {
             <div class="prop-row" data-prop="size"><label>Size (mm)</label><input type="number" id="pcbPropPadSize" value="${mixedSize ? '' : state.size}" placeholder="${mixedSize ? 'Mixed' : ''}" min="0.05" step="0.05"></div>
             ${showRatio ? `<div class="prop-row" data-prop="ratio"><label>Ratio</label><input type="number" id="pcbPropPadRatio" value="${mixedRatio ? '' : state.ratio}" placeholder="${mixedRatio ? 'Mixed' : ''}" min="1" step="0.1"></div>` : ''}
             <div class="prop-row" data-prop="drill"><label>Drill (mm)</label><input type="number" id="pcbPropPadDrill" value="${mixedDrill ? '' : state.drill}" placeholder="${mixedDrill ? 'Mixed' : ''}" min="0" max="${maximumDrill}" step="0.05" title="0 = no hole"></div>
-            ${showRotation ? `<div class="prop-row" data-prop="rotation"><label>Rotation</label><input type="number" id="pcbPropPadRotation" value="${mixedRotation ? '' : state.rotation}" placeholder="${mixedRotation ? 'Mixed' : ''}" step="1"></div>` : ''}
+            ${showRotation ? `<div class="prop-row" data-prop="rotation"><label>Rotation (°)</label><input type="number" id="pcbPropPadRotation" value="${mixedRotation ? '' : state.rotation}" placeholder="${mixedRotation ? 'Mixed' : ''}" step="1"></div>` : ''}
         `;
         let disposed = false;
         let preview = null;
@@ -3572,7 +3572,7 @@ export default class PCBApp {
             <label class="prop-row prop-toggle" data-prop="locked"><input type="checkbox" id="pcbPropOutlineLocked"${isLayerLocked('board-outline') ? ' checked' : ''}><span>Locked</span></label>
             <div class="prop-row" data-prop="width"><label>Width (mm)</label><input type="number" id="pcbPropBoardW" value="${Number(this._boardWidth).toFixed(2)}" min="5" step="1"></div>
             <div class="prop-row" data-prop="height"><label>Height (mm)</label><input type="number" id="pcbPropBoardH" value="${Number(this._boardHeight).toFixed(2)}" min="5" step="1"></div>
-            <div class="prop-row" data-prop="cornerRadius"><label>Corner R (mm)</label><input type="number" id="pcbPropBoardR" value="${Number(this._boardRadius).toFixed(2)}" min="0" step="0.5"></div>
+            <div class="prop-row" data-prop="cornerRadius"><label>Corner Radius (mm)</label><input type="number" id="pcbPropBoardR" value="${Number(this._boardRadius).toFixed(2)}" min="0" step="0.5"></div>
         `;
         const lockedEl = /** @type {HTMLInputElement|null} */ (document.getElementById('pcbPropOutlineLocked'));
         lockedEl?.addEventListener('change', () => {
@@ -5357,8 +5357,8 @@ export default class PCBApp {
         this._setPcbPropsTitle('New Text');
         items.innerHTML = `
             <div class="prop-row" data-prop="layer"><label>Layer</label><select id="pcbPropTextToolLayer">${layerOpts}</select></div>
-            <div class="prop-row" data-prop="fontSize"><label>Size (mm)</label><input type="number" id="pcbPropTextToolSize" value="${d.size}" min="0.2" max="20" step="0.1"></div>
-            <div class="prop-row" data-prop="lineWidth"><label>Line W (mm)</label><input type="number" id="pcbPropTextToolLW" value="${d.strokeWidth}" min="0.05" max="2" step="0.05"></div>
+            <div class="prop-row" data-prop="fontSize"><label>Text Size (mm)</label><input type="number" id="pcbPropTextToolSize" value="${d.size}" min="0.2" max="20" step="0.1"></div>
+            <div class="prop-row" data-prop="lineWidth"><label>Line Width (mm)</label><input type="number" id="pcbPropTextToolLW" value="${d.strokeWidth}" min="0.05" max="2" step="0.05"></div>
             <div class="prop-row" data-prop="rotation"><label>Rotation (°)</label><input type="number" id="pcbPropTextToolRot" data-number-format="rotation" value="${displayRotationDegrees(d.rotation)}" step="1"></div>
             <div class="prop-row" data-prop="border"><label><input type="checkbox" id="pcbPropTextToolBorder"${d.border ? ' checked' : ''}> Border</label></div>
         `;
@@ -5439,8 +5439,8 @@ export default class PCBApp {
         items.innerHTML = `
             ${insertRow}
             <div class="prop-row" data-prop="layer"><label>Layer</label><select id="pcbPropTextLayer"${disabled}>${layerOpts}</select></div>
-            <div class="prop-row" data-prop="fontSize"><label>Size (mm)</label><input type="number" id="pcbPropTextSize" value="${text.size}" min="0.2" step="0.1"${disabled}></div>
-            <div class="prop-row" data-prop="lineWidth"><label>Line W (mm)</label><input type="number" id="pcbPropTextLW" value="${text.strokeWidth}" min="0.05" step="0.05"${disabled}></div>
+            <div class="prop-row" data-prop="fontSize"><label>Text Size (mm)</label><input type="number" id="pcbPropTextSize" value="${text.size}" min="0.2" step="0.1"${disabled}></div>
+            <div class="prop-row" data-prop="lineWidth"><label>Line Width (mm)</label><input type="number" id="pcbPropTextLW" value="${text.strokeWidth}" min="0.05" step="0.05"${disabled}></div>
             <div class="prop-row" data-prop="rotation"><label>Rotation (°)</label><input type="number" id="pcbPropTextRot" data-number-format="rotation" value="${displayRotationDegrees(text.rotation)}" step="1"${disabled}></div>
             <div class="prop-row" data-prop="border"><label><input type="checkbox" id="pcbPropTextBorder"${text.border ? ' checked' : ''}${disabled}> Border</label></div>
         `;
@@ -6087,11 +6087,11 @@ export default class PCBApp {
                     return new EditTextCommand(this, object.id, after);
                 },
                 TEXT_LAYERS.map(layer => [layer, this._layerLabel(layer)]));
-            capabilities.size = number('Size (mm)', () => object.size,
+            capabilities.size = number('Text Size (mm)', () => object.size,
                 value => new EditTextCommand(this, object.id, { size: value }), 0.1, 0.1);
             capabilities.rotation = number('Rotation (°)', () => object.rotation || 0,
                 value => new EditTextCommand(this, object.id, { rotation: value }), -Infinity, 1);
-            capabilities.lineWidth = number('Line W (mm)', () => object.strokeWidth,
+            capabilities.lineWidth = number('Line Width (mm)', () => object.strokeWidth,
                 value => new EditTextCommand(this, object.id, { strokeWidth: value }), 0.01, 0.05);
             capabilities.border = checkbox('Border', () => !!object.border,
                 value => new EditTextCommand(this, object.id, { border: value }));
@@ -6103,7 +6103,7 @@ export default class PCBApp {
             const currentSize = () => placement.refSize || REF_DEFAULT_SIZE;
             const currentWidth = () => placement.refStrokeWidth || REF_DEFAULT_STROKE;
             const currentRotation = () => placement.refRot || 0;
-            capabilities.size = number('Size (mm)', currentSize,
+            capabilities.size = number('Text Size (mm)', currentSize,
                 value => new SetRefStyleCommand(this, object,
                     { refSize: currentSize(), refStrokeWidth: currentWidth(), refRot: currentRotation() },
                     { refSize: value, refStrokeWidth: currentWidth(), refRot: currentRotation() }),
@@ -6113,7 +6113,7 @@ export default class PCBApp {
                     { refSize: currentSize(), refStrokeWidth: currentWidth(), refRot: currentRotation() },
                     { refSize: currentSize(), refStrokeWidth: currentWidth(), refRot: value }),
                 -Infinity, 1);
-            capabilities.lineWidth = number('Line W (mm)', currentWidth,
+            capabilities.lineWidth = number('Line Width (mm)', currentWidth,
                 value => new SetRefStyleCommand(this, object,
                     { refSize: currentSize(), refStrokeWidth: currentWidth(), refRot: currentRotation() },
                     { refSize: currentSize(), refStrokeWidth: value, refRot: currentRotation() }),
@@ -6265,7 +6265,7 @@ export default class PCBApp {
                 capabilities.flipVertical = checkbox('Flip Vertical', () => !!object.artwork?.flipVertical,
                     value => shapeCommand(target => { target.artwork = { ...target.artwork, flipVertical: value }; }));
             } else {
-                capabilities.lineWidth = number('Width (mm)', () => object.lineWidth || 0.2,
+                capabilities.lineWidth = number('Line Width (mm)', () => object.lineWidth || 0.2,
                     value => shapeCommand(target => { target.lineWidth = value; }), 0.05, 0.05);
             }
         }

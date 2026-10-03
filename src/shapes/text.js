@@ -243,10 +243,10 @@ export class Text extends Shape {
             const descriptors = [
                 { key: 'locked',   label: 'Locked',    type: 'checkbox' },
                 { key: 'text',     label,               type: 'text' },
-                { key: 'fontSize', label: 'Text size',  type: 'number', min: 0.5, max: 50, step: 0.5 },
+                { key: 'fontSize', label: 'Text Size (mm)',  type: 'number', min: 0.5, max: 50, step: 0.5 },
             ];
             if (this.fieldKey === 'reference') {
-                descriptors.push({ key: 'rotation', label: 'Rotation', type: 'number', step: 15 });
+                descriptors.push({ key: 'rotation', label: 'Rotation (°)', type: 'number', step: 15 });
             }
             if (this.fieldKey === 'label') {
                 descriptors.push({ key: 'border', label: 'Border', type: 'checkbox' });
@@ -256,7 +256,7 @@ export class Text extends Shape {
         return [
             { key: 'locked',   label: 'Locked',    type: 'checkbox' },
             { key: 'text',     label: 'Label',      type: 'text' },
-            { key: 'fontSize', label: 'Text size',  type: 'number', min: 0.5, max: 50, step: 0.5 },
+            { key: 'fontSize', label: 'Text Size (mm)',  type: 'number', min: 0.5, max: 50, step: 0.5 },
             { key: 'border',   label: 'Border',     type: 'checkbox' },
         ];
     }

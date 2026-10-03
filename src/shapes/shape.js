@@ -207,7 +207,7 @@ export class Shape {
     getPropertyDescriptors() {
         return [
             { key: 'locked',    label: 'Locked',     type: 'checkbox' },
-            { key: 'lineWidth', label: 'Line width',  type: 'number', min: 0.05, max: 5, step: 0.05 },
+            { key: 'lineWidth', label: 'Line Width (mm)',  type: 'number', min: 0.05, max: 5, step: 0.05 },
         ];
     }
 

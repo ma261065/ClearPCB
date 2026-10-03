@@ -1562,8 +1562,15 @@ carry `data-prop` with their key; the schematic sorts its descriptors with
 `sortByPropertyOrder` (a descriptor's `orderKey` can rank it as a related
 property) and the PCB multi-selection panel sorts its shared keys the same way.
 `test-property-order` checks every key is ranked and every row is tagged;
-the `properties-panels-share-one-control-order` browser scenario renders each
-panel and checks the order.
+the `properties-panels-share-one-control-order-and-labels` browser scenario
+renders each panel and checks the order and that each property has one label.
+
+Labels use Title Case with units on measured values, and a property has the
+same label everywhere: Line Width (mm), Corner Radius (mm), Text Size (mm),
+Rotation (°), Outer Diameter (mm) for a stroked circle, Layer (including a
+pad's copper sides) and Net. Tracks label their width "Width (mm)" because a
+track's line is its width; field text is named for its field (Reference,
+Value, Label).
 
 Schematic startup immediately starts KiCad index loading in the background,
 without awaiting the download, to minimize the wait on first picker use.

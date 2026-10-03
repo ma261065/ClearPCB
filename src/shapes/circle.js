@@ -126,9 +126,9 @@ export class Circle extends Shape {
     getPropertyDescriptors() {
         return [
             // The diameter includes the line width, so it is ordered after it (see property-order.js).
-            { key: 'diameter', orderKey: 'outerDiameter', label: 'Diameter (mm)', type: 'number', min: 0.15, step: 0.1 },
+            { key: 'diameter', orderKey: 'outerDiameter', label: 'Outer Diameter (mm)', type: 'number', min: 0.15, step: 0.1 },
             { key: 'locked',    label: 'Locked',     type: 'checkbox' },
-            { key: 'lineWidth', label: 'Line width',  type: 'number', min: 0.05, max: 5, step: 0.05 },
+            { key: 'lineWidth', label: 'Line Width (mm)',  type: 'number', min: 0.05, max: 5, step: 0.05 },
             { key: 'fill',      label: 'Fill',        type: 'checkbox' },
         ];
     }

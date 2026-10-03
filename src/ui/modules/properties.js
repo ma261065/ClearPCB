@@ -224,7 +224,7 @@ function renderNewShapeProperties(app, panel, tool, isCurrent) {
         fontSizeRow.dataset.prop = 'fontSize';
         const fontSizeLabel = document.createElement('label');
         fontSizeLabel.setAttribute('for', 'prop_newShapeFontSize');
-        fontSizeLabel.textContent = tool === 'text' ? 'Label size' : 'Text size';
+        fontSizeLabel.textContent = 'Text Size (mm)';
         const fontSizeInput = document.createElement('input');
         fontSizeInput.type = 'number';
         fontSizeInput.id = 'prop_newShapeFontSize';
@@ -250,7 +250,7 @@ function renderNewShapeProperties(app, panel, tool, isCurrent) {
     lineWidthRow.className = 'prop-row';
     const lineWidthLabel = document.createElement('label');
     lineWidthLabel.setAttribute('for', 'prop_newShapeLineWidth');
-    lineWidthLabel.textContent = 'Line width';
+    lineWidthLabel.textContent = 'Line Width (mm)';
     const lineWidthInput = document.createElement('input');
     lineWidthInput.type = 'number';
     lineWidthInput.id = 'prop_newShapeLineWidth';
@@ -397,7 +397,7 @@ export function updatePropertiesPanel(app, selection) {
 
             const descriptors = selectedNode
                 ? (showNodeCornerRadius
-                    ? [{ key: 'cornerRadius', label: 'Corner radius', type: 'number', min: 0, max: 25, step: 0.5 }] : [])
+                    ? [{ key: 'cornerRadius', label: 'Corner Radius (mm)', type: 'number', min: 0, max: 25, step: 0.5 }] : [])
                 : selectedSegment
                     ? mergeDescriptors(selection).filter((desc) => desc.key === 'lineWidth')
                     : mergeDescriptors(selection);

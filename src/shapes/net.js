@@ -547,8 +547,8 @@ export class Net extends Shape {
     getPropertyDescriptors() {
         return [
             { key: 'locked',   label: 'Locked',    type: 'checkbox' },
-            { key: 'net',      label: 'Net name',   type: 'text' },
-            { key: 'fontSize', label: 'Text size',  type: 'number', min: 0.5, max: 20, step: 0.5 },
+            { key: 'net',      label: 'Net',   type: 'text' },
+            { key: 'fontSize', label: 'Text Size (mm)',  type: 'number', min: 0.5, max: 20, step: 0.5 },
             { key: 'border',   label: 'Border',     type: 'checkbox' },
             { key: 'style',    label: 'Style',      type: 'select', options: [
                 { value: 't', label: 'T' },

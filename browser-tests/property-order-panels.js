@@ -1,8 +1,8 @@
 /**
  * Runs inside the app page: shows the Properties panel for one of each kind of
- * object and tool, and returns the `data-prop` key of every row in each panel.
- * Kept separate from the scenario so it can also be imported in a live page.
- * @returns {Promise<Record<string, Array<string|null>>>}
+ * object and tool, and returns each panel's rows as `{ key, label }` (`key` is the
+ * row's `data-prop`). Kept separate from the scenario so it can also be imported in a live page.
+ * @returns {Promise<Record<string, Array<{key: string|null, label: string}>>>}
  */
 export async function collectPropertyPanels() {
     const at = path => import(new URL(path, location.origin).href);
@@ -21,7 +21,8 @@ export async function collectPropertyPanels() {
     // Every row with a control must be tagged; status rows such as "1 selected" carry no property.
     const read = items => [...items.querySelectorAll('.prop-row')]
         .filter(row => row.dataset.prop || row.querySelector('input, select, textarea, button'))
-        .map(row => row.dataset.prop || null);
+        .map(row => ({ key: row.dataset.prop || null,
+            label: ((row.tagName === 'LABEL' ? row : row.querySelector('label'))?.textContent || '').trim().replace(/\s+/g, ' ') }));
     const pcbPanel = (name, show) => { show(); panels[`pcb ${name}`] = read(pcb._pcbPropsItems()); };
     const add = command => pcb.history.execute(command);
     const select = (kind, object) => setPcbSelection(pcb, [{ kind, object }]);

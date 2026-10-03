@@ -287,7 +287,7 @@ export class Arc extends Shape {
         return [
             { key: 'bulge', label: 'Bulge', type: 'number', min: -1, max: 1, step: 0.05 },
             { key: 'locked',    label: 'Locked',    type: 'checkbox' },
-            { key: 'lineWidth', label: 'Line width', type: 'number', min: 0.05, max: 5, step: 0.05 },
+            { key: 'lineWidth', label: 'Line Width (mm)', type: 'number', min: 0.05, max: 5, step: 0.05 },
             { key: 'fill',      label: 'Fill',       type: 'checkbox' },
         ];
     }

@@ -1111,10 +1111,10 @@ export class PolylineGraph extends Shape {
     getPropertyDescriptors() {
         const props = [
             { key: 'locked',    label: 'Locked',     type: 'checkbox' },
-            { key: 'lineWidth', label: 'Line width',  type: 'number', min: 0.05, max: 5, step: 0.05 },
+            { key: 'lineWidth', label: 'Line Width (mm)',  type: 'number', min: 0.05, max: 5, step: 0.05 },
         ];
         if (this.nodes && this.nodes.size >= 3) {
-            props.push({ key: 'cornerRadius', label: 'Corner radius', type: 'number', min: 0, max: 25, step: 0.5 });
+            props.push({ key: 'cornerRadius', label: 'Corner Radius (mm)', type: 'number', min: 0, max: 25, step: 0.5 });
             props.push({ key: 'fill', label: 'Fill', type: 'checkbox' });
         }
         return props;

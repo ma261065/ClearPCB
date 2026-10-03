@@ -189,8 +189,8 @@ export class ComponentProperties {
         items.innerHTML = `
             <div class="prop-row" data-prop="reference"><label>Reference</label><input type="text" id="pcbPropRefName" value="${pl.reference ?? ''}" disabled></div>
             <div class="prop-row" data-prop="layer"><label>Layer</label><input type="text" id="pcbPropRefLayer" value="${this.capabilities.layerLabel(silkLayer)}" disabled></div>
-            <div class="prop-row" data-prop="fontSize"><label>Size (mm)</label><input type="number" id="pcbPropRefSize" value="${size}" min="0.2" step="0.1"${disabled}></div>
-            <div class="prop-row" data-prop="lineWidth"><label>Line W (mm)</label><input type="number" id="pcbPropRefLW" value="${lw}" min="0.05" step="0.05"${disabled}></div>
+            <div class="prop-row" data-prop="fontSize"><label>Text Size (mm)</label><input type="number" id="pcbPropRefSize" value="${size}" min="0.2" step="0.1"${disabled}></div>
+            <div class="prop-row" data-prop="lineWidth"><label>Line Width (mm)</label><input type="number" id="pcbPropRefLW" value="${lw}" min="0.05" step="0.05"${disabled}></div>
             <div class="prop-row" data-prop="rotation"><label>Rotation (°)</label><input type="number" id="pcbPropRefRot" data-number-format="rotation" value="${rot}" step="1"${disabled}></div>
         `;
         const num = (min) => (v) => {
