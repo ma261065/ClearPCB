@@ -389,6 +389,19 @@ for (const replacement of ['refresh', 'selection']) {
     cancelPictureCopperRefresh(app);
 }
 
+for (const [field, layer, mode] of [['pcbPropShapeLayer', 'top-copper', null], ['pcbPropShapeCopperMode', null, 'add']]) {
+    const { app, shapes } = fixture('cornerRadius', 1, 1, mode ? 'top-copper' : 'top-silk');
+    if (mode) shapes[0].copperMode = 'remove-copper';
+    setPcbSelection(app, [{ kind: 'shape', object: shapes[0] }]);
+    showBoardShapeProperties(app, shapes[0]);
+    const input = fields.get(field);
+    input.value = layer || mode; input.fire('change');
+    assert.equal(app.tracks.length, 1, `${field} change made the shape a track`);
+    assert.ok(fields.has('pcbPropTrackLayer') && !fields.has('pcbPropShapeLayer'),
+        `after ${field} turns the shape into a track, the panel shows the track rather than the replaced shape`);
+    cancelPictureCopperRefresh(app);
+}
+
 {
     const { app, model, shapes } = fixture('imageWidth');
     const width = fields.get('pcbPropImageWidth'), height = fields.get('pcbPropImageHeight');

@@ -560,8 +560,9 @@ export function showBoardShapeProperties(app, shape) {
     bulgeEl?.addEventListener('input', previewBulge);
     bulgeEl?.addEventListener('change', commitBulge);
 
+    /** Apply an edit; returns true when it turned the shapes into Tracks (the shape panel is then stale). */
     const commit = (mutate) => {
-        if (!binding.prepare()) return;
+        if (!binding.prepare()) return false;
         const tracks = [];
         const commands = propertyTargets().flatMap(displayed => {
             const target = canonicalBoardShape(app, displayed);
@@ -578,13 +579,14 @@ export function showBoardShapeProperties(app, shape) {
             tracks.push(replacement.track);
             return replacement.commands;
         });
-        if (!commands.length) return;
+        if (!commands.length) return false;
         app.history.execute(commands.length === 1 ? commands[0] : new CompoundCommand(commands));
         if (tracks.length) {
             selectReplacementTracks(app, tracks);
-            return;
+            return true;
         }
         app._refreshPcbSelectionHighlights?.();
+        return false;
     };
     const lineWidthPreview = createBoardShapePropertyPreview(app, propertyTargets());
     const diameterPreview = createBoardShapePropertyPreview(app, propertyTargets().filter(target => target.kind === 'circle'));
@@ -851,10 +853,12 @@ export function showBoardShapeProperties(app, shape) {
             syncCopperModeAvailability();
             return;
         }
-        commit((target) => {
+        const replaced = commit((target) => {
             target.layer = next;
             target.lineWidth = normalizedBoardShapeLineWidth(target, target.lineWidth);
         });
+        // A move onto copper can turn the shape into a Track that is now selected instead.
+        if (replaced) return;
         syncCopperModeAvailability();
         showBoardShapeProperties(app, shape);
     });
@@ -864,7 +868,7 @@ export function showBoardShapeProperties(app, shape) {
         if (!copperModeEl.value || propertyTargets().every(
             (target) => next === normalizeShapeCopperMode(target.copperMode),
         )) return;
-        commit((target) => { target.copperMode = next; });
+        if (commit((target) => { target.copperMode = next; })) return;
         syncCopperModeAvailability();
     });
     netEl?.addEventListener('change', () => {
