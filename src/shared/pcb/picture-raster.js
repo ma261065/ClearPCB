@@ -185,6 +185,30 @@ export function pictureContours(shape) {
     return pictureGeometry(shape).contours;
 }
 
+/**
+ * Raw traced rings (plus the frame when inverted) in board space. Under the even-odd rule
+ * they cover exactly the merged picture area, so fill-only rendering can skip the
+ * expensive strictly-simple merge that exports, copper and 3D still use.
+ */
+export function pictureOutlineRings(shape) {
+    const { artwork } = shape;
+    if (!artwork?.contours) return null;
+    const points = picturePoints(shape);
+    const origin = points[0];
+    const ring = path => path.map(({ x, y }) => {
+        const column = artwork.flipHorizontal ? artwork.width - x : x;
+        const row = artwork.flipVertical ? artwork.height - y : y;
+        return {
+            x: origin.x + (points[1].x - origin.x) * column / artwork.width + (points[3].x - origin.x) * row / artwork.height,
+            y: origin.y + (points[1].y - origin.y) * column / artwork.width + (points[3].y - origin.y) * row / artwork.height,
+        };
+    });
+    const rings = artwork.contours.map(ring);
+    if (artwork.invert) rings.push(ring([{ x: 0, y: 0 }, { x: artwork.width, y: 0 },
+        { x: artwork.width, y: artwork.height }, { x: 0, y: artwork.height }]));
+    return rings;
+}
+
 export function pictureRegions(shape) {
     return pictureGeometry(shape).regions;
 }

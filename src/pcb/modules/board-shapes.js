@@ -85,6 +85,7 @@ import {
     shapeOutline,
     boardShapeStrokeSegments,
     boardShapeRemovalPathD,
+    boardShapeFillPathD,
     boardShapeBounds,
     boardShapeHitTest,
     shapePathD,
@@ -692,7 +693,7 @@ export function renderBoardShape(app, shape, opts = {}) {
     el.setAttribute('stroke-linejoin', 'round');
     el.setAttribute('stroke-linecap', 'round');
     if (shape.layer !== 'board-outline' && ['rect', 'polygon', 'circle', 'image'].includes(shape.kind) && !renderAsSegments && !st.isCopperRemoval && !st.isHoleLayer) {
-        el.setAttribute('d', boardShapeRemovalPathD(shape));
+        el.setAttribute('d', boardShapeFillPathD(shape));
         el.setAttribute('fill-rule', 'evenodd');
         if (!st.filled) el.setAttribute('fill', el.getAttribute('stroke'));
         el.setAttribute('stroke', 'none');

@@ -4,7 +4,7 @@ import { controlArcGeometry, sampleControlArc } from '../../shapes/arc-edit.js';
 import { pathStrokeSegments, hitTestStrokeSegments, pointsBounds, circleOuterRadius, circleHitTest, curveRatlineTargets } from '../../shapes/path-geometry.js';
 import { primitiveShapePath } from '../../shapes/shape-drawing.js';
 import ClipperLib from '../../../assets/vendor/clipper.esm.js';
-import { pictureContours, pictureCirclePathD } from './picture-raster.js';
+import { pictureContours, pictureCirclePathD, pictureOutlineRings } from './picture-raster.js';
 import { BULGE_EPS, arcEdgeContinuation, sampleArcEdge } from '../../shapes/arc-edge.js';
 import { closedShapeOutline } from '../../shapes/closed-outline.js';
 
@@ -326,6 +326,12 @@ export function boardShapeFilledRemovalOutlines(shape) {
     return outlines.map((outline) => outline.map((point) => ({
         x: point.X / scale, y: point.Y / scale,
     })));
+}
+
+/** Compound path for filling a shape's physical area with the even-odd rule, without a stroke. */
+export function boardShapeFillPathD(shape) {
+    const rings = shape.kind === 'image' ? pictureOutlineRings(shape) : null;
+    return rings ? rings.map(outlinePathD).join(' ') : boardShapeRemovalPathD(shape);
 }
 
 /** Compound path for the physical area removed by a copper-mode shape. */
