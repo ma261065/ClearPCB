@@ -56,7 +56,8 @@ import {
     isViaVisible,
     unlockPcbLayer,
 } from './layers.js';
-import { canRestoreTrackToSourceBoardShape, restoreTrackToSourceBoardShape, setBoardShapeNetHover } from './board-shapes.js';
+import { canRestoreTrackToSourceBoardShape, restoreTrackToSourceBoardShape, setBoardShapeNetHover,
+    canFillTrackLoop, fillTrackLoop } from './board-shapes.js';
 import { normalizeShapeCopperMode } from '../../shared/pcb/board-shape-geometry.js';
 import { showAlert } from '../../shared/ui/modal.js';
 import {
@@ -162,7 +163,8 @@ export function createTrackSelectionAdapter(app, track, id) {
             app.setPcbStatus?.();
             return;
         }
-        const clickedNodeId = !options.moved && drag?.mode === 'node' ? drag.nodes[0].nodeId : null;
+        const clickedNodeId = options.moved ? null : drag?.mode === 'node' ? drag.nodes[0].nodeId
+            : drag?.mode === 'rectangle' ? drag.nodes[drag.handle].nodeId : null;
         finishVertexDrag(app);
         if (getSelectedTrack(app) === track && clickedNodeId != null && track.nodes.has(clickedNodeId)) {
             selectTrackNode(app, track, clickedNodeId);
@@ -1298,10 +1300,18 @@ function _showTrackProperties(app, track) {
         <div class="prop-row"><label>Layer</label><select id="pcbPropTrackLayer">${mixedOpt}${layerOpts}</select></div>
         <div class="prop-row"><label>Width (mm)</label><input type="number" id="pcbPropTrackWidth" value="${formatNumberInputValue(track.width)}" min="0.05" step="0.05"></div>
         ${trackCornerRadiusProperty(track)}
+        ${canFillTrackLoop(track) ? '<label class="prop-row prop-toggle"><input type="checkbox" id="pcbPropTrackFill"><span>Fill</span></label>' : ''}
     `;
     const binding = createTrackPropertyBinding(app, track);
     bindTrackCornerRadius(binding);
     bindTrackWidth(binding);
+    const fillEl = /** @type {HTMLInputElement|null} */ (document.getElementById('pcbPropTrackFill'));
+    fillEl?.addEventListener('change', () => {
+        // A filled loop is a copper area, which a Track cannot represent.
+        if (!fillEl.checked || !binding.prepare()) return;
+        clearTrackSelection(app);
+        if (!fillTrackLoop(app, track)) fillEl.checked = false;
+    });
     const baseline = { net: track.net || '' };
     const netEl = /** @type {HTMLInputElement|null} */ (document.getElementById('pcbPropTrackNet'));
     const netMenuEl = /** @type {HTMLDetailsElement|null} */ (document.querySelector('.prop-net-menu'));

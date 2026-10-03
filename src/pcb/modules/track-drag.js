@@ -53,6 +53,8 @@ import { isLayerLocked, isLayerVisible } from './layers.js';
 import { bulgeRatio } from '../../core/geometry.js';
 import { formatNumberInputValue } from '../../core/number-inputs.js';
 import { arcFromBulge } from '../../shapes/arc-edge.js';
+import { trackRectangleOrder } from '../../shapes/track-geometry.js';
+import { resizeRectanglePoints } from '../../shapes/path-operations.js';
 import { getPcbSelection, syncPcbSelection } from './selection-registry.js';
 import { padLayers } from '../../shapes/pad-geometry.js';
 import { renderPad, removePadElements } from './pad.js';
@@ -1104,6 +1106,21 @@ export function startVertexDrag(app, track, worldPos, opts = {}) {
     if (nodeId) {
         const n = track.nodes.get(nodeId);
         if (!n) return false;
+        // A rectangular loop resizes like a board rectangle: the opposite corner
+        // stays put and the sides stay axis-aligned. Loops tied to pads keep
+        // free node dragging so their connections are not dragged along.
+        const rectangle = track.padConnections.size ? null : trackRectangleOrder(track);
+        if (rectangle) {
+            const drag = beginTrackPointer(app, track, {
+                mode: 'rectangle', handle: rectangle.indexOf(nodeId), grabX: worldPos.x, grabY: worldPos.y,
+                nodes: rectangle.map(id => ({ nodeId: id, startX: track.nodes.get(id).x,
+                    startY: track.nodes.get(id).y, padLink: null })),
+            });
+            if (!drag) return false;
+            setBoardViewRefreshSuspended(app, true);
+            app.viewport?.setCrosshair({ x: n.x, y: n.y });
+            return true;
+        }
         const drag = beginTrackPointer(app, track, {
             mode: 'node',
             grabX: worldPos.x,
@@ -1215,6 +1232,28 @@ export function updateVertexDrag(app, worldPos) {
         refreshTrackSelectionHalo(app);
         const input = /** @type {HTMLInputElement|null} */ (document.getElementById('pcbPropTrackBulge'));
         if (input) input.value = formatNumberInputValue(bulge);
+        return;
+    }
+
+    if (drag.mode === 'rectangle') {
+        const snap = snapPathPoint(app, worldPos, [], true);
+        const corners = drag.nodes.map(node => ({ x: node.startX, y: node.startY }));
+        const opposite = corners[(drag.handle + 2) % 4];
+        // A zero-width rectangle has no side axis left to resize along.
+        if (Math.abs(snap.x - opposite.x) < 1e-6 || Math.abs(snap.y - opposite.y) < 1e-6) return;
+        const points = resizeRectanglePoints(corners, drag.handle, snap);
+        if (drag.nodes.every((node, index) => {
+            const current = drag.track.nodes.get(node.nodeId);
+            return current.x === points[index].x && current.y === points[index].y;
+        })) return;
+        beginTrackPointerPreview(app, drag);
+        drag.nodes.forEach((node, index) => Object.assign(drag.track.nodes.get(node.nodeId), points[index]));
+        drag.track.invalidate();
+        app.viewport?.setCrosshair(points[drag.handle]);
+        renderTrack(drag.track, (id) => app.getLayerGroup(id), _opts(app));
+        app._refreshTrackClearance?.(drag.track);
+        refreshTrackSelectionHalo(app);
+        reconcileRatsnest(app);
         return;
     }
 

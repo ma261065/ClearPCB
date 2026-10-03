@@ -309,6 +309,24 @@ export function canRestoreTrackToSourceBoardShape(track) {
 }
 
 export function restoreTrackToSourceBoardShape(app, track) {
+    return replaceTrackWithBoardShape(app, track, { filled: false, net: '' });
+}
+
+/** Whether a track is a closed single-layer loop that Fill can turn into a copper area. */
+export function canFillTrackLoop(track) {
+    return !!simpleTrackLinePoints(track)?.closed;
+}
+
+/**
+ * Fill a closed track loop: a filled area is copper a Track cannot represent, so
+ * the loop becomes a filled board shape (polygon, or rectangle when axis-aligned)
+ * that keeps the track's net.
+ */
+export function fillTrackLoop(app, track) {
+    return canFillTrackLoop(track) && replaceTrackWithBoardShape(app, track, { filled: true, net: track.net || '' });
+}
+
+function replaceTrackWithBoardShape(app, track, { filled, net }) {
     if (!app.tracks?.includes(track)) return false;
     const source = simpleTrackLinePoints(track);
     if (!source) return false;
@@ -318,10 +336,10 @@ export function restoreTrackToSourceBoardShape(app, track) {
         kind: source.closed ? 'polygon' : 'line',
         layer: source.layer,
         lineWidth: source.width,
-        filled: false,
+        filled,
         copperMode: 'add',
         plated: false,
-        net: '',
+        net,
         points: source.points,
         segmentWidths: source.segmentWidths,
         segmentBulges: source.segmentBulges,

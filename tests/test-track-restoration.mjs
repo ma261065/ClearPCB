@@ -22,7 +22,9 @@ const { Track } = await import('../src/shapes/track.js');
 const { isTrackRectangleLoop, resolveTrackEdgePaths } = await import('../src/shapes/track-geometry.js');
 const {
     canRestoreTrackToSourceBoardShape,
+    canFillTrackLoop,
     convertBoardLineToTrack,
+    fillTrackLoop,
     restoreTrackToSourceBoardShape,
 } = await import('../src/pcb/modules/board-shapes.js');
 
@@ -247,6 +249,23 @@ function appFor(track) {
     expect('clearing the net restores the rounded rectangle', restored?.kind === 'rect'
         && restored.points.length === 4 && restored.cornerRadius === 2 && restored.id === rect.id
         && restored.layer === 'bottom-copper');
+}
+
+{
+    // Fill turns a closed loop into a filled board shape that keeps its net and corners.
+    const loop = new Track({ net: 'GND', width: 0.4, layer: 'top-copper', cornerRadius: 1,
+        graphNodes: { n0: { x: 0, y: 0 }, n1: { x: 8, y: 0 }, n2: { x: 8, y: 5 }, n3: { x: 0, y: 5 } },
+        graphEdges: { e0: { from: 'n0', to: 'n1' }, e1: { from: 'n1', to: 'n2' },
+            e2: { from: 'n2', to: 'n3' }, e3: { from: 'n3', to: 'n0' } } });
+    const app = appFor(loop);
+    expect('a closed loop can be filled', canFillTrackLoop(loop));
+    expect('filling a loop replaces the track', fillTrackLoop(app, loop) && app.tracks.length === 0);
+    const filled = app.boardShapes[0];
+    expect('the filled shape is a rectangle that keeps net, width and radius', filled?.filled === true
+        && filled.kind === 'rect' && filled.net === 'GND' && filled.lineWidth === 0.4 && filled.cornerRadius === 1
+        && filled.copperMode === 'add' && filled.layer === 'top-copper');
+    const open = new Track({ net: 'GND', width: 0.4, layer: 'top-copper', points: [{ x: 0, y: 0 }, { x: 8, y: 0 }, { x: 8, y: 5 }] });
+    expect('an open track cannot be filled', !canFillTrackLoop(open) && !fillTrackLoop(appFor(open), open));
 }
 
 {

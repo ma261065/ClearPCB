@@ -9,22 +9,27 @@ import { pointsFormAxisAlignedRect } from './path-operations.js';
  * (boardShapeHasCircularCorners); other tracks use quadratic corners.
  */
 export function isTrackRectangleLoop(track) {
-    if (track.nodes.size !== 4 || track.edges.size !== 4) return false;
+    return !!trackRectangleOrder(track);
+}
+
+/** Node ids of a rectangular track loop in loop order (see isTrackRectangleLoop), else null. */
+export function trackRectangleOrder(track) {
+    if (track.nodes.size !== 4 || track.edges.size !== 4) return null;
     const neighbours = new Map([...track.nodes.keys()].map(nodeId => [nodeId, []]));
     for (const [edgeId, edge] of track.edges) {
-        if (edge.bulge || !neighbours.has(edge.from) || !neighbours.has(edge.to)) return false;
-        if ((track.getEdgeLayer?.(edgeId) ?? track.layer) !== track.layer) return false;
+        if (edge.bulge || !neighbours.has(edge.from) || !neighbours.has(edge.to)) return null;
+        if ((track.getEdgeLayer?.(edgeId) ?? track.layer) !== track.layer) return null;
         neighbours.get(edge.from).push(edge.to);
         neighbours.get(edge.to).push(edge.from);
     }
-    if ([...neighbours.values()].some(list => list.length !== 2)) return false;
+    if ([...neighbours.values()].some(list => list.length !== 2)) return null;
     const order = [track.nodes.keys().next().value];
     while (order.length < 4) {
         const next = neighbours.get(order.at(-1)).find(nodeId => !order.includes(nodeId));
-        if (!next) return false;
+        if (!next) return null;
         order.push(next);
     }
-    return pointsFormAxisAlignedRect(order.map(nodeId => track.nodes.get(nodeId)));
+    return pointsFormAxisAlignedRect(order.map(nodeId => track.nodes.get(nodeId))) ? order : null;
 }
 
 /** Resolve copper centrelines identically for model queries, rendering and export. */
