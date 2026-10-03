@@ -37,6 +37,9 @@
   "src/schematic/modules/drawing.js": [
     "_drawSnapResult"
   ],
+  "src/schematic/modules/editor-actions.js": [
+    "_setActiveRibbonTab"
+  ],
   "src/schematic/modules/files.js": [
     "_clearAllComponents",
     "_clearAllShapes",
@@ -45,9 +48,6 @@
     "_serializeDocument",
     "_showSaveToast",
     "_updateTitle"
-  ],
-  "src/schematic/modules/keyboard.js": [
-    "_setActiveRibbonTab"
   ],
   "src/schematic/modules/label-attachment.js": [
     "_labelGuide"

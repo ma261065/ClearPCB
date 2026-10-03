@@ -13,7 +13,7 @@ import { redrawPropertyPreview, createPropertyPreview, createPropertyBinding,
 import { canRoundPathNode } from '../../shapes/path-geometry.js';
 import { beginPastePreview, cutSelection } from './clipboard.js';
 import { flipComponentH, flipComponentV, rotateComponentLeft, rotateComponentRight } from './components.js';
-import { deleteSelected } from './selection.js';
+import { runSchematicDeleteAction } from './editor-actions.js';
 
 // Retire panel callbacks on rebuild without losing pending numeric completion.
 const propertyPanels = new WeakMap();
@@ -875,7 +875,7 @@ export function updatePropertiesPanel(app, selection) {
 function _bindActionButtons(app, isCurrent) {
     const deleteBtn = document.getElementById('ribbonDelete');
     if (deleteBtn) {
-        deleteBtn.addEventListener('click', () => { if (isCurrent()) deleteSelected(app); });
+        deleteBtn.addEventListener('click', () => { if (isCurrent()) runSchematicDeleteAction(app); });
     }
     const decomposeBtn = document.getElementById('propDecomposeCorners');
     if (decomposeBtn) {

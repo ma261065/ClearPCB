@@ -104,7 +104,7 @@ export function cutSelection(app) {
     // Build ghost SVG before deleting (elements still in DOM)
     _buildGhostFromSelection(deduped, origin);
 
-    // Delete via undo-able commands (same logic as deleteSelected)
+    // Delete via undo-able commands (same logic as runSchematicDeleteAction)
     app.selection.clearSelection();
 
     const shapes = [];

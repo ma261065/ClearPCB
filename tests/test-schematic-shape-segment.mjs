@@ -28,10 +28,10 @@ const { Circle } = await import('../src/shapes/circle.js');
 const { Arc } = await import('../src/shapes/arc.js');
 const { Wire } = await import('../src/shapes/wire.js');
 const { setSchematicShapeSegmentType, showSegmentContextMenu, dismissAnchorContextMenu, splitAnchorAndDrag } = await import('../src/schematic/modules/context-menu.js');
-const { deleteSelected } = await import('../src/schematic/modules/selection.js');
+const { runSchematicDeleteAction } = await import('../src/schematic/modules/editor-actions.js');
 const { resolveAnchorDragOnMouseUp, commitShapeJoin } = await import('../src/schematic/modules/drag.js');
 const { SelectionManager } = await import('../src/core/SelectionManager.js');
-const { handleEscape } = await import('../src/schematic/modules/keyboard.js');
+const { runSchematicEscapeAction } = await import('../src/schematic/modules/editor-actions.js');
 const { setPathSegmentType } = await import('../src/shapes/path-operations.js');
 const { snapShapeBulge } = await import('../src/schematic/modules/shape-snap.js');
 const { bindMouseEvents } = await import('../src/schematic/modules/mouse.js');
@@ -344,7 +344,7 @@ for (const focus of ['node', 'segment']) {
     const original = shape.captureState();
     if (focus === 'node') app._selectedShapeNode = { shapeId: shape.id, nodeId: 'n1' };
     else app._selectedShapeSegment = { shapeId: shape.id, edgeId: 'e0' };
-    deleteSelected(app);
+    runSchematicDeleteAction(app);
     expect(`Delete acts on the focused ${focus}, not the entire shape`, app.shapes.length === 1 && app.shapes[0].type === 'polyline' && !app.shapes[0].closed);
     expect('focused deletion is one undo operation', app.commands.length === 1);
     app.commands[0].undo();
@@ -356,7 +356,7 @@ for (const focus of ['node', 'segment']) {
     const app = commandAppFor(shape);
     if (focus === 'node') app._selectedShapeNode = { shapeId: shape.id, nodeId: 'n0' };
     else app._selectedShapeSegment = { shapeId: shape.id, edgeId: 'e0' };
-    deleteSelected(app);
+    runSchematicDeleteAction(app);
     expect(`deleting the last ${focus} removes the line`, app.shapes.length === 0);
     app.commands[0].undo();
     expect('last-segment deletion is undoable', app.shapes[0] === shape);
@@ -377,7 +377,7 @@ for (const closed of [false, true]) {
         expect('split has no history before placement', app.commands.length === 0);
         shape.moveAnchor(app.drag.anchorId, 12, 2);
         if (cancel) {
-            handleEscape(app);
+            runSchematicEscapeAction(app);
             expect('Escape removes the split preview and restores the original', app.shapes.length === 1 && app.commands.length === 0
                 && JSON.stringify(shape.captureState()) === JSON.stringify(original));
         } else {
@@ -476,7 +476,7 @@ for (const mode of ['immediate', 'place', 'cancel']) {
         expect('curvature placement leaves both endpoints fixed', arc.startPoint.x === 1 && arc.startPoint.y === 2
             && arc.endPoint.x === 11 && arc.endPoint.y === 2);
         if (mode === 'cancel') {
-            handleEscape(app);
+            runSchematicEscapeAction(app);
             expect('Escape restores the original selected line without history', app.commands.length === 0
                 && app.shapes.length === 1 && app.shapes[0] === line && app.selection.getSelection()[0] === line
                 && JSON.stringify(line.captureState()) === JSON.stringify(before));
@@ -527,7 +527,7 @@ for (const kind of ['line', 'polygon', 'rectangle']) {
         if (floating) {
             expect('arc conversion floats a bulge handle before committing', app.drag.anchorId === `bulge_${edgeId}` && commands.length === 0);
             shape.moveAnchor(app.drag.anchorId, 5, 2.5);
-            handleEscape(app);
+            runSchematicEscapeAction(app);
             expect('Escape restores the original straight shape without history',
                 JSON.stringify(shape.captureState()) === JSON.stringify(before) && commands.length === 0 && app.drag === null);
             setSchematicShapeSegmentType(app, shape, edgeId, 'arc', { floating: true });
@@ -839,7 +839,7 @@ for (const kind of ['wire', 'line', 'polygon', 'rectangle']) for (const action o
         svgListeners.get('mousemove')(target);
         expect(`${kind} picked-up midpoint follows the cursor`, [...shape.nodes.values()].some(point => point.x === 5 && point.y === 3));
         if (action === 'cancel') {
-            handleEscape(app);
+            runSchematicEscapeAction(app);
             expect(`${kind} Escape restores pre-insertion geometry`, !app.drag && app.commands.length === 0
                 && JSON.stringify(shape.captureState()) === JSON.stringify(before));
         } else {

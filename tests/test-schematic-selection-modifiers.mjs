@@ -5,7 +5,7 @@ globalThis.window = { addEventListener() {} };
 globalThis.HTMLElement = class {};
 globalThis.document = { getElementById() { return null; }, querySelector() { return null; } };
 const { idleState, overlapCycleState, STATE_TABLE } = await import('../src/schematic/modules/draw-states.js');
-const { handleEscape } = await import('../src/schematic/modules/keyboard.js');
+const { runSchematicEscapeAction } = await import('../src/schematic/modules/editor-actions.js');
 const shape = (id, hit = true) => ({ id, visible: true, selected: false,
     hitTest: () => hit, hitTestAnchor: () => 'anchor', invalidate() {} });
 const below = shape('below'), top = shape('top'), unrelated = shape('unrelated', false);
@@ -37,7 +37,7 @@ idleState.mousedown(app, event({ shiftKey: true, ctrlKey: true }), positions);
 overlapCycleState.mouseup(app, event(), positions);
 assert.deepEqual(ids(), ['below', 'unrelated']);
 idleState.mousedown(app, event({ shiftKey: true }), positions);
-handleEscape(app);
+runSchematicEscapeAction(app);
 assert.equal(app.interactionState, 'idle');
 assert.equal(app._overlapCyclePress, null);
 assert.deepEqual(ids(), ['below', 'unrelated']);

@@ -4,7 +4,7 @@ import { bindRibbonHeight } from '../../shared/ui/ribbon-height.js';
 import { toggleSelectionLock } from './selection.js';
 import { rotateComponentRight } from './components.js';
 import { beginPastePreview, cutSelection } from './clipboard.js';
-import { deleteSelected } from './selection.js';
+import { runSchematicDeleteAction } from './editor-actions.js';
 
 /**
  * Binds all ribbon tab buttons, tool buttons, file commands, edit commands,
@@ -233,7 +233,7 @@ export function bindRibbon(app) {
         });
     }
 
-    get('ribbonDelete')?.addEventListener('click', () => deleteSelected(app));
+    get('ribbonDelete')?.addEventListener('click', () => runSchematicDeleteAction(app));
     get('ribbonToggleLock')?.addEventListener('click', () => toggleSelectionLock(app));
     get('ribbonRotate')?.addEventListener('click', () => rotateComponentRight(app));
     get('ribbonCut')?.addEventListener('click', () => cutSelection(app));

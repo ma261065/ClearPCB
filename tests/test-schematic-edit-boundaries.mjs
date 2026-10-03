@@ -17,7 +17,8 @@ globalThis.document = {
     querySelector: () => null,
 };
 const { default: SchematicApp } = await import('../src/ui/SchematicApp.js');
-const { bindKeyboardShortcuts, handleEscape, runSchematicHistoryAction } = await import('../src/schematic/modules/keyboard.js');
+const { bindKeyboardShortcuts } = await import('../src/schematic/modules/keyboard.js');
+const { runSchematicEscapeAction, runSchematicHistoryAction } = await import('../src/schematic/modules/editor-actions.js');
 const { onToolSelected } = await import('../src/schematic/modules/tool.js');
 
 function button() {
@@ -82,7 +83,7 @@ for (const source of ['keyboard', 'ribbon']) for (const action of ['undo', 'redo
         assert.equal(project.canSerialize(), true);
         assert.equal(app.history.undoStack.length, action === 'undo' ? 0 : 1);
         assert.equal(app.history.redoStack.length, action === 'undo' ? 1 : 0);
-        handleEscape(app);
+        runSchematicEscapeAction(app);
         assert.deepEqual(shape.captureState(), action === 'undo' ? before : after,
             'Escape cannot resurrect the snapshot from the already-cancelled drag');
     }

@@ -16,13 +16,15 @@ import { warmKiCadIndex } from '../components/KiCadFetcher.js';
 // exports (wire, drawing, components, files, export) use namespace imports
 // to keep the import block manageable.
 import { bindMouseEvents } from '../schematic/modules/mouse.js';
-import { bindKeyboardShortcuts, runSchematicHistoryAction } from '../schematic/modules/keyboard.js';
+import { bindKeyboardShortcuts } from '../schematic/modules/keyboard.js';
+import { runSchematicHistoryAction } from '../schematic/modules/editor-actions.js';
 import { bindPropertiesPanel, applyCommonProperty, updatePropertiesPanel, hasSchematicPropertyPreview } from '../schematic/modules/properties.js';
 import { bindRibbon, updateShapePanelOptions } from '../schematic/modules/ribbon.js';
 import { setToolCursor } from '../shared/ui/cursor.js';
 import { bindViewportControls, updateGridDropdown, fitToContent } from '../shared/ui/viewport.js';
 import { bindThemeToggle, toggleTheme, loadTheme } from '../schematic/modules/theme.js';
-import { deleteSelected, captureShapeState, applyShapeState } from '../schematic/modules/selection.js';
+import { captureShapeState, applyShapeState } from '../schematic/modules/selection.js';
+import { runSchematicDeleteAction } from '../schematic/modules/editor-actions.js';
 import { copySelection, cancelPaste } from '../schematic/modules/clipboard.js';
 import { removeBoxSelectElement } from '../shared/ui/box-selection.js';
 import { bindPaperEvents } from '../schematic/modules/paper.js';
@@ -957,7 +959,7 @@ export default class SchematicApp {
      * Deletes unlocked selected items with undo support.
      */
     _deleteSelected() {
-        deleteSelected(this);
+        runSchematicDeleteAction(this);
     }
 
     /**

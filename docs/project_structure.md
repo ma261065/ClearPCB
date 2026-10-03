@@ -178,14 +178,16 @@ PCB editor:
 Schematic editor:
 
 - `schematic/modules/schematic-editor-api.js` — public editor services for schematic modules.
+- `schematic/modules/editor-actions.js` — Undo, Redo, Delete and Escape entry points,
+  like `pcb/modules/editor-actions.js`.
 - `schematic/modules/schematic-view.js` — entity SVG lifecycle, culling and level of
   detail; `schematic/render/` — shape and component renderers and their view state.
 - `schematic/modules/draw-states.js` — the pointer interaction state machine;
-  `mouse.js`, `keyboard.js` (including `handleEscape` and history actions),
-  `ribbon.js`, `context-menu.js` — the input bindings that drive it.
+  `mouse.js`, `keyboard.js`, `ribbon.js`, `context-menu.js` — the input bindings
+  that drive it and the editor actions.
 - `schematic/modules/drawing.js`, `wire.js`, `components.js`, `clipboard.js`,
   `drag.js`, `text-edit.js` — drawing, wiring, placement, paste, drag commits and
-  inline text; `selection.js` — delete, lock and shape-state capture.
+  inline text; `selection.js` — lock and shape-state capture.
 - `schematic/modules/commands.js` — undo/redo commands; `shape-management.js` — the
   add/remove/delete/restore work behind the command view hooks.
 - `schematic/modules/properties.js` — the Properties panel; `files.js` — Open, Save

@@ -1,16 +1,14 @@
-import { cancelSchematicPointerInteraction } from './drag.js';
 import { ModifyPropertyCommand, MoveShapesCommand } from './commands.js';
 import { rotateNetOrientation } from '../../shapes/net.js';
 import { resolveWireSnapPosition, PIN_SNAP_TOL } from './wire.js';
 import { updateToolGhost } from './tool.js';
 import { ModalManager } from '../../core/ModalManager.js';
-import { cancelSchematicPropertyPreview } from './properties.js';
-import { cancelWireDrawing, finishWireDrawing } from './wire.js';
+import { finishWireDrawing } from './wire.js';
 import { flipComponentH, flipComponentV, rotateComponentRight } from './components.js';
 import { handleTextEditKey } from './text-edit.js';
 import { beginPastePreview, cutSelection } from './clipboard.js';
 import { finishDrawing, finishLine, finishPolygon } from './drawing.js';
-import { deleteSelected } from './selection.js';
+import { runSchematicDeleteAction, runSchematicEscapeAction, runSchematicHistoryAction } from './editor-actions.js';
 
 /**
  * Single-letter shortcuts that simply select a tool. Overloaded keys
@@ -38,112 +36,6 @@ const TOOL_KEYS = {
  */
 function canActOnSelection(app) {
     return !app.textEdit && !app.isDrawing && !app.pastingClipboard && app.currentTool === 'select';
-}
-
-/**
- * Central Escape handler. Encodes the full cancellation precedence in
- * one place so a single Escape always cancels the most specific active
- * thing first. Each step returns once it consumes the key:
- *   1. inline text edit
- *   2. an in-progress drag (interactionState-driven)
- *   3. a pending (pre-threshold) midpoint split
- *   4. the component picker
- *   5. an active selection (deselect)
- *   6. the open Net-style dropdown
- *   7. a non-Home ribbon tab (back to Home)
- *   8. a non-select tool (back to select)
- * @param {object} app - Application state.
- */
-export function handleEscape(app) {
-    // 1. Inline text edit.
-    if (app.textEdit) {
-        app.endTextEdit(false);
-        return;
-    }
-
-    // 2-3. Active pointer edits and pre-threshold midpoint splits.
-    if (cancelSchematicPointerInteraction(app)) return;
-
-    switch (app.interactionState) {
-        case 'drawing':
-            if (app.currentTool === 'wire') {
-                cancelWireDrawing(app);
-            } else {
-                app.cancelDrawing();
-            }
-            app.selectTool('select');
-            return;
-
-        case 'placing':
-            if (app.pastingClipboard) {
-                app.cancelPaste();
-            } else if (app.placingComponent) {
-                app.cancelComponentPlacement();
-            }
-            return;
-
-        case 'toolActive':
-            app.selectTool('select');
-            return;
-    }
-
-    // 4. Component picker.
-    if (app.componentPicker?.isOpen) {
-        app.componentPicker.close();
-        return;
-    }
-
-    // 5. Active selection — deselect. (Selecting a shape auto-activates the
-    // Properties ribbon tab, so this must run BEFORE the ribbon-tab step
-    // below, otherwise the first Escape would only reset the ribbon.)
-    if (app.selection?.getSelection?.().length > 0) {
-        app.selection.clearSelection();
-        app.renderShapes(true);
-        return;
-    }
-
-    // 6. Open Net-style dropdown.
-    const netMenu = document.getElementById('ribbonNetStyleMenu');
-    if (netMenu && netMenu.classList.contains('open')) {
-        netMenu.classList.remove('open');
-        return;
-    }
-
-    // 7. Non-Home ribbon tab → Home.
-    const activeTab = (document.getElementById('ribbonSchematic') || document)
-        .querySelector('.ribbon-tab.active');
-    if (activeTab instanceof HTMLElement && activeTab.dataset.tab !== 'home') {
-        app._setActiveRibbonTab?.('home');
-        return;
-    }
-
-    // 8. Non-select tool → select (safety net for stale state).
-    if (app.currentTool !== 'select') {
-        app.selectTool('select');
-    }
-}
-
-/** Settle reversible edits before either keyboard or ribbon history advances. */
-export function runSchematicHistoryAction(app, action) {
-    if (app.isDrawing || app.interactionState === 'drawing') return false;
-    if (app.textEdit) {
-        app.endTextEdit(false);
-        return true;
-    }
-    if (app.pastingClipboard) {
-        app.cancelPaste();
-        return true;
-    }
-    if (app.placingComponent) {
-        app.cancelComponentPlacement();
-        return true;
-    }
-    const cancelledProperty = cancelSchematicPropertyPreview(app);
-    cancelSchematicPointerInteraction(app);
-    const changed = app.history[action]();
-    if (changed) app.renderShapes(true);
-    if (changed || cancelledProperty) app.updatePropertiesPanel?.(app.selection.getSelection());
-    return true;
 }
 
 /** Flip the placing component / selected components horizontally. */
@@ -334,9 +226,9 @@ export function bindKeyboardShortcuts(app) {
         } else {
             switch (e.key) {
                 case 'Escape': {
-                    // All cancellation precedence lives in handleEscape.
+                    // All cancellation precedence lives in runSchematicEscapeAction.
                     // Escape is always consumed in schematic mode.
-                    handleEscape(app);
+                    runSchematicEscapeAction(app);
                     e.preventDefault();
                     e.stopPropagation();
                     e.stopImmediatePropagation();
@@ -358,7 +250,7 @@ export function bindKeyboardShortcuts(app) {
                     break;
                 case 'Delete':
                 case 'Backspace':
-                    deleteSelected(app);
+                    runSchematicDeleteAction(app);
                     break;
                 case 'x':
                 case 'X':

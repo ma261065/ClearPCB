@@ -147,6 +147,7 @@ clearpcb/
 │   │       ├── drag.js         # Drag commit + cleanup helpers
 │   │       ├── context-menu.js # Right-click menus, junction/segment deletion
 │   │       ├── keyboard.js     # Keyboard shortcuts and hotkeys
+│   │       ├── editor-actions.js # Undo/Redo, Delete and Escape entry points
 │   │       ├── wire.js         # Wire drawing, snapping, reconciliation
 │   │       ├── drawing.js      # Shape drawing (line, rect, circle, arc, polygon)
 │   │       ├── components.js   # Component placement, rotation, mirroring

@@ -33,7 +33,7 @@ inline edit, paste or placement, and the derived visuals (label guides, the
 inline-edit overlay, text measurement) follow the authored entities for free.
 Nor is there a PCB-style interaction table: the schematic's in-progress state
 is one `interactionState` machine (`draw-states.js`) with a single Escape
-precedence (`handleEscape()` in `keyboard.js`), and its keyboard guards test
+precedence (`runSchematicEscapeAction()` in `editor-actions.js`), and its keyboard guards test
 different subsets of that state rather than one repeated list.
 
 ## Startup and Component Picker

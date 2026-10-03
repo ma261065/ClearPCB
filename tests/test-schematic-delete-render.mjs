@@ -82,7 +82,7 @@ const {
     commandRestoreShapesInternal,
 } = await import('../src/schematic/modules/shape-management.js');
 const { renderShapes } = await import('../src/schematic/modules/schematic-view.js');
-const { deleteSelected } = await import('../src/schematic/modules/selection.js');
+const { runSchematicDeleteAction } = await import('../src/schematic/modules/editor-actions.js');
 const { deleteWire, deleteWireSegment, deleteSchematicShapeNode, splitAnchorAndDrag, setSchematicShapeSegmentType,
     decomposeShapeCorners } = await import('../src/schematic/modules/context-menu.js');
 const { bindKeyboardShortcuts } = await import('../src/schematic/modules/keyboard.js');
@@ -141,7 +141,7 @@ function fixture(shape) {
         commandRemoveShape(item, options) { return commandRemoveShapeInternal(this, item, options); },
         commandDeleteShapes(items, labels) { commandDeleteShapesInternal(this, items, labels); },
         commandRestoreShapes(items, labels) { commandRestoreShapesInternal(this, items, labels); },
-        _deleteSelected() { deleteSelected(this); },
+        _deleteSelected() { runSchematicDeleteAction(this); },
         _captureShapeState(item) { return item.captureState(); },
         showCrosshair() { this.crosshairVisible = true; },
         hideCrosshair() { this.crosshairVisible = false; },
@@ -197,7 +197,7 @@ for (const nodeId of ['n0', 'n2']) {
     const app = fixture(line);
     app._selectedShapeNode = { shapeId: line.id, nodeId };
     app._onSelectionChanged(app.selection.getSelection());
-    deleteSelected(app);
+    runSchematicDeleteAction(app);
     assert.deepEqual(app.shapes, [line]);
     assert.equal(line.nodes.size, 2);
     assert.equal(document.querySelector('.ribbon-tab.active').dataset.tab, 'properties');
@@ -235,7 +235,7 @@ for (const closed of [false, true]) for (const boundary of ['uniform', 'width-ch
     const app = fixture(shape);
     app._selectedShapeNode = { shapeId: shape.id, nodeId: 'n2' };
     app._onSelectionChanged(app.selection.getSelection());
-    deleteSelected(app);
+    runSchematicDeleteAction(app);
     const expected = closed
         ? [points[0], ...(boundary === 'uniform' ? [] : [points[1]]), ...points.slice(3)]
         : [points[0], ...(boundary === 'uniform' ? [] : [points[1]]), points[4]];
@@ -304,7 +304,7 @@ for (const split of [false, true]) {
     assert.equal(tip.hidden, true);
     app.selectionNotifications.length = 0;
     const rebuilds = app.ui.propertiesPanel.rebuilds;
-    deleteSelected(app);
+    runSchematicDeleteAction(app);
     assert.equal(tip.hidden, false, 'Finishing a refined edit restores the whole-shape selection tip');
     assert.equal(app.selectionNotifications.length, 1, 'Retained selection publishes its final refinement once');
     assert.deepEqual(app.selectionNotifications[0].selection, [shape]);
@@ -355,7 +355,7 @@ for (const kind of ['arc-to-line', 'line-to-arc', 'floating-line-to-arc',
 }
 
 for (const action of [
-    (app, shape) => { app._selectedShapeNode = { shapeId: shape.id, nodeId: 'n0' }; deleteSelected(app); },
+    (app, shape) => { app._selectedShapeNode = { shapeId: shape.id, nodeId: 'n0' }; runSchematicDeleteAction(app); },
     (app, shape) => deleteWireSegment(app, shape, 'e0'),
     (app, shape) => deleteWire(app, shape),
 ]) {
