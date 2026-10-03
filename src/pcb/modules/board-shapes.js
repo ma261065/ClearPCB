@@ -290,7 +290,17 @@ export function moveTrackToBoardLayer(app, track, layer) {
     return replaceTrackWithBoardShape(app, track, { filled: false, net: '', layer, plated, allowPadConnections: true });
 }
 
-function replaceTrackWithBoardShape(app, track, { filled, net, layer = null, plated = false, allowPadConnections = false }) {
+/**
+ * Give a track a copper removal mode. Removal shapes add no copper, so the
+ * track becomes an unfilled board shape on its layer without a net; 'add' is a no-op.
+ */
+export function setTrackCopperMode(app, track, copperMode) {
+    const mode = normalizeShapeCopperMode(copperMode);
+    if (mode === 'add' || !canMoveTrackToBoardLayer(track)) return false;
+    return replaceTrackWithBoardShape(app, track, { filled: false, net: '', copperMode: mode, allowPadConnections: true });
+}
+
+function replaceTrackWithBoardShape(app, track, { filled, net, layer = null, plated = false, copperMode = 'add', allowPadConnections = false }) {
     if (!app.tracks?.includes(track)) return false;
     const source = simpleTrackLinePoints(track, { allowPadConnections });
     if (!source) return false;
@@ -308,7 +318,7 @@ function replaceTrackWithBoardShape(app, track, { filled, net, layer = null, pla
         layer: targetLayer,
         lineWidth: layer ? normalizedBoardShapeLineWidth({ kind, layer: targetLayer }, source.width) : source.width,
         filled,
-        copperMode: 'add',
+        copperMode,
         plated,
         net,
         points: source.points,

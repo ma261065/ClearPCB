@@ -2008,8 +2008,11 @@ drop cannot leave duplicate preview/committed track outlines.
   (`fillTrackLoop()`; `test-copper-path-tracks`, `test-track-rectangle-editing`).
   The track Layer menu also lists non-copper layers: choosing one turns a
   single-layer line or loop back into an unfilled board shape, dropping its net
-  and pad links and keeping a hole's plating (`moveTrackToBoardLayer()`). For
-  branched or two-layer tracks those layers are disabled with a tooltip.
+  and pad links and keeping a hole's plating (`moveTrackToBoardLayer()`). Its
+  Copper Mode menu does the same for the removal modes, which add no copper:
+  the track becomes an unfilled shape on its own layer (`setTrackCopperMode()`),
+  and switching that shape back to Add Copper makes it a track again. For
+  branched or two-layer tracks those layers and modes are disabled with a tooltip.
 - `PCBApp.vias` — array of standalone `Via` objects. **All** vias are
   represented here, including those sitting at a Track's layer-change
   node. Tracks never carry implicit vias.

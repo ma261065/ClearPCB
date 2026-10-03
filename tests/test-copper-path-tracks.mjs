@@ -35,6 +35,7 @@ const {
     fillTrackLoop,
     canMoveTrackToBoardLayer,
     moveTrackToBoardLayer,
+    setTrackCopperMode,
 } = await import('../src/pcb/modules/board-shapes.js');
 const { setShapeDefaults } = await import('../src/pcb/modules/board-shape-state.js');
 
@@ -254,6 +255,32 @@ const triangle = [{ x: 0, y: 0 }, { x: 5, y: 0 }, { x: 0, y: 5 }];
     const ids = sharedApp.boardShapes.map(shape => shape.id);
     expect('tracks sharing a source shape get distinct ids', ids[0] === 'pshape_92' && ids[1] === 'pshape_93'
         && new Set(ids).size === 2);
+
+    // Removal modes add no copper: the track becomes an unfilled, netless shape on its own layer.
+    for (const mode of ['remove-copper', 'remove-solder-mask', 'remove-copper-mask']) {
+        const cut = new Track({ net: 'GND', width: 0.3, layer: 'bottom-copper',
+            points: [{ x: 0, y: 0 }, { x: 6, y: 0 }, { x: 6, y: 3 }] });
+        cut.padConnections.set('n0', { componentId: 'R1', pinNumber: '1' });
+        const cutApp = appFor(cut);
+        expect(`a track can use ${mode}`, setTrackCopperMode(cutApp, cut, mode) && cutApp.tracks.length === 0);
+        const shape = cutApp.boardShapes[0];
+        expect(`${mode} keeps the layer, width and path without a net`, shape?.copperMode === mode
+            && shape.layer === 'bottom-copper' && shape.kind === 'line' && shape.filled === false
+            && shape.lineWidth === 0.3 && shape.net === '' && shape.points.length === 3);
+        expect(`${mode} is not a copper path, so it stays a shape`, !isCopperPathShape(shape));
+        expect(`switching ${mode} back to add copper makes a track again`,
+            isCopperPathShape({ ...shape, copperMode: 'add' }));
+    }
+    const kept = new Track({ points: [{ x: 0, y: 0 }, { x: 4, y: 0 }] });
+    const keptApp = appFor(kept);
+    expect('add copper leaves a track alone', !setTrackCopperMode(keptApp, kept, 'add') && keptApp.tracks.length === 1);
+    const forked = new Track({
+        graphNodes: { n0: { x: 0, y: 0 }, n1: { x: 5, y: 0 }, n2: { x: 10, y: 0 }, n3: { x: 5, y: 5 } },
+        graphEdges: { e0: { from: 'n0', to: 'n1' }, e1: { from: 'n1', to: 'n2' }, e2: { from: 'n1', to: 'n3' } },
+    });
+    const forkedApp = appFor(forked);
+    expect('a branched track cannot use a removal mode', !setTrackCopperMode(forkedApp, forked, 'remove-copper')
+        && forkedApp.tracks.length === 1);
 }
 
 {

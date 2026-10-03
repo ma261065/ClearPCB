@@ -57,7 +57,7 @@ import {
     pcbLayerOptionHtml,
     unlockPcbLayer,
 } from './layers.js';
-import { setBoardShapeNetHover, canFillTrackLoop, fillTrackLoop, canMoveTrackToBoardLayer, moveTrackToBoardLayer } from './board-shapes.js';
+import { setBoardShapeNetHover, canFillTrackLoop, fillTrackLoop, canMoveTrackToBoardLayer, moveTrackToBoardLayer, setTrackCopperMode } from './board-shapes.js';
 import { PROP_HIDDEN_LAYERS } from './board-shape-properties.js';
 import { normalizeShapeCopperMode } from '../../shared/pcb/board-shape-geometry.js';
 import { showAlert } from '../../shared/ui/modal.js';
@@ -1304,11 +1304,19 @@ function _showTrackProperties(app, track) {
             ? pcbLayerOptionHtml(l.id, l.name)
             : `<option value="${l.id}" disabled title="${_escape(unmovableReason)}">${_escape(l.name)}</option>`;
     }).join('');
+    // Removal modes add no copper, so they also turn the track back into a board shape.
+    const unmovableModeReason = mixed
+        ? 'This track uses both copper layers. Only a track that is a single line or loop on one layer can use a removal mode.'
+        : 'This track branches. Only a track that is a single line or loop can use a removal mode.';
+    const copperModeOpts = '<option value="add" selected>Add Copper</option>' + [
+        ['remove-copper', 'Remove Copper'], ['remove-solder-mask', 'Remove Solder Mask'], ['remove-copper-mask', 'Remove Copper + Mask'],
+    ].map(([value, label]) => `<option value="${value}"${movable ? '' : ` disabled title="${_escape(unmovableModeReason)}"`}>${label}</option>`).join('');
     const mixedOpt = mixed ? `<option value="" selected>Multiple</option>` : '';
     const netOptions = _netOptions(app, track.net || '');
     items.innerHTML = `
         <div class="prop-row"><label>Net</label><span class="prop-net-control"><input type="text" id="pcbPropTrackNet" value="${_escape(track.net || '')}" placeholder="None"><details class="prop-net-menu"><summary aria-label="Select existing net"></summary><div>${netOptions}</div></details></span></div>
         <div class="prop-row"><label>Layer</label><select id="pcbPropTrackLayer">${mixedOpt}${layerOpts}</select></div>
+        <div class="prop-row"><label>Copper Mode</label><select id="pcbPropTrackCopperMode">${copperModeOpts}</select></div>
         <div class="prop-row"><label>Width (mm)</label><input type="number" id="pcbPropTrackWidth" value="${formatNumberInputValue(track.width)}" min="0.05" step="0.05"></div>
         ${trackCornerRadiusProperty(track)}
         ${canFillTrackLoop(track) ? '<label class="prop-row prop-toggle"><input type="checkbox" id="pcbPropTrackFill"><span>Fill</span></label>' : ''}
@@ -1358,6 +1366,20 @@ function _showTrackProperties(app, track) {
         }
     });
     const layerEl = /** @type {HTMLSelectElement|null} */ (document.getElementById('pcbPropTrackLayer'));
+    const copperModeEl = /** @type {HTMLSelectElement|null} */ (document.getElementById('pcbPropTrackCopperMode'));
+    copperModeEl?.addEventListener('change', () => {
+        if (!binding.prepare()) return;
+        const mode = copperModeEl.value;
+        const layer = track.getEdgeLayer(track.edges.keys().next().value) || track.layer;
+        if (mode === 'add' || isLayerLocked(layer) || !canMoveTrackToBoardLayer(track)) {
+            copperModeEl.value = 'add';
+            return;
+        }
+        clearTrackSelection(app);
+        setTrackCopperMode(app, track, mode);
+        reconcileRatsnest(app);
+        app._setActiveRibbonTab?.('pcb-properties');
+    });
     layerEl?.addEventListener('change', () => {
         if (!binding.prepare()) return;
         const v = layerEl.value;

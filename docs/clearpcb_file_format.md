@@ -600,6 +600,8 @@ quadratic corners. Filling a closed loop turns it into a filled board shape that
 keeps the `sbs` identity, net, width and radii. Moving a single-layer line or
 loop to a non-copper layer turns it back into an unfilled board shape with the
 `sbs` identity and no net; on the hole layer it keeps the source's plating.
+Giving such a track a copper removal mode likewise makes it an unfilled,
+netless board shape on its own copper layer.
 Track ids and board-shape ids must each be unique; opening or recovering a
 project that repeats one (possible with files from older builds) gives the later
 copies fresh ids, keeps their geometry and marks the project unsaved.
