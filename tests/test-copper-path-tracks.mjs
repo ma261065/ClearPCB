@@ -33,6 +33,8 @@ const {
     shapeDrawClick,
     copperPathReplacementCommands,
     fillTrackLoop,
+    canMoveTrackToBoardLayer,
+    moveTrackToBoardLayer,
 } = await import('../src/pcb/modules/board-shapes.js');
 const { setShapeDefaults } = await import('../src/pcb/modules/board-shape-state.js');
 
@@ -197,6 +199,47 @@ const triangle = [{ x: 0, y: 0 }, { x: 5, y: 0 }, { x: 0, y: 5 }];
     padLinked.padConnections.set('n0', { componentId: 'R1', pinNumber: '1' });
     for (const [name, track] of [['an open', open], ['a branched', branched], ['a pad-linked', padLinked]]) {
         expect(`${name} track cannot be filled`, !canFillTrackLoop(track) && !fillTrackLoop(appFor(track), track));
+    }
+}
+
+{
+    // Moving a track off copper turns it back into a plain board shape on that layer.
+    const hole = { id: 'pshape_hole', kind: 'rect', layer: 'hole', lineWidth: 0.3, filled: false, plated: true,
+        copperMode: 'add', net: '', points: [{ x: 0, y: 0 }, { x: 6, y: 0 }, { x: 6, y: 3 }, { x: 0, y: 3 }] };
+    const track = trackFromBoardShape({ ...hole, layer: 'top-copper' }, 'GND');
+    const app = appFor(track);
+    expect('a copper layer is not a board-shape move', !moveTrackToBoardLayer(app, track, 'bottom-copper') && app.tracks.length === 1);
+    expect('a track can move back to the hole layer', canMoveTrackToBoardLayer(track)
+        && moveTrackToBoardLayer(app, track, 'hole') && app.tracks.length === 0);
+    const shape = app.boardShapes[0];
+    expect('the hole comes back as the same unfilled, plated, netless rectangle', shape?.id === hole.id
+        && shape.kind === 'rect' && shape.layer === 'hole' && shape.plated === true && shape.filled === false
+        && shape.net === '' && shape.copperMode === 'add' && JSON.stringify(shape.points) === JSON.stringify(hole.points));
+
+    const line = new Track({ net: 'N', width: 0.2, layer: 'bottom-copper', points: [{ x: 0, y: 0 }, { x: 4, y: 0 }, { x: 4, y: 4 }] });
+    line.padConnections.set('n0', { componentId: 'R1', pinNumber: '1' });
+    const lineApp = appFor(line);
+    expect('a pad-linked line can move to silk', moveTrackToBoardLayer(lineApp, line, 'top-silk'));
+    const silk = lineApp.boardShapes[0];
+    expect('it becomes an unplated silk line with its points', silk?.kind === 'line' && silk.layer === 'top-silk'
+        && silk.plated === false && silk.net === '' && silk.points.length === 3 && silk.lineWidth === 0.2);
+
+    const slot = new Track({ width: 0.2, layer: 'top-copper', points: [{ x: 0, y: 0 }, { x: 4, y: 0 }] });
+    const slotApp = appFor(slot);
+    moveTrackToBoardLayer(slotApp, slot, 'hole');
+    expect('a hole line gets the minimum slot width and stays unplated without a plated source',
+        slotApp.boardShapes[0]?.lineWidth === 0.8 && slotApp.boardShapes[0].plated === false);
+
+    const branched = new Track({
+        graphNodes: { n0: { x: 0, y: 0 }, n1: { x: 5, y: 0 }, n2: { x: 10, y: 0 }, n3: { x: 5, y: 5 } },
+        graphEdges: { e0: { from: 'n0', to: 'n1' }, e1: { from: 'n1', to: 'n2' }, e2: { from: 'n1', to: 'n3' } },
+    });
+    const mixed = new Track({ points: [{ x: 0, y: 0 }, { x: 4, y: 0 }, { x: 4, y: 4 }] });
+    mixed.setEdgeAttr([...mixed.edges.keys()][1], 'layer', 'bottom-copper');
+    for (const [name, candidate] of [['a branched', branched], ['a two-layer', mixed]]) {
+        const candidateApp = appFor(candidate);
+        expect(`${name} track cannot move off copper`, !canMoveTrackToBoardLayer(candidate)
+            && !moveTrackToBoardLayer(candidateApp, candidate, 'top-silk') && candidateApp.tracks.length === 1);
     }
 }
 

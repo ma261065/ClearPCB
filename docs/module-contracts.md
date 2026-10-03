@@ -2006,6 +2006,10 @@ drop cannot leave duplicate preview/committed track outlines.
   opposite corner fixed and rounds with circular corners, and Fill turns a
   closed loop into a filled board shape that keeps its net
   (`fillTrackLoop()`; `test-copper-path-tracks`, `test-track-rectangle-editing`).
+  The track Layer menu also lists non-copper layers: choosing one turns a
+  single-layer line or loop back into an unfilled board shape, dropping its net
+  and pad links and keeping a hole's plating (`moveTrackToBoardLayer()`). For
+  branched or two-layer tracks those layers are disabled with a tooltip.
 - `PCBApp.vias` — array of standalone `Via` objects. **All** vias are
   represented here, including those sitting at a Track's layer-change
   node. Tracks never carry implicit vias.

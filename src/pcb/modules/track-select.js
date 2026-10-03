@@ -54,9 +54,11 @@ import {
     isViaLocked,
     isLayerVisible,
     isViaVisible,
+    pcbLayerOptionHtml,
     unlockPcbLayer,
 } from './layers.js';
-import { setBoardShapeNetHover, canFillTrackLoop, fillTrackLoop } from './board-shapes.js';
+import { setBoardShapeNetHover, canFillTrackLoop, fillTrackLoop, canMoveTrackToBoardLayer, moveTrackToBoardLayer } from './board-shapes.js';
+import { PROP_HIDDEN_LAYERS } from './board-shape-properties.js';
 import { normalizeShapeCopperMode } from '../../shared/pcb/board-shape-geometry.js';
 import { showAlert } from '../../shared/ui/modal.js';
 import {
@@ -1289,9 +1291,19 @@ function _showTrackProperties(app, track) {
     for (const eid of track.edges.keys()) layers.add(track.getEdgeLayer(eid));
     const mixed = layers.size > 1;
     const currentLayer = mixed ? '' : (layers.values().next().value || track.layer || 'top-copper');
-    const layerOpts = COPPER_LAYERS.map(
-        (l) => `<option value="${l.id}"${l.id === currentLayer ? ' selected' : ''}>${_escape(l.name)}</option>`
-    ).join('');
+    // Non-copper layers turn the track back into a board shape, which needs one line or loop.
+    const movable = canMoveTrackToBoardLayer(track);
+    const unmovableReason = mixed
+        ? 'This track uses both copper layers. Only a track that is a single line or loop on one layer can move to a non-copper layer.'
+        : 'This track branches. Only a track that is a single line or loop can move to a non-copper layer.';
+    const layerOpts = PCB_LAYERS.filter((l) => !PROP_HIDDEN_LAYERS.has(l.id)).map((l) => {
+        if (COPPER_LAYERS.includes(l)) {
+            return `<option value="${l.id}"${l.id === currentLayer ? ' selected' : ''}>${_escape(l.name)}</option>`;
+        }
+        return movable
+            ? pcbLayerOptionHtml(l.id, l.name)
+            : `<option value="${l.id}" disabled title="${_escape(unmovableReason)}">${_escape(l.name)}</option>`;
+    }).join('');
     const mixedOpt = mixed ? `<option value="" selected>Multiple</option>` : '';
     const netOptions = _netOptions(app, track.net || '');
     items.innerHTML = `
@@ -1350,6 +1362,17 @@ function _showTrackProperties(app, track) {
         if (!binding.prepare()) return;
         const v = layerEl.value;
         if (!v) return; // the "Multiple" placeholder
+        if (!COPPER_LAYERS.some((l) => l.id === v)) {
+            if (isLayerLocked(v) || !canMoveTrackToBoardLayer(track)) {
+                layerEl.value = currentLayer;
+                return;
+            }
+            clearTrackSelection(app);
+            moveTrackToBoardLayer(app, track, v);
+            reconcileRatsnest(app);
+            app._setActiveRibbonTab?.('pcb-properties');
+            return;
+        }
         const before = track.captureState();
         // Move every edge of this track onto the chosen layer, then
         // re-normalise the whole bonded copper region into the canonical

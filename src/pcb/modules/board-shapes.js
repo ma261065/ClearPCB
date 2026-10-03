@@ -206,8 +206,8 @@ export function shapeKindLabel(kind) {
                 : 'Shape';
 }
 
-function simpleTrackLinePoints(track) {
-    if (!track || track.nodes.size < 2 || track.padConnections.size) return null;
+function simpleTrackLinePoints(track, { allowPadConnections = false } = {}) {
+    if (!track || track.nodes.size < 2 || (track.padConnections.size && !allowPadConnections)) return null;
     const closed = track.edges.size === track.nodes.size;
     if (!closed && track.edges.size !== track.nodes.size - 1) return null;
     /** @type {Map<string, Array<{edgeId:string, nodeId:string}>>} */
@@ -274,19 +274,37 @@ export function fillTrackLoop(app, track) {
     return canFillTrackLoop(track) && replaceTrackWithBoardShape(app, track, { filled: true, net: track.net || '' });
 }
 
-function replaceTrackWithBoardShape(app, track, { filled, net }) {
+/** Whether a track is a single-layer line or loop that can become a plain board shape. */
+export function canMoveTrackToBoardLayer(track) {
+    // Off copper a pad link means nothing, so it is dropped just as deleting the track would.
+    return !!simpleTrackLinePoints(track, { allowPadConnections: true });
+}
+
+/**
+ * Move a track off copper: it becomes an unfilled board shape on `layer`. Tracks
+ * remember the shape they were made from, so a hole keeps its plating on the way back.
+ */
+export function moveTrackToBoardLayer(app, track, layer) {
+    if (layer === 'top-copper' || layer === 'bottom-copper' || !canMoveTrackToBoardLayer(track)) return false;
+    const plated = layer === 'hole' && !!track.sourceBoardShape?.plated;
+    return replaceTrackWithBoardShape(app, track, { filled: false, net: '', layer, plated, allowPadConnections: true });
+}
+
+function replaceTrackWithBoardShape(app, track, { filled, net, layer = null, plated = false, allowPadConnections = false }) {
     if (!app.tracks?.includes(track)) return false;
-    const source = simpleTrackLinePoints(track);
+    const source = simpleTrackLinePoints(track, { allowPadConnections });
     if (!source) return false;
+    const kind = source.closed ? 'polygon' : 'line';
+    const targetLayer = layer || source.layer;
     const shape = {
         ...track.sourceBoardShape,
         id: track.sourceBoardShape?.id || `pshape_${app._shapeIdCounter++}`,
-        kind: source.closed ? 'polygon' : 'line',
-        layer: source.layer,
-        lineWidth: source.width,
+        kind,
+        layer: targetLayer,
+        lineWidth: layer ? normalizedBoardShapeLineWidth({ kind, layer: targetLayer }, source.width) : source.width,
         filled,
         copperMode: 'add',
-        plated: false,
+        plated,
         net,
         points: source.points,
         segmentWidths: source.segmentWidths,

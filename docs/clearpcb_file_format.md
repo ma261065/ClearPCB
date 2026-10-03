@@ -597,7 +597,9 @@ conversion retains segment widths, bulges and both radius levels. A rectangular
 loop (four axis-aligned straight edges on one layer, without node overrides)
 rounds with circular quarter-arcs like a board rectangle; other tracks use
 quadratic corners. Filling a closed loop turns it into a filled board shape that
-keeps the `sbs` identity, net, width and radii.
+keeps the `sbs` identity, net, width and radii. Moving a single-layer line or
+loop to a non-copper layer turns it back into an unfilled board shape with the
+`sbs` identity and no net; on the hole layer it keeps the source's plating.
 
 ### Vias
 
