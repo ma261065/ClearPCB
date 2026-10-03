@@ -1,4 +1,4 @@
-import { ModalManager } from '../../core/ModalManager.js';
+import { ModalManager } from '../core/ModalManager.js';
 
 function statusText(state) {
     if (!state.enabled) return 'MCP Session Disabled';

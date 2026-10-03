@@ -23,7 +23,7 @@ globalThis.document = {
     querySelector: () => null, querySelectorAll: () => [], addEventListener() {},
 };
 const shared = await import('../src/shared/ui/theme.js');
-const { bindThemeToggle, toggleTheme, loadTheme } = await import('../src/ui/modules/theme.js');
+const { bindThemeToggle, toggleTheme, loadTheme } = await import('../src/schematic/modules/theme.js');
 const { setPcbSelection } = await import('../src/pcb/modules/selection-registry.js');
 const { pcbEditorFixture } = await import('./pcb-editor-fixture.mjs');
 let schematicUpdates = 0;

@@ -1,7 +1,7 @@
 import { Component } from '../../components/index.js';
-import { AddComponentCommand, TransformComponentCommand } from '../../schematic/modules/commands.js';
+import { AddComponentCommand, TransformComponentCommand } from './commands.js';
 import { needsValueDialog, showValueDialog } from './value-dialog.js';
-import { componentPreviewElement } from '../../schematic/modules/schematic-view.js';
+import { componentPreviewElement } from './schematic-view.js';
 
 /**
  * Rebuilds the selection manager's list of selectable items by merging

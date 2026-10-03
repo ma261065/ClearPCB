@@ -2,9 +2,9 @@
 // Enforces the import-direction rules in docs/project_structure.md.
 //
 //   shared    (core, shapes, components, shared, easyeda) must not import either editor.
-//   schematic (schematic/, ui/SchematicApp.js, ui/modules/) must not import PCB code.
+//   schematic (schematic/, ui/SchematicApp.js) must not import PCB code.
 //   pcb       (pcb/, ui/PCBApp.js) must not import schematic code.
-//   bootstrap (ui/AppBootstrap.js) may import anything.
+//   bootstrap (ui/AppBootstrap.js and the other ui/ files only it uses) may import anything.
 //
 // Existing violations are listed in tools/import-baseline.json. New violations fail,
 // and so do baseline entries that no longer occur, so the baseline only shrinks.
@@ -32,9 +32,9 @@ const FORBIDDEN = {
 export function layerOf(path) {
     if (!path.startsWith('src/')) return null;
     const rest = path.slice(4);
-    if (rest === 'ui/AppBootstrap.js') return 'bootstrap';
     if (rest === 'ui/PCBApp.js' || rest.startsWith('pcb/')) return 'pcb';
-    if (rest === 'ui/SchematicApp.js' || rest.startsWith('ui/') || rest.startsWith('schematic/')) return 'schematic';
+    if (rest === 'ui/SchematicApp.js' || rest.startsWith('schematic/')) return 'schematic';
+    if (rest.startsWith('ui/')) return 'bootstrap';
     return 'shared';
 }
 

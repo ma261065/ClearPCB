@@ -1,4 +1,4 @@
-import { updateViewportCulling } from '../../schematic/modules/schematic-view.js';
+import { updateViewportCulling } from './schematic-view.js';
 import { dismissAnchorContextMenu } from './context-menu.js';
 
 /**

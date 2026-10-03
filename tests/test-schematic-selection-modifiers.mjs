@@ -5,7 +5,7 @@ globalThis.window = { addEventListener() {} };
 globalThis.HTMLElement = class {};
 globalThis.document = { getElementById() { return null; }, querySelector() { return null; } };
 const { idleState, overlapCycleState, STATE_TABLE } = await import('../src/schematic/modules/draw-states.js');
-const { handleEscape } = await import('../src/ui/modules/keyboard.js');
+const { handleEscape } = await import('../src/schematic/modules/keyboard.js');
 const shape = (id, hit = true) => ({ id, visible: true, selected: false,
     hitTest: () => hit, hitTestAnchor: () => 'anchor', invalidate() {} });
 const below = shape('below'), top = shape('top'), unrelated = shape('unrelated', false);

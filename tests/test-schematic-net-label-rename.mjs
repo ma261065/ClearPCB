@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 
 globalThis.window = { addEventListener() {}, removeEventListener() {} };
 globalThis.document = { addEventListener() {}, removeEventListener() {}, getElementById: () => null };
-const { endTextEdit } = await import('../src/ui/modules/text-edit.js');
+const { endTextEdit } = await import('../src/schematic/modules/text-edit.js');
 const { CommandHistory } = await import('../src/core/CommandHistory.js');
 
 const wireShape = (id, net, pinConnections = new Map()) => ({ id, type: 'wire', net, wireLabel: `W_${id}`,

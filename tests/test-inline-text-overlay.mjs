@@ -4,7 +4,7 @@ import {
     createInlineTextOverlay,
     setInlineTextInputActive,
 } from '../src/shared/ui/inline-text-overlay.js';
-import { setTextCaretFromScreen } from '../src/ui/modules/text-edit.js';
+import { setTextCaretFromScreen } from '../src/schematic/modules/text-edit.js';
 import { ensureView } from '../src/schematic/render/shape-view-state.js';
 
 function element(tagName) {

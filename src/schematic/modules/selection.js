@@ -1,7 +1,7 @@
-import { DeleteShapesCommand, DeleteComponentsCommand, ModifyPropertyCommand, ModifyShapeCommand, BatchCommand } from '../../schematic/modules/commands.js';
+import { DeleteShapesCommand, DeleteComponentsCommand, ModifyPropertyCommand, ModifyShapeCommand, BatchCommand } from './commands.js';
 import { updateRibbonState } from './ribbon.js';
 import { deleteFocusedSchematicShape } from './context-menu.js';
-import { refreshComponentPose } from '../../schematic/modules/schematic-view.js';
+import { refreshComponentPose } from './schematic-view.js';
 
 /**
  * Toggles the `locked` property on all selected items via `ModifyPropertyCommand`

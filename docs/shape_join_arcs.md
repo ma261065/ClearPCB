@@ -71,7 +71,7 @@ flattened or mis-promoted to rectangles.
 
 - `schematic/modules/draw-states.js` `anchorDragState.mousemove`: for joinable
   shapes, calls `findJoinTarget` and shows the snap dot (`updateSnapHighlight`).
-- `handleDragEnd` → `commitShapeJoin` in `ui/modules/drag.js`: builds the merged
+- `handleDragEnd` → `commitShapeJoin` in `schematic/modules/drag.js`: builds the merged
   `Polyline` and replaces the two originals in one undoable `BatchCommand`
   (`DeleteShapesCommand` + `AddShapeCommand`).
 

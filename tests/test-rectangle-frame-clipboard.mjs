@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { createShape } from '../src/shapes/index.js';
-import { copySelection, beginPastePreview, confirmPaste } from '../src/ui/modules/clipboard.js';
+import { copySelection, beginPastePreview, confirmPaste } from '../src/schematic/modules/clipboard.js';
 
 function element() {
     return {

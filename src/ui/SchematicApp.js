@@ -16,27 +16,27 @@ import { warmKiCadIndex } from '../components/KiCadFetcher.js';
 // Modules with a small public API use named imports; modules with many
 // exports (wire, drawing, components, files, export) use namespace imports
 // to keep the import block manageable.
-import { bindMouseEvents } from './modules/mouse.js';
-import { handleEscape, bindKeyboardShortcuts, runSchematicHistoryAction } from './modules/keyboard.js';
-import { bindPropertiesPanel, applyCommonProperty, updatePropertiesPanel, hasSchematicPropertyPreview } from './modules/properties.js';
-import { bindRibbon, updateShapePanelOptions } from './modules/ribbon.js';
+import { bindMouseEvents } from '../schematic/modules/mouse.js';
+import { handleEscape, bindKeyboardShortcuts, runSchematicHistoryAction } from '../schematic/modules/keyboard.js';
+import { bindPropertiesPanel, applyCommonProperty, updatePropertiesPanel, hasSchematicPropertyPreview } from '../schematic/modules/properties.js';
+import { bindRibbon, updateShapePanelOptions } from '../schematic/modules/ribbon.js';
 import { getToolIconPath, setToolCursor } from '../shared/ui/cursor.js';
 import { bindViewportControls, updateGridDropdown, fitToContent } from '../shared/ui/viewport.js';
-import { bindThemeToggle, toggleTheme, loadTheme, updateComponentColors } from './modules/theme.js';
-import { toggleSelectionLock, deleteSelected, captureShapeState, applyShapeState } from './modules/selection.js';
-import { copySelection, cutSelection, beginPastePreview, updatePastePreview, confirmPaste, cancelPaste } from './modules/clipboard.js';
+import { bindThemeToggle, toggleTheme, loadTheme, updateComponentColors } from '../schematic/modules/theme.js';
+import { toggleSelectionLock, deleteSelected, captureShapeState, applyShapeState } from '../schematic/modules/selection.js';
+import { copySelection, cutSelection, beginPastePreview, updatePastePreview, confirmPaste, cancelPaste } from '../schematic/modules/clipboard.js';
 import { createBoxSelectElement, updateBoxSelectElement, removeBoxSelectElement, getBoxSelectBounds } from '../shared/ui/box-selection.js';
-import { bindPaperEvents } from './modules/paper.js';
+import { bindPaperEvents } from '../schematic/modules/paper.js';
 import * as WireTools from '../schematic/modules/wire.js';
-import * as DrawingTools from './modules/drawing.js';
-import * as ComponentTools from './modules/components.js';
+import * as DrawingTools from '../schematic/modules/drawing.js';
+import * as ComponentTools from '../schematic/modules/components.js';
 import * as FileTools from '../schematic/modules/files.js';
 import * as ExportTools from '../shared/ui/export.js';
-import { onToolSelected, onComponentPickerClosed, onOptionsChanged, loadToolOptions } from './modules/tool.js';
-import { adaptShortcutsInDOM } from './modules/platform-keys.js';
-import { setupCallbacks } from './modules/callbacks.js';
-import { updateUndoRedoButtons, makeHelpPanelDraggable, flashAutoSaveIndicator } from './modules/ui-utils.js';
-import { needsValueDialog, showValueDialog } from './modules/value-dialog.js';
+import { onToolSelected, onComponentPickerClosed, onOptionsChanged, loadToolOptions } from '../schematic/modules/tool.js';
+import { adaptShortcutsInDOM } from '../schematic/modules/platform-keys.js';
+import { setupCallbacks } from '../schematic/modules/callbacks.js';
+import { updateUndoRedoButtons, makeHelpPanelDraggable, flashAutoSaveIndicator } from '../schematic/modules/ui-utils.js';
+import { needsValueDialog, showValueDialog } from '../schematic/modules/value-dialog.js';
 import { showAlert, showConfirm, showPrompt } from '../shared/ui/modal.js';
 import {
     startTextEdit,
@@ -45,7 +45,7 @@ import {
     updateTextEditOverlay,
     setTextCaretFromScreen,
     nudgeTextEditOverlay
-} from './modules/text-edit.js';
+} from '../schematic/modules/text-edit.js';
 import {
     addShape,
     addShapeInternal,
@@ -67,7 +67,7 @@ import {
 // Shape construction uses createShape() from shapes/index.js.
 
 /**
- * Central application class — a thin facade over the `ui/modules/` layer.
+ * Central application class — a thin facade over the `schematic/modules/` layer.
  *
  * Almost all logic lives in the module files (mouse.js, wire.js, drawing.js,
  * keyboard.js, etc.).  Methods here delegate to those modules, passing `this`
@@ -297,7 +297,7 @@ export default class SchematicApp {
         // If we have a pending auto-load, do it now that everything is ready
         if (this._pendingAutoLoad) {
             // Use the same logic as loadDocument
-            import('./modules/files.js').then(async FileTools => {
+            import('../schematic/modules/files.js').then(async FileTools => {
                 await FileTools.loadDocument(this, this._pendingAutoLoad);
                 this._pendingAutoLoad = null;
             }).catch(err => {

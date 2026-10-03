@@ -1,5 +1,5 @@
-import { ModifyShapeCommand } from '../../schematic/modules/commands.js';
-import { viewElementOf } from '../../schematic/modules/schematic-view.js';
+import { ModifyShapeCommand } from './commands.js';
+import { viewElementOf } from './schematic-view.js';
 import { validateNetNameAtPoint } from './net-validation.js';
 import {
     getTextEditBoxGeometry,

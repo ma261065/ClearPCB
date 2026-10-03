@@ -13,7 +13,7 @@
 
 import { STATE_TABLE, getEventPositions, resolveState } from './draw-states.js';
 import { DRAWING_SHAPES } from '../../shapes/shape-drawing.js';
-import { snapShapeDrawingPoint } from '../../schematic/modules/shape-snap.js';
+import { snapShapeDrawingPoint } from './shape-snap.js';
 
 export { clearDragState } from './drag.js';
 

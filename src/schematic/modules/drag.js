@@ -10,7 +10,7 @@
  * responsibility  the state machine or keyboard handler owns that.
  */
 
-import { MoveShapesCommand, ModifyShapeCommand, DeleteShapesCommand, AddShapeCommand, BatchCommand } from '../../schematic/modules/commands.js';
+import { MoveShapesCommand, ModifyShapeCommand, DeleteShapesCommand, AddShapeCommand, BatchCommand } from './commands.js';
 import { reconcileWires, reconcileWiresWithUndo, refreshWireConnections, refreshNoConnectConnection, collapseRedundantWirePoints, buildWireDiffBatch } from './wire.js';
 import { validateNetNameAtPoint } from './net-validation.js';
 import { connectNetToWires, disconnectNetFromWires, connectComponentPinsToWires } from './shape-management.js';
@@ -18,7 +18,7 @@ import { joinShapes } from '../../shapes/shape-join.js';
 import { clearAxisGlow } from '../../shapes/axis-glow.js';
 import { BULGE_EPS } from '../../shapes/arc-edge.js';
 import { appendArcToLineCommand } from './context-menu.js';
-import { refreshComponentPose } from '../../schematic/modules/schematic-view.js';
+import { refreshComponentPose } from './schematic-view.js';
 
 /**
  * Compare two captured shape states for equality.

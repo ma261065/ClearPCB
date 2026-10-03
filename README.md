@@ -140,32 +140,36 @@ clearpcb/
 │   │   └── ui/                 # Shared UI: modal, viewport/grid, cursor, export,
 │   │                           # box selection, recents, ribbon height, inline text, theme
 │   │
+│   ├── schematic/              # Schematic editor modules (mirrors pcb/)
+│   │   ├── render/             # Shape/component SVG renderers
+│   │   └── modules/            # Feature modules (functional, not classes)
+│   │       ├── mouse.js        # Mouse event binding (click, drag, box-select)
+│   │       ├── drag.js         # Drag commit + cleanup helpers
+│   │       ├── context-menu.js # Right-click menus, junction/segment deletion
+│   │       ├── keyboard.js     # Keyboard shortcuts and hotkeys
+│   │       ├── wire.js         # Wire drawing, snapping, reconciliation
+│   │       ├── drawing.js      # Shape drawing (line, rect, circle, arc, polygon)
+│   │       ├── components.js   # Component placement, rotation, mirroring
+│   │       ├── clipboard.js    # Copy, cut, paste with preview
+│   │       ├── selection.js    # Selection helpers, lock toggle
+│   │       ├── text-edit.js    # Inline text editing overlay
+│   │       ├── value-dialog.js # Component value edit dialog
+│   │       ├── properties.js   # Properties panel binding
+│   │       ├── ribbon.js       # Ribbon toolbar binding
+│   │       ├── theme.js        # Light/dark theme toggle
+│   │       ├── shape-management.js # Add/remove/render shapes
+│   │       ├── files.js        # Open, save, serialise documents
+│   │       ├── paper.js        # Paper/title-block events
+│   │       ├── tool.js         # Tool selection, option persistence
+│   │       ├── callbacks.js    # Event-bus wiring
+│   │       └── ui-utils.js     # Small UI helpers (undo buttons, etc.)
+│   │
 │   └── ui/                     # Application layer
 │       ├── AppBootstrap.js     # Shared startup; owns ProjectDocument + mode switching
-│       ├── SchematicApp.js     # Schematic view — delegates to modules
-│       ├── PCBApp.js           # PCB view — delegates to pcb modules
-│       ├── schematic.css       # All styles
-│       └── modules/            # Schematic feature modules (functional, not classes)
-│           ├── mouse.js        # Mouse event binding (click, drag, box-select)
-│           ├── drag.js         # Drag commit + cleanup helpers
-│           ├── context-menu.js # Right-click menus, junction/segment deletion
-│           ├── keyboard.js     # Keyboard shortcuts and hotkeys
-│           ├── wire.js         # Wire drawing, snapping, reconciliation
-│           ├── drawing.js      # Shape drawing (line, rect, circle, arc, polygon)
-│           ├── components.js   # Component placement, rotation, mirroring
-│           ├── clipboard.js    # Copy, cut, paste with preview
-│           ├── selection.js    # Selection helpers, lock toggle
-│           ├── text-edit.js    # Inline text editing overlay
-│           ├── value-dialog.js # Component value edit dialog
-│           ├── properties.js   # Properties panel binding
-│           ├── ribbon.js       # Ribbon toolbar binding
-│           ├── theme.js        # Light/dark theme toggle
-│           ├── shape-management.js # Add/remove/render shapes
-│           ├── files.js        # Open, save, serialise documents
-│           ├── paper.js        # Paper/title-block events
-│           ├── tool.js         # Tool selection, option persistence
-│           ├── callbacks.js    # Event-bus wiring
-│           └── ui-utils.js     # Small UI helpers (undo buttons, etc.)
+│       ├── SchematicApp.js     # Schematic view — delegates to schematic/modules
+│       ├── PCBApp.js           # PCB view — delegates to pcb/modules
+│       ├── mcp-session.js      # MCP session dialog
+│       └── schematic.css       # All styles
 │
 ├── assets/
 │   ├── icons/                  # Favicon and PWA icons
@@ -206,7 +210,7 @@ owning the other.
    └────────┬─────────┘               └────────┬─────────┘
             │                                  │
    ┌────────┴─────────┐               ┌────────┴─────────┐
-   │ ui/modules,      │               │ pcb/modules,     │
+   │ schematic/,      │               │ pcb/modules,     │
    │ shapes, components│              │ autorouter, …    │
    └────────┬─────────┘               └────────┬─────────┘
             └────────────────┬────────────────┘
@@ -233,7 +237,7 @@ owning the other.
   schematic view, so `core/` never imports a view module. Both editors'
   File menus drive the same `bootstrap.project.*` operations.
 - **Facade** — `SchematicApp` and `PCBApp` own interaction and presentation
-  state and delegate feature behavior to `ui/modules/` and `pcb/modules/`.
+  state and delegate feature behavior to `schematic/modules/` and `pcb/modules/`.
   Model commands own authored changes; rendering and manufacturing output
   conversion remain consumers of model geometry.
 - **Command** — Every edit (move, add, delete, modify) creates a command
@@ -241,9 +245,9 @@ owning the other.
 - **Graph-based wires** — Wires use a node+edge graph model
   (`shapes/wire.js`) rather than simple point arrays, enabling
   T-junctions, segment dragging, and merge/split operations.
-- **Functional modules** — `ui/modules/` files export plain functions that
-  receive the app object as their first argument. No classes, no
-  singletons.
+- **Functional modules** — `schematic/modules/` and `pcb/modules/` files export
+  plain functions that receive the app object as their first argument. No
+  classes, no singletons.
 
 ## Importing PCB pictures
 

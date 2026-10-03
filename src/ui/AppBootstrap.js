@@ -9,7 +9,7 @@ import { installNumberInputFormatting } from '../core/number-inputs.js';
 import { ModalManager } from '../core/ModalManager.js';
 import { renderRecentFiles } from '../shared/ui/recents.js';
 import { McpBridge } from '../core/McpBridge.js';
-import { createMcpSessionUi } from './modules/mcp-session.js';
+import { createMcpSessionUi } from './mcp-session.js';
 
 const DEFAULT_SERVICES = { ProjectDocument, PCBApp, SchematicApp, McpBridge, createMcpSessionUi };
 

@@ -198,14 +198,14 @@ const files = [];
 const VIEW_LIFECYCLE = /\.render\(|\baddContent\(|\baddComponentContent\(|\bremoveContent\(|createSymbolElement\(|_recreateElement\(|_buildTransform\(|\.anchorsGroup\b|\.element\b|\bviewOf\(|\bensureView\(|\bcomponentViewOf\(|\bensureComponentView\(|\b_culled\b|\b_lodFar\b/;
 // The inline text editor adds its own overlay, and the component picker owns its panel.
 const allowed = new Set([
-    'ui/modules/text-edit.js: app.viewport.addContent(group);',
-    'ui/modules/text-edit.js: app.viewport.addContent(temp);',
-    'ui/modules/tool.js: const searchInput = app.componentPicker.element.querySelector(\'.cp-search-input\');',
+    'schematic/modules/text-edit.js: app.viewport.addContent(group);',
+    'schematic/modules/text-edit.js: app.viewport.addContent(temp);',
+    'schematic/modules/tool.js: const searchInput = app.componentPicker.element.querySelector(\'.cp-search-input\');',
 ]);
 const offenders = [];
 for (const file of files) {
     const rel = relative(src, file).split(sep).join('/');
-    const editorCode = rel.startsWith('schematic/') || rel.startsWith('ui/modules/') || rel === 'ui/SchematicApp.js';
+    const editorCode = rel.startsWith('schematic/') || rel === 'ui/SchematicApp.js';
     if (!editorCode || rel === 'schematic/modules/schematic-view.js' || rel.startsWith('schematic/render/')) continue;
     for (const line of readFileSync(file, 'utf8').split(/\r?\n/)) {
         const text = line.trim();

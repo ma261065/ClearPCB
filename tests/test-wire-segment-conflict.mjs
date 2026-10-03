@@ -4,7 +4,7 @@ import { Wire } from '../src/shapes/wire.js';
 import { Net } from '../src/shapes/net.js';
 
 globalThis.window = { addEventListener() {} };
-const { commitSegmentDrag } = await import('../src/ui/modules/drag.js');
+const { commitSegmentDrag } = await import('../src/schematic/modules/drag.js');
 const wire = new Wire({ points: [{ x: 0, y: -5 }, { x: 10, y: -5 }] });
 const firstNet = new Net({ x: 0, y: 0, net: 'VCC' });
 const secondNet = new Net({ x: 10, y: 0, net: 'GND' });

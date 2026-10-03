@@ -1,4 +1,20 @@
 {
+  "src/schematic/modules/callbacks.js": [
+    "_onComponentDefinitionSelected",
+    "_onComponentPickerClosed",
+    "_overlapHitCount",
+    "_updatePastePreview",
+    "_updateShapeSelectionTip",
+    "_updateTextEditOverlay"
+  ],
+  "src/schematic/modules/clipboard.js": [
+    "_cancelComponentPlacement",
+    "_cancelDrawing",
+    "_generateReference",
+    "_hideCrosshair",
+    "_showCrosshair",
+    "_updateCrosshair"
+  ],
   "src/schematic/modules/commands.js": [
     "_commandAddShape",
     "_commandDeleteShapes",
@@ -6,6 +22,38 @@
     "_commandRestoreShapes",
     "_updatePropertiesPanel",
     "_updateSelectableItems"
+  ],
+  "src/schematic/modules/components.js": [
+    "_cancelDrawing",
+    "_componentPreviewHidden",
+    "_generateReference",
+    "_getSelectedComponents",
+    "_setActiveToolButton",
+    "_updateShapePanelOptions"
+  ],
+  "src/schematic/modules/context-menu.js": [
+    "_addShapeInternal",
+    "_applyShapeState",
+    "_captureShapeState",
+    "_commandAddShape",
+    "_hideCrosshair",
+    "_selectedShapeNode",
+    "_selectedShapeSegment",
+    "_showCrosshair",
+    "_updateCrosshair",
+    "_updatePropertiesPanel"
+  ],
+  "src/schematic/modules/drag.js": [
+    "_alert",
+    "_applyShapeState",
+    "_captureShapeState",
+    "_commandRemoveShape",
+    "_hideCrosshair",
+    "_overlapCyclePress",
+    "_removeBoxSelectElement",
+    "_selectedShapeNode",
+    "_selectedShapeSegment",
+    "_updatePropertiesPanel"
   ],
   "src/schematic/modules/draw-states.js": [
     "_addLinePoint",
@@ -58,6 +106,18 @@
     "_wireJunctionData",
     "_wireJunctionDot"
   ],
+  "src/schematic/modules/drawing.js": [
+    "_alert",
+    "_drawSnapResult",
+    "_finishDrawing",
+    "_hideCrosshair",
+    "_setToolCursor",
+    "_showCrosshair",
+    "_startDrawing",
+    "_startTextEdit",
+    "_updateCrosshair",
+    "_updateDrawing"
+  ],
   "src/schematic/modules/files.js": [
     "_alert",
     "_cancelComponentPlacement",
@@ -76,96 +136,7 @@
     "_updateSelectableItems",
     "_updateTitle"
   ],
-  "src/schematic/modules/polyline-segment-drag.js": [
-    "_captureShapeState",
-    "_selectedShapeSegment",
-    "_updateShapeSelectionTip"
-  ],
-  "src/schematic/modules/schematic-view.js": [
-    "_selectedShapeNode",
-    "_selectedShapeSegment",
-    "_shapeSegmentSelectionElement"
-  ],
-  "src/schematic/modules/shape-management.js": [
-    "_updatePropertiesPanel",
-    "_updateSelectableItems"
-  ],
-  "src/schematic/modules/wire.js": [
-    "_addShapeInternal",
-    "_alert",
-    "_createPreview",
-    "_getEffectiveStrokeWidth",
-    "_hideCrosshair",
-    "_removeShapeInternal",
-    "_setToolCursor",
-    "_showCrosshair",
-    "_updateCrosshair",
-    "_updatePropertiesPanel",
-    "_wireAxisLock",
-    "_wireJunctionData",
-    "_wireJunctionDot"
-  ],
-  "src/ui/modules/callbacks.js": [
-    "_onComponentDefinitionSelected",
-    "_onComponentPickerClosed",
-    "_overlapHitCount",
-    "_updatePastePreview",
-    "_updateShapeSelectionTip",
-    "_updateTextEditOverlay"
-  ],
-  "src/ui/modules/clipboard.js": [
-    "_cancelComponentPlacement",
-    "_cancelDrawing",
-    "_generateReference",
-    "_hideCrosshair",
-    "_showCrosshair",
-    "_updateCrosshair"
-  ],
-  "src/ui/modules/components.js": [
-    "_cancelDrawing",
-    "_componentPreviewHidden",
-    "_generateReference",
-    "_getSelectedComponents",
-    "_setActiveToolButton",
-    "_updateShapePanelOptions"
-  ],
-  "src/ui/modules/context-menu.js": [
-    "_addShapeInternal",
-    "_applyShapeState",
-    "_captureShapeState",
-    "_commandAddShape",
-    "_hideCrosshair",
-    "_selectedShapeNode",
-    "_selectedShapeSegment",
-    "_showCrosshair",
-    "_updateCrosshair",
-    "_updatePropertiesPanel"
-  ],
-  "src/ui/modules/drag.js": [
-    "_alert",
-    "_applyShapeState",
-    "_captureShapeState",
-    "_commandRemoveShape",
-    "_hideCrosshair",
-    "_overlapCyclePress",
-    "_removeBoxSelectElement",
-    "_selectedShapeNode",
-    "_selectedShapeSegment",
-    "_updatePropertiesPanel"
-  ],
-  "src/ui/modules/drawing.js": [
-    "_alert",
-    "_drawSnapResult",
-    "_finishDrawing",
-    "_hideCrosshair",
-    "_setToolCursor",
-    "_showCrosshair",
-    "_startDrawing",
-    "_startTextEdit",
-    "_updateCrosshair",
-    "_updateDrawing"
-  ],
-  "src/ui/modules/keyboard.js": [
+  "src/schematic/modules/keyboard.js": [
     "_cancelComponentPlacement",
     "_cancelDrawing",
     "_cancelPaste",
@@ -190,15 +161,20 @@
     "_setActiveRibbonTab",
     "_updatePropertiesPanel"
   ],
-  "src/ui/modules/label-attachment.js": [
+  "src/schematic/modules/label-attachment.js": [
     "_labelGuide"
   ],
-  "src/ui/modules/mouse.js": [
+  "src/schematic/modules/mouse.js": [
     "_pendingShapeSegmentToggle",
     "_rightClickStart",
     "_rightPanGesture"
   ],
-  "src/ui/modules/properties.js": [
+  "src/schematic/modules/polyline-segment-drag.js": [
+    "_captureShapeState",
+    "_selectedShapeSegment",
+    "_updateShapeSelectionTip"
+  ],
+  "src/schematic/modules/properties.js": [
     "_alert",
     "_copySelection",
     "_cutSelection",
@@ -214,7 +190,7 @@
     "_updatePropertiesPanel",
     "_updateTextEditOverlay"
   ],
-  "src/ui/modules/ribbon.js": [
+  "src/schematic/modules/ribbon.js": [
     "_cancelWireDrawing",
     "_cleanupRibbonEsc",
     "_clearComponentCaches",
@@ -234,20 +210,29 @@
     "_updateComponentCodeTooltip",
     "_updatePropertiesPanel"
   ],
-  "src/ui/modules/selection.js": [
+  "src/schematic/modules/schematic-view.js": [
+    "_selectedShapeNode",
+    "_selectedShapeSegment",
+    "_shapeSegmentSelectionElement"
+  ],
+  "src/schematic/modules/selection.js": [
     "_updatePropertiesPanel"
   ],
-  "src/ui/modules/text-edit.js": [
+  "src/schematic/modules/shape-management.js": [
+    "_updatePropertiesPanel",
+    "_updateSelectableItems"
+  ],
+  "src/schematic/modules/text-edit.js": [
     "_alert",
     "_suppressNextEscape",
     "_updatePropertiesPanel"
   ],
-  "src/ui/modules/theme.js": [
+  "src/schematic/modules/theme.js": [
     "_createComponentPreview",
     "_loadTheme",
     "_toggleTheme"
   ],
-  "src/ui/modules/tool.js": [
+  "src/schematic/modules/tool.js": [
     "_cancelComponentPlacement",
     "_cancelDrawing",
     "_hideCrosshair",
@@ -259,5 +244,20 @@
     "_toolGhost",
     "_updatePropertiesPanel",
     "_updateShapePanelOptions"
+  ],
+  "src/schematic/modules/wire.js": [
+    "_addShapeInternal",
+    "_alert",
+    "_createPreview",
+    "_getEffectiveStrokeWidth",
+    "_hideCrosshair",
+    "_removeShapeInternal",
+    "_setToolCursor",
+    "_showCrosshair",
+    "_updateCrosshair",
+    "_updatePropertiesPanel",
+    "_wireAxisLock",
+    "_wireJunctionData",
+    "_wireJunctionDot"
   ]
 }

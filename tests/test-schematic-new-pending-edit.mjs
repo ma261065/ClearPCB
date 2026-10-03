@@ -18,7 +18,7 @@ globalThis.window = { addEventListener() {} };
 globalThis.document = { createElementNS: () => element(), getElementById: () => null, querySelector: () => null };
 globalThis.localStorage = { getItem: () => null, setItem() {}, removeItem() {} };
 const { default: SchematicApp } = await import('../src/ui/SchematicApp.js');
-const { copySelection, beginPastePreview } = await import('../src/ui/modules/clipboard.js');
+const { copySelection, beginPastePreview } = await import('../src/schematic/modules/clipboard.js');
 const { newFile } = await import('../src/schematic/modules/files.js');
 
 function fixture() {

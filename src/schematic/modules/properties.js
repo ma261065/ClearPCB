@@ -1,6 +1,6 @@
 import { setCheckboxState } from './ui-utils.js';
 import { propertyRank, sortByPropertyOrder } from '../../shared/ui/property-order.js';
-import { ModifyPropertyCommand, ModifyShapeCommand, BatchCommand } from '../../schematic/modules/commands.js';
+import { ModifyPropertyCommand, ModifyShapeCommand, BatchCommand } from './commands.js';
 import { BULGE_EPS } from '../../shapes/arc-edge.js';
 import { bulgeRatio } from '../../core/geometry.js';
 import { rotateNetOrientation } from '../../shapes/net.js';

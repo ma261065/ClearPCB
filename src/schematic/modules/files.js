@@ -1,12 +1,12 @@
 import { resetWireLabelCounter, resetNetNameCounter } from '../../shapes/index.js';
 import { createNetText } from './shape-management.js';
 import { mountDocument, prepareDocumentView } from './schematic-view.js';
-import { attachLabelToTarget } from '../../ui/modules/label-attachment.js';
+import { attachLabelToTarget } from './label-attachment.js';
 import { importEasyEDASchematic } from '../../easyeda/schematic-importer.js';
 import { deserializeComponent } from '../../core/SchematicDocument.js';
 import { serializeGridSettings, restoreGridSettings } from '../../shared/ui/viewport.js';
-import { cancelSchematicPointerInteraction } from '../../ui/modules/drag.js';
-import { cancelSchematicPropertyPreview } from '../../ui/modules/properties.js';
+import { cancelSchematicPointerInteraction } from './drag.js';
+import { cancelSchematicPropertyPreview } from './properties.js';
 import { duplicateIdRepairMessage, repairDuplicateIds } from '../../core/project-format.js';
 
 function canReplaceDocument(app) {
@@ -96,7 +96,7 @@ export async function loadDocument(app, data, prepared = prepareDocument(app, da
             if (paperSelect) paperSelect.value = settings.paperSize;
             if (orientationSelect) orientationSelect.value = orientation;
             // Trigger paper display update via the same path as UI
-            const { PAPER_SIZES } = await import('../../ui/modules/paper.js');
+            const { PAPER_SIZES } = await import('./paper.js');
             if (PAPER_SIZES[settings.paperSize]) {
                 let size = { ...PAPER_SIZES[settings.paperSize] };
                 if (orientation === 'portrait') {

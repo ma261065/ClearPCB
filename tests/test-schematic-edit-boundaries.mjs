@@ -17,8 +17,8 @@ globalThis.document = {
     querySelector: () => null,
 };
 const { default: SchematicApp } = await import('../src/ui/SchematicApp.js');
-const { bindKeyboardShortcuts, handleEscape, runSchematicHistoryAction } = await import('../src/ui/modules/keyboard.js');
-const { onToolSelected } = await import('../src/ui/modules/tool.js');
+const { bindKeyboardShortcuts, handleEscape, runSchematicHistoryAction } = await import('../src/schematic/modules/keyboard.js');
+const { onToolSelected } = await import('../src/schematic/modules/tool.js');
 
 function button() {
     const events = new Map();

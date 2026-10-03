@@ -32,8 +32,8 @@ const { getPcbSelectionHits, getPcbSelectionEntries, setPcbSelection, syncPcbSel
 const { pointInBoxSelection } = await import('../src/pcb/modules/box-select.js');
 const { PCB_LAYERS } = await import('../src/pcb/modules/layers.js');
 const { idleState, overlapCycleState, moveDragState } = await import('../src/schematic/modules/draw-states.js');
-const { updateSelectableItems } = await import('../src/ui/modules/components.js');
-const { setupCallbacks } = await import('../src/ui/modules/callbacks.js');
+const { updateSelectableItems } = await import('../src/schematic/modules/components.js');
+const { setupCallbacks } = await import('../src/schematic/modules/callbacks.js');
 
 const point = { x: 0, y: 0 };
 const definition = { name: 'Overlap', symbol: {

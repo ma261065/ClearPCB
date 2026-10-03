@@ -1,10 +1,10 @@
 /**
  * Clipboard module — copy, cut, paste for shapes and components
  */
-import { DeleteShapesCommand, DeleteComponentsCommand, BatchCommand, PasteCommand } from '../../schematic/modules/commands.js';
+import { DeleteShapesCommand, DeleteComponentsCommand, BatchCommand, PasteCommand } from './commands.js';
 import { Component } from '../../components/Component.js';
 import { createShape } from '../../shapes/index.js';
-import { cloneEntityElement, componentPreviewElement, shapePreviewElement } from '../../schematic/modules/schematic-view.js';
+import { cloneEntityElement, componentPreviewElement, shapePreviewElement } from './schematic-view.js';
 
 // Internal clipboard (array of serialised items)
 let clipboard = [];

@@ -5,7 +5,7 @@
  * `render()` or the viewport content layers. Entity SVG is built by
  * src/schematic/render.
  */
-import { syncAttachedLabels, updateLabelGuide } from '../../ui/modules/label-attachment.js';
+import { syncAttachedLabels, updateLabelGuide } from './label-attachment.js';
 import { arcEdgePathD } from '../../shapes/arc-edge.js';
 import { appendSegmentSelection } from '../../core/ui-helpers.js';
 import { refreshAxisGlow } from '../../shapes/axis-glow.js';

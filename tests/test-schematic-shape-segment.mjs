@@ -23,18 +23,18 @@ const { clearShapeSegmentSelection, renderShapeSegmentSelection } = await import
 const { updateShapeAnchors } = await import('../src/schematic/render/shape-renderer.js');
 const { ensureView, viewOf } = await import('../src/schematic/render/shape-view-state.js');
 const { idleState, anchorDragState } = await import('../src/schematic/modules/draw-states.js');
-const { updatePropertiesPanel } = await import('../src/ui/modules/properties.js');
+const { updatePropertiesPanel } = await import('../src/schematic/modules/properties.js');
 const { Circle } = await import('../src/shapes/circle.js');
 const { Arc } = await import('../src/shapes/arc.js');
 const { Wire } = await import('../src/shapes/wire.js');
-const { setSchematicShapeSegmentType, showSegmentContextMenu, dismissAnchorContextMenu, splitAnchorAndDrag } = await import('../src/ui/modules/context-menu.js');
-const { deleteSelected } = await import('../src/ui/modules/selection.js');
-const { resolveAnchorDragOnMouseUp, commitShapeJoin } = await import('../src/ui/modules/drag.js');
+const { setSchematicShapeSegmentType, showSegmentContextMenu, dismissAnchorContextMenu, splitAnchorAndDrag } = await import('../src/schematic/modules/context-menu.js');
+const { deleteSelected } = await import('../src/schematic/modules/selection.js');
+const { resolveAnchorDragOnMouseUp, commitShapeJoin } = await import('../src/schematic/modules/drag.js');
 const { SelectionManager } = await import('../src/core/SelectionManager.js');
-const { handleEscape } = await import('../src/ui/modules/keyboard.js');
+const { handleEscape } = await import('../src/schematic/modules/keyboard.js');
 const { setPathSegmentType } = await import('../src/shapes/path-operations.js');
 const { snapShapeBulge } = await import('../src/schematic/modules/shape-snap.js');
-const { bindMouseEvents } = await import('../src/ui/modules/mouse.js');
+const { bindMouseEvents } = await import('../src/schematic/modules/mouse.js');
 
 let failures = 0;
 function expect(name, condition) {

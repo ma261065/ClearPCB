@@ -4,7 +4,7 @@ import { PROPERTY_ORDER, propertyRank, sortByPropertyOrder } from '../src/shared
 
 globalThis.window = { addEventListener() {} };
 globalThis.document = { getElementById: () => null, createElement: () => ({ style: {}, dataset: {} }) };
-const { mergeDescriptors } = await import('../src/ui/modules/properties.js');
+const { mergeDescriptors } = await import('../src/schematic/modules/properties.js');
 const { Circle } = await import('../src/shapes/circle.js');
 const { Arc } = await import('../src/shapes/arc.js');
 const { createRect, createLine, createPolygon } = await import('../src/shapes/polyline.js');
@@ -27,7 +27,7 @@ assert.deepEqual(sortByPropertyOrder(['b-unknown', 'net', 'a-unknown', 'locked',
 
 // Every key a panel uses must be ranked, or it would silently drift to the end.
 const sources = ['src/ui/PCBApp.js', 'src/pcb/modules/board-shape-properties.js', 'src/pcb/modules/component-properties.js',
-    'src/pcb/modules/copper-fill-edit.js', 'src/pcb/modules/track-select.js', 'src/ui/modules/properties.js']
+    'src/pcb/modules/copper-fill-edit.js', 'src/pcb/modules/track-select.js', 'src/schematic/modules/properties.js']
     .map(path => [path, readFileSync(new URL(`../${path}`, import.meta.url), 'utf8')]);
 const ranked = key => PROPERTY_ORDER.includes(key);
 for (const [path, source] of sources) {

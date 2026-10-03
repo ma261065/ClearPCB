@@ -18,14 +18,14 @@
 
 import { updateStickyWires, updateSnapHighlight, resolveWireSnapPosition, computeAnchorCollinearSnap, computeSegmentDragSnap, computeStickyWireSnaps, applyOffGridNeighborSnap, buildCollinearChain, bridgeCollinearPinEndpoints, SNAP_SCREEN_PX, COLLINEAR_EPSILON, VERTEX_EPSILON, PIN_SNAP_TOL } from './wire.js';
 import { renderGuideLines } from '../../shapes/axis-glow.js';
-import { clearDragState, commitMoveDrag, commitSegmentDrag, resolveAnchorDragOnMouseUp, revertSegmentDragIfNoMove, commitShapeJoin } from '../../ui/modules/drag.js';
-import { detectTJunction, showAnchorContextMenu, showSegmentContextMenu, showLabelContextMenu, showComponentContextMenu } from '../../ui/modules/context-menu.js';
+import { clearDragState, commitMoveDrag, commitSegmentDrag, resolveAnchorDragOnMouseUp, revertSegmentDragIfNoMove, commitShapeJoin } from './drag.js';
+import { detectTJunction, showAnchorContextMenu, showSegmentContextMenu, showLabelContextMenu, showComponentContextMenu } from './context-menu.js';
 import { hasAny3DModel } from '../../components/model3d-source.js';
-import { updateToolGhost } from '../../ui/modules/tool.js';
+import { updateToolGhost } from './tool.js';
 import { ModifyShapeCommand } from './commands.js';
 import { collapseRedundantWirePoints } from './wire.js';
 import { Text } from '../../shapes/text.js';
-import { attachLabelToTarget, detachLabel, refreshLabelAttachmentOffset, getLabelDropHotspot } from '../../ui/modules/label-attachment.js';
+import { attachLabelToTarget, detachLabel, refreshLabelAttachmentOffset, getLabelDropHotspot } from './label-attachment.js';
 import { findJoinTarget, isJoinable } from '../../shapes/shape-join.js';
 import { tryBeginPolylineSegmentDrag, updatePolylineSegmentDrag } from './polyline-segment-drag.js';
 import { refreshComponentPose } from './schematic-view.js';
@@ -33,7 +33,7 @@ import { snapShapePoint, snapShapeBulge, renderShapeAlignment, shapeContinuation
 import { refinePathSegment } from '../../shapes/path-interaction.js';
 import { DRAWING_SHAPES } from '../../shapes/shape-drawing.js';
 import { isCulled } from './schematic-view.js';
-import { shapeDrawingClick } from '../../ui/modules/drawing.js';
+import { shapeDrawingClick } from './drawing.js';
 import { findInlineEditableHit, isUnmodifiedPrimaryDoublePress } from '../../shared/ui/inline-edit-activation.js';
 // ─── Constants ─────────────────────────────────────────────────────
 

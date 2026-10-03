@@ -58,8 +58,8 @@ globalThis.document = {
     createElement: tag => new Element(tag),
     getElementById: id => document.body.querySelector(`#${id}`),
 };
-const { updatePropertiesPanel, hasSchematicPropertyPreview } = await import('../src/ui/modules/properties.js');
-const { bindKeyboardShortcuts, runSchematicHistoryAction } = await import('../src/ui/modules/keyboard.js');
+const { updatePropertiesPanel, hasSchematicPropertyPreview } = await import('../src/schematic/modules/properties.js');
+const { bindKeyboardShortcuts, runSchematicHistoryAction } = await import('../src/schematic/modules/keyboard.js');
 const { ProjectDocument } = await import('../src/core/ProjectDocument.js');
 const { default: SchematicApp } = await import('../src/ui/SchematicApp.js');
 

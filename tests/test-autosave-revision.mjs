@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { FileManager } from '../src/core/FileManager.js';
 import { ProjectDocument } from '../src/core/ProjectDocument.js';
-import { flashAutoSaveIndicator } from '../src/ui/modules/ui-utils.js';
+import { flashAutoSaveIndicator } from '../src/schematic/modules/ui-utils.js';
 
 const originalSetInterval = globalThis.setInterval;
 const originalClearInterval = globalThis.clearInterval;

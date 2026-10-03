@@ -249,7 +249,7 @@ assert.equal(startedEdit, editableReference,
     'Double-click must use the clicked SVG text when geometric hit testing is stale');
 console.log('PASS: schematic reference text keeps double-click inline editing over its component');
 
-const { updateLabelGuide } = await import('../src/ui/modules/label-attachment.js');
+const { updateLabelGuide } = await import('../src/schematic/modules/label-attachment.js');
 setTextEditElementProvider(shape => shape?.element || null);
 const guideLayer = { children: [], appendChild(child) {
     child.remove();

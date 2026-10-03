@@ -1,5 +1,5 @@
 import { cancelSchematicPointerInteraction } from './drag.js';
-import { ModifyPropertyCommand, MoveShapesCommand } from '../../schematic/modules/commands.js';
+import { ModifyPropertyCommand, MoveShapesCommand } from './commands.js';
 import { rotateNetOrientation } from '../../shapes/net.js';
 import { resolveWireSnapPosition, PIN_SNAP_TOL } from './wire.js';
 import { updateToolGhost } from './tool.js';

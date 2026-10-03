@@ -9,7 +9,7 @@ const { ComponentPicker } = await import('../src/components/ComponentPicker.js')
 const { KiCadFetcher, warmKiCadIndex } = await import('../src/components/KiCadFetcher.js');
 const { createGenerationGate, createDebouncedRunner } = await import('../src/components/async-control.js');
 const { ModalManager } = await import('../src/core/ModalManager.js');
-const { onToolSelected, onComponentPickerClosed } = await import('../src/ui/modules/tool.js');
+const { onToolSelected, onComponentPickerClosed } = await import('../src/schematic/modules/tool.js');
 
 const css = readFileSync(new URL('../src/ui/schematic.css', import.meta.url), 'utf8');
 const closeStyle = css.match(/\.cp-close\s*\{([^}]+)\}/)?.[1] || '';

@@ -43,8 +43,8 @@ const { renderShapeAlignment, snapShapePoint, snapShapeBulge, shapeContinuationC
 const { resolvePathPoint, pathContinuationConstraints, resolvePathTranslation, pathSegmentConstraints } = await import('../src/shapes/path-snap.js');
 const { snapPathPoint } = await import('../src/pcb/modules/path-edit.js');
 const { updatePolylineSegmentDrag } = await import('../src/schematic/modules/polyline-segment-drag.js');
-const { clearDragState } = await import('../src/ui/modules/drag.js');
-const { updatePreview, cancelDrawing } = await import('../src/ui/modules/drawing.js');
+const { clearDragState } = await import('../src/schematic/modules/drag.js');
+const { updatePreview, cancelDrawing } = await import('../src/schematic/modules/drawing.js');
 const { renderShapes } = await import('../src/schematic/modules/schematic-view.js');
 
 let failures = 0;

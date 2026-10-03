@@ -1,9 +1,9 @@
 import { AddShapeCommand } from './commands.js';
 import { freeWireLabel, bumpWireLabelCounter, freeNetName, bumpNetNameCounter, nextNetName } from '../../shapes/wire.js';
 import { Text } from '../../shapes/text.js';
-import { detachLabel } from '../../ui/modules/label-attachment.js';
+import { detachLabel } from './label-attachment.js';
 import { VERTEX_EPSILON } from './wire.js';
-import { connectComponentPinsToWires as _connectComponentPinsToWires, connectPinsToWires } from '../../ui/modules/pin-wire-connect.js';
+import { connectComponentPinsToWires as _connectComponentPinsToWires, connectPinsToWires } from './pin-wire-connect.js';
 import { ensureShapeMounted, mountShape, unmountShape, withContentDetached } from './schematic-view.js';
 
 /**

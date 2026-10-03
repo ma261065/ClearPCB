@@ -41,22 +41,22 @@ clearpcb/
 │   │                           # property-order, …)
 │   ├── schematic/
 │   │   ├── render/             # Schematic shape/component SVG renderers + WeakMap view state
-│   │   └── modules/            # Schematic-only interaction modules
-│   │                           # (draw-states, files, shape-management, wire,
-│   │                           # schematic-view: the entity-SVG lifecycle boundary)
+│   │   └── modules/            # Schematic-only modules: interaction (mouse, keyboard,
+│   │                           # drag, drawing, draw-states, clipboard, context-menu,
+│   │                           # properties, ribbon, tool, text-edit), model helpers
+│   │                           # (wire, label-attachment, pin-wire-connect, commands,
+│   │                           # files, shape-management) and schematic-view (the
+│   │                           # entity-SVG lifecycle boundary)
 │   ├── pcb/
 │   │   └── modules/            # PCB-only interaction + I/O modules
 │   │                           # (autorouter family, controls, dsn, gerber,
 │   │                           # layers, ratsnest, track-*)
 │   └── ui/
 │       ├── AppBootstrap.js     # Shared startup + mode switching
-│       ├── SchematicApp.js     # Schematic editor facade
-│       ├── PCBApp.js           # PCB editor facade
-│       ├── schematic.css
-│       └── modules/            # Schematic interaction modules
-│                               # (mouse, keyboard, drag, drawing, clipboard,
-│                               # context-menu, files, paper, label-attachment,
-│                               # pin-wire-connect, net-validation, …)
+│       ├── SchematicApp.js     # Schematic editor facade over src/schematic
+│       ├── PCBApp.js           # PCB editor facade over src/pcb
+│       ├── mcp-session.js      # MCP session dialog (used by AppBootstrap)
+│       └── schematic.css
 ├── workers/
 │   └── cors-proxy.js
 ├── tests/                      # Isolated headless regression scripts (test-*.mjs)
@@ -79,12 +79,13 @@ clearpcb/
 
 - `src/core/*`, `src/shapes/*`, `src/components/*`, `src/shared/*` are
   shared by schematic and pcb.
-- `src/schematic/**` and `src/ui/SchematicApp.js` + `src/ui/modules/*`
-  are schematic-only. `PCBApp.js` must not import them.
+- `src/schematic/**` and `src/ui/SchematicApp.js` are schematic-only.
+  `PCBApp.js` must not import them.
 - `src/pcb/**` and `src/ui/PCBApp.js` are pcb-only. Schematic code must
   not import them.
 - `src/ui/AppBootstrap.js` is shared orchestration only (startup, mode
-  switching, platform launch hooks).
+  switching, platform launch hooks); other `src/ui` files besides the two
+  editor facades (`mcp-session.js`) serve only it.
 - `src/easyeda/*` is import-only (read EasyEDA files into our model).
 - Shared code (`core`, `shapes`, `components`, `shared`, `easyeda`) must not
   import either editor.
@@ -107,7 +108,7 @@ accesses per module in `src/pcb` and `src/shared/pcb` against
 `tools/pcb-editor-access-baseline.json` in the same way; promote a member to a
 service instead of adding a new private access.
 `node tools/check-schematic-editor-access.mjs` applies the same ratchet to the
-schematic layer (`src/schematic`, `src/ui/modules`) against
+schematic layer (`src/schematic`) against
 `tools/schematic-editor-access-baseline.json` (217 accesses to 106 private
 `SchematicApp` members when introduced); use a public `SchematicApp` method or a
 module export instead of adding one. Both run as hard checks in the regression gate.

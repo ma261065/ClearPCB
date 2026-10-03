@@ -82,12 +82,12 @@ const {
     commandRestoreShapesInternal,
 } = await import('../src/schematic/modules/shape-management.js');
 const { renderShapes } = await import('../src/schematic/modules/schematic-view.js');
-const { deleteSelected } = await import('../src/ui/modules/selection.js');
+const { deleteSelected } = await import('../src/schematic/modules/selection.js');
 const { deleteWire, deleteWireSegment, deleteSchematicShapeNode, splitAnchorAndDrag, setSchematicShapeSegmentType,
-    decomposeShapeCorners } = await import('../src/ui/modules/context-menu.js');
-const { bindKeyboardShortcuts } = await import('../src/ui/modules/keyboard.js');
-const { bindPropertiesPanel, updatePropertiesPanel } = await import('../src/ui/modules/properties.js');
-const { bindRibbon } = await import('../src/ui/modules/ribbon.js');
+    decomposeShapeCorners } = await import('../src/schematic/modules/context-menu.js');
+const { bindKeyboardShortcuts } = await import('../src/schematic/modules/keyboard.js');
+const { bindPropertiesPanel, updatePropertiesPanel } = await import('../src/schematic/modules/properties.js');
+const { bindRibbon } = await import('../src/schematic/modules/ribbon.js');
 const { default: SchematicApp } = await import('../src/ui/SchematicApp.js');
 
 function fixture(shape) {

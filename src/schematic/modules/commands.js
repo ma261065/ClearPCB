@@ -8,8 +8,8 @@ import { Component } from '../../components/Component.js';
  */
 
 import { freeWireLabel, bumpWireLabelCounter, freeNetName, bumpNetNameCounter } from '../../shapes/wire.js';
-import { applyStickyConnections } from '../../ui/modules/sticky-wires.js';
-import { connectComponentPinsToWires, PIN_ATTACH_TOL } from '../../ui/modules/pin-wire-connect.js';
+import { applyStickyConnections } from './sticky-wires.js';
+import { connectComponentPinsToWires, PIN_ATTACH_TOL } from './pin-wire-connect.js';
 import { mountComponent, mountShape, redrawShape, refreshComponentPose, unmountComponent, unmountShape, withContentDetached } from './schematic-view.js';
 
 /**
@@ -194,7 +194,7 @@ export class MoveShapesCommand extends Command {
 
     /**
      * Update wire nodes connected to component pins after move/undo.
-     * NOTE: Duplicates updateStickyWires() in ui/modules/wire.js.
+     * NOTE: Duplicates updateStickyWires() in schematic/modules/wire.js.
      * Kept inline to avoid circular import (wire.js imports from this module).
      */
     _updateStickyWires() {
@@ -775,7 +775,7 @@ export class TransformComponentCommand extends Command {
 
     /**
      * Update wire nodes connected to component pins after transform.
-     * NOTE: Duplicates updateStickyWires() in ui/modules/wire.js and
+     * NOTE: Duplicates updateStickyWires() in schematic/modules/wire.js and
      * MoveShapesCommand._updateStickyWires() — kept inline to avoid
      * circular imports.
      */

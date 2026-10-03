@@ -24,7 +24,7 @@ const { applyBoardShapeVertexResize, startBoardShapeDrag, handleBoardShapeDrag, 
 const { beginFillEdit, updateFillEdit, endFillEdit } = await import('../src/pcb/modules/copper-fill-edit.js');
 const { cancelPictureCopperRefresh } = await import('../src/pcb/modules/picture-refresh.js');
 const { rectCornerRadius } = await import('../src/shared/pcb/board-shape-geometry.js');
-const { commitAnchorDrag } = await import('../src/ui/modules/drag.js');
+const { commitAnchorDrag } = await import('../src/schematic/modules/drag.js');
 
 const near = (actual, expected, tolerance = 1e-9) =>
     assert.ok(Math.hypot(actual.x - expected.x, actual.y - expected.y) < tolerance,

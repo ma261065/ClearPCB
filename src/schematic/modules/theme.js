@@ -1,5 +1,5 @@
 import { storageManager } from '../../core/StorageManager.js';
-import { rebuildComponentSymbol } from '../../schematic/modules/schematic-view.js';
+import { rebuildComponentSymbol } from './schematic-view.js';
 import { loadAndApplyTheme, toggleTheme as toggleSharedTheme, syncThemeToggleButtons } from '../../shared/ui/theme.js';
 
 /**
