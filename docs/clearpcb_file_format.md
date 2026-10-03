@@ -576,7 +576,7 @@ Tracks use the schematic graph base plus track fields:
 | `ncr` | Per-node corner-radius overrides keyed by node ID, including zero to retain a sharp corner. |
 | `bg` | Edge bulges keyed by edge ID. |
 | `pdc` | Pad connections keyed by node ID. |
-| `sbs` | Original board-shape snapshot when a named copper line, or an unfilled copper polygon/rectangle (closed loop), was converted to a track. |
+| `sbs` | Original board-shape snapshot when a copper line, or an unfilled copper polygon/rectangle (closed loop), became a track. |
 
 Per-edge maps contain only values that differ from the shape-wide default.
 
@@ -590,9 +590,14 @@ use the same sampled corner geometry without changing the editable graph.
 Track `bg` values use the signed DXF bulge ratio, from -1 to 1, measured in the
 edge's `from`-to-`to` direction. Zero is straight; magnitude 1 is a semicircle.
 Splitting an arc retains its circle with a separate bulge for each new edge.
-Line-to-track conversion and restoration retain segment widths, bulges and node
-radii. The `sbs` snapshot retains source identity; live track geometry takes
-precedence when restoring a line.
+Copper lines, and unfilled copper polygons and rectangles, are tracks: drawing
+one creates a track whether or not it has a net, and files that saved them as
+board shapes load them as tracks (with `sbs` recording the source shape). The
+conversion retains segment widths, bulges and both radius levels. A rectangular
+loop (four axis-aligned straight edges on one layer, without node overrides)
+rounds with circular quarter-arcs like a board rectangle; other tracks use
+quadratic corners. Filling a closed loop turns it into a filled board shape that
+keeps the `sbs` identity, net, width and radii.
 
 ### Vias
 

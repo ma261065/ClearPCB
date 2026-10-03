@@ -56,8 +56,7 @@ import {
     isViaVisible,
     unlockPcbLayer,
 } from './layers.js';
-import { canRestoreTrackToSourceBoardShape, restoreTrackToSourceBoardShape, setBoardShapeNetHover,
-    canFillTrackLoop, fillTrackLoop } from './board-shapes.js';
+import { setBoardShapeNetHover, canFillTrackLoop, fillTrackLoop } from './board-shapes.js';
 import { normalizeShapeCopperMode } from '../../shared/pcb/board-shape-geometry.js';
 import { showAlert } from '../../shared/ui/modal.js';
 import {
@@ -1321,13 +1320,6 @@ function _showTrackProperties(app, track) {
         if (!binding.prepare()) return;
         const v = netEl.value.trim();
         if (v === baseline.net) return;
-        if (!v && canRestoreTrackToSourceBoardShape(track)) {
-            clearTrackSelection(app);
-            if (restoreTrackToSourceBoardShape(app, track)) {
-                baseline.net = '';
-                return;
-            }
-        }
         if (_applyNetToBondedCopper(app, { track, edgeId: netSeedEdgeId }, v)) {
             baseline.net = v;
         } else {
@@ -1335,9 +1327,8 @@ function _showTrackProperties(app, track) {
         }
     });
     netEl?.addEventListener('input', () => {
-        // The properties panel can be rebuilt before a blur emits `change`.
-        // Commit the empty transition immediately so a simple Track restores
-        // to its source Line as soon as its Net is cleared.
+        // The properties panel can be rebuilt before a blur emits `change`,
+        // so commit clearing the Net immediately.
         if (!netEl.value.trim() && baseline.net) netEl.dispatchEvent(new Event('change'));
     });
     netMenuEl?.addEventListener('click', (event) => {
@@ -1424,13 +1415,6 @@ function _showTrackSegmentProperties(app, track, edgeId) {
         if (!binding.prepare()) return;
         const v = netEl.value.trim();
         if (v === baseline.net) return;
-        if (!v && canRestoreTrackToSourceBoardShape(track)) {
-            clearTrackSelection(app);
-            if (restoreTrackToSourceBoardShape(app, track)) {
-                baseline.net = '';
-                return;
-            }
-        }
         if (_applyNetToBondedCopper(app, { track, edgeId }, v)) {
             baseline.net = v;
         } else {

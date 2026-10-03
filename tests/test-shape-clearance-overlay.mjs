@@ -286,9 +286,11 @@ try {
     app.viewport.scale = 10;
     app.viewport.setCrosshair = () => {};
     app._snapToGrid = point => point;
-    for (const fixture of [circle, line, rectangle, polygon, arc, image]) {
+    // Copper lines and unfilled outlines are Tracks; board-shape copper is areas, arcs and artwork.
+    for (const fixture of [circle, rectangle, polygon, arc, image]) {
         for (const pourQueued of [false, true]) {
-            const shape = { ...structuredClone(fixture), id: `move-${fixture.kind}-${pourQueued}`, layer: 'top-copper', net: '' };
+            const shape = { ...structuredClone(fixture), id: `move-${fixture.kind}-${pourQueued}`, layer: 'top-copper', net: '',
+                ...(['rect', 'polygon'].includes(fixture.kind) ? { filled: true } : {}) };
             app.boardShapes.push(shape);
             renderBoardShape(app, shape);
             const cached = app._boardShapeClearanceCache.get(shape.id);
@@ -332,7 +334,7 @@ try {
     }
     console.log('PASS all board-shape translations retain halos through drag/drop and undo/redo, with pour/DRC release updates');
     for (const mode of ['vertex', 'segment', 'midpoint', 'bulge']) for (const commit of [false, true]) {
-        const shape = { id: `live-line-${mode}-${commit}`, kind: 'line', layer: 'top-copper', lineWidth: 0.4,
+        const shape = { id: `live-line-${mode}-${commit}`, kind: 'polygon', filled: true, layer: 'top-copper', lineWidth: 0.4,
             points: [{ x: 30, y: 40 }, { x: 40, y: 40 }, { x: 40, y: 50 }],
             segmentWidths: { 1: 0.8 }, segmentBulges: mode === 'bulge' ? { 0: 0.2 } : {} };
         app.boardShapes.push(shape);

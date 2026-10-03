@@ -1993,6 +1993,19 @@ drop cannot leave duplicate preview/committed track outlines.
 
 - `PCBApp.tracks` — array of `Track` polyline-graphs. A Track may change
   layer mid-run via per-edge `edgeLayers`.
+- Copper paths are Tracks. A Line, or an unfilled Polygon/Rectangle, in
+  additive top/bottom copper is a Track whether or not it has a net
+  (`isCopperPathShape()` and `trackFromBoardShape()` in
+  `shared/pcb/copper-path-tracks.js`). Drawing, joins, splits, paste, file
+  loading and any property edit that makes a board shape a copper path
+  (unfilling, switching to additive copper, moving to a copper layer) create
+  the Track instead, in the same undo step; clearing a Track's net keeps it a
+  Track. Filled areas, copper cut-outs, copper pours and other layers stay board
+  shapes. Line/polygon/rectangle are editing modes read from the track's
+  topology: a rectangular loop (`isTrackRectangleLoop()`) resizes with the
+  opposite corner fixed and rounds with circular corners, and Fill turns a
+  closed loop into a filled board shape that keeps its net
+  (`fillTrackLoop()`; `test-copper-path-tracks`, `test-track-rectangle-editing`).
 - `PCBApp.vias` — array of standalone `Via` objects. **All** vias are
   represented here, including those sitting at a Track's layer-change
   node. Tracks never carry implicit vias.

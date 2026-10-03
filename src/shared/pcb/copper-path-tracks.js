@@ -1,0 +1,55 @@
+/**
+ * Copper paths are Tracks. A Line, or an unfilled Polygon/Rectangle, drawn in
+ * additive copper is routing intent whether or not it has a net yet, so it lives
+ * in the Track model; its line/polygon/rectangle "kind" is just the track's
+ * topology (open chain, closed loop, axis-aligned 4-node loop). Filled shapes are
+ * copper areas, subtract-mode shapes cut copper, and other layers carry no
+ * connectivity, so those stay board shapes.
+ */
+import { Track } from '../../shapes/track.js';
+import { normalizeShapeCopperMode, rectCornerRadius, shapeIsFilled } from './board-shape-geometry.js';
+
+/** Whether a board shape is a copper path that belongs in the Track model. */
+export function isCopperPathShape(shape) {
+    // Copper pours share the shape collection and kinds but are areas, not paths.
+    if (shape?.type === 'fill') return false;
+    const closed = shape?.kind === 'polygon' || shape?.kind === 'rect';
+    return (shape?.kind === 'line' || (closed && !shapeIsFilled(shape)))
+        && (shape.layer === 'top-copper' || shape.layer === 'bottom-copper')
+        && normalizeShapeCopperMode(shape.copperMode) === 'add'
+        && Array.isArray(shape.points)
+        && shape.points.length >= (closed ? 3 : 2);
+}
+
+/**
+ * Track with the shape's nodes `n<i>` and segments `e<i>`; closed shapes get the
+ * closing edge. A rectangle keeps its corner radius: a rectangular track loop
+ * rounds with the same circular corners (see isTrackRectangleLoop). The source
+ * shape is kept so Fill can turn a loop back into a filled shape with its id.
+ * @param {any} shape
+ * @param {string} [net]
+ */
+export function trackFromBoardShape(shape, net = shape?.net || '') {
+    const count = shape.points.length;
+    const edgeCount = shape.kind === 'line' ? count - 1 : count;
+    const byEdge = (record) => Object.fromEntries(Object.entries(record || {}).map(([index, value]) => [`e${index}`, value]));
+    return new Track({
+        net: String(net || '').trim(),
+        width: Math.max(0.05, Number(shape.lineWidth) || 0.2),
+        layer: shape.layer,
+        graphNodes: Object.fromEntries(shape.points.map((point, index) => [`n${index}`, { x: point.x, y: point.y }])),
+        graphEdges: Object.fromEntries(Array.from({ length: edgeCount }, (_, index) =>
+            [`e${index}`, { from: `n${index}`, to: `n${(index + 1) % count}` }])),
+        edgeWidths: byEdge(shape.segmentWidths),
+        edgeBulges: byEdge(shape.segmentBulges),
+        cornerRadius: shape.kind === 'rect' ? rectCornerRadius(shape) : shape.cornerRadius,
+        nodeCornerRadii: Object.fromEntries(Object.entries(shape.nodeCornerRadii || {}).map(([index, radius]) => [`n${index}`, radius])),
+        sourceBoardShape: sourceBoardShapeForTrack(shape),
+    });
+}
+
+function sourceBoardShapeForTrack(shape) {
+    const source = JSON.parse(JSON.stringify(shape));
+    source.net = '';
+    return source;
+}

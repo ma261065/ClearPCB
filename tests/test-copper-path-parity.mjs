@@ -5,7 +5,6 @@
  * copper edge are skipped because the models sample curves at different densities.
  */
 import assert from 'node:assert/strict';
-import { PcbDocument } from '../src/core/PcbDocument.js';
 
 function element() {
     const attributes = new Map();
@@ -25,7 +24,8 @@ globalThis.window = { addEventListener() {}, removeEventListener() {} };
 globalThis.document = { getElementById: () => null, querySelector: () => null, querySelectorAll: () => [],
     createElement: element, createElementNS: element };
 
-const { convertBoardLineToTrack, createBoardShapeSelectionAdapter } = await import('../src/pcb/modules/board-shapes.js');
+const { createBoardShapeSelectionAdapter } = await import('../src/pcb/modules/board-shapes.js');
+const { trackFromBoardShape } = await import('../src/shared/pcb/copper-path-tracks.js');
 const { createTrackSelectionAdapter } = await import('../src/pcb/modules/track-select.js');
 const { reconcileRatsnest } = await import('../src/pcb/modules/track-draw.js');
 const { resolveTrackSegments } = await import('../src/shapes/track-geometry.js');
@@ -52,15 +52,7 @@ function shapeFor(spec) {
         ...structuredClone(spec) };
 }
 function trackFor(spec) {
-    const shape = shapeFor(spec);
-    const pcbDocument = new PcbDocument();
-    pcbDocument.boardShapes.push(shape);
-    const app = { pcbDocument, boardShapes: pcbDocument.boardShapes, tracks: pcbDocument.tracks,
-        _shapeElements: new Map(), getLayerGroup: () => null,
-        history: { execute(command) { command.execute(); } } };
-    const track = convertBoardLineToTrack(app, shape, 'N');
-    assert.ok(track, 'fixture converts');
-    return track;
+    return trackFromBoardShape(shapeFor(spec), 'N');
 }
 function board(extra) {
     const layer = element();

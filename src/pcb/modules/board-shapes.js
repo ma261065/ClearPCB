@@ -45,7 +45,7 @@ import {
     ModifyBoardShapeCommand,
 } from './shape-commands.js';
 import { AddTrackCommand, RemoveTrackCommand, CompoundCommand } from './track-commands.js';
-import { Track } from '../../shapes/track.js';
+import { isCopperPathShape, trackFromBoardShape } from '../../shared/pcb/copper-path-tracks.js';
 import { clearAxisGlow, renderAxisGlow, pathAlignmentSegments, squareAlignmentSegments } from '../../shapes/axis-glow.js';
 import { pathContinuationConstraints, pathSegmentConstraints } from '../../shapes/path-snap.js';
 import { redrawPropertyPreview, createPropertyBinding } from '../../shapes/property-preview.js';
@@ -205,51 +205,6 @@ export function shapeKindLabel(kind) {
                 : 'Shape';
 }
 
-/**
- * Copper paths that are routing intent once they carry a net: open Lines, and
- * unfilled polygons/rectangles (closed loops). Filled shapes are copper areas,
- * which a Track cannot represent, so they keep the net as a shape.
- */
-export function canConvertBoardLineToTrack(shape, net = shape?.net) {
-    const closed = shape?.kind === 'polygon' || shape?.kind === 'rect';
-    return (shape?.kind === 'line' || (closed && !shapeIsFilled(shape)))
-        && (shape.layer === 'top-copper' || shape.layer === 'bottom-copper')
-        && normalizeShapeCopperMode(shape.copperMode) === 'add'
-        && !!String(net || '').trim()
-        && Array.isArray(shape.points)
-        && shape.points.length >= (closed ? 3 : 2);
-}
-
-/**
- * Track with the shape's nodes `n<i>` and segments `e<i>`; closed shapes get the
- * closing edge. A rectangle keeps its corner radius: a rectangular track loop
- * rounds with the same circular corners (see isTrackRectangleLoop).
- */
-export function trackFromBoardShape(shape, net) {
-    const count = shape.points.length;
-    const edgeCount = shape.kind === 'line' ? count - 1 : count;
-    const byEdge = (record) => Object.fromEntries(Object.entries(record || {}).map(([index, value]) => [`e${index}`, value]));
-    return new Track({
-        net: String(net).trim(),
-        width: Math.max(0.05, Number(shape.lineWidth) || 0.2),
-        layer: shape.layer,
-        graphNodes: Object.fromEntries(shape.points.map((point, index) => [`n${index}`, { x: point.x, y: point.y }])),
-        graphEdges: Object.fromEntries(Array.from({ length: edgeCount }, (_, index) =>
-            [`e${index}`, { from: `n${index}`, to: `n${(index + 1) % count}` }])),
-        edgeWidths: byEdge(shape.segmentWidths),
-        edgeBulges: byEdge(shape.segmentBulges),
-        cornerRadius: shape.kind === 'rect' ? rectCornerRadius(shape) : shape.cornerRadius,
-        nodeCornerRadii: Object.fromEntries(Object.entries(shape.nodeCornerRadii || {}).map(([index, radius]) => [`n${index}`, radius])),
-        sourceBoardShape: sourceBoardShapeForTrack(shape),
-    });
-}
-
-function sourceBoardShapeForTrack(shape) {
-    const source = JSON.parse(JSON.stringify(shape));
-    source.net = '';
-    return source;
-}
-
 function simpleTrackLinePoints(track) {
     if (!track || track.nodes.size < 2 || track.padConnections.size) return null;
     const closed = track.edges.size === track.nodes.size;
@@ -304,14 +259,6 @@ function simpleTrackLinePoints(track) {
         : null;
 }
 
-export function canRestoreTrackToSourceBoardShape(track) {
-    return !!simpleTrackLinePoints(track);
-}
-
-export function restoreTrackToSourceBoardShape(app, track) {
-    return replaceTrackWithBoardShape(app, track, { filled: false, net: '' });
-}
-
 /** Whether a track is a closed single-layer loop that Fill can turn into a copper area. */
 export function canFillTrackLoop(track) {
     return !!simpleTrackLinePoints(track)?.closed;
@@ -359,23 +306,33 @@ function replaceTrackWithBoardShape(app, track, { filled, net }) {
 }
 
 /**
- * Move a net-assigned generic copper path (an open Line, or an unfilled
- * polygon/rectangle as a closed loop) into the canonical Track model.
- * Tracks that retain their unmodified source geometry can be restored to the
- * original shape when their net is cleared.
+ * Command adding a new board shape, or the equivalent Track when the shape is a
+ * copper path (see isCopperPathShape).
+ * @returns {{command: any, track: import('../../shapes/track.js').Track|null}}
  */
-export function convertBoardLineToTrack(app, shape, net = shape?.net) {
-    if (!canConvertBoardLineToTrack(shape, net) || !app.boardShapes?.includes(shape)) return null;
-    const track = trackFromBoardShape(shape, net);
+export function addBoardShapeOrTrackCommand(app, shape) {
+    if (!isCopperPathShape(shape)) return { command: new AddBoardShapeCommand(app, shape), track: null };
+    const track = trackFromBoardShape(shape);
+    return { command: new AddTrackCommand(app, track), track };
+}
+
+/**
+ * Commands replacing a board shape whose edited copy has become a copper path
+ * (e.g. unfilled, opened, or moved to additive copper) with the equivalent Track.
+ * @returns {{commands: any[], track: import('../../shapes/track.js').Track}|null}
+ */
+export function copperPathReplacementCommands(app, original, edited) {
+    if (!isCopperPathShape(edited)) return null;
+    const track = trackFromBoardShape(edited);
+    return { commands: [new RemoveBoardShapeCommand(app, original), new AddTrackCommand(app, track)], track };
+}
+
+/** Select tracks that replaced board shapes and show their properties. */
+export function selectReplacementTracks(app, tracks) {
     selectBoardShape(app, null);
-    app.history.execute(new CompoundCommand([
-        new RemoveBoardShapeCommand(app, shape),
-        new AddTrackCommand(app, track),
-    ]));
-    setPcbSelection(app, [{ kind: 'track', object: track }]);
+    setPcbSelection(app, tracks.map(track => ({ kind: 'track', object: track })));
     showPcbSelectionProperties(app);
     app._refreshPcbSelectionHighlights?.();
-    return track;
 }
 
 // ── Geometry ────────────────────────────────────────────────────────────────
@@ -1579,14 +1536,16 @@ export function endBoardShapeDrag(app, commit) {
             if (!originals.includes(target)) throw new Error('Cannot join a missing board shape.');
             if (isLayerLocked(target.layer) || !isLayerVisible(target.layer)) return;
             const merged = mergeBoardLines(app, s, d.handle, target, d.joinTarget.endpoint);
+            const added = addBoardShapeOrTrackCommand(app, merged);
             selectBoardShape(app, null);
             app.history.execute(new CompoundCommand([
                 new RemoveBoardShapeCommand(app, original),
                 new RemoveBoardShapeCommand(app, target),
-                new AddBoardShapeCommand(app, merged),
+                added.command,
             ]));
             committed = true;
-            selectBoardShape(app, merged);
+            if (added.track) selectReplacementTracks(app, [added.track]);
+            else selectBoardShape(app, merged);
             return;
         }
         const closedOpenLine = d.beforeState.kind === 'line' && s.kind !== 'line';
@@ -1607,8 +1566,14 @@ export function endBoardShapeDrag(app, commit) {
         const command = d.splitBeforeState || metadataChanged || after.points?.length !== d.before.points?.length
             ? new ModifyBoardShapeCommand(app, original, d.beforeState, afterState)
             : new MoveBoardShapeCommand(app, original, d.before, after);
-        app.history.execute(d.splitRemainder ? new CompoundCommand([command, new AddBoardShapeCommand(app, d.splitRemainder)]) : command);
+        const replacement = copperPathReplacementCommands(app, original, s);
+        const remainder = d.splitRemainder ? addBoardShapeOrTrackCommand(app, d.splitRemainder) : null;
+        const commands = [...(replacement ? replacement.commands : [command]), ...(remainder ? [remainder.command] : [])];
+        if (replacement) selectBoardShape(app, null);
+        app.history.execute(commands.length === 1 ? commands[0] : new CompoundCommand(commands));
         committed = true;
+        const tracks = [replacement?.track, remainder?.track].filter(Boolean);
+        if (tracks.length) selectReplacementTracks(app, tracks);
     } finally {
         if (!committed) {
             if (d.splitBeforeState) setBoardShapeNodeFocus(app, null);
@@ -1687,7 +1652,7 @@ export function deleteBoardShapeSegment(app, shape, segment) {
     });
     setPcbSelection(app, []);
     app.history.execute(new CompoundCommand([new RemoveBoardShapeCommand(app, shape),
-        ...parts.map(part => new AddBoardShapeCommand(app, part))]));
+        ...parts.map(part => addBoardShapeOrTrackCommand(app, part).command)]));
     if (parts.length === 0) finishBoardShapeRemoval(app);
     return true;
 }
@@ -1933,9 +1898,9 @@ export function finishShapeDraw(app) {
     const geometry = shapeFromPoints(d.kind, d.points);
     if (!geometry) return;
     const shape = { ...base, ...geometry, filled: d.kind === 'arc' ? false : base.filled };
-    if ('points' in shape && canConvertBoardLineToTrack(shape)) {
-        // A named copper path is routing intent, so enter the Track model
-        // directly instead of creating a transient generic shape first.
+    if ('points' in shape && isCopperPathShape(shape)) {
+        // A copper path is routing intent, with or without a net, so it enters
+        // the Track model directly instead of creating a generic shape first.
         const track = trackFromBoardShape(shape, shape.net);
         app.history.execute(new AddTrackCommand(app, track));
         setPcbSelection(app, [{ kind: 'track', object: track }]);

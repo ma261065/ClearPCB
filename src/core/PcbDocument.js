@@ -12,6 +12,7 @@ import { capturePcbGeometry } from './pcb-geometry-snapshot.js';
 import { validBoardOutline, getBoardOutline, rectangleBoardOutline, boardBoundary } from '../shared/pcb/board-outline.js';
 import { hasRectangleFrame, rectangleFramePoints } from '../shapes/rectangle-frame.js';
 import { updateFillIdCounter } from '../shapes/copper-fill.js';
+import { isCopperPathShape, trackFromBoardShape } from '../shared/pcb/copper-path-tracks.js';
 import { panelSettings } from './pcb-panelization.js';
 
 const round4 = value => Number.isFinite(value) ? Math.round(value * 10000) / 10000 : value;
@@ -72,6 +73,13 @@ export class PcbDocument {
             if (!(track instanceof Track)) throw new Error('Invalid PCB track.');
             return track;
         });
+        // Copper paths that earlier versions saved as board shapes load as Tracks
+        // (after the file's own tracks, so new ids never collide with theirs).
+        const copperPaths = stage.boardShapes.filter(isCopperPathShape);
+        if (copperPaths.length) {
+            stage.boardShapes = stage.boardShapes.filter(shape => !copperPaths.includes(shape));
+            tracks.push(...copperPaths.map(shape => trackFromBoardShape(shape)));
+        }
         const prepared = { ...stage, data, tracks, vias: (data?.vias || []).map(item => Via.fromJSON(item)),
             pads: (data?.pads || []).map(item => new Pad(item)),
             texts: (data?.texts || []).map(item => createPcbText(item)),

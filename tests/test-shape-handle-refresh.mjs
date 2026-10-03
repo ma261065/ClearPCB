@@ -15,11 +15,12 @@ const { startBoardShapeDrag, handleBoardShapeDrag, endBoardShapeDrag, cloneShape
 const { pictureShape } = await import('../src/shared/pcb/picture-raster.js');
 const { scheduleFillRefresh } = await import('../src/pcb/modules/fill-refresh.js');
 const { reconcileRatsnest } = await import('../src/pcb/modules/track-draw.js');
+// Copper paths are Tracks, so the board-shape fixtures are copper areas and cut-outs.
 const fixtures = [
     [{ kind: 'circle', x: 0, y: 0, radius: 2 }, 'radius', { x: 2, y: 0 }],
-    [{ kind: 'rect', points: [{ x: 0, y: 0 }, { x: 4, y: 0 }, { x: 4, y: 3 }, { x: 0, y: 3 }] }, 2, { x: 4, y: 3 }],
-    [{ kind: 'polygon', points: [{ x: 0, y: 0 }, { x: 4, y: 0 }, { x: 2, y: 3 }] }, 2, { x: 2, y: 3 }],
-    [{ kind: 'line', points: [{ x: 0, y: 0 }, { x: 4, y: 0 }] }, 1, { x: 4, y: 0 }],
+    [{ kind: 'rect', filled: true, points: [{ x: 0, y: 0 }, { x: 4, y: 0 }, { x: 4, y: 3 }, { x: 0, y: 3 }] }, 2, { x: 4, y: 3 }],
+    [{ kind: 'polygon', filled: true, points: [{ x: 0, y: 0 }, { x: 4, y: 0 }, { x: 2, y: 3 }] }, 2, { x: 2, y: 3 }],
+    [{ kind: 'line', copperMode: 'remove-copper', points: [{ x: 0, y: 0 }, { x: 4, y: 0 }] }, 1, { x: 4, y: 0 }],
     [{ kind: 'arc', start: { x: 0, y: 0 }, end: { x: 4, y: 0 }, bulge: { x: 2, y: 2 } }, 'end', { x: 4, y: 0 }],
     [pictureShape({ width: 4, height: 2, rectangles: [{ x: 0, y: 0, width: 4, height: 2 }] },
         { widthMm: 4, layer: 'top-copper' }), 2, { x: 2, y: 1 }],

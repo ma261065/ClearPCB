@@ -49,7 +49,8 @@ for (const reversed of [false, true]) {
     for (const commit of [false, true]) {
         const points = [{ x: 0, y: 0 }, { x: 100, y: -10 }, { x: 100, y: 10 }];
         if (reversed) points.reverse();
-        const shape = { id: 'round-node', kind: 'polygon', layer: 'top-copper', lineWidth: 2, points };
+        // A silk outline: an unfilled copper polygon would be a Track.
+        const shape = { id: 'round-node', kind: 'polygon', layer: 'top-silk', lineWidth: 2, points };
         const original = resolveBoardShapeGeometry(shape).physicalContours;
         const originalCap = original.flat().filter(point => point.x < -0.2);
         assert.ok(originalCap.length > 5, 'Untouched nodes have round stroke joins by default');
@@ -85,7 +86,7 @@ for (const reversed of [false, true]) {
     }
 }
 for (const moved of [false, true]) {
-    const shape = { id: 'insert-round', kind: 'polygon', layer: 'top-copper', lineWidth: 2,
+    const shape = { id: 'insert-round', kind: 'polygon', layer: 'top-silk', lineWidth: 2,
         points: [{ x: 0, y: 0 }, { x: 20, y: 0 }, { x: 20, y: 16 }, { x: 0, y: 16 }],
         nodeCornerRadii: { 2: 0 } };
     const app = { boardShapes: [shape], _shapeElements: new Map(), getLayerGroup() { return null; },
@@ -102,7 +103,7 @@ for (const moved of [false, true]) {
 for (const reversed of [false, true]) {
     const points = [{ x: 0, y: 20 }, { x: 0, y: 0 }, { x: 10, y: 0 }, { x: 20, y: 0 }, { x: 20, y: 20 }];
     if (reversed) points.reverse();
-    const shape = { id: 'inward-v', kind: 'polygon', layer: 'top-copper', lineWidth: 2, points };
+    const shape = { id: 'inward-v', kind: 'polygon', layer: 'top-silk', lineWidth: 2, points };
     const app = { boardShapes: [shape], _shapeElements: new Map(), getLayerGroup() { return null; },
         viewport: { scale: 1000, setCrosshair() {}, hideCrosshair() {} }, _snapToGrid(point) { return point; },
         history: { execute(command) { command.execute(); } } };

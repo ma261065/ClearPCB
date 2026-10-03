@@ -500,7 +500,7 @@ loadBoardShapes(reloaded, migrated, { render: false });
 assert.deepEqual(serializeBoardShapes(reloaded), migrated);
 
 for (const commit of [false, true]) {
-    const shape = { id: 'split', kind: 'rect', layer: 'top-copper', lineWidth: 3,
+    const shape = { id: 'split', kind: 'rect', layer: 'top-silk', lineWidth: 3,
         points: [{ x: 0, y: 0 }, { x: 20, y: 0 }, { x: 20, y: 16 }, { x: 0, y: 16 }] };
     const before = cloneShapeGeometry(shape);
     const commands = [];
@@ -665,7 +665,7 @@ for (const reversed of [false, true]) {
 for (const reversed of [false, true]) {
     const points = [{ x: 0, y: 0 }, { x: 0, y: 16 }, { x: 20, y: 16 }, { x: 20, y: 0 }];
     if (reversed) points.reverse();
-    const shape = { id: 'crossing-direction', kind: 'rect', layer: 'top-copper', lineWidth: 1, points };
+    const shape = { id: 'crossing-direction', kind: 'rect', layer: 'top-silk', lineWidth: 1, points };
     const commands = [];
     const app = { ...shapeModel(shape), _shapeElements: new Map(), getLayerGroup() { return null; },
         viewport: { scale: 100, setCrosshair() {}, hideCrosshair() {} }, _snapToGrid(point) { return point; },

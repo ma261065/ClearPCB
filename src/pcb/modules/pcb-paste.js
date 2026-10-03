@@ -12,6 +12,7 @@ import { AddTextCommand } from '../../core/pcb-text-commands.js';
 import { AddFillCommand } from '../../core/pcb-fill-commands.js';
 import { batchDerivedUpdates } from '../../core/DerivedUpdates.js';
 import { createPcbText } from './pcb-text.js';
+import { isCopperPathShape, trackFromBoardShape } from '../../shared/pcb/copper-path-tracks.js';
 import { cloneShapeGeometry, translateShapeGeometry, applyShapeGeometry, renderBoardShape,
     removeBoardShapeElement } from './board-shapes.js';
 import { showBoardShapeProperties } from './board-shape-properties.js';
@@ -36,17 +37,19 @@ export function preparePcbPaste(app, clipboard) {
         while (used.has(`pshape_${shapeId}`)) shapeId++;
         return `pshape_${shapeId++}`;
     };
+    // Copper paths copied as board shapes (older clipboards) paste as Tracks.
+    const copperPaths = (clipboard.shapes || []).filter(isCopperPathShape);
     return {
-        tracks: (clipboard.tracks || []).map(data => {
+        tracks: [...(clipboard.tracks || []).map(data => {
             const json = structuredClone(data);
             delete json.id; delete json.i;
             const track = createShape(json);
             if (!(track instanceof Track)) throw new Error('PCB clipboard contains an invalid track.');
             return track;
-        }),
+        }), ...copperPaths.map(shape => trackFromBoardShape(structuredClone(shape)))],
         vias: (clipboard.vias || []).map(data => Via.fromJSON({ ...data, id: undefined })),
         pads: (clipboard.pads || []).map(data => Pad.fromJSON({ ...data, id: undefined })),
-        shapes: (clipboard.shapes || []).map(({ artwork, ...shape }) => ({
+        shapes: (clipboard.shapes || []).filter(shape => !copperPaths.includes(shape)).map(({ artwork, ...shape }) => ({
             ...structuredClone(shape), ...(artwork ? { artwork } : {}), id: nextShapeId(),
         })),
         texts: (clipboard.texts || []).map(data => createPcbText({ ...data, id: undefined })),

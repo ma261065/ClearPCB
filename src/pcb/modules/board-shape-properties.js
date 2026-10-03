@@ -22,10 +22,10 @@ import { boardBoundary } from '../../shared/pcb/board-outline.js';
 import { getPropertyEditor } from './property-editors.js';
 import { normalizeShapeCopperMode, isMaskLayer, rectCornerRadius, polygonCornerRadius, boardShapeNodeCornerRadius, circleFilledRadius, boardShapeSegmentBulge, shapeOutline, boardShapeLineWidthMinimum, normalizedBoardShapeLineWidth, boardShapeSegmentWidth } from '../../shared/pcb/board-shape-geometry.js';
 import {
-    canConvertBoardLineToTrack,
+    copperPathReplacementCommands,
     canonicalBoardShape,
     collapseCollinearPolylinePoints,
-    convertBoardLineToTrack,
+    selectReplacementTracks,
     copyBoardShape,
     createBoardShapePropertyBinding,
     createBoardShapePropertyPreview,
@@ -562,6 +562,7 @@ export function showBoardShapeProperties(app, shape) {
 
     const commit = (mutate) => {
         if (!binding.prepare()) return;
+        const tracks = [];
         const commands = propertyTargets().flatMap(displayed => {
             const target = canonicalBoardShape(app, displayed);
             const before = shapeSnapshot(target), candidate = copyBoardShape(target);
@@ -569,11 +570,20 @@ export function showBoardShapeProperties(app, shape) {
             if (isMaskLayer(candidate.layer)) candidate.filled = true;
             candidate.copperMode = normalizeShapeCopperMode(candidate.copperMode);
             const after = shapeSnapshot(candidate);
-            return JSON.stringify(before) === JSON.stringify(after) ? []
-                : [new ModifyBoardShapeCommand(app, target, before, after)];
+            if (JSON.stringify(before) === JSON.stringify(after)) return [];
+            // An edit that makes the shape a copper path (unfilled, additive,
+            // on copper) turns it into a Track in the same undo step.
+            const replacement = copperPathReplacementCommands(app, target, candidate);
+            if (!replacement) return [new ModifyBoardShapeCommand(app, target, before, after)];
+            tracks.push(replacement.track);
+            return replacement.commands;
         });
         if (!commands.length) return;
         app.history.execute(commands.length === 1 ? commands[0] : new CompoundCommand(commands));
+        if (tracks.length) {
+            selectReplacementTracks(app, tracks);
+            return;
+        }
         app._refreshPcbSelectionHighlights?.();
     };
     const lineWidthPreview = createBoardShapePropertyPreview(app, propertyTargets());
@@ -862,10 +872,6 @@ export function showBoardShapeProperties(app, shape) {
         const next = netEl.value.trim();
         if (!binding.prepare()) return;
         const targets = propertyTargets();
-        if (targets.length === 1 && next && canConvertBoardLineToTrack(targets[0], next)) {
-            const track = convertBoardLineToTrack(app, targets[0], next);
-            if (track) return;
-        }
         if (targets.every((target) => String(target.net || '') === next)) return;
         commit((target) => { target.net = next; });
     });

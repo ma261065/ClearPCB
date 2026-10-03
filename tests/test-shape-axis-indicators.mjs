@@ -193,7 +193,7 @@ for (const commit of [false, true]) {
         worldToScreen(point) { return { x: point.x * this.scale + 7, y: point.y * this.scale + 9 }; },
         _getCachedRect() { return { width: 800, height: 600 }; },
     };
-    const shape = { id: 'placement-cursor', kind: 'rect', layer: 'top-copper', lineWidth: 2,
+    const shape = { id: 'placement-cursor', kind: 'rect', layer: 'top-silk', lineWidth: 2,
         points: [{ x: 0, y: 0 }, { x: 20, y: 0 }, { x: 20, y: 16 }, { x: 0, y: 16 }] };
     const app = {
         boardShapes: [shape], viewport, _shapeElements: new Map(), getLayerGroup() { return null; },

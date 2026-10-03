@@ -91,17 +91,18 @@ function expect(name, actual, expected) {
 const cases = [
     {
         name: 'Line',
-        shape: { kind: 'line', points: [{ x: 1, y: 2 }, { x: 3, y: 4 }] },
+        // A copper cut-out line: an additive copper line would be a Track.
+        shape: { kind: 'line', copperMode: 'remove-copper', points: [{ x: 1, y: 2 }, { x: 3, y: 4 }] },
         expected: { points: [{ x: 6, y: -1 }, { x: 8, y: 1 }] },
     },
     {
         name: 'Rectangle',
-        shape: { kind: 'rect', points: [{ x: 1, y: 2 }, { x: 3, y: 2 }, { x: 3, y: 4 }, { x: 1, y: 4 }] },
+        shape: { kind: 'rect', filled: true, points: [{ x: 1, y: 2 }, { x: 3, y: 2 }, { x: 3, y: 4 }, { x: 1, y: 4 }] },
         expected: { points: [{ x: 6, y: -1 }, { x: 8, y: -1 }, { x: 8, y: 1 }, { x: 6, y: 1 }] },
     },
     {
         name: 'Polygon',
-        shape: { kind: 'polygon', points: [{ x: 1, y: 2 }, { x: 3, y: 2 }, { x: 2, y: 4 }] },
+        shape: { kind: 'polygon', filled: true, points: [{ x: 1, y: 2 }, { x: 3, y: 2 }, { x: 2, y: 4 }] },
         expected: { points: [{ x: 6, y: -1 }, { x: 8, y: -1 }, { x: 7, y: 1 }] },
     },
     {
