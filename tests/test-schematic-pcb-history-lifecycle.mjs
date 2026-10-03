@@ -8,6 +8,7 @@ import { AddTrackCommand } from '../src/core/pcb-track-commands.js';
 import { DeleteComponentsCommand } from '../src/schematic/modules/commands.js';
 import { capturePlacementOverride } from '../src/core/PcbPlacementState.js';
 import * as placementCommands from '../src/pcb/modules/track-commands.js';
+import { ensureComponentView } from '../src/schematic/render/shape-view-state.js';
 
 globalThis.window = { addEventListener() {} };
 const { default: PCBApp } = await import('../src/ui/PCBApp.js');
@@ -72,7 +73,7 @@ for (const [name, args] of [
 ]) {
     const project = new ProjectDocument();
     const part = new Component(structuredClone(definition), { id: 'part' });
-    part.element = {};
+    ensureComponentView(part).element = {};
     project.schematicDocument.components.push(part);
     const initial = project.resolvePcbLayout();
     const start = padPoint(initial, 'part');

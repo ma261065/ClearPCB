@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Polyline } from '../src/shapes/polyline.js';
 import { Text } from '../src/shapes/text.js';
+import { Component } from '../src/components/Component.js';
 import { renderShape } from '../src/schematic/render/shape-renderer.js';
 import { deleteView, viewOf } from '../src/schematic/render/shape-view-state.js';
 
@@ -90,6 +91,25 @@ globalThis.document = {
 }
 
 {
+    const componentPath = fileURLToPath(new URL('../src/components/Component.js', import.meta.url));
+    const source = readFileSync(componentPath, 'utf8');
+    const offenders = [];
+    for (const [index, line] of source.split(/\r?\n/).entries()) {
+        if (/\bdocument\.|createElementNS|\.element\b|pinElements|_highlightEl|_lockIconEl|_buildTransform|createSymbolElement|_recreateElement|\brender\s*\(/.test(line)) {
+            offenders.push(`Component.js:${index + 1}: ${line.trim()}`);
+        }
+    }
+    assert.deepEqual(offenders, [], 'Component model must not own schematic SVG rendering');
+
+    const component = new Component({
+        name: 'Guard',
+        symbol: { width: 1, height: 1, origin: { x: 0, y: 0 }, graphics: [], pins: [] },
+    }, { id: 'guard' });
+    assert.equal('element' in component, false);
+    assert.equal('pinElements' in component, false);
+}
+
+{
     const polyline = new Polyline({
         graphNodes: { a: { x: 0, y: 0 }, b: { x: 10, y: 0 }, c: { x: 10, y: 10 } },
         graphEdges: { e0: { from: 'a', to: 'b' }, e1: { from: 'b', to: 'c' } },
@@ -118,4 +138,4 @@ globalThis.document = {
         'rendered text bounds use the renderer-registered measurer');
 }
 
-console.log('PASS shape models are DOM-free and schematic renderers own class dispatch, view state, and text measurement');
+console.log('PASS shape/component models are DOM-free and schematic renderers own class dispatch, view state, and text measurement');

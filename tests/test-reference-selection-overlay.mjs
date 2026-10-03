@@ -465,7 +465,7 @@ assert.equal(schematic.components, project.schematicDocument.components, 'Editor
 
 const { loadDocument } = await import('../src/schematic/modules/files.js');
 const { renderShape } = await import('../src/schematic/render/shape-renderer.js');
-const { viewOf } = await import('../src/schematic/render/shape-view-state.js');
+const { viewOf, componentViewOf } = await import('../src/schematic/render/shape-view-state.js');
 const { SchematicDocument } = await import('../src/core/SchematicDocument.js');
 const loadedModel = new SchematicDocument();
 const loadInput = { type: 'clearpcb-project', version: '1.0', schematic: {
@@ -491,7 +491,6 @@ document.createElementNS = (_namespace, tagName) => ({
     getBBox() { return { x: 0, y: -2, width: 4, height: 2 }; },
 });
 const fieldElement = renderShape(loadedField, 1);
-loadedComponent.element = { component: true };
 const loadingEditor = Object.create(SchematicApp.prototype);
 Object.assign(loadingEditor, {
     document: loadedModel, selection: { clearSelection() {} },
@@ -505,7 +504,7 @@ await loadDocument(loadingEditor, loadInput, prepared);
 assert.equal(loadingEditor.components[0], loadedComponent, 'Editor load adopts prepared model instances');
 assert.equal(loadingEditor.shapes[0], loadedField);
 assert.equal(loadedComponent.refText, loadedField);
-assert.deepEqual(attached, [fieldElement, loadedComponent.element], 'Editor alone attaches loaded SVG');
+assert.deepEqual(attached, [fieldElement, componentViewOf(loadedComponent).element], 'Editor alone attaches loaded SVG');
 assert.equal(viewOf(loadedField).element, fieldElement);
 loadingEditor.shapes = [];
 loadingEditor.components = [];

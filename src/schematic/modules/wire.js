@@ -29,6 +29,7 @@ import { distanceToSegment, pointsMatch, pointsCollinear, segmentsCollinear, col
 import { applyStickyConnections } from '../../ui/modules/sticky-wires.js';
 import { attachLabelToTarget, getLabelDropHotspot } from '../../ui/modules/label-attachment.js';
 import { VERTEX_EPSILON } from './wire-constants.js';
+import { componentPinElement } from '../render/component-renderer.js';
 export { renderGuideLines } from '../../shapes/axis-glow.js';
 
 // --- Constants ---
@@ -862,7 +863,7 @@ export function updateWirePreview(app) {
  * Low-level: show yellow dot on a component pin.
  */
 function _showPinDot(app, snapPin) {
-    const pinGroup = snapPin.component.pinElements?.get(_getPinKey(snapPin));
+    const pinGroup = componentPinElement(snapPin.component, _getPinKey(snapPin));
     if (pinGroup) {
         const dot = pinGroup.querySelector('circle');
         if (dot) {
@@ -882,7 +883,7 @@ function _showPinDot(app, snapPin) {
  */
 function _hidePinDot(app) {
     if (!app.wireSnapPin?.pin) return;
-    const pinGroup = app.wireSnapPin.component.pinElements?.get(_getPinKey(app.wireSnapPin));
+    const pinGroup = componentPinElement(app.wireSnapPin.component, _getPinKey(app.wireSnapPin));
     if (pinGroup) {
         const dot = pinGroup.querySelector('circle');
         if (dot) {
@@ -2572,5 +2573,4 @@ export function computeStickyWireSnaps(app, movingCompIds, proposedDx, proposedD
 
     return computeMovingSegmentSnaps(threshold, edges);
 }
-
 

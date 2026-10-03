@@ -38,7 +38,7 @@ clearpcb/
 │   │                           # viewport, cursor, export, box-selection, recents,
 │   │                           # ribbon-height, inline-text-overlay, …)
 │   ├── schematic/
-│   │   ├── render/             # Schematic shape SVG renderers + WeakMap view state
+│   │   ├── render/             # Schematic shape/component SVG renderers + WeakMap view state
 │   │   └── modules/            # Schematic-only interaction modules
 │   │                           # (draw-states, files, shape-management, wire,
 │   │                           # schematic-view: the entity-SVG lifecycle boundary)

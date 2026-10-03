@@ -1,9 +1,7 @@
-import { createLockIcon, lockIconMetrics, LOCK_GAP } from '../core/ui-helpers.js';
 import { Text } from '../shapes/text.js';
 import { compactObjText } from './LCSCFetcher.js';
 import { getBuiltInPackageOptions, withBuiltInPackage } from './BuiltInPackages.js';
 import { IdAllocator } from '../core/id-allocator.js';
-import { NO_SELECTION } from '../shapes/selection-view.js';
 
 /**
  * Shrink a `~`-delimited footprint shape string for storage by rounding every
@@ -115,8 +113,6 @@ export class Component {
         this.reference = options.reference ?? (definition.defaultReference || 'U?');
         this.value = options.value ?? (definition.defaultValue ?? '');
         this.properties = _safeMergeProps(definition.defaultProperties, options.properties);
-        this.element = null;
-        this.pinElements = new Map();
         
         // Field text shapes (set by createFieldTexts)
         this.refText = null;
@@ -130,12 +126,6 @@ export class Component {
 
         /** @type {Set<any>|null} */
         this.attachedLabels = null;
-
-        /** @type {SVGRectElement|null} */
-        this._highlightEl = null;
-
-        /** @type {SVGGElement|null} */
-        this._lockIconEl = null;
     }
 
     /** @returns {*} The symbol definition (graphics + pins). */
@@ -335,18 +325,9 @@ export class Component {
      * @param {ComponentState} state - State snapshot from captureState()
      */
     applyState(state) {
-        const mirChanged = state.mirror !== undefined && state.mirror !== this.mirror;
-        const rotChanged = state.rotation !== undefined && state.rotation !== this.rotation;
         Object.assign(this, state);
-        if (mirChanged || rotChanged) {
-            this._recreateElement();
-        } else if (this.element) {
-            const transform = this._buildTransform();
-            if (transform) this.element.setAttribute('transform', transform);
-            else this.element.removeAttribute('transform');
-        }
+        this.invalidate();
     }
-
     /** @returns {'grid'} Components always snap to the grid. */
     getAnchorSnapMode() { return 'grid'; }
     /** No-op — components have no drag state to reset. */
@@ -460,103 +441,7 @@ export class Component {
         }
     }
 
-    /**
-     * Update visual highlight for hover and selection states
-     * @param {import('../shapes/selection-view.js').SelectionView} [view]
-     */
-    _updateHighlight(view = NO_SELECTION) {
-        if (!this.element) return;
-        const selected = view.isSelected(this);
-        
-        // Check if any field text is selected (ownership highlight)
-        const fieldTextSelected = this.getFieldTexts().some(ft => view.isSelected(ft));
-        
-        // Remove highlight if neither hovered, selected, nor field-text-selected
-        if (!view.isHovered(this) && !selected && !fieldTextSelected) {
-            if (this._highlightEl) {
-                this._highlightEl.remove();
-                this._highlightEl = null;
-            }
-            // Hide all pin dots when deselected
-            for (const pinGroup of this.pinElements.values()) {
-                const dot = pinGroup.querySelector('circle');
-                if (dot) dot.setAttribute('display', 'none');
-            }
-            return;
-        }
-        
-        const bounds = this.getBounds();
-        if (!bounds) return;
-        
-        const localBounds = this._getLocalBounds();
-        const minX = localBounds.minX;
-        const minY = localBounds.minY;
-        const maxX = localBounds.maxX;
-        const maxY = localBounds.maxY;
-        
-        // Reuse existing highlight element if available
-        let highlight = this._highlightEl;
-        if (!highlight) {
-            const ns = 'http://www.w3.org/2000/svg';
-            highlight = document.createElementNS(ns, 'rect');
-            highlight.setAttribute('class', 'component-highlight');
-            highlight.setAttribute('pointer-events', 'none');
-            this._highlightEl = highlight;
-        }
-        
-        highlight.setAttribute('x', String(minX - 0.5));
-        highlight.setAttribute('y', String(minY - 0.5));
-        highlight.setAttribute('width', String(maxX - minX + 1));
-        highlight.setAttribute('height', String(maxY - minY + 1));
-        highlight.setAttribute('fill', selected ? 'var(--sch-selection-fill, rgba(51,153,255,0.2))' : 'none');
-        highlight.setAttribute('stroke', 'var(--sch-selection, #3399ff)');
-        highlight.setAttribute('stroke-width', '0.15');
-        highlight.setAttribute('stroke-opacity', selected ? '0.6' : '0.35');
-        highlight.setAttribute('stroke-dasharray', 'none');
-        
-        // Insert at beginning so it's behind component graphics
-        if (!highlight.parentNode || highlight.parentNode !== this.element) {
-            this.element.insertBefore(highlight, this.element.firstChild);
-        }
 
-        // Show all pin dots when selected
-        if (selected) {
-            for (const pinGroup of this.pinElements.values()) {
-                const dot = pinGroup.querySelector('circle');
-                if (dot) dot.setAttribute('display', '');
-            }
-        }
-    }
-
-    /**
-     * Render the component with optional lock icon
-     * @param {number} scale
-     * @param {{selection?: import('../shapes/selection-view.js').SelectionView}} [options]
-     */
-    render(scale, options = {}) {
-        if (!this.element) return;
-        const view = options.selection || NO_SELECTION;
-        this._dirty = false;
-        
-        // Update highlight for selection/hover
-        this._updateHighlight(view);
-        
-        // Remove existing lock icon (use cached ref, not querySelector)
-        if (this._lockIconEl) {
-            this._lockIconEl.remove();
-            this._lockIconEl = null;
-        }
-        
-        // Draw lock icon when locked and selected
-        if (this.locked && view.isSelected(this)) {
-            const localBounds = this._getLocalBounds();
-            const { size } = lockIconMetrics(scale);
-            const lockX = localBounds.minX - LOCK_GAP - size;
-            const lockY = localBounds.minY - LOCK_GAP - size * 0.6;
-            this._lockIconEl = createLockIcon(lockX, lockY, this, 'component-lock-icon', scale);
-            this.element.appendChild(this._lockIconEl);
-        }
-    }
 
     /**
      * Compute the axis-aligned bounding box in component-local coordinates,
@@ -767,577 +652,11 @@ export class Component {
         return this._localBounds;
     }
 
-    /**
-     * Create the SVG `<g>` element for this component including
-     * all graphic shapes and pins.
-     * @param {string} [ns='http://www.w3.org/2000/svg'] - SVG namespace
-     * @returns {SVGGElement} The component group element
-     */
-    createSymbolElement(ns = 'http://www.w3.org/2000/svg') {
-        const group = /** @type {SVGGElement} */ (document.createElementNS(ns, 'g'));
-        group.setAttribute('class', 'component');
-        group.setAttribute('data-id', this.id);
-        
-        const transform = this._buildTransform();
-        if (transform) group.setAttribute('transform', transform);
 
-        // Level-of-detail placeholder: a single rect covering the symbol,
-        // hidden by default and revealed via the `.lod-far` class when the
-        // component is drawn very small. Replacing the dozens of graphic/pin
-        // nodes with one rect keeps zoomed-out pan/zoom fast on large boards.
-        const lb = this._getLocalBounds();
-        const lod = document.createElementNS(ns, 'rect');
-        lod.setAttribute('class', 'cpcb-lod-rect');
-        lod.setAttribute('x', String(lb.minX));
-        lod.setAttribute('y', String(lb.minY));
-        lod.setAttribute('width', String(Math.max(0, lb.maxX - lb.minX)));
-        lod.setAttribute('height', String(Math.max(0, lb.maxY - lb.minY)));
-        group.appendChild(lod);
 
-        if (this.symbol?.graphics) {
-            for (const graphic of this.symbol.graphics) {
-                const el = this._createGraphicElement(graphic, ns);
-                if (el) group.appendChild(el);
-            }
-        }
 
-        if (this.symbol?.pins) {
-            for (const pin of this.symbol.pins) {
-                // KiCad hides certain pins (e.g. no-connect / duplicate
-                // hidden pins). Match KiCad's default view: don't draw them.
-                if (pin.hidden) continue;
-                const pinGroup = this._createPinElement(pin, ns);
-                if (pinGroup) {
-                    group.appendChild(pinGroup);
-                    const pinKey = pin._key || pin._id || pin.number || `${pin.x},${pin.y}`;
-                    this.pinElements.set(pinKey, pinGroup);
-                }
-            }
-        }
-        
-        this.element = group;
-        return group;
-    }
 
-    /**
-     * Rebuild the component SVG element in-place.
-     * Used after rotation/mirror changes since both are baked into element creation.
-     */
-    _recreateElement() {
-        const parent = this.element?.parentNode;
-        if (this.element) this.element.remove();
-        this.pinElements.clear();
-        this.createSymbolElement();
-        if (parent && this.element) parent.appendChild(this.element);
-    }
 
-    /**
-     * Adjust a pin text's local rotation and anchor so it stays readable
-     * regardless of the component's rotation.
-     *
-     * The visual angle is (componentRotation + localRot).  If that falls
-     * in the range (90°, 270°] the text would appear upside-down or
-     * read top-to-bottom, so we add 180° and flip the text-anchor.
-     *
-     * @returns {{ rot: number, anchor: string, flipped: boolean }}
-     */
-    _readablePinText(/** @type {number} */ localRot, /** @type {string} */ anchor) {
-        let visual = ((this.rotation + localRot) % 360 + 360) % 360;
-        let flipped = false;
-        if (visual > 90 && visual <= 270) {
-            localRot += 180;
-            flipped = true;
-            if (anchor === 'start')      anchor = 'end';
-            else if (anchor === 'end')   anchor = 'start';
-        }
-        return { rot: localRot, anchor, flipped };
-    }
-
-    /**
-     * Create the SVG elements for a single pin (line, connection dot,
-     * optional bubble, name and number labels).
-     * @param {*} pin - Pin descriptor from the symbol definition
-     * @param {string} ns - SVG namespace
-     * @returns {SVGGElement} Pin group element
-     */
-    _createPinElement(pin, ns) {
-        const group = /** @type {SVGGElement} */ (document.createElementNS(ns, 'g'));
-        const length = Number.isFinite(pin.length) ? pin.length : 0;
-        const source = this.symbol?._source || this.definition?._source;
-        const m = this.mirror;
-        const mx = (/** @type {number} */ x) => m ? -x : x;
-        const flipAnchor = (/** @type {string} */ a) => a === 'start' ? 'end' : a === 'end' ? 'start' : a;
-        const flipOrient = (/** @type {string} */ o) => o === 'left' ? 'right' : o === 'right' ? 'left' : o;
-        const orient = m ? flipOrient(pin.orientation) : pin.orientation;
-        
-        // Pin connection point
-        const connectionX = mx(pin.x); 
-        const connectionY = pin.y;
-        
-        // Line endpoints
-        let x1 = mx(pin.x); 
-        let y1 = pin.y;
-        let x2 = x1, y2 = y1;
-
-        // If we have path data, parse it to get the actual line coordinates
-        if (pin._pathData) {
-            // Try both space-separated and compact formats
-            const pathMatch = pin._pathData.match(/M\s*(-?\d+(?:\.\d+)?)\s*[,\s]\s*(-?\d+(?:\.\d+)?)\s*([hvL])\s*(-?\d+(?:\.\d+)?)/i) ||
-                            pin._pathData.match(/M(-?\d+(?:\.\d+)?)[,\s](-?\d+(?:\.\d+)?)([hvL])(-?\d+(?:\.\d+)?)/i);
-            
-            if (pathMatch) {
-                const startX = Number(pathMatch[1]);
-                const startY = Number(pathMatch[2]);
-                const cmd = pathMatch[3].toLowerCase();
-                const value = Number(pathMatch[4]);
-                
-                x1 = mx(startX);
-                y1 = startY;
-                
-                if (cmd === 'h') {
-                    x2 = mx(startX + value);
-                    y2 = startY;
-                } else if (cmd === 'v') {
-                    x2 = mx(startX);
-                    y2 = startY + value;
-                } else if (cmd === 'l') {
-                    x2 = mx(startX + value);
-                    y2 = startY;
-                }
-            }
-        } else {
-            // Fallback to orientation-based calculation
-            switch (orient) {
-                case 'right':
-                    x2 = x1 + length;
-                    break;
-                case 'left':
-                    x2 = x1 - length;
-                    break;
-                case 'up':
-                    y2 = y1 - length;
-                    break;
-                case 'down':
-                    y2 = y1 + length;
-                    break;
-            }
-        }
-
-        let nameX, nameY, nameAnchor;
-        let numX, numY, numAnchor;
-        let nameRot = 0;
-        let numRot = 0;
-        
-        const isKiCad = source === 'KiCad';
-        const isActiveLow = pin.bubble || pin.name?.includes('~') || pin.name?.includes('/');
-        const bubbleRadius = 0.6;
-        const dotRadius = 0.35;
-        const kicadTextOffset = isKiCad ? (this.symbol?.kicadTextOffset ?? 0.508) : null;
-
-        const hasNamePos = pin.namePos && Number.isFinite(pin.namePos.x) && Number.isFinite(pin.namePos.y);
-        const hasNumberPos = pin.numberPos && Number.isFinite(pin.numberPos.x) && Number.isFinite(pin.numberPos.y);
-        const allowInfer = !(source === 'EasyEDA');
-
-        if (hasNamePos) {
-            nameX = mx(pin.namePos.x);
-            nameY = pin.namePos.y;
-            nameAnchor = m ? flipAnchor(pin.namePos.anchor || nameAnchor) : (pin.namePos.anchor || nameAnchor);
-            if (Number.isFinite(pin.namePos.rotation)) {
-                nameRot = pin.namePos.rotation;
-            }
-        }
-
-        if (hasNumberPos) {
-            numX = mx(pin.numberPos.x);
-            numY = pin.numberPos.y;
-            numAnchor = m ? flipAnchor(pin.numberPos.anchor || numAnchor) : (pin.numberPos.anchor || numAnchor);
-            if (Number.isFinite(pin.numberPos.rotation)) {
-                numRot = pin.numberPos.rotation;
-            }
-        }
-
-        if (allowInfer && (!hasNamePos || !hasNumberPos)) {
-            if (isKiCad) {
-                const dx = x2 - x1;
-                const dy = y2 - y1;
-                const lineLen = Math.hypot(dx, dy) || 1;
-                const ux = dx / lineLen;
-                const uy = dy / lineLen;
-                const isHorizontal = Math.abs(ux) >= Math.abs(uy);
-                const numPerpOffset = Number.isFinite(pin.kicadNumberYOffset)
-                    ? pin.kicadNumberYOffset
-                    : -0.05;
-                const perpX = -uy;
-                const perpY = ux;
-
-                if (!hasNamePos) {
-                    nameX = x2 + ux * kicadTextOffset;
-                    nameY = y2 + uy * kicadTextOffset;
-                    if (isHorizontal) {
-                        nameAnchor = ux >= 0 ? 'start' : 'end';
-                    } else {
-                        nameAnchor = uy >= 0 ? 'end' : 'start';
-                        nameRot = -90;
-                    }
-                }
-
-                if (!hasNumberPos) {
-                    numX = x2 - ux * kicadTextOffset + perpX * numPerpOffset;
-                    numY = y2 - uy * kicadTextOffset + perpY * numPerpOffset;
-                    if (isHorizontal) {
-                        numAnchor = ux >= 0 ? 'end' : 'start';
-                    } else {
-                        numAnchor = uy >= 0 ? 'start' : 'end';
-                        numRot = -90;
-                    }
-                }
-            } else {
-            const labelOffset = length + 0.2;
-            // BODY-ANCHOR LOGIC
-            // We ensure the number stays close to the body/bubble so it doesn't drift into the connection dot.
-            const bubbleClearance = isActiveLow ? (bubbleRadius * 2) + 0.2 : 0;
-            const numBodyOffset = 0.5;
-            const numPos = length - (bubbleClearance + numBodyOffset);
-            
-            const numOffsetLR = 0.35;
-            const numOffsetUD = 0.5;
-            switch (orient) {
-                case 'right':
-                    if (!hasNamePos) {
-                        nameX = x1 + labelOffset; nameY = y1; nameAnchor = 'start';
-                    }
-                    if (!hasNumberPos) {
-                        numX = x1 + numPos; numY = y1 - numOffsetLR; numAnchor = 'middle';
-                    }
-                    break;
-                case 'left':
-                    if (!hasNamePos) {
-                        nameX = x1 - labelOffset; nameY = y1; nameAnchor = 'end';
-                    }
-                    if (!hasNumberPos) {
-                        numX = x1 - numPos; numY = y1 - numOffsetLR; numAnchor = 'middle';
-                    }
-                    break;
-                case 'up':
-                    if (!hasNamePos) {
-                        nameX = x1; nameY = y1 - labelOffset; nameAnchor = 'end'; nameRot = 90;
-                    }
-                    if (!hasNumberPos) {
-                        numX = x1 - numOffsetUD; numY = y1 - numPos; numAnchor = 'middle';
-                    }
-                    break;
-                case 'down':
-                    if (!hasNamePos) {
-                        nameX = x1; nameY = y1 + labelOffset; nameAnchor = 'start'; nameRot = 90;
-                    }
-                    if (!hasNumberPos) {
-                        numX = x1 - numOffsetUD; numY = y1 + numPos; numAnchor = 'middle';
-                    }
-                    break;
-            }
-            }
-        }
-
-        // When the component rotation makes pin text upside-down,
-        // _readablePinText will add 180° to the text rotation.
-        // We must also reflect the text position across the pin line
-        // so it stays on the correct side visually.
-        {
-            const _reflectPerp = (/** @type {number} */ vis, /** @type {number} */ tX, /** @type {number} */ tY) => {
-                if (vis > 90 && vis <= 270) {
-                    if (orient === 'right' || orient === 'left')
-                        return { x: tX, y: 2 * y1 - tY };
-                    else
-                        return { x: 2 * x1 - tX, y: tY };
-                }
-                return { x: tX, y: tY };
-            };
-            if (numX !== undefined && numY !== undefined) {
-                const numVis = ((this.rotation + numRot) % 360 + 360) % 360;
-                const rn = _reflectPerp(numVis, numX, numY);
-                numX = rn.x; numY = rn.y;
-            }
-            if (nameX !== undefined && nameY !== undefined) {
-                const nameVis = ((this.rotation + nameRot) % 360 + 360) % 360;
-                const rn = _reflectPerp(nameVis, nameX, nameY);
-                nameX = rn.x; nameY = rn.y;
-            }
-        }
-
-        let lineX2 = x2, lineY2 = y2;
-        if (isActiveLow) {
-            const bOffset = bubbleRadius * 2;
-            if (orient === 'right') lineX2 -= bOffset;
-            else if (orient === 'left') lineX2 += bOffset;
-            else if (orient === 'up') lineY2 += bOffset;
-            else if (orient === 'down') lineY2 -= bOffset;
-        }
-
-        const line = document.createElementNS(ns, 'line');
-        line.setAttribute('x1', String(x1)); line.setAttribute('y1', String(y1));
-        line.setAttribute('x2', String(lineX2)); line.setAttribute('y2', String(lineY2));
-        line.setAttribute('stroke', 'var(--sch-pin, #aa0000)');
-        line.setAttribute('stroke-width', String(0.2));
-        group.appendChild(line);
-
-        const dot = document.createElementNS(ns, 'circle');
-        dot.setAttribute('cx', String(connectionX)); dot.setAttribute('cy', String(connectionY));
-        dot.setAttribute('r', String(dotRadius));
-        dot.setAttribute('fill', 'var(--sch-pin, #aa0000)'); 
-        dot.setAttribute('stroke', 'none');
-        dot.setAttribute('display', 'none');
-        group.appendChild(dot);
-
-        if (isActiveLow) {
-            const bubble = document.createElementNS(ns, 'circle');
-            let bx = x2, by = y2;
-            if (orient === 'right') bx -= bubbleRadius;
-            else if (orient === 'left') bx += bubbleRadius;
-            else if (orient === 'up') by += bubbleRadius;
-            else if (orient === 'down') by -= bubbleRadius;
-            bubble.setAttribute('cx', String(bx)); bubble.setAttribute('cy', String(by));
-            bubble.setAttribute('r', String(bubbleRadius));
-            bubble.setAttribute('fill', 'none');
-            bubble.setAttribute('stroke', 'var(--sch-pin, #aa0000)');
-            bubble.setAttribute('stroke-width', String(0.254));
-            group.appendChild(bubble);
-        }
-
-        const shouldShowName = pin.name && pin.showName !== false && pin.name !== pin.number;
-
-        if (shouldShowName && (hasNamePos || allowInfer)) {
-            const labelGroup = document.createElementNS(ns, 'g');
-            const nameTxt = document.createElementNS(ns, 'text');
-            const cleanName = pin.name.replace(/[{}]/g, '').replace(/[~/]/g, '');
-            const nameFontSizeBase = (pin.namePos && Number.isFinite(pin.namePos.fontSize))
-                ? pin.namePos.fontSize
-                : (source === 'KiCad' ? (pin.kicadNameFontSize || 1.27) : 1.0);
-            const nameFontScale = source === 'KiCad' ? 1.3386 : 1.0;
-            const nameFontSize = nameFontSizeBase * nameFontScale;
-            const nameFontFamily = (pin.namePos && pin.namePos.fontFamily)
-                ? pin.namePos.fontFamily
-                : (source === 'EasyEDA' || source === 'KiCad' ? 'Verdana' : null);
-            nameTxt.setAttribute('font-size', String(nameFontSize));
-            if (nameFontFamily) {
-                nameTxt.setAttribute('font-family', nameFontFamily);
-            }
-            nameTxt.setAttribute('fill', 'var(--sch-pin-name, #00cccc)');
-            const nameRead = this._readablePinText(nameRot, nameAnchor || 'start');
-            const effNameRot = nameRead.rot;
-            const effNameAnchor = nameRead.anchor;
-            if (effNameAnchor) {
-                nameTxt.setAttribute('text-anchor', effNameAnchor);
-            }
-            nameTxt.setAttribute('dominant-baseline', 'middle');
-            nameTxt.textContent = cleanName;
-
-            if (effNameRot !== 0) {
-                labelGroup.setAttribute('transform', `translate(${nameX},${nameY}) rotate(${effNameRot})`);
-            } else {
-                nameTxt.setAttribute('x', nameX); nameTxt.setAttribute('y', nameY);
-            }
-            labelGroup.appendChild(nameTxt);
-
-            if (isActiveLow) {
-                const overbar = document.createElementNS(ns, 'line');
-                const textWidth = cleanName.length * 0.65; 
-                let oy = (effNameRot !== 0) ? (nameRead.flipped ? 0.8 : -0.8) : nameY - 0.8; 
-                let ox1, ox2;
-                if (effNameAnchor === 'start') {
-                    ox1 = (effNameRot !== 0) ? 0.1 : nameX + 0.1;
-                    ox2 = ox1 + textWidth;
-                } else {
-                    ox2 = (effNameRot !== 0) ? -0.1 : nameX - 0.1;
-                    ox1 = ox2 - textWidth;
-                }
-                overbar.setAttribute('x1', String(ox1)); overbar.setAttribute('y1', String(oy));
-                overbar.setAttribute('x2', String(ox2)); overbar.setAttribute('y2', String(oy));
-                overbar.setAttribute('stroke', 'var(--sch-pin-name, #00cccc)'); overbar.setAttribute('stroke-width', String(0.15));
-                labelGroup.appendChild(overbar);
-            }
-            group.appendChild(labelGroup);
-        }
-
-        if (pin.number && pin.showNumber !== false && (hasNumberPos || allowInfer)) {
-            const numLabelGroup = document.createElementNS(ns, 'g');
-            const numTxt = document.createElementNS(ns, 'text');
-            const numFontSizeBase = (pin.numberPos && Number.isFinite(pin.numberPos.fontSize))
-                ? pin.numberPos.fontSize
-                : (source === 'KiCad' ? (pin.kicadNumberFontSize || 1.27) : 0.7);
-            const numFontScale = source === 'KiCad' ? 1.3386 : 1.0;
-            const numFontSize = numFontSizeBase * numFontScale;
-            const numFontFamily = (pin.numberPos && pin.numberPos.fontFamily)
-                ? pin.numberPos.fontFamily
-                : (source === 'EasyEDA' || source === 'KiCad' ? 'Verdana' : null);
-            numTxt.setAttribute('font-size', String(numFontSize));
-            if (numFontFamily) {
-                numTxt.setAttribute('font-family', numFontFamily);
-            }
-            numTxt.setAttribute('fill', 'var(--sch-pin-number, #aa0000)');
-            const numRead = this._readablePinText(numRot, numAnchor || 'middle');
-            const effNumRot = numRead.rot;
-            const effNumAnchor = numRead.anchor;
-            if (effNumAnchor) {
-                numTxt.setAttribute('text-anchor', effNumAnchor);
-            }
-            if (source === 'KiCad') {
-                numTxt.setAttribute('dominant-baseline', 'text-after-edge');
-            } else {
-                numTxt.setAttribute('dominant-baseline', 'middle');
-            }
-            numTxt.textContent = pin.number;
-            if (effNumRot !== 0) {
-                numLabelGroup.setAttribute('transform', `translate(${numX},${numY}) rotate(${effNumRot})`);
-            } else {
-                numTxt.setAttribute('x', String(numX)); numTxt.setAttribute('y', String(numY));
-            }
-            numLabelGroup.appendChild(numTxt);
-            group.appendChild(numLabelGroup);
-        }
-        return group;
-    }
-
-    /**
-     * Create an SVG element for a graphics primitive (rect, circle, line,
-     * polyline, polygon, arc, path, or text). Colours are replaced with
-     * CSS custom properties for theming; mirror is applied to X coordinates.
-     * @param {*} g - Graphics descriptor from the symbol definition
-     * @param {string} ns - SVG namespace
-     * @returns {SVGElement|null} The created element, or null if skipped
-     */
-    _createGraphicElement(g, ns) {
-        /** @type {SVGElement|null} */
-        let el = null;
-        // Ignore colors from component data, use themed colors
-        const stroke = 'var(--sch-symbol-outline, #000000)';
-        const fill = 'none';
-        const m = this.mirror;
-        const mx = (/** @type {number} */ x) => m ? -x : x;
-        switch (g.type) {
-            case 'rect':
-                el = /** @type {SVGElement} */ (document.createElementNS(ns, 'rect'));
-                el.setAttribute('x', m ? -(g.x + g.width) : g.x); el.setAttribute('y', g.y);
-                el.setAttribute('width', g.width); el.setAttribute('height', g.height);
-                if (Number.isFinite(g.rx)) el.setAttribute('rx', g.rx);
-                if (Number.isFinite(g.ry)) el.setAttribute('ry', g.ry);
-                break;
-            case 'circle':
-                el = /** @type {SVGElement} */ (document.createElementNS(ns, 'circle'));
-                el.setAttribute('cx', String(mx(g.cx))); el.setAttribute('cy', String(g.cy)); el.setAttribute('r', String(g.r));
-                break;
-            case 'line':
-                el = /** @type {SVGElement} */ (document.createElementNS(ns, 'line'));
-                el.setAttribute('x1', String(mx(g.x1))); el.setAttribute('y1', String(g.y1));
-                el.setAttribute('x2', String(mx(g.x2))); el.setAttribute('y2', String(g.y2));
-                break;
-            case 'polyline':
-                el = /** @type {SVGElement} */ (document.createElementNS(ns, 'polyline'));
-                const pts = g.points.map((/** @type {any} */ p) => `${mx(p[0])},${p[1]}`).join(' ');
-                el.setAttribute('points', pts);
-                break;
-            case 'polygon':
-                el = /** @type {SVGElement} */ (document.createElementNS(ns, 'polygon'));
-                const polPts = g.points.map((/** @type {any} */ p) => `${mx(p[0])},${p[1]}`).join(' ');
-                el.setAttribute('points', polPts);
-                break;
-            case 'arc': {
-                el = /** @type {SVGElement} */ (document.createElementNS(ns, 'path'));
-                const r = g.r || 1;
-                const sa = (g.startAngle || 0) * Math.PI / 180;
-                const ea = (g.endAngle || 0) * Math.PI / 180;
-                const cx = mx(g.cx);
-                if (m) {
-                    // Mirror reflects angles: angle -> PI - angle, and swap start/end
-                    const msa = Math.PI - ea;
-                    const mea = Math.PI - sa;
-                    const sx = cx + r * Math.cos(msa);
-                    const sy = g.cy + r * Math.sin(msa);
-                    const ex = cx + r * Math.cos(mea);
-                    const ey = g.cy + r * Math.sin(mea);
-                    let delta = mea - msa;
-                    if (delta < 0) delta += 2 * Math.PI;
-                    const largeArc = delta > Math.PI ? 1 : 0;
-                    el.setAttribute('d', `M${sx},${sy} A${r},${r} 0 ${largeArc} 1 ${ex},${ey}`);
-                } else {
-                    const sx = g.cx + r * Math.cos(sa);
-                    const sy = g.cy + r * Math.sin(sa);
-                    const ex = g.cx + r * Math.cos(ea);
-                    const ey = g.cy + r * Math.sin(ea);
-                    let delta = ea - sa;
-                    if (delta < 0) delta += 2 * Math.PI;
-                    const largeArc = delta > Math.PI ? 1 : 0;
-                    el.setAttribute('d', `M${sx},${sy} A${r},${r} 0 ${largeArc} 1 ${ex},${ey}`);
-                }
-                break;
-            }
-            case 'path':
-                el = /** @type {SVGElement} */ (document.createElementNS(ns, 'path'));
-                if (m) {
-                    // Wrap path in a group with scale(-1,1) to mirror it
-                    // (parsing SVG path data to negate x is fragile)
-                    const wrapper = document.createElementNS(ns, 'g');
-                    wrapper.setAttribute('transform', 'scale(-1,1)');
-                    el.setAttribute('d', g.d);
-                    el.setAttribute('stroke', stroke); el.setAttribute('fill', fill);
-                    el.setAttribute('stroke-width', String(g.strokeWidth || 0.254));
-                    el.setAttribute('stroke-linecap', 'round');
-                    el.setAttribute('stroke-linejoin', 'round');
-                    if (g.transform) el.setAttribute('transform', g.transform);
-                    wrapper.appendChild(el);
-                    return /** @type {SVGElement} */ (wrapper);
-                }
-                el.setAttribute('d', g.d);
-                break;
-            case 'text': {
-                const tmpl = g.text || '';
-                // Skip template text — these are rendered as independent field Text shapes
-                if (tmpl.includes('${REF}') || tmpl.includes('${VALUE}')) return null;
-                el = /** @type {SVGElement} */ (document.createElementNS(ns, 'text'));
-                el.setAttribute('x', String(mx(g.x))); el.setAttribute('y', String(g.y));
-                const textSize = g.fontSize || 1.5;
-                const source = this.symbol?._source || this.definition?._source;
-                const textScale = source === 'KiCad' ? 1.6 : 1.0;
-                el.setAttribute('font-size', String(textSize * textScale));
-                if (source === 'KiCad') {
-                    el.setAttribute('font-family', 'Verdana');
-                }
-                el.setAttribute('fill', 'var(--sch-text, #cccccc)');
-                const anchor = g.anchor || 'start';
-                el.setAttribute('text-anchor', m ? (anchor === 'start' ? 'end' : anchor === 'end' ? 'start' : anchor) : anchor);
-                if (g.baseline) {
-                    el.setAttribute('dominant-baseline', g.baseline);
-                } else {
-                    el.setAttribute('dominant-baseline', 'middle');
-                }
-                el.textContent = tmpl;
-                if (g.transform) {
-                    el.setAttribute('transform', g.transform);
-                }
-                return el;
-            }
-        }
-        if (el) {
-            el.setAttribute('stroke', stroke); el.setAttribute('fill', fill);
-            el.setAttribute('stroke-width', String(g.strokeWidth || 0.254));
-            el.setAttribute('stroke-linecap', 'round');
-            el.setAttribute('stroke-linejoin', 'round');
-            if (g.transform) {
-                el.setAttribute('transform', g.transform);
-            }
-        }
-        return el;
-    }
-
-    /**
-     * Build the SVG transform string for the component's position and rotation.
-     * @returns {string|null} e.g. 'translate(10,20) rotate(90)', or null if at origin with no rotation
-     */
-    _buildTransform() {
-        const parts = [];
-        if (this.x || this.y) parts.push(`translate(${this.x},${this.y})`);
-        if (this.rotation) parts.push(`rotate(${this.rotation})`);
-        return parts.length ? parts.join(' ') : null;
-    }
 
     /**
      * Get a pin's connection point in world coordinates.
@@ -1415,8 +734,7 @@ export class Component {
         this.x += beforeCenter.x - afterCenter.x;
         this.y += beforeCenter.y - afterCenter.y;
 
-        // Recreate SVG so pin text readability corrections are refreshed
-        this._recreateElement();
+        this.invalidate();
     }
 
     /**
@@ -1431,8 +749,6 @@ export class Component {
         this.rotation = (360 - rot) % 360;
         this.mirror = !this.mirror;
 
-        // Recreate SVG since mirror/rotation are baked into element creation
-        this._recreateElement();
 
         // Adjust position so the visual center stays in place
         const lc2 = this._getLocalCenter();
@@ -1440,14 +756,7 @@ export class Component {
         this.x += beforeCenter.x - afterCenter.x;
         this.y += beforeCenter.y - afterCenter.y;
 
-        if (this.element) {
-            const transform = this._buildTransform();
-            if (transform) {
-                this.element.setAttribute('transform', transform);
-            } else {
-                this.element.removeAttribute('transform');
-            }
-        }
+        this.invalidate();
     }
 
     /** Backward-compatible alias */
@@ -1465,8 +774,6 @@ export class Component {
         this.rotation = (180 - rot + 360) % 360;
         this.mirror = !this.mirror;
 
-        // Recreate SVG since mirror/rotation are baked into element creation
-        this._recreateElement();
 
         // Adjust position so the visual center stays in place
         const lc2 = this._getLocalCenter();
@@ -1474,14 +781,7 @@ export class Component {
         this.x += beforeCenter.x - afterCenter.x;
         this.y += beforeCenter.y - afterCenter.y;
 
-        if (this.element) {
-            const transform = this._buildTransform();
-            if (transform) {
-                this.element.setAttribute('transform', transform);
-            } else {
-                this.element.removeAttribute('transform');
-            }
-        }
+        this.invalidate();
     }
 
     /**
@@ -1491,25 +791,7 @@ export class Component {
      */
     setPosition(x, y) {
         this.x = x; this.y = y;
-        if (this.element) {
-            const transform = this._buildTransform();
-            if (transform) {
-                this.element.setAttribute('transform', transform);
-            } else {
-                this.element.removeAttribute('transform');
-            }
-        }
-    }
-
-    /**
-     * Remove component from DOM
-     */
-    destroy() {
-        if (this.element && this.element.parentNode) {
-            this.element.parentNode.removeChild(this.element);
-        }
-        this.element = null;
-        this.pinElements.clear();
+        this.invalidate();
     }
 
     /**

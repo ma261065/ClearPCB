@@ -8,6 +8,8 @@ class Element {
     contains(child) { return this.children.includes(child); }
     replaceChildren() { this.children = []; }
     setAttribute() {}
+    removeAttribute() {}
+    cloneNode() { return new Element(); }
     remove() {}
 }
 const storage = new Map();

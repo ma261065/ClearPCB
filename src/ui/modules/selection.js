@@ -1,6 +1,7 @@
 import { DeleteShapesCommand, DeleteComponentsCommand, ModifyPropertyCommand, ModifyShapeCommand, BatchCommand } from '../../schematic/modules/commands.js';
 import { updateRibbonState } from './ribbon.js';
 import { deleteFocusedSchematicShape } from './context-menu.js';
+import { refreshComponentPose } from '../../schematic/modules/schematic-view.js';
 
 /**
  * Toggles the `locked` property on all selected items via `ModifyPropertyCommand`
@@ -107,6 +108,14 @@ export function captureShapeState(app, shape) {
  * @param {object} state - Previously captured state.
  */
 export function applyShapeState(app, shape, state) {
+    const component = /** @type {any} */ (shape);
+    const oldRotation = component.rotation;
+    const oldMirror = component.mirror;
     shape.applyState(state);
+    if (component.definition) {
+        const rebuild = (state.rotation !== undefined && state.rotation !== oldRotation)
+            || (state.mirror !== undefined && state.mirror !== oldMirror);
+        refreshComponentPose(component, { rebuild });
+    }
     app.renderShapes(true);
 }

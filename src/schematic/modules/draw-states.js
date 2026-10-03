@@ -28,6 +28,7 @@ import { Text } from '../../shapes/text.js';
 import { attachLabelToTarget, detachLabel, refreshLabelAttachmentOffset, getLabelDropHotspot } from '../../ui/modules/label-attachment.js';
 import { findJoinTarget, isJoinable } from '../../shapes/shape-join.js';
 import { tryBeginPolylineSegmentDrag, updatePolylineSegmentDrag } from './polyline-segment-drag.js';
+import { refreshComponentPose } from './schematic-view.js';
 import { snapShapePoint, snapShapeBulge, renderShapeAlignment, shapeContinuationConstraints } from './shape-snap.js';
 import { refinePathSegment } from '../../shapes/path-interaction.js';
 import { DRAWING_SHAPES } from '../../shapes/shape-drawing.js';
@@ -1649,6 +1650,7 @@ export const moveDragState = {
                 if (shape.locked) continue;
                 if (shape.parentComponent && movingCompIds.has(shape.parentComponent.id)) continue;
                 shape.move(dx, dy);
+                if (shape.definition) refreshComponentPose(shape);
 
                 for (const maybeLabel of app.shapes) {
                     if (maybeLabel?.type !== 'text') continue;

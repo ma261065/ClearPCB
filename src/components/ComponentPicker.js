@@ -11,6 +11,7 @@ import { escapeHtml, sanitizeImageUrl } from '../core/ui-helpers.js';
 import { createDebouncedRunner, createGenerationGate } from './async-control.js';
 import { resolveObjFromModelUrl } from './model3d-source.js';
 import { getBuiltInPackageOptions, withBuiltInPackage } from './BuiltInPackages.js';
+import { createSymbolGraphicElement, createSymbolPinElement } from './symbol-svg.js';
 
 export class ComponentPicker {
     /**
@@ -1551,7 +1552,7 @@ export class ComponentPicker {
             // Render graphics
             if (symbol.graphics && Array.isArray(symbol.graphics)) {
                 for (const graphic of symbol.graphics) {
-                    const el = tempComponent._createGraphicElement(graphic, ns);
+                    const el = createSymbolGraphicElement(tempComponent, graphic, ns);
                     if (el) svg.appendChild(el);
                 }
             }
@@ -1559,7 +1560,7 @@ export class ComponentPicker {
             // Render pins
             if (symbol.pins && Array.isArray(symbol.pins)) {
                 for (const pin of symbol.pins) {
-                    const pinGroup = tempComponent._createPinElement(pin, ns);
+                    const pinGroup = createSymbolPinElement(tempComponent, pin, ns);
                     if (pinGroup) {
                         // Keep the pin line only; drop dots/labels for small previews.
                         pinGroup.querySelectorAll('text, circle').forEach(el => el.remove());
@@ -1784,7 +1785,7 @@ export class ComponentPicker {
             // Render graphics
             if (symbol.graphics && Array.isArray(symbol.graphics)) {
                 for (const graphic of symbol.graphics) {
-                    const el = tempComponent._createGraphicElement(graphic, ns);
+                    const el = createSymbolGraphicElement(tempComponent, graphic, ns);
                     if (el) svg.appendChild(el);
                 }
             }
@@ -1792,7 +1793,7 @@ export class ComponentPicker {
             // Render pins
             if (symbol.pins && Array.isArray(symbol.pins)) {
                 for (const pin of symbol.pins) {
-                    const pinGroup = tempComponent._createPinElement(pin, ns);
+                    const pinGroup = createSymbolPinElement(tempComponent, pin, ns);
                     if (pinGroup) svg.appendChild(pinGroup);
                 }
             }

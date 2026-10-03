@@ -1,5 +1,6 @@
 import { Command } from '../../core/CommandHistory.js';
 import { setComponentReference } from '../../core/SchematicDocument.js';
+import { Component } from '../../components/Component.js';
 /**
  * CommandHistory - Manages undo/redo stack
  * 
@@ -34,7 +35,6 @@ function _propagateNetNameToWires(app, netShape) {
 
 /** @typedef {any} SchematicApp */
 /** @typedef {any} Shape */
-/** @typedef {any} Component */
 
 /**
  * Command to add a shape
@@ -169,7 +169,10 @@ export class MoveShapesCommand extends Command {
         const lookup = this._buildLookup();
         for (const id of this.itemIds) {
             const item = lookup.get(id);
-            if (item) item.move(this.dx, this.dy);
+            if (item) {
+                item.move(this.dx, this.dy);
+                if (item instanceof Component) refreshComponentPose(item);
+            }
         }
         this._updateStickyWires();
         this.app.renderShapes(true);
@@ -180,7 +183,10 @@ export class MoveShapesCommand extends Command {
         const lookup = this._buildLookup();
         for (const id of this.itemIds) {
             const item = lookup.get(id);
-            if (item) item.move(-this.dx, -this.dy);
+            if (item) {
+                item.move(-this.dx, -this.dy);
+                if (item instanceof Component) refreshComponentPose(item);
+            }
         }
         this._updateStickyWires();
         this.app.renderShapes(true);
@@ -249,7 +255,14 @@ export class ModifyShapeCommand extends Command {
      * @param {Object} state - State object from captureState()
      */
     _applyState(shape, state) {
+        const oldRotation = shape.rotation;
+        const oldMirror = shape.mirror;
         shape.applyState(state);
+        if (shape instanceof Component) {
+            const rebuild = (state.rotation !== undefined && state.rotation !== oldRotation)
+                || (state.mirror !== undefined && state.mirror !== oldMirror);
+            refreshComponentPose(shape, { rebuild });
+        }
         // Sync field text changes back to parent component or wire
         if ('text' in state && shape.parentComponent && shape.fieldKey) {
             if ((shape.fieldKey === 'wireLabel' || shape.fieldKey === 'label') && shape.parentComponent.type === 'wire') {
@@ -328,6 +341,7 @@ export class ModifyPropertyCommand extends Command {
             if (this.prop === 'mirror' && typeof item.flipHorizontal === 'function') {
                 if (item.mirror !== val) {
                     item.flipHorizontal();
+                    if (item instanceof Component) refreshComponentPose(item, { rebuild: true });
                 }
             } else if (this.prop === 'reference') {
                 setComponentReference(item, val);
@@ -747,8 +761,8 @@ export class TransformComponentCommand extends Command {
                     case 'Mirror':      comp.flipHorizontal(); break;
                 }
             }
-            // Rotation and mirror are baked into the symbol, so undo always rebuilds it.
-            refreshComponentPose(comp, { rebuild: useOld });
+            // Rotation and mirror are baked into the symbol, so every transform pass rebuilds it.
+            refreshComponentPose(comp, { rebuild: true });
         }
         this._updateStickyWires();
         this.app.renderShapes(true);

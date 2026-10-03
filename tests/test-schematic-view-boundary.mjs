@@ -1,7 +1,7 @@
 /**
  * Schematic view lifecycle boundary. Only schematic-view.js creates, attaches,
  * redraws, culls or detaches entity SVG; commands, file loading, clipboard, theme
- * and editor code call its helpers. Shape SVG is built by schematic renderers; Components still build their own SVG.
+ * and editor code call its helpers. Entity SVG is built by schematic renderers.
  */
 import assert from 'node:assert/strict';
 import { readdirSync, readFileSync, statSync } from 'node:fs';
@@ -13,7 +13,8 @@ import {
     prepareDocumentView, mountDocument, withContentDetached, cloneEntityElement, viewElementOf, isCulled,
 } from '../src/schematic/modules/schematic-view.js';
 import { Shape } from '../src/shapes/shape.js';
-import { ensureView, viewOf } from '../src/schematic/render/shape-view-state.js';
+import { Component } from '../src/components/Component.js';
+import { ensureView, viewOf, componentViewOf } from '../src/schematic/render/shape-view-state.js';
 
 function node(name) {
     return {
@@ -39,6 +40,7 @@ function node(name) {
         remove() { this.removed++; this.parentNode?.removeChild(this); },
         setAttribute(key, value) { this.attributes.set(key, value); },
         removeAttribute(key) { this.attributes.delete(key); },
+        getAttribute(key) { return this.attributes.get(key) ?? null; },
         cloneNode() { return { clonedFrom: this }; },
         get nextSibling() {
             const siblings = this.parentNode?.children || [];
@@ -79,19 +81,16 @@ function shape(id) {
 }
 
 function component(id) {
-    return {
-        id, element: null, built: 0, recreated: 0, destroyed: 0, transform: `translate(${id})`,
-        createSymbolElement() { this.built++; this.element = node(`${id}-symbol`); return this.element; },
-        _recreateElement() {
-            this.recreated++;
-            const parent = this.element?.parentNode;
-            this.element?.parentNode?.removeChild(this.element);
-            this.createSymbolElement();
-            parent?.appendChild(this.element);
+    return new Component({
+        name: id,
+        symbol: {
+            width: 2,
+            height: 2,
+            origin: { x: 0, y: 0 },
+            graphics: [{ type: 'rect', x: 0, y: 0, width: 2, height: 2 }],
+            pins: [],
         },
-        _buildTransform() { return this.transform; },
-        destroy() { this.destroyed++; this.element?.parentNode?.removeChild(this.element); this.element = null; },
-    };
+    }, { id, x: 1, y: 2 });
 }
 
 {
@@ -133,28 +132,30 @@ function component(id) {
     const part = component('U1');
     mountComponent(app, part);
     mountComponent(app, part);
-    assert.equal(part.built, 1, 'mount reuses an existing symbol');
-    assert.equal(part.element.parentNode, app.viewport.componentLayer);
+    const mounted = componentViewOf(part).element;
+    assert.equal(componentViewOf(part).element, mounted, 'mount reuses an existing symbol');
+    assert.equal(mounted.parentNode, app.viewport.componentLayer);
 
     refreshComponentPose(part);
-    assert.equal(part.element.attributes.get('transform'), 'translate(U1)');
-    assert.equal(part.recreated, 0, 'a translation keeps the symbol');
-    part.transform = null;
+    assert.equal(componentViewOf(part).element.attributes.get('transform'), 'translate(1,2)');
+    assert.equal(componentViewOf(part).element, mounted, 'a translation keeps the symbol');
+    part.x = 0;
+    part.y = 0;
     refreshComponentPose(part, { rebuild: true });
-    assert.equal(part.recreated, 1, 'rotation or mirror rebuilds the symbol');
-    assert.equal(part.element.attributes.has('transform'), false, 'an identity pose clears the transform');
+    assert.notEqual(componentViewOf(part).element, mounted, 'rotation or mirror rebuilds the symbol');
+    assert.equal(componentViewOf(part).element.attributes.has('transform'), false, 'an identity pose clears the transform');
 
-    const before = part.element;
+    const before = componentViewOf(part).element;
     rebuildComponentSymbol(app, part);
     assert.equal(before.removed, 1);
-    assert.notEqual(part.element, before);
-    assert.equal(part.element.parentNode, app.viewport.componentLayer, 'a rebuilt symbol is attached');
+    assert.notEqual(componentViewOf(part).element, before);
+    assert.equal(componentViewOf(part).element.parentNode, app.viewport.componentLayer, 'a rebuilt symbol is attached');
 
     unmountComponent(part);
-    assert.equal(part.element.parentNode, null);
+    assert.equal(componentViewOf(part).element.parentNode, null);
     unmountComponent(component('unbuilt'));
     discardComponentView(app, part);
-    assert.equal(part.destroyed, 1);
+    assert.equal(componentViewOf(part), undefined);
 }
 
 {
@@ -162,13 +163,13 @@ function component(id) {
     const wire = shape('wire');
     const part = component('U2');
     prepareDocumentView(app, { shapes: [{ shape: wire }], components: [part] });
-    assert.equal((viewOf(wire)?.element ? 1 : 0) + part.built, 2, 'prepared documents get SVG before they go live');
-    assert.equal(viewOf(wire).element.parentNode || part.element.parentNode, null, 'prepared SVG is not attached yet');
+    assert.equal((viewOf(wire)?.element ? 1 : 0) + (componentViewOf(part)?.element ? 1 : 0), 2, 'prepared documents get SVG before they go live');
+    assert.equal(viewOf(wire).element.parentNode || componentViewOf(part).element.parentNode, null, 'prepared SVG is not attached yet');
     app.shapes = [wire];
     app.components = [part];
     mountDocument(app);
     assert.equal(viewOf(wire).element.parentNode, app.viewport.contentLayer);
-    assert.equal(part.element.parentNode, app.viewport.componentLayer);
+    assert.equal(componentViewOf(part).element.parentNode, app.viewport.componentLayer);
 }
 
 {
@@ -194,7 +195,7 @@ const files = [];
         else if (name.endsWith('.js')) files.push(path);
     }
 })(src);
-const VIEW_LIFECYCLE = /\.render\(|\baddContent\(|\baddComponentContent\(|\bremoveContent\(|createSymbolElement\(|_recreateElement\(|_buildTransform\(|\.anchorsGroup\b|\.element\b|\bviewOf\(|\bensureView\(|\b_culled\b|\b_lodFar\b/;
+const VIEW_LIFECYCLE = /\.render\(|\baddContent\(|\baddComponentContent\(|\bremoveContent\(|createSymbolElement\(|_recreateElement\(|_buildTransform\(|\.anchorsGroup\b|\.element\b|\bviewOf\(|\bensureView\(|\bcomponentViewOf\(|\bensureComponentView\(|\b_culled\b|\b_lodFar\b/;
 // The inline text editor adds its own overlay, and the component picker owns its panel.
 const allowed = new Set([
     'ui/modules/text-edit.js: app.viewport.addContent(group);',

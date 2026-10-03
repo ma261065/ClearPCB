@@ -432,12 +432,13 @@ counterpart of the PCB render modules. It owns `renderShapes()`, viewport
 culling and level of detail, refined-segment overlays, and the helpers that
 create, attach, redraw, re-pose, detach and discard entity SVG
 (`mountShape`, `unmountShape`, `mountComponent`, `refreshComponentPose`,
-`withContentDetached`, …). Shape entities are model-only: their SVG and anchor
-handles are owned by renderers in `src/schematic/render/`, backed by a
-WeakMap view state keyed by shape identity. Commands, file loading, clipboard
-ghosts, theme changes and inline text editing call the lifecycle/render helpers;
-none of them touch shape `element`, `anchorsGroup`, `render()` or the
-viewport content layers. Components remain self-rendering for now.
+`withContentDetached`, …). Shape and component entities are model-only: shape
+SVG/anchor handles and component symbols/highlights/pin dots/lock icons are
+owned by renderers in `src/schematic/render/`, backed by WeakMap view state
+keyed by entity identity. Commands, file loading, clipboard ghosts, theme
+changes and inline text editing call the lifecycle/render helpers; none of them
+touch entity `element`, `anchorsGroup`, `pinElements`, `render()` or the
+viewport content layers.
 Clean shapes only take the zoom fast path (stroke-width update) when the scale
 has changed since the previous `renderShapes()` pass, so hover frames do no
 per-shape view lookups.

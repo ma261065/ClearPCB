@@ -112,7 +112,7 @@ export function createLockIcon(x, y, item, cls, scale = Infinity) {
     g.addEventListener('mousedown', (e) => { e.stopPropagation(); e.preventDefault(); });
     g.addEventListener('click', (e) => {
         e.stopPropagation();
-        item.element.dispatchEvent(new CustomEvent('unlock-shape', {
+        (item.element || g).dispatchEvent(new CustomEvent('unlock-shape', {
             bubbles: true,
             detail: { shape: item }
         }));

@@ -2,7 +2,8 @@
  * Schematic view lifecycle. The only editor code that creates, attaches, redraws,
  * culls or detaches entity SVG: commands, file loading, clipboard and theme
  * changes call these helpers instead of touching `element`, `anchorsGroup`,
- * `render()` or the viewport content layers. Schematic shape SVG is built by src/schematic/render; Components still build their own SVG behind this boundary.
+ * `render()` or the viewport content layers. Entity SVG is built by
+ * src/schematic/render.
  */
 import { syncAttachedLabels, updateLabelGuide } from '../../ui/modules/label-attachment.js';
 import { arcEdgePathD } from '../../shapes/arc-edge.js';
@@ -11,7 +12,14 @@ import { refreshAxisGlow } from '../../shapes/axis-glow.js';
 import { NO_SELECTION } from '../../shapes/selection-view.js';
 import { Component } from '../../components/Component.js';
 import { renderShape, updateShapeAnchors, effectiveStrokeWidth } from '../render/shape-renderer.js';
-import { viewOf, deleteView } from '../render/shape-view-state.js';
+import { viewOf, deleteView, componentViewOf } from '../render/shape-view-state.js';
+import {
+    buildComponentSymbol,
+    componentTransform,
+    discardComponent,
+    rebuildComponentSymbol as rebuildComponentSymbolView,
+    renderComponent,
+} from '../render/component-renderer.js';
 
 /** Shape types that render above wires (re-appended at end of each render cycle). */
 const OVERLAY_TYPES = new Set(['noconnect', 'net']);
@@ -40,7 +48,7 @@ export function selectionView(app) {
  */
 export function refreshSelectionVisual(app, entity) {
     entity.invalidate();
-    if (entity instanceof Component) entity.render(app.viewport?.scale ?? 1, { selection: selectionView(app) });
+    if (entity instanceof Component) renderComponent(entity, app.viewport?.scale ?? 1, { selection: selectionView(app) });
 }
 
 /** Draw a shape and attach it to the content layer. */
@@ -68,19 +76,21 @@ export function redrawShape(app, shape) {
 
 /** Build a component symbol if needed and attach it to the component layer. */
 export function mountComponent(app, component) {
-    if (!component.element) component.createSymbolElement();
-    app.viewport.addComponentContent(component.element);
+    let element = componentViewOf(component)?.element;
+    if (!element) element = buildComponentSymbol(component);
+    app.viewport.addComponentContent(element);
 }
 
 /** Detach a component symbol, keeping it for a later mount. */
 export function unmountComponent(component) {
-    if (component.element?.parentNode) component.element.parentNode.removeChild(component.element);
+    const element = componentViewOf(component)?.element;
+    if (element?.parentNode) element.parentNode.removeChild(element);
 }
 
 /** Rebuild a component symbol from scratch (theme colours changed). */
 export function rebuildComponentSymbol(app, component) {
-    component.element?.remove();
-    app.viewport.addComponentContent(component.createSymbolElement());
+    componentViewOf(component)?.element?.remove();
+    app.viewport.addComponentContent(buildComponentSymbol(component));
 }
 
 /**
@@ -88,11 +98,12 @@ export function rebuildComponentSymbol(app, component) {
  * mirroring are baked into the symbol, so `rebuild` recreates it first.
  */
 export function refreshComponentPose(component, { rebuild = false } = {}) {
-    if (rebuild) component._recreateElement();
-    if (!component.element) return;
-    const transform = component._buildTransform();
-    if (transform) component.element.setAttribute('transform', transform);
-    else component.element.removeAttribute('transform');
+    if (rebuild) rebuildComponentSymbolView(component);
+    const element = componentViewOf(component)?.element;
+    if (!element) return;
+    const transform = componentTransform(component);
+    if (transform) element.setAttribute('transform', transform);
+    else element.removeAttribute('transform');
 }
 
 /** Detach and release a shape's SVG for good (document cleared). */
@@ -105,20 +116,21 @@ export function discardShapeView(app, shape) {
 
 /** Detach and release a component symbol for good (document cleared). */
 export function discardComponentView(app, component) {
-    if (component.element) app.viewport.removeContent(component.element);
-    component.destroy();
+    const element = componentViewOf(component)?.element;
+    if (element) app.viewport.removeContent(element);
+    discardComponent(component);
 }
 
 /** Build SVG for a prepared document before it replaces the live one. */
 export function prepareDocumentView(app, prepared) {
     for (const { shape } of prepared.shapes) renderShape(shape, app.viewport.scale);
-    for (const component of prepared.components) component.createSymbolElement();
+    for (const component of prepared.components) buildComponentSymbol(component);
 }
 
 /** Attach every loaded shape and prebuilt component symbol. */
 export function mountDocument(app) {
     for (const shape of app.shapes) mountShape(app, shape);
-    for (const component of app.components) app.viewport.addComponentContent(component.element);
+    for (const component of app.components) mountComponent(app, component);
 }
 
 /**
@@ -144,7 +156,7 @@ export function withContentDetached(app, work) {
 /** An entity's live SVG (read-only use, e.g. measuring text for inline edit), or null. */
 export function viewElementOf(entity) {
     if (!entity) return null;
-    if (entity instanceof Component) return entity.element || null;
+    if (entity instanceof Component) return componentViewOf(entity)?.element || null;
     return viewOf(entity)?.element || null;
 }
 
@@ -156,7 +168,7 @@ export function cloneEntityElement(entity) {
 
 /** Free-standing symbol SVG for a placement or paste preview. */
 export function componentPreviewElement(component) {
-    return component.createSymbolElement();
+    return buildComponentSymbol(component);
 }
 
 /** Free-standing shape SVG for a paste preview. */
@@ -221,7 +233,7 @@ export function renderShapes(app, force = false) {
     for (const comp of app.components) {
         if (comp._culled) continue; // skip off-screen
         if (comp._dirty || view.isSelected(comp) || view.isHovered(comp) || comp.locked) {
-            comp.render(scale, { selection: view });
+            renderComponent(comp, scale, { selection: view });
         }
     }
 
@@ -334,28 +346,29 @@ export function updateViewportCulling(app) {
     for (const comp of app.components) {
         const b = comp.getBounds();
         if (!b) continue;
+        const compView = componentViewOf(comp);
         const inView = b.maxX >= minX && b.minX <= maxX &&
                        b.maxY >= minY && b.minY <= maxY;
 
         if (inView && comp._culled) {
             comp._culled = false;
-            if (comp.element) comp.element.classList.remove('culled');
-            comp.render(scale, { selection: view });
+            if (compView?.element) compView.element.classList.remove('culled');
+            renderComponent(comp, scale, { selection: view });
         } else if (!inView && !comp._culled) {
             comp._culled = true;
-            if (comp.element) comp.element.classList.add('culled');
+            if (compView?.element) compView.element.classList.add('culled');
         }
 
         // Level-of-detail: when an in-view component is drawn smaller than a
         // few pixels, collapse it to its placeholder rect so the SVG renderer
         // paints one node instead of dozens. Skip selected/hovered components
         // so editing always shows full detail.
-        if (!comp._culled && comp.element) {
+        if (!comp._culled && compView?.element) {
             const px = Math.max(b.maxX - b.minX, b.maxY - b.minY) * scale;
             const far = px < LOD_PIXEL_THRESHOLD && !view.isSelected(comp) && !view.isHovered(comp);
-            if (far !== comp._lodFar) {
-                comp._lodFar = far;
-                comp.element.classList.toggle('lod-far', far);
+            if (far !== compView.lodFar) {
+                compView.lodFar = far;
+                compView.element.classList.toggle('lod-far', far);
             }
         }
     }

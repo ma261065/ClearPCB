@@ -22,3 +22,28 @@ export function ensureView(shape) {
 export function deleteView(shape) {
     shapeViews.delete(shape);
 }
+
+const componentViews = new WeakMap();
+
+export function componentViewOf(component) {
+    return componentViews.get(component);
+}
+
+export function ensureComponentView(component) {
+    let view = componentViews.get(component);
+    if (!view) {
+        view = {
+            element: null,
+            pinElements: new Map(),
+            highlightEl: null,
+            lockIconEl: null,
+            lodFar: false,
+        };
+        componentViews.set(component, view);
+    }
+    return view;
+}
+
+export function deleteComponentView(component) {
+    componentViews.delete(component);
+}

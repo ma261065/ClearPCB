@@ -11,7 +11,7 @@ globalThis.HTMLElement = class extends EventTarget {};
 const buttons = new Map(['themeToggle', 'pcbThemeToggle'].map(id => [id, new HTMLElement()]));
 const attributes = new Map();
 const element = () => ({ style: {}, dataset: {}, classList: { add() {}, remove() {}, toggle() {} },
-    setAttribute() {}, getAttribute: () => null, appendChild: child => child, addEventListener() {} });
+    setAttribute() {}, getAttribute: () => null, appendChild: child => child, remove() {}, addEventListener() {} });
 globalThis.document = {
     getElementById(id) { return buttons.get(id) || null; },
     documentElement: {
@@ -31,7 +31,14 @@ let pcbUpdates = 0;
 let symbols = 0;
 const schematic = {
     viewport: { updateTheme() { schematicUpdates++; }, addComponentContent() {} },
-    components: [{ createSymbolElement() { symbols++; return {}; } }],
+    components: [{
+        id: 'theme-comp',
+        x: 0,
+        y: 0,
+        rotation: 0,
+        symbol: { width: 1, height: 1, origin: { x: 0, y: 0 }, graphics: [], pins: [] },
+        _getLocalBounds() { symbols++; return { minX: 0, minY: 0, maxX: 1, maxY: 1 }; },
+    }],
     _toggleTheme() { toggleTheme(this); },
     _loadTheme() { loadTheme(this); },
 };

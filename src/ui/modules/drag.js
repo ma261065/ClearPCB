@@ -18,6 +18,7 @@ import { joinShapes } from '../../shapes/shape-join.js';
 import { clearAxisGlow } from '../../shapes/axis-glow.js';
 import { BULGE_EPS } from '../../shapes/arc-edge.js';
 import { appendArcToLineCommand } from './context-menu.js';
+import { refreshComponentPose } from '../../schematic/modules/schematic-view.js';
 
 /**
  * Compare two captured shape states for equality.
@@ -604,6 +605,7 @@ export function commitMoveDrag(app, totalDx, totalDy) {
     // Revert movement so execute() can re-apply it
     for (const shape of itemsForCommand) {
         shape.move(-totalDx, -totalDy);
+        if (shape.definition) refreshComponentPose(shape);
     }
 
     const command = new MoveShapesCommand(app, itemsForCommand, totalDx, totalDy);
