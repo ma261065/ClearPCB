@@ -7,6 +7,7 @@ import { deserializeComponent } from '../../core/SchematicDocument.js';
 import { serializeGridSettings, restoreGridSettings } from '../../shared/ui/viewport.js';
 import { cancelSchematicPointerInteraction } from '../../ui/modules/drag.js';
 import { cancelSchematicPropertyPreview } from '../../ui/modules/properties.js';
+import { duplicateIdRepairMessage, repairDuplicateIds } from '../../core/project-format.js';
 
 function canReplaceDocument(app) {
     if (!app.fileManager.saving && !app.fileManager.loading) return true;
@@ -363,6 +364,27 @@ async function writeDocument(app, saveAs) {
 }
 
 /**
+ * Load an opened project and adopt its file identity. Duplicate ids left by older
+ * builds are repaired first; the document is then marked unsaved so the fix can be kept.
+ * @param {object} app - Application state.
+ * @param {{data: any, fileName: string}} result - A successful open result.
+ */
+export async function loadOpenedProject(app, result) {
+    const repaired = repairDuplicateIds(result.data);
+    await app._loadDocument(repaired.data);
+    await app.fileManager.adoptOpen(result);
+    app._fitToContent?.();
+    app._updateTitle();
+    app.fileManager.clearAutoSave(result.fileName);
+    app._notifyDocumentReplaced?.('open');
+    const message = duplicateIdRepairMessage(repaired);
+    if (message) {
+        app.fileManager.setDirty(true);
+        await app._alert(`Opened ${result.fileName}. ${message}`, { title: 'File Repaired' });
+    }
+}
+
+/**
  * Opens a file via the file manager, loads its data, and updates the title.
  * Prompts if there are unsaved changes.
  * @param {object} app - Application state.
@@ -379,12 +401,7 @@ export async function openFile(app) {
         const result = await app.fileManager.open();
 
         if (result.success) {
-            await app._loadDocument(result.data);
-            await app.fileManager.adoptOpen(result);
-            app._fitToContent?.();
-            app._updateTitle();
-            app.fileManager.clearAutoSave(result.fileName);
-            app._notifyDocumentReplaced?.('open');
+            await loadOpenedProject(app, result);
             console.log('Opened:', result.fileName);
         } else if (result.error) {
             app._alert('Failed to open: ' + result.error, { title: 'Open Failed' });
@@ -413,12 +430,7 @@ export async function openRecentFile(app, name) {
         const result = await app.fileManager.openRecent(name);
 
         if (result.success) {
-            await app._loadDocument(result.data);
-            await app.fileManager.adoptOpen(result);
-            app._fitToContent?.();
-            app._updateTitle();
-            app.fileManager.clearAutoSave(result.fileName);
-            app._notifyDocumentReplaced?.('open');
+            await loadOpenedProject(app, result);
             console.log('Opened recent:', result.fileName);
         } else if (result.error) {
             app._alert('Failed to open: ' + result.error, { title: 'Open Failed' });

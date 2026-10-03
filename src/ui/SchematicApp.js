@@ -6,7 +6,7 @@ import { CommandHistory } from '../core/CommandHistory.js';
 import { SelectionManager } from '../core/SelectionManager.js';
 import { FileManager } from '../core/FileManager.js';
 import { SchematicDocument } from '../core/SchematicDocument.js';
-import { repairDuplicateBoardShapeIds, repairDuplicateTrackIds } from '../core/project-format.js';
+import { duplicateIdRepairMessage, repairDuplicateIds } from '../core/project-format.js';
 import { storageManager } from '../core/StorageManager.js';
 import { pointsMatch } from '../core/geometry.js';
 import { ComponentPicker } from '../components/ComponentPicker.js';
@@ -393,9 +393,8 @@ export default class SchematicApp {
         const saved = this.fileManager.loadAutoSave(entry.fileName);
         if (saved && saved.data) {
             try {
-                const recovered = repairDuplicateTrackIds(saved.data);
-                const shapeRepair = repairDuplicateBoardShapeIds(recovered.data);
-                recovered.data = shapeRepair.data;
+                const recovered = repairDuplicateIds(saved.data);
+                const repairMessage = duplicateIdRepairMessage(recovered);
                 if (this._initComplete) {
                     await this._loadDocument(recovered.data);
                 } else {
@@ -413,13 +412,8 @@ export default class SchematicApp {
                     try { await this.fileManager.restoreFileHandle(saved.fileName); } catch {}
                 }
                 this.fileManager.setDirty(true);
-                if (recovered.count) {
-                    await this._alert(`Recovered the autosave and assigned new IDs to ${recovered.count} tracks with duplicate IDs. All track geometry was retained. Save the project to keep the repaired IDs.`,
-                        { title: 'Autosave Repaired' });
-                }
-                if (shapeRepair.count) {
-                    await this._alert(`Recovered the autosave and assigned new IDs to ${shapeRepair.count} board shapes with duplicate IDs. All shape geometry was retained. Save the project to keep the repaired IDs.`,
-                        { title: 'Autosave Repaired' });
+                if (repairMessage) {
+                    await this._alert(`Recovered the autosave. ${repairMessage}`, { title: 'Autosave Repaired' });
                 }
                 console.log('Recovered auto-saved content');
             } catch (error) {

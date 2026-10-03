@@ -410,6 +410,21 @@ export function repairDuplicateBoardShapeIds(data) {
     return { data: repaired, count: duplicates.length };
 }
 
+/** Repair duplicate track and board-shape ids before loading an opened or recovered project. */
+export function repairDuplicateIds(data) {
+    const tracks = repairDuplicateTrackIds(data);
+    const shapes = repairDuplicateBoardShapeIds(tracks.data);
+    return { data: shapes.data, tracks: tracks.count, shapes: shapes.count };
+}
+
+/** User-facing summary of {@link repairDuplicateIds}, or null when nothing changed. */
+export function duplicateIdRepairMessage({ tracks, shapes }) {
+    const parts = [[tracks, 'track'], [shapes, 'board shape']].filter(([count]) => count)
+        .map(([count, noun]) => `${count} ${noun}${count === 1 ? '' : 's'}`);
+    if (!parts.length) return null;
+    return `Assigned new IDs to ${parts.join(' and ')} with duplicate IDs. All geometry was kept. Save the project to keep the repaired IDs.`;
+}
+
 export function validateProject(data) {
     data = normalizeProjectAliases(data);
     if (!record(data) || data.type !== 'clearpcb-project' || data.version !== '1.0') {

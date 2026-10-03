@@ -4,6 +4,7 @@ import SchematicApp from './SchematicApp.js';
 import PCBApp from './PCBApp.js';
 import { ProjectDocument } from '../core/ProjectDocument.js';
 import { readProjectFile } from '../core/FileManager.js';
+import { duplicateIdRepairMessage, repairDuplicateIds } from '../core/project-format.js';
 import { installNumberInputFormatting } from '../core/number-inputs.js';
 import { ModalManager } from '../core/ModalManager.js';
 import { renderRecentFiles } from '../shared/ui/recents.js';
@@ -317,12 +318,18 @@ export class AppBootstrap {
                 && !await app._confirm('You have unsaved changes. Open another file anyway?',
                     { title: 'Unsaved Changes', okText: 'Yes', cancelText: 'No', defaultCancel: true })) return;
             try {
-                await app._loadDocument(data);
+                const repaired = repairDuplicateIds(data);
+                await app._loadDocument(repaired.data);
                 await app.fileManager.adoptOpen({ handle: fileHandle, fileName: fileHandle.name });
                 this._hideStartupSplash();
                 this.switchMode('schematic');
                 app._fitToContent?.();
                 this.project.notifyDocumentReplaced('open');
+                const message = duplicateIdRepairMessage(repaired);
+                if (message) {
+                    app.fileManager.setDirty(true);
+                    await app._alert(`Opened ${fileHandle.name}. ${message}`, { title: 'File Repaired' });
+                }
             } catch (error) {
                 app._alert('Failed to open file: ' + error.message, { title: 'Open Failed' });
             }
