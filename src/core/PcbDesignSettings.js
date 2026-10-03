@@ -1,4 +1,18 @@
 export const PCB_ROUTING_FIELDS = ['trackWidth', 'clearance', 'viaDiameter', 'viaDrill'];
+/**
+ * Upper bounds for routing dimensions. Larger values are input slips: clearance halo
+ * rendering grows with the clearance, and a 5 m clearance took minutes to open.
+ */
+export const PCB_DESIGN_MAX_MM = Object.freeze({ trackWidth: 25, clearance: 10, viaDiameter: 25, viaDrill: 25 });
+
+/** Clamp oversized routing dimensions from saved data so slipped values still open, at a renderable size. */
+export function clampDesignDimensions(design) {
+    const clamped = { ...design };
+    for (const key of PCB_ROUTING_FIELDS) {
+        if (Number.isFinite(clamped[key]) && clamped[key] > PCB_DESIGN_MAX_MM[key]) clamped[key] = PCB_DESIGN_MAX_MM[key];
+    }
+    return clamped;
+}
 
 /** Canonical project design settings; numeric dimensions are always millimetres. */
 export class PcbDesignSettings {
@@ -16,6 +30,9 @@ export class PcbDesignSettings {
         for (const key of PCB_ROUTING_FIELDS) {
             if (!Number.isFinite(next[key]) || next[key] <= 0) {
                 throw new Error(`PCB ${key} must be a positive finite value in millimetres.`);
+            }
+            if (next[key] > PCB_DESIGN_MAX_MM[key]) {
+                throw new Error(`PCB ${key} must be no larger than ${PCB_DESIGN_MAX_MM[key]} mm.`);
             }
         }
         if (!['mm', 'inch'].includes(next.units)) throw new Error('Invalid PCB design units.');

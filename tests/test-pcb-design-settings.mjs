@@ -162,6 +162,49 @@ storage.set('clearpcb_pcb_design_params', JSON.stringify({ units: 'inch', router
 const legacy = fixture().app;
 assert.equal(legacy.getRoutingParams().trackWidth, 0.254, 'Legacy display-unit defaults remain readable');
 assert.throws(() => preparePcb({ ...serializePcb(legacy), design: { ...precise, clearance: 0 } }), /positive finite/);
+
+assert.throws(() => new PcbDesignSettings().update({ clearance: 5020.02 }), /no larger than 10 mm/);
+assert.throws(() => new PcbDesignSettings().update({ trackWidth: 25.5 }), /no larger than 25 mm/);
+{
+    const { app, changes, elements } = fixture();
+    const slipped = { ...precise, clearance: 5020.02, viaDiameter: 25 };
+    assert.doesNotThrow(() => preparePcb({ ...serializePcb(legacy), design: slipped }), 'A slipped saved value still opens');
+    app.pcbDocument.load({ stackup: defaultPcbStackup(), design: slipped });
+    assert.equal(app.getRoutingParams().clearance, 10, 'Oversized saved clearances load clamped to the maximum');
+    assert.equal(app.getRoutingParams().viaDiameter, 25, 'The maximum itself is kept');
+    assert.equal(app.getRoutingParams().trackWidth, precise.trackWidth, 'In-range values are untouched');
+    app.pcbDocument.load({ stackup: defaultPcbStackup(), design: { ...precise, units: 'mm' } });
+    refreshDesignSettings(app);
+    const clearance = elements.get('pcbClearance');
+    assert.equal(clearance.max, '10');
+    const before = changes.dirty;
+    clearance.value = '5020.02';
+    clearance.fire('input');
+    clearance.fire('change');
+    assert.match(clearance.validationMessage, /no larger than 10 mm/);
+    assert.equal(app.getRoutingParams().clearance, precise.clearance, 'An oversized typed clearance is never committed');
+    assert.equal(changes.dirty, before);
+    elements.get('pcbRouteUnits').value = 'inch';
+    elements.get('pcbRouteUnits').fire('change');
+    assert.equal(clearance.max, '0.3937');
+    clearance.value = '0.3937';
+    clearance.fire('input');
+    assert.equal(clearance.validationMessage, '', 'The rounded inch display of the maximum is accepted');
+    assert.ok(Math.abs(app.getRoutingParams().clearance - 10) < 1e-3);
+    const width = elements.get('pcbTrackWidth');
+    assert.equal(width.max, '0.9843');
+    width.value = '0.9843';
+    width.fire('input');
+    assert.equal(width.validationMessage, '', 'A rounded inch maximum just above the limit is accepted');
+    assert.equal(app.getRoutingParams().trackWidth, 25, 'and committed as the exact maximum');
+    clearance.value = '0.5';
+    clearance.fire('input');
+    assert.match(clearance.validationMessage, /no larger than 0\.3937 in/);
+    assert.ok(Math.abs(app.getRoutingParams().clearance - 10) < 1e-3);
+    storage.set('clearpcb_pcb_design_params', JSON.stringify({ ...precise, clearance: 5020.02 }));
+    assert.equal(fixture().app.getRoutingParams().clearance, 10, 'Oversized local defaults are clamped on startup');
+    storage.clear();
+}
 console.log('PASS canonical PCB design settings, load/save/unit precision, legacy defaults, validation and dirty/refresh routing');
 
 const { app: tools, elements: ribbon } = fixture();

@@ -391,10 +391,10 @@ unrecognized provider-owned keys are preserved unchanged.
 | `board.w` (`width`) | number | Board width in mm. |
 | `board.h` (`height`) | number | Board height in mm. |
 | `board.r` (`radius`) | number | Board corner radius in mm. |
-| `design.tw` (`trackWidth`) | number | Default track width in mm. |
-| `design.cl` (`clearance`) | number | Copper clearance in mm. |
-| `design.vd` (`viaDiameter`) | number | Default via outside diameter in mm. |
-| `design.dr` (`viaDrill`) | number | Default via drill diameter in mm. |
+| `design.tw` (`trackWidth`) | number | Default track width in mm; positive, at most 25. |
+| `design.cl` (`clearance`) | number | Copper clearance in mm; positive, at most 10. |
+| `design.vd` (`viaDiameter`) | number | Default via outside diameter in mm; positive, at most 25. |
+| `design.dr` (`viaDrill`) | number | Default via drill diameter in mm; positive, at most 25. Larger saved routing values are clamped to these maximums on load. |
 | `design.u` (`units`) | string | PCB UI display units, normally `"mm"` or `"inch"`. |
 | `design.rt` (`router`) | string | Router mode, currently `"maze"` or `"pathfinder"`. |
 

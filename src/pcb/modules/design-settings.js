@@ -1,4 +1,5 @@
 import { refreshBoardView } from './refresh-state.js';
+import { PCB_DESIGN_MAX_MM, clampDesignDimensions } from '../../core/PcbDesignSettings.js';
 
 const STORAGE_KEY = 'clearpcb_pcb_design_params';
 const INPUTS = {
@@ -30,6 +31,7 @@ export function renderDesignSettings(app) {
         element.value = String(Number((values[key] * factor).toFixed(digits)));
         element.step = values.units === 'inch' ? '0.001' : '0.01';
         element.min = String(MINIMUM_MM[key] * factor);
+        element.max = String(Number((PCB_DESIGN_MAX_MM[key] * factor).toFixed(digits)));
         element.setCustomValidity('');
     }
 }
@@ -54,7 +56,7 @@ export function bindDesignSettings(app) {
                 if (stored[key] !== undefined) restored[key] = stored[key];
                 else if (stored[id] != null && stored[id] !== '') restored[key] = Number(stored[id]) * factor;
             }
-            app.designSettings.update(restored);
+            app.designSettings.update(clampDesignDimensions(restored));
         }
     } catch (error) {
         console.warn('Could not restore PCB design defaults:', error);
@@ -80,21 +82,29 @@ export function bindDesignSettings(app) {
             commitDesignInput(app, key, element, app.designSettings.values.units);
         });
         element.addEventListener('change', () => {
-            if (readDesignInput(element, app.designSettings.values.units) === null) element.reportValidity();
+            if (readDesignInput(element, app.designSettings.values.units, key) === null) element.reportValidity();
         });
     }
 }
 
-function readDesignInput(element, units) {
+function readDesignInput(element, units, key) {
     const value = Number(element.value) * (units === 'inch' ? 25.4 : 1);
-    const valid = Number.isFinite(value) && value > 0;
-    element.setCustomValidity(valid ? '' : 'Enter a positive finite number.');
-    return valid ? value : null;
+    const maximum = PCB_DESIGN_MAX_MM[key];
+    let message = '';
+    if (!Number.isFinite(value) || value <= 0) message = 'Enter a positive finite number.';
+    // A small tolerance accepts the rounded inch display of the maximum itself.
+    else if (value > maximum + 0.01) {
+        message = units === 'inch'
+            ? `Enter a value no larger than ${Number((maximum / 25.4).toFixed(4))} in.`
+            : `Enter a value no larger than ${maximum} mm.`;
+    }
+    element.setCustomValidity(message);
+    return message ? null : Math.min(value, maximum);
 }
 
 /** Both ribbon and drawing-tool editors commit through the same mm conversion. */
 export function commitDesignInput(app, key, element, units) {
-    const value = readDesignInput(element, units);
+    const value = readDesignInput(element, units, key);
     if (value === null) return false;
     if (app.designSettings.update({ [key]: value })) {
         saveDefaults(app);

@@ -1,5 +1,5 @@
 import { PcbPlacementState } from './PcbPlacementState.js';
-import { PcbDesignSettings } from './PcbDesignSettings.js';
+import { PcbDesignSettings, clampDesignDimensions } from './PcbDesignSettings.js';
 import { normalizePcbSection, compactProjectAliases } from './project-field-aliases.js';
 import { assertSupportedPcb, defaultPcbStackup } from './project-format.js';
 import { createShape } from '../shapes/index.js';
@@ -84,7 +84,7 @@ export class PcbDocument {
             pads: (data?.pads || []).map(item => new Pad(item)),
             texts: (data?.texts || []).map(item => createPcbText(item)),
             panelization: data?.panelization ? panelSettings(data.panelization) : null };
-        if (data?.design) new PcbDesignSettings().update(data.design);
+        if (data?.design) new PcbDesignSettings().update(clampDesignDimensions(data.design));
         return prepared;
     }
 
@@ -127,7 +127,7 @@ export class PcbDocument {
         const loaded = prepared.data || data;
         this._loadedSection = !!loaded;
         this.settings = structuredClone(loaded?.settings);
-        if (loaded?.design) this.designSettings.update(loaded.design);
+        if (loaded?.design) this.designSettings.update(clampDesignDimensions(loaded.design));
         this.placementState.load(loaded?.placements);
         const board = loaded?.board;
         const outline = getBoardOutline(this);
