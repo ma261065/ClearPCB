@@ -26,25 +26,28 @@ const viewCentre = page => page.evaluate(() => {
     return { x: Math.round(world.x), y: Math.round(world.y) };
 });
 
-/** Logical (SelectionManager) and visual (entity flag) selection and hover of every shape. */
+/** Logical (SelectionManager) selection of every shape and whether its anchor handles are drawn. */
 const selectionState = page => page.evaluate(() => {
     const app = window.bootstrap.schematicApp;
+    app.renderShapes(); // what the next frame draws
     return {
         count: app.selection.count,
         hovered: app.selection.hovered,
         interaction: app.interactionState,
         shapes: app.shapes.map(shape => ({
-            id: shape.id, selected: shape.selected, logical: app.selection.isSelected(shape), hovered: shape.hovered,
+            id: shape.id, logical: app.selection.isSelected(shape), handles: !!shape.anchorsGroup?.isConnected,
         })),
         corner: app.shapes[0]?.nodes?.get('n2') || null,
     };
 });
 
-/** Every selected flag matches the manager, and at most the manager's hovered shape shows hover. */
+/** What is drawn matches the selection: exactly the selected shapes show anchor handles, and hover names a live shape. */
 function assertConsistent(state, label) {
     for (const shape of state.shapes) {
-        assert.equal(shape.selected, shape.logical, `${label}: ${shape.id} selected flag matches the selection`);
-        if (shape.hovered) assert.equal(state.hovered, shape.id, `${label}: ${shape.id} hover flag matches the hover`);
+        assert.equal(shape.handles, shape.logical, `${label}: ${shape.id} handles match the selection`);
+    }
+    if (state.hovered !== null) {
+        assert.ok(state.shapes.some(shape => shape.id === state.hovered), `${label}: hover names a live shape`);
     }
 }
 

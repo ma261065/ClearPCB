@@ -9,6 +9,8 @@ import { syncAttachedLabels, updateLabelGuide } from '../../ui/modules/label-att
 import { arcEdgePathD } from '../../shapes/arc-edge.js';
 import { appendSegmentSelection } from '../../core/ui-helpers.js';
 import { refreshAxisGlow } from '../../shapes/axis-glow.js';
+import { NO_SELECTION } from '../../shapes/selection-view.js';
+import { Component } from '../../components/Component.js';
 
 /** Shape types that render above wires (re-appended at end of each render cycle). */
 const OVERLAY_TYPES = new Set(['noconnect', 'net']);
@@ -19,9 +21,30 @@ const OVERLAY_TYPES = new Set(['noconnect', 'net']);
  */
 const LOD_PIXEL_THRESHOLD = 16;
 
+/**
+ * Selected/hovered state for rendering: the editor's SelectionManager, or
+ * NO_SELECTION when there is none (headless callers, previews).
+ * @returns {import('../../shapes/selection-view.js').SelectionView}
+ */
+export function selectionView(app) {
+    const selection = app.selection;
+    return typeof selection?.isSelected === 'function' && typeof selection.isHovered === 'function'
+        ? selection : NO_SELECTION;
+}
+
+/**
+ * SelectionManager `invalidateEntity` hook: mark an entity whose selection,
+ * hover or ownership tint changed for redraw. Component highlights update at
+ * once, because selection changes are not always followed by a render pass.
+ */
+export function refreshSelectionVisual(app, entity) {
+    entity.invalidate();
+    if (entity instanceof Component) entity.render(app.viewport?.scale ?? 1, { selection: selectionView(app) });
+}
+
 /** Draw a shape and attach it to the content layer. */
 export function mountShape(app, shape) {
-    shape.render(app.viewport.scale);
+    shape.render(app.viewport.scale, { selection: selectionView(app) });
     app.viewport.addContent(shape.element);
 }
 
@@ -38,7 +61,7 @@ export function unmountShape(shape) {
 
 /** Redraw a mounted shape now (outside the batched renderShapes pass). */
 export function redrawShape(app, shape) {
-    shape.render(app.viewport.scale);
+    shape.render(app.viewport.scale, { selection: selectionView(app) });
 }
 
 /** Build a component symbol if needed and attach it to the component layer. */
@@ -152,16 +175,19 @@ export function renderShapes(app, force = false) {
         app.selection.invalidateHitCache();
     }
     const scale = app.viewport.scale;
+    const view = selectionView(app);
     for (const shape of app.shapes) {
         if (shape._culled) continue; // skip off-screen
-        if (force || shape._dirty || shape.selected || shape.hovered) {
+        const selected = view.isSelected(shape);
+        if (force || shape._dirty || selected || view.isHovered(shape)) {
             const selectedNodeId = app._selectedShapeNode?.shapeId === shape.id
                 ? app._selectedShapeNode.nodeId : null;
             const refined = app._selectedShapeSegment?.shapeId === shape.id || selectedNodeId != null;
             shape.render(scale, {
                 suppressSelection: refined,
+                selection: view,
             });
-            if (refined && shape.selected && shape.type === 'polyline') {
+            if (refined && selected && shape.type === 'polyline') {
                 shape._updateAnchors(scale, true, selectedNodeId);
             }
         } else if (shape._lastScale !== scale && shape.element) {
@@ -175,8 +201,8 @@ export function renderShapes(app, force = false) {
     // Only render components that actually need visual updates
     for (const comp of app.components) {
         if (comp._culled) continue; // skip off-screen
-        if (comp.selected || comp.hovered || comp.locked) {
-            comp.render(scale);
+        if (comp._dirty || view.isSelected(comp) || view.isHovered(comp) || comp.locked) {
+            comp.render(scale, { selection: view });
         }
     }
 
@@ -209,7 +235,7 @@ export function renderShapeSegmentSelection(app) {
     app._shapeSegmentSelectionElement = null;
     const selected = app._selectedShapeSegment;
     const shape = selected ? app.shapes.find((candidate) => candidate.id === selected.shapeId) : null;
-    if (!shape || !shape.selected || shape.type !== 'polyline') return;
+    if (!shape || !selectionView(app).isSelected(shape) || shape.type !== 'polyline') return;
     const edge = shape.edges?.get(selected.edgeId);
     const first = edge ? shape.nodes?.get(edge.from) : null;
     const second = edge ? shape.nodes?.get(edge.to) : null;
@@ -260,6 +286,7 @@ export function updateViewportCulling(app) {
     const minY = bounds.minY - margin;
     const maxY = bounds.maxY + margin;
     const scale = app.viewport.scale;
+    const view = selectionView(app);
 
     for (const shape of app.shapes) {
         const b = shape.getBounds();
@@ -271,7 +298,7 @@ export function updateViewportCulling(app) {
             shape._culled = false;
             if (shape.element) shape.element.classList.remove('culled');
             if (shape.anchorsGroup) shape.anchorsGroup.classList.remove('culled');
-            shape.render(scale);
+            shape.render(scale, { selection: view });
         } else if (!inView && !shape._culled) {
             // scrolled out of view — cull
             shape._culled = true;
@@ -289,7 +316,7 @@ export function updateViewportCulling(app) {
         if (inView && comp._culled) {
             comp._culled = false;
             if (comp.element) comp.element.classList.remove('culled');
-            comp.render(scale);
+            comp.render(scale, { selection: view });
         } else if (!inView && !comp._culled) {
             comp._culled = true;
             if (comp.element) comp.element.classList.add('culled');
@@ -301,7 +328,7 @@ export function updateViewportCulling(app) {
         // so editing always shows full detail.
         if (!comp._culled && comp.element) {
             const px = Math.max(b.maxX - b.minX, b.maxY - b.minY) * scale;
-            const far = px < LOD_PIXEL_THRESHOLD && !comp.selected && !comp.hovered;
+            const far = px < LOD_PIXEL_THRESHOLD && !view.isSelected(comp) && !view.isHovered(comp);
             if (far !== comp._lodFar) {
                 comp._lodFar = far;
                 comp.element.classList.toggle('lod-far', far);

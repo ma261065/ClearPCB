@@ -70,7 +70,6 @@ export class Via {
             ? options.drill : 0.3;
         this.drill = Math.min(drill, this.diameter);
         this.net = typeof options.net === 'string' ? options.net : '';
-        this.selected = false;
         this.locked = !!options.locked;
         this.visible = options.visible !== undefined ? options.visible : true;
     }

@@ -191,7 +191,7 @@ for (const rotation of [30, 90, 137.5]) {
             assert.equal(commitAnchorDrag(graphApp, graph, graphBefore), true);
             const graphAfter = graph.toJSON();
             assert.equal(graph.isRect, true);
-            assert.equal(graphApp.selection.isSelected(graph) && graph.selected, true);
+            assert.equal(graphApp.selection.isSelected(graph), true);
             graphApp.history.undo();
             assert.deepEqual(graph.toJSON(), originalRecord);
             graphApp.history.redo();

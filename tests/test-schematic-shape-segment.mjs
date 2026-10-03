@@ -234,16 +234,16 @@ function appFor(shape) {
         selection: {
             hitTest() { return shape; },
             getSelection() { return selected; },
+            isSelected(candidate) { return selected.includes(candidate); },
+            isHovered() { return false; },
             _notifySelectionChanged: SelectionManager.prototype._notifySelectionChanged,
             notifyChanged: SelectionManager.prototype.notifyChanged,
             keepSelected(candidate) {
                 if (!candidate) return;
                 if (!selected.includes(candidate)) selected.push(candidate);
-                candidate.selected = true;
             },
             select(candidate) {
                 selected.splice(0, selected.length, candidate);
-                candidate.selected = true;
             },
         },
         viewport: {
@@ -267,16 +267,16 @@ function commandAppFor(shape) {
     app.commands = [];
     app.selection = {
         getSelection: () => [...selected],
+        isSelected: item => selected.includes(item),
+        isHovered: () => false,
         select(item, additive = false) {
             if (!additive) selected.length = 0;
             if (!selected.includes(item)) selected.push(item);
-            item.selected = true;
         },
         clearSelection() { selected.length = 0; },
         keepSelected(item) {
             if (!item) return;
             if (!selected.includes(item)) selected.push(item);
-            item.selected = true;
         },
         notifyChanged() {},
     };
@@ -325,15 +325,15 @@ function commandAppFor(shape) {
     expect('closing a line commits an endpoint join', commitShapeJoin(app, shape, 'n3', { shape, anchorId: 'n0' }, before));
     const polygon = app.shapes[0];
     expect('closing a line replaces it with one polygon', app.shapes.length === 1 && polygon !== shape && polygon.closed);
-    expect('closed polygon is registered as selected', polygon.selected && app.selection.selected.has(polygon.id)
+    expect('closed polygon is registered as selected', app.selection.isSelected(polygon)
         && app.selection.getSelection().length === 1 && app.selection.getSelection()[0] === polygon);
     expect('closed polygon supplies the properties selection', app.propertySelection.length === 1 && app.propertySelection[0] === polygon);
     app.selection.clearSelection();
-    expect('closed polygon deselects normally', !polygon.selected && app.selection.getSelection().length === 0);
+    expect('closed polygon deselects normally', !app.selection.isSelected(polygon) && app.selection.getSelection().length === 0);
     const hit = app.selection.hitTest({ x: 10, y: 5 });
     expect('closed polygon can be hit again', hit === polygon);
     if (hit) app.selection.select(hit);
-    expect('clicking the polygon restores its properties selection', polygon.selected && app.propertySelection[0] === polygon);
+    expect('clicking the polygon restores its properties selection', app.selection.isSelected(polygon) && app.propertySelection[0] === polygon);
 }
 
 for (const focus of ['node', 'segment']) {

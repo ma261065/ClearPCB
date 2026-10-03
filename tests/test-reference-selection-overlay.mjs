@@ -266,7 +266,7 @@ for (const rotation of [0, 37, 90]) for (const mirrored of [false, true]) {
     const toWorld = (x, y) => ({ x: parent.x + x * Math.cos(angle) - y * Math.sin(angle),
         y: parent.y + x * Math.sin(angle) + y * Math.cos(angle) });
     let center = toWorld(12, 0);
-    const reference = { type: 'text', parentComponent: parent, selected: true,
+    const reference = { type: 'text', parentComponent: parent,
         textAnchor: 'middle', fontSize: 2, rotation: 0,
         get x() { return center.x; }, get y() { return center.y; },
         element: {
@@ -323,7 +323,7 @@ for (const rotation of [0, 37, 90]) for (const mirrored of [false, true]) {
 
 const { renderShapes } = await import('../src/schematic/modules/schematic-view.js');
 let renderedX = 10;
-const renderReference = { id: 'schematic-reference', type: 'text', selected: true,
+const renderReference = { id: 'schematic-reference', type: 'text',
     textAnchor: 'middle', get x() { return renderedX; }, y: 0,
     render() { renderedX = 15; },
     element: {
@@ -333,7 +333,7 @@ const renderReference = { id: 'schematic-reference', type: 'text', selected: tru
 renderReference.parentComponent = { x: 0, y: 0, rotation: 0, refText: renderReference,
     _getLocalBounds: () => ({ minX: -2, maxX: 2, minY: -2, maxY: 2 }) };
 const renderApp = { shapes: [renderReference], components: [],
-    selection: { getSelection: () => [renderReference], selected: new Set(['reference']) },
+    selection: { getSelection: () => [renderReference], isSelected: item => item === renderReference, isHovered: () => false },
     _selectedShapeNode: null, _selectedShapeSegment: null,
     viewport: { scale: 10, contentLayer: guideLayer } };
 renderShapes(renderApp);

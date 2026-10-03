@@ -78,7 +78,7 @@ registry.setPcbSelection(app, [{ kind: 'track', object: track }]);
 for (let index = 0; index < 10; index++) registry.syncPcbSelection(app);
 assert.deepEqual(registry.getPcbSelection(app, 'track'), [track], 'selection survives repeated syncs');
 const trackAdapter = manager.shapes.find(item => item.kind === 'track');
-assert.equal(trackAdapter.selected, true);
+assert.equal(manager.isSelected(trackAdapter), true);
 pcbDocument.tracks.splice(0, 1);
 registry.syncPcbSelection(app);
 assert.deepEqual(registry.getPcbSelection(app), [], 'deleting the selected entity clears it from the selection');
@@ -86,7 +86,7 @@ pcbDocument.tracks.push(track);
 registry.syncPcbSelection(app);
 const restored = manager.shapes.find(item => item.kind === 'track');
 assert.equal(restored, trackAdapter, 'undoing the delete reuses the cached adapter');
-assert.equal(restored.selected, false, 'and it is not shown as selected');
+assert.equal(manager.isSelected(restored), false, 'and it is not shown as selected');
 assert.deepEqual(registry.getPcbSelection(app), []);
 assert.equal(created, 6);
 

@@ -4319,7 +4319,7 @@ export default class PCBApp {
             // Read-only overlap count: skip the per-frame adapter-list rebuild
             // and reuse the last-synced entries (structural edits resync).
             const selectionHits = getPcbSelectionHits(this, worldPos, null, { sync: false });
-            const componentHover = (selectionHits.find(hit => hit.kind === 'component' && hit.selected)
+            const componentHover = (selectionHits.find(hit => hit.kind === 'component' && isPcbSelected(this, hit.kind, hit.object))
                 || selectionHits.find(hit => hit.kind === 'component'))?.object || null;
             this._hoverComponent(componentHover);
             const standalonePadHover = selectionHits.find(hit => hit.kind === 'pad')?.object || null;

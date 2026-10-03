@@ -363,7 +363,7 @@ export function syncAttachedLabels(app) {
     for (const shape of app.shapes) {
         if (shape?.type !== 'text') continue;
         if (shape.fieldKey !== 'label' || !shape.parentComponent) continue;
-        if (isDraggingLabel && shape.selected) continue;
+        if (isDraggingLabel && app.selection.isSelected(shape)) continue;
 
         const target = shape.parentComponent;
         addAttachedLabel(target, shape);

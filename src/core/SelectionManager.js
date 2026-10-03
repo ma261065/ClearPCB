@@ -18,10 +18,13 @@ export class SelectionManager {
      * @param {number} [options.screenTolerancePx=6] - Minimum hit tolerance in screen pixels (kept constant on screen across zoom)
      * @param {Function} [options.getScale] - Returns current viewport scale (px per world unit) so tolerance stays usable when zoomed out
      * @param {Function} [options.onSelectionChanged] - Callback fired when selection changes
+     * @param {(entity: Shape) => void} [options.invalidateEntity] - Refreshes an entity whose
+     *   selection, hover or ownership tint changed (defaults to `entity.invalidate()`)
      */
     constructor(options = {}) {
         this.shapes = [];  // Reference to all shapes (set by Document)
         this._shapeMap = new Map();  // ID → shape for O(1) lookups
+        this._shapeIndex = new Map();  // ID → z-order index (position in shapes)
         this.selected = new Set();  // Set of selected shape IDs
         this.hovered = null;  // Currently hovered shape ID
         this._selectionCache = null;  // Cached getSelection() result
@@ -43,6 +46,7 @@ export class SelectionManager {
         
         // Callbacks
         this.onSelectionChanged = options.onSelectionChanged || null;
+        this._invalidateEntity = options.invalidateEntity || (entity => entity.invalidate());
     }
     
     /**
@@ -87,7 +91,12 @@ export class SelectionManager {
      */
     setShapes(shapes) {
         this.shapes = shapes;
-        this._shapeMap = new Map(shapes.map(s => [s.id, s]));
+        this._shapeMap = new Map();
+        this._shapeIndex = new Map();
+        for (let index = 0; index < shapes.length; index++) {
+            this._shapeMap.set(shapes[index].id, shapes[index]);
+            this._shapeIndex.set(shapes[index].id, index);
+        }
         this._selectionCache = null;
         this._invalidateHitTestCache();
     }
@@ -108,18 +117,18 @@ export class SelectionManager {
                 parent = this._shapeMap.get(parent.id) || parent;
             }
             if (parent && typeof parent.invalidate === 'function') {
-                parent.invalidate();
+                this._invalidateEntity(parent);
             }
         }
         if (shape.attachedLabels instanceof Set) {
             for (const label of shape.attachedLabels) {
                 if (label && typeof label.invalidate === 'function') {
-                    label.invalidate();
+                    this._invalidateEntity(label);
                 }
             }
         }
         if (shape.labelText && typeof shape.labelText.invalidate === 'function') {
-            shape.labelText.invalidate();
+            this._invalidateEntity(shape.labelText);
         }
     }
     
@@ -139,7 +148,7 @@ export class SelectionManager {
             } else {
                 if (this.hitTestCache.lastResult) return this.hitTestCache.lastResult;
                 if (this.hitTestCache.lastAllResults) {
-                    const result = this.hitTestCache.lastAllResults.find(shape => shape.selected)
+                    const result = this.hitTestCache.lastAllResults.find(shape => this.selected.has(shape.id))
                         || this.hitTestCache.lastAllResults[0]
                         || null;
                     this.hitTestCache.lastResult = result;
@@ -168,24 +177,32 @@ export class SelectionManager {
         // If we want just the topmost hit (single selection/click), we prioritize Selected items first
         // effectively treating them as if they are visually on top (which they are).
         
-        // Pass 1: Check selected items
-        for (let i = this.shapes.length - 1; i >= 0; i--) {
-            const shape = this.shapes[i];
-            if (!shape.visible || shape._culled || !shape.selected) continue;
+        // Pass 1: the topmost selected item under the point. Only selected entries
+        // are visited, so the cost scales with the selection, not the document.
+        let selectedHit = null;
+        let selectedIndex = -1;
+        for (const id of this.selected) {
+            const shape = this._shapeMap.get(id);
+            const index = this._shapeIndex.get(id);
+            if (!shape || index <= selectedIndex || !shape.visible || shape._culled) continue;
             if (!this._boundsMayHit(shape, point, tol)) continue;
-            
             if (shape.hitTest(point, tol)) {
-                this.hitTestCache.lastPoint = cacheKey;
-                this.hitTestCache.lastResult = shape;
-                this.hitTestCache.lastAllResults = null; // Invalidate 'all' because we skipped unselected
-                return shape;
+                selectedHit = shape;
+                selectedIndex = index;
             }
         }
+        if (selectedHit) {
+            this.hitTestCache.lastPoint = cacheKey;
+            this.hitTestCache.lastResult = selectedHit;
+            this.hitTestCache.lastAllResults = null; // Invalidate 'all' because we skipped unselected
+            return selectedHit;
+        }
 
-        // Pass 2: Check unselected items
+        // Pass 2: the topmost item. No selected item is under the point (pass 1),
+        // so they need not be skipped.
         for (let i = this.shapes.length - 1; i >= 0; i--) {
             const shape = this.shapes[i];
-            if (!shape.visible || shape._culled || shape.selected) continue;
+            if (!shape.visible || shape._culled) continue;
             if (!this._boundsMayHit(shape, point, tol)) continue;
             
             if (shape.hitTest(point, tol)) {
@@ -255,8 +272,7 @@ export class SelectionManager {
         if (!this.selected.has(id)) {
             this.selected.add(id);
             this._selectionCache = null;
-            shapeObj.selected = true;
-            shapeObj.invalidate();
+            this._invalidateEntity(shapeObj);
             this._invalidateHitTestCache();
         }
 
@@ -278,8 +294,7 @@ export class SelectionManager {
             this._selectionCache = null;
             this._invalidateHitTestCache();
             if (shapeObj) {
-                shapeObj.selected = false;
-                shapeObj.invalidate();
+                this._invalidateEntity(shapeObj);
                 this._invalidateLinkedSelectionVisuals(shapeObj);
             }
             this._notifySelectionChanged();
@@ -317,8 +332,7 @@ export class SelectionManager {
             if (shapeObj && !this.selected.has(id)) {
                 this.selected.add(id);
                 this._selectionCache = null;
-                shapeObj.selected = true;
-                shapeObj.invalidate();
+                this._invalidateEntity(shapeObj);
                 this._invalidateLinkedSelectionVisuals(shapeObj);
             }
         }
@@ -361,8 +375,7 @@ export class SelectionManager {
         for (const id of selectedIds) {
             const shape = this._getShape(id);
             if (shape) {
-                shape.selected = false;
-                shape.invalidate();
+                this._invalidateEntity(shape);
                 this._invalidateLinkedSelectionVisuals(shape);
             }
         }
@@ -392,6 +405,16 @@ export class SelectionManager {
     }
     
     /**
+     * Check if a shape is the hovered one
+     * @param {Shape|string|null|undefined} shape
+     * @returns {boolean}
+     */
+    isHovered(shape) {
+        const id = typeof shape === 'string' ? shape : shape?.id;
+        return id != null && this.hovered === id;
+    }
+
+    /**
      * Get selection count
      */
     get count() {
@@ -407,21 +430,11 @@ export class SelectionManager {
         
         if (this.hovered === newId) return false;  // No change
         
-        // Clear old hover
-        if (this.hovered) {
-            const oldShape = this._getShape(this.hovered);
-            if (oldShape) {
-                oldShape.hovered = false;
-                oldShape.invalidate();
-            }
-        }
-        
-        // Set new hover
+        // Switch hover first so refresh hooks that redraw immediately see it.
+        const oldShape = this.hovered ? this._getShape(this.hovered) : null;
         this.hovered = newId;
-        if (shape) {
-            shape.hovered = true;
-            shape.invalidate();
-        }
+        if (oldShape) this._invalidateEntity(oldShape);
+        if (shape) this._invalidateEntity(shape);
         
         return true;  // Changed
     }
@@ -432,19 +445,11 @@ export class SelectionManager {
      * @param {Shape|null|undefined} shape
      */
     keepSelected(shape) {
-        if (!shape || this._shapeMap.get(shape.id) !== shape) return;
-        if (this.selected.has(shape.id)) {
-            if (!shape.selected) {
-                shape.selected = true;
-                shape.invalidate();
-            }
-            return;
-        }
+        if (!shape || this._shapeMap.get(shape.id) !== shape || this.selected.has(shape.id)) return;
         this.selected.add(shape.id);
         this._selectionCache = null;
         this._invalidateHitTestCache();
-        shape.selected = true;
-        shape.invalidate();
+        this._invalidateEntity(shape);
         this._invalidateLinkedSelectionVisuals(shape);
     }
 
@@ -454,7 +459,6 @@ export class SelectionManager {
      */
     dropSelected(shape) {
         if (!shape) return;
-        shape.selected = false;
         if (this.selected.delete(shape.id)) {
             this._selectionCache = null;
             this._invalidateHitTestCache();
@@ -466,9 +470,7 @@ export class SelectionManager {
      * @param {Shape|null|undefined} shape
      */
     dropHover(shape) {
-        if (!shape) return;
-        shape.hovered = false;
-        if (this.hovered === shape.id) this.hovered = null;
+        if (shape && this.hovered === shape.id) this.hovered = null;
     }
 
     /**
@@ -562,23 +564,24 @@ export class SelectionManager {
                 for (const id of this._boxSelectBase) newSet.add(id);
             }
         }
-        // Deselect shapes that are no longer in the new set
-        for (const id of this.selected) {
-            if (!newSet.has(id)) {
-                const shape = this._getShape(id);
-                if (shape) { shape.selected = false; shape.invalidate(); }
-            }
-        }
-        // Select shapes newly added to the set
-        for (const id of newSet) {
-            if (!this.selected.has(id)) {
-                const shape = this._getShape(id);
-                if (shape) { shape.selected = true; shape.invalidate(); }
-            }
-        }
+        // Refresh only shapes whose state changed, after the new set is in place
+        // so refresh hooks that redraw immediately see the final selection.
+        const previous = this.selected;
         this.selected = newSet;
         this._selectionCache = null;
         this._invalidateHitTestCache();
+        for (const id of previous) {
+            if (!newSet.has(id)) {
+                const shape = this._getShape(id);
+                if (shape) this._invalidateEntity(shape);
+            }
+        }
+        for (const id of newSet) {
+            if (!previous.has(id)) {
+                const shape = this._getShape(id);
+                if (shape) this._invalidateEntity(shape);
+            }
+        }
     }
 
     /** Capture current selection as additive base for box drag. */

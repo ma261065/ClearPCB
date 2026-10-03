@@ -887,7 +887,7 @@ function _hidePinDot(app) {
         const dot = pinGroup.querySelector('circle');
         if (dot) {
             dot.setAttribute('fill', dot.dataset.originalFill || 'var(--sch-pin, #aa0000)');
-            if (!app.wireSnapPin.component.selected) {
+            if (!app.selection.isSelected(app.wireSnapPin.component)) {
                 dot.setAttribute('display', 'none');
             }
         }

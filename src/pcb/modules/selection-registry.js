@@ -163,8 +163,8 @@ export function syncPcbSelection(app) {
     const previous = selection.shapes;
     let unchanged = previous.length === next.length;
     for (let index = 0; unchanged && index < next.length; index++) unchanged = previous[index] === next[index];
-    // Reused adapters keep the id map, selected ids and their flags valid (SelectionManager
-    // maintains flags itself); geometry may still have moved, so hit caches always reset.
+    // Reused adapters keep the id map and selected ids valid; geometry may still have
+    // moved, so hit caches always reset.
     if (unchanged) {
         selection._invalidateHitTestCache();
         selection._selectionCache = null;
@@ -173,7 +173,6 @@ export function syncPcbSelection(app) {
     selection.setShapes(next);
     pruneIdAdapters(app);
     selection.selected = new Set([...selection.selected].filter((id) => selection._getShape(id)));
-    for (const item of selection.shapes) item.selected = selection.selected.has(item.id);
     selection._selectionCache = null;
 }
 

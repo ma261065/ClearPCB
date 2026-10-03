@@ -403,18 +403,29 @@ enforces the rule for every PCB adapter kind: sampled around awkward geometry
 at three zooms, selected and unselected, `hitTest()` may only succeed inside
 the bounds `SelectionManager` pre-filters with.
 
-`SelectionManager` is the only writer of entity `selected`/`hovered` flags and
-of its own selection, hover and cache fields, so the logical selection and what
-is drawn cannot drift apart. Editor code uses its public API: `keepSelected()`
+Selection and hover live only in `SelectionManager` (its `selected` id set and
+`hovered` id); entities carry no `selected`/`hovered` flags, so the logical
+selection and what is drawn cannot drift apart. Renderers ask
+`isSelected()`/`isHovered()` through the `selection` render option
+(`shapes/selection-view.js`; previews use `NO_SELECTION`). Selected-first hit
+testing visits only the selected entries, then scans the rest in z-order. When
+selection, hover or an ownership tint changes, the manager calls its
+`invalidateEntity` hook after updating its state; the schematic's hook
+(`refreshSelectionVisual()`) also redraws component highlights at once,
+because selection changes are not always followed by a render pass. Editor
+code changes the selection through the public API: `keepSelected()`
 re-asserts a tracked shape after an edit (silently; untracked shapes are
 ignored), `dropSelected()`/`dropHover()`/`forget()` release a shape leaving the
 document, `clearSelection({ notify: false })` and `notifyChanged()` batch a
 change into one notification, and `invalidateHitCache()` discards cached hits.
-`test-selection-state-seam` checks the API and fails on any new direct flag
-write or private access outside the manager (entity constructors and the PCB
-registry's sync are the listed exceptions). `browser-tests/schematic-smoke.mjs`
-checks in a real browser that flags and the manager agree through anchor drag
-commit/cancel, wire start, delete, undo and redo.
+`test-selection-state-seam` checks the API, the hook ordering and hit
+priority, and fails on any entity flag use or private access outside the
+manager. `browser-tests/schematic-smoke.mjs` checks in a real browser that
+exactly the selected shapes draw anchor handles through anchor drag
+commit/cancel, wire start, delete, undo and redo. The schematic keeps passing
+its entities to `SelectionManager` directly: they already provide the adapter
+contract (`id`, bounds, `hitTest`, `invalidate`), unlike PCB placements, pads
+and reference text, which is why only PCB uses a selection registry.
 
 `schematic/modules/schematic-view.js` is the schematic's view lifecycle, the
 counterpart of the PCB render modules. It owns `renderShapes()`, viewport

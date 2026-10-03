@@ -1120,12 +1120,12 @@ export const idleState = {
         let hitShape = app.selection.hitTest(worldPos);
 
         if (hitShape) {
-            const wasSelected = hitShape.selected;
+            const wasSelected = app.selection.isSelected(hitShape);
             const segmentTolerance = SNAP_SCREEN_PX / app.viewport.scale;
             const hitSegmentEdgeId = hitShape.type === 'polyline'
                 ? hitShape.hitTestEdge(worldPos, segmentTolerance)
                 : null;
-            if (!hitShape.selected) {
+            if (!wasSelected) {
                 app.selection.select(hitShape, false);
                 app._shapeSegmentClickCandidate = hitSegmentEdgeId
                     ? { shapeId: hitShape.id, edgeId: hitSegmentEdgeId }

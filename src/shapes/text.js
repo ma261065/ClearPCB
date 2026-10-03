@@ -5,6 +5,7 @@
 import { Shape } from './shape.js';
 import { ShapeValidator } from '../core/ShapeValidator.js';
 import { getTextEditBoxGeometry } from '../core/text-edit-geometry.js';
+import { NO_SELECTION } from './selection-view.js';
 
 /** Round to 4 decimal places for compact serialisation. */
 const _r4 = v => Math.round(v * 10000) / 10000;
@@ -185,14 +186,14 @@ export class Text extends Shape {
         return group;
     }
     /** @override */
-    _updateElement(el, strokeColor, fillColor, scale) {
+    _updateElement(el, strokeColor, fillColor, scale, view = NO_SELECTION) {
         const borderEl = el.children[0];
         const textEl = el.children[1];
         textEl.setAttribute('x', this.x);
         textEl.setAttribute('y', this.y);
         // When parent component is selected but this field text isn't,
         // tint blue to show ownership
-        if (this.parentComponent?.selected && !this.selected && !this.hovered) {
+        if (this.parentComponent && view.isSelected(this.parentComponent) && !view.isSelected(this) && !view.isHovered(this)) {
             fillColor = 'var(--sch-selection, #3399ff)';
         }
         textEl.setAttribute('fill', fillColor);

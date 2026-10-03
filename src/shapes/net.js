@@ -11,6 +11,7 @@
 
 import { Shape } from './shape.js';
 import { ShapeValidator } from '../core/ShapeValidator.js';
+import { NO_SELECTION } from './selection-view.js';
 
 /** Round to 4 decimal places for compact serialisation. */
 const _r4 = v => Math.round(v * 10000) / 10000;
@@ -504,7 +505,7 @@ export class Net extends Shape {
     }
 
     /** @override */
-    _updateElement(el, strokeColor, fillColor, scale) {
+    _updateElement(el, strokeColor, fillColor, scale, view = NO_SELECTION) {
         const geo = this._getGeometry();
 
         // Ensure children exist
@@ -524,8 +525,9 @@ export class Net extends Shape {
 
         const attachedLabels = /** @type {any} */ (this).attachedLabels;
         const attachedActive = attachedLabels instanceof Set
-            && Array.from(attachedLabels).some(label => label?.selected || label?.hovered);
-        if (!this.selected && !this.hovered && (this.labelText?.selected || this.labelText?.hovered || attachedActive)) {
+            && Array.from(attachedLabels).some(label => label && (view.isSelected(label) || view.isHovered(label)));
+        const labelActive = !!this.labelText && (view.isSelected(this.labelText) || view.isHovered(this.labelText));
+        if (!view.isSelected(this) && !view.isHovered(this) && (labelActive || attachedActive)) {
             symbolStroke = selectionColor;
         }
 

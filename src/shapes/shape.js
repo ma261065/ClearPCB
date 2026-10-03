@@ -8,6 +8,7 @@
 import { ShapeValidator } from '../core/ShapeValidator.js';
 import { createLockIcon, lockIconMetrics, LOCK_GAP } from '../core/ui-helpers.js';
 import { IdAllocator } from '../core/id-allocator.js';
+import { NO_SELECTION } from './selection-view.js';
 
 const shapeIds = new IdAllocator('shape');
 
@@ -56,8 +57,6 @@ export class Shape {
         this.lineWidth = ShapeValidator.validateLineWidth(options.lineWidth || 0.2);
         
         // State
-        this.selected = false;
-        this.hovered = false;
         this.visible = options.visible !== undefined ? options.visible : true;
         this.locked = options.locked !== undefined ? options.locked : false;
         
@@ -181,7 +180,8 @@ export class Shape {
      * Create or update the SVG element for this shape.
      * Applies selection/hover colouring and rebuilds anchor handles.
      * @param {number} scale - Current viewport scale (pixels per mm).
-    * @param {{suppressSelection?: boolean}} [options]
+     * @param {{suppressSelection?: boolean, selection?: import('./selection-view.js').SelectionView}} [options]
+     *   `selection` supplies selected/hovered state (unselected when omitted).
      * @returns {SVGElement} The root SVG element representing this shape.
      */
     render(scale, options = {}) {
@@ -204,10 +204,11 @@ export class Shape {
         const baseFillColor = this._colorToCSS(shapeWithFill.fillColor ?? this.color);
         let fillColor = baseFillColor;
         const attachedLabels = /** @type {any} */ (this).attachedLabels;
+        const view = options.selection || NO_SELECTION;
         const attachedActive = attachedLabels instanceof Set
-            && Array.from(attachedLabels).some(label => label?.selected || label?.hovered);
-        const visuallySelected = this.selected && !options.suppressSelection;
-        const visuallyHovered = this.hovered && !options.suppressSelection;
+            && Array.from(attachedLabels).some(label => label && (view.isSelected(label) || view.isHovered(label)));
+        const visuallySelected = view.isSelected(this) && !options.suppressSelection;
+        const visuallyHovered = view.isHovered(this) && !options.suppressSelection;
         
         if (visuallySelected) {
             strokeColor = '#e94560';
@@ -229,7 +230,7 @@ export class Shape {
         }
         
         // Update element
-        this._updateElement(this.element, strokeColor, fillColor, scale);
+        this._updateElement(this.element, strokeColor, fillColor, scale, view);
         if (visuallyHovered && !visuallySelected) {
             this.element.setAttribute('stroke-opacity', '0.35');
             if (this.type === 'text') {
@@ -266,8 +267,9 @@ export class Shape {
      * @param {string} strokeColor - CSS stroke colour.
      * @param {string} fillColor - CSS fill colour.
      * @param {number} scale - Current viewport scale (pixels per mm).
+     * @param {import('./selection-view.js').SelectionView} [view] - Selection state of related entities.
      */
-    _updateElement(el, strokeColor, fillColor, scale) {
+    _updateElement(el, strokeColor, fillColor, scale, view = NO_SELECTION) {
         // Override in subclass
     }
     
@@ -278,7 +280,7 @@ export class Shape {
      * @param {number} scale - Current viewport scale (pixels per mm).
      * @param {boolean} [visuallySelected]
      */
-    _updateAnchors(scale, visuallySelected = this.selected) {
+    _updateAnchors(scale, visuallySelected = false) {
         // Only show anchors when selected
         if (!visuallySelected) {
             if (this.anchorsGroup) {

@@ -93,7 +93,6 @@ export class CopperFill {
         this.outline = Array.isArray(options.outline)
             ? options.outline.map((p) => ({ x: Number(p.x) || 0, y: Number(p.y) || 0 }))
             : [];
-        this.selected = false;
         this.locked = !!options.locked;
         this.visible = options.visible !== undefined ? options.visible : true;
         this.kind = ['rect', 'circle'].includes(options.kind) ? options.kind : 'polygon';

@@ -11,6 +11,7 @@
  */
 
 import { PolylineGraph, COLLINEAR_EPSILON } from './polyline-graph.js';
+import { NO_SELECTION } from './selection-view.js';
 export { COLLINEAR_EPSILON };
 
 /** Default wire stroke color. */
@@ -284,14 +285,15 @@ export class Wire extends PolylineGraph {
     /* ──────────────────── SVG rendering ────────────────────────── */
 
     /** @override — adds blue tint when attached label is selected. */
-    _updateElement(el, strokeColor, _fillColor, scale) {
+    _updateElement(el, strokeColor, _fillColor, scale, view = NO_SELECTION) {
         // When any attached label text is selected but the wire isn't, tint blue
         const attachedSelected = this.attachedLabels instanceof Set
-            && Array.from(this.attachedLabels).some(label => label?.selected);
-        if (!this.selected && !this.hovered && (this.labelText?.selected || attachedSelected)) {
+            && Array.from(this.attachedLabels).some(label => label && view.isSelected(label));
+        const labelSelected = !!this.labelText && view.isSelected(this.labelText);
+        if (!view.isSelected(this) && !view.isHovered(this) && (labelSelected || attachedSelected)) {
             strokeColor = 'var(--sch-selection, #3399ff)';
         }
-        super._updateElement(el, strokeColor, _fillColor, scale);
+        super._updateElement(el, strokeColor, _fillColor, scale, view);
         // Pin-connection dots: mark each wire node that lands on a component
         // pin so it's visually clear the wire is actually connected (not just
         // crossing/touching). Sized to match the branch junction dots.

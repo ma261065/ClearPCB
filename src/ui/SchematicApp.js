@@ -61,6 +61,7 @@ import {
     clearShapeSegmentSelection,
     discardShapeView,
     discardComponentView,
+    refreshSelectionVisual,
 } from '../schematic/modules/schematic-view.js';
 
 // Shape construction uses createShape() from shapes/index.js.
@@ -125,7 +126,8 @@ export default class SchematicApp {
         // Shape/selection state
         this.selection = new SelectionManager({
             getScale: () => this.viewport?.scale,
-            onSelectionChanged: (shapes) => this._onSelectionChanged(shapes)
+            onSelectionChanged: (shapes) => this._onSelectionChanged(shapes),
+            invalidateEntity: (entity) => refreshSelectionVisual(this, entity),
         });
         /** Refined edge selection for a line, rectangle, or polygon. */
         this._selectedShapeSegment = null;

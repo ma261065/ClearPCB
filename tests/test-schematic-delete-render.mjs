@@ -412,7 +412,7 @@ for (const edgeId of ['e0', 'e1']) {
     deleteWireSegment(app, shape, 'e0');
     expectDeletionNotification(app);
     assert.ok(app.shapes.includes(other), 'Context deletion does not remove unrelated selected objects');
-    assert.equal(other.selected, false, 'Existing context-deletion selection clearing is preserved');
+    assert.equal(app.selection.isSelected(other), false, 'Existing context-deletion selection clearing is preserved');
 }
 {
     const shape = createRect({ x: 0, y: 0, width: 10, height: 10 });

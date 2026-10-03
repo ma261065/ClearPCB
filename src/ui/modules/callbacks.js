@@ -49,7 +49,7 @@ export function setupCallbacks(app) {
                 app._overlapHitCount = overlapHitCount;
                 app._updateShapeSelectionTip?.();
             }
-            const hit = allHits.find((shape) => shape.selected) || allHits[0] || null;
+            const hit = allHits.find((shape) => app.selection.isSelected(shape)) || allHits[0] || null;
             const hoveredChanged = app.selection.setHovered(hit);
 
             let cursor = 'default';
@@ -64,7 +64,7 @@ export function setupCallbacks(app) {
                 }
             }
 
-            if (cursor === 'default' && hit && hit.selected) {
+            if (cursor === 'default' && hit && app.selection.isSelected(hit)) {
                 cursor = 'move';
             } else if (cursor === 'default' && hit) {
                 cursor = 'pointer';

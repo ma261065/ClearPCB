@@ -1131,8 +1131,13 @@ export class PolylineGraph extends Shape {
     /**
      * Rebuild SVG children: one <line> per edge, one <circle> per junction.
      * Closed filled shapes also render a <polygon> fill underneath.
+     * @param {SVGElement} el
+     * @param {string} strokeColor
+     * @param {string} fillColor
+     * @param {number} scale
+     * @param {import('./selection-view.js').SelectionView} [_view] - Unused here; subclasses tint by it.
      */
-    _updateElement(el, strokeColor, fillColor, scale) {
+    _updateElement(el, strokeColor, fillColor, scale, _view) {
         el.textContent = '';
 
         const sw = this._getEffectiveStrokeWidth(scale);
@@ -1305,7 +1310,7 @@ export class PolylineGraph extends Shape {
      * @param {boolean} [visuallySelected]
     * @param {string|null} [selectedNodeId]
      */
-    _updateAnchors(scale, visuallySelected = this.selected, selectedNodeId = null) {
+    _updateAnchors(scale, visuallySelected = false, selectedNodeId = null) {
         if (!visuallySelected) {
             if (this.anchorsGroup) { this.anchorsGroup.remove(); this.anchorsGroup = null; this._anchorRects = null; }
             return;

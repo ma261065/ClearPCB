@@ -3,6 +3,7 @@ import { Text } from '../shapes/text.js';
 import { compactObjText } from './LCSCFetcher.js';
 import { getBuiltInPackageOptions, withBuiltInPackage } from './BuiltInPackages.js';
 import { IdAllocator } from '../core/id-allocator.js';
+import { NO_SELECTION } from '../shapes/selection-view.js';
 
 /**
  * Shrink a `~`-delimited footprint shape string for storage by rounding every
@@ -126,8 +127,6 @@ export class Component {
         // Selection-related properties
         this.visible = options.visible !== undefined ? options.visible : true;
         this.locked = options.locked !== undefined ? options.locked : false;
-        this.selected = false;
-        this.hovered = false;
 
         /** @type {Set<any>|null} */
         this.attachedLabels = null;
@@ -449,10 +448,10 @@ export class Component {
     }
 
     /**
-     * Called by SelectionManager to update visual state
+     * Mark the symbol's highlight stale; the next render redraws it.
      */
     invalidate() {
-        this._updateHighlight();
+        this._dirty = true;
         // Invalidate field texts so they update their color to reflect parent selection
         for (const ft of this.getFieldTexts()) {
             ft.invalidate();
@@ -461,15 +460,17 @@ export class Component {
 
     /**
      * Update visual highlight for hover and selection states
+     * @param {import('../shapes/selection-view.js').SelectionView} [view]
      */
-    _updateHighlight() {
+    _updateHighlight(view = NO_SELECTION) {
         if (!this.element) return;
+        const selected = view.isSelected(this);
         
         // Check if any field text is selected (ownership highlight)
-        const fieldTextSelected = this.getFieldTexts().some(ft => ft.selected);
+        const fieldTextSelected = this.getFieldTexts().some(ft => view.isSelected(ft));
         
         // Remove highlight if neither hovered, selected, nor field-text-selected
-        if (!this.hovered && !this.selected && !fieldTextSelected) {
+        if (!view.isHovered(this) && !selected && !fieldTextSelected) {
             if (this._highlightEl) {
                 this._highlightEl.remove();
                 this._highlightEl = null;
@@ -505,10 +506,10 @@ export class Component {
         highlight.setAttribute('y', String(minY - 0.5));
         highlight.setAttribute('width', String(maxX - minX + 1));
         highlight.setAttribute('height', String(maxY - minY + 1));
-        highlight.setAttribute('fill', this.selected ? 'var(--sch-selection-fill, rgba(51,153,255,0.2))' : 'none');
+        highlight.setAttribute('fill', selected ? 'var(--sch-selection-fill, rgba(51,153,255,0.2))' : 'none');
         highlight.setAttribute('stroke', 'var(--sch-selection, #3399ff)');
         highlight.setAttribute('stroke-width', '0.15');
-        highlight.setAttribute('stroke-opacity', this.selected ? '0.6' : '0.35');
+        highlight.setAttribute('stroke-opacity', selected ? '0.6' : '0.35');
         highlight.setAttribute('stroke-dasharray', 'none');
         
         // Insert at beginning so it's behind component graphics
@@ -517,7 +518,7 @@ export class Component {
         }
 
         // Show all pin dots when selected
-        if (this.selected) {
+        if (selected) {
             for (const pinGroup of this.pinElements.values()) {
                 const dot = pinGroup.querySelector('circle');
                 if (dot) dot.setAttribute('display', '');
@@ -528,12 +529,15 @@ export class Component {
     /**
      * Render the component with optional lock icon
      * @param {number} scale
+     * @param {{selection?: import('../shapes/selection-view.js').SelectionView}} [options]
      */
-    render(scale) {
+    render(scale, options = {}) {
         if (!this.element) return;
+        const view = options.selection || NO_SELECTION;
+        this._dirty = false;
         
         // Update highlight for selection/hover
-        this._updateHighlight();
+        this._updateHighlight(view);
         
         // Remove existing lock icon (use cached ref, not querySelector)
         if (this._lockIconEl) {
@@ -542,7 +546,7 @@ export class Component {
         }
         
         // Draw lock icon when locked and selected
-        if (this.locked && this.selected) {
+        if (this.locked && view.isSelected(this)) {
             const localBounds = this._getLocalBounds();
             const { size } = lockIconMetrics(scale);
             const lockX = localBounds.minX - LOCK_GAP - size;
