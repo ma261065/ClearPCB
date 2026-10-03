@@ -296,9 +296,14 @@ function replaceTrackWithBoardShape(app, track, { filled, net, layer = null, pla
     if (!source) return false;
     const kind = source.closed ? 'polygon' : 'line';
     const targetLayer = layer || source.layer;
+    // The remembered source id may have been reused since (a reload resets the id
+    // counter, and split or pasted tracks share a source), so only keep it while free.
+    const sourceId = track.sourceBoardShape?.id;
+    const id = sourceId && !app.boardShapes.some((shape) => shape.id === sourceId)
+        ? sourceId : `pshape_${app._shapeIdCounter++}`;
     const shape = {
         ...track.sourceBoardShape,
-        id: track.sourceBoardShape?.id || `pshape_${app._shapeIdCounter++}`,
+        id,
         kind,
         layer: targetLayer,
         lineWidth: layer ? normalizedBoardShapeLineWidth({ kind, layer: targetLayer }, source.width) : source.width,

@@ -384,6 +384,32 @@ export function repairDuplicateTrackIds(data) {
     return { data: repaired, count: duplicates.length };
 }
 
+/**
+ * Give later board shapes that repeat an earlier shape's id a fresh `pshape_N` id
+ * (older builds could reuse a converted track's source-shape id). Geometry is kept.
+ */
+export function repairDuplicateBoardShapeIds(data) {
+    const normalized = normalizeProjectAliases(data);
+    const shapes = normalized?.pcb?.boardShapes;
+    if (!Array.isArray(shapes)) return { data: normalized, count: 0 };
+    const seen = new Set();
+    const duplicates = [];
+    shapes.forEach((shape, index) => {
+        if (!shape?.id) return;
+        if (seen.has(shape.id)) duplicates.push(index);
+        seen.add(shape.id);
+    });
+    if (!duplicates.length) return { data: normalized, count: 0 };
+    for (const track of normalized.pcb.tracks || []) {
+        const sourceId = (track?.sbs ?? track?.sourceBoardShape)?.id;
+        if (sourceId) seen.add(sourceId);
+    }
+    let next = 1 + Math.max(0, ...[...seen].map(id => Number(/^pshape_(\d+)$/.exec(id)?.[1]) || 0));
+    const repaired = structuredClone(normalized);
+    for (const index of duplicates) repaired.pcb.boardShapes[index].id = `pshape_${next++}`;
+    return { data: repaired, count: duplicates.length };
+}
+
 export function validateProject(data) {
     data = normalizeProjectAliases(data);
     if (!record(data) || data.type !== 'clearpcb-project' || data.version !== '1.0') {

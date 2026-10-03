@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { repairDuplicateTrackIds, validateProject } from '../src/core/project-format.js';
+import { repairDuplicateBoardShapeIds, repairDuplicateTrackIds, validateProject } from '../src/core/project-format.js';
 
 globalThis.window = { addEventListener() {} };
 globalThis.document = { createElementNS: () => ({ setAttribute() {}, appendChild() {} }) };
@@ -45,5 +45,25 @@ assert.doesNotThrow(() => validateProject(repaired.data));
 assert.deepEqual(repairDuplicateTrackIds(repaired.data), { data: repaired.data, count: 0 });
 repaired.data.pcb.tracks[0].ed.e0[1] = 'missing';
 assert.throws(() => validateProject(repairDuplicateTrackIds(repaired.data).data), /missing node/);
+
+{
+    const shape = (id, x) => ({ id, kind: 'polygon', layer: 'top-silk', lineWidth: 0.2, filled: false,
+        copperMode: 'add', plated: false, net: '', points: [{ x, y: 0 }, { x: x + 5, y: 0 }, { x, y: 5 }] });
+    const damaged = structuredClone(source);
+    damaged.pcb.tracks = [{ ...track('shape_70', 0), sourceBoardShape: shape('pshape_95', 0) }];
+    damaged.pcb.boardShapes = [shape('pshape_92', 0), shape('pshape_7', 10), shape('pshape_92', 20), shape('pshape_92', 30)];
+    const original = structuredClone(damaged);
+    assert.throws(() => validateProject(damaged), /Duplicate boardShapes id: pshape_92/);
+    const fixed = repairDuplicateBoardShapeIds(damaged);
+    assert.equal(fixed.count, 2);
+    assert.deepEqual(damaged, original, 'repair does not mutate its input');
+    assert.deepEqual(fixed.data.pcb.boardShapes.map((item) => item.id), ['pshape_92', 'pshape_7', 'pshape_96', 'pshape_97'],
+        'later duplicates get fresh ids beyond every shape and track source id');
+    fixed.data.pcb.boardShapes.forEach((item, index) => {
+        assert.deepEqual({ ...item, id: original.pcb.boardShapes[index].id }, original.pcb.boardShapes[index]);
+    });
+    assert.doesNotThrow(() => validateProject(fixed.data));
+    assert.deepEqual(repairDuplicateBoardShapeIds(fixed.data), { data: fixed.data, count: 0 });
+}
 
 console.log('Track ID allocation and autosave repair regressions passed.');

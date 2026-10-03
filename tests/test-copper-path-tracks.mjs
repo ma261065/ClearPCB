@@ -241,6 +241,19 @@ const triangle = [{ x: 0, y: 0 }, { x: 5, y: 0 }, { x: 0, y: 5 }];
         expect(`${name} track cannot move off copper`, !canMoveTrackToBoardLayer(candidate)
             && !moveTrackToBoardLayer(candidateApp, candidate, 'top-silk') && candidateApp.tracks.length === 1);
     }
+
+    // Split or pasted tracks share one source shape; each must come back with its own id.
+    const source = { id: 'pshape_92', kind: 'line', layer: 'top-copper', lineWidth: 0.2, copperMode: 'add', net: '',
+        points: [{ x: 0, y: 0 }, { x: 4, y: 0 }] };
+    const first = trackFromBoardShape(source), second = trackFromBoardShape({ ...source, points: [{ x: 0, y: 2 }, { x: 4, y: 2 }] });
+    const sharedApp = appFor(first);
+    sharedApp.tracks.push(second);
+    sharedApp._shapeIdCounter = 93;
+    moveTrackToBoardLayer(sharedApp, first, 'top-silk');
+    moveTrackToBoardLayer(sharedApp, second, 'top-silk');
+    const ids = sharedApp.boardShapes.map(shape => shape.id);
+    expect('tracks sharing a source shape get distinct ids', ids[0] === 'pshape_92' && ids[1] === 'pshape_93'
+        && new Set(ids).size === 2);
 }
 
 {
