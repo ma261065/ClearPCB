@@ -132,7 +132,7 @@ for (const source of ['keyboard', 'ribbon']) for (const action of ['undo', 'redo
     app.interactionState = 'anchorDrag';
     const undo = [...app.history.undoStack], redo = [...app.history.redoStack];
     const error = new Error('Fixture rollback failure');
-    app._applyShapeState = () => { throw error; };
+    shape.applyState = () => { throw error; };
     assert.throws(() => invoke(source, action), failure => failure === error);
     assert.deepEqual(app.history.undoStack, undo, 'Failed cleanup cannot advance undo');
     assert.deepEqual(app.history.redoStack, redo, 'Failed cleanup cannot advance redo');

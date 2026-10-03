@@ -11,6 +11,9 @@ import { hasAny3DModel, openComponent3DFromData } from '../../components/model3d
 import { redrawPropertyPreview, createPropertyPreview, createPropertyBinding,
     commitPropertyPreviewInput, bindPropertyPreviewInput } from '../../shapes/property-preview.js';
 import { canRoundPathNode } from '../../shapes/path-geometry.js';
+import { beginPastePreview, cutSelection } from './clipboard.js';
+import { flipComponentH, flipComponentV, rotateComponentLeft, rotateComponentRight } from './components.js';
+import { deleteSelected } from './selection.js';
 
 // Retire panel callbacks on rebuild without losing pending numeric completion.
 const propertyPanels = new WeakMap();
@@ -872,7 +875,7 @@ export function updatePropertiesPanel(app, selection) {
 function _bindActionButtons(app, isCurrent) {
     const deleteBtn = document.getElementById('ribbonDelete');
     if (deleteBtn) {
-        deleteBtn.addEventListener('click', () => { if (isCurrent()) app._deleteSelected(); });
+        deleteBtn.addEventListener('click', () => { if (isCurrent()) deleteSelected(app); });
     }
     const decomposeBtn = document.getElementById('propDecomposeCorners');
     if (decomposeBtn) {
@@ -884,7 +887,7 @@ function _bindActionButtons(app, isCurrent) {
     }
     const cutBtn = document.getElementById('propCut');
     if (cutBtn) {
-        cutBtn.addEventListener('click', () => { if (isCurrent()) app._cutSelection(); });
+        cutBtn.addEventListener('click', () => { if (isCurrent()) cutSelection(app); });
     }
     const copyBtn = document.getElementById('propCopy');
     if (copyBtn) {
@@ -892,23 +895,23 @@ function _bindActionButtons(app, isCurrent) {
     }
     const pasteBtn = document.getElementById('propPaste');
     if (pasteBtn) {
-        pasteBtn.addEventListener('click', () => { if (isCurrent()) app._pasteClipboard(); });
+        pasteBtn.addEventListener('click', () => { if (isCurrent()) beginPastePreview(app); });
     }
     const rotLeftBtn = document.getElementById('propRotateLeft');
     if (rotLeftBtn) {
-        rotLeftBtn.addEventListener('click', () => { if (isCurrent()) app._rotateComponentLeft(); });
+        rotLeftBtn.addEventListener('click', () => { if (isCurrent()) rotateComponentLeft(app); });
     }
     const rotRightBtn = document.getElementById('propRotateRight');
     if (rotRightBtn) {
-        rotRightBtn.addEventListener('click', () => { if (isCurrent()) app._rotateComponentRight(); });
+        rotRightBtn.addEventListener('click', () => { if (isCurrent()) rotateComponentRight(app); });
     }
     const flipHBtn = document.getElementById('propFlipH');
     if (flipHBtn) {
-        flipHBtn.addEventListener('click', () => { if (isCurrent()) app._flipComponentH(); });
+        flipHBtn.addEventListener('click', () => { if (isCurrent()) flipComponentH(app); });
     }
     const flipVBtn = document.getElementById('propFlipV');
     if (flipVBtn) {
-        flipVBtn.addEventListener('click', () => { if (isCurrent()) app._flipComponentV(); });
+        flipVBtn.addEventListener('click', () => { if (isCurrent()) flipComponentV(app); });
     }
     const show3dBtn = document.getElementById('propShow3D');
     if (show3dBtn) {

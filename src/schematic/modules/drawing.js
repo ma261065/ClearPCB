@@ -240,15 +240,15 @@ function drawingPoints(app) {
 
 export function shapeDrawingClick(app, point) {
     if (!app.isDrawing) {
-        app._startDrawing(point);
+        startDrawing(app, point);
         return;
     }
     const next = advanceShapeDrawing(app.currentTool, drawingPoints(app), point);
     if (app.currentTool === 'line') app.linePoints = next.points;
     if (app.currentTool === 'polygon') app.polygonPoints = next.points;
     if (app.currentTool === 'arc') app.arcEndpoint = next.points[1];
-    app._updateDrawing(point);
-    if (next.complete) app._finishDrawing(point);
+    updateDrawing(app, point);
+    if (next.complete) finishDrawing(app, point);
 }
 
 /**

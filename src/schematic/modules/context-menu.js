@@ -16,6 +16,8 @@ import { BULGE_EPS, arcFromBulge } from '../../shapes/arc-edge.js';
 import { clearDragState, cancelSchematicPathSplit } from './drag.js';
 import { Polyline } from '../../shapes/polyline.js';
 import { Arc } from '../../shapes/arc.js';
+import { addShapeInternal } from './shape-management.js';
+import { applyShapeState, captureShapeState } from './selection.js';
 
 /**
  * @typedef {HTMLDivElement & {
@@ -254,7 +256,7 @@ export function deleteJunction(app, junctionInfo) {
         for (let i = 1; i < comps.length; i++) {
             const sub = wire.extractSubgraph(comps[i]);
             if (sub.edges.size > 0) {
-                app._addShapeInternal(sub);
+                addShapeInternal(app, sub);
                 newFragments.push(sub);
                 // Track which wire owns the drag node
                 if (dragNewNodeId && comps[i].has(dragNewNodeId)) {
@@ -278,7 +280,7 @@ export function deleteJunction(app, junctionInfo) {
 
     // Capture before-states for the drag wire (and any TJ-linked wires)
     // so commitAnchorDrag can build the undo batch.
-    const dragBefore = app._captureShapeState(dragWire);
+    const dragBefore = captureShapeState(app, dragWire);
     const anchorWireStates = new Map();
     // Include the original wire (and any other split-off wires) so
     // commitAnchorDrag snapshots them correctly.
@@ -477,7 +479,7 @@ export function splitAnchorAndDrag(app, shape, anchorId, clientX, clientY) {
     const pos = shape.nodes.get(anchorId);
     if (!pos) return;
 
-    const beforeState = app._captureShapeState(shape);
+    const beforeState = captureShapeState(app, shape);
 
     if (shape.type === 'polyline') {
         const path = shape.toEditablePath();
@@ -534,7 +536,7 @@ export function splitAnchorAndDrag(app, shape, anchorId, clientX, clientY) {
             const otherNid = other.nodeAt(pos, VERTEX_EPSILON);
             if (otherNid) {
                 tjLinks.push({ otherWire: other, otherNodeId: otherNid });
-                if (!wireStates.has(other)) wireStates.set(other, app._captureShapeState(other));
+                if (!wireStates.has(other)) wireStates.set(other, captureShapeState(app, other));
             }
         }
     }
@@ -576,7 +578,7 @@ function disconnectPinAndDrag(app, wire, anchorId) {
     const pos = wire.nodes.get(anchorId);
     if (!conn || !pos) return;
 
-    const beforeState = app._captureShapeState(wire);
+    const beforeState = captureShapeState(app, wire);
 
     const tjLinks = [];
     const wireStates = new Map();
@@ -585,7 +587,7 @@ function disconnectPinAndDrag(app, wire, anchorId) {
         const otherNid = other.nodeAt(pos, VERTEX_EPSILON);
         if (otherNid) {
             tjLinks.push({ otherWire: other, otherNodeId: otherNid });
-            if (!wireStates.has(other)) wireStates.set(other, app._captureShapeState(other));
+            if (!wireStates.has(other)) wireStates.set(other, captureShapeState(app, other));
         }
     }
 
@@ -688,12 +690,12 @@ export function showAnchorContextMenu(app, shape, anchorId, clientX, clientY, ca
         items.push({
             text: 'Delete point',
             onClick: () => {
-                const beforeState = app._captureShapeState(shape);
+                const beforeState = captureShapeState(app, shape);
                 const anchorPos = getWireAnchorPosition(shape, anchorId);
                 const attachedNCs = findNoConnectsAtPosition(app, anchorPos);
                 if (shape.deleteAnchor(anchorId)) {
-                    const afterState = app._captureShapeState(shape);
-                    app._applyShapeState(shape, beforeState);
+                    const afterState = captureShapeState(app, shape);
+                    applyShapeState(app, shape, beforeState);
                     const batch = new BatchCommand('Delete point');
                     batch.add(new ModifyShapeCommand(app, shape, beforeState, afterState));
                     if (attachedNCs.length > 0) {

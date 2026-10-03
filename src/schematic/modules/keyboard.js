@@ -5,6 +5,12 @@ import { resolveWireSnapPosition, PIN_SNAP_TOL } from './wire.js';
 import { updateToolGhost } from './tool.js';
 import { ModalManager } from '../../core/ModalManager.js';
 import { cancelSchematicPropertyPreview } from './properties.js';
+import { cancelWireDrawing, finishWireDrawing } from './wire.js';
+import { flipComponentH, flipComponentV, rotateComponentRight } from './components.js';
+import { handleTextEditKey } from './text-edit.js';
+import { beginPastePreview, cutSelection } from './clipboard.js';
+import { finishDrawing, finishLine, finishPolygon } from './drawing.js';
+import { deleteSelected } from './selection.js';
 
 /**
  * Single-letter shortcuts that simply select a tool. Overloaded keys
@@ -61,7 +67,7 @@ export function handleEscape(app) {
     switch (app.interactionState) {
         case 'drawing':
             if (app.currentTool === 'wire') {
-                app._cancelWireDrawing();
+                cancelWireDrawing(app);
             } else {
                 app._cancelDrawing();
             }
@@ -143,12 +149,12 @@ export function runSchematicHistoryAction(app, action) {
 /** Flip the placing component / selected components horizontally. */
 function handleFlipHorizontal(app, e) {
     if (!app.textEdit && app.placingComponent) {
-        app._flipComponentH();
+        flipComponentH(app);
         e.preventDefault();
         return true;
     }
     if (canActOnSelection(app) && app.selection.getSelection().some(s => s.definition)) {
-        app._flipComponentH();
+        flipComponentH(app);
         e.preventDefault();
         return true;
     }
@@ -158,12 +164,12 @@ function handleFlipHorizontal(app, e) {
 /** Flip the placing component / selected components vertically. */
 function handleFlipVertical(app, e) {
     if (!app.textEdit && app.placingComponent) {
-        app._flipComponentV();
+        flipComponentV(app);
         e.preventDefault();
         return;
     }
     if (canActOnSelection(app) && app.selection.getSelection().some(s => s.definition)) {
-        app._flipComponentV();
+        flipComponentV(app);
         e.preventDefault();
     }
 }
@@ -175,13 +181,13 @@ function handleFlipVertical(app, e) {
 function handleSpaceRotate(app, e) {
     // Rotate component while placing.
     if (!app.textEdit && app.placingComponent) {
-        app._rotateComponentRight();
+        rotateComponentRight(app);
         e.preventDefault();
         return;
     }
     // Rotate selected component(s).
     if (canActOnSelection(app) && app.selection.getSelection().some(s => s.definition)) {
-        app._rotateComponentRight();
+        rotateComponentRight(app);
         e.preventDefault();
         return;
     }
@@ -262,13 +268,13 @@ export function bindKeyboardShortcuts(app) {
         // Text edit has absolute priority for Escape and Enter
         if (app.textEdit) {
             if (e.key === 'Escape' || e.key === 'Enter') {
-                if (app._handleTextEditKey && app._handleTextEditKey(e)) {
+                if (app._handleTextEditKey && handleTextEditKey(app, e)) {
                     return;
                 }
             }
         }
 
-        if (app._handleTextEditKey && app._handleTextEditKey(e)) {
+        if (app._handleTextEditKey && handleTextEditKey(app, e)) {
             return;
         }
 
@@ -318,11 +324,11 @@ export function bindKeyboardShortcuts(app) {
                     break;
                 case 'x':
                     e.preventDefault();
-                    app._cutSelection();
+                    cutSelection(app);
                     break;
                 case 'v':
                     e.preventDefault();
-                    app._pasteClipboard();
+                    beginPastePreview(app);
                     break;
             }
         } else {
@@ -330,7 +336,7 @@ export function bindKeyboardShortcuts(app) {
                 case 'Escape': {
                     // All cancellation precedence lives in handleEscape.
                     // Escape is always consumed in schematic mode.
-                    app._handleEscape();
+                    handleEscape(app);
                     e.preventDefault();
                     e.stopPropagation();
                     e.stopImmediatePropagation();
@@ -339,20 +345,20 @@ export function bindKeyboardShortcuts(app) {
                 case 'Enter':
                     if (app.isDrawing) {
                         if (app.currentTool === 'wire' && app.wirePoints.length >= 1) {
-                            app._finishWireDrawing(app.drawCurrent);
+                            finishWireDrawing(app, app.drawCurrent);
                         } else if (app.currentTool === 'line') {
-                            app._finishLine();
+                            finishLine(app);
                         } else if (app.currentTool === 'polygon') {
-                            app._finishPolygon();
+                            finishPolygon(app);
                         } else if (app.drawCurrent) {
-                            app._finishDrawing(app.drawCurrent);
+                            finishDrawing(app, app.drawCurrent);
                         }
                         e.preventDefault();
                     }
                     break;
                 case 'Delete':
                 case 'Backspace':
-                    app._deleteSelected();
+                    deleteSelected(app);
                     break;
                 case 'x':
                 case 'X':

@@ -8,7 +8,6 @@ import { FileManager } from '../core/FileManager.js';
 import { SchematicDocument } from '../core/SchematicDocument.js';
 import { duplicateIdRepairMessage, repairDuplicateIds } from '../core/project-format.js';
 import { storageManager } from '../core/StorageManager.js';
-import { pointsMatch } from '../core/geometry.js';
 import { ComponentPicker } from '../components/ComponentPicker.js';
 import { createShape } from '../shapes/index.js';
 import { getComponentLibrary } from '../components/index.js';
@@ -17,25 +16,25 @@ import { warmKiCadIndex } from '../components/KiCadFetcher.js';
 // exports (wire, drawing, components, files, export) use namespace imports
 // to keep the import block manageable.
 import { bindMouseEvents } from '../schematic/modules/mouse.js';
-import { handleEscape, bindKeyboardShortcuts, runSchematicHistoryAction } from '../schematic/modules/keyboard.js';
+import { bindKeyboardShortcuts, runSchematicHistoryAction } from '../schematic/modules/keyboard.js';
 import { bindPropertiesPanel, applyCommonProperty, updatePropertiesPanel, hasSchematicPropertyPreview } from '../schematic/modules/properties.js';
 import { bindRibbon, updateShapePanelOptions } from '../schematic/modules/ribbon.js';
-import { getToolIconPath, setToolCursor } from '../shared/ui/cursor.js';
+import { setToolCursor } from '../shared/ui/cursor.js';
 import { bindViewportControls, updateGridDropdown, fitToContent } from '../shared/ui/viewport.js';
-import { bindThemeToggle, toggleTheme, loadTheme, updateComponentColors } from '../schematic/modules/theme.js';
-import { toggleSelectionLock, deleteSelected, captureShapeState, applyShapeState } from '../schematic/modules/selection.js';
-import { copySelection, cutSelection, beginPastePreview, updatePastePreview, confirmPaste, cancelPaste } from '../schematic/modules/clipboard.js';
-import { createBoxSelectElement, updateBoxSelectElement, removeBoxSelectElement, getBoxSelectBounds } from '../shared/ui/box-selection.js';
+import { bindThemeToggle, toggleTheme, loadTheme } from '../schematic/modules/theme.js';
+import { deleteSelected, captureShapeState, applyShapeState } from '../schematic/modules/selection.js';
+import { copySelection, cancelPaste } from '../schematic/modules/clipboard.js';
+import { removeBoxSelectElement } from '../shared/ui/box-selection.js';
 import { bindPaperEvents } from '../schematic/modules/paper.js';
 import * as WireTools from '../schematic/modules/wire.js';
 import * as DrawingTools from '../schematic/modules/drawing.js';
 import * as ComponentTools from '../schematic/modules/components.js';
 import * as FileTools from '../schematic/modules/files.js';
 import * as ExportTools from '../shared/ui/export.js';
-import { onToolSelected, onComponentPickerClosed, onOptionsChanged, loadToolOptions } from '../schematic/modules/tool.js';
+import { onToolSelected, onOptionsChanged, loadToolOptions } from '../schematic/modules/tool.js';
 import { adaptShortcutsInDOM } from '../schematic/modules/platform-keys.js';
 import { setupCallbacks } from '../schematic/modules/callbacks.js';
-import { updateUndoRedoButtons, makeHelpPanelDraggable, flashAutoSaveIndicator } from '../schematic/modules/ui-utils.js';
+import { updateUndoRedoButtons, flashAutoSaveIndicator } from '../schematic/modules/ui-utils.js';
 import { needsValueDialog, showValueDialog } from '../schematic/modules/value-dialog.js';
 import { showAlert, showConfirm, showPrompt } from '../shared/ui/modal.js';
 import {
@@ -43,13 +42,10 @@ import {
     endTextEdit,
     handleTextEditKey,
     updateTextEditOverlay,
-    setTextCaretFromScreen,
-    nudgeTextEditOverlay
+    setTextCaretFromScreen
 } from '../schematic/modules/text-edit.js';
 import {
     addShape,
-    addShapeInternal,
-    addShapeInternalAt,
     commandAddShapeInternal,
     commandRemoveShapeInternal,
     commandDeleteShapesInternal,
@@ -267,8 +263,6 @@ export default class SchematicApp {
         this.viewport.resetView();
         this._updateTitle();
 
-
-
         // Start auto-save. When a project owns this view the project
         // drives autosave (it aggregates dirty state across both editors);
         // only fall back to a private timer in standalone setups.
@@ -292,7 +286,6 @@ export default class SchematicApp {
                 e.returnValue = '';
             }
         });
-
 
         // If we have a pending auto-load, do it now that everything is ready
         if (this._pendingAutoLoad) {
@@ -425,13 +418,6 @@ export default class SchematicApp {
     }
 
     /**
-     * Handles Escape key, cascading through active operations (text edit, drawing, placement, etc.).
-     */
-    _handleEscape() {
-        return handleEscape(this);
-    }
-
-    /**
      * Begins inline text editing on a text shape, or shows a value dialog for passive component fields.
      * @param {Object} shape - The text shape to edit.
      */
@@ -485,15 +471,6 @@ export default class SchematicApp {
     }
 
     /**
-     * Shifts the text-edit overlay by the given delta.
-     * @param {number} dx - Horizontal offset.
-     * @param {number} dy - Vertical offset.
-     */
-    _nudgeTextEditOverlay(dx, dy) {
-        nudgeTextEditOverlay(this, dx, dy);
-    }
-
-    /**
      * Sets the text-edit caret position from screen coordinates.
      * @param {Object} screenPos - The screen position {x, y}.
      */
@@ -513,13 +490,6 @@ export default class SchematicApp {
     }
     
     /**
-     * Reverts to select tool when the component picker closes.
-     */
-    _onComponentPickerClosed() {
-        onComponentPickerClosed(this);
-    }
-    
-    /**
      * Merges updated tool options and persists to storage.
      * @param {Object} options - The tool options to apply.
      */
@@ -536,25 +506,6 @@ export default class SchematicApp {
      */
     addShape(shape) {
         return addShape(this, shape);
-    }
-    
-    /**
-     * Adds a shape without undo (used by command execution).
-     * @param {Object} shape - The shape to add internally.
-     * @returns {*} The result of the internal add.
-     */
-    _addShapeInternal(shape) {
-        return addShapeInternal(this, shape);
-    }
-    
-    /**
-     * Inserts a shape at a specific array index without undo.
-     * @param {Object} shape - The shape to insert.
-     * @param {number} index - The array position to insert at.
-     * @returns {*} The result of the insertion.
-     */
-    _addShapeInternalAt(shape, index) {
-        return addShapeInternalAt(this, shape, index);
     }
     
     /**
@@ -604,81 +555,10 @@ export default class SchematicApp {
     // ==================== Drawing ====================
     
     /**
-     * Begins a shape-drawing session at the given position.
-     * @param {Object} worldPos - The starting world coordinate {x, y}.
-     */
-    _startDrawing(worldPos) {
-        DrawingTools.startDrawing(this, worldPos);
-    }
-    
-    /**
-     * Updates the drawing preview as the cursor moves.
-     * @param {Object} worldPos - The current world coordinate {x, y}.
-     */
-    _updateDrawing(worldPos) {
-        DrawingTools.updateDrawing(this, worldPos);
-    }
-    
-    /**
-     * Completes the drawing and creates the final shape.
-     * @param {Object} worldPos - The ending world coordinate {x, y}.
-     */
-    _finishDrawing(worldPos) {
-        DrawingTools.finishDrawing(this, worldPos);
-    }
-    
-    /**
-     * Adds a vertex to the in-progress polygon.
-     * @param {Object} worldPos - The vertex world coordinate {x, y}.
-     */
-    _addPolygonPoint(worldPos) {
-        DrawingTools.addPolygonPoint(this, worldPos);
-    }
-    
-    /**
-     * Completes the polygon (at least 3 points required).
-     */
-    _finishPolygon() {
-        DrawingTools.finishPolygon(this);
-    }
-
-    /**
-     * Adds a vertex to the in-progress polyline.
-     * @param {Object} worldPos - The vertex world coordinate {x, y}.
-     */
-    _addLinePoint(worldPos) {
-        DrawingTools.addLinePoint(this, worldPos);
-    }
-
-    /**
-     * Completes the multi-segment line.
-     */
-    _finishLine() {
-        DrawingTools.finishLine(this);
-    }
-    
-    /**
      * Cancels drawing, removing preview and resetting state.
      */
     _cancelDrawing() {
         DrawingTools.cancelDrawing(this);
-    }
-    
-    /**
-     * Creates a preview SVG element for the shape being drawn.
-     */
-    _createPreview() {
-        DrawingTools.createPreview(this);
-    }
-    
-    
-    /**
-     * Returns the effective stroke width at current zoom.
-     * @param {number} lineWidth - The base line width.
-     * @returns {number} The effective stroke width.
-     */
-    _getEffectiveStrokeWidth(lineWidth) {
-        return DrawingTools.getEffectiveStrokeWidth(this, lineWidth);
     }
     
     /**
@@ -688,84 +568,7 @@ export default class SchematicApp {
         DrawingTools.updatePreview(this);
     }
     
-    /**
-     * Instantiates a shape from the current drawing state.
-     * @returns {Object|null} The created shape, or null.
-     */
-    _createShapeFromDrawing() {
-        return DrawingTools.createShapeFromDrawing(this);
-    }
-
     // ==================== Wire Drawing ====================
-    
-    /** Get snapped position for wire drawing with orthogonal routing */
-    _getWireSnappedPosition(worldPos) {
-        return WireTools.getDrawingSnappedPosition(this, worldPos);
-    }
-    
-    /**
-     * Find the nearest pin within snap tolerance from a position
-     * Returns {component, pin, distance, worldPos} or null if no pin nearby
-     * @param {Object} worldPos - The position to check
-     * @param {number} tolerance - Snap tolerance in mm (defaults to 0.5mm)
-     */
-    _findNearbyPin(worldPos, tolerance = 0.5) {
-        return WireTools.findNearbyPin(this.components, worldPos, tolerance);
-    }
-
-    /**
-     * Checks if two pin references refer to the same component pin.
-     * @param {Object} pin1 - First pin reference.
-     * @param {Object} pin2 - Second pin reference.
-     * @returns {boolean} True if pins are identical.
-     */
-    _isSamePin(pin1, pin2) {
-        return WireTools.isSamePin(pin1, pin2);
-    }
-
-    /**
-     * Tests whether two points are coincident within epsilon.
-     * @param {Object} a - First point {x, y}.
-     * @param {Object} b - Second point {x, y}.
-     * @param {number} [epsilon=1e-6] - Tolerance for comparison.
-     * @returns {boolean} True if the points match.
-     */
-    _pointsMatch(a, b, epsilon = 1e-6) {
-        return pointsMatch(a, b, epsilon);
-    }
-    
-    /**
-     * Begins wire drawing from a snapped position.
-     * @param {Object} snappedData - The snapped position data.
-     */
-    _startWireDrawing(snappedData) {
-        WireTools.startWireDrawing(this, snappedData);
-    }
-    
-    /**
-     * Updates the wire routing preview as the cursor moves.
-     * @param {Object} worldPos - The current world coordinate {x, y}.
-     */
-    _updateWireDrawing(worldPos) {
-        WireTools.updateWireDrawing(this, worldPos);
-    }
-
-    
-    /**
-     * Adds an intermediate waypoint to the wire being drawn.
-     * @param {Object} waypointData - The waypoint position data.
-     */
-    _addWireWaypoint(waypointData) {
-        WireTools.addWireWaypoint(this, waypointData);
-    }
-    
-    /**
-     * Completes wire drawing and creates the final wire shape.
-     * @param {Object} worldPos - The ending world coordinate {x, y}.
-     */
-    _finishWireDrawing(worldPos) {
-        WireTools.finishWireDrawing(this, worldPos);
-    }
     
     /**
      * Cancels wire drawing and removes its preview.
@@ -774,46 +577,7 @@ export default class SchematicApp {
         WireTools.cancelWireDrawing(this);
     }
     
-    /**
-     * Refreshes the wire preview SVG element.
-     */
-    _updateWirePreview() {
-        WireTools.updateWirePreview(this);
-    }
-    
     // ==================== Component Handling ====================
-    
-    /**
-     * Enters component placement mode with a preview.
-     * @param {Object} definition - The component definition to place.
-     */
-    _onComponentDefinitionSelected(definition) {
-        ComponentTools.onComponentDefinitionSelected(this, definition);
-    }
-    
-    /**
-     * Creates a cursor-following preview of the component.
-     * @param {Object} definition - The component definition to preview.
-     */
-    _createComponentPreview(definition) {
-        ComponentTools.createComponentPreview(this, definition);
-    }
-    
-    /**
-     * Moves the component placement preview to follow the cursor.
-     * @param {Object} worldPos - The current world coordinate {x, y}.
-     */
-    _updateComponentPreview(worldPos) {
-        ComponentTools.updateComponentPreview(this, worldPos);
-    }
-    
-    /**
-     * Places a component instance at the given position.
-     * @param {Object} worldPos - The world coordinate {x, y} for placement.
-     */
-    _placeComponent(worldPos) {
-        ComponentTools.placeComponent(this, worldPos);
-    }
     
     /**
      * Rebuilds the selection manager's item list.
@@ -839,20 +603,6 @@ export default class SchematicApp {
     }
     
     /**
-     * Rotates placement preview or selected components +90 degrees.
-     */
-    _rotateComponentRight() {
-        ComponentTools.rotateComponentRight(this);
-    }
-
-    /**
-     * Rotates placement preview or selected components -90 degrees.
-     */
-    _rotateComponentLeft() {
-        ComponentTools.rotateComponentLeft(this);
-    }
-    
-    /**
      * Flips placement preview or selected components horizontally.
      */
     _flipComponentH() {
@@ -860,36 +610,12 @@ export default class SchematicApp {
     }
 
     /**
-     * Flips selected components vertically.
-     */
-    _flipComponentV() {
-        ComponentTools.flipComponentV(this);
-    }
-    
-    /**
-     * Legacy alias for _flipComponentH().
-     */
-    _mirrorComponent() {
-        ComponentTools.flipComponentH(this);
-    }
-    
-    /**
      * Exits placement mode and removes the preview.
      */
     _cancelComponentPlacement() {
         ComponentTools.cancelComponentPlacement(this);
     }
     
-    /**
-     * Returns currently selected Component instances.
-     * @returns {Array} The selected components.
-     */
-    _getSelectedComponents() {
-        return ComponentTools.getSelectedComponents(this);
-    }
-    
-
-
     // ==================== Callbacks ====================
 
     /**
@@ -909,15 +635,6 @@ export default class SchematicApp {
     }
 
     /**
-     * Returns the SVG path string for a tool cursor icon.
-     * @param {string} tool - The tool identifier.
-     * @returns {string} The SVG path data.
-     */
-    _getToolIconPath(tool) {
-        return getToolIconPath(tool);
-    }
-
-    /**
      * Sets the CSS cursor on the SVG canvas for the active tool.
      * @param {string} tool - The tool identifier.
      * @param {SVGSVGElement} svg - The SVG element to set the cursor on.
@@ -926,13 +643,6 @@ export default class SchematicApp {
         setToolCursor(this, tool, svg);
     }
 
-    /**
-     * Makes the help panel draggable by its header.
-     */
-    _makeHelpPanelDraggable() {
-        makeHelpPanelDraggable();
-    }
-    
     /**
      * Shows the crosshair overlay.
      */
@@ -1003,13 +713,6 @@ export default class SchematicApp {
      */
     _updateShapePanelOptions(selection, toolId) {
         updateShapePanelOptions(this, selection, toolId);
-    }
-
-    /**
-     * Toggles locked state on selected items.
-     */
-    _toggleSelectionLock() {
-        toggleSelectionLock(this);
     }
 
     /**
@@ -1139,7 +842,6 @@ export default class SchematicApp {
         tooltip.style.display = 'block';
     }
 
-
     /**
      * Pins the component tooltip at a fixed position.
      * @param {Object} component - The component to pin the tooltip for.
@@ -1238,13 +940,6 @@ export default class SchematicApp {
     }
     
     /**
-     * Updates component SVG colors for the current theme.
-     */
-    _updateComponentColors() {
-        updateComponentColors(this);
-    }
-    
-    /**
      * Updates grid size dropdown options for current units.
      */
     _updateGridDropdown() {
@@ -1273,36 +968,6 @@ export default class SchematicApp {
     }
 
     /**
-     * Copies selection to clipboard then deletes the items.
-     */
-    _cutSelection() {
-        cutSelection(this);
-    }
-
-    /**
-     * Begins paste preview mode with clipboard contents.
-     */
-    _pasteClipboard() {
-        beginPastePreview(this);
-    }
-
-    /**
-     * Updates paste preview position as cursor moves.
-     * @param {Object} worldPos - The current world coordinate {x, y}.
-     */
-    _updatePastePreview(worldPos) {
-        updatePastePreview(this, worldPos);
-    }
-
-    /**
-     * Places pasted items at the given position.
-     * @param {Object} worldPos - The world coordinate {x, y} for placement.
-     */
-    _confirmPaste(worldPos) {
-        confirmPaste(this, worldPos);
-    }
-
-    /**
      * Cancels paste preview and removes preview elements.
      */
     _cancelPaste() {
@@ -1312,34 +977,10 @@ export default class SchematicApp {
     // ==================== Box Selection ====================
     
     /**
-     * Creates the box-selection marquee SVG element.
-     */
-    _createBoxSelectElement() {
-        createBoxSelectElement(this);
-    }
-    
-    /**
-     * Updates the box-selection rectangle dimensions.
-     * @param {Object} currentPos - The current cursor position {x, y}.
-     */
-    _updateBoxSelectElement(currentPos) {
-        updateBoxSelectElement(this, currentPos);
-    }
-    
-    /**
      * Removes the box-selection element.
      */
     _removeBoxSelectElement() {
         removeBoxSelectElement(this);
-    }
-    
-    /**
-     * Returns the bounding box of the box selection area.
-     * @param {Object} currentPos - The current cursor position {x, y}.
-     * @returns {Object} The bounding box {x, y, width, height}.
-     */
-    _getBoxSelectBounds(currentPos) {
-        return getBoxSelectBounds(this, currentPos);
     }
     
     // ==================== Shape State Helpers (for undo/redo) ====================
@@ -1486,15 +1127,6 @@ export default class SchematicApp {
     }
     
     /**
-     * Creates a component from serialized data.
-     * @param {Object} data - The serialized component data.
-     * @returns {Object} The created component instance.
-     */
-    _createComponentFromData(data) {
-        return FileTools.createComponentFromData(this, data);
-    }
-    
-    /**
      * Creates a shape from serialized type/options data.
      * @param {Object} data - The serialized shape data.
      * @returns {Object|null} The created shape, or null if the type is unknown.
@@ -1551,13 +1183,6 @@ export default class SchematicApp {
     }
     
     /**
-     * Checks for auto-saved content on startup.
-     */
-    async _checkAutoSave() {
-        await FileTools.checkAutoSave(this);
-    }
-    
-    /**
      * Fetches and displays the version number.
      * @returns {Promise<void>}
      */
@@ -1608,60 +1233,6 @@ export default class SchematicApp {
         await ExportTools.printSchematic(this);
     }
 
-    /**
-     * Lazy-loads jsPDF and svg2pdf vendor scripts.
-     * @returns {Promise<Function>}
-     */
-    _loadVectorPdfLibs() {
-        return ExportTools.loadVectorPdfLibs(this);
-    }
-
-    /**
-     * Deep-clones viewport SVG for export with inlined styles.
-     * @returns {{svgNode: SVGSVGElement, paperSize: {width: number, height: number}|null}} Export payload.
-     */
-    _cloneViewportSvgForExport() {
-        return ExportTools.cloneViewportSvgForExport(this);
-    }
-
-    /**
-     * Forces all SVG colors to black for printing.
-     * @param {SVGElement} svgRoot - The SVG root element to modify.
-     */
-    _forceMonochromeSvg(svgRoot) {
-        ExportTools.forceMonochromeSvg(svgRoot);
-    }
-
-    /**
-     * Copies computed styles to a cloned SVG.
-     * @param {SVGSVGElement} originalSvg - The original SVG element.
-     * @param {SVGSVGElement} clonedSvg - The cloned SVG element to receive styles.
-     */
-    _inlineSvgComputedStyles(originalSvg, clonedSvg) {
-        ExportTools.inlineSvgComputedStyles(originalSvg, clonedSvg);
-    }
-
-    /**
-     * Saves a Blob via File System Access API.
-     * @param {Blob} blob - The data blob to save.
-     * @param {string} suggestedName - The suggested file name.
-     * @param {string} mimeType - The MIME type of the file.
-     * @param {Array<string>} extensions - Accepted file extensions.
-     * @returns {Promise<void>}
-     */
-    async _saveBlobAsFile(blob, suggestedName, mimeType, extensions) {
-        await ExportTools.saveBlobAsFile(blob, suggestedName, mimeType, extensions);
-    }
-
-    /**
-     * Renders viewport to a canvas at the given scale.
-     * @param {number} [scale=2] - The rendering scale factor.
-     * @returns {Promise<HTMLCanvasElement>} The rendered canvas element.
-     */
-    _renderViewportToCanvas(scale = 2) {
-        return ExportTools.renderViewportToCanvas(this, scale);
-    }
-    
     /**
      * Opens a file via picker and loads it.
      * @returns {Promise<void>}

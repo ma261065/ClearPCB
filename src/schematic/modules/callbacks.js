@@ -1,5 +1,8 @@
 import { updateViewportCulling } from './schematic-view.js';
 import { dismissAnchorContextMenu } from './context-menu.js';
+import { onComponentDefinitionSelected } from './components.js';
+import { onComponentPickerClosed } from './tool.js';
+import { updatePastePreview } from './clipboard.js';
 
 /**
  * Wires up EventBus listeners (component picker) and viewport callbacks
@@ -10,10 +13,10 @@ import { dismissAnchorContextMenu } from './context-menu.js';
 export function setupCallbacks(app) {
     // Event bus listeners (component picker)
     app.eventBus.on('component:selected', (def) => {
-        app._onComponentDefinitionSelected(def);
+        onComponentDefinitionSelected(app, def);
     });
     app.eventBus.on('component:pickerClosed', () => {
-        app._onComponentPickerClosed();
+        onComponentPickerClosed(app);
     });
 
     // Hover + status updates are coalesced to one animation frame so a burst
@@ -91,7 +94,7 @@ export function setupCallbacks(app) {
 
     app.viewport.onMouseMove = (world, snapped) => {
         if (app.pastingClipboard && app.pastePreviewGroup) {
-            app._updatePastePreview(snapped);
+            updatePastePreview(app, snapped);
         }
 
         // Component preview is handled by placingState.mousemove to avoid double-update

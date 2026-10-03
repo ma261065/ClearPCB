@@ -19,6 +19,7 @@ import { clearAxisGlow } from '../../shapes/axis-glow.js';
 import { BULGE_EPS } from '../../shapes/arc-edge.js';
 import { appendArcToLineCommand } from './context-menu.js';
 import { refreshComponentPose } from './schematic-view.js';
+import { applyShapeState, captureShapeState } from './selection.js';
 
 /**
  * Compare two captured shape states for equality.
@@ -57,10 +58,10 @@ export function cancelSchematicPointerInteraction(app) {
             cancelSchematicPathSplit(app);
         }
         if (app.drag?.beforeState && (state === 'anchorDrag' || app.drag.shape?.type === 'polyline')) {
-            app._applyShapeState(app.drag.shape, app.drag.beforeState);
+            applyShapeState(app, app.drag.shape, app.drag.beforeState);
         }
         for (const [wire, beforeState] of app.drag?.wireStates || []) {
-            app._applyShapeState(wire, beforeState);
+            applyShapeState(app, wire, beforeState);
         }
         const shape = app.drag?.shape;
         clearDragState(app);
@@ -83,7 +84,7 @@ export function cancelSchematicPointerInteraction(app) {
     }
     if (app.pendingAnchorDrag) {
         const { shape, preInsertState } = app.pendingAnchorDrag;
-        if (preInsertState) app._applyShapeState(shape, preInsertState);
+        if (preInsertState) applyShapeState(app, shape, preInsertState);
         app.selection.keepSelected(shape);
         app.pendingAnchorDrag = null;
         app.viewport.svg.style.cursor = '';
@@ -401,8 +402,8 @@ export function commitAnchorDrag(app, dragShape, beforeState, anchorWireStates =
         app.history.execute(new DeleteShapesCommand(app, [dragShape]));
     } else {
         if (dragShape.type === 'noconnect') refreshNoConnectConnection(app, dragShape);
-        const afterState = app._captureShapeState(dragShape);
-        app._applyShapeState(dragShape, beforeState);
+        const afterState = captureShapeState(app, dragShape);
+        applyShapeState(app, dragShape, beforeState);
         app.history.execute(new ModifyShapeCommand(app, dragShape, beforeState, afterState));
         if (dragShape.type === 'net') {
             // After the command has placed the net at its new position,
@@ -441,7 +442,7 @@ export function commitShapeJoin(app, dragShape, dragAnchorId, joinTarget, before
 
     // Restore the dragged shape to its pre-drag geometry so that undo brings
     // back the two originals exactly as they were before the drag.
-    if (beforeState) app._applyShapeState(dragShape, beforeState);
+    if (beforeState) applyShapeState(app, dragShape, beforeState);
 
     const batch = new BatchCommand('Join shapes');
     const originals = joinTarget.shape === dragShape
@@ -570,7 +571,7 @@ export function commitSegmentDrag(app, dragShape, wireStates, ncLinks = null, la
 export function revertSegmentDragIfNoMove(app, wireStates) {
     if (!wireStates) return false;
     for (const [wire, state] of wireStates) {
-        app._applyShapeState(wire, state);
+        applyShapeState(app, wire, state);
     }
     return true;
 }
@@ -630,9 +631,9 @@ export function commitMoveDrag(app, totalDx, totalDy) {
     if (movedNCs.length > 0) {
         const ncCmds = [];
         for (const nc of movedNCs) {
-            const beforeNC = app._captureShapeState(nc);
+            const beforeNC = captureShapeState(app, nc);
             refreshNoConnectConnection(app, nc);
-            const afterNC = app._captureShapeState(nc);
+            const afterNC = captureShapeState(app, nc);
             if (!areCapturedStatesEqual(beforeNC, afterNC)) {
                 nc.applyState(beforeNC);
                 ncCmds.push(new ModifyShapeCommand(app, nc, beforeNC, afterNC));

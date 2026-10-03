@@ -30,6 +30,8 @@ import { applyStickyConnections } from './sticky-wires.js';
 import { attachLabelToTarget, getLabelDropHotspot } from './label-attachment.js';
 import { VERTEX_EPSILON } from './wire-constants.js';
 import { componentPinElement } from '../render/component-renderer.js';
+import { createPreview, getEffectiveStrokeWidth } from './drawing.js';
+import { addShapeInternal } from './shape-management.js';
 export { renderGuideLines } from '../../shapes/axis-glow.js';
 
 // --- Constants ---
@@ -268,7 +270,7 @@ export function getDrawingSnappedPosition(app, worldPos) {
     // Once the cursor exits, the axis is locked until the cursor returns.
     // Radius is at least 2× effective stroke width, but no smaller than
     // CHOICE_ZONE_MIN_PX screen pixels.
-    const choiceRadius = Math.max(app._getEffectiveStrokeWidth(0.2) * 2, CHOICE_ZONE_MIN_PX / app.viewport.scale);
+    const choiceRadius = Math.max(getEffectiveStrokeWidth(app, 0.2) * 2, CHOICE_ZONE_MIN_PX / app.viewport.scale);
     const inChoiceZone = rawDx < choiceRadius && rawDy < choiceRadius;
 
     let axis;
@@ -406,7 +408,7 @@ export function startWireDrawing(app, snappedData) {
     app._wireAxisLock = null;
     app.isDrawing = true;
     app.interactionState = 'drawing';
-    app._createPreview();
+    createPreview(app);
     app._showCrosshair();
     app._updateCrosshair(snappedData);
     app._setToolCursor(app.currentTool, app.viewport.svg);
@@ -630,7 +632,7 @@ export function finishWireDrawing(app, worldPos) {
     }
 
     // Add wire without creating a standalone undo entry
-    app._addShapeInternal(wire);
+    addShapeInternal(app, wire);
 
     // Unified reconciliation: overlap trim, merge, collapse, junctions
     reconcileWires(app, [wire]);
@@ -647,7 +649,7 @@ export function finishWireDrawing(app, worldPos) {
             const before = beforeSnapshot.state;
             if (!app.shapes.includes(w)) {
                 w.applyState(before);
-                app._addShapeInternal(w);
+                addShapeInternal(app, w);
             } else {
                 w.applyState(before);
             }
@@ -772,7 +774,7 @@ export function updateWirePreview(app) {
     if (!app.previewElement) return;
 
     const state = _ensurePreviewState(app.previewElement);
-    const strokeWidth = app._getEffectiveStrokeWidth(0.2);
+    const strokeWidth = getEffectiveStrokeWidth(app, 0.2);
     const pts = app.wirePoints;
 
     // If pts shrank (collinear-merge splice, backspace, …) or the most
@@ -1330,7 +1332,7 @@ function _ensureWireNameLabel(app, wire, visible = false) {
             textAnchor: 'middle',
             color: 'var(--sch-wire-label, #669966)'
         }));
-        app._addShapeInternal(label);
+        addShapeInternal(app, label);
         attachLabelToTarget(label, wire, { x: label.x, y: label.y }, { isNewLabel: true });
     }
     if (label) {
@@ -2009,7 +2011,7 @@ export function reconcileWires(app, changedWires, skipSet = null) {
         for (let i = 1; i < comps.length; i++) {
             const sub = /** @type {Wire} */ (w.extractSubgraph(comps[i]));
             if (sub.edges.size > 0) {
-                app._addShapeInternal(sub);
+                addShapeInternal(app, sub);
                 changed.add(sub);
                 newFragments.push(sub);
             }

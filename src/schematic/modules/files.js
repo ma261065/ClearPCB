@@ -8,6 +8,7 @@ import { serializeGridSettings, restoreGridSettings } from '../../shared/ui/view
 import { cancelSchematicPointerInteraction } from './drag.js';
 import { cancelSchematicPropertyPreview } from './properties.js';
 import { duplicateIdRepairMessage, repairDuplicateIds } from '../../core/project-format.js';
+import { cancelWireDrawing } from './wire.js';
 
 function canReplaceDocument(app) {
     if (!app.fileManager.saving && !app.fileManager.loading) return true;
@@ -256,7 +257,7 @@ export function clearDocument(app) {
     if (app.pastingClipboard) app._cancelPaste();
     if (app.placingComponent) app._cancelComponentPlacement();
     if (app.isDrawing) {
-        if (app.currentTool === 'wire') app._cancelWireDrawing();
+        if (app.currentTool === 'wire') cancelWireDrawing(app);
         else app._cancelDrawing();
     }
     if (app.isSectionEditing?.()) throw new Error('Finish the current edit before creating a new document.');

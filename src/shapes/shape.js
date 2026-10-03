@@ -101,6 +101,7 @@ export class Shape {
     /**
      * Get anchor points for this shape
      * Returns array of { id, x, y, cursor } objects
+     * @returns {Array<{id: string, x: number, y: number, cursor: string, midpoint?: boolean}>}
      */
     getAnchors() {
         return [];

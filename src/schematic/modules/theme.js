@@ -1,6 +1,7 @@
 import { storageManager } from '../../core/StorageManager.js';
 import { rebuildComponentSymbol } from './schematic-view.js';
 import { loadAndApplyTheme, toggleTheme as toggleSharedTheme, syncThemeToggleButtons } from '../../shared/ui/theme.js';
+import { createComponentPreview } from './components.js';
 
 /**
  * Binds the theme toggle button click to `toggleTheme` and loads
@@ -55,6 +56,6 @@ export function updateComponentColors(app) {
     for (const comp of app.components) rebuildComponentSymbol(app, comp);
 
     if (app.placingComponent && app.componentPreview) {
-        app._createComponentPreview(app.placingComponent);
+        createComponentPreview(app, app.placingComponent);
     }
 }

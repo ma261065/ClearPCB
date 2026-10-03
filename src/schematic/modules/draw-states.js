@@ -35,6 +35,12 @@ import { DRAWING_SHAPES } from '../../shapes/shape-drawing.js';
 import { isCulled } from './schematic-view.js';
 import { shapeDrawingClick } from './drawing.js';
 import { findInlineEditableHit, isUnmodifiedPrimaryDoublePress } from '../../shared/ui/inline-edit-activation.js';
+import { createBoxSelectElement, getBoxSelectBounds, updateBoxSelectElement } from '../../shared/ui/box-selection.js';
+import { confirmPaste, updatePastePreview } from './clipboard.js';
+import { placeComponent, updateComponentPreview } from './components.js';
+import { addWireWaypoint, finishWireDrawing, startWireDrawing, updateWireDrawing } from './wire.js';
+import { addLinePoint, addPolygonPoint, finishDrawing, finishLine, finishPolygon, startDrawing, updateDrawing } from './drawing.js';
+import { applyShapeState, captureShapeState } from './selection.js';
 // ─── Constants ─────────────────────────────────────────────────────
 
 const DRAWING_TOOLS = new Set(['line', 'rect', 'circle', 'polygon']);
@@ -332,7 +338,7 @@ function beginAnchorDragSession(app, params) {
     app.drag = {
         mode: 'anchor',
         shape,
-        beforeState: preInsertState || app._captureShapeState(shape),
+        beforeState: preInsertState || captureShapeState(app, shape),
         start: { ...startSnapped },
         startScreen: { ...screenPos },
         anchorId,
@@ -545,7 +551,7 @@ function beginBoxSelectSession(app, worldPos, additive) {
         additive: !!additive
     };
     app.selection.captureBoxSelectBase();
-    app._createBoxSelectElement();
+    createBoxSelectElement(app);
     app.interactionState = 'boxSelect';
 }
 
@@ -578,7 +584,7 @@ function promotePendingAnchorDragSession(app, screenPos, midpointPickup = false)
             if (otherNid) {
                 app.drag.tjLinks.push({ otherWire: other, otherNodeId: otherNid });
                 if (!app.drag.wireStates.has(other))
-                    app.drag.wireStates.set(other, app._captureShapeState(other));
+                    app.drag.wireStates.set(other, captureShapeState(app, other));
             }
         }
     }
@@ -624,8 +630,8 @@ function handleDragEnd(app) {
         if (app.didDrag) {
             const shape = app.drag.shape;
             const before = app.drag.beforeState;
-            const after = app._captureShapeState(shape);
-            app._applyShapeState(shape, before);
+            const after = captureShapeState(app, shape);
+            applyShapeState(app, shape, before);
             app.history.execute(new ModifyShapeCommand(app, shape, before, after));
         }
     } else if (app.drag.mode === 'segment' && app.drag.wireStates) {
@@ -785,7 +791,7 @@ function tryBeginWireSegmentDrag(app, hitShape, worldPos) {
 
     beginWireSegmentDragSession(app, {
         shape: hitShape, dragEdgeId, worldPos,
-        beforeState: app._captureShapeState(hitShape)
+        beforeState: captureShapeState(app, hitShape)
     });
 
     const preBridgeEdgeCount = hitShape.edges.size;
@@ -820,12 +826,12 @@ function tryBeginWireSegmentDrag(app, hitShape, worldPos) {
 
     // Bridge pin-connected nodes reachable through the collinear chain
     {
-        const chainState = app._captureShapeState(hitShape);
+        const chainState = captureShapeState(app, hitShape);
         const chain = buildCollinearChain(hitShape, dragEdgeId, chainState);
         bridgeCollinearPinEndpoints(hitShape, chain);
     }
 
-    app.drag.workingState = app._captureShapeState(hitShape);
+    app.drag.workingState = captureShapeState(app, hitShape);
     app.drag.tjLinks = [];
     for (const [nid, pos] of hitShape.nodes) {
         for (const other of app.shapes) {
@@ -834,7 +840,7 @@ function tryBeginWireSegmentDrag(app, hitShape, worldPos) {
             if (otherNid) {
                 app.drag.tjLinks.push({ wireNodeId: nid, otherWire: other, otherNodeId: otherNid });
                 if (!app.drag.wireStates.has(other))
-                    app.drag.wireStates.set(other, app._captureShapeState(other));
+                    app.drag.wireStates.set(other, captureShapeState(app, other));
             }
         }
     }
@@ -847,7 +853,7 @@ function tryBeginWireSegmentDrag(app, hitShape, worldPos) {
         }
     }
     app.drag.labelBefore = hitShape.labelText
-        ? app._captureShapeState(hitShape.labelText) : null;
+        ? captureShapeState(app, hitShape.labelText) : null;
     app.viewport.svg.style.cursor = 'move';
     return true;
 }
@@ -1105,7 +1111,7 @@ export const idleState = {
             }
 
             if (canQueueMidpointAnchorDrag(shape, anchorId)) {
-                const beforeState = app._captureShapeState(shape);
+                const beforeState = captureShapeState(app, shape);
                 const newAnchorId = shape.moveAnchor(anchorId, snapped.x, snapped.y);
                 app.renderShapes();
                 app.viewport.svg.style.cursor = 'move';
@@ -1303,13 +1309,13 @@ export const toolActiveState = {
 
         // Paste/component placement
         if (app.pastingClipboard) {
-            app._confirmPaste(snapped);
+            confirmPaste(app, snapped);
             event.preventDefault();
             return;
         }
         if (app.placingComponent) {
             const placement = resolvePlacingComponentSnap(app, snapped);
-            app._placeComponent(placement.placePos);
+            placeComponent(app, placement.placePos);
             event.preventDefault();
             return;
         }
@@ -1320,7 +1326,7 @@ export const toolActiveState = {
             app.selection.clearSelection();
             app.renderShapes(true);
             const snap = resolveWireSnapPosition(app, worldPos, { pinTolerance: 0.5 });
-            app._startWireDrawing({ x: snap.x, y: snap.y, snapPin: snap.snapPin || null });
+            startWireDrawing(app, { x: snap.x, y: snap.y, snapPin: snap.snapPin || null });
             app.interactionState = 'drawing';
             event.preventDefault();
             return;
@@ -1334,8 +1340,8 @@ export const toolActiveState = {
         if (tool === 'noconnect' || tool === 'net') {
             const { resolved, pos } = resolvePinSnapPlacement(app, worldPos);
             app._drawSnapResult = resolved;
-            if (!app.isDrawing) { app._startDrawing(pos); }
-            else { app._finishDrawing(pos); }
+            if (!app.isDrawing) { startDrawing(app, pos); }
+            else { finishDrawing(app, pos); }
             updateToolGhost(app, pos);
             return;
         }
@@ -1362,18 +1368,18 @@ export const toolActiveState = {
         }
 
         // Default fallback
-        if (!app.isDrawing) { app._startDrawing(snapped); app.interactionState = 'drawing'; }
-        else { app._finishDrawing(snapped); app.interactionState = 'toolActive'; }
+        if (!app.isDrawing) { startDrawing(app, snapped); app.interactionState = 'drawing'; }
+        else { finishDrawing(app, snapped); app.interactionState = 'toolActive'; }
     },
 
     mousemove(app, event, { screenPos, worldPos, snapped }) {
         handleComponentTooltipMouseMove(app, worldPos, screenPos);
 
         // Placement previews
-        if (app.pastingClipboard) app._updatePastePreview(snapped);
+        if (app.pastingClipboard) updatePastePreview(app, snapped);
         if (app.placingComponent) {
             const placement = resolvePlacingComponentSnap(app, snapped);
-            app._updateComponentPreview(placement.placePos);
+            updateComponentPreview(app, placement.placePos);
             updateSnapHighlight(app, placement.pinSnap);
         }
 
@@ -1435,11 +1441,11 @@ export const drawingState = {
                 app.drawCurrent = { ...waypointPos };
             }
             if (app.drawCorner) {
-                app._addWireWaypoint({ x: app.drawCorner.x, y: app.drawCorner.y, snapPin: null });
+                addWireWaypoint(app, { x: app.drawCorner.x, y: app.drawCorner.y, snapPin: null });
             }
-            app._addWireWaypoint({ ...waypointPos, snapPin: app.lastSnappedData?.snapPin || null });
+            addWireWaypoint(app, { ...waypointPos, snapPin: app.lastSnappedData?.snapPin || null });
             if (app.wirePoints.length >= 2 && (app.lastSnappedData?.snapPin || app._wireJunctionDot)) {
-                app._finishWireDrawing(app.lastSnappedData);
+                finishWireDrawing(app, app.lastSnappedData);
                 app.interactionState = 'toolActive';
             }
             event.preventDefault();
@@ -1454,7 +1460,7 @@ export const drawingState = {
         if (tool === 'noconnect' || tool === 'net') {
             const { resolved, pos } = resolvePinSnapPlacement(app, worldPos);
             app._drawSnapResult = resolved;
-            app._finishDrawing(pos);
+            finishDrawing(app, pos);
             updateToolGhost(app, pos);
             // Stay in toolActive — these are click-to-place
             app.interactionState = 'toolActive';
@@ -1462,24 +1468,24 @@ export const drawingState = {
         }
 
         // Default: finish drawing
-        app._finishDrawing(snapped);
+        finishDrawing(app, snapped);
         app.interactionState = 'toolActive';
     },
 
     mousemove(app, event, { screenPos, worldPos, snapped }) {
         handleComponentTooltipMouseMove(app, worldPos, screenPos);
 
-        if (app.pastingClipboard) app._updatePastePreview(snapped);
+        if (app.pastingClipboard) updatePastePreview(app, snapped);
         if (app.placingComponent) {
             const placement = resolvePlacingComponentSnap(app, snapped);
-            app._updateComponentPreview(placement.placePos);
+            updateComponentPreview(app, placement.placePos);
             updateSnapHighlight(app, placement.pinSnap);
         }
 
         const tool = app.currentTool;
 
         if (tool === 'wire') {
-            app._updateWireDrawing(worldPos);
+            updateWireDrawing(app, worldPos);
             updateToolCrosshair(app, snapped, screenPos);
             return;
         }
@@ -1491,9 +1497,9 @@ export const drawingState = {
         }
 
         if (tool === 'arc') {
-            app._updateDrawing(app.arcEndpoint ? worldPos : snapped);
+            updateDrawing(app, app.arcEndpoint ? worldPos : snapped);
         } else if (DRAWING_TOOLS.has(tool)) {
-            app._updateDrawing(snapped);
+            updateDrawing(app, snapped);
         }
 
         updateToolCrosshair(app, snapped, screenPos);
@@ -1507,22 +1513,22 @@ export const drawingState = {
         const tool = app.currentTool;
         let handled = false;
         if (tool === 'wire' && app.wirePoints?.length >= 1) {
-            app._finishWireDrawing(app.drawCurrent || worldPos);
+            finishWireDrawing(app, app.drawCurrent || worldPos);
             handled = true;
         } else if (tool === 'arc' && app.arcEndpoint) {
-            app._updateDrawing(worldPos);
-            app._finishDrawing(worldPos);
+            updateDrawing(app, worldPos);
+            finishDrawing(app, worldPos);
             handled = true;
         } else if (tool === 'line') {
-            app._addLinePoint(snapped);
-            app._finishLine();
+            addLinePoint(app, snapped);
+            finishLine(app);
             handled = true;
         } else if (tool === 'polygon') {
-            app._addPolygonPoint(snapped);
-            app._finishPolygon();
+            addPolygonPoint(app, snapped);
+            finishPolygon(app);
             handled = true;
         } else if (tool === 'rect' || tool === 'circle') {
-            app._finishDrawing(snapped);
+            finishDrawing(app, snapped);
             handled = true;
         }
         if (handled) {
@@ -1539,7 +1545,7 @@ export const drawingState = {
         if (tool === 'line' || tool === 'polygon' || tool === 'wire' || CLICK_TO_END_TOOLS.has(tool)) return;
 
         if (app.isDrawing) {
-            app._finishDrawing(snapped);
+            finishDrawing(app, snapped);
             app.interactionState = 'toolActive';
         }
     },
@@ -1548,16 +1554,16 @@ export const drawingState = {
         const tool = app.currentTool;
         let handled = false;
         if (tool === 'wire' && app.wirePoints?.length >= 1) {
-            app._finishWireDrawing(app.drawCurrent);
+            finishWireDrawing(app, app.drawCurrent);
             handled = true;
         } else if (tool === 'line') {
-            app._finishLine();
+            finishLine(app);
             handled = true;
         } else if (tool === 'polygon') {
-            app._finishPolygon();
+            finishPolygon(app);
             handled = true;
         } else if (app.isDrawing && app.drawCurrent) {
-            app._finishDrawing(app.drawCurrent);
+            finishDrawing(app, app.drawCurrent);
             handled = true;
         }
         if (handled) app.interactionState = 'toolActive';
@@ -1910,8 +1916,8 @@ export const boxSelectState = {
     mousemove(app, event, { worldPos }) {
         if (app.viewport.isPanning) return;
         app.didDrag = true;
-        app._updateBoxSelectElement(worldPos);
-        const bounds = app._getBoxSelectBounds(worldPos);
+        updateBoxSelectElement(app, worldPos);
+        const bounds = getBoxSelectBounds(app, worldPos);
         app.selection.syncBoxSelection(bounds, !!app.drag.additive, 'contain');
         app.renderShapes(false);
     },
@@ -1919,7 +1925,7 @@ export const boxSelectState = {
     mouseup(app, event, { worldPos }) {
         if (event.button !== 0) return;
 
-        const bounds = app._getBoxSelectBounds(worldPos);
+        const bounds = getBoxSelectBounds(app, worldPos);
         app._removeBoxSelectElement();
         if (app.didDrag) {
             app.selection.syncBoxSelection(bounds, !!app.drag?.additive, 'contain');
@@ -1941,23 +1947,23 @@ export const placingState = {
         activateHomeTabIfFileTabOpen(app);
 
         if (app.pastingClipboard) {
-            app._confirmPaste(snapped);
+            confirmPaste(app, snapped);
             event.preventDefault();
             return;
         }
         if (app.placingComponent) {
             const placement = resolvePlacingComponentSnap(app, snapped);
-            app._placeComponent(placement.placePos);
+            placeComponent(app, placement.placePos);
             event.preventDefault();
             return;
         }
     },
 
     mousemove(app, event, { screenPos, worldPos, snapped }) {
-        if (app.pastingClipboard) app._updatePastePreview(snapped);
+        if (app.pastingClipboard) updatePastePreview(app, snapped);
         if (app.placingComponent) {
             const placement = resolvePlacingComponentSnap(app, snapped);
-            app._updateComponentPreview(placement.placePos);
+            updateComponentPreview(app, placement.placePos);
             updateSnapHighlight(app, placement.pinSnap);
         }
 

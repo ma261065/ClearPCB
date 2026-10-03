@@ -1,6 +1,7 @@
 /** Segment refinement and live movement for schematic line/rect/polygon shapes. */
 import { snapShapeTranslation, renderShapeAlignment } from './shape-snap.js';
 import { pathSegmentConstraints } from '../../shapes/path-snap.js';
+import { captureShapeState } from './selection.js';
 
 export function tryBeginPolylineSegmentDrag(app, shape, worldPos, allowSegment, tolerance) {
     if (!allowSegment || shape?.type !== 'polyline'
@@ -15,7 +16,7 @@ export function tryBeginPolylineSegmentDrag(app, shape, worldPos, allowSegment, 
         mode: 'segment',
         shape,
         edgeId,
-        beforeState: app._captureShapeState(shape),
+        beforeState: captureShapeState(app, shape),
         startWorldPos: { ...worldPos },
     };
     app.interactionState = 'segmentDrag';

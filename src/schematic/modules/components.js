@@ -140,7 +140,7 @@ export async function placeComponent(app, worldPos) {
     if (!app.placingComponent) return;
 
     const definition = app.placingComponent;
-    const ref = app._generateReference(definition);
+    const ref = generateReference(app, definition);
 
     const component = new Component(definition, {
         x: worldPos.x,
@@ -181,7 +181,7 @@ export function rotateComponentRight(app) {
             updateComponentPreview(app, app.lastCrosshairWorld);
         }
     } else {
-        const selected = app._getSelectedComponents();
+        const selected = getSelectedComponents(app);
         if (selected.length > 0) {
             const command = new TransformComponentCommand(app, selected, 'RotateRight');
             app.history.execute(command);
@@ -202,7 +202,7 @@ export function rotateComponentLeft(app) {
             updateComponentPreview(app, app.lastCrosshairWorld);
         }
     } else {
-        const selected = app._getSelectedComponents();
+        const selected = getSelectedComponents(app);
         if (selected.length > 0) {
             const command = new TransformComponentCommand(app, selected, 'RotateLeft');
             app.history.execute(command);
@@ -225,7 +225,7 @@ export function flipComponentH(app) {
             updateComponentPreview(app, app.lastCrosshairWorld);
         }
     } else {
-        const selected = app._getSelectedComponents();
+        const selected = getSelectedComponents(app);
         if (selected.length > 0) {
             const command = new TransformComponentCommand(app, selected, 'FlipH');
             app.history.execute(command);
@@ -248,7 +248,7 @@ export function flipComponentV(app) {
             updateComponentPreview(app, app.lastCrosshairWorld);
         }
     } else {
-        const selected = app._getSelectedComponents();
+        const selected = getSelectedComponents(app);
         if (selected.length > 0) {
             const command = new TransformComponentCommand(app, selected, 'FlipV');
             app.history.execute(command);

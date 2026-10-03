@@ -5,6 +5,7 @@ import { DeleteShapesCommand, DeleteComponentsCommand, BatchCommand, PasteComman
 import { Component } from '../../components/Component.js';
 import { createShape } from '../../shapes/index.js';
 import { cloneEntityElement, componentPreviewElement, shapePreviewElement } from './schematic-view.js';
+import { generateReference } from './components.js';
 
 // Internal clipboard (array of serialised items)
 let clipboard = [];
@@ -258,7 +259,7 @@ export function confirmPaste(app, worldPos) {
                 y: snapped.y + data._clipY,
                 rotation: data.rot || 0,
                 mirror: data.mir || false,
-                reference: app._generateReference(def),
+                reference: generateReference(app, def),
                 value: data.val,
                 packageId: data.pkg,
                 showReference: data.sr,

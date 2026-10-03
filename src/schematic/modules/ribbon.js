@@ -1,6 +1,10 @@
 import { hasClipboard } from './clipboard.js';
 import { bindRecentsDropdown } from '../../shared/ui/recents.js';
 import { bindRibbonHeight } from '../../shared/ui/ribbon-height.js';
+import { toggleSelectionLock } from './selection.js';
+import { rotateComponentRight } from './components.js';
+import { beginPastePreview, cutSelection } from './clipboard.js';
+import { deleteSelected } from './selection.js';
 
 /**
  * Binds all ribbon tab buttons, tool buttons, file commands, edit commands,
@@ -229,12 +233,12 @@ export function bindRibbon(app) {
         });
     }
 
-    get('ribbonDelete')?.addEventListener('click', () => app._deleteSelected());
-    get('ribbonToggleLock')?.addEventListener('click', () => app._toggleSelectionLock());
-    get('ribbonRotate')?.addEventListener('click', () => app._rotateComponentRight());
-    get('ribbonCut')?.addEventListener('click', () => app._cutSelection());
+    get('ribbonDelete')?.addEventListener('click', () => deleteSelected(app));
+    get('ribbonToggleLock')?.addEventListener('click', () => toggleSelectionLock(app));
+    get('ribbonRotate')?.addEventListener('click', () => rotateComponentRight(app));
+    get('ribbonCut')?.addEventListener('click', () => cutSelection(app));
     get('ribbonCopy')?.addEventListener('click', () => app._copySelection());
-    get('ribbonPaste')?.addEventListener('click', () => app._pasteClipboard());
+    get('ribbonPaste')?.addEventListener('click', () => beginPastePreview(app));
     
     // ESC key goes to home tab
     const ribbonEscHandler = (e) => {
