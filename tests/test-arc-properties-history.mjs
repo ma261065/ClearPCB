@@ -48,7 +48,7 @@ for (const offset of [-0.5, 0, 0.5]) {
     const app = { boardShapes: [shape], placements: new Map(), tracks: [], vias: [], texts: new Map(),
         _shapeElements: new Map(), getLayerGroup() { return null; },
         viewport: { scale: 100, setCrosshair() {}, hideCrosshair() {} }, _snapToGrid(point) { return point; },
-        _pcbPropsItems() { return items; }, _setPcbPropsTitle(value) { title = value; },
+        propertiesItems() { return items; }, setPropertiesTitle(value) { title = value; },
         history: new CommandHistory() };
     try {
         setPcbSelection(app, [{ kind: 'shape', object: shape }]);

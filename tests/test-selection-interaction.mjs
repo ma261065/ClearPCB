@@ -329,7 +329,7 @@ for (const kind of ['shape', 'track', 'fill']) for (const anchorId of [0, 'mid:0
         },
         _layerGroups: new Map(),
         getLayerGroup() { return null; },
-        _pcbPropsItems() { return null; },
+        propertiesItems() { return null; },
     };
     const adapter = createTrackSelectionAdapter(app, track, `track:${track.id}`);
     const segmentPoint = { x: 2.5, y: 0 };
@@ -346,8 +346,8 @@ for (const kind of ['shape', 'track', 'fill']) for (const anchorId of [0, 'mid:0
 
     const items = { innerHTML: '' };
     let title = '';
-    app._pcbPropsItems = () => items;
-    app._setPcbPropsTitle = value => { title = value; };
+    app.propertiesItems = () => items;
+    app.setPropertiesTitle = value => { title = value; };
     const nodeId = track.nodes.keys().next().value;
     const node = track.nodes.get(nodeId);
     expect('clicking a Track node starts an anchor interaction', beginSelectionInteraction(app, node, false));

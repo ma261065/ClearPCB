@@ -80,7 +80,7 @@ assert.equal(disconnected, true);
 assert.equal(listeners.size, 0);
 for (const [path, ids] of [
     ['../src/pcb/modules/board-shape-properties.js', ['pcbPropImageRot']],
-    ['../src/ui/PCBApp.js', ['pcbPropTextToolRot', 'pcbPropTextRot']],
+    ['../src/pcb/modules/text-properties.js', ['pcbPropTextToolRot', 'pcbPropTextRot']],
     ['../src/pcb/modules/component-properties.js', ['pcbPropRefRot']],
 ]) {
     const source = readFileSync(new URL(path, import.meta.url), 'utf8');

@@ -91,14 +91,14 @@ function fixture(count = 1, layers = 'both', unrelatedCount = 1) {
     for (const key of ['pads', 'vias', 'tracks', 'boardShapes', 'texts']) {
         Object.defineProperty(app, key, Object.getOwnPropertyDescriptor(PCBApp.prototype, key));
     }
-    for (const key of ['_showPadEditor', '_toolNetOptions', '_setPcbPropsTitle', '_bindToolNetControl',
+    for (const key of ['_showPadEditor', 'toolNetOptions', 'setPropertiesTitle', 'bindToolNetControl',
         'clearProperties', '_cancelPosePreviews', 'isSectionEditing', 'deactivate',
         '_onLayerLockChanged', '_onLayerVisibilityChanged']) app[key] = PCBApp.prototype[key];
     Object.assign(app, {
         project, pcbDocument: model, placements: new Map(), netlist: [], history: new CommandHistory(),
         _active: true, _layerGroups: new Map(), _textElements: new Map(), _shapeElements: new Map(),
         viewport: { scale: 100, svg: new Element('svg'), shiftHeld: true, setCrosshair() {}, hideCrosshair() {} },
-        _pcbPropsItems: () => items, getLayerGroup: id => groups.get(id) || null,
+        propertiesItems: () => items, getLayerGroup: id => groups.get(id) || null,
         _setActiveRibbonTab() {}, setPcbStatus() {}, refreshFills() {}, refreshClearanceHalos() {},
         _cancelDrawingMode() {}, _ensureViewport() {}, markSectionClean() {},
         _refreshPcbSelectionHighlights() {}, _scheduleRemovalHatchRender() {},

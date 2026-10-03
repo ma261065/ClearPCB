@@ -30,7 +30,7 @@ function fixture() {
     };
     for (const name of ['_beginRefTextDrag', '_updateRefTextDrag', '_endRefDrag',
         '_worldToPlacementLocal', '_snapToGrid', '_cancelPosePreviews', '_cancelDrawingMode',
-        '_setPcbPropsTitle', 'isSectionEditing', 'deactivate']) app[name] = PCBApp.prototype[name];
+        'setPropertiesTitle', 'isSectionEditing', 'deactivate']) app[name] = PCBApp.prototype[name];
     app.history.execute({ execute() {}, undo() {} });
     app.history.undo();
     return { app, placement, adapter: createRefTextSelectionAdapter(app, 'part', 'reftext:part') };
@@ -89,7 +89,7 @@ for (const key of PROPERTY_EDITOR_KINDS) {
         setPropertyEditor(app, key, binding);
         assert.equal(app.isSectionEditing(), true, `${key}: block snapshots during editing`);
         if (boundary === 'replace') loadPcb(app, null);
-        else if (boundary === 'panel') app._setPcbPropsTitle('Next');
+        else if (boundary === 'panel') app.setPropertiesTitle('Next');
         else if (boundary === 'deactivate') app.deactivate();
         else app._cancelPosePreviews();
         assert.equal(cancelled, 1, `${key}/${boundary}: cancel the old edit once`);
@@ -110,7 +110,7 @@ for (const boundary of ['cancel', 'panel', 'replace']) {
     const original = app.pcbDocument.serialize();
     assert.throws(() => {
         if (boundary === 'replace') loadPcb(app, null);
-        else if (boundary === 'panel') app._setPcbPropsTitle('Next');
+        else if (boundary === 'panel') app.setPropertiesTitle('Next');
         else app._cancelPosePreviews();
     }, error => error === failure);
     assert.equal(getPropertyEditor(app, 'pad'), binding, 'Failed cleanup retains the unresolved editor');

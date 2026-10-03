@@ -103,7 +103,7 @@ function fixture(deferred = false, component = false) {
         refreshClearanceHalos() {}, _netsForComponent: () => new Set(),
         _cancelPosePreviews: PCBApp.prototype._cancelPosePreviews, isSectionEditing: PCBApp.prototype.isSectionEditing,
         _cancelDrawingMode: () => false, _ensureViewport() {}, markSectionClean() {}, _setActiveRibbonTab() {}, setPcbStatus() {},
-        _pcbPropsItems: () => ({ innerHTML: '' }), _setPcbPropsTitle: PCBApp.prototype._setPcbPropsTitle,
+        propertiesItems: () => ({ innerHTML: '' }), setPropertiesTitle: PCBApp.prototype.setPropertiesTitle,
         _selectText() {}, _removeTextElement() {}, _renderText() {},
         clearProperties: PCBApp.prototype.clearProperties,
         _onLayerLockChanged: PCBApp.prototype._onLayerLockChanged,

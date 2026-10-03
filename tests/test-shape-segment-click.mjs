@@ -190,7 +190,7 @@ for (const kind of ['line', 'track']) {
         const app = { ...shapeModel(kind === 'track' ? [] : [object], kind === 'track' ? [object] : []),
             placements: new Map(), texts: new Map(), _shapeElements: new Map(), _shapeIdCounter: 1,
             getLayerGroup() { return null; }, _snapToGrid(point) { return point; },
-            _pcbPropsItems() { return items; }, _setPcbPropsTitle(value) { title = value; },
+            propertiesItems() { return items; }, setPropertiesTitle(value) { title = value; },
             viewport: { scale: 100, setCrosshair() {}, hideCrosshair() {} },
             history: { execute(command) { commands.push(command); command.execute(); } } };
         if (kind === 'track') {
@@ -403,7 +403,7 @@ for (const bulge of [0, 0.25]) {
         points: [{ x: 0, y: 0 }, { x: 20, y: 0 }, { x: 30, y: 10 }], segmentBulges: { 0: bulge } };
     const commands = [];
     const app = { ...shapeModel([shape]), _shapeElements: new Map(), getLayerGroup() { return null; },
-        viewport: { scale: 100 }, _pcbPropsItems() { return { innerHTML: '' }; },
+        viewport: { scale: 100 }, propertiesItems() { return { innerHTML: '' }; },
         history: { execute(command) { commands.push(command); command.execute(); } } };
     selectBoardShape(app, shape);
     setBoardShapeSegmentFocus(app, { shapeId: shape.id, segment: 0 });
@@ -468,7 +468,7 @@ for (const kind of ['line', 'polygon', 'rect', 'arc']) {
             start: { x: 0, y: 0 }, end: { x: 20, y: 0 }, bulge: { x: 10, y: -5 } };
         const commands = [];
         const app = { ...shapeModel([shape]), _shapeElements: new Map(), getLayerGroup() { return null; },
-            _pcbPropsItems() { return { innerHTML: '' }; },
+            propertiesItems() { return { innerHTML: '' }; },
             history: { execute(command) { commands.push(command); command.execute(); } } };
         const width = propertyInput(overall);
         document.getElementById = id => id === 'pcbPropShapeLineWidth' ? width : null;
@@ -516,7 +516,7 @@ for (const overall of [2, 3]) {
     const commands = [];
     const app = { ...shapeModel([], [track]), placements: new Map(), texts: new Map(),
         viewport: { scale: 100 }, getLayerGroup() { return null; },
-        _pcbPropsItems() { return { innerHTML: '' }; },
+        propertiesItems() { return { innerHTML: '' }; },
         history: { execute(command) { commands.push(command); command.execute(); } } };
     const radius = propertyInput(overall);
     const width = propertyInput(overall);
@@ -560,7 +560,7 @@ for (const overall of [2, 3]) {
     const app = { ...shapeModel([shape]), placements: new Map(), texts: new Map(),
         _shapeElements: new Map(), getLayerGroup() { return null; },
         viewport: { scale: 100, setCrosshair() {}, hideCrosshair() {} }, _snapToGrid(point) { return point; },
-        _pcbPropsItems() { return items; }, _setPcbPropsTitle(value) { title = value; },
+        propertiesItems() { return items; }, setPropertiesTitle(value) { title = value; },
         history: { execute(command) { command.execute(); } } };
     selectBoardShape(app, shape);
     assert.ok(beginSelectionInteraction(app, shape.points[0], false));
@@ -663,7 +663,7 @@ for (const kind of ['line', 'polygon']) {
         const app = { ...shapeModel([shape]), placements: new Map(), texts: new Map(),
             _shapeElements: new Map(), getLayerGroup() { return null; },
             viewport: { scale: 100, setCrosshair() {}, hideCrosshair() {} }, _snapToGrid(point) { return point; },
-            _pcbPropsItems() { return { innerHTML: '' }; }, _setPcbPropsTitle(value) { title = value; },
+            propertiesItems() { return { innerHTML: '' }; }, setPropertiesTitle(value) { title = value; },
             history: { execute(command) { command.execute(); } } };
         selectBoardShape(app, shape);
         setBoardShapeSegmentFocus(app, { shapeId: shape.id, segment: 0 });
@@ -745,7 +745,7 @@ for (const [kind, zeroOffset] of ['arc', 'line', 'polygon'].flatMap(kind =>
     const app = { ...shapeModel([shape]), placements: new Map(), texts: new Map(),
         _shapeElements: new Map(), getLayerGroup() { return null; },
         viewport: { scale: 100, setCrosshair() {}, hideCrosshair() {} }, _snapToGrid(point) { return point; },
-        _pcbPropsItems() { return items; }, _setPcbPropsTitle(value) { title = value; },
+        propertiesItems() { return items; }, setPropertiesTitle(value) { title = value; },
         history: { execute(command) { commands.push(command); command.execute(); } } };
     try {
         selectBoardShape(app, shape);

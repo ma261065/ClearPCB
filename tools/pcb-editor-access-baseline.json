@@ -9,10 +9,7 @@
   ],
   "src/pcb/modules/board-shape-properties.js": [
     "_lastCrosshairWorld",
-    "_pcbPropsItems",
     "_refreshPcbSelectionHighlights",
-    "_setActiveRibbonTab",
-    "_setPcbPropsTitle",
     "_shapeDrag",
     "_shapeDraw",
     "_showPcbMultiSelectionProperties"
@@ -377,10 +374,7 @@
     "_hoveredTrackOrVia",
     "_lastPointerWorld",
     "_layerGroups",
-    "_pcbPropsItems",
     "_pcbSelectionInteraction",
-    "_setActiveRibbonTab",
-    "_setPcbPropsTitle",
     "_trackEdit",
     "_updateVertexDragCrosshair",
     "_vertexDrag"

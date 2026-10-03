@@ -39,7 +39,7 @@ function fixture(saved, selected = false) {
     const app = {
         pcbDocument, placementState: pcbDocument.placementState, placements: new Map([['part', placement]]),
         history: new CommandHistory(),
-        _pcbPropsItems: () => items, _setPcbPropsTitle() {}, _layerLabel: layer => layer,
+        propertiesItems: () => items, setPropertiesTitle() {}, layerLabel: layer => layer,
         _bindStrokeTextProps: PCBApp.prototype._bindStrokeTextProps,
         _rerenderRef: () => renders.push(capturePlacementOverride(placement)),
         _drawRefOverlay: (id, tether) => overlays.push({ id, tether, pose: capturePlacementOverride(placement) }),
@@ -184,7 +184,7 @@ for (const finish of ['cancel', 'escape', 'panel', 'deactivate', 'failure', 'rep
     try {
         if (finish === 'cancel') PCBApp.prototype._cancelPosePreviews.call(app);
         else if (finish === 'escape') input.fire('keydown', input.value, { key: 'Escape' });
-        else if (finish === 'panel') PCBApp.prototype._setPcbPropsTitle.call(app, 'Other');
+        else if (finish === 'panel') PCBApp.prototype.setPropertiesTitle.call(app, 'Other');
         else if (finish === 'deactivate') {
             app._cancelPosePreviews = PCBApp.prototype._cancelPosePreviews;
             app._cancelDrawingMode = () => {};

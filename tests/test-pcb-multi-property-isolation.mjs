@@ -92,7 +92,7 @@ function fixture(kind, object) {
     let work = 0;
     app.getLayerGroup = () => null;
     app.getRoutingParams = () => ({ viaDiameter: 0.6, viaDrill: 0.3 });
-    app._pcbPropsItems = () => null;
+    app.propertiesItems = () => null;
     app.refreshFills = app._recomputeFillsNow = app._refreshFillProperties = () => { work++; };
     app.updateCopperCuts = app.updateRatsnest = app.refreshClearanceHalos = () => { work++; };
     app._refreshBoardShapeClearance = () => { work++; };
@@ -110,9 +110,9 @@ const state = object => object.captureState ? object.captureState() : captureBoa
 function netPanel(app, entries) {
     const items = { innerHTML: '', querySelector: selector => selector === '#pcbPropMultiNet' ? {} : null };
     let commit;
-    app._pcbPropsItems = () => items;
-    app._setPcbPropsTitle = () => {};
-    app._bindToolNetControl = (_items, _id, callback) => { commit = callback; };
+    app.propertiesItems = () => items;
+    app.setPropertiesTitle = () => {};
+    app.bindToolNetControl = (_items, _id, callback) => { commit = callback; };
     app._showPcbMultiSelectionProperties(entries);
     return value => commit(value);
 }

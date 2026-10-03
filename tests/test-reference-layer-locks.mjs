@@ -41,8 +41,8 @@ for (const side of ['top', 'bottom']) {
         tracks: [], vias: [], boardShapes: [], texts: new Map(), _layerGroups: new Map(),
         getLayerGroup: () => null, _drawRefOverlay() {}, _refreshRefHighlight() {},
         _refBox: () => ({ bx: -1, by: -1, bw: 2, bh: 2, cx: 0, cy: 0 }),
-        _pcbPropsItems: () => items, _setPcbPropsTitle: () => propertyShows++,
-        _layerLabel: value => value, _screenToWorld: event => ({ x: event.clientX, y: event.clientY }),
+        propertiesItems: () => items, setPropertiesTitle: () => propertyShows++,
+        layerLabel: value => value, _screenToWorld: event => ({ x: event.clientX, y: event.clientY }),
     };
     for (const name of ['_beginRefTextDrag', '_updateRefTextDrag', '_handleRefDrag', '_endRefDrag',
         '_rotateRefText', '_hitTestRefText', '_worldToPlacementLocal', '_placementLocalToWorld',

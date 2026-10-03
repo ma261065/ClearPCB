@@ -81,7 +81,7 @@ function syncNetMenuSelection(menu, input) {
  * @param {'line'|'circle'|'rect'|'polygon'|'arc'} kind
  */
 export function showBoardShapeToolProperties(app, kind) {
-        const items = app._pcbPropsItems?.();
+        const items = app.propertiesItems?.();
         if (!items) return;
         const defaults = getShapeDefaults(app);
         const currentLayer = app._shapeDraw?.layer || resolveShapeDrawLayer(app, app.activeLayer);
@@ -101,7 +101,7 @@ export function showBoardShapeToolProperties(app, kind) {
             defaults.lineWidth,
         );
 
-        app._setPcbPropsTitle?.(`New ${shapeKindLabel(kind)}`);
+        app.setPropertiesTitle?.(`New ${shapeKindLabel(kind)}`);
         items.innerHTML = `
             <div class="prop-row" data-prop="layer"><label>Layer</label><select id="pcbToolShapeLayer"${currentLayer ? '' : ' disabled'}>${currentLayer ? '' : '<option value="" selected disabled>No unlocked layers</option>'}${layerOptionsHtml}</select></div>
             <div class="prop-row" data-prop="copperMode" id="pcbToolShapeCopperModeRow"><label>Copper Mode</label><select id="pcbToolShapeCopperMode"><option value="add"${initialCopperMode === 'add' ? ' selected' : ''}>Add Copper</option><option value="remove-copper"${initialCopperMode === 'remove-copper' ? ' selected' : ''}>Remove Copper</option><option value="remove-solder-mask"${initialCopperMode === 'remove-solder-mask' ? ' selected' : ''}>Remove Solder Mask</option><option value="remove-copper-mask"${initialCopperMode === 'remove-copper-mask' ? ' selected' : ''}>Remove Copper + Mask</option></select></div>
@@ -186,7 +186,7 @@ export function showBoardShapeToolProperties(app, kind) {
         });
         syncAvailability();
         app.setPcbStatus?.();
-        app._setActiveRibbonTab?.('pcb-properties');
+        app.showPropertiesTab?.();
 }
 
 export function refreshBoardShapeToolLayer(app) {
@@ -201,7 +201,7 @@ export function showImageProperties(app, shape, items) {
     if (getPropertyEditor(app, 'boardShape')?.committing) return;
     shape = canonicalBoardShape(app, shape);
     getPropertyEditor(app, 'boardShape')?.dispose();
-    app._setPcbPropsTitle?.('Image', shape);
+    app.setPropertiesTitle?.('Image', shape);
     const binding = createBoardShapePropertyBinding(app);
     const geometryValues = () => {
         const { points } = displayedBoardShape(app, shape);
@@ -354,7 +354,7 @@ export function showImageProperties(app, shape, items) {
         netInput.value = shape.net || '';
         netInput.addEventListener('change', () => commit(candidate => { candidate.net = netInput.value.trim(); }));
     }
-    app._setActiveRibbonTab?.('pcb-properties');
+    app.showPropertiesTab?.();
 }
 
 export function showBoardShapeProperties(app, shape) {
@@ -362,7 +362,7 @@ export function showBoardShapeProperties(app, shape) {
     shape = canonicalBoardShape(app, shape);
     getPropertyEditor(app, 'boardShape')?.dispose();
     if (app._shapeDrag?.original === shape) shape = app._shapeDrag.shape;
-    const items = app._pcbPropsItems?.();
+    const items = app.propertiesItems?.();
     if (!items || !shape) return;
     syncPcbSelection(app);
     app.setPcbStatus?.();
@@ -394,7 +394,7 @@ export function showBoardShapeProperties(app, shape) {
     const mixedKind = initialTargets.some((target) => target.kind !== initialTargets[0].kind);
     const segmentLabel = shape.kind === 'arc' || boardShapeSegmentBulge(shape, selectedSegment) ? 'Arc' : 'Line';
     const standalone = shape.kind === 'arc' || (shape.kind === 'line' && shape.points.length === 2);
-    app._setPcbPropsTitle?.(outlineTarget
+    app.setPropertiesTitle?.(outlineTarget
         ? selectedNode != null ? 'Board Outline Node'
             : selectedSegment != null ? 'Board Outline Segment'
                 : 'Board Outline'
@@ -892,7 +892,7 @@ export function showBoardShapeProperties(app, shape) {
     });
 
     syncCopperModeAvailability();
-    app._setActiveRibbonTab?.('pcb-properties');
+    app.showPropertiesTab?.();
 }
 
 export function syncShapeBulgeProperty(app, shape) {

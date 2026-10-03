@@ -38,7 +38,7 @@ const image = { ...pictureShape({ width: 4, height: 2, rectangles: [{ x: 0, y: 0
     { widthMm: 4, layer: 'top-silk' }), id: 'pshape_1' };
 const app = { boardShapes: [image], placements: new Map(), tracks: [], vias: [], texts: new Map(),
     _shapeElements: new Map(), getLayerGroup() { return null; }, viewport: { scale: 10, setCrosshair() {}, hideCrosshair() {} },
-    history: new CommandHistory(), _pcbPropsItems() { return items; }, _snapToGrid(point) { return point; } };
+    history: new CommandHistory(), propertiesItems() { return items; }, _snapToGrid(point) { return point; } };
 setPcbSelection(app, [{ kind: 'shape', object: image }]);
 showBoardShapeProperties(app, image);
 assert.ok(fields.has('pcbPropImageWidth'));

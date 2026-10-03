@@ -1281,9 +1281,9 @@ function bindTrackWidth(binding, edgeId = null) {
 
 function _showTrackNodeProperties(app, track, nodeId) {
     const node = track.nodes.get(nodeId);
-    const items = app._pcbPropsItems?.() || document.getElementById('pcbPropsItems');
+    const items = app.propertiesItems?.() || document.getElementById('pcbPropsItems');
     if (!items || !node) return;
-    app._setPcbPropsTitle?.('Track Node');
+    app.setPropertiesTitle?.('Track Node');
     items.innerHTML = `
         <div class="prop-row" data-prop="x"><label>X (mm)</label><span id="pcbPropTrackNodeX">${formatNumberInputValue(node.x)}</span></div>
         <div class="prop-row" data-prop="y"><label>Y (mm)</label><span id="pcbPropTrackNodeY">${formatNumberInputValue(node.y)}</span></div>
@@ -1291,13 +1291,13 @@ function _showTrackNodeProperties(app, track, nodeId) {
     `;
     const binding = createTrackPropertyBinding(app, track, { nodeId });
     bindTrackCornerRadius(binding, nodeId);
-    app._setActiveRibbonTab?.('pcb-properties');
+    app.showPropertiesTab?.();
 }
 
 function _showTrackProperties(app, track) {
-    const items = app._pcbPropsItems?.() || document.getElementById('pcbPropsItems');
+    const items = app.propertiesItems?.() || document.getElementById('pcbPropsItems');
     if (!items) return;
-    app._setPcbPropsTitle?.('Track');
+    app.setPropertiesTitle?.('Track');
     const layers = new Set();
     for (const eid of track.edges.keys()) layers.add(track.getEdgeLayer(eid));
     const mixed = layers.size > 1;
@@ -1389,7 +1389,7 @@ function _showTrackProperties(app, track) {
         clearTrackSelection(app);
         setTrackCopperMode(app, track, mode);
         reconcileRatsnest(app);
-        app._setActiveRibbonTab?.('pcb-properties');
+        app.showPropertiesTab?.();
     });
     layerEl?.addEventListener('change', () => {
         if (!binding.prepare()) return;
@@ -1403,7 +1403,7 @@ function _showTrackProperties(app, track) {
             clearTrackSelection(app);
             moveTrackToBoardLayer(app, track, v);
             reconcileRatsnest(app);
-            app._setActiveRibbonTab?.('pcb-properties');
+            app.showPropertiesTab?.();
             return;
         }
         const before = track.captureState();
@@ -1428,9 +1428,9 @@ function _showTrackProperties(app, track) {
         for (const vv of region.addVias) cmds.push(new AddViaCommand(app, vv));
         if (cmds.length) app.history?.execute(new CompoundCommand(cmds));
         reconcileRatsnest(app);
-        app._setActiveRibbonTab?.('pcb-properties');
+        app.showPropertiesTab?.();
     });
-    app._setActiveRibbonTab?.('pcb-properties');
+    app.showPropertiesTab?.();
 }
 
 /**
@@ -1439,9 +1439,9 @@ function _showTrackProperties(app, track) {
  * single segment can hop layers and change width independently.
  */
 function _showTrackSegmentProperties(app, track, edgeId) {
-    const items = app._pcbPropsItems?.() || document.getElementById('pcbPropsItems');
+    const items = app.propertiesItems?.() || document.getElementById('pcbPropsItems');
     if (!items) return;
-    app._setPcbPropsTitle?.(track.edges.get(edgeId)?.bulge ? 'Arc Segment' : 'Track Segment');
+    app.setPropertiesTitle?.(track.edges.get(edgeId)?.bulge ? 'Arc Segment' : 'Track Segment');
     const currentLayer = track.getEdgeLayer(edgeId) || 'top-copper';
     const segWidth = track.getEdgeWidth(edgeId);
     const layerOpts = COPPER_LAYERS.map(
@@ -1523,9 +1523,9 @@ function _showTrackSegmentProperties(app, track, edgeId) {
         for (const vv of region.addVias) cmds.push(new AddViaCommand(app, vv));
         if (cmds.length) app.history?.execute(new CompoundCommand(cmds));
         reconcileRatsnest(app);
-        app._setActiveRibbonTab?.('pcb-properties');
+        app.showPropertiesTab?.();
     });
-    app._setActiveRibbonTab?.('pcb-properties');
+    app.showPropertiesTab?.();
 }
 
 /**
@@ -1685,7 +1685,7 @@ export function applyNetToCopperSelection(app, entries, v, additionalCommands = 
 }
 
 export function showViaProperties(app, via) {
-    const items = app._pcbPropsItems?.() || document.getElementById('pcbPropsItems');
+    const items = app.propertiesItems?.() || document.getElementById('pcbPropsItems');
     if (!items) return;
     via = canonicalVia(app, via);
     const selectedVias = getPcbSelection(app, 'via').map(target => canonicalVia(app, target));
@@ -1701,7 +1701,7 @@ export function showViaProperties(app, via) {
         maxDrill: Math.min(...vias.map(target => (preview?.copies.get(target) || target).diameter)),
     });
     const { minDiameter, maxDrill } = limits();
-    app._setPcbPropsTitle?.('Via');
+    app.setPropertiesTitle?.('Via');
     const netOptions = _netOptions(app, via.net || '');
     items.innerHTML = `
         <div class="prop-row" data-prop="net"><label>Net</label><span class="prop-net-control"><input type="text" id="pcbPropViaNet" value="${mixedNet ? '' : _escape(via.net || '')}" placeholder="${mixedNet ? 'Mixed' : 'None'}"><details class="prop-net-menu"><summary aria-label="Select existing net"></summary><div>${netOptions}</div></details></span></div>
@@ -1852,7 +1852,7 @@ export function showViaProperties(app, via) {
             option.toggleAttribute('aria-current', option.dataset.net === current);
         }
     });
-    app._setActiveRibbonTab?.('pcb-properties');
+    app.showPropertiesTab?.();
 }
 
 function _escape(s) {

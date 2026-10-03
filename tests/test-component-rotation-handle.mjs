@@ -96,7 +96,7 @@ function fixture(saved = true, side = 'top', mirror = false) {
         placements: new Map([['part', placement]]), history: new CommandHistory(),
         viewport: { scale: 10, svg: element('svg'), hideCrosshair() {} }, _active: true, currentTool: 'select',
         getLayerGroup: id => id === 'selection-overlay' ? overlay : id === 'top-copper' ? copper : null,
-        _pcbPropsItems: () => items, _setPcbPropsTitle() {}, _hoverComponent() {}, _hideNetTooltip() {},
+        propertiesItems: () => items, setPropertiesTitle() {}, _hoverComponent() {}, _hideNetTooltip() {},
         _netsForComponent: () => new Set(['N1']), updateRatsnest: PCBApp.prototype.updateRatsnest, refreshClearanceHalos() {},
         _markDirty: () => dirty++, refreshFills: () => fills++, _board3d: { refresh: () => views3d++ },
     };

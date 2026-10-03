@@ -34,8 +34,8 @@ for (const layerId of TEXT_LAYERS) {
         viewport: { svg: { style: {} }, scale: 10, snapToGrid: false, setCrosshair() {}, hideCrosshair() {} },
         placements: new Map(), tracks: [], vias: [], boardShapes: [], _layerGroups: new Map(),
         getLayerGroup: () => null, refreshText() {},
-        _pcbPropsItems: () => items, _setPcbPropsTitle: () => propertyShows++,
-        _layerLabel: value => value, clearProperties: () => cleared++, _exitTextTool() {},
+        propertiesItems: () => items, setPropertiesTitle: () => propertyShows++,
+        layerLabel: value => value, clearProperties: () => cleared++, _exitTextTool() {},
         _screenToWorld: event => ({ x: event.clientX, y: event.clientY }),
     };
     Object.defineProperty(app, 'texts', Object.getOwnPropertyDescriptor(PCBApp.prototype, 'texts'));

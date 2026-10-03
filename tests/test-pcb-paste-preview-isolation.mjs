@@ -94,7 +94,7 @@ function fixture(deferred = false) {
         updateCopperCuts() { derived++; }, refreshClearanceHalos() { derived++; },
         _clearancesVisible: true, getRoutingParams: () => ({ clearance: 0.25 }),
         _board3d: { refresh() { derived++; } }, syncClipboardButtons() {}, _updateCursorForTool() {},
-        clearProperties() {}, _pcbPropsItems: () => null, _setPcbPropsTitle() {}, setPcbStatus() {},
+        clearProperties() {}, propertiesItems: () => null, setPropertiesTitle() {}, setPcbStatus() {},
         _cancelDrawingMode() {}, _ensureViewport() {}, markSectionClean() {}, _refreshPcbSelectionHighlights() {},
         _showPcbMultiSelectionProperties() {}, _showTextProperties() {},
     };

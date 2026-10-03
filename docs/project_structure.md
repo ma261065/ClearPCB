@@ -151,6 +151,16 @@ PCB editor:
 - `pcb/modules/project-state.js` — PCB serialization, preparation and restoration.
 - `pcb/modules/board-shapes.js` — board-shape rendering, selection, interaction and
   Track conversion; `board-shape-properties.js` — their Properties panel.
+- Properties panels by object: `track-select.js` (tracks, segments, nodes, vias),
+  `pad-properties.js` (pads and the Pad tool), `text-properties.js` (free text, the
+  Text tool, and the stroke-text field binder shared with reference designators),
+  `copper-fill-edit.js` (pours), `board-outline-resize.js` (board size before an
+  outline shape exists), `component-properties.js` (components and references) and
+  `multi-selection-properties.js` (the shared properties of a mixed selection).
+  They use the panel services in `pcb-editor-api.js` (`propertiesItems`,
+  `setPropertiesTitle`, `showPropertiesTab`, `toolNetOptions`, `bindToolNetControl`,
+  `layerLabel`); `PCBApp` keeps a one-line forwarding method for each, passing tool
+  state (pad and text defaults, inline-edit state) explicitly.
 
 Derived PCB work:
 

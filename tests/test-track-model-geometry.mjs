@@ -129,7 +129,7 @@ globalThis.document = { getElementById: id => id === 'pcbPropTrackCornerRadius' 
 const previewTrack = new Track({ points: [{ x: -10, y: 10 }, { x: 0, y: 0 }, { x: 10, y: 10 }] });
 const previewApp = { tracks: [previewTrack], vias: [], pads: [], boardShapes: [], texts: new Map(), placements: new Map(),
     pcbDocument: { tracks: [previewTrack] },
-    viewport: { scale: 10 }, _pcbPropsItems: () => ({}), getLayerGroup: () => null };
+    viewport: { scale: 10 }, propertiesItems: () => ({}), getLayerGroup: () => null };
 selectTrackOrVia(previewApp, { type: 'track', track: previewTrack });
 const previewBefore = previewTrack.getBounds();
 radiusInput.listeners.get('input')({ type: 'input' });

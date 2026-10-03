@@ -79,7 +79,7 @@ function fixture(mode, deferred = false, unrelatedCount = 1) {
         _layerGroups: new Map(), viewport: { scale: 100, shiftHeld: true, svg: new Element(), setCrosshair() {}, hideCrosshair() {} },
         getLayerGroup: id => id === 'selection-overlay' ? null : group,
         refreshFills() { fills++; }, _refreshBoardShapeClearance() {},
-        _pcbPropsItems: () => null, _cancelDrawingMode() {}, _ensureViewport() {}, markSectionClean() {},
+        propertiesItems: () => null, _cancelDrawingMode() {}, _ensureViewport() {}, markSectionClean() {},
         _scheduleRemovalHatchRender() {}, _refreshPcbSelectionHighlights() {},
     };
     setDragOverlaysDeferred(app, deferred);

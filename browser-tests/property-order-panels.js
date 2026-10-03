@@ -23,7 +23,7 @@ export async function collectPropertyPanels() {
         .filter(row => row.dataset.prop || row.querySelector('input, select, textarea, button'))
         .map(row => ({ key: row.dataset.prop || null,
             label: ((row.tagName === 'LABEL' ? row : row.querySelector('label'))?.textContent || '').trim().replace(/\s+/g, ' ') }));
-    const pcbPanel = (name, show) => { show(); panels[`pcb ${name}`] = read(pcb._pcbPropsItems()); };
+    const pcbPanel = (name, show) => { show(); panels[`pcb ${name}`] = read(pcb.propertiesItems()); };
     const add = command => pcb.history.execute(command);
     const select = (kind, object) => setPcbSelection(pcb, [{ kind, object }]);
 

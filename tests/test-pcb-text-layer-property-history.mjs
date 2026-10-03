@@ -23,14 +23,14 @@ const titles = [];
 const presentedLayers = [];
 const app = {
     pcbDocument, texts: pcbDocument.texts, history: new CommandHistory(),
-    _pcbPropsItems: () => items, _setPcbPropsTitle: title => {
+    propertiesItems: () => items, setPropertiesTitle: title => {
         titles.push(title);
         presentedLayers.push(getPcbSelectionEntries(app).map(entry => entry.object.layer));
     },
     refreshText() {},
 };
 for (const name of ['_showTextProperties', '_showPcbMultiSelectionProperties',
-    '_pcbMultiPropertyCapabilities', '_bindStrokeTextProps', '_layerLabel']) app[name] = PCBApp.prototype[name];
+    '_pcbMultiPropertyCapabilities', '_bindStrokeTextProps', 'layerLabel']) app[name] = PCBApp.prototype[name];
 const show = texts => {
     setPcbSelection(app, texts.map(object => ({ kind: 'text', object })));
     if (texts.length === 1) app._showTextProperties(texts[0]);

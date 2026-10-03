@@ -85,7 +85,7 @@ try {
                 get texts() { return getTextPosePreviewTexts(this) || pcbDocument.texts; },
                 tracks: [], vias: [], placements: new Map(), _shapeElements: new Map(),
                 viewport: { scale: 10, svg: element('svg') }, history: new CommandHistory(), getLayerGroup() { return null; },
-                _pcbPropsItems() { return null; }, refreshText() {},
+                propertiesItems() { return null; }, refreshText() {},
                 _showTextProperties(text) { inputs.get('pcbPropTextRot').value = String(text.rotation); } };
             setPcbSelection(app, [{ kind: kind === 'image' ? 'shape' : 'text', object }]);
             const adapter = kind === 'image' ? createBoardShapeSelectionAdapter(app, object, `shape:${object.id}`)
@@ -211,7 +211,7 @@ try {
         try { render(items); } catch { /* listener binding needs a DOM; the markup is already written */ }
         return items.innerHTML;
     };
-    const panelApp = { _pcbPropsItems: () => panelItems, _setPcbPropsTitle() {}, _layerLabel: PCBApp.prototype._layerLabel,
+    const panelApp = { propertiesItems: () => panelItems, setPropertiesTitle() {}, layerLabel: PCBApp.prototype.layerLabel,
         _textDefaults: { size: 1, rotation: 37.6, layer: 'top-silk', strokeWidth: 0.15, border: false },
         pcbDocument: { texts: new Map([['t', { id: 't', content: 'T', x: 0, y: 0, size: 1, rotation: 12.34567,
             layer: 'top-silk', strokeWidth: 0.15 }]]) } };

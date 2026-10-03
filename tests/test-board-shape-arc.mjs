@@ -475,9 +475,10 @@ showBoardShapeProperties({
     boardShapes: [roundedRemovalRect],
     placements: new Map(), tracks: [], vias: [], texts: new Map(),
     viewport: { scale: 1 },
-    _pcbPropsItems() { return propertyItems; },
-    _setPcbPropsTitle() {},
+    propertiesItems() { return propertyItems; },
+    setPropertiesTitle() {},
     _setActiveRibbonTab(tab) { propertyTabs.push(tab); },
+    showPropertiesTab() { this._setActiveRibbonTab('pcb-properties'); },
 }, roundedRemovalRect);
 check('existing rectangle populates the PCB Properties panel',
     propertyItems.innerHTML.includes('pcbPropShapeLayer')
@@ -487,8 +488,8 @@ const segmentApp = {
     boardShapes: [roundedRemovalRect],
     placements: new Map(), tracks: [], vias: [], texts: new Map(),
     viewport: { scale: 1 },
-    _pcbPropsItems() { return propertyItems; },
-    _setPcbPropsTitle(title) { segmentTitle = title; },
+    propertiesItems() { return propertyItems; },
+    setPropertiesTitle(title) { segmentTitle = title; },
     _setActiveRibbonTab() {},
 };
 setBoardShapeSegmentFocus(segmentApp, { shapeId: roundedRemovalRect.id, segment: 0 });
@@ -499,8 +500,8 @@ showBoardShapeProperties({
     boardShapes: [{ ...removalRect, kind: 'line', layer: 'hole', points: removalRect.points.slice(0, 2) }],
     placements: new Map(), tracks: [], vias: [], texts: new Map(),
     viewport: { scale: 1 },
-    _pcbPropsItems() { return holeLinePropertyItems; },
-    _setPcbPropsTitle() {}, _setActiveRibbonTab() {},
+    propertiesItems() { return holeLinePropertyItems; },
+    setPropertiesTitle() {}, _setActiveRibbonTab() {},
 }, { ...removalRect, kind: 'line', layer: 'hole', points: removalRect.points.slice(0, 2) });
 check('hole-layer Line properties include line thickness',
     holeLinePropertyItems.innerHTML.includes('pcbPropShapeLineWidth')
@@ -513,8 +514,8 @@ const holeRect = { ...removalRect, layer: 'hole' };
 showBoardShapeProperties({
     boardShapes: [holeRect], placements: new Map(), tracks: [], vias: [], texts: new Map(),
     viewport: { scale: 1 },
-    _pcbPropsItems() { return holeRectPropertyItems; },
-    _setPcbPropsTitle() {}, _setActiveRibbonTab() {},
+    propertiesItems() { return holeRectPropertyItems; },
+    setPropertiesTitle() {}, _setActiveRibbonTab() {},
 }, holeRect);
 check('other hole-layer shape properties omit line thickness',
     !holeRectPropertyItems.innerHTML.includes('pcbPropShapeLineWidth'));
@@ -523,8 +524,8 @@ const circlePropertyShape = { ...removalCircle, layer: 'hole', radius: 14.8, lin
 showBoardShapeProperties({
     boardShapes: [circlePropertyShape], placements: new Map(), tracks: [], vias: [], texts: new Map(),
     viewport: { scale: 1 },
-    _pcbPropsItems() { return propertyItems; },
-    _setPcbPropsTitle() {}, _setActiveRibbonTab() {},
+    propertiesItems() { return propertyItems; },
+    setPropertiesTitle() {}, _setActiveRibbonTab() {},
 }, circlePropertyShape);
 check('circle diameter property displays the physical outside size',
     propertyItems.innerHTML.includes('pcbPropShapeDiameter')
@@ -573,7 +574,7 @@ for (const reversed of [false, true]) {
     showBoardShapeProperties({
         boardShapes: [shape], placements: new Map(), tracks: [], vias: [], texts: new Map(),
         _shapeElements: new Map(), viewport: { scale: 1 },
-        getLayerGroup() { return null; }, _pcbPropsItems() { return propertyItems; },
+        getLayerGroup() { return null; }, propertiesItems() { return propertyItems; },
         history: { execute(command) { command.execute(); } },
     }, shape);
     for (const width of [2, 0.1, 100]) {
@@ -598,7 +599,7 @@ for (const kind of ['rect', 'polygon']) {
         const widthApp = {
             boardShapes: [shape], placements: new Map(), tracks: [], vias: [], texts: new Map(),
             _shapeElements: new Map(), viewport: { scale: 1 },
-            getLayerGroup() { return null; }, _pcbPropsItems() { return propertyItems; },
+            getLayerGroup() { return null; }, propertiesItems() { return propertyItems; },
             history: { execute(command) { commands.push(command); command.execute(); } },
         };
         showBoardShapeProperties(widthApp, shape);
@@ -658,8 +659,8 @@ for (const layer of ['hole', 'top-copper', 'bottom-copper']) {
             boardShapes: [editableCircle], placements: new Map(), tracks: [], vias: [], texts: new Map(),
             viewport: { scale: 1 }, _shapeElements: new Map(),
             getLayerGroup() { return null; },
-            _pcbPropsItems() { return diameterItems; },
-            _setPcbPropsTitle() {}, _setActiveRibbonTab() {},
+            propertiesItems() { return diameterItems; },
+            setPropertiesTitle() {}, _setActiveRibbonTab() {},
             refreshFills() { fillRefreshes++; },
             _refreshPcbSelectionHighlights() { selectionRefreshes++; },
             history: { execute(command) { commands.push(command); command.execute(); } },
@@ -764,7 +765,7 @@ for (const layer of ['hole', 'top-copper', 'bottom-copper']) {
         startBoardShapeDrag(diameterApp, editableCircle,
             { x: editableCircle.x + editableCircle.radius, y: editableCircle.y }, 'radius');
         let dragPanelRebuilds = 0;
-        diameterApp._pcbPropsItems = () => { dragPanelRebuilds++; return propertyItems; };
+        diameterApp.propertiesItems = () => { dragPanelRebuilds++; return propertyItems; };
         handleBoardShapeDrag(diameterApp, { x: editableCircle.x + 5, y: editableCircle.y });
         check(`${layer} filled=${filled} diameter spinner follows handle drag without panel rebuild`,
             diameterInput.value === '10.00' && dragPanelRebuilds === 0);

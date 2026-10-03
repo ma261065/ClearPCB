@@ -156,7 +156,7 @@ import { renderCopperFill, fillGroupId, setCopperFillClip } from '../pcb/modules
 import { RemoveFillCommand, ModifyFillCommand } from '../pcb/modules/copper-fill-commands.js';
 import '../pcb/modules/copper-fill-selection.js';
 import { startFillEditAt, updateFillEdit, endFillEdit, showFillContextMenu,
-    addFillGeometryProperties, deleteFocusedFillPart, canEditFill } from '../pcb/modules/copper-fill-edit.js';
+    addFillGeometryProperties, deleteFocusedFillPart, canEditFill, showFillProperties } from '../pcb/modules/copper-fill-edit.js';
 import '../pcb/modules/component-selection.js';
 import '../pcb/modules/pcb-text-selection.js';
 import { isRefTextLocked } from '../pcb/modules/ref-text-selection.js';
@@ -173,9 +173,12 @@ import { areDragOverlaysDeferred, isFillRefreshPending, onRefreshSuspended, setD
 import {
     beginBoardOutlineResize, updateBoardOutlineResize, endBoardOutlineResize,
     renderBoardOutlineHandles, hitTestBoardOutlineHandle,
-    getBoardDimensionPreview, bindBoardDimensionProperties,
+    getBoardDimensionPreview, bindBoardDimensionProperties, showBoardOutlineProperties,
 } from '../pcb/modules/board-outline-resize.js';
 import { getBoardShapeNodeFocus, getBoardShapeSegmentFocus } from '../pcb/modules/board-shape-state.js';
+import { showTextToolProperties, showTextProperties, bindStrokeTextProps } from '../pcb/modules/text-properties.js';
+import { showPadEditor } from '../pcb/modules/pad-properties.js';
+import { multiPropertyCapabilities, showMultiSelectionProperties } from '../pcb/modules/multi-selection-properties.js';
 
 /**
  * On-screen size (CSS px) of a footprint's bounding box below which it is
@@ -3157,8 +3160,8 @@ export default class PCBApp {
      * Clear the properties panel to its default state.
      */
     clearProperties() {
-        this._setPcbPropsTitle('Properties');
-        const items = this._pcbPropsItems();
+        this.setPropertiesTitle('Properties');
+        const items = this.propertiesItems();
         if (items) {
             items.innerHTML = '<span style="font-size:11px;color:var(--text-muted)">Click an object to see its properties</span>';
         }
@@ -3170,7 +3173,7 @@ export default class PCBApp {
      * @param {string} title
      * @param {object|null} [owner] Canonical target retained by a same-object panel refresh.
      */
-    _setPcbPropsTitle(title, owner = null) {
+    setPropertiesTitle(title, owner = null) {
         disposePcbPropertyEditors(this, owner);
         const el = document.querySelector('#pcbPropsContent .ribbon-group-title');
         if (el) el.textContent = title || 'Properties';
@@ -3181,13 +3184,18 @@ export default class PCBApp {
      * sibling sections (Transform / 3D) so non-component property views render
      * with the base Properties group as the sole panel content.
      */
-    _pcbPropsItems() {
+    propertiesItems() {
         getPropertyEditor(this, 'component')?.clearExtras();
         return document.getElementById('pcbPropsItems');
     }
 
+    /** Bring the Properties ribbon tab to the front (after showing a panel). */
+    showPropertiesTab() {
+        this._setActiveRibbonTab?.('pcb-properties');
+    }
+
     /** Build the shared editable Net dropdown used by PCB tool properties. */
-    _toolNetOptions(current = '') {
+    toolNetOptions(current = '') {
         const escape = (value) => String(value).replace(/[&<>"']/g, (char) => (
             { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char]
         ));
@@ -3206,7 +3214,7 @@ export default class PCBApp {
     }
 
     /** Bind an editable Net input and its picker menu to a tool-setting callback. */
-    _bindToolNetControl(items, inputId, onChange) {
+    bindToolNetControl(items, inputId, onChange) {
         const netEl = /** @type {HTMLInputElement|null} */ (items.querySelector(`#${inputId}`));
         const menuEl = /** @type {HTMLDetailsElement|null} */ (items.querySelector('.prop-net-menu'));
         netEl?.addEventListener('change', () => onChange(netEl.value.trim()));
@@ -3229,15 +3237,15 @@ export default class PCBApp {
     /** Show Track draw defaults and live draw settings in Properties. */
     _showTrackDrawProperties() {
         this.setPcbStatus();
-        const items = this._pcbPropsItems();
+        const items = this.propertiesItems();
         if (!items) return;
         const ctx = this._trackDraw;
         const p = this.getRoutingParams?.() || {};
         const width = ctx?.width || (Number.isFinite(p.trackWidth) && p.trackWidth > 0 ? p.trackWidth : 0.2);
         const layer = ctx?.currentLayer || (this._trackToolLayer === 'bottom-copper' ? 'bottom-copper' : 'top-copper');
         const net = ctx?.net ?? String(this._trackToolNet || '');
-        const { escape, options } = this._toolNetOptions(net);
-        this._setPcbPropsTitle('New Track');
+        const { escape, options } = this.toolNetOptions(net);
+        this.setPropertiesTitle('New Track');
         items.innerHTML = `
             <div class="prop-row" data-prop="layer"><label>Layer</label><select id="pcbPropTrackToolLayer"><option value="top-copper"${layer === 'top-copper' ? ' selected' : ''}>Top Copper</option><option value="bottom-copper"${layer === 'bottom-copper' ? ' selected' : ''}>Bottom Copper</option></select></div>
             <div class="prop-row" data-prop="net"><label>Net</label><span class="prop-net-control"><input type="text" id="pcbPropTrackToolNet" value="${escape(net)}" placeholder="None"><details class="prop-net-menu"><summary aria-label="Select existing net"></summary><div>${options}</div></details></span></div>
@@ -3245,7 +3253,7 @@ export default class PCBApp {
         `;
         const layerEl = /** @type {HTMLSelectElement|null} */ (items.querySelector('#pcbPropTrackToolLayer'));
         const widthEl = /** @type {HTMLInputElement|null} */ (items.querySelector('#pcbPropTrackToolWidth'));
-        this._bindToolNetControl(items, 'pcbPropTrackToolNet', (next) => {
+        this.bindToolNetControl(items, 'pcbPropTrackToolNet', (next) => {
             this._trackToolNet = next;
             if (ctx) {
                 ctx.net = next;
@@ -3280,14 +3288,14 @@ export default class PCBApp {
 
     /** Show Via placement defaults in Properties. */
     _showViaToolProperties() {
-        const items = this._pcbPropsItems();
+        const items = this.propertiesItems();
         if (!items) return;
         const p = this.getRoutingParams?.() || {};
         const diameter = Number.isFinite(p.viaDiameter) && p.viaDiameter > 0 ? p.viaDiameter : 0.6;
         const drill = Number.isFinite(p.viaDrill) && p.viaDrill > 0 ? p.viaDrill : 0.3;
         const net = String(this._viaToolNet || '');
-        const { escape, options } = this._toolNetOptions(net);
-        this._setPcbPropsTitle('New Via');
+        const { escape, options } = this.toolNetOptions(net);
+        this.setPropertiesTitle('New Via');
         items.innerHTML = `
             <div class="prop-row" data-prop="net"><label>Net</label><span class="prop-net-control"><input type="text" id="pcbPropViaToolNet" value="${escape(net)}" placeholder="None"><details class="prop-net-menu"><summary aria-label="Select existing net"></summary><div>${options}</div></details></span></div>
             <div class="prop-row" data-prop="diameter"><label>Diameter (mm)</label><input type="number" id="pcbPropViaToolDiameter" value="${diameter}" min="${drill}" step="0.05" data-number-format="precise"></div>
@@ -3295,7 +3303,7 @@ export default class PCBApp {
         `;
         const diameterEl = /** @type {HTMLInputElement|null} */ (items.querySelector('#pcbPropViaToolDiameter'));
         const drillEl = /** @type {HTMLInputElement|null} */ (items.querySelector('#pcbPropViaToolDrill'));
-        this._bindToolNetControl(items, 'pcbPropViaToolNet', (next) => { this._viaToolNet = next; });
+        this.bindToolNetControl(items, 'pcbPropViaToolNet', (next) => { this._viaToolNet = next; });
         diameterEl?.addEventListener('input', () => {
             const next = parseFloat(diameterEl.value);
             if (Number.isFinite(next) && next > 0 && next < parseFloat(drillEl?.value || '0')) {
@@ -3333,208 +3341,10 @@ export default class PCBApp {
     }
 
     _showPadEditor(pad) {
-        const items = this._pcbPropsItems();
-        if (!items) return;
-        if (pad) pad = canonicalPad(this, pad);
-        const state = pad || this._padDefaults;
-        const selectedPads = pad ? getPcbSelection(this, 'pad').map(target => canonicalPad(this, target)) : [];
-        const pads = pad && selectedPads.includes(pad) ? selectedPads : (pad ? [pad] : []);
-        const isMixed = property => pads.some(target => target[property] !== state[property]);
-        const mixedShape = isMixed('shape');
-        const mixedSize = isMixed('size');
-        const mixedRatio = isMixed('ratio');
-        const mixedDrill = isMixed('drill');
-        const mixedRotation = isMixed('rotation');
-        const mixedLayers = isMixed('layers');
-        const mixedNet = pads.some(target => (target.net || '') !== (state.net || ''));
-        const elongated = ['stadium', 'rectangle', 'oval'].includes(state.shape);
-        const showRatio = pad ? pads.some(target => ['stadium', 'rectangle', 'oval'].includes(target.shape)) : elongated;
-        const showRotation = pad ? pads.some(target => target.shape !== 'round') : state.shape !== 'round';
-        const maximumDrill = pad ? Math.min(...pads.map(target => target.size)) : state.size;
-        const { escape, options } = this._toolNetOptions(state.net || '');
-        this._setPcbPropsTitle(pad ? 'Pad' : 'New Pad');
-        items.innerHTML = `
-            <div class="prop-row" data-prop="padShape"><label>Shape</label><select id="pcbPropPadShape">
-                ${mixedShape ? '<option value="" selected disabled>Mixed</option>' : ''}
-                ${[['round', 'Round'], ['stadium', 'Stadium'], ['square', 'Square'], ['rectangle', 'Rectangle'], ['oval', 'Oval']]
-                    .map(([value, label]) => `<option value="${value}"${!mixedShape && state.shape === value ? ' selected' : ''}>${label}</option>`).join('')}
-            </select></div>
-            <div class="prop-row" data-prop="layer"><label>Layer</label><select id="pcbPropPadLayers">
-                ${mixedLayers ? '<option value="" selected disabled>Mixed</option>' : ''}
-                <option value="top-copper"${!mixedLayers && state.layers === 'top-copper' ? ' selected' : ''}>Top</option>
-                <option value="bottom-copper"${!mixedLayers && state.layers === 'bottom-copper' ? ' selected' : ''}>Bottom</option>
-                <option value="both"${!mixedLayers && state.layers === 'both' ? ' selected' : ''}>Both</option>
-            </select></div>
-            <div class="prop-row" data-prop="net"><label>Net</label><span class="prop-net-control"><input type="text" id="pcbPropPadNet" value="${mixedNet ? '' : escape(state.net || '')}" placeholder="${mixedNet ? 'Mixed' : 'None'}"><details class="prop-net-menu"><summary aria-label="Select existing net"></summary><div>${options}</div></details></span></div>
-            <div class="prop-row" data-prop="size"><label>Size (mm)</label><input type="number" id="pcbPropPadSize" value="${mixedSize ? '' : state.size}" placeholder="${mixedSize ? 'Mixed' : ''}" min="0.05" step="0.05"></div>
-            ${showRatio ? `<div class="prop-row" data-prop="ratio"><label>Ratio</label><input type="number" id="pcbPropPadRatio" value="${mixedRatio ? '' : state.ratio}" placeholder="${mixedRatio ? 'Mixed' : ''}" min="1" step="0.1"></div>` : ''}
-            <div class="prop-row" data-prop="drill"><label>Drill (mm)</label><input type="number" id="pcbPropPadDrill" value="${mixedDrill ? '' : state.drill}" placeholder="${mixedDrill ? 'Mixed' : ''}" min="0" max="${maximumDrill}" step="0.05" title="0 = no hole"></div>
-            ${showRotation ? `<div class="prop-row" data-prop="rotation"><label>Rotation (°)</label><input type="number" id="pcbPropPadRotation" value="${mixedRotation ? '' : state.rotation}" placeholder="${mixedRotation ? 'Mixed' : ''}" step="1"></div>` : ''}
-        `;
-        let disposed = false;
-        let preview = null;
-        let activeProperty = null;
-        const fields = new Map();
-        const minimums = new Map();
-        const apply = (property, value) => {
-            if (disposed) return;
-            finish(true);
-            if (pad) {
-                const commands = [];
-                for (const target of pads) {
-                    const before = target.captureState();
-                    const after = { ...before, [property]: value };
-                    if (property === 'size') after.drill = Math.min(after.drill, value);
-                    if (JSON.stringify(after) !== JSON.stringify(before)) {
-                        commands.push(new ModifyPadCommand(this, target, before, after));
-                    }
-                }
-                if (!commands.length) return;
-                this.history.execute(commands.length === 1 ? commands[0] : new CompoundCommand(commands));
-                refreshBoxSelectionHighlights(this);
-            } else {
-                this._padDefaults[property] = value;
-                if (property === 'size') this._padDefaults.drill = Math.min(this._padDefaults.drill, value);
-                if (this._lastCrosshairWorld) this._updatePadPreview(this._lastCrosshairWorld);
-            }
-        };
-        items.querySelector('#pcbPropPadShape')?.addEventListener('change', event => {
-            if (disposed) return;
-            apply('shape', event.target.value);
-            this._showPadEditor(pad);
+        showPadEditor(this, pad, {
+            defaults: this._padDefaults,
+            refreshPreview: () => { if (this._lastCrosshairWorld) this._updatePadPreview(this._lastCrosshairWorld); },
         });
-        items.querySelector('#pcbPropPadLayers')?.addEventListener('change', event => apply('layers', event.target.value));
-        let renderFrame = null;
-        const renderLivePads = () => {
-            if (!pad || renderFrame !== null) return;
-            renderFrame = requestAnimationFrame(() => {
-                renderFrame = null;
-                for (const target of preview?.copies.values() || []) renderPad(target, layer => this.getLayerGroup(layer));
-                refreshBoxSelectionHighlights(this);
-            });
-        };
-        const cancelLiveRender = () => {
-            if (renderFrame === null) return;
-            cancelAnimationFrame(renderFrame);
-            renderFrame = null;
-        };
-        const resetFields = () => {
-            for (const [property, input] of fields) {
-                input.value = pads.some(target => target[property] !== pad[property]) ? '' : String(pad[property]);
-            }
-            const drillInput = fields.get('drill');
-            if (drillInput && pad) drillInput.max = String(Math.min(...pads.map(target => target.size)));
-        };
-        const finish = commit => {
-            if (!preview) return;
-            if (commit && !editable()) commit = false;
-            const input = fields.get(activeProperty);
-            if (commit && (!input?.value.trim() || !Number.isFinite(Number(input.value))
-                || Number(input.value) < minimums.get(activeProperty))) commit = false;
-            preview = null;
-            activeProperty = null;
-            cancelLiveRender();
-            let committed = false;
-            try {
-                finishPadPropertyPreview(this, commit ? changes => {
-                    const commands = changes.map(({ pad, before, after }) => new ModifyPadCommand(this, pad, before, after));
-                    this.history.execute(commands.length === 1 ? commands[0] : new CompoundCommand(commands));
-                } : undefined);
-                committed = commit;
-            } finally {
-                if (!committed) resetFields();
-                refreshBoxSelectionHighlights(this);
-            }
-        };
-        const editable = () => !disposed && this._active !== false && (!pad || pads.every(target => !target.locked
-            && target.visible !== false && !padLayers(target).some(isLayerLocked) && padLayers(target).some(isLayerVisible)));
-        const binding = {
-            pads,
-            affectsLayer: layerId => pads.some(target => padLayers(target).includes(layerId)),
-            get active() { return preview !== null; },
-            commit: () => finish(editable()),
-            cancel: () => finish(false),
-            dispose: () => {
-                disposed = true;
-                finish(false);
-                cancelLiveRender();
-            },
-        };
-        setPropertyEditor(this, 'pad', binding);
-        const bindLiveNumber = (id, property, minimum) => {
-            const input = /** @type {HTMLInputElement|null} */ (items.querySelector(id));
-            if (!input) return;
-            fields.set(property, input);
-            minimums.set(property, minimum);
-            bindPictureRefreshHold(this, input);
-            const onInput = () => {
-                if (!editable()) {
-                    binding.cancel();
-                    return;
-                }
-                if (!input.value.trim()) return;
-                let value = Number(input.value);
-                if (!Number.isFinite(value) || value < minimum) return;
-                if (property === 'rotation') {
-                    value = ((value % 360) + 360) % 360;
-                    if (Number(input.value) !== value) input.value = String(value);
-                }
-                if (property === 'drill') {
-                    const max = pad ? Math.min(...pads.map(target => preview?.copies.get(target).size ?? target.size)) : state.size;
-                    value = Math.min(value, max);
-                    if (Number(input.value) !== value) input.value = String(value);
-                }
-                if (!pad) {
-                    if (this._padDefaults[property] === value) return;
-                    this._padDefaults[property] = value;
-                    if (property === 'size') {
-                        const drillInput = /** @type {HTMLInputElement|null} */ (items.querySelector('#pcbPropPadDrill'));
-                        if (drillInput) drillInput.max = String(value);
-                        if (this._padDefaults.drill > value) {
-                            this._padDefaults.drill = value;
-                            if (drillInput) drillInput.value = String(value);
-                        }
-                    }
-                    if (this._lastCrosshairWorld) this._updatePadPreview(this._lastCrosshairWorld);
-                    return;
-                }
-                if (preview && activeProperty !== property) {
-                    const pending = input.value;
-                    binding.commit();
-                    input.value = pending;
-                }
-                if (pads.every(target => (preview?.copies.get(target) || target)[property] === value)) return;
-                preview ??= beginPadPropertyPreview(this, pads);
-                activeProperty = property;
-                for (const target of preview.copies.values()) {
-                    target[property] = value;
-                    if (property === 'size') target.drill = Math.min(target.drill, value);
-                    schedulePictureCopperRefresh(this, target);
-                }
-                if (property === 'size') {
-                    const drillInput = /** @type {HTMLInputElement|null} */ (items.querySelector('#pcbPropPadDrill'));
-                    if (drillInput) drillInput.max = String(value);
-                }
-                renderLivePads();
-            };
-            input.addEventListener('input', onInput);
-            input.addEventListener('change', () => {
-                onInput();
-                binding.commit();
-            });
-            input.addEventListener('keydown', event => {
-                if (disposed || event.key !== 'Escape') return;
-                binding.cancel();
-                event.preventDefault();
-                event.stopPropagation();
-            });
-        };
-        bindLiveNumber('#pcbPropPadSize', 'size', 0.05);
-        bindLiveNumber('#pcbPropPadRatio', 'ratio', 1);
-        bindLiveNumber('#pcbPropPadDrill', 'drill', 0);
-        bindLiveNumber('#pcbPropPadRotation', 'rotation', -Infinity);
-        this._bindToolNetControl(items, 'pcbPropPadNet', next => apply('net', next));
-        this._setActiveRibbonTab?.('pcb-properties');
     }
 
     /** Show Properties-tab defaults for a board shape being created. */
@@ -3558,31 +3368,7 @@ export default class PCBApp {
      * Show board outline properties and switch to Properties tab.
      */
     _showBoardOutlineProperties() {
-        getPropertyEditor(this, 'boardDimension')?.dispose();
-        const outline = getBoardOutline(this);
-        if (outline) {
-            showBoardShapeProperties(this, outline);
-            return;
-        }
-        const items = this._pcbPropsItems();
-        if (!items) return;
-        this._setPcbPropsTitle('Board Outline');
-
-        items.innerHTML = `
-            <label class="prop-row prop-toggle" data-prop="locked"><input type="checkbox" id="pcbPropOutlineLocked"${isLayerLocked('board-outline') ? ' checked' : ''}><span>Locked</span></label>
-            <div class="prop-row" data-prop="width"><label>Width (mm)</label><input type="number" id="pcbPropBoardW" value="${Number(this._boardWidth).toFixed(2)}" min="5" step="1"></div>
-            <div class="prop-row" data-prop="height"><label>Height (mm)</label><input type="number" id="pcbPropBoardH" value="${Number(this._boardHeight).toFixed(2)}" min="5" step="1"></div>
-            <div class="prop-row" data-prop="cornerRadius"><label>Corner Radius (mm)</label><input type="number" id="pcbPropBoardR" value="${Number(this._boardRadius).toFixed(2)}" min="0" step="0.5"></div>
-        `;
-        const lockedEl = /** @type {HTMLInputElement|null} */ (document.getElementById('pcbPropOutlineLocked'));
-        lockedEl?.addEventListener('change', () => {
-            setPcbLayerLocked(this, 'board-outline', lockedEl.checked);
-        });
-
-        bindBoardDimensionProperties(this, items);
-
-        // Switch to Properties tab
-        this._setActiveRibbonTab?.('pcb-properties');
+        showBoardOutlineProperties(this);
     }
 
     _getComponentProperties() {
@@ -3590,10 +3376,10 @@ export default class PCBApp {
             getPlacement: id => this.placements.get(id),
             isActive: () => this._active !== false,
             isSelected: (kind, id) => isPcbSelected(this, kind, id),
-            getItems: () => this._pcbPropsItems(),
-            setTitle: title => this._setPcbPropsTitle(title),
+            getItems: () => this.propertiesItems(),
+            setTitle: title => this.setPropertiesTitle(title),
             activateTab: () => this._setActiveRibbonTab?.('pcb-properties'),
-            layerLabel: layer => this._layerLabel(layer),
+            layerLabel: layer => this.layerLabel(layer),
             bindStrokeText: (items, model, spec) => this._bindStrokeTextProps(items, model, spec),
             rotate: (id, before, after) => this.history.execute(new RotatePlacementCommand(this, id, before, after)),
             setLocked: (id, locked) => {
@@ -5348,51 +5134,10 @@ export default class PCBApp {
 
     /** Show Text drawing defaults in Properties. */
     _showTextToolProperties() {
-        const d = this._textDefaults;
-        const items = this._pcbPropsItems();
-        if (!items) return;
-        const layerOpts = TEXT_LAYERS.map(layer =>
-            `<option value="${layer}"${layer === d.layer ? ' selected' : ''}>${this._layerLabel(layer)}</option>`
-        ).join('');
-        this._setPcbPropsTitle('New Text');
-        items.innerHTML = `
-            <div class="prop-row" data-prop="layer"><label>Layer</label><select id="pcbPropTextToolLayer">${layerOpts}</select></div>
-            <div class="prop-row" data-prop="fontSize"><label>Text Size (mm)</label><input type="number" id="pcbPropTextToolSize" value="${d.size}" min="0.2" max="20" step="0.1"></div>
-            <div class="prop-row" data-prop="lineWidth"><label>Line Width (mm)</label><input type="number" id="pcbPropTextToolLW" value="${d.strokeWidth}" min="0.05" max="2" step="0.05"></div>
-            <div class="prop-row" data-prop="rotation"><label>Rotation (°)</label><input type="number" id="pcbPropTextToolRot" data-number-format="rotation" value="${displayRotationDegrees(d.rotation)}" step="1"></div>
-            <div class="prop-row" data-prop="border"><label><input type="checkbox" id="pcbPropTextToolBorder"${d.border ? ' checked' : ''}> Border</label></div>
-        `;
-        const layerEl = /** @type {HTMLSelectElement|null} */ (items.querySelector('#pcbPropTextToolLayer'));
-        const sizeEl = /** @type {HTMLInputElement|null} */ (items.querySelector('#pcbPropTextToolSize'));
-        const rotationEl = /** @type {HTMLInputElement|null} */ (items.querySelector('#pcbPropTextToolRot'));
-        const lineWidthEl = /** @type {HTMLInputElement|null} */ (items.querySelector('#pcbPropTextToolLW'));
-        const borderEl = /** @type {HTMLInputElement|null} */ (items.querySelector('#pcbPropTextToolBorder'));
-        layerEl?.addEventListener('change', () => {
-            if (TEXT_LAYERS.includes(layerEl.value)) this._textDefaults.layer = layerEl.value;
-            this.setPcbStatus();
-        });
-        sizeEl?.addEventListener('input', () => {
-            const size = parseFloat(sizeEl.value);
-            if (Number.isFinite(size) && size > 0) this._textDefaults.size = size;
-        });
-        rotationEl?.addEventListener('input', () => {
-            const rotation = parseFloat(rotationEl.value);
-            if (Number.isFinite(rotation)) {
-                this._textDefaults.rotation = ((Math.round(rotation) % 360) + 360) % 360;
-                rotationEl.value = String(this._textDefaults.rotation);
-            }
-        });
-        lineWidthEl?.addEventListener('input', () => {
-            const lineWidth = parseFloat(lineWidthEl.value);
-            if (Number.isFinite(lineWidth) && lineWidth > 0) this._textDefaults.strokeWidth = lineWidth;
-        });
-        borderEl?.addEventListener('change', () => {
-            this._textDefaults.border = borderEl.checked;
-        });
-        this._setActiveRibbonTab?.('pcb-properties');
+        showTextToolProperties(this, this._textDefaults);
     }
 
-    _layerLabel(layer) {
+    layerLabel(layer) {
         switch (layer) {
             case 'top-silk':      return 'Top Silk';
             case 'bottom-silk':   return 'Bottom Silk';
@@ -5414,122 +5159,7 @@ export default class PCBApp {
      * undo collapses each edit into one entry.
      */
     _showTextProperties(text) {
-        text = this.pcbDocument.texts.get(text.id);
-        const items = this._pcbPropsItems();
-        if (!items) return;
-        this._setPcbPropsTitle('Text');
-        const disabled = isLayerLocked(text.layer) ? ' disabled' : '';
-        const layerOpts = TEXT_LAYERS.map(l =>
-            `<option value="${l}" ${l === text.layer ? 'selected' : ''}>${this._layerLabel(l)}</option>`
-        ).join('');
-        const isEditingThis = this._textEdit?.text?.id === text.id;
-        const insertRow = isEditingThis ? `
-            <div class="prop-row" data-prop="insert"><label>Insert</label><select id="pcbPropTextInsert"${disabled}>
-                <option value="">Symbol…</option>
-                <option value="\u00A9">© Copyright</option>
-                <option value="\u00AE">® Registered</option>
-                <option value="\u2122">™ Trademark</option>
-                <option value="\u00B0">° Degree</option>
-                <option value="\u00B5">µ Micro</option>
-                <option value="\u03A9">Ω Ohm</option>
-                <option value="\u00B1">± Plus-minus</option>
-                <option value="\u00D7">× Times</option>
-                <option value="\u00F7">÷ Divide</option>
-            </select></div>` : '';
-        items.innerHTML = `
-            ${insertRow}
-            <div class="prop-row" data-prop="layer"><label>Layer</label><select id="pcbPropTextLayer"${disabled}>${layerOpts}</select></div>
-            <div class="prop-row" data-prop="fontSize"><label>Text Size (mm)</label><input type="number" id="pcbPropTextSize" value="${text.size}" min="0.2" step="0.1"${disabled}></div>
-            <div class="prop-row" data-prop="lineWidth"><label>Line Width (mm)</label><input type="number" id="pcbPropTextLW" value="${text.strokeWidth}" min="0.05" step="0.05"${disabled}></div>
-            <div class="prop-row" data-prop="rotation"><label>Rotation (°)</label><input type="number" id="pcbPropTextRot" data-number-format="rotation" value="${displayRotationDegrees(text.rotation)}" step="1"${disabled}></div>
-            <div class="prop-row" data-prop="border"><label><input type="checkbox" id="pcbPropTextBorder"${text.border ? ' checked' : ''}${disabled}> Border</label></div>
-        `;
-        // Snapshot at first edit so undo collapses keystrokes into a
-        // single command per field. The field binding/commit machinery is
-        // shared with the reference-designator panel via _bindStrokeTextProps.
-        const layerApply = (model, v) => {
-            // Layer change: if mirror flips (top↔bottom), the rendered
-            // text reflects about its anchor x and visually jumps. Shift
-            // the anchor by the text width (rotated into world space) so
-            // the visible glyphs stay put.
-            const wasBottom = typeof model.layer === 'string' && model.layer.startsWith('bottom-');
-            const willBottom = typeof v === 'string' && v.startsWith('bottom-');
-            if (wasBottom !== willBottom) {
-                const content = this._textEdit?.text?.id === model.id ? this._textEdit.text.content : model.content;
-                const w = measureStrokeText(content, model.size);
-                const sign = willBottom ? 1 : -1; // top→bottom: +w; bottom→top: -w
-                const rot = (model.rotation || 0) * Math.PI / 180;
-                // SVG-Y-down with rotate(-rot): dx,dy in local frame map
-                // to (cos(rot)*dx, -sin(rot)*dx) in world.
-                model.x += sign * w * Math.cos(rot);
-                model.y += sign * w * -Math.sin(rot);
-            }
-            model.layer = v;
-        };
-        const num = (min) => (v) => {
-            const n = parseFloat(v);
-            if (!Number.isFinite(n)) return null;
-            return min !== undefined ? Math.max(min, n) : n;
-        };
-        const rotParse = (v) => {
-            const n = parseFloat(v);
-            if (!Number.isFinite(n)) return null;
-            return ((Math.round(n) % 360) + 360) % 360;
-        };
-        setPropertyEditor(this, 'text', this._bindStrokeTextProps(items, text, {
-            editable: () => this._active !== false && this.pcbDocument.texts.get(text.id) === text
-                && !isLayerLocked(text.layer) && isLayerVisible(text.layer),
-            fields: [
-                { id: 'pcbPropTextLayer', field: 'layer', parse: (v) => TEXT_LAYERS.includes(v) ? v : null, apply: layerApply },
-                { id: 'pcbPropTextSize', field: 'size', parse: num(0.1) },
-                { id: 'pcbPropTextRot', field: 'rotation', parse: rotParse, wrap: true },
-                { id: 'pcbPropTextLW', field: 'strokeWidth', parse: num(0.01) },
-            ],
-            begin: (t) => beginTextPropertyPreview(this, t.id),
-            cancel: () => finishTextPropertyPreview(this),
-            preview: (t) => this.refreshText(t.id),
-            commit: (t, snap) => {
-                const after = {};
-                for (const k of ['layer', 'size', 'rotation', 'strokeWidth', 'x', 'y']) {
-                    if (snap[k] !== t[k]) {
-                        after[k] = t[k];
-                    }
-                }
-                finishTextPropertyPreview(this, Object.keys(after).length
-                    ? () => this.history.execute(new EditTextCommand(this, t.id, after)) : undefined);
-            },
-        }));
-        const borderEl = /** @type {HTMLInputElement|null} */ (items.querySelector('#pcbPropTextBorder'));
-        borderEl?.addEventListener('change', () => {
-            this.history.execute(new EditTextCommand(this, text.id, { border: borderEl.checked }));
-        });
-        // Insert-symbol dropdown: insert at caret when inline-editing,
-        // otherwise append to the text via an EditTextCommand. Resets
-        // to the placeholder after each selection so the same symbol
-        // can be inserted again.
-        const insertEl = /** @type {HTMLSelectElement|null} */
-            (document.getElementById('pcbPropTextInsert'));
-        insertEl?.addEventListener('change', () => {
-            const sym = insertEl.value;
-            insertEl.value = '';
-            if (!sym) return;
-            const edit = this._textEdit;
-            if (edit && edit.text?.id === text.id) {
-                const inp = edit.input;
-                const sel = inp.selectionStart ?? inp.value.length;
-                const end = inp.selectionEnd ?? sel;
-                inp.value = inp.value.slice(0, sel) + sym + inp.value.slice(end);
-                const pos = sel + sym.length;
-                try { inp.setSelectionRange(pos, pos); } catch { /* */ }
-                inp.dispatchEvent(new Event('input', { bubbles: true }));
-                inp.focus();
-            } else {
-                this.history.execute(new EditTextCommand(this, text.id,
-                    { content: (text.content || '') + sym }));
-            }
-        });
-
-        this._setActiveRibbonTab?.('pcb-properties');
+        showTextProperties(this, text, () => this._textEdit);
     }
 
     /**
@@ -5544,108 +5174,7 @@ export default class PCBApp {
      * @param {{fields: Array<{id:string, field:string, parse:(v:string)=>any, apply?:(m:any,v:any)=>void, value?:(m:any)=>any, wrap?:boolean}>, editable?:()=>boolean, begin?:(m:any)=>any, cancel?:(snap:any)=>void, preview:(m:any)=>void, commit:(m:any, snap:any)=>void}} spec
      */
     _bindStrokeTextProps(items, model, spec) {
-        let snapshot = null;
-        let target = model;
-        let disposed = false;
-        let activeField = null;
-        const controls = new Map(spec.fields.map(f => [f, items.querySelector('#' + f.id)]));
-        const editable = () => !disposed && (!spec.editable || spec.editable());
-        const resetFields = () => {
-            for (const f of spec.fields) {
-                const el = controls.get(f);
-                const value = f.value ? f.value(model) : model[f.field];
-                if (el) el.value = String(f.wrap ? Math.round(value) % 360 : value);
-            }
-        };
-        const onInput = (f) => () => {
-            if (disposed) return;
-            if (!editable()) { binding.cancel(); return; }
-            const el = controls.get(f);
-            if (snapshot && activeField !== f) {
-                const pending = el.value;
-                onCommit();
-                el.value = pending;
-            }
-            const v = f.parse(el ? el.value : '');
-            if (v === null || v === undefined) return;
-            if (target[f.field] === v) return;
-            if (!snapshot) {
-                target = spec.begin ? spec.begin(model) : model;
-                snapshot = { ...target };
-            }
-            activeField = f;
-            if (f.apply) f.apply(target, v); else target[f.field] = v;
-            if (typeof target.content === 'string') schedulePictureCopperRefresh(this, target);
-            spec.preview(target);
-        };
-        const onCommit = () => {
-            if (disposed || !snapshot) return;
-            if (!editable() || activeField.parse(controls.get(activeField)?.value || '') == null) {
-                binding.cancel();
-                return;
-            }
-            const snap = snapshot;
-            snapshot = null;
-            activeField = null;
-            const edited = target;
-            target = model;
-            let committed = false;
-            try {
-                spec.commit(edited, snap);
-                committed = true;
-            } finally {
-                if (!committed) {
-                    spec.cancel?.(snap);
-                    resetFields();
-                }
-            }
-        };
-        for (const f of spec.fields) {
-            const el = controls.get(f);
-            if (!el) continue;
-            bindPictureRefreshHold(this, el);
-            const handler = onInput(f);
-            el.addEventListener('input', handler);
-            // Spinner step clicks on number inputs fire 'change' without 'input'.
-            el.addEventListener('change', handler);
-            el.addEventListener('change', onCommit);
-            el.addEventListener('keydown', event => {
-                if (disposed || event.key !== 'Escape' || !snapshot) return;
-                binding.cancel();
-                event.preventDefault();
-                event.stopPropagation();
-            });
-            if (f.wrap) {
-                const wrapDeg = () => {
-                    if (disposed) return;
-                    const n = parseFloat(el.value);
-                    if (!Number.isFinite(n)) return;
-                    const wrapped = ((Math.round(n) % 360) + 360) % 360;
-                    if (wrapped !== n) el.value = String(wrapped);
-                };
-                el.addEventListener('change', wrapDeg);
-            }
-        }
-        const binding = {
-            model,
-            affectsLayer: layerId => model.layer === layerId,
-            get active() { return snapshot !== null; },
-            commit: onCommit,
-            cancel: () => {
-                if (!snapshot) return;
-                const snap = snapshot;
-                snapshot = null;
-                activeField = null;
-                target = model;
-                spec.cancel?.(snap);
-                resetFields();
-            },
-            dispose: () => {
-                if (disposed) return;
-                try { binding.cancel(); } finally { disposed = true; }
-            },
-        };
-        return binding;
+        return bindStrokeTextProps(this, items, model, spec);
     }
 
     /**
@@ -6020,360 +5549,12 @@ export default class PCBApp {
     }
 
     _pcbMultiPropertyCapabilities(entry) {
-        const { kind, object } = entry;
-        const number = (label, get, command, min = -Infinity, step = 1, max = Infinity) => (
-            { type: 'number', label, get, command, min, max, step }
-        );
-        const select = (label, get, command, options, disabled = false) => (
-            { type: 'select', label, get, command, options, disabled }
-        );
-        const checkbox = (label, get, command, disabled = false) => (
-            { type: 'checkbox', label, get, command, disabled }
-        );
-        const net = (get, command) => ({ type: 'net', label: 'Net', get, command });
-        const shapeCommand = (mutate) => {
-            const before = captureBoardShapeState(object);
-            const candidate = { ...object };
-            applyShapeSnapshot(candidate, before);
-            mutate(candidate);
-            const after = captureBoardShapeState(candidate);
-            return JSON.stringify(before) === JSON.stringify(after)
-                ? null : new ModifyBoardShapeCommand(this, object, before, after);
-        };
-        const fillCommand = (mutate) => {
-            const before = object.captureState();
-            const candidate = new CopperFill(before);
-            mutate(candidate);
-            const after = candidate.captureState();
-            return JSON.stringify(before) === JSON.stringify(after)
-                ? null : new ModifyFillCommand(this, object, before, after);
-        };
-        const padCommand = (property, value) => {
-            const before = object.captureState();
-            const after = { ...before, [property]: value };
-            if (property === 'size') after.drill = Math.min(after.drill, value);
-            return JSON.stringify(before) === JSON.stringify(after)
-                ? null : new ModifyPadCommand(this, object, before, after);
-        };
-        const capabilities = {};
-        if (kind === 'component') {
-            const placement = this.placements.get(object);
-            if (!placement) return capabilities;
-            const locked = !!placement.locked;
-            capabilities.locked = checkbox('Locked', () => !!placement.locked,
-                value => new SetPlacementLockedCommand(this, object, value));
-            capabilities.refVisible = checkbox('Show Reference', () => placement.refVisible !== false,
-                value => new SetPlacementRefVisibleCommand(this, object, value), locked);
-            capabilities.layer = select('Layer', () => placement.side === 'bottom' ? 'bottom' : 'top',
-                value => new SetPlacementSideCommand(this, object, value),
-                [['top', 'Top'], ['bottom', 'Bottom']], locked);
-            capabilities.rotation = number('Rotation (°)', () => ((placement.rotation || 0) % 360 + 360) % 360,
-                value => new RotatePlacementCommand(this, object, placement.rotation || 0, value),
-                -Infinity, 1, Infinity);
-            capabilities.rotation.disabled = locked;
-        } else if (kind === 'text') {
-            capabilities.layer = select('Layer', () => object.layer,
-                value => {
-                    const after = { layer: value };
-                    const wasBottom = String(object.layer).startsWith('bottom-');
-                    const willBottom = String(value).startsWith('bottom-');
-                    if (wasBottom !== willBottom) {
-                        const width = measureStrokeText(object.content, object.size);
-                        const sign = willBottom ? 1 : -1;
-                        const radians = (object.rotation || 0) * Math.PI / 180;
-                        after.x = object.x + sign * width * Math.cos(radians);
-                        after.y = object.y - sign * width * Math.sin(radians);
-                    }
-                    return new EditTextCommand(this, object.id, after);
-                },
-                TEXT_LAYERS.map(layer => [layer, this._layerLabel(layer)]));
-            capabilities.size = number('Text Size (mm)', () => object.size,
-                value => new EditTextCommand(this, object.id, { size: value }), 0.1, 0.1);
-            capabilities.rotation = number('Rotation (°)', () => object.rotation || 0,
-                value => new EditTextCommand(this, object.id, { rotation: value }), -Infinity, 1);
-            capabilities.lineWidth = number('Line Width (mm)', () => object.strokeWidth,
-                value => new EditTextCommand(this, object.id, { strokeWidth: value }), 0.01, 0.05);
-            capabilities.border = checkbox('Border', () => !!object.border,
-                value => new EditTextCommand(this, object.id, { border: value }));
-            for (const capability of Object.values(capabilities)) capability.disabled = isLayerLocked(object.layer);
-        } else if (kind === 'reftext') {
-            const placement = this.placements.get(object);
-            if (!placement) return capabilities;
-            const locked = isRefTextLocked(placement);
-            const currentSize = () => placement.refSize || REF_DEFAULT_SIZE;
-            const currentWidth = () => placement.refStrokeWidth || REF_DEFAULT_STROKE;
-            const currentRotation = () => placement.refRot || 0;
-            capabilities.size = number('Text Size (mm)', currentSize,
-                value => new SetRefStyleCommand(this, object,
-                    { refSize: currentSize(), refStrokeWidth: currentWidth(), refRot: currentRotation() },
-                    { refSize: value, refStrokeWidth: currentWidth(), refRot: currentRotation() }),
-                0.1, 0.1);
-            capabilities.rotation = number('Rotation (°)', currentRotation,
-                value => new SetRefStyleCommand(this, object,
-                    { refSize: currentSize(), refStrokeWidth: currentWidth(), refRot: currentRotation() },
-                    { refSize: currentSize(), refStrokeWidth: currentWidth(), refRot: value }),
-                -Infinity, 1);
-            capabilities.lineWidth = number('Line Width (mm)', currentWidth,
-                value => new SetRefStyleCommand(this, object,
-                    { refSize: currentSize(), refStrokeWidth: currentWidth(), refRot: currentRotation() },
-                    { refSize: currentSize(), refStrokeWidth: value, refRot: currentRotation() }),
-                0.01, 0.05);
-            for (const capability of Object.values(capabilities)) capability.disabled = locked;
-        } else if (kind === 'fill') {
-            capabilities.net = net(() => String(object.net || ''),
-                value => fillCommand(target => { target.net = value; }));
-            capabilities.layer = select('Layer', () => object.layer,
-                value => fillCommand(target => { target.layer = value; }),
-                [['top-copper', 'Top Copper'], ['bottom-copper', 'Bottom Copper']]);
-            capabilities.shapeKind = select('Outline', () => object.kind,
-                value => fillCommand(target => {
-                    if (value === target.kind) return;
-                    const bounds = target.getBounds();
-                    const contour = target.getOutline();
-                    target.kind = value;
-                    target.cornerRadius = 0;
-                    target.nodeCornerRadii = {};
-                    target.segmentBulges = {};
-                    if (value === 'circle') {
-                        target.outline = [];
-                        target.x = (bounds.minX + bounds.maxX) / 2;
-                        target.y = (bounds.minY + bounds.maxY) / 2;
-                        target.radius = Math.min(bounds.maxX - bounds.minX, bounds.maxY - bounds.minY) / 2;
-                    } else {
-                        target.outline = value === 'polygon' ? contour : [
-                            { x: bounds.minX, y: bounds.minY },
-                            { x: bounds.maxX, y: bounds.minY },
-                            { x: bounds.maxX, y: bounds.maxY },
-                            { x: bounds.minX, y: bounds.maxY },
-                        ];
-                    }
-                }), [['rect', 'Rectangle'], ['polygon', 'Polygon'], ['circle', 'Circle']]);
-            if (object.kind === 'circle') {
-                capabilities.diameter = number('Diameter (mm)', () => object.radius * 2,
-                    value => fillCommand(target => { target.radius = value / 2; }), 0.1, 0.05);
-            } else {
-                capabilities.cornerRadius = number('Corner Radius (mm)', () => object.cornerRadius || 0,
-                    value => fillCommand(target => {
-                        target.cornerRadius = value;
-                        target.nodeCornerRadii = {};
-                    }), 0, 0.05);
-                if (object.kind === 'rect') {
-                    const resizeFill = (axis, value) => fillCommand(target => {
-                        const bounds = target.getBounds();
-                        const min = axis === 'x' ? 'minX' : 'minY';
-                        const max = axis === 'x' ? 'maxX' : 'maxY';
-                        if (value === bounds[max] - bounds[min]) return;
-                        const factor = value / (bounds[max] - bounds[min]);
-                        target.outline = target.outline.map(point => ({
-                            ...point,
-                            [axis]: bounds[min] + (point[axis] - bounds[min]) * factor,
-                        }));
-                    });
-                    capabilities.width = number('Width (mm)', () => {
-                        const bounds = object.getBounds();
-                        return bounds.maxX - bounds.minX;
-                    }, value => resizeFill('x', value), 0.1, 0.05);
-                    capabilities.height = number('Height (mm)', () => {
-                        const bounds = object.getBounds();
-                        return bounds.maxY - bounds.minY;
-                    }, value => resizeFill('y', value), 0.1, 0.05);
-                }
-            }
-            for (const capability of Object.values(capabilities)) {
-                capability.disabled = !canEditFill(object);
-            }
-        } else if (kind === 'pad') {
-            capabilities.net = net(() => String(object.net || ''), value => padCommand('net', value));
-            capabilities.size = number('Size (mm)', () => object.size,
-                value => padCommand('size', value), 0.05, 0.05);
-            capabilities.rotation = number('Rotation (°)', () => object.rotation || 0,
-                value => padCommand('rotation', value), -Infinity, 1);
-        } else if (kind === 'via') {
-            capabilities.net = net(() => String(object.net || ''),
-                value => new ModifyViaCommand(this, object, { net: object.net || '' }, { net: value }));
-            capabilities.diameter = number('Diameter (mm)', () => object.diameter,
-                value => new ModifyViaCommand(this, object, { diameter: object.diameter }, { diameter: value }),
-                object.drill, 0.05);
-            capabilities.drill = number('Drill (mm)', () => object.drill,
-                value => new ModifyViaCommand(this, object, { drill: object.drill }, { drill: value }),
-                0.05, 0.05, object.diameter);
-        } else if (kind === 'track') {
-            capabilities.net = net(() => String(object.net || ''), null);
-            capabilities.lineWidth = number('Width (mm)', () => object.width,
-                value => {
-                    const before = object.captureState();
-                    const candidate = new Track({ id: object.id });
-                    candidate.applyState(before);
-                    candidate.width = value;
-                    for (const edgeId of candidate.edges.keys()) candidate.setEdgeAttr(edgeId, 'width', value);
-                    const after = candidate.captureState();
-                    return JSON.stringify(before) === JSON.stringify(after)
-                        ? null : new ModifyTrackGraphCommand(this, object, before, after);
-                }, 0.05, 0.05);
-        } else if (kind === 'shape') {
-            const copper = object.layer === 'top-copper' || object.layer === 'bottom-copper';
-            if (copper && normalizeShapeCopperMode(object.copperMode) === 'add') {
-                capabilities.net = net(() => String(object.net || ''),
-                    value => shapeCommand(target => { target.net = value; }));
-            }
-            capabilities.layer = select('Layer', () => object.layer,
-                value => shapeCommand(target => { target.layer = value; }),
-                PCB_LAYERS.filter(layer => layer.id !== 'vias' && (object.kind !== 'image'
-                    ? layer.id !== 'board-outline' : PICTURE_LAYERS.includes(layer.id)))
-                    .map(layer => [layer.id, layer.name]));
-            if (object.kind === 'image') {
-                const imageSize = (target = object) => ({
-                    width: Math.hypot(target.points[1].x - target.points[0].x, target.points[1].y - target.points[0].y),
-                    height: Math.hypot(target.points[3].x - target.points[0].x, target.points[3].y - target.points[0].y),
-                });
-                const resize = (dimension, value) => shapeCommand(target => {
-                    const current = imageSize(target);
-                    const base = current[dimension];
-                    if (value === base) return;
-                    const factor = value / base;
-                    const center = { x: (target.points[0].x + target.points[2].x) / 2,
-                        y: (target.points[0].y + target.points[2].y) / 2 };
-                    target.points = target.points.map(point => ({
-                        x: center.x + (point.x - center.x) * factor,
-                        y: center.y + (point.y - center.y) * factor,
-                    }));
-                });
-                capabilities.width = number('Width (mm)', () => imageSize().width,
-                    value => resize('width', value), 0.1, 0.1, 500);
-                capabilities.height = number('Height (mm)', () => imageSize().height,
-                    value => resize('height', value), 0.1, 0.1, 500);
-                capabilities.rotation = number('Rotation (°)', () => (
-                    (-Math.atan2(object.points[1].y - object.points[0].y,
-                        object.points[1].x - object.points[0].x) * 180 / Math.PI) % 360 + 360
-                ) % 360, value => shapeCommand(target => {
-                    const current = (-Math.atan2(target.points[1].y - target.points[0].y,
-                        target.points[1].x - target.points[0].x) * 180 / Math.PI + 360) % 360;
-                    if (value === current) return;
-                    const radians = -(value - current) * Math.PI / 180;
-                    const cosine = Math.cos(radians), sine = Math.sin(radians);
-                    const center = { x: (target.points[0].x + target.points[2].x) / 2,
-                        y: (target.points[0].y + target.points[2].y) / 2 };
-                    target.points = target.points.map(point => ({
-                        x: center.x + (point.x - center.x) * cosine - (point.y - center.y) * sine,
-                        y: center.y + (point.x - center.x) * sine + (point.y - center.y) * cosine,
-                    }));
-                }), -Infinity, 1);
-                capabilities.invert = checkbox('Invert', () => !!object.artwork?.invert,
-                    value => shapeCommand(target => { target.artwork = { ...target.artwork, invert: value }; }));
-                capabilities.flipHorizontal = checkbox('Flip Horizontal', () => !!object.artwork?.flipHorizontal,
-                    value => shapeCommand(target => { target.artwork = { ...target.artwork, flipHorizontal: value }; }));
-                capabilities.flipVertical = checkbox('Flip Vertical', () => !!object.artwork?.flipVertical,
-                    value => shapeCommand(target => { target.artwork = { ...target.artwork, flipVertical: value }; }));
-            } else {
-                capabilities.lineWidth = number('Line Width (mm)', () => object.lineWidth || 0.2,
-                    value => shapeCommand(target => { target.lineWidth = value; }), 0.05, 0.05);
-            }
-        }
-        return capabilities;
+        return multiPropertyCapabilities(this, entry);
     }
 
     /** Show the editable intersection of properties for any PCB multi-selection. */
     _showPcbMultiSelectionProperties(entries) {
-        const items = this._pcbPropsItems();
-        if (!items) return;
-        const hasShapes = entries.some(entry => entry.kind === 'shape');
-        this._setPcbPropsTitle(`${entries.length} Selected`);
-        const capabilitySets = entries.map(entry => this._pcbMultiPropertyCapabilities(entry));
-        let keys = Object.keys(capabilitySets[0] || {});
-        for (const capabilities of capabilitySets.slice(1)) {
-            keys = keys.filter(key => capabilities[key]?.type === capabilitySets[0][key]?.type);
-        }
-        keys = sortByPropertyOrder(keys, key => key);
-        const descriptors = new Map();
-        const rows = [];
-        for (const key of keys) {
-            const group = capabilitySets.map(capabilities => capabilities[key]);
-            const descriptor = group[0];
-            if (descriptor.type === 'select') {
-                const allowed = new Set(descriptor.options.map(([value]) => value));
-                for (const candidate of group.slice(1)) {
-                    const values = new Set(candidate.options.map(([value]) => value));
-                    for (const value of [...allowed]) if (!values.has(value)) allowed.delete(value);
-                }
-                descriptor.options = descriptor.options.filter(([value]) => allowed.has(value));
-                if (!descriptor.options.length) continue;
-            }
-            const values = group.map(candidate => candidate.get());
-            const mixed = values.some(value => value !== values[0]);
-            const allTracks = entries.every(entry => entry.kind === 'track');
-            const id = key === 'net' ? 'pcbPropMultiNet'
-                : key === 'lineWidth' && allTracks ? 'pcbPropMultiTrackWidth'
-                    : `pcbPropIntersection_${key}`;
-            descriptors.set(key, { group, descriptor, id, mixed });
-            if (descriptor.type === 'checkbox') {
-                rows.push(`<label class="prop-row prop-toggle" data-prop="${key}"><input type="checkbox" id="${id}"${!mixed && values[0] ? ' checked' : ''}${group.some(item => item.disabled) ? ' disabled' : ''}><span>${descriptor.label}</span></label>`);
-            } else if (descriptor.type === 'select') {
-                const options = descriptor.options.map(([value, label]) => {
-                    const selected = !mixed && value === values[0];
-                    return key === 'layer' && hasShapes
-                        ? pcbLayerOptionHtml(value, label, selected)
-                        : `<option value="${value}"${selected ? ' selected' : ''}>${label}</option>`;
-                }).join('');
-                rows.push(`<div class="prop-row" data-prop="${key}"><label>${descriptor.label}</label><select id="${id}"${group.some(item => item.disabled) ? ' disabled' : ''}>${mixed ? '<option value="" selected disabled>Mixed</option>' : ''}${options}</select></div>`);
-            } else if (descriptor.type === 'net') {
-                const { escape, options } = this._toolNetOptions(mixed ? '' : values[0]);
-                rows.push(`<div class="prop-row" data-prop="${key}"><label>Net</label><span class="prop-net-control"><input type="text" id="${id}" value="${mixed ? '' : escape(values[0])}" placeholder="${mixed ? 'Mixed' : 'None'}"${group.some(item => item.disabled) ? ' disabled' : ''}><details class="prop-net-menu"><summary aria-label="Select existing net"></summary><div>${options}</div></details></span></div>`);
-            } else {
-                const min = Number.isFinite(Math.max(...group.map(item => item.min))) ? Math.max(...group.map(item => item.min)) : '';
-                const max = Number.isFinite(Math.min(...group.map(item => item.max))) ? Math.min(...group.map(item => item.max)) : '';
-                rows.push(`<div class="prop-row" data-prop="${key}"><label>${descriptor.label}</label><input type="number" id="${id}" value="${mixed ? '' : values[0]}" placeholder="${mixed ? 'Mixed' : ''}"${min === '' ? '' : ` min="${min}"`}${max === '' ? '' : ` max="${max}"`} step="${descriptor.step}"${group.some(item => item.disabled) ? ' disabled' : ''}></div>`);
-            }
-        }
-        items.innerHTML = rows.length
-            ? rows.join('')
-            : '<span class="props-placeholder">No shared editable properties</span>';
-        const commit = (key, value) => {
-            const info = descriptors.get(key);
-            if (!info || info.group.some(capability => capability.disabled)) return;
-            if (key === 'layer' && hasShapes && isLayerLocked(value)) {
-                showLockedLayerBubble(this, value);
-                this._showPcbMultiSelectionProperties(entries);
-                return;
-            }
-            if (key === 'net') {
-                const routedEntries = entries.filter(entry => entry.kind === 'track' || entry.kind === 'via');
-                const otherCommands = entries.map((entry, index) =>
-                    routedEntries.includes(entry) ? null : info.group[index].command?.(value)).filter(Boolean);
-                if (!applyNetToCopperSelection(this, entries, value, otherCommands)) {
-                    this._showPcbMultiSelectionProperties(entries);
-                    return;
-                }
-            } else {
-                const commands = info.group.map(capability => capability.command?.(value)).filter(Boolean);
-                if (commands.length) {
-                    this.history.execute(commands.length === 1 ? commands[0] : new CompoundCommand(commands));
-                }
-            }
-            refreshBoxSelectionHighlights(this);
-            this._showPcbMultiSelectionProperties(entries);
-        };
-        for (const [key, info] of descriptors) {
-            const input = /** @type {HTMLInputElement|HTMLSelectElement|null} */ (items.querySelector(`#${info.id}`));
-            if (!input) continue;
-            if (info.descriptor.type === 'checkbox') {
-                input.indeterminate = info.mixed;
-                input.addEventListener('change', () => commit(key, input.checked));
-            } else if (info.descriptor.type === 'net') {
-                this._bindToolNetControl(items, info.id, value => commit(key, value));
-            } else {
-                input.addEventListener('change', () => {
-                    let value = info.descriptor.type === 'number' ? Number(input.value) : input.value;
-                    if (info.descriptor.type === 'number') {
-                        if (!Number.isFinite(value)) return;
-                        if (key === 'rotation') value = ((value % 360) + 360) % 360;
-                        value = Math.max(info.descriptor.min, Math.min(info.descriptor.max, value));
-                    }
-                    commit(key, value);
-                });
-            }
-        }
-        this._setActiveRibbonTab?.('pcb-properties');
-        this.syncClipboardButtons?.();
+        showMultiSelectionProperties(this, entries);
     }
 
     /** Routing adapters expose model operations, never the application itself. */
@@ -7575,72 +6756,7 @@ export default class PCBApp {
      * ModifyFillCommand for clean undo/redo.
      */
     _showFillProperties(fill) {
-        const items = this._pcbPropsItems();
-        if (!items || !fill) return;
-        this._setPcbPropsTitle('Copper Fill');
-        const esc = (s) => String(s).replace(/[&<>"']/g, (c) => (
-            { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]
-        ));
-        const netNames = new Set((this.netlist || []).map((entry) => String(entry.net || '')).filter(Boolean));
-        for (const source of [this.tracks, this.vias, this.boardShapes, this.copperFills]) {
-            for (const item of source || []) {
-                const net = String(item?.net || '');
-                if (net) netNames.add(net);
-            }
-        }
-        const selectedNet = String(fill.net || '');
-        const netOptions = `<button type="button" data-net="">None</button>${[...netNames].sort().map((net) =>
-            `<button type="button" data-net="${esc(net)}"${net === selectedNet ? ' aria-current="true"' : ''}>${esc(net)}</button>`
-        ).join('')}`;
-        const layerOpts = [
-            ['top-copper', 'Top Copper'],
-            ['bottom-copper', 'Bottom Copper'],
-        ].map(([id, name]) => `<option value="${id}"${id === fill.layer ? ' selected' : ''}>${name}</option>`).join('');
-        items.innerHTML = `
-            <label class="prop-row prop-toggle" data-prop="locked"><input type="checkbox" id="pcbPropFillLocked"${isCopperFillLocked(fill.layer) ? ' checked' : ''}><span>Locked</span></label>
-            <div class="prop-row" data-prop="layer"><label>Layer</label><select id="pcbPropFillLayer">${layerOpts}</select></div>
-            <div class="prop-row" data-prop="net"><label>Net</label><span class="prop-net-control"><input type="text" id="pcbPropFillNet" placeholder="None" value="${esc(fill.net || '')}"><details class="prop-net-menu"><summary aria-label="Select existing net"></summary><div>${netOptions}</div></details></span></div>
-        `;
-        const lockedEl = /** @type {HTMLInputElement|null} */ (document.getElementById('pcbPropFillLocked'));
-        lockedEl?.addEventListener('change', () => {
-            setPcbCopperFillLocked(this, fill.layer, lockedEl.checked);
-        });
-        const commit = (mutate) => {
-            if (!canEditFill(fill)) return;
-            const before = fill.captureState();
-            mutate();
-            const after = fill.captureState();
-            fill.applyState(before);
-            this.history.execute(new ModifyFillCommand(this, fill, before, after));
-        };
-        const netEl = /** @type {HTMLInputElement|null} */ (document.getElementById('pcbPropFillNet'));
-        const netMenuEl = /** @type {HTMLDetailsElement|null} */ (document.querySelector('.prop-net-menu'));
-        netEl?.addEventListener('change', () => {
-            const value = netEl.value.trim();
-            if ((fill.net || '') === value) return;
-            commit(() => { fill.net = value; });
-        });
-        netMenuEl?.addEventListener('click', (event) => {
-            const option = /** @type {HTMLButtonElement|null} */ (event.target instanceof Element ? event.target.closest('button[data-net]') : null);
-            if (!option) return;
-            netEl.value = option.dataset.net || '';
-            netEl.dispatchEvent(new Event('change'));
-            netMenuEl.open = false;
-        });
-        netMenuEl?.addEventListener('toggle', () => {
-            if (!netMenuEl.open || !netEl) return;
-            const current = netEl.value.trim();
-            for (const option of netMenuEl.querySelectorAll('button[data-net]')) {
-                option.toggleAttribute('aria-current', option.dataset.net === current);
-            }
-        });
-        const layerEl = /** @type {HTMLSelectElement|null} */ (document.getElementById('pcbPropFillLayer'));
-        layerEl?.addEventListener('change', () => {
-            if (fill.layer === layerEl.value) return;
-            commit(() => { fill.layer = layerEl.value; });
-        });
-        addFillGeometryProperties(this, fill, items);
-        this._setActiveRibbonTab?.('pcb-properties');
+        showFillProperties(this, fill);
     }
 
     /**

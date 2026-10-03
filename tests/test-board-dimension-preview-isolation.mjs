@@ -68,7 +68,7 @@ function fixture(existing = true, deferred = false) {
         _drawBoardOutline() { draws++; PCBApp.prototype._drawBoardOutline.call(this); },
         refreshFills() { assert.equal(areDragOverlaysDeferred(this), deferred); pours++; },
         _board3d: { refresh() { refresh3d++; } },
-        _showBoardOutlineProperties() {}, _pcbPropsItems: () => null,
+        _showBoardOutlineProperties() {}, propertiesItems: () => null,
         _cancelDrawingMode() {}, _ensureViewport() {}, markSectionClean() {},
         _refreshPcbSelectionHighlights() {},
     };
@@ -79,7 +79,7 @@ function fixture(existing = true, deferred = false) {
         Object.defineProperty(app, key, Object.getOwnPropertyDescriptor(PCBApp.prototype, key));
     }
     for (const key of ['_cancelPosePreviews', '_syncBoardOutlineInputs', 'isSectionEditing',
-        '_onLayerLockChanged', '_onLayerVisibilityChanged', 'clearProperties', '_setPcbPropsTitle', '_selectBoardOutline']) {
+        '_onLayerLockChanged', '_onLayerVisibilityChanged', 'clearProperties', 'setPropertiesTitle', '_selectBoardOutline']) {
         app[key] = PCBApp.prototype[key];
     }
     project.registerView('pcb', app);
@@ -228,7 +228,7 @@ console.log(`PASS ${cases} generic dimension isolation cases: numeric/resize, se
     assert.equal(binding.active, false, 'Invalid completion cancels an earlier preview');
     binding.cancel();
     input.value = '57'; input.emit('input');
-    app._setPcbPropsTitle('Other');
+    app.setPropertiesTitle('Other');
     input.value = '58'; input.emit('change');
     assert.equal(getBoardDimensionPreview(app), undefined);
     assert.deepEqual(model.board, before, 'Disposed callbacks cannot reauthor the model');

@@ -1,4 +1,5 @@
-import { isLayerLocked, isLayerVisible } from './layers.js';
+import { isLayerLocked, isLayerVisible, setPcbLayerLocked } from './layers.js';
+import { showBoardShapeProperties } from './board-shape-properties.js';
 import { SetBoardOutlineCommand } from './track-commands.js';
 import { snapToViewportGrid } from '../../core/grid-snap.js';
 import { getBoardOutline, rectangleBoardOutline, boardDimensions } from '../../shared/pcb/board-outline.js';
@@ -10,6 +11,32 @@ const dimensionPreviews = new WeakMap();
 
 export function getBoardDimensionPreview(app) {
     return dimensionPreviews.get(app);
+}
+
+/** Properties for the board outline: the outline shape's panel, or board size fields before one exists. */
+export function showBoardOutlineProperties(app) {
+    getPropertyEditor(app, 'boardDimension')?.dispose();
+    const outline = getBoardOutline(app);
+    if (outline) {
+        showBoardShapeProperties(app, outline);
+        return;
+    }
+    const items = app.propertiesItems();
+    if (!items) return;
+    app.setPropertiesTitle('Board Outline');
+    const board = getBoardDimensionPreview(app)?.board ?? app.pcbDocument.board;
+    items.innerHTML = `
+        <label class="prop-row prop-toggle" data-prop="locked"><input type="checkbox" id="pcbPropOutlineLocked"${isLayerLocked('board-outline') ? ' checked' : ''}><span>Locked</span></label>
+        <div class="prop-row" data-prop="width"><label>Width (mm)</label><input type="number" id="pcbPropBoardW" value="${Number(board.width).toFixed(2)}" min="5" step="1"></div>
+        <div class="prop-row" data-prop="height"><label>Height (mm)</label><input type="number" id="pcbPropBoardH" value="${Number(board.height).toFixed(2)}" min="5" step="1"></div>
+        <div class="prop-row" data-prop="cornerRadius"><label>Corner Radius (mm)</label><input type="number" id="pcbPropBoardR" value="${Number(board.radius).toFixed(2)}" min="0" step="0.5"></div>
+    `;
+    const lockedEl = /** @type {HTMLInputElement|null} */ (document.getElementById('pcbPropOutlineLocked'));
+    lockedEl?.addEventListener('change', () => {
+        setPcbLayerLocked(app, 'board-outline', lockedEl.checked);
+    });
+    bindBoardDimensionProperties(app, items);
+    app.showPropertiesTab?.();
 }
 
 export function previewBoardDimensions(app, dimensions) {

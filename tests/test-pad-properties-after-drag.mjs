@@ -29,9 +29,9 @@ function fixture(count) {
         tracks: [], vias: [], boardShapes: [], placements: new Map(), netlist: [], texts: new Map(),
         getLayerGroup() { return null; },
         viewport: { setCrosshair() {}, hideCrosshair() {} },
-        _pcbPropsItems: () => ({ innerHTML: '', querySelector: selector => controls.get(selector) }),
-        _setPcbPropsTitle() {}, _setActiveRibbonTab() {}, setPcbStatus() {}, refreshFills() {},
-        _bindToolNetControl(items, id, apply) {
+        propertiesItems: () => ({ innerHTML: '', querySelector: selector => controls.get(selector) }),
+        setPropertiesTitle() {}, _setActiveRibbonTab() {}, setPcbStatus() {}, refreshFills() {},
+        bindToolNetControl(items, id, apply) {
             items.querySelector(`#${id}`).addEventListener('change', event => apply(event.target.value));
         },
     });

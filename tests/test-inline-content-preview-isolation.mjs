@@ -68,7 +68,7 @@ function fixture(layer, extraTexts = 0, isNew = false) {
         _textElements: new Map(), _shapeElements: new Map(),
         viewport: { svg: new Element('svg'), addInteractionOverlay: group => overlay.appendChild(group) },
         getLayerGroup: id => groups.get(id) || null,
-        _pcbPropsItems: () => properties, _setPcbPropsTitle() {}, _layerLabel: id => id,
+        propertiesItems: () => properties, setPropertiesTitle() {}, layerLabel: id => id,
         clearProperties() {}, _exitTextTool() {}, _refreshBoardShapeClearance() {},
         _cancelTrackDraw() {}, _cancelFillDraw() {}, _cancelShapeDraw() {}, _ensureViewport() {}, markSectionClean() {},
         _renderText(value) { renders++; PCBApp.prototype._renderText.call(this, value); },

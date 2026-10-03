@@ -137,7 +137,7 @@ const { updateSelectionInteraction, finishSelectionInteraction, placeFloatingSel
         ...shapeModel(shape, remote), placements: new Map(), tracks: [], vias: [], texts: new Map(), netlist: [],
         _shapeElements: new Map(), viewport: { scale: 20, setCrosshair() {}, hideCrosshair() {} },
         getLayerGroup(layer) { return layer === 'ratlines' ? ratLayer : null; },
-        _pcbPropsItems() { return { innerHTML: '' }; }, _setPcbPropsTitle(value) { title = value; },
+        propertiesItems() { return { innerHTML: '' }; }, setPropertiesTitle(value) { title = value; },
         _setActiveRibbonTab() {}, _snapToGrid(point) { return point; },
         updateRatsnest(options) { reconcileRatsnest(this, options); },
         history: { execute(command) { commands.push(command); command.execute(); } },
@@ -246,7 +246,7 @@ console.log('PASS standalone conversion uses native shape kinds, menus, properti
         ...shapeModel(shape), placements: new Map(), tracks: [], vias: [], texts: new Map(),
         _shapeElements: new Map(), viewport: { scale: 20, setCrosshair() {}, hideCrosshair() {} },
         getLayerGroup(layer) { return layer === 'selection-overlay' ? overlay : null; },
-        _pcbPropsItems() { return { innerHTML: '' }; }, _setPcbPropsTitle(value) { title = value; },
+        propertiesItems() { return { innerHTML: '' }; }, setPropertiesTitle(value) { title = value; },
         _setActiveRibbonTab() {}, history: { execute(command) { commands.push(command); command.execute(); } },
     };
     assert.equal(setBoardShapeSegmentType(app, shape, 0, 'arc'), true);
@@ -444,7 +444,7 @@ for (const cornerRadius of [0, 2]) {
     const listeners = new Map();
     const input = { value: '5', valueAsNumber: 5, addEventListener(type, listener) { listeners.set(type, listener); } };
     const app = { ...shapeModel(shape), _shapeElements: new Map(), getLayerGroup() { return null; },
-        _pcbPropsItems() { return { innerHTML: '' }; } };
+        propertiesItems() { return { innerHTML: '' }; } };
     document.getElementById = id => id === 'pcbPropShapeLineWidth' ? input : null;
     showBoardShapeProperties(app, shape);
     listeners.get('input')();
@@ -607,7 +607,7 @@ console.log('PASS centreline editing, symmetric hit tests, unchanged circles, mi
             listeners.get(name).push(callback);
         } };
     const dispatch = (name, event) => [...listeners.get(name)].forEach(callback => callback(event));
-    app._pcbPropsItems = () => ({ set innerHTML(value) {
+    app.propertiesItems = () => ({ set innerHTML(value) {
         listeners.clear();
         diameter.value = String(outline.radius * 2);
     } });

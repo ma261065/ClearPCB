@@ -110,14 +110,14 @@ function fixture(kind, count = 1, unrelatedCount = 1, shapeLayer = 'top-copper')
         _active: true, _shapeElements: new Map(), _textElements: new Map(), _layerGroups: new Map(),
         viewport: { scale: 100, svg: new Element(), setCrosshair() {}, hideCrosshair() {} },
         getLayerGroup: id => id === 'selection-overlay' ? null : group,
-        _pcbPropsItems: () => items, _setActiveRibbonTab() {}, _refreshPcbSelectionHighlights() {},
+        propertiesItems: () => items, _setActiveRibbonTab() {}, _refreshPcbSelectionHighlights() {},
         refreshFills() { pours++; }, _refreshBoardShapeClearance() {}, _scheduleRemovalHatchRender() {},
         _cancelDrawingMode() {}, _ensureViewport() {}, markSectionClean() {},
     };
     for (const key of ['boardShapes', 'tracks', 'vias', 'pads', 'texts', '_shapeIdCounter']) {
         Object.defineProperty(app, key, Object.getOwnPropertyDescriptor(PCBApp.prototype, key));
     }
-    for (const key of ['_cancelPosePreviews', 'isSectionEditing', '_setPcbPropsTitle', 'clearProperties',
+    for (const key of ['_cancelPosePreviews', 'isSectionEditing', 'setPropertiesTitle', 'clearProperties',
         '_onLayerLockChanged', '_onLayerVisibilityChanged']) app[key] = PCBApp.prototype[key];
     project.registerView('pcb', app);
     const adapters = shapes.map(shape => createBoardShapeSelectionAdapter(app, shape, shape.id));
@@ -290,7 +290,7 @@ for (const [kind, id, value] of cases) for (const count of ['lineWidth', 'corner
                     input.fire('change');
                     input.fire('blur');
                     await Promise.resolve();
-                } else if (finish === 'dispose') app._setPcbPropsTitle('Replacement');
+                } else if (finish === 'dispose') app.setPropertiesTitle('Replacement');
                 else if (finish === 'load') loadPcb(app, null);
                 else if (finish === 'lock') {
                     const layer = PCB_LAYERS.find(layer => layer.id === 'top-copper');
@@ -854,8 +854,8 @@ for (const finish of ['commit', 'cancel', 'panel', 'different-owner']) {
         app.history.redo();
         assert.deepEqual(model.captureGeometry(), after);
     } else {
-        if (finish === 'panel') app._setPcbPropsTitle('Other');
-        else if (finish === 'different-owner') app._setPcbPropsTitle('Image', { ...shape });
+        if (finish === 'panel') app.setPropertiesTitle('Other');
+        else if (finish === 'different-owner') app.setPropertiesTitle('Image', { ...shape });
         else finishSelectionInteraction(app, false);
         assert.deepEqual(model.captureGeometry(), before);
         assert.equal(app.history.canUndo(), false);

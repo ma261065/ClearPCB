@@ -214,9 +214,9 @@ const width = inputElement('0.2'), diameter = inputElement('0.6'), drill = input
 const toolInputs = new Map([['#pcbPropTrackToolWidth', width],
     ['#pcbPropViaToolDiameter', diameter], ['#pcbPropViaToolDrill', drill]]);
 const panel = { innerHTML: '', querySelector: id => toolInputs.get(id) || null };
-tools._pcbPropsItems = () => panel;
-tools._setPcbPropsTitle = tools.setPcbStatus = tools._setActiveRibbonTab = tools._bindToolNetControl = () => {};
-tools._toolNetOptions = () => ({ escape: value => value, options: '' });
+tools.propertiesItems = () => panel;
+tools.setPropertiesTitle = tools.setPcbStatus = tools._setActiveRibbonTab = tools.bindToolNetControl = () => {};
+tools.toolNetOptions = () => ({ escape: value => value, options: '' });
 tools._showTrackDrawProperties();
 assert.match(panel.innerHTML, /pcbPropTrackToolWidth[^>]*data-number-format="precise"/);
 width.value = '0.45';

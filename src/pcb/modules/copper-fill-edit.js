@@ -6,7 +6,7 @@ import { ModifyFillCommand, RemoveFillCommand } from './copper-fill-commands.js'
 import { renderCopperFill, removeCopperFillElements } from './copper-fill-render.js';
 import { renderPcbSelectionAnchors } from './selection-anchors.js';
 import { isPcbSelected, setPcbSelection } from './selection-registry.js';
-import { isCopperFillLocked, isCopperFillVisible, isLayerLocked } from './layers.js';
+import { isCopperFillLocked, isCopperFillVisible, isLayerLocked, setPcbCopperFillLocked } from './layers.js';
 import { snapPathPoint, snapPathTranslation, pathContextActions, showPathContextMenu } from './path-edit.js';
 import { distanceToArcEdge, arcEdgePathD } from '../../shapes/arc-edge.js';
 import { formatNumberInputValue } from '../../core/number-inputs.js';
@@ -215,6 +215,46 @@ export function fillEditPath(app, fill) {
     if (segment != null) return arcEdgePathD(fill.outline[segment], fill.outline[(segment + 1) % fill.outline.length],
         fill.segmentBulges[segment] || 0);
     return shapePathD({ ...fill, points: fill.outline, cornerRadius: 0, nodeCornerRadii: {} });
+}
+
+/** Properties for a copper pour: Locked, Layer, Net, then its outline geometry. */
+export function showFillProperties(app, fill) {
+    const items = app.propertiesItems();
+    if (!items || !fill) return;
+    app.setPropertiesTitle('Copper Fill');
+    const { escape, options } = app.toolNetOptions(fill.net || '');
+    const layerOpts = [
+        ['top-copper', 'Top Copper'],
+        ['bottom-copper', 'Bottom Copper'],
+    ].map(([id, name]) => `<option value="${id}"${id === fill.layer ? ' selected' : ''}>${name}</option>`).join('');
+    items.innerHTML = `
+        <label class="prop-row prop-toggle" data-prop="locked"><input type="checkbox" id="pcbPropFillLocked"${isCopperFillLocked(fill.layer) ? ' checked' : ''}><span>Locked</span></label>
+        <div class="prop-row" data-prop="layer"><label>Layer</label><select id="pcbPropFillLayer">${layerOpts}</select></div>
+        <div class="prop-row" data-prop="net"><label>Net</label><span class="prop-net-control"><input type="text" id="pcbPropFillNet" placeholder="None" value="${escape(fill.net || '')}"><details class="prop-net-menu"><summary aria-label="Select existing net"></summary><div>${options}</div></details></span></div>
+    `;
+    const lockedEl = /** @type {HTMLInputElement|null} */ (items.querySelector('#pcbPropFillLocked'));
+    lockedEl?.addEventListener('change', () => {
+        setPcbCopperFillLocked(app, fill.layer, lockedEl.checked);
+    });
+    const commit = (mutate) => {
+        if (!canEditFill(fill)) return;
+        const before = fill.captureState();
+        mutate();
+        const after = fill.captureState();
+        fill.applyState(before);
+        app.history.execute(new ModifyFillCommand(app, fill, before, after));
+    };
+    app.bindToolNetControl(items, 'pcbPropFillNet', (value) => {
+        if ((fill.net || '') === value) return;
+        commit(() => { fill.net = value; });
+    });
+    const layerEl = /** @type {HTMLSelectElement|null} */ (items.querySelector('#pcbPropFillLayer'));
+    layerEl?.addEventListener('change', () => {
+        if (fill.layer === layerEl.value) return;
+        commit(() => { fill.layer = layerEl.value; });
+    });
+    addFillGeometryProperties(app, fill, items);
+    app.showPropertiesTab?.();
 }
 
 export function addFillGeometryProperties(app, fill, items) {

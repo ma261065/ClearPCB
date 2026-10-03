@@ -23,8 +23,8 @@ app.placementState = app.pcbDocument.placementState;
 app._placementOverrides = app.placementState.overrides;
 app.boardShapes = [];
 app.netlist = [];
-app._pcbPropsItems = () => items;
-app._setPcbPropsTitle = () => {};
+app.propertiesItems = () => items;
+app.setPropertiesTitle = () => {};
 app._setActiveRibbonTab = () => {};
 app.syncClipboardButtons = () => {};
 app.setPcbStatus = () => {};
@@ -84,7 +84,7 @@ for (const selector of ['#pcbPropPadShape', '#pcbPropPadLayers', '#pcbPropPadSiz
 items.querySelector = selector => controls.get(selector) || null;
 let applyPadNet;
 let applyIntersectionNet;
-app._bindToolNetControl = (_items, inputId, onChange) => {
+app.bindToolNetControl = (_items, inputId, onChange) => {
     if (inputId === 'pcbPropPadNet') applyPadNet = onChange;
     else if (inputId === 'pcbPropMultiNet') applyIntersectionNet = onChange;
     else assert.fail(`Unexpected Net input: ${inputId}`);

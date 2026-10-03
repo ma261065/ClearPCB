@@ -38,7 +38,7 @@ function fixture(options = {}) {
     const clearances = [];
     const app = {
         pcbDocument, history: new CommandHistory(),
-        _pcbPropsItems: () => items, _setPcbPropsTitle() {}, _layerLabel: layer => layer,
+        propertiesItems: () => items, setPropertiesTitle() {}, layerLabel: layer => layer,
         _bindStrokeTextProps: PCBApp.prototype._bindStrokeTextProps,
         refreshText: () => renders.push({ ...app.texts.get(text.id) }),
         _refreshBoardShapeClearance: current => clearances.push({ ...current }),
@@ -196,7 +196,7 @@ for (const finish of ['commit', 'cancel', 'panel-change', 'deactivate', 'failure
             assert.equal(text.size, 2.1);
         } else {
             if (finish === 'cancel') getPropertyEditor(app, 'text').cancel();
-            else if (finish === 'panel-change') PCBApp.prototype._setPcbPropsTitle.call(app, 'Component');
+            else if (finish === 'panel-change') PCBApp.prototype.setPropertiesTitle.call(app, 'Component');
             else if (finish === 'deactivate') {
                 app._cancelPosePreviews = PCBApp.prototype._cancelPosePreviews;
                 app._cancelDrawingMode = () => {};
