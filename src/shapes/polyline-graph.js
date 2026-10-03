@@ -21,7 +21,6 @@
 import { Shape } from './shape.js';
 import { distanceToSegment, pointsCollinear, pointInPolygon, bulgeRatio } from '../core/geometry.js';
 import { BULGE_EPS, arcEdgePathD, arcEdgeContinuation, distanceToArcEdge, arcEdgeBounds, sampleArcEdge } from './arc-edge.js';
-import { buildPointAnchorsGroup } from '../core/ui-helpers.js';
 import { roundedPathCorners, roundedPathData, sampleRoundedCorner, roundedCornerContinuation } from './rounded-path.js';
 import { pathStrokeSegments, hitTestStrokeSegments, pointsBounds, pathHandleDescriptors, pathSegmentAt } from './path-geometry.js';
 import { pointsFormAxisAlignedRect } from './path-operations.js';
@@ -1121,169 +1120,11 @@ export class PolylineGraph extends Shape {
         return props;
     }
 
-    /* ──────────────────── SVG rendering ────────────────────────── */
-
-    /** Create the root SVG <g> element. */
-    _createElement() {
-        return document.createElementNS('http://www.w3.org/2000/svg', 'g');
-    }
-
-    /**
-     * Rebuild SVG children: one <line> per edge, one <circle> per junction.
-     * Closed filled shapes also render a <polygon> fill underneath.
-     * @param {SVGElement} el
-     * @param {string} strokeColor
-     * @param {string} fillColor
-     * @param {number} scale
-     * @param {import('./selection-view.js').SelectionView} [_view] - Unused here; subclasses tint by it.
-     */
-    _updateElement(el, strokeColor, fillColor, scale, _view) {
-        el.textContent = '';
-
-        const sw = this._getEffectiveStrokeWidth(scale);
-        const hasEdgeWidths = [...this.edges.keys()].some(
-            (edgeId) => this.getEdgeAttr(edgeId, 'width') !== this.lineWidth,
-        );
-        const r = Math.max(this.cornerRadius || 0,
-            ...Object.values(this.nodeCornerRadii || {}).map(Number).filter(Number.isFinite));
-
-        if (r > 0) {
-            const pts = this.getOrderedPoints();
-            const hasBranches = this.getJunctionNodes().length > 0;
-            if (pts && pts.length >= 3 && pts.length === this.nodes.size && !hasBranches) {
-                const nodeIds = this.getOrderedNodeIds();
-                const corners = this._pathCorners(nodeIds);
-                const chain = this.getOrderedEdgeChain();
-                const pathData = roundedPathData(corners, this.closed, chain.map(edge => edge.bulge));
-
-                // Fill path
-                if (this.fill) {
-                    const fillPath = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-                    fillPath.setAttribute('d', pathData);
-                    fillPath.setAttribute('fill', fillColor);
-                    fillPath.setAttribute('fill-opacity', String(this.fillAlpha));
-                    fillPath.setAttribute('stroke', 'none');
-                    el.appendChild(fillPath);
-                }
-
-                // Stroke path
-                const strokes = hasEdgeWidths
-                    ? [
-                        ...corners.filter(corner => corner.rounded).map(corner => ({
-                            path: `M ${corner.entry.x} ${corner.entry.y} ${roundedCornerContinuation(corner)}`,
-                            width: sw,
-                        })),
-                        ...chain.map((edge, index) => ({
-                            path: `M ${corners[index].exit.x} ${corners[index].exit.y} `
-                                + arcEdgeContinuation(corners[index].exit, corners[(index + 1) % corners.length].entry, edge.bulge),
-                            width: Math.max(Number(this.getEdgeAttr(edge.edgeId, 'width')) || this.lineWidth, 1 / scale),
-                        })),
-                    ]
-                    : [{ path: pathData, width: sw }];
-                for (const { path, width } of strokes) {
-                    const strokePath = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-                    strokePath.setAttribute('d', path);
-                    strokePath.setAttribute('stroke', strokeColor);
-                    strokePath.setAttribute('stroke-width', String(width));
-                    strokePath.setAttribute('stroke-linejoin', 'round');
-                    strokePath.setAttribute('stroke-linecap', 'round');
-                    strokePath.setAttribute('fill', 'none');
-                    el.appendChild(strokePath);
-                }
-
-                // Junction dots still needed
-                const jr = Math.max(MIN_JUNCTION_RADIUS, JUNCTION_SCREEN_PX / scale);
-                for (const [nid, pos] of this.nodes) {
-                    if (this.degree(nid) >= 3) {
-                        const c = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
-                        c.setAttribute('cx', pos.x); c.setAttribute('cy', pos.y);
-                        c.setAttribute('r', String(jr));
-                        c.setAttribute('fill', strokeColor);
-                        c.setAttribute('stroke', 'none');
-                        c.classList.add('junction-dot');
-                        el.appendChild(c);
-                    }
-                }
-                return;
-            }
-        }
-
-        // For filled shapes without radius, render fill underneath edges.
-        // When any edge is curved, build an arc-aware outline path so the
-        // fill follows the arcs; otherwise use a plain polygon.
-        if (this.fill) {
-            if (this._hasBulgedEdges()) {
-                const d = this._buildOutlinePathD(true);
-                if (d) {
-                    const fillPath = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-                    fillPath.setAttribute('d', d);
-                    fillPath.setAttribute('fill', fillColor);
-                    fillPath.setAttribute('fill-opacity', String(this.fillAlpha));
-                    fillPath.setAttribute('stroke', 'none');
-                    el.appendChild(fillPath);
-                }
-            } else {
-                const pts = this.getOrderedPoints();
-                if (pts && pts.length >= 3) {
-                    const poly = document.createElementNS('http://www.w3.org/2000/svg', 'polygon');
-                    poly.setAttribute('points', pts.map(p => `${p.x},${p.y}`).join(' '));
-                    poly.setAttribute('fill', fillColor);
-                    poly.setAttribute('fill-opacity', String(this.fillAlpha));
-                    poly.setAttribute('stroke', 'none');
-                    el.appendChild(poly);
-                }
-            }
-        }
-
-        // One <line> per straight edge, one <path> per curved (bulged) edge.
-        for (const [eid, e] of this.edges) {
-            const a = this.nodes.get(e.from), b = this.nodes.get(e.to);
-            if (!a || !b) continue;
-            const bulge = this.getEdgeAttr(eid, 'bulge') || 0;
-            const edgeWidth = Math.max(Number(this.getEdgeAttr(eid, 'width')) || this.lineWidth,
-                1 / scale);
-            if (bulge) {
-                const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-                path.setAttribute('d', arcEdgePathD(a, b, bulge));
-                path.setAttribute('stroke', strokeColor);
-                path.setAttribute('stroke-width', String(edgeWidth));
-                path.setAttribute('stroke-linecap', 'round');
-                path.setAttribute('fill', 'none');
-                el.appendChild(path);
-            } else {
-                const ln = document.createElementNS('http://www.w3.org/2000/svg', 'line');
-                ln.setAttribute('x1', a.x); ln.setAttribute('y1', a.y);
-                ln.setAttribute('x2', b.x); ln.setAttribute('y2', b.y);
-                ln.setAttribute('stroke', strokeColor);
-                ln.setAttribute('stroke-width', String(edgeWidth));
-                ln.setAttribute('stroke-linecap', 'round');
-                ln.setAttribute('fill', 'none');
-                el.appendChild(ln);
-            }
-        }
-
-        // Junction dots at degree ≥ 3 nodes (wires only)
-        if (this.type === 'wire') {
-            const jr = Math.max(MIN_JUNCTION_RADIUS, JUNCTION_SCREEN_PX / scale);
-            for (const [nid, pos] of this.nodes) {
-                if (this.degree(nid) >= 3) {
-                    const c = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
-                    c.setAttribute('cx', pos.x); c.setAttribute('cy', pos.y);
-                    c.setAttribute('r', String(jr));
-                    c.setAttribute('fill', strokeColor);
-                    c.setAttribute('stroke', 'none');
-                    c.classList.add('junction-dot');
-                    el.appendChild(c);
-                }
-            }
-        }
-    }
-
     /**
      * Build an SVG path string with rounded corners for a closed polygon.
      * Each corner is replaced with a quadratic bezier arc.
      * @param {Array<{x:number,y:number}>} pts - Ordered vertices
-    * @param {number|Array<number>} radius - Corner radius per node, or a shared radius
+     * @param {number|Array<number>} radius - Corner radius per node, or a shared radius
      * @returns {string} SVG path data
      */
     _buildRoundedPath(pts, radius) {
@@ -1296,59 +1137,12 @@ export class PolylineGraph extends Shape {
      * Build an SVG path string with rounded corners for an open polyline.
      * First and last points are not rounded.
      * @param {Array<{x:number,y:number}>} pts
-    * @param {number|Array<number>} radius
+     * @param {number|Array<number>} radius
      * @returns {string}
      */
     _buildRoundedOpenPath(pts, radius) {
         return roundedPathData(roundedPathCorners(pts,
             Array.isArray(radius) ? radius : pts.map(() => radius)));
-    }
-
-    /**
-     * Rebuild anchor handle overlays.
-     * @param {number} scale
-     * @param {boolean} [visuallySelected]
-    * @param {string|null} [selectedNodeId]
-     */
-    _updateAnchors(scale, visuallySelected = false, selectedNodeId = null) {
-        if (!visuallySelected) {
-            if (this.anchorsGroup) { this.anchorsGroup.remove(); this.anchorsGroup = null; this._anchorRects = null; }
-            return;
-        }
-        if (this.anchorsGroup) this.anchorsGroup.remove();
-        const { group, rects } = buildPointAnchorsGroup(this, scale);
-        if (selectedNodeId == null && this.type !== 'wire' && this.type !== 'track') {
-            const editPath = this._buildOutlinePathD(this.closed);
-            if (editPath) {
-                const guide = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-                guide.setAttribute('class', 'shape-edit-guide');
-                guide.setAttribute('d', editPath);
-                guide.setAttribute('fill', 'none');
-                guide.setAttribute('stroke', '#e94560');
-                guide.setAttribute('stroke-width', '1');
-                guide.setAttribute('vector-effect', 'non-scaling-stroke');
-                guide.setAttribute('pointer-events', 'none');
-                group.insertBefore(guide, group.firstChild);
-            }
-        }
-        const selectedNode = selectedNodeId == null ? null : this.nodes.get(selectedNodeId);
-        if (selectedNode) {
-            const ring = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
-            ring.setAttribute('class', 'schematic-node-selection-ring');
-            ring.setAttribute('cx', String(selectedNode.x));
-            ring.setAttribute('cy', String(selectedNode.y));
-            ring.setAttribute('r', String(8 / scale));
-            ring.setAttribute('fill', 'none');
-            ring.setAttribute('stroke', '#3399ff');
-            ring.setAttribute('stroke-width', '2');
-            ring.setAttribute('vector-effect', 'non-scaling-stroke');
-            ring.setAttribute('pointer-events', 'none');
-            group.appendChild(ring);
-        }
-        this.anchorsGroup = group;
-        this._anchorRects = rects;
-        if (this.element?.parentNode)
-            this.element.parentNode.insertBefore(this.anchorsGroup, this.element.nextSibling);
     }
 
     /* ──────────────────── serialization ────────────────────────── */

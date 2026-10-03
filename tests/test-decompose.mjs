@@ -28,6 +28,8 @@ globalThis.document = {
 };
 
 const { Polyline } = await import('../src/shapes/polyline.js');
+const { updateShapeAnchors, updatePolylineGraphElement } = await import('../src/schematic/render/shape-renderer.js');
+const { viewOf } = await import('../src/schematic/render/shape-view-state.js');
 const { decomposeRoundedCorners, canDecomposeRoundedCorners } = await import('../src/shapes/shape-decompose.js');
 
 let pass = 0, fail = 0;
@@ -79,8 +81,8 @@ ok('sharp polygon not decomposable', !canDecomposeRoundedCorners(sharp));
 
 const geometryBefore = JSON.stringify(rect.toJSON());
 for (const scale of [0.5, 10]) {
-    rect._updateAnchors(scale, true);
-    const guide = rect.anchorsGroup.children[0];
+    updateShapeAnchors(rect, scale, true);
+    const guide = viewOf(rect).anchorsGroup.children[0];
     ok(`guide is behind handles at scale ${scale}`, guide.attrs.class === 'shape-edit-guide');
     ok('guide reaches the original rectangle corners',
         guide.attrs.d === 'M 0 0 L 100 0 L 100 60 L 0 60 L 0 0 Z');
@@ -90,25 +92,25 @@ for (const scale of [0.5, 10]) {
         && guide.attrs['pointer-events'] === 'none');
 }
 ok('guides leave saved geometry unchanged', JSON.stringify(rect.toJSON()) === geometryBefore);
-const anchorsBeforeDeselect = rect.anchorsGroup;
-rect._updateAnchors(1, false);
-ok('deselect removes the guide with its handles', rect.anchorsGroup === null && anchorsBeforeDeselect.removed);
-out._updateAnchors(1, true);
-ok('guide retains explicit arc edges', out.anchorsGroup.children[0].attrs.d.includes('A '));
+const anchorsBeforeDeselect = viewOf(rect).anchorsGroup;
+updateShapeAnchors(rect, 1, false);
+ok('deselect removes the guide with its handles', viewOf(rect).anchorsGroup === null && anchorsBeforeDeselect.removed);
+updateShapeAnchors(out, 1, true);
+ok('guide retains explicit arc edges', viewOf(out).anchorsGroup.children[0].attrs.d.includes('A '));
 
 for (const scale of [0.5, 10]) {
-    rect._updateAnchors(scale, true, 'b');
-    const ring = rect.anchorsGroup.children.find(child => child.attrs.class === 'schematic-node-selection-ring');
+    updateShapeAnchors(rect, scale, true, 'b');
+    const ring = viewOf(rect).anchorsGroup.children.find(child => child.attrs.class === 'schematic-node-selection-ring');
     ok('refined node has a ring at its actual position', ring?.attrs.cx === '100' && ring?.attrs.cy === '0');
     ok('node ring retains screen size across zoom', Number(ring?.attrs.r) * scale === 8
         && ring?.attrs['vector-effect'] === 'non-scaling-stroke');
     ok('node refinement hides the full editing guide',
-        !rect.anchorsGroup.children.some(child => child.attrs.class === 'shape-edit-guide'));
+        !viewOf(rect).anchorsGroup.children.some(child => child.attrs.class === 'shape-edit-guide'));
 }
-rect._updateAnchors(1, true);
+updateShapeAnchors(rect, 1, true);
 ok('whole-shape selection restores guide and clears node ring',
-    rect.anchorsGroup.children[0].attrs.class === 'shape-edit-guide'
-    && !rect.anchorsGroup.children.some(child => child.attrs.class === 'schematic-node-selection-ring'));
+    viewOf(rect).anchorsGroup.children[0].attrs.class === 'shape-edit-guide'
+    && !viewOf(rect).anchorsGroup.children.some(child => child.attrs.class === 'schematic-node-selection-ring'));
 
 const mixedWidth = new Polyline({
     closed: true, fill: true, lineWidth: 0.2,
@@ -119,7 +121,7 @@ const mixedWidth = new Polyline({
 mixedWidth.setNodeCornerRadius('b', 2);
 const renderMixed = () => {
     const element = document.createElementNS('', 'g');
-    mixedWidth._updateElement(element, '#fff', '#fff', 100);
+    updatePolylineGraphElement(mixedWidth, element, '#fff', '#fff', 100);
     return element.children;
 };
 const beforeWidth = mixedWidth.captureState();
@@ -151,7 +153,7 @@ const openRoundedLine = new Polyline({
     cornerRadius: 2, lineWidth: 0.8,
 });
 const openElement = document.createElementNS('', 'g');
-openRoundedLine._updateElement(openElement, '#fff', '#fff', 100);
+updatePolylineGraphElement(openRoundedLine, openElement, '#fff', '#fff', 100);
 ok('uniform-width open rounded line has round endpoint caps', openElement.children.length === 1
     && openElement.children[0].attrs['stroke-linecap'] === 'round');
 

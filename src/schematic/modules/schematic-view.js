@@ -2,8 +2,7 @@
  * Schematic view lifecycle. The only editor code that creates, attaches, redraws,
  * culls or detaches entity SVG: commands, file loading, clipboard and theme
  * changes call these helpers instead of touching `element`, `anchorsGroup`,
- * `render()` or the viewport content layers. Entities still build their own SVG
- * (`Shape.render`, `Component.createSymbolElement`) behind this boundary.
+ * `render()` or the viewport content layers. Schematic shape SVG is built by src/schematic/render; Components still build their own SVG behind this boundary.
  */
 import { syncAttachedLabels, updateLabelGuide } from '../../ui/modules/label-attachment.js';
 import { arcEdgePathD } from '../../shapes/arc-edge.js';
@@ -11,6 +10,8 @@ import { appendSegmentSelection } from '../../core/ui-helpers.js';
 import { refreshAxisGlow } from '../../shapes/axis-glow.js';
 import { NO_SELECTION } from '../../shapes/selection-view.js';
 import { Component } from '../../components/Component.js';
+import { renderShape, updateShapeAnchors, effectiveStrokeWidth } from '../render/shape-renderer.js';
+import { viewOf, deleteView } from '../render/shape-view-state.js';
 
 /** Shape types that render above wires (re-appended at end of each render cycle). */
 const OVERLAY_TYPES = new Set(['noconnect', 'net']);
@@ -44,24 +45,25 @@ export function refreshSelectionVisual(app, entity) {
 
 /** Draw a shape and attach it to the content layer. */
 export function mountShape(app, shape) {
-    shape.render(app.viewport.scale, { selection: selectionView(app) });
-    app.viewport.addContent(shape.element);
+    const element = renderShape(shape, app.viewport.scale, { selection: selectionView(app) });
+    app.viewport.addContent(element);
 }
 
 /** Mount a shape unless its SVG is already attached. */
 export function ensureShapeMounted(app, shape) {
-    if (!shape.element?.parentNode) mountShape(app, shape);
+    if (!viewOf(shape)?.element?.parentNode) mountShape(app, shape);
 }
 
 /** Detach a shape's SVG and anchor handles, keeping them for a later mount. */
 export function unmountShape(shape) {
-    if (shape.element?.parentNode) shape.element.parentNode.removeChild(shape.element);
-    if (shape.anchorsGroup?.parentNode) shape.anchorsGroup.parentNode.removeChild(shape.anchorsGroup);
+    const view = viewOf(shape);
+    if (view?.element?.parentNode) view.element.parentNode.removeChild(view.element);
+    if (view?.anchorsGroup?.parentNode) view.anchorsGroup.parentNode.removeChild(view.anchorsGroup);
 }
 
 /** Redraw a mounted shape now (outside the batched renderShapes pass). */
 export function redrawShape(app, shape) {
-    shape.render(app.viewport.scale, { selection: selectionView(app) });
+    renderShape(shape, app.viewport.scale, { selection: selectionView(app) });
 }
 
 /** Build a component symbol if needed and attach it to the component layer. */
@@ -95,8 +97,10 @@ export function refreshComponentPose(component, { rebuild = false } = {}) {
 
 /** Detach and release a shape's SVG for good (document cleared). */
 export function discardShapeView(app, shape) {
-    if (shape.element) app.viewport.removeContent(shape.element);
-    shape.destroy();
+    const view = viewOf(shape);
+    if (view?.element) app.viewport.removeContent(view.element);
+    view?.anchorsGroup?.remove?.();
+    deleteView(shape);
 }
 
 /** Detach and release a component symbol for good (document cleared). */
@@ -107,7 +111,7 @@ export function discardComponentView(app, component) {
 
 /** Build SVG for a prepared document before it replaces the live one. */
 export function prepareDocumentView(app, prepared) {
-    for (const { shape } of prepared.shapes) shape.render(app.viewport.scale);
+    for (const { shape } of prepared.shapes) renderShape(shape, app.viewport.scale);
     for (const component of prepared.components) component.createSymbolElement();
 }
 
@@ -139,12 +143,15 @@ export function withContentDetached(app, work) {
 
 /** An entity's live SVG (read-only use, e.g. measuring text for inline edit), or null. */
 export function viewElementOf(entity) {
-    return entity?.element || null;
+    if (!entity) return null;
+    if (entity instanceof Component) return entity.element || null;
+    return viewOf(entity)?.element || null;
 }
 
 /** Copy of an entity's current SVG (paste ghost), or null when it has none. */
 export function cloneEntityElement(entity) {
-    return entity.element ? entity.element.cloneNode(true) : null;
+    const element = viewElementOf(entity);
+    return element ? element.cloneNode(true) : null;
 }
 
 /** Free-standing symbol SVG for a placement or paste preview. */
@@ -154,7 +161,7 @@ export function componentPreviewElement(component) {
 
 /** Free-standing shape SVG for a paste preview. */
 export function shapePreviewElement(app, shape) {
-    return shape.render(app.viewport.scale);
+    return renderShape(shape, app.viewport.scale);
 }
 
 /** Whether viewport culling has hidden this entity. */
@@ -168,6 +175,14 @@ export function isCulled(entity) {
  * @param {object} app - Application state.
  * @param {boolean} [force=false] - Force full re-render regardless of dirty state.
  */
+/**
+ * Viewport scale of each editor's last completed renderShapes pass. Every render
+ * path draws at the current scale, so clean shapes only need the zoom fast path
+ * after the scale changes; skipping it otherwise keeps hover frames lookup-free.
+ * @type {WeakMap<object, number>}
+ */
+const lastPassScale = new WeakMap();
+
 export function renderShapes(app, force = false) {
     syncAttachedLabels(app);
 
@@ -176,6 +191,7 @@ export function renderShapes(app, force = false) {
     }
     const scale = app.viewport.scale;
     const view = selectionView(app);
+    const scaleChanged = lastPassScale.get(app) !== scale;
     for (const shape of app.shapes) {
         if (shape._culled) continue; // skip off-screen
         const selected = view.isSelected(shape);
@@ -183,18 +199,21 @@ export function renderShapes(app, force = false) {
             const selectedNodeId = app._selectedShapeNode?.shapeId === shape.id
                 ? app._selectedShapeNode.nodeId : null;
             const refined = app._selectedShapeSegment?.shapeId === shape.id || selectedNodeId != null;
-            shape.render(scale, {
+            renderShape(shape, scale, {
                 suppressSelection: refined,
                 selection: view,
             });
             if (refined && selected && shape.type === 'polyline') {
-                shape._updateAnchors(scale, true, selectedNodeId);
+                updateShapeAnchors(shape, scale, true, selectedNodeId);
             }
-        } else if (shape._lastScale !== scale && shape.element) {
-            // Only stroke-width changed on zoom or force — fast-path update
-            const sw = shape._getEffectiveStrokeWidth(scale);
-            if (sw > 0) shape.element.setAttribute('stroke-width', sw);
-            shape._lastScale = scale;
+        } else if (scaleChanged) {
+            const shapeView = viewOf(shape);
+            if (shapeView?.lastScale !== scale && shapeView?.element) {
+                // Only stroke-width changed on zoom or force — fast-path update
+                const sw = effectiveStrokeWidth(shape, scale);
+                if (sw > 0) shapeView.element.setAttribute('stroke-width', sw);
+                shapeView.lastScale = scale;
+            }
         }
     }
     
@@ -215,15 +234,17 @@ export function renderShapes(app, force = false) {
     if (!app.selection?.count) {
         const cl = app.viewport.contentLayer;
         for (const shape of app.shapes) {
-            if (shape._culled || !shape.element) continue;
+            const shapeView = viewOf(shape);
+            if (shape._culled || !shapeView?.element) continue;
             if (OVERLAY_TYPES.has(shape.type)) {
-                cl.appendChild(shape.element);
-                if (shape.anchorsGroup && shape.anchorsGroup.parentNode) {
-                    cl.appendChild(shape.anchorsGroup);
+                cl.appendChild(shapeView.element);
+                if (shapeView.anchorsGroup && shapeView.anchorsGroup.parentNode) {
+                    cl.appendChild(shapeView.anchorsGroup);
                 }
             }
         }
     }
+    lastPassScale.set(app, scale);
     renderShapeSegmentSelection(app);
     refreshAxisGlow(app);
     updateLabelGuide(app);
@@ -258,7 +279,8 @@ export function renderShapeSegmentSelection(app) {
     const width = Math.max(Number(shape.getEdgeAttr(selected.edgeId, 'width')) || shape.lineWidth,
         1 / app.viewport.scale);
     const overlay = app.viewport.contentLayer;
-    const handles = shape.anchorsGroup?.parentNode === overlay ? shape.anchorsGroup : null;
+    const anchorsGroup = viewOf(shape)?.anchorsGroup;
+    const handles = anchorsGroup?.parentNode === overlay ? anchorsGroup : null;
     appendSegmentSelection(overlay, element, '#e94560', width, handles);
     app._shapeSegmentSelectionElement = element;
 }
@@ -296,14 +318,16 @@ export function updateViewportCulling(app) {
         if (inView && shape._culled) {
             // scrolled into view — un-cull and re-render
             shape._culled = false;
-            if (shape.element) shape.element.classList.remove('culled');
-            if (shape.anchorsGroup) shape.anchorsGroup.classList.remove('culled');
-            shape.render(scale, { selection: view });
+            const shapeView = viewOf(shape);
+            if (shapeView?.element) shapeView.element.classList.remove('culled');
+            if (shapeView?.anchorsGroup) shapeView.anchorsGroup.classList.remove('culled');
+            renderShape(shape, scale, { selection: view });
         } else if (!inView && !shape._culled) {
             // scrolled out of view — cull
             shape._culled = true;
-            if (shape.element) shape.element.classList.add('culled');
-            if (shape.anchorsGroup) shape.anchorsGroup.classList.add('culled');
+            const shapeView = viewOf(shape);
+            if (shapeView?.element) shapeView.element.classList.add('culled');
+            if (shapeView?.anchorsGroup) shapeView.anchorsGroup.classList.add('culled');
         }
     }
 

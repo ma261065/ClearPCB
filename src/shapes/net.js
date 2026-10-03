@@ -11,7 +11,6 @@
 
 import { Shape } from './shape.js';
 import { ShapeValidator } from '../core/ShapeValidator.js';
-import { NO_SELECTION } from './selection-view.js';
 
 /** Round to 4 decimal places for compact serialisation. */
 const _r4 = v => Math.round(v * 10000) / 10000;
@@ -500,62 +499,6 @@ export class Net extends Shape {
     }
 
     /** @override */
-    _createElement() {
-        return document.createElementNS('http://www.w3.org/2000/svg', 'g');
-    }
-
-    /** @override */
-    _updateElement(el, strokeColor, fillColor, scale, view = NO_SELECTION) {
-        const geo = this._getGeometry();
-
-        // Ensure children exist
-        if (!el.children.length || el.children.length < 2) {
-            while (el.firstChild) el.removeChild(el.firstChild);
-            const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-            const detailPath = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-            el.appendChild(path);
-            el.appendChild(detailPath);
-        }
-
-        const path = el.children[0];
-        const detailPath = el.children[1];
-        const baseStrokeWidth = Math.max(this.lineWidth, 1 / scale);
-        const selectionColor = 'var(--sch-selection, #3399ff)';
-        let symbolStroke = strokeColor;
-
-        const attachedLabels = /** @type {any} */ (this).attachedLabels;
-        const attachedActive = attachedLabels instanceof Set
-            && Array.from(attachedLabels).some(label => label && (view.isSelected(label) || view.isHovered(label)));
-        const labelActive = !!this.labelText && (view.isSelected(this.labelText) || view.isHovered(this.labelText));
-        if (!view.isSelected(this) && !view.isHovered(this) && (labelActive || attachedActive)) {
-            symbolStroke = selectionColor;
-        }
-
-        path.setAttribute('d', geo.symbolPath);
-        path.setAttribute('stroke', symbolStroke);
-        path.setAttribute('stroke-width', baseStrokeWidth);
-        path.setAttribute('fill', 'none');
-        path.setAttribute('stroke-linejoin', 'round');
-        path.setAttribute('stroke-linecap', 'round');
-
-        if (this.style === 'gnd') {
-            detailPath.setAttribute('d', _buildGroundBarsPath({ x: this.x, y: this.y }, this.orientation));
-            detailPath.setAttribute('stroke', symbolStroke);
-            detailPath.setAttribute('stroke-width', Math.max(baseStrokeWidth * 0.32, 0.18 / scale));
-            detailPath.setAttribute('fill', 'none');
-            detailPath.setAttribute('stroke-linejoin', 'round');
-            detailPath.setAttribute('stroke-linecap', 'round');
-            detailPath.removeAttribute('display');
-        } else {
-            detailPath.setAttribute('d', '');
-            detailPath.setAttribute('display', 'none');
-        }
-
-        // Keep text horizontal by avoiding group rotation.
-        el.removeAttribute('transform');
-    }
-
-    /** @override */
     move(dx, dy) {
         if (!Number.isFinite(dx) || !Number.isFinite(dy)) return;
         this.x += dx;
@@ -568,10 +511,6 @@ export class Net extends Shape {
         this.invalidate();
     }
 
-    /** @override — no visible stroke for hit-test expansion. */
-    _getEffectiveStrokeWidth(scale) {
-        return 0;
-    }
 
     /** @override */
     clone() {

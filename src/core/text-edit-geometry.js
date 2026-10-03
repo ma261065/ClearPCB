@@ -8,6 +8,15 @@ export function getTextEditBoxPadding(shape, measuredHeight = 0) {
 }
 
 let textMeasureContext = null;
+let textEditElementProvider = null;
+
+/**
+ * Register how to find a shape's rendered SVG element (the shared layer cannot
+ * import editor renderers). @param {((shape: any) => Element|null)|null} provider
+ */
+export function setTextEditElementProvider(provider) {
+    textEditElementProvider = typeof provider === 'function' ? provider : null;
+}
 
 function canvasTextMetrics(shape, text) {
     if (typeof document === 'undefined' || typeof document.createElement !== 'function') return null;
@@ -128,16 +137,14 @@ export function getTextEditBoxGeometry(shape, el, bbox = null, usesNestedTextCoo
     };
 }
 
-export function getTextEditBoxWorldCorners(shape) {
-    const textEl = shape?.getTextElement?.();
-    const el = textEl || shape?.element;
+export function getTextEditBoxWorldCorners(shape, element = textEditElementProvider?.(shape) || null) {
+    const el = element;
     if (!shape || !el) return null;
 
     const bbox = measureTextGlyphBBox(shape, el);
     if (!bbox || (bbox.width === 0 && bbox.height === 0)) return null;
 
-    const usesNestedTextCoords = !!textEl && textEl !== shape.element;
-    const box = getTextEditBoxGeometry(shape, el, bbox, usesNestedTextCoords);
+    const box = getTextEditBoxGeometry(shape, el, bbox);
     if (!box) return null;
     const angle = (shape.rotation || 0) * Math.PI / 180;
     const cosine = Math.cos(angle);

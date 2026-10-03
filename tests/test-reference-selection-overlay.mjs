@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { CommandHistory } from '../src/core/CommandHistory.js';
 import { connectBoxOutlines, connectPointToBoxOutline } from '../src/core/geometry.js';
-import { getTextEditBoxWorldCorners } from '../src/core/text-edit-geometry.js';
+import { getTextEditBoxWorldCorners, setTextEditElementProvider } from '../src/core/text-edit-geometry.js';
 import { clearPcbSelection, setPcbSelection, togglePcbSelection }
     from '../src/pcb/modules/selection-registry.js';
 import '../src/pcb/modules/component-selection.js';
@@ -250,6 +250,7 @@ assert.equal(startedEdit, editableReference,
 console.log('PASS: schematic reference text keeps double-click inline editing over its component');
 
 const { updateLabelGuide } = await import('../src/ui/modules/label-attachment.js');
+setTextEditElementProvider(shape => shape?.element || null);
 const guideLayer = { children: [], appendChild(child) {
     child.remove();
     this.children.push(child);
@@ -321,11 +322,9 @@ for (const rotation of [0, 37, 90]) for (const mirrored of [false, true]) {
     assert.equal(guideLayer.children.length, 0, 'Deselecting clears the guide');
 }
 
-const { renderShapes } = await import('../src/schematic/modules/schematic-view.js');
 let renderedX = 10;
 const renderReference = { id: 'schematic-reference', type: 'text',
     textAnchor: 'middle', get x() { return renderedX; }, y: 0,
-    render() { renderedX = 15; },
     element: {
         getBBox() { return { x: renderedX - 1, y: -1, width: 2, height: 2 }; },
         getAttribute(name) { return name === 'y' ? String(renderReference.y) : null; },
@@ -336,7 +335,8 @@ const renderApp = { shapes: [renderReference], components: [],
     selection: { getSelection: () => [renderReference], isSelected: item => item === renderReference, isHovered: () => false },
     _selectedShapeNode: null, _selectedShapeSegment: null,
     viewport: { scale: 10, contentLayer: guideLayer } };
-renderShapes(renderApp);
+renderedX = 15;
+updateLabelGuide(renderApp);
 near(renderApp._labelGuide.attributes.x1, 13.2);
 assert.equal(guideLayer.children.length, 1, 'Post-render hook draws exactly one guide using current text geometry');
 for (const textAnchor of ['start', 'middle', 'end']) for (const rotation of [0, 37, 90, 270]) {
@@ -464,6 +464,8 @@ assert.equal(schematicRenders, rendersAfterRename + 1, 'Project undo refreshes t
 assert.equal(schematic.components, project.schematicDocument.components, 'Editor aliases authoritative model state');
 
 const { loadDocument } = await import('../src/schematic/modules/files.js');
+const { renderShape } = await import('../src/schematic/render/shape-renderer.js');
+const { viewOf } = await import('../src/schematic/render/shape-view-state.js');
 const { SchematicDocument } = await import('../src/core/SchematicDocument.js');
 const loadedModel = new SchematicDocument();
 const loadInput = { type: 'clearpcb-project', version: '1.0', schematic: {
@@ -474,7 +476,21 @@ const prepared = loadedModel.prepare(loadInput);
 const loadedField = prepared.shapes[0].shape;
 const loadedComponent = prepared.components[0];
 const attached = [];
-loadedField.render = () => { loadedField.element = { field: true }; };
+document.createElementNS = (_namespace, tagName) => ({
+    tagName, children: [], parentNode: null, attributes: new Map(), style: {},
+    appendChild(child) { child.parentNode = this; this.children.push(child); return child; },
+    insertBefore(child, before) { child.parentNode = this; const index = before ? this.children.indexOf(before) : -1; this.children.splice(index < 0 ? this.children.length : index, 0, child); return child; },
+    removeChild(child) { this.children.splice(this.children.indexOf(child), 1); child.parentNode = null; },
+    remove() { this.parentNode?.removeChild(this); },
+    setAttribute(name, value) { this.attributes.set(name, String(value)); },
+    getAttribute(name) { return this.attributes.get(name) ?? null; },
+    removeAttribute(name) { this.attributes.delete(name); },
+    get firstChild() { return this.children[0] || null; },
+    set textContent(value) { this.children.length = 0; this._text = String(value); },
+    get textContent() { return this._text || ''; },
+    getBBox() { return { x: 0, y: -2, width: 4, height: 2 }; },
+});
+const fieldElement = renderShape(loadedField, 1);
 loadedComponent.element = { component: true };
 const loadingEditor = Object.create(SchematicApp.prototype);
 Object.assign(loadingEditor, {
@@ -489,7 +505,8 @@ await loadDocument(loadingEditor, loadInput, prepared);
 assert.equal(loadingEditor.components[0], loadedComponent, 'Editor load adopts prepared model instances');
 assert.equal(loadingEditor.shapes[0], loadedField);
 assert.equal(loadedComponent.refText, loadedField);
-assert.deepEqual(attached, [loadedField.element, loadedComponent.element], 'Editor alone attaches loaded SVG');
+assert.deepEqual(attached, [fieldElement, loadedComponent.element], 'Editor alone attaches loaded SVG');
+assert.equal(viewOf(loadedField).element, fieldElement);
 loadingEditor.shapes = [];
 loadingEditor.components = [];
 assert.deepEqual(loadedModel.shapes, [], 'Editor clearing replaces the authoritative collections');

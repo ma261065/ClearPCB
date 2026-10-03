@@ -27,7 +27,8 @@ const viewCentre = page => page.evaluate(() => {
 });
 
 /** Logical (SelectionManager) selection of every shape and whether its anchor handles are drawn. */
-const selectionState = page => page.evaluate(() => {
+const selectionState = page => page.evaluate(async () => {
+    const { viewOf } = await import('/src/schematic/render/shape-view-state.js');
     const app = window.bootstrap.schematicApp;
     app.renderShapes(); // what the next frame draws
     return {
@@ -35,7 +36,7 @@ const selectionState = page => page.evaluate(() => {
         hovered: app.selection.hovered,
         interaction: app.interactionState,
         shapes: app.shapes.map(shape => ({
-            id: shape.id, logical: app.selection.isSelected(shape), handles: !!shape.anchorsGroup?.isConnected,
+            id: shape.id, logical: app.selection.isSelected(shape), handles: !!viewOf(shape)?.anchorsGroup?.isConnected,
         })),
         corner: app.shapes[0]?.nodes?.get('n2') || null,
     };

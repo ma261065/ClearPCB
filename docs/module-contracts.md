@@ -432,12 +432,17 @@ counterpart of the PCB render modules. It owns `renderShapes()`, viewport
 culling and level of detail, refined-segment overlays, and the helpers that
 create, attach, redraw, re-pose, detach and discard entity SVG
 (`mountShape`, `unmountShape`, `mountComponent`, `refreshComponentPose`,
-`withContentDetached`, …). Commands, file loading, clipboard ghosts, theme
-changes and inline text editing call these helpers; none of them touch
-`element`, `anchorsGroup`, `render()` or the viewport content layers.
-Entities still build their own SVG behind this boundary until rendering moves
-into renderer modules. `test-schematic-view-boundary` tests the helpers and
-fails on new view-lifecycle code elsewhere in the schematic editor.
+`withContentDetached`, …). Shape entities are model-only: their SVG and anchor
+handles are owned by renderers in `src/schematic/render/`, backed by a
+WeakMap view state keyed by shape identity. Commands, file loading, clipboard
+ghosts, theme changes and inline text editing call the lifecycle/render helpers;
+none of them touch shape `element`, `anchorsGroup`, `render()` or the
+viewport content layers. Components remain self-rendering for now.
+Clean shapes only take the zoom fast path (stroke-width update) when the scale
+has changed since the previous `renderShapes()` pass, so hover frames do no
+per-shape view lookups.
+`test-schematic-view-boundary` tests the helpers and fails on new
+view-lifecycle code elsewhere in the schematic editor.
 
 `syncPcbSelection()` runs on every hover and click query, so it reuses one
 adapter per model object (adapters read live state lazily). It rebuilds the

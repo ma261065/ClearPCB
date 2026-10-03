@@ -13,6 +13,7 @@ import {
     getTextEditBoxGeometry,
     measureTextAdvance,
 } from '../src/core/text-edit-geometry.js';
+import { renderShape, updateTextElement } from '../src/schematic/render/shape-renderer.js';
 
 class SvgElement {
     constructor(tagName) {
@@ -63,8 +64,8 @@ globalThis.document = {
 
 {
     const text = new Text({ id: 'label', x: 10, y: 20, text: 'TEST', fontSize: 2, border: true });
-    const element = text._createElement();
-    text._updateElement(element, '#123456', '#123456', 10);
+    const element = renderShape(text, 10);
+    updateTextElement(text, element, '#123456', '#123456', 10);
     const [border, glyphs] = element.children;
     assert.equal(border.tagName, 'rect');
     assert.equal(border.getAttribute('display'), null);
@@ -78,12 +79,12 @@ globalThis.document = {
     assert.equal(glyphs.textContent, 'TEST');
     const initialHeight = editBox.height;
     text.text = 'gy  ';
-    text._updateElement(element, '#123456', '#123456', 10);
+    updateTextElement(text, element, '#123456', '#123456', 10);
     const spacedBox = getTextEditBoxGeometry(text, glyphs);
     assert.equal(spacedBox.height, initialHeight);
     assert.ok(measureTextAdvance(text, 'A   ') > measureTextAdvance(text, 'A'));
     text.text = '';
-    text._updateElement(element, '#123456', '#123456', 10);
+    updateTextElement(text, element, '#123456', '#123456', 10);
     const emptyBox = getTextEditBoxGeometry(text, glyphs);
     assert.equal(emptyBox.x, editBox.x);
     assert.equal(emptyBox.y, editBox.y);

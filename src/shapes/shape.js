@@ -1,19 +1,13 @@
 /**
- * Shape - Base class for all PCB shapes (SVG version)
+ * Shape - Base class for schematic and PCB shape models
  * 
  * All coordinates are in world units (mm).
- * Each shape manages its own SVG element.
  */
 
 import { ShapeValidator } from '../core/ShapeValidator.js';
-import { createLockIcon, lockIconMetrics, LOCK_GAP } from '../core/ui-helpers.js';
 import { IdAllocator } from '../core/id-allocator.js';
-import { NO_SELECTION } from './selection-view.js';
 
 const shapeIds = new IdAllocator('shape');
-
-// Minimum stroke width in screen pixels
-const MIN_STROKE_PIXELS = 1;
 
 // Anchor handle size in screen pixels
 const ANCHOR_SIZE_PIXELS = 8;
@@ -60,37 +54,11 @@ export class Shape {
         this.visible = options.visible !== undefined ? options.visible : true;
         this.locked = options.locked !== undefined ? options.locked : false;
         
-        // SVG elements
-        this.element = null;
-        this.anchorsGroup = null;
-        
         // Cached bounds
         this._bounds = null;
         this._dirty = true;
     }
     
-    /**
-     * Convert a colour value to a CSS-compatible string.
-     * Handles both string colours (pass-through) and hex numbers.
-     * @param {string|number} color - Colour as CSS string or hex integer.
-     * @returns {string} CSS colour string (e.g. '#00b894').
-     */
-    _colorToCSS(color) {
-        if (typeof color === 'string') return color;
-        // Convert hex number to CSS hex string
-        return '#' + color.toString(16).padStart(6, '0');
-    }
-    
-    /**
-     * Calculate stroke width enforcing a minimum screen-pixel thickness.
-     * Ensures strokes remain visible regardless of zoom level.
-     * @param {number} scale - Current viewport scale (pixels per mm).
-     * @returns {number} Stroke width in world units (mm).
-     */
-    _getEffectiveStrokeWidth(scale) {
-        const minWorldWidth = MIN_STROKE_PIXELS / scale;
-        return Math.max(this.lineWidth, minWorldWidth);
-    }
     
     /**
      * Get the axis-aligned bounding box, cached until geometry is invalidated.
@@ -174,218 +142,6 @@ export class Shape {
     invalidate() {
         this._dirty = true;
         this._bounds = null;
-    }
-    
-    /**
-     * Create or update the SVG element for this shape.
-     * Applies selection/hover colouring and rebuilds anchor handles.
-     * @param {number} scale - Current viewport scale (pixels per mm).
-     * @param {{suppressSelection?: boolean, selection?: import('./selection-view.js').SelectionView}} [options]
-     *   `selection` supplies selected/hovered state (unselected when omitted).
-     * @returns {SVGElement} The root SVG element representing this shape.
-     */
-    render(scale, options = {}) {
-        if (!this.element) {
-            this.element = this._createElement();
-            // Store reference to shape on the element for easy lookup
-            /** @type {any} */ (this.element).__shape = this;
-        }
-        
-        if (!this.visible) {
-            this.element.style.display = 'none';
-            return this.element;
-        }
-        
-        this.element.style.display = '';
-        
-        // Determine colors based on state
-        let strokeColor = this._colorToCSS(this.color);
-        const shapeWithFill = /** @type {{fillColor?: string|number|null}} */ (this);
-        const baseFillColor = this._colorToCSS(shapeWithFill.fillColor ?? this.color);
-        let fillColor = baseFillColor;
-        const attachedLabels = /** @type {any} */ (this).attachedLabels;
-        const view = options.selection || NO_SELECTION;
-        const attachedActive = attachedLabels instanceof Set
-            && Array.from(attachedLabels).some(label => label && (view.isSelected(label) || view.isHovered(label)));
-        const visuallySelected = view.isSelected(this) && !options.suppressSelection;
-        const visuallyHovered = view.isHovered(this) && !options.suppressSelection;
-        
-        if (visuallySelected) {
-            strokeColor = '#e94560';
-            fillColor = '#e94560';
-            
-            // Raise element to top of its container to ensure visibility
-            // (Only if it's not already the last child)
-            if (this.element.parentNode && this.element.nextSibling) {
-                this.element.parentNode.appendChild(this.element);
-            }
-        } else if (visuallyHovered) {
-            strokeColor = 'var(--sch-selection, #3399ff)';
-            fillColor = this.type === 'text'
-                ? 'var(--sch-selection, #3399ff)'
-                : 'var(--sch-hover-fill, #9999aa)';
-        } else if (attachedActive) {
-            strokeColor = 'var(--sch-selection, #3399ff)';
-            fillColor = 'var(--sch-selection, #3399ff)';
-        }
-        
-        // Update element
-        this._updateElement(this.element, strokeColor, fillColor, scale, view);
-        if (visuallyHovered && !visuallySelected) {
-            this.element.setAttribute('stroke-opacity', '0.35');
-            if (this.type === 'text') {
-                this.element.setAttribute('fill-opacity', '0.35');
-            }
-        } else {
-            this.element.removeAttribute('stroke-opacity');
-            if (this.type === 'text') {
-                this.element.removeAttribute('fill-opacity');
-            }
-        }
-        
-        // Update anchor handles
-        this._updateAnchors(scale, visuallySelected);
-        
-        this._dirty = false;
-        this._lastScale = scale;
-        return this.element;
-    }
-    
-    /**
-     * Create the root SVG element for this shape. Override in subclasses.
-     * @returns {SVGElement} A new SVG element (defaults to an empty `<g>`).
-     */
-    _createElement() {
-        // Override in subclass
-        return document.createElementNS('http://www.w3.org/2000/svg', 'g');
-    }
-    
-    /**
-     * Update the SVG element's attributes for the current state.
-     * Override in subclasses to set geometry and style.
-     * @param {SVGElement} el - The root SVG element to update.
-     * @param {string} strokeColor - CSS stroke colour.
-     * @param {string} fillColor - CSS fill colour.
-     * @param {number} scale - Current viewport scale (pixels per mm).
-     * @param {import('./selection-view.js').SelectionView} [view] - Selection state of related entities.
-     */
-    _updateElement(el, strokeColor, fillColor, scale, view = NO_SELECTION) {
-        // Override in subclass
-    }
-    
-    /**
-     * Rebuild or update the anchor-handle overlay for a selected shape.
-     * Uses a fast path when handle count is unchanged (drag), and a full
-     * rebuild otherwise. Adds a lock icon near the primary anchor when locked.
-     * @param {number} scale - Current viewport scale (pixels per mm).
-     * @param {boolean} [visuallySelected]
-     */
-    _updateAnchors(scale, visuallySelected = false) {
-        // Only show anchors when selected
-        if (!visuallySelected) {
-            if (this.anchorsGroup) {
-                this.anchorsGroup.remove();
-                this.anchorsGroup = null;
-                this._anchorRects = null;
-            }
-            return;
-        }
-        
-        const anchors = this.getAnchors();
-        const visibleAnchors = anchors.filter(anchor => !anchor.hidden);
-        if (visibleAnchors.length === 0 && !this.locked) {
-            if (this.anchorsGroup) {
-                this.anchorsGroup.remove();
-                this.anchorsGroup = null;
-                this._anchorRects = null;
-            }
-            return;
-        }
-        
-        const size = ANCHOR_SIZE_PIXELS / scale;
-        const strokeW = 1 / scale;
-        
-        // Reuse existing anchor rects if count matches (fast path for drag)
-        // Skip fast path if lock icon was previously rendered (stale after unlock)
-        if (this.anchorsGroup && this._anchorRects && this._anchorRects.length === visibleAnchors.length
-            && !this.locked && !this._anchorsHaveLock) {
-            for (let i = 0; i < visibleAnchors.length; i++) {
-                const anchor = visibleAnchors[i];
-                const rect = this._anchorRects[i];
-                if (anchor.bulge) {
-                    rect.setAttribute('cx', String(anchor.x));
-                    rect.setAttribute('cy', String(anchor.y));
-                    rect.setAttribute('r', String(size / 2));
-                } else {
-                    rect.setAttribute('x', String(anchor.x - size / 2));
-                    rect.setAttribute('y', String(anchor.y - size / 2));
-                    rect.setAttribute('width', String(size));
-                    rect.setAttribute('height', String(size));
-                }
-                rect.setAttribute('stroke-width', String(strokeW));
-            }
-            // Re-position anchors group right after element so it renders on top
-            if (this.element.parentNode && this.anchorsGroup.previousSibling !== this.element) {
-                this.element.parentNode.insertBefore(this.anchorsGroup, this.element.nextSibling);
-            }
-            return;
-        }
-        
-        // Full rebuild needed
-        if (this.anchorsGroup) {
-            this.anchorsGroup.remove();
-        }
-        
-        // Create anchors group
-        this.anchorsGroup = document.createElementNS('http://www.w3.org/2000/svg', 'g');
-        this.anchorsGroup.setAttribute('class', 'shape-anchors');
-        this._anchorRects = [];
-        this._anchorsHaveLock = false;
-        
-        for (const anchor of visibleAnchors) {
-            const rect = document.createElementNS('http://www.w3.org/2000/svg', anchor.bulge ? 'circle' : 'rect');
-            if (anchor.bulge) {
-                rect.setAttribute('cx', String(anchor.x));
-                rect.setAttribute('cy', String(anchor.y));
-                rect.setAttribute('r', String(size / 2));
-            } else {
-                rect.setAttribute('x', String(anchor.x - size / 2));
-                rect.setAttribute('y', String(anchor.y - size / 2));
-                rect.setAttribute('width', String(size));
-                rect.setAttribute('height', String(size));
-            }
-            rect.setAttribute('fill', anchor.bulge ? '#33dd77' : '#fff');
-            rect.setAttribute('stroke', anchor.bulge ? '#2e7d32' : '#e94560');
-            rect.setAttribute('stroke-width', String(1 / scale));
-            rect.setAttribute('data-anchor-id', anchor.id);
-            this.anchorsGroup.appendChild(rect);
-            this._anchorRects.push(rect);
-        }
-
-        // Draw lock icon near primary anchor when locked
-        if (this.locked && anchors.length > 0) {
-            const primary = anchors[0];
-            const { size: lockSize } = lockIconMetrics(scale);
-            let lockX = primary.x + LOCK_GAP;
-            let lockY = primary.y - LOCK_GAP - lockSize * 0.6;
-
-            if (this.type === 'text') {
-                const bounds = this.getBounds();
-                lockX = bounds.maxX + LOCK_GAP;
-                lockY = bounds.minY - LOCK_GAP - lockSize * 0.6;
-            }
-
-            this.anchorsGroup.appendChild(createLockIcon(lockX, lockY, this, 'lock-icon', scale));
-            this._anchorsHaveLock = true;
-        }
-        
-        // Add anchors group to same parent as element, always after it
-        // so anchors render on top of the shape (important for thick lines)
-        if (this.element.parentNode) {
-            // insertBefore(node, ref) with ref=nextSibling places it right after element;
-            // if nextSibling is null, it appends at the end — both correct.
-            this.element.parentNode.insertBefore(this.anchorsGroup, this.element.nextSibling);
-        }
     }
     
     /**
@@ -487,20 +243,5 @@ export class Shape {
         if (!this.visible) json.v = false;
         if (this.locked) json.lk = true;
         return json;
-    }
-    
-    /**
-     * Remove SVG elements from the DOM and release references.
-     * Call when permanently deleting a shape.
-     */
-    destroy() {
-        if (this.element && this.element.parentNode) {
-            this.element.parentNode.removeChild(this.element);
-        }
-        if (this.anchorsGroup && this.anchorsGroup.parentNode) {
-            this.anchorsGroup.parentNode.removeChild(this.anchorsGroup);
-        }
-        this.element = null;
-        this.anchorsGroup = null;
     }
 }

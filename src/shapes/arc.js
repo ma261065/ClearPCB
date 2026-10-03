@@ -8,7 +8,6 @@ import { Shape } from './shape.js';
 import { pointInPolygon, distanceToSegment, bulgeRatio, bulgePointFromRatio } from '../core/geometry.js';
 import { projectArcBulge, arcBulgeRatio, arcBulgeFromRatio, controlArcGeometry, sampleControlArc } from './arc-edit.js';
 import { pointsBounds, hitTestStrokeSegments } from './path-geometry.js';
-import { primitiveShapePath } from './shape-drawing.js';
 
 /** Round to 4 decimal places for compact serialisation. */
 const _r4 = v => Math.round(v * 10000) / 10000;
@@ -257,37 +256,6 @@ export class Arc extends Shape {
         return undefined;
     }
 
-    /** @override */
-    _createElement() {
-        return document.createElementNS('http://www.w3.org/2000/svg', 'g');
-    }
-    /** @override */
-    _updateElement(el, strokeColor, fillColor, scale) {
-        el.textContent = '';
-
-        const arcPath = primitiveShapePath(this._controlArc());
-        const sw = this._getEffectiveStrokeWidth(scale);
-
-        // Fill: chord area (arc + close)
-        if (this.fill) {
-            const fillEl = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-            fillEl.setAttribute('d', `${arcPath} Z`);
-            fillEl.setAttribute('fill', fillColor);
-            fillEl.setAttribute('fill-opacity', String(this.fillAlpha));
-            fillEl.setAttribute('stroke', 'none');
-            el.appendChild(fillEl);
-        }
-
-        // Stroke: arc only (no chord line)
-        const strokeEl = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-        strokeEl.setAttribute('d', arcPath);
-        strokeEl.setAttribute('stroke', strokeColor);
-        strokeEl.setAttribute('stroke-width', String(sw));
-        strokeEl.setAttribute('stroke-linecap', 'round');
-        strokeEl.setAttribute('fill', 'none');
-        el.appendChild(strokeEl);
-    }
-    
     /** @override */
     move(dx, dy) {
         if (!Number.isFinite(dx) || !Number.isFinite(dy)) return;

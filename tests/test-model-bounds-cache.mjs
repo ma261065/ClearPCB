@@ -7,6 +7,8 @@ import { Text } from '../src/shapes/text.js';
 import { MoveVertexCommand, ModifyTrackGraphCommand } from '../src/core/pcb-track-commands.js';
 import { CommandHistory } from '../src/core/CommandHistory.js';
 import { SelectionManager } from '../src/core/SelectionManager.js';
+import { renderShape } from '../src/schematic/render/shape-renderer.js';
+import { viewOf } from '../src/schematic/render/shape-view-state.js';
 
 assert.equal(typeof document, 'undefined');
 for (const shape of [
@@ -25,7 +27,7 @@ for (const shape of [
     for (let index = 0; index < 100; index++) assert.equal(shape.getBounds(), bounds);
     assert.equal(calculations, 1, `${shape.type}: headless queries calculate once without an SVG render`);
     assert.equal(shape._dirty, true, 'Reading bounds must not acknowledge pending rendering');
-    assert.equal(shape.element, null);
+    assert.equal(viewOf(shape), undefined);
     assert.deepEqual(shape.toJSON(), saved);
     shape.move(3.123456, -4.234567);
     const moved = shape.getBounds();
@@ -101,7 +103,7 @@ class Element {
 globalThis.document = { createElementNS: () => new Element() };
 const text = new Text({ x: 1, y: 4, text: 'Text' });
 const estimate = text.getBounds();
-text.render(10);
+renderShape(text, 10);
 assert.equal(text._dirty, false);
 assert.deepEqual(text.getBounds(), { minX: 1, minY: 2, maxX: 7.8, maxY: 4 },
     'Text replaces its headless estimate with rendered font measurements');
@@ -110,16 +112,16 @@ text.text = 'Longer';
 text.invalidate();
 text.getBounds();
 assert.equal(text._dirty, true);
-text.render(10);
+renderShape(text, 10);
 assert.deepEqual(text.getBounds(), { minX: 1, minY: 2, maxX: 11.2, maxY: 4 },
     'A bounds query before rendering cannot preserve stale text metrics');
 const beforeRender = circle.getBounds();
-circle.render(10);
+renderShape(circle, 10);
 assert.equal(circle._dirty, false);
 assert.equal(circle.getBounds(), beforeRender, 'SVG rendering does not discard valid geometric bounds');
 circle.move(5, 0);
 circle.getBounds();
 assert.equal(circle._dirty, true);
-circle.render(10);
-assert.equal(circle.element.attributes.get('cx'), '105', 'Geometry queries never suppress a required SVG update');
+renderShape(circle, 10);
+assert.equal(viewOf(circle).element.attributes.get('cx'), '105', 'Geometry queries never suppress a required SVG update');
 console.log('PASS renderer-independent bounds reuse, mutation/history, selection and text measurement refresh');

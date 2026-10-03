@@ -1,7 +1,7 @@
 /**
  * Schematic view lifecycle boundary. Only schematic-view.js creates, attaches,
  * redraws, culls or detaches entity SVG; commands, file loading, clipboard, theme
- * and editor code call its helpers. Entities still build their own SVG behind it.
+ * and editor code call its helpers. Shape SVG is built by schematic renderers; Components still build their own SVG.
  */
 import assert from 'node:assert/strict';
 import { readdirSync, readFileSync, statSync } from 'node:fs';
@@ -12,10 +12,12 @@ import {
     rebuildComponentSymbol, refreshComponentPose, discardShapeView, discardComponentView,
     prepareDocumentView, mountDocument, withContentDetached, cloneEntityElement, viewElementOf, isCulled,
 } from '../src/schematic/modules/schematic-view.js';
+import { Shape } from '../src/shapes/shape.js';
+import { ensureView, viewOf } from '../src/schematic/render/shape-view-state.js';
 
 function node(name) {
     return {
-        name, parentNode: null, children: [], attributes: new Map(), removed: 0,
+        name, parentNode: null, children: [], attributes: new Map(), removed: 0, style: {},
         appendChild(child) {
             child.parentNode?.removeChild(child);
             child.parentNode = this;
@@ -65,16 +67,15 @@ function viewApp() {
     };
 }
 
+globalThis.document = { createElementNS: (_namespace, tag) => node(tag) };
+
+class TestShape extends Shape {
+    constructor(id) { super({ id }); this._culled = false; }
+    clone() { return new TestShape(this.id + '-clone'); }
+}
+
 function shape(id) {
-    return {
-        id, element: null, anchorsGroup: null, renders: [], destroyed: 0, _culled: false,
-        render(scale) {
-            this.renders.push(scale);
-            this.element ||= node(`${id}-svg`);
-            return this.element;
-        },
-        destroy() { this.destroyed++; this.element?.parentNode?.removeChild(this.element); this.element = null; },
-    };
+    return new TestShape(id);
 }
 
 function component(id) {
@@ -97,31 +98,33 @@ function component(id) {
     const app = viewApp();
     const wire = shape('wire');
     mountShape(app, wire);
-    assert.deepEqual(wire.renders, [4], 'mount draws at the current scale');
-    assert.equal(wire.element.parentNode, app.viewport.contentLayer, 'mount attaches to the content layer');
+    assert.equal(viewOf(wire).lastScale, 4, 'mount draws at the current scale');
+    assert.equal(viewOf(wire).element.parentNode, app.viewport.contentLayer, 'mount attaches to the content layer');
     ensureShapeMounted(app, wire);
-    assert.equal(wire.renders.length, 1, 'an attached shape is not mounted twice');
+    const mountedElement = viewOf(wire).element;
+    ensureShapeMounted(app, wire);
+    assert.equal(viewOf(wire).element, mountedElement, 'an attached shape is not mounted twice');
 
-    wire.anchorsGroup = app.viewport.contentLayer.appendChild(node('anchors'));
-    const element = wire.element;
+    ensureView(wire).anchorsGroup = app.viewport.contentLayer.appendChild(node('anchors'));
+    const element = viewOf(wire).element;
     unmountShape(wire);
-    assert.equal(element.parentNode || wire.anchorsGroup.parentNode, null, 'unmount detaches SVG and handles');
-    assert.equal(wire.element, element, 'unmount keeps the SVG for undo');
+    assert.equal(element.parentNode || viewOf(wire).anchorsGroup.parentNode, null, 'unmount detaches SVG and handles');
+    assert.equal(viewOf(wire).element, element, 'unmount keeps the SVG for undo');
     ensureShapeMounted(app, wire);
-    assert.equal(wire.element.parentNode, app.viewport.contentLayer, 'a detached shape is mounted again');
+    assert.equal(viewOf(wire).element.parentNode, app.viewport.contentLayer, 'a detached shape is mounted again');
     redrawShape(app, wire);
-    assert.deepEqual(wire.renders, [4, 4, 4]);
+    assert.equal(viewOf(wire).lastScale, 4);
 
-    assert.equal(viewElementOf(wire), wire.element);
+    assert.equal(viewElementOf(wire), viewOf(wire).element);
     assert.equal(viewElementOf(null), null);
-    assert.equal(cloneEntityElement(wire).clonedFrom, wire.element);
+    assert.equal(cloneEntityElement(wire).clonedFrom, viewOf(wire).element);
     assert.equal(cloneEntityElement(shape('bare')), null, 'entities without SVG have no ghost');
     assert.equal(isCulled(wire), false);
     wire._culled = true;
     assert.equal(isCulled(wire), true);
 
     discardShapeView(app, wire);
-    assert.equal(wire.destroyed, 1);
+    assert.equal(viewOf(wire), undefined);
     assert.equal(app.viewport.contentLayer.children.length, 0);
 }
 
@@ -159,12 +162,12 @@ function component(id) {
     const wire = shape('wire');
     const part = component('U2');
     prepareDocumentView(app, { shapes: [{ shape: wire }], components: [part] });
-    assert.equal(wire.renders.length + part.built, 2, 'prepared documents get SVG before they go live');
-    assert.equal(wire.element.parentNode || part.element.parentNode, null, 'prepared SVG is not attached yet');
+    assert.equal((viewOf(wire)?.element ? 1 : 0) + part.built, 2, 'prepared documents get SVG before they go live');
+    assert.equal(viewOf(wire).element.parentNode || part.element.parentNode, null, 'prepared SVG is not attached yet');
     app.shapes = [wire];
     app.components = [part];
     mountDocument(app);
-    assert.equal(wire.element.parentNode, app.viewport.contentLayer);
+    assert.equal(viewOf(wire).element.parentNode, app.viewport.contentLayer);
     assert.equal(part.element.parentNode, app.viewport.componentLayer);
 }
 
@@ -191,7 +194,7 @@ const files = [];
         else if (name.endsWith('.js')) files.push(path);
     }
 })(src);
-const VIEW_LIFECYCLE = /\.render\(|\baddContent\(|\baddComponentContent\(|\bremoveContent\(|createSymbolElement\(|_recreateElement\(|_buildTransform\(|\.anchorsGroup\b|\.element\b|\b_culled\b|\b_lodFar\b/;
+const VIEW_LIFECYCLE = /\.render\(|\baddContent\(|\baddComponentContent\(|\bremoveContent\(|createSymbolElement\(|_recreateElement\(|_buildTransform\(|\.anchorsGroup\b|\.element\b|\bviewOf\(|\bensureView\(|\b_culled\b|\b_lodFar\b/;
 // The inline text editor adds its own overlay, and the component picker owns its panel.
 const allowed = new Set([
     'ui/modules/text-edit.js: app.viewport.addContent(group);',
@@ -202,7 +205,7 @@ const offenders = [];
 for (const file of files) {
     const rel = relative(src, file).split(sep).join('/');
     const editorCode = rel.startsWith('schematic/') || rel.startsWith('ui/modules/') || rel === 'ui/SchematicApp.js';
-    if (!editorCode || rel === 'schematic/modules/schematic-view.js') continue;
+    if (!editorCode || rel === 'schematic/modules/schematic-view.js' || rel.startsWith('schematic/render/')) continue;
     for (const line of readFileSync(file, 'utf8').split(/\r?\n/)) {
         const text = line.trim();
         if (text.startsWith('//') || text.startsWith('*')) continue;

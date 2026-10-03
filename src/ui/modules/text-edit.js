@@ -310,15 +310,11 @@ export function updateTextEditOverlay(app) {
     }
 
     const shape = state.shape;
-    const textEl = shape.getTextElement?.();
-    const shapeEl = viewElementOf(shape);
-    const el = textEl || shapeEl;
+    const el = viewElementOf(shape);
     if (!el) {
         state.overlayGroup.style.display = 'none';
         return;
     }
-
-    const usesNestedTextCoords = !!textEl && textEl !== shapeEl;
 
     // For shapes with a text element inside a group (e.g. Net),
     // use the shape's textEditOrigin if available, otherwise shape.x/y.
@@ -340,17 +336,15 @@ export function updateTextEditOverlay(app) {
         bbox = null;
     }
 
-    const box = getTextEditBoxGeometry(shape, el, bbox, usesNestedTextCoords);
+    const box = getTextEditBoxGeometry(shape, el, bbox);
     if (!box) {
         state.overlayGroup.style.display = 'none';
         return;
     }
 
-    const caretProbe = usesNestedTextCoords
-        ? { x: box.contentX, width: box.contentWidth }
-        : { x: box.contentX + originX, width: box.contentWidth };
+    const caretProbe = { x: box.contentX + originX, width: box.contentWidth };
     const caretXAbs = getCaretX(app, shape, el, caretProbe, state.caretIndex ?? 0);
-    const caretX = usesNestedTextCoords ? caretXAbs : (caretXAbs - originX);
+    const caretX = caretXAbs - originX;
     const caretExtension = box.contentHeight * 0.15;
     state.overlay?.updateGeometry({
         x: box.x,
@@ -397,14 +391,13 @@ export function setTextCaretFromScreen(app, screenPos) {
     const state = app.textEdit;
     if (!state || !state.shape) return;
 
-    const explicitTextEl = state.shape.getTextElement?.();
     const shapeEl = viewElementOf(state.shape);
     const ownTextEl = state.shape.type === 'text'
         ? Array.from(shapeEl?.children || []).find(
             child => String(child.tagName || '').toLowerCase() === 'text',
         )
         : null;
-    const el = explicitTextEl || ownTextEl || shapeEl;
+    const el = ownTextEl || shapeEl;
     if (!el || typeof el.getCharNumAtPosition !== 'function') {
         state.caretIndex = (state.shape.text || '').length;
         updateTextEditOverlay(app);

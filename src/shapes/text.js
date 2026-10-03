@@ -4,11 +4,15 @@
 
 import { Shape } from './shape.js';
 import { ShapeValidator } from '../core/ShapeValidator.js';
-import { getTextEditBoxGeometry } from '../core/text-edit-geometry.js';
-import { NO_SELECTION } from './selection-view.js';
 
 /** Round to 4 decimal places for compact serialisation. */
 const _r4 = v => Math.round(v * 10000) / 10000;
+
+let textMeasurer = null;
+
+export function setTextMeasurer(fn) {
+    textMeasurer = typeof fn === 'function' ? fn : null;
+}
 
 export class Text extends Shape {
     /**
@@ -64,13 +68,15 @@ export class Text extends Shape {
     /** @override — uses SVG `getBBox()` when rendered, else estimates from text length. */
     _calculateBounds() {
         let localBounds;
-        if (this.element) {
+        if (textMeasurer) {
             try {
-                const bbox = /** @type {SVGGraphicsElement} */ (this.element).getBBox();
-                localBounds = {
-                    minX: bbox.x, minY: bbox.y,
-                    maxX: bbox.x + bbox.width, maxY: bbox.y + bbox.height
-                };
+                const bbox = textMeasurer(this);
+                if (bbox) {
+                    localBounds = {
+                        minX: bbox.x, minY: bbox.y,
+                        maxX: bbox.x + bbox.width, maxY: bbox.y + bbox.height
+                    };
+                }
             } catch (e) { /* fall through to estimate */ }
         }
 
@@ -138,10 +144,10 @@ export class Text extends Shape {
 
         // Get un-rotated bounds for the local-space test
         let localBounds;
-        if (this.element) {
+        if (textMeasurer) {
             try {
-                const bbox = /** @type {SVGGraphicsElement} */ (this.element).getBBox();
-                localBounds = { minX: bbox.x, minY: bbox.y, maxX: bbox.x + bbox.width, maxY: bbox.y + bbox.height };
+                const bbox = textMeasurer(this);
+                if (bbox) localBounds = { minX: bbox.x, minY: bbox.y, maxX: bbox.x + bbox.width, maxY: bbox.y + bbox.height };
             } catch (e) { /* fall through */ }
         }
         if (!localBounds) {
@@ -179,61 +185,6 @@ export class Text extends Shape {
     }
 
     /** @override */
-    _createElement() {
-        const group = document.createElementNS('http://www.w3.org/2000/svg', 'g');
-        group.appendChild(document.createElementNS('http://www.w3.org/2000/svg', 'rect'));
-        group.appendChild(document.createElementNS('http://www.w3.org/2000/svg', 'text'));
-        return group;
-    }
-    /** @override */
-    _updateElement(el, strokeColor, fillColor, scale, view = NO_SELECTION) {
-        const borderEl = el.children[0];
-        const textEl = el.children[1];
-        textEl.setAttribute('x', this.x);
-        textEl.setAttribute('y', this.y);
-        // When parent component is selected but this field text isn't,
-        // tint blue to show ownership
-        if (this.parentComponent && view.isSelected(this.parentComponent) && !view.isSelected(this) && !view.isHovered(this)) {
-            fillColor = 'var(--sch-selection, #3399ff)';
-        }
-        textEl.setAttribute('fill', fillColor);
-        textEl.setAttribute('font-size', this.fontSize);
-        textEl.setAttribute('font-family', this.fontFamily);
-        textEl.setAttribute('text-anchor', this.textAnchor);
-        textEl.setAttribute('dominant-baseline', 'alphabetic');
-        textEl.setAttribute('alignment-baseline', 'alphabetic');
-        textEl.setAttribute('text-rendering', 'geometricPrecision');
-        textEl.setAttribute('xml:space', 'preserve');
-        textEl.style.whiteSpace = 'pre';
-        textEl.textContent = typeof this.text === 'string' ? this.text : '';
-        textEl.setAttribute('stroke', 'none');
-        textEl.removeAttribute('stroke-width');
-
-        if (this.border) {
-            const box = getTextEditBoxGeometry(this, textEl);
-            const borderWidth = Math.max(this.lineWidth, 1 / scale);
-            borderEl.setAttribute('x', String(box.x + box.originX));
-            borderEl.setAttribute('y', String(box.y + box.originY));
-            borderEl.setAttribute('width', String(box.width));
-            borderEl.setAttribute('height', String(box.height));
-            borderEl.setAttribute('fill', 'none');
-            borderEl.setAttribute('stroke', fillColor);
-            borderEl.setAttribute('stroke-width', String(borderWidth));
-            borderEl.removeAttribute('display');
-        } else {
-            borderEl.setAttribute('display', 'none');
-        }
-        // Apply rotation around text anchor point
-        if (this.rotation) {
-            el.setAttribute('transform', `rotate(${this.rotation}, ${this.x}, ${this.y})`);
-        } else {
-            el.removeAttribute('transform');
-        }
-        // Rendered font metrics replace estimates or measurements of the previous text.
-        this._bounds = null;
-    }
-
-    /** @override */
     move(dx, dy) {
         if (!Number.isFinite(dx) || !Number.isFinite(dy)) return;
         this.x += dx;
@@ -242,10 +193,6 @@ export class Text extends Shape {
         this._syncLinkedParentAfterGeometryChange();
     }
 
-    /** @override — text shapes have no visible stroke. */
-    _getEffectiveStrokeWidth(scale) {
-        return 0;
-    }
     /** @override */
     clone() {
         return new Text({

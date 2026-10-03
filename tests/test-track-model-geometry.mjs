@@ -79,7 +79,7 @@ assert.deepEqual(rounded.toJSON(), saved);
 assert.deepEqual(rounded.getBounds(), originalBounds);
 history.redo();
 assertResolvedBounds(rounded);
-assert.equal(rounded.element, null);
+assert.equal(Object.hasOwn(rounded, 'element'), false);
 assert.equal(rounded._dirty, true, 'Queries do not acknowledge rendering');
 
 const empty = new Track();

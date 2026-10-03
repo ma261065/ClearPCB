@@ -98,28 +98,6 @@ export class Circle extends Shape {
     }
     
     /** @override */
-    _createElement() {
-        return document.createElementNS('http://www.w3.org/2000/svg', 'circle');
-    }
-    /** @override */
-    _updateElement(el, strokeColor, fillColor, scale) {
-        el.setAttribute('cx', this.x);
-        el.setAttribute('cy', this.y);
-        const width = Math.min(this._getEffectiveStrokeWidth(scale), circleOuterRadius(this));
-        el.setAttribute('r', circleOuterRadius(this) - width / 2);
-        el.setAttribute('stroke', strokeColor);
-        el.setAttribute('stroke-width', width);
-        
-        if (this.fill) {
-            el.setAttribute('fill', fillColor);
-            el.setAttribute('fill-opacity', String(this.fillAlpha));
-        } else {
-            el.setAttribute('fill', 'none');
-            el.removeAttribute('fill-opacity');
-        }
-    }
-    
-    /** @override */
     move(dx, dy) {
         if (!Number.isFinite(dx) || !Number.isFinite(dy)) return;
         this.x += dx;

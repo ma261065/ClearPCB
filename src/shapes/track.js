@@ -19,7 +19,7 @@
  *
  * Note: Track extends PolylineGraph for the data model only. The PCB
  * editor renders Tracks via a custom pipeline (src/pcb/modules/
- * track-render.js), not via the inherited Shape.render() path which
+ * track-render.js), not via schematic shape rendering which
  * targets the schematic SVG layer.
  */
 

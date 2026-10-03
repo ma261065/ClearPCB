@@ -4,6 +4,7 @@ import { SelectionManager } from '../src/core/SelectionManager.js';
 import { createRect, createLine, createPolygon } from '../src/shapes/polyline.js';
 import { Wire } from '../src/shapes/wire.js';
 import { Arc } from '../src/shapes/arc.js';
+import { viewOf } from '../src/schematic/render/shape-view-state.js';
 
 class Element {
     attributes = new Map();
@@ -268,23 +269,23 @@ for (const key of ['Delete', 'Backspace']) {
             assert.equal(overlay.parentNode, null, 'Delete removes the refined-edge SVG before another pointer event');
             assert.equal(app._shapeSegmentSelectionElement, null);
             assert.equal(app._selectedShapeSegment, null);
-            assert.equal(rectangle.element.parentNode, null, 'The old rectangle artwork is removed immediately');
+            assert.equal(viewOf(rectangle).element.parentNode, null, 'The old rectangle artwork is removed immediately');
             assert.equal(app.shapes.length, 1);
             const remaining = app.shapes[0];
             assert.equal(remaining.closed, false);
             assert.equal(remaining.edges.size, 3);
-            assert.equal(remaining.element.parentNode, app.viewport.contentLayer);
+            assert.equal(viewOf(remaining).element.parentNode, app.viewport.contentLayer);
             assert.equal(app.history.undoStack.length, 1);
             expectDeletionNotification(app);
             app.history.undo();
             assert.deepEqual(app.shapes, [rectangle]);
             assert.deepEqual(rectangle.captureState(), before);
-            assert.equal(rectangle.element.parentNode, app.viewport.contentLayer);
-            assert.equal(remaining.element.parentNode, null);
+            assert.equal(viewOf(rectangle).element.parentNode, app.viewport.contentLayer);
+            assert.equal(viewOf(remaining).element.parentNode, null);
             app.history.redo();
             assert.deepEqual(app.shapes, [remaining]);
-            assert.equal(rectangle.element.parentNode, null);
-            assert.equal(remaining.element.parentNode, app.viewport.contentLayer);
+            assert.equal(viewOf(rectangle).element.parentNode, null);
+            assert.equal(viewOf(remaining).element.parentNode, app.viewport.contentLayer);
         } finally { dispose(); }
     }
 }
@@ -366,23 +367,23 @@ for (const action of [
     action(app, line);
     assert.equal(app.shapes.length, 0);
     assert.equal(overlay.parentNode, null);
-    assert.equal(line.element.parentNode, null);
+    assert.equal(viewOf(line).element.parentNode, null);
     expectDeletionNotification(app);
     app.history.undo();
     assert.deepEqual(app.shapes, [line]);
-    assert.equal(line.element.parentNode, app.viewport.contentLayer);
+    assert.equal(viewOf(line).element.parentNode, app.viewport.contentLayer);
 }
 for (const action of [deleteWire, (app, wire) => deleteWireSegment(app, wire, 'e0')]) {
     const wire = new Wire({ points: [{ x: 0, y: 0 }, { x: 10, y: 0 }] });
     const app = fixture(wire);
     action(app, wire);
     assert.equal(app.shapes.length, 0);
-    assert.equal(wire.element.parentNode, null);
+    assert.equal(viewOf(wire).element.parentNode, null);
     assert.equal(app.selection.getSelection().length, 0);
     expectDeletionNotification(app);
     app.history.undo();
     assert.deepEqual(app.shapes, [wire]);
-    assert.equal(wire.element.parentNode, app.viewport.contentLayer);
+    assert.equal(viewOf(wire).element.parentNode, app.viewport.contentLayer);
 }
 for (const edgeId of ['e0', 'e1']) {
     const wire = new Wire({ points: [{ x: 0, y: 0 }, { x: 10, y: 0 }, { x: 10, y: 10 }, { x: 20, y: 10 }] });

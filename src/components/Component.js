@@ -187,12 +187,13 @@ export class Component {
      * Create the Reference and Value Text shapes as independent shapes.
      * Reference is placed centered above the symbol, Value centered below.
      * Both use 1.778mm font (≈7pt/70mil). Call once after the component
-     * is placed. Adds them to app.shapes and the viewport.
+     * is placed. Adds them to app.shapes and returns the created models.
      * @param {any} app
+     * @returns {Text[]}
      */
     createFieldTexts(app) {
         const symbol = this.symbol;
-        if (!symbol) return;
+        if (!symbol) return [];
 
         // Compute local bounds (already includes 1.0 padding — matches the
         // selection / bounding box the user sees)
@@ -214,6 +215,7 @@ export class Component {
             { key: 'value',     label: this.value,     local: valLocal, visible: this.showValue }
         ];
 
+        const created = [];
         for (const f of fields) {
             const world = this.localToWorld(f.local.x, f.local.y);
             const text = new Text(/** @type {any} */ ({
@@ -234,9 +236,9 @@ export class Component {
             else this.valueText = text;
 
             app.shapes.push(text);
-            text.render(app.viewport.scale);
-            app.viewport.addContent(text.element);
+            created.push(text);
         }
+        return created;
     }
 
     /**

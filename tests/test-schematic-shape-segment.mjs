@@ -20,6 +20,8 @@ const {
     updatePolylineSegmentDrag,
 } = await import('../src/schematic/modules/polyline-segment-drag.js');
 const { clearShapeSegmentSelection, renderShapeSegmentSelection } = await import('../src/schematic/modules/schematic-view.js');
+const { updateShapeAnchors } = await import('../src/schematic/render/shape-renderer.js');
+const { ensureView, viewOf } = await import('../src/schematic/render/shape-view-state.js');
 const { idleState, anchorDragState } = await import('../src/schematic/modules/draw-states.js');
 const { updatePropertiesPanel } = await import('../src/ui/modules/properties.js');
 const { Circle } = await import('../src/shapes/circle.js');
@@ -412,18 +414,18 @@ for (const closed of [false, true]) {
     });
     try {
         const arc = new Arc({ startPoint: { x: 0, y: 0 }, endPoint: { x: 10, y: 0 }, bulgePoint: { x: 5, y: 2 } });
-        arc.element = { parentNode: null };
-        arc._updateAnchors(2, true);
-        const handles = arc.anchorsGroup.children;
+        ensureView(arc).element = { parentNode: null };
+        updateShapeAnchors(arc, 2, true);
+        const handles = viewOf(arc).anchorsGroup.children;
         const bulge = handles.find(handle => handle.attributes['data-anchor-id'] === 'mid');
         expect('standalone Arc bulge is a green circle', bulge.tag === 'circle'
             && bulge.attributes.fill === '#33dd77' && bulge.attributes.stroke === '#2e7d32');
         expect('standalone Arc endpoints remain square', handles.filter(handle => handle.tag === 'rect').length === 2);
         const radius = Number(bulge.attributes.r);
         arc.moveAnchor('mid', 5, 3);
-        arc._updateAnchors(4, true);
+        updateShapeAnchors(arc, 4, true);
         const midpoint = arc.getMidPoint();
-        expect('bulge circle is reused and follows geometry and zoom', arc.anchorsGroup.children.includes(bulge)
+        expect('bulge circle is reused and follows geometry and zoom', viewOf(arc).anchorsGroup.children.includes(bulge)
             && Number(bulge.attributes.cx) === midpoint.x && Number(bulge.attributes.cy) === midpoint.y
             && Number(bulge.attributes.r) === radius / 2);
     } finally {
@@ -962,7 +964,7 @@ for (const midpoint of [false, true]) {
         insertBefore(element, before) { children.splice(children.indexOf(before), 0, element); },
     };
     const handles = { parentNode: overlay };
-    shape.anchorsGroup = handles;
+    ensureView(shape).anchorsGroup = handles;
     app.viewport.contentLayer = overlay;
     for (const scale of [0.5, 10, 100]) {
         children.splice(0, children.length, handles);

@@ -5,6 +5,7 @@ import {
     setInlineTextInputActive,
 } from '../src/shared/ui/inline-text-overlay.js';
 import { setTextCaretFromScreen } from '../src/ui/modules/text-edit.js';
+import { ensureView } from '../src/schematic/render/shape-view-state.js';
 
 function element(tagName) {
     return {
@@ -129,13 +130,11 @@ const textElement = {
     getStartPositionOfChar() { return { x: 10 }; },
     getEndPositionOfChar() { return { x: 20 }; },
 };
+const caretShape = { type: 'text', text: 'ABC' };
+ensureView(caretShape).element = { children: [element('rect'), textElement] };
 const caretApp = {
     textEdit: {
-        shape: {
-            type: 'text',
-            text: 'ABC',
-            element: { children: [element('rect'), textElement] },
-        },
+        shape: caretShape,
         caretIndex: 3,
         overlayGroup: null,
     },

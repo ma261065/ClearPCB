@@ -11,7 +11,6 @@
  */
 
 import { PolylineGraph, COLLINEAR_EPSILON } from './polyline-graph.js';
-import { NO_SELECTION } from './selection-view.js';
 export { COLLINEAR_EPSILON };
 
 /** Default wire stroke color. */
@@ -280,41 +279,6 @@ export class Wire extends PolylineGraph {
     getLabelPosition() {
         const c = this._getCentroid();
         return { x: c.x + this.labelOffset.x, y: c.y + this.labelOffset.y };
-    }
-
-    /* ──────────────────── SVG rendering ────────────────────────── */
-
-    /** @override — adds blue tint when attached label is selected. */
-    _updateElement(el, strokeColor, _fillColor, scale, view = NO_SELECTION) {
-        // When any attached label text is selected but the wire isn't, tint blue
-        const attachedSelected = this.attachedLabels instanceof Set
-            && Array.from(this.attachedLabels).some(label => label && view.isSelected(label));
-        const labelSelected = !!this.labelText && view.isSelected(this.labelText);
-        if (!view.isSelected(this) && !view.isHovered(this) && (labelSelected || attachedSelected)) {
-            strokeColor = 'var(--sch-selection, #3399ff)';
-        }
-        super._updateElement(el, strokeColor, _fillColor, scale, view);
-        // Pin-connection dots: mark each wire node that lands on a component
-        // pin so it's visually clear the wire is actually connected (not just
-        // crossing/touching). Sized to match the branch junction dots.
-        if (this.pinConnections && this.pinConnections.size > 0) {
-            const NS = 'http://www.w3.org/2000/svg';
-            const r = Math.max(0.4, 2.5 / scale);
-            for (const nid of this.pinConnections.keys()) {
-                const pos = this.nodes.get(nid);
-                if (!pos) continue;
-                const c = document.createElementNS(NS, 'circle');
-                c.setAttribute('cx', pos.x);
-                c.setAttribute('cy', pos.y);
-                c.setAttribute('r', String(r));
-                c.setAttribute('fill', strokeColor);
-                c.setAttribute('stroke', 'none');
-                c.classList.add('pin-connection-dot');
-                el.appendChild(c);
-            }
-        }
-        // Invalidate label text so it turns blue/normal with the wire
-        if (this.labelText) this.labelText.invalidate();
     }
 
     /* ──────────────────── serialization ────────────────────────── */

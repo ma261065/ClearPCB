@@ -83,44 +83,6 @@ export class NoConnect extends Shape {
     }
 
     /** @override */
-    _createElement() {
-        return document.createElementNS('http://www.w3.org/2000/svg', 'g');
-    }
-
-    /** @override */
-    _updateElement(el, strokeColor, fillColor, scale) {
-        const sw = Math.max(this.lineWidth, 1.5 / scale);
-
-        // Ensure two lines exist
-        if (el.children.length < 2) {
-            el.innerHTML = '';
-            el.appendChild(document.createElementNS('http://www.w3.org/2000/svg', 'line'));
-            el.appendChild(document.createElementNS('http://www.w3.org/2000/svg', 'line'));
-        }
-
-        const line1 = el.children[0];
-        const line2 = el.children[1];
-
-        // Diagonal 1: top-left to bottom-right
-        line1.setAttribute('x1', this.x - NC_HALF);
-        line1.setAttribute('y1', this.y - NC_HALF);
-        line1.setAttribute('x2', this.x + NC_HALF);
-        line1.setAttribute('y2', this.y + NC_HALF);
-        line1.setAttribute('stroke', strokeColor);
-        line1.setAttribute('stroke-width', sw);
-        line1.setAttribute('stroke-linecap', 'round');
-
-        // Diagonal 2: top-right to bottom-left
-        line2.setAttribute('x1', this.x + NC_HALF);
-        line2.setAttribute('y1', this.y - NC_HALF);
-        line2.setAttribute('x2', this.x - NC_HALF);
-        line2.setAttribute('y2', this.y + NC_HALF);
-        line2.setAttribute('stroke', strokeColor);
-        line2.setAttribute('stroke-width', sw);
-        line2.setAttribute('stroke-linecap', 'round');
-    }
-
-    /** @override */
     move(dx, dy) {
         if (!Number.isFinite(dx) || !Number.isFinite(dy)) return;
         this.x += dx;
@@ -128,10 +90,6 @@ export class NoConnect extends Shape {
         this.invalidate();
     }
 
-    /** @override — no fill, minimal stroke for hit expansion. */
-    _getEffectiveStrokeWidth(scale) {
-        return Math.max(this.lineWidth, 1.5 / scale);
-    }
 
     /** @override */
     clone() {

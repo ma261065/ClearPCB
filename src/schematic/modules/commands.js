@@ -604,7 +604,7 @@ export class AddComponentCommand extends Command {
         mountComponent(this.app, this.component);
         // Create field texts if they don't exist yet
         if (!this.component.refText && !this.component.valueText) {
-            this.component.createFieldTexts(this.app);
+            for (const ft of this.component.createFieldTexts(this.app)) mountShape(this.app, ft);
         } else {
             // Re-add existing field texts
             for (const ft of this.component.getFieldTexts()) {
@@ -831,7 +831,7 @@ export class PasteCommand extends Command {
             app.components.push(comp);
             mountComponent(app, comp);
             if (!comp.refText && !comp.valueText) {
-                comp.createFieldTexts(app);
+                for (const ft of comp.createFieldTexts(app)) mountShape(app, ft);
             } else {
                 for (const ft of comp.getFieldTexts()) {
                     if (!shapeSet.has(ft)) {

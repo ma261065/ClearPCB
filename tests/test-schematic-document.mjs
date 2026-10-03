@@ -3,13 +3,13 @@ import { ProjectDocument } from '../src/core/ProjectDocument.js';
 import { SchematicDocument } from '../src/core/SchematicDocument.js';
 import { Component } from '../src/components/Component.js';
 import { Shape } from '../src/shapes/shape.js';
+import { viewOf } from '../src/schematic/render/shape-view-state.js';
 import { validateProject } from '../src/core/project-format.js';
 
 assert.equal(typeof window, 'undefined');
 assert.equal(typeof document, 'undefined');
 Component.prototype.createSymbolElement = () => assert.fail('Model load must not create SVG');
 Component.prototype.invalidate = () => assert.fail('Model mutation must not update component highlights');
-Shape.prototype.render = () => assert.fail('Model operations must not render');
 
 const input = {
     type: 'clearpcb-project', version: '1.0',
@@ -42,7 +42,7 @@ assert.equal(component.refText, field);
 assert.equal(model.shapes[2].parentComponent, model.shapes[1]);
 assert.ok(model.shapes[1].attachedLabels.has(model.shapes[2]));
 assert.equal(component.element, null);
-assert.equal(field.element, null);
+assert.equal(viewOf(field), undefined);
 assert.deepEqual(project.getNetlist(), [
     { net: 'SIGNAL', pins: [{ componentId: 'comp_900', pinNumber: '1' }, { componentId: 'comp_901', pinNumber: '1' }] },
     { net: 'R1.2', pins: [{ componentId: 'comp_900', pinNumber: '2' }] },
