@@ -2263,13 +2263,22 @@ body {
 
 .cp-search {
     padding: 8px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.cp-search-field {
     position: relative;
+    flex: 1;
+    min-width: 0;
     display: flex;
     align-items: center;
 }
 
 .cp-search-input {
     flex: 1;
+    min-width: 0;
     padding: 6px 10px 6px 10px;
     padding-right: 28px;
     background: var(--bg-secondary);
@@ -2286,7 +2295,7 @@ body {
 
 .cp-search-clear {
     position: absolute;
-    right: 12px;
+    right: 4px;
     padding: 2px 6px;
     background: transparent;
     border: none;
@@ -2303,9 +2312,10 @@ body {
 
 .cp-exact-match {
     display: flex;
+    flex: none;
     align-items: center;
-    gap: 6px;
-    padding: 0 8px 8px;
+    gap: 4px;
+    white-space: nowrap;
     color: var(--text-secondary);
     font-size: 11px;
     cursor: pointer;

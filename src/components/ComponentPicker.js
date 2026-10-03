@@ -99,12 +99,14 @@ export class ComponentPicker {
                     <button class="cp-mode-btn" data-mode="local">Local</button>
                 </div>
                 <div class="cp-search">
-                    <input type="text" class="cp-search-input" placeholder="Search components...">
-                    <button class="cp-search-clear" title="Clear search" style="display:none;">✕</button>
+                    <div class="cp-search-field">
+                        <input type="text" class="cp-search-input" placeholder="Search components...">
+                        <button class="cp-search-clear" title="Clear search" style="display:none;">✕</button>
+                    </div>
+                    <label class="cp-exact-match" title="Only show results whose name or part number is exactly the search text">
+                        <input type="checkbox" class="cp-exact-match-input"> Exact match
+                    </label>
                 </div>
-                <label class="cp-exact-match" title="Only show results whose name or part number is exactly the search text">
-                    <input type="checkbox" class="cp-exact-match-input"> Exact match
-                </label>
                 <div class="cp-categories">
                     <select class="cp-category-select">
                         <option value="All">All Categories</option>
