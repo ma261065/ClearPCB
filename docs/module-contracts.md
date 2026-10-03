@@ -445,6 +445,18 @@ per-shape view lookups.
 `test-schematic-view-boundary` tests the helpers and fails on new
 view-lifecycle code elsewhere in the schematic editor.
 
+Two PCB patterns are deliberately not mirrored in the schematic. Property
+previews and drags still edit the authored entities and restore them on
+cancel, instead of editing detached copies: transient state cannot reach a
+saved or synchronised snapshot because `ProjectDocument` refuses to snapshot
+while `SchematicApp.isSectionEditing()` reports a preview, drag, drawing,
+inline edit, paste or placement, and the derived visuals (label guides, the
+inline-edit overlay, text measurement) follow the authored entities for free.
+Nor is there a PCB-style interaction table: the schematic's in-progress state
+is one `interactionState` machine (`draw-states.js`) with a single Escape
+precedence (`handleEscape()` in `keyboard.js`), and its keyboard guards test
+different subsets of that state rather than one repeated list.
+
 `syncPcbSelection()` runs on every hover and click query, so it reuses one
 adapter per model object (adapters read live state lazily). It rebuilds the
 entry list and selection flags only when the set of entities changes;

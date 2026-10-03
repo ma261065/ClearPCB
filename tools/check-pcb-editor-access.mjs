@@ -32,22 +32,30 @@ export function privateEditorMembers(source) {
     return [...new Set([...code.matchAll(/\bapp\??\.(_[A-Za-z]\w*)/g)].map(match => match[1]))].sort();
 }
 
-/** @returns {Record<string, string[]>} Module path -> private members, for modules that use any. */
-export function currentAccess() {
+/**
+ * @param {string[]} [roots] Directories to scan (default: the PCB scope).
+ * @returns {Record<string, string[]>} Module path -> private members, for modules that use any.
+ */
+export function currentAccess(roots = scanRoots) {
     const access = {};
-    for (const file of scanRoots.flatMap(listJs).sort()) {
+    for (const file of roots.flatMap(listJs).sort()) {
         const members = privateEditorMembers(readFileSync(file, 'utf8'));
         if (members.length) access[relative(root, file).split(sep).join('/')] = members;
     }
     return access;
 }
 
-function main() {
-    const current = currentAccess();
+/**
+ * Check (or with --update rewrite) one editor's private-access baseline.
+ * @param {{label: string, roots: string[], baselinePath: string, hint: string}} scope
+ */
+export function runEditorAccessCheck({ label, roots, baselinePath, hint }) {
+    const baselineName = relative(root, baselinePath).split(sep).join('/');
+    const current = currentAccess(roots);
     if (process.argv.includes('--update')) {
         writeFileSync(baselinePath, JSON.stringify(current, null, 2) + '\n');
         const total = Object.values(current).reduce((sum, members) => sum + members.length, 0);
-        console.log(`Wrote ${total} private access(es) in ${Object.keys(current).length} module(s) to tools/pcb-editor-access-baseline.json.`);
+        console.log(`Wrote ${total} private access(es) in ${Object.keys(current).length} module(s) to ${baselineName}.`);
         return;
     }
     const baseline = existsSync(baselinePath) ? JSON.parse(readFileSync(baselinePath, 'utf8')) : {};
@@ -60,11 +68,16 @@ function main() {
         for (const member of allowed) if (!now.has(member)) resolved.push(`${file}: app.${member}`);
     }
     for (const line of added) console.error(`NEW      ${line}`);
-    for (const line of resolved) console.error(`RESOLVED ${line}  (remove it from tools/pcb-editor-access-baseline.json)`);
+    for (const line of resolved) console.error(`RESOLVED ${line}  (remove it from ${baselineName})`);
     const total = Object.values(current).reduce((sum, members) => sum + members.length, 0);
-    console.log(`PCB editor access: ${total} known private access(es), ${added.length} new, ${resolved.length} resolved.`);
-    if (added.length) console.error('Use or add a public service in src/pcb/modules/pcb-editor-api.js instead.');
+    console.log(`${label} editor access: ${total} known private access(es), ${added.length} new, ${resolved.length} resolved.`);
+    if (added.length) console.error(hint);
     process.exitCode = added.length || resolved.length ? 1 : 0;
 }
 
-if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) main();
+if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+    runEditorAccessCheck({
+        label: 'PCB', roots: scanRoots, baselinePath,
+        hint: 'Use or add a public service in src/pcb/modules/pcb-editor-api.js instead.',
+    });
+}

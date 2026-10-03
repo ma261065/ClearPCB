@@ -69,7 +69,7 @@ for (const [summary, violations, expectedExit] of [
         },
         process: gateProcess,
     });
-    assert.equal(calls, 4, 'Both boundary checks, the regression suite and the clearance check each run once');
+    assert.equal(calls, 5, 'The three boundary checks, the regression suite and the clearance check each run once');
     assert.equal(gateProcess.exitCode, expectedExit, 'Terminology must not bypass gate failures');
     if (expectedExit === 0) {
         assert.ok(output.includes('WARN  tracks == 239 (got 288)'), 'Keep the original count threshold');

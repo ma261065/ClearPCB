@@ -1,0 +1,22 @@
+#!/usr/bin/env node
+// Ratchets schematic code's use of the schematic editor's private (`app._x`) members down,
+// with the same rules as tools/check-pcb-editor-access.mjs. Scans the schematic layer
+// (src/schematic and src/ui/modules); tools/schematic-editor-access-baseline.json lists
+// the private SchematicApp members each module still uses.
+//
+// Usage:
+//   node tools/check-schematic-editor-access.mjs            check against the baseline
+//   node tools/check-schematic-editor-access.mjs --update   rewrite the baseline (review the diff)
+
+import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { runEditorAccessCheck } from './check-pcb-editor-access.mjs';
+
+const root = fileURLToPath(new URL('../', import.meta.url));
+
+runEditorAccessCheck({
+    label: 'Schematic',
+    roots: [join(root, 'src', 'schematic'), join(root, 'src', 'ui', 'modules')],
+    baselinePath: join(root, 'tools', 'schematic-editor-access-baseline.json'),
+    hint: 'Use a public SchematicApp method or a schematic module export instead.',
+});

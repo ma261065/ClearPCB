@@ -103,6 +103,11 @@ members. `node tools/check-pcb-editor-access.mjs` ratchets the remaining private
 accesses per module in `src/pcb` and `src/shared/pcb` against
 `tools/pcb-editor-access-baseline.json` in the same way; promote a member to a
 service instead of adding a new private access.
+`node tools/check-schematic-editor-access.mjs` applies the same ratchet to the
+schematic layer (`src/schematic`, `src/ui/modules`) against
+`tools/schematic-editor-access-baseline.json` (217 accesses to 106 private
+`SchematicApp` members when introduced); use a public `SchematicApp` method or a
+module export instead of adding one. Both run as hard checks in the regression gate.
 
 ## State Ownership
 

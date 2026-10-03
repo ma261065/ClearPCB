@@ -8,7 +8,7 @@ const root = fileURLToPath(new URL('../', import.meta.url));
 const fixture = mkdtempSync(join(root, '.regression-runner-'));
 const bytes = 2 * 1024 * 1024;
 
-function runGate({ suiteExit = 0, clearanceExit = 0, importsExit = 0, accessExit = 0, summary = 'Routed 65/76 connections, 239 tracks, 174 vias', violations = 0 } = {}) {
+function runGate({ suiteExit = 0, clearanceExit = 0, importsExit = 0, accessExit = 0, schematicAccessExit = 0, summary = 'Routed 65/76 connections, 239 tracks, 174 vias', violations = 0 } = {}) {
     writeFileSync(join(fixture, 'tools', 'check-imports.mjs'), `
         console.log('Import boundaries: stub');
         process.exitCode = ${importsExit};
@@ -16,6 +16,10 @@ function runGate({ suiteExit = 0, clearanceExit = 0, importsExit = 0, accessExit
     writeFileSync(join(fixture, 'tools', 'check-pcb-editor-access.mjs'), `
         console.log('PCB editor access: stub');
         process.exitCode = ${accessExit};
+    `);
+    writeFileSync(join(fixture, 'tools', 'check-schematic-editor-access.mjs'), `
+        console.log('Schematic editor access: stub');
+        process.exitCode = ${schematicAccessExit};
     `);
     writeFileSync(join(fixture, 'tests', 'test-output.mjs'), `
         process.stdout.write('o'.repeat(${bytes}));
@@ -79,6 +83,13 @@ try {
     assert.match(access.stdout, /PASS  import boundaries match/);
     assert.match(access.stdout, /FAIL  PCB editor access matches tools\/pcb-editor-access-baseline\.json/);
     assert.match(access.stdout, /REGRESSION GATE: FAIL\s*$/);
+
+    const schematicAccess = runGate({ schematicAccessExit: 1 });
+    assert.ifError(schematicAccess.error);
+    assert.equal(schematicAccess.status, 1, 'Schematic editor access failures are hard failures');
+    assert.match(schematicAccess.stdout, /PASS  PCB editor access matches/);
+    assert.match(schematicAccess.stdout, /FAIL  schematic editor access matches tools\/schematic-editor-access-baseline\.json/);
+    assert.match(schematicAccess.stdout, /REGRESSION GATE: FAIL\s*$/);
 
     const warning = runGate({ summary: 'Routed 65/76 connections, 238 tracks, 173 vias' });
     assert.ifError(warning.error);
