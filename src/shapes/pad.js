@@ -25,8 +25,9 @@ export class Pad {
         this.y = Number(options.y) || 0;
         this.shape = PAD_SHAPES.includes(options.shape) ? options.shape : 'round';
         this.size = Number.isFinite(options.size) && options.size > 0 ? options.size : 1.5;
+        // A zero drill is a pad without a hole (e.g. a test pad).
         this.drill = Math.min(
-            Number.isFinite(options.drill) && options.drill > 0 ? options.drill : 0.8,
+            Number.isFinite(options.drill) && options.drill >= 0 ? options.drill : 0.8,
             this.size,
         );
         this.ratio = Number.isFinite(options.ratio) && options.ratio >= 1 ? options.ratio : 2;

@@ -3360,7 +3360,7 @@ export default class PCBApp {
             </select></div>
             <div class="prop-row"><label>Size (mm)</label><input type="number" id="pcbPropPadSize" value="${mixedSize ? '' : state.size}" placeholder="${mixedSize ? 'Mixed' : ''}" min="0.05" step="0.05"></div>
             ${showRatio ? `<div class="prop-row"><label>Ratio</label><input type="number" id="pcbPropPadRatio" value="${mixedRatio ? '' : state.ratio}" placeholder="${mixedRatio ? 'Mixed' : ''}" min="1" step="0.1"></div>` : ''}
-            <div class="prop-row"><label>Drill (mm)</label><input type="number" id="pcbPropPadDrill" value="${mixedDrill ? '' : state.drill}" placeholder="${mixedDrill ? 'Mixed' : ''}" min="0.05" max="${maximumDrill}" step="0.05"></div>
+            <div class="prop-row"><label>Drill (mm)</label><input type="number" id="pcbPropPadDrill" value="${mixedDrill ? '' : state.drill}" placeholder="${mixedDrill ? 'Mixed' : ''}" min="0" max="${maximumDrill}" step="0.05" title="0 = no hole"></div>
             ${showRotation ? `<div class="prop-row"><label>Rotation</label><input type="number" id="pcbPropPadRotation" value="${mixedRotation ? '' : state.rotation}" placeholder="${mixedRotation ? 'Mixed' : ''}" step="1"></div>` : ''}
             <div class="prop-row"><label>Copper</label><select id="pcbPropPadLayers">
                 ${mixedLayers ? '<option value="" selected disabled>Mixed</option>' : ''}
@@ -3530,7 +3530,7 @@ export default class PCBApp {
         };
         bindLiveNumber('#pcbPropPadSize', 'size', 0.05);
         bindLiveNumber('#pcbPropPadRatio', 'ratio', 1);
-        bindLiveNumber('#pcbPropPadDrill', 'drill', 0.05);
+        bindLiveNumber('#pcbPropPadDrill', 'drill', 0);
         bindLiveNumber('#pcbPropPadRotation', 'rotation', -Infinity);
         this._bindToolNetControl(items, 'pcbPropPadNet', next => apply('net', next));
         this._setActiveRibbonTab?.('pcb-properties');

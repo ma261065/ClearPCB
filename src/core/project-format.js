@@ -279,8 +279,8 @@ function validatePcb(pcb) {
             if (!['top-copper', 'bottom-copper', 'both'].includes(item.layers)) {
                 invalid(`${path}.layers`, 'Pad layers must be top-copper, bottom-copper, or both.', { layers: item.layers });
             }
-            if (!(item.size > 0) || !(item.drill > 0) || item.drill > item.size) {
-                invalid(path, 'Pad size and drill must be positive, with drill no larger than size.', item);
+            if (!(item.size > 0) || !(item.drill >= 0) || item.drill > item.size) {
+                invalid(path, 'Pad size must be positive and drill between 0 (no hole) and size.', item);
             }
             if (['stadium', 'rectangle', 'oval'].includes(item.shape) && !(item.ratio >= 1)) {
                 invalid(`${path}.ratio`, 'Elongated pad ratio must be at least 1.', { ratio: item.ratio });

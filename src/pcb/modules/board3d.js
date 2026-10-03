@@ -1143,30 +1143,33 @@ function padMesh(pl) {
             continue;
         }
         const bottom = flash.layer === 'bottom';
-        const y = bottom ? Y_BOT - PAD_EPS : Y_TOP + PAD_EPS;
-        if (flash.shape === 'oval') {
-            // Stadium / obround (matches the 2D footprint render): straight
-            // sides with semicircular ends, NOT a pointy ellipse.
-            appendMesh(mesh, stadiumDiscMesh(flash.x, flash.y, halfW, halfH, ct, st, y, COLOR_PAD));
-        } else if (flash.shape === 'ellipse') {
-            appendMesh(mesh, ellipseDiscMesh(flash.x, flash.y, halfW, halfH, ct, st, y, COLOR_PAD, 20));
-        } else {
-            const local = [
-                { x: -halfW, z: -halfH }, { x: halfW, z: -halfH },
-                { x: halfW, z: halfH }, { x: -halfW, z: halfH },
-            ];
-            const base = mesh.verts.length;
-            for (const c of local) {
-                mesh.verts.push({
-                    x: flash.x + (c.x * ct - c.z * st),
-                    y,
-                    z: flash.y + (c.x * st + c.z * ct),
-                });
-            }
-            mesh.faces.push({ idx: [base, base + 1, base + 2, base + 3], color: COLOR_PAD });
-        }
+        appendMesh(mesh, flatPadMesh(flash, bottom ? Y_BOT - PAD_EPS : Y_TOP + PAD_EPS));
     }
     return mesh;
+}
+
+/** Surface-mount pad copper: a flat flash on one board face at height `y`. */
+function flatPadMesh(flash, y) {
+    const ct = Math.cos(flash.rad);
+    const st = Math.sin(flash.rad);
+    const halfW = flash.w / 2;
+    const halfH = flash.h / 2;
+    if (flash.shape === 'oval') {
+        // Stadium / obround (matches the 2D footprint render): straight
+        // sides with semicircular ends, NOT a pointy ellipse.
+        return stadiumDiscMesh(flash.x, flash.y, halfW, halfH, ct, st, y, COLOR_PAD);
+    }
+    if (flash.shape === 'ellipse' || flash.shape === 'circle') {
+        return ellipseDiscMesh(flash.x, flash.y, halfW, halfH, ct, st, y, COLOR_PAD, 20);
+    }
+    const local = [
+        { x: -halfW, z: -halfH }, { x: halfW, z: -halfH },
+        { x: halfW, z: halfH }, { x: -halfW, z: halfH },
+    ];
+    return {
+        verts: local.map(c => ({ x: flash.x + (c.x * ct - c.z * st), y, z: flash.y + (c.x * st + c.z * ct) })),
+        faces: [{ idx: [0, 1, 2, 3], color: COLOR_PAD }],
+    };
 }
 
 /** Flat (optionally rotated) elliptical disc on a y-plane (round/oval pad). */
@@ -1909,8 +1912,15 @@ function standalonePadBarrelOutline(pad) {
     });
 }
 
-function standalonePadMesh(pad) {
+export function standalonePadMesh(pad) {
     const flash = standalonePadFlash(pad);
+    if (!(pad.drill > 0)) {
+        // No hole: flat copper on each face the pad is assigned to.
+        const mesh = emptyMesh();
+        if (pad.layers !== 'bottom-copper') appendMesh(mesh, flatPadMesh(flash, Y_TOP + PAD_EPS));
+        if (pad.layers !== 'top-copper') appendMesh(mesh, flatPadMesh(flash, Y_BOT - PAD_EPS));
+        return mesh;
+    }
     const halfW = flash.w / 2;
     const halfH = flash.h / 2;
     const ri = standalonePadBarrelRadius(pad);

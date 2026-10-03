@@ -272,10 +272,13 @@ const project = {
 assert.equal(validateProject(project).pcb.pads[0].shape, 'rectangle');
 assert.throws(() => validateProject({
     ...project, pcb: { ...project.pcb, pads: [{ ...longPad, drill: 2 }] },
-}), /drill no larger than size/);
+}), /drill between 0 \(no hole\) and size/);
+assert.equal(validateProject({
+    ...project, pcb: { ...project.pcb, pads: [{ ...longPad, drill: 0 }] },
+}).pcb.pads[0].drill, 0, 'a pad without a hole is a valid project pad');
 
 const { exportGerbers } = await import('../src/pcb/modules/gerber.js');
-const { boardCutoutEdgeRings, standalonePadEdgeMesh } = await import('../src/pcb/modules/board3d.js');
+const { boardCutoutEdgeRings, standalonePadEdgeMesh, standalonePadMesh } = await import('../src/pcb/modules/board3d.js');
 const { clipMeshToOutline } = await import('../src/pcb/modules/board3d-mesh-ops.js');
 const exportPad = new Pad({ ...pad.captureState(), id: 'pad_export', y: -20, rotation: 37 });
 const files = exportGerbers({
@@ -295,6 +298,31 @@ const topFiles = exportGerbers({
 assert.ok(topFiles.get('board.gtl').includes('D03*'), 'top-only pad is emitted on top copper');
 assert.ok(!topFiles.get('board.gbl').includes('D03*'), 'top-only pad is absent from bottom copper');
 assert.ok(!topFiles.get('board.gbs').includes('D03*'), 'top-only pad has no bottom mask opening');
+
+// Test pads: a zero drill means no hole anywhere (model, render, drill file, 3D).
+const testPad = new Pad({ x: 40, y: -20, shape: 'round', size: 1.5, drill: 0, layers: 'top-copper' });
+assert.equal(testPad.drill, 0, 'a zero drill is kept, not replaced by the default');
+assert.equal(Pad.fromJSON(testPad.toJSON()).drill, 0, 'a hole-less pad round-trips');
+assert.equal(new Pad({ drill: -1 }).drill, 0.8, 'a negative drill still falls back to the default');
+for (const group of renderGroups.values()) group.children.length = 0;
+renderPad(testPad, layer => renderGroups.get(layer));
+assert.equal(renderGroups.get('top-copper-pad-drills').children.length, 0, 'no drill mask is drawn');
+assert.doesNotMatch(padCopperPathD(testPad), /Z\s*M/, 'pad copper has no bore contour');
+const testFiles = exportGerbers({
+    placements: new Map(), tracks: [], vias: [], pads: [testPad],
+    boardWidth: 100, boardHeight: 80,
+});
+assert.ok(testFiles.get('board.gtl').includes('D03*'), 'the test pad is emitted on top copper');
+for (const [name, content] of testFiles) {
+    if (name.endsWith('.drl')) assert.doesNotMatch(content, /^T\d+C/m, `${name} has no tool for a hole-less pad`);
+}
+for (const layers of ['top-copper', 'bottom-copper', 'both']) {
+    const mesh = standalonePadMesh(new Pad({ ...testPad.captureState(), layers }));
+    const heights = [...new Set(mesh.verts.map(vertex => vertex.y))];
+    assert.equal(heights.length, layers === 'both' ? 2 : 1, `${layers} hole-less pad is flat copper on its faces only`);
+}
+const drilledHeights = new Set(standalonePadMesh(new Pad({ ...testPad.captureState(), drill: 0.6 })).verts.map(vertex => vertex.y));
+assert.ok(drilledHeights.size >= 2, 'a drilled pad still spans the board with a barrel');
 
 const edge = new Pad({ x: 100, y: -20, shape: 'round', size: 2, drill: 0.8, layers: 'top-copper' });
 const edgeFiles = exportGerbers({
