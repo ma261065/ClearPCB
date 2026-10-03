@@ -2301,6 +2301,17 @@ body {
     color: var(--text-primary);
 }
 
+.cp-exact-match {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 0 8px 8px;
+    color: var(--text-secondary);
+    font-size: 11px;
+    cursor: pointer;
+    user-select: none;
+}
+
 .cp-categories {
     padding: 0 8px 8px;
 }

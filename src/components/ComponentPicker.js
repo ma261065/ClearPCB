@@ -13,6 +13,25 @@ import { resolveObjFromModelUrl } from './model3d-source.js';
 import { getBuiltInPackageOptions, withBuiltInPackage } from './BuiltInPackages.js';
 import { createSymbolGraphicElement, createSymbolPinElement } from './symbol-svg.js';
 
+/**
+ * Whether any of a result's names equals the query, ignoring case and surrounding
+ * spaces. Used by the picker's "Exact match" filter so a part can be found among
+ * others sharing its prefix (e.g. C46749 among C467490…).
+ * @param {string} query
+ * @param {Array<string|null|undefined>} names
+ */
+export function isExactNameMatch(query, names) {
+    const wanted = String(query || '').trim().toLowerCase();
+    return !!wanted && names.some(name => typeof name === 'string' && name.trim().toLowerCase() === wanted);
+}
+
+/** Names the exact-match filter compares for each kind of picker result. */
+export const pickerResultNames = {
+    online: result => [result.mpn, result.lcscPartNumber],
+    kicad: result => [result.name],
+    local: component => [component.name],
+};
+
 export class ComponentPicker {
     /**
      * Creates a new ComponentPicker instance for browsing and selecting components.
@@ -83,6 +102,9 @@ export class ComponentPicker {
                     <input type="text" class="cp-search-input" placeholder="Search components...">
                     <button class="cp-search-clear" title="Clear search" style="display:none;">✕</button>
                 </div>
+                <label class="cp-exact-match" title="Only show results whose name or part number is exactly the search text">
+                    <input type="checkbox" class="cp-exact-match-input"> Exact match
+                </label>
                 <div class="cp-categories">
                     <select class="cp-category-select">
                         <option value="All">All Categories</option>
@@ -121,6 +143,7 @@ export class ComponentPicker {
         // Get references
         this.searchInput = /** @type {HTMLInputElement} */ (this.element.querySelector('.cp-search-input'));
         this.searchClearBtn = /** @type {HTMLButtonElement} */ (this.element.querySelector('.cp-search-clear'));
+        this.exactMatchInput = /** @type {HTMLInputElement} */ (this.element.querySelector('.cp-exact-match-input'));
         this.categorySelect = /** @type {HTMLSelectElement} */ (this.element.querySelector('.cp-category-select'));
         this.body = /** @type {HTMLElement} */ (this.element.querySelector('.cp-body'));
         this.listEl = /** @type {HTMLElement} */ (this.element.querySelector('.cp-list'));
@@ -160,6 +183,13 @@ export class ComponentPicker {
             }
         });
         
+        // Exact match re-filters the current results; it never starts a new online search.
+        this.exactMatchInput.addEventListener('change', () => {
+            if (this.searchMode !== 'lcsc') this._populateComponents();
+            else if (this.searchQuery.trim().length >= 2 && !this.isSearching
+                && (this.lcscResults.length || this.kicadResults.length)) this._populateLCSCResults();
+        });
+
         // Clear button handler
         this.searchClearBtn.addEventListener('click', () => {
             this.searchInput.value = '';
@@ -303,6 +333,22 @@ export class ComponentPicker {
                 <br>• STM32F103
             </div>
         `;
+    }
+
+    /** The trimmed search text when "Exact match" is ticked, else ''. */
+    _exactMatchQuery() {
+        return this.exactMatchInput?.checked ? String(this.searchQuery || '').trim() : '';
+    }
+
+    /**
+     * Show the empty-results message, naming the query when an exact match found nothing.
+     * @param {string} exact
+     */
+    _showNoResults(exact) {
+        const empty = document.createElement('div');
+        empty.className = 'cp-empty';
+        empty.textContent = exact ? `No exact match for "${exact}".` : 'No results found.';
+        this.listEl.replaceChildren(empty);
     }
 
     /**
@@ -863,9 +909,16 @@ export class ComponentPicker {
             existingHeader.remove();
         }
         
+        const exact = this._exactMatchQuery();
         const hasOnlineError = this.lcscResults.length === 1 && this.lcscResults[0].error;
-        const hasOnlineResults = this.lcscResults.length > 0 && !hasOnlineError;
-        const hasKiCadResults = this.kicadResults.length > 0;
+        const lcscResults = exact && !hasOnlineError
+            ? this.lcscResults.filter(result => isExactNameMatch(exact, pickerResultNames.online(result)))
+            : this.lcscResults;
+        const kicadResults = exact
+            ? this.kicadResults.filter(result => isExactNameMatch(exact, pickerResultNames.kicad(result)))
+            : this.kicadResults;
+        const hasOnlineResults = lcscResults.length > 0 && !hasOnlineError;
+        const hasKiCadResults = kicadResults.length > 0;
 
         if (!hasOnlineResults && !hasKiCadResults) {
             if (hasOnlineError) {
@@ -875,11 +928,7 @@ export class ComponentPicker {
                     </div>
                 `;
             } else {
-                this.listEl.innerHTML = `
-                    <div class="cp-empty">
-                        No results found.
-                    </div>
-                `;
+                this._showNoResults(exact);
             }
             return;
         }
@@ -909,7 +958,7 @@ export class ComponentPicker {
             const onlineInner = document.createElement('div');
             onlineInner.className = 'cp-results-col-list';
 
-            for (const result of this.lcscResults) {
+            for (const result of lcscResults) {
                 if (result.error) continue;
 
                 const item = document.createElement('div');
@@ -980,7 +1029,7 @@ export class ComponentPicker {
             const kicadInner = document.createElement('div');
             kicadInner.className = 'cp-results-col-list';
 
-            for (const result of this.kicadResults) {
+            for (const result of kicadResults) {
                 const item = document.createElement('div');
                 item.className = 'cp-item cp-kicad-item';
 
@@ -1350,6 +1399,8 @@ export class ComponentPicker {
         if (this.searchQuery) {
             // Use SearchManager for local search
             components = this.searchManager.searchLocal(this.searchQuery);
+            const exact = this._exactMatchQuery();
+            if (exact) components = components.filter(comp => isExactNameMatch(exact, pickerResultNames.local(comp)));
         } else if (this.selectedCategory === 'All') {
             components = this.library.getAllDefinitions();
         } else {
@@ -1357,7 +1408,8 @@ export class ComponentPicker {
         }
         
         if (!components || components.length === 0) {
-            this.listEl.innerHTML = '<div class="cp-empty">No components found.</div>';
+            if (this._exactMatchQuery()) this._showNoResults(this._exactMatchQuery());
+            else this.listEl.innerHTML = '<div class="cp-empty">No components found.</div>';
             return;
         }
         

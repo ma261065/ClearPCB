@@ -288,6 +288,9 @@ objects. Movement coordinates and flat property snapshots are copied at command
 creation, preserving full precision and insulating history from caller edits.
 The existing `pcb/modules/pad-commands.js` classes are presentation adapters that
 retain SVG updates, selection cleanup and the existing deferred refresh cadence.
+A pad's drill may be 0, meaning no hole (test pads): it has no bore in 2D, no
+drill-file entry and flat copper on its assigned face(s) in 3D. Any negative or
+missing drill still falls back to the 0.8 mm default.
 
 Standalone via add/remove/move/modify and batch-modify operations live in
 `core/pcb-via-commands.js`. Collection commands take `PcbDocument`; property and
@@ -1559,6 +1562,10 @@ Choosing Place Component does not dismiss the picker or switch back to Select.
 Returning to Select with no selection also activates Home, so cancelling a
 drawing tool with Escape does not leave an empty Properties tab. Existing
 selection properties remain visible when switching to Select with a selection.
+The picker's "Exact match" checkbox filters the current Online (EasyEDA/KiCad)
+or Local results to those whose part number, manufacturer part number or name
+equals the search text, ignoring case (`isExactNameMatch()`); toggling it
+re-filters without a new online search.
 
 The Design ribbon and New Track/Via property editors share the same commit path.
 Valid edits mark the PCB dirty and retain the existing geometry refresh requests;
