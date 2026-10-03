@@ -224,4 +224,30 @@ function fixture() {
     await Promise.resolve();
     assert.equal(test.events.at(-1), 'activate', 'recovery failure does not leave the PCB tab unwired');
 }
+
+for (const [label, interrupt] of [
+    ['the PCB was rendered meanwhile', bootstrap => { bootstrap.pcbApp._stale = false; }],
+    ['the PCB became active meanwhile', bootstrap => { bootstrap.pcbApp._active = true; }],
+    ['a file operation started meanwhile', bootstrap => { bootstrap.project.fileManager.loading = true; }],
+]) {
+    const test = fixture();
+    const initialization = test.bootstrap.initialize();
+    test.finishRecovery(true);
+    await initialization;
+    test.flushIdle();
+    assert.equal(test.tabs[1].classes.get('loading'), true);
+    interrupt(test.bootstrap);
+    test.flushFrame();
+    test.flushFrame();
+    assert.equal(test.events.includes('preload'), false);
+    assert.equal(test.tabs[1].classes.get('loading'), false, `idle preload clears its spinner when ${label}`);
+    assert.equal(test.tabs[1].attributes.has('aria-busy'), false);
+}
+
+{
+    const test = fixture();
+    test.bootstrap._setTabsLoading(true, 'pcb');
+    test.bootstrap._cancelPcbPreload();
+    assert.equal(test.tabs[1].classes.get('loading'), false, 'cancelling clears a PCB spinner even without a pending handle');
+}
 console.log('PASS: PCB tabs are wired before recovery completes and remain guarded during document loading');

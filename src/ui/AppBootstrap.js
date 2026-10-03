@@ -192,12 +192,13 @@ export class AppBootstrap {
     }
 
     _cancelPcbPreload() {
-        if (!this._pcbPreloadHandle) return;
-        const { type, id } = this._pcbPreloadHandle;
-        if (type === 'idle') window.cancelIdleCallback?.(id);
-        else if (type === 'frame') window.cancelAnimationFrame(id);
-        else clearTimeout(id);
-        this._pcbPreloadHandle = null;
+        if (this._pcbPreloadHandle) {
+            const { type, id } = this._pcbPreloadHandle;
+            if (type === 'idle') window.cancelIdleCallback?.(id);
+            else if (type === 'frame') window.cancelAnimationFrame(id);
+            else clearTimeout(id);
+            this._pcbPreloadHandle = null;
+        }
         this._setTabsLoading(false, 'pcb');
     }
 
@@ -206,8 +207,10 @@ export class AppBootstrap {
         this._cancelPcbPreload();
         const render = () => {
             this._pcbPreloadHandle = null;
-            if (this.project.fileManager.loading || this.pcbApp?._active || !this.pcbApp?._stale) return;
+            // The spinner was shown in prepare(); clear it on every exit, including
+            // when the PCB was rendered or a load started in the meantime.
             try {
+                if (this.project.fileManager.loading || this.pcbApp?._active || !this.pcbApp?._stale) return;
                 this.pcbApp.preload?.();
             } finally {
                 this._setTabsLoading(false, 'pcb');
