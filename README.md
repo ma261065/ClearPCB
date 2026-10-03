@@ -175,7 +175,8 @@ clearpcb/
 └── docs/
   ├── clearpcb_file_format.md # Canonical project JSON format
   ├── project_structure.md    # Layout, enforced import rules, state owners
-  ├── module-contracts.md     # Detailed per-module behaviour contracts
+  ├── module-contracts.md     # Index of the per-module behaviour contracts
+  ├── contracts/              # Contract pages by area (editing, model, pours/DRC, …)
   └── release-readiness.md    # Open release items and working agreements
 ```
 

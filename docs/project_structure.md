@@ -2,7 +2,8 @@
 
 Where code lives, which way imports may point, and which module owns each piece
 of shared state. The regression gate enforces the import and editor-access rules.
-Detailed per-module behaviour is in [module-contracts.md](module-contracts.md).
+Detailed per-module behaviour is in [module-contracts.md](module-contracts.md),
+an index of area pages under [contracts/](contracts/).
 
 ## Current Structure
 
@@ -65,7 +66,8 @@ clearpcb/
 │                               # check-via-on-pad, regression, debug-pf-*)
 └── docs/
     ├── project_structure.md    # This page: layout, enforced rules, owners
-    ├── module-contracts.md     # Detailed per-module behaviour contracts
+    ├── module-contracts.md     # Index of the per-module behaviour contracts
+    ├── contracts/              # Contract pages by area (editing, model, pours/DRC, …)
     ├── clearpcb_file_format.md # Canonical project format
     ├── release-readiness.md    # Open release items and working agreements
     ├── releases.md             # Branching, CI gates and release checklist
