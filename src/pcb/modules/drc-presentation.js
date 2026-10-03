@@ -637,26 +637,38 @@ export class DrcPresentation {
         svg.style.display = '';
     }
 
+    /**
+     * Pan (without zooming) so a board point lies in the part of the canvas not
+     * covered by overlays: the DRC panel docked on the left and the 2D/3D viewer
+     * docked on the right at whatever width its splitter was dragged to.
+     */
     ensurePointVisible(x, y) {
         const vp = this.capabilities.getViewport();
         if (!vp || !vp.viewBox) return;
         const vb = vp.viewBox;
+        const rect = vp.svg?.getBoundingClientRect();
+        const overlaps = (element) => rect?.width > 0 && element.offsetParent && (() => {
+            const box = element.getBoundingClientRect();
+            return box.width > 0 && box.bottom > rect.top && box.top < rect.top + rect.height;
+        })();
+        // Overlays slide in with transforms; use their settled docked positions.
+        const settledLeft = element => element.offsetParent.getBoundingClientRect().left + element.offsetLeft;
+        const share = px => Math.max(0, Math.min(1, px / rect.width)) * vb.width;
         let leftInset = 0;
         const panel = this.dom.getElementById('pcbDrcSlidePanel');
-        if (panel?.classList.contains('open')) {
-            const rect = vp.svg?.getBoundingClientRect();
-            const panelRect = panel.getBoundingClientRect();
-            if (rect?.width > 0 && panelRect.width > 0 && panel.offsetParent &&
-                panelRect.bottom > rect.top && panelRect.top < rect.top + rect.height) {
-                // Use the settled left-docked position, even during the slide-in animation.
-                const panelRight = panel.offsetParent.getBoundingClientRect().left +
-                    panel.offsetLeft + panelRect.width;
-                leftInset = Math.max(0, Math.min(1, (panelRight - rect.left) / rect.width)) * vb.width;
-            }
+        if (panel?.classList.contains('open') && overlaps(panel)) {
+            leftInset = share(settledLeft(panel) + panel.getBoundingClientRect().width - rect.left);
         }
-        const visibleWidth = vb.width - leftInset;
+        let rightInset = 0;
+        const viewer = /** @type {HTMLElement | null | undefined} */ (this.dom.querySelector?.('.cpcb3d-host'));
+        if (viewer && viewer.style?.display !== 'none' && overlaps(viewer)) {
+            rightInset = share(rect.left + rect.width - settledLeft(viewer));
+        }
+        // Too little board left uncovered: use the whole canvas rather than none of it.
+        if (vb.width - leftInset - rightInset < vb.width * 0.1) leftInset = rightInset = 0;
+        const visibleWidth = vb.width - leftInset - rightInset;
         const margin = Math.min(visibleWidth, vb.height) * 0.12;
-        const inside = x >= vb.x + leftInset + margin && x <= vb.x + vb.width - margin &&
+        const inside = x >= vb.x + leftInset + margin && x <= vb.x + vb.width - rightInset - margin &&
             y >= vb.y + margin && y <= vb.y + vb.height - margin;
         if (inside) return;
         // Center within the uncovered area without changing the scale.

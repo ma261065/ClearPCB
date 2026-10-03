@@ -5,7 +5,8 @@ globalThis.document = { getElementById() { return null; } };
 const { default: PCBApp } = await import('../src/ui/PCBApp.js');
 
 function fixture({ width = 1000, height = 600, panelWidth = 320, svgInset = 0,
-    scale = 10, open = true, sliding = false } = {}) {
+    scale = 10, open = true, sliding = false, viewerWidth = 0, viewerHidden = false,
+    viewerSliding = false } = {}) {
     const app = Object.create(PCBApp.prototype);
     const svgRect = { left: 120 + svgInset, top: 80, width, height };
     const panel = {
@@ -18,6 +19,17 @@ function fixture({ width = 1000, height = 600, panelWidth = 320, svgInset = 0,
             top: 80, bottom: 80 + height, width: panelWidth, height,
         }),
     };
+    const viewerLeft = 120 + svgInset + width - viewerWidth;
+    const viewer = viewerWidth > 0 ? {
+        offsetLeft: viewerLeft - 120,
+        offsetParent: viewerHidden ? null : { getBoundingClientRect: () => ({ left: 120, top: 80 }) },
+        style: { display: viewerHidden ? 'none' : '' },
+        getBoundingClientRect: () => ({
+            left: viewerSliding ? viewerLeft + viewerWidth : viewerLeft,
+            right: viewerSliding ? viewerLeft + 2 * viewerWidth : viewerLeft + viewerWidth,
+            top: 80, bottom: 80 + height, width: viewerWidth, height,
+        }),
+    } : null;
     const viewBox = { x: -40, y: -30, width: width / scale, height: height / scale };
     let updates = 0, notifications = 0;
     const screen = point => ({
@@ -29,6 +41,7 @@ function fixture({ width = 1000, height = 600, panelWidth = 320, svgInset = 0,
     }));
     globalThis.document.getElementById = id => id === 'pcbDrcSlidePanel' ? panel
         : id === 'pcbDrcList' ? { querySelectorAll: () => rows } : null;
+    globalThis.document.querySelector = selector => selector === '.cpcb3d-host' ? viewer : null;
     app.viewport = {
         viewBox, svg: { getBoundingClientRect: () => svgRect },
         _updateViewBox() { updates++; }, _notifyViewChanged() { notifications++; },
@@ -36,8 +49,9 @@ function fixture({ width = 1000, height = 600, panelWidth = 320, svgInset = 0,
     app._getDrcPresentation().drawMarker = () => {};
     app._getDrcPresentation().updateConnector = () => {};
     const covered = open ? Math.max(0, panelWidth - svgInset) : 0;
+    const rightCovered = viewer && !viewerHidden ? viewerWidth : 0;
     const point = (x, y) => ({ x: viewBox.x + x / scale, y: viewBox.y + y / scale });
-    return { app, viewBox, covered, point, screen, width, height,
+    return { app, viewBox, covered, rightCovered, point, screen, width, height,
         updates: () => updates, notifications: () => notifications };
 }
 
@@ -92,4 +106,47 @@ for (const options of [
     assert.ok(Object.values(viewBox).every(Number.isFinite), 'hidden canvas dimensions cannot corrupt the viewBox');
 }
 
-console.log('PASS DRC issue visibility beside the panel, keyboard navigation, zoom preservation and sliding layout');
+// The 2D/3D viewer docks on the right at a user-dragged width and overlays the canvas.
+for (const options of [
+    { viewerWidth: 333 },
+    { viewerWidth: 150 },
+    { viewerWidth: 600, open: false },
+    { viewerWidth: 200, viewerSliding: true },
+    { viewerWidth: 250, width: 750, svgInset: 24 },
+]) {
+    const test = fixture(options);
+    const { app, viewBox, covered, rightCovered, point, screen, width, height } = test;
+    const visibleRight = width - rightCovered;
+    const hidden = point(width - rightCovered / 2, height / 2);
+    app._drcViolations = [{ id: 'a', ...hidden }, { id: 'b', ...point(-100, height + 100) }];
+    app._selectDRCViolation('a');
+    const visible = screen(hidden);
+    assert.ok(visible.x > covered && visible.x < visibleRight,
+        `selected issue must not remain underneath the ${rightCovered}px board viewer`);
+    assert.ok(Math.abs(visible.x - (covered + visibleRight) / 2) < 1e-7,
+        'pan centres the issue between the DRC panel and the board viewer');
+    app._selectDRCViolation('a');
+    assert.equal(test.updates(), 1, 'an issue already beside the viewer does not pan again');
+    app._moveDRCSelection(1);
+    const next = screen(app._drcViolations[1]);
+    assert.ok(next.x > covered && next.x < visibleRight, 'keyboard navigation also avoids the viewer');
+}
+
+{
+    const test = fixture({ viewerWidth: 400, viewerHidden: true, open: false });
+    const { app, viewBox, point, width, height } = test;
+    const before = { ...viewBox };
+    const nearRight = point(width - 100, height / 2);
+    app._ensurePointVisible(nearRight.x, nearRight.y);
+    assert.deepEqual(viewBox, before, 'a closed board viewer does not reserve board space');
+}
+
+{
+    const test = fixture({ panelWidth: 500, viewerWidth: 480 });
+    const { app, point, screen, width, height } = test;
+    const outside = point(-200, height / 2);
+    app._ensurePointVisible(outside.x, outside.y);
+    assert.equal(screen(outside).x, width / 2, 'overlays covering nearly everything fall back to the whole canvas');
+}
+
+console.log('PASS DRC issue visibility beside the panel and board viewer, keyboard navigation, zoom preservation and sliding layout');
