@@ -6,14 +6,8 @@
     "_componentPreviewHidden",
     "_setActiveToolButton"
   ],
-  "src/schematic/modules/context-menu.js": [
-    "_selectedShapeNode",
-    "_selectedShapeSegment"
-  ],
   "src/schematic/modules/drag.js": [
-    "_overlapCyclePress",
-    "_selectedShapeNode",
-    "_selectedShapeSegment"
+    "_overlapCyclePress"
   ],
   "src/schematic/modules/draw-states.js": [
     "_componentCodeTooltipPinned",
@@ -26,8 +20,6 @@
     "_pinComponentCodeTooltip",
     "_propagateNonSelectedWiresScratch",
     "_segmentDragGuidesScratch",
-    "_selectedShapeNode",
-    "_selectedShapeSegment",
     "_shapeSegmentClickCandidate",
     "_shapeSegmentSelectionElement",
     "_wireJunctionData",
@@ -53,13 +45,6 @@
     "_rightClickStart",
     "_rightPanGesture"
   ],
-  "src/schematic/modules/polyline-segment-drag.js": [
-    "_selectedShapeSegment"
-  ],
-  "src/schematic/modules/properties.js": [
-    "_selectedShapeNode",
-    "_selectedShapeSegment"
-  ],
   "src/schematic/modules/ribbon.js": [
     "_activateRibbonTab",
     "_cleanupRibbonEsc",
@@ -70,8 +55,6 @@
     "_showSaveToast"
   ],
   "src/schematic/modules/schematic-view.js": [
-    "_selectedShapeNode",
-    "_selectedShapeSegment",
     "_shapeSegmentSelectionElement"
   ],
   "src/schematic/modules/text-edit.js": [

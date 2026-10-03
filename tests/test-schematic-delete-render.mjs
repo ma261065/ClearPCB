@@ -5,6 +5,7 @@ import { createRect, createLine, createPolygon } from '../src/shapes/polyline.js
 import { Wire } from '../src/shapes/wire.js';
 import { Arc } from '../src/shapes/arc.js';
 import { viewOf } from '../src/schematic/render/shape-view-state.js';
+import { getShapeNodeFocus, getShapeSegmentFocus, setShapeNodeFocus, setShapeSegmentFocus } from '../src/schematic/modules/shape-focus.js';
 
 class Element {
     attributes = new Map();
@@ -124,7 +125,7 @@ function fixture(shape) {
             emit(name, selection) {
                 assert.equal(name, 'selectionChanged');
                 app.selectionNotifications.push({ selection: [...selection], shapes: [...app.shapes],
-                    segment: app._selectedShapeSegment, node: app._selectedShapeNode,
+                    segment: getShapeSegmentFocus(app), node: getShapeNodeFocus(app),
                     interactionState: app.interactionState });
                 for (const subscriber of subscribers.get(name) || []) subscriber(selection);
             },
@@ -174,7 +175,7 @@ for (const nodeId of ['n0', 'n1']) for (const action of ['Delete', 'Backspace', 
     const line = createLine({ points: [{ x: 0, y: 0 }, { x: 10, y: 0 }] });
     const app = fixture(line);
     const before = line.captureState();
-    app._selectedShapeNode = { shapeId: line.id, nodeId };
+    setShapeNodeFocus(app, { shapeId: line.id, nodeId });
     app._onSelectionChanged(app.selection.getSelection());
     assert.equal(document.getElementById('prop_cornerRadius'), null, 'Endpoints have no corner-radius control');
     app.selectionNotifications.length = 0;
@@ -196,7 +197,7 @@ for (const nodeId of ['n0', 'n1']) for (const action of ['Delete', 'Backspace', 
 for (const nodeId of ['n0', 'n2']) {
     const line = createLine({ points: [{ x: 0, y: 0 }, { x: 10, y: 0 }, { x: 10, y: 10 }] });
     const app = fixture(line);
-    app._selectedShapeNode = { shapeId: line.id, nodeId };
+    setShapeNodeFocus(app, { shapeId: line.id, nodeId });
     app._onSelectionChanged(app.selection.getSelection());
     runSchematicDeleteAction(app);
     assert.deepEqual(app.shapes, [line]);
@@ -216,7 +217,7 @@ for (const [closed, points, bulges, expected] of [
     for (const [edgeId, bulge] of Object.entries(bulges)) shape.setEdgeAttr(edgeId, 'bulge', bulge);
     const app = fixture(shape), before = shape.captureState();
     for (const [index, showRadius] of expected.entries()) {
-        app._selectedShapeNode = { shapeId: shape.id, nodeId: `n${index}` };
+        setShapeNodeFocus(app, { shapeId: shape.id, nodeId: `n${index}` });
         app._onSelectionChanged(app.selection.getSelection());
         assert.equal(!!document.getElementById('prop_cornerRadius'), showRadius, `Node ${index}: radius is only for a corner`);
         assert.equal(document.querySelector('.ribbon-tab.active').dataset.tab, 'properties');
@@ -234,7 +235,7 @@ for (const closed of [false, true]) for (const boundary of ['uniform', 'width-ch
     shape.setNodeCornerRadius('n4', 1.25);
     const before = shape.captureState();
     const app = fixture(shape);
-    app._selectedShapeNode = { shapeId: shape.id, nodeId: 'n2' };
+    setShapeNodeFocus(app, { shapeId: shape.id, nodeId: 'n2' });
     app._onSelectionChanged(app.selection.getSelection());
     runSchematicDeleteAction(app);
     const expected = closed
@@ -260,7 +261,7 @@ for (const key of ['Delete', 'Backspace']) {
         if (curved) rectangle.setEdgeAttr('e0', 'bulge', 0.25);
         const before = rectangle.captureState();
         const app = fixture(rectangle);
-        app._selectedShapeSegment = { shapeId: rectangle.id, edgeId: 'e0' };
+        setShapeSegmentFocus(app, { shapeId: rectangle.id, edgeId: 'e0' });
         app.renderShapes(true);
         const overlay = app._shapeSegmentSelectionElement;
         assert.equal(overlay.parentNode, app.viewport.contentLayer);
@@ -269,7 +270,7 @@ for (const key of ['Delete', 'Backspace']) {
             listeners.get('keydown')({ key, target: { tagName: 'DIV' }, preventDefault() {}, stopPropagation() {} });
             assert.equal(overlay.parentNode, null, 'Delete removes the refined-edge SVG before another pointer event');
             assert.equal(app._shapeSegmentSelectionElement, null);
-            assert.equal(app._selectedShapeSegment, null);
+            assert.equal(getShapeSegmentFocus(app), null);
             assert.equal(viewOf(rectangle).element.parentNode, null, 'The old rectangle artwork is removed immediately');
             assert.equal(app.shapes.length, 1);
             const remaining = app.shapes[0];
@@ -298,7 +299,7 @@ for (const split of [false, true]) {
     const app = fixture(shape);
     const before = shape.captureState();
     if (split) splitAnchorAndDrag(app, shape, 'n1', 0, 0);
-    app._selectedShapeNode = { shapeId: shape.id, nodeId: split ? app.drag.anchorId : 'n1' };
+    setShapeNodeFocus(app, { shapeId: shape.id, nodeId: split ? app.drag.anchorId : 'n1' });
     app._onSelectionChanged(app.selection.getSelection());
     app.renderShapes(true);
     const tip = document.getElementById('schematicStatusTip');
@@ -345,24 +346,24 @@ for (const kind of ['arc-to-line', 'line-to-arc', 'floating-line-to-arc',
     assert.equal(app.selectionNotifications.length, 1, `${kind}: one completed selection notification`);
     assert.equal(app.ui.propertiesPanel.rebuilds, rebuilds + 1, `${kind}: one Properties rebuild`);
     assert.deepEqual(app.selectionNotifications[0].selection, app.selection.getSelection());
-    assert.deepEqual(app.selectionNotifications[0].segment, app._selectedShapeSegment,
+    assert.deepEqual(app.selectionNotifications[0].segment, getShapeSegmentFocus(app),
         `${kind}: subscribers receive final refinement, not an intermediate whole-object selection`);
     assert.equal(app.selectionNotifications[0].interactionState, floating ? 'anchorDrag' : 'idle');
     assert.equal(document.getElementById('schematicStatusTip').hidden,
-        !!app._selectedShapeSegment || app.shapes[0].type !== 'polyline');
+        !!getShapeSegmentFocus(app) || app.shapes[0].type !== 'polyline');
     assert.equal(app.history.undoStack.length, floating ? 0 : 1, 'UI completion does not add history');
     if (kind.endsWith('to-line')) assert.equal(document.getElementById('prop_bulge'), null);
     if (kind === 'collapsed-segment-to-line') assert.equal(shape.nodes.size, 2);
 }
 
 for (const action of [
-    (app, shape) => { app._selectedShapeNode = { shapeId: shape.id, nodeId: 'n0' }; runSchematicDeleteAction(app); },
+    (app, shape) => { setShapeNodeFocus(app, { shapeId: shape.id, nodeId: 'n0' }); runSchematicDeleteAction(app); },
     (app, shape) => deleteWireSegment(app, shape, 'e0'),
     (app, shape) => deleteWire(app, shape),
 ]) {
     const line = createLine({ points: [{ x: 0, y: 0 }, { x: 10, y: 0 }] });
     const app = fixture(line);
-    app._selectedShapeSegment = { shapeId: line.id, edgeId: 'e0' };
+    setShapeSegmentFocus(app, { shapeId: line.id, edgeId: 'e0' });
     app.renderShapes(true);
     const overlay = app._shapeSegmentSelectionElement;
     action(app, line);

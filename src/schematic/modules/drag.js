@@ -20,6 +20,7 @@ import { BULGE_EPS } from '../../shapes/arc-edge.js';
 import { appendArcToLineCommand } from './context-menu.js';
 import { refreshComponentPose } from './schematic-view.js';
 import { applyShapeState, captureShapeState } from './selection.js';
+import { setShapeNodeFocus, setShapeSegmentFocus } from './shape-focus.js';
 
 /**
  * Compare two captured shape states for equality.
@@ -221,8 +222,8 @@ export function commitAnchorDrag(app, dragShape, beforeState, anchorWireStates =
             ? appendArcToLineCommand(app, command, dragShape) : dragShape;
         app.history.execute(command);
         app.selection.select(selectedShape, false);
-        app._selectedShapeNode = null;
-        app._selectedShapeSegment = null;
+        setShapeNodeFocus(app, null);
+        setShapeSegmentFocus(app, null);
         app.updatePropertiesPanel?.(app.selection.getSelection());
         return true;
     }
@@ -248,8 +249,8 @@ export function commitAnchorDrag(app, dragShape, beforeState, anchorWireStates =
         const line = appendArcToLineCommand(app, batch, dragShape, after);
         app.history.execute(batch);
         app.selection.select(line, false);
-        app._selectedShapeNode = null;
-        app._selectedShapeSegment = null;
+        setShapeNodeFocus(app, null);
+        setShapeSegmentFocus(app, null);
         app.updatePropertiesPanel?.(app.selection.getSelection());
         return true;
     }

@@ -61,6 +61,7 @@ import {
     discardComponentView,
     refreshSelectionVisual,
 } from '../schematic/modules/schematic-view.js';
+import { getShapeNodeFocus, getShapeSegmentFocus, setShapeNodeFocus } from '../schematic/modules/shape-focus.js';
 
 // Shape construction uses createShape() from shapes/index.js.
 
@@ -127,10 +128,6 @@ export default class SchematicApp {
             onSelectionChanged: (shapes) => this._onSelectionChanged(shapes),
             invalidateEntity: (entity) => refreshSelectionVisual(this, entity),
         });
-        /** Refined edge selection for a line, rectangle, or polygon. */
-        this._selectedShapeSegment = null;
-        /** Refined node selection for per-corner properties. */
-        this._selectedShapeNode = null;
         /** Number of selectable objects under the pointer (overlap cycling tip). */
         this._overlapHitCount = 0;
         /** Ribbon tab switcher and height keeper, installed by bindRibbon(). */
@@ -664,11 +661,11 @@ export default class SchematicApp {
      * @param {Array} shapes - The currently selected shapes.
      */
     _onSelectionChanged(shapes) {
-        if (shapes.length !== 1 || shapes[0]?.id !== this._selectedShapeSegment?.shapeId) {
+        if (shapes.length !== 1 || shapes[0]?.id !== getShapeSegmentFocus(this)?.shapeId) {
             clearShapeSegmentSelection(this);
         }
-        if (shapes.length !== 1 || shapes[0]?.id !== this._selectedShapeNode?.shapeId) {
-            this._selectedShapeNode = null;
+        if (shapes.length !== 1 || shapes[0]?.id !== getShapeNodeFocus(this)?.shapeId) {
+            setShapeNodeFocus(this, null);
         }
         this.updateShapeSelectionTip();
         this.eventBus.emit('selectionChanged', shapes);
@@ -686,8 +683,8 @@ export default class SchematicApp {
         const show = this.currentTool === 'select'
             && selected.length === 1
             && selected[0]?.type === 'polyline'
-            && !this._selectedShapeSegment
-            && !this._selectedShapeNode;
+            && !getShapeSegmentFocus(this)
+            && !getShapeNodeFocus(this);
         tip.hidden = !show && !showReferenceTip && !showOverlapTip;
         tip.textContent = showReferenceTip ? 'Tip: Use SPACE to rotate text'
             : showOverlapTip ? 'Tip: Shift+Click to cycle overlapping objects; Ctrl+Click for multi-selection'

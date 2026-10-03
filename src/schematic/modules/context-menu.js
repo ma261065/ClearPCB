@@ -18,6 +18,7 @@ import { Polyline } from '../../shapes/polyline.js';
 import { Arc } from '../../shapes/arc.js';
 import { addShapeInternal } from './shape-management.js';
 import { applyShapeState, captureShapeState } from './selection.js';
+import { getShapeNodeFocus, getShapeSegmentFocus, setShapeNodeFocus, setShapeSegmentFocus } from './shape-focus.js';
 
 /**
  * @typedef {HTMLDivElement & {
@@ -321,8 +322,8 @@ export function deleteJunction(app, junctionInfo) {
 }
 
 function finishShapeRefinement(app) {
-    app._selectedShapeNode = null;
-    app._selectedShapeSegment = null;
+    setShapeNodeFocus(app, null);
+    setShapeSegmentFocus(app, null);
     app.selection.notifyChanged();
     app.renderShapes(true);
 }
@@ -451,8 +452,8 @@ export function deleteFocusedSchematicShape(app) {
     if (selected.length !== 1 || selected[0].locked) return false;
     const shape = selected[0];
     if (shape.type !== 'polyline') return false;
-    const nodeId = app._selectedShapeNode?.shapeId === shape.id ? app._selectedShapeNode.nodeId : null;
-    const edgeId = app._selectedShapeSegment?.shapeId === shape.id ? app._selectedShapeSegment.edgeId : null;
+    const nodeId = getShapeNodeFocus(app)?.shapeId === shape.id ? getShapeNodeFocus(app).nodeId : null;
+    const edgeId = getShapeSegmentFocus(app)?.shapeId === shape.id ? getShapeSegmentFocus(app).edgeId : null;
     if (!shape.nodes.has(nodeId) && !shape.edges.has(edgeId)) return false;
     if (app.drag?.shape === shape) {
         const splitting = !!app.drag.pathSplit;
@@ -493,8 +494,8 @@ export function splitAnchorAndDrag(app, shape, anchorId, clientX, clientY) {
         }
         shape.applyEditablePath(split.moving);
         shape.fill = false;
-        app._selectedShapeNode = null;
-        app._selectedShapeSegment = null;
+        setShapeNodeFocus(app, null);
+        setShapeSegmentFocus(app, null);
         app.selection.clearSelection();
         app.selection.select(shape, false);
         app.drag = {
@@ -819,8 +820,8 @@ export function setSchematicShapeSegmentType(app, shape, edgeId, type, { floatin
         const batch = new BatchCommand('Convert arc to line');
         const line = appendArcToLineCommand(app, batch, shape);
         app.history.execute(batch);
-        app._selectedShapeSegment = { shapeId: line.id, edgeId: [...line.edges.keys()][0] };
-        app._selectedShapeNode = null;
+        setShapeSegmentFocus(app, { shapeId: line.id, edgeId: [...line.edges.keys()][0] });
+        setShapeNodeFocus(app, null);
         app.selection.select(line, false);
         app.fileManager?.setDirty?.(true);
         app.renderShapes(true);
@@ -856,8 +857,8 @@ export function setSchematicShapeSegmentType(app, shape, edgeId, type, { floatin
             app.updateCrosshair?.(point);
             app.viewport.svg.style.cursor = 'move';
         } else app.history.execute(command);
-        app._selectedShapeSegment = null;
-        app._selectedShapeNode = null;
+        setShapeSegmentFocus(app, null);
+        setShapeNodeFocus(app, null);
         app.selection.select(arc, false);
         app.renderShapes(true);
         return true;
@@ -866,8 +867,8 @@ export function setSchematicShapeSegmentType(app, shape, edgeId, type, { floatin
     if (type === 'line') collapseCollinearPath(path);
     shape.applyEditablePath(path);
     const after = shape.captureState();
-    app._selectedShapeSegment = shape.edges.has(edgeId) ? { shapeId: shape.id, edgeId } : null;
-    app._selectedShapeNode = null;
+    setShapeSegmentFocus(app, shape.edges.has(edgeId) ? { shapeId: shape.id, edgeId } : null);
+    setShapeNodeFocus(app, null);
     if (floating && type === 'arc') {
         const edge = shape.edges.get(edgeId);
         const arc = arcFromBulge(shape.nodes.get(edge.from), shape.nodes.get(edge.to), edge.bulge);

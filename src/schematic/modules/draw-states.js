@@ -41,6 +41,7 @@ import { placeComponent, updateComponentPreview } from './components.js';
 import { addWireWaypoint, finishWireDrawing, startWireDrawing, updateWireDrawing } from './wire.js';
 import { addLinePoint, addPolygonPoint, finishDrawing, finishLine, finishPolygon, startDrawing, updateDrawing } from './drawing.js';
 import { applyShapeState, captureShapeState } from './selection.js';
+import { getShapeSegmentFocus, setShapeNodeFocus, setShapeSegmentFocus } from './shape-focus.js';
 // ─── Constants ─────────────────────────────────────────────────────
 
 const DRAWING_TOOLS = new Set(['line', 'rect', 'circle', 'polygon']);
@@ -1097,7 +1098,7 @@ export const idleState = {
             const anchorId = shape.hitTestAnchor(worldPos, app.viewport.scale);
             if (!anchorId) continue;
 
-            app._selectedShapeSegment = null;
+            setShapeSegmentFocus(app, null);
             app.updateShapeSelectionTip?.();
 
             if (shape.type === 'wire' && shape.edges.size <= 1 && shape.nodes.has(anchorId)) {
@@ -1154,10 +1155,10 @@ export const idleState = {
 
             if (hitShape.locked) { event.preventDefault(); return; }
 
-            const selectedShapeSegment = app._selectedShapeSegment?.shapeId === hitShape.id
-                ? { ...app._selectedShapeSegment }
+            const selectedShapeSegment = getShapeSegmentFocus(app)?.shapeId === hitShape.id
+                ? { ...getShapeSegmentFocus(app) }
                 : null;
-            app._selectedShapeNode = null;
+            setShapeNodeFocus(app, null);
             app._pendingShapeSegmentToggle = wasSelected && hitShape.type === 'polyline'
                 ? {
                     shape: hitShape,
@@ -1174,7 +1175,7 @@ export const idleState = {
                 return;
             }
 
-            app._selectedShapeSegment = null;
+            setShapeSegmentFocus(app, null);
             app.updateShapeSelectionTip?.();
 
             // Wire segment drag
@@ -1223,8 +1224,8 @@ export const idleState = {
             && pendingNode.shape.nodes?.has(pendingNode.anchorId)
             && app.selection.getSelection().length === 1
             && app.selection.getSelection()[0] === pendingNode.shape) {
-            app._selectedShapeSegment = null;
-            app._selectedShapeNode = { shapeId: pendingNode.shape.id, nodeId: pendingNode.anchorId };
+            setShapeSegmentFocus(app, null);
+            setShapeNodeFocus(app, { shapeId: pendingNode.shape.id, nodeId: pendingNode.anchorId });
             app.renderShapes(true);
             app.updateShapeSelectionTip?.();
             app.updatePropertiesPanel?.(app.selection.getSelection());
@@ -1247,8 +1248,8 @@ export const idleState = {
             app._shapeSegmentSelectionElement?.remove();
             app._shapeSegmentSelectionElement = null;
             const edgeId = refinePathSegment(pendingSegmentToggle.edgeId, true);
-            app._selectedShapeSegment = edgeId == null ? null : { shapeId: pendingSegmentToggle.shape.id, edgeId };
-            app._selectedShapeNode = null;
+            setShapeSegmentFocus(app, edgeId == null ? null : { shapeId: pendingSegmentToggle.shape.id, edgeId });
+            setShapeNodeFocus(app, null);
             app._shapeSegmentClickCandidate = pendingSegmentToggle.edgeId
                 ? { shapeId: pendingSegmentToggle.shape.id, edgeId: pendingSegmentToggle.edgeId }
                 : null;
@@ -1822,7 +1823,7 @@ export const anchorDragState = {
         if (newAnchorId && newAnchorId !== app.drag.anchorId) app.drag.anchorId = newAnchorId;
 
         const draggedShape = app.drag.shape;
-        const selectedSegment = app._selectedShapeSegment;
+        const selectedSegment = getShapeSegmentFocus(app);
         const bulge = draggedShape.type === 'arc' ? draggedShape.bulge
             : draggedShape.type === 'polyline' && selectedSegment?.shapeId === draggedShape.id
                 ? draggedShape.getEdgeAttr(selectedSegment.edgeId, 'bulge') : null;

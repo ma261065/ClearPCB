@@ -2,15 +2,16 @@
 import { snapShapeTranslation, renderShapeAlignment } from './shape-snap.js';
 import { pathSegmentConstraints } from '../../shapes/path-snap.js';
 import { captureShapeState } from './selection.js';
+import { getShapeSegmentFocus, setShapeSegmentFocus } from './shape-focus.js';
 
 export function tryBeginPolylineSegmentDrag(app, shape, worldPos, allowSegment, tolerance) {
     if (!allowSegment || shape?.type !== 'polyline'
         || app.selection.getSelection().length !== 1) return false;
     const edgeId = shape.hitTestEdge(worldPos, tolerance);
     if (!edgeId) return false;
-    const selectedSegment = app._selectedShapeSegment;
+    const selectedSegment = getShapeSegmentFocus(app);
     if (selectedSegment?.shapeId === shape.id && selectedSegment.edgeId !== edgeId) return false;
-    app._selectedShapeSegment = { shapeId: shape.id, edgeId };
+    setShapeSegmentFocus(app, { shapeId: shape.id, edgeId });
     app.updateShapeSelectionTip?.();
     app.drag = {
         mode: 'segment',

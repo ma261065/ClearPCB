@@ -5,6 +5,7 @@ import { createRect, createLine, createPolygon } from '../src/shapes/polyline.js
 import { Circle } from '../src/shapes/circle.js';
 import { Text } from '../src/shapes/text.js';
 import { Net } from '../src/shapes/net.js';
+import { getShapeSegmentFocus, setShapeNodeFocus, setShapeSegmentFocus } from '../src/schematic/modules/shape-focus.js';
 
 class Element {
     constructor(tag) {
@@ -65,6 +66,7 @@ const { ProjectDocument } = await import('../src/core/ProjectDocument.js');
 const { default: SchematicApp } = await import('../src/ui/SchematicApp.js');
 
 function fixture(shapes, refinement = {}) {
+    const { nodeFocus, segmentFocus, ...overrides } = refinement;
     document.body.innerHTML = '';
     const panel = new Element('div');
     document.body.appendChild(panel);
@@ -75,9 +77,11 @@ function fixture(shapes, refinement = {}) {
     const app = {
         shapes, components: [], selection, currentTool: 'select',
         ui: { propertiesPanel: panel }, viewport: { snapToGrid: false },
-        history: new CommandHistory(), renderShapes() {}, fileManager: { setDirty() {} }, ...refinement,
+        history: new CommandHistory(), renderShapes() {}, fileManager: { setDirty() {} }, ...overrides,
         updatePropertiesPanel(selected) { rebuilds++; updatePropertiesPanel(this, selected); },
     };
+    setShapeNodeFocus(app, nodeFocus);
+    setShapeSegmentFocus(app, segmentFocus);
     app.updatePropertiesPanel(shapes);
     const dispose = bindKeyboardShortcuts(app);
     const keydown = key => {
@@ -208,8 +212,8 @@ for (const property of ['lineWidth', 'cornerRadius', 'diameter', 'fontSize', 'ro
 
 for (const refinement of ['whole', 'node', 'segment']) {
     const rectangle = createRect({ width: 10, height: 10 });
-    const selected = refinement === 'node' ? { _selectedShapeNode: { shapeId: rectangle.id, nodeId: 'n0' } }
-        : refinement === 'segment' ? { _selectedShapeSegment: { shapeId: rectangle.id, edgeId: 'e0' } } : {};
+    const selected = refinement === 'node' ? { nodeFocus: { shapeId: rectangle.id, nodeId: 'n0' } }
+        : refinement === 'segment' ? { segmentFocus: { shapeId: rectangle.id, edgeId: 'e0' } } : {};
     if (refinement === 'segment') rectangle.setEdgeAttr('e0', 'bulge', 0.25);
     const { app, dispose } = fixture([rectangle], selected);
     try {
@@ -513,7 +517,7 @@ for (const replacement of ['escape', 'commit', 'refresh', 'selection']) {
 {
     const shape = createRect({ width: 10, height: 10 });
     shape.setEdgeAttr('e0', 'bulge', 0.25);
-    const { app, dispose } = fixture([shape], { _selectedShapeSegment: { shapeId: shape.id, edgeId: 'e0' } });
+    const { app, dispose } = fixture([shape], { segmentFocus: { shapeId: shape.id, edgeId: 'e0' } });
     try {
         const retired = document.getElementById('prop_bulge');
         retired.focus();
@@ -530,7 +534,7 @@ for (const replacement of ['escape', 'commit', 'refresh', 'selection']) {
 {
     const shape = createLine({ points: [{ x: 0, y: 0 }, { x: 10, y: 0 }, { x: 20, y: 0 }, { x: 30, y: 0 }] });
     shape.setEdgeAttr('e1', 'bulge', 0.25);
-    const { app, dispose } = fixture([shape], { _selectedShapeSegment: { shapeId: shape.id, edgeId: 'e1' } });
+    const { app, dispose } = fixture([shape], { segmentFocus: { shapeId: shape.id, edgeId: 'e1' } });
     try {
         const before = shape.captureState();
         const bulge = document.getElementById('prop_bulge');
@@ -541,7 +545,7 @@ for (const replacement of ['escape', 'commit', 'refresh', 'selection']) {
         assert.equal(shape.lineWidth, before.lineWidth);
         assert.equal(document.getElementById('prop_bulge'), null);
         assert.notEqual(document.getElementById('prop_lineWidth'), next);
-        assert.equal(app._selectedShapeSegment, null);
+        assert.equal(getShapeSegmentFocus(app), null);
         assert.equal(app.history.undoStack.length, 1);
         const after = shape.captureState();
         bulge.fire('blur'); next.fire('change');
@@ -564,7 +568,7 @@ for (const closed of [false, true]) for (const boundary of ['uniform', 'width', 
         if (boundary === 'curve') shape.setEdgeAttr('e0', 'bulge', 0.3);
         if (boundary === 'selected-width') shape.setEdgeAttr('e1', 'width', 0.7);
         shape.setNodeCornerRadius('n3', 0.8);
-        const { app, dispose } = fixture([shape], { _selectedShapeSegment: { shapeId: shape.id, edgeId: 'e1' } });
+        const { app, dispose } = fixture([shape], { segmentFocus: { shapeId: shape.id, edgeId: 'e1' } });
         try {
             const before = shape.captureState();
             let input = document.getElementById('prop_bulge');
@@ -591,7 +595,7 @@ for (const closed of [false, true]) for (const boundary of ['uniform', 'width', 
             if (boundary === 'width') assert.equal(shape.getEdgeAttr('e0', 'width'), 0.7);
             if (boundary === 'selected-width') assert.equal(shape.getEdgeAttr('e1', 'width'), 0.7);
             assert.equal(document.getElementById('prop_bulge'), null, 'Straightening removes the obsolete Bulge control');
-            assert.equal(app._selectedShapeSegment?.edgeId ?? null, shape.edges.has('e1') ? 'e1' : null,
+            assert.equal(getShapeSegmentFocus(app)?.edgeId ?? null, shape.edges.has('e1') ? 'e1' : null,
                 'Refinement cannot refer to a removed edge');
             assert.equal(app.history.undoStack.length, 1, 'Straightening and cleanup share one undo step');
             const after = shape.captureState();

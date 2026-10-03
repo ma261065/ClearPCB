@@ -14,6 +14,7 @@ import { canRoundPathNode } from '../../shapes/path-geometry.js';
 import { beginPastePreview, cutSelection } from './clipboard.js';
 import { flipComponentH, flipComponentV, rotateComponentLeft, rotateComponentRight } from './components.js';
 import { runSchematicDeleteAction } from './editor-actions.js';
+import { getShapeNodeFocus, getShapeSegmentFocus, setShapeNodeFocus, setShapeSegmentFocus } from './shape-focus.js';
 
 // Retire panel callbacks on rebuild without losing pending numeric completion.
 const propertyPanels = new WeakMap();
@@ -322,15 +323,15 @@ export function updatePropertiesPanel(app, selection) {
     const singleWire = selection.length === 1 && selection[0].type === 'wire' ? selection[0] : null;
     const selectedSegment = selection.length === 1
         && selection[0].type === 'polyline'
-        && app._selectedShapeSegment?.shapeId === selection[0].id
-        && selection[0].edges?.has(app._selectedShapeSegment.edgeId)
-        ? { shape: selection[0], edgeId: app._selectedShapeSegment.edgeId }
+        && getShapeSegmentFocus(app)?.shapeId === selection[0].id
+        && selection[0].edges?.has(getShapeSegmentFocus(app).edgeId)
+        ? { shape: selection[0], edgeId: getShapeSegmentFocus(app).edgeId }
         : null;
     const selectedNode = selection.length === 1
         && selection[0].type === 'polyline'
-        && app._selectedShapeNode?.shapeId === selection[0].id
-        && selection[0].nodes?.has(app._selectedShapeNode.nodeId)
-        ? { shape: selection[0], nodeId: app._selectedShapeNode.nodeId }
+        && getShapeNodeFocus(app)?.shapeId === selection[0].id
+        && selection[0].nodes?.has(getShapeNodeFocus(app).nodeId)
+        ? { shape: selection[0], nodeId: getShapeNodeFocus(app).nodeId }
         : null;
     const singlePolyline = selection.length === 1 && selection[0].type === 'polyline'
         ? selection[0]
@@ -517,14 +518,14 @@ export function updatePropertiesPanel(app, selection) {
                                 });
                                 app.history.execute(batch);
                                 if (selectedSegment && !selectedSegment.shape.edges.has(selectedSegment.edgeId)) {
-                                    app._selectedShapeSegment = null;
+                                    setShapeSegmentFocus(app, null);
                                 }
                                 if (replacements.size) {
                                     const nextSelection = selection.map(item => replacements.get(item) || item);
                                     app.selection.clearSelection();
                                     for (const item of nextSelection) app.selection.select(item, true);
-                                    app._selectedShapeSegment = null;
-                                    app._selectedShapeNode = null;
+                                    setShapeSegmentFocus(app, null);
+                                    setShapeNodeFocus(app, null);
                                 }
                                 structureChanged = replacements.size > 0 || (desc.key === 'bulge' && !!selectedSegment
                                     && Math.abs(selectedSegment.shape.getEdgeAttr(selectedSegment.edgeId, 'bulge') || 0) < BULGE_EPS);

@@ -20,6 +20,7 @@ import {
     rebuildComponentSymbol as rebuildComponentSymbolView,
     renderComponent,
 } from '../render/component-renderer.js';
+import { getShapeNodeFocus, getShapeSegmentFocus, setShapeSegmentFocus } from './shape-focus.js';
 
 /** Shape types that render above wires (re-appended at end of each render cycle). */
 const OVERLAY_TYPES = new Set(['noconnect', 'net']);
@@ -204,13 +205,14 @@ export function renderShapes(app, force = false) {
     const scale = app.viewport.scale;
     const view = selectionView(app);
     const scaleChanged = lastPassScale.get(app) !== scale;
+    const nodeFocus = getShapeNodeFocus(app);
+    const segmentFocus = getShapeSegmentFocus(app);
     for (const shape of app.shapes) {
         if (shape._culled) continue; // skip off-screen
         const selected = view.isSelected(shape);
         if (force || shape._dirty || selected || view.isHovered(shape)) {
-            const selectedNodeId = app._selectedShapeNode?.shapeId === shape.id
-                ? app._selectedShapeNode.nodeId : null;
-            const refined = app._selectedShapeSegment?.shapeId === shape.id || selectedNodeId != null;
+            const selectedNodeId = nodeFocus?.shapeId === shape.id ? nodeFocus.nodeId : null;
+            const refined = segmentFocus?.shapeId === shape.id || selectedNodeId != null;
             renderShape(shape, scale, {
                 suppressSelection: refined,
                 selection: view,
@@ -266,7 +268,7 @@ export function renderShapes(app, force = false) {
 export function renderShapeSegmentSelection(app) {
     app._shapeSegmentSelectionElement?.remove?.();
     app._shapeSegmentSelectionElement = null;
-    const selected = app._selectedShapeSegment;
+    const selected = getShapeSegmentFocus(app);
     const shape = selected ? app.shapes.find((candidate) => candidate.id === selected.shapeId) : null;
     if (!shape || !selectionView(app).isSelected(shape) || shape.type !== 'polyline') return;
     const edge = shape.edges?.get(selected.edgeId);
@@ -299,7 +301,7 @@ export function renderShapeSegmentSelection(app) {
 
 /** Clear refined schematic segment state and its independent SVG overlay. */
 export function clearShapeSegmentSelection(app) {
-    app._selectedShapeSegment = null;
+    setShapeSegmentFocus(app, null);
     app._shapeSegmentSelectionElement?.remove?.();
     app._shapeSegmentSelectionElement = null;
 }

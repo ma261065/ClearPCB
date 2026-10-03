@@ -1,3 +1,4 @@
+import { getShapeNodeFocus, getShapeSegmentFocus, setShapeNodeFocus, setShapeSegmentFocus } from '../src/schematic/modules/shape-focus.js';
 /** Headless regression tests for schematic polyline segment refinement. */
 
 globalThis.window = { addEventListener() {} };
@@ -132,7 +133,7 @@ function expect(name, condition) {
                     : [{ x: 0, y: 0 }, { x: 10, y: 0 }, { x: 10, y: 10 }] });
                 shape.setEdgeAttr('e0', 'bulge', curved ? 0.5 : 0);
                 const app = commandAppFor(shape);
-                app._selectedShapeSegment = { shapeId: shape.id, edgeId: 'e0' };
+                setShapeSegmentFocus(app, { shapeId: shape.id, edgeId: 'e0' });
                 buildInput(app, 'lineWidth');
                 const title = `${curved ? 'Arc' : 'Line'}${standalone ? '' : ' Segment'}`;
                 expect('refined segment Properties names its geometry', elements.some(element => element.textContent === title));
@@ -141,7 +142,7 @@ function expect(name, condition) {
         for (const selectedNode of [false, true]) {
             const shape = createRect({ x: 0, y: 0, width: 200, height: 200, cornerRadius: 1 });
             const app = commandAppFor(shape);
-            if (selectedNode) app._selectedShapeNode = { shapeId: shape.id, nodeId: 'n0' };
+            if (selectedNode) setShapeNodeFocus(app, { shapeId: shape.id, nodeId: 'n0' });
             const before = shape.captureState();
             const input = buildInput(app, 'cornerRadius');
             expect('corner radius spinner is bounded from zero to 25', Number(input.max) === 25 && Number(input.min) === 0);
@@ -197,7 +198,7 @@ function expect(name, condition) {
             const app = commandAppFor(shape);
             if (!standalone) {
                 shape.setEdgeAttr('e0', 'bulge', 0.25);
-                app._selectedShapeSegment = { shapeId: shape.id, edgeId: 'e0' };
+                setShapeSegmentFocus(app, { shapeId: shape.id, edgeId: 'e0' });
             }
             const original = shape.captureState();
             let input = buildInput(app, 'bulge');
@@ -342,8 +343,8 @@ for (const focus of ['node', 'segment']) {
     const shape = createPolygon({ points: [{ x: 0, y: 0 }, { x: 10, y: 0 }, { x: 10, y: 10 }] });
     const app = commandAppFor(shape);
     const original = shape.captureState();
-    if (focus === 'node') app._selectedShapeNode = { shapeId: shape.id, nodeId: 'n1' };
-    else app._selectedShapeSegment = { shapeId: shape.id, edgeId: 'e0' };
+    if (focus === 'node') setShapeNodeFocus(app, { shapeId: shape.id, nodeId: 'n1' });
+    else setShapeSegmentFocus(app, { shapeId: shape.id, edgeId: 'e0' });
     runSchematicDeleteAction(app);
     expect(`Delete acts on the focused ${focus}, not the entire shape`, app.shapes.length === 1 && app.shapes[0].type === 'polyline' && !app.shapes[0].closed);
     expect('focused deletion is one undo operation', app.commands.length === 1);
@@ -354,8 +355,8 @@ for (const focus of ['node', 'segment']) {
 for (const focus of ['node', 'segment']) {
     const shape = createLine({ points: [{ x: 0, y: 0 }, { x: 10, y: 0 }] });
     const app = commandAppFor(shape);
-    if (focus === 'node') app._selectedShapeNode = { shapeId: shape.id, nodeId: 'n0' };
-    else app._selectedShapeSegment = { shapeId: shape.id, edgeId: 'e0' };
+    if (focus === 'node') setShapeNodeFocus(app, { shapeId: shape.id, nodeId: 'n0' });
+    else setShapeSegmentFocus(app, { shapeId: shape.id, edgeId: 'e0' });
     runSchematicDeleteAction(app);
     expect(`deleting the last ${focus} removes the line`, app.shapes.length === 0);
     app.commands[0].undo();
@@ -523,7 +524,7 @@ for (const kind of ['line', 'polygon', 'rectangle']) {
         expect(`${kind} conversion preserves widths, corner radii and closure`,
             shape.getEdgeAttr(edgeId, 'width') === 0.7 && shape.nodeCornerRadius('n2') === 1
             && shape.closed === (kind !== 'line') && !shape.isRect);
-        expect(`${kind} conversion keeps the segment selected`, app._selectedShapeSegment.edgeId === edgeId);
+        expect(`${kind} conversion keeps the segment selected`, getShapeSegmentFocus(app).edgeId === edgeId);
         if (floating) {
             expect('arc conversion floats a bulge handle before committing', app.drag.anchorId === `bulge_${edgeId}` && commands.length === 0);
             shape.moveAnchor(app.drag.anchorId, 5, 2.5);
@@ -627,7 +628,7 @@ for (const [name, shape] of cases) {
     const edgeId = app.drag?.edgeId;
     const edge = shape.edges.get(edgeId);
     expect(`${name} second click refines the hit segment`, app.drag?.mode === 'segment');
-    expect(`${name} stores a stable edge id`, app._selectedShapeSegment?.edgeId === edgeId);
+    expect(`${name} stores a stable edge id`, getShapeSegmentFocus(app)?.edgeId === edgeId);
 
     app.drag = null;
     expect(`${name} selected edge can begin a later segment drag`,
@@ -653,7 +654,7 @@ for (const [name, shape] of cases) {
     expect(`${name} segment drag leaves other vertices fixed`, !untouchedNodeId
         || (shape.nodes.get(untouchedNodeId).x === untouchedBefore.x
             && shape.nodes.get(untouchedNodeId).y === untouchedBefore.y));
-    expect(`${name} segment remains refined after movement`, app._selectedShapeSegment?.edgeId === edgeId);
+    expect(`${name} segment remains refined after movement`, getShapeSegmentFocus(app)?.edgeId === edgeId);
     if (name === 'rectangle') expect('rectangle segment movement preserves its corner radius',
         shape.isRect && shape.cornerRadius === 2);
 }
@@ -724,7 +725,7 @@ for (const [name, shape] of cases) {
     idleState.click(app, { preventDefault() {} }, { worldPos: shape.nodes.get(nodeId) });
     expect('schematic Node properties end pending movement on release',
         app.pendingAnchorDrag === null
-        && app._selectedShapeNode?.nodeId === nodeId);
+        && getShapeNodeFocus(app)?.nodeId === nodeId);
     expect('node refinement activates Properties', activeTab === 'properties');
     idleState.mousemove(app, {}, { screenPos: { x: 200, y: 300 }, worldPos: { x: 2, y: 3 }, snapped: { x: 2, y: 3 } });
     expect('a selected schematic node does not follow the released pointer', !app.drag
@@ -744,13 +745,13 @@ for (const [name, shape] of cases) {
     app._pendingShapeSegmentToggle = { shape, edgeId, hadSegment: false, segmentCandidateMatches: false };
     idleState.click(app, { preventDefault() {} }, { worldPos: { x: 3, y: 0 } });
     expect('second shape click refines a segment without an earlier matching edge click',
-        app._selectedShapeSegment?.edgeId === edgeId);
+        getShapeSegmentFocus(app)?.edgeId === edgeId);
     expect('segment refinement activates Properties without returning Home', activeTab === 'properties');
     expect('segment Properties keeps the selected shape', propertiesSelection?.[0] === shape);
     app._pendingShapeSegmentToggle = { shape, edgeId, hadSegment: true };
     idleState.click(app, { preventDefault() {} }, { worldPos: { x: 3, y: 0 } });
     expect('clicking the refined segment again retains PCB-style segment Properties',
-        app._selectedShapeSegment?.edgeId === edgeId && app._selectedShapeNode === null && activeTab === 'properties');
+        getShapeSegmentFocus(app)?.edgeId === edgeId && getShapeNodeFocus(app) === null && activeTab === 'properties');
 }
 
 for (const position of [0, 3]) {
@@ -785,7 +786,7 @@ for (const position of [0, 3]) {
                 svgListeners.get('mousedown')(event);
                 windowListeners.get('mouseup')(event);
                 expect('node/segment selection completes on release without a native click',
-                    (position === 0 ? app._selectedShapeNode?.nodeId === 'n0' : app._selectedShapeSegment?.edgeId === 'e0')
+                    (position === 0 ? getShapeNodeFocus(app)?.nodeId === 'n0' : getShapeSegmentFocus(app)?.edgeId === 'e0')
                     && activeTab === 'properties' && updates === press + 1);
                 expect('release clears pending segment selection and preserves geometry',
                     app._pendingShapeSegmentToggle == null && app.pendingAnchorDrag == null
@@ -889,11 +890,11 @@ for (const midpoint of [false, true]) {
 {
     let removed = 0;
     const app = {
-        _selectedShapeSegment: { shapeId: 'shape', edgeId: 'edge' },
         _shapeSegmentSelectionElement: { remove() { removed++; } },
     };
+    setShapeSegmentFocus(app, { shapeId: 'shape', edgeId: 'edge' });
     clearShapeSegmentSelection(app);
-    expect('schematic shape deselection clears refined segment state', app._selectedShapeSegment === null);
+    expect('schematic shape deselection clears refined segment state', getShapeSegmentFocus(app) === null);
     expect('schematic shape deselection removes refined segment highlight',
         app._shapeSegmentSelectionElement === null && removed === 1);
 }
@@ -907,7 +908,7 @@ for (const midpoint of [false, true]) {
     const edge = shape.edges.get(edgeId);
     const first = shape.nodes.get(edge.from);
     const second = shape.nodes.get(edge.to);
-    app._selectedShapeSegment = { shapeId: shape.id, edgeId };
+    setShapeSegmentFocus(app, { shapeId: shape.id, edgeId });
     const verifyTrim = (start, end) => {
         renderShapeSegmentSelection(app);
         const attrs = app._shapeSegmentSelectionElement?.attributes;
@@ -946,7 +947,7 @@ for (const midpoint of [false, true]) {
     const app = appFor(shape);
     app.selection.select(shape);
     app.viewport.contentLayer = { appendChild() {} };
-    app._selectedShapeSegment = { shapeId: shape.id, edgeId: firstId };
+    setShapeSegmentFocus(app, { shapeId: shape.id, edgeId: firstId });
     renderShapeSegmentSelection(app);
     expect('explicit arc selection stays curved', app._shapeSegmentSelectionElement?.attributes.d?.includes('A'));
 }
@@ -957,7 +958,7 @@ for (const midpoint of [false, true]) {
     app.selection.select(shape);
     const edgeId = shape.edges.keys().next().value;
     shape.setEdgeAttr(edgeId, 'width', 0.6);
-    app._selectedShapeSegment = { shapeId: shape.id, edgeId };
+    setShapeSegmentFocus(app, { shapeId: shape.id, edgeId });
     const children = [];
     const overlay = {
         appendChild(element) { children.push(element); },

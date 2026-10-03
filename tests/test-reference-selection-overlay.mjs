@@ -333,7 +333,6 @@ renderReference.parentComponent = { x: 0, y: 0, rotation: 0, refText: renderRefe
     _getLocalBounds: () => ({ minX: -2, maxX: 2, minY: -2, maxY: 2 }) };
 const renderApp = { shapes: [renderReference], components: [],
     selection: { getSelection: () => [renderReference], isSelected: item => item === renderReference, isHovered: () => false },
-    _selectedShapeNode: null, _selectedShapeSegment: null,
     viewport: { scale: 10, contentLayer: guideLayer } };
 renderedX = 15;
 updateLabelGuide(renderApp);

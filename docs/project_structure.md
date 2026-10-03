@@ -178,6 +178,8 @@ PCB editor:
 Schematic editor:
 
 - `schematic/modules/schematic-editor-api.js` — public editor services for schematic modules.
+- `schematic/modules/shape-focus.js` — the refined node or segment focus within the
+  selected shape, like `pcb/modules/board-shape-state.js`.
 - `schematic/modules/editor-actions.js` — Undo, Redo, Delete and Escape entry points,
   like `pcb/modules/editor-actions.js`.
 - `schematic/modules/schematic-view.js` — entity SVG lifecycle, culling and level of
