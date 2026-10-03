@@ -1541,6 +1541,30 @@ Schematic reactivation also rechecks the cache after resizing while hidden.
 Panel classes and height are restored if measurement fails. Existing flex layout,
 inactive-panel hiding and maximum-height behavior are unchanged.
 
+Every Properties panel, in both editors, lists its controls in one order
+defined by `PROPERTY_ORDER` in `shared/ui/property-order.js`. Panels show only
+the rows that apply; whatever is shown keeps its place:
+
+1. Locked
+2. What it is: Reference, Show Reference, Value, Show Value, text, pad Shape,
+   Outline, part source and package
+3. Layer (a pad's copper sides), then Copper Mode, then Net
+4. Fill, Plated
+5. Position and size: X, Y, Width, Height, Size, Ratio, text size, Diameter, Drill
+6. Line width, then a stroked circle's outer diameter (it includes the line
+   width), Corner radius, Bulge
+7. Rotation, Flip Horizontal, Flip Vertical, Orientation
+8. Border, Invert, Style
+
+Controls that decide which other controls apply come first (Locked disables the
+rest; Layer decides Copper Mode and Net; Fill decides the line width). PCB rows
+carry `data-prop` with their key; the schematic sorts its descriptors with
+`sortByPropertyOrder` (a descriptor's `orderKey` can rank it as a related
+property) and the PCB multi-selection panel sorts its shared keys the same way.
+`test-property-order` checks every key is ranked and every row is tagged;
+the `properties-panels-share-one-control-order` browser scenario renders each
+panel and checks the order.
+
 Schematic startup immediately starts KiCad index loading in the background,
 without awaiting the download, to minimize the wait on first picker use.
 Opening the Online picker or starting a search joins the shared in-flight load,

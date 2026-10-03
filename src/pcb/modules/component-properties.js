@@ -87,14 +87,14 @@ export class ComponentProperties {
         const locked = !!pl?.locked;
 
         items.innerHTML = `
-            <div class="prop-row"><label>Reference</label><span style="font-size:11px;color:var(--text-primary)">${name}</span></div>
-            <label class="prop-row prop-toggle"><input type="checkbox" id="pcbPropCompLocked"${locked ? ' checked' : ''}><span>Locked</span></label>
-            <label class="prop-row prop-toggle"><input type="checkbox" id="pcbPropCompRefVis"${refVisible ? ' checked' : ''}${locked ? ' disabled' : ''}><span>Show Reference</span></label>
-            <div class="prop-row"><label>Layer</label><select id="pcbPropCompSide"${locked ? ' disabled' : ''}>
+            <label class="prop-row prop-toggle" data-prop="locked"><input type="checkbox" id="pcbPropCompLocked"${locked ? ' checked' : ''}><span>Locked</span></label>
+            <div class="prop-row" data-prop="reference"><label>Reference</label><span style="font-size:11px;color:var(--text-primary)">${name}</span></div>
+            <label class="prop-row prop-toggle" data-prop="showReference"><input type="checkbox" id="pcbPropCompRefVis"${refVisible ? ' checked' : ''}${locked ? ' disabled' : ''}><span>Show Reference</span></label>
+            <div class="prop-row" data-prop="layer"><label>Layer</label><select id="pcbPropCompSide"${locked ? ' disabled' : ''}>
                 <option value="top"${side === 'top' ? ' selected' : ''}>Top</option>
                 <option value="bottom"${side === 'bottom' ? ' selected' : ''}>Bottom</option>
             </select></div>
-            <div class="prop-row"><label>Rotation (°)</label><input type="number" id="pcbPropCompRot" data-number-format="rotation" value="${((Math.round(pl?.rotation || 0) % 360) + 360) % 360}" step="1"${locked ? ' disabled' : ''}></div>
+            <div class="prop-row" data-prop="rotation"><label>Rotation (°)</label><input type="number" id="pcbPropCompRot" data-number-format="rotation" value="${((Math.round(pl?.rotation || 0) % 360) + 360) % 360}" step="1"${locked ? ' disabled' : ''}></div>
             ${hasAny3DModel(pl) ? '<div class="prop-actions" style="margin-top:6px"><button id="pcbPropShow3D" title="Show 3D model">\uD83E\uDDCA Show 3D</button></div>' : ''}
         `;
 
@@ -187,11 +187,11 @@ export class ComponentProperties {
         const rot = ((pl.refRot || 0) % 360 + 360) % 360;
         const disabled = isRefTextLocked(pl) ? ' disabled' : '';
         items.innerHTML = `
-            <div class="prop-row"><label>Reference</label><input type="text" id="pcbPropRefName" value="${pl.reference ?? ''}" disabled></div>
-            <div class="prop-row"><label>Layer</label><input type="text" id="pcbPropRefLayer" value="${this.capabilities.layerLabel(silkLayer)}" disabled></div>
-            <div class="prop-row"><label>Size (mm)</label><input type="number" id="pcbPropRefSize" value="${size}" min="0.2" step="0.1"${disabled}></div>
-            <div class="prop-row"><label>Rotation (°)</label><input type="number" id="pcbPropRefRot" data-number-format="rotation" value="${rot}" step="1"${disabled}></div>
-            <div class="prop-row"><label>Line W (mm)</label><input type="number" id="pcbPropRefLW" value="${lw}" min="0.05" step="0.05"${disabled}></div>
+            <div class="prop-row" data-prop="reference"><label>Reference</label><input type="text" id="pcbPropRefName" value="${pl.reference ?? ''}" disabled></div>
+            <div class="prop-row" data-prop="layer"><label>Layer</label><input type="text" id="pcbPropRefLayer" value="${this.capabilities.layerLabel(silkLayer)}" disabled></div>
+            <div class="prop-row" data-prop="fontSize"><label>Size (mm)</label><input type="number" id="pcbPropRefSize" value="${size}" min="0.2" step="0.1"${disabled}></div>
+            <div class="prop-row" data-prop="lineWidth"><label>Line W (mm)</label><input type="number" id="pcbPropRefLW" value="${lw}" min="0.05" step="0.05"${disabled}></div>
+            <div class="prop-row" data-prop="rotation"><label>Rotation (°)</label><input type="number" id="pcbPropRefRot" data-number-format="rotation" value="${rot}" step="1"${disabled}></div>
         `;
         const num = (min) => (v) => {
             const n = parseFloat(v);

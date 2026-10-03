@@ -219,17 +219,23 @@ export function fillEditPath(app, fill) {
 
 export function addFillGeometryProperties(app, fill, items) {
     const { node, segment } = fillEditFocus(app, fill);
-    const number = (id, label, value, min, /** @type {number|''} */ max = '') => `<div class="prop-row"><label for="${id}">${label}</label><input id="${id}" type="number" min="${min}" ${max === '' ? '' : `max="${max}"`} step="0.05" value="${formatNumberInputValue(value)}"></div>`;
+    const number = (id, key, label, value, min, /** @type {number|''} */ max = '') => `<div class="prop-row" data-prop="${key}"><label for="${id}">${label}</label><input id="${id}" type="number" min="${min}" ${max === '' ? '' : `max="${max}"`} step="0.05" value="${formatNumberInputValue(value)}"></div>`;
     const bounds = fill.getBounds();
+    if (node == null && segment == null) {
+        // "What it is" sits directly under Locked, before Layer and Net.
+        const outline = `<div class="prop-row" data-prop="outline"><label>Outline</label><select id="pcbPropFillKind">${[['rect', 'Rectangle'], ['polygon', 'Polygon'], ['circle', 'Circle']].map(([kind, label]) => `<option value="${kind}"${fill.kind === kind ? ' selected' : ''}>${label}</option>`).join('')}</select></div>`;
+        const locked = items.querySelector('[data-prop="locked"]');
+        if (locked) locked.insertAdjacentHTML('afterend', outline);
+        else items.insertAdjacentHTML('afterbegin', outline);
+    }
     items.insertAdjacentHTML('beforeend', node != null
-        ? number('pcbPropFillNodeRadius', 'Corner Radius (mm)', fill.nodeCornerRadii[node] ?? fill.cornerRadius, 0)
+        ? number('pcbPropFillNodeRadius', 'cornerRadius', 'Corner Radius (mm)', fill.nodeCornerRadii[node] ?? fill.cornerRadius, 0)
         : segment != null
-            ? number('pcbPropFillBulge', 'Bulge', fill.segmentBulges[segment] || 0, -1, 1)
-            : `<div class="prop-row"><label>Outline</label><select id="pcbPropFillKind">${[['rect', 'Rectangle'], ['polygon', 'Polygon'], ['circle', 'Circle']].map(([kind, label]) => `<option value="${kind}"${fill.kind === kind ? ' selected' : ''}>${label}</option>`).join('')}</select></div>`
-                + (fill.kind === 'circle' ? number('pcbPropFillDiameter', 'Diameter (mm)', fill.radius * 2, 0.1)
-                    : number('pcbPropFillCornerRadius', 'Corner Radius (mm)', fill.cornerRadius, 0))
-                + (fill.kind === 'rect' && bounds ? number('pcbPropFillWidth', 'Width (mm)', bounds.maxX - bounds.minX, 0.1)
-                    + number('pcbPropFillHeight', 'Height (mm)', bounds.maxY - bounds.minY, 0.1) : ''));
+            ? number('pcbPropFillBulge', 'bulge', 'Bulge', fill.segmentBulges[segment] || 0, -1, 1)
+            : (fill.kind === 'rect' && bounds ? number('pcbPropFillWidth', 'width', 'Width (mm)', bounds.maxX - bounds.minX, 0.1)
+                    + number('pcbPropFillHeight', 'height', 'Height (mm)', bounds.maxY - bounds.minY, 0.1) : '')
+                + (fill.kind === 'circle' ? number('pcbPropFillDiameter', 'diameter', 'Diameter (mm)', fill.radius * 2, 0.1)
+                    : number('pcbPropFillCornerRadius', 'cornerRadius', 'Corner Radius (mm)', fill.cornerRadius, 0)));
     const bind = (id, mutate, min, max = Infinity) => {
         const input = items.querySelector(`#${id}`);
         input?.addEventListener('change', () => {

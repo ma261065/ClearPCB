@@ -14,6 +14,7 @@ import { loadAndApplyTheme, toggleTheme as toggleSharedTheme, syncThemeToggleBut
 import { renderFootprint, applyRefGeometry, REF_DEFAULT_SIZE, REF_DEFAULT_STROKE } from '../shared/pcb/footprint.js';
 import { updateGridDropdown, restoreGridSettings, serializeGridSettings } from '../shared/ui/viewport.js';
 import { setToolCursor } from '../shared/ui/cursor.js';
+import { sortByPropertyOrder } from '../shared/ui/property-order.js';
 import { bindRibbonHeight } from '../shared/ui/ribbon-height.js';
 import { isUnmodifiedPrimaryDoublePress } from '../shared/ui/inline-edit-activation.js';
 import {
@@ -3238,9 +3239,9 @@ export default class PCBApp {
         const { escape, options } = this._toolNetOptions(net);
         this._setPcbPropsTitle('New Track');
         items.innerHTML = `
-            <div class="prop-row"><label>Net</label><span class="prop-net-control"><input type="text" id="pcbPropTrackToolNet" value="${escape(net)}" placeholder="None"><details class="prop-net-menu"><summary aria-label="Select existing net"></summary><div>${options}</div></details></span></div>
-            <div class="prop-row"><label>Layer</label><select id="pcbPropTrackToolLayer"><option value="top-copper"${layer === 'top-copper' ? ' selected' : ''}>Top Copper</option><option value="bottom-copper"${layer === 'bottom-copper' ? ' selected' : ''}>Bottom Copper</option></select></div>
-            <div class="prop-row"><label>Width (mm)</label><input type="number" id="pcbPropTrackToolWidth" value="${width}" min="0.05" step="0.05" data-number-format="precise"></div>
+            <div class="prop-row" data-prop="layer"><label>Layer</label><select id="pcbPropTrackToolLayer"><option value="top-copper"${layer === 'top-copper' ? ' selected' : ''}>Top Copper</option><option value="bottom-copper"${layer === 'bottom-copper' ? ' selected' : ''}>Bottom Copper</option></select></div>
+            <div class="prop-row" data-prop="net"><label>Net</label><span class="prop-net-control"><input type="text" id="pcbPropTrackToolNet" value="${escape(net)}" placeholder="None"><details class="prop-net-menu"><summary aria-label="Select existing net"></summary><div>${options}</div></details></span></div>
+            <div class="prop-row" data-prop="lineWidth"><label>Width (mm)</label><input type="number" id="pcbPropTrackToolWidth" value="${width}" min="0.05" step="0.05" data-number-format="precise"></div>
         `;
         const layerEl = /** @type {HTMLSelectElement|null} */ (items.querySelector('#pcbPropTrackToolLayer'));
         const widthEl = /** @type {HTMLInputElement|null} */ (items.querySelector('#pcbPropTrackToolWidth'));
@@ -3288,9 +3289,9 @@ export default class PCBApp {
         const { escape, options } = this._toolNetOptions(net);
         this._setPcbPropsTitle('New Via');
         items.innerHTML = `
-            <div class="prop-row"><label>Net</label><span class="prop-net-control"><input type="text" id="pcbPropViaToolNet" value="${escape(net)}" placeholder="None"><details class="prop-net-menu"><summary aria-label="Select existing net"></summary><div>${options}</div></details></span></div>
-            <div class="prop-row"><label>Diameter (mm)</label><input type="number" id="pcbPropViaToolDiameter" value="${diameter}" min="${drill}" step="0.05" data-number-format="precise"></div>
-            <div class="prop-row"><label>Drill (mm)</label><input type="number" id="pcbPropViaToolDrill" value="${drill}" min="0.05" max="${diameter}" step="0.05" data-number-format="precise"></div>
+            <div class="prop-row" data-prop="net"><label>Net</label><span class="prop-net-control"><input type="text" id="pcbPropViaToolNet" value="${escape(net)}" placeholder="None"><details class="prop-net-menu"><summary aria-label="Select existing net"></summary><div>${options}</div></details></span></div>
+            <div class="prop-row" data-prop="diameter"><label>Diameter (mm)</label><input type="number" id="pcbPropViaToolDiameter" value="${diameter}" min="${drill}" step="0.05" data-number-format="precise"></div>
+            <div class="prop-row" data-prop="drill"><label>Drill (mm)</label><input type="number" id="pcbPropViaToolDrill" value="${drill}" min="0.05" max="${diameter}" step="0.05" data-number-format="precise"></div>
         `;
         const diameterEl = /** @type {HTMLInputElement|null} */ (items.querySelector('#pcbPropViaToolDiameter'));
         const drillEl = /** @type {HTMLInputElement|null} */ (items.querySelector('#pcbPropViaToolDrill'));
@@ -3353,22 +3354,22 @@ export default class PCBApp {
         const { escape, options } = this._toolNetOptions(state.net || '');
         this._setPcbPropsTitle(pad ? 'Pad' : 'New Pad');
         items.innerHTML = `
-            <div class="prop-row"><label>Shape</label><select id="pcbPropPadShape">
+            <div class="prop-row" data-prop="padShape"><label>Shape</label><select id="pcbPropPadShape">
                 ${mixedShape ? '<option value="" selected disabled>Mixed</option>' : ''}
                 ${[['round', 'Round'], ['stadium', 'Stadium'], ['square', 'Square'], ['rectangle', 'Rectangle'], ['oval', 'Oval']]
                     .map(([value, label]) => `<option value="${value}"${!mixedShape && state.shape === value ? ' selected' : ''}>${label}</option>`).join('')}
             </select></div>
-            <div class="prop-row"><label>Size (mm)</label><input type="number" id="pcbPropPadSize" value="${mixedSize ? '' : state.size}" placeholder="${mixedSize ? 'Mixed' : ''}" min="0.05" step="0.05"></div>
-            ${showRatio ? `<div class="prop-row"><label>Ratio</label><input type="number" id="pcbPropPadRatio" value="${mixedRatio ? '' : state.ratio}" placeholder="${mixedRatio ? 'Mixed' : ''}" min="1" step="0.1"></div>` : ''}
-            <div class="prop-row"><label>Drill (mm)</label><input type="number" id="pcbPropPadDrill" value="${mixedDrill ? '' : state.drill}" placeholder="${mixedDrill ? 'Mixed' : ''}" min="0" max="${maximumDrill}" step="0.05" title="0 = no hole"></div>
-            ${showRotation ? `<div class="prop-row"><label>Rotation</label><input type="number" id="pcbPropPadRotation" value="${mixedRotation ? '' : state.rotation}" placeholder="${mixedRotation ? 'Mixed' : ''}" step="1"></div>` : ''}
-            <div class="prop-row"><label>Copper</label><select id="pcbPropPadLayers">
+            <div class="prop-row" data-prop="layer"><label>Copper</label><select id="pcbPropPadLayers">
                 ${mixedLayers ? '<option value="" selected disabled>Mixed</option>' : ''}
                 <option value="top-copper"${!mixedLayers && state.layers === 'top-copper' ? ' selected' : ''}>Top</option>
                 <option value="bottom-copper"${!mixedLayers && state.layers === 'bottom-copper' ? ' selected' : ''}>Bottom</option>
                 <option value="both"${!mixedLayers && state.layers === 'both' ? ' selected' : ''}>Both</option>
             </select></div>
-            <div class="prop-row"><label>Net</label><span class="prop-net-control"><input type="text" id="pcbPropPadNet" value="${mixedNet ? '' : escape(state.net || '')}" placeholder="${mixedNet ? 'Mixed' : 'None'}"><details class="prop-net-menu"><summary aria-label="Select existing net"></summary><div>${options}</div></details></span></div>
+            <div class="prop-row" data-prop="net"><label>Net</label><span class="prop-net-control"><input type="text" id="pcbPropPadNet" value="${mixedNet ? '' : escape(state.net || '')}" placeholder="${mixedNet ? 'Mixed' : 'None'}"><details class="prop-net-menu"><summary aria-label="Select existing net"></summary><div>${options}</div></details></span></div>
+            <div class="prop-row" data-prop="size"><label>Size (mm)</label><input type="number" id="pcbPropPadSize" value="${mixedSize ? '' : state.size}" placeholder="${mixedSize ? 'Mixed' : ''}" min="0.05" step="0.05"></div>
+            ${showRatio ? `<div class="prop-row" data-prop="ratio"><label>Ratio</label><input type="number" id="pcbPropPadRatio" value="${mixedRatio ? '' : state.ratio}" placeholder="${mixedRatio ? 'Mixed' : ''}" min="1" step="0.1"></div>` : ''}
+            <div class="prop-row" data-prop="drill"><label>Drill (mm)</label><input type="number" id="pcbPropPadDrill" value="${mixedDrill ? '' : state.drill}" placeholder="${mixedDrill ? 'Mixed' : ''}" min="0" max="${maximumDrill}" step="0.05" title="0 = no hole"></div>
+            ${showRotation ? `<div class="prop-row" data-prop="rotation"><label>Rotation</label><input type="number" id="pcbPropPadRotation" value="${mixedRotation ? '' : state.rotation}" placeholder="${mixedRotation ? 'Mixed' : ''}" step="1"></div>` : ''}
         `;
         let disposed = false;
         let preview = null;
@@ -3568,10 +3569,10 @@ export default class PCBApp {
         this._setPcbPropsTitle('Board Outline');
 
         items.innerHTML = `
-            <label class="prop-row prop-toggle"><input type="checkbox" id="pcbPropOutlineLocked"${isLayerLocked('board-outline') ? ' checked' : ''}><span>Locked</span></label>
-            <div class="prop-row"><label>Width (mm)</label><input type="number" id="pcbPropBoardW" value="${Number(this._boardWidth).toFixed(2)}" min="5" step="1"></div>
-            <div class="prop-row"><label>Height (mm)</label><input type="number" id="pcbPropBoardH" value="${Number(this._boardHeight).toFixed(2)}" min="5" step="1"></div>
-            <div class="prop-row"><label>Corner R (mm)</label><input type="number" id="pcbPropBoardR" value="${Number(this._boardRadius).toFixed(2)}" min="0" step="0.5"></div>
+            <label class="prop-row prop-toggle" data-prop="locked"><input type="checkbox" id="pcbPropOutlineLocked"${isLayerLocked('board-outline') ? ' checked' : ''}><span>Locked</span></label>
+            <div class="prop-row" data-prop="width"><label>Width (mm)</label><input type="number" id="pcbPropBoardW" value="${Number(this._boardWidth).toFixed(2)}" min="5" step="1"></div>
+            <div class="prop-row" data-prop="height"><label>Height (mm)</label><input type="number" id="pcbPropBoardH" value="${Number(this._boardHeight).toFixed(2)}" min="5" step="1"></div>
+            <div class="prop-row" data-prop="cornerRadius"><label>Corner R (mm)</label><input type="number" id="pcbPropBoardR" value="${Number(this._boardRadius).toFixed(2)}" min="0" step="0.5"></div>
         `;
         const lockedEl = /** @type {HTMLInputElement|null} */ (document.getElementById('pcbPropOutlineLocked'));
         lockedEl?.addEventListener('change', () => {
@@ -5355,11 +5356,11 @@ export default class PCBApp {
         ).join('');
         this._setPcbPropsTitle('New Text');
         items.innerHTML = `
-            <div class="prop-row"><label>Layer</label><select id="pcbPropTextToolLayer">${layerOpts}</select></div>
-            <div class="prop-row"><label>Size (mm)</label><input type="number" id="pcbPropTextToolSize" value="${d.size}" min="0.2" max="20" step="0.1"></div>
-            <div class="prop-row"><label>Rotation (°)</label><input type="number" id="pcbPropTextToolRot" data-number-format="rotation" value="${displayRotationDegrees(d.rotation)}" step="1"></div>
-            <div class="prop-row"><label>Line W (mm)</label><input type="number" id="pcbPropTextToolLW" value="${d.strokeWidth}" min="0.05" max="2" step="0.05"></div>
-            <div class="prop-row"><label><input type="checkbox" id="pcbPropTextToolBorder"${d.border ? ' checked' : ''}> Border</label></div>
+            <div class="prop-row" data-prop="layer"><label>Layer</label><select id="pcbPropTextToolLayer">${layerOpts}</select></div>
+            <div class="prop-row" data-prop="fontSize"><label>Size (mm)</label><input type="number" id="pcbPropTextToolSize" value="${d.size}" min="0.2" max="20" step="0.1"></div>
+            <div class="prop-row" data-prop="lineWidth"><label>Line W (mm)</label><input type="number" id="pcbPropTextToolLW" value="${d.strokeWidth}" min="0.05" max="2" step="0.05"></div>
+            <div class="prop-row" data-prop="rotation"><label>Rotation (°)</label><input type="number" id="pcbPropTextToolRot" data-number-format="rotation" value="${displayRotationDegrees(d.rotation)}" step="1"></div>
+            <div class="prop-row" data-prop="border"><label><input type="checkbox" id="pcbPropTextToolBorder"${d.border ? ' checked' : ''}> Border</label></div>
         `;
         const layerEl = /** @type {HTMLSelectElement|null} */ (items.querySelector('#pcbPropTextToolLayer'));
         const sizeEl = /** @type {HTMLInputElement|null} */ (items.querySelector('#pcbPropTextToolSize'));
@@ -5423,7 +5424,7 @@ export default class PCBApp {
         ).join('');
         const isEditingThis = this._textEdit?.text?.id === text.id;
         const insertRow = isEditingThis ? `
-            <div class="prop-row"><label>Insert</label><select id="pcbPropTextInsert"${disabled}>
+            <div class="prop-row" data-prop="insert"><label>Insert</label><select id="pcbPropTextInsert"${disabled}>
                 <option value="">Symbol…</option>
                 <option value="\u00A9">© Copyright</option>
                 <option value="\u00AE">® Registered</option>
@@ -5436,12 +5437,12 @@ export default class PCBApp {
                 <option value="\u00F7">÷ Divide</option>
             </select></div>` : '';
         items.innerHTML = `
-            <div class="prop-row"><label>Layer</label><select id="pcbPropTextLayer"${disabled}>${layerOpts}</select></div>
-            <div class="prop-row"><label>Size (mm)</label><input type="number" id="pcbPropTextSize" value="${text.size}" min="0.2" step="0.1"${disabled}></div>
-            <div class="prop-row"><label>Rotation (°)</label><input type="number" id="pcbPropTextRot" data-number-format="rotation" value="${displayRotationDegrees(text.rotation)}" step="1"${disabled}></div>
-            <div class="prop-row"><label>Line W (mm)</label><input type="number" id="pcbPropTextLW" value="${text.strokeWidth}" min="0.05" step="0.05"${disabled}></div>
-            <div class="prop-row"><label><input type="checkbox" id="pcbPropTextBorder"${text.border ? ' checked' : ''}${disabled}> Border</label></div>
             ${insertRow}
+            <div class="prop-row" data-prop="layer"><label>Layer</label><select id="pcbPropTextLayer"${disabled}>${layerOpts}</select></div>
+            <div class="prop-row" data-prop="fontSize"><label>Size (mm)</label><input type="number" id="pcbPropTextSize" value="${text.size}" min="0.2" step="0.1"${disabled}></div>
+            <div class="prop-row" data-prop="lineWidth"><label>Line W (mm)</label><input type="number" id="pcbPropTextLW" value="${text.strokeWidth}" min="0.05" step="0.05"${disabled}></div>
+            <div class="prop-row" data-prop="rotation"><label>Rotation (°)</label><input type="number" id="pcbPropTextRot" data-number-format="rotation" value="${displayRotationDegrees(text.rotation)}" step="1"${disabled}></div>
+            <div class="prop-row" data-prop="border"><label><input type="checkbox" id="pcbPropTextBorder"${text.border ? ' checked' : ''}${disabled}> Border</label></div>
         `;
         // Snapshot at first edit so undo collapses keystrokes into a
         // single command per field. The field binding/commit machinery is
@@ -6282,9 +6283,7 @@ export default class PCBApp {
         for (const capabilities of capabilitySets.slice(1)) {
             keys = keys.filter(key => capabilities[key]?.type === capabilitySets[0][key]?.type);
         }
-        const order = ['net', 'layer', 'locked', 'refVisible', 'shapeKind', 'size', 'width', 'height', 'diameter', 'drill',
-            'rotation', 'lineWidth', 'cornerRadius', 'border', 'invert', 'flipHorizontal', 'flipVertical'];
-        keys.sort((a, b) => order.indexOf(a) - order.indexOf(b));
+        keys = sortByPropertyOrder(keys, key => key);
         const descriptors = new Map();
         const rows = [];
         for (const key of keys) {
@@ -6307,7 +6306,7 @@ export default class PCBApp {
                     : `pcbPropIntersection_${key}`;
             descriptors.set(key, { group, descriptor, id, mixed });
             if (descriptor.type === 'checkbox') {
-                rows.push(`<label class="prop-row prop-toggle"><input type="checkbox" id="${id}"${!mixed && values[0] ? ' checked' : ''}${group.some(item => item.disabled) ? ' disabled' : ''}><span>${descriptor.label}</span></label>`);
+                rows.push(`<label class="prop-row prop-toggle" data-prop="${key}"><input type="checkbox" id="${id}"${!mixed && values[0] ? ' checked' : ''}${group.some(item => item.disabled) ? ' disabled' : ''}><span>${descriptor.label}</span></label>`);
             } else if (descriptor.type === 'select') {
                 const options = descriptor.options.map(([value, label]) => {
                     const selected = !mixed && value === values[0];
@@ -6315,14 +6314,14 @@ export default class PCBApp {
                         ? pcbLayerOptionHtml(value, label, selected)
                         : `<option value="${value}"${selected ? ' selected' : ''}>${label}</option>`;
                 }).join('');
-                rows.push(`<div class="prop-row"><label>${descriptor.label}</label><select id="${id}"${group.some(item => item.disabled) ? ' disabled' : ''}>${mixed ? '<option value="" selected disabled>Mixed</option>' : ''}${options}</select></div>`);
+                rows.push(`<div class="prop-row" data-prop="${key}"><label>${descriptor.label}</label><select id="${id}"${group.some(item => item.disabled) ? ' disabled' : ''}>${mixed ? '<option value="" selected disabled>Mixed</option>' : ''}${options}</select></div>`);
             } else if (descriptor.type === 'net') {
                 const { escape, options } = this._toolNetOptions(mixed ? '' : values[0]);
-                rows.push(`<div class="prop-row"><label>Net</label><span class="prop-net-control"><input type="text" id="${id}" value="${mixed ? '' : escape(values[0])}" placeholder="${mixed ? 'Mixed' : 'None'}"${group.some(item => item.disabled) ? ' disabled' : ''}><details class="prop-net-menu"><summary aria-label="Select existing net"></summary><div>${options}</div></details></span></div>`);
+                rows.push(`<div class="prop-row" data-prop="${key}"><label>Net</label><span class="prop-net-control"><input type="text" id="${id}" value="${mixed ? '' : escape(values[0])}" placeholder="${mixed ? 'Mixed' : 'None'}"${group.some(item => item.disabled) ? ' disabled' : ''}><details class="prop-net-menu"><summary aria-label="Select existing net"></summary><div>${options}</div></details></span></div>`);
             } else {
                 const min = Number.isFinite(Math.max(...group.map(item => item.min))) ? Math.max(...group.map(item => item.min)) : '';
                 const max = Number.isFinite(Math.min(...group.map(item => item.max))) ? Math.min(...group.map(item => item.max)) : '';
-                rows.push(`<div class="prop-row"><label>${descriptor.label}</label><input type="number" id="${id}" value="${mixed ? '' : values[0]}" placeholder="${mixed ? 'Mixed' : ''}"${min === '' ? '' : ` min="${min}"`}${max === '' ? '' : ` max="${max}"`} step="${descriptor.step}"${group.some(item => item.disabled) ? ' disabled' : ''}></div>`);
+                rows.push(`<div class="prop-row" data-prop="${key}"><label>${descriptor.label}</label><input type="number" id="${id}" value="${mixed ? '' : values[0]}" placeholder="${mixed ? 'Mixed' : ''}"${min === '' ? '' : ` min="${min}"`}${max === '' ? '' : ` max="${max}"`} step="${descriptor.step}"${group.some(item => item.disabled) ? ' disabled' : ''}></div>`);
             }
         }
         items.innerHTML = rows.length
@@ -7598,9 +7597,9 @@ export default class PCBApp {
             ['bottom-copper', 'Bottom Copper'],
         ].map(([id, name]) => `<option value="${id}"${id === fill.layer ? ' selected' : ''}>${name}</option>`).join('');
         items.innerHTML = `
-            <label class="prop-row prop-toggle"><input type="checkbox" id="pcbPropFillLocked"${isCopperFillLocked(fill.layer) ? ' checked' : ''}><span>Locked</span></label>
-            <div class="prop-row"><label>Net</label><span class="prop-net-control"><input type="text" id="pcbPropFillNet" placeholder="None" value="${esc(fill.net || '')}"><details class="prop-net-menu"><summary aria-label="Select existing net"></summary><div>${netOptions}</div></details></span></div>
-            <div class="prop-row"><label>Layer</label><select id="pcbPropFillLayer">${layerOpts}</select></div>
+            <label class="prop-row prop-toggle" data-prop="locked"><input type="checkbox" id="pcbPropFillLocked"${isCopperFillLocked(fill.layer) ? ' checked' : ''}><span>Locked</span></label>
+            <div class="prop-row" data-prop="layer"><label>Layer</label><select id="pcbPropFillLayer">${layerOpts}</select></div>
+            <div class="prop-row" data-prop="net"><label>Net</label><span class="prop-net-control"><input type="text" id="pcbPropFillNet" placeholder="None" value="${esc(fill.net || '')}"><details class="prop-net-menu"><summary aria-label="Select existing net"></summary><div>${netOptions}</div></details></span></div>
         `;
         const lockedEl = /** @type {HTMLInputElement|null} */ (document.getElementById('pcbPropFillLocked'));
         lockedEl?.addEventListener('change', () => {

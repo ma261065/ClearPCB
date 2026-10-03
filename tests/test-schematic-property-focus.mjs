@@ -22,6 +22,11 @@ class Element {
     }
     setAttribute(name, value) { this[name] = String(value); }
     appendChild(child) { this.children.push(child); child.parentNode = this; }
+    insertBefore(child, next) {
+        const index = next ? this.children.indexOf(next) : -1;
+        if (index < 0) this.appendChild(child);
+        else { this.children.splice(index, 0, child); child.parentNode = this; }
+    }
     append(...children) { children.filter(child => typeof child === 'object').forEach(child => this.appendChild(child)); }
     contains(target) { return this === target || this.children.some(child => child.contains(target)); }
     set innerHTML(_html) {

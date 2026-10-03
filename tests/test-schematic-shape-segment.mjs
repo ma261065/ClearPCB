@@ -51,7 +51,7 @@ function expect(name, condition) {
     const elements = [];
     document.createElement = tag => {
         const listeners = new Map();
-        const element = { tag, children: [], style: {}, value: '', attributes: {},
+        const element = { tag, children: [], style: {}, dataset: {}, value: '', attributes: {},
             appendChild(child) { this.children.push(child); },
             append(...children) { this.children.push(...children); },
             setAttribute(name, value) { this.attributes[name] = value; },

@@ -1,4 +1,5 @@
 import { setCheckboxState } from './ui-utils.js';
+import { propertyRank, sortByPropertyOrder } from '../../shared/ui/property-order.js';
 import { ModifyPropertyCommand, ModifyShapeCommand, BatchCommand } from '../../schematic/modules/commands.js';
 import { BULGE_EPS } from '../../shapes/arc-edge.js';
 import { bulgeRatio } from '../../core/geometry.js';
@@ -46,7 +47,7 @@ export function bindPropertiesPanel(app) {
  */
 export function mergeDescriptors(selection) {
     if (selection.length === 0) return [];
-    const first = selection[0].getPropertyDescriptors();
+    const first = sortByPropertyOrder(selection[0].getPropertyDescriptors(), descriptorOrderKey);
     if (selection.length === 1) return first;
 
     // Keep only keys that every item declares
@@ -62,6 +63,20 @@ export function mergeDescriptors(selection) {
             desc.key === 'packageId' && option.value === 'default'
                 ? { ...option, label: 'Default package' } : option) }];
     });
+}
+
+/** Canonical-order key of a descriptor; `orderKey` lets a property sort as a related one. */
+const descriptorOrderKey = desc => desc.orderKey || desc.key;
+
+/**
+ * Insert a `data-prop` row before the first sibling row that the canonical order puts after it.
+ * @param {HTMLElement} container @param {HTMLElement} row
+ */
+function insertByPropertyOrder(container, row) {
+    const rank = propertyRank(row.dataset.prop);
+    const next = /** @type {HTMLElement[]} */ ([...container.children])
+        .find(child => child.dataset?.prop && propertyRank(child.dataset.prop) > rank);
+    container.insertBefore(row, next || null);
 }
 
 function headerLabel(selection) {
@@ -119,6 +134,7 @@ function wireNetNames(app) {
 function appendWireNetField(app, content, id, value, onChange, { allowAuto = false, isCurrent = () => true, readOnly = false } = {}) {
     const row = document.createElement('div');
     row.className = 'prop-row';
+    row.dataset.prop = 'net';
     const label = document.createElement('label');
     label.setAttribute('for', id);
     label.textContent = 'Net';
@@ -205,6 +221,7 @@ function renderNewShapeProperties(app, panel, tool, isCurrent) {
     if (tool === 'text' || tool === 'net') {
         const fontSizeRow = document.createElement('div');
         fontSizeRow.className = 'prop-row';
+        fontSizeRow.dataset.prop = 'fontSize';
         const fontSizeLabel = document.createElement('label');
         fontSizeLabel.setAttribute('for', 'prop_newShapeFontSize');
         fontSizeLabel.textContent = tool === 'text' ? 'Label size' : 'Text size';
@@ -248,11 +265,12 @@ function renderNewShapeProperties(app, panel, tool, isCurrent) {
         app.toolOptions.lineWidth = Math.min(5, Math.max(0.05, value));
         lineWidthInput.value = String(app.toolOptions.lineWidth);
     });
+    lineWidthRow.dataset.prop = 'lineWidth';
     lineWidthRow.append(lineWidthLabel, lineWidthInput);
-    sec.content.appendChild(lineWidthRow);
 
     const fillRow = document.createElement('div');
     fillRow.className = 'prop-row';
+    fillRow.dataset.prop = 'fill';
     const fillLabel = document.createElement('label');
     const fillInput = document.createElement('input');
     fillInput.type = 'checkbox';
@@ -263,7 +281,7 @@ function renderNewShapeProperties(app, panel, tool, isCurrent) {
     });
     fillLabel.append(fillInput, ' Fill');
     fillRow.appendChild(fillLabel);
-    sec.content.appendChild(fillRow);
+    sec.content.append(fillRow, lineWidthRow);
 
     panel.appendChild(sec.group);
     return true;
@@ -352,9 +370,17 @@ export function updatePropertiesPanel(app, selection) {
             spacer.style.height = '6px';
             sec.content.appendChild(spacer);
 
-            // Single-wire net name lives in the same section as Locked and
-            // should appear before the lock checkbox.
-            if (singleWire) {
+            // One divider separates Locked from the rest of the properties.
+            const separateFromLocked = () => {
+                const last = /** @type {HTMLElement|null} */ (sec.content.lastElementChild);
+                if (last?.dataset?.prop !== 'locked') return;
+                const divider = document.createElement('hr');
+                divider.style.cssText = 'border:none;border-top:1px solid var(--border-color);margin:4px 0;';
+                sec.content.appendChild(divider);
+            };
+            // A single wire's Net row takes its canonical place among the descriptors.
+            const appendNet = () => {
+                separateFromLocked();
                 if (allLocked) {
                     appendWireNetField(app, sec.content, 'prop_net', singleWire.net, () => {}, { readOnly: true });
                 } else {
@@ -366,7 +392,8 @@ export function updatePropertiesPanel(app, selection) {
                         applyProperty('net', net);
                     }, { isCurrent: isCurrentSelection });
                 }
-            }
+            };
+            let netShown = !singleWire;
 
             const descriptors = selectedNode
                 ? (showNodeCornerRadius
@@ -379,17 +406,15 @@ export function updatePropertiesPanel(app, selection) {
             }
 
             for (const desc of descriptors) {
-                // Add divider after locked checkbox
-                if (desc.key === 'lineWidth' || (desc.key !== 'locked' && descriptors[0]?.key === 'locked')) {
-                    if (desc.key === 'lineWidth') {
-                        const divider = document.createElement('hr');
-                        divider.style.cssText = 'border:none;border-top:1px solid var(--border-color);margin:4px 0;';
-                        sec.content.appendChild(divider);
-                    }
+                if (!netShown && propertyRank(descriptorOrderKey(desc)) > propertyRank('net')) {
+                    appendNet();
+                    netShown = true;
                 }
+                if (desc.key !== 'locked') separateFromLocked();
 
                 const row = document.createElement('div');
                 row.className = 'prop-row';
+                row.dataset.prop = descriptorOrderKey(desc);
                 const disabled = allLocked && desc.key !== 'locked';
 
                 if (desc.type === 'checkbox') {
@@ -655,6 +680,7 @@ export function updatePropertiesPanel(app, selection) {
 
                 sec.content.appendChild(row);
             }
+            if (!netShown) appendNet();
 
             // H/V controls for text without a full rotation property.
             const textShapes = selection.filter(s => s.type === 'text');
@@ -662,6 +688,7 @@ export function updatePropertiesPanel(app, selection) {
                 && !descriptors.some(desc => desc.key === 'rotation')) {
                 const hvRow = document.createElement('div');
                 hvRow.className = 'prop-row';
+                hvRow.dataset.prop = 'orientation';
                 const hvLabel = document.createElement('label');
                 hvLabel.textContent = 'Orientation';
                 hvRow.appendChild(hvLabel);
@@ -692,7 +719,7 @@ export function updatePropertiesPanel(app, selection) {
                 hvBtns.appendChild(hBtn);
                 hvBtns.appendChild(vBtn);
                 hvRow.appendChild(hvBtns);
-                sec.content.appendChild(hvRow);
+                insertByPropertyOrder(sec.content, hvRow);
             }
 
         }

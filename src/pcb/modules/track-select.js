@@ -1108,7 +1108,7 @@ function _drawHoleHalo(app, hole, cls = HALO_CLASS, opacity = HALO_OPACITY_SELEC
 
 function trackCornerRadiusProperty(track, nodeId = null) {
     const radius = nodeId == null ? track.cornerRadius : track.nodeCornerRadius(nodeId);
-    return `<div class="prop-row"><label>Corner Radius (mm)</label><input type="number" id="pcbPropTrackCornerRadius" min="0" step="0.5" value="${formatNumberInputValue(radius)}"></div>`;
+    return `<div class="prop-row" data-prop="cornerRadius"><label>Corner Radius (mm)</label><input type="number" id="pcbPropTrackCornerRadius" min="0" step="0.5" value="${formatNumberInputValue(radius)}"></div>`;
 }
 
 function createTrackPropertyBinding(app, track, scope = {}) {
@@ -1274,8 +1274,8 @@ function _showTrackNodeProperties(app, track, nodeId) {
     if (!items || !node) return;
     app._setPcbPropsTitle?.('Track Node');
     items.innerHTML = `
-        <div class="prop-row"><label>X (mm)</label><span id="pcbPropTrackNodeX">${formatNumberInputValue(node.x)}</span></div>
-        <div class="prop-row"><label>Y (mm)</label><span id="pcbPropTrackNodeY">${formatNumberInputValue(node.y)}</span></div>
+        <div class="prop-row" data-prop="x"><label>X (mm)</label><span id="pcbPropTrackNodeX">${formatNumberInputValue(node.x)}</span></div>
+        <div class="prop-row" data-prop="y"><label>Y (mm)</label><span id="pcbPropTrackNodeY">${formatNumberInputValue(node.y)}</span></div>
         ${trackCornerRadiusProperty(track, nodeId)}
     `;
     const binding = createTrackPropertyBinding(app, track, { nodeId });
@@ -1314,12 +1314,12 @@ function _showTrackProperties(app, track) {
     const mixedOpt = mixed ? `<option value="" selected>Multiple</option>` : '';
     const netOptions = _netOptions(app, track.net || '');
     items.innerHTML = `
-        <div class="prop-row"><label>Net</label><span class="prop-net-control"><input type="text" id="pcbPropTrackNet" value="${_escape(track.net || '')}" placeholder="None"><details class="prop-net-menu"><summary aria-label="Select existing net"></summary><div>${netOptions}</div></details></span></div>
-        <div class="prop-row"><label>Layer</label><select id="pcbPropTrackLayer">${mixedOpt}${layerOpts}</select></div>
-        <div class="prop-row"><label>Copper Mode</label><select id="pcbPropTrackCopperMode">${copperModeOpts}</select></div>
-        <div class="prop-row"><label>Width (mm)</label><input type="number" id="pcbPropTrackWidth" value="${formatNumberInputValue(track.width)}" min="0.05" step="0.05"></div>
+        <div class="prop-row" data-prop="layer"><label>Layer</label><select id="pcbPropTrackLayer">${mixedOpt}${layerOpts}</select></div>
+        <div class="prop-row" data-prop="copperMode"><label>Copper Mode</label><select id="pcbPropTrackCopperMode">${copperModeOpts}</select></div>
+        <div class="prop-row" data-prop="net"><label>Net</label><span class="prop-net-control"><input type="text" id="pcbPropTrackNet" value="${_escape(track.net || '')}" placeholder="None"><details class="prop-net-menu"><summary aria-label="Select existing net"></summary><div>${netOptions}</div></details></span></div>
+        ${canFillTrackLoop(track) ? '<label class="prop-row prop-toggle" data-prop="fill"><input type="checkbox" id="pcbPropTrackFill"><span>Fill</span></label>' : ''}
+        <div class="prop-row" data-prop="lineWidth"><label>Width (mm)</label><input type="number" id="pcbPropTrackWidth" value="${formatNumberInputValue(track.width)}" min="0.05" step="0.05"></div>
         ${trackCornerRadiusProperty(track)}
-        ${canFillTrackLoop(track) ? '<label class="prop-row prop-toggle"><input type="checkbox" id="pcbPropTrackFill"><span>Fill</span></label>' : ''}
     `;
     const binding = createTrackPropertyBinding(app, track);
     bindTrackCornerRadius(binding);
@@ -1438,10 +1438,10 @@ function _showTrackSegmentProperties(app, track, edgeId) {
     ).join('');
     const netOptions = _netOptions(app, track.net || '');
     items.innerHTML = `
-        <div class="prop-row"><label>Net</label><span class="prop-net-control"><input type="text" id="pcbPropTrackNet" value="${_escape(track.net || '')}" placeholder="None"><details class="prop-net-menu"><summary aria-label="Select existing net"></summary><div>${netOptions}</div></details></span></div>
-        <div class="prop-row"><label>Layer</label><select id="pcbPropSegLayer">${layerOpts}</select></div>
-        <div class="prop-row"><label>Width (mm)</label><input type="number" id="pcbPropTrackWidth" value="${formatNumberInputValue(segWidth)}" min="0.05" step="0.05"></div>
-        ${track.edges.get(edgeId)?.bulge ? `<div class="prop-row"><label>Bulge</label><input type="number" id="pcbPropTrackBulge" min="-1" max="1" step="0.05" value="${formatNumberInputValue(track.edges.get(edgeId).bulge)}"></div>` : ''}
+        <div class="prop-row" data-prop="layer"><label>Layer</label><select id="pcbPropSegLayer">${layerOpts}</select></div>
+        <div class="prop-row" data-prop="net"><label>Net</label><span class="prop-net-control"><input type="text" id="pcbPropTrackNet" value="${_escape(track.net || '')}" placeholder="None"><details class="prop-net-menu"><summary aria-label="Select existing net"></summary><div>${netOptions}</div></details></span></div>
+        <div class="prop-row" data-prop="lineWidth"><label>Width (mm)</label><input type="number" id="pcbPropTrackWidth" value="${formatNumberInputValue(segWidth)}" min="0.05" step="0.05"></div>
+        ${track.edges.get(edgeId)?.bulge ? `<div class="prop-row" data-prop="bulge"><label>Bulge</label><input type="number" id="pcbPropTrackBulge" min="-1" max="1" step="0.05" value="${formatNumberInputValue(track.edges.get(edgeId).bulge)}"></div>` : ''}
     `;
     const binding = createTrackPropertyBinding(app, track, { edgeId });
     bindTrackWidth(binding, edgeId);
@@ -1693,9 +1693,9 @@ export function showViaProperties(app, via) {
     app._setPcbPropsTitle?.('Via');
     const netOptions = _netOptions(app, via.net || '');
     items.innerHTML = `
-        <div class="prop-row"><label>Net</label><span class="prop-net-control"><input type="text" id="pcbPropViaNet" value="${mixedNet ? '' : _escape(via.net || '')}" placeholder="${mixedNet ? 'Mixed' : 'None'}"><details class="prop-net-menu"><summary aria-label="Select existing net"></summary><div>${netOptions}</div></details></span></div>
-        <div class="prop-row"><label>Diameter (mm)</label><input type="number" id="pcbPropViaDia" value="${mixedDiameter ? '' : via.diameter}" placeholder="${mixedDiameter ? 'Mixed' : ''}" min="${minDiameter}" step="0.05"></div>
-        <div class="prop-row"><label>Drill (mm)</label><input type="number" id="pcbPropViaDrill" value="${mixedDrill ? '' : via.drill}" placeholder="${mixedDrill ? 'Mixed' : ''}" min="0.05" max="${maxDrill}" step="0.05"></div>
+        <div class="prop-row" data-prop="net"><label>Net</label><span class="prop-net-control"><input type="text" id="pcbPropViaNet" value="${mixedNet ? '' : _escape(via.net || '')}" placeholder="${mixedNet ? 'Mixed' : 'None'}"><details class="prop-net-menu"><summary aria-label="Select existing net"></summary><div>${netOptions}</div></details></span></div>
+        <div class="prop-row" data-prop="diameter"><label>Diameter (mm)</label><input type="number" id="pcbPropViaDia" value="${mixedDiameter ? '' : via.diameter}" placeholder="${mixedDiameter ? 'Mixed' : ''}" min="${minDiameter}" step="0.05"></div>
+        <div class="prop-row" data-prop="drill"><label>Drill (mm)</label><input type="number" id="pcbPropViaDrill" value="${mixedDrill ? '' : via.drill}" placeholder="${mixedDrill ? 'Mixed' : ''}" min="0.05" max="${maxDrill}" step="0.05"></div>
     `;
     let renderFrame = null;
     const reRender = () => {

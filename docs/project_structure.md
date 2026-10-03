@@ -36,7 +36,8 @@ clearpcb/
 │   │   │                       # footprint, reference-text, stroke-font, picture-*)
 │   │   └── ui/                 # UI helpers used by both editors (theme, modal,
 │   │                           # viewport, cursor, export, box-selection, recents,
-│   │                           # ribbon-height, inline-text-overlay, …)
+│   │                           # ribbon-height, inline-text-overlay,
+│   │                           # property-order, …)
 │   ├── schematic/
 │   │   ├── render/             # Schematic shape/component SVG renderers + WeakMap view state
 │   │   └── modules/            # Schematic-only interaction modules
@@ -87,7 +88,7 @@ clearpcb/
   import either editor.
 - `src/shared/ui/*` holds UI helpers both editors use (modal dialogs, viewport
   grid controls, cursors, export helpers, box selection, recents, ribbon height,
-  inline text, theme). `src/shared/pcb/*` holds PCB geometry that the project
+  inline text, theme, the Properties panel control order). `src/shared/pcb/*` holds PCB geometry that the project
   model in `core` and the PCB editor both need (board outline and shape
   geometry, footprint generation, reference text, stroke font, picture artwork).
   Promote code there, rather than importing across editors, when both sides need it.
