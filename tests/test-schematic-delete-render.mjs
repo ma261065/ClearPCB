@@ -78,8 +78,9 @@ globalThis.document = {
 };
 const {
     commandAddShapeInternal, commandRemoveShapeInternal, commandDeleteShapesInternal,
-    commandRestoreShapesInternal, renderShapes,
+    commandRestoreShapesInternal,
 } = await import('../src/schematic/modules/shape-management.js');
+const { renderShapes } = await import('../src/schematic/modules/schematic-view.js');
 const { deleteSelected } = await import('../src/ui/modules/selection.js');
 const { deleteWire, deleteWireSegment, deleteSchematicShapeNode, splitAnchorAndDrag, setSchematicShapeSegmentType,
     decomposeShapeCorners } = await import('../src/ui/modules/context-menu.js');

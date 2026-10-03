@@ -321,7 +321,7 @@ for (const rotation of [0, 37, 90]) for (const mirrored of [false, true]) {
     assert.equal(guideLayer.children.length, 0, 'Deselecting clears the guide');
 }
 
-const { renderShapes } = await import('../src/schematic/modules/shape-management.js');
+const { renderShapes } = await import('../src/schematic/modules/schematic-view.js');
 let renderedX = 10;
 const renderReference = { id: 'schematic-reference', type: 'text', selected: true,
     textAnchor: 'middle', get x() { return renderedX; }, y: 0,

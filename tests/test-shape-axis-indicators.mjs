@@ -45,7 +45,7 @@ const { snapPathPoint } = await import('../src/pcb/modules/path-edit.js');
 const { updatePolylineSegmentDrag } = await import('../src/schematic/modules/polyline-segment-drag.js');
 const { clearDragState } = await import('../src/ui/modules/drag.js');
 const { updatePreview, cancelDrawing } = await import('../src/ui/modules/drawing.js');
-const { renderShapes } = await import('../src/schematic/modules/shape-management.js');
+const { renderShapes } = await import('../src/schematic/modules/schematic-view.js');
 
 let failures = 0;
 

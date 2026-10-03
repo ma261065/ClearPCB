@@ -1,4 +1,5 @@
 import { ModifyShapeCommand } from '../../schematic/modules/commands.js';
+import { viewElementOf } from '../../schematic/modules/schematic-view.js';
 import { validateNetNameAtPoint } from './net-validation.js';
 import {
     getTextEditBoxGeometry,
@@ -310,13 +311,14 @@ export function updateTextEditOverlay(app) {
 
     const shape = state.shape;
     const textEl = shape.getTextElement?.();
-    const el = textEl || shape.element;
+    const shapeEl = viewElementOf(shape);
+    const el = textEl || shapeEl;
     if (!el) {
         state.overlayGroup.style.display = 'none';
         return;
     }
 
-    const usesNestedTextCoords = !!textEl && textEl !== shape.element;
+    const usesNestedTextCoords = !!textEl && textEl !== shapeEl;
 
     // For shapes with a text element inside a group (e.g. Net),
     // use the shape's textEditOrigin if available, otherwise shape.x/y.
@@ -396,12 +398,13 @@ export function setTextCaretFromScreen(app, screenPos) {
     if (!state || !state.shape) return;
 
     const explicitTextEl = state.shape.getTextElement?.();
+    const shapeEl = viewElementOf(state.shape);
     const ownTextEl = state.shape.type === 'text'
-        ? Array.from(state.shape.element?.children || []).find(
+        ? Array.from(shapeEl?.children || []).find(
             child => String(child.tagName || '').toLowerCase() === 'text',
         )
         : null;
-    const el = explicitTextEl || ownTextEl || state.shape.element;
+    const el = explicitTextEl || ownTextEl || shapeEl;
     if (!el || typeof el.getCharNumAtPosition !== 'function') {
         state.caretIndex = (state.shape.text || '').length;
         updateTextEditOverlay(app);

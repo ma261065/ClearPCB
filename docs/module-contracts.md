@@ -416,6 +416,18 @@ registry's sync are the listed exceptions). `browser-tests/schematic-smoke.mjs`
 checks in a real browser that flags and the manager agree through anchor drag
 commit/cancel, wire start, delete, undo and redo.
 
+`schematic/modules/schematic-view.js` is the schematic's view lifecycle, the
+counterpart of the PCB render modules. It owns `renderShapes()`, viewport
+culling and level of detail, refined-segment overlays, and the helpers that
+create, attach, redraw, re-pose, detach and discard entity SVG
+(`mountShape`, `unmountShape`, `mountComponent`, `refreshComponentPose`,
+`withContentDetached`, …). Commands, file loading, clipboard ghosts, theme
+changes and inline text editing call these helpers; none of them touch
+`element`, `anchorsGroup`, `render()` or the viewport content layers.
+Entities still build their own SVG behind this boundary until rendering moves
+into renderer modules. `test-schematic-view-boundary` tests the helpers and
+fails on new view-lifecycle code elsewhere in the schematic editor.
+
 `syncPcbSelection()` runs on every hover and click query, so it reuses one
 adapter per model object (adapters read live state lazily). It rebuilds the
 entry list and selection flags only when the set of entities changes;

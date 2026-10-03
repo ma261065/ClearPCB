@@ -9,6 +9,7 @@ import { setComponentReference } from '../../core/SchematicDocument.js';
 import { freeWireLabel, bumpWireLabelCounter, freeNetName, bumpNetNameCounter } from '../../shapes/wire.js';
 import { applyStickyConnections } from '../../ui/modules/sticky-wires.js';
 import { connectComponentPinsToWires, PIN_ATTACH_TOL } from '../../ui/modules/pin-wire-connect.js';
+import { mountComponent, mountShape, redrawShape, refreshComponentPose, unmountComponent, unmountShape, withContentDetached } from './schematic-view.js';
 
 /**
  * Update wires connected to a Net label to use its current net name.
@@ -456,28 +457,22 @@ export class DeleteComponentsCommand extends Command {
         const compsToRemove = new Set(this.componentsData.map(d => d.component));
         const ftsToRemove = new Set();
         const attachedToRemove = new Set(this.attachedLabelData.map(d => d.shape));
-        // Detach content layer to batch DOM removals
-        const layer = app.viewport.contentLayer;
-        const parent = layer.parentNode;
-        const nextSib = layer.nextSibling;
-        if (parent) parent.removeChild(layer);
-        for (const data of this.componentsData) {
-            const comp = data.component;
-            app.selection.dropHover(comp);
-            if (comp.element?.parentNode) comp.element.parentNode.removeChild(comp.element);
-            for (const ft of comp.getFieldTexts()) {
-                ftsToRemove.add(ft);
-                app.selection.dropHover(ft);
-                if (ft.element?.parentNode) ft.element.parentNode.removeChild(ft.element);
+        withContentDetached(app, () => {
+            for (const data of this.componentsData) {
+                const comp = data.component;
+                app.selection.dropHover(comp);
+                unmountComponent(comp);
+                for (const ft of comp.getFieldTexts()) {
+                    ftsToRemove.add(ft);
+                    app.selection.dropHover(ft);
+                    unmountShape(ft);
+                }
             }
-        }
-        for (const label of attachedToRemove) {
-            app.selection.dropHover(label);
-            if (label.element?.parentNode) label.element.parentNode.removeChild(label.element);
-            if (label.anchorsGroup?.parentNode) label.anchorsGroup.parentNode.removeChild(label.anchorsGroup);
-        }
-        // Reattach content layer
-        if (parent) parent.insertBefore(layer, nextSib);
+            for (const label of attachedToRemove) {
+                app.selection.dropHover(label);
+                unmountShape(label);
+            }
+        });
         // In-place filter components: O(N) instead of O(N²)
         let writeIdx = 0;
         for (let i = 0; i < app.components.length; i++) {
@@ -512,7 +507,7 @@ export class DeleteComponentsCommand extends Command {
                 }
             }
         }
-        for (const wire of dirtyWires) wire.render(app.viewport.scale);
+        for (const wire of dirtyWires) redrawShape(app, wire);
         app._updateSelectableItems();
         app.fileManager.setDirty(true);
     }
@@ -525,16 +520,14 @@ export class DeleteComponentsCommand extends Command {
         for (const data of sorted) {
             const comp = data.component;
             app.selection.dropHover(comp);
-            if (!comp.element) comp.createSymbolElement();
             const idx = Math.min(data.index, app.components.length);
             app.components.splice(idx, 0, comp);
-            app.viewport.addComponentContent(comp.element);
+            mountComponent(app, comp);
             for (const ft of comp.getFieldTexts()) {
                 if (!shapeSet.has(ft)) {
                     app.shapes.push(ft);
                     shapeSet.add(ft);
-                    ft.render(app.viewport.scale);
-                    app.viewport.addContent(ft.element);
+                    mountShape(app, ft);
                 }
             }
         }
@@ -545,8 +538,7 @@ export class DeleteComponentsCommand extends Command {
             const idx = data.index >= 0 ? Math.min(data.index, app.shapes.length) : app.shapes.length;
             app.shapes.splice(idx, 0, label);
             shapeSet.add(label);
-            label.render(app.viewport.scale);
-            app.viewport.addContent(label.element);
+            mountShape(app, label);
         }
         // Restore wire→pin connection records (and their dots) removed on execute.
         if (this._removedPinConnections?.length) {
@@ -555,7 +547,7 @@ export class DeleteComponentsCommand extends Command {
                 wire.pinConnections.set(nodeId, conn);
                 dirtyWires.add(wire);
             }
-            for (const wire of dirtyWires) wire.render(app.viewport.scale);
+            for (const wire of dirtyWires) redrawShape(app, wire);
         }
         this._removedPinConnections = null;
         app._updateSelectableItems();
@@ -609,10 +601,7 @@ export class AddComponentCommand extends Command {
         }
 
         this.app.components.push(this.component);
-        if (!this.component.element) {
-            this.component.createSymbolElement();
-        }
-        this.app.viewport.addComponentContent(this.component.element);
+        mountComponent(this.app, this.component);
         // Create field texts if they don't exist yet
         if (!this.component.refText && !this.component.valueText) {
             this.component.createFieldTexts(this.app);
@@ -621,8 +610,7 @@ export class AddComponentCommand extends Command {
             for (const ft of this.component.getFieldTexts()) {
                 if (!this.app.shapes.includes(ft)) {
                     this.app.shapes.push(ft);
-                    ft.render(this.app.viewport.scale);
-                    this.app.viewport.addContent(ft.element);
+                    mountShape(this.app, ft);
                 }
             }
         }
@@ -661,14 +649,12 @@ export class AddComponentCommand extends Command {
         if (idx !== -1) {
             this.app.components.splice(idx, 1);
         }
-        if (this.component.element && this.component.element.parentNode) {
-            this.component.element.parentNode.removeChild(this.component.element);
-        }
+        unmountComponent(this.component);
         // Remove field texts
         const ftsToRemove = new Set();
         for (const ft of this.component.getFieldTexts()) {
             ftsToRemove.add(ft);
-            if (ft.element && ft.element.parentNode) ft.element.parentNode.removeChild(ft.element);
+            unmountShape(ft);
         }
         if (ftsToRemove.size > 0) {
             let writeIdx = 0;
@@ -750,8 +736,6 @@ export class TransformComponentCommand extends Command {
                     const ft = comp.getFieldTexts().find(f => f.id === fp.id);
                     if (ft) { ft.x = fp.x; ft.y = fp.y; ft.invalidate(); }
                 }
-                // Rotation and mirror are baked into element creation — always recreate
-                comp._recreateElement();
             } else {
                 switch (this.type) {
                     case 'RotateRight': comp.rotate(90); break;
@@ -763,14 +747,8 @@ export class TransformComponentCommand extends Command {
                     case 'Mirror':      comp.flipHorizontal(); break;
                 }
             }
-            if (comp.element) {
-                const transform = comp._buildTransform();
-                if (transform) {
-                    comp.element.setAttribute('transform', transform);
-                } else {
-                    comp.element.removeAttribute('transform');
-                }
-            }
+            // Rotation and mirror are baked into the symbol, so undo always rebuilds it.
+            refreshComponentPose(comp, { rebuild: useOld });
         }
         this._updateStickyWires();
         this.app.renderShapes(true);
@@ -845,15 +823,13 @@ export class PasteCommand extends Command {
         // Bulk-add shapes without per-item updateSelectableItems
         for (const shape of this.shapes) {
             app.shapes.push(shape);
-            shape.render(app.viewport.scale);
-            app.viewport.addContent(shape.element);
+            mountShape(app, shape);
             shapeSet.add(shape);
         }
         // Bulk-add components
         for (const comp of this.components) {
             app.components.push(comp);
-            if (!comp.element) comp.createSymbolElement();
-            app.viewport.addComponentContent(comp.element);
+            mountComponent(app, comp);
             if (!comp.refText && !comp.valueText) {
                 comp.createFieldTexts(app);
             } else {
@@ -861,8 +837,7 @@ export class PasteCommand extends Command {
                     if (!shapeSet.has(ft)) {
                         app.shapes.push(ft);
                         shapeSet.add(ft);
-                        ft.render(app.viewport.scale);
-                        app.viewport.addContent(ft.element);
+                        mountShape(app, ft);
                     }
                 }
             }
@@ -882,18 +857,17 @@ export class PasteCommand extends Command {
 
         // Remove component DOM and collect field texts
         for (const comp of this.components) {
-            if (comp.element?.parentNode) comp.element.parentNode.removeChild(comp.element);
+            unmountComponent(comp);
             for (const ft of comp.getFieldTexts()) {
                 ftsToRemove.add(ft);
-                if (ft.element?.parentNode) ft.element.parentNode.removeChild(ft.element);
+                unmountShape(ft);
                 app.selection.dropSelected(ft);
             }
             app.selection.dropSelected(comp);
         }
         // Remove shape DOM
         for (const shape of this.shapes) {
-            if (shape.element?.parentNode) shape.element.parentNode.removeChild(shape.element);
-            if (shape.anchorsGroup?.parentNode) shape.anchorsGroup.parentNode.removeChild(shape.anchorsGroup);
+            unmountShape(shape);
             app.selection.dropSelected(shape);
         }
         // In-place filter shapes array: O(N) instead of O(N²)

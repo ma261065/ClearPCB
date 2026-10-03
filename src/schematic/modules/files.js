@@ -1,5 +1,6 @@
 import { resetWireLabelCounter, resetNetNameCounter } from '../../shapes/index.js';
 import { createNetText } from './shape-management.js';
+import { mountDocument, prepareDocumentView } from './schematic-view.js';
 import { attachLabelToTarget } from '../../ui/modules/label-attachment.js';
 import { importEasyEDASchematic } from '../../easyeda/schematic-importer.js';
 import { deserializeComponent } from '../../core/SchematicDocument.js';
@@ -45,8 +46,7 @@ export function serializeViewSettings(viewport) {
  */
 export function prepareDocument(app, data) {
     const prepared = app.document.prepare(data, name => app.componentLibrary.getDefinition(name));
-    for (const { shape } of prepared.shapes) shape.render(app.viewport.scale);
-    for (const component of prepared.components) component.createSymbolElement();
+    prepareDocumentView(app, prepared);
     return prepared;
 }
 
@@ -62,14 +62,7 @@ export async function loadDocument(app, data, prepared = prepareDocument(app, da
     const sch = data.schematic || {};
     const settings = sch.settings;
 
-    for (const shape of app.shapes) {
-        shape.render(app.viewport.scale);
-        app.viewport.addContent(shape.element);
-    }
-
-    for (const component of app.components) {
-        app.viewport.addComponentContent(component.element);
-    }
+    mountDocument(app);
 
     // Re-link only derived Net text (wire names are handled as generic labels)
     for (const shape of app.shapes) {

@@ -19,7 +19,7 @@ const {
     tryBeginPolylineSegmentDrag,
     updatePolylineSegmentDrag,
 } = await import('../src/schematic/modules/polyline-segment-drag.js');
-const { clearShapeSegmentSelection, renderShapeSegmentSelection } = await import('../src/schematic/modules/shape-management.js');
+const { clearShapeSegmentSelection, renderShapeSegmentSelection } = await import('../src/schematic/modules/schematic-view.js');
 const { idleState, anchorDragState } = await import('../src/schematic/modules/draw-states.js');
 const { updatePropertiesPanel } = await import('../src/ui/modules/properties.js');
 const { Circle } = await import('../src/shapes/circle.js');

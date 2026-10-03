@@ -1,12 +1,10 @@
 import { AddShapeCommand } from './commands.js';
 import { freeWireLabel, bumpWireLabelCounter, freeNetName, bumpNetNameCounter, nextNetName } from '../../shapes/wire.js';
 import { Text } from '../../shapes/text.js';
-import { detachLabel, syncAttachedLabels, updateLabelGuide } from '../../ui/modules/label-attachment.js';
+import { detachLabel } from '../../ui/modules/label-attachment.js';
 import { VERTEX_EPSILON } from './wire.js';
 import { connectComponentPinsToWires as _connectComponentPinsToWires, connectPinsToWires } from '../../ui/modules/pin-wire-connect.js';
-import { arcEdgePathD } from '../../shapes/arc-edge.js';
-import { appendSegmentSelection } from '../../core/ui-helpers.js';
-import { refreshAxisGlow } from '../../shapes/axis-glow.js';
+import { ensureShapeMounted, mountShape, unmountShape, withContentDetached } from './schematic-view.js';
 
 /**
  * Adds a shape to the canvas via an undoable `AddShapeCommand`.
@@ -19,14 +17,6 @@ export function addShape(app, shape) {
     app.history.execute(command);
     return shape;
 }
-/** Shape types that render above wires (re-appended at end of each render cycle). */
-const OVERLAY_TYPES = new Set(['noconnect', 'net']);
-
-/**
- * On-screen size (in CSS pixels) below which a component is drawn as a single
- * level-of-detail placeholder rect instead of its full symbol graphics.
- */
-const LOD_PIXEL_THRESHOLD = 16;
 
 /**
  * Directly adds a shape (no undo) — pushes to `app.shapes`, renders,
@@ -37,8 +27,7 @@ const LOD_PIXEL_THRESHOLD = 16;
  */
 export function addShapeInternal(app, shape) {
     app.shapes.push(shape);
-    shape.render(app.viewport.scale);
-    app.viewport.addContent(shape.element);
+    mountShape(app, shape);
     const wireShape = shape.type === 'wire' ? /** @type {import('../../shapes/wire.js').Wire} */ (shape) : null;
     const netShape = shape.type === 'net' ? /** @type {import('../../shapes/net.js').Net} */ (shape) : null;
     if (wireShape?.wireLabel) bumpWireLabelCounter(wireShape.wireLabel);
@@ -93,10 +82,7 @@ export function commandAddShapeInternal(app, shape, linkedLabelText = null) {
     if (!app.shapes.includes(labelText)) {
         app.shapes.push(labelText);
     }
-    if (!labelText.element || !labelText.element.parentNode) {
-        labelText.render(app.viewport.scale);
-        app.viewport.addContent(labelText.element);
-    }
+    ensureShapeMounted(app, labelText);
 
     app._updateSelectableItems();
     app.selection.invalidateHitCache();
@@ -112,14 +98,12 @@ export function commandAddShapeInternal(app, shape, linkedLabelText = null) {
  * @returns {import('../../shapes/shape.js').Shape} The inserted shape.
  */
 export function addShapeInternalAt(app, shape, index) {
-    shape.render(app.viewport.scale);
-
     if (index >= 0 && index < app.shapes.length) {
         app.shapes.splice(index, 0, shape);
     } else {
         app.shapes.push(shape);
     }
-    app.viewport.addContent(shape.element);
+    mountShape(app, shape);
     const wireShape = shape.type === 'wire' ? /** @type {import('../../shapes/wire.js').Wire} */ (shape) : null;
     if (wireShape?.wireLabel) bumpWireLabelCounter(wireShape.wireLabel);
     app._updateSelectableItems();
@@ -173,12 +157,7 @@ export function removeShapeInternal(app, shape, options = {}) {
         if (netShape) {
             _disconnectNetFromWires(app, netShape);
         }
-        if (shape.element && shape.element.parentNode) {
-            shape.element.parentNode.removeChild(shape.element);
-        }
-        if (shape.anchorsGroup && shape.anchorsGroup.parentNode) {
-            shape.anchorsGroup.parentNode.removeChild(shape.anchorsGroup);
-        }
+        unmountShape(shape);
         app.selection.deselect(shape);
         app.selection.invalidateHitCache();
         app._updateSelectableItems();
@@ -231,17 +210,12 @@ export function commandDeleteShapesInternal(app, shapesData, linkedLabelData) {
         if (wireShape?.net) freeNetName(wireShape.net);
     }
 
-    const layer = app.viewport.contentLayer;
-    const parent = layer.parentNode;
-    const nextSib = layer.nextSibling;
-    if (parent) parent.removeChild(layer);
-    for (const data of allData) {
-        const shape = data.shape;
-        if (shape.element?.parentNode) shape.element.parentNode.removeChild(shape.element);
-        if (shape.anchorsGroup?.parentNode) shape.anchorsGroup.parentNode.removeChild(shape.anchorsGroup);
-        app.selection.forget(shape);
-    }
-    if (parent) parent.insertBefore(layer, nextSib);
+    withContentDetached(app, () => {
+        for (const { shape } of allData) {
+            unmountShape(shape);
+            app.selection.forget(shape);
+        }
+    });
 
     app.selection.invalidateHitCache();
     app._updateSelectableItems();
@@ -256,18 +230,12 @@ export function commandDeleteShapesInternal(app, shapesData, linkedLabelData) {
  */
 export function commandRestoreShapesInternal(app, shapesData, linkedLabelData) {
     const allData = [...shapesData, ...linkedLabelData];
-    const layer = app.viewport.contentLayer;
-    const parent = layer.parentNode;
-    const nextSib = layer.nextSibling;
-    if (parent) parent.removeChild(layer);
-
-    for (const data of allData) {
-        app.selection.dropHover(data.shape);
-        data.shape.render(app.viewport.scale);
-        app.viewport.addContent(data.shape.element);
-    }
-
-    if (parent) parent.insertBefore(layer, nextSib);
+    withContentDetached(app, () => {
+        for (const { shape } of allData) {
+            app.selection.dropHover(shape);
+            mountShape(app, shape);
+        }
+    });
 
     const sorted = [...allData].sort((a, b) => a.index - b.index);
     for (const data of sorted) {
@@ -290,177 +258,6 @@ export function commandRestoreShapesInternal(app, shapesData, linkedLabelData) {
     app._updateSelectableItems();
     app.selection.invalidateHitCache();
     app.fileManager.setDirty(true);
-}
-
-/**
- * Re-renders all visible (non-culled) shapes and components. If `force` is true,
- * invalidates hit-test cache and recalculates stroke widths on zoom.
- * @param {object} app - Application state.
- * @param {boolean} [force=false] - Force full re-render regardless of dirty state.
- */
-export function renderShapes(app, force = false) {
-    syncAttachedLabels(app);
-
-    if (force && app.selection) {
-        app.selection.invalidateHitCache();
-    }
-    const scale = app.viewport.scale;
-    for (const shape of app.shapes) {
-        if (shape._culled) continue; // skip off-screen
-        if (force || shape._dirty || shape.selected || shape.hovered) {
-            const selectedNodeId = app._selectedShapeNode?.shapeId === shape.id
-                ? app._selectedShapeNode.nodeId : null;
-            const refined = app._selectedShapeSegment?.shapeId === shape.id || selectedNodeId != null;
-            shape.render(scale, {
-                suppressSelection: refined,
-            });
-            if (refined && shape.selected && shape.type === 'polyline') {
-                shape._updateAnchors(scale, true, selectedNodeId);
-            }
-        } else if (shape._lastScale !== scale && shape.element) {
-            // Only stroke-width changed on zoom or force — fast-path update
-            const sw = shape._getEffectiveStrokeWidth(scale);
-            if (sw > 0) shape.element.setAttribute('stroke-width', sw);
-            shape._lastScale = scale;
-        }
-    }
-    
-    // Only render components that actually need visual updates
-    for (const comp of app.components) {
-        if (comp._culled) continue; // skip off-screen
-        if (comp.selected || comp.hovered || comp.locked) {
-            comp.render(scale);
-        }
-    }
-
-    // Ensure overlay-type shapes (noconnect, Net) render above wires.
-    // Selected-shape rendering calls appendChild() which can move wire SVG
-    // elements past overlay shapes. Re-append overlay shape elements (and
-    // their anchor groups) as the last children of contentLayer so they
-    // always paint on top.  Skip when shapes are selected so anchor
-    // handles remain accessible during editing.
-    if (!app.selection?.count) {
-        const cl = app.viewport.contentLayer;
-        for (const shape of app.shapes) {
-            if (shape._culled || !shape.element) continue;
-            if (OVERLAY_TYPES.has(shape.type)) {
-                cl.appendChild(shape.element);
-                if (shape.anchorsGroup && shape.anchorsGroup.parentNode) {
-                    cl.appendChild(shape.anchorsGroup);
-                }
-            }
-        }
-    }
-    renderShapeSegmentSelection(app);
-    refreshAxisGlow(app);
-    updateLabelGuide(app);
-}
-
-/** Render the refined edge of a selected schematic polyline above the shape. */
-export function renderShapeSegmentSelection(app) {
-    app._shapeSegmentSelectionElement?.remove?.();
-    app._shapeSegmentSelectionElement = null;
-    const selected = app._selectedShapeSegment;
-    const shape = selected ? app.shapes.find((candidate) => candidate.id === selected.shapeId) : null;
-    if (!shape || !shape.selected || shape.type !== 'polyline') return;
-    const edge = shape.edges?.get(selected.edgeId);
-    const first = edge ? shape.nodes?.get(edge.from) : null;
-    const second = edge ? shape.nodes?.get(edge.to) : null;
-    if (!first || !second) return;
-    const NS = 'http://www.w3.org/2000/svg';
-    const bulge = shape.getEdgeAttr?.(selected.edgeId, 'bulge') || 0;
-    const straight = bulge ? null : shape.getStraightEdgePortion(selected.edgeId);
-    if (!bulge && !straight) return;
-    const element = document.createElementNS(NS, bulge ? 'path' : 'line');
-    if (bulge) {
-        element.setAttribute('d', arcEdgePathD(first, second, bulge));
-        element.setAttribute('fill', 'none');
-    } else {
-        element.setAttribute('x1', String(straight.first.x));
-        element.setAttribute('y1', String(straight.first.y));
-        element.setAttribute('x2', String(straight.second.x));
-        element.setAttribute('y2', String(straight.second.y));
-    }
-    element.setAttribute('class', 'schematic-shape-segment-selection');
-    const width = Math.max(Number(shape.getEdgeAttr(selected.edgeId, 'width')) || shape.lineWidth,
-        1 / app.viewport.scale);
-    const overlay = app.viewport.contentLayer;
-    const handles = shape.anchorsGroup?.parentNode === overlay ? shape.anchorsGroup : null;
-    appendSegmentSelection(overlay, element, '#e94560', width, handles);
-    app._shapeSegmentSelectionElement = element;
-}
-
-/** Clear refined schematic segment state and its independent SVG overlay. */
-export function clearShapeSegmentSelection(app) {
-    app._selectedShapeSegment = null;
-    app._shapeSegmentSelectionElement?.remove?.();
-    app._shapeSegmentSelectionElement = null;
-}
-
-/**
- * Viewport culling — hide/show shapes & components based on whether they
- * intersect the visible viewport.  Uses a generous margin so elements
- * don't pop in during fast panning.
- */
-export function updateViewportCulling(app) {
-    const bounds = app.viewport.getVisibleBounds();
-    const w = bounds.maxX - bounds.minX;
-    const h = bounds.maxY - bounds.minY;
-    const margin = Math.max(w, h) * 0.5; // 50 % overdraw
-
-    const minX = bounds.minX - margin;
-    const maxX = bounds.maxX + margin;
-    const minY = bounds.minY - margin;
-    const maxY = bounds.maxY + margin;
-    const scale = app.viewport.scale;
-
-    for (const shape of app.shapes) {
-        const b = shape.getBounds();
-        const inView = b.maxX >= minX && b.minX <= maxX &&
-                       b.maxY >= minY && b.minY <= maxY;
-
-        if (inView && shape._culled) {
-            // scrolled into view — un-cull and re-render
-            shape._culled = false;
-            if (shape.element) shape.element.classList.remove('culled');
-            if (shape.anchorsGroup) shape.anchorsGroup.classList.remove('culled');
-            shape.render(scale);
-        } else if (!inView && !shape._culled) {
-            // scrolled out of view — cull
-            shape._culled = true;
-            if (shape.element) shape.element.classList.add('culled');
-            if (shape.anchorsGroup) shape.anchorsGroup.classList.add('culled');
-        }
-    }
-
-    for (const comp of app.components) {
-        const b = comp.getBounds();
-        if (!b) continue;
-        const inView = b.maxX >= minX && b.minX <= maxX &&
-                       b.maxY >= minY && b.minY <= maxY;
-
-        if (inView && comp._culled) {
-            comp._culled = false;
-            if (comp.element) comp.element.classList.remove('culled');
-            comp.render(scale);
-        } else if (!inView && !comp._culled) {
-            comp._culled = true;
-            if (comp.element) comp.element.classList.add('culled');
-        }
-
-        // Level-of-detail: when an in-view component is drawn smaller than a
-        // few pixels, collapse it to its placeholder rect so the SVG renderer
-        // paints one node instead of dozens. Skip selected/hovered components
-        // so editing always shows full detail.
-        if (!comp._culled && comp.element) {
-            const px = Math.max(b.maxX - b.minX, b.maxY - b.minY) * scale;
-            const far = px < LOD_PIXEL_THRESHOLD && !comp.selected && !comp.hovered;
-            if (far !== comp._lodFar) {
-                comp._lodFar = far;
-                comp.element.classList.toggle('lod-far', far);
-            }
-        }
-    }
 }
 
 /**
@@ -488,8 +285,7 @@ function _createNetText(app, Net) {
     Net.labelText = text;
 
     app.shapes.push(text);
-    text.render(app.viewport.scale);
-    app.viewport.addContent(text.element);
+    mountShape(app, text);
 }
 
 export { _createNetText as createNetText };

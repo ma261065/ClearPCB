@@ -1,6 +1,7 @@
 import { Component } from '../../components/index.js';
 import { AddComponentCommand, TransformComponentCommand } from '../../schematic/modules/commands.js';
 import { needsValueDialog, showValueDialog } from './value-dialog.js';
+import { componentPreviewElement } from '../../schematic/modules/schematic-view.js';
 
 /**
  * Rebuilds the selection manager's list of selectable items by merging
@@ -90,7 +91,7 @@ export function createComponentPreview(app, definition) {
         reference: definition.defaultReference || 'U?'
     });
 
-    app.componentPreview = tempComponent.createSymbolElement();
+    app.componentPreview = componentPreviewElement(tempComponent);
     app.componentPreview.style.opacity = '0.6';
     app.componentPreview.style.pointerEvents = 'none';
     app.componentPreview.classList.add('component-preview');

@@ -31,6 +31,7 @@ import { tryBeginPolylineSegmentDrag, updatePolylineSegmentDrag } from './polyli
 import { snapShapePoint, snapShapeBulge, renderShapeAlignment, shapeContinuationConstraints } from './shape-snap.js';
 import { refinePathSegment } from '../../shapes/path-interaction.js';
 import { DRAWING_SHAPES } from '../../shapes/shape-drawing.js';
+import { isCulled } from './schematic-view.js';
 import { shapeDrawingClick } from '../../ui/modules/drawing.js';
 import { findInlineEditableHit, isUnmodifiedPrimaryDoublePress } from '../../shared/ui/inline-edit-activation.js';
 // ─── Constants ─────────────────────────────────────────────────────
@@ -742,7 +743,7 @@ function resolveLabelAttachTarget(app, probePos, excludeShape = null) {
     const wireTolerance = SNAP_SCREEN_PX / app.viewport.scale;
     for (let i = app.shapes.length - 1; i >= 0; i--) {
         const shape = app.shapes[i];
-        if (!shape || shape === excludeShape || shape === excludeParent || shape.type !== 'wire' || shape._culled || !shape.visible) continue;
+        if (!shape || shape === excludeShape || shape === excludeParent || shape.type !== 'wire' || isCulled(shape) || !shape.visible) continue;
         const edgeId = shape.hitTestEdge?.(probePos, wireTolerance);
         if (!edgeId) continue;
         const nearest = shape.closestEdge?.(probePos);

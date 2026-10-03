@@ -4,6 +4,7 @@
 import { DeleteShapesCommand, DeleteComponentsCommand, BatchCommand, PasteCommand } from '../../schematic/modules/commands.js';
 import { Component } from '../../components/Component.js';
 import { createShape } from '../../shapes/index.js';
+import { cloneEntityElement, componentPreviewElement, shapePreviewElement } from '../../schematic/modules/schematic-view.js';
 
 // Internal clipboard (array of serialised items)
 let clipboard = [];
@@ -141,9 +142,8 @@ export function cutSelection(app) {
 function _buildGhostFromSelection(selection, origin) {
     const ghost = document.createElementNS('http://www.w3.org/2000/svg', 'g');
     for (const item of selection) {
-        if (!item.element) continue;
-        const clone = item.element.cloneNode(true);
-        ghost.appendChild(clone);
+        const clone = cloneEntityElement(item);
+        if (clone) ghost.appendChild(clone);
     }
 
     // Offset the whole group so the centroid sits at (0,0)
@@ -215,7 +215,7 @@ function _buildGhostFallback(app) {
                 reference: data.ref || 'U?',
                 packageId: data.pkg,
             });
-            ghost.appendChild(temp.createSymbolElement());
+            ghost.appendChild(componentPreviewElement(temp));
         } else {
             const clonedData = structuredClone(data);
             delete clonedData.id;
@@ -224,7 +224,7 @@ function _buildGhostFallback(app) {
             delete clonedData._clipX;
             delete clonedData._clipY;
             const tempShape = createShape(clonedData);
-            if (tempShape) ghost.appendChild(tempShape.render(app.viewport.scale));
+            if (tempShape) ghost.appendChild(shapePreviewElement(app, tempShape));
         }
     }
     return ghost;

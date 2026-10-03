@@ -39,7 +39,8 @@ clearpcb/
 │   │                           # ribbon-height, inline-text-overlay, …)
 │   ├── schematic/
 │   │   └── modules/            # Schematic-only interaction modules
-│   │                           # (draw-states, files, shape-management, wire)
+│   │                           # (draw-states, files, shape-management, wire,
+│   │                           # schematic-view: the only entity-SVG lifecycle code)
 │   ├── pcb/
 │   │   └── modules/            # PCB-only interaction + I/O modules
 │   │                           # (autorouter family, controls, dsn, gerber,

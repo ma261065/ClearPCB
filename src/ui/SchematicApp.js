@@ -55,9 +55,13 @@ import {
     commandDeleteShapesInternal,
     commandRestoreShapesInternal,
     removeShapeInternal,
+} from '../schematic/modules/shape-management.js';
+import {
     renderShapes,
     clearShapeSegmentSelection,
-} from '../schematic/modules/shape-management.js';
+    discardShapeView,
+    discardComponentView,
+} from '../schematic/modules/schematic-view.js';
 
 // Shape construction uses createShape() from shapes/index.js.
 
@@ -1506,10 +1510,7 @@ export default class SchematicApp {
      * Removes all shapes, clears undo history.
      */
     _clearAllShapes() {
-        for (const shape of this.shapes) {
-            this.viewport.removeContent(shape.element);
-            shape.destroy();
-        }
+        for (const shape of this.shapes) discardShapeView(this, shape);
         this.shapes = [];
         this._updateSelectableItems();
         this.history.clear();
@@ -1525,13 +1526,9 @@ export default class SchematicApp {
             for (const ft of comp.getFieldTexts()) {
                 const idx = this.shapes.indexOf(ft);
                 if (idx !== -1) this.shapes.splice(idx, 1);
-                if (ft.element) this.viewport.removeContent(ft.element);
-                ft.destroy();
+                discardShapeView(this, ft);
             }
-            if (comp.element) {
-                this.viewport.removeContent(comp.element);
-            }
-            comp.destroy();
+            discardComponentView(this, comp);
         }
         this.components = [];
         this._updateSelectableItems();

@@ -1,4 +1,5 @@
 import { storageManager } from '../../core/StorageManager.js';
+import { rebuildComponentSymbol } from '../../schematic/modules/schematic-view.js';
 import { loadAndApplyTheme, toggleTheme as toggleSharedTheme, syncThemeToggleButtons } from '../../shared/ui/theme.js';
 
 /**
@@ -51,13 +52,7 @@ export function loadTheme(app) {
  * @param {object} app - Application state.
  */
 export function updateComponentColors(app) {
-    for (const comp of app.components) {
-        if (comp.element) {
-            comp.element.remove();
-        }
-        const element = comp.createSymbolElement();
-        app.viewport.addComponentContent(element);
-    }
+    for (const comp of app.components) rebuildComponentSymbol(app, comp);
 
     if (app.placingComponent && app.componentPreview) {
         app._createComponentPreview(app.placingComponent);
