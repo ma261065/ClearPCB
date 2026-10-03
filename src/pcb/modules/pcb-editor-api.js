@@ -45,6 +45,8 @@
  *   Wire a Net input and its picker menu to a callback.
  * @property {(layer: string) => string} layerLabel
  *   Display name of a PCB layer.
+ * @property {() => void} fitToContent
+ *   Fit the view to the board (or panel preview); shared viewport controls call it on either editor.
  */
 
 /**
@@ -59,5 +61,5 @@ export const PCB_EDITOR_SERVICES = Object.freeze([
     'getLayerGroup', 'getRoutingParams', 'refreshFills', 'refreshClearanceHalos', 'updateRatsnest',
     'updateCopperCuts', 'refreshText', 'selectFill', 'refreshSelectedDRCMarker', 'clearProperties',
     'setStatus', 'setPcbStatus', 'syncClipboardButtons', 'propertiesItems', 'setPropertiesTitle', 'showPropertiesTab',
-    'toolNetOptions', 'bindToolNetControl', 'layerLabel',
+    'toolNetOptions', 'bindToolNetControl', 'layerLabel', 'fitToContent',
 ]);

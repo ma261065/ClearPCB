@@ -36,7 +36,7 @@ function fixture(shape = new Circle({ radius: 5 })) {
         eventBus: { emit() {} },
         currentTool: 'select', interactionState: 'idle',
         viewport: { svg: { style: {} } }, selection: new SelectionManager(),
-        renderShapes() {}, _hideCrosshair() {}, _removeBoxSelectElement() {},
+        renderShapes() {}, hideCrosshair() {}, removeBoxSelectElement() {},
         _updateUndoRedoButtons() {}, _updateGridDropdown() {}, _bindPropertiesPanel() {}, _bindRibbon() {},
         getViewSettings: () => undefined,
         ui: Object.fromEntries(['undoBtn', 'redoBtn', 'gridSize', 'gridStyle', 'units', 'showGrid', 'snapToGrid']
@@ -103,8 +103,8 @@ for (const tool of ['select', 'circle']) for (const mode of ['anchorDrag', 'segm
     const shape = new Polyline({ points: [{ x: 0, y: 0 }, { x: 10, y: 0 }] });
     const { app, project } = fixture(shape);
     app.componentPicker = { isOpen: false };
-    app._setToolCursor = () => {};
-    app._updateShapePanelOptions = () => {};
+    app.setToolCursor = () => {};
+    app.updateShapePanelOptions = () => {};
     const before = shape.captureState();
     if (mode === 'pending') app.pendingAnchorDrag = { shape, preInsertState: before };
     else {
@@ -148,8 +148,8 @@ for (const flag of ['drag', 'pendingAnchorDrag', 'isDrawing', 'textEdit', 'pasti
 }
 
 for (const action of ['undo', 'redo']) {
-    for (const [flag, cancel] of [['textEdit', '_endTextEdit'], ['pastingClipboard', '_cancelPaste'],
-        ['placingComponent', '_cancelComponentPlacement']]) {
+    for (const [flag, cancel] of [['textEdit', 'endTextEdit'], ['pastingClipboard', 'cancelPaste'],
+        ['placingComponent', 'cancelComponentPlacement']]) {
         const { app } = fixture();
         app[flag] = {};
         let calls = 0;
@@ -172,11 +172,11 @@ for (const tool of ['wire', 'line', 'rect', 'circle', 'arc', 'polygon', 'text', 
         document.createElementNS = svgNode;
         app.viewport.contentLayer = svgNode();
         app.componentPicker = { isOpen: false };
-        app._updateShapePanelOptions = () => {};
-        app._onOptionsChanged = () => {};
+        app.updateShapePanelOptions = () => {};
+        app.updateToolOptions = () => {};
         app._setActiveRibbonTab = tab => { app.activeTab = tab; };
         app._setActiveToolButton = toolId => { app.activeButton = toolId; };
-        app._onToolSelected(tool);
+        app.selectTool(tool);
         assert.equal(app.activeTab, 'properties');
         assert.equal(app.currentTool, tool);
         if (started) {
@@ -200,10 +200,10 @@ for (const tool of ['wire', 'line', 'rect', 'circle', 'arc', 'polygon', 'text', 
 {
     const { app } = fixture();
     app.componentPicker = { isOpen: false };
-    app._updateShapePanelOptions = () => {};
+    app.updateShapePanelOptions = () => {};
     app.activeTab = 'properties';
     app._setActiveRibbonTab = tab => { app.activeTab = tab; };
-    app._onToolSelected('select');
+    app.selectTool('select');
     assert.equal(app.activeTab, 'properties', 'Select preserves Properties when an existing shape is selected');
 }
 console.log('PASS schematic keyboard/ribbon history cleanup, undo/redo rollback, snapshot readiness and transient-mode ownership');

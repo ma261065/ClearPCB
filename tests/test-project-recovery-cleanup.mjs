@@ -20,8 +20,8 @@ const alerts = [];
 const app = {
     fileManager: manager, project, _loadDocument: data => project.load(data),
     componentLibrary: Object.create(ComponentLibrary.prototype),
-    _updateTitle() {}, _confirm: async () => true,
-    _alert: message => alerts.push(message),
+    _updateTitle() {}, confirm: async () => true,
+    alert: message => alerts.push(message),
 };
 const blob = new Blob([zipSync({
     'manifest.json': strToU8(JSON.stringify({ format: 'clearpcb-zip', version: 1, models: {} })),

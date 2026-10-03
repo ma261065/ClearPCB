@@ -51,7 +51,7 @@ export function getSelectedComponents(app) {
  * @param {object} definition - The selected component definition.
  */
 export function onComponentDefinitionSelected(app, definition) {
-    app._cancelDrawing();
+    app.cancelDrawing();
 
     const activeEl = document.activeElement;
     if (activeEl instanceof HTMLElement && activeEl.classList.contains('cp-search-input')) {
@@ -63,7 +63,7 @@ export function onComponentDefinitionSelected(app, definition) {
     app.interactionState = 'placing';
 
     app._setActiveToolButton?.('component');
-    app._updateShapePanelOptions(app.selection.getSelection(), 'component');
+    app.updateShapePanelOptions(app.selection.getSelection(), 'component');
 
     createComponentPreview(app, definition);
 
@@ -275,6 +275,6 @@ export function cancelComponentPlacement(app) {
         app.interactionState = 'idle';
         app.viewport.svg.style.cursor = 'default';
         app._setActiveToolButton?.('select');
-        app._updateShapePanelOptions(app.selection.getSelection(), 'select');
+        app.updateShapePanelOptions(app.selection.getSelection(), 'select');
     }
 }

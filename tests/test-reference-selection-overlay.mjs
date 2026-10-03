@@ -212,8 +212,8 @@ const schematicEditApp = {
     },
     renderShapes() {},
     pendingAnchorDrag: {},
-    _startTextEdit(shape) { startedEdit = shape; },
-    _setTextEditCaretFromScreen(point) { caretScreenPos = point; },
+    startTextEdit(shape) { startedEdit = shape; },
+    setTextEditCaretFromScreen(point) { caretScreenPos = point; },
     viewport: { _onTitleBlockDblClick() { throw new Error('Unexpected title block edit'); } },
 };
 let prevented = false;
@@ -498,7 +498,7 @@ Object.assign(loadingEditor, {
         addComponentContent: element => attached.push(element) },
     _clearAllShapes() { this.shapes = []; },
     _clearAllComponents() { this.components = []; },
-    _updateSelectableItems() {}, renderShapes() {},
+    updateSelectableItems() {}, renderShapes() {},
 });
 await loadDocument(loadingEditor, loadInput, prepared);
 assert.equal(loadingEditor.components[0], loadedComponent, 'Editor load adopts prepared model instances');

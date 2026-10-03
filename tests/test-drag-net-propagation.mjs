@@ -26,7 +26,7 @@ function fixture(kind = 'via', chain = false) {
         getLayerGroup() { return null; },
         viewport: { scale: 100, gridVisible: false, setCrosshair() {}, hideCrosshair() {} },
         history: { execute(command) { commands.push(command); command.execute(); } },
-        _alert(message) { this.lastAlert = message; },
+        alert(message) { this.lastAlert = message; },
     });
     const connected = [terminal];
     if (chain) {

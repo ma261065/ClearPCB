@@ -54,8 +54,8 @@ function fixture(outcome = 'success') {
         _notifyDocumentReplaced: SchematicApp.prototype._notifyDocumentReplaced,
         onDocumentReplaced: SchematicApp.prototype.onDocumentReplaced,
         _setActiveRibbonTab(tab) { tabs.schematic = tab; events.push('schematic-home'); },
-        _confirm: async () => false, _alert() { events.push('alert'); },
-        _fitToContent() {}, _updateTitle() {},
+        confirm: async () => false, alert() { events.push('alert'); },
+        fitToContent() {}, _updateTitle() {},
         selection: { clearSelection() {} }, _clearAllShapes() {}, _clearAllComponents() {},
         viewport: { resetView() {}, setTitleBlockData() {} },
     };
@@ -195,7 +195,7 @@ for (const outcome of ['success', 'declined', 'busy', 'reset-error']) {
     for (const id of ['Save', 'SaveAs', 'ExportPdf', 'Print']) await elements.get(`pcbRibbon${id}`).click();
     assert.deepEqual(calls, ['new', 'open', 'owned.cpcb', 'import', 'save', 'toast', 'saveAs', 'toast', 'pdf', 'print']);
     await SchematicApp.prototype.onAutoSaveError.call({
-        async _alert(message, options) {
+        async alert(message, options) {
             assert.match(message, /Auto-save failed/);
             assert.equal(options.title, 'Auto-save Failed');
             calls.push('warning');

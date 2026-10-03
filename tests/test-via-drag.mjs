@@ -96,7 +96,7 @@ function appFor(via) {
             hideCrosshair() {},
         },
         history: { execute(command) { command.execute(); } },
-        _alert(message, options) { this.lastAlert = { message, options }; },
+        alert(message, options) { this.lastAlert = { message, options }; },
     };
     for (const key of ['tracks', 'vias', 'pads']) {
         Object.defineProperty(app, key, Object.getOwnPropertyDescriptor(PCBApp.prototype, key));
@@ -138,7 +138,7 @@ function trackAppFor(track, previousDeferral = false) {
             hideCrosshair() {},
         },
         history: { execute(command) { command.execute(); } },
-        _alert(message, options) { this.lastAlert = { message, options }; },
+        alert(message, options) { this.lastAlert = { message, options }; },
     };
     setDragOverlaysDeferred(app, previousDeferral);
     return app;

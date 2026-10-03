@@ -409,9 +409,9 @@ export function startWireDrawing(app, snappedData) {
     app.isDrawing = true;
     app.interactionState = 'drawing';
     createPreview(app);
-    app._showCrosshair();
-    app._updateCrosshair(snappedData);
-    app._setToolCursor(app.currentTool, app.viewport.svg);
+    app.showCrosshair();
+    app.updateCrosshair(snappedData);
+    app.setToolCursor(app.currentTool, app.viewport.svg);
 }
 
 /**
@@ -602,8 +602,8 @@ export function finishWireDrawing(app, worldPos) {
     }
 
     if (netConflict) {
-        if (app._alert) {
-            app._alert('Cannot connect wires with different net names.\nThe nets on each end of this wire are different.', { title: 'Net Conflict' });
+        if (app.alert) {
+            app.alert('Cannot connect wires with different net names.\nThe nets on each end of this wire are different.', { title: 'Net Conflict' });
         }
         cancelWireDrawing(app);
         return;
@@ -670,7 +670,7 @@ export function finishWireDrawing(app, worldPos) {
     const netConflictResult = _findWireNetConflict(app);
     if (netConflictResult) {
         const [n0, n1] = netConflictResult.names;
-        app._alert?.(
+        app.alert?.(
             `Cannot merge wire segments with different net names: "${n0}" and "${n1}".`,
             { title: 'Net Conflict' }
         );
@@ -681,7 +681,7 @@ export function finishWireDrawing(app, worldPos) {
         batch?.undo();
         cancelWireDrawing(app);
         app.renderShapes(true);
-        app._updatePropertiesPanel?.(app.selection?.getSelection?.() || []);
+        app.updatePropertiesPanel?.(app.selection?.getSelection?.() || []);
         return;
     }
 
@@ -692,7 +692,7 @@ export function finishWireDrawing(app, worldPos) {
 
     cancelWireDrawing(app);
     app.renderShapes(true);
-    app._updatePropertiesPanel?.(app.selection?.getSelection?.() || []);
+    app.updatePropertiesPanel?.(app.selection?.getSelection?.() || []);
 }
 
 /**
@@ -712,8 +712,8 @@ export function cancelWireDrawing(app) {
         app.previewElement.remove();
         app.previewElement = null;
     }
-    app._hideCrosshair();
-    app._setToolCursor(app.currentTool, app.viewport.svg);
+    app.hideCrosshair();
+    app.setToolCursor(app.currentTool, app.viewport.svg);
 }
 
 // --- Wire preview ---
@@ -1145,7 +1145,7 @@ export function refreshWireConnections(app, wire) {
                         freeNetName(wire.net);
                         wire.net = netName;
                         bumpNetNameCounter(netName);
-                        app._updatePropertiesPanel?.(app.selection?.getSelection?.() || []);
+                        app.updatePropertiesPanel?.(app.selection?.getSelection?.() || []);
                     }
                 }
             }
@@ -1158,7 +1158,7 @@ export function refreshWireConnections(app, wire) {
         if (!_isNetNameStillConnected(app, wire, oldNet)) {
             freeNetName(wire.net);
             wire.net = nextNetName();
-            app._updatePropertiesPanel?.(app.selection?.getSelection?.() || []);
+            app.updatePropertiesPanel?.(app.selection?.getSelection?.() || []);
         }
     }
 }

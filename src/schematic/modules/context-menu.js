@@ -315,8 +315,8 @@ export function deleteJunction(app, junctionInfo) {
     app.didDrag = false;
 
     app.renderShapes(true);
-    app._showCrosshair();
-    app._updateCrosshair(pt);
+    app.showCrosshair();
+    app.updateCrosshair(pt);
     app.viewport.svg.style.cursor = 'move';
 }
 
@@ -461,7 +461,7 @@ export function deleteFocusedSchematicShape(app) {
         clearDragState(app);
         app.interactionState = 'idle';
         app.didDrag = false;
-        app._hideCrosshair?.();
+        app.hideCrosshair?.();
         app.viewport.svg.style.cursor = '';
         if (splitting) {
             finishShapeRefinement(app);
@@ -489,7 +489,7 @@ export function splitAnchorAndDrag(app, shape, anchorId, clientX, clientY) {
         if (remainder) {
             remainder.applyEditablePath(split.remainder);
             remainder.fill = false;
-            app._commandAddShape(remainder);
+            app.commandAddShape(remainder);
         }
         shape.applyEditablePath(split.moving);
         shape.fill = false;
@@ -506,10 +506,10 @@ export function splitAnchorAndDrag(app, shape, anchorId, clientX, clientY) {
         app.interactionState = 'anchorDrag';
         app.didDrag = true;
         app.renderShapes(true);
-        app._showCrosshair();
-        app._updateCrosshair(pos);
+        app.showCrosshair();
+        app.updateCrosshair(pos);
         app.viewport.svg.style.cursor = 'move';
-        app._updatePropertiesPanel?.(app.selection.getSelection());
+        app.updatePropertiesPanel?.(app.selection.getSelection());
         return;
     }
 
@@ -563,8 +563,8 @@ export function splitAnchorAndDrag(app, shape, anchorId, clientX, clientY) {
     app.didDrag = false;
 
     app.renderShapes(true);
-    app._showCrosshair();
-    app._updateCrosshair(pos);
+    app.showCrosshair();
+    app.updateCrosshair(pos);
     app.viewport.svg.style.cursor = 'move';
 }
 
@@ -625,8 +625,8 @@ function disconnectPinAndDrag(app, wire, anchorId) {
     app.didDrag = false;
 
     app.renderShapes(true);
-    app._showCrosshair();
-    app._updateCrosshair(pos);
+    app.showCrosshair();
+    app.updateCrosshair(pos);
     app.viewport.svg.style.cursor = 'move';
 }
 
@@ -703,7 +703,7 @@ export function showAnchorContextMenu(app, shape, anchorId, clientX, clientY, ca
                     }
                     app.history.execute(batch);
                     app.selection.keepSelected(shape);
-                    app._updatePropertiesPanel?.(app.selection?.getSelection?.() || []);
+                    app.updatePropertiesPanel?.(app.selection?.getSelection?.() || []);
                 }
             }
         });
@@ -852,8 +852,8 @@ export function setSchematicShapeSegmentType(app, shape, edgeId, type, { floatin
             };
             app.interactionState = 'anchorDrag';
             app.didDrag = true;
-            app._showCrosshair?.();
-            app._updateCrosshair?.(point);
+            app.showCrosshair?.();
+            app.updateCrosshair?.(point);
             app.viewport.svg.style.cursor = 'move';
         } else app.history.execute(command);
         app._selectedShapeSegment = null;
@@ -881,8 +881,8 @@ export function setSchematicShapeSegmentType(app, shape, edgeId, type, { floatin
         app.interactionState = 'anchorDrag';
         app.didDrag = true;
         app.renderShapes(true);
-        app._showCrosshair?.();
-        app._updateCrosshair?.(point);
+        app.showCrosshair?.();
+        app.updateCrosshair?.(point);
         app.viewport.svg.style.cursor = 'move';
     } else {
         shape.applyState(before);

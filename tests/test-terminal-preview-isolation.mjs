@@ -64,7 +64,7 @@ function fixture(kind, deferred = false) {
         _cancelPosePreviews: PCBApp.prototype._cancelPosePreviews,
         _cancelDrawingMode() {}, markSectionClean() {}, _ensureViewport() {},
         _textElements: new Map(), _shapeElements: new Map(),
-        _alert(message) { this.lastAlert = message; },
+        alert(message) { this.lastAlert = message; },
     };
     setDragOverlaysDeferred(app, deferred);
     for (const key of ['tracks', 'vias', 'pads', 'boardShapes', 'texts']) {

@@ -235,7 +235,7 @@ export function bindPcbControls(app) {
     });
 
     zoomFitBtn?.addEventListener('click', () => {
-        app._fitToContent?.();
+        app.fitToContent?.();
     });
 
     resetViewBtn?.addEventListener('click', () => {

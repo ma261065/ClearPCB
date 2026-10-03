@@ -2398,7 +2398,7 @@ export default class PCBApp {
         if ((e.code === 'Space' || e.key === ' ') && !ctrl && !e.altKey
             && !getPcbSelection(this).length && !this._pasteDrop && !this._textEdit
             && !this._pcbSelectionInteraction && tgt?.tagName !== 'BUTTON') {
-            this._fitToContent();
+            this.fitToContent();
             return true;
         }
         return false;
@@ -2832,7 +2832,7 @@ export default class PCBApp {
         saveLayerPrefs();
     }
 
-    _fitToContent() {
+    fitToContent() {
         this._ensureViewport();
         if (!this.viewport) return;
 

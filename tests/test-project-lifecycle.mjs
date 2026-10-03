@@ -273,12 +273,12 @@ const retryApp = {
             return { success: true, clean: true, fileName: 'copy.cpcb' };
         },
     },
-    _confirm: async (message, options) => {
+    confirm: async (message, options) => {
         assert.equal(options.okText, 'Save As');
         assert.match(message, /unsaved/);
         return allowRetry;
     },
-    _alert() { throw new Error('Permission failure should offer recovery instead of a generic alert'); },
+    alert() { throw new Error('Permission failure should offer recovery instead of a generic alert'); },
     _updateTitle() { retryEvents.push('title'); },
     _showSaveToast() { retryEvents.push('toast'); },
     project: { markAllSectionsClean() { retryEvents.push('clean'); } },
@@ -298,7 +298,7 @@ assert.equal(component.toJSON().def.name, 'Example');
 assert.equal(embedded._source, undefined);
 let prompts = 0;
 const guardedApp = { project: { isDirty: true }, fileManager: { isDirty: false },
-    _confirm: async () => { prompts++; return false; } };
+    confirm: async () => { prompts++; return false; } };
 await newFile(guardedApp);
 await openFile(guardedApp);
 await openRecentFile(guardedApp, 'ignored.cpcb');

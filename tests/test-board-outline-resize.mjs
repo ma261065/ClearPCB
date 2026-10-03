@@ -18,7 +18,7 @@ const commands = [];
 const syncInputs = PCBApp.prototype._syncBoardOutlineInputs;
 {
     const { boardBoundary } = await import('../src/shared/pcb/board-outline.js');
-    const fit = PCBApp.prototype._fitToContent;
+    const fit = PCBApp.prototype.fitToContent;
     const helper = { childNodes: [{}], getBBox() { return { x: -10000, y: -10000, width: 20000, height: 20000 }; } };
     const outlines = [
         { kind: 'rect', points: [{ x: 120, y: 40 }, { x: 180, y: 40 }, { x: 180, y: 70 }, { x: 120, y: 70 }] },

@@ -32,11 +32,11 @@ function fixture() {
             contentLayer: element(), svg: element(), removeContent() {}, resetView() {},
             setTitleBlockData() {}, getSnappedPosition: point => point,
         },
-        _showCrosshair() {}, _hideCrosshair() {}, _updateCrosshair() {},
-        _updateSelectableItems() {}, _updateUndoRedoButtons() {}, _updateTitle() {},
-        renderShapes() {}, _removeBoxSelectElement() {}, _setToolCursor() {}, _updateShapePanelOptions() {},
-        invalidate() {}, _setActiveRibbonTab() {}, _confirm: async () => true,
-        _alert: message => alerts.push(message),
+        showCrosshair() {}, hideCrosshair() {}, updateCrosshair() {},
+        updateSelectableItems() {}, _updateUndoRedoButtons() {}, _updateTitle() {},
+        renderShapes() {}, removeBoxSelectElement() {}, setToolCursor() {}, updateShapePanelOptions() {},
+        invalidate() {}, _setActiveRibbonTab() {}, confirm: async () => true,
+        alert: message => alerts.push(message),
     });
     project.registerView('schematic', app);
     const shape = new Circle({ radius: 5 });
@@ -93,9 +93,9 @@ for (const cleanup of ['throw', 'unfinished', 'declined']) {
     beginPastePreview(app);
     const before = project.schematicDocument.serialize().schematic;
     const undo = [...app.history.undoStack];
-    if (cleanup === 'throw') app._cancelPaste = () => { throw new Error('Preview cleanup failed'); };
-    else if (cleanup === 'unfinished') app._cancelPaste = () => {};
-    else app._confirm = async () => false;
+    if (cleanup === 'throw') app.cancelPaste = () => { throw new Error('Preview cleanup failed'); };
+    else if (cleanup === 'unfinished') app.cancelPaste = () => {};
+    else app.confirm = async () => false;
     await newFile(app);
     assert.deepEqual(alerts, cleanup === 'declined' ? [] : [
         'Failed to create new document: ' + (cleanup === 'throw'

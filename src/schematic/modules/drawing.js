@@ -56,9 +56,9 @@ export function startDrawing(app, worldPos) {
     }
 
     createPreview(app);
-    app._showCrosshair();
-    app._updateCrosshair(worldPos);
-    app._setToolCursor(app.currentTool, app.viewport.svg);
+    app.showCrosshair();
+    app.updateCrosshair(worldPos);
+    app.setToolCursor(app.currentTool, app.viewport.svg);
 }
 
 /**
@@ -90,7 +90,7 @@ export function finishDrawing(app, worldPos) {
         if (shape.type === 'text') {
             // A new label opens straight into inline editing, which edits the selection.
             app.selection.select(shape);
-            app._startTextEdit?.(shape);
+            app.startTextEdit?.(shape);
         } else {
             // A drawn shape is not selected; its handles appear once the user selects it.
             app.selection.clearSelection();
@@ -162,8 +162,8 @@ export function cancelDrawing(app) {
         app.previewElement = null;
     }
 
-    app._hideCrosshair();
-    app._setToolCursor(app.currentTool, app.viewport.svg);
+    app.hideCrosshair();
+    app.setToolCursor(app.currentTool, app.viewport.svg);
 }
 
 /**
@@ -296,7 +296,7 @@ export function createShapeFromDrawing(app) {
             const validation = validateNetNameAtPoint(app, { x: start.x, y: start.y }, net);
             if (!validation.ok) {
                 const conflict = validation.conflictWith || 'an existing net';
-                app._alert(`Cannot place net "${net}" on this connected wire. Net is already labeled "${conflict}".`, { title: 'Net Conflict' });
+                app.alert(`Cannot place net "${net}" on this connected wire. Net is already labeled "${conflict}".`, { title: 'Net Conflict' });
                 return null;
             }
             return new Net({

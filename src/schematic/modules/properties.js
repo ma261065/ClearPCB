@@ -389,7 +389,7 @@ export function updatePropertiesPanel(app, selection) {
                 } else {
                     appendWireNetField(app, sec.content, 'prop_net', singleWire.net, (net) => {
                         if (!net) {
-                            app._updatePropertiesPanel?.(selection);
+                            app.updatePropertiesPanel?.(selection);
                             return;
                         }
                         applyProperty('net', net);
@@ -499,7 +499,7 @@ export function updatePropertiesPanel(app, selection) {
                         },
                         redraw: () => redrawPropertyPreview(selection, { renderScene: () => {
                             app.renderShapes(false);
-                            if (desc.key === 'rotation' && affected.includes(app.textEdit?.shape)) app._updateTextEditOverlay?.();
+                            if (desc.key === 'rotation' && affected.includes(app.textEdit?.shape)) app.updateTextEditOverlay?.();
                         } }),
                         commit: (before, after, { rebuild = true } = {}) => {
                             let structureChanged = false;
@@ -530,13 +530,13 @@ export function updatePropertiesPanel(app, selection) {
                                     && Math.abs(selectedSegment.shape.getEdgeAttr(selectedSegment.edgeId, 'bulge') || 0) < BULGE_EPS);
                             } else {
                                 app.history.execute(new ModifyPropertyCommand(app, affected, desc.key, after[0]));
-                                if (['fontSize', 'rotation'].includes(desc.key) && affected.includes(app.textEdit?.shape)) app._updateTextEditOverlay?.();
+                                if (['fontSize', 'rotation'].includes(desc.key) && affected.includes(app.textEdit?.shape)) app.updateTextEditOverlay?.();
                             }
                             app.fileManager.setDirty(true);
                             if (!structureChanged && !rebuild) {
                                 refreshCurrentControls();
                             } else {
-                                app._updatePropertiesPanel?.(app.selection.getSelection());
+                                app.updatePropertiesPanel?.(app.selection.getSelection());
                             }
                         },
                     });
@@ -606,7 +606,7 @@ export function updatePropertiesPanel(app, selection) {
                     });
                     bindPropertyPreviewInput(input, preview, {
                         binding, isCurrent: isCurrentControl, focusRoot: panel, refresh: refreshCurrentControls,
-                        onCancel: () => app._updatePropertiesPanel?.(selection),
+                        onCancel: () => app.updatePropertiesPanel?.(selection),
                     });
                     if (disabled) {
                         input.readOnly = true;
@@ -891,7 +891,7 @@ function _bindActionButtons(app, isCurrent) {
     }
     const copyBtn = document.getElementById('propCopy');
     if (copyBtn) {
-        copyBtn.addEventListener('click', () => { if (isCurrent()) app._copySelection(); });
+        copyBtn.addEventListener('click', () => { if (isCurrent()) app.copySelection(); });
     }
     const pasteBtn = document.getElementById('propPaste');
     if (pasteBtn) {
@@ -956,8 +956,8 @@ export function applyCommonProperty(app, prop, value) {
 
     if (prop === 'packageId' && changing.some(item => !item.getPropertyDescriptors()
         .find(desc => desc.key === prop)?.options?.some(option => option.value === value))) {
-        app._alert('Choose a package supported by every selected component.', { title: 'Incompatible Package' });
-        app._updatePropertiesPanel(selection);
+        app.alert('Choose a package supported by every selected component.', { title: 'Incompatible Package' });
+        app.updatePropertiesPanel(selection);
         return;
     }
 
@@ -966,8 +966,8 @@ export function applyCommonProperty(app, prop, value) {
         const duplicate = app.components.find(c =>
             c.reference.toUpperCase() === value.toUpperCase() && !changing.includes(c));
         if (duplicate) {
-            app._alert(`Reference "${value}" is already used by another component.`, { title: 'Duplicate Reference' });
-            app._updatePropertiesPanel(selection);
+            app.alert(`Reference "${value}" is already used by another component.`, { title: 'Duplicate Reference' });
+            app.updatePropertiesPanel(selection);
             return;
         }
     }
@@ -979,8 +979,8 @@ export function applyCommonProperty(app, prop, value) {
             const duplicate = app.components.find(c =>
                 c.reference.toUpperCase() === value.toUpperCase() && !parentIds.has(c.id));
             if (duplicate) {
-                app._alert(`Reference "${value}" is already used by another component.`, { title: 'Duplicate Reference' });
-                app._updatePropertiesPanel(selection);
+                app.alert(`Reference "${value}" is already used by another component.`, { title: 'Duplicate Reference' });
+                app.updatePropertiesPanel(selection);
                 return;
             }
         }
@@ -992,8 +992,8 @@ export function applyCommonProperty(app, prop, value) {
                 s.type === 'wire' && !parentWireIds.has(s.id) &&
                 s.wireLabel.toUpperCase() === value.toUpperCase());
             if (dup) {
-                app._alert(`Wire name "${value}" is already used by another wire.`, { title: 'Duplicate Wire Name' });
-                app._updatePropertiesPanel(selection);
+                app.alert(`Wire name "${value}" is already used by another wire.`, { title: 'Duplicate Wire Name' });
+                app.updatePropertiesPanel(selection);
                 return;
             }
         }
@@ -1006,8 +1006,8 @@ export function applyCommonProperty(app, prop, value) {
             s.type === 'wire' && !changingIds.has(s.id) &&
             s.wireLabel.toUpperCase() === value.toUpperCase());
         if (dup) {
-            app._alert(`Wire name "${value}" is already used by another wire.`, { title: 'Duplicate Wire Name' });
-            app._updatePropertiesPanel(selection);
+            app.alert(`Wire name "${value}" is already used by another wire.`, { title: 'Duplicate Wire Name' });
+            app.updatePropertiesPanel(selection);
             return;
         }
     }
@@ -1017,13 +1017,13 @@ export function applyCommonProperty(app, prop, value) {
     app.history.execute(command);
 
     app.fileManager.setDirty(true);
-    app._updatePropertiesPanel(selection);
+    app.updatePropertiesPanel(selection);
     if (prop === 'fontSize' && app.textEdit?.shape && selection.includes(app.textEdit.shape)) {
-        app._updateTextEditOverlay?.();
+        app.updateTextEditOverlay?.();
     }
     if (prop === 'locked') {
         if (value) {
-            app._endTextEdit?.(true);
+            app.endTextEdit?.(true);
         }
     }
 }

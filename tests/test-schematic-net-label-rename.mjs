@@ -15,8 +15,8 @@ function editor(shapes) {
         shapes, components: [],
         selection: { getSelection: () => [], isSelected: () => true, select() {} },
         history: new CommandHistory(),
-        renderShapes() {}, _alert(message) { throw new Error(`Unexpected alert: ${message}`); },
-        _updatePropertiesPanel() { panelRefreshes++; },
+        renderShapes() {}, alert(message) { throw new Error(`Unexpected alert: ${message}`); },
+        updatePropertiesPanel() { panelRefreshes++; },
         get panelRefreshes() { return panelRefreshes; },
     };
     return app;

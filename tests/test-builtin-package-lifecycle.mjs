@@ -95,8 +95,8 @@ const app = {
     components: [resistor, capacitor], shapes: [], componentLibrary: library, history,
     selection: { getSelection: () => app.components },
     viewport: { gridSize: 1, gridStyle: 'dots', gridVisible: true, snapToGrid: true, units: 'mm' },
-    renderShapes() {}, fileManager: { setDirty() {} }, _updatePropertiesPanel() {},
-    _alert() { alerts++; },
+    renderShapes() {}, fileManager: { setDirty() {} }, updatePropertiesPanel() {},
+    alert() { alerts++; },
 };
 applyCommonProperty(app, 'packageId', '0603');
 assert.equal(resistor.packageId, '0603');

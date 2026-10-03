@@ -20,7 +20,7 @@ export function toggleSelectionLock(app) {
     app.history.execute(command);
 
     app.fileManager.setDirty(true);
-    app._updatePropertiesPanel(selection);
+    app.updatePropertiesPanel(selection);
     updateRibbonState(app, selection);
 }
 

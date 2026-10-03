@@ -172,8 +172,8 @@ export function beginPastePreview(app) {
     }
 
     // Cancel any in-progress placement or drawing
-    if (app.placingComponent) app._cancelComponentPlacement();
-    if (app.isDrawing) app._cancelDrawing();
+    if (app.placingComponent) app.cancelComponentPlacement();
+    if (app.isDrawing) app.cancelDrawing();
 
     // Clone the pre-built ghost (fast single cloneNode)
     const ghost = clipboardGhostSvg
@@ -191,8 +191,8 @@ export function beginPastePreview(app) {
     const mousePos = app.viewport.currentMouseWorld || { x: 0, y: 0 };
     const snapped = app.viewport.getSnappedPosition(mousePos);
     ghost.setAttribute('transform', `translate(${snapped.x}, ${snapped.y})`);
-    app._showCrosshair?.();
-    app._updateCrosshair?.(snapped);
+    app.showCrosshair?.();
+    app.updateCrosshair?.(snapped);
 }
 
 /**
@@ -309,11 +309,11 @@ export function cancelPaste(app) {
     // On exit: hide in select mode, otherwise re-anchor to current cursor.
     const mousePos = app.viewport.currentMouseWorld || null;
     if (app.currentTool === 'select' && !app.isDrawing && !app.placingComponent) {
-        app._hideCrosshair?.();
+        app.hideCrosshair?.();
     } else if (mousePos) {
         const snapped = app.viewport.getSnappedPosition(mousePos);
-        app._showCrosshair?.();
-        app._updateCrosshair?.(snapped);
+        app.showCrosshair?.();
+        app.updateCrosshair?.(snapped);
     }
 }
 

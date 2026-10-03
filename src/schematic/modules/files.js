@@ -12,7 +12,7 @@ import { cancelWireDrawing } from './wire.js';
 
 function canReplaceDocument(app) {
     if (!app.fileManager.saving && !app.fileManager.loading) return true;
-    app._alert('Wait for the current file operation to finish.', { title: 'File Operation In Progress' });
+    app.alert('Wait for the current file operation to finish.', { title: 'File Operation In Progress' });
     return false;
 }
 
@@ -55,7 +55,7 @@ export function prepareDocument(app, data) {
 export async function loadDocument(app, data, prepared = prepareDocument(app, data)) {
     data = prepared.data || data;
     app.selection.clearSelection();
-    if (app.textEdit?.shape) app._endTextEdit(false);
+    if (app.textEdit?.shape) app.endTextEdit(false);
     app._clearAllShapes();
     app._clearAllComponents();
     app.document.load(data, prepared);
@@ -126,7 +126,7 @@ export async function loadDocument(app, data, prepared = prepareDocument(app, da
         }
     }
 
-    app._updateSelectableItems();
+    app.updateSelectableItems();
     app.renderShapes(true);
 
     // NB: the PCB section is restored by ProjectDocument after this
@@ -197,7 +197,7 @@ export async function checkAutoSave(app) {
                                (saved.data.components && saved.data.components.length > 0);
             if (hasContent) {
                 const time = new Date(saved.timestamp).toLocaleString();
-                const recoveryChoice = await app._confirm(
+                const recoveryChoice = await app.confirm(
                     `Found auto-saved content from ${time}.\n\nRecover it? Choosing No permanently deletes this autosave. Your last fully saved file on disk is unchanged.`,
                     { title: 'Recover Autosave', okText: 'Yes', cancelText: 'No - Delete Autosave', showClose: true, escapeResult: null },
                 );
@@ -251,14 +251,14 @@ export async function loadVersion(app) {
 
 /** Clear only the schematic section, retaining paper/grid preferences. */
 export function clearDocument(app) {
-    if (app.textEdit?.shape) app._endTextEdit(false);
+    if (app.textEdit?.shape) app.endTextEdit(false);
     cancelSchematicPropertyPreview(app);
     cancelSchematicPointerInteraction(app);
-    if (app.pastingClipboard) app._cancelPaste();
-    if (app.placingComponent) app._cancelComponentPlacement();
+    if (app.pastingClipboard) app.cancelPaste();
+    if (app.placingComponent) app.cancelComponentPlacement();
     if (app.isDrawing) {
         if (app.currentTool === 'wire') cancelWireDrawing(app);
-        else app._cancelDrawing();
+        else app.cancelDrawing();
     }
     if (app.isSectionEditing?.()) throw new Error('Finish the current edit before creating a new document.');
     app.selection.clearSelection();
@@ -283,7 +283,7 @@ export function clearDocument(app) {
 export async function newFile(app) {
     if (!canReplaceDocument(app)) return;
     if (app.project?.isDirty ?? app.fileManager.isDirty) {
-        if (!await app._confirm('You have unsaved changes. Create new document anyway?', { title: 'Unsaved Changes', okText: 'Yes', cancelText: 'No', defaultCancel: true })) {
+        if (!await app.confirm('You have unsaved changes. Create new document anyway?', { title: 'Unsaved Changes', okText: 'Yes', cancelText: 'No', defaultCancel: true })) {
             return;
         }
     }
@@ -300,7 +300,7 @@ export async function newFile(app) {
         console.log('New document created');
     } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
-        app._alert('Failed to create new document: ' + message, { title: 'New Failed' });
+        app.alert('Failed to create new document: ' + message, { title: 'New Failed' });
     }
 }
 
@@ -321,12 +321,12 @@ export async function saveFile(app) {
         app._showSaveToast?.('Saved');
         console.log('Saved:', result.fileName);
     } else if (result.errorName === 'NotAllowedError' || result.errorName === 'SecurityError') {
-        const retry = await app._confirm(
+        const retry = await app.confirm(
             'The browser could not write to the current file. Your changes are still open and unsaved. Choose Save As to grant access to a file again, or save a new copy in another folder.',
             { title: 'File Access Required', okText: 'Save As', cancelText: 'Cancel' });
         if (retry) return saveFileAs(app);
     } else if (!result.cancelled) {
-        app._alert('Failed to save: ' + (result.error || 'Unknown error'), { title: 'Save Failed' });
+        app.alert('Failed to save: ' + (result.error || 'Unknown error'), { title: 'Save Failed' });
     }
 
     return result;
@@ -347,7 +347,7 @@ export async function saveFileAs(app) {
         app._showSaveToast?.('Saved');
         console.log('Saved as:', result.fileName);
     } else if (!result.cancelled) {
-        app._alert('Failed to save: ' + (result.error || 'Unknown error'), { title: 'Save Failed' });
+        app.alert('Failed to save: ' + (result.error || 'Unknown error'), { title: 'Save Failed' });
     }
 
     return result;
@@ -374,14 +374,14 @@ export async function loadOpenedProject(app, result) {
     const repaired = repairDuplicateIds(result.data);
     await app._loadDocument(repaired.data);
     await app.fileManager.adoptOpen(result);
-    app._fitToContent?.();
+    app.fitToContent?.();
     app._updateTitle();
     app.fileManager.clearAutoSave(result.fileName);
     app._notifyDocumentReplaced?.('open');
     const message = duplicateIdRepairMessage(repaired);
     if (message) {
         app.fileManager.setDirty(true);
-        await app._alert(`Opened ${result.fileName}. ${message}`, { title: 'File Repaired' });
+        await app.alert(`Opened ${result.fileName}. ${message}`, { title: 'File Repaired' });
     }
 }
 
@@ -393,7 +393,7 @@ export async function loadOpenedProject(app, result) {
 export async function openFile(app) {
     if (!canReplaceDocument(app)) return;
     if (app.project?.isDirty ?? app.fileManager.isDirty) {
-        if (!await app._confirm('You have unsaved changes. Open another file anyway?', { title: 'Unsaved Changes', okText: 'Yes', cancelText: 'No', defaultCancel: true })) {
+        if (!await app.confirm('You have unsaved changes. Open another file anyway?', { title: 'Unsaved Changes', okText: 'Yes', cancelText: 'No', defaultCancel: true })) {
             return;
         }
     }
@@ -405,10 +405,10 @@ export async function openFile(app) {
             await loadOpenedProject(app, result);
             console.log('Opened:', result.fileName);
         } else if (result.error) {
-            app._alert('Failed to open: ' + result.error, { title: 'Open Failed' });
+            app.alert('Failed to open: ' + result.error, { title: 'Open Failed' });
         }
     } catch (err) {
-        app._alert('Failed to open file: ' + err.message, { title: 'Open Failed' });
+        app.alert('Failed to open file: ' + err.message, { title: 'Open Failed' });
     }
 }
 
@@ -422,7 +422,7 @@ export async function openFile(app) {
 export async function openRecentFile(app, name) {
     if (!canReplaceDocument(app)) return;
     if (app.project?.isDirty ?? app.fileManager.isDirty) {
-        if (!await app._confirm('You have unsaved changes. Open another file anyway?', { title: 'Unsaved Changes', okText: 'Yes', cancelText: 'No', defaultCancel: true })) {
+        if (!await app.confirm('You have unsaved changes. Open another file anyway?', { title: 'Unsaved Changes', okText: 'Yes', cancelText: 'No', defaultCancel: true })) {
             return;
         }
     }
@@ -434,10 +434,10 @@ export async function openRecentFile(app, name) {
             await loadOpenedProject(app, result);
             console.log('Opened recent:', result.fileName);
         } else if (result.error) {
-            app._alert('Failed to open: ' + result.error, { title: 'Open Failed' });
+            app.alert('Failed to open: ' + result.error, { title: 'Open Failed' });
         }
     } catch (err) {
-        app._alert('Failed to open file: ' + err.message, { title: 'Open Failed' });
+        app.alert('Failed to open file: ' + err.message, { title: 'Open Failed' });
     }
 }
 
@@ -449,7 +449,7 @@ export async function openRecentFile(app, name) {
 export async function importEasyEDA(app) {
     if (!canReplaceDocument(app)) return;
     if (app.project?.isDirty ?? app.fileManager.isDirty) {
-        if (!await app._confirm('You have unsaved changes. Import anyway?', { title: 'Unsaved Changes', okText: 'Yes', cancelText: 'No', defaultCancel: true })) {
+        if (!await app.confirm('You have unsaved changes. Import anyway?', { title: 'Unsaved Changes', okText: 'Yes', cancelText: 'No', defaultCancel: true })) {
             return;
         }
     }
@@ -459,7 +459,7 @@ export async function importEasyEDA(app) {
         if (!data) return; // cancelled
 
         if (!_isEasyEDASchematic(data)) {
-            app._alert('This does not appear to be an EasyEDA schematic file.\n\nExpected a JSON file with a "schematics" array.', { title: 'Import Failed' });
+            app.alert('This does not appear to be an EasyEDA schematic file.\n\nExpected a JSON file with a "schematics" array.', { title: 'Import Failed' });
             return;
         }
 
@@ -467,7 +467,7 @@ export async function importEasyEDA(app) {
         const doc = importEasyEDASchematic(data, app.componentLibrary);
 
         await app._loadDocument(doc);
-        app._fitToContent?.();
+        app.fitToContent?.();
         app.fileManager.fileHandle = null;
         app.fileManager.setFilePath(null);
         app.fileManager.setFileName('imported.cpcb');
@@ -476,7 +476,7 @@ export async function importEasyEDA(app) {
         app._notifyDocumentReplaced?.('import');
         console.log('EasyEDA import complete');
     } catch (err) {
-        app._alert('Import failed: ' + err.message, { title: 'Import Failed' });
+        app.alert('Import failed: ' + err.message, { title: 'Import Failed' });
     }
 }
 

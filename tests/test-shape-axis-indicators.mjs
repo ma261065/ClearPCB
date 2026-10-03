@@ -483,7 +483,7 @@ for (const end of [{ x: 10, y: 0 }, { x: 0, y: 10 }, { x: 10, y: 10 }]) {
     const app = { currentTool: 'line', isDrawing: true, linePoints: [{ x: 0, y: 0 }, { x: 10, y: 0 }],
         drawStart: { x: 0, y: 0 }, drawCurrent: { x: 20, y: 0 }, previewElement: element('g'),
         viewport: { scale: 20, contentLayer: element('g'), svg: element('svg') },
-        toolOptions: { lineWidth: 0.2, color: '#ffffff' }, _hideCrosshair() {}, _setToolCursor() {} };
+        toolOptions: { lineWidth: 0.2, color: '#ffffff' }, hideCrosshair() {}, setToolCursor() {} };
     updatePreview(app);
     expect('schematic drawing preview displays collinear continuation', app._axisGlowResolved.length === 2
         && app._axisGlowResolved.every(({ segment }) => segment.collinear));
@@ -535,7 +535,7 @@ for (const [name, edge, collinear, axisKind] of [
 {
     const app = { currentTool: 'rect', isDrawing: true, drawStart: { x: 0, y: 0 }, drawCurrent: { x: 10, y: 10 },
         previewElement: element('g'), viewport: { scale: 20, contentLayer: element('g'), svg: element('svg') },
-        toolOptions: { lineWidth: 0.2, color: '#ffffff' }, _hideCrosshair() {}, _setToolCursor() {} };
+        toolOptions: { lineWidth: 0.2, color: '#ffffff' }, hideCrosshair() {}, setToolCursor() {} };
     updatePreview(app);
     expect('square preview uses one shared outline', app._axisGlowResolved.length === 4
         && app._axisGlowResolved.every(({ segment }) => segment.square));

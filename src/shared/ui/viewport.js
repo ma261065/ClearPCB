@@ -83,7 +83,7 @@ export function bindViewportControls(app) {
     });
 
     document.getElementById('zoomFit').addEventListener('click', () => {
-        app._fitToContent();
+        app.fitToContent();
     });
 
     document.getElementById('zoomIn').addEventListener('click', () => {

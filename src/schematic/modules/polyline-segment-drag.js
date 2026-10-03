@@ -11,7 +11,7 @@ export function tryBeginPolylineSegmentDrag(app, shape, worldPos, allowSegment, 
     const selectedSegment = app._selectedShapeSegment;
     if (selectedSegment?.shapeId === shape.id && selectedSegment.edgeId !== edgeId) return false;
     app._selectedShapeSegment = { shapeId: shape.id, edgeId };
-    app._updateShapeSelectionTip?.();
+    app.updateShapeSelectionTip?.();
     app.drag = {
         mode: 'segment',
         shape,

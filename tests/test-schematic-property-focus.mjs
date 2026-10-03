@@ -75,9 +75,9 @@ function fixture(shapes, refinement = {}) {
         shapes, components: [], selection, currentTool: 'select',
         ui: { propertiesPanel: panel }, viewport: { snapToGrid: false },
         history: new CommandHistory(), renderShapes() {}, fileManager: { setDirty() {} }, ...refinement,
-        _updatePropertiesPanel(selected) { rebuilds++; updatePropertiesPanel(this, selected); },
+        updatePropertiesPanel(selected) { rebuilds++; updatePropertiesPanel(this, selected); },
     };
-    app._updatePropertiesPanel(shapes);
+    app.updatePropertiesPanel(shapes);
     const dispose = bindKeyboardShortcuts(app);
     const keydown = key => {
         const event = { key, target: document.activeElement, defaultPrevented: false,
@@ -385,7 +385,7 @@ for (const property of ['fill', 'text', 'style']) for (const replacement of ['re
         const retiredCopy = document.getElementById('propCopy');
         let deletes = 0, copies = 0;
         app._deleteSelected = () => { deletes++; };
-        app._copySelection = () => { copies++; };
+        app.copySelection = () => { copies++; };
         if (replacement === 'selection') {
             const next = create();
             app.shapes.push(next);
@@ -396,7 +396,7 @@ for (const property of ['fill', 'text', 'style']) for (const replacement of ['re
             app.ui.propertiesPanel = new Element('div');
             document.body.appendChild(app.ui.propertiesPanel);
         }
-        app._updatePropertiesPanel(app.selection.getSelection());
+        app.updatePropertiesPanel(app.selection.getSelection());
         const current = control(), before = app.shapes.map(item => item.captureState()), initialChildren = app.ui.propertiesPanel.children;
         if (property === 'fill') retired.checked = true;
         else retired.value = property === 'text' ? 'Stale' : 'gnd';
@@ -427,7 +427,7 @@ for (const [tool, nextTool, id, key, value] of [
         const retired = document.getElementById(id);
         const retiredFill = document.getElementById('prop_newShapeFill');
         app.currentTool = nextTool;
-        app._updatePropertiesPanel([]);
+        app.updatePropertiesPanel([]);
         retired.value = value; retired.fire('change');
         if (retiredFill) { retiredFill.checked = true; retiredFill.fire('change'); }
         assert.deepEqual(app.toolOptions, options, 'Old drawing defaults cannot change the current tool');
@@ -473,13 +473,13 @@ for (const replacement of ['escape', 'commit', 'refresh', 'selection']) {
             document.activeElement = document.body;
             retired.fire('blur');
             await Promise.resolve();
-        } else if (replacement === 'refresh') app._updatePropertiesPanel([shape]);
+        } else if (replacement === 'refresh') app.updatePropertiesPanel([shape]);
         else {
             const next = new Circle({ radius: 3, lineWidth: 0.3 });
             app.shapes.push(next);
             app.selection.setShapes(app.shapes);
             app.selection.select(next, false);
-            app._updatePropertiesPanel([next]);
+            app.updatePropertiesPanel([next]);
         }
         assert.notEqual(document.getElementById('prop_diameter'), retired);
         const baseline = app.shapes.map(item => item.captureState()), depth = app.history.undoStack.length;
@@ -610,7 +610,7 @@ for (const action of ['undo', 'redo']) {
         input.value = '12'; input.fire('input'); input.fire('change');
         if (action === 'redo') {
             app.history.undo();
-            app._updatePropertiesPanel(app.selection.getSelection());
+            app.updatePropertiesPanel(app.selection.getSelection());
             input = document.getElementById('prop_diameter');
         }
         input.value = '20'; input.fire('input');
@@ -669,7 +669,7 @@ for (const action of ['undo', 'redo']) {
                         document.body.innerHTML = '';
                         app.ui.propertiesPanel = new Element('div');
                         document.body.appendChild(app.ui.propertiesPanel);
-                        app._updatePropertiesPanel(app.selection.getSelection());
+                        app.updatePropertiesPanel(app.selection.getSelection());
                     }
                     assert.equal(project.canSerialize(), false, 'Pending edit remains visible across panel replacement');
                     assert.throws(() => project.serialize(), /Finish the current edit before saving/);

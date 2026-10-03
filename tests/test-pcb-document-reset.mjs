@@ -102,8 +102,8 @@ function fixture(active) {
         viewport: { resetView() {}, setTitleBlockData() {} }, _updateTitle() {},
         _notifyDocumentReplaced: SchematicApp.prototype._notifyDocumentReplaced,
         // UI-host prompts surface the underlying failure instead of a missing-method TypeError.
-        _alert(message) { assert.fail(`Unexpected UI-host alert: ${message}`); },
-        async _confirm(message) { assert.fail(`Unexpected UI-host confirm: ${message}`); },
+        alert(message) { assert.fail(`Unexpected UI-host alert: ${message}`); },
+        async confirm(message) { assert.fail(`Unexpected UI-host confirm: ${message}`); },
     };
     project.registerView('pcb', app);
     project.registerView('schematic', host, { isUiHost: true, lifecycle: { new: () => newFile(host) } });
@@ -195,7 +195,7 @@ for (const replacement of [null, { stackup: { copperLayers: ['top-copper', 'bott
     setPcbSelection(app, [{ kind: 'shape', object: old }]);
     renderPcbSelectionAnchors(app);
     project.fileManager.setDirty(true);
-    project.schematic._confirm = async () => false;
+    project.schematic.confirm = async () => false;
     await project.newDocument();
     assert.deepEqual(lifecycle, [], 'Cancelling New must not prompt or change tabs');
     assert.equal(app.boardShapes[0], old, 'Cancelling New preserves the current document');
@@ -257,7 +257,7 @@ delete globalThis.bootstrap;
     assert.equal(app._boardDimensionsOverlay, null);
     assert.equal(document.body.children.length, 0);
 
-    project.schematic._confirm = async () => true;
+    project.schematic.confirm = async () => true;
     await project.newDocument();
     const pending = app._boardDimensionsOverlay;
     loadPcb(app, { stackup: { copperLayers: ['top-copper', 'bottom-copper'] },

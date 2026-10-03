@@ -142,8 +142,8 @@ function getDraggedSegmentEndpointNodeIds(wire, dragEdgeId, reuseSet) {
 }
 
 function updateToolCrosshair(app, snapped, screenPos) {
-    app._showCrosshair();
-    app._updateCrosshair(snapped, screenPos);
+    app.showCrosshair();
+    app.updateCrosshair(snapped, screenPos);
 }
 
 function resolvePinSnapPlacement(app, worldPos, options = {}) {
@@ -290,7 +290,7 @@ function handleComponentTooltipContextMenu(app, worldPos, screenPos) {
     if (app.showComponentDebugTooltip === false) return;
     const hitComponent = app._findComponentAt?.(worldPos);
     if (hitComponent) app._pinComponentCodeTooltip?.(hitComponent, screenPos);
-    else app._updateComponentCodeTooltip?.(null, null, { forceHide: true });
+    else app.updateComponentCodeTooltip?.(null, null, { forceHide: true });
 }
 
 function handleComponentTooltipMouseMove(app, worldPos, screenPos) {
@@ -299,11 +299,11 @@ function handleComponentTooltipMouseMove(app, worldPos, screenPos) {
         && !app.placingComponent && !app._componentCodeTooltipPinned;
     if (canShow) {
         const hit = app._findComponentAt?.(worldPos);
-        app._updateComponentCodeTooltip?.(hit, screenPos);
+        app.updateComponentCodeTooltip?.(hit, screenPos);
         return;
     }
     if (!app._componentCodeTooltipPinned) {
-        app._updateComponentCodeTooltip?.(null, screenPos);
+        app.updateComponentCodeTooltip?.(null, screenPos);
     }
 }
 
@@ -322,13 +322,13 @@ function queuePendingAnchorDrag(app, params) {
 function finalizeDragInteraction(app, options = {}) {
     // UI cleanup (was previously inside clearDragState)
     updateSnapHighlight(app, null);
-    app._hideCrosshair();
-    app._removeBoxSelectElement();
+    app.hideCrosshair();
+    app.removeBoxSelectElement();
     app._labelDragHoverTarget = null;
 
     clearDragState(app);
     app.renderShapes(true);
-    if (options.refreshTextEdit && app.textEdit) app._updateTextEditOverlay?.();
+    if (options.refreshTextEdit && app.textEdit) app.updateTextEditOverlay?.();
 }
 
 // ─── Drag session setup ────────────────────────────────────────────
@@ -610,8 +610,8 @@ function promotePendingAnchorDragSession(app, screenPos, midpointPickup = false)
         };
     }
 
-    app._showCrosshair();
-    app._updateCrosshair(startSnapped);
+    app.showCrosshair();
+    app.updateCrosshair(startSnapped);
     return true;
 }
 
@@ -1061,8 +1061,8 @@ export const idleState = {
                 app.selection.select(textHit, false);
                 app.renderShapes();
                 app.pendingAnchorDrag = null;
-                app._startTextEdit(textHit);
-                app._setTextEditCaretFromScreen(screenPos);
+                app.startTextEdit(textHit);
+                app.setTextEditCaretFromScreen(screenPos);
                 event.preventDefault();
                 return;
             }
@@ -1098,7 +1098,7 @@ export const idleState = {
             if (!anchorId) continue;
 
             app._selectedShapeSegment = null;
-            app._updateShapeSelectionTip?.();
+            app.updateShapeSelectionTip?.();
 
             if (shape.type === 'wire' && shape.edges.size <= 1 && shape.nodes.has(anchorId)) {
                 const pos = shape.nodes.get(anchorId);
@@ -1175,7 +1175,7 @@ export const idleState = {
             }
 
             app._selectedShapeSegment = null;
-            app._updateShapeSelectionTip?.();
+            app.updateShapeSelectionTip?.();
 
             // Wire segment drag
             if (tryBeginWireSegmentDrag(app, hitShape, worldPos)) {
@@ -1226,8 +1226,8 @@ export const idleState = {
             app._selectedShapeSegment = null;
             app._selectedShapeNode = { shapeId: pendingNode.shape.id, nodeId: pendingNode.anchorId };
             app.renderShapes(true);
-            app._updateShapeSelectionTip?.();
-            app._updatePropertiesPanel?.(app.selection.getSelection());
+            app.updateShapeSelectionTip?.();
+            app.updatePropertiesPanel?.(app.selection.getSelection());
             app._setActiveRibbonTab?.('properties');
             app.skipClickSelection = true;
             event.preventDefault();
@@ -1253,8 +1253,8 @@ export const idleState = {
                 ? { shapeId: pendingSegmentToggle.shape.id, edgeId: pendingSegmentToggle.edgeId }
                 : null;
             app.renderShapes(true);
-            app._updateShapeSelectionTip?.();
-            app._updatePropertiesPanel?.(app.selection.getSelection());
+            app.updateShapeSelectionTip?.();
+            app.updatePropertiesPanel?.(app.selection.getSelection());
             app._setActiveRibbonTab?.('properties');
             event.preventDefault();
             return;
@@ -1268,7 +1268,7 @@ export const idleState = {
 
         const hit = app.selection.hitTest(worldPos);
         if (app.textEdit) {
-            if (!hit || hit !== app.textEdit.shape) app._endTextEdit(true);
+            if (!hit || hit !== app.textEdit.shape) app.endTextEdit(true);
         }
         app.selection.handleClick(worldPos, isAdditiveSelectionModifier(event));
         app.renderShapes(true);
@@ -1282,8 +1282,8 @@ export const idleState = {
             app.selection.select(hit, false);
             app.renderShapes(true);
             app.pendingAnchorDrag = null;
-            app._startTextEdit(hit);
-            app._setTextEditCaretFromScreen(screenPos);
+            app.startTextEdit(hit);
+            app.setTextEditCaretFromScreen(screenPos);
             return;
         }
         if (!hit) app.viewport._onTitleBlockDblClick(worldPos);
@@ -1360,7 +1360,7 @@ export const toolActiveState = {
             attachLabelToTarget(shape, attach?.target || null, attach?.snapPos || null, { isNewLabel: true });
             app.addShape(shape);
             app.selection.select(shape);
-            app._startTextEdit?.(shape);
+            app.startTextEdit?.(shape);
             app.interactionState = 'toolActive';
             app.renderShapes(true);
             event.preventDefault();
@@ -1400,7 +1400,7 @@ export const toolActiveState = {
         }
 
         if (tool === 'component' && !app.placingComponent) {
-            app._hideCrosshair();
+            app.hideCrosshair();
             return;
         }
 
@@ -1418,7 +1418,7 @@ export const toolActiveState = {
 
     rightclick(app, event, { screenPos, worldPos }) {
         handleComponentTooltipContextMenu(app, worldPos, screenPos);
-        app._setToolCursor(app.currentTool, app.viewport.svg);
+        app.setToolCursor(app.currentTool, app.viewport.svg);
     }
 };
 
@@ -1532,7 +1532,7 @@ export const drawingState = {
             handled = true;
         }
         if (handled) {
-            app._setToolCursor(app.currentTool, app.viewport.svg);
+            app.setToolCursor(app.currentTool, app.viewport.svg);
             app.interactionState = 'toolActive';
         }
     },
@@ -1672,7 +1672,7 @@ export const moveDragState = {
             app.drag.lastSnapped.x = snappedTarget.x;
             app.drag.lastSnapped.y = snappedTarget.y;
             app.renderShapes(false);
-            if (app.textEdit) app._updateTextEditOverlay?.();
+            if (app.textEdit) app.updateTextEditOverlay?.();
             app.fileManager.setDirty(true);
         }
 
@@ -1792,7 +1792,7 @@ export const anchorDragState = {
             || app.drag.shape.type === 'arc' && app.drag.anchorId === 'mid') {
             anchorPos = snapShapeBulge(app, app.drag.shape, app.drag.anchorId, worldPos);
         }
-        app._updateCrosshair(anchorPos);
+        app.updateCrosshair(anchorPos);
         if (app.drag.shape.type === 'wire') anchorPos = mergeAnchorTJunctionGuides(app, anchorPos, anchorGuides);
         if (app.drag.shape.type !== 'polyline' && app.drag.shape.type !== 'arc') renderGuideLines(app, anchorGuides);
 
@@ -1836,7 +1836,7 @@ export const anchorDragState = {
             renderShapeAlignment(app, app.drag.shape, [app.drag.anchorId]);
         }
         app.renderShapes(false);
-        if (app.textEdit) app._updateTextEditOverlay?.();
+        if (app.textEdit) app.updateTextEditOverlay?.();
         app.fileManager.setDirty(true);
     },
 
@@ -1926,7 +1926,7 @@ export const boxSelectState = {
         if (event.button !== 0) return;
 
         const bounds = getBoxSelectBounds(app, worldPos);
-        app._removeBoxSelectElement();
+        app.removeBoxSelectElement();
         if (app.didDrag) {
             app.selection.syncBoxSelection(bounds, !!app.drag?.additive, 'contain');
             app.selection.notifyChanged();

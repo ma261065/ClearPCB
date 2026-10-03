@@ -79,7 +79,7 @@ function expect(name, condition) {
             let currentSelection = selection;
             const app = { shapes: selection, components: [], selection: { getSelection: () => currentSelection },
                 ui: { propertiesPanel: document.createElement('div') }, fileManager: { setDirty() {} },
-                renderShapes() {}, _updatePropertiesPanel() {},
+                renderShapes() {}, updatePropertiesPanel() {},
                 history: { execute(command) { commands.push(command); command.execute(); } } };
             const build = () => {
                 elements.length = 0;
@@ -259,7 +259,7 @@ function appFor(shape) {
             },
         },
         _captureShapeState(candidate) { return candidate.captureState(); },
-        _updateShapeSelectionTip() {},
+        updateShapeSelectionTip() {},
     };
 }
 
@@ -283,18 +283,18 @@ function commandAppFor(shape) {
         notifyChanged() {},
     };
     Object.assign(app, {
-        renderShapes() {}, _showCrosshair() {}, _hideCrosshair() {}, _updateCrosshair() {}, _updatePropertiesPanel() {},
+        renderShapes() {}, showCrosshair() {}, hideCrosshair() {}, updateCrosshair() {}, updatePropertiesPanel() {},
         fileManager: { setDirty() {} },
         _applyShapeState(target, state) { target.applyState(state); },
-        _commandAddShape(target) { if (!this.shapes.includes(target)) this.shapes.push(target); },
-        _commandRemoveShape(target) {
+        commandAddShape(target) { if (!this.shapes.includes(target)) this.shapes.push(target); },
+        commandRemoveShape(target) {
             const index = this.shapes.indexOf(target);
             if (index >= 0) this.shapes.splice(index, 1);
             const selectedIndex = selected.indexOf(target);
             if (selectedIndex >= 0) selected.splice(selectedIndex, 1);
         },
-        _commandDeleteShapes(entries) { for (const entry of entries) this._commandRemoveShape(entry.shape); },
-        _commandRestoreShapes(entries) { for (const entry of entries) this.shapes.splice(entry.index, 0, entry.shape); },
+        commandDeleteShapes(entries) { for (const entry of entries) this.commandRemoveShape(entry.shape); },
+        commandRestoreShapes(entries) { for (const entry of entries) this.shapes.splice(entry.index, 0, entry.shape); },
         history: {
             execute(command) { app.commands.push(command); command.execute(); },
             record(command) { app.commands.push(command); },
@@ -307,17 +307,17 @@ function commandAppFor(shape) {
     const shape = createLine({ points: [{ x: 0, y: 0 }, { x: 10, y: 0 }, { x: 10, y: 10 }, { x: 0, y: 10 }] });
     const app = commandAppFor(shape);
     app.propertySelection = [];
-    app._updatePropertiesPanel = selection => { app.propertySelection = selection; };
-    app.selection = new SelectionManager({ onSelectionChanged: selection => app._updatePropertiesPanel(selection) });
+    app.updatePropertiesPanel = selection => { app.propertySelection = selection; };
+    app.selection = new SelectionManager({ onSelectionChanged: selection => app.updatePropertiesPanel(selection) });
     app.selection.setShapes(app.shapes);
     app.selection.select(shape);
-    const addShape = app._commandAddShape;
-    const removeShape = app._commandRemoveShape;
-    app._commandAddShape = function (target) {
+    const addShape = app.commandAddShape;
+    const removeShape = app.commandRemoveShape;
+    app.commandAddShape = function (target) {
         addShape.call(this, target);
         this.selection.setShapes(this.shapes);
     };
-    app._commandRemoveShape = function (target) {
+    app.commandRemoveShape = function (target) {
         this.selection.deselect(target);
         removeShape.call(this, target);
         this.selection.setShapes(this.shapes);
@@ -509,7 +509,7 @@ for (const kind of ['line', 'polygon', 'rectangle']) {
         const app = appFor(shape);
         const commands = [];
         Object.assign(app, {
-            renderShapes() {}, _showCrosshair() {}, _hideCrosshair() {}, _updateCrosshair() {},
+            renderShapes() {}, showCrosshair() {}, hideCrosshair() {}, updateCrosshair() {},
             _applyShapeState(target, state) { target.applyState(state); },
             fileManager: { setDirty() {} },
             history: { execute(command) { commands.push(command); command.execute(); } },
@@ -716,7 +716,7 @@ for (const [name, shape] of cases) {
     const pending = { shape, anchorId: nodeId, screenPos: { x: 0, y: 0 }, snapped: { x: 0, y: 0 } };
     app.pendingAnchorDrag = pending;
     app.renderShapes = () => {};
-    app._updatePropertiesPanel = () => {};
+    app.updatePropertiesPanel = () => {};
     let activeTab = null;
     app._setActiveRibbonTab = tab => { activeTab = tab; };
     const before = shape.captureState();
@@ -740,7 +740,7 @@ for (const [name, shape] of cases) {
     let activeTab = null;
     let propertiesSelection = null;
     app._setActiveRibbonTab = tab => { activeTab = tab; };
-    app._updatePropertiesPanel = selection => { propertiesSelection = selection; };
+    app.updatePropertiesPanel = selection => { propertiesSelection = selection; };
     app._pendingShapeSegmentToggle = { shape, edgeId, hadSegment: false, segmentCandidateMatches: false };
     idleState.click(app, { preventDefault() {} }, { worldPos: { x: 3, y: 0 } });
     expect('second shape click refines a segment without an earlier matching edge click',
@@ -769,14 +769,14 @@ for (const position of [0, 3]) {
             app.currentTool = 'select';
             app.selection.select(shape);
             app.renderShapes = () => {};
-            app._hideCrosshair = () => {};
-            app._removeBoxSelectElement = () => {};
+            app.hideCrosshair = () => {};
+            app.removeBoxSelectElement = () => {};
             app.viewport.svg.addEventListener = (type, handler) => svgListeners.set(type, handler);
             app.viewport._getCachedRect = () => ({ left: 0, top: 0 });
             app.viewport.screenToWorld = point => ({ x: point.x / 100, y: point.y / 100 });
             let updates = 0;
             let activeTab = null;
-            app._updatePropertiesPanel = () => { updates++; };
+            app.updatePropertiesPanel = () => { updates++; };
             app._setActiveRibbonTab = tab => { activeTab = tab; };
             const before = shape.captureState();
             bindMouseEvents(app);
@@ -822,7 +822,7 @@ for (const kind of ['wire', 'line', 'polygon', 'rectangle']) for (const action o
         const app = commandAppFor(shape);
         app.currentTool = 'select';
         app.selection.select(shape);
-        app._removeBoxSelectElement = () => {};
+        app.removeBoxSelectElement = () => {};
         app.viewport.svg.addEventListener = (type, handler) => svgListeners.set(type, handler);
         app.viewport._getCachedRect = () => ({ left: 0, top: 0 });
         app.viewport.screenToWorld = point => ({ x: point.x / 100, y: point.y / 100 });
@@ -867,7 +867,7 @@ for (const midpoint of [false, true]) {
     const shape = createLine({ points: [{ x: 0, y: 0 }, { x: 10, y: 0 }] });
     const app = commandAppFor(shape);
     app.currentTool = 'select';
-    app._removeBoxSelectElement = () => {};
+    app.removeBoxSelectElement = () => {};
     const before = shape.captureState();
     const start = { x: midpoint ? 5 : 0, y: 0 };
     app.pendingAnchorDrag = { shape, anchorId: midpoint ? 'mid_e0' : 'n0',

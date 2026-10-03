@@ -113,7 +113,7 @@ try {
                 async save() { writes++; return { success: true, clean: false }; },
                 async saveAs() { writes++; return { success: true, clean: false }; },
             },
-            _alert: (message, options) => alerts.push({ message, options }),
+            alert: (message, options) => alerts.push({ message, options }),
             _updateTitle() {}, _showSaveToast: () => successes++,
         };
         f.begin();

@@ -30,7 +30,7 @@ function _propagateNetNameToWires(app, netShape) {
             }
         }
     }
-    app._updatePropertiesPanel?.(app.selection?.getSelection?.() || []);
+    app.updatePropertiesPanel?.(app.selection?.getSelection?.() || []);
 }
 
 /** @typedef {any} SchematicApp */
@@ -55,12 +55,12 @@ export class AddShapeCommand extends Command {
     
     /** Add the shape to the canvas. */
     execute() {
-        this.linkedLabelText = this.app._commandAddShape(this.shape, this.linkedLabelText) || this.linkedLabelText;
+        this.linkedLabelText = this.app.commandAddShape(this.shape, this.linkedLabelText) || this.linkedLabelText;
     }
     
     /** Remove the shape from the canvas. */
     undo() {
-        this.linkedLabelText = this.app._commandRemoveShape(this.shape, { preserveLinkedLabelRef: true }) || this.linkedLabelText;
+        this.linkedLabelText = this.app.commandRemoveShape(this.shape, { preserveLinkedLabelRef: true }) || this.linkedLabelText;
     }
 }
 
@@ -123,12 +123,12 @@ export class DeleteShapesCommand extends Command {
     
     /** Remove the shapes from the canvas and deselect them. */
     execute() {
-        this.app._commandDeleteShapes(this.shapesData, this.linkedLabelData);
+        this.app.commandDeleteShapes(this.shapesData, this.linkedLabelData);
     }
     
     /** Re-insert the shapes at their original z-order positions. */
     undo() {
-        this.app._commandRestoreShapes(this.shapesData, this.linkedLabelData);
+        this.app.commandRestoreShapes(this.shapesData, this.linkedLabelData);
     }
 }
 
@@ -522,7 +522,7 @@ export class DeleteComponentsCommand extends Command {
             }
         }
         for (const wire of dirtyWires) redrawShape(app, wire);
-        app._updateSelectableItems();
+        app.updateSelectableItems();
         app.fileManager.setDirty(true);
     }
 
@@ -564,7 +564,7 @@ export class DeleteComponentsCommand extends Command {
             for (const wire of dirtyWires) redrawShape(app, wire);
         }
         this._removedPinConnections = null;
-        app._updateSelectableItems();
+        app.updateSelectableItems();
         app.fileManager.setDirty(true);
     }
 }
@@ -636,7 +636,7 @@ export class AddComponentCommand extends Command {
             tolerance: PIN_ATTACH_TOL
         });
 
-        this.app._updateSelectableItems();
+        this.app.updateSelectableItems();
         this.app.fileManager.setDirty(true);
     }
 
@@ -698,7 +698,7 @@ export class AddComponentCommand extends Command {
                 }
             }
         }
-        this.app._updateSelectableItems();
+        this.app.updateSelectableItems();
         this.app.fileManager.setDirty(true);
     }
 }
@@ -856,7 +856,7 @@ export class PasteCommand extends Command {
                 }
             }
         }
-        app._updateSelectableItems();
+        app.updateSelectableItems();
         app.selection.invalidateHitCache();
         app.fileManager.setDirty(true);
     }
@@ -903,7 +903,7 @@ export class PasteCommand extends Command {
         // One-time bookkeeping
         app.selection.invalidateHitCache();
         app.selection.notifyChanged();
-        app._updateSelectableItems();
+        app.updateSelectableItems();
         app.fileManager.setDirty(true);
     }
 }

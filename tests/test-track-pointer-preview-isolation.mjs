@@ -102,7 +102,7 @@ function fixture(mode, deferred = false, unrelatedCount = 1) {
         refreshClearanceHalos() { clearances++; }, _board3d: { refresh() { boardRefreshes++; } },
         _cancelDrawingMode() {}, _ensureViewport() {}, markSectionClean() {},
         _refreshPcbSelectionHighlights() {}, _scheduleRemovalHatchRender() {},
-        _alert(message) { this.lastAlert = message; },
+        alert(message) { this.lastAlert = message; },
     });
     project.registerView('pcb', app);
     for (const object of [track, unrelated[0]].filter(Boolean)) renderTrack(object, app.getLayerGroup);

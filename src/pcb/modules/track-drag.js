@@ -281,7 +281,7 @@ function _findNearbyVia(app, worldPos, excludeVia = null) {
 
 function _showTrackViaNetConflict(app, trackNet, viaNet, kind = 'via') {
     const message = `Cannot connect track net "${trackNet}" to ${kind} net "${viaNet}".`;
-    if (app._alert) app._alert(message, { title: 'Net Conflict' });
+    if (app.alert) app.alert(message, { title: 'Net Conflict' });
     else showAlert(message, { title: 'Net Conflict' });
 }
 
@@ -602,7 +602,7 @@ function _bondedNets(bonded, shapes = bonded.shapes) {
 
 function _showBondedNetConflict(app, nets) {
     const message = `Cannot connect different nets: ${[...nets].map(net => `"${net}"`).join(', ')}.`;
-    if (app._alert) app._alert(message);
+    if (app.alert) app.alert(message);
     else showAlert(message, { title: 'Net Conflict' });
 }
 

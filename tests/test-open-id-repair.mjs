@@ -26,8 +26,8 @@ function fixture(data) {
             setDirty(value) { this.dirty = value; events.push(['dirty', value]); },
             clearAutoSave() {},
         },
-        _fitToContent() {}, _updateTitle() {}, _notifyDocumentReplaced() { events.push(['replaced']); },
-        async _alert(message, options) { events.push(['alert', message, options.title]); },
+        fitToContent() {}, _updateTitle() {}, _notifyDocumentReplaced() { events.push(['replaced']); },
+        async alert(message, options) { events.push(['alert', message, options.title]); },
     };
     return { app, events, run: () => loadOpenedProject(app, { success: true, data, fileName: 'board.cpcb' }) };
 }

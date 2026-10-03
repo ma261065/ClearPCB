@@ -198,7 +198,7 @@ function schematicFixture(withShape = false) {
         viewport: { scale: 10, svg: { style: {} }, getSnappedPosition: point => ({ ...point }),
             formatValue: value => String(value), layers: new Map() },
         ui: {}, eventBus: { on() {} }, fileManager: { setDirty() {} },
-        _updateShapeSelectionTip: SchematicApp.prototype._updateShapeSelectionTip,
+        updateShapeSelectionTip: SchematicApp.prototype.updateShapeSelectionTip,
     };
     app.components[2].x = 100;
     updateSelectableItems(app);
@@ -243,7 +243,7 @@ for (const withShape of [false, true]) {
     assert.equal(schematicTip.hidden, true, 'Schematic overlap tip disappears at a single component');
     app._overlapHitCount = 2;
     app.currentTool = 'pan';
-    app._updateShapeSelectionTip();
+    app.updateShapeSelectionTip();
     assert.equal(schematicTip.hidden, true);
     app.currentTool = 'select';
     app.components[1].visible = false;

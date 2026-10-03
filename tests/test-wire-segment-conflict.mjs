@@ -14,7 +14,7 @@ let renders = 0;
 const app = {
     shapes: [wire, firstNet, secondNet], components: [], history: new CommandHistory(),
     renderShapes() { renders++; },
-    _alert(message) { alerts.push(message); },
+    alert(message) { alerts.push(message); },
 };
 const earlierCommand = { description: 'Earlier edit', execute() {}, undo() { assert.fail('Earlier edit must not be undone'); } };
 app.history.record(earlierCommand);

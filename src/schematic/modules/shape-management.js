@@ -40,7 +40,7 @@ export function addShapeInternal(app, shape) {
     if (netShape) {
         _connectNetToWires(app, netShape);
     }
-    app._updateSelectableItems();
+    app.updateSelectableItems();
     app.selection.invalidateHitCache();
     app.fileManager.setDirty(true);
     return shape;
@@ -84,7 +84,7 @@ export function commandAddShapeInternal(app, shape, linkedLabelText = null) {
     }
     ensureShapeMounted(app, labelText);
 
-    app._updateSelectableItems();
+    app.updateSelectableItems();
     app.selection.invalidateHitCache();
     return labelText;
 }
@@ -106,7 +106,7 @@ export function addShapeInternalAt(app, shape, index) {
     mountShape(app, shape);
     const wireShape = shape.type === 'wire' ? /** @type {import('../../shapes/wire.js').Wire} */ (shape) : null;
     if (wireShape?.wireLabel) bumpWireLabelCounter(wireShape.wireLabel);
-    app._updateSelectableItems();
+    app.updateSelectableItems();
     app.fileManager.setDirty(true);
     return shape;
 }
@@ -160,7 +160,7 @@ export function removeShapeInternal(app, shape, options = {}) {
         unmountShape(shape);
         app.selection.deselect(shape);
         app.selection.invalidateHitCache();
-        app._updateSelectableItems();
+        app.updateSelectableItems();
         app.fileManager.setDirty(true);
     }
 }
@@ -218,7 +218,7 @@ export function commandDeleteShapesInternal(app, shapesData, linkedLabelData) {
     });
 
     app.selection.invalidateHitCache();
-    app._updateSelectableItems();
+    app.updateSelectableItems();
     app.fileManager.setDirty(true);
 }
 
@@ -255,7 +255,7 @@ export function commandRestoreShapesInternal(app, shapesData, linkedLabelData) {
         }
     }
 
-    app._updateSelectableItems();
+    app.updateSelectableItems();
     app.selection.invalidateHitCache();
     app.fileManager.setDirty(true);
 }
@@ -326,7 +326,7 @@ function _connectNetToWires(app, netShape) {
             }
         }
     });
-    app._updatePropertiesPanel?.(app.selection?.getSelection?.() || []);
+    app.updatePropertiesPanel?.(app.selection?.getSelection?.() || []);
 }
 
 /**
@@ -358,5 +358,5 @@ function _disconnectNetFromWires(app, netShape) {
             }
         }
     }
-    app._updatePropertiesPanel?.(app.selection?.getSelection?.() || []);
+    app.updatePropertiesPanel?.(app.selection?.getSelection?.() || []);
 }

@@ -311,11 +311,11 @@ export class AppBootstrap {
 
             const app = this.schematicApp;
             if (app.fileManager.saving || app.fileManager.loading) {
-                app._alert('Wait for the current file operation to finish.', { title: 'Open Failed' });
+                app.alert('Wait for the current file operation to finish.', { title: 'Open Failed' });
                 return;
             }
             if ((this.project?.isDirty ?? app.fileManager.isDirty)
-                && !await app._confirm('You have unsaved changes. Open another file anyway?',
+                && !await app.confirm('You have unsaved changes. Open another file anyway?',
                     { title: 'Unsaved Changes', okText: 'Yes', cancelText: 'No', defaultCancel: true })) return;
             try {
                 const repaired = repairDuplicateIds(data);
@@ -323,15 +323,15 @@ export class AppBootstrap {
                 await app.fileManager.adoptOpen({ handle: fileHandle, fileName: fileHandle.name });
                 this._hideStartupSplash();
                 this.switchMode('schematic');
-                app._fitToContent?.();
+                app.fitToContent?.();
                 this.project.notifyDocumentReplaced('open');
                 const message = duplicateIdRepairMessage(repaired);
                 if (message) {
                     app.fileManager.setDirty(true);
-                    await app._alert(`Opened ${fileHandle.name}. ${message}`, { title: 'File Repaired' });
+                    await app.alert(`Opened ${fileHandle.name}. ${message}`, { title: 'File Repaired' });
                 }
             } catch (error) {
-                app._alert('Failed to open file: ' + error.message, { title: 'Open Failed' });
+                app.alert('Failed to open file: ' + error.message, { title: 'Open Failed' });
             }
         };
 

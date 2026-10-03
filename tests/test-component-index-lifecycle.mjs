@@ -273,12 +273,12 @@ assert.equal(ModalManager.top(), null);
                 currentTool: 'select', interactionState: 'idle', componentPicker: picker,
                 viewport: { svg: { style: {} } },
                 selection: { clearSelection() {}, getSelection: () => [] },
-                renderShapes() {}, _cancelDrawing() {}, _hideCrosshair() {},
-                _updateShapePanelOptions() {}, _updatePropertiesPanel() {},
-                _setToolCursor(tool) { this.viewport.svg.style.cursor = tool === 'select' ? 'default' : 'crosshair'; },
+                renderShapes() {}, cancelDrawing() {}, hideCrosshair() {},
+                updateShapePanelOptions() {}, updatePropertiesPanel() {},
+                setToolCursor(tool) { this.viewport.svg.style.cursor = tool === 'select' ? 'default' : 'crosshair'; },
                 _setActiveToolButton(tool) { this.activeButton = tool; },
-                _onToolSelected(tool) { changes.push(tool); onToolSelected(this, tool); },
-                _cancelComponentPlacement() { cancelled++; this.placingComponent = null; },
+                selectTool(tool) { changes.push(tool); onToolSelected(this, tool); },
+                cancelComponentPlacement() { cancelled++; this.placingComponent = null; },
             };
             picker._disposeModel3dViewer = () => { disposed++; };
             picker.eventBus.emit = name => {
@@ -293,7 +293,7 @@ assert.equal(ModalManager.top(), null);
                     app.interactionState = 'placing';
                 }
             };
-            app._onToolSelected('component');
+            app.selectTool('component');
             picker.lazyLoader = { destroy() { lazyDestroyed++; } };
             if (placing) {
                 picker._normalizeDefinition = value => value;
@@ -322,9 +322,9 @@ assert.equal(ModalManager.top(), null);
             picker.close();
             assert.equal(closed, 1, 'repeated closure does not emit duplicate notifications');
 
-            app._onToolSelected('component');
+            app.selectTool('component');
             assert.equal(ModalManager.top().id, 'componentPicker', 'picker can reopen normally');
-            app._onToolSelected('wire');
+            app.selectTool('wire');
             assert.equal(picker.isOpen, false);
             assert.equal(app.currentTool, 'wire', 'closing as part of another tool selection must not override it');
             assert.equal(app.activeButton, 'wire');

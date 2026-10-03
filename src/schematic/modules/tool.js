@@ -107,7 +107,7 @@ export function saveToolOptions(options) {
  */
 export function onToolSelected(app, tool) {
     cancelSchematicPointerInteraction(app);
-    app._cancelDrawing();
+    app.cancelDrawing();
     
     // Clear any snap highlight left from the previous tool (e.g. wire hover dot)
     updateSnapHighlight(app, null);
@@ -125,7 +125,7 @@ export function onToolSelected(app, tool) {
     }
 
     if (tool !== 'component' && app.placingComponent) {
-        app._cancelComponentPlacement();
+        app.cancelComponentPlacement();
     }
 
     if (tool !== 'component' && app.componentPicker.isOpen) {
@@ -141,16 +141,16 @@ export function onToolSelected(app, tool) {
             searchInput.focus();
         }
         // Don't show placement guides until the user clicks Place Component.
-        app._hideCrosshair();
+        app.hideCrosshair();
     }
 
     const svg = app.viewport.svg;
-    app._setToolCursor(tool, svg);
+    app.setToolCursor(tool, svg);
 
     // Keep Net placement preferences initialized
     if (tool === 'net') {
         const { style, orientation } = _getnetToolOptionState(app);
-        app._onOptionsChanged?.({ netStyle: style, netOrientation: orientation });
+        app.updateToolOptions?.({ netStyle: style, netOrientation: orientation });
     }
 
     // Manage placement ghost for single-click tools
@@ -162,8 +162,8 @@ export function onToolSelected(app, tool) {
     }
 
     app._setActiveToolButton?.(tool);
-    app._updateShapePanelOptions(app.selection.getSelection(), tool);
-    app._updatePropertiesPanel(app.selection.getSelection());
+    app.updateShapePanelOptions(app.selection.getSelection(), tool);
+    app.updatePropertiesPanel(app.selection.getSelection());
     if (tool === 'wire' || tool === 'noconnect' || tool === 'line' || tool === 'rect' || tool === 'circle' || tool === 'arc' || tool === 'polygon' || tool === 'text' || tool === 'net') {
         app._setActiveRibbonTab?.('properties');
     } else if (tool === 'select' && app.selection.getSelection().length === 0) {
@@ -178,7 +178,7 @@ export function onToolSelected(app, tool) {
  */
 export function onComponentPickerClosed(app) {
     if (app.currentTool === 'component') {
-        app._onToolSelected('select');
+        app.selectTool('select');
     }
 }
 
@@ -332,7 +332,7 @@ export function updateToolGhost(app, pos) {
  */
 export function setnetStyleOption(app, style) {
     const normalized = normalizeNetStyle(style);
-    app._onOptionsChanged?.({ netStyle: normalized });
+    app.updateToolOptions?.({ netStyle: normalized });
 }
 
 /**

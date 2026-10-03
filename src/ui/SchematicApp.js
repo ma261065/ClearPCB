@@ -134,7 +134,7 @@ export default class SchematicApp {
         /** Ribbon tab switcher and height keeper, installed by bindRibbon(). */
         this._setActiveRibbonTab = null;
         this._retainRibbonHeight = null;
-        this._updateSelectableItems();
+        this.updateSelectableItems();
 
         // ── Tool / drawing state ─────────────────────────────────────
         this.currentTool = 'select';
@@ -225,7 +225,7 @@ export default class SchematicApp {
         this._showSaveToast = null;
         this._componentCodeTooltip.addEventListener('click', (e) => {
             if (e.target instanceof Element && e.target.classList.contains('component-code-tooltip-close')) {
-                this._updateComponentCodeTooltip(null, null, { forceHide: true });
+                this.updateComponentCodeTooltip(null, null, { forceHide: true });
             }
         });
 
@@ -341,7 +341,7 @@ export default class SchematicApp {
         if (index.length === 1) {
             const entry = index[0];
             const time = new Date(entry.timestamp).toLocaleString();
-            const recoveryChoice = await this._confirm(
+            const recoveryChoice = await this.confirm(
                 `Recover autosaved file "${entry.fileName}" from ${time}?\n\nChoosing No permanently deletes this autosave. Your last fully saved file on disk is unchanged.`,
                 { title: 'Recover Autosave', okText: 'Yes', cancelText: 'No - Delete Autosave', showClose: true, escapeResult: null },
             );
@@ -365,7 +365,7 @@ export default class SchematicApp {
                     const idx = parseInt(choice.slice(1)) - 1;
                     if (index[idx]) {
                         this.fileManager.clearAutoSave(index[idx].fileName);
-                        await this._alert(`Deleted autosave for ${index[idx].fileName}`, { title: 'Autosave Deleted' });
+                        await this.alert(`Deleted autosave for ${index[idx].fileName}`, { title: 'Autosave Deleted' });
                         location.reload();
                         return false;
                     }
@@ -406,11 +406,11 @@ export default class SchematicApp {
                 }
                 this.fileManager.setDirty(true);
                 if (repairMessage) {
-                    await this._alert(`Recovered the autosave. ${repairMessage}`, { title: 'Autosave Repaired' });
+                    await this.alert(`Recovered the autosave. ${repairMessage}`, { title: 'Autosave Repaired' });
                 }
                 console.log('Recovered auto-saved content');
             } catch (error) {
-                await this._alert(`Failed to recover autosave: ${error.message}`, { title: 'Recovery Failed' });
+                await this.alert(`Failed to recover autosave: ${error.message}`, { title: 'Recovery Failed' });
                 return false;
             }
         }
@@ -421,7 +421,7 @@ export default class SchematicApp {
      * Begins inline text editing on a text shape, or shows a value dialog for passive component fields.
      * @param {Object} shape - The text shape to edit.
      */
-    _startTextEdit(shape) {
+    startTextEdit(shape) {
         // For value fields on passive components, show the value dialog instead
         if (shape && shape.fieldKey === 'value' && shape.parentComponent) {
             const comp = shape.parentComponent;
@@ -450,7 +450,7 @@ export default class SchematicApp {
      * Ends inline text editing, committing or discarding changes.
      * @param {boolean} [commit=true] - Whether to commit the text changes.
      */
-    _endTextEdit(commit = true) {
+    endTextEdit(commit = true) {
         endTextEdit(this, commit);
     }
 
@@ -459,14 +459,14 @@ export default class SchematicApp {
      * @param {KeyboardEvent} e - The keyboard event to handle.
      * @returns {*} The result from the text-edit key handler.
      */
-    _handleTextEditKey(e) {
+    handleTextEditKey(e) {
         return handleTextEditKey(this, e);
     }
 
     /**
      * Refreshes the text-edit overlay position and content.
      */
-    _updateTextEditOverlay() {
+    updateTextEditOverlay() {
         updateTextEditOverlay(this);
     }
 
@@ -474,7 +474,7 @@ export default class SchematicApp {
      * Sets the text-edit caret position from screen coordinates.
      * @param {Object} screenPos - The screen position {x, y}.
      */
-    _setTextEditCaretFromScreen(screenPos) {
+    setTextEditCaretFromScreen(screenPos) {
         setTextCaretFromScreen(this, screenPos);
     }
 
@@ -484,7 +484,7 @@ export default class SchematicApp {
      * Switches the active tool and emits a toolChanged event.
      * @param {string} tool - The tool identifier to activate.
      */
-    _onToolSelected(tool) {
+    selectTool(tool) {
         onToolSelected(this, tool);
         this.eventBus.emit('toolChanged', tool);
     }
@@ -493,7 +493,7 @@ export default class SchematicApp {
      * Merges updated tool options and persists to storage.
      * @param {Object} options - The tool options to apply.
      */
-    _onOptionsChanged(options) {
+    updateToolOptions(options) {
         onOptionsChanged(this, options);
     }
 
@@ -519,28 +519,28 @@ export default class SchematicApp {
     /**
      * Command boundary: add one shape with command-safe wire-label handling.
      */
-    _commandAddShape(shape, linkedWireLabelText = null) {
+    commandAddShape(shape, linkedWireLabelText = null) {
         return commandAddShapeInternal(this, shape, linkedWireLabelText);
     }
 
     /**
      * Command boundary: remove one shape with command-safe wire-label handling.
      */
-    _commandRemoveShape(shape, options = undefined) {
+    commandRemoveShape(shape, options = undefined) {
         return commandRemoveShapeInternal(this, shape, options);
     }
 
     /**
      * Command boundary: batch-delete shapes and linked wire labels.
      */
-    _commandDeleteShapes(shapesData, linkedLabelData) {
+    commandDeleteShapes(shapesData, linkedLabelData) {
         commandDeleteShapesInternal(this, shapesData, linkedLabelData);
     }
 
     /**
      * Command boundary: batch-restore shapes and linked wire labels.
      */
-    _commandRestoreShapes(shapesData, linkedLabelData) {
+    commandRestoreShapes(shapesData, linkedLabelData) {
         commandRestoreShapesInternal(this, shapesData, linkedLabelData);
     }
     
@@ -557,7 +557,7 @@ export default class SchematicApp {
     /**
      * Cancels drawing, removing preview and resetting state.
      */
-    _cancelDrawing() {
+    cancelDrawing() {
         DrawingTools.cancelDrawing(this);
     }
     
@@ -573,7 +573,7 @@ export default class SchematicApp {
     /**
      * Cancels wire drawing and removes its preview.
      */
-    _cancelWireDrawing() {
+    cancelWireDrawing() {
         WireTools.cancelWireDrawing(this);
     }
     
@@ -582,7 +582,7 @@ export default class SchematicApp {
     /**
      * Rebuilds the selection manager's item list.
      */
-    _updateSelectableItems() {
+    updateSelectableItems() {
         ComponentTools.updateSelectableItems(this);
     }
     
@@ -612,7 +612,7 @@ export default class SchematicApp {
     /**
      * Exits placement mode and removes the preview.
      */
-    _cancelComponentPlacement() {
+    cancelComponentPlacement() {
         ComponentTools.cancelComponentPlacement(this);
     }
     
@@ -629,7 +629,7 @@ export default class SchematicApp {
      * Positions the crosshair at the snapped world position.
      * @param {Object} snapped - The snapped position data.
      */
-    _updateCrosshair(snapped) {
+    updateCrosshair(snapped) {
         this.lastCrosshairWorld = { x: snapped.x, y: snapped.y };
         this.viewport.setCrosshair(snapped);
     }
@@ -639,21 +639,21 @@ export default class SchematicApp {
      * @param {string} tool - The tool identifier.
      * @param {SVGSVGElement} svg - The SVG element to set the cursor on.
      */
-    _setToolCursor(tool, svg) {
+    setToolCursor(tool, svg) {
         setToolCursor(this, tool, svg);
     }
 
     /**
      * Shows the crosshair overlay.
      */
-    _showCrosshair() {
+    showCrosshair() {
         this.viewport.showCrosshair();
     }
     
     /**
      * Hides the crosshair overlay.
      */
-    _hideCrosshair() {
+    hideCrosshair() {
         this.viewport.hideCrosshair();
     }
     
@@ -668,11 +668,11 @@ export default class SchematicApp {
         if (shapes.length !== 1 || shapes[0]?.id !== this._selectedShapeNode?.shapeId) {
             this._selectedShapeNode = null;
         }
-        this._updateShapeSelectionTip();
+        this.updateShapeSelectionTip();
         this.eventBus.emit('selectionChanged', shapes);
     }
 
-    _updateShapeSelectionTip() {
+    updateShapeSelectionTip() {
         const tip = document.getElementById('schematicStatusTip');
         if (!tip) return;
         const selected = this.selection.getSelection();
@@ -711,7 +711,7 @@ export default class SchematicApp {
      * @param {Array} selection - The current selection.
      * @param {string} toolId - The active tool identifier.
      */
-    _updateShapePanelOptions(selection, toolId) {
+    updateShapePanelOptions(selection, toolId) {
         updateShapePanelOptions(this, selection, toolId);
     }
 
@@ -728,7 +728,7 @@ export default class SchematicApp {
      * Refreshes the properties panel for the given selection.
      * @param {Array} selection - The currently selected shapes.
      */
-    _updatePropertiesPanel(selection) {
+    updatePropertiesPanel(selection) {
         updatePropertiesPanel(this, selection);
     }
 
@@ -798,7 +798,7 @@ export default class SchematicApp {
      * @param {Object|null} screenPos - The screen position {x, y} for the tooltip.
      * @param {Object} [options={}] - Options (e.g., { forceHide: true }).
      */
-    _updateComponentCodeTooltip(component, screenPos, options = {}) {
+    updateComponentCodeTooltip(component, screenPos, options = {}) {
         const tooltip = this._componentCodeTooltip;
         if (!tooltip) return;
 
@@ -851,14 +851,14 @@ export default class SchematicApp {
         if (!component || !screenPos) return;
         this._componentCodeTooltipPinned = true;
         this._componentCodeTooltipPosition = { ...screenPos };
-        this._updateComponentCodeTooltip(component, screenPos);
+        this.updateComponentCodeTooltip(component, screenPos);
     }
 
     /**
      * Clears cached component/search data from IndexedDB storage and legacy localStorage.
      */
     async _clearComponentCaches() {
-        if (!await this._confirm('Clear cached components and search results?', { title: 'Clear Cache', okText: 'Yes', cancelText: 'No' })) {
+        if (!await this.confirm('Clear cached components and search results?', { title: 'Clear Cache', okText: 'Yes', cancelText: 'No' })) {
             return;
         }
 
@@ -913,11 +913,11 @@ export default class SchematicApp {
 
     // ==================== Modal helpers ====================
 
-    async _alert(message, options = {}) {
+    async alert(message, options = {}) {
         await showAlert(message, options);
     }
 
-    async _confirm(message, options = {}) {
+    async confirm(message, options = {}) {
         return await showConfirm(message, options);
     }
 
@@ -963,14 +963,14 @@ export default class SchematicApp {
     /**
      * Copies selected items to the internal clipboard.
      */
-    _copySelection() {
+    copySelection() {
         copySelection(this);
     }
 
     /**
      * Cancels paste preview and removes preview elements.
      */
-    _cancelPaste() {
+    cancelPaste() {
         cancelPaste(this);
     }
     
@@ -979,7 +979,7 @@ export default class SchematicApp {
     /**
      * Removes the box-selection element.
      */
-    _removeBoxSelectElement() {
+    removeBoxSelectElement() {
         removeBoxSelectElement(this);
     }
     
@@ -1006,7 +1006,7 @@ export default class SchematicApp {
     /**
      * Zooms and pans to fit all content.
      */
-    _fitToContent() {
+    fitToContent() {
         fitToContent(this);
     }
     
@@ -1069,7 +1069,7 @@ export default class SchematicApp {
     }
 
     onAutoSaveError() {
-        return this._alert('Auto-save failed: storage full or unavailable. Your changes are still open, but are not being backed up. Save your project to disk.',
+        return this.alert('Auto-save failed: storage full or unavailable. Your changes are still open, but are not being backed up. Save your project to disk.',
             { title: 'Auto-save Failed' });
     }
 
@@ -1146,7 +1146,7 @@ export default class SchematicApp {
     _clearAllShapes() {
         for (const shape of this.shapes) discardShapeView(this, shape);
         this.shapes = [];
-        this._updateSelectableItems();
+        this.updateSelectableItems();
         this.history.clear();
         this._updateUndoRedoButtons();
     }
@@ -1165,7 +1165,7 @@ export default class SchematicApp {
             discardComponentView(this, comp);
         }
         this.components = [];
-        this._updateSelectableItems();
+        this.updateSelectableItems();
     }
     
     /**

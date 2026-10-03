@@ -67,7 +67,6 @@
   ],
   "src/pcb/modules/controls.js": [
     "_ensureViewport",
-    "_fitToContent",
     "_last2DSide",
     "_markDirty",
     "_syncHistoryButtons",
@@ -348,7 +347,6 @@
     "_viaDrag"
   ],
   "src/pcb/modules/track-drag.js": [
-    "_alert",
     "_pcbSelectionInteraction",
     "_refreshTrackClearance",
     "_refreshViaClearance",

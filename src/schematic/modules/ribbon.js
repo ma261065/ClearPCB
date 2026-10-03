@@ -153,8 +153,8 @@ export function bindRibbon(app) {
                 ribbonEl.querySelector('.ribbon-tab.active')
             )?.dataset.tab || null;
             if (currentTab !== t.dataset.tab && DRAWING_TOOL_IDS.has(app.currentTool)) {
-                if (app.currentTool === 'wire') app._cancelWireDrawing?.();
-                app._onToolSelected?.(SELECT_TOOL_ID);
+                if (app.currentTool === 'wire') app.cancelWireDrawing?.();
+                app.selectTool?.(SELECT_TOOL_ID);
             }
             app._setActiveRibbonTab(t.dataset.tab);
         });
@@ -228,7 +228,7 @@ export function bindRibbon(app) {
         tooltipToggle.addEventListener('change', () => {
             app.showComponentDebugTooltip = tooltipToggle.checked;
             if (!tooltipToggle.checked) {
-                app._updateComponentCodeTooltip?.(null, null, { forceHide: true });
+                app.updateComponentCodeTooltip?.(null, null, { forceHide: true });
             }
         });
     }
@@ -237,7 +237,7 @@ export function bindRibbon(app) {
     get('ribbonToggleLock')?.addEventListener('click', () => toggleSelectionLock(app));
     get('ribbonRotate')?.addEventListener('click', () => rotateComponentRight(app));
     get('ribbonCut')?.addEventListener('click', () => cutSelection(app));
-    get('ribbonCopy')?.addEventListener('click', () => app._copySelection());
+    get('ribbonCopy')?.addEventListener('click', () => app.copySelection());
     get('ribbonPaste')?.addEventListener('click', () => beginPastePreview(app));
     
     // ESC key goes to home tab
@@ -273,7 +273,7 @@ export function bindRibbon(app) {
         btn.addEventListener('click', () => {
             const toolId = button.dataset.tool;
             if (!toolId) return;
-            app._onToolSelected(toolId);
+            app.selectTool(toolId);
         });
     });
 
@@ -310,12 +310,12 @@ export function bindRibbon(app) {
                 const style = normalizenetStyle(target.dataset.netStyle || 't');
                 const orientation = defaultOrientationByStyle[style] || 'E';
                 const presetText = target.dataset.netText || null;
-                app._onOptionsChanged?.({ netStyle: style, netOrientation: orientation });
+                app.updateToolOptions?.({ netStyle: style, netOrientation: orientation });
                 app.toolOptions.netPresetText = presetText;
                 updateNetToolButton();
                 updatenetStyleMenuState();
                 closenetStyleMenu();
-                app._onToolSelected('net');
+                app.selectTool('net');
             });
         });
 
@@ -344,7 +344,7 @@ export function bindRibbon(app) {
 
     // Tool changes refresh the Properties panel's drawing defaults.
     app.eventBus.on('toolChanged', (toolId) => {
-        app._updatePropertiesPanel?.(app.selection.getSelection());
+        app.updatePropertiesPanel?.(app.selection.getSelection());
         updateNetToolButton();
         updatenetStyleMenuState();
     });

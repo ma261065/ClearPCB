@@ -27,11 +27,11 @@ Object.assign(app, {
         setGridVisible(value) { this.gridVisible = value; },
         removeContent() {},
     },
-    _updateSelectableItems() {}, _updateUndoRedoButtons() {}, renderShapes() {},
-    _updateTitle() {}, _fitToContent() {}, _notifyDocumentReplaced() {},
-    _alert: message => alerts.push(message), _confirm: async () => true,
-    _commandAddShape(shape) { this.shapes.push(shape); },
-    _commandRemoveShape(shape) { this.shapes.splice(this.shapes.indexOf(shape), 1); },
+    updateSelectableItems() {}, _updateUndoRedoButtons() {}, renderShapes() {},
+    _updateTitle() {}, fitToContent() {}, _notifyDocumentReplaced() {},
+    alert: message => alerts.push(message), confirm: async () => true,
+    commandAddShape(shape) { this.shapes.push(shape); },
+    commandRemoveShape(shape) { this.shapes.splice(this.shapes.indexOf(shape), 1); },
 });
 project.registerView('schematic', app);
 const existingShape = new Circle({ radius: 1 });

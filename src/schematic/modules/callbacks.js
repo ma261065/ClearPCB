@@ -50,7 +50,7 @@ export function setupCallbacks(app) {
             const overlapHitCount = allHits.length;
             if (overlapHitCount !== app._overlapHitCount) {
                 app._overlapHitCount = overlapHitCount;
-                app._updateShapeSelectionTip?.();
+                app.updateShapeSelectionTip?.();
             }
             const hit = allHits.find((shape) => app.selection.isSelected(shape)) || allHits[0] || null;
             const hoveredChanged = app.selection.setHovered(hit);
@@ -115,7 +115,7 @@ export function setupCallbacks(app) {
         if (view.scaleChanged) {
             app.renderShapes(true);
         }
-        app._updateTextEditOverlay?.();
+        app.updateTextEditOverlay?.();
     };
 
     app.viewport.onInteractionStart = (kind) => {

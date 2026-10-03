@@ -1,118 +1,53 @@
 {
   "src/schematic/modules/callbacks.js": [
-    "_overlapHitCount",
-    "_updateShapeSelectionTip",
-    "_updateTextEditOverlay"
-  ],
-  "src/schematic/modules/clipboard.js": [
-    "_cancelComponentPlacement",
-    "_cancelDrawing",
-    "_hideCrosshair",
-    "_showCrosshair",
-    "_updateCrosshair"
-  ],
-  "src/schematic/modules/commands.js": [
-    "_commandAddShape",
-    "_commandDeleteShapes",
-    "_commandRemoveShape",
-    "_commandRestoreShapes",
-    "_updatePropertiesPanel",
-    "_updateSelectableItems"
+    "_overlapHitCount"
   ],
   "src/schematic/modules/components.js": [
-    "_cancelDrawing",
     "_componentPreviewHidden",
-    "_setActiveToolButton",
-    "_updateShapePanelOptions"
+    "_setActiveToolButton"
   ],
   "src/schematic/modules/context-menu.js": [
-    "_commandAddShape",
-    "_hideCrosshair",
     "_selectedShapeNode",
-    "_selectedShapeSegment",
-    "_showCrosshair",
-    "_updateCrosshair",
-    "_updatePropertiesPanel"
+    "_selectedShapeSegment"
   ],
   "src/schematic/modules/drag.js": [
-    "_alert",
-    "_commandRemoveShape",
-    "_hideCrosshair",
     "_overlapCyclePress",
-    "_removeBoxSelectElement",
     "_selectedShapeNode",
-    "_selectedShapeSegment",
-    "_updatePropertiesPanel"
+    "_selectedShapeSegment"
   ],
   "src/schematic/modules/draw-states.js": [
     "_componentCodeTooltipPinned",
     "_drawSnapResult",
-    "_endTextEdit",
     "_findComponentAt",
-    "_hideCrosshair",
     "_labelDragHoverTarget",
     "_moveDragSnappedTarget",
     "_overlapCyclePress",
     "_pendingShapeSegmentToggle",
     "_pinComponentCodeTooltip",
     "_propagateNonSelectedWiresScratch",
-    "_removeBoxSelectElement",
     "_segmentDragGuidesScratch",
     "_selectedShapeNode",
     "_selectedShapeSegment",
     "_setActiveRibbonTab",
-    "_setTextEditCaretFromScreen",
-    "_setToolCursor",
     "_shapeSegmentClickCandidate",
     "_shapeSegmentSelectionElement",
-    "_showCrosshair",
-    "_startTextEdit",
-    "_updateComponentCodeTooltip",
-    "_updateCrosshair",
-    "_updatePropertiesPanel",
-    "_updateShapeSelectionTip",
-    "_updateTextEditOverlay",
     "_wireJunctionData",
     "_wireJunctionDot"
   ],
   "src/schematic/modules/drawing.js": [
-    "_alert",
-    "_drawSnapResult",
-    "_hideCrosshair",
-    "_setToolCursor",
-    "_showCrosshair",
-    "_startTextEdit",
-    "_updateCrosshair"
+    "_drawSnapResult"
   ],
   "src/schematic/modules/files.js": [
-    "_alert",
-    "_cancelComponentPlacement",
-    "_cancelDrawing",
-    "_cancelPaste",
     "_clearAllComponents",
     "_clearAllShapes",
-    "_confirm",
-    "_endTextEdit",
-    "_fitToContent",
     "_loadDocument",
     "_notifyDocumentReplaced",
     "_serializeDocument",
     "_showSaveToast",
-    "_updateSelectableItems",
     "_updateTitle"
   ],
   "src/schematic/modules/keyboard.js": [
-    "_cancelComponentPlacement",
-    "_cancelDrawing",
-    "_cancelPaste",
-    "_copySelection",
-    "_endTextEdit",
-    "_fitToContent",
-    "_handleTextEditKey",
-    "_onOptionsChanged",
-    "_onToolSelected",
-    "_setActiveRibbonTab",
-    "_updatePropertiesPanel"
+    "_setActiveRibbonTab"
   ],
   "src/schematic/modules/label-attachment.js": [
     "_labelGuide"
@@ -123,75 +58,40 @@
     "_rightPanGesture"
   ],
   "src/schematic/modules/polyline-segment-drag.js": [
-    "_selectedShapeSegment",
-    "_updateShapeSelectionTip"
+    "_selectedShapeSegment"
   ],
   "src/schematic/modules/properties.js": [
-    "_alert",
-    "_copySelection",
-    "_endTextEdit",
     "_selectedShapeNode",
-    "_selectedShapeSegment",
-    "_updatePropertiesPanel",
-    "_updateTextEditOverlay"
+    "_selectedShapeSegment"
   ],
   "src/schematic/modules/ribbon.js": [
-    "_cancelWireDrawing",
     "_cleanupRibbonEsc",
     "_clearComponentCaches",
-    "_copySelection",
     "_importEasyEDA",
-    "_onOptionsChanged",
-    "_onToolSelected",
     "_retainRibbonHeight",
     "_setActiveRibbonTab",
     "_setActiveToolButton",
-    "_showSaveToast",
-    "_updateComponentCodeTooltip",
-    "_updatePropertiesPanel"
+    "_showSaveToast"
   ],
   "src/schematic/modules/schematic-view.js": [
     "_selectedShapeNode",
     "_selectedShapeSegment",
     "_shapeSegmentSelectionElement"
   ],
-  "src/schematic/modules/selection.js": [
-    "_updatePropertiesPanel"
-  ],
-  "src/schematic/modules/shape-management.js": [
-    "_updatePropertiesPanel",
-    "_updateSelectableItems"
-  ],
   "src/schematic/modules/text-edit.js": [
-    "_alert",
-    "_suppressNextEscape",
-    "_updatePropertiesPanel"
+    "_suppressNextEscape"
   ],
   "src/schematic/modules/theme.js": [
     "_loadTheme",
     "_toggleTheme"
   ],
   "src/schematic/modules/tool.js": [
-    "_cancelComponentPlacement",
-    "_cancelDrawing",
-    "_hideCrosshair",
-    "_onOptionsChanged",
-    "_onToolSelected",
     "_setActiveRibbonTab",
     "_setActiveToolButton",
-    "_setToolCursor",
-    "_toolGhost",
-    "_updatePropertiesPanel",
-    "_updateShapePanelOptions"
+    "_toolGhost"
   ],
   "src/schematic/modules/wire.js": [
-    "_alert",
-    "_hideCrosshair",
     "_removeShapeInternal",
-    "_setToolCursor",
-    "_showCrosshair",
-    "_updateCrosshair",
-    "_updatePropertiesPanel",
     "_wireAxisLock",
     "_wireJunctionData",
     "_wireJunctionDot"

@@ -21,7 +21,7 @@ function schematicView(project) {
     return {
         components: project.schematicDocument.components, shapes: project.schematicDocument.shapes,
         viewport: { contentLayer: {}, addComponentContent() {} }, selection: new SelectionManager(),
-        _updateSelectableItems() {}, fileManager: project.fileManager,
+        updateSelectableItems() {}, fileManager: project.fileManager,
     };
 }
 const padPoint = (layout, id) => {

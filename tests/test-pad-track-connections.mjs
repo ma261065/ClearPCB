@@ -23,7 +23,7 @@ function fixture(layers = 'both') {
         getLayerGroup() { return null; },
         viewport: { scale: 100, gridVisible: false, setCrosshair() {}, hideCrosshair() {} },
         history: { execute(command) { commands.push(command); command.execute(); } },
-        _alert(message) { this.lastAlert = message; },
+        alert(message) { this.lastAlert = message; },
     };
     for (const key of ['tracks', 'vias', 'pads']) {
         Object.defineProperty(app, key, Object.getOwnPropertyDescriptor(PCBApp.prototype, key));

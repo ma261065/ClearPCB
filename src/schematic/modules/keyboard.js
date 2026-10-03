@@ -57,7 +57,7 @@ function canActOnSelection(app) {
 export function handleEscape(app) {
     // 1. Inline text edit.
     if (app.textEdit) {
-        app._endTextEdit(false);
+        app.endTextEdit(false);
         return;
     }
 
@@ -69,21 +69,21 @@ export function handleEscape(app) {
             if (app.currentTool === 'wire') {
                 cancelWireDrawing(app);
             } else {
-                app._cancelDrawing();
+                app.cancelDrawing();
             }
-            app._onToolSelected('select');
+            app.selectTool('select');
             return;
 
         case 'placing':
             if (app.pastingClipboard) {
-                app._cancelPaste();
+                app.cancelPaste();
             } else if (app.placingComponent) {
-                app._cancelComponentPlacement();
+                app.cancelComponentPlacement();
             }
             return;
 
         case 'toolActive':
-            app._onToolSelected('select');
+            app.selectTool('select');
             return;
     }
 
@@ -119,7 +119,7 @@ export function handleEscape(app) {
 
     // 8. Non-select tool → select (safety net for stale state).
     if (app.currentTool !== 'select') {
-        app._onToolSelected('select');
+        app.selectTool('select');
     }
 }
 
@@ -127,22 +127,22 @@ export function handleEscape(app) {
 export function runSchematicHistoryAction(app, action) {
     if (app.isDrawing || app.interactionState === 'drawing') return false;
     if (app.textEdit) {
-        app._endTextEdit(false);
+        app.endTextEdit(false);
         return true;
     }
     if (app.pastingClipboard) {
-        app._cancelPaste();
+        app.cancelPaste();
         return true;
     }
     if (app.placingComponent) {
-        app._cancelComponentPlacement();
+        app.cancelComponentPlacement();
         return true;
     }
     const cancelledProperty = cancelSchematicPropertyPreview(app);
     cancelSchematicPointerInteraction(app);
     const changed = app.history[action]();
     if (changed) app.renderShapes(true);
-    if (changed || cancelledProperty) app._updatePropertiesPanel?.(app.selection.getSelection());
+    if (changed || cancelledProperty) app.updatePropertiesPanel?.(app.selection.getSelection());
     return true;
 }
 
@@ -194,7 +194,7 @@ function handleSpaceRotate(app, e) {
     // Rotate Net orientation while the Net tool is active.
     if (!app.textEdit && app.currentTool === 'net') {
         const current = app.toolOptions?.netOrientation || 'E';
-        app._onOptionsChanged?.({ netOrientation: rotateNetOrientation(current) });
+        app.updateToolOptions?.({ netOrientation: rotateNetOrientation(current) });
         const world = app.viewport.currentMouseWorld;
         if (world) {
             const resolved = resolveWireSnapPosition(app, world, { pinTolerance: PIN_SNAP_TOL });
@@ -212,7 +212,7 @@ function handleSpaceRotate(app, e) {
             const newOrientation = rotateNetOrientation(netShapes[0].orientation || 'E');
             app.history.execute(new ModifyPropertyCommand(app, netShapes, 'orientation', newOrientation));
             app.renderShapes(true);
-            app._updatePropertiesPanel(sel);
+            app.updatePropertiesPanel(sel);
             e.preventDefault();
             return;
         }
@@ -224,7 +224,7 @@ function handleSpaceRotate(app, e) {
                 : textShapes[0].rotation === 270 ? 0 : 270;
             app.history.execute(new ModifyPropertyCommand(app, textShapes, 'rotation', newRot));
             app.renderShapes(true);
-            app._updatePropertiesPanel(sel);
+            app.updatePropertiesPanel(sel);
             e.preventDefault();
         }
     }
@@ -268,13 +268,13 @@ export function bindKeyboardShortcuts(app) {
         // Text edit has absolute priority for Escape and Enter
         if (app.textEdit) {
             if (e.key === 'Escape' || e.key === 'Enter') {
-                if (app._handleTextEditKey && handleTextEditKey(app, e)) {
+                if (app.handleTextEditKey && handleTextEditKey(app, e)) {
                     return;
                 }
             }
         }
 
-        if (app._handleTextEditKey && handleTextEditKey(app, e)) {
+        if (app.handleTextEditKey && handleTextEditKey(app, e)) {
             return;
         }
 
@@ -320,7 +320,7 @@ export function bindKeyboardShortcuts(app) {
                     break;
                 case 'c':
                     e.preventDefault();
-                    app._copySelection();
+                    app.copySelection();
                     break;
                 case 'x':
                     e.preventDefault();
@@ -365,7 +365,7 @@ export function bindKeyboardShortcuts(app) {
                     // X: flip horizontally (placing/selected component) else
                     // select the no-connect tool.
                     if (handleFlipHorizontal(app, e)) break;
-                    app._onToolSelected('noconnect');
+                    app.selectTool('noconnect');
                     break;
                 case 'y':
                 case 'Y':
@@ -379,12 +379,12 @@ export function bindKeyboardShortcuts(app) {
                         && !app.isDrawing && !app.pastingClipboard && !app.selection.getSelection().length
                         && !['INPUT', 'BUTTON'].includes(e.target?.tagName)) {
                         e.preventDefault();
-                        app._fitToContent();
+                        app.fitToContent();
                     }
                     break;
                 case 'f':
                 case 'F':
-                    app._fitToContent();
+                    app.fitToContent();
                     break;
                 case 'Home':
                     e.preventDefault();
@@ -417,7 +417,7 @@ export function bindKeyboardShortcuts(app) {
                     if (sel.length > 0) {
                         const cmd = new MoveShapesCommand(app, sel, dx, dy);
                         app.history.execute(cmd);
-                        app._updatePropertiesPanel(sel);
+                        app.updatePropertiesPanel(sel);
                     } else {
                         const panAmount = 20 / app.viewport.scale;
                         app.viewport.viewBox.x += dx > 0 ? panAmount : dx < 0 ? -panAmount : 0;
@@ -432,7 +432,7 @@ export function bindKeyboardShortcuts(app) {
                     const tool = TOOL_KEYS[e.key.toLowerCase()];
                     if (tool) {
                         e.preventDefault();
-                        app._onToolSelected(tool);
+                        app.selectTool(tool);
                     }
                     break;
                 }

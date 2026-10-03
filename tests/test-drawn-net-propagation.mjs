@@ -31,7 +31,7 @@ function fixture() {
         _commitTracks: PCBApp.prototype._commitTracks,
         getLayerGroup() { return null; },
         _shapeElements: new Map(),
-        _alert(message) { this.lastAlert = message; },
+        alert(message) { this.lastAlert = message; },
         viewport: { scale: 100, gridVisible: false, setCrosshair() {}, hideCrosshair() {} },
         commands, history: { execute(command) { commands.push(command); command.execute(); } },
     });

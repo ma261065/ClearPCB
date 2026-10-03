@@ -59,7 +59,7 @@ export async function savePdf(app) {
         app.selection.selectMultiple(previousSelection, false);
         app.renderShapes(true);
     } catch (err) {
-            app._alert('Failed to save PDF: ' + (err?.message || 'Unknown error'), { title: 'Export Failed' });
+            app.alert('Failed to save PDF: ' + (err?.message || 'Unknown error'), { title: 'Export Failed' });
         // Restore selection in case of error
         app.selection.selectMultiple(previousSelection, false);
         app.renderShapes(true);
@@ -149,7 +149,7 @@ export async function printSchematic(app) {
             iframe.addEventListener('load', doPrint, { once: true });
         }
     } catch (err) {
-            app._alert('Failed to print: ' + (err?.message || 'Unknown error'), { title: 'Print Failed' });
+            app.alert('Failed to print: ' + (err?.message || 'Unknown error'), { title: 'Print Failed' });
         // Restore selection in case of error
         app.selection.selectMultiple(previousSelection, false);
         app.renderShapes(true);

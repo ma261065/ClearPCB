@@ -97,7 +97,7 @@ export function endTextEdit(app, commit = true) {
                 c.reference.toUpperCase() === state.shape.text.toUpperCase() &&
                 c !== state.shape.parentComponent);
             if (dup) {
-                    app._alert(`Reference "${state.shape.text}" is already used by another component.`, { title: 'Duplicate Reference' });
+                    app.alert(`Reference "${state.shape.text}" is already used by another component.`, { title: 'Duplicate Reference' });
                 state.shape.text = state.originalText;
                 if (typeof state.shape.invalidate === 'function') state.shape.invalidate();
                 app.renderShapes(true);
@@ -114,7 +114,7 @@ export function endTextEdit(app, commit = true) {
                 s.type === 'wire' && s !== parentWire &&
                 s.wireLabel.toUpperCase() === state.shape.text.toUpperCase());
             if (dup) {
-                    app._alert(`Wire name "${state.shape.text}" is already used by another wire.`, { title: 'Duplicate Wire Name' });
+                    app.alert(`Wire name "${state.shape.text}" is already used by another wire.`, { title: 'Duplicate Wire Name' });
                 state.shape.text = state.originalText;
                 if (typeof state.shape.invalidate === 'function') state.shape.invalidate();
                 app.renderShapes(true);
@@ -125,7 +125,7 @@ export function endTextEdit(app, commit = true) {
 
         if (state.shape.parentComponent?.type === 'net' && state.shape.fieldKey === 'net') {
             if (!state.shape.text || !state.shape.text.trim()) {
-                app._alert('Net name cannot be empty.', { title: 'Invalid Net Name' });
+                app.alert('Net name cannot be empty.', { title: 'Invalid Net Name' });
                 state.shape.text = state.originalText;
                 if (typeof state.shape.invalidate === 'function') state.shape.invalidate();
                 app.renderShapes(true);
@@ -140,7 +140,7 @@ export function endTextEdit(app, commit = true) {
                 parentnet.id
             );
             if (!check.ok) {
-                    app._alert(`Net conflict: this connected wire is already labeled "${check.conflictWith || ''}".`, { title: 'Net Conflict' });
+                    app.alert(`Net conflict: this connected wire is already labeled "${check.conflictWith || ''}".`, { title: 'Net Conflict' });
                 state.shape.text = state.originalText;
                 if (typeof state.shape.invalidate === 'function') state.shape.invalidate();
                 app.renderShapes(true);
@@ -161,7 +161,7 @@ export function endTextEdit(app, commit = true) {
 
     // Refresh properties panel so it reflects the updated text
     const sel = app.selection.getSelection();
-    if (sel.length > 0) app._updatePropertiesPanel(sel);
+    if (sel.length > 0) app.updatePropertiesPanel(sel);
 
     state.overlay?.destroy();
     state.overlay = null;

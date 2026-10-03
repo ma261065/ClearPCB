@@ -100,18 +100,28 @@ clearpcb/
 regression gate. `tools/import-baseline.json` lists known violations (currently
 none); new ones fail, and fixed ones must be removed so the baseline only shrinks.
 
-PCB modules use the editor's public services, listed and typed in
-`pcb/modules/pcb-editor-api.js` (`getLayerGroup`, `getRoutingParams`,
-`refreshFills`, `updateRatsnest`, `setStatus`, …), rather than its `_`-prefixed
-members. `node tools/check-pcb-editor-access.mjs` ratchets the remaining private
+Both editors follow the same module rules. A module that needs another module's
+behaviour imports that module's function and calls it directly; it does not go
+through the editor. What the editor itself owns, modules reach through its public
+services, listed and typed in `pcb/modules/pcb-editor-api.js` (`getLayerGroup`,
+`getRoutingParams`, `refreshFills`, `updateRatsnest`, `setStatus`, …) and
+`schematic/modules/schematic-editor-api.js` (`updatePropertiesPanel`, the
+crosshair, `alert`/`confirm`, the cancel helpers, inline text editing, tool
+selection and the command view hooks), rather than its `_`-prefixed members.
+Services are also the seams tests stub. A service both editors offer has one name
+in both (`fitToContent`, `copySelection`).
+`node tools/check-pcb-editor-access.mjs` ratchets the remaining private
 accesses per module in `src/pcb` and `src/shared/pcb` against
 `tools/pcb-editor-access-baseline.json` in the same way; promote a member to a
 service instead of adding a new private access.
 `node tools/check-schematic-editor-access.mjs` applies the same ratchet to the
 schematic layer (`src/schematic`) against
 `tools/schematic-editor-access-baseline.json` (217 accesses to 106 private
-`SchematicApp` members when introduced); use a public `SchematicApp` method or a
-module export instead of adding one. Both run as hard checks in the regression gate.
+`SchematicApp` members when introduced, 61 after the services); use a public
+`SchematicApp` method or a module export instead of adding one. Both run as hard
+checks in the regression gate. `test-schematic-module-load-order` loads each
+schematic module first in a fresh process, so a direct import that creates an
+evaluation-order cycle fails.
 
 ## State Ownership
 
@@ -164,6 +174,22 @@ PCB editor:
   `setPropertiesTitle`, `showPropertiesTab`, `toolNetOptions`, `bindToolNetControl`,
   `layerLabel`); `PCBApp` keeps a one-line forwarding method for each, passing tool
   state (pad and text defaults, inline-edit state) explicitly.
+
+Schematic editor:
+
+- `schematic/modules/schematic-editor-api.js` — public editor services for schematic modules.
+- `schematic/modules/schematic-view.js` — entity SVG lifecycle, culling and level of
+  detail; `schematic/render/` — shape and component renderers and their view state.
+- `schematic/modules/draw-states.js` — the pointer interaction state machine;
+  `mouse.js`, `keyboard.js` (including `handleEscape` and history actions),
+  `ribbon.js`, `context-menu.js` — the input bindings that drive it.
+- `schematic/modules/drawing.js`, `wire.js`, `components.js`, `clipboard.js`,
+  `drag.js`, `text-edit.js` — drawing, wiring, placement, paste, drag commits and
+  inline text; `selection.js` — delete, lock and shape-state capture.
+- `schematic/modules/commands.js` — undo/redo commands; `shape-management.js` — the
+  add/remove/delete/restore work behind the command view hooks.
+- `schematic/modules/properties.js` — the Properties panel; `files.js` — Open, Save
+  and document loading; `tool.js` — tool selection and persisted tool options.
 
 Derived PCB work:
 
