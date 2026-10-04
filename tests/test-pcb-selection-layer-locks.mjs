@@ -95,7 +95,7 @@ const app = {
     syncClipboardButtons() {}, getLayerGroup() { return null; }, _shapeElements: new Map(),
     get selected() { return selectionEntries(this); },
 };
-for (const select of [() => PCBApp.prototype._selectAllPcb.call(app),
+for (const select of [() => PCBApp.prototype.selectAll.call(app),
     () => selectEnclosed(app, { minX: 0, minY: 0, maxX: 10, maxY: 10 })]) {
     select();
     assert.ok(!app.selected.some(entry => entry.object === lockedPlacement.id),

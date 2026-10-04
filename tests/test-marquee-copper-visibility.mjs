@@ -74,7 +74,7 @@ try {
             assert.equal(halos(app).length, 0, 'Hidden secondary tracks do not appear during the drag');
             release(app);
             assert.equal(halos(app).length, 0, 'Hidden primary tracks do not appear on release');
-            PCBApp.prototype._selectAllPcb.call(app);
+            PCBApp.prototype.selectAll.call(app);
             assert.deepEqual(getPcbSelection(app, 'track'), [], 'Select All also excludes hidden copper');
         }
     }
@@ -119,7 +119,7 @@ try {
             'Hidden-only nodes do not expose handles on the selection overlay');
         assert.equal(adapter.hitTest(hidden === top ? { x: 2, y: 1 } : { x: 8, y: 7 }, 0.01), false,
             'Hidden runs cannot be hit through the visible side of a mixed-layer track');
-        PCBApp.prototype._selectAllPcb.call(app);
+        PCBApp.prototype.selectAll.call(app);
         assert.deepEqual(getPcbSelection(app, 'track'), [mixed], 'Select All uses the same per-edge visibility rules');
         selectTrackSegment(app, mixed, hiddenEdge);
         assert.equal(halos(app).length, 0, 'A stale segment selection cannot highlight hidden copper');

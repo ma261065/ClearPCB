@@ -56,7 +56,7 @@ for (const locked of [false, true]) {
     Object.assign(app, {
         _hitTestText: () => null, _hitTestRefText: () => null, _hitTestComponent: () => 'U1',
         _selectComponent: id => selected.push(id), _selectBoardOutline: noop, selectText: noop, _selectRefText: noop,
-        _showComponentProperties: noop, _hoverComponent: noop, _hideNetTooltip: noop,
+        showComponentProperties: noop, _hoverComponent: noop, _hideNetTooltip: noop,
         _netsForComponent: () => new Set(['N1']), selectFill: noop,
     });
     app._pressNewTarget(press(), { x: 10, y: 20 });

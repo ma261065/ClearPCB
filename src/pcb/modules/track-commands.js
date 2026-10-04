@@ -699,7 +699,7 @@ export class SetPlacementLockedCommand extends ModelSetPlacementLockedCommand {
             if (this.app.viewport?.svg) {
                 this.app.viewport.svg.style.cursor = locked ? 'default' : 'grab';
             }
-            this.app._showComponentProperties?.(this.compId);
+            this.app.showComponentProperties?.(this.compId);
         }
         if (getPcbSelection(this.app, 'reftext').includes(this.compId)) {
             this.app._showRefProperties?.(this.compId);

@@ -2021,3 +2021,29 @@ export function loadBoardShapes(app, arr, { render = true, strict = false } = {}
         if (render && shape.type !== 'fill') renderBoardShape(app, shape);
     }
 }
+
+/**
+ * Keys while a board shape is being drawn: Escape cancels; Enter finishes a polygon
+ * or line, or completes any other shape at the cursor.
+ * @returns {boolean|null} null when no shape is being drawn, else whether the key was consumed.
+ */
+export function handleShapeDrawKey(app, e) {
+    if (!app._shapeDraw) return null;
+    if (e.key === 'Escape') {
+        cancelShapeDraw(app);
+        return true;
+    }
+    if (e.key === 'Enter' && app._shapeDraw.kind === 'polygon') {
+        finishPolygonDraw(app);
+        return true;
+    }
+    if (e.key === 'Enter' && app._shapeDraw.kind === 'line') {
+        finishLineDraw(app);
+        return true;
+    }
+    if (e.key === 'Enter') {
+        finishShapeDrawAtPoint(app, app._shapeDraw.cursorWorld);
+        return true;
+    }
+    return false;
+}

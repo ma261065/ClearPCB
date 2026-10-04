@@ -7,18 +7,16 @@ import { ComponentProperties } from '../pcb/modules/component-properties.js';
 import { bindPcbControls } from '../pcb/modules/controls.js';
 import { Viewport } from '../core/Viewport.js';
 import { snapToViewportGrid } from '../core/grid-snap.js';
-import { displayRotationDegrees } from '../core/number-inputs.js';
 import { PcbDocument } from '../core/PcbDocument.js';
 import { commitDesignInput, renderDesignSettings } from '../pcb/modules/design-settings.js';
 import { loadAndApplyTheme, toggleTheme as toggleSharedTheme, syncThemeToggleButtons } from '../shared/ui/theme.js';
 import { renderFootprint, applyRefGeometry, REF_DEFAULT_SIZE, REF_DEFAULT_STROKE } from '../shared/pcb/footprint.js';
 import { updateGridDropdown, restoreGridSettings, serializeGridSettings } from '../shared/ui/viewport.js';
 import { setToolCursor } from '../shared/ui/cursor.js';
-import { sortByPropertyOrder } from '../shared/ui/property-order.js';
 import { bindRibbonHeight } from '../shared/ui/ribbon-height.js';
 import { isUnmodifiedPrimaryDoublePress } from '../shared/ui/inline-edit-activation.js';
 import { applyTextConnectionGuide, setInlineTextInputActive } from '../shared/ui/inline-text-overlay.js';
-import { PCB_LAYERS, PCB_OVERLAYS, PCB_COPPER_FILLS, isLayerLocked, isViaLocked, isLayerVisible, isViaVisible, pcbLayerHoverColor, pcbLayerSelectionColor, pcbLayerOptionHtml, refreshPcbLayerOptions, showLockedLayerBubble, isCopperFillLocked, isCopperFillVisible, saveLayerPrefs, setPcbCopperFillLocked, setPcbLayerLocked } from '../pcb/modules/layers.js';
+import { PCB_LAYERS, PCB_OVERLAYS, PCB_COPPER_FILLS, isLayerLocked, isViaLocked, isLayerVisible, isViaVisible, pcbLayerHoverColor, pcbLayerSelectionColor, refreshPcbLayerOptions, showLockedLayerBubble, isCopperFillLocked, isCopperFillVisible, saveLayerPrefs } from '../pcb/modules/layers.js';
 import { exportDSN, importSES } from '../pcb/modules/dsn.js';
 import { DrcPresentation } from '../pcb/modules/drc-presentation.js';
 import { resolveDrcPairMarker } from '../pcb/modules/drc.js';
@@ -26,7 +24,7 @@ import { scheduleDrcRefresh, runDrcNow, invalidateDrcRefresh, disposeDrcRefresh 
 import { cancelPcbPosePreviews, disposePcbPropertyEditors, hasPcbEditInProgress } from '../pcb/modules/edit-lifecycle.js';
 import { dispatchPcbPointerMove } from '../pcb/modules/pcb-interaction-routing.js';
 import { isPcbDrawing } from '../pcb/modules/pcb-interactions.js';
-import { runPcbDeleteAction, runPcbEscapeAction, runPcbHistoryAction, runPcbNudgeAction, savePcbProject } from '../pcb/modules/editor-actions.js';
+import { handlePcbKeyDown } from '../pcb/modules/keyboard.js';
 import { PCB_CROSSHAIR_TOOLS, cancelPcbDrawingMode, preparePcbRibbonTransition } from '../pcb/modules/tool-lifecycle.js';
 import { buildCopperObstacles } from '../pcb/modules/copper-obstacles.js';
 import { buildRouteInput } from '../pcb/modules/route-input.js';
@@ -37,8 +35,8 @@ import { generateBOM, generatePickAndPlace } from '../pcb/modules/assembly.js';
 import { openBoard3DViewer } from '../pcb/modules/board3d.js';
 import { savePcbPdf, printPcb, projectBaseName } from '../pcb/modules/pcb-export.js';import { tracksFromAutorouterResult } from '../pcb/modules/autorouter-adapter.js';
 import { renderTrack, renderVia, removeTrackElements, removeViaElements, buildTrackLayerRuns, hasTrackElements, hasViaElements } from '../pcb/modules/track-render.js';
-import { startTrackDraw, updateTrackDraw, refreshTrackDrawPreview, addTrackWaypoint, finishTrackDraw, cancelTrackDraw, toggleTrackLayer, resolveTrackDrawSnap, resolveTrackSnap, showTrackSnapMarker, clearTrackSnapMarker, reconcileRatsnest } from '../pcb/modules/track-draw.js';
-import { hitTestTrack, hitTestLockedTrack, selectTrackOrVia, clearTrackSelection, setHoverHighlight, showTrackContextMenu, refreshTrackSelectionHalo, getSelectedTrack, getSelectedVia, selectTrackSegment, dismissTrackContextMenu, applyNetToCopperSelection, trackIsSelectable } from '../pcb/modules/track-select.js';
+import { startTrackDraw, updateTrackDraw, refreshTrackDrawPreview, addTrackWaypoint, finishTrackDraw, cancelTrackDraw, resolveTrackDrawSnap, resolveTrackSnap, showTrackSnapMarker, clearTrackSnapMarker, reconcileRatsnest } from '../pcb/modules/track-draw.js';
+import { hitTestTrack, hitTestLockedTrack, selectTrackOrVia, clearTrackSelection, setHoverHighlight, showTrackContextMenu, refreshTrackSelectionHalo, getSelectedTrack, getSelectedVia, selectTrackSegment, dismissTrackContextMenu, trackIsSelectable } from '../pcb/modules/track-select.js';
 import { getBoardShapeRotationPreview, getBoardShapePointerPreview, getBoardShapePropertyPreview, finishBoardShapeRotationPreview } from '../pcb/modules/board-shapes.js';
 import {
     startVertexDrag,
@@ -55,45 +53,15 @@ import {
     hitTestTrackMidpoint,
     buildDrawnTrackCommands,
 } from '../pcb/modules/track-drag.js';
-import {
-    AddTrackCommand,
-    AddViaCommand,
-    RemoveTrackCommand,
-    ReplaceRoutesCommand,
-    ModifyTrackGraphCommand,
-    CompoundCommand,
-    MovePlacementCommand,
-    RotatePlacementCommand,
-    SetPlacementLockedCommand,
-    FlipPlacementCommand,
-    SetPlacementSideCommand,
-    SetPlacementRefVisibleCommand,
-    MoveRefTextCommand,
-    RotateRefTextCommand,
-    SetRefStyleCommand,
-    SetBoardOutlineCommand,
-    ModifyViaCommand,
-    previewPlacementPose,
-    finishPlacementPreview,
-    getPlacementPreviewTracks,
-    getViaPropertyPreview,
-    getTrackPropertyPreview,
-    canonicalTrack,
-    renderPlacementPose,
-    renderPlacementSide,
-    applyPlacementRefVisible,
-    placementTransform,
-    isPlacementMirrored,
-} from '../pcb/modules/track-commands.js';
+import { AddTrackCommand, AddViaCommand, RemoveTrackCommand, ReplaceRoutesCommand, CompoundCommand, MovePlacementCommand, RotatePlacementCommand, SetPlacementLockedCommand, FlipPlacementCommand, SetPlacementSideCommand, SetPlacementRefVisibleCommand, MoveRefTextCommand, RotateRefTextCommand, SetRefStyleCommand, SetBoardOutlineCommand, previewPlacementPose, finishPlacementPreview, getPlacementPreviewTracks, getViaPropertyPreview, getTrackPropertyPreview, canonicalTrack, renderPlacementPose, renderPlacementSide, applyPlacementRefVisible, placementTransform, isPlacementMirrored } from '../pcb/modules/track-commands.js';
 import { renderPcbText, pcbTextHitTest, textColorForLayer } from '../pcb/modules/pcb-text.js';
-import { createPcbText, serializePcbText, TEXT_LAYERS } from '../core/pcb-text.js';
+import { createPcbText, serializePcbText } from '../core/pcb-text.js';
 import { showAlert } from '../shared/ui/modal.js';
 import { connectBoxOutlines } from '../core/geometry.js';
-import { AddTextCommand, RemoveTextCommand, MoveTextCommand, EditTextCommand, getTextPosePreviewTexts, previewTextPose, finishTextPosePreview, beginTextPropertyPreview, finishTextPropertyPreview } from '../pcb/modules/text-commands.js';
-import { shapeDrawClick, cancelShapeDraw, finishPolygonDraw, finishLineDraw, finishShapeDrawAtPoint, hitTestBoardShape, setBoardShapeHover, selectBoardShape, startBoardShapeDrag, endBoardShapeDrag, resolveShapeDrawLayer, boardShapeCopperCuts, renderBoardShape, hitTestBoardShapeVertex, showBoardShapeContextMenu, dismissBoardShapeContextMenu, captureBoardShapeState, applyShapeSnapshot } from '../pcb/modules/board-shapes.js';
+import { AddTextCommand, RemoveTextCommand, MoveTextCommand, EditTextCommand, getTextPosePreviewTexts, previewTextPose, finishTextPosePreview } from '../pcb/modules/text-commands.js';
+import { shapeDrawClick, cancelShapeDraw, finishPolygonDraw, finishLineDraw, finishShapeDrawAtPoint, hitTestBoardShape, setBoardShapeHover, selectBoardShape, startBoardShapeDrag, endBoardShapeDrag, resolveShapeDrawLayer, boardShapeCopperCuts, renderBoardShape, hitTestBoardShapeVertex, showBoardShapeContextMenu, dismissBoardShapeContextMenu } from '../pcb/modules/board-shapes.js';
 import { showBoardShapeProperties, showBoardShapeToolProperties, refreshBoardShapeToolLayer } from '../pcb/modules/board-shape-properties.js';
-import { ModifyBoardShapeCommand } from '../pcb/modules/shape-commands.js';
-import { shapeOutline, normalizeShapeCopperMode, boardShapeRemovalPathD, boardShapeBounds } from '../shared/pcb/board-shape-geometry.js';
+import { normalizeShapeCopperMode, boardShapeRemovalPathD, boardShapeBounds } from '../shared/pcb/board-shape-geometry.js';
 import { hitTestPcbSelectionAnchor, renderPcbSelectionAnchors } from '../pcb/modules/selection-anchors.js';
 import { refreshAxisGlow } from '../pcb/modules/axis-glow.js';
 import { buildFillContext } from '../pcb/modules/fill-context.js';
@@ -129,20 +97,15 @@ import { Track } from '../shapes/track.js';
 import { Via } from '../shapes/via.js';
 import { Pad } from '../shapes/pad.js';
 import { CopperFill } from '../shapes/copper-fill.js';
-import { padCopperPathD, padLayers, renderPad } from '../pcb/modules/pad.js';
-import {
-    AddPadCommand, ModifyPadCommand, getPadRotationPreview,
-    getPadPropertyPreview, beginPadPropertyPreview, finishPadPropertyPreview, canonicalPad,
-} from '../pcb/modules/pad-commands.js';
+import { padCopperPathD, renderPad } from '../pcb/modules/pad.js';
+import { AddPadCommand, getPadRotationPreview, getPadPropertyPreview } from '../pcb/modules/pad-commands.js';
 import '../pcb/modules/pad-selection.js';
 import { boardShapeClearanceOutlines, pcbTextClearanceOutlines } from '../pcb/modules/copper-fill-geom.js';
-import { bindPictureRefreshHold, schedulePictureCopperRefresh, shouldDeferShapeClearance } from '../pcb/modules/picture-refresh.js';
-import { PICTURE_LAYERS } from '../shared/pcb/picture-raster.js';
+import { shouldDeferShapeClearance } from '../pcb/modules/picture-refresh.js';
 import { renderCopperFill, fillGroupId, setCopperFillClip } from '../pcb/modules/copper-fill-render.js';
 import { RemoveFillCommand, ModifyFillCommand } from '../pcb/modules/copper-fill-commands.js';
 import '../pcb/modules/copper-fill-selection.js';
-import { startFillEditAt, updateFillEdit, endFillEdit, showFillContextMenu,
-    addFillGeometryProperties, deleteFocusedFillPart, canEditFill, showFillProperties } from '../pcb/modules/copper-fill-edit.js';
+import { startFillEditAt, updateFillEdit, endFillEdit, showFillContextMenu, deleteFocusedFillPart, showFillProperties } from '../pcb/modules/copper-fill-edit.js';
 import '../pcb/modules/component-selection.js';
 import '../pcb/modules/pcb-text-selection.js';
 import { isRefTextLocked } from '../pcb/modules/ref-text-selection.js';
@@ -156,11 +119,7 @@ import { preparePcbPaste, beginPcbPaste, updatePcbPaste, endPcbPaste, cancelPcbP
 import { getBoardOutline, boardBoundary } from '../shared/pcb/board-outline.js';
 import { eachPropertyEditorOnLayer, getPropertyEditor, setPropertyEditor } from '../pcb/modules/property-editors.js';
 import { areDragOverlaysDeferred, isFillRefreshPending, onRefreshSuspended, setDragOverlaysDeferred } from '../pcb/modules/refresh-state.js';
-import {
-    beginBoardOutlineResize, updateBoardOutlineResize, endBoardOutlineResize,
-    renderBoardOutlineHandles, hitTestBoardOutlineHandle,
-    getBoardDimensionPreview, bindBoardDimensionProperties, showBoardOutlineProperties,
-} from '../pcb/modules/board-outline-resize.js';
+import { beginBoardOutlineResize, updateBoardOutlineResize, endBoardOutlineResize, renderBoardOutlineHandles, hitTestBoardOutlineHandle, getBoardDimensionPreview, showBoardOutlineProperties } from '../pcb/modules/board-outline-resize.js';
 import { getBoardShapeNodeFocus, getBoardShapeSegmentFocus } from '../pcb/modules/board-shape-state.js';
 import { showTextToolProperties, showTextProperties, bindStrokeTextProps } from '../pcb/modules/text-properties.js';
 import { showPadEditor } from '../pcb/modules/pad-properties.js';
@@ -583,7 +542,7 @@ export default class PCBApp {
             || getPcbSelection(this, 'fill').length > 0;
     }
     /** Select every currently visible, unlocked PCB object. */
-    _selectAllPcb() {
+    selectAll() {
         window.getSelection?.()?.removeAllRanges();
         const selected = [];
         for (const [componentId, placement] of this.placements) {
@@ -1584,7 +1543,7 @@ export default class PCBApp {
         if (hit) {
             this._selectComponent(hit);
             this._selectBoardOutline(false);
-            this._showComponentProperties(hit);
+            this.showComponentProperties(hit);
             if (this._beginComponentDrag(hit, worldPos)) svg.style.cursor = 'grabbing';
         } else if (this._hitTestBoardOutline(worldPos)) {
             this._selectComponent(null);
@@ -2213,166 +2172,7 @@ export default class PCBApp {
      * @returns {boolean} true if consumed
      */
     handleKeyDown(e) {
-        if (!this._active) return false;
-
-        // Don't hijack keys when the user is typing in an input/textarea
-        // (e.g. the Properties panel text fields). Otherwise Backspace
-        // would delete the selected text instead of a character.
-        const tgt = /** @type {HTMLElement} */ (e.target);
-        if (tgt && (tgt.tagName === 'INPUT' || tgt.tagName === 'TEXTAREA' || tgt.tagName === 'SELECT' || tgt.isContentEditable)) {
-            return false;
-        }
-        // The window-capture dispatcher must let panel navigation reach its handler.
-        if (tgt?.closest?.('#pcbDrcSlidePanel')
-            && ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key)) return false;
-
-        if (!e.ctrlKey && !e.metaKey && !e.altKey) {
-            if (e.key === '+' || e.key === '=') {
-                this.viewport.zoomIn();
-                return true;
-            }
-            if (e.key === '-' || e.key === '_') {
-                this.viewport.zoomOut();
-                return true;
-            }
-        }
-
-        // File save shortcuts (Ctrl+S / Ctrl+Alt+S). While PCB is active it owns
-        // the keyboard, and the schematic keyboard handler bails out when PCB is
-        // active — so Ctrl+S must be handled here. Otherwise it isn't consumed by
-        // the app and falls through to the browser's native "Save page as…"
-        // dialog instead of saving the project (matching the PCB ribbon Save
-        // button, which calls project.save()/saveAs()).
-        if ((e.ctrlKey || e.metaKey) && (e.key === 's' || e.key === 'S')) {
-            void savePcbProject(this, e.altKey);
-            return true;
-        }
-
-        if ((e.ctrlKey || e.metaKey) && !e.shiftKey && (e.key === 'c' || e.key === 'C')) {
-            if (this.copySelection()) return true;
-            return false;
-        }
-        if ((e.ctrlKey || e.metaKey) && !e.shiftKey && (e.key === 'x' || e.key === 'X')) {
-            if (this.cutSelection()) return true;
-            return false;
-        }
-        if ((e.ctrlKey || e.metaKey) && !e.shiftKey && (e.key === 'v' || e.key === 'V')) {
-            if (this.pasteSelection()) return true;
-            return false;
-        }
-        if ((e.ctrlKey || e.metaKey) && !e.shiftKey && (e.key === 'a' || e.key === 'A')) {
-            this._selectAllPcb();
-            return true;
-        }
-
-        // Track-draw mode owns Escape, Enter and Space.
-        if (this._trackDraw) {
-            if (e.key === 'Escape') {
-                cancelTrackDraw(this);
-                return true;
-            }
-            if (e.key === 'Enter') {
-                finishTrackDraw(this);
-                return true;
-            }
-            if (e.code === 'Space' || e.key === ' ') {
-                const snap = this._trackDraw.snap;
-                if (snap) addTrackWaypoint(this, { x: snap.x, y: snap.y });
-                if (this._trackDraw) toggleTrackLayer(this);
-                return true;
-            }
-            return false;
-        }
-
-        // Fill-draw mode owns Enter / Escape.
-        if (this._fillDraw) {
-            if (e.key === 'Enter') {
-                finishFillDraw(this);
-                return true;
-            }
-            if (e.key === 'Escape') {
-                cancelFillDraw(this);
-                return true;
-            }
-            return false;
-        }
-
-        // Shape-draw mode owns Escape and Enter.
-        if (this._shapeDraw) {
-            if (e.key === 'Escape') {
-                cancelShapeDraw(this);
-                return true;
-            }
-            if (e.key === 'Enter' && this._shapeDraw.kind === 'polygon') {
-                finishPolygonDraw(this);
-                return true;
-            }
-            if (e.key === 'Enter' && this._shapeDraw.kind === 'line') {
-                finishLineDraw(this);
-                return true;
-            }
-            if (e.key === 'Enter') {
-                finishShapeDrawAtPoint(this, this._shapeDraw.cursorWorld);
-                return true;
-            }
-            return false;
-        }
-
-        // Otherwise: history, delete, selection-cancel.
-        const ctrl = e.ctrlKey || e.metaKey;
-        if (!ctrl && !e.altKey && ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key)) {
-            return runPcbNudgeAction(this, e.key);
-        }
-        if (ctrl && !e.shiftKey && (e.key === 'z' || e.key === 'Z')) {
-            return runPcbHistoryAction(this, 'undo');
-        }
-        if (ctrl && ((e.key === 'y' || e.key === 'Y') || ((e.key === 'z' || e.key === 'Z') && e.shiftKey))) {
-            return runPcbHistoryAction(this, 'redo');
-        }
-        if (e.key === 'Delete' || e.key === 'Backspace') {
-            return runPcbDeleteAction(this);
-        }
-        if (e.key === 'Escape') return runPcbEscapeAction(this);
-        // Component transform shortcuts (match the schematic editor):
-        //   Space = rotate right, X = flip horizontal, Y = flip vertical.
-        const selectedRef = getPcbSelection(this, 'reftext')[0] || null;
-        const selectedComponent = getPcbSelection(this, 'component')[0] || null;
-        if (selectedRef && this.placements.has(selectedRef)) {
-            // A selected reference designator rotates with Space; the
-            // component body shortcuts don't apply while the label is selected.
-            if (e.code === 'Space' || e.key === ' ') {
-                this._rotateRefText(selectedRef);
-                e.preventDefault();
-                return true;
-            }
-        }
-        if (selectedComponent && this.placements.has(selectedComponent)) {
-            if (e.code === 'Space' || e.key === ' ') {
-                this._rotateComponent(selectedComponent, 'R');
-                this._showComponentProperties(selectedComponent);
-                e.preventDefault();
-                return true;
-            }
-            if (e.key === 'x' || e.key === 'X') {
-                this._flipComponent(selectedComponent, 'H');
-                this._showComponentProperties(selectedComponent);
-                e.preventDefault();
-                return true;
-            }
-            if (e.key === 'y' || e.key === 'Y') {
-                this._flipComponent(selectedComponent, 'V');
-                this._showComponentProperties(selectedComponent);
-                e.preventDefault();
-                return true;
-            }
-        }
-        if ((e.code === 'Space' || e.key === ' ') && !ctrl && !e.altKey
-            && !getPcbSelection(this).length && !this._pasteDrop && !this._textEdit
-            && !this._pcbSelectionInteraction && tgt?.tagName !== 'BUTTON') {
-            this.fitToContent();
-            return true;
-        }
-        return false;
+        return handlePcbKeyDown(this, e);
     }
     _commitTrack(track, vias = []) {
         this.history.execute(new AddTrackCommand(this, track, vias));
@@ -3367,7 +3167,7 @@ export default class PCBApp {
             },
             setReferenceVisible: (id, visible) => this._setComponentRefVisible(id, visible),
             setSide: (id, side) => this._setPlacementSide(id, side),
-            flip: (id, axis) => this._flipComponent(id, axis),
+            flip: (id, axis) => this.flipComponent(id, axis),
             open3D: id => this._openComponent3DPopout(id),
             renderReference: id => this._rerenderRef(id),
             drawReferenceOverlay: (id, tether) => this._drawRefOverlay(id, tether),
@@ -3380,7 +3180,7 @@ export default class PCBApp {
     }
 
     /** Show properties for a single placed component. */
-    _showComponentProperties(compId) {
+    showComponentProperties(compId) {
         return PCBApp.prototype._getComponentProperties.call(this).showComponent(compId);
     }
 
@@ -3448,7 +3248,7 @@ export default class PCBApp {
      * @param {string} compId
      * @param {'L'|'R'} dir
      */
-    _rotateComponent(compId, dir) {
+    rotateComponent(compId, dir) {
         const pl = this.placements.get(compId);
         if (!pl || pl.locked) return;
         const cur = ((pl.rotation || 0) % 360 + 360) % 360;
@@ -3462,7 +3262,7 @@ export default class PCBApp {
      * @param {string} compId
      * @param {'H'|'V'} axis
      */
-    _flipComponent(compId, axis) {
+    flipComponent(compId, axis) {
         if (!this.placements.has(compId) || this.placements.get(compId)?.locked) return;
         this.history.execute(new FlipPlacementCommand(this, compId, axis));
     }
@@ -5100,7 +4900,7 @@ export default class PCBApp {
     }
 
     /** Rotate the selected reference designator by 90° (through history). */
-    _rotateRefText(compId) {
+    rotateRefText(compId) {
         getPropertyEditor(this, 'component')?.commit();
         const pl = this.placements.get(compId);
         if (!pl || isRefTextLocked(pl)) return;

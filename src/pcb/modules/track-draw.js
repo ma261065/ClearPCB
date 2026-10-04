@@ -1933,3 +1933,27 @@ function _renderOptsFromApp(app) {
  * @property {Set<any>} [guideSourceShapes]
  * @property {Set<string>} [guideSourceKeys]
  */
+
+/**
+ * Keys while a track is being drawn: Escape cancels, Enter finishes, Space drops a
+ * waypoint at the snap point and switches copper layer. Other keys are not consumed.
+ * @returns {boolean|null} null when no track is being drawn, else whether the key was consumed.
+ */
+export function handleTrackDrawKey(app, e) {
+    if (!app._trackDraw) return null;
+    if (e.key === 'Escape') {
+        cancelTrackDraw(app);
+        return true;
+    }
+    if (e.key === 'Enter') {
+        finishTrackDraw(app);
+        return true;
+    }
+    if (e.code === 'Space' || e.key === ' ') {
+        const snap = app._trackDraw.snap;
+        if (snap) addTrackWaypoint(app, { x: snap.x, y: snap.y });
+        if (app._trackDraw) toggleTrackLayer(app);
+        return true;
+    }
+    return false;
+}

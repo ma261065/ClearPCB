@@ -100,11 +100,11 @@ function fixture(saved = true, side = 'top', mirror = false) {
         _netsForComponent: () => new Set(['N1']), updateRatsnest: PCBApp.prototype.updateRatsnest, refreshClearanceHalos() {},
         _markDirty: () => dirty++, refreshFills: () => fills++, _board3d: { refresh: () => views3d++ },
     };
-    for (const method of ['_showComponentProperties', '_syncComponentRotationInput', 'handleKeyDown', '_clearCursorCrosshair']) {
+    for (const method of ['showComponentProperties', '_syncComponentRotationInput', 'handleKeyDown', '_clearCursorCrosshair']) {
         app[method] = PCBApp.prototype[method];
     }
     setPcbSelection(app, [{ kind: 'component', object: 'part' }]);
-    app._showComponentProperties('part');
+    app.showComponentProperties('part');
     const adapter = getPcbSelectionEntries(app)[0];
     const original = capturePlacementOverride(placement);
     const center = { x: placement.x, y: placement.y };
@@ -237,7 +237,7 @@ for (const saved of [false, true]) {
     }
     setPcbSelection(app, [{ kind: 'component', object: 'part' }]);
     placement.locked = true;
-    app._showComponentProperties('part');
+    app.showComponentProperties('part');
     assert.equal(ids.get('pcbPropCompRot').disabled, true);
     assert.equal(f.adapter.beginAnchorDrag('rotate', f.anchor()), false);
     placement.locked = false;

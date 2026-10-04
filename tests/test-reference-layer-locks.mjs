@@ -45,7 +45,7 @@ for (const side of ['top', 'bottom']) {
         layerLabel: value => value, _screenToWorld: event => ({ x: event.clientX, y: event.clientY }),
     };
     for (const name of ['_beginRefTextDrag', '_updateRefTextDrag', '_handleRefDrag', '_endRefDrag',
-        '_rotateRefText', '_hitTestRefText', '_worldToPlacementLocal', '_placementLocalToWorld',
+        'rotateRefText', '_hitTestRefText', '_worldToPlacementLocal', '_placementLocalToWorld',
         '_snapToGrid', '_showRefProperties', '_bindStrokeTextProps', '_pcbMultiPropertyCapabilities',
         '_onLayerLockChanged', '_endTextInlineEdit']) app[name] = PCBApp.prototype[name];
     const adapter = createRefTextSelectionAdapter(app, 'part', 'reftext:part');
@@ -63,7 +63,7 @@ for (const side of ['top', 'bottom']) {
         assert.equal(app._pcbSelectionInteraction, null, 'Locked selection must not arm a drag');
         assert.equal(app._refDrag, undefined);
         assert.equal(app._beginRefTextDrag('part', { x: 0, y: 0 }), false);
-        app._rotateRefText('part');
+        app.rotateRefText('part');
         assert.deepEqual(capturePlacementOverride(placement), original);
         assert.equal(app.history.canUndo(), false);
         for (const id of ['pcbPropRefSize', 'pcbPropRefRot', 'pcbPropRefLW']) {
@@ -88,7 +88,7 @@ for (const side of ['top', 'bottom']) {
         assert.equal(other.locked, true, 'Unlock only the reference side');
         assert.ok(propertyShows > beforeUnlockProperties, 'Layer unlock refreshes selected-reference controls');
         assert.doesNotMatch(items.innerHTML, /id="pcbPropRefRot"[^>]* disabled/);
-        app._rotateRefText('part');
+        app.rotateRefText('part');
         assert.equal(placement.refRot, 90);
         app.history.undo();
         assert.equal(placement.refRot, 0, 'Unlocked reference rotation retains undo');

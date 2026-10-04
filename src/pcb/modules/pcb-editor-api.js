@@ -53,6 +53,15 @@
  *   Select (or clear) one free text.
  * @property {(text: object) => void} showTextProperties
  *   Show a free text's Properties panel, aware of an inline edit in progress.
+ * @property {() => void} selectAll
+ *   Select every selectable, unlocked object on visible layers.
+ * @property {(compId: string, dir: 'L'|'R') => void} rotateComponent
+ * @property {(compId: string, axis: 'H'|'V') => void} flipComponent
+ *   Rotate or flip a placed component (undoable; locked parts are left alone).
+ * @property {(compId: string) => void} rotateRefText
+ *   Rotate a component's reference designator by 90 degrees.
+ * @property {(compId: string) => void} showComponentProperties
+ *   Show a placed component's Properties panel.
  */
 
 /**
@@ -68,5 +77,6 @@ export const PCB_EDITOR_SERVICES = Object.freeze([
     'updateCopperCuts', 'refreshText', 'selectFill', 'refreshSelectedDRCMarker', 'clearProperties',
     'setStatus', 'setPcbStatus', 'syncClipboardButtons', 'propertiesItems', 'setPropertiesTitle', 'showPropertiesTab',
     'toolNetOptions', 'bindToolNetControl', 'layerLabel', 'fitToContent', 'setActiveRibbonTab',
-    'selectText', 'showTextProperties',
+    'selectText', 'showTextProperties', 'selectAll', 'rotateComponent', 'flipComponent', 'rotateRefText',
+    'showComponentProperties',
 ]);

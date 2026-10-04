@@ -46,7 +46,7 @@ export function clearSelectionInteractionUi(app) {
 function showSingleProperties(app, entry) {
     if (entry.kind === 'component') {
         app._selectComponent?.(entry.object);
-        app._showComponentProperties?.(entry.object);
+        app.showComponentProperties?.(entry.object);
     } else if (entry.kind === 'text') {
         app.selectText?.(entry.object);
         app.showTextProperties?.(entry.object);

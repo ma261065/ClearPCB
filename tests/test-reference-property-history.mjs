@@ -160,7 +160,7 @@ for (const value of ['', '-', 'Infinity', '3']) for (const handoff of ['change',
     else if (handoff === 'move') {
         PCBApp.prototype._beginRefTextDrag.call(app, 'part', { x: 0, y: 0 });
         PCBApp.prototype._endRefDrag.call(app, false);
-    } else PCBApp.prototype._rotateRefText.call(app, 'part');
+    } else PCBApp.prototype.rotateRefText.call(app, 'part');
     assert.equal(placement.refSize, valid ? 3 : before.refSize);
     assert.equal(getPropertyEditor(app, 'component').active, false);
     assert.equal(PCBApp.prototype.isSectionEditing.call(app), false);

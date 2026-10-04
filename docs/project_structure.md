@@ -160,7 +160,9 @@ PCB editor:
 - `pcb/modules/pcb-editor-api.js` — public editor services for PCB modules.
 - `pcb/modules/edit-lifecycle.js` — preview cancellation, property-editor disposal,
   snapshot readiness; `tool-lifecycle.js` — tool selection and drawing cancellation.
-- `pcb/modules/editor-actions.js` — Undo, Redo, Save, Delete, nudge and Escape entry points.
+- `pcb/modules/editor-actions.js` — Undo, Redo, Save, Delete, nudge and Escape entry points;
+  `keyboard.js` — the PCB keyboard shortcuts (like `schematic/modules/keyboard.js`),
+  with each drawing tool handling its own keys (`handleTrackDrawKey`, …).
 - `pcb/modules/project-state.js` — PCB serialization, preparation and restoration.
 - `pcb/modules/board-shapes.js` — board-shape rendering, selection, interaction and
   Track conversion; `board-shape-properties.js` — their Properties panel.

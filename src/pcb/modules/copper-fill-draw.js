@@ -160,3 +160,20 @@ function renderPreview(app) {
         g.appendChild(dot);
     }
 }
+
+/**
+ * Keys while a pour outline is being drawn: Enter finishes, Escape cancels.
+ * @returns {boolean|null} null when no pour is being drawn, else whether the key was consumed.
+ */
+export function handleFillDrawKey(app, e) {
+    if (!app._fillDraw) return null;
+    if (e.key === 'Enter') {
+        finishFillDraw(app);
+        return true;
+    }
+    if (e.key === 'Escape') {
+        cancelFillDraw(app);
+        return true;
+    }
+    return false;
+}

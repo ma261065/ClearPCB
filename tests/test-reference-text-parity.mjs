@@ -157,7 +157,7 @@ console.log('PASS placement commands persist into project state through execute/
     editor._recordPlacementOverride = () => assert.fail('Metadata adapters must not persist generated artwork back into the model');
     editor._markDirty = () => { dirtyNotifications++; stages.push('dirty'); };
     editor._refreshPcbSelectionHighlights = () => stages.push('highlights');
-    editor._showComponentProperties = () => stages.push('properties');
+    editor.showComponentProperties = () => stages.push('properties');
     editor._drawRefOverlay = () => stages.push('overlay');
     editor._board3d = { refresh() { stages.push('3d'); } };
     editor._rerenderRef = id => {
