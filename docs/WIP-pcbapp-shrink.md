@@ -55,14 +55,16 @@ All planned PCBApp moves are done. Optional follow-up to win back accesses:
 - Browser check: `node tools/serve.mjs 8790`, open the PCB tab, and exercise the moved
   feature.
 - Tooling on this machine: Git and Node.js are not on the default PATH in fresh shells
-  (`C:\Program Files\Git\cmd`, `C:\Program Files\nodejs`). TypeScript 5.9.3 is installed
-  outside the repo; set `TSC=%LOCALAPPDATA%\clearpcb-tsc\node_modules\typescript\lib\tsc.js`
-  for `node tools/typecheck.mjs`.
+  (`C:\Program Files\Git\cmd`, `C:\Program Files\nodejs`). TypeScript 5.9.3 and
+  Playwright 1.55.0 (with Chromium) are installed in the repo's git-ignored
+  `node_modules`, as CI does, so `node tools/typecheck.mjs` and
+  `node tools/browser-test.mjs` need no `TSC`/`PLAYWRIGHT` settings. Reinstall with
+  `npm install --no-save --no-package-lock --ignore-scripts typescript@5.9.3 playwright@1.55.0`
+  then `npx playwright install chromium`.
 
 ## Other open items
 
-- Install Playwright locally once npm is reachable, so the browser scenarios
-  (including `browser-tests/schematic-cancel-isolation.mjs`) run in the local gate, not
-  only in CI.
+- Run the browser scenarios (17, about 2 minutes; Playwright is now installed locally)
+  from the local gate, or document running them alongside it.
 - Add a document validator that runs on load, save and recovery.
 - Add automated speed checks: pointer moves, panel rebuilds, pour refresh, picture load.
