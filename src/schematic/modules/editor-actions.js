@@ -1,70 +1,53 @@
-import { cancelSchematicPointerInteraction } from './drag.js';
 import { BatchCommand, DeleteComponentsCommand, DeleteShapesCommand, ModifyPropertyCommand } from './commands.js';
 import { cancelSchematicPropertyPreview } from './properties.js';
-import { cancelWireDrawing } from './wire.js';
 import { deleteFocusedSchematicShape } from './context-menu.js';
+import { hasSchematicInteraction, isSchematicDrawing } from './schematic-interactions.js';
+import {
+    cancelSchematicInteraction, cancelSchematicPointerInteraction, SCHEMATIC_MODAL_GESTURES,
+} from './schematic-interaction-routing.js';
 
 /**
  * Keyboard, ribbon and Properties entry points for the schematic editor's Escape,
  * Undo/Redo and Delete actions — the counterpart of pcb/modules/editor-actions.js.
  * Every input route calls these, so each action has one precedence and one
- * cleanup boundary however it is invoked.
+ * cleanup boundary however it is invoked. In-progress interactions and their
+ * cancel handlers come from schematic-interactions.js and its routing module.
  */
 
 /**
- * Central Escape handler. Encodes the full cancellation precedence in
- * one place so a single Escape always cancels the most specific active
- * thing first. Each step returns once it consumes the key:
- *   1. inline text edit
- *   2. an in-progress drag (interactionState-driven)
- *   3. a pending (pre-threshold) midpoint split
- *   4. the component picker
- *   5. an active selection (deselect)
- *   6. the open Net-style dropdown
- *   7. a non-Home ribbon tab (back to Home)
- *   8. a non-select tool (back to select)
+ * Central Escape handler. A single Escape always cancels the most specific
+ * active thing first. Each step returns once it consumes the key:
+ *   1. the highest-priority in-progress interaction, in the order of
+ *      schematic-interactions.js: inline text edit, overlap-cycle press, drag,
+ *      pending midpoint split, drawing (which also returns to Select), paste,
+ *      component placement
+ *   2. an armed drawing tool with nothing in progress (back to Select)
+ *   3. the component picker
+ *   4. an active selection (deselect)
+ *   5. the open Net-style dropdown
+ *   6. a non-Home ribbon tab (back to Home)
+ *   7. a non-select tool (back to select)
  * @param {object} app - Application state.
  */
 export function runSchematicEscapeAction(app) {
-    // 1. Inline text edit.
-    if (app.textEdit) {
-        app.endTextEdit(false);
+    // 1. In-progress interactions, highest priority first.
+    const cancelled = cancelSchematicInteraction(app);
+    if (cancelled === 'isDrawing') app.selectTool('select');
+    if (cancelled) return;
+
+    // 2. An armed tool with nothing in progress.
+    if (app.interactionState === 'toolActive') {
+        app.selectTool('select');
         return;
     }
 
-    // 2-3. Active pointer edits and pre-threshold midpoint splits.
-    if (cancelSchematicPointerInteraction(app)) return;
-
-    switch (app.interactionState) {
-        case 'drawing':
-            if (app.currentTool === 'wire') {
-                cancelWireDrawing(app);
-            } else {
-                app.cancelDrawing();
-            }
-            app.selectTool('select');
-            return;
-
-        case 'placing':
-            if (app.pastingClipboard) {
-                app.cancelPaste();
-            } else if (app.placingComponent) {
-                app.cancelComponentPlacement();
-            }
-            return;
-
-        case 'toolActive':
-            app.selectTool('select');
-            return;
-    }
-
-    // 4. Component picker.
+    // 3. Component picker.
     if (app.componentPicker?.isOpen) {
         app.componentPicker.close();
         return;
     }
 
-    // 5. Active selection — deselect. (Selecting a shape auto-activates the
+    // 4. Active selection — deselect. (Selecting a shape auto-activates the
     // Properties ribbon tab, so this must run BEFORE the ribbon-tab step
     // below, otherwise the first Escape would only reset the ribbon.)
     if (app.selection?.getSelection?.().length > 0) {
@@ -73,14 +56,14 @@ export function runSchematicEscapeAction(app) {
         return;
     }
 
-    // 6. Open Net-style dropdown.
+    // 5. Open Net-style dropdown.
     const netMenu = document.getElementById('ribbonNetStyleMenu');
     if (netMenu && netMenu.classList.contains('open')) {
         netMenu.classList.remove('open');
         return;
     }
 
-    // 7. Non-Home ribbon tab → Home.
+    // 6. Non-Home ribbon tab → Home.
     const activeTab = (document.getElementById('ribbonSchematic') || document)
         .querySelector('.ribbon-tab.active');
     if (activeTab instanceof HTMLElement && activeTab.dataset.tab !== 'home') {
@@ -88,7 +71,7 @@ export function runSchematicEscapeAction(app) {
         return;
     }
 
-    // 8. Non-select tool → select (safety net for stale state).
+    // 7. Non-select tool → select (safety net for stale state).
     if (app.currentTool !== 'select') {
         app.selectTool('select');
     }
@@ -96,19 +79,10 @@ export function runSchematicEscapeAction(app) {
 
 /** Settle reversible edits before either keyboard or ribbon history advances. */
 export function runSchematicHistoryAction(app, action) {
-    if (app.isDrawing || app.interactionState === 'drawing') return false;
-    if (app.textEdit) {
-        app.endTextEdit(false);
-        return true;
-    }
-    if (app.pastingClipboard) {
-        app.cancelPaste();
-        return true;
-    }
-    if (app.placingComponent) {
-        app.cancelComponentPlacement();
-        return true;
-    }
+    // Like the PCB editor: drawing blocks history, modal edits (inline text, paste,
+    // placement) are only cancelled, and pointer previews are cancelled first.
+    if (isSchematicDrawing(app)) return false;
+    if (cancelSchematicInteraction(app, SCHEMATIC_MODAL_GESTURES)) return true;
     const cancelledProperty = cancelSchematicPropertyPreview(app);
     cancelSchematicPointerInteraction(app);
     const changed = app.history[action]();
@@ -123,7 +97,9 @@ export function runSchematicHistoryAction(app, action) {
  * @param {object} app - Application state.
  */
 export function runSchematicDeleteAction(app) {
+    // A focused node or segment delete settles its own drag on that shape first.
     if (deleteFocusedSchematicShape(app)) return;
+    if (!canRunSchematicSelectionAction(app)) return;
     const toDelete = app.selection.getSelection().filter(item => !item.locked);
     if (toDelete.length === 0) return;
 
@@ -182,4 +158,14 @@ export function runSchematicDeleteAction(app) {
     }
 
     app.selection.notifyChanged();
+}
+
+/**
+ * Whether an action on the current selection (delete, cut, paste, nudge, flip,
+ * rotate, select all) may run: nothing may be in progress, as in the PCB editor.
+ * Placement keys that act on the component being placed check that first.
+ * @param {object} app
+ */
+export function canRunSchematicSelectionAction(app) {
+    return !hasSchematicInteraction(app);
 }

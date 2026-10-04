@@ -62,6 +62,7 @@ import {
     refreshSelectionVisual,
 } from '../schematic/modules/schematic-view.js';
 import { getShapeNodeFocus, getShapeSegmentFocus, setShapeNodeFocus } from '../schematic/modules/shape-focus.js';
+import { blocksSchematicSnapshot } from '../schematic/modules/schematic-interactions.js';
 
 // Shape construction uses createShape() from shapes/index.js.
 
@@ -1053,8 +1054,7 @@ export default class SchematicApp {
     // ── ProjectDocument view interface ────────────────────────────────
 
     isSectionEditing() {
-        return !!(hasSchematicPropertyPreview(this) || this.drag || this.pendingAnchorDrag
-            || this.isDrawing || this.textEdit || this.pastingClipboard || this.placingComponent);
+        return hasSchematicPropertyPreview(this) || blocksSchematicSnapshot(this);
     }
 
     onDocumentReplaced() {

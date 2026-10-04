@@ -13,7 +13,6 @@
     "_componentCodeTooltipPinned",
     "_drawSnapResult",
     "_findComponentAt",
-    "_labelDragHoverTarget",
     "_moveDragSnappedTarget",
     "_overlapCyclePress",
     "_pendingShapeSegmentToggle",

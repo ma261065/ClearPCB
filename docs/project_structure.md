@@ -182,6 +182,9 @@ Schematic editor:
   selected shape, like `pcb/modules/board-shape-state.js`.
 - `schematic/modules/editor-actions.js` — Undo, Redo, Delete and Escape entry points,
   like `pcb/modules/editor-actions.js`.
+- `schematic/modules/schematic-interactions.js` — the one list of in-progress
+  interactions, with PCB's categories; `schematic-interaction-routing.js` — their
+  cancel handlers (counterparts of `pcb-interactions.js` and `pcb-interaction-routing.js`).
 - `schematic/modules/schematic-view.js` — entity SVG lifecycle, culling and level of
   detail; `schematic/render/` — shape and component renderers and their view state.
 - `schematic/modules/draw-states.js` — the pointer interaction state machine;

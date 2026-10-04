@@ -1,6 +1,6 @@
 import { updateSnapHighlight } from './wire.js';
 import { ShapeValidator } from '../../core/ShapeValidator.js';
-import { cancelSchematicPointerInteraction } from './drag.js';
+import { cancelSchematicInteractions } from './schematic-interaction-routing.js';
 import {
     buildNetGroundBarsPath,
     buildNetSymbolPath,
@@ -106,7 +106,10 @@ export function saveToolOptions(options) {
  * @param {string} tool - Tool identifier to activate.
  */
 export function onToolSelected(app, tool) {
-    cancelSchematicPointerInteraction(app);
+    // Every in-progress interaction except inline text (it ends on blur) and a
+    // component placement, which the Component tool keeps; other tools cancel the
+    // placement below, once the new tool is current.
+    cancelSchematicInteractions(app, ['textEdit', 'placingComponent']);
     app.cancelDrawing();
     
     // Clear any snap highlight left from the previous tool (e.g. wire hover dot)

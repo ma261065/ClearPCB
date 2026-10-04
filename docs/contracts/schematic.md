@@ -24,17 +24,40 @@ per-shape view lookups.
 `test-schematic-view-boundary` tests the helpers and fails on new
 view-lifecycle code elsewhere in the schematic editor.
 
-Two PCB patterns are deliberately not mirrored in the schematic. Property
-previews and drags still edit the authored entities and restore them on
-cancel, instead of editing detached copies: transient state cannot reach a
-saved or synchronised snapshot because `ProjectDocument` refuses to snapshot
-while `SchematicApp.isSectionEditing()` reports a preview, drag, drawing,
-inline edit, paste or placement, and the derived visuals (label guides, the
-inline-edit overlay, text measurement) follow the authored entities for free.
-Nor is there a PCB-style interaction table: the schematic's in-progress state
-is one `interactionState` machine (`draw-states.js`) with a single Escape
-precedence (`runSchematicEscapeAction()` in `editor-actions.js`), and its keyboard guards test
-different subsets of that state rather than one repeated list.
+## Interactions and Previews
+
+In-progress interactions follow the PCB editor's contract.
+`schematic/modules/schematic-interactions.js` is the one list of them, in
+cancellation priority, with PCB's categories (`gesture`, `drawing`) and a
+`blocksSnapshot` flag: inline text edit, overlap-cycle press, drag (anchor, segment
+and move drags and box selection), pending midpoint split, drawing, paste and
+component placement. `schematic-interaction-routing.js` holds each one's cancel
+handler. Everything that needs to know what is in progress derives from the table:
+the snapshot guard (`SchematicApp.isSectionEditing()`, with the Properties live
+preview), Escape (cancels the highest-priority interaction), Undo/Redo (drawing
+blocks it, inline text, paste and placement are only cancelled, pointer previews
+are cancelled and history still steps, as in the PCB editor), tool switching
+(cancels everything but inline text and a placement the Component tool keeps), New
+(cancels everything) and selection actions (delete, cut, paste, nudge, flip,
+rotate, select all wait while anything is in progress). `interactionState` in
+`draw-states.js` still drives pointer dispatch; `resolveState()` derives it from the
+same fields. `test-schematic-interactions` checks the table, routes and guards.
+
+The mechanism behind a preview differs from the PCB editor's on purpose. PCB
+previews edit detached copies because pours, DRC, ratsnest and the 3D view would
+otherwise recompute from half-finished geometry. The schematic has no such
+background work, and much of what a drag affects follows the authored entities
+live (sticky wires, attached labels, junction dots, label guides, text
+measurement), so schematic previews and drags edit the authored entities and
+restore them on cancel: anchor and segment drags from their before-states, a move
+drag from a snapshot of the moved selection, its field and label texts and every
+wire taken at its first movement. The cost is that each gesture must restore
+everything it touched; `browser-tests/schematic-cancel-isolation.mjs` cancels every
+gesture by Escape, tool switch and Undo and checks the model and history are
+unchanged, the counterpart of the PCB preview-isolation tests. Snapshots cannot
+see a half-finished edit because `ProjectDocument` refuses to snapshot while
+`isSectionEditing()` is true. Revisit copies if the schematic gains work that reads
+the model during a gesture (live electrical-rule checks, live PCB sync).
 
 ## Startup and Component Picker
 

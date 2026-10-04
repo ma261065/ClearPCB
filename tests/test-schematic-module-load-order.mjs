@@ -19,7 +19,7 @@ await import(process.argv[1]);`;
 const failures = [];
 for (const url of modules) {
     const result = spawnSync(process.execPath, ['--input-type=module', '-e', loader, url], { encoding: 'utf8' });
-    if (result.status !== 0) failures.push(`${url.split('/src/')[1]}: ${(result.stderr.match(/\w*Error: .*/) || [result.stderr])[0]}`);
+    if (result.status !== 0) failures.push(`${url.split('/src/')[1]}: ${([...result.stderr.matchAll(/\w*Error: .*/g)].pop() || [result.stderr])[0]}`);
 }
 assert.deepEqual(failures, [], 'Every schematic module loads first without import-order errors');
 assert.ok(modules.length > 20);

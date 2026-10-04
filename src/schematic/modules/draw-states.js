@@ -18,7 +18,7 @@
 
 import { updateStickyWires, updateSnapHighlight, resolveWireSnapPosition, computeAnchorCollinearSnap, computeSegmentDragSnap, computeStickyWireSnaps, applyOffGridNeighborSnap, buildCollinearChain, bridgeCollinearPinEndpoints, SNAP_SCREEN_PX, COLLINEAR_EPSILON, VERTEX_EPSILON, PIN_SNAP_TOL } from './wire.js';
 import { renderGuideLines } from '../../shapes/axis-glow.js';
-import { clearDragState, commitMoveDrag, commitSegmentDrag, resolveAnchorDragOnMouseUp, revertSegmentDragIfNoMove, commitShapeJoin } from './drag.js';
+import { clearDragState, commitMoveDrag, commitSegmentDrag, resolveAnchorDragOnMouseUp, revertSegmentDragIfNoMove, commitShapeJoin, captureMoveDragStates } from './drag.js';
 import { detectTJunction, showAnchorContextMenu, showSegmentContextMenu, showLabelContextMenu, showComponentContextMenu } from './context-menu.js';
 import { hasAny3DModel } from '../../components/model3d-source.js';
 import { updateToolGhost } from './tool.js';
@@ -325,7 +325,6 @@ function finalizeDragInteraction(app, options = {}) {
     updateSnapHighlight(app, null);
     app.hideCrosshair();
     app.removeBoxSelectElement();
-    app._labelDragHoverTarget = null;
 
     clearDragState(app);
     app.renderShapes(true);
@@ -1591,15 +1590,15 @@ export const moveDragState = {
             updateSnapHighlight(app, attach ? { x: attach.snapPos.x, y: attach.snapPos.y, type: 'attach' } : null);
             // Track hover target for invalidation
             const newTarget = attach?.target || null;
-            const oldTarget = app._labelDragHoverTarget || null;
+            const oldTarget = app.drag.labelHoverTarget || null;
             if (newTarget !== oldTarget) {
                 if (oldTarget) oldTarget.invalidate?.();
                 if (labelShape.parentComponent && labelShape.parentComponent !== oldTarget) labelShape.parentComponent.invalidate?.();
                 if (newTarget) newTarget.invalidate?.();
-                app._labelDragHoverTarget = newTarget;
+                app.drag.labelHoverTarget = newTarget;
             }
         } else {
-            app._labelDragHoverTarget = null;
+            app.drag.labelHoverTarget = null;
         }
 
         const mouseDelta = { x: worldPos.x - app.drag.startWorldPos.x, y: worldPos.y - app.drag.startWorldPos.y };
@@ -1650,6 +1649,7 @@ export const moveDragState = {
 
         if (dx !== 0 || dy !== 0) {
             app.didDrag = true;
+            app.drag.restoreStates ??= captureMoveDragStates(app, sel);
             app.drag.totalDx += dx;
             app.drag.totalDy += dy;
 

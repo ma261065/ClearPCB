@@ -5,10 +5,9 @@ import { attachLabelToTarget } from './label-attachment.js';
 import { importEasyEDASchematic } from '../../easyeda/schematic-importer.js';
 import { deserializeComponent } from '../../core/SchematicDocument.js';
 import { serializeGridSettings, restoreGridSettings } from '../../shared/ui/viewport.js';
-import { cancelSchematicPointerInteraction } from './drag.js';
+import { cancelSchematicInteractions } from './schematic-interaction-routing.js';
 import { cancelSchematicPropertyPreview } from './properties.js';
 import { duplicateIdRepairMessage, repairDuplicateIds } from '../../core/project-format.js';
-import { cancelWireDrawing } from './wire.js';
 
 function canReplaceDocument(app) {
     if (!app.fileManager.saving && !app.fileManager.loading) return true;
@@ -251,15 +250,8 @@ export async function loadVersion(app) {
 
 /** Clear only the schematic section, retaining paper/grid preferences. */
 export function clearDocument(app) {
-    if (app.textEdit?.shape) app.endTextEdit(false);
     cancelSchematicPropertyPreview(app);
-    cancelSchematicPointerInteraction(app);
-    if (app.pastingClipboard) app.cancelPaste();
-    if (app.placingComponent) app.cancelComponentPlacement();
-    if (app.isDrawing) {
-        if (app.currentTool === 'wire') cancelWireDrawing(app);
-        else app.cancelDrawing();
-    }
+    cancelSchematicInteractions(app);
     if (app.isSectionEditing?.()) throw new Error('Finish the current edit before creating a new document.');
     app.selection.clearSelection();
     app._clearAllShapes();

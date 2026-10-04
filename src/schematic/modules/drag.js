@@ -11,7 +11,7 @@
  */
 
 import { MoveShapesCommand, ModifyShapeCommand, DeleteShapesCommand, AddShapeCommand, BatchCommand } from './commands.js';
-import { reconcileWires, reconcileWiresWithUndo, refreshWireConnections, refreshNoConnectConnection, collapseRedundantWirePoints, buildWireDiffBatch } from './wire.js';
+import { reconcileWires, reconcileWiresWithUndo, refreshWireConnections, refreshNoConnectConnection, collapseRedundantWirePoints, buildWireDiffBatch, updateSnapHighlight } from './wire.js';
 import { validateNetNameAtPoint } from './net-validation.js';
 import { connectNetToWires, disconnectNetFromWires, connectComponentPinsToWires } from './shape-management.js';
 import { joinShapes } from '../../shapes/shape-join.js';
@@ -44,15 +44,26 @@ export function clearDragState(app) {
     app.pendingAnchorDrag = null;
 }
 
-/** Restore a pointer edit before Escape, history or a tool transition. */
-export function cancelSchematicPointerInteraction(app) {
+/*
+ * Cancel handlers for the pointer gestures in schematic-interactions.js
+ * (_overlapCyclePress, drag, pendingAnchorDrag). Each restores the authored entities
+ * its gesture edited in place and returns false when it had nothing to cancel.
+ * schematic-interaction-routing.js runs them in the table's priority order. They are
+ * function declarations so modules in an import cycle with this one can use them.
+ */
+
+/** Cancel an overlap-cycle press before it resolves. */
+export function cancelOverlapCyclePress(app) {
+    if (app.interactionState !== 'overlapCycle') return false;
+    app._overlapCyclePress = null;
+    app.interactionState = 'idle';
+    app.skipClickSelection = true;
+    return true;
+}
+
+/** Cancel an anchor, segment or move drag or a box selection, restoring what it moved. */
+export function cancelDragGesture(app) {
     const state = app.interactionState;
-    if (state === 'overlapCycle') {
-        app._overlapCyclePress = null;
-        app.interactionState = 'idle';
-        app.skipClickSelection = true;
-        return true;
-    }
     if (state === 'anchorDrag' || state === 'segmentDrag') {
         if (state === 'anchorDrag') {
             cancelSchematicShapeConversion(app);
@@ -75,6 +86,10 @@ export function cancelSchematicPointerInteraction(app) {
         return true;
     }
     if (state === 'moveDrag' || state === 'boxSelect') {
+        if (state === 'moveDrag') {
+            restoreMoveDragStates(app);
+            updateSnapHighlight(app, null);
+        }
         clearDragState(app);
         app.didDrag = false;
         app.removeBoxSelectElement();
@@ -83,16 +98,50 @@ export function cancelSchematicPointerInteraction(app) {
         app.renderShapes(true);
         return true;
     }
-    if (app.pendingAnchorDrag) {
-        const { shape, preInsertState } = app.pendingAnchorDrag;
-        if (preInsertState) applyShapeState(app, shape, preInsertState);
-        app.selection.keepSelected(shape);
-        app.pendingAnchorDrag = null;
-        app.viewport.svg.style.cursor = '';
-        app.renderShapes(true);
-        return true;
-    }
     return false;
+}
+
+/** Cancel a pending (pre-threshold) anchor drag or midpoint split. */
+export function cancelPendingAnchorDrag(app) {
+    const { shape, preInsertState } = app.pendingAnchorDrag;
+    if (preInsertState) applyShapeState(app, shape, preInsertState);
+    app.selection.keepSelected(shape);
+    app.pendingAnchorDrag = null;
+    app.viewport.svg.style.cursor = '';
+    app.renderShapes(true);
+    return true;
+}
+
+/**
+ * Snapshot everything a move drag can change before its first movement: the moved
+ * selection, the field and label texts that travel with it, and every wire (sticky
+ * wires and junction propagation edit them). Cancelling restores these.
+ * @param {object} app
+ * @param {object[]} selection
+ * @returns {Map<object, object>}
+ */
+export function captureMoveDragStates(app, selection) {
+    const moved = new Set(selection);
+    const states = new Map();
+    for (const item of selection) states.set(item, item.captureState());
+    for (const shape of app.shapes) {
+        if (states.has(shape)) continue;
+        if (shape.type === 'wire' || (shape.parentComponent && moved.has(shape.parentComponent))) {
+            states.set(shape, shape.captureState());
+        }
+    }
+    return states;
+}
+
+/** Undo a cancelled move drag's live changes from its snapshot, with one redraw. */
+function restoreMoveDragStates(app) {
+    const states = app.drag?.restoreStates;
+    if (!states) return;
+    for (const [entity, state] of states) {
+        entity.applyState(state);
+        if (/** @type {any} */ (entity).definition) refreshComponentPose(entity);
+    }
+    app.drag.restoreStates = null;
 }
 
 export function cancelSchematicPathSplit(app) {

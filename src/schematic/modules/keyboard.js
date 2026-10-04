@@ -8,7 +8,9 @@ import { flipComponentH, flipComponentV, rotateComponentRight } from './componen
 import { handleTextEditKey } from './text-edit.js';
 import { beginPastePreview, cutSelection } from './clipboard.js';
 import { finishDrawing, finishLine, finishPolygon } from './drawing.js';
-import { runSchematicDeleteAction, runSchematicEscapeAction, runSchematicHistoryAction } from './editor-actions.js';
+import {
+    canRunSchematicSelectionAction, runSchematicDeleteAction, runSchematicEscapeAction, runSchematicHistoryAction,
+} from './editor-actions.js';
 
 /**
  * Single-letter shortcuts that simply select a tool. Overloaded keys
@@ -30,12 +32,11 @@ const TOOL_KEYS = {
 
 /**
  * True when keyboard actions that operate on the current selection
- * (flip, rotate, etc.) are allowed: select tool active and no
- * text-edit / drawing / paste in progress.
+ * (flip, rotate, etc.) are allowed: select tool active and nothing in progress.
  * @param {object} app
  */
 function canActOnSelection(app) {
-    return !app.textEdit && !app.isDrawing && !app.pastingClipboard && app.currentTool === 'select';
+    return canRunSchematicSelectionAction(app) && app.currentTool === 'select';
 }
 
 /** Flip the placing component / selected components horizontally. */
@@ -96,7 +97,7 @@ function handleSpaceRotate(app, e) {
         return;
     }
     // Rotate selected Net / Text shapes.
-    if (!app.textEdit && !app.isDrawing && app.currentTool === 'select') {
+    if (canActOnSelection(app)) {
         const sel = app.selection.getSelection();
 
         const netShapes = sel.filter(s => s.type === 'net' && !s.locked);
@@ -207,6 +208,7 @@ export function bindKeyboardShortcuts(app) {
                     break;
                 case 'a':
                     e.preventDefault();
+                    if (!canRunSchematicSelectionAction(app)) break;
                     app.selection.selectAll();
                     app.renderShapes(true);
                     break;
@@ -216,11 +218,11 @@ export function bindKeyboardShortcuts(app) {
                     break;
                 case 'x':
                     e.preventDefault();
-                    cutSelection(app);
+                    if (canRunSchematicSelectionAction(app)) cutSelection(app);
                     break;
                 case 'v':
                     e.preventDefault();
-                    beginPastePreview(app);
+                    if (canRunSchematicSelectionAction(app)) beginPastePreview(app);
                     break;
             }
         } else {
@@ -307,6 +309,7 @@ export function bindKeyboardShortcuts(app) {
 
                     const sel = app.selection.getSelection();
                     if (sel.length > 0) {
+                        if (!canRunSchematicSelectionAction(app)) break;
                         const cmd = new MoveShapesCommand(app, sel, dx, dy);
                         app.history.execute(cmd);
                         app.updatePropertiesPanel(sel);
