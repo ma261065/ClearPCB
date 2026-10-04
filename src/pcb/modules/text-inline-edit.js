@@ -36,6 +36,11 @@ function measureStrokeTextVerticalBounds(text, size, strokeWidth = 0) {
     return { top: top - strokeRadius, bottom: bottom + strokeRadius };
 }
 
+/** The in-progress inline text edit (`{ text, … }`), or null. */
+export function activeTextInlineEdit(app) {
+    return app._textEdit || null;
+}
+
 /**
  * Begin in-place editing of a PCB text annotation. Overlays an HTML
  * <input> positioned over the text via a <foreignObject>. Commits on

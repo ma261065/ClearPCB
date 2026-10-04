@@ -156,6 +156,20 @@
     "_onLayerVisibilityChanged",
     "_onOverlayVisibilityChanged"
   ],
+  "src/pcb/modules/mouse.js": [
+    "_endPasteDrop",
+    "_hitTestComponent",
+    "_hitTestFill",
+    "_hitTestText",
+    "_scheduleHoverUpdate",
+    "_screenToWorld",
+    "_showComponent3DMenu",
+    "_tryEditReferenceAt",
+    "_updateCursorCrosshair",
+    "_updateCursorForTool",
+    "_updatePadPreview",
+    "_updateViaPreview"
+  ],
   "src/pcb/modules/pad-commands.js": [
     "_rotationHandleDrag",
     "_viaDrag"
@@ -172,6 +186,7 @@
   ],
   "src/pcb/modules/pcb-interaction-routing.js": [
     "_boardOutlineResize",
+    "_clearCursorCrosshair",
     "_drag",
     "_endDrag",
     "_endRefDrag",
@@ -187,6 +202,7 @@
     "_refDrag",
     "_scheduleDragUpdate",
     "_screenToWorld",
+    "_segmentClickEdgeId",
     "_shapeDrag",
     "_shapeDraw",
     "_textDrag",

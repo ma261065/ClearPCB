@@ -131,10 +131,12 @@ evaluation-order cycle fails.
   refresh status and refresh suspensions) and `board-shape-state.js` (board-shape
   node/segment focus, hover and tool defaults).
 - In-progress interaction fields (`_drag`, `_trackDraw`, …) are listed once in
-  `pcb-interactions.js`; `pcb-interaction-routing.js` holds their pointer-move and
-  cancel handlers. `test-pcb-interaction-registry` fails if a new one is unregistered.
-- PCB canvas presses go to one `_press…Tool` method per tool through
-  `PCB_TOOL_PRESS_HANDLERS` in `PCBApp.js`.
+  `pcb-interactions.js`; `pcb-interaction-routing.js` holds their pointer-move,
+  primary-release and cancel handlers. `test-pcb-interaction-registry` fails if a new
+  one is unregistered.
+- `pcb/modules/mouse.js` binds the PCB canvas's mouse events (like the schematic's
+  `mouse.js`). Presses go to one `_press…Tool` method per tool through its
+  `PCB_TOOL_PRESS_HANDLERS`; releases go to `releasePcbPointerGestures`.
 - PCB modules call the editor through `pcb-editor-api.js` services; the access
   ratchet lists the private members they still use.
 - `pcb-interactions.js`, `property-editors.js`, `refresh-state.js` and

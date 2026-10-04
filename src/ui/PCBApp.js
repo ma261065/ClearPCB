@@ -14,15 +14,13 @@ import { renderFootprint, applyRefGeometry, REF_DEFAULT_SIZE, REF_DEFAULT_STROKE
 import { updateGridDropdown, restoreGridSettings, serializeGridSettings } from '../shared/ui/viewport.js';
 import { setToolCursor } from '../shared/ui/cursor.js';
 import { bindRibbonHeight } from '../shared/ui/ribbon-height.js';
-import { isUnmodifiedPrimaryDoublePress } from '../shared/ui/inline-edit-activation.js';
 import { applyTextConnectionGuide, setInlineTextInputActive } from '../shared/ui/inline-text-overlay.js';
-import { PCB_LAYERS, PCB_OVERLAYS, PCB_COPPER_FILLS, isLayerLocked, isViaLocked, isLayerVisible, isViaVisible, pcbLayerHoverColor, pcbLayerSelectionColor, refreshPcbLayerOptions, showLockedLayerBubble, isCopperFillLocked, isCopperFillVisible, saveLayerPrefs } from '../pcb/modules/layers.js';
+import { PCB_LAYERS, PCB_OVERLAYS, PCB_COPPER_FILLS, isLayerLocked, isViaLocked, isLayerVisible, isViaVisible, pcbLayerHoverColor, pcbLayerSelectionColor, refreshPcbLayerOptions, isCopperFillLocked, isCopperFillVisible, saveLayerPrefs } from '../pcb/modules/layers.js';
 import { exportDSN, importSES } from '../pcb/modules/dsn.js';
 import { DrcPresentation } from '../pcb/modules/drc-presentation.js';
 import { resolveDrcPairMarker } from '../pcb/modules/drc.js';
 import { scheduleDrcRefresh, runDrcNow, invalidateDrcRefresh, disposeDrcRefresh } from '../pcb/modules/drc-refresh.js';
 import { cancelPcbPosePreviews, disposePcbPropertyEditors, hasPcbEditInProgress } from '../pcb/modules/edit-lifecycle.js';
-import { dispatchPcbPointerMove } from '../pcb/modules/pcb-interaction-routing.js';
 import { isPcbDrawing } from '../pcb/modules/pcb-interactions.js';
 import { handlePcbKeyDown } from '../pcb/modules/keyboard.js';
 import { PCB_CROSSHAIR_TOOLS, cancelPcbDrawingMode, preparePcbRibbonTransition } from '../pcb/modules/tool-lifecycle.js';
@@ -35,17 +33,15 @@ import { generateBOM, generatePickAndPlace } from '../pcb/modules/assembly.js';
 import { openBoard3DViewer } from '../pcb/modules/board3d.js';
 import { savePcbPdf, printPcb, projectBaseName } from '../pcb/modules/pcb-export.js';import { tracksFromAutorouterResult } from '../pcb/modules/autorouter-adapter.js';
 import { renderTrack, renderVia, removeTrackElements, removeViaElements } from '../pcb/modules/track-render.js';
-import { startTrackDraw, updateTrackDraw, refreshTrackDrawPreview, addTrackWaypoint, finishTrackDraw, cancelTrackDraw, resolveTrackDrawSnap, resolveTrackSnap, showTrackSnapMarker, clearTrackSnapMarker, reconcileRatsnest } from '../pcb/modules/track-draw.js';
-import { hitTestTrack, hitTestLockedTrack, selectTrackOrVia, clearTrackSelection, setHoverHighlight, showTrackContextMenu, refreshTrackSelectionHalo, getSelectedTrack, getSelectedVia, selectTrackSegment, dismissTrackContextMenu, trackIsSelectable } from '../pcb/modules/track-select.js';
+import { startTrackDraw, updateTrackDraw, refreshTrackDrawPreview, addTrackWaypoint, cancelTrackDraw, resolveTrackSnap, clearTrackSnapMarker, reconcileRatsnest } from '../pcb/modules/track-draw.js';
+import { hitTestTrack, selectTrackOrVia, clearTrackSelection, setHoverHighlight, refreshTrackSelectionHalo, getSelectedTrack, getSelectedVia, dismissTrackContextMenu, trackIsSelectable } from '../pcb/modules/track-select.js';
 import { getBoardShapeRotationPreview, getBoardShapePointerPreview, getBoardShapePropertyPreview, finishBoardShapeRotationPreview } from '../pcb/modules/board-shapes.js';
 import {
     startVertexDrag,
     updateVertexDrag,
-    finishVertexDrag,
     cancelVertexDrag,
     trackPointerTouchesLayer,
     startViaDrag,
-    finishViaDrag,
     hitTestTrackNode,
     findSplittableTrackEdge,
     splitTrackObjectAtPoint,
@@ -59,7 +55,7 @@ import { createPcbText, serializePcbText } from '../core/pcb-text.js';
 import { showAlert } from '../shared/ui/modal.js';
 import { connectBoxOutlines } from '../core/geometry.js';
 import { AddTextCommand, RemoveTextCommand, MoveTextCommand, EditTextCommand, getTextPosePreviewTexts, previewTextPose, finishTextPosePreview } from '../pcb/modules/text-commands.js';
-import { shapeDrawClick, cancelShapeDraw, finishPolygonDraw, finishLineDraw, finishShapeDrawAtPoint, hitTestBoardShape, setBoardShapeHover, selectBoardShape, startBoardShapeDrag, endBoardShapeDrag, resolveShapeDrawLayer, renderBoardShape, hitTestBoardShapeVertex, showBoardShapeContextMenu, dismissBoardShapeContextMenu } from '../pcb/modules/board-shapes.js';
+import { shapeDrawClick, cancelShapeDraw, hitTestBoardShape, setBoardShapeHover, selectBoardShape, startBoardShapeDrag, endBoardShapeDrag, resolveShapeDrawLayer, renderBoardShape, hitTestBoardShapeVertex } from '../pcb/modules/board-shapes.js';
 import { showBoardShapeProperties, showBoardShapeToolProperties, refreshBoardShapeToolLayer } from '../pcb/modules/board-shape-properties.js';
 import { normalizeShapeCopperMode } from '../shared/pcb/board-shape-geometry.js';
 import { hitTestPcbSelectionAnchor, renderPcbSelectionAnchors } from '../pcb/modules/selection-anchors.js';
@@ -69,17 +65,13 @@ import { scheduleFillRefresh, recomputeFillsNow, invalidateFillRefresh, disposeF
 import { hasAny3DModel, openComponent3DFromData, buildComponent3DTitle } from '../components/model3d-source.js';
 import {
     armBoxSelect,
-    maybeStartBoxSelect,
-    finishBoxSelect,
     refreshBoxSelectionHighlights,
     toggleBoxShapeSelection,
     clearBoxSelection,
     deselectHiddenPcbSelection,
     hasBoxSelection,
-    pointInBoxSelection,
     beginGroupDrag,
     getGroupPreview,
-    endGroupDrag,
     deleteBoxSelection,
 } from '../pcb/modules/box-select.js';
 import {
@@ -88,7 +80,6 @@ import {
     showPcbSelectionProperties,
     finishSelectionInteraction,
     selectionInteractionCursor,
-    placeFloatingSelectionInteraction,
 } from '../pcb/modules/selection-interaction.js';
 import { getPcbSelection, getPcbSelectionEntries, getPcbSelectionHits, isPcbSelected, setPcbSelection, syncPcbSelection } from '../pcb/modules/selection-registry.js';
 import { measureText as measureStrokeText } from '../shared/pcb/stroke-font.js';
@@ -102,24 +93,24 @@ import { AddPadCommand, getPadRotationPreview, getPadPropertyPreview } from '../
 import '../pcb/modules/pad-selection.js';
 import { renderCopperFill, fillGroupId } from '../pcb/modules/copper-fill-render.js';
 import { updateCopperCuts, clearCopperCuts, hasCopperCuts, scheduleRemovalHatchRender } from '../pcb/modules/copper-cuts.js';
-import { initDebugTooltip, toggleDebugTooltipPin, updateDebugTooltip } from '../pcb/modules/debug-tooltip.js';
+import { initDebugTooltip } from '../pcb/modules/debug-tooltip.js';
+import { bindPcbMouseEvents, noteTrackPress } from '../pcb/modules/mouse.js';
 import { RemoveFillCommand, ModifyFillCommand } from '../pcb/modules/copper-fill-commands.js';
 import '../pcb/modules/copper-fill-selection.js';
-import { startFillEditAt, updateFillEdit, endFillEdit, showFillContextMenu, deleteFocusedFillPart, showFillProperties } from '../pcb/modules/copper-fill-edit.js';
+import { startFillEditAt, updateFillEdit, endFillEdit, deleteFocusedFillPart, showFillProperties } from '../pcb/modules/copper-fill-edit.js';
 import '../pcb/modules/component-selection.js';
 import '../pcb/modules/pcb-text-selection.js';
 import { isRefTextLocked } from '../pcb/modules/ref-text-selection.js';
 import {
     startFillDraw,
     addFillWaypoint,
-    finishFillDraw,
     cancelFillDraw,
 } from '../pcb/modules/copper-fill-draw.js';
 import { preparePcbPaste, beginPcbPaste, updatePcbPaste, endPcbPaste, cancelPcbPaste, isPcbPasteEditable } from '../pcb/modules/pcb-paste.js';
 import { getBoardOutline, boardBoundary } from '../shared/pcb/board-outline.js';
 import { eachPropertyEditorOnLayer, getPropertyEditor, setPropertyEditor } from '../pcb/modules/property-editors.js';
 import { areDragOverlaysDeferred, isFillRefreshPending, onRefreshSuspended, setDragOverlaysDeferred } from '../pcb/modules/refresh-state.js';
-import { beginBoardOutlineResize, updateBoardOutlineResize, endBoardOutlineResize, renderBoardOutlineHandles, hitTestBoardOutlineHandle, getBoardDimensionPreview, showBoardOutlineProperties } from '../pcb/modules/board-outline-resize.js';
+import { endBoardOutlineResize, renderBoardOutlineHandles, getBoardDimensionPreview, showBoardOutlineProperties } from '../pcb/modules/board-outline-resize.js';
 import { getBoardShapeNodeFocus, getBoardShapeSegmentFocus } from '../pcb/modules/board-shape-state.js';
 import { showTextToolProperties, showTextProperties, bindStrokeTextProps } from '../pcb/modules/text-properties.js';
 import { showPadEditor } from '../pcb/modules/pad-properties.js';
@@ -150,21 +141,6 @@ onRefreshSuspended('overlays', app => {
 });
 onRefreshSuspended('fill', app => {
     if (app instanceof PCBApp) invalidateDrcRefresh(app);
-});
-
-/** PCBApp method handling a primary-button press for each tool. */
-const PCB_TOOL_PRESS_HANDLERS = Object.freeze({
-    select: '_pressSelectTool',
-    track: '_pressTrackTool',
-    fill: '_pressFillTool',
-    via: '_pressViaTool',
-    pad: '_pressPadTool',
-    line: '_pressShapeTool',
-    circle: '_pressShapeTool',
-    rect: '_pressShapeTool',
-    polygon: '_pressShapeTool',
-    arc: '_pressShapeTool',
-    text: '_pressTextTool',
 });
 
 /**
@@ -345,10 +321,6 @@ export default class PCBApp {
         this._pasteDrop = null;
         /** Inline free-text edit in progress (pcb/modules/text-inline-edit.js), or null. @type {any} */
         this._textEdit = null;
-        /** Screen position where the current right-button pan began. */
-        this._rightPanStart = null;
-        /** Consume the contextmenu event generated by a completed right-drag. */
-        this._suppressNextContextMenu = false;
 
         /**
          * Undo/redo for PCB-side edits (tracks, vias, vertex drags,
@@ -821,458 +793,9 @@ export default class PCBApp {
         this._updateViewportStatus();
     }
 
-    /**
-     * Wire up mouse events on the PCB viewport for panning,
-     * component selection, and dragging.
-     */
+    /** Wire the canvas's mouse events (pcb/modules/mouse.js); a seam tests bind through. */
     _bindMouseEvents() {
-        const svg = this.viewport.svg;
-        if (!svg) return;
-
-        svg.addEventListener('mousedown', (e) => {
-            if (!this._active) return;
-            this.viewport.onInteractionStart?.('pointer');
-            this.viewport.shiftHeld = e.shiftKey;
-            // Freshly pasted entities are glued to the cursor; the first
-            // left-click drops them at their current position.
-            if (this._pasteDrop && e.button === 0) {
-                e.preventDefault();
-                this._endPasteDrop();
-                return;
-            }
-            // Midpoint and context-menu split/conversion previews drop on the next click.
-            if (e.button === 0 && placeFloatingSelectionInteraction(this)) {
-                this.viewport.hideCrosshair();
-                svg.style.cursor = 'default';
-                return;
-            }
-            // Switch ribbon back to Home tab on canvas click — but NOT
-            // while we're drawing a track (the Track tool drives the
-            // Properties tab so its width spinner stays visible), and
-            // NOT while inline-editing text (the Properties tab hosts
-            // the text's size/rotation spinners), and NOT on a right-button
-            // press (that starts a pan — dragging the board must not switch
-            // tabs, e.g. closing the Design tab's live DRC mid-pan).
-            const propertiesToolActive = this.currentTool === 'track' || this.currentTool === 'via'
-                || this.currentTool === 'line' || this.currentTool === 'circle'
-                || this.currentTool === 'rect' || this.currentTool === 'polygon' || this.currentTool === 'arc';
-            const worldPos = e.button === 0 && this.currentTool === 'select'
-                ? this._screenToWorld(e)
-                : null;
-            if (worldPos && beginBoardOutlineResize(this, worldPos)) {
-                e.preventDefault();
-                svg.style.cursor = hitTestBoardOutlineHandle(this, worldPos)?.cursor || 'nesw-resize';
-                return;
-            }
-            const selectedBoardShapeAnchor = worldPos && getPcbSelection(this, 'shape').some(
-                (shape) => hitTestBoardShapeVertex(this, shape, worldPos) != null,
-            );
-            const selectedGroupHit = worldPos && hasBoxSelection(this)
-                && pointInBoxSelection(this, worldPos);
-            const selectedTextAnchor = worldPos && this._textEdit
-                ? hitTestPcbSelectionAnchor(this, worldPos, ['text'])
-                : null;
-            const rotatingEditedText = selectedTextAnchor?.anchor?.symbol === 'rotate'
-                && selectedTextAnchor.adapter?.object?.id === this._textEdit?.text?.id;
-            if (!this._trackDraw && !this._textEdit && !propertiesToolActive
-                && !selectedBoardShapeAnchor && !selectedGroupHit
-                && e.button !== 2 && !e.ctrlKey && !e.metaKey) {
-                const activeTab = this.ribbon?.querySelector('.ribbon-tab.active');
-                if (activeTab instanceof HTMLElement && activeTab.dataset?.tab !== 'pcb-home') {
-                    this.setActiveRibbonTab?.('pcb-home');
-                }
-            }
-            // Inline text edit: any left-click on the canvas commits
-            // the current edit. (Right-click is reserved for pan and
-            // must not commit.) If the text tool is active, the
-            // text-tool branch below will then place a new text.
-            if (this._textEdit && e.button === 0 && !rotatingEditedText) {
-                if (this._endTextInlineEdit(true) === false) return;
-            }
-            if (worldPos && isUnmodifiedPrimaryDoublePress(e)) {
-                const textHit = this._hitTestText(worldPos);
-                if (textHit) {
-                    e.preventDefault();
-                    this.selectText(textHit);
-                    this._startTextInlineEdit(textHit, worldPos);
-                    return;
-                }
-                if (this._tryEditReferenceAt(worldPos)) {
-                    e.preventDefault();
-                    return;
-                }
-            }
-            // Right-click while drawing a track: defer the finish decision
-            // to mouseup — if the user actually drags (pans), don't finish.
-            // Either way, still let the standard pan handler below start a
-            // pan immediately.
-            if (e.button === 2 && this._trackDraw) {
-                this._trackRightDown = { x: e.clientX, y: e.clientY };
-            }
-            if (e.button === 2 && this._fillDraw) {
-                this._fillRightDown = { x: e.clientX, y: e.clientY };
-            }
-            if (e.button === 2 && this._shapeDraw) {
-                this._shapeRightDown = { x: e.clientX, y: e.clientY };
-            }
-            if (e.button === 2 && toggleDebugTooltipPin(this)) return;
-            const isPanButton = e.button === 1 || e.button === 2;
-            const isPanTool = this.currentTool === 'pan' && e.button === 0;
-            if (isPanButton || isPanTool) {
-                e.preventDefault();
-                if (e.button === 2) {
-                    this._rightPanStart = { x: e.clientX, y: e.clientY };
-                }
-                this.viewport.startPan(e.clientX, e.clientY);
-                return;
-            }
-
-            // Primary presses go to the active tool; see PCB_TOOL_PRESS_HANDLERS.
-            if (e.button !== 0) return;
-            const press = PCB_TOOL_PRESS_HANDLERS[this.currentTool];
-            if (press) this[press](e, worldPos, selectedGroupHit);
-        });
-
-        svg.addEventListener('mousemove', (e) => {
-            if (!this._active) return;
-            this.viewport.shiftHeld = e.shiftKey;
-            if (this.viewport.isPanning) {
-                this.viewport.updatePan(e.clientX, e.clientY);
-                // Keep tool crosshairs anchored under the cursor while panning.
-                if (this.currentTool === 'via') {
-                    this._updateViaPreview(this._screenToWorld(e));
-                } else if (this.currentTool === 'pad') {
-                    this._updatePadPreview(this._screenToWorld(e));
-                } else if (PCB_CROSSHAIR_TOOLS.has(this.currentTool)) {
-                    this._updateCursorCrosshair(this._screenToWorld(e));
-                }
-            } else if (dispatchPcbPointerMove(this, e)) {
-                // An in-progress interaction consumed the move; see pcb-interactions.js.
-            } else if (this.currentTool === 'select') {
-                // A pending/active marquee owns the move; only fall back to
-                // hover hit-testing when no box-select is in progress.
-                if (maybeStartBoxSelect(this, e, this._screenToWorld(e))) {
-                    // Marquee active — selection halos already updated.
-                } else {
-                    // Hover hit-testing is O(N) over every pad/track/text, so
-                    // running it on each raw mousemove backs up the event queue
-                    // on complex boards and the highlight lags the cursor.
-                    // Coalesce to one pass per animation frame using the latest
-                    // pointer position.
-                    this._scheduleHoverUpdate(e);
-                }
-            } else if (this.currentTool === 'via') {
-                this._updateViaPreview(this._screenToWorld(e));
-            } else if (this.currentTool === 'pad') {
-                this._updatePadPreview(this._screenToWorld(e));
-            } else if (this.currentTool === 'track') {
-                const snap = resolveTrackDrawSnap(this, this._screenToWorld(e), {});
-                this._updateCursorCrosshair({ x: snap.x, y: snap.y });
-                // Pre-draw hover uses the same hard copper targets as the
-                // active route so the first press cannot change its snap.
-                if (snap.snapType === 'pad' || snap.snapType === 'via'
-                    || snap.snapType === 'track-node') {
-                    showTrackSnapMarker(this, { x: snap.x, y: snap.y });
-                } else {
-                    clearTrackSnapMarker(this);
-                }
-            } else if (PCB_CROSSHAIR_TOOLS.has(this.currentTool)) {
-                this._updateCursorCrosshair(this._screenToWorld(e));
-            }
-            this.viewport.trackMouse(e);
-            updateDebugTooltip(this, e);
-        });
-
-        svg.addEventListener('dblclick', (e) => {
-            if (!this._active) return;
-            if (this._trackDraw) {
-                e.preventDefault();
-                finishTrackDraw(this);
-                return;
-            }
-            if (this._fillDraw) {
-                e.preventDefault();
-                finishFillDraw(this);
-                return;
-            }
-            if (this._shapeDraw && this._shapeDraw.kind === 'polygon') {
-                e.preventDefault();
-                finishPolygonDraw(this);
-                return;
-            }
-            if (this._shapeDraw && this._shapeDraw.kind === 'line') {
-                e.preventDefault();
-                finishLineDraw(this);
-                return;
-            }
-            if (this._textEdit) return; // already editing
-            // Double-click a text → inline edit it.
-            const worldPos = this._screenToWorld(e);
-            const textHit = this._hitTestText(worldPos);
-            if (textHit) {
-                e.preventDefault();
-                this.selectText(textHit);
-                this._startTextInlineEdit(textHit, worldPos);
-                return;
-            }
-            if (this.currentTool === 'select' && this._tryEditReferenceAt(worldPos)) {
-                e.preventDefault();
-                return;
-            }
-            // Double-clicking a LOCKED track/via is the natural "why can't I
-            // select this?" gesture — explain it with a speech bubble.
-            const lockedHit = hitTestLockedTrack(this, worldPos);
-            if (lockedHit) {
-                e.preventDefault();
-                showLockedLayerBubble(this, lockedHit.layerId, { x: e.clientX, y: e.clientY });
-                return;
-            }
-            // NOTE: double-click track-node insertion is handled in the
-            // mousedown listener (via e.detail === 2) — starting a vertex
-            // drag on the second click suppresses the `dblclick` event.
-        });
-        // Some pointer sequences (e.g. when the two clicks land on
-        // different child elements with the layer-group hierarchy) cause
-        // the browser to never fire a `dblclick`. Catch it manually via
-        // `click` with `detail === 2` as a fallback.
-        svg.addEventListener('click', (e) => {
-            if (!this._active || e.detail !== 2) return;
-            if (this._textEdit) return; // already editing
-            const worldPos = this._screenToWorld(e);
-            const textHit = this._hitTestText(worldPos);
-            if (textHit) {
-                e.preventDefault();
-                this.selectText(textHit);
-                this._startTextInlineEdit(textHit, worldPos);
-                return;
-            }
-            if (this.currentTool === 'select' && this._tryEditReferenceAt(worldPos)) {
-                e.preventDefault();
-                return;
-            }
-            const lockedHit = hitTestLockedTrack(this, worldPos);
-            if (lockedHit) {
-                e.preventDefault();
-                showLockedLayerBubble(this, lockedHit.layerId, { x: e.clientX, y: e.clientY });
-                return;
-            }
-        });
-
-        // Keyboard: Escape finishes (preserving committed segments),
-        // PCB keyboard shortcuts are dispatched by AppBootstrap's
-        // central window-capture listener via handleKeyDown() below —
-        // no per-instance event registration here.
-
-        const endInteraction = (button = 0, worldPos = null) => {
-            if (!this._active) return;
-            if (this.viewport.isPanning) {
-                this.viewport.endPan();
-                // Restore the tool's own cursor (Viewport.endPan resets
-                // to 'grab' / default — text tool wants the T+crosshair).
-                this._updateCursorForTool?.();
-            }
-            // Right/middle mouse drags pan the canvas. Releasing either must
-            // leave an armed or active anchor drag untouched.
-            if (button !== 0) return;
-            if (this._boardOutlineResize) {
-                if (worldPos) updateBoardOutlineResize(this, worldPos);
-                endBoardOutlineResize(this);
-                svg.style.cursor = 'default';
-                return;
-            }
-            const finishedSelectionInteraction = finishSelectionInteraction(this, true, worldPos);
-            if (finishedSelectionInteraction) {
-                this._clearCursorCrosshair();
-                svg.style.cursor = 'default';
-            }
-            if (this._groupDrag) {
-                endGroupDrag(this);
-                svg.style.cursor = 'default';
-            }
-            // Finish (or discard) a marquee box-select. Safe to call even
-            // when nothing was armed — it just clears the pending state.
-            const completedBoxSelection = finishBoxSelect(this);
-            if (completedBoxSelection) showPcbSelectionProperties(this);
-            if (this._drag) {
-                this._endDrag();
-            }
-            if (this._textDrag) {
-                this._endTextDrag();
-            }
-            if (this._shapeDrag && !finishedSelectionInteraction) {
-                endBoardShapeDrag(this, true);
-                this._clearCursorCrosshair();
-                refreshBoxSelectionHighlights(this);
-                svg.style.cursor = 'default';
-            }
-            if (this._refDrag) {
-                this._endRefDrag();
-            }
-            if (this._vertexDrag && !finishedSelectionInteraction) {
-                this._vertexDragDownScreen = null;
-                const segmentClick = this._vertexDrag.mode === 'segment'
-                    && !this._vertexDrag.userDragged
-                    && this._segmentClickEdgeId;
-                const segEdgeId = this._segmentClickEdgeId;
-                finishVertexDrag(this);
-                this.viewport.hideCrosshair();
-                svg.style.cursor = 'default';
-                const selectedTrack = getSelectedTrack(this);
-                if (selectedTrack) {
-                    const t = selectedTrack;
-                    clearTrackSelection(this);
-                    if (segmentClick && t.edges?.has(segEdgeId)) {
-                        selectTrackSegment(this, t, segEdgeId);
-                    } else {
-                        selectTrackOrVia(this, { type: 'track', track: t });
-                    }
-                }
-                this._segmentClickEdgeId = null;
-            }
-            if (this._viaDrag) {
-                finishViaDrag(this);
-                svg.style.cursor = 'default';
-                // Refresh the halo on the moved via.
-                const selectedVia = getSelectedVia(this);
-                if (selectedVia) {
-                    const v = selectedVia;
-                    clearTrackSelection(this);
-                    selectTrackOrVia(this, { type: 'via', via: v });
-                }
-            }
-            if (this._fillDrag && !finishedSelectionInteraction) {
-                this._endFillDrag();
-                svg.style.cursor = 'default';
-            }
-        };
-
-        // Drag/interaction termination is handled at the WINDOW level (not the
-        // svg) so a release anywhere ends the gesture cleanly — and, combined
-        // with the mouseleave handler below that keeps drags alive, a drag that
-        // leaves the canvas and re-enters elsewhere continues seamlessly. This
-        // matches the schematic editor's mouse model.
-        window.addEventListener('mouseup', (e) => {
-            if (!this._active) return;
-            if (e.button === 2 && this._rightPanStart) {
-                const dx = e.clientX - this._rightPanStart.x;
-                const dy = e.clientY - this._rightPanStart.y;
-                this._rightPanStart = null;
-                if (Math.hypot(dx, dy) >= 4) {
-                    this._suppressNextContextMenu = true;
-                    setTimeout(() => { this._suppressNextContextMenu = false; }, 0);
-                }
-            }
-            endInteraction(e.button, this._screenToWorld(e));
-            // Left-click release just after starting a track: decide between
-            // the two draw modes.
-            //   • Released away from the start press → "drag mode": this
-            //     release is the end point, so finish the track here.
-            //   • Released roughly in place → "click mode": leave the draw
-            //     running so the next click sets the end point.
-            if (e.button === 0 && this._trackDraw && this._trackLeftDown) {
-                const dx = e.clientX - this._trackLeftDown.x;
-                const dy = e.clientY - this._trackLeftDown.y;
-                this._trackLeftDown = null;
-                if (Math.hypot(dx, dy) >= 4) {
-                    const snap = this._trackDraw.snap;
-                    if (snap) addTrackWaypoint(this, { x: snap.x, y: snap.y });
-                    if (this._trackDraw) finishTrackDraw(this);
-                }
-            }
-            // Right-click release while drawing a track: if the user
-            // didn't pan (movement under threshold), treat it as "finish".
-            if (e.button === 2 && this._trackDraw && this._trackRightDown) {
-                const dx = e.clientX - this._trackRightDown.x;
-                const dy = e.clientY - this._trackRightDown.y;
-                this._trackRightDown = null;
-                if (Math.hypot(dx, dy) < 4) {
-                    // Commit a final waypoint at the cursor, then finish.
-                    const snap = this._trackDraw.snap;
-                    if (snap) addTrackWaypoint(this, { x: snap.x, y: snap.y });
-                    if (this._trackDraw) finishTrackDraw(this);
-                }
-            }
-            // Right-click release while drawing a fill: finish the region.
-            if (e.button === 2 && this._fillDraw && this._fillRightDown) {
-                const dx = e.clientX - this._fillRightDown.x;
-                const dy = e.clientY - this._fillRightDown.y;
-                this._fillRightDown = null;
-                if (Math.hypot(dx, dy) < 4) finishFillDraw(this);
-            }
-            // A stationary right-click finishes PCB shape drawing at the
-            // cursor; a right-drag remains viewport panning.
-            if (e.button === 2 && this._shapeDraw && this._shapeRightDown) {
-                const dx = e.clientX - this._shapeRightDown.x;
-                const dy = e.clientY - this._shapeRightDown.y;
-                this._shapeRightDown = null;
-                if (Math.hypot(dx, dy) < 4) {
-                    finishShapeDrawAtPoint(this, this._screenToWorld(e));
-                }
-            }
-        });
-
-        // No mouseleave handler: leaving the canvas must NOT end an active
-        // pan (or any drag). Movement freezes while the cursor is outside
-        // (svg gets no mousemove) and resumes seamlessly on re-entry; the
-        // window-level mouseup above ends the gesture wherever it's released.
-        // This matches the schematic editor, which has no mouseleave handler.
-
-        window.addEventListener('contextmenu', (e) => {
-            if (!this._active || !this._suppressNextContextMenu) return;
-            this._suppressNextContextMenu = false;
-            e.preventDefault();
-            e.stopImmediatePropagation();
-        }, { capture: true });
-
-        svg.addEventListener('contextmenu', (e) => {
-            e.preventDefault();
-            dismissBoardShapeContextMenu();
-            // Track/via context menu — select tool only, and never while
-            // drawing a track (right-click finishes the draw in that mode,
-            // so there's no clash).
-            if (!this._active) return;
-            if (this.currentTool !== 'select' || this._trackDraw) return;
-            const worldPos = this._screenToWorld(e);
-            const fillAnchor = hitTestPcbSelectionAnchor(this, worldPos, ['fill']);
-            if (fillAnchor) {
-                if (this.viewport.isPanning) this.viewport.endPan();
-                showFillContextMenu(this, fillAnchor.adapter.object, e.clientX, e.clientY, worldPos);
-                return;
-            }
-            const hit = hitTestTrack(this, worldPos);
-            if (hit) {
-                // A right-click that started a pan must not leave the
-                // viewport in panning state behind the menu.
-                if (this.viewport.isPanning) this.viewport.endPan();
-                showTrackContextMenu(this, hit, e.clientX, e.clientY, worldPos);
-                return;
-            }
-            const shape = hitTestBoardShape(this, worldPos);
-            if (shape) {
-                if (this.viewport.isPanning) this.viewport.endPan();
-                showBoardShapeContextMenu(this, shape, e.clientX, e.clientY, worldPos);
-                return;
-            }
-            const fill = this._hitTestFill(worldPos);
-            if (fill) {
-                if (this.viewport.isPanning) this.viewport.endPan();
-                showFillContextMenu(this, fill, e.clientX, e.clientY, worldPos);
-                return;
-            }
-            // Otherwise, offer "Show 3D" when right-clicking a footprint that
-            // carries a 3D model.
-            const compId = this._hitTestComponent(worldPos);
-            const pl = compId ? this.placements.get(compId) : null;
-            if (compId && hasAny3DModel(pl)) {
-                if (this.viewport.isPanning) this.viewport.endPan();
-                this._showComponent3DMenu(compId, e.clientX, e.clientY);
-            }
-        });
-
-        // Suppress browser context menu on PCB ribbon header & body.
-        // (SchematicApp uses querySelector('.ribbon') which only catches the
-        //  first match — the schematic ribbon — so we handle #ribbonPCB here.)
-        document.getElementById('ribbonPCB')?.addEventListener('contextmenu', (e) => e.preventDefault());
+        bindPcbMouseEvents(this);
     }
 
     /**
@@ -1568,7 +1091,7 @@ export default class PCBApp {
             // Arm press-drag detection: if the user holds and releases
             // away from here it's "drag mode" (release ends the track);
             // a release in place is "click mode" (click again to end).
-            this._trackLeftDown = { x: e.clientX, y: e.clientY };
+            noteTrackPress(this, e);
         }
     }
 

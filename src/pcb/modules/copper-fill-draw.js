@@ -34,6 +34,11 @@ function snap(app, world) {
     return app._snapToGrid ? app._snapToGrid(world) : { x: world.x, y: world.y };
 }
 
+/** The open fill-region drawing session, or null. */
+export function getFillDraw(app) {
+    return app._fillDraw || null;
+}
+
 /** Begin a new fill region at `world`. */
 export function startFillDraw(app, world) {
     const p = snap(app, world);

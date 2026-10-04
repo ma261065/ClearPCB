@@ -6,7 +6,8 @@ const element = () => ({
     setAttribute: noop, getAttribute: () => null, appendChild: child => child, removeChild: noop,
     addEventListener: noop, removeEventListener: noop, querySelector: () => null, querySelectorAll: () => [],
 });
-globalThis.window = { addEventListener: noop, removeEventListener: noop, devicePixelRatio: 1 };
+const windowListeners = new Map();
+globalThis.window = { addEventListener: (type, listener) => windowListeners.set(type, listener), removeEventListener: noop, devicePixelRatio: 1 };
 globalThis.document = {
     body: element(), documentElement: { getAttribute: () => 'dark' },
     createElement: element, createElementNS: element,
@@ -91,4 +92,43 @@ for (const [tool, method] of Object.entries(expected)) {
     assert.deepEqual(calls, [], 'Inactive editors ignore presses');
 }
 
-console.log('PASS PCB pointer press: per-tool dispatch, pan buttons, paste drop, unknown tools and inactive editor');
+// Releases: a right-drag pan ends without a context menu; a primary release finishes the active drag.
+{
+    const { app, calls, press } = fixture('select');
+    const mouseup = windowListeners.get('mouseup');
+    const contextmenu = windowListeners.get('contextmenu');
+    const viewport = Object.assign(app.viewport, {
+        isPanning: false,
+        startPan(x, y) { calls.push(['pan', x, y]); this.isPanning = true; },
+        endPan() { calls.push(['endPan']); this.isPanning = false; },
+    });
+    app._updateCursorForTool = () => calls.push(['cursor']);
+    app._endDrag = () => calls.push(['endDrag']);
+    const release = (button, clientX) => mouseup({ button, clientX, clientY: 20 });
+    const menu = () => {
+        let prevented = false;
+        contextmenu({ preventDefault: () => { prevented = true; }, stopImmediatePropagation: noop });
+        return prevented;
+    };
+
+    press(2);
+    release(2, 30);
+    assert.deepEqual(calls, [['pan', 10, 20], ['endPan'], ['cursor']], 'A right release ends the pan');
+    assert.equal(menu(), true, 'A right-drag pan suppresses the browser context menu');
+    assert.equal(menu(), false, 'Only the menu that follows the pan is suppressed');
+
+    calls.length = 0;
+    press(2);
+    release(2, 12);
+    assert.equal(menu(), false, 'A stationary right-click keeps its context menu');
+
+    calls.length = 0;
+    app._drag = {};
+    release(2, 10);
+    assert.deepEqual(calls, [], 'Right releases leave drags running');
+    release(0, 10);
+    assert.deepEqual(calls, [['endDrag']], 'A primary release finishes the active drag');
+    assert.equal(viewport.isPanning, false);
+}
+
+console.log('PASS PCB pointer press: per-tool dispatch, pan buttons, paste drop, unknown tools, inactive editor and releases');

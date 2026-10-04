@@ -1815,6 +1815,11 @@ function shapeDrawSnap(app, worldPos) {
 /** Screen distance (px) within which a click repeats the last placed vertex. */
 const REPEAT_CLICK_PX = 4;
 
+/** The open shape drawing session (`{ kind, … }`), or null. */
+export function getShapeDraw(app) {
+    return app._shapeDraw || null;
+}
+
 /** Left-click while a shape tool is active. */
 export function shapeDrawClick(app, kind, worldPos) {
     if (!SHAPE_KINDS.has(kind) || kind === 'image') return;

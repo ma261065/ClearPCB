@@ -5,9 +5,11 @@ file when the work is finished.
 
 ## Where we are
 
-`src/ui/PCBApp.js` went from 7,254 to 5,854 lines, and PCB modules' private editor
-accesses from 296 to 280. Every step passed the full gate (`node tools/regression.mjs`,
-282/282) with no new type errors, and was checked in the browser.
+`src/ui/PCBApp.js` went from 7,254 to 5,267 lines. PCB modules' private editor accesses
+went from 296 to 280, then rose to 294 with the mouse move (agreed with the user: moving
+458 lines that touch 47 editor members could not be access-neutral; see below). Every step
+passed the full gate (`node tools/regression.mjs`, 282/282) with no new type errors, and
+was checked in the browser.
 
 | Commit | Step |
 |---|---|
@@ -16,14 +18,22 @@ accesses from 296 to 280. Every step passed the full gate (`node tools/regressio
 | `0c957c8` | Keyboard shortcuts moved to `pcb/modules/keyboard.js`; drawing tools handle their own keys |
 | `53385dc` | Clearance overlay moved to `pcb/modules/clearance-overlay.js`; `existingLayerGroups()` service |
 | `064e89d` | Copper cuts and removal hatches moved to `pcb/modules/copper-cuts.js`; dead SVG-pattern hatch removed |
+| `6e73fef` | Footprint debug tooltip moved to `pcb/modules/debug-tooltip.js` |
+| (next) | Mouse binding moved to `pcb/modules/mouse.js`; release handlers in the interaction table |
+
+The mouse move kept new accesses down by moving mouse-up finishing into `release`
+handlers in `pcb-interaction-routing.js` (which already reads those fields), making the
+right-click/pan gesture state module state, and adding getters in the modules that own
+drawing and inline-edit state (`getTrackDraw`, `getFillDraw`, `getShapeDraw`,
+`activeTextInlineEdit`). The 12 members `mouse.js` still reads (`_screenToWorld`, the
+hit tests, tool previews) are candidates for services.
 
 ## Next steps
 
-1. **Mouse binding.** `_bindMouseEvents` is 458 lines. Move it to `pcb/modules/mouse.js`,
-   like `schematic/modules/mouse.js`. It touches 47 private members, so split it by event
-   first (mousedown already routes to per-tool handlers).
-2. **Smaller clusters:** layer visibility and lock changes (208 lines); the board
-   dimensions dialog (120 lines); the debug tooltip (58 lines).
+1. **Smaller clusters:** layer visibility and lock changes (208 lines); the board
+   dimensions dialog (120 lines).
+2. Optionally win back mouse.js accesses: make `screenToWorld`, `hitTestText`,
+   `hitTestFill` and `hitTestComponent` editor services.
 
 ## How each step is done
 

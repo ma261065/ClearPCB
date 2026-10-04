@@ -55,19 +55,24 @@ to `collectDrcInputs` explicitly. DRC status itself remains with
 with each field's category (`gesture` or `drawing`) and whether it blocks export.
 `hasPcbInteractionInProgress`, `isPcbDrawing` and the fabrication-snapshot guard
 derive from it. It has no imports so worker-loaded export code can use it.
-`pcb/modules/pcb-interaction-routing.js` holds each field's pointer-move and
-pose-cancel handler. Its mousemove dispatcher is deliberately straight-line code
+`pcb/modules/pcb-interaction-routing.js` holds each field's pointer-move,
+primary-release and pose-cancel handler. Its mousemove dispatcher is deliberately straight-line code
 for speed (`node tools/bench-pointer-dispatch.mjs`); `test-pcb-interaction-registry`
 proves it follows the table's priority, and fails if a new `_…Drag`, `_…Draw`,
 `_…Drop`, `_…Resize`, `_…Edit` or `_…Interaction` field is assigned without
 being registered. At most one pointer drag is active at a time; the selection
 gesture may wrap one, and drawing sessions persist across other gestures.
+`releasePcbPointerGestures` finishes the active gestures in table order on a
+primary release anywhere in the window; once the selection gesture finishes, the
+drags it can wrap (`wrapped`) are left to it, and a pending marquee finishes last.
 
-The PCB canvas mousedown listener in `PCBApp._bindMouseEvents` handles only
+The PCB canvas mouse listeners are in `pcb/modules/mouse.js` (`bindPcbMouseEvents`,
+bound through `PCBApp._bindMouseEvents`). The mousedown listener handles only
 cross-tool concerns (paste drop, floating previews, ribbon tab, inline text
 commit, double-click edit, right-button bookkeeping, pan). It then hands a
 primary press to the active tool's `_press…Tool` method through
-`PCB_TOOL_PRESS_HANDLERS`; `test-pcb-pointer-press` checks that routing.
+`PCB_TOOL_PRESS_HANDLERS`; `test-pcb-pointer-press` checks that routing and the
+release paths.
 `_pressSelectTool` is a priority chain of phase methods, each returning whether
 it handled the press: the shared selection interaction, Ctrl/Cmd shape toggling,
 an active box selection, continuing the current selection, then selecting a new

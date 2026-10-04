@@ -19,7 +19,7 @@ globalThis.document = {
 globalThis.localStorage = { getItem: () => null, setItem: noop, removeItem: noop };
 
 const { PCB_INTERACTIONS, hasPcbGesture, isPcbDrawing, blocksPcbExport } = await import('../src/pcb/modules/pcb-interactions.js');
-const { dispatchPcbPointerMove, cancelPcbPointerGestures, createPointerMoveDispatch, PCB_INTERACTION_ROUTES } = await import('../src/pcb/modules/pcb-interaction-routing.js');
+const { dispatchPcbPointerMove, cancelPcbPointerGestures, releasePcbPointerGestures, createPointerMoveDispatch, PCB_INTERACTION_ROUTES } = await import('../src/pcb/modules/pcb-interaction-routing.js');
 const { importSpecifiers } = await import('../tools/check-imports.mjs');
 
 const root = fileURLToPath(new URL('../', import.meta.url));
@@ -129,7 +129,23 @@ cancelPcbPointerGestures({
 });
 assert.deepEqual(ended, [['drag', false], ['ref', false]], 'Only active drags are cancelled, without committing');
 
-// 5. The data table stays importable from worker-loaded export code.
+// 5. Primary releases finish gestures in table order; the selection wrapper's own drags are skipped once it finishes.
+assert.deepEqual(PCB_INTERACTION_ROUTES.release, ['_boardOutlineResize', '_pcbSelectionInteraction', '_drag',
+    '_groupDrag', '_textDrag', '_shapeDrag', '_refDrag', '_vertexDrag', '_viaDrag', '_fillDrag']);
+{
+    const released = [];
+    const app = {
+        viewport: { svg: { style: {} } }, _drag: {}, _textDrag: null, _refDrag: {}, _boxSelectArm: { screen: {}, world: {} },
+        _endDrag: (...args) => released.push(['drag', ...args]),
+        _endRefDrag: (...args) => released.push(['ref', ...args]),
+        _endTextDrag: () => released.push(['text']),
+    };
+    releasePcbPointerGestures(app, { x: 1, y: 2 });
+    assert.deepEqual(released, [['drag'], ['ref']], 'Active drags are committed in table order');
+    assert.equal(app._boxSelectArm, null, 'An armed marquee that never started is disarmed');
+}
+
+// 6. The data table stays importable from worker-loaded export code.
 assert.deepEqual(importSpecifiers(readFileSync(join(root, 'src/pcb/modules/pcb-interactions.js'), 'utf8')), []);
 const reachable = new Set();
 const visit = file => {
@@ -144,4 +160,4 @@ assert.ok(reachable.has(join(root, 'src/pcb/modules/pcb-interactions.js')), 'Exp
 assert.ok(!reachable.has(join(root, 'src/pcb/modules/pcb-interaction-routing.js')),
     'Interaction handlers must not load into the Gerber worker');
 
-console.log('PASS PCB interaction registry: field coverage, derived predicates, move priority, cancellation and worker isolation');
+console.log('PASS PCB interaction registry: field coverage, derived predicates, move priority, release order, cancellation and worker isolation');

@@ -505,6 +505,11 @@ function trackContactConflict(net, contactNets) {
     return true;
 }
 
+/** The open track drawing session (with its current `snap`), or null. */
+export function getTrackDraw(app) {
+    return app._trackDraw || null;
+}
+
 /**
  * Begin a new track. Resolves snap at the click point and seeds the
  * draw context with the first anchor. If the click landed on a pad,
