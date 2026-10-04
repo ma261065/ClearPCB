@@ -6,7 +6,7 @@ import { setComputedFill, getComputedFill } from '../src/pcb/modules/computed-fi
 import { getBoardOutline, rectangleBoardOutline, boardBoundary } from '../src/shared/pcb/board-outline.js';
 import { getBoardDimensionPreview, previewBoardDimensions, finishBoardDimensionPreview,
     bindBoardDimensionProperties, beginBoardOutlineResize, updateBoardOutlineResize,
-    endBoardOutlineResize, boardOutlineHandles } from '../src/pcb/modules/board-outline-resize.js';
+    endBoardOutlineResize, boardOutlineHandles, boardDimensionsDialog } from '../src/pcb/modules/board-outline-resize.js';
 import { prepareFabricationSnapshot } from '../src/pcb/modules/fabrication-snapshot.js';
 import { loadPcb } from '../src/pcb/modules/project-state.js';
 import { PCB_LAYERS } from '../src/pcb/modules/layers.js';
@@ -377,7 +377,7 @@ for (const mode of ['rectangle', 'default-rectangle', 'circle', 'same-size-circl
             diameter.value = invalid; diameter.emit('input');
             controls.get('#boardDlgOk').emit('click');
             assert.equal(diameter.reportedValidity, 'Enter a diameter of at least 5 mm.');
-            assert.equal(app._boardDimensionsOverlay, overlay);
+            assert.equal(boardDimensionsDialog(app), overlay);
             assert.equal(app.history.undoStack.length, 0);
             assert.deepEqual(model.captureGeometry(), before);
         }
@@ -413,7 +413,7 @@ for (const mode of ['rectangle', 'default-rectangle', 'circle', 'same-size-circl
     }
     assert.equal(app.history.undoStack.length, mode === 'default-rectangle' ? 0 : 1);
     assert.equal(dirty, mode === 'default-rectangle' ? 1 : 0);
-    assert.equal(app._boardDimensionsOverlay, null);
+    assert.equal(boardDimensionsDialog(app), null);
     const saved = model.serialize();
     const copy = new ProjectDocument().pcbDocument;
     copy.load(saved);

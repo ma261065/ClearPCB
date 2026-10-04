@@ -46,6 +46,7 @@ globalThis.document = {
 };
 globalThis.localStorage = { getItem() { return null; }, setItem() {}, removeItem() {} };
 const { default: PCBApp } = await import('../src/ui/PCBApp.js');
+const { boardDimensionsDialog } = await import('../src/pcb/modules/board-outline-resize.js');
 const { default: SchematicApp } = await import('../src/ui/SchematicApp.js');
 const { ProjectDocument } = await import('../src/core/ProjectDocument.js');
 const { newFile } = await import('../src/schematic/modules/files.js');
@@ -238,12 +239,12 @@ delete globalThis.bootstrap;
         return node;
     };
     await project.newDocument();
-    const first = app._boardDimensionsOverlay;
+    const first = boardDimensionsDialog(app);
     assert.equal(first.parentNode, document.body, 'New displays the existing dimensions dialog');
     app._showBoardDimensionsDialog();
-    assert.equal(app._boardDimensionsOverlay, first, 'Repeated setup requests do not stack dialogs');
+    assert.equal(boardDimensionsDialog(app), first, 'Repeated setup requests do not stack dialogs');
     await project.newDocument();
-    const second = app._boardDimensionsOverlay;
+    const second = boardDimensionsDialog(app);
     assert.notEqual(second, first);
     assert.equal(first.parentNode, null, 'Replacing the document disposes its old dialog');
     assert.equal(document.body.children.length, 1);
@@ -254,17 +255,17 @@ delete globalThis.bootstrap;
     assert.equal(app.pcbDocument.boardShapes.filter(shape => shape.layer === 'board-outline').length, 1,
         'Default setup explicitly authors one model outline');
     assert.equal(project.isDirty, true, 'The newly created outline is eligible for saving');
-    assert.equal(app._boardDimensionsOverlay, null);
+    assert.equal(boardDimensionsDialog(app), null);
     assert.equal(document.body.children.length, 0);
 
     project.schematic.confirm = async () => true;
     await project.newDocument();
-    const pending = app._boardDimensionsOverlay;
+    const pending = boardDimensionsDialog(app);
     loadPcb(app, { stackup: { copperLayers: ['top-copper', 'bottom-copper'] },
         board: { width: 45, height: 22, radius: 0 } });
     project.notifyDocumentReplaced('open');
     assert.equal(pending.parentNode, null, 'Open disposes an unfinished New-board dialog');
-    assert.equal(app._boardDimensionsOverlay, null);
+    assert.equal(boardDimensionsDialog(app), null);
     assert.deepEqual([app._boardWidth, app._boardHeight], [45, 22]);
     pending.querySelector('#boardDlgOk').dispatchEvent({ type: 'click' });
     assert.deepEqual([app._boardWidth, app._boardHeight], [45, 22], 'Stale setup cannot overwrite loaded dimensions');

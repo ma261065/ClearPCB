@@ -4,6 +4,7 @@
     "_boardOutlineResize",
     "_boardOutlineSelected",
     "_drawBoardOutline",
+    "_markDirty",
     "_showBoardOutlineProperties",
     "_syncBoardOutlineInputs"
   ],

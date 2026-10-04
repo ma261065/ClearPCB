@@ -172,7 +172,8 @@ PCB editor:
   `pad-properties.js` (pads and the Pad tool), `text-properties.js` (free text, the
   Text tool, and the stroke-text field binder shared with reference designators),
   `copper-fill-edit.js` (pours), `board-outline-resize.js` (board size before an
-  outline shape exists), `component-properties.js` (components and references) and
+  outline shape exists, and the Board Dimensions dialog for a new board),
+  `component-properties.js` (components and references) and
   `multi-selection-properties.js` (the shared properties of a mixed selection).
   They use the panel services in `pcb-editor-api.js` (`propertiesItems`,
   `setPropertiesTitle`, `showPropertiesTab`, `toolNetOptions`, `bindToolNetControl`,

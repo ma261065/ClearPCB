@@ -110,7 +110,7 @@ import { preparePcbPaste, beginPcbPaste, updatePcbPaste, endPcbPaste, cancelPcbP
 import { getBoardOutline, boardBoundary } from '../shared/pcb/board-outline.js';
 import { eachPropertyEditorOnLayer, getPropertyEditor, setPropertyEditor } from '../pcb/modules/property-editors.js';
 import { areDragOverlaysDeferred, isFillRefreshPending, onRefreshSuspended, setDragOverlaysDeferred } from '../pcb/modules/refresh-state.js';
-import { endBoardOutlineResize, renderBoardOutlineHandles, getBoardDimensionPreview, showBoardOutlineProperties } from '../pcb/modules/board-outline-resize.js';
+import { endBoardOutlineResize, renderBoardOutlineHandles, getBoardDimensionPreview, showBoardOutlineProperties, showBoardDimensionsDialog, closeBoardDimensionsDialog } from '../pcb/modules/board-outline-resize.js';
 import { getBoardShapeNodeFocus, getBoardShapeSegmentFocus } from '../pcb/modules/board-shape-state.js';
 import { showTextToolProperties, showTextProperties, bindStrokeTextProps } from '../pcb/modules/text-properties.js';
 import { showPadEditor } from '../pcb/modules/pad-properties.js';
@@ -255,8 +255,6 @@ export default class PCBApp {
         this._hasContent = false;
         /** Whether a board outline exists, including before its first render. */
         this._boardOutlineDrawn = !!getBoardOutline(this);
-        /** @type {HTMLDivElement|null} */
-        this._boardDimensionsOverlay = null;
         /** Whether the board outline is currently selected */
         this._boardOutlineSelected = false;
         this._boardOutlineResize = null;
@@ -1950,130 +1948,14 @@ export default class PCBApp {
 
     // ── Board Outline ─────────────────────────────────────────────
 
+    /** Close the Board Dimensions dialog, if open; a seam tests and project-state.js call. */
     _closeBoardDimensionsDialog() {
-        this._boardDimensionsOverlay?.remove();
-        this._boardDimensionsOverlay = null;
+        closeBoardDimensionsDialog(this);
     }
 
-    /**
-     * Show a dialog asking for board dimensions on first entry.
-     */
+    /** Ask for the board size on first entry (board-outline-resize.js); a seam tests stub. */
     _showBoardDimensionsDialog() {
-        if (this._boardDimensionsOverlay) return;
-        getPropertyEditor(this, 'boardDimension')?.commit();
-        if (this._boardOutlineResize) endBoardOutlineResize(this);
-        const overlay = document.createElement('div');
-        overlay.className = 'app-modal-overlay';
-        overlay.innerHTML = `
-            <div class="app-modal" style="min-width:300px">
-                <div class="app-modal-title">Board Dimensions</div>
-                <div class="app-modal-message">Enter the board size in millimetres.</div>
-                <label for="boardDlgShape" style="font-size:11px;color:var(--text-secondary)">Shape</label>
-                <select class="app-modal-input" id="boardDlgShape">
-                    <option value="rect">Rectangle</option>
-                    <option value="circle">Circle</option>
-                </select>
-                <div id="boardDlgRectangleSizes" style="display:flex;gap:10px;margin-top:10px">
-                    <div style="flex:1">
-                        <label for="boardDlgWidth" style="font-size:11px;color:var(--text-secondary)">Width (mm)</label>
-                        <input class="app-modal-input" id="boardDlgWidth" type="number" value="${this._boardWidth}" min="5" step="1" style="margin-top:2px">
-                    </div>
-                    <div style="flex:1">
-                        <label for="boardDlgHeight" style="font-size:11px;color:var(--text-secondary)">Height (mm)</label>
-                        <input class="app-modal-input" id="boardDlgHeight" type="number" value="${this._boardHeight}" min="5" step="1" style="margin-top:2px">
-                    </div>
-                    <div style="flex:1">
-                        <label for="boardDlgRadius" style="font-size:11px;color:var(--text-secondary)">Corner Radius (mm)</label>
-                        <input class="app-modal-input" id="boardDlgRadius" type="number" value="${Number(this._boardRadius).toFixed(2)}" min="0" step="0.5" style="margin-top:2px">
-                    </div>
-                </div>
-                <div id="boardDlgCircleSizes" style="display:none;margin-top:10px">
-                    <label for="boardDlgDiameter" style="font-size:11px;color:var(--text-secondary)">Diameter (mm)</label>
-                    <input class="app-modal-input" id="boardDlgDiameter" type="number" value="${Math.min(this._boardWidth, this._boardHeight)}" min="5" step="1" style="margin-top:2px">
-                </div>
-                <div class="app-modal-message" style="margin-top:10px">Tip: Edit the board outline after creation for more complex shapes</div>
-                <div class="app-modal-actions">
-                    <button class="app-modal-btn app-modal-ok" id="boardDlgOk">OK</button>
-                </div>
-            </div>`;
-        document.body.appendChild(overlay);
-        this._boardDimensionsOverlay = overlay;
-
-        const shapeInput = /** @type {HTMLSelectElement} */ (overlay.querySelector('#boardDlgShape'));
-        const rectangleSizes = /** @type {HTMLElement} */ (overlay.querySelector('#boardDlgRectangleSizes'));
-        const circleSizes = /** @type {HTMLElement} */ (overlay.querySelector('#boardDlgCircleSizes'));
-        const diameterInput = /** @type {HTMLInputElement} */ (overlay.querySelector('#boardDlgDiameter'));
-        const widthInput = /** @type {HTMLInputElement} */ (overlay.querySelector('#boardDlgWidth'));
-        const heightInput = /** @type {HTMLInputElement} */ (overlay.querySelector('#boardDlgHeight'));
-        const radiusInput = /** @type {HTMLInputElement} */ (overlay.querySelector('#boardDlgRadius'));
-        const okBtn = overlay.querySelector('#boardDlgOk');
-
-        shapeInput.addEventListener('change', () => {
-            const circle = shapeInput.value === 'circle';
-            rectangleSizes.style.display = circle ? 'none' : 'flex';
-            circleSizes.style.display = circle ? 'block' : 'none';
-        });
-        diameterInput.addEventListener('input', () => diameterInput.setCustomValidity(''));
-
-        radiusInput?.addEventListener('input', () => {
-            if (Number.isFinite(radiusInput.valueAsNumber)) {
-                radiusInput.value = Math.max(0, radiusInput.valueAsNumber).toFixed(2);
-            }
-        });
-
-        setTimeout(() => {
-            if (this._boardDimensionsOverlay === overlay) {
-                (shapeInput.value === 'circle' ? diameterInput : widthInput).focus();
-            }
-        }, 50);
-
-        const accept = () => {
-            if (this._boardDimensionsOverlay !== overlay) return;
-            const w = parseFloat(widthInput?.value) || 100;
-            const h = parseFloat(heightInput?.value) || 80;
-            const r = parseFloat(radiusInput?.value) || 0;
-            const before = {
-                width: this._boardWidth,
-                height: this._boardHeight,
-                radius: this._boardRadius,
-            };
-            const diameter = parseFloat(diameterInput.value);
-            const circle = shapeInput.value === 'circle';
-            if (circle && (!Number.isFinite(diameter) || diameter < 5)) {
-                diameterInput.setCustomValidity('Enter a diameter of at least 5 mm.');
-                diameterInput.reportValidity();
-                return;
-            }
-            const after = circle ? {
-                width: diameter,
-                height: diameter,
-                radius: 0,
-                outline: {
-                    id: 'board-outline', kind: 'circle', layer: 'board-outline', lineWidth: 0.2,
-                    filled: false, x: diameter / 2, y: -diameter / 2, radius: diameter / 2,
-                },
-            } : {
-                width: Math.max(5, w),
-                height: Math.max(5, h),
-                radius: Math.max(0, r),
-            };
-            if (circle || before.width !== after.width || before.height !== after.height || before.radius !== after.radius) {
-                this.history.execute(new SetBoardOutlineCommand(this, before, after));
-            } else if (!this._boardOutlineDrawn) {
-                // Dimensions unchanged from defaults, so no command runs — but
-                // the outline still needs its first draw, and the document must
-                // be flagged dirty so the autosave captures the new board.
-                this.pcbDocument.ensureBoardOutline();
-                this._drawBoardOutline();
-                this._markDirty();
-            }
-            this._closeBoardDimensionsDialog();
-        };
-
-        okBtn?.addEventListener('click', accept);
-        overlay.addEventListener('keydown', (e) => {
-            if (e.key === 'Enter') accept();
-        });
+        showBoardDimensionsDialog(this);
     }
 
     /**

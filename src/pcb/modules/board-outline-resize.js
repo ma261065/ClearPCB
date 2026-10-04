@@ -275,3 +275,138 @@ export function endBoardOutlineResize(app, commit = true) {
         if (!isBoardViewRefreshSuspended(app)) refreshBoardView(app);
     }
 }
+
+const dimensionDialogs = new WeakMap();
+
+/** The open Board Dimensions dialog's overlay, or null. */
+export function boardDimensionsDialog(app) {
+    return dimensionDialogs.get(app) || null;
+}
+
+/** Close the Board Dimensions dialog, if open; a later OK in it changes nothing. */
+export function closeBoardDimensionsDialog(app) {
+    dimensionDialogs.get(app)?.remove();
+    dimensionDialogs.delete(app);
+}
+
+/**
+ * Ask for the board's size (rectangle with corner radius, or circle) when a new board
+ * is first shown. OK runs one undoable SetBoardOutlineCommand, or just draws the default
+ * outline (and marks the document dirty) when the defaults are kept.
+ */
+export function showBoardDimensionsDialog(app) {
+    if (dimensionDialogs.has(app)) return;
+    getPropertyEditor(app, 'boardDimension')?.commit();
+    if (app._boardOutlineResize) endBoardOutlineResize(app);
+    const size = boardDimensions(app);
+    const overlay = document.createElement('div');
+    overlay.className = 'app-modal-overlay';
+    overlay.innerHTML = `
+        <div class="app-modal" style="min-width:300px">
+            <div class="app-modal-title">Board Dimensions</div>
+            <div class="app-modal-message">Enter the board size in millimetres.</div>
+            <label for="boardDlgShape" style="font-size:11px;color:var(--text-secondary)">Shape</label>
+            <select class="app-modal-input" id="boardDlgShape">
+                <option value="rect">Rectangle</option>
+                <option value="circle">Circle</option>
+            </select>
+            <div id="boardDlgRectangleSizes" style="display:flex;gap:10px;margin-top:10px">
+                <div style="flex:1">
+                    <label for="boardDlgWidth" style="font-size:11px;color:var(--text-secondary)">Width (mm)</label>
+                    <input class="app-modal-input" id="boardDlgWidth" type="number" value="${size.width}" min="5" step="1" style="margin-top:2px">
+                </div>
+                <div style="flex:1">
+                    <label for="boardDlgHeight" style="font-size:11px;color:var(--text-secondary)">Height (mm)</label>
+                    <input class="app-modal-input" id="boardDlgHeight" type="number" value="${size.height}" min="5" step="1" style="margin-top:2px">
+                </div>
+                <div style="flex:1">
+                    <label for="boardDlgRadius" style="font-size:11px;color:var(--text-secondary)">Corner Radius (mm)</label>
+                    <input class="app-modal-input" id="boardDlgRadius" type="number" value="${Number(size.radius).toFixed(2)}" min="0" step="0.5" style="margin-top:2px">
+                </div>
+            </div>
+            <div id="boardDlgCircleSizes" style="display:none;margin-top:10px">
+                <label for="boardDlgDiameter" style="font-size:11px;color:var(--text-secondary)">Diameter (mm)</label>
+                <input class="app-modal-input" id="boardDlgDiameter" type="number" value="${Math.min(size.width, size.height)}" min="5" step="1" style="margin-top:2px">
+            </div>
+            <div class="app-modal-message" style="margin-top:10px">Tip: Edit the board outline after creation for more complex shapes</div>
+            <div class="app-modal-actions">
+                <button class="app-modal-btn app-modal-ok" id="boardDlgOk">OK</button>
+            </div>
+        </div>`;
+    document.body.appendChild(overlay);
+    dimensionDialogs.set(app, overlay);
+
+    const shapeInput = /** @type {HTMLSelectElement} */ (overlay.querySelector('#boardDlgShape'));
+    const rectangleSizes = /** @type {HTMLElement} */ (overlay.querySelector('#boardDlgRectangleSizes'));
+    const circleSizes = /** @type {HTMLElement} */ (overlay.querySelector('#boardDlgCircleSizes'));
+    const diameterInput = /** @type {HTMLInputElement} */ (overlay.querySelector('#boardDlgDiameter'));
+    const widthInput = /** @type {HTMLInputElement} */ (overlay.querySelector('#boardDlgWidth'));
+    const heightInput = /** @type {HTMLInputElement} */ (overlay.querySelector('#boardDlgHeight'));
+    const radiusInput = /** @type {HTMLInputElement} */ (overlay.querySelector('#boardDlgRadius'));
+    const okBtn = overlay.querySelector('#boardDlgOk');
+
+    shapeInput.addEventListener('change', () => {
+        const circle = shapeInput.value === 'circle';
+        rectangleSizes.style.display = circle ? 'none' : 'flex';
+        circleSizes.style.display = circle ? 'block' : 'none';
+    });
+    diameterInput.addEventListener('input', () => diameterInput.setCustomValidity(''));
+
+    radiusInput?.addEventListener('input', () => {
+        if (Number.isFinite(radiusInput.valueAsNumber)) {
+            radiusInput.value = Math.max(0, radiusInput.valueAsNumber).toFixed(2);
+        }
+    });
+
+    setTimeout(() => {
+        if (dimensionDialogs.get(app) === overlay) {
+            (shapeInput.value === 'circle' ? diameterInput : widthInput).focus();
+        }
+    }, 50);
+
+    const accept = () => {
+        // A dialog replaced or closed by a document change must not touch the new board.
+        if (dimensionDialogs.get(app) !== overlay) return;
+        const w = parseFloat(widthInput?.value) || 100;
+        const h = parseFloat(heightInput?.value) || 80;
+        const r = parseFloat(radiusInput?.value) || 0;
+        const { width, height, radius } = boardDimensions(app);
+        const before = { width, height, radius };
+        const diameter = parseFloat(diameterInput.value);
+        const circle = shapeInput.value === 'circle';
+        if (circle && (!Number.isFinite(diameter) || diameter < 5)) {
+            diameterInput.setCustomValidity('Enter a diameter of at least 5 mm.');
+            diameterInput.reportValidity();
+            return;
+        }
+        const after = circle ? {
+            width: diameter,
+            height: diameter,
+            radius: 0,
+            outline: {
+                id: 'board-outline', kind: 'circle', layer: 'board-outline', lineWidth: 0.2,
+                filled: false, x: diameter / 2, y: -diameter / 2, radius: diameter / 2,
+            },
+        } : {
+            width: Math.max(5, w),
+            height: Math.max(5, h),
+            radius: Math.max(0, r),
+        };
+        if (circle || before.width !== after.width || before.height !== after.height || before.radius !== after.radius) {
+            app.history.execute(new SetBoardOutlineCommand(app, before, after));
+        } else if (!app._boardOutlineDrawn) {
+            // Dimensions unchanged from defaults, so no command runs — but
+            // the outline still needs its first draw, and the document must
+            // be flagged dirty so the autosave captures the new board.
+            app.pcbDocument.ensureBoardOutline();
+            app._drawBoardOutline();
+            app._markDirty();
+        }
+        closeBoardDimensionsDialog(app);
+    };
+
+    okBtn?.addEventListener('click', accept);
+    overlay.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') accept();
+    });
+}
