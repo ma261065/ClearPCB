@@ -59,9 +59,9 @@ import { createPcbText, serializePcbText } from '../core/pcb-text.js';
 import { showAlert } from '../shared/ui/modal.js';
 import { connectBoxOutlines } from '../core/geometry.js';
 import { AddTextCommand, RemoveTextCommand, MoveTextCommand, EditTextCommand, getTextPosePreviewTexts, previewTextPose, finishTextPosePreview } from '../pcb/modules/text-commands.js';
-import { shapeDrawClick, cancelShapeDraw, finishPolygonDraw, finishLineDraw, finishShapeDrawAtPoint, hitTestBoardShape, setBoardShapeHover, selectBoardShape, startBoardShapeDrag, endBoardShapeDrag, resolveShapeDrawLayer, boardShapeCopperCuts, renderBoardShape, hitTestBoardShapeVertex, showBoardShapeContextMenu, dismissBoardShapeContextMenu } from '../pcb/modules/board-shapes.js';
+import { shapeDrawClick, cancelShapeDraw, finishPolygonDraw, finishLineDraw, finishShapeDrawAtPoint, hitTestBoardShape, setBoardShapeHover, selectBoardShape, startBoardShapeDrag, endBoardShapeDrag, resolveShapeDrawLayer, renderBoardShape, hitTestBoardShapeVertex, showBoardShapeContextMenu, dismissBoardShapeContextMenu } from '../pcb/modules/board-shapes.js';
 import { showBoardShapeProperties, showBoardShapeToolProperties, refreshBoardShapeToolLayer } from '../pcb/modules/board-shape-properties.js';
-import { normalizeShapeCopperMode, boardShapeRemovalPathD, boardShapeBounds } from '../shared/pcb/board-shape-geometry.js';
+import { normalizeShapeCopperMode } from '../shared/pcb/board-shape-geometry.js';
 import { hitTestPcbSelectionAnchor, renderPcbSelectionAnchors } from '../pcb/modules/selection-anchors.js';
 import { refreshAxisGlow } from '../pcb/modules/axis-glow.js';
 import { buildFillContext } from '../pcb/modules/fill-context.js';
@@ -100,7 +100,8 @@ import { CopperFill } from '../shapes/copper-fill.js';
 import { padCopperPathD, renderPad } from '../pcb/modules/pad.js';
 import { AddPadCommand, getPadRotationPreview, getPadPropertyPreview } from '../pcb/modules/pad-commands.js';
 import '../pcb/modules/pad-selection.js';
-import { renderCopperFill, fillGroupId, setCopperFillClip } from '../pcb/modules/copper-fill-render.js';
+import { renderCopperFill, fillGroupId } from '../pcb/modules/copper-fill-render.js';
+import { updateCopperCuts, clearCopperCuts, hasCopperCuts, scheduleRemovalHatchRender } from '../pcb/modules/copper-cuts.js';
 import { RemoveFillCommand, ModifyFillCommand } from '../pcb/modules/copper-fill-commands.js';
 import '../pcb/modules/copper-fill-selection.js';
 import { startFillEditAt, updateFillEdit, endFillEdit, showFillContextMenu, deleteFocusedFillPart, showFillProperties } from '../pcb/modules/copper-fill-edit.js';
@@ -731,7 +732,6 @@ export default class PCBApp {
                 renderBoardOutlineHandles(this);
                 refreshAxisGlow(this);
                 refreshTrackDrawPreview(this);
-                this._syncCopperRemovalHatches();
             }
             this._scheduleRemovalHatchRender();
             if (this._lastCrosshairWorld && PCB_CROSSHAIR_TOOLS.has(this.currentTool)) {
@@ -744,7 +744,7 @@ export default class PCBApp {
                 }
             }
             this._updatePcbCulling();
-            if (this._hasCopperCuts) this.updateCopperCuts({ geometryChanged: false });
+            if (hasCopperCuts(this)) this.updateCopperCuts({ geometryChanged: false });
             if (this._drcSelectedId) this._updateDRCConnector();
         };
 
@@ -791,7 +791,7 @@ export default class PCBApp {
             this._scheduleRemovalHatchRender();
             // Keep the copper-removal clip rectangle following the viewport
             // during a live pan (viewBox moves without firing onViewChanged).
-            if (this._hasCopperCuts) this.updateCopperCuts({ geometryChanged: false });
+            if (hasCopperCuts(this)) this.updateCopperCuts({ geometryChanged: false });
             // The viewBox moves continuously during a pan without firing
             // onViewChanged, so keep the DRC leader anchored here too.
             if (this._drcSelectedId) this._updateDRCConnector();
@@ -1910,251 +1910,14 @@ export default class PCBApp {
         return defs;
     }
 
-    /** Return a mode-coloured cross-hatch paint for copper and mask removals. */
-    _ensureCopperRemovalHatch(mode) {
-        const defs = this._ensureSvgDefs();
-        if (!defs) return '#8a929b';
-        const colors = {
-            'remove-copper': '#5f6770',
-            'remove-solder-mask': '#8a6923',
-            'remove-copper-mask': '#7c3b4c',
-        };
-        const color = colors[mode] || '#8a929b';
-        const id = `pcb-copper-removal-hatch-${String(mode || 'remove-copper').replace(/[^a-z-]/g, '')}`;
-        if (!defs.querySelector(`#${id}`)) {
-            const NS = 'http://www.w3.org/2000/svg';
-            const pattern = document.createElementNS(NS, 'pattern');
-            pattern.setAttribute('id', id);
-            pattern.setAttribute('patternUnits', 'userSpaceOnUse');
-            pattern.setAttribute('patternContentUnits', 'userSpaceOnUse');
-            pattern.setAttribute('width', '8');
-            pattern.setAttribute('height', '8');
-            const canvas = document.createElement('canvas');
-            canvas.width = 32;
-            canvas.height = 32;
-            const context = canvas.getContext('2d');
-            if (context) {
-                context.strokeStyle = color;
-                context.lineWidth = 5;
-                context.beginPath();
-                context.moveTo(0, 0); context.lineTo(32, 32);
-                context.moveTo(32, 0); context.lineTo(0, 32);
-                context.stroke();
-            }
-            const image = document.createElementNS(NS, 'image');
-            image.setAttribute('width', '8');
-            image.setAttribute('height', '8');
-            image.setAttribute('href', canvas.toDataURL('image/png'));
-            pattern.appendChild(image);
-            defs.appendChild(pattern);
-        }
-        this._setCopperRemovalHatchMetrics(defs.querySelector(`#${id}`));
-        return `url(#${id})`;
-    }
-
-    /** Keep the cached hatch tile at a stable screen-space size as SVG zooms. */
-    _setCopperRemovalHatchMetrics(pattern) {
-        if (!pattern) return;
-        const scale = Math.max(0.01, this.viewport?.scale || 1);
-        pattern.setAttribute('patternTransform', `scale(${1 / scale})`);
-    }
-
-    _syncCopperRemovalHatches() {
-        const defs = this._svgDefs || this.viewport?.svg?.querySelector('defs');
-        defs?.querySelectorAll('[id^="pcb-copper-removal-hatch-"]').forEach((pattern) => {
-            this._setCopperRemovalHatchMetrics(pattern);
-        });
-    }
-
-    /** Draw copper-removal hatches once into a composited screen-space bitmap. */
+    /** Redraw the copper-removal hatches on the next frame (a seam tests count through). */
     _scheduleRemovalHatchRender() {
-        if (this._removalHatchFrame) return;
-        this._removalHatchFrame = requestAnimationFrame(() => {
-            this._removalHatchFrame = 0;
-            this._renderRemovalHatches();
-        });
+        scheduleRemovalHatchRender(this);
     }
 
-    /** Draw copper-removal hatches once into a composited screen-space bitmap. */
-    _renderRemovalHatches() {
-        const viewport = this.viewport;
-        const container = this.canvasContainer;
-        if (!viewport || !container) return;
-        if (!this._removalHatchCanvas) {
-            const canvas = document.createElement('canvas');
-            canvas.className = 'pcb-removal-hatch-overlay';
-            canvas.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;pointer-events:none;';
-            container.insertBefore(canvas, viewport.rulerContainer || viewport.crosshairContainer || null);
-            this._removalHatchCanvas = canvas;
-        }
-        const canvas = this._removalHatchCanvas;
-        const rect = viewport._getCachedRect();
-        const dpr = window.devicePixelRatio || 1;
-        const width = Math.max(1, Math.round(rect.width * dpr));
-        const height = Math.max(1, Math.round(rect.height * dpr));
-        if (canvas.width !== width || canvas.height !== height) {
-            canvas.width = width;
-            canvas.height = height;
-        }
-        const context = canvas.getContext('2d');
-        if (!context) return;
-        context.setTransform(dpr, 0, 0, dpr, 0, 0);
-        context.clearRect(0, 0, rect.width, rect.height);
-        const colors = {
-            'remove-copper': '#5f6770',
-            'remove-solder-mask': '#8a6923',
-            'remove-copper-mask': '#7c3b4c',
-        };
-        this._removalHatchPatterns ||= new Map();
-        const viewBox = viewport.viewBox;
-        const scale = viewport.scale || 1;
-        for (const shape of this.boardShapes || []) {
-            if (!shape || shape.type === 'fill' || !isLayerVisible(shape.layer)) continue;
-            if (shape.layer !== 'top-copper' && shape.layer !== 'bottom-copper') continue;
-            const mode = normalizeShapeCopperMode(shape.copperMode);
-            if (!colors[mode]) continue;
-            const bounds = boardShapeBounds(shape);
-            if (!bounds || bounds.maxX < viewBox.x || bounds.maxY < viewBox.y
-                || bounds.minX > viewBox.x + viewBox.width || bounds.minY > viewBox.y + viewBox.height) continue;
-            const path = boardShapeRemovalPathD(shape);
-            if (!path) continue;
-            context.save();
-            context.setTransform(dpr * scale, 0, 0, dpr * scale, -viewBox.x * dpr * scale, -viewBox.y * dpr * scale);
-            context.beginPath();
-            context.clip(new Path2D(path), 'evenodd');
-            context.setTransform(dpr, 0, 0, dpr, 0, 0);
-            let pattern = this._removalHatchPatterns.get(mode);
-            if (!pattern) {
-                const tile = document.createElement('canvas');
-                tile.width = 36;
-                tile.height = 36;
-                const tileContext = tile.getContext('2d');
-                tileContext.strokeStyle = colors[mode];
-                tileContext.lineWidth = 1.2;
-                if (mode === 'remove-solder-mask') {
-                    for (let offset = 0; offset <= 36; offset += 12) {
-                        tileContext.beginPath();
-                        tileContext.moveTo(offset, 0);
-                        tileContext.lineTo(offset, 36);
-                        tileContext.moveTo(0, offset);
-                        tileContext.lineTo(36, offset);
-                        tileContext.stroke();
-                    }
-                } else {
-                    for (let offset = -36; offset <= 36; offset += 18) {
-                        tileContext.beginPath();
-                        tileContext.moveTo(offset, 0);
-                        tileContext.lineTo(offset + 36, 36);
-                        if (mode === 'remove-copper') {
-                            tileContext.moveTo(offset, 36);
-                            tileContext.lineTo(offset + 36, 0);
-                        }
-                        tileContext.stroke();
-                    }
-                }
-                pattern = context.createPattern(tile, 'repeat');
-                this._removalHatchPatterns.set(mode, pattern);
-            }
-            context.fillStyle = pattern;
-            context.fillRect(0, 0, rect.width, rect.height);
-            context.restore();
-        }
-    }
-
-    /**
-     * Rebuild the per-side SVG clip-paths that cut copper where "remove
-    * copper" circles sit, and apply (or clear) them on copper groups and
-    * poured-copper paths. The cut reveals the canvas behind — no board-colour fill is
-     * painted — so a track or pour passing through a removal circle reads as
-     * genuinely removed, matching the 2D/3D board views.
-     *
-     * A clip-path (not a <mask>) is used deliberately: clipping is vector and
-     * resolution-independent, so it stays exact at any zoom. A raster mask
-     * blows past the GPU's maximum texture size when zoomed in and gets
-     * silently dropped, which made the copper "fill back in".
-     */
-    updateCopperCuts({ geometryChanged = true } = {}) {
-        const defs = this._ensureSvgDefs();
-        if (!defs) return;
-        const NS = 'http://www.w3.org/2000/svg';
-        // Size the outer rectangle to the visible viewport (plus a one-screen
-        // margin) rather than a fixed huge constant. The browser rasterises a
-        // clip-path at the size of its bounding box; a giant rectangle makes
-        // that raster exceed the GPU limit once zoomed in and the clip is
-        // silently dropped (copper "fills back in"). A viewport-sized rect
-        // keeps the raster ~screen-sized at any zoom. Off-screen copper that
-        // falls outside the rect is clipped away, but it is off-screen anyway.
-        const vb = this.viewport?.getVisibleBounds?.();
-        let x0, y0, x1, y1;
-        if (vb && Number.isFinite(vb.minX) && vb.maxX > vb.minX && vb.maxY > vb.minY) {
-            const mx = vb.maxX - vb.minX;
-            const my = vb.maxY - vb.minY;
-            x0 = vb.minX - mx; x1 = vb.maxX + mx;
-            y0 = vb.minY - my; y1 = vb.maxY + my;
-        } else {
-            const m = Math.max(this._boardWidth || 100, this._boardHeight || 80);
-            x0 = -m; x1 = (this._boardWidth || 100) + m;
-            y0 = -(this._boardHeight || 80) - m; y1 = m;
-        }
-        const r4 = (n) => Math.round(n * 10000) / 10000;
-        // Cache the last-applied clip path string per side. Rebuilding the
-        // clip-path <path> and re-setting the clip-path attribute invalidates
-        // the copper layer's raster, forcing a full repaint of every track and
-        // pour. Most calls (hover, re-select, dragging an unrelated element,
-        // re-render-all) produce identical geometry, so a string compare lets
-        // us skip all DOM work and the repaint it would trigger. `null` is the
-        // cleared (no-cut) state; `undefined` means "not yet computed".
-        const cache = this._copperCutCache
-            || (this._copperCutCache = { top: undefined, bottom: undefined });
-        const geometryCache = this._copperCutGeometry || (this._copperCutGeometry = {});
-        const deferGeometry = areDragOverlaysDeferred(this) || getBoardShapeRotationPreview(this);
-        let any = false;
-        for (const side of ['top', 'bottom']) {
-            const copperLayer = `${side}-copper`;
-            const fillLayer = `${side}-fill`;
-            const clipId = `pcb-copper-cut-${side}`;
-            // Keep cutouts aligned with deferred pours until the drag commits or cancels.
-            // Viewport changes can still resize the outer clip without moving its holes.
-            const shapeCuts = (!geometryChanged || deferGeometry) && geometryCache[side]
-                ? geometryCache[side]
-                : (geometryCache[side] = boardShapeCopperCuts(this._pasteDrop ? this.pcbDocument : this, copperLayer));
-            const existing = defs.querySelector(`#${clipId}`);
-            if (shapeCuts.count === 0) {
-                // Nothing to cut on this side. Only touch the DOM if we weren't
-                // already in the cleared state.
-                if (cache[side] !== null) {
-                    if (existing) existing.remove();
-                    this._layerGroups.get(copperLayer)?.removeAttribute('clip-path');
-                    setCopperFillClip(this._layerGroups.get(fillLayer), null);
-                    cache[side] = null;
-                }
-                continue;
-            }
-            any = true;
-            // Outer rectangle keeps everything; board-shape removal sub-paths
-            // toggle holes with even-odd fill.
-            let d = `M ${r4(x0)} ${r4(y0)} L ${r4(x1)} ${r4(y0)} L ${r4(x1)} ${r4(y1)} L ${r4(x0)} ${r4(y1)} Z`;
-            // Append board-shape copper-removal sub-paths.
-            if (shapeCuts.d) d += ` ${shapeCuts.d}`;
-            // Identical geometry already applied (and the clip element still
-            // present) → skip the rebuild + re-apply, avoiding the repaint.
-            if (cache[side] === d && existing) continue;
-            const clip = existing || document.createElementNS(NS, 'clipPath');
-            clip.setAttribute('id', clipId);
-            clip.setAttribute('clipPathUnits', 'userSpaceOnUse');
-            while (clip.firstChild) clip.removeChild(clip.firstChild);
-            const path = document.createElementNS(NS, 'path');
-            path.setAttribute('d', d);
-            path.setAttribute('clip-rule', 'evenodd');
-            clip.appendChild(path);
-            if (!existing) defs.appendChild(clip);
-            this._layerGroups.get(copperLayer)?.setAttribute('clip-path', `url(#${clipId})`);
-            setCopperFillClip(this._layerGroups.get(fillLayer), clipId);
-            cache[side] = d;
-        }
-        // Remember whether any cut is active so view-change handlers know to
-        // re-fit the clip rectangle to the new viewport on pan/zoom.
-        this._hasCopperCuts = any;
+    /** Rebuild the per-side copper-removal clip paths (see copper-cuts.js). */
+    updateCopperCuts(options) {
+        updateCopperCuts(this, options);
     }
 
     /**
@@ -3485,16 +3248,7 @@ export default class PCBApp {
         this._footprintGroup = null;
         this._ratsnestGroup = null;
         this.placements.clear();
-        // Drop any copper-cut clip-paths; they are rebuilt as circles re-render.
-        for (const side of ['top', 'bottom']) {
-            this._svgDefs?.querySelector(`#pcb-copper-cut-${side}`)?.remove();
-            this._layerGroups.get(`${side}-copper`)?.removeAttribute('clip-path');
-            setCopperFillClip(this._layerGroups.get(`${side}-fill`), null);
-        }
-        // DOM is now in the cleared (no-cut) state; keep the path-string cache
-        // in sync so the next updateCopperCuts re-applies cuts from scratch.
-        this._copperCutCache = { top: null, bottom: null };
-        this._hasCopperCuts = false;
+        clearCopperCuts(this);
     }
 
     /**

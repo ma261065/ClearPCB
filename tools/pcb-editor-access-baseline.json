@@ -16,8 +16,6 @@
   ],
   "src/pcb/modules/board-shapes.js": [
     "_deferredShapeCopperCuts",
-    "_ensureCopperRemovalHatch",
-    "_hasCopperCuts",
     "_pcbSelectionInteraction",
     "_pendingShapeClearances",
     "_refreshBoardShapeClearance",
@@ -75,6 +73,9 @@
     "_syncHistoryButtons",
     "_syncPcbHomeToolHighlight",
     "_updateGridDropdown"
+  ],
+  "src/pcb/modules/copper-cuts.js": [
+    "_ensureSvgDefs"
   ],
   "src/pcb/modules/copper-fill-commands.js": [
     "_recomputeFillsNow",

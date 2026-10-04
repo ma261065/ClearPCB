@@ -83,7 +83,7 @@ for (const [name, args] of [
     const baseline = bonded.captureState();
     const pcb = {
         project, pcbDocument: project.pcbDocument, tracks: project.pcbDocument.tracks,
-        _active: false, placements: new Map(), _layerGroups: new Map(), boardShapes: [],
+        _active: false, placements: new Map(), _layerGroups: new Map(), existingLayerGroups() { return this._layerGroups; }, boardShapes: [],
         history: new CommandHistory(), _ensureViewport() {}, _renderPersistentObjects() {},
         _placeFootprints(placements) { this.placements = placements; },
         getLayerGroup: () => null, refreshClearanceHalos() {}, updateRatsnest() {},

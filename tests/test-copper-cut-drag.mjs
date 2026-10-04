@@ -64,7 +64,7 @@ try {
             const app = {
                 pcbDocument, get boardShapes() { return Object.getOwnPropertyDescriptor(PCBApp.prototype, 'boardShapes').get.call(this); },
                 placements: new Map(), texts: new Map(),
-                tracks: [], vias: [], pads: [], _shapeElements: new Map(), _layerGroups: groups,
+                tracks: [], vias: [], pads: [], _shapeElements: new Map(), _layerGroups: groups, existingLayerGroups: () => groups,
                 history: new CommandHistory(), _ensureSvgDefs: () => defs, getLayerGroup: id => groups.get(id),
                 viewport: { scale: 10, gridVisible: false, svg: new Element('svg'),
                     setCrosshair() {}, hideCrosshair() {},
@@ -143,7 +143,7 @@ try {
                 .map(id => [id, new Element()]));
             const app = {
                 pcbDocument, get boardShapes() { return getBoardShapeRotationPreview(this)?.boardShapes || pcbDocument.boardShapes; },
-                history: new CommandHistory(), _shapeElements: new Map(), _layerGroups: groups,
+                history: new CommandHistory(), _shapeElements: new Map(), _layerGroups: groups, existingLayerGroups: () => groups,
                 _ensureSvgDefs: () => defs, getLayerGroup: id => groups.get(id),
                 updateCopperCuts: PCBApp.prototype.updateCopperCuts,
                 viewport: { scale: 10, getVisibleBounds: () => ({ minX: 0, minY: 0, maxX: 40, maxY: 40 }) },

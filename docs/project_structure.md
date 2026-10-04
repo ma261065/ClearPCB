@@ -183,6 +183,10 @@ PCB editor:
   incremental refresh for a dragged track, a moved via or a changed shape); other
   modules read its state through `areClearancesVisible`, `getBoardShapeClearance`
   and `getPadHaloGroup`.
+- `pcb/modules/copper-cuts.js` — the per-side clip paths that cut copper under
+  copper-removal shapes and board holes (`updateCopperCuts`, an editor service), and the
+  screen-space canvas that hatches removal shapes; other modules ask `hasCopperCuts`
+  whether any cut is active.
 
 Schematic editor:
 

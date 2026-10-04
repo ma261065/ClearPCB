@@ -53,6 +53,7 @@ globalThis.localStorage = { setItem() {} };
 globalThis.requestAnimationFrame = () => 1;
 globalThis.cancelAnimationFrame = () => {};
 const { default: PCBApp } = await import('../src/ui/PCBApp.js');
+const { copperCutState } = await import('../src/pcb/modules/copper-cuts.js');
 
 function fixture(deferred = false) {
     const project = new ProjectDocument(), model = project.pcbDocument;
@@ -338,10 +339,10 @@ console.log('PASS toolbar undo/redo, cut discard, ID collision ownership and par
     app._ensureSvgDefs = () => defs;
     app.pasteSelection();
     PCBApp.prototype.updateCopperCuts.call(app);
-    assert.equal(app._copperCutGeometry.top.count, 0, 'Cold cut-cache initialization excludes detached pasted cutters');
+    assert.equal(copperCutState(app).geometry.top.count, 0, 'Cold cut-cache initialization excludes detached pasted cutters');
     app._endPasteDrop();
     PCBApp.prototype.updateCopperCuts.call(app);
-    assert.equal(app._copperCutGeometry.top.count, 1, 'Acceptance publishes the cutter for canonical derived geometry');
+    assert.equal(copperCutState(app).geometry.top.count, 1, 'Acceptance publishes the cutter for canonical derived geometry');
 }
 {
     const { app } = fixture();

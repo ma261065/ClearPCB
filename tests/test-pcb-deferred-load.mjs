@@ -260,6 +260,7 @@ assert.deepEqual(hidden.netlist, []);
 console.log('PASS: hidden PCB loading restores models and settings without rendering or derived copper work');
 
 const { default: PCBApp } = await import('../src/ui/PCBApp.js');
+const { copperCutState, hasCopperCuts } = await import('../src/pcb/modules/copper-cuts.js');
 let components = [];
 for (const withComponents of [false, true]) {
     components = withComponents ? [{ id: 'U1' }] : [];
@@ -387,17 +388,18 @@ const clipApp = {
     _ensureSvgDefs: () => clipDefs,
     viewport: { getVisibleBounds: () => visibleBounds },
     _layerGroups: new Map(['top-copper', 'bottom-copper', 'top-fill', 'bottom-fill'].map(id => [id, svgElement('g')])),
+    existingLayerGroups() { return this._layerGroups; },
 };
 const currentPath = () => clipDefs.querySelector('#pcb-copper-cut-top')?.firstChild?.attributes.get('d');
 updateCuts.call(clipApp, { geometryChanged: false });
 assert.equal(geometryCalls, 2, 'A view-only call initializes an empty geometry cache');
 const firstPath = currentPath();
-const firstGeometry = clipApp._copperCutGeometry.top;
+const firstGeometry = copperCutState(clipApp).geometry.top;
 visibleBounds = { minX: -10, minY: -5, maxX: 50, maxY: 35 };
 updateCuts.call(clipApp, { geometryChanged: false });
 assert.equal(geometryCalls, 2, 'Pan and zoom reuse both sides without resolving geometry');
 assert.notEqual(currentPath(), firstPath, 'Viewport clipping bounds still update');
-assert.equal(clipApp._copperCutGeometry.top, firstGeometry);
+assert.equal(copperCutState(clipApp).geometry.top, firstGeometry);
 const firstNode = clipDefs.querySelector('#pcb-copper-cut-top').firstChild;
 updateCuts.call(clipApp, { geometryChanged: false });
 assert.equal(clipDefs.querySelector('#pcb-copper-cut-top').firstChild, firstNode,
@@ -427,7 +429,7 @@ assert.ok(currentPath(), 'Missing SVG clip is restored from cached geometry');
 assert.equal(geometryCalls, beforeRebuild);
 cutShapes.length = 0;
 updateCuts.call(clipApp);
-assert.equal(clipApp._hasCopperCuts, false, 'Deleting the last cut clears the active flag');
+assert.equal(hasCopperCuts(clipApp), false, 'Deleting the last cut clears the active flag');
 for (const side of ['top', 'bottom']) {
     assert.equal(clipDefs.querySelector(`#pcb-copper-cut-${side}`), null);
     assert.equal(clipApp._layerGroups.get(`${side}-copper`).attributes.has('clip-path'), false);

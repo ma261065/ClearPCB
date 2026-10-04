@@ -34,6 +34,7 @@ globalThis.document = { getElementById(id) { return fields.get(id) || null; }, c
 const { cloneShapeGeometry, createBoardShapeSelectionAdapter } = await import('../src/pcb/modules/board-shapes.js');
 const { showBoardShapeProperties } = await import('../src/pcb/modules/board-shape-properties.js');
 const { setPcbSelection } = await import('../src/pcb/modules/selection-registry.js');
+const { copperCutState } = await import('../src/pcb/modules/copper-cuts.js');
 const image = { ...pictureShape({ width: 4, height: 2, rectangles: [{ x: 0, y: 0, width: 1, height: 2 }] },
     { widthMm: 4, layer: 'top-silk' }), id: 'pshape_1' };
 const app = { boardShapes: [image], placements: new Map(), tracks: [], vias: [], texts: new Map(),
@@ -141,7 +142,7 @@ let fillRefreshes = 0;
 let ratsnestRefreshes = 0;
 let copperCutRefreshes = 0;
 let hatchRefreshes = 0;
-app._hasCopperCuts = true;
+copperCutState(app).active = true;
 app.updateCopperCuts = () => { copperCutRefreshes++; };
 app._scheduleRemovalHatchRender = () => { hatchRefreshes++; };
 app.refreshFills = () => { fillRefreshes++; };

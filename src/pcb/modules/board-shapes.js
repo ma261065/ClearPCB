@@ -97,6 +97,7 @@ import {
 import { PROP_HIDDEN_LAYERS, showBoardShapeProperties, showBoardShapeToolProperties, syncCircleDiameterProperty, syncShapeBulgeProperty } from './board-shape-properties.js';
 import { isEditorActive } from './pcb-editor-api.js';
 import { forgetBoardShapeClearance, getBoardShapeClearance } from './clearance-overlay.js';
+import { hasCopperCuts } from './copper-cuts.js';
 
 const NS = 'http://www.w3.org/2000/svg';
 const HOLE_BORDER_WIDTH = 0.05;
@@ -709,15 +710,12 @@ export function renderBoardShape(app, shape, opts = {}) {
             : shapePathD(shape, { close: st.filled }));
     }
     if (st.isCopperRemoval || st.isHoleLayer) el.setAttribute('fill-rule', 'evenodd');
-    const canvasHatch = st.isCopperRemoval && st.filled;
     el.setAttribute('fill', st.filled
-        ? (canvasHatch
+        ? (st.isCopperRemoval
             ? 'none'
-            : st.isCopperRemoval
-                ? app._ensureCopperRemovalHatch?.(shape.copperMode) || st.fillColor
-                : isSelected
-                    ? shapeSelectionColor(shape)
-                    : isHovered ? shapeHoverColor(shape) : st.fillColor)
+            : isSelected
+                ? shapeSelectionColor(shape)
+                : isHovered ? shapeHoverColor(shape) : st.fillColor)
         : 'none');
     if (st.filled) el.setAttribute('fill-opacity', st.isCopperRemoval ? '1' : st.fillOpacity);
     el.setAttribute('stroke', isSelected ? shapeSelectionColor(shape) : isHovered ? shapeHoverColor(shape) : st.baseStroke);
@@ -763,7 +761,7 @@ export function renderBoardShape(app, shape, opts = {}) {
     if (!opts.interactionOnly) app._refreshBoardShapeClearance?.(shape);
     if (!opts.interactionOnly && (!opts.liveDrag || st.isCopperRemoval)) app._scheduleRemovalHatchRender?.();
     if (isPictureCopperRefreshPending(app)) {
-        if (!opts.skipCopperUpdate && (shapeAffectsCopperCuts(shape) || (!opts.liveDrag && app._hasCopperCuts))) app._deferredShapeCopperCuts = true;
+        if (!opts.skipCopperUpdate && (shapeAffectsCopperCuts(shape) || (!opts.liveDrag && hasCopperCuts(app)))) app._deferredShapeCopperCuts = true;
         return;
     }
     // Rebuilding the copper-cut clip-path re-rasterises the whole copper/fill
@@ -774,7 +772,7 @@ export function renderBoardShape(app, shape, opts = {}) {
         const affectsCuts = shapeAffectsCopperCuts(shape);
         if (opts.liveDrag) {
             if (affectsCuts) app.updateCopperCuts?.();
-        } else if (affectsCuts || app._hasCopperCuts) {
+        } else if (affectsCuts || hasCopperCuts(app)) {
             app.updateCopperCuts?.();
         }
     }
@@ -1959,7 +1957,7 @@ export function finishShapeDraw(app) {
 
 /**
  * SVG sub-paths for board shapes that subtract copper on the given copper
- * layer. Returns { count, d } to fold into PCBApp.updateCopperCuts.
+ * layer. Returns { count, d } to fold into updateCopperCuts (copper-cuts.js).
  */
 export function boardShapeCopperCuts(app, copperLayer) {
     let d = '';
