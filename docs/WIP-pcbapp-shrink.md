@@ -19,7 +19,7 @@ was checked in the browser.
 | `53385dc` | Clearance overlay moved to `pcb/modules/clearance-overlay.js`; `existingLayerGroups()` service |
 | `064e89d` | Copper cuts and removal hatches moved to `pcb/modules/copper-cuts.js`; dead SVG-pattern hatch removed |
 | `6e73fef` | Footprint debug tooltip moved to `pcb/modules/debug-tooltip.js` |
-| (next) | Mouse binding moved to `pcb/modules/mouse.js`; release handlers in the interaction table |
+| `fbbea29` | Mouse binding moved to `pcb/modules/mouse.js`; release handlers in the interaction table |
 
 The mouse move kept new accesses down by moving mouse-up finishing into `release`
 handlers in `pcb-interaction-routing.js` (which already reads those fields), making the
