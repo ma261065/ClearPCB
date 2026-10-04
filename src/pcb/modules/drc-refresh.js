@@ -123,7 +123,7 @@ export function scheduleDrcRefresh(app) {
         app._drcRaf = 0;
         if (!visible(app)) return;
         if (deferred(app)) { retry(app, state); return; }
-        if (state.failed || typeof Worker === 'undefined') { app._runDRCLive(); return; }
+        if (state.failed || typeof Worker === 'undefined') { runDrcNow(app); return; }
         const revision = state.revision;
         let inputs, saved;
         try { saved = ownership(app); inputs = captureDrcInputs(app, rulesFor(app)); }
@@ -153,7 +153,7 @@ export function scheduleDrcRefresh(app) {
             report(app, error);
             state.failed = true;
             if (!visible(app) || deferred(app)) { retry(app, state); return; }
-            app._runDRCLive();
+            runDrcNow(app);
         });
     });
 }

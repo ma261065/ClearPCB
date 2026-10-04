@@ -1,4 +1,5 @@
 import { isPcbDrawing } from './pcb-interactions.js';
+import { cancelShapeDraw } from './board-shapes.js';
 
 export const PCB_SHAPE_TOOLS = new Set(['line', 'circle', 'arc', 'rect', 'polygon']);
 export const PCB_CROSSHAIR_TOOLS = new Set(['track', 'via', 'pad', 'text', 'fill', ...PCB_SHAPE_TOOLS]);
@@ -52,7 +53,7 @@ export function cancelPcbDrawingMode(app) {
     if (app._textEdit) app._endTextInlineEdit(false);
     app._cancelTrackDraw();
     app._cancelFillDraw();
-    app._cancelShapeDraw();
+    cancelShapeDraw(app);
     resetPcbTool(app);
     return true;
 }
@@ -67,9 +68,9 @@ export function cancelPcbDrawingMode(app) {
  */
 export function preparePcbRibbonTransition(app, currentTab, nextTab, userInitiated = false) {
     if (currentTab === nextTab) return;
-    if (userInitiated) app._cancelDrawingMode();
+    if (userInitiated) cancelPcbDrawingMode(app);
     else if (app._shapeDraw) {
-        app._cancelShapeDraw();
+        cancelShapeDraw(app);
         resetPcbTool(app);
     }
 }

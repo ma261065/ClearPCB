@@ -586,8 +586,8 @@ export class SpatialHash {
  * same-net fixed copper while keeping it out of rip-up.
  *
  * @typedef {(
- *   {kind: 'segment', x1: number, y1: number, x2: number, y2: number, width?: number, layer?: string} |
- *   {kind: 'pad', x: number, y: number, width: number, height?: number, layer?: string, shape?: string}
+ *   {kind: 'segment', x1: number, y1: number, x2: number, y2: number, width?: number, layer?: string, net?: string} |
+ *   {kind: 'pad', x: number, y: number, width: number, height?: number, layer?: string, shape?: string, net?: string}
  * )} CopperObstacle
  */
 

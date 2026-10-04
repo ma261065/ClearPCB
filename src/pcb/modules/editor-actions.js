@@ -20,7 +20,7 @@ import { isEditorActive } from './pcb-editor-api.js';
 export function runPcbDeleteAction(app) {
     if (!isEditorActive(app) || isPcbDrawing(app)) return false;
     if (app._pasteDrop) { app._cancelPasteDrop(); return true; }
-    if (app._groupDrag) app._cancelPosePreviews();
+    if (app._groupDrag) cancelPcbPosePreviews(app);
     getPropertyEditor(app, 'boardShape')?.cancel();
     getPropertyEditor(app, 'track')?.cancel();
     if (deleteFocusedBoardShape(app)) return true;

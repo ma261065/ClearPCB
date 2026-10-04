@@ -204,7 +204,8 @@ Derived PCB work:
   `picture-refresh.js` — debounced picture-copper refresh.
 - `pcb/modules/drc-refresh.js` — scheduled DRC (worker); `drc-presentation.js` — DRC
   panel, markers and status.
-- `pcb/modules/autorouter-session.js` — routing session, worker and result adoption.
+- `pcb/modules/autorouter-session.js` — routing session, worker and result adoption;
+  `route-input.js` — the router input built from placements, netlist and copper.
 - `pcb/modules/copper-model.js`, `copper-connectivity.js` — physical pads, nets and
   clusters; `fill-context.js`, `copper-artwork.js` — pour inputs and DRC artwork.
 - `pcb/modules/fabrication-snapshot.js` — detached export inputs and readiness guard.

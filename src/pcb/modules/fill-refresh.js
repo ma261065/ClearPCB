@@ -9,6 +9,7 @@ import { reconcileRatsnest } from './track-draw.js';
 import { installCopperRegionContact, validateCopperRegionContact } from './track-contact-geometry.js';
 import { areDragOverlaysDeferred, isFillRefreshPending, isFillRefreshSuspended, isPictureCopperRefreshPending, refreshStatus, setFillRefreshError, setFillRefreshPending, setFillRefreshScheduled, refreshBoardView } from './refresh-state.js';
 import { isEditorActive } from './pcb-editor-api.js';
+import { buildFillContext } from './fill-context.js';
 
 const states = new WeakMap();
 function stateFor(app) {
@@ -154,7 +155,7 @@ export function recomputeFillsNow(app) {
     }
     let results;
     try {
-        const context = app._fillContext();
+        const context = buildFillContext(app);
         results = fills.map(fill => computeFillPolygons(fill, context));
     } catch (error) {
         reportFailure(app, 'Failed to compute copper fills; retaining settled pours:', error);

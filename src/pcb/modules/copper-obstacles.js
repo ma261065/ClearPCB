@@ -1,7 +1,14 @@
 import { pcbTextObstacles } from './pcb-text.js';
 import { boardShapeBounds, resolveBoardShapeGeometry } from '../../shared/pcb/board-shape-geometry.js';
 
+/**
+ * The router's fixed copper obstacles from the live board: copper text strokes, and
+ * copper shapes as pads (filled) or stroke segments (outlines).
+ * @param {any} app
+ * @returns {import('./autorouter-common.js').CopperObstacle[]}
+ */
 export function buildCopperObstacles(app) {
+    /** @type {import('./autorouter-common.js').CopperObstacle[]} */
     const obstacles = [];
     for (const text of app.texts.values()) {
         if (text.layer === 'top-copper' || text.layer === 'bottom-copper') obstacles.push(...pcbTextObstacles(text));

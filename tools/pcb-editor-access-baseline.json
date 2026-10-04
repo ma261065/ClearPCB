@@ -105,7 +105,6 @@
     "_drcRaf",
     "_drcRatlines",
     "_drcShouldRun",
-    "_runDRCLive",
     "_updateDRCStatus"
   ],
   "src/pcb/modules/edit-lifecycle.js": [
@@ -117,7 +116,6 @@
     "_boxSelectActive",
     "_boxSelectArm",
     "_cancelPasteDrop",
-    "_cancelPosePreviews",
     "_clearCursorCrosshair",
     "_drag",
     "_endDrag",
@@ -142,7 +140,6 @@
   ],
   "src/pcb/modules/fill-refresh.js": [
     "_clearFillGroups",
-    "_fillContext",
     "_fillRefreshDisposed",
     "_recomputeFillsNow",
     "_scheduleDRC"
@@ -307,7 +304,6 @@
     "_showTextProperties"
   ],
   "src/pcb/modules/tool-lifecycle.js": [
-    "_cancelDrawingMode",
     "_cancelFillDraw",
     "_cancelShapeDraw",
     "_cancelTrackDraw",

@@ -33,6 +33,7 @@ import { isPcbDrawing } from '../pcb/modules/pcb-interactions.js';
 import { runPcbDeleteAction, runPcbEscapeAction, runPcbHistoryAction, runPcbNudgeAction, savePcbProject } from '../pcb/modules/editor-actions.js';
 import { PCB_CROSSHAIR_TOOLS, cancelPcbDrawingMode, preparePcbRibbonTransition } from '../pcb/modules/tool-lifecycle.js';
 import { buildCopperObstacles } from '../pcb/modules/copper-obstacles.js';
+import { buildRouteInput } from '../pcb/modules/route-input.js';
 import { hasFabricationContent } from '../pcb/modules/fabrication-snapshot.js';
 import { openPanelizeDialog, renderPanelPreview } from '../pcb/modules/panelization-ui.js';
 import { generateGerberArchive, showGerberProgress } from '../pcb/modules/gerber-export.js';
@@ -5579,7 +5580,7 @@ export default class PCBApp {
                 const testInput = this._testBoardRouteInput;
                 const input = testInput || this._buildRouteInput();
                 this._testBoardRouteInput = null;
-                if (testInput) input.copperObstacles = this._buildCopperObstacles();
+                if (testInput) input.copperObstacles = buildCopperObstacles(this);
                 return input;
             },
             getRouterMode: () => this._getRouterMode(),
@@ -5734,121 +5735,11 @@ export default class PCBApp {
     }
 
     /**
-     * Build the router's copper-obstacle list from the live board model.
-     * Copper text decomposes into per-stroke segment obstacles; silk text
-     * is not copper and is ignored. Future copper shapes (rects, arcs,
-     * pours, imported artwork) should append their obstacles here too.
-     * @returns {import('../pcb/modules/autorouter-common.js').CopperObstacle[]}
-     */
-    _buildCopperObstacles() {
-        return buildCopperObstacles(this);
-    }
-
-    /**
      * Convert placements + netlist into the input format for our A* router.
      * @returns {import('../pcb/modules/autorouter-common.js').RouteInput}
      */
     _buildRouteInput() {
-        // Build connections with pad positions and sizes.
-        // Pad layers are already in the router's 'top'|'bottom'|'both' form
-        // (set by footprint.js); no translation needed.
-        const connections = [];
-        const shapeTerminalsByNet = new Map();
-        for (const shape of this.boardShapes || []) {
-            if (shape?.type === 'fill') continue;
-            const net = String(shape?.net || '');
-            if (!net || !shape.filled || (shape.layer !== 'top-copper' && shape.layer !== 'bottom-copper')) continue;
-            if (normalizeShapeCopperMode(shape.copperMode) !== 'add') continue;
-            const bounds = boardShapeBounds(shape);
-            const terminals = shapeTerminalsByNet.get(net) || [];
-            terminals.push({
-                x: (bounds.minX + bounds.maxX) / 2,
-                y: (bounds.minY + bounds.maxY) / 2,
-                width: bounds.maxX - bounds.minX,
-                height: bounds.maxY - bounds.minY,
-                layer: shape.layer === 'top-copper' ? 'top' : 'bottom',
-                shape: shape.kind === 'circle' ? 'ellipse' : 'rect',
-            });
-            shapeTerminalsByNet.set(net, terminals);
-        }
-        for (const entry of this.netlist) {
-            const pads = [];
-            for (const pin of entry.pins) {
-                const pl = this.placements.get(pin.componentId);
-                if (!pl) continue;
-                // Multi-pad pins (e.g. thermal/centre pads of TQFN/SOIC-with-EP
-                // share a pin number across many physical pads). Collect ALL
-                // matching offsets — first becomes the primary endpoint, the
-                // rest go into `alternates` so the router can land on any of
-                // them. Without this we'd only see the arbitrary last-inserted
-                // pad from the placement Map, often a hemmed-in centre pad
-                // that's hard or impossible to reach.
-                const matches = (pl.padOffsets || []).filter(o => o.number === pin.pinNumber);
-                if (matches.length === 0) continue;
-                const padFor = (off) => ({
-                    x: pl.x + off.dx,
-                    y: pl.y + off.dy,
-                    width: off.width || 1.0,
-                    height: off.height || 1.0,
-                    layer: off.layer || 'top',
-                    shape: off.shape || 'rect',
-                });
-                const primary = padFor(matches[0]);
-                if (matches.length > 1) {
-                    primary.alternates = matches.slice(1).map(padFor);
-                }
-                pads.push(primary);
-            }
-            pads.push(...(shapeTerminalsByNet.get(entry.net) || []));
-            if (pads.length >= 2) {
-                connections.push({ net: entry.net, pads });
-            }
-        }
-
-        // Collect ALL pads from every component as obstacles
-        // (not just the ones in the netlist — unconnected pads must block too)
-        const allObstaclePads = [];
-        for (const [, pl] of this.placements) {
-            for (const off of (pl.padOffsets || [])) {
-                allObstaclePads.push({
-                    x: pl.x + off.dx,
-                    y: pl.y + off.dy,
-                    width: off.width || 1.0,
-                    height: off.height || 1.0,
-                    layer: off.layer || 'top',
-                    shape: off.shape || 'rect',
-                });
-            }
-        }
-
-        // Fixed copper features the router must avoid but never rip up. Copper
-        // text decomposes into per-stroke segment obstacles; silk text is not
-        // copper and is ignored. Future copper shapes (rects, arcs, pours,
-        // imported artwork) append their own segment/pad obstacles here.
-        const copperObstacles = this._buildCopperObstacles();
-
-        // Compute bounds
-        let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-        for (const [, pl] of this.placements) {
-            for (const [, pad] of pl.pads) {
-                minX = Math.min(minX, pad.x - 5);
-                minY = Math.min(minY, pad.y - 5);
-                maxX = Math.max(maxX, pad.x + 5);
-                maxY = Math.max(maxY, pad.y + 5);
-            }
-        }
-
-        const params = this.getRoutingParams();
-        return {
-            connections,
-            allObstaclePads,
-            copperObstacles,
-            trackWidth: params.trackWidth,
-            clearance: params.clearance,
-            viaDiameter: params.viaDiameter,
-            gridStep: 0.5,
-            bounds: { minX, maxX, minY, maxY },
-        };
+        return buildRouteInput(this);
     }
 
     /**
