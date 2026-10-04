@@ -5,11 +5,12 @@ file when the work is finished.
 
 ## Where we are
 
-`src/ui/PCBApp.js` went from 7,254 to 4,998 lines. PCB modules' private editor accesses
-went from 296 to 280, then rose to 305 with the last three moves (agreed with the user:
-the mouse binding and layer handlers touch dozens of editor members and could not be
-access-neutral; see below). Every step passed the full gate (`node tools/regression.mjs`,
-282/282) with no new type errors, and was checked in the browser.
+`src/ui/PCBApp.js` went from 7,254 to about 4,990 lines. PCB modules' private editor
+accesses went from 296 to 280, rose to 305 with the mouse, dialog and layer moves (agreed
+with the user: those touch dozens of editor members and could not be access-neutral; see
+below), and fell to 303 when the removal hatch moved into the SVG. Every step passed the
+full gate (`node tools/regression.mjs`) with no new type errors, and was checked in the
+browser.
 
 | Commit | Step |
 |---|---|
@@ -22,14 +23,14 @@ access-neutral; see below). Every step passed the full gate (`node tools/regress
 | `fbbea29` | Mouse binding moved to `pcb/modules/mouse.js`; release handlers in the interaction table (+14 accesses) |
 | `2abbe9e` | Board Dimensions dialog moved to `pcb/modules/board-outline-resize.js` (+1: `_markDirty`) |
 | `00b5e47` | Layer visibility/lock handlers moved to `pcb/modules/layer-changes.js` (+10) |
+| `2552713` | Removal hatch drawn as SVG patterns in board units (`pcb/modules/removal-hatch.js`) so holes cover it; the editor owns its `<defs>`; canvas overlay and `_scheduleRemovalHatchRender` removed (-2) |
 
 The moves kept new accesses down by using module getters for interaction state
 (`getTrackDraw`, `getFillDraw`, `getShapeDraw`, `activeTextInlineEdit`, `getGroupDrag`,
 `getBoardShapeDrag`, `getVertexDrag`, `getSelectionInteraction`, `isBoardOutlineSelected`)
 and by putting mouse-up finishing in `release` handlers in `pcb-interaction-routing.js`.
 What remains are members tests stub or count through (`_cancelPosePreviews`,
-`_cancelPasteDrop`, `_scheduleRemovalHatchRender`, `_markDirty`, â€¦) and editor methods
-with no service yet.
+`_cancelPasteDrop`, `_markDirty`, …) and editor methods with no service yet.
 
 ## Next steps
 
