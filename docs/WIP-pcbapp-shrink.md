@@ -5,8 +5,8 @@ file when the work is finished.
 
 ## Where we are
 
-`src/ui/PCBApp.js` went from 7,254 to 6,101 lines, and PCB modules' private editor
-accesses from 296 to 281. Every step passed the full gate (`node tools/regression.mjs`,
+`src/ui/PCBApp.js` went from 7,254 to 5,854 lines, and PCB modules' private editor
+accesses from 296 to 280. Every step passed the full gate (`node tools/regression.mjs`,
 282/282) with no new type errors, and was checked in the browser.
 
 | Commit | Step |
@@ -15,21 +15,14 @@ accesses from 296 to 281. Every step passed the full gate (`node tools/regressio
 | `2d466ef` | Inline text editing moved to `pcb/modules/text-inline-edit.js`; `selectText`, `showTextProperties` became services |
 | `0c957c8` | Keyboard shortcuts moved to `pcb/modules/keyboard.js`; drawing tools handle their own keys |
 | `53385dc` | Clearance overlay moved to `pcb/modules/clearance-overlay.js`; `existingLayerGroups()` service |
+| `064e89d` | Copper cuts and removal hatches moved to `pcb/modules/copper-cuts.js`; dead SVG-pattern hatch removed |
 
 ## Next steps
 
-1. **Copper cuts and removal hatches** (about 190 lines). Move `updateCopperCuts`,
-   `_renderRemovalHatches`, `_scheduleRemovalHatchRender`, `_ensureCopperRemovalHatch`,
-   `_setCopperRemovalHatchMetrics`, `_syncCopperRemovalHatches` and the copper-cut part of
-   the board reset into `pcb/modules/copper-cuts.js`.
-   - Make `_copperCutCache`, `_removalHatchCanvas`, `_removalHatchPatterns` and
-     `_removalHatchFrame` module state (a WeakMap per editor).
-   - Keep `_copperCutGeometry` and `_hasCopperCuts` on the editor: tests read them.
-   - Keep `_scheduleRemovalHatchRender` as a one-line seam: 12 tests stub it.
-2. **Mouse binding.** `_bindMouseEvents` is 458 lines. Move it to `pcb/modules/mouse.js`,
+1. **Mouse binding.** `_bindMouseEvents` is 458 lines. Move it to `pcb/modules/mouse.js`,
    like `schematic/modules/mouse.js`. It touches 47 private members, so split it by event
    first (mousedown already routes to per-tool handlers).
-3. **Smaller clusters:** layer visibility and lock changes (208 lines); the board
+2. **Smaller clusters:** layer visibility and lock changes (208 lines); the board
    dimensions dialog (120 lines); the debug tooltip (58 lines).
 
 ## How each step is done
@@ -46,6 +39,10 @@ accesses from 296 to 281. Every step passed the full gate (`node tools/regressio
 - Prune now-unused PCBApp imports only when another module still imports that module.
 - Browser check: `node tools/serve.mjs 8790`, open the PCB tab, and exercise the moved
   feature.
+- Tooling on this machine: Git and Node.js are not on the default PATH in fresh shells
+  (`C:\Program Files\Git\cmd`, `C:\Program Files\nodejs`). TypeScript 5.9.3 is installed
+  outside the repo; set `TSC=%LOCALAPPDATA%\clearpcb-tsc\node_modules\typescript\lib\tsc.js`
+  for `node tools/typecheck.mjs`.
 
 ## Other open items
 
