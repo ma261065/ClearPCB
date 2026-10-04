@@ -174,6 +174,9 @@ PCB editor:
   `setPropertiesTitle`, `showPropertiesTab`, `toolNetOptions`, `bindToolNetControl`,
   `layerLabel`); `PCBApp` keeps a one-line forwarding method for each, passing tool
   state (pad and text defaults, inline-edit state) explicitly.
+- `pcb/modules/text-inline-edit.js` — in-place editing of free text (hidden input,
+  stroke-font caret overlay, commit and cancel); `selectText` and
+  `showTextProperties` are editor services.
 
 Schematic editor:
 

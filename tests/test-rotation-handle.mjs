@@ -86,7 +86,7 @@ try {
                 tracks: [], vias: [], placements: new Map(), _shapeElements: new Map(),
                 viewport: { scale: 10, svg: element('svg') }, history: new CommandHistory(), getLayerGroup() { return null; },
                 propertiesItems() { return null; }, refreshText() {},
-                _showTextProperties(text) { inputs.get('pcbPropTextRot').value = String(text.rotation); } };
+                showTextProperties(text) { inputs.get('pcbPropTextRot').value = String(text.rotation); } };
             setPcbSelection(app, [{ kind: kind === 'image' ? 'shape' : 'text', object }]);
             const adapter = kind === 'image' ? createBoardShapeSelectionAdapter(app, object, `shape:${object.id}`)
                 : createPcbTextSelectionAdapter(app, object, `text:${object.id}`);
@@ -218,7 +218,7 @@ try {
     let panelItems;
     const markup = {
         pcbPropTextToolRot: panelMarkup(items => { panelItems = items; PCBApp.prototype._showTextToolProperties.call(panelApp); }),
-        pcbPropTextRot: panelMarkup(items => { panelItems = items; PCBApp.prototype._showTextProperties.call(panelApp, { id: 't' }); }),
+        pcbPropTextRot: panelMarkup(items => { panelItems = items; PCBApp.prototype.showTextProperties.call(panelApp, { id: 't' }); }),
         pcbPropImageRot: panelMarkup(items => showImageProperties(panelApp, { ...pictureShape({ width: 4, height: 2, rectangles: [{ x: 0, y: 0, width: 4, height: 2 }] }, { widthMm: 8, layer: 'top-silk' }), rotation: 359.99999 }, items)),
     };
     for (const [inputId, expected] of [['pcbPropTextToolRot', '38'], ['pcbPropTextRot', '12'], ['pcbPropImageRot', '0']]) {
@@ -231,7 +231,7 @@ try {
         assert.equal(displayRotationDegrees(rotation), expected, 'rotation inputs display whole degrees');
     }
     // The real text selection and drag methods.
-    const textMethods = Object.fromEntries(['_selectText', '_beginTextDrag', '_updateTextDrag', '_handleTextDrag',
+    const textMethods = Object.fromEntries(['selectText', '_beginTextDrag', '_updateTextDrag', '_handleTextDrag',
         '_endTextDrag'].map(name => [name, PCBApp.prototype[name]]));
     const movingText = { id: 'moving-text', content: 'Move', x: 0, y: 0, size: 2, strokeWidth: 0.2,
         rotation: 0, layer: 'top-copper' };
@@ -246,7 +246,7 @@ try {
         _snapToGrid(point) { return point; },
         refreshText() { if (isPcbSelected(this, 'text', movingText)) renderPcbSelectionAnchors(this); },
     };
-    movingApp._selectText(movingText);
+    movingApp.selectText(movingText);
     const assertMovingHandle = () => {
         const displayed = movingApp.texts.get(movingText.id);
         assert.equal(getPcbSelection(movingApp, 'text')[0], displayed, 'Dragged text remains selected');
@@ -270,7 +270,7 @@ try {
         assert.equal(movingApp.history.undoStack.length, dragIndex + 1);
         cancelPictureCopperRefresh(movingApp);
     }
-    movingApp._selectText(null);
+    movingApp.selectText(null);
     assert.equal(movingOverlay.children.length, 0, 'Text deselection removes stale rotation handles');
     console.log('PASS repeated text drags retain selection, move rotation handles, and remove them on deselection');
 } finally {

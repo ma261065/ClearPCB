@@ -135,7 +135,7 @@ function refreshTextLayerProperties(app) {
     if (deferDerivedUpdate(app, 'text-layer-properties', () => refreshTextLayerProperties(app))) return;
     const selected = getPcbSelectionEntries(app);
     if (!selected.some(entry => entry.kind === 'text')) return;
-    if (selected.length === 1) app._showTextProperties?.(selected[0].object);
+    if (selected.length === 1) app.showTextProperties?.(selected[0].object);
     else app._showPcbMultiSelectionProperties?.(selected);
 }
 
@@ -155,7 +155,7 @@ export class AddTextCommand extends ModelAddTextCommand {
         super.undo();
         schedulePictureCopperRefresh(this.app, this.text);
         if (isPcbSelected(this.app, 'text', this.text)) {
-            this.app._selectText(null);
+            this.app.selectText(null);
         }
     }
 }
@@ -172,7 +172,7 @@ export class RemoveTextCommand extends ModelRemoveTextCommand {
         super.execute();
         schedulePictureCopperRefresh(this.app, this.snapshot);
         if (text && isPcbSelected(this.app, 'text', text)) {
-            this.app._selectText(null);
+            this.app.selectText(null);
         }
     }
     undo() {

@@ -104,7 +104,7 @@ function fixture(deferred = false, component = false) {
         _cancelPosePreviews: PCBApp.prototype._cancelPosePreviews, isSectionEditing: PCBApp.prototype.isSectionEditing,
         _cancelDrawingMode: () => false, _ensureViewport() {}, markSectionClean() {}, setActiveRibbonTab() {}, setPcbStatus() {},
         propertiesItems: () => ({ innerHTML: '' }), setPropertiesTitle: PCBApp.prototype.setPropertiesTitle,
-        _selectText() {}, _removeTextElement() {}, _renderText() {},
+        selectText() {}, _removeTextElement() {}, _renderText() {},
         clearProperties: PCBApp.prototype.clearProperties,
         _onLayerLockChanged: PCBApp.prototype._onLayerLockChanged,
         _onLayerVisibilityChanged: PCBApp.prototype._onLayerVisibilityChanged,

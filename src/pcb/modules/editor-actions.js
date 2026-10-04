@@ -126,7 +126,7 @@ export function runPcbEscapeAction(app) {
         return true;
     }
     if (getPcbSelection(app, 'text').length) {
-        app._selectText(null);
+        app.selectText(null);
         app.clearProperties?.();
         app.setActiveRibbonTab?.('pcb-home');
         return true;

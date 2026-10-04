@@ -66,7 +66,7 @@ export function createPcbTextSelectionAdapter(app, text, id) {
             } finally {
                 const canonical = app.pcbDocument.texts.get(text.id);
                 schedulePictureCopperRefresh(app, canonical);
-                if (canonical) app._showTextProperties?.(canonical);
+                if (canonical) app.showTextProperties?.(canonical);
             }
         },
         beginMove(worldPos) { return app._beginTextDrag(current(), worldPos); },

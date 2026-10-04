@@ -73,7 +73,7 @@ function fixture() {
     app._recomputeFillsNow = () => { counts.sync++; return PCBApp.prototype._recomputeFillsNow.call(app); };
     app.setStatus = message => { app.lastStatus = message; };
     app._cancelDrawingMode = () => {};
-    app._renderText = app.refreshText = app._selectText = () => {};
+    app._renderText = app.refreshText = app.selectText = () => {};
     app.history = new CommandHistory({ onChanged: () => invalidateFillRefresh(app) });
     const fill = new CopperFill({ id: 'top', kind: 'rect', net: 'GND',
         outline: rectangle(1.123456789, -39, 45, 37), cornerRadius: 0.312345678 });

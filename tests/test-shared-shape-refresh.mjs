@@ -41,7 +41,7 @@ const app = {
     _shapeElements: new Map(), _boardShapeClearanceCache: new Map(),
     getLayerGroup() { return null; },
     refreshFills() { refreshes++; return false; },
-    updateRatsnest() {}, _renderText() {}, _removeTextElement() {}, _selectText() {},
+    updateRatsnest() {}, _renderText() {}, _removeTextElement() {}, selectText() {},
     refreshText() { assert.equal(isPictureCopperRefreshPending(this), true); },
 };
 const snapshot = shape => ({ kind: shape.kind, geom: cloneShapeGeometry(shape), layer: shape.layer,

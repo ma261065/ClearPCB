@@ -126,7 +126,6 @@
     "_refDrag",
     "_segmentClickEdgeId",
     "_selectRefText",
-    "_selectText",
     "_shapeDrag",
     "_showComponentPopup",
     "_showSaveToast",
@@ -212,7 +211,6 @@
     "_beginTextDrag",
     "_endTextDrag",
     "_rotationHandleDrag",
-    "_showTextProperties",
     "_updateTextDrag"
   ],
   "src/pcb/modules/picture-import.js": [
@@ -277,13 +275,11 @@
     "_selectBoardOutline",
     "_selectComponent",
     "_selectRefText",
-    "_selectText",
     "_showComponentProperties",
     "_showFillProperties",
     "_showPadProperties",
     "_showPcbMultiSelectionProperties",
-    "_showRefProperties",
-    "_showTextProperties"
+    "_showRefProperties"
   ],
   "src/pcb/modules/selection-registry.js": [
     "_drawRefOverlay",
@@ -299,9 +295,11 @@
   "src/pcb/modules/text-commands.js": [
     "_removeTextElement",
     "_renderText",
-    "_selectText",
-    "_showPcbMultiSelectionProperties",
-    "_showTextProperties"
+    "_showPcbMultiSelectionProperties"
+  ],
+  "src/pcb/modules/text-inline-edit.js": [
+    "_endTextInlineEdit",
+    "_textEdit"
   ],
   "src/pcb/modules/tool-lifecycle.js": [
     "_cancelFillDraw",

@@ -37,7 +37,7 @@ export function clearSelectionInteractionUi(app) {
     clearTrackSelection(app);
     app._selectComponent?.(null);
     app._selectBoardOutline?.(false);
-    app._selectText?.(null);
+    app.selectText?.(null);
     app._selectRefText?.(null);
     app.selectFill?.(null);
     selectBoardShape(app, null);
@@ -48,8 +48,8 @@ function showSingleProperties(app, entry) {
         app._selectComponent?.(entry.object);
         app._showComponentProperties?.(entry.object);
     } else if (entry.kind === 'text') {
-        app._selectText?.(entry.object);
-        app._showTextProperties?.(entry.object);
+        app.selectText?.(entry.object);
+        app.showTextProperties?.(entry.object);
     } else if (entry.kind === 'reftext') {
         app._selectRefText?.(entry.object);
         app._showRefProperties?.(entry.object);

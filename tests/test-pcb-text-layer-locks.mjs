@@ -35,19 +35,19 @@ for (const layerId of TEXT_LAYERS) {
         placements: new Map(), tracks: [], vias: [], boardShapes: [], _layerGroups: new Map(),
         getLayerGroup: () => null, refreshText() {},
         propertiesItems: () => items, setPropertiesTitle: () => propertyShows++,
-        layerLabel: value => value, clearProperties: () => cleared++, _exitTextTool() {},
+        layerLabel: value => value, clearProperties: () => cleared++, setActiveRibbonTab() {},
         _screenToWorld: event => ({ x: event.clientX, y: event.clientY }),
     };
     Object.defineProperty(app, 'texts', Object.getOwnPropertyDescriptor(PCBApp.prototype, 'texts'));
     for (const name of ['_beginTextDrag', '_updateTextDrag', '_handleTextDrag', '_endTextDrag',
-        '_snapToGrid', '_selectText', '_showTextProperties', '_bindStrokeTextProps',
+        '_snapToGrid', 'selectText', 'showTextProperties', '_bindStrokeTextProps',
         '_pcbMultiPropertyCapabilities', '_onLayerLockChanged', '_startTextInlineEdit',
         '_endTextInlineEdit', '_deleteSelectedText']) app[name] = PCBApp.prototype[name];
     const adapter = createPcbTextSelectionAdapter(app, text, `text:${text.id}`);
     try {
         layer.locked = true;
         setPcbSelection(app, [{ kind: 'text', object: text }]);
-        app._showTextProperties(text);
+        app.showTextProperties(text);
         for (const id of ['pcbPropTextLayer', 'pcbPropTextSize', 'pcbPropTextRot', 'pcbPropTextLW', 'pcbPropTextBorder']) {
             assert.match(items.innerHTML, new RegExp(`id="${id}"[^>]* disabled`),
                 'Locked text properties must remain read-only');
@@ -55,7 +55,7 @@ for (const layerId of TEXT_LAYERS) {
         assert.ok(Object.values(app._pcbMultiPropertyCapabilities({ kind: 'text', object: text }))
             .every(capability => capability.disabled), 'Multi-selection must not bypass a text layer lock');
         app._textEdit = { text };
-        app._showTextProperties(text);
+        app.showTextProperties(text);
         assert.match(items.innerHTML, /id="pcbPropTextInsert"[^>]* disabled/);
         app._textEdit = null;
         assert.equal(adapter.beginMove({ x: 0, y: 0 }), false);

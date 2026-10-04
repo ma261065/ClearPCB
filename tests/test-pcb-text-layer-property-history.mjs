@@ -29,11 +29,11 @@ const app = {
     },
     refreshText() {},
 };
-for (const name of ['_showTextProperties', '_showPcbMultiSelectionProperties',
+for (const name of ['showTextProperties', '_showPcbMultiSelectionProperties',
     '_pcbMultiPropertyCapabilities', '_bindStrokeTextProps', 'layerLabel']) app[name] = PCBApp.prototype[name];
 const show = texts => {
     setPcbSelection(app, texts.map(object => ({ kind: 'text', object })));
-    if (texts.length === 1) app._showTextProperties(texts[0]);
+    if (texts.length === 1) app.showTextProperties(texts[0]);
     else app._showPcbMultiSelectionProperties(getPcbSelectionEntries(app));
 };
 const verifySingle = (layer, disabled) => {

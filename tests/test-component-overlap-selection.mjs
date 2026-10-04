@@ -58,7 +58,7 @@ function pcbFixture(withShape = false) {
         viewport: { scale: 10, svg: { style: {} }, snapToGrid: false, hideCrosshair() {} },
         status: { modeStatus: {}, tipStatus: { hidden: true, textContent: '' } },
         getLayerGroup: () => null, _selectComponent() {}, _selectBoardOutline() {},
-        _selectText() {}, _selectRefText() {}, selectFill() {}, clearProperties() {},
+        selectText() {}, _selectRefText() {}, selectFill() {}, clearProperties() {},
         _showPcbMultiSelectionProperties() {}, _hoverComponent(id) { this.hoveredComponent = id; },
         _hideNetTooltip() {}, updateRatsnest() {}, _netsForComponent: () => new Set(),
         _markDirty() {}, _updatePcbCulling() {}, refreshClearanceHalos() {},

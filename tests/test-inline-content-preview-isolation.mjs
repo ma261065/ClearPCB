@@ -69,13 +69,13 @@ function fixture(layer, extraTexts = 0, isNew = false) {
         viewport: { svg: new Element('svg'), addInteractionOverlay: group => overlay.appendChild(group) },
         getLayerGroup: id => groups.get(id) || null,
         propertiesItems: () => properties, setPropertiesTitle() {}, layerLabel: id => id,
-        clearProperties() {}, _exitTextTool() {}, _refreshBoardShapeClearance() {},
+        clearProperties() {}, setActiveRibbonTab() {}, _refreshBoardShapeClearance() {},
         _cancelTrackDraw() {}, _cancelFillDraw() {}, _cancelShapeDraw() {}, _ensureViewport() {}, markSectionClean() {},
         _renderText(value) { renders++; PCBApp.prototype._renderText.call(this, value); },
     };
     Object.defineProperty(app, 'texts', Object.getOwnPropertyDescriptor(PCBApp.prototype, 'texts'));
-    for (const name of ['_startTextInlineEdit', '_endTextInlineEdit', 'refreshText', '_removeTextElement', '_selectText',
-        '_showTextProperties', '_bindStrokeTextProps', '_cancelPosePreviews', '_cancelDrawingMode']) app[name] = PCBApp.prototype[name];
+    for (const name of ['_startTextInlineEdit', '_endTextInlineEdit', 'refreshText', '_removeTextElement', 'selectText',
+        'showTextProperties', '_bindStrokeTextProps', '_cancelPosePreviews', '_cancelDrawingMode']) app[name] = PCBApp.prototype[name];
     if (isNew) app.history.execute(new AddTextCommand(app, text));
     else app._renderText(text);
     app._renderText(other);

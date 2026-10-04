@@ -96,7 +96,7 @@ function fixture(deferred = false) {
         _board3d: { refresh() { derived++; } }, syncClipboardButtons() {}, _updateCursorForTool() {},
         clearProperties() {}, propertiesItems: () => null, setPropertiesTitle() {}, setPcbStatus() {},
         _cancelDrawingMode() {}, _ensureViewport() {}, markSectionClean() {}, _refreshPcbSelectionHighlights() {},
-        _showPcbMultiSelectionProperties() {}, _showTextProperties() {},
+        _showPcbMultiSelectionProperties() {}, showTextProperties() {},
     };
     setDragOverlaysDeferred(app, deferred);
     setFillRefreshSuspended(app, deferred);

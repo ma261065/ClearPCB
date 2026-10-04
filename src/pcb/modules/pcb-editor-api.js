@@ -49,6 +49,10 @@
  *   Display name of a PCB layer.
  * @property {() => void} fitToContent
  *   Fit the view to the board (or panel preview); shared viewport controls call it on either editor.
+ * @property {(text: object|null) => void} selectText
+ *   Select (or clear) one free text.
+ * @property {(text: object) => void} showTextProperties
+ *   Show a free text's Properties panel, aware of an inline edit in progress.
  */
 
 /**
@@ -64,4 +68,5 @@ export const PCB_EDITOR_SERVICES = Object.freeze([
     'updateCopperCuts', 'refreshText', 'selectFill', 'refreshSelectedDRCMarker', 'clearProperties',
     'setStatus', 'setPcbStatus', 'syncClipboardButtons', 'propertiesItems', 'setPropertiesTitle', 'showPropertiesTab',
     'toolNetOptions', 'bindToolNetControl', 'layerLabel', 'fitToContent', 'setActiveRibbonTab',
+    'selectText', 'showTextProperties',
 ]);

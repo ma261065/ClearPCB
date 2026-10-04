@@ -56,7 +56,7 @@ export async function collectPropertyPanels() {
     pcbPanel('via', () => { select('via', via); trackSelect.showViaProperties(pcb, via); });
     pcbPanel('pad', () => { select('pad', pad); pcb._showPadProperties(pad); });
     pcbPanel('copper pour', () => { select('fill', fill); pcb._showFillProperties(fill); });
-    pcbPanel('text', () => { select('text', text); pcb._showTextProperties(text); });
+    pcbPanel('text', () => { select('text', text); pcb.showTextProperties(text); });
     for (const [name, object] of Object.entries(shapes)) {
         pcbPanel(name, () => { select('shape', object); shapeProps.showBoardShapeProperties(pcb, object); });
     }

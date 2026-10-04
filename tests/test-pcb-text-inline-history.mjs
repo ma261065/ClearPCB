@@ -25,8 +25,8 @@ function fixture({ isNew = false, content = 'Original' } = {}) {
         refreshText(id) { const current = this.texts.get(id); if (current) this._renderText(current); },
         _removeTextElement: id => removals.push(id),
         _refreshBoardShapeClearance: current => clearances.push({ ...current }),
-        clearProperties: () => cleared++, _exitTextTool: () => exited++,
-        _selectText: PCBApp.prototype._selectText,
+        clearProperties: () => cleared++, setActiveRibbonTab: tab => { if (tab === 'pcb-home') exited++; },
+        selectText: PCBApp.prototype.selectText,
     };
     Object.defineProperty(app, 'texts', Object.getOwnPropertyDescriptor(PCBApp.prototype, 'texts'));
     if (isNew) app.history.execute(new AddTextCommand(app, text));

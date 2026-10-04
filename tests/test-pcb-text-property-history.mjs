@@ -44,7 +44,7 @@ function fixture(options = {}) {
         _refreshBoardShapeClearance: current => clearances.push({ ...current }),
     };
     Object.defineProperty(app, 'texts', Object.getOwnPropertyDescriptor(PCBApp.prototype, 'texts'));
-    PCBApp.prototype._showTextProperties.call(app, text);
+    PCBApp.prototype.showTextProperties.call(app, text);
     return { app, text, inputs, renders, clearances };
 }
 

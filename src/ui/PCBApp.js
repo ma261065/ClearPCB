@@ -17,11 +17,7 @@ import { setToolCursor } from '../shared/ui/cursor.js';
 import { sortByPropertyOrder } from '../shared/ui/property-order.js';
 import { bindRibbonHeight } from '../shared/ui/ribbon-height.js';
 import { isUnmodifiedPrimaryDoublePress } from '../shared/ui/inline-edit-activation.js';
-import {
-    applyTextConnectionGuide,
-    createInlineTextOverlay,
-    setInlineTextInputActive,
-} from '../shared/ui/inline-text-overlay.js';
+import { applyTextConnectionGuide, setInlineTextInputActive } from '../shared/ui/inline-text-overlay.js';
 import { PCB_LAYERS, PCB_OVERLAYS, PCB_COPPER_FILLS, isLayerLocked, isViaLocked, isLayerVisible, isViaVisible, pcbLayerHoverColor, pcbLayerSelectionColor, pcbLayerOptionHtml, refreshPcbLayerOptions, showLockedLayerBubble, isCopperFillLocked, isCopperFillVisible, saveLayerPrefs, setPcbCopperFillLocked, setPcbLayerLocked } from '../pcb/modules/layers.js';
 import { exportDSN, importSES } from '../pcb/modules/dsn.js';
 import { DrcPresentation } from '../pcb/modules/drc-presentation.js';
@@ -89,22 +85,11 @@ import {
     placementTransform,
     isPlacementMirrored,
 } from '../pcb/modules/track-commands.js';
-import { renderPcbText, pcbTextEditBox, pcbTextHitTest, textColorForLayer } from '../pcb/modules/pcb-text.js';
+import { renderPcbText, pcbTextHitTest, textColorForLayer } from '../pcb/modules/pcb-text.js';
 import { createPcbText, serializePcbText, TEXT_LAYERS } from '../core/pcb-text.js';
 import { showAlert } from '../shared/ui/modal.js';
 import { connectBoxOutlines } from '../core/geometry.js';
-import {
-    AddTextCommand,
-    RemoveTextCommand,
-    MoveTextCommand,
-    EditTextCommand,
-    getTextPosePreviewTexts,
-    previewTextPose,
-    finishTextPosePreview,
-    beginTextContentPreview,
-    beginTextPropertyPreview,
-    finishTextPropertyPreview,
-} from '../pcb/modules/text-commands.js';
+import { AddTextCommand, RemoveTextCommand, MoveTextCommand, EditTextCommand, getTextPosePreviewTexts, previewTextPose, finishTextPosePreview, beginTextPropertyPreview, finishTextPropertyPreview } from '../pcb/modules/text-commands.js';
 import { shapeDrawClick, cancelShapeDraw, finishPolygonDraw, finishLineDraw, finishShapeDrawAtPoint, hitTestBoardShape, setBoardShapeHover, selectBoardShape, startBoardShapeDrag, endBoardShapeDrag, resolveShapeDrawLayer, boardShapeCopperCuts, renderBoardShape, hitTestBoardShapeVertex, showBoardShapeContextMenu, dismissBoardShapeContextMenu, captureBoardShapeState, applyShapeSnapshot } from '../pcb/modules/board-shapes.js';
 import { showBoardShapeProperties, showBoardShapeToolProperties, refreshBoardShapeToolLayer } from '../pcb/modules/board-shape-properties.js';
 import { ModifyBoardShapeCommand } from '../pcb/modules/shape-commands.js';
@@ -138,7 +123,7 @@ import {
     placeFloatingSelectionInteraction,
 } from '../pcb/modules/selection-interaction.js';
 import { getPcbSelection, getPcbSelectionEntries, getPcbSelectionHits, isPcbSelected, setPcbSelection, syncPcbSelection } from '../pcb/modules/selection-registry.js';
-import { measureText as measureStrokeText, stringToPolylines } from '../shared/pcb/stroke-font.js';
+import { measureText as measureStrokeText } from '../shared/pcb/stroke-font.js';
 import { CommandHistory } from '../core/CommandHistory.js';
 import { Track } from '../shapes/track.js';
 import { Via } from '../shapes/via.js';
@@ -180,6 +165,7 @@ import { getBoardShapeNodeFocus, getBoardShapeSegmentFocus } from '../pcb/module
 import { showTextToolProperties, showTextProperties, bindStrokeTextProps } from '../pcb/modules/text-properties.js';
 import { showPadEditor } from '../pcb/modules/pad-properties.js';
 import { multiPropertyCapabilities, showMultiSelectionProperties } from '../pcb/modules/multi-selection-properties.js';
+import { startTextInlineEdit, endTextInlineEdit } from '../pcb/modules/text-inline-edit.js';
 
 /**
  * On-screen size (CSS px) of a footprint's bounding box below which it is
@@ -194,24 +180,6 @@ const PCB_LOD_PIXEL_THRESHOLD = 24;
  * comfortably around the label instead of touching the strokes.
  */
 const REF_BOX_PAD = 0.6;
-
-function measureStrokeTextVerticalBounds(text, size, strokeWidth = 0) {
-    const polylines = stringToPolylines(text, 0, 0, size, false);
-    let top = Infinity;
-    let bottom = -Infinity;
-    for (const polyline of polylines) {
-        for (const point of polyline) {
-            top = Math.min(top, point.y);
-            bottom = Math.max(bottom, point.y);
-        }
-    }
-    if (!Number.isFinite(top) || !Number.isFinite(bottom)) {
-        top = -size;
-        bottom = 0;
-    }
-    const strokeRadius = Math.max(Number(strokeWidth) || 0, 0) / 2;
-    return { top: top - strokeRadius, bottom: bottom + strokeRadius };
-}
 
 // Raising a suspension invalidates in-flight derived work on the editor, as its
 // former property setters did. Other objects (test doubles) are unaffected.
@@ -415,6 +383,8 @@ export default class PCBApp {
         this._syncPcbHomeToolHighlight = null;
         /** Active paste-drop interaction (pasted items glued to cursor). */
         this._pasteDrop = null;
+        /** Inline free-text edit in progress (pcb/modules/text-inline-edit.js), or null. @type {any} */
+        this._textEdit = null;
         /** Screen position where the current right-button pan began. */
         this._rightPanStart = null;
         /** Consume the contextmenu event generated by a completed right-drag. */
@@ -969,7 +939,7 @@ export default class PCBApp {
                 const textHit = this._hitTestText(worldPos);
                 if (textHit) {
                     e.preventDefault();
-                    this._selectText(textHit);
+                    this.selectText(textHit);
                     this._startTextInlineEdit(textHit, worldPos);
                     return;
                 }
@@ -1096,7 +1066,7 @@ export default class PCBApp {
             const textHit = this._hitTestText(worldPos);
             if (textHit) {
                 e.preventDefault();
-                this._selectText(textHit);
+                this.selectText(textHit);
                 this._startTextInlineEdit(textHit, worldPos);
                 return;
             }
@@ -1127,7 +1097,7 @@ export default class PCBApp {
             const textHit = this._hitTestText(worldPos);
             if (textHit) {
                 e.preventDefault();
-                this._selectText(textHit);
+                this.selectText(textHit);
                 this._startTextInlineEdit(textHit, worldPos);
                 return;
             }
@@ -1571,7 +1541,7 @@ export default class PCBApp {
         if (shapeHit) {
             this._selectComponent(null);
             this._selectBoardOutline(false);
-            this._selectText(null);
+            this.selectText(null);
             this._selectRefText(null);
             this.selectFill(null);
             selectBoardShape(this, shapeHit);
@@ -1587,13 +1557,13 @@ export default class PCBApp {
         if (textHit) {
             this._selectComponent(null);
             this._selectBoardOutline(false);
-            this._selectText(textHit);
-            this._showTextProperties(textHit);
+            this.selectText(textHit);
+            this.showTextProperties(textHit);
             this._beginTextDrag(textHit, worldPos);
             svg.style.cursor = 'grabbing';
             return;
         }
-        this._selectText(null);
+        this.selectText(null);
 
         // Reference-designator text hit-test. The label sits on the
         // silkscreen above/around the body and can be dragged/rotated
@@ -1762,8 +1732,8 @@ export default class PCBApp {
         this.history.execute(new AddTextCommand(this, text));
         // Select the freshly-placed text so the user can immediately
         // edit it in the Properties panel.
-        this._selectText(text);
-        this._showTextProperties(text);
+        this.selectText(text);
+        this.showTextProperties(text);
         // Match the schematic editor: drop straight into inline
         // edit mode so the user can type the content right away.
         this._startTextInlineEdit(text, null, { isNewPlacement: true });
@@ -2734,7 +2704,7 @@ export default class PCBApp {
             const single = getPcbSelectionEntries(this).length === 1;
             const selectedText = getPcbSelection(this, 'text')[0] || null;
             if (single && selectedText && selectedText.layer === layerId) {
-                this._selectText(null);
+                this.selectText(null);
                 this.clearProperties();
             }
             const selectedShape = getPcbSelection(this, 'shape')[0] || null;
@@ -4675,7 +4645,7 @@ export default class PCBApp {
     }
 
     /** Select/deselect a text. Pass null to clear. */
-    _selectText(text) {
+    selectText(text) {
         const prev = getPcbSelection(this, 'text')[0] || null;
         const next = text || null;
         // No-op when selection doesn't change — important because
@@ -5167,7 +5137,7 @@ export default class PCBApp {
      * Editing pushes EditTextCommand on `change` (not per keystroke) so
      * undo collapses each edit into one entry.
      */
-    _showTextProperties(text) {
+    showTextProperties(text) {
         showTextProperties(this, text, () => this._textEdit);
     }
 
@@ -5219,272 +5189,8 @@ export default class PCBApp {
      *   placed at the character nearest this click point; otherwise it
      *   goes to the end of the text.
      */
-    _startTextInlineEdit(text, worldPos, opts = {}) {
-        if (!text || isLayerLocked(text.layer) || !isLayerVisible(text.layer)) return;
-        if (this._textEdit && this._endTextInlineEdit(true) === false) return;
-
-        const svg = this.viewport?.svg;
-        if (!svg) return;
-        invalidateFillRefresh(this);
-        invalidateDrcRefresh(this);
-        if (!opts.componentId) text = beginTextContentPreview(this, text.id);
-
-        // Hidden input captures keystrokes / selection / IME / clipboard.
-        // Its visual is irrelevant; we draw our own caret as an SVG line
-        // positioned via the actual Hershey font's measureText().
-        const input = document.createElement('input');
-        input.type = 'text';
-        input.value = text.content;
-        input.style.cssText =
-            'position:fixed;left:-1000px;top:-1000px;width:10px;height:10px;' +
-            'opacity:0;';
-        document.body.appendChild(input);
-        setInlineTextInputActive(input, this._active);
-
-        const layerG = this.getLayerGroup(text.layer);
-        const overlay = createInlineTextOverlay(
-            group => {
-                if (typeof this.viewport.addInteractionOverlay === 'function') {
-                    this.viewport.addInteractionOverlay(group);
-                } else {
-                    layerG?.appendChild(group);
-                }
-            },
-            { emphasized: true },
-        );
-        const { box, caret } = overlay;
-
-        this._textEdit = {
-            text, input, caret, box, overlay,
-            options: opts,
-            isNewPlacement: !!opts.isNewPlacement,
-            originalContent: text.content,
-            committed: false,
-            blinkTimer: overlay.blinkTimer,
-        };
-
-        // Surface the Properties panel for this text so the user can
-        // tweak size/rotation/etc. mid-edit without leaving edit mode.
-        if (opts.select) opts.select();
-        else {
-            this._selectText(text);
-            this._showTextProperties(text);
-        }
-        const keepVisible = () => {
-            this._textEdit?.overlay?.keepCaretVisible();
-        };
-
-        const updateCaret = () => {
-            opts.prepare?.();
-            // Update editing box bounds. Top of box sits a small pad
-            // above the cap-top; bottom sits below the baseline far
-            // enough to clear descenders (g, y, p, …).
-            const editBox = pcbTextEditBox(text, input.value);
-            const mirror = (typeof text.layer === 'string' && text.layer.startsWith('bottom-')) ? -1 : 1;
-            const xform = opts.transform?.()
-                ?? `translate(${text.x},${text.y}) rotate(${-(text.rotation || 0)}) scale(${mirror},1)`;
-
-            const caretIdx = input.selectionStart ?? input.value.length;
-            const sub = input.value.slice(0, caretIdx);
-            const lx = measureStrokeText(sub, text.size);
-            const verticalBounds = measureStrokeTextVerticalBounds(
-                input.value,
-                text.size,
-                text.strokeWidth,
-            );
-            const caretExtension = text.size * 0.15;
-            overlay.updateGeometry({
-                ...editBox,
-                caretX: lx,
-                caretTop: verticalBounds.top - caretExtension,
-                caretBottom: verticalBounds.bottom + caretExtension,
-                transform: xform,
-            });
-        };
-
-        keepVisible();
-        this._textEdit.updateCaret = updateCaret;
-
-        const live = () => {
-            // Inline autoreplace for common typographic symbols. Matches
-            // only at the caret so the user can still type literal "(c)"
-            // by undoing (Ctrl+Z) after the substitution.
-            const AUTOREPLACE = [
-                ['(c)',  '\u00A9'],
-                ['(C)',  '\u00A9'],
-                ['(r)',  '\u00AE'],
-                ['(R)',  '\u00AE'],
-                ['(tm)', '\u2122'],
-                ['(TM)', '\u2122'],
-            ];
-            const caret = input.selectionStart ?? input.value.length;
-            for (const [from, to] of AUTOREPLACE) {
-                if (caret >= from.length &&
-                    input.value.slice(caret - from.length, caret) === from) {
-                    const before = input.value.slice(0, caret - from.length);
-                    const after = input.value.slice(caret);
-                    input.value = before + to + after;
-                    const pos = before.length + to.length;
-                    try { input.setSelectionRange(pos, pos); } catch { /* */ }
-                    break;
-                }
-            }
-            if (text.content !== input.value) {
-                text.content = input.value;
-                if (opts.render) opts.render();
-                else this.refreshText(text.id);
-            }
-            updateCaret();
-            keepVisible();
-        };
-        input.addEventListener('input', live);
-        input.addEventListener('keyup', () => { updateCaret(); keepVisible(); });
-        input.addEventListener('click', () => { updateCaret(); keepVisible(); });
-        input.addEventListener('select', () => { updateCaret(); keepVisible(); });
-
-        // Resume label typing from property controls, but let numeric fields
-        // own their editing keys. Enter/Escape still finish the inline edit.
-        const docKeyCapture = (ev) => {
-            const st = this._textEdit;
-            if (!st || !this._active) return;
-            const active = document.activeElement;
-            if (active === input) return;
-            const propsPanel = document.getElementById('pcbPropertiesPanel');
-            if (!(propsPanel && active && propsPanel.contains(active))) return;
-            // Determine if this is a text-editing key we should reroute.
-            const k = ev.key;
-            if (active.tagName === 'INPUT' && active.type === 'number'
-                && k !== 'Enter' && k !== 'Escape') return;
-            const editingKey =
-                k === 'ArrowLeft' || k === 'ArrowRight' ||
-                k === 'Home' || k === 'End' ||
-                k === 'Backspace' || k === 'Delete' ||
-                k === 'Escape' || k === 'Enter' ||
-                (k.length === 1 && !ev.metaKey);
-            if (!editingKey) return;
-            // Don't steal the spinner's own up/down arrows, Tab, etc.
-            ev.preventDefault();
-            ev.stopPropagation();
-            input.focus();
-            // Synthesize: for printable chars, insert at selection.
-            const sel = input.selectionStart ?? input.value.length;
-            const end = input.selectionEnd ?? sel;
-            if (k.length === 1 && !ev.ctrlKey && !ev.metaKey) {
-                const v = input.value;
-                input.value = v.slice(0, sel) + k + v.slice(end);
-                const pos = sel + 1;
-                try { input.setSelectionRange(pos, pos); } catch { /* */ }
-                input.dispatchEvent(new Event('input', { bubbles: true }));
-            } else if (k === 'Backspace') {
-                const v = input.value;
-                if (sel !== end) {
-                    input.value = v.slice(0, sel) + v.slice(end);
-                    try { input.setSelectionRange(sel, sel); } catch { /* */ }
-                } else if (sel > 0) {
-                    input.value = v.slice(0, sel - 1) + v.slice(sel);
-                    try { input.setSelectionRange(sel - 1, sel - 1); } catch { /* */ }
-                }
-                input.dispatchEvent(new Event('input', { bubbles: true }));
-            } else if (k === 'Delete') {
-                const v = input.value;
-                if (sel !== end) {
-                    input.value = v.slice(0, sel) + v.slice(end);
-                } else if (sel < v.length) {
-                    input.value = v.slice(0, sel) + v.slice(sel + 1);
-                }
-                try { input.setSelectionRange(sel, sel); } catch { /* */ }
-                input.dispatchEvent(new Event('input', { bubbles: true }));
-            } else if (k === 'ArrowLeft') {
-                const pos = Math.max(0, (ev.ctrlKey ? 0 : sel - 1));
-                try { input.setSelectionRange(pos, pos); } catch { /* */ }
-                updateCaret(); keepVisible();
-            } else if (k === 'ArrowRight') {
-                const pos = ev.ctrlKey ? input.value.length : Math.min(input.value.length, sel + 1);
-                try { input.setSelectionRange(pos, pos); } catch { /* */ }
-                updateCaret(); keepVisible();
-            } else if (k === 'Home') {
-                try { input.setSelectionRange(0, 0); } catch { /* */ }
-                updateCaret(); keepVisible();
-            } else if (k === 'End') {
-                const pos = input.value.length;
-                try { input.setSelectionRange(pos, pos); } catch { /* */ }
-                updateCaret(); keepVisible();
-            } else if (k === 'Enter') {
-                this._endTextInlineEdit(true);
-            } else if (k === 'Escape') {
-                this._endTextInlineEdit(false);
-            }
-        };
-        document.addEventListener('keydown', docKeyCapture, true);
-        this._textEdit.docKeyCapture = docKeyCapture;
-
-        input.addEventListener('keydown', (e) => {
-            if (!this._active) {
-                e.preventDefault();
-                return;
-            }
-            e.stopPropagation();
-            if (e.key === 'Enter') {
-                e.preventDefault();
-                this._endTextInlineEdit(true);
-            } else if (e.key === 'Escape') {
-                e.preventDefault();
-                this._endTextInlineEdit(false);
-            } else {
-                // Arrow/Home/End/Backspace/Delete autorepeat only fires
-                // keydown (no keyup, no input event for arrows). Defer
-                // one tick so input.selectionStart reflects the post-key
-                // position, then redraw the SVG caret.
-                requestAnimationFrame(() => { updateCaret(); keepVisible(); });
-            }
-        });
-        input.addEventListener('blur', (e) => {
-            // Keep edit mode alive on blur. If focus moved to the
-            // Properties panel, leave it there (the user is tweaking
-            // a spinner). Otherwise refocus the hidden input on the
-            // next tick so transient blurs (e.g. right-drag panning
-            // the canvas) don't end edit mode. Commit happens only
-            // via Enter or Escape.
-            const propsPanel = document.getElementById('pcbPropertiesPanel');
-            setTimeout(() => {
-                if (!this._active || !this._textEdit || this._textEdit.committed) return;
-                const active = document.activeElement;
-                if (active === input) return;
-                if (propsPanel && active && propsPanel.contains(active)) return;
-                input.focus();
-            }, 0);
-        });
-
-        setTimeout(() => {
-            if (!this._active || this._textEdit?.input !== input) return;
-            input.focus();
-            // Place caret at the character nearest the click, if known.
-            let idx = input.value.length;
-            if (worldPos) {
-                // Inverse-rotate the click into the text's local frame,
-                // undo the mirror, then walk glyphs accumulating widths
-                // to find the nearest gap.
-                const rad = -(text.rotation || 0) * Math.PI / 180;
-                const cos = Math.cos(-rad), sin = Math.sin(-rad);
-                const mirror = (typeof text.layer === 'string' && text.layer.startsWith('bottom-')) ? -1 : 1;
-                const dx = worldPos.x - text.x, dy = worldPos.y - text.y;
-                const lx = opts.localX ? opts.localX(worldPos) : (dx * cos - dy * sin) * mirror;
-                let cursorX = 0;
-                let best = 0;
-                let bestDist = Math.abs(lx - cursorX);
-                const s = input.value;
-                for (let i = 0; i < s.length; i++) {
-                    const charW = measureStrokeText(s[i], text.size);
-                    cursorX += charW;
-                    // After the i-th char, caret would be at index i+1.
-                    const d = Math.abs(lx - cursorX);
-                    if (d < bestDist) { bestDist = d; best = i + 1; }
-                }
-                idx = best;
-            }
-            try { input.setSelectionRange(idx, idx); } catch { /* ignore */ }
-            updateCaret();
-        }, 0);
+    _startTextInlineEdit(text, worldPos, opts) {
+        return startTextInlineEdit(this, text, worldPos, opts);
     }
 
     /**
@@ -5493,68 +5199,7 @@ export default class PCBApp {
      * @param {boolean} commit
      */
     _endTextInlineEdit(commit) {
-        const state = this._textEdit;
-        if (!state) return;
-        if (commit) getPropertyEditor(this, 'text')?.commit();
-        else getPropertyEditor(this, 'text')?.cancel();
-        if (commit && state.options?.validate && !state.options.validate(state.input.value)) return false;
-        state.committed = true;
-        this._textEdit = null;
-
-        const { text, input, originalContent, isNewPlacement } = state;
-        const finalContent = input.value;
-
-        if (state.docKeyCapture) document.removeEventListener('keydown', state.docKeyCapture, true);
-        state.overlay?.destroy();
-        if (input.parentNode) input.parentNode.removeChild(input);
-
-        if (state.options?.finish) {
-            text.content = originalContent;
-            state.options.finish(commit ? finalContent : originalContent, commit);
-            return;
-        }
-
-        // Determine effective final content (empty if cancelled).
-        const effective = commit ? finalContent : originalContent;
-        // Remove blank text without recording its temporary typed content.
-        const blank = effective.trim() === '';
-        const wasSelected = isPcbSelected(this, 'text', text);
-        try {
-            finishTextPosePreview(this, () => {
-                if (blank) {
-                    const remove = new RemoveTextCommand(this, text.id);
-                    const last = this.history.undoStack.at(-1);
-                    if (isNewPlacement && last instanceof AddTextCommand && last.text.id === text.id) {
-                        remove.execute();
-                        this.history.popUndo();
-                        this.history.redoStack = [];
-                        this.history._notifyChanged();
-                    } else {
-                        // Keep intervening edits undoable against a restored text.
-                        this.history.execute(remove);
-                    }
-                } else if (commit && finalContent !== originalContent) {
-                    this.history.execute(new EditTextCommand(this, text.id, { content: finalContent }));
-                } else {
-                    this.refreshText(text.id);
-                }
-            });
-        } finally {
-            if (!blank || wasSelected) {
-                this._selectText(null);
-                this.clearProperties?.();
-            }
-            this._exitTextTool();
-        }
-    }
-
-    /**
-     * After finishing an inline text edit, return to the Home ribbon
-     * tab. Keep the Text tool active so the user can immediately
-     * place another label.
-     */
-    _exitTextTool() {
-        this.setActiveRibbonTab?.('pcb-home');
+        return endTextInlineEdit(this, commit);
     }
 
     _pcbMultiPropertyCapabilities(entry) {
