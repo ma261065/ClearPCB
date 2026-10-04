@@ -2,17 +2,18 @@
 
 ## Channels
 
-- `dev`: default development branch, replacing `main`. Test with a local HTTP server.
-- `release_1.0`: maintained 1.0 release line, created when ready to freeze it.
-- `release_1.1`, etc.: future release lines, created from tested development commits.
+- `dev`: default development branch. Test with a local HTTP server.
+- `release_1.0`: maintained 1.0 release line (`v1.0.x` patches).
+- `release_1.1`, etc.: future release lines, created from tested development commits
+  (see [New Release Line](#new-release-line)).
 - `v1.0.0`, `v1.0.1`, etc.: immutable tags identifying individual releases.
 - `https://clearpcb.org`: stable only, deployed from a published final GitHub Release.
 
 There is no hosted development site and no additional Pages repository.
 Normal pushes, draft releases, and prereleases do not deploy stable.
-`assets/version.json` is `1.0.0-dev` in development; the release package stamps
-the app version from its tag. Project format `1.0` and ZIP container version
-`1` are separate from app release versions.
+`assets/version.json` holds the next planned version during development; the release
+package stamps the app version from its tag. Project format `1.0` and ZIP container
+version `1` are separate from app release versions.
 
 The experimental MCP Worker is deployed separately through the **Deploy MCP
 Worker** workflow. GitHub Pages continues to serve the application; Cloudflare
@@ -23,26 +24,28 @@ Cloudflare zone, repository secrets, local testing, and security limitations.
 
 **Regression Checks** runs on pushes and pull requests targeting `dev` and
 `release_*`, and can be started manually. Its **Regression gate** job runs
-`node tools/regression.mjs` on Node 22: the import-boundary and PCB editor-access
-checks, every root regression test, and the autorouter clearance baseline. Any test
-failure or hard baseline failure fails the job. Track/via-count differences remain
-visible soft warnings, not evidence that routing quality is unchanged.
+`node tools/regression.mjs` on Node 22: the import-boundary check, both editors'
+private-access ratchets, every root regression test, and the autorouter clearance
+baseline. Any test failure or hard baseline failure fails the job. Track/via-count
+differences remain visible soft warnings, not evidence that routing quality is
+unchanged.
 
 Its **Type check** job installs TypeScript 5.9.3 and runs `node tools/typecheck.mjs`,
 which writes per-file error counts to the job summary and compares them with the
 committed `tools/typecheck-baseline.json`, which is empty: any type error fails the
 job. If a baseline is ever needed again, record it with
-`node tools/typecheck.mjs --write-baseline` (TypeScript 5.9.3; locally, install it
-outside the repo and set `TSC=/path/to/typescript/lib/tsc.js`). Vendored modules
+`node tools/typecheck.mjs --write-baseline` using the same TypeScript version
+(installed locally as in the [README](../README.md#testing)). Vendored modules
 are not checked: `assets/vendor/fflate.module.d.ts` declares the fflate API in use.
 
 Its **Browser tests** job installs Playwright 1.55.0 with Chromium and runs
 `node tools/browser-test.mjs`. Each scenario in `browser-tests/` gets a fresh
-browser context against `tools/serve.mjs`: loading and switching modes, drawing
-and undoing a track with real pointer input, the WebGL 3D view following undo/redo
-and closing cleanly, editing a track in the Properties panel, and reopening a board
-through autosave recovery. Any uncaught page error fails the scenario; failure
-screenshots are uploaded as the `browser-test-failures` artifact.
+browser context against `tools/serve.mjs`. They drive the real app with real
+pointer input: switching modes, drawing and undoing tracks, the WebGL 3D view,
+Properties panel edits and their shared control order, track/shape conversions,
+schematic selection and cancellation, and reopening a board through autosave
+recovery. Any uncaught page error fails the scenario; failure screenshots are
+uploaded as the `browser-test-failures` artifact.
 
 **Publish Stable Release** independently runs the same gate against the checked-out
 release tag before packaging, uploading the downloadable ZIP, or deploying.
@@ -56,9 +59,8 @@ merging. Workflow files alone do not enable branch protection. Hosted execution
 and ruleset configuration must be verified in GitHub; a local pass does not
 prove those settings are active.
 
-The current hardening checklist and outstanding release evidence are maintained
-in [Release Readiness](release-readiness.md); completed milestones are archived in
-[archive/review-fixes.md](archive/review-fixes.md).
+The outstanding release evidence and working agreements are maintained in
+[Release Readiness](release-readiness.md).
 
 ## Patch Release Using the GitHub Website
 
@@ -162,43 +164,25 @@ Continue development in VS Code on `dev`. No local branch switch or pull is
 needed merely because you merged into the remote release branch. There is
 no public `clearpcb.org/dev` site; local testing uses `http://localhost:8000`.
 
-## One-Time GitHub Setup
+## Repository Settings
 
-The local and GitHub default branches have been renamed to `dev`, and
-`release_1.0` and `v1.0.0` have been created and published. Pages uses GitHub
-Actions, with release tags (`v*`) permitted by the `github-pages` environment.
-The steps below are setup reference, not tasks to repeat for each patch.
+These GitHub settings are in place; this is reference for checking or recreating
+them, not a per-release task.
 
-1. Before pushing these changes, open repository **Settings > Pages** and
-   change **Build and deployment > Source** to **GitHub Actions**. This prevents
-   development pushes from deploying via the old branch-based Pages setup.
-   Keep the custom domain `clearpcb.org` and HTTPS setting. The existing site
-   should remain until the next deployment; verify this in GitHub.
-2. In GitHub's branches page, rename `main` to `dev` (do not create a duplicate
-   branch and leave `main` behind). Confirm **Settings > General > Default
-   branch** now names `dev`. GitHub may require you to update protection rules.
-3. After the remote rename, update local tracking:
+- **Settings > General > Default branch** is `dev`.
+- **Settings > Pages > Build and deployment > Source** is **GitHub Actions**, with
+  the custom domain `clearpcb.org` and HTTPS enforced. Pushes do not deploy.
+- **Settings > Actions > General** permits the workflows' action dependencies and
+  token permissions. They use the automatic `GITHUB_TOKEN`; no personal token is
+  needed. The release workflow must exist on the default branch.
+- **Settings > Environments > github-pages** permits release tags (`v*`) as
+  deployment sources, with no main-only restriction. Require your approval before
+  deployment if that option is available.
+- Rulesets for `dev`, `release_*` and release tags disallow force pushes and
+  deletion of released history, require reviewed changes on release branches, and
+  permit creating new release tags but not rewriting them.
 
-   ```powershell
-   git fetch origin --prune
-   git branch --set-upstream-to=origin/dev dev
-   ```
-
-4. Review and commit the prepared changes, then push `dev`. The release
-   workflow must exist on the default branch before a release is published.
-5. In **Settings > Actions > General**, permit the workflow's GitHub Actions
-   dependencies and the token permissions requested by the workflow. It uses
-   the automatic `GITHUB_TOKEN`; no personal token is needed.
-6. In **Settings > Environments > github-pages**, permit release tags (`v*`)
-   as deployment sources. If available for this repository, require your
-   approval before deployment. Remove any obsolete main-only restriction.
-7. Add rulesets for `dev`, `release_*`, and release tags. Disallow force pushes
-   and deletion of released history; require reviewed changes on release
-   branches. Permit creating new release tags but prohibit rewriting them.
-
-Additional branch/tag protection rules and review requirements should be
-checked separately; they are not implied by the Pages setup. No DNS change
-is needed for local development.
+No DNS change is needed for local development.
 
 ### Branch Protection
 
@@ -216,16 +200,17 @@ Make the CI jobs merge-blocking (repository admin, on github.com):
 5. Save, then open a test pull request to confirm the three checks are listed as
    required.
 
-## First Release
+## New Release Line
 
-Do these steps only after testing and committing the intended release content.
+Start a new `release_MAJOR.MINOR` line (for example `release_1.1` and `v1.1.0`)
+only after testing and committing the intended release content on `dev`.
 
 1. Freeze a release branch from the tested development commit:
 
    ```powershell
    git switch dev
-   git switch -c release_1.0
-   git push -u origin release_1.0
+   git switch -c release_1.1
+   git push -u origin release_1.1
    ```
 
 2. Test that branch locally. At minimum, verify new/save/open/autorecovery,
@@ -241,27 +226,29 @@ Do these steps only after testing and committing the intended release content.
    Review any soft warnings as well as failures. A passing gate is necessary,
    but does not replace the manual checks above or independent fabrication review.
 
-4. Inspect the deployable package with `node tools/package-release.mjs v1.0.0`.
+4. Inspect the deployable package with `node tools/package-release.mjs v1.1.0`.
    It creates a new `dist` directory and refuses to reuse an existing one;
    remove only that generated directory before rerunning. Serve `dist` locally
    and check asset/worker loading. The package excludes tests, tools, benchmark
-   outputs, and local project documents. Development source files are unchanged.
+   outputs, and local project documents, and stamps the version from the tag into
+   its `assets/version.json`. Development source files are unchanged.
 5. Tag the tested release commit and push the tag:
 
    ```powershell
-   git tag -a v1.0.0 -m "ClearPCB 1.0.0"
-   git push origin v1.0.0
+   git tag -a v1.1.0 -m "ClearPCB 1.1.0"
+   git push origin v1.1.0
    ```
 
-6. In GitHub **Releases**, draft release `v1.0.0` from that existing tag, add
-   release notes and the format-compatibility warning, and review before
+6. In GitHub **Releases**, draft release `v1.1.0` from that existing tag, add
+   release notes and any format-compatibility warning, and review before
    publishing. Mark it **Latest**, not a prerelease. Publishing is the explicit
    deployment action; pushing the tag alone does not deploy.
 7. Check **Publish Stable Release** in Actions. It verifies the tag belongs to
-   `release_1.0`, adds `ClearPCB-v1.0.0.zip` to the release, and deploys the same
-   packaged site to Pages. Confirm the displayed version and stable workflows.
-8. Return to `dev` for ongoing work; bump its app label to the next planned
-   development version (for example `1.1.0-dev`).
+   its `release_MAJOR.MINOR` branch, adds `ClearPCB-v1.1.0.zip` to the release, and
+   deploys the same packaged site to Pages. Confirm the displayed version and
+   stable workflows.
+8. Return to `dev` for ongoing work and set `assets/version.json` to the next
+   planned version.
 
 ## Maintenance
 

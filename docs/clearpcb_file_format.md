@@ -5,10 +5,12 @@ This document describes the canonical format (`version: "1.0"`). Files saved
 with the pre-release `"2.0"` label are deliberately rejected, including old
 autorecovery snapshots. There is no automatic migration.
 
-On disk, `.cpcb` is a ZIP container: `options.json` holds the envelope,
-`schematic.json` and optional `pcb.json` hold the sections, and `models/` holds
-deduplicated meshes. The ZIP manifest uses `format: "clearpcb-zip", version: 1`;
-that container version is independent of the project version and app release.
+On disk, `.cpcb` is a ZIP container: `manifest.json` identifies the container and
+maps hoisted 3D meshes, `options.json` holds the top-level envelope fields other
+than `schematic` and `pcb`, `schematic.json` and optional `pcb.json` hold the
+sections, and `models/` holds deduplicated OBJ meshes. The ZIP manifest uses
+`format: "clearpcb-zip", version: 1`; that container version is independent of
+the project version and app release.
 Plain JSON input is also supported, subject to the same project validation.
 
 The format is JSON, not JSON5: comments, trailing commas, `NaN`, and `Infinity`
@@ -110,7 +112,7 @@ A project always has a schematic envelope. `ProjectDocument` adds the optional
 
 | Field | Type | Description |
 | --- | --- | --- |
-| `gs` (`gridSize`) | number | Grid spacing in model units. Must be positive. |
+| `gs` (`gridSize`) | number | Grid spacing in model units. Restored only when positive and at most 1000. |
 | `gt` (`gridStyle`) | string | `"lines"` or `"dots"`. |
 | `gv` (`gridVisible`) | boolean | Whether the grid is shown. |
 | `sg` (`snapToGrid`) | boolean | Whether snapping is enabled; disabled when the grid is hidden. |
@@ -354,9 +356,9 @@ only `dn`. A definition commonly contains:
 ```
 
 Known definition, symbol, graphic, pin, text-position, and footprint-bound
-fields use the compact aliases listed below. Definitions remain extensible
-because imported providers may also carry opaque provider-specific metadata;
-unrecognized provider-owned keys are preserved unchanged.
+fields use the compact aliases listed below. Top-level definition fields are
+strict. Provider-specific values may be preserved inside supported metadata
+fields such as property maps and footprint shape arrays.
 
 ## PCB Section
 
@@ -398,7 +400,9 @@ unrecognized provider-owned keys are preserved unchanged.
 | `design.u` (`units`) | string | PCB UI display units, normally `"mm"` or `"inch"`. |
 | `design.rt` (`router`) | string | Router mode, currently `"maze"` or `"pathfinder"`. |
 
-`design` and all fields listed above are required when `pcb` exists.
+`stackup`, `design`, and every `design` field listed above are required when
+`pcb` exists. `board` is optional, but when present it may contain only `w`, `h`,
+and `r`.
 A board outline is stored as the single shape with `layer: "board-outline"` in
 `pcb.boardShapes`. Its kind must be `rect`, `polygon`, or `circle`; it uses the
 same geometry, corner radii, and segment bulges as other board shapes. The
@@ -996,10 +1000,13 @@ Document layers contain design/reference graphics. They are available in the PCB
 editor and PDF/print exports, but do not alter copper, solder mask, or the board
 substrate and are excluded from fabricated-board previews and Gerbers.
 
-Pad side values are shorter: `top`, `bottom`, or `both`. These are surface/through
-pad classifications, not copper-layer indexes. A plated through pad marked
-`both` spans every copper layer, including inner layers, rather than only the
-two surfaces. Surface pads remain on the corresponding outer copper layer.
+Generated footprint pad objects use shorter side values: `top`, `bottom`, or
+`both`. These are internal surface/through pad classifications, not standalone
+`pcb.pads` file values. Standalone saved pads use `top-copper`, `bottom-copper`,
+or `both` in their `ls`/`layers` field. A generated or standalone plated through
+pad marked `both` spans every copper layer, including inner layers, rather than
+only the two surfaces. Surface pads remain on the corresponding outer copper
+layer.
 
 ### Multilayer Contract
 
@@ -1134,15 +1141,20 @@ Schema file. The authoritative implementation points are:
 - `src/core/ProjectDocument.js`: document assembly and section ownership.
 - `src/core/project-format.js`: format validation, stackup contract, editor capability gate.
 - `src/core/FileManager.js`: ZIP container and raw JSON reading.
-- `src/schematic/modules/files.js`: schematic envelope save/load.
-- `src/shapes/shape.js` and concrete classes in `src/shapes/`: compact shape
-  serialization.
+- `src/core/SchematicDocument.js`: schematic envelope, components, definitions,
+  and shape serialization.
+- `src/shapes/shape.js`, `src/shapes/polyline-graph.js`, and concrete classes in
+  `src/shapes/`: compact schematic graph and primitive serialization.
 - `src/components/Component.js`: component instance and embedded-definition
   serialization.
-- `src/ui/PCBApp.js`: PCB section save/load.
-- `src/pcb/modules/board-shapes.js`: generic board shapes.
+- `src/core/PcbDocument.js`: PCB section serialization, loading, and defaults.
+- `src/core/PcbPlacementState.js`: footprint placement and reference-text state.
+- `src/core/PcbDesignSettings.js`: routing-design defaults and maximums.
+- `src/core/pcb-board-shapes.js`: generic board shapes and image artwork
+  encoding.
+- `src/core/pcb-text.js`: PCB text.
 - `src/shapes/track.js`, `src/shapes/via.js`, and
   `src/shapes/copper-fill.js`: routed PCB entities.
-- `src/pcb/modules/pcb-text.js`: PCB text.
+- `src/shapes/pad.js`: standalone PCB pads.
 
 When changing a serializer, update this document in the same change.

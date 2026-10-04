@@ -16,19 +16,21 @@ clearpcb/
 ├── jsconfig.json               # checkJs: true, noImplicitAny: false
 ├── assets/
 │   ├── icons/
-│   └── vendor/                 # jspdf, svg2pdf (vendored, see docs/vendoring_npm_packages.md)
+│   └── vendor/                 # Vendored libraries: three, clipper, earcut, fflate, jsPDF,
+│                               # svg2pdf, imagetracer, vtracer (see docs/vendoring_npm_packages.md)
 ├── src/
-│   ├── core/                   # Mode-agnostic services: Viewport, CommandHistory,
-│   │                           # SelectionManager, StorageManager, FileManager,
-│   │                           # ModalManager, EventBus, geometry, ShapeValidator,
-│   │                           # SearchManager, LazyLoader, ui-helpers
-│   ├── shapes/                 # Drawing primitives shared by schematic + pcb
-│   │                           # (shape, line, rect, circle, arc, polygon,
-│   │                           # polyline, polyline-graph, text, net, wire,
-│   │                           # noconnect, track, via)
-│   ├── components/             # Component/symbol ingestion (BuiltInComponents,
-│   │                           # ComponentLibrary, ComponentPicker, KiCadFetcher,
-│   │                           # LCSCFetcher, STEPPreview, VRMLPreview)
+│   ├── core/                   # Project model and editor-neutral services:
+│   │                           # ProjectDocument, SchematicDocument, PcbDocument (+ PcbDesignSettings,
+│   │                           # PcbPlacementState, pcb-*-commands, pcb-* geometry), FileManager,
+│   │                           # project-format, CommandHistory, Viewport, SelectionManager,
+│   │                           # McpBridge, geometry, grid-snap, id-allocator, …
+│   ├── shapes/                 # Drawing and copper primitives shared by both editors
+│   │                           # (shape, polyline, polyline-graph, rect, circle, arc, polygon,
+│   │                           # text, net, wire, noconnect, track, via, pad, copper-fill) and
+│   │                           # shared path editing (path-*, arc-*, shape-join, axis-glow, …)
+│   ├── components/             # Component/symbol ingestion and preview (BuiltInComponents,
+│   │                           # BuiltInPackages, BuiltInModels3D, ComponentLibrary,
+│   │                           # ComponentPicker, KiCadFetcher, LCSCFetcher, Model3D*, …)
 │   ├── easyeda/                # EasyEDA importers (schematic-importer.js)
 │   ├── shared/
 │   │   ├── 3d/                 # Arcball controller, model rendering
@@ -48,9 +50,9 @@ clearpcb/
 │   │                           # files, shape-management) and schematic-view (the
 │   │                           # entity-SVG lifecycle boundary)
 │   ├── pcb/
-│   │   └── modules/            # PCB-only interaction + I/O modules
-│   │                           # (autorouter family, controls, dsn, gerber,
-│   │                           # layers, ratsnest, track-*)
+│   │   └── modules/            # PCB-only modules: tools and interaction (mouse, keyboard,
+│   │                           # track-*, board-shapes, pcb-interaction-*), rendering,
+│   │                           # pours, DRC, autorouter family, fabrication (gerber, dsn, …)
 │   └── ui/
 │       ├── AppBootstrap.js     # Shared startup + mode switching
 │       ├── SchematicApp.js     # Schematic editor facade over src/schematic
@@ -61,9 +63,9 @@ clearpcb/
 │   └── cors-proxy.js
 ├── tests/                      # Isolated headless regression scripts (test-*.mjs)
 ├── browser-tests/              # Playwright scenarios run by tools/browser-test.mjs
-├── tools/                      # Node-side benchmarks + DRC sanity tools
-│                               # (autorouter-benchmark, check-clearance-*,
-│                               # check-via-on-pad, regression, debug-pf-*)
+├── tools/                      # Regression gate and checks (regression, test, typecheck,
+│                               # check-imports, check-*-editor-access, check-clearance-*),
+│                               # browser-test, serve, benchmarks, release packaging
 └── docs/
     ├── project_structure.md    # This page: layout, enforced rules, owners
     ├── module-contracts.md     # Index of the per-module behaviour contracts
@@ -71,8 +73,8 @@ clearpcb/
     ├── clearpcb_file_format.md # Canonical project format
     ├── release-readiness.md    # Open release items and working agreements
     ├── releases.md             # Branching, CI gates and release checklist
-    ├── autorouter.md, mcp.md, easyeda_pcb_format.md, …
-    └── archive/                # Completed review log (review-fixes.md)
+    └── autorouter.md, mcp.md, easyeda_pcb_format.md, netname_wirelabel_contract.md,
+        shape_join_arcs.md, vendoring_npm_packages.md
 ```
 
 ## Ownership Rules
@@ -116,10 +118,9 @@ accesses per module in `src/pcb` and `src/shared/pcb` against
 service instead of adding a new private access.
 `node tools/check-schematic-editor-access.mjs` applies the same ratchet to the
 schematic layer (`src/schematic`) against
-`tools/schematic-editor-access-baseline.json` (217 accesses to 106 private
-`SchematicApp` members when introduced, 61 after the services); use a public
-`SchematicApp` method or a module export instead of adding one. Both run as hard
-checks in the regression gate. `test-schematic-module-load-order` loads each
+`tools/schematic-editor-access-baseline.json`; use a public `SchematicApp` method or a
+module export instead of adding a private access. Both run as hard checks in the
+regression gate. `test-schematic-module-load-order` loads each
 schematic module first in a fresh process, so a direct import that creates an
 evaluation-order cycle fails.
 
@@ -190,13 +191,10 @@ PCB editor:
   copper-removal shapes and board holes (`updateCopperCuts`, an editor service); other
   modules ask `hasCopperCuts` whether any cut is active.
 - `pcb/modules/removal-hatch.js` — the hatch that fills copper-removal shapes: one SVG
-  `<pattern>` per removal mode in the editor's own `<defs>` (1.8 mm tiles of three lines,
-  0.6 mm apart and 0.1 mm wide, in board units so it zooms with the board), so holes and
-  silk stacked above cover it.
-  Exports strip it (`stripRemovalHatches`). It replaced a canvas overlay drawn above the
-  whole SVG, which hatched over holes. On a stress board (220 removal shapes including 14
-  traced pictures, headless Chromium) SVG hatching did about 25–60% more raster work but
-  halved main-thread frame spikes during zoom and pan (p95 50 ms vs 117–133 ms).
+  `<pattern>` per removal mode in the editor's own `<defs>`, in board units so it zooms
+  with the board (1.8 mm tiles of three 0.1 mm lines, 0.6 mm apart). It is a fill on the
+  shapes themselves, not a canvas overlay, so holes and silk stacked above cover it.
+  Exports strip it (`stripRemovalHatches`).
 - `pcb/modules/debug-tooltip.js` — the footprint shape-data tooltip (Help tab), pinned
   and unpinned by a stationary right-click.
 - `pcb/modules/layer-changes.js` — what hiding, showing, locking or unlocking a layer,
@@ -254,33 +252,46 @@ Shared geometry:
 
 - All PCB coordinates are stored in **mm** with **SVG-Y-down** semantics.
   Y is flipped only at the Gerber / Excellon emission boundary.
-- Pad layer names use the short form: `'top' | 'bottom' | 'both'`.
-- Track / SVG-group ids use the long form: `'top-copper' | 'bottom-copper'`.
+- Copper layer and SVG-group ids use the long form: `'top-copper' | 'bottom-copper'`,
+  as do standalone pads (`shapes/pad.js`: `'top-copper' | 'bottom-copper' | 'both'`).
+- Footprint pads generated by `shared/pcb/footprint.js` use the short form
+  `'top' | 'bottom' | 'both'`.
 
 ## Undo / Redo
 
-All mutating PCB operations go through `core/CommandHistory` via
-command classes in `src/pcb/modules/track-commands.js`
-(`AddTrackCommand`, `RemoveTrackCommand`, `ModifyTrackCommand`,
-`MoveVertexCommand`, `AddViaCommand`, `RemoveViaCommand`,
-`MovePlacementCommand`, `SetBoardOutlineCommand`). `AddTrackCommand`
-accepts an optional `vias[]` so a freshly-drawn track and its
-layer-change vias land on the stack as a single atomic step.
+Every authored change goes through `core/CommandHistory` as a command. PCB commands
+come in two layers:
 
-Shapes implement `captureState()` / `applyState()` for serializable
-state snapshots, used by generic modify commands.
+- **Model commands** in `core/pcb-*-commands.js` (track, via, pad, fill, shape, text,
+  placement, outline) change only `PcbDocument`. Tests and `pcb-paste.js` use them
+  directly.
+- **Editor commands** in `pcb/modules` (`track-commands.js`, `pad-commands.js`,
+  `shape-commands.js`, `text-commands.js`, `copper-fill-commands.js`) subclass the
+  model commands under the same names, then re-render the changed objects and
+  refresh derived views such as the ratsnest, clearance halos and pours.
+  `track-commands.js` also defines `CompoundCommand`, which groups several commands
+  into one undo step. `AddTrackCommand` accepts optional `vias[]`, so a drawn track
+  and its layer-change vias are one step.
+
+Schematic commands are in `schematic/modules/commands.js`. Shapes implement
+`captureState()` / `applyState()` for serializable snapshots, used by the generic
+modify commands.
 
 ## Checks
 
-- `node tools/regression.mjs` — the gate CI runs: import boundaries, PCB editor
-  access, every `tests/test-*.mjs` in its own process, and the autorouter baseline.
+- `node tools/regression.mjs` — the gate CI runs: import boundaries, both editors'
+  private-access ratchets, every `tests/test-*.mjs` in its own process, and the
+  autorouter baseline on `test-board.json`.
 - `node tools/test.mjs [filter…]` — only the regression tests, optionally filtered.
 - `node tools/typecheck.mjs` — `checkJs` type check; the baseline is empty, so any error
-  fails (CI installs TypeScript 5.9.3; locally set `TSC`).
-- `node tools/bench-pointer-dispatch.mjs` — PCB pointer-move routing cost.
+  fails.
 - `node tools/browser-test.mjs [filter]` — real-browser scenarios (headless Chromium;
-  CI installs Playwright, locally set `PLAYWRIGHT`). `node tools/serve.mjs [port]`
-  serves the app without dependencies.
+  `HEADED=1` shows the browser). `node tools/serve.mjs [port]` serves the app without
+  dependencies.
+- TypeScript 5.9.3 and Playwright 1.55.0 are not vendored: install them into the
+  git-ignored `node_modules` as CI does (see [README](../README.md#testing)), or set
+  `TSC` / `PLAYWRIGHT`.
+- `node tools/bench-pointer-dispatch.mjs` — PCB pointer-move routing cost.
 - `node tools/bench-pcb-hit-test.mjs [scale]` — PCB selection sync and pointer hit
   query cost on a large synthetic board.
 - Tests call real functions; editor methods run on `tests/pcb-editor-fixture.mjs` or
@@ -290,23 +301,19 @@ state snapshots, used by generic modify commands.
 ## Coding & Tooling Conventions
 
 - Vanilla JS ES modules; **no bundler**. Browser loads `src/**` directly.
-- `// @ts-nocheck` files exist in the autorouter modules; propagate to
-  every file when splitting one with the pragma.
+- `// @ts-nocheck` is on `ui/PCBApp.js` and the autorouter modules
+  (`autorouter-common.js`, `autorouter-maze.js`, `autorouter-pathfinder.js`); when
+  splitting one of these files, carry the pragma into every part. All other source is
+  type-checked.
 - Use `console.info` (not `console.warn`) for diagnostics that must
   survive PowerShell `2>$null` redirection.
-- Node-side benchmarks/DRC checkers in `tools/` import the worker
-  modules directly. They are the authoritative regression gates:
-  - `node tools/regression.mjs` — classic router baseline.
+- Node-side routing checks in `tools/` import the router modules directly:
+  - `node tools/regression.mjs` — maze-router baseline on `test-board.json` (via
+    `check-clearance-full.mjs`).
   - `node tools/check-clearance-pathfinder.mjs <board>.json` —
     pathfinder + post-route geometric clearance check.
 - Vendored libs go in `assets/vendor/` (see
   [docs/vendoring_npm_packages.md](vendoring_npm_packages.md)).
-
-## Known Environmental Gotcha
-
-Microsoft Edge's "Enhance your security on the web" setting
-(`edge://settings/privacy`) disables V8 TurboFan JIT on "unfamiliar"
-sites (rarely-visited HTTPS origins). `localhost` is exempt. Symptom:
-the autorouter worker can run **~8–10× slower** on the deployed site
-than on localhost despite identical bytes. Add the origin to the
-setting's exception list before suspecting code/network issues.
+- If the autorouter is much slower on the hosted site than on `localhost`, suspect
+  Microsoft Edge's "Enhance your security on the web" setting before the code; see
+  [Troubleshooting](../README.md#troubleshooting).

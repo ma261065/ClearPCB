@@ -3,7 +3,9 @@
 //
 // Without tools/typecheck-baseline.json this only reports (exit 0). With a baseline
 // it ratchets: a file whose error count rises, or a new file with errors, fails.
-// TypeScript is not vendored; CI installs a pinned version (see regression.yml).
+// TypeScript is not vendored. Install the pinned version into the repo's git-ignored
+// node_modules, as CI does (see .github/workflows/regression.yml):
+//   npm install --no-save --no-package-lock --ignore-scripts typescript@5.9.3
 //
 // Usage:
 //   node tools/typecheck.mjs                    report, or check against the baseline

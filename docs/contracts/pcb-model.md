@@ -109,6 +109,42 @@ polygon, or a rectangle when it is still an axis-aligned four-node loop.
 Filled copper shapes are areas and keep the net as a shape
 (`test-track-restoration`).
 
+## Geometry Authorities
+
+Each kind of PCB geometry has one function that resolves it, and every output reads
+that result rather than re-deriving it. When a representation looks wrong in one view,
+fix the authority, not the consumer.
+
+| Geometry | Authority | Consumers |
+| --- | --- | --- |
+| Placement pose | `placementPose` (`shared/pcb/board-geometry.js`) | resolved placements (`core/pcb-placement-geometry.js`), electrical pads, reference text, track drawing |
+| Pad copper flashes | `resolvePadFlashes` (`board-geometry.js`); posed outlines from `padFlashOutline` (`shapes/pad-geometry.js`) | 2D board view (`board2d.js`), 3D view (`board3d.js`), Gerber |
+| Electrical pads | `resolveCopperPads` (`pcb/modules/copper-model.js`) | copper clusters and ratsnest, DRC, pour context, track drawing |
+| Pad mask openings | `resolvePadMaskOpenings` (`board-geometry.js`); Gerber builds mask layers with the same `MASK_EXPANSION` | 2D and 3D board views |
+| Drills and slots | `resolvePlacementDrills` (`board-geometry.js`) | 2D and 3D views, Gerber/Excellon, pour context |
+| Footprint silk | `resolveSilk` (`board-geometry.js`) | 2D and 3D views, Gerber |
+| Reference text | `resolveReferenceText` (`shared/pcb/reference-text.js`); the SVG footprint uses `layoutReferenceText` from the same module | 2D and 3D views, Gerber |
+| Board shapes | `resolveBoardShapeGeometry` (`shared/pcb/board-shape-geometry.js`) — see [Board-Shape Geometry Contract](#board-shape-geometry-contract) | SVG rendering, 2D and 3D views, Gerber, pours, DRC artwork, copper removal, routing obstacles, track contacts |
+| Copper pours | the computed fill (`getComputedFill`, `pcb/modules/computed-fill-cache.js`) | pour SVG, 2D and 3D views, DRC; fabrication export recomputes pours in its snapshot (`fabrication-snapshot.js`) |
+| Routing obstacles | `buildCopperObstacles` (`pcb/modules/copper-obstacles.js`) | router input (`route-input.js`) |
+
+### Intentional differences and model limits
+
+- Conservative pour outlines, picture-wide pour clearance, routing envelopes and
+  bounded visual tessellation are deliberate approximations. They must not become
+  connectivity: electrical contact uses the actual geometry.
+- DRC uses physical pad outlines and picture regions, and subtracts copper-removal
+  artwork per side before clearance and short checks; mask-only artwork does not
+  remove copper. Plated barrels keep surviving surface copper connected, while
+  nominal drill and ring checks ignore surface removal. Clipped circles, arcs and
+  round stroke joins are tessellated to 0.0001 mm on 0.000001 mm integer
+  coordinates (`copper-removal.js`); unaffected features keep analytic distance
+  checks. This is bounded geometric checking, not exact geometry.
+- Footprint import (`shared/pcb/footprint.js`) supports only orthogonal pad rotation
+  (width and height swap for 90° and 270°), and polygon pads become rectangles. These
+  are import fidelity limits: every consumer agrees with the imported model, which
+  can still differ from the source footprint.
+
 ## Copper Geometry
 
 Track bounds, hit tests and centreline distances use the shared copper paths in
@@ -201,20 +237,20 @@ objects, and synchronizes dimension metadata from the actual boundary.
 without replacing an existing outline. Setup and undo therefore work without a
 renderer, including restoration of offset circles and curved polygons. As in the
 existing editor, undoing initial setup retains a rectangle at the previous
-dimensions rather than removing the board. Preparing a legacy PCB section with
-explicit dimensions but no outline now creates and validates a rectangle in the
+dimensions rather than removing the board. Preparing a PCB section with
+explicit dimensions but no outline creates and validates a rectangle in the
 model, reserving a unique ID if needed. Existing explicit outlines take precedence.
 Normalization leaves caller data untouched and works before editor activation.
-New/clear still leaves the outline absent and retains the dimensions prompt;
+New/clear leaves the outline absent and retains the dimensions prompt;
 accepting defaults explicitly initializes the model before drawing.
 The editor command retains draw/input/pour refresh ordering and first-draw
 viewport fitting. Drawing alone neither creates geometry nor synchronizes model
 dimensions.
 
 Board-shape decoding and serialization live in `core/pcb-board-shapes.js`,
-reusing existing pure geometry and artwork-codec helpers. The model owns the
+reusing pure geometry and artwork-codec helpers. The model owns the
 shape ID counter; the editor's `_shapeIdCounter` is an accessor, not a second
-counter. Rectangle frames, legacy corner-point readers, image artwork encoding
+counter. Rectangle frames, corner-point compatibility readers, image artwork encoding
 and deduplication, polygon save normalization and outline checks are unchanged.
 The compatibility `loadBoardShapes()` adapter stages data before appending and
 rendering it; its serializer re-export retains existing import paths.
@@ -242,7 +278,7 @@ projection before the existing board command. Cancellation, panel replacement,
 locks/hiding, loading/deactivation, replaced targets and failures clean up
 artwork without authored rollback. Repeated values and stationary pickup skip
 redraw/projection work. The dimensions dialog remains command-only. Loading
-restores legacy dimension-only boards, while an
+restores dimension-only boards, while an
 existing outline's bounds and corner radius override saved dimension metadata.
 Clearing restores the existing 100 x 80 mm, zero-radius defaults without replacing
 the dimension object. `serializeBoardDimensions()` rounds only the saved copy to
@@ -266,12 +302,12 @@ Panel positioning holes use the shared hole geometry and ordinary hole border
 style, with even-odd vector cutouts through the support artwork so the actual
 grid remains visible in either theme.
 
-PCB design settings now live in `ProjectDocument.pcbDocument.designSettings`
+PCB design settings live in `ProjectDocument.pcbDocument.designSettings`
 (`core/PcbDesignSettings.js`). Track width, clearance, via diameter and drill
 are canonical millimetres; routing and serialization never read rounded ribbon
 values. The adapter in `pcb/modules/design-settings.js` handles display units,
 local defaults, validation and refresh/dirty notifications. Unit changes convert
-the display from the model, not from previously rounded controls.
+the display from the model, not from rounded controls.
 
 ## Fabrication
 
@@ -290,7 +326,7 @@ dimensions and panel settings directly from `PcbDocument`, rather than through
 editor projections. These inputs are captured at full precision before any
 asynchronous pour work. Model-less callers retain the existing explicit-input
 contract; an attached model's errors do not fall back to editor values. Outline
-precedence, legacy origin handling and Gerber coordinate conversion are unchanged.
+precedence, origin handling and Gerber coordinate conversion are unchanged.
 Fabrication capture and its content check also read tracks, vias, pads, text,
 board shapes and fills directly from the attached model, without consulting
 editor collection getters. Entity assembly delegates once to `captureGeometry()`;
@@ -383,8 +419,7 @@ therefore seats them by their raw origin at the footprint's `model3d` offset
 model's Y-up axis. VRML models are in KiCad's 0.1-inch units and are scaled to
 millimetres when converted; STEP models are already in millimetres.
 `test-kicad-footprint-model-alignment` checks orientation, lead-to-pad seating
-at 0°/90° and VRML units. Footprints imported before this fix were mirrored
-and need re-importing.
+at 0°/90° and VRML units.
 
 ### Board-Shape Geometry Contract
 
@@ -421,8 +456,7 @@ geometry input (kind, layer, points, corner and node radii, segment bulges and
 widths, line width, fill), so in-place edits need no explicit invalidation.
 `boardShapeBounds()` caches its bounds with the contours, and
 `boardShapeHitTest()` reads the contours directly. The shared contours are
-frozen, so consumers must copy before changing them. This took a pointer hit
-test on a 29-shape board from about 16 ms to 0.2 ms
+frozen, so consumers must copy before changing them
 (`test-board-shape-contour-cache`).
 
 Open hole and copper-removal SVG outlines union round-ended segment capsules

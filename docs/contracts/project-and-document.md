@@ -32,10 +32,10 @@ handle, not a runtime service lookup.
 Storage reports autosave failures through `FileManager.onAutoSaveError`; the UI
 host shows the existing alert dialog, visible from either editor. Notifications
 are once per storage-failure streak, reset after a successful autosave. Storage
-and notification failures are logged; error reporting no longer discovers editors
+and notification failures are logged; error reporting does not discover editors
 through globals. Completed document/index writes emit `FileManager.onAutoSaveSuccess`;
 the UI host injects `flashAutoSaveIndicator()` from `schematic/modules/ui-utils.js`.
-The fixed 4px blue dot retains its 250ms retriggerable visibility and existing
+The fixed 4px blue dot uses a 250ms retriggerable visibility window and existing
 styling. Success-indicator failures are logged separately: they cannot turn a
 completed autosave into a storage-failure warning or cause it to be retried.
 `onAutoSaveChanged` remains the separate size/title update callback.
@@ -80,8 +80,8 @@ PCB reference editing and footprint inspection use the project's narrow componen
 interface: `getComponentInfo()`, `validateComponentReference()`,
 `createReferenceRenameCommand()` and `getNetlist()`. Queries return detached data;
 rename commands expose only `execute()`/`undo()`, not an editor or live component.
-`core/SchematicDocument.js`, owned by `ProjectDocument.schematicDocument`, now
-owns the schematic collections, component lookup/validation/rename, connectivity
+`core/SchematicDocument.js`, owned by `ProjectDocument.schematicDocument`, owns
+the schematic collections, component lookup/validation/rename, connectivity
 queries and data-only loading/serialization. Editor `shapes`/`components`
 accessors alias those collections, including replacements during load and clear;
 there is no second entity store. Schematic property commands reuse the same
@@ -138,9 +138,9 @@ current view preferences retains the existing settings-only section behavior
 for an empty board whose viewport has been created, including after New.
 Saving neither creates a viewport nor writes current preferences back into the
 loaded fallback. The project saves current model state rather than caching a
-serialized PCB. Existing best-effort serialized recovery uses the same
-model-owned snapshot and captured view preferences; it remains serialized
-recovery, not exact rollback.
+serialized PCB. Best-effort serialized recovery uses the same model-owned
+snapshot and captured view preferences; it remains serialized recovery, not
+exact rollback.
 
 Attaching a PCB editor preserves already supplied design settings rather than
 replacing them with local defaults. `PcbDesignSettings.hasAppliedSettings` records
@@ -157,13 +157,11 @@ also remains serializable through an attached editor before a viewport exists.
 
 ## Export Naming and Open Rollback
 
-PDF, Gerber, BOM and pick-and-place naming share
-`projectBaseName()` from `pcb/modules/pcb-export.js`, using the owning project's
-FileManager. Existing unnamed-export defaults (`pcb` for PDF, `untitled` for
-manufacturing exports) are retained.
+PDF, Gerber, BOM and pick-and-place naming share `projectBaseName()` from
+`pcb/modules/pcb-export.js`, using the owning project's `FileManager`. Unnamed
+exports use `pcb` for PDF and `untitled` for manufacturing exports.
 
-Open retains the existing best-effort serialized rollback. It can round or
-normalize geometry and does not preserve Undo or selection. The experimental
-live-session checkpoint system was removed as disproportionate to this failure
-mode; it is not a release requirement. Remaining ownership work is tracked in
-[review-fixes.md](../release-readiness.md).
+Open uses best-effort serialized rollback if a registered section fails to load
+after preflight. The rollback can round or normalize geometry and does not
+preserve Undo or selection, so load failures are still reported instead of being
+treated as transparent recovery.

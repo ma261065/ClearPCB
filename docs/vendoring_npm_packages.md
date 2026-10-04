@@ -87,7 +87,10 @@ Pop-Location
 
 | File | Package | GitHub | Version | Size | License |
 |------|---------|--------|---------|------|---------|
-| `jspdf.umd.min.js` | jspdf | [MrRio/jsPDF](https://github.com/MrRio/jsPDF) | — | ~500KB | MIT |
+| `clipper.esm.js` | jsclipper / ClipperLib | [junmer/clipper-lib](https://github.com/junmer/clipper-lib) | 6.4.2.2 | ~335KB | Boost Software License |
+| `earcut.module.js` | earcut | [mapbox/earcut](https://github.com/mapbox/earcut) | — | ~20KB | ISC |
+| `fflate.module.js` + `fflate.module.d.ts` | fflate | [101arrowz/fflate](https://github.com/101arrowz/fflate) | — | ~31KB + declarations | MIT |
+| `jspdf.umd.min.js` | jspdf | [MrRio/jsPDF](https://github.com/MrRio/jsPDF) | 2.5.1 | ~500KB | MIT |
 | `svg2pdf.umd.min.js` | svg2pdf.js | [yWorks/svg2pdf.js](https://github.com/yWorks/svg2pdf.js) | — | ~100KB | MIT |
 | `three.module.js` | three (core only) | [mrdoob/three.js](https://github.com/mrdoob/three.js) | 0.184.0 | ~502KB | MIT |
 | `imagetracer.js` | imagetracerjs | [jankovicsandras/imagetracerjs](https://github.com/jankovicsandras/imagetracerjs/tree/1.2.6) | 1.2.6 | ~47KB | Unlicense |
@@ -99,6 +102,11 @@ retained in the file. Local changes: add `// @ts-nocheck`, remove the enclosing
 IIFE and AMD/CommonJS/global export dispatch, and use `export default new
 ImageTracer()`. The importer dynamically loads the tracing adapter only in trace
 mode; existing image rendering does not load the tracer.
+
+`clipper.esm.js`, `earcut.module.js`, and `fflate.module.js` are direct browser
+ES modules used by PCB geometry, triangulation, ZIP file I/O, Gerber ZIP export,
+and compact image-artwork storage. `fflate.module.d.ts` declares the fflate API
+used by the JavaScript code.
 
 ### VTracer Trial
 
@@ -165,7 +173,11 @@ the dependency inventory from that exact build. Headless coverage:
 
 ## Notes
 
-- **`// @ts-nocheck` header** — vendored bundles (`three.module.js`, `earcut.module.js`) carry a `// @ts-nocheck` first line so the editor's `checkJs` type-checker skips them (jsconfig `exclude` doesn't help because they're imported by `src/`). Re-add this line after re-vendoring.
+- **`// @ts-nocheck` header** — vendored bundles that are imported by `src/`
+  should carry a `// @ts-nocheck` first line when they are too large or dynamic
+  for the editor's `checkJs` type-checker. Re-add this line after re-vendoring
+  files that already carry it, such as `clipper.esm.js`, `earcut.module.js`,
+  `imagetracer.js`, `three.module.js`, and `vtracer_wasm.js`.
 - **No build step in development** — vendored files are committed to git and loaded directly by the browser
 - **Offline support** — vendored files work without internet, important for PWA/service worker
 - **Lazy loading** — use `await import(...)` to load heavy vendor files only when needed

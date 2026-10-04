@@ -6,48 +6,49 @@ negotiated-congestion pathfinder — sharing a common geometry / A* core.
 
 PCB conductors are called **tracks** in the UI, reports and documentation.
 Routing payloads use `tracks`, `trackWidth` and `netTracks` consistently.
-These internal APIs and routing JSON fixtures have no legacy-name aliases;
-authored `.cpcb` board data already uses tracks and its format is unchanged.
-DSN/SES syntax retains the external format's `wire` and `path` keywords.
+Authored `.cpcb` board data uses tracks and its format is unchanged. DSN/SES
+syntax retains the external format's `wire` and `path` keywords.
 Image tracing is an unrelated image-conversion operation.
 
 ## Architecture
 
 ```
-┌─────────────┐     postMessage      ┌────────────────────┐
-│  PCBApp.js  │◄────────────────────►│ autorouter-worker.js│
-│  (main UI)  │  Worker messages     │   (Web Worker)      │
-└─────────────┘                      └────────┬───────────┘
+┌─────────────┐     adapters      ┌──────────────────────────┐
+│  PCBApp.js  │◄─────────────────►│ autorouter-session.js    │
+│  (main UI)  │                   │ + autorouter-presentation│
+└─────────────┘                   └────────────┬─────────────┘
+                                               │ postMessage
+                                               ▼
+                                   ┌──────────────────────┐
+                                   │ autorouter-worker.js │
+                                   │   (Web Worker)       │
+                                   └──────────┬───────────┘
                                               │
                               ┌──────────────┴─────────────┐
                               ▼                            ▼
-                  ┌───────────────────┐    ┌─────────────────────┐
-                  │ autorouter-maze.js │    │ autorouter-pathfinder │
-                  │   routeAll()       │    │   routeAllPathfinder()│
-                  └────────┬──────────┘    └───────────┬─────────┘
+                  ┌───────────────────┐    ┌──────────────────────┐
+                  │ autorouter-maze.js │    │ autorouter-pathfinder.js │
+                  │   routeAll()       │    │   routeAllPathfinder()   │
+                  └────────┬──────────┘    └───────────┬──────────┘
                            │                       │
-                           └──────────┬───────────┘
+                           └──────────┬────────────┘
                                       ▼
-                            ┌────────────────────┐
+                            ┌──────────────────────┐
                             │ autorouter-common.js │
-                            │  ┌─────────────┐ │
-                            │  │ SpatialHash  │ │
-                            │  │ (obstacles)  │ │
-                            │  └─────────────┘ │
-                            │  ┌─────────────┐ │
-                            │  │ A* Pathfinder│ │
-                            │  │ (2-layer)    │ │
-                            │  └─────────────┘ │
-                            │  ┌─────────────┐ │
-                            │  │ Congestion / │ │
-                            │  │ Pathfinder   │ │
-                            │  │ Grids        │ │
-                            │  └─────────────┘ │
-                                     └────────────────┘
+                            │ SpatialHash, A*,     │
+                            │ CongestionGrid,      │
+                            │ PathfinderGrid       │
+                            └──────────────────────┘
 ```
 
-The autorouter runs in a **Web Worker** to keep the UI responsive. The main
-thread communicates via `postMessage`:
+`autorouter-session.js` owns the current routing session, worker lifetime,
+cancel/stop semantics and result adoption guard. `autorouter-presentation.js`
+owns progress UI, incremental preview copper, temporary attempt artwork and
+ratline visibility. `PCBApp` supplies adapters for board-state capture, route
+input, routing rules, command adoption and status reporting.
+
+The router runs in a **Web Worker** to keep the UI responsive. The session and
+worker communicate via `postMessage`:
 
 | Message (worker → UI)  | Purpose                                     |
 |------------------------|---------------------------------------------|
@@ -58,6 +59,7 @@ thread communicates via `postMessage`:
 | `netPendingChanged`    | Update ratsnest visibility for a net         |
 | `trying`               | Flash yellow line showing current A* attempt |
 | `done`                 | Routing complete — final `RouteResult`       |
+| `error`                | Routing failed with an error message         |
 
 | Message (UI → worker)  | Purpose                                     |
 |------------------------|---------------------------------------------|
@@ -68,16 +70,18 @@ thread communicates via `postMessage`:
 
 ### RouteInput
 
-Passed from `PCBApp._buildRouteInput()` to the worker.
+`buildRouteInput(app)` in `pcb/modules/route-input.js` builds this payload.
+`PCBApp._buildRouteInput()` delegates to that module.
 
 | Field             | Type                | Description                         |
 |-------------------|---------------------|-------------------------------------|
-| `connections`     | `Array<{net, pads}>` | Net name + ordered pad array       |
+| `connections`     | `Array<{net, pads}>` | Net name + ordered pad array; pads may include `alternates` |
 | `allObstaclePads` | `Array<Pad>`        | All pads (including non-netlist)    |
-| `trackWidth`      | `number`            | Required track width in mm        |
-| `clearance`       | `number`            | Min clearance in mm (default 0.2)  |
-| `viaDiameter`     | `number`            | Via diameter in mm (default 0.6)   |
-| `gridStep`        | `number`            | Grid resolution in mm (default 0.5)|
+| `copperObstacles` | `Array`             | Fixed copper features to avoid but not rip up |
+| `trackWidth`      | `number`            | Required track width in mm         |
+| `clearance`       | `number`            | Required clearance in mm           |
+| `viaDiameter`     | `number`            | Required via diameter in mm        |
+| `gridStep`        | `number`            | Required grid resolution in mm; editor/DSN inputs use `0.5` |
 | `bounds`          | `{minX,minY,maxX,maxY}` | Board bounding box             |
 
 ### RouteResult
@@ -92,7 +96,8 @@ Passed from `PCBApp._buildRouteInput()` to the worker.
 
 ### SpatialHash
 
-Grid-based spatial index for obstacle queries. Each cell is `gridStep × 4` mm.
+Grid-based spatial index for obstacle queries. Maze and pathfinder routing use
+`Math.max(gridStep * 4, 2.0)` mm cells for their main obstacle hash.
 Stores two types of obstacles:
 
 - **Pads**: `{cx, cy, hw, hh, net, layer, isPad: true, isVia, connId, id}`
@@ -105,9 +110,10 @@ Key operations:
 - `removeConnection(connId)` — surgical removal for rip-up
 - `isOnPad(x, y, clearance, skipNet)` — via placement check
 
-The `skipNet` parameter enables **same-net transparency**: tracks belonging to
-the same net are invisible to A\*, so connections within a multi-pad net don't
-block each other.
+The `skipIds` set exempts the source and destination pad groups for the current
+sub-route. The `skipNet` parameter makes same-net routed tracks and fixed copper
+transparent to A\*; unrelated pads still block unless their pad IDs are in
+`skipIds`.
 
 ### CongestionGrid
 
@@ -123,12 +129,11 @@ All connections are routed individually (not as whole nets), sorted
 **hardest-first** by difficulty score:
 
 ```
-score = manhattan_distance + local_pad_density × gridStep
+score = manhattan_distance + local_pad_density × max(gridStep, 0.5)
 ```
 
-For multi-pad nets (≥3 pads), pads are reordered using a **nearest-neighbor
-chain** starting from the pad farthest from the centroid. This prevents
-redundant parallel tracks.
+The maze router builds a Euclidean MST for each multi-pad net and flattens the
+MST edges into individual connections before scoring them.
 
 Each connection attempts routing in three stages:
 1. **Direct line** — if H/V/45° and unblocked on a shared layer
@@ -157,7 +162,9 @@ start/end.
 | History            | `(congestion − 1) × gridStep × historyWeight`   |
 
 **Via placement rule**: Via center must be at least `viaRadius + clearance` from
-any foreign pad edge. Own-net pads are exempt.
+any foreign pad edge. Source/destination pad groups are exempt through
+`skipIds`; same-net pad checks use `skipNet` where the router tests whether a
+via is on a pad.
 
 **Termination**: Max iterations, stagnation detection, detour factor cap, or
 cancel token.
@@ -228,18 +235,18 @@ This enables:
 - **Same-net transparency**: `skipNet` makes same-net tracks invisible to A\*,
   so routing order within a net doesn't matter
 
-### Nearest-Neighbor Pad Ordering
+### Multi-Pad Topology
 
-Multi-pad nets have pads reordered by a greedy nearest-neighbor chain starting
-from the outlier pad. This prevents the common failure mode of two long
-parallel tracks to a distant pad instead of one long track + short hops.
+The maze router connects each multi-pad net with a Euclidean MST (`buildMstEdges`).
+The pathfinder router mutates each multi-pad net into a nearest-neighbour chain
+with `nncReorderPads` and reorders the parallel pad-ID groups the same way.
 
 ### Via-Pad Clearance
 
 Via placement uses `viaRadius + clearance` as the minimum distance from foreign
-pad edges. This is tighter than the conservative `totalClear × 2` originally
-used, enabling via placement near closely-spaced SMD pads (e.g., 0.8mm pitch
-IC pins).
+pad edges. Own-net source and destination pad groups are exempt through
+`skipIds`, and same-net pad checks use `skipNet` where the router tests whether a
+via is on a pad.
 
 ### Negotiated Congestion
 
@@ -252,7 +259,10 @@ across the board and resolves routing-order butterfly effects.
 
 ```
 src/pcb/modules/
-├── autorouter-common.js      # Shared infrastructure (~1700 lines)
+├── route-input.js            # Board/editor state → RouteInput
+├── autorouter-session.js     # Session ownership, worker lifetime, result adoption
+├── autorouter-presentation.js # Progress UI, incremental preview, ratline visibility
+├── autorouter-common.js      # Shared infrastructure
 │   ├── SpatialHash            # Obstacle spatial index
 │   ├── CongestionGrid         # Historical routing demand (maze)
 │   ├── PathfinderGrid         # Cell-based path-cost accumulation
@@ -262,23 +272,22 @@ src/pcb/modules/
 │   ├── RouteInput / RouteResult typedefs     # Router contract
 │   └── (geometry helpers, path post-processing, node-key packing)
 │
-├── autorouter-maze.js        # Maze router (~1300 lines)
+├── autorouter-maze.js        # Maze router
 │   ├── routeAll()             # Rip-up-and-reroute main entry
 │   ├── routeWithMazeRouter()  # Worker-facing wrapper
 │   └── defaultChainEdges / buildMstEdges / netManhattan
 │
-├── autorouter-pathfinder.js  # Negotiated-congestion router (~1800 lines)
+├── autorouter-pathfinder.js  # Negotiated-congestion router
 │   ├── routeAllPathfinder()         # Main entry
 │   ├── routeWithPathfinderRouter()  # Worker-facing wrapper
 │   └── nncReorderPads, extractFeasibleSubset, geometricVerifyAndDrop,
 │       smoothPathfinderRoutes, ripUpSwap, unionExtend, …
 │
-└── autorouter-worker.js      # Web Worker wrapper (~50 lines)
+└── autorouter-worker.js      # Web Worker wrapper
 
 src/ui/
 └── PCBApp.js                 # UI integration
+    ├── _getAutorouter()
     ├── _buildRouteInput()
-    ├── _runAutoRouteInWorker()
-    ├── _renderNetTracks()
-    └── _clearIncrementalConnection()
+    └── _renderRouteResult()
 ```

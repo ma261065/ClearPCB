@@ -4,12 +4,14 @@ A browser-based schematic + PCB editor built with vanilla JavaScript and SVG.  N
 
 ## Features
 
-- **Drawing tools** — Line, Rectangle, Circle, Arc, Polygon, Text, Net Label, No Connect
-- **Wire tool** — Graph-based wiring with automatic junctions, T-junction splitting, sticky wires that follow moved components, pin-snap lines, and orthogonal alignment
-- **Components** — Built-in library of common symbols with selectable SMT/through-hole packages and matching offline 3D models, plus live fetching from the KiCad symbol library via GitLab
+- **Schematic drawing** — Line, Rectangle, Circle, Arc, Polygon, Text, Net Label, No Connect
+- **Wire tool** — Graph-based wiring with automatic junctions, T-junction splitting, sticky wires that follow moved components, pin-snap lines, and horizontal, vertical and 45° alignment guides
+- **Components** — Built-in library of common symbols with selectable SMT/through-hole packages and matching offline 3D models, plus live fetching from the KiCad symbol library on GitLab
+- **PCB layout** — Tracks, vias, pads, holes, text, copper pours, board shapes and imported picture artwork on a two-layer board; live design-rule check (DRC); maze and pathfinder autorouters; 3D board view
+- **Manufacturing output** — Gerber and Excellon drill files, BOM, pick-and-place, panelization, Specctra DSN export / SES import
 - **Selection** — Click, Shift+click cycle, Ctrl+click toggle, box select, selection lock
 - **Undo / redo** — Full command history for all operations
-- **File I/O** — Save/open JSON documents, auto-save to localStorage, PDF and print export
+- **File I/O** — Save/open `.cpcb` project files (a ZIP container of JSON), EasyEDA schematic import, autosave and recovery, PDF and print export
 - **Theming** — Light and dark modes
 - **PWA** — Installable as a standalone app via `manifest.json`
 - **MCP** — Optional pairing with AI clients to inspect or edit the open project
@@ -19,11 +21,11 @@ A browser-based schematic + PCB editor built with vanilla JavaScript and SVG.  N
 Serve the project root with any static HTTP server:
 
 ```bash
+# Node, no dependencies
+node tools/serve.mjs 8000
+
 # Python
 python -m http.server 8000
-
-# Node
-npx serve .
 ```
 
 Then open `http://localhost:8000` in a browser.
@@ -34,7 +36,7 @@ On first opening **PCB Layout**, choose **Rectangle** or **Circle** in the
 **Board Dimensions** dialog. Rectangles use width, height and corner radius;
 circles use diameter. All sizes are in millimetres.
 
-Tip: Edit the board outline after creation for more complex shapes
+Tip: Edit the board outline after creation for more complex shapes.
 
 ### Moving nodes
 
@@ -43,8 +45,8 @@ release to place it. Clicking and releasing selects the node; subsequent mouse
 movement does not move it. Clicking a **(+) midpoint insertion handle** picks up
 the new node: move the pointer, then click to place it. Midpoints also support
 holding the button to drag and releasing to place.
-Context-menu **Split** and **Convert to Arc** actions still follow the pointer
-until the next click places the result. Drawing and paste placement are unchanged.
+Context-menu **Split** and **Convert to Arc** actions also follow the pointer
+until the next click places the result.
 
 ### Built-in packages and 3D models
 
@@ -74,7 +76,8 @@ connections and run DRC; existing tracks are not automatically rerouted.
 Development happens on `dev` and is tested locally. Versioned `release_*`
 branches maintain stable release lines; published `vMAJOR.MINOR.PATCH` GitHub
 Releases deploy the stable site at [clearpcb.org](https://clearpcb.org).
-See [the release setup and checklist](docs/releases.md) before the first release.
+See [the release workflow](docs/releases.md) for patch releases, new release lines
+and the CI gates.
 The experimental hosted MCP endpoint has a separate
 [deployment and security guide](docs/mcp.md).
 
@@ -86,104 +89,35 @@ but the editor currently supports only two-layer boards.
 
 ```
 clearpcb/
-├── index.html                  # Entry point — all HTML lives here
-├── manifest.json               # PWA manifest
-│
+├── index.html            # Entry point: all HTML, both editors' ribbons and panels
+├── sw.js, manifest.json  # PWA service worker and manifest
 ├── src/
-│   ├── core/                   # Framework-agnostic infrastructure
-│   │   ├── Viewport.js         # SVG canvas, pan/zoom, grid rendering
-│   │   ├── CommandHistory.js   # Undo/redo command stack
-│   │   ├── SelectionManager.js # Hit-testing, multi-select, box-select
-│   │   ├── EventBus.js         # Global pub/sub
-│   │   ├── FileManager.js      # Dirty tracking, auto-save, file naming
-│   │   ├── ProjectDocument.js  # Neutral owner of the single project file
-│   │   ├── SchematicDocument.js# Authored schematic entities and persistence
-│   │   ├── PcbDocument.js      # Authored PCB entities, settings and geometry capture
-│   │   ├── PcbPlacementState.js# Footprint/reference state and automatic layout slots
-│   │   ├── StorageManager.js   # localStorage / IndexedDB abstraction
-│   │   ├── geometry.js         # Point/segment math helpers
-│   │   ├── ShapeValidator.js   # Validates shape data on load
-│   │   ├── ModalManager.js     # Reusable modal dialog helper
-│   │   ├── SearchManager.js    # Fuzzy text search for component picker
-│   │   ├── LazyLoader.js       # Deferred script/resource loading
-│   │   └── ui-helpers.js       # Small shared DOM utilities
-│   │
-│   ├── shapes/                 # Shape primitives (each extends Shape)
-│   │   ├── index.js            # Registry + createShape() factory
-│   │   ├── shape.js            # Abstract base: render, hit-test, anchors
-│   │   ├── line.js             # Polyline
-│   │   ├── wire.js             # Graph-based wire (nodes + edges)
-│   │   ├── rect.js             # Rectangle
-│   │   ├── circle.js           # Circle
-│   │   ├── arc.js              # Three-point arc
-│   │   ├── polygon.js          # Closed polygon
-│   │   └── text.js             # Text label
-│   │
-│   ├── components/             # Electronic component system
-│   │   ├── index.js            # getComponentLibrary() entry point
-│   │   ├── Component.js        # Placed component instance
-│   │   ├── ComponentLibrary.js # Manages built-in + KiCad libraries
-│   │   ├── ComponentPicker.js  # Search/browse UI panel
-│   │   ├── BuiltInComponents.js# Hand-drawn symbol definitions
-│   │   ├── KiCadFetcher.js     # Fetches KiCad symbols from GitLab
-│   │   ├── LCSCFetcher.js      # LCSC/JLCPCB part lookup
-│   │   ├── STEPPreview.js      # 3D model preview (lazy-loaded)
-│   │   └── VRMLPreview.js      # VRML model preview (lazy-loaded)
-│   │
-│   ├── pcb/
-│   │   └── modules/            # PCB rendering, interactions and command adapters
-│   │
-│   ├── shared/                 # Code used by both editors and the project model
-│   │   ├── 3d/                 # Arcball controller, model rendering
-│   │   ├── pcb/                # PCB geometry: board outline/shapes, footprints,
-│   │   │                       # reference text, stroke font, picture artwork
-│   │   └── ui/                 # Shared UI: modal, viewport/grid, cursor, export,
-│   │                           # box selection, recents, ribbon height, inline text, theme
-│   │
-│   ├── schematic/              # Schematic editor modules (mirrors pcb/)
-│   │   ├── render/             # Shape/component SVG renderers
-│   │   └── modules/            # Feature modules (functional, not classes)
-│   │       ├── mouse.js        # Mouse event binding (click, drag, box-select)
-│   │       ├── drag.js         # Drag commit + cleanup helpers
-│   │       ├── context-menu.js # Right-click menus, junction/segment deletion
-│   │       ├── keyboard.js     # Keyboard shortcuts and hotkeys
-│   │       ├── editor-actions.js # Undo/Redo, Delete and Escape entry points
-│   │       ├── wire.js         # Wire drawing, snapping, reconciliation
-│   │       ├── drawing.js      # Shape drawing (line, rect, circle, arc, polygon)
-│   │       ├── components.js   # Component placement, rotation, mirroring
-│   │       ├── clipboard.js    # Copy, cut, paste with preview
-│   │       ├── selection.js    # Selection helpers, lock toggle
-│   │       ├── text-edit.js    # Inline text editing overlay
-│   │       ├── value-dialog.js # Component value edit dialog
-│   │       ├── properties.js   # Properties panel binding
-│   │       ├── ribbon.js       # Ribbon toolbar binding
-│   │       ├── theme.js        # Light/dark theme toggle
-│   │       ├── shape-management.js # Add/remove/render shapes
-│   │       ├── files.js        # Open, save, serialise documents
-│   │       ├── paper.js        # Paper/title-block events
-│   │       ├── tool.js         # Tool selection, option persistence
-│   │       ├── callbacks.js    # Event-bus wiring
-│   │       └── ui-utils.js     # Small UI helpers (undo buttons, etc.)
-│   │
-│   └── ui/                     # Application layer
-│       ├── AppBootstrap.js     # Shared startup; owns ProjectDocument + mode switching
-│       ├── SchematicApp.js     # Schematic view — delegates to schematic/modules
-│       ├── PCBApp.js           # PCB view — delegates to pcb/modules
-│       ├── mcp-session.js      # MCP session dialog
-│       └── schematic.css       # All styles
-│
-├── assets/
-│   ├── icons/                  # Favicon and PWA icons
-│   ├── vendor/                 # Third-party libs (jsPDF, svg2pdf)
-│   └── version.json            # App version number
-│
-└── docs/
-  ├── clearpcb_file_format.md # Canonical project JSON format
-  ├── project_structure.md    # Layout, enforced import rules, state owners
-  ├── module-contracts.md     # Index of the per-module behaviour contracts
-  ├── contracts/              # Contract pages by area (editing, model, pours/DRC, …)
-  └── release-readiness.md    # Open release items and working agreements
+│   ├── core/             # Project model and editor-neutral services: ProjectDocument,
+│   │                     # SchematicDocument, PcbDocument and its model commands,
+│   │                     # FileManager, CommandHistory, Viewport, geometry
+│   ├── shapes/           # Shape and copper primitives (wire, polyline, track, via, pad, …)
+│   │                     # and shared path editing, snapping and alignment guides
+│   ├── components/       # Component library and picker, KiCad/LCSC fetchers, packages,
+│   │                     # 3D model previews
+│   ├── shared/           # Code both editors use: 3d/, pcb/ (board and footprint geometry,
+│   │                     # stroke font, pictures) and ui/ (modal, viewport, export, theme, …)
+│   ├── schematic/        # Schematic editor: modules/ (interaction, wiring, files, …), render/
+│   ├── pcb/modules/      # PCB editor: tools, rendering, routing, DRC, pours, fabrication
+│   ├── easyeda/          # EasyEDA schematic importer
+│   └── ui/               # AppBootstrap (startup, mode switching), SchematicApp and PCBApp
+│                         # (editor facades), MCP session dialog, styles
+├── assets/               # Icons, version.json and vendored libraries (vendor/)
+├── workers/              # CORS proxy worker
+├── mcp-worker/           # Cloudflare Worker relay for the hosted MCP endpoint
+├── tests/                # Headless regression scripts (test-*.mjs)
+├── browser-tests/        # Playwright scenarios
+├── tools/                # Regression gate, checks, benchmarks, release packaging
+└── docs/                 # Architecture, module contracts, file format, release process
 ```
+
+The module-level layout, the enforced import rules and the owner of each piece of
+shared state are in [docs/project_structure.md](docs/project_structure.md); how
+each module behaves is in [docs/module-contracts.md](docs/module-contracts.md).
 
 ## Architecture
 
@@ -241,14 +175,23 @@ owning the other.
   state and delegate feature behavior to `schematic/modules/` and `pcb/modules/`.
   Model commands own authored changes; rendering and manufacturing output
   conversion remain consumers of model geometry.
-- **Command** — Every edit (move, add, delete, modify) creates a command
-  object pushed onto `CommandHistory`, giving full undo/redo.
+- **Command** — Every edit (move, add, delete, modify) is a command object
+  executed through `CommandHistory`, giving full undo/redo. PCB model commands
+  (`core/pcb-*-commands.js`) change only `PcbDocument`; the PCB editor's commands
+  subclass them to re-render and refresh derived views such as the ratsnest and
+  clearance halos.
 - **Graph-based wires** — Wires use a node+edge graph model
   (`shapes/wire.js`) rather than simple point arrays, enabling
   T-junctions, segment dragging, and merge/split operations.
-- **Functional modules** — `schematic/modules/` and `pcb/modules/` files export
-  plain functions that receive the app object as their first argument. No
-  classes, no singletons.
+- **Function modules** — `schematic/modules/` and `pcb/modules/` mostly export
+  plain functions that receive the editor as their first argument. Classes are
+  used for commands and a few long-lived helpers (for example `DrcPresentation`,
+  `AutorouterSession`). State a module owns lives in that module, usually in a
+  `WeakMap` keyed by the editor.
+- **Editor services** — Modules reach what the editor owns through its public
+  services (`pcb/modules/pcb-editor-api.js`, `schematic/modules/schematic-editor-api.js`)
+  rather than its `_`-prefixed members. The regression gate enforces the import
+  directions between editors and ratchets the remaining private accesses down.
 
 ## Importing PCB pictures
 
@@ -328,20 +271,34 @@ against your fabricator's limits before using the result on silk or copper.
 
 ## Keyboard shortcuts
 
+Both editors:
+
 | Key | Action |
 |-----|--------|
-| `Ctrl+Z` / `Ctrl+Y` | Undo / Redo |
+| `Ctrl+Z` / `Ctrl+Y` (or `Ctrl+Shift+Z`) | Undo / Redo |
 | `Ctrl+C` / `Ctrl+X` / `Ctrl+V` | Copy / Cut / Paste |
-| `Ctrl+S` / `Ctrl+Shift+S` | Save / Save As |
-| `Ctrl+N` / `Ctrl+O` | New / Open |
 | `Ctrl+A` | Select all |
-| `Delete` | Delete selected |
-| `Escape` | Cancel current operation |
-| `L` | Lock/unlock selection |
-| `R` | Rotate component (while placing) |
-| `M` | Mirror component (while placing) |
-| `Ctrl+P` | Print |
-| `F` | Fit to content |
+| `Ctrl+S` / `Ctrl+Alt+S` | Save / Save As |
+| `Ctrl+Tab` | Switch between schematic and PCB |
+| `Delete` / `Backspace` | Delete selected |
+| `Escape` | Cancel the current operation |
+| `Space` | Rotate the selected component; fit to content when nothing is selected |
+| `X` / `Y` | Flip the selected component horizontally / vertically |
+| Arrow keys | Nudge the selection |
+| `+` / `-` | Zoom in / out |
+
+Schematic editor only:
+
+| Key | Action |
+|-----|--------|
+| `Ctrl+N` / `Ctrl+O` | New / Open |
+| `Ctrl+P` / `Ctrl+Shift+P` | Print / Export PDF |
+| `Enter` | Finish the shape or wire being drawn |
+| `F` / `Home` | Fit to content / reset the view |
+| `V` `W` `O` `N` `I` `R` `C` `A` `P` `L` | Tools: Select, Wire, Component, Net Label, Line, Rectangle, Circle, Arc, Polygon, Text |
+| `X` (nothing selected) | No Connect tool |
+
+While drawing a PCB track, `Enter` finishes it and `Space` inserts a via.
 
 ## Testing
 
@@ -351,25 +308,30 @@ The repo has a single regression gate; run it before committing:
 node tools/regression.mjs
 ```
 
-It first checks the documented import directions (`tools/check-imports.mjs`
-against `tools/import-baseline.json`) and PCB modules' use of private editor
-members (`tools/check-pcb-editor-access.mjs`), then runs every `tests/test-*.mjs` in an
-isolated process plus a full clearance check on
-`test-board.json` (`tools/check-clearance-full.mjs`) and asserts against a
-documented baseline (currently: 65/76 connections routed, 0 violations).
-Suite output streams directly to the terminal or CI log without a capture-buffer
-limit; only clearance stdout is captured for baseline parsing. The gate drains
-pending output before exiting so failures and the final summary remain visible.
-The run takes roughly two minutes. See `tools/regression.mjs` for the exact
-HARD vs SOFT check criteria.
+It checks the import directions between editors (`tools/check-imports.mjs`) and
+both editors' remaining private-member accesses (`tools/check-pcb-editor-access.mjs`,
+`tools/check-schematic-editor-access.mjs`), runs every `tests/test-*.mjs` in its own
+process, then routes `test-board.json` and checks the result
+(`tools/check-clearance-full.mjs`). Routing must complete at least 65 of the 76
+connections with no clearance violations; differing track and via counts are
+reported as soft warnings for review. See `tools/regression.mjs` for the exact hard
+and soft checks. The run takes a few minutes, most of it routing.
 
-CI also runs `node tools/typecheck.mjs` against `jsconfig.json` with a pinned
-TypeScript, and `node tools/browser-test.mjs`, which drives the real app in
-headless Chromium (track drawing, the 3D view, the Properties panel and
-autosave recovery); see [releases](docs/releases.md#automated-regression-gate).
-To run the browser tests locally, install Playwright outside the repo and set
-`PLAYWRIGHT` to its package folder (see the header of `tools/browser-test.mjs`).
-`node tools/serve.mjs [port]` serves the app locally without dependencies.
+For a faster loop while editing, `node tools/test.mjs [filter…]` runs only the
+regression tests, optionally filtered by name.
+
+CI also runs `node tools/typecheck.mjs` (a `checkJs` type check against
+`jsconfig.json`, with an empty error baseline) and `node tools/browser-test.mjs`,
+which drives the real app in headless Chromium; see
+[releases](docs/releases.md#automated-regression-gate). Both need tools that are not
+vendored. Install them into the repo's git-ignored `node_modules`, as CI does:
+
+```
+npm install --no-save --no-package-lock --ignore-scripts typescript@5.9.3 playwright@1.55.0
+npx playwright install chromium
+```
+
+Alternatively, set `TSC` to a `tsc.js` or `PLAYWRIGHT` to a Playwright package folder.
 
 ## Troubleshooting
 

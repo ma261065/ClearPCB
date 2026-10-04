@@ -74,14 +74,15 @@ initialization errors use the normal search error/finally path rather than
 leaving the loading state active indefinitely.
 
 The component picker header has an accessible 36-by-36-pixel close button with
-a 24-pixel X and shared dialog-close hover/focus styling. Button, Escape and programmatic/toggle closure share
-cleanup and emit `component:pickerClosed` once per open-to-closed transition.
-The existing tool owner returns Component mode to Select and cancels placement;
+a 24-pixel X and shared dialog-close hover/focus styling. Button, Escape and
+programmatic/toggle closure share cleanup and emit `component:pickerClosed` once
+per open-to-closed transition.
+The tool owner returns Component mode to Select and cancels placement;
 closing during a switch to another tool does not override that new tool.
 Choosing Place Component does not dismiss the picker or switch back to Select.
 Returning to Select with no selection also activates Home, so cancelling a
-drawing tool with Escape does not leave an empty Properties tab. Existing
-selection properties remain visible when switching to Select with a selection.
+drawing tool with Escape does not leave an empty Properties tab. Selection
+properties remain visible when switching to Select with a selection.
 The picker's "Exact match" checkbox filters the current Online (EasyEDA/KiCad)
 or Local results to those whose part number, manufacturer part number or name
 equals the search text, ignoring case (`isExactNameMatch()`); toggling it

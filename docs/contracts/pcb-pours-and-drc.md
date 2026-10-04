@@ -18,7 +18,7 @@ or changing the authored fill/cache; throwing callbacks cannot leave partial
 authored edits behind. Only the existing command applies accepted changes.
 This helper isolates command preparation independently of pointer previews.
 
-Single-fill pointer gestures now keep the canonical target and a lazy reusable
+Single-fill pointer gestures keep the canonical target and a lazy reusable
 `CopperFill` copy in `_fillDrag`. Move, segment, vertex, bulge, center and radius
 updates change only that copy; midpoint insertion creates it immediately to
 stage topology. The selection adapter dynamically resolves displayed identity,

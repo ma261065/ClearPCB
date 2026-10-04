@@ -2,8 +2,8 @@
 
 This feature lets drawing shapes be **fused into a single shape** by dragging
 one shape's endpoint onto another's, and lets individual segments of that shape
-be **curved into arcs**. It is built entirely in the shared shape layer so the
-PCB editor's drawing tools can reuse it without any schematic-specific code.
+be **curved into arcs**. The data model and geometry live in the shared shape
+layer; the endpoint-join gesture is wired in the schematic editor.
 
 ## Data model — the "merged-path" approach
 
@@ -22,7 +22,7 @@ static edgeAttributes = {
 - `bulge !== 0` → circular arc. The value is the DXF-style signed bulge ratio
   (`core/geometry.js` `bulgeRatio`/`bulgePointFromRatio`): signed perpendicular
   distance of the apex from the chord midpoint ÷ half-chord. Sign selects the
-  side; magnitude the curvature (clamped to a semicircle, `|bulge| ≤ 1`).
+  side; magnitude the curvature (clamped to a semicircle, `|bulge| <= 1`).
 
 An `Arc` shape (3 control points) becomes **one bulge edge**:
 `bulge = bulgeRatio(start, end, bulgePoint)`.
@@ -41,10 +41,10 @@ No DOM, no shape classes — reusable anywhere:
 | `sampleArcEdge(a,b,bulge,segs)` | Points along the arc. |
 | `BULGE_EPS` | Below this magnitude an edge is treated as straight. |
 
-`PolylineGraph` uses these for rendering (`_updateElement`), bounds
-(`_calculateBounds`), and hit-testing (`distanceTo`/`closestEdge`). When any
-edge is curved, the fill is drawn as an arc-aware outline path
-(`_buildOutlinePathD`) instead of a polygon.
+`PolylineGraph` and the schematic renderer use these for arc-aware path
+construction, bounds (`_calculateBounds`), and hit-testing
+(`distanceTo`/`closestEdge`). When any edge is curved, the fill is drawn as an
+arc-aware outline path (`_buildOutlinePathD`) instead of a polygon.
 
 ## Joining — [`src/shapes/shape-join.js`](../src/shapes/shape-join.js)
 
@@ -61,13 +61,13 @@ Pure functions (take the shapes array directly, no editor state):
 ## Editing curvature — bulge apex handle
 
 `PolylineGraph.getAnchors()` emits a `bulge_<edgeId>` handle (rendered as a green
-diamond, see `core/ui-helpers.js`) at each **curved** edge's apex, for non-wire
+circular handle, see `core/ui-helpers.js`) at each **curved** edge's apex, for non-wire
 shapes. `moveAnchor('bulge_…')` recomputes the edge bulge from the drag point.
 `getAnchorSnapMode` returns `'none'` for these so they move freely.
 `cleanGraph` and `isAxisAlignedRect` skip curved edges so arcs are never
 flattened or mis-promoted to rectangles.
 
-## Schematic wiring (the only editor-specific glue)
+## Schematic wiring
 
 - `schematic/modules/draw-states.js` `anchorDragState.mousemove`: for joinable
   shapes, calls `findJoinTarget` and shows the snap dot (`updateSnapHighlight`).
@@ -75,18 +75,19 @@ flattened or mis-promoted to rectangles.
   `Polyline` and replaces the two originals in one undoable `BatchCommand`
   (`DeleteShapesCommand` + `AddShapeCommand`).
 
-## Reusing in the PCB editor
+## PCB reuse status
 
-The data model, geometry, join logic, and bulge handle all live in the shared
-`src/shapes/` layer and `core/`. To enable it in a PCB drawing tool:
+The data model, geometry, join logic, and bulge handle live in the shared
+`src/shapes/` layer and `core/`. PCB `Track` already extends `PolylineGraph` and
+declares the same `bulge` edge attribute for curved track segments. Free-standing
+PCB board shapes have their own arc/segment editing path in
+`src/pcb/modules/board-shapes.js` and `board-shape-properties.js`.
 
-1. Ensure the PCB drawing shape extends `PolylineGraph` (or use `Polyline`) so it
-   inherits the `bulge` edge attribute, arc rendering, hit-test, bounds, and the
-   apex handle. (`Track` already extends `PolylineGraph`; add a `bulge` entry to
-   its `edgeAttributes` if curved tracks are wanted.)
-2. In the PCB anchor-drag handler, call `findJoinTarget(app.shapes, pos, tol,
-   dragShape)` and `commitShapeJoin`-equivalent logic with the PCB command stack.
-   No schematic types are referenced by the shared modules.
+The endpoint-to-endpoint shape-join gesture is not wired into the PCB editor.
+To add it, a PCB drag adapter would call
+`findJoinTarget(app.shapes, pos, tol, dragShape, dragAnchorId)` and commit the
+result of `joinShapes()` through PCB commands. No schematic types are referenced
+by the shared modules.
 
 ## Tests
 

@@ -5,10 +5,11 @@
 // viewer, the rendered Properties panel, and save/reopen through autosave recovery.
 // Scenarios live in browser-tests/*.mjs and export `scenarios: Array<{name, run}>`.
 //
-// Playwright is not vendored. CI installs a pinned version (see regression.yml);
-// locally install it outside the repo and point PLAYWRIGHT at its package, e.g.
-//   npm install --prefix %TEMP%\pw playwright@1.55.0 && npx --prefix %TEMP%\pw playwright install chromium
-//   set PLAYWRIGHT=%TEMP%\pw\node_modules\playwright
+// Playwright is not vendored. Install the pinned version into the repo's git-ignored
+// node_modules, as CI does (see .github/workflows/regression.yml):
+//   npm install --no-save --no-package-lock --ignore-scripts playwright@1.55.0
+//   npx playwright install chromium
+// or point PLAYWRIGHT at a Playwright package installed elsewhere.
 //
 // Usage: node tools/browser-test.mjs [scenario-name-filter]   (HEADED=1 shows the browser)
 

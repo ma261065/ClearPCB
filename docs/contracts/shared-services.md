@@ -1,8 +1,9 @@
 # Shared Shapes, Selection and Services
 
 Part of the [module contracts](../module-contracts.md). Services used by both
-editors (shape geometry and editing, previews, snapping, IDs, history, 3D) and
-the PCB services extracted from the editor facade.
+editors (shape geometry and editing, previews, snapping, IDs, history, 3D) plus
+the public editor service seams in `src/schematic/modules/schematic-editor-api.js`
+and `src/pcb/modules/pcb-editor-api.js`.
 
 ## Shape Bounds and Selection
 
@@ -103,6 +104,10 @@ and reference text, which is why only PCB uses a selection registry.
   Rectangles show only square-aspect feedback, not redundant H/V indicators.
   All indicators refresh on redraw and share
   finish/cancel cleanup.
+- Schematic wire node and segment drags call `computeMovingSegmentSnaps()` with
+  `{ diagonal: true }`, so they snap and guide H/V, collinear and 45-degree
+  alignments. Sticky wires during component drags call the same helper without
+  diagonal snapping and remain H/V-only.
 - `core/grid-snap.js` owns the shared displayed-grid magnet: each coordinate
   remains free unless it is within eight screen pixels of a grid line, capped
   at 40% of the displayed spacing so there is always a free region between
@@ -129,14 +134,15 @@ and reference text, which is why only PCB uses a selection registry.
   Commit and cancellation request a final redraw, including any derived work
   deferred during previews. Property validation, snapshot representation,
   history commands, and PCB copper-refresh throttling remain editor-owned.
-  The same module now owns the small shared Properties lifecycle used by
+  The same module owns the small shared Properties lifecycle used by
   schematic descriptor-driven numeric controls and PCB shape/image controls:
   one active field, commit-before-handoff, cancellation/disposal, focused
   commit policy, Escape consumption and deferred blur completion. PCB's
   binding supplies pointer/rotation handoff and layer checks; its detached
   copies and schematic's reversible live snapshots remain separate adapters.
-  Schematic ownership survives a panel rebuild or root replacement so an already-pending blur can
-  finish against its original target without rebuilding the newer panel.
+  Schematic ownership survives a panel rebuild or root replacement so an
+  already-pending blur can finish against its original target without rebuilding
+  the newer panel.
   Starting another numeric field settles that previous edit first, preventing
   overlapping whole-shape snapshots from combining independent field edits.
   Numeric inputs register their completion policy with the shared owner, so
@@ -235,8 +241,9 @@ and reference text, which is why only PCB uses a selection registry.
   Schematic commands are in `schematic/modules/commands.js`.
 - `shared/3d/ArcballController.js` and `shared/3d/model-rendering.js` serve both
   component previews and the board viewer without importing PCB code.
-- `pcb/modules/project-state.js` owns PCB serialization, detached preparation,
-  restoration and project design parameters.
+- `core/PcbDocument.js` owns PCB authored state and serialization.
+  `pcb/modules/project-state.js` is the PCB view adapter for detached
+  preparation, model adoption, presentation reset and grid preference restore.
 - `pcb/modules/copper-model.js` resolves physical pad geometry and logical nets;
   `copper-connectivity.js` owns common cluster construction and positional unions.
 - `pcb/modules/fill-context.js` supplies reusable collections to copper pours;
@@ -245,7 +252,9 @@ and reference text, which is why only PCB uses a selection registry.
   supplies the DRC broad phase.
 
 `node tools/test.mjs` runs every `tests/test-*.mjs` in an isolated process.
-`node tools/regression.mjs` also checks import boundaries and runs the autorouter
-baseline. `node tools/typecheck.mjs` summarises `checkJs` errors; CI installs a
-pinned TypeScript for it because none is vendored. See
-[review-fixes.md](../archive/review-fixes.md) for the review mapping and verification limits.
+`node tools/regression.mjs` also checks import boundaries, editor service-access
+baselines and the autorouter clearance baseline. `node tools/typecheck.mjs`
+summarises `checkJs` errors and locates TypeScript from `TSC` or the repo's
+git-ignored `node_modules`. `node tools/browser-test.mjs` runs
+`browser-tests/*.mjs` with Playwright from `PLAYWRIGHT` or the same git-ignored
+`node_modules`.

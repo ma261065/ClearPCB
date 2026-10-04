@@ -10,24 +10,27 @@ preview projections used by pointer and Properties edits.
 `pcb/modules/edit-lifecycle.js` owns cross-family preview cancellation,
 property-editor disposal and the PCB snapshot-readiness query. The facade
 delegates these decisions rather than maintaining its own adapter-kind list.
-Cancellation stops derived workers, settles property previews, then asks the
-existing selection state machine to end its active gesture regardless of kind
-or mode. Direct pointer paths retain their own cancellation helpers. This also
-ends reference-label drags and pending overlap-selection gestures on view exit
-or document replacement, without committing or consuming prior undo/redo.
-Property-panel rebuilding and document replacement share the same disposal
-routine; deactivation retains reusable property controls after cancellation.
-Cleanup errors propagate and unresolved editors continue to block snapshots.
+Cancellation stops derived workers, cancels property previews, then asks the
+selection interaction and pointer-gesture router to end active gestures in their
+own order. Direct pointer paths keep their own cancellation helpers. View exit
+and document replacement therefore also end reference-label drags and pending
+overlap-selection gestures without committing or consuming undo/redo. Property
+panel rebuilding and document replacement share the same disposal routine;
+deactivation retains reusable property controls after cancellation. Cleanup
+errors propagate, and unresolved editors continue to block snapshots.
 
 `pcb/modules/property-editors.js` owns each editor's Properties-panel bindings
 (`text`, `component`, `pad`, `via`, `track`, `boardShape`, `boardDimension`) in
 a WeakMap. The module that creates a binding claims its slot with
 `setPropertyEditor` and releases it with `releasePropertyEditor`, which cannot
-clear a newer owner; others read it with `getPropertyEditor`. Every binding
-declares `affectsLayer(layerId)`, so hiding or locking a layer releases editors
-through one ordered `eachPropertyEditorOnLayer`. Group commits and activity
-checks name the kinds they cover. The module has no imports because the
-fabrication-snapshot guard, which the Gerber worker loads, queries it.
+clear a newer owner; others read it with `getPropertyEditor`. Panel bindings
+declare `affectsLayer(layerId)`, so hiding or locking a layer releases affected
+panel editors through one ordered `eachPropertyEditorOnLayer`. The board-size
+binding has no `affectsLayer`; `layer-changes.js` disposes it when the
+board-outline layer is hidden and cancels it when that layer is locked. Group
+commits and activity checks name the kinds they cover. The
+module has no imports because the fabrication-snapshot guard, which the Gerber
+worker loads, queries it.
 
 `pcb/modules/refresh-state.js` owns each editor's derived-refresh status in a
 WeakMap: copper-pour pending, scheduled and last error (written by
@@ -56,15 +59,17 @@ with each field's category (`gesture` or `drawing`) and whether it blocks export
 `hasPcbInteractionInProgress`, `isPcbDrawing` and the fabrication-snapshot guard
 derive from it. It has no imports so worker-loaded export code can use it.
 `pcb/modules/pcb-interaction-routing.js` holds each field's pointer-move,
-primary-release and pose-cancel handler. Its mousemove dispatcher is deliberately straight-line code
-for speed (`node tools/bench-pointer-dispatch.mjs`); `test-pcb-interaction-registry`
-proves it follows the table's priority, and fails if a new `_…Drag`, `_…Draw`,
-`_…Drop`, `_…Resize`, `_…Edit` or `_…Interaction` field is assigned without
-being registered. At most one pointer drag is active at a time; the selection
-gesture may wrap one, and drawing sessions persist across other gestures.
-`releasePcbPointerGestures` finishes the active gestures in table order on a
-primary release anywhere in the window; once the selection gesture finishes, the
-drags it can wrap (`wrapped`) are left to it, and a pending marquee finishes last.
+primary-release and pose-cancel handler. Its mousemove dispatcher is straight
+line for speed (`node tools/bench-pointer-dispatch.mjs`);
+`test-pcb-interaction-registry` proves it follows the table's priority, and
+fails if a new `_…Drag`, `_…Draw`, `_…Drop`, `_…Resize`, `_…Edit` or
+`_…Interaction` field is assigned without being registered. At most one pointer
+drag is active at a time; the selection gesture may wrap one, inline/rotation
+gestures are export-blocking, and drawing sessions persist across other
+gestures. `releasePcbPointerGestures` finishes active gestures in table order on
+a primary release anywhere in the window; once the selection gesture finishes,
+the drags it can wrap (`wrapped`) are left to it, and a pending marquee finishes
+last.
 
 The PCB canvas mouse listeners are in `pcb/modules/mouse.js` (`bindPcbMouseEvents`,
 bound through `PCBApp._bindMouseEvents`). The mousedown listener handles only
@@ -79,6 +84,13 @@ an active box selection, continuing the current selection, then selecting a new
 target. Component presses use `_beginComponentDrag`, the same start as the
 selection adapter, so locked placements never enter drag state
 (`test-pcb-select-press`).
+
+Layer visibility and lock changes are handled in `pcb/modules/layer-changes.js`,
+called through the editor's thin `_on…Changed` seams. The module cancels
+gestures and property editors stranded by the change, updates render-group
+visibility or opacity, prunes hidden selections and hover state, keeps the
+clearance overlay aligned with visible copper layers, and saves the layer-panel
+preferences.
 
 ## PCB Derived Refreshes
 
@@ -97,13 +109,15 @@ selection adapter, so locked placements never enter drag state
 ## Keyboard and Ribbon Actions
 
 `pcb/modules/editor-actions.js` is the common keyboard/ribbon entry point for
-Undo, Redo, Save and Save As. Keyboard focus guards and shortcut matching stay
-in the editor; DOM bindings only dispatch actions. History requests use the
-existing keyboard policy: floating paste, dimension previews and group drags
+Undo, Redo, Save and Save As. Keyboard focus guards and shortcut matching live
+in `pcb/modules/keyboard.js`; DOM bindings only dispatch actions. Drawing tools
+handle their own keys through `handleTrackDrawKey`, `handleFillDrawKey` and
+`handleShapeDrawKey` before the shared actions run. History requests use the
+keyboard policy: floating paste, dimension previews and group drags
 consume the request by cancelling, while unfinished track/fill/shape drawing
-does not traverse history. Individual-pointer Undo and image-rotation Redo
-retain their existing cleanup semantics before traversing history. Cleanup
-errors propagate without advancing the stacks. The handler's boolean reports
+does not traverse history. Individual-pointer Undo and image-rotation Redo run
+their cleanup before traversing history. Cleanup errors propagate without
+advancing the stacks. The handler's boolean reports
 request consumption, not whether an undo/redo entry existed.
 Save requests resolve `app.project` at invocation, never a global bootstrap.
 The project still owns snapshot readiness, I/O and ordinary failure reporting;
@@ -114,7 +128,7 @@ handled. It cancels an active property preview or pointer gesture before
 leaving a tool, clearing selection or returning Home. The lifecycle module's
 property-editor catalog supplies preview cancellation for text, pad and via
 editors as well as track and shape editors; cancellation retains the controls
-and does not commit or traverse history. Existing shape/track priority and
+and does not commit or traverse history. Shape/track priority and
 outline-resize-before-dimension-property ordering are preserved. Keyboard
 focus guards still leave native input handling alone. This is deliberately
 different from full view-exit cleanup: one Escape unwinds one level, and the
@@ -128,12 +142,12 @@ Arrow-key nudging also dispatches through the action boundary. It reuses the
 lifecycle's pointer/inline-interaction guard instead of maintaining another
 gesture list in the keyboard handler. Snapshot readiness remains a broader
 query that additionally includes property previews and deferred derived work.
-The existing group-move path still commits pending numeric-property edits
-before movement, records the nudge separately in history and refreshes
-Properties after completion. Step sizes remain one quarter of the configured
-grid with snapping enabled, or 1 mm with snapping disabled. Drawing, marquee,
-pan, hidden/locked selections and reference-label selections retain their
-existing guards; input-focus and DRC-list navigation stay with the keyboard UI.
+Group movement commits pending numeric-property edits before movement, records
+the nudge separately in history and refreshes Properties after completion. Step
+sizes remain one quarter of the configured grid with snapping enabled, or 1 mm
+with snapping disabled. Drawing, marquee, pan, hidden/locked selections and
+reference-label selections retain their guards; input-focus and DRC-list
+navigation stay with the keyboard UI.
 
 Delete/Backspace also delegates to `editor-actions.js`. The action preserves
 paste cancellation, group-preview rollback and property-cancellation ordering
@@ -153,7 +167,7 @@ routine, including cursor, Home highlighting, status and tool-options cleanup.
 Reselecting the same tool preserves its drawing. An explicit change of ribbon
 tab cancels drawing/inline text; same-tab requests do not. Programmatic
 navigation retains track/fill sessions when their Properties UI opens, while
-preserving the existing shape-draw cancellation on an actual tab change.
+preserving shape-draw cancellation on an actual tab change.
 Cleanup failures propagate before adopting the destination tool or tab.
 This boundary does not change per-tool Enter/Escape completion or property
 commit behavior, and does not make all interactions follow one cancellation
@@ -167,9 +181,9 @@ entry list and selection flags only when the set of entities changes;
 otherwise it just resets the hit caches. Pad bounds and copper-fill outlines
 are memoised on their geometry fields, because the bounds pre-filter reads them
 for every entity on every query. `test-pcb-selection-sync-reuse` guards the
-work counts and correctness; `node tools/bench-pcb-hit-test.mjs` times a
-1,110-entity board (pointer query 8.4 ms → 0.8 ms when introduced).
-Hiding a layer deselects only the entries whose adapter now reports
+work counts and correctness; `node tools/bench-pcb-hit-test.mjs` is the
+selection-sync and pointer-hit benchmark.
+Hiding a layer deselects only the entries whose adapter reports
 `visible === false` (`deselectHiddenPcbSelection()` in `box-select.js`); objects
 on other layers, and pours that stay visible, remain selected and the
 Properties panel follows what is left (`test-pcb-selection-layer-locks`).
@@ -184,7 +198,7 @@ query; both editors expose the Shift+click cycling tip. A selected obscured
 component remains eligible for drag pickup, including mixed groups, without
 bypassing layer visibility, locks or selection-anchor precedence.
 
-The editor adapter still removes old SVG and selection before replacing entities,
+The editor adapter removes SVG and selection before replacing entities,
 renders only when active, and refreshes derived geometry after loading.
 Its design-settings refresh only updates controls and local defaults from adopted
 model data; it neither adopts data nor marks the document dirty.
@@ -207,7 +221,7 @@ still rebuild the panel: straightening an arc removes its obsolete Bulge field.
 An image Properties refresh supplies its canonical target identity. Rebuilding
 controls for that same image does not cancel its pointer rotation; changing to
 another target (even one with the same ID), clearing the panel or replacing the
-document still ends the old gesture. Numeric-preview acceptance on rotation
+document still ends that gesture. Numeric-preview acceptance on rotation
 pickup remains owned by the image adapter. Drawing-mode completion remains
 with its existing callers; this is not a new
 general-purpose interaction framework.
@@ -237,9 +251,17 @@ deactivation/loading and orphan cancellation terminate rotation, while pointer
 handoff commits rotation before starting an ordinary shape drag. Save/export
 readiness retains the existing rotation guard.
 
-Copper-cut geometry stays on its settled cache during image rotation, including
-explicit refresh and viewport updates, so old pour holes remain until drop.
-Discarded rotations do not repour unchanged copper.
+Copper-cut geometry lives in `pcb/modules/copper-cuts.js` as per-side SVG
+clip paths in the editor's `<defs data-pcb-defs>`. During image rotation,
+explicit refreshes and viewport updates keep using the settled cut cache, so
+settled pour holes remain until drop. Discarded rotations do not repour
+unchanged copper.
+
+Copper-removal hatching is drawn by `pcb/modules/removal-hatch.js` as an SVG
+`<pattern>` fill in the same editor-owned `<defs data-pcb-defs>`. It is not a
+canvas overlay, so holes, copper cuts and higher SVG layers cover it in normal
+z-order. Export and panelization strip the hatch fill because it is an on-screen
+editing aid.
 
 Ordinary board-shape pointer gestures retain their canonical target in
 `_shapeDrag.original` and render a reusable copy through a `boardShapes`
@@ -319,7 +341,7 @@ committing a pending numeric field first; placement defaults remain outside
 document history.
 
 The pad property binding cancels on Escape, tab deactivation and layer locks,
-and disposes detached controls when the panel is replaced, a layer is hidden
+and disposes detached controls on panel replacement, layer hiding
 or a document is loaded. Pending render frames are cancelled on every exit.
 Save and fabrication-export guards include active numeric pad edits. Pad
 collection precedence is terminal movement, rotation handle, numeric properties,
@@ -328,8 +350,8 @@ properties first.
 
 Via diameter/drill properties use the corresponding fixed-selection projection
 in `track-commands.js`, exposed through `PCBApp.vias` after movement previews.
-First-change snapshots replace the old panel-open baseline, so edits after
-undo/redo use current authored values. Copies and collection identity are reused,
+First-change snapshots use current authored values, so edits after undo/redo do
+not depend on values from panel opening. Copies and collection identity are reused,
 unchanged values schedule no frames, and live edits preserve the existing policy
 of rendering SVG/selection halos without refreshing fills or clearance geometry.
 The existing largest-drill/smallest-diameter constraints remain in force.
@@ -345,7 +367,7 @@ track node therefore retain the same valid command target when the preview ends.
 Panel replacement, Escape, deactivation, loading, locks and visibility changes
 clean up previews and queued frames, and save/export readiness includes them.
 
-Direct track numeric properties now have a single-track projection in
+Direct track numeric properties use a single-track projection in
 `track-commands.js`: whole-track/selected-edge width, whole-track/node corner
 radius and the existing arc bulge field. The first changed value captures exact
 graph state and creates one track copy/collection; subsequent values reuse both,
@@ -354,7 +376,7 @@ bounds caches remain untouched. The track collection getter prefers component
 and terminal-movement previews before numeric properties. Selection adapters
 retain canonical identity while resolving displayed bounds, hits, lock outlines,
 anchors and hover geometry. Repeated values skip SVG and derived refresh work;
-changed values render immediately without the old delayed width-import callback.
+changed values render immediately.
 Existing width/radius/bulge normalization and derived refresh policies remain.
 
 The disposable track panel binding clears the projection before the existing
@@ -362,7 +384,7 @@ graph command, using first-change rather than panel-open snapshots. Exact
 attribute fallbacks survive a return to the original value without consuming
 redo. Numeric-to-net/layer, node/midpoint/split/arc pickup and terminal pickup
 finish pending properties before using canonical targets. Cancellation,
-replaced panels, deactivation, loading, relevant layer locks/visibility, missing
+panel replacement, deactivation, loading, relevant layer locks/visibility, missing
 targets and command rejection remove preview artwork without authored rollback.
 Save/export readiness includes active track properties. Shared pose cancellation also
 dispatches fill adapters and orphaned fill drags through `endFillEdit(false)`;
@@ -400,9 +422,9 @@ locked/hidden layers, deactivation/loading, missing targets and command failures
 clean up artwork without authored rollback, restoring outer overlay/3D deferral
 state. Discarded previews do not repour unchanged copper. Property/terminal
 handoffs finish pending edits before canonical pickup; save/export guards remain.
-Mixed-object group movement in `box-select.js` now reuses detached copies of
+Mixed-object group movement in `box-select.js` reuses detached copies of
 directly selected tracks, vias, pads, board shapes and fills alongside the
-existing component/text projections. `PCBApp` collection getters give the group
+component/text projections. `PCBApp` collection getters give the group
 projection precedence. Group-specific selection-registry forwarding resolves
 displayed bounds, paths, hits and anchors without retargeting gesture methods
 away from canonical objects. Selected tracks also attached to a moving component
@@ -423,7 +445,7 @@ with one atomic history entry, while cancellation preserves prior history and
 redo. Shape IDs are consumed only on acceptance. Repeated unchanged positions
 skip rendering, crosshair updates and graph-cache invalidation. Lifecycle,
 lock/visibility, keyboard/history and failure cleanup discard the floating
-bundle rather than undoing previously authored content.
+bundle rather than undoing authored content.
 
 Imported images use the same placement path. Their properties open after the
 placement is accepted, not while the image is floating; selection and anchors
@@ -443,14 +465,25 @@ untouched; accepted batches retain their existing compound history behavior.
 ## Command Adapters
 
 The Design ribbon and New Track/Via property editors share the same commit path.
-Valid edits mark the PCB dirty and retain the existing geometry refresh requests;
+Valid edits mark the PCB dirty and retain the geometry refresh requests;
 unit/router preferences are also saved project edits. Temporarily blank or invalid
 dimensions retain the last valid model value and show native field validation.
 Project preparation rejects nonpositive/nonfinite dimensions before replacing
 live content. These numeric fields opt out of shared two-decimal formatting.
 Project serialization still rounds dimensions to four decimals at the file
-boundary. Local defaults now store canonical mm values and still read the legacy
-display-unit strings under the existing storage key.
+boundary. Local defaults store canonical millimetre values and read stored
+display-unit strings under the same storage key.
+
+`pcb/modules/board-outline-resize.js` owns board-outline handles, board-size
+property previews and the Board Dimensions dialog. `PCBApp` exposes only seam
+methods such as `_showBoardDimensionsDialog`, `_closeBoardDimensionsDialog` and
+the board-outline selection/drawing hooks that tests and project-state code call.
+
+`pcb/modules/route-input.js` owns autorouter `RouteInput` construction from the
+editor's public board state: placements, netlist, filled copper terminals,
+obstacle pads, fixed copper obstacles, design rules and routing bounds. The
+editor seam `_buildRouteInput()` delegates to it; stored test inputs are consumed
+before a fresh board input is built.
 
 Editor command adapters coordinate model commands with rendering and derived
 refreshes; some entity types retain inherited presentation methods and caches.

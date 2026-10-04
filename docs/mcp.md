@@ -9,7 +9,7 @@ The prototype exposes three tools:
 
 - `get_project` returns the complete canonical ClearPCB project.
 - `replace_project` validates and loads a complete replacement project.
-- `apply_project_patch` atomically applies up to 100 RFC 6902 JSON Patch
+- `apply_project_patch` atomically applies 1 to 100 RFC 6902 JSON Patch
   operations, validates the resulting project, and loads it.
 
 Writes use the normal project loader, so invalid project data is rejected
@@ -19,7 +19,7 @@ MCP change** until the session is disabled or another MCP write replaces it.
 
 ## Pairing
 
-1. Open ClearPCB and choose **File > MCP**.
+1. Open ClearPCB and choose **File > AI Mode**.
 2. Select **Enable MCP**.
 3. Copy the generated URL into the MCP client.
 4. Disable the session when finished.

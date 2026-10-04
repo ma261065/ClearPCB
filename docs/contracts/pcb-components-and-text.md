@@ -37,17 +37,17 @@ Free-standing text creation, defaults/layer rules and full-precision snapshots
 live in `core/pcb-text.js`. Undo and clipboard use these snapshots without file
 rounding; `PcbDocument.serializeEntities()` rounds text position, size, rotation
 and stroke width to four decimals only at the save boundary. The rendering
-module re-exports the data helpers for existing imports but retains only glyph
+module `pcb/modules/pcb-text.js` re-exports the data helpers and owns glyph
 geometry, hit-testing, SVG and layer-color responsibilities.
 
 `core/pcb-text-commands.js` owns add/remove/move/edit text mutations, undo state
 and descriptions, operating directly on `PcbDocument` without an editor or DOM.
-The existing `pcb/modules/text-commands.js` imports remain editor adapters: they
-delegate mutations to the model commands and retain SVG, selection, property
-control and derived-refresh updates. Deleted text is restored from an unrounded
-snapshot with its original ID. Add undo retains the current model object, which
-may have been recreated by a later deletion undo, so a complete undo/redo chain
-cannot resurrect a stale text instance. Missing move/edit targets fail explicitly.
+`pcb/modules/text-commands.js` provides the editor adapters: they delegate
+mutations to the model commands and retain SVG, selection, property-control and
+derived-refresh updates. Deleted text is restored from an unrounded snapshot
+with its original ID. Add undo retains the current model object, which may have
+been recreated by a later deletion undo, so a complete undo/redo chain cannot
+resurrect a stale text instance. Missing move/edit targets fail explicitly.
 
 Single-text movement/rotation, text-only groups and mixed component/text groups
 use an editor-owned text-map projection. The first changed pose copies each
@@ -65,36 +65,40 @@ gestures through the shared pose-preview lifecycle hook. Terminal selection
 interactions clear their state even if completion throws, while intentional
 floating-anchor interactions remain active. Errors still propagate.
 Groups containing directly selected tracks, vias, pads, shapes or fills compose
-the mixed-group projection in [pcb-editing.md](pcb-editing.md#previews-and-projections). Save/export readiness guards remain
-the policy for unfinished edits, even when canonical geometry is unchanged.
+the mixed-group projection in
+[pcb-editing.md](pcb-editing.md#previews-and-projections). Save/export readiness
+guards remain the policy for unfinished edits, even when canonical geometry is
+unchanged.
 
-Text property inputs now edit the same reusable editor projection, never the
+Text property inputs edit the same reusable editor projection, never the
 canonical text. A property preview owns only layer, size, rotation, stroke width
 and layer-dependent anchor coordinates. It can coexist with independently owned
 inline content; other committed fields synchronize without overwriting either
-pending edit. Commit ends property ownership before executing the existing model
+pending edit. Commit ends property ownership before executing the model
 command, with no temporary authored rollback. Cancellation restores current model
-values and controls. Panel replacement disposes old field bindings so late events
+values and controls. Panel replacement disposes prior field bindings so late events
 cannot restart an edit on the previous text. Layer locking, tab deactivation and
 loading cancel pending property edits. Save/export readiness includes pending
 text properties rather than silently capturing older values than those displayed.
 Unchanged input/change values skip both redraw and clearance scheduling; changed
 values update immediately. Content and border commands remain independent.
 
-Standalone inline text uses one reusable editor-owned text copy and map from
-entry to completion. Typing changes only that copy's content; canonical content,
-geometry snapshots and serialization remain unchanged. No map or text copy is
-created per keystroke. Changed input renders once; repeated unchanged input
-updates caret/selection geometry without rebuilding glyph SVG.
+Standalone inline text is started and finished by
+`pcb/modules/text-inline-edit.js` through the editor's `_startTextInlineEdit`
+and `_endTextInlineEdit` seams. It uses one reusable editor-owned text copy and
+map from entry to completion. Typing changes only that copy's content; canonical
+content, geometry snapshots and serialization remain unchanged. No map or text
+copy is created per keystroke. Changed input renders once; repeated unchanged
+input updates caret/selection geometry without rebuilding glyph SVG.
 
-Property edits made during inline typing use their existing independent model
-commands. Their style/pose changes synchronize into
-the same content projection without overwriting pending input, including
-undo/redo. Layer-side compensation uses the displayed content width.
+Property edits made during inline typing use independent model commands. Their
+style/pose changes synchronize into the same content projection without
+overwriting pending input, including undo/redo. Layer-side compensation uses the
+displayed content width.
 Completion removes the projection before a content edit or deletion command;
 there is no temporary authored-content rollback. Cancel restores presentation
 from the current model, preserving independently committed property changes.
-Blank-content deletion and cancelled new-placement cleanup use the existing
+Blank-content deletion and cancelled new-placement cleanup use
 RemoveTextCommand rather than deleting the canonical text map in the editor.
 First-click placement still records Add. If Add is the latest command, cleanup
 removes the text without adding another history entry, prunes Add and updates
@@ -190,8 +194,9 @@ them with committed model geometry.
 `ProjectDocument.restorePcbPlacementOverrides()` handles saved-pose restoration
 independently of an editor. It resolves current physical footprints for saved
 overrides, optionally restricted to supplied component IDs, before changing any
-track. Unlike the legacy rebuild eligibility rules, restoration always repositions
-compatible endpoints and disconnects incompatible SMD bonds on either side.
+track. Restoration always repositions compatible endpoints and disconnects
+incompatible SMD bonds on either side, independent of the schematic-rebuild
+eligibility policy.
 Missing/non-physical components and automatic placements are not restored; saved
 records are retained unchanged and no automatic grid slots are allocated.
 The load adapter requests only currently rendered IDs, replaces their footprint
@@ -211,13 +216,11 @@ current definition on every call, including in-place edits or component
 replacement, rather than retaining a geometry snapshot in history or adding
 another cache. It does not create placement overrides or a saved PCB section.
 Missing/non-physical components return null; physical components with no
-footprint data retain the existing empty geometry result. The existing pure
-parser remains in `shared/pcb/footprint.js` alongside its rendering exports.
-All four physical placement commands use this source. Entity/render and derived
-cache coupling, live-preview mutation ownership and the
-explicit viewport-preference boundary still need closure review; physical command
-separation does not imply that all model boundaries or application decomposition
-are complete.
+footprint data retain the existing empty geometry result. The pure parser
+remains in `shared/pcb/footprint.js` alongside its rendering exports. All four
+physical placement commands use this source. Entity rendering,
+derived caches, live previews and viewport preferences remain editor concerns
+unless a model module is named as their owner.
 
 The live `placements` map remains editor-owned: it contains generated footprint
 geometry, presentation caches and temporary gesture state, not a second
@@ -249,18 +252,18 @@ if their schematic component is deleted. Undo/redo can restore placement metadat
 and bonded geometry without resurrecting that component or blocking earlier PCB
 history. Never-executed commands still reject missing targets.
 
-The existing metadata editor command names remain adapters. They project only edited
-fields into the current generated placement, then retain transform/glyph,
-selection, overlay and 3D updates and notify the dirty hook. They no longer
-re-record the whole generated placement to persist metadata edits. Authored
-undo/redo works without a currently rendered placement.
+The metadata editor command names are adapters. They project only edited fields
+into the current generated placement, retain transform/glyph, selection, overlay
+and 3D updates, and notify the dirty hook. Metadata persistence is the model
+record in `PcbPlacementState`, not a re-recording of the whole generated
+placement. Authored undo/redo works without a currently rendered placement.
 
 Reference-label drag completion uses explicit original/final local offsets.
 Commit passes them directly to `MoveRefTextCommand`, without repainting a
 temporary rollback or repeating the command's final overlay refresh.
 Cancellation restores only the live reference offsets, without recording
 history, dirtying the project or creating a saved placement override. Shared
-selection and legacy Escape/Undo paths both finish the drag; physical pad and
+selection and direct Escape/Undo paths both finish the drag; physical pad and
 bonded-track positions are unchanged. Local-frame magnetic snapping and
 placement rotation/mirroring remain the same.
 
@@ -289,9 +292,9 @@ preview without adding history or refreshing nets; validation still happens befo
 the inline editor is torn down.
 
 Reference previews, cancellation, offset/rotation history and glyph regeneration
-use the existing `renderPlacementPose()` helper for SVG transforms only. They no
-longer call the physical `applyPlacementPose()` path: reference-only changes do
-not recalculate world pads, scan track bonds or rebuild physical clearance.
+use `renderPlacementPose()` for SVG transforms only. Reference-only changes do
+not call `applyPlacementPose()`, recalculate world pads, scan track bonds or
+rebuild physical clearance.
 The shared renderer retains placement/reference transforms, pad-number
 counter-mirroring, LOD and halo transforms. Dirty, reference-overlay, inline-caret
 and 3D notifications remain with their existing editor callers. Physical movement,
@@ -314,13 +317,13 @@ Hit-testing reverses that order, undoing the counter-mirror before reference
 rotation. Selection bounds and pointer-relative lock positions use this corrected
 outline; neither authored geometry nor reference handedness is changed.
 Reference picking also respects the visibility of its side's silkscreen layer:
-legacy hit-testing skips hidden labels before resolving layout boxes, and shared
+direct hit-testing skips hidden labels before resolving layout boxes, and shared
 selection adapters report them as invisible. Missing placements are invisible to
 stale adapters. Hiding one side does not suppress visible references on the other.
 
 Reference interaction locking combines the placement lock and its side's silk
 layer lock. Locked labels remain selectable for inspection/unlocking, but shared
-and legacy dragging, keyboard rotation and single/multi-selection properties
+and direct dragging, keyboard rotation and single/multi-selection properties
 respect that combined policy. Locking silk cancels active reference drag and
 inline-name previews; a drag also rechecks the lock before committing. Layer
 lock changes refresh the selected reference's property controls. Reference lock
@@ -329,12 +332,13 @@ authored placement-lock history separate from layer-panel preferences.
 
 ## Placement Movement
 
-The same core module now owns `MovePlacementCommand`, `RotatePlacementCommand`,
-`FlipPlacementCommand` and `SetPlacementSideCommand`. These take the project document, resolve its current
-footprint on every execute/undo, patch only the requested canonical pose fields,
-and reposition bonded track nodes by physical pad ID. History captures authored
-pose values, not footprint geometry or rendered placements. Automatic placements
-use the same detached, lazy baseline mechanism as metadata commands.
+`core/pcb-placement-commands.js` owns `MovePlacementCommand`,
+`RotatePlacementCommand`, `FlipPlacementCommand` and `SetPlacementSideCommand`.
+These take the project document, resolve its current footprint on every
+execute/undo, patch only the requested canonical pose fields, and reposition
+bonded track nodes by physical pad ID. History captures authored pose values,
+not footprint geometry or rendered placements. Automatic placements use the
+same detached, lazy baseline mechanism as metadata commands.
 Their editor subclasses project the resulting pose and world pads into the
 current placement and render touched tracks; they do not repeat model movement
 using potentially stale view offsets or re-record the generated placement.
@@ -354,8 +358,8 @@ getter exposes the projected list for rendering, clearance and ratsnest queries;
 `PcbDocument.tracks`, its bounds caches, serialization and geometry capture remain
 unchanged. Unrelated tracks retain their original identity.
 
-Commit ends the projection before the existing model command runs. Preview SVG
-is replaced by canonical SVG without duplicate tracks, including endpoints that
+Commit ends the projection before the existing model command runs. Canonical SVG
+takes over without duplicate tracks, including endpoints that
 already match the final target and need no command-side movement. Cancellation
 discards the projection and restores the starting placement/pads and canonical
 track artwork without rewriting authored copper or recording history. Command
@@ -378,9 +382,9 @@ Both component pointer paths use the same live pose updater. If magnetic snappin
 produces the current coordinates, it skips footprint transforms, pad/bond updates
 and incremental ratsnest work. The comparison is exact: distinct positions in the
 free region still update immediately, without rounding or additional throttling.
-The legacy event handler updates Shift before delegation and now shares the
-adapter's placement-lock guard. Drop/cancel processing still runs even if the
-last pointer update did not change the pose.
+The event handler updates Shift before delegation and uses the adapter's
+placement-lock guard. Drop/cancel processing still runs even if the last pointer
+update did not change the pose.
 
 Side changes retain the established snapshot of all existing track bond records
 at each execute/redo. The command owns copies and restores them into the current
@@ -390,8 +394,8 @@ and otherwise compatible bonds follow the new pose. Footprint resolution precede
 both restoration and snapshot replacement, so a missing footprint leaves bonds
 and the last good snapshot intact. Restored bonds count as touched tracks even
 when their endpoints did not move. The editor adapter updates generated pad/paste
-layer descriptors and artwork without repeating model bond mutations; the existing
-live-sync side helper retains its data-plus-presentation behavior.
+layer descriptors and artwork without repeating model bond mutations; the
+live-sync side helper keeps its data-plus-presentation behavior.
 
 `core/pcb-placement-geometry.js` owns renderer-free world-pad updates, bonded
 track-node movement, side-dependent pad/paste layers and incompatible-bond

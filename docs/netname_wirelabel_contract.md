@@ -1,135 +1,160 @@
 # Net Name vs Wire Label Contract
 
 ## Goal
-Define a stable data model where electrical identity and display text are not conflated.
 
-- `netName`: canonical electrical identity for a connected net graph.
-- `wireLabel`: optional visual annotation attached to a specific wire segment.
+Describe the data model ClearPCB uses today for schematic wire identity and
+visible labels. The current model has two separate concepts:
 
-This contract is intentionally minimal and backward-friendly for ClearPCB.
+- `wire.net`: electrical identity for a wire graph.
+- `wire.wireLabel`: the visible wire-name text, shown through an attached label.
 
-## Why both fields
-Use both when you need:
-- stable net identity independent of visible text object edits,
-- multiple visible labels for one net,
-- aliasing (short display label vs canonical export name),
-- reliable ERC/netlist behavior even when labels are hidden or moved.
+There is no `wire.netName` field in the current source or file format.
 
-If the product stays MVP/simple, you can keep one field and treat labels as canonical. This document defines the dual-field model.
+## Wire shape
 
-## Data Contract
+`src/shapes/wire.js` defines `Wire`, a `PolylineGraph` subclass. One `Wire`
+object is one electrical net graph. It stores graph nodes and edges, pin
+connections, the electrical net name, and a user-facing wire label.
 
-### Wire shape
 ```js
 {
   type: 'wire',
   id: string,
-  start: { x: number, y: number },
-  end: { x: number, y: number },
+  nd: Record<string, [number, number]>,
+  ed: Record<string, [string, string]>,
 
-  // canonical net identity (nullable until named)
-  netName: string | null,
+  // Compact JSON key `n`; runtime property `wire.net`.
+  n: string,
 
-  // optional per-segment display text
-  wireLabel: string | null
+  // Compact JSON key `wl`; runtime property `wire.wireLabel`.
+  wl: string,
+
+  // Compact JSON key `pc`; runtime property `wire.pinConnections`.
+  pc?: Record<string, { componentId: string, pinNumber: string }>,
+
+  // Compact JSON key `lo`; runtime property `wire.labelOffset`.
+  lo?: [number, number]
 }
 ```
 
-### Netlabel shape
+When no net is supplied, `Wire` allocates `Net0001`, `Net0002`, and so on.
+When no label is supplied, it allocates `W0001`, `W0002`, and so on. The ID
+pools live in `src/shapes/wire.js` and are reset on New/load.
+
+## Net label shape
+
+Net labels are `Net` shapes from `src/shapes/net.js`, serialized as
+`type: 'net'`. The canonical name entered by the user is the `net` runtime
+property and compact JSON key `n`.
+
 ```js
 {
-  type: 'netlabel',
+  type: 'net',
   id: string,
   x: number,
   y: number,
-  angle: number,
-  style: string,
-
-  // text entered by user; interpreted as canonical net identity
-  text: string,
-
-  // linked Text child remains presentation object only
-  labelTextId: string | null
+  n: string,
+  fs?: number,
+  nst?: 't' | 'gnd' | 'arrow' | 'chevron',
+  no?: 'N' | 'E' | 'S' | 'W',
+  nto?: [number, number],
+  bd?: true
 }
 ```
 
-### Text shape (linked label)
-No net authority. Text is visual only.
+A `Net` exposes a virtual `conn` pin so the existing pin-to-wire attachment path
+can connect it to wires. Its display text is a derived `Text` shape with
+`fieldKey === 'net'`; `SchematicDocument.serialize()` omits that derived text
+and recreates it from the `Net` shape on load.
+
+## Text labels
+
+`Text` shapes are presentation objects. Linked text stores its parent by compact
+JSON keys `cid` and `fk`, which load into `parentComponent` and `fieldKey`.
 
 ```js
 {
   type: 'text',
   id: string,
-  parentComponent: string | null,
-  fieldKey: 'netLabel' | 'wireLabel' | null,
-  text: string
+  x: number,
+  y: number,
+  t: string,
+  cid?: string,
+  fk?: 'reference' | 'value' | 'net' | 'label' | 'wireLabel'
 }
 ```
 
+Wire names are not created as dedicated `fieldKey === 'wireLabel'` text in new
+documents. Generic attached labels use `fieldKey === 'label'`; when such a label
+is attached to a wire, `label-attachment.js` can copy its text into
+`wire.wireLabel`, and wire reconciliation (`schematic/modules/wire.js`) marks one
+attached label as the primary wire-name label with `attachment.wireName === true`.
+The command and property paths still accept the `wireLabel` field key so older or
+undo-restored data remains editable.
+
 ## Source-of-truth rules
-1. Connected-wire component has exactly one effective canonical name: `netName`.
-2. A netlabel rename sets `netName` for the connected component.
-3. `wireLabel` never changes connectivity; it is display metadata only.
-4. Linked text objects mirror parent display fields and are derived/presentation.
+
+1. `wire.net` is the electrical net name used by netlist extraction.
+2. A placed or renamed `Net` shape propagates its `net` value to attached wires.
+3. `wire.wireLabel` is display metadata for the wire name. It does not determine
+   electrical connectivity.
+4. Derived `Text` children mirror parent display fields and are recreated or
+   re-linked during load.
 
 ## Conflict rules
-Normalize names with trim + case-insensitive compare.
 
-- Allowed: same `netName` repeated anywhere on the same connected component.
-- Blocked: assigning a different name to any part of a connected component that already has a different `netName`.
-- Allowed: unnamed (`null`) component receives first valid `netName`.
-- Allowed: two physically disconnected components sharing same `netName` (global-net semantics).
+Net-name validation trims and compares case-insensitively in
+`schematic/modules/net-validation.js`.
+
+- Placing or moving a `Net` shape onto an unlabeled connected wire network is
+  allowed and propagates that name to connected wires.
+- Placing or moving a `Net` shape onto a connected network that already has a
+  different attached net label is rejected with a net-conflict alert.
+- Drawing or merging wires with incompatible non-default net names is rejected
+  by the wire/drag reconciliation paths.
+- Physically disconnected wire graphs may share the same custom net name.
+
+Wire labels are also unique case-insensitively. Properties and inline text edit
+paths reject a wire label that is already used by another wire.
 
 ## Editing behavior
 
-### Place netlabel
-- Determine attached connected component.
-- If component has `netName == null`: assign from label text.
-- If component has `netName != null` and differs from label text: reject with conflict message.
+### Place net label
 
-### Rename netlabel text
-- Resolve connected component from netlabel anchor.
-- Validate against existing component `netName`.
-- On success: propagate new `netName` to that component.
+`drawing.js` validates the default net text at the placement point. If accepted,
+`shape-management.js` creates the `Net`, creates its derived display text, connects
+the virtual pin to nearby wires, and copies `Net.net` into those wires.
 
-### Drag netlabel to new net
-- Re-evaluate destination connected component.
-- If destination has conflicting `netName`: reject and revert drag.
-- Else bind to destination and apply/confirm `netName`.
+### Rename net label
 
-### Edit wireLabel text
-- Update only `wireLabel` (visual). Never mutate `netName`.
+`ModifyPropertyCommand` updates the `Net.net` property and calls the net
+propagation helper so connected wires receive the new name. Inline net editing
+uses the same validation before committing.
+
+### Drag net label
+
+Drag handling disconnects the `Net` from its previous wires, validates the target
+connected network, and reconnects it. A conflict alert reverts the drag.
+
+### Edit wire label text
+
+Editing the primary attached label or the wire's `wireLabel` property updates only
+`wire.wireLabel` and the visible label text. It does not mutate `wire.net`.
 
 ## Serialization rules
-- Persist `netName` and `wireLabel` on wire records.
-- Persist netlabel parent and linked text as currently designed.
-- Net extraction/export reads `wire.netName` as canonical name.
+
+- Wire records persist `n` (`wire.net`) and `wl` (`wire.wireLabel`).
+- Net-label records persist their own `n` (`Net.net`) and display options.
+- Derived net-label text (`fieldKey === 'net'`) is omitted from the saved
+  schematic and recreated on load.
+- Generic attached labels (`fieldKey === 'label'`) are saved as `Text` shapes and
+  reattached to their parent by `cid` during load.
+- Net extraction in `src/core/netlist.js` reads `shape.net` from wires as the
+  netlist name.
 
 ## Undo/redo rules
-Any command that changes a canonical name must capture:
-- previous `netName` of all affected wires in the connected component,
-- new `netName` values after mutation,
-- linked text sync updates (presentation only).
 
-## Migration plan (incremental)
-1. Introduce nullable `wire.netName` with backward-safe defaults.
-2. Add net-component utility: get connected wires + current effective net name.
-3. In netlabel place/rename/drag flows, write canonical names to `wire.netName`.
-4. Keep current conflict checks but swap authority from inferred labels to `wire.netName`.
-5. Update export/ERC paths to read `wire.netName`.
-6. Keep `wireLabel` behavior unchanged (visual only).
-
-## Backward compatibility strategy
-When loading old files with no `wire.netName`:
-- infer initial canonical name from existing connected-label behavior,
-- write inferred value into runtime `wire.netName`,
-- save forward in new format.
-
-## Recommended default for ClearPCB
-- Adopt dual-field model now (`netName` + `wireLabel`) but keep UI minimal:
-  - no extra panels,
-  - no new dialogs,
-  - same current editing gestures,
-  - conflict alerts remain the same.
-
-This provides a clean base for future ERC/netlist work without increasing immediate UX complexity.
+Commands that change a wire or net label capture the affected shape state before
+and after the edit. Wire reconciliation records `wire.net`, `wire.wireLabel`,
+pin connections, label visibility/position and linked label text as part of its
+wire snapshots, so undo/redo restores both electrical identity and display text.

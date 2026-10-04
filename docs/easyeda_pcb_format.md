@@ -67,7 +67,7 @@ All shapes are tilde-delimited (`~`) strings. The first field is the type prefix
 ### PAD
 
 ```
-PAD~shape~cx~cy~width~height~layer~net~number~holeDia~polyPoints~rotation~id~holeLength~holePts~plated~pasteExp~maskExp
+PAD~shape~cx~cy~width~height~layer~net~number~holeRadius~polyPoints~rotation~id~holeLength~holePts~plated~pasteExp~maskExp
 ```
 
 | Index | Field | Description |
@@ -81,7 +81,7 @@ PAD~shape~cx~cy~width~height~layer~net~number~holeDia~polyPoints~rotation~id~hol
 | 6 | layer | Layer ID (1=front SMD, 2=back SMD, 11=through-hole) |
 | 7 | net | Net name (empty in footprint defs) |
 | 8 | number | **Pad number** (e.g. "1", "2", "A", "K") |
-| 9 | holeDia | Hole diameter (10-mil units). 0 for SMD pads |
+| 9 | holeRadius | Hole radius (10-mil units). 0 for SMD pads |
 | 10 | polyPoints | Polygon outline points (space-separated, for POLYGON shape) |
 | 11 | rotation | Rotation in degrees (0–360) |
 | 12 | id | Shape ID (e.g. "gge409") |
@@ -89,7 +89,9 @@ PAD~shape~cx~cy~width~height~layer~net~number~holeDia~polyPoints~rotation~id~hol
 | 14 | holePts | Slot hole from/to points |
 | 15 | plated | `Y` (plated) / `N` (non-plated) |
 
-> **Drill field:** The EasyEDA official docs say field [9] is "hole radius" but the KiCad import docs call it "holeDia" (diameter). In practice, the values match diameter. Our parser uses the value directly after scaling.
+> **Drill field:** ClearPCB treats EasyEDA field [9] as a radius and converts it
+> to an internal drill diameter. KiCad-derived `PAD` records are different: they
+> carry drill diameter in field [10].
 
 ### TRACK
 
@@ -230,18 +232,23 @@ TEXT~type~x~y~strokeWidth~rotation~mirror~layer~net~fontSize~text~svgPath~displa
 SVGNODE~{jsonData}
 ```
 
-Contains 3D model references on layer 19. The JSON payload has `attrs.uuid` for fetching the 3D model from `https://modules.easyeda.com/3dmodel/{uuid}`.
-
-**Not rendered** on the PCB canvas.
+Contains EasyEDA SVG JSON. ClearPCB's footprint renderer does not draw it as 2D
+PCB artwork. When the payload has `attrs.c_etype === "outline3D"`, the parser
+uses the child outline points to position an already-associated 3D model relative
+to the pads. The LCSC component fetcher may separately read `attrs.uuid` from an
+SVGNODE to fetch the OBJ model, but the footprint renderer itself does not fetch
+models from SVGNODE records.
 
 ## Paste & Solder Mask
 
 EasyEDA **does not store** paste mask and solder mask openings as explicit shapes. They are auto-generated from pad geometry:
 
 - **Paste mask:** Same size as the pad
-- **Solder mask:** Pad size + expansion (typically 0.1mm)
+- **Solder mask:** Pad size + ClearPCB's fixed `MASK_EXPANSION` (`0.05` mm per side)
 
-The PAD format has optional `pasteExpansion` and `maskExpansion` fields at positions [16] and [17], but these are rarely populated. ClearPCB generates these shapes automatically from pad data.
+The PAD format has optional `pasteExpansion` and `maskExpansion` fields at
+positions [16] and [17], but ClearPCB currently ignores them and generates these
+shapes from pad data.
 
 ## Implementation Notes
 
@@ -263,8 +270,8 @@ KiCad-derived plated `PAD` records optionally retain slot length and angle at
 fields [11] and [12]. Footprint transforms, copper clearance and fabrication
 snapshots preserve the complete hole geometry.
 
-Previously saved footprints whose import already discarded plating or slot
-metadata cannot recover that information automatically; reimport them.
+Footprints whose stored shape strings lack plating or slot metadata cannot
+recover that information automatically; reimport them from the source library.
 
 ### Centering
 

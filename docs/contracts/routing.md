@@ -67,12 +67,15 @@ and `'pathfinder'`.
 
 ### Router I/O Contract
 
-`RouteInput` (from `PCBApp._buildRouteInput()`):
+`RouteInput` is built by `pcb/modules/route-input.js` through
+`buildRouteInput(app)`. `PCBApp._buildRouteInput()` is only the editor
+delegator used by the routing session.
 
 ```js
 {
   connections: [{ net, pads: [{ x, y, width, height, layer, shape, alternates? }] }],
   allObstaclePads,
+  copperObstacles,
   trackWidth, clearance, viaDiameter,
   gridStep,
   bounds,
@@ -93,13 +96,13 @@ and `'pathfinder'`.
 
 ### Design-Rule Single Source of Truth
 
-`clearance`, `trackWidth`, `viaDiameter` are **never** hardcoded in
-the router or DSN code. They flow from `#pcbClearance`,
-`#pcbTrackWidth`, `#pcbViaDiameter` HTML inputs through
-`PCBApp.getRoutingParams()`. `routeAll`, `routeAllPathfinder`,
-`exportDSN`, and `importDSN` all throw if any of these are missing
-or non-positive. DSN round-trips `viaDiameter` via the
-`via_default` padstack circle radius.
+`trackWidth`, `clearance`, `viaDiameter` and `viaDrill` live in
+`ProjectDocument.pcbDocument.designSettings` as millimetres. The Design-tab
+controls commit through `pcb/modules/design-settings.js`; `PCBApp.getRoutingParams()`
+reads the model, not rounded display values. `routeAll`, `routeAllPathfinder`,
+`exportDSN`, and `importDSN` throw if required routing dimensions are missing
+or non-positive. DSN round-trips `viaDiameter` through the referenced via
+padstack; ClearPCB's exporter names that padstack `via_default`.
 
 ### Pad Obstacle Model
 
@@ -115,17 +118,17 @@ Vias are treated as `shape: 'ellipse'` with `hw == hh` so they
 behave as exact circles (not over-blocking squares).
 
 Source pipeline for pad shapes: EasyEDA `PAD~ELLIPSE/RECT/OVAL/POLYGON`
-in `footprint.js`, KiCad circle/oval split in `KiCadFetcher.js`.
+in `src/shared/pcb/footprint.js`, KiCad circle/oval split in
+`src/components/KiCadFetcher.js`.
 
 ### Connection Topology
 
 - Classic / maze router uses a planar **Euclidean MST** (Prim's,
   `buildMstEdges`) for each net's connection graph. MST in the plane
-  is provably non-crossing; previous nearest-neighbour chains caused
-  visible self-crossings on high-pin nets.
-- Pathfinder still uses the legacy `nncReorderPads` chain — its
-  negotiated-congestion loop was tuned against the chain ordering
-  and multi-start / MST variants tested neutral-to-negative.
+  is provably non-crossing and naturally supports branched high-pin nets.
+- Pathfinder uses `nncReorderPads` to mutate each multi-pad net into a
+  nearest-neighbour chain and applies the same permutation to its parallel
+  pad-ID groups.
 
 ### Multi-Pad Pins (`alternates`)
 
