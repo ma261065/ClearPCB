@@ -5,11 +5,11 @@ file when the work is finished.
 
 ## Where we are
 
-`src/ui/PCBApp.js` went from 7,254 to 5,267 lines. PCB modules' private editor accesses
-went from 296 to 280, then rose to 294 with the mouse move (agreed with the user: moving
-458 lines that touch 47 editor members could not be access-neutral; see below). Every step
-passed the full gate (`node tools/regression.mjs`, 282/282) with no new type errors, and
-was checked in the browser.
+`src/ui/PCBApp.js` went from 7,254 to 4,998 lines. PCB modules' private editor accesses
+went from 296 to 280, then rose to 305 with the last three moves (agreed with the user:
+the mouse binding and layer handlers touch dozens of editor members and could not be
+access-neutral; see below). Every step passed the full gate (`node tools/regression.mjs`,
+282/282) with no new type errors, and was checked in the browser.
 
 | Commit | Step |
 |---|---|
@@ -19,21 +19,26 @@ was checked in the browser.
 | `53385dc` | Clearance overlay moved to `pcb/modules/clearance-overlay.js`; `existingLayerGroups()` service |
 | `064e89d` | Copper cuts and removal hatches moved to `pcb/modules/copper-cuts.js`; dead SVG-pattern hatch removed |
 | `6e73fef` | Footprint debug tooltip moved to `pcb/modules/debug-tooltip.js` |
-| `fbbea29` | Mouse binding moved to `pcb/modules/mouse.js`; release handlers in the interaction table |
+| `fbbea29` | Mouse binding moved to `pcb/modules/mouse.js`; release handlers in the interaction table (+14 accesses) |
+| `2abbe9e` | Board Dimensions dialog moved to `pcb/modules/board-outline-resize.js` (+1: `_markDirty`) |
+| `00b5e47` | Layer visibility/lock handlers moved to `pcb/modules/layer-changes.js` (+10) |
 
-The mouse move kept new accesses down by moving mouse-up finishing into `release`
-handlers in `pcb-interaction-routing.js` (which already reads those fields), making the
-right-click/pan gesture state module state, and adding getters in the modules that own
-drawing and inline-edit state (`getTrackDraw`, `getFillDraw`, `getShapeDraw`,
-`activeTextInlineEdit`). The 12 members `mouse.js` still reads (`_screenToWorld`, the
-hit tests, tool previews) are candidates for services.
+The moves kept new accesses down by using module getters for interaction state
+(`getTrackDraw`, `getFillDraw`, `getShapeDraw`, `activeTextInlineEdit`, `getGroupDrag`,
+`getBoardShapeDrag`, `getVertexDrag`, `getSelectionInteraction`, `isBoardOutlineSelected`)
+and by putting mouse-up finishing in `release` handlers in `pcb-interaction-routing.js`.
+What remains are members tests stub or count through (`_cancelPosePreviews`,
+`_cancelPasteDrop`, `_scheduleRemovalHatchRender`, `_markDirty`, â€¦) and editor methods
+with no service yet.
 
 ## Next steps
 
-1. **Smaller clusters:** layer visibility and lock changes (208 lines); the board
-   dimensions dialog (120 lines).
-2. Optionally win back mouse.js accesses: make `screenToWorld`, `hitTestText`,
-   `hitTestFill` and `hitTestComponent` editor services.
+All planned PCBApp moves are done. Optional follow-up to win back accesses:
+
+1. Make `screenToWorld`, `hitTestText`, `hitTestFill` and `hitTestComponent` editor
+   services (mouse.js).
+2. Make `markDirty` a service (used by controls, design-settings, track-commands and
+   board-outline-resize; 19 test files stub `_markDirty`).
 
 ## How each step is done
 
