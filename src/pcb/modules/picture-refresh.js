@@ -1,5 +1,6 @@
 import { getPropertyEditor } from './property-editors.js';
 import { isPictureCopperRefreshPending, setPictureCopperRefreshPending, refreshBoardView } from './refresh-state.js';
+import { forgetBoardShapeClearance, getBoardShapeClearance } from './clearance-overlay.js';
 const pendingRefreshes = new WeakMap();
 const activeHolds = new WeakMap();
 
@@ -15,9 +16,9 @@ function refreshEditedClearances(app) {
         if (app.boardShapes?.includes(shape) || app.texts?.get(shape.id) === shape) {
             app._refreshBoardShapeClearance?.(shape);
         } else {
-            const cached = app._boardShapeClearanceCache?.get(shape.id);
+            const cached = getBoardShapeClearance(app, shape.id);
             for (const element of cached?.elements || []) element.parentNode?.removeChild(element);
-            app._boardShapeClearanceCache?.delete(shape.id);
+            forgetBoardShapeClearance(app, shape.id);
         }
     }
 }
@@ -75,7 +76,7 @@ export function schedulePictureCopperRefresh(app, shape = null) {
         app._pendingShapeClearances.set(shape.id, shape);
     }
     if (shouldDeferShapeClearance(app, shape)) {
-        const cached = app._boardShapeClearanceCache?.get(shape.id);
+        const cached = getBoardShapeClearance(app, shape.id);
         for (const element of cached?.elements || []) {
             element.parentNode?.removeChild(element);
         }

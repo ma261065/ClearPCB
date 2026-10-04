@@ -56,6 +56,7 @@ import {
 import { cancelVertexDrag } from './track-drag.js';
 import { getPropertyEditor } from './property-editors.js';
 import { areDragOverlaysDeferred, refreshBoardView } from './refresh-state.js';
+import { getPadHaloGroup } from './clearance-overlay.js';
 
 const placementPreviews = new WeakMap();
 const viaPropertyPreviews = new WeakMap();
@@ -393,7 +394,7 @@ export function renderPlacementPose(app, compId) {
     const transform = placementTransform(pl);
     for (const el of (pl.elements || [])) el.setAttribute('transform', transform);
     if (pl.lodEl) pl.lodEl.setAttribute('transform', transform);
-    const halo = app._padHaloGroups?.get(compId);
+    const halo = getPadHaloGroup(app, compId);
     if (halo) halo.setAttribute('transform', transform);
     const mirrored = isPlacementMirrored(pl);
     // Counter-mirror text inside the (possibly mirrored) footprint group:

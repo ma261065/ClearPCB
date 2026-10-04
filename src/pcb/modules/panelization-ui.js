@@ -76,8 +76,8 @@ export function renderPanelPreview(app, settings = app.panelization) {
     const key = settings && app.viewport ? JSON.stringify([settings, getBoardOutline(app)]) : null;
     if (previous?.layout && previous.key === key && previous.viewport === app.viewport
         && previous.group.parentNode
-        && previous.layers.length === app._layerGroups.size
-        && previous.layers.every(([id, layer]) => app._layerGroups.get(id) === layer)) {
+        && previous.layers.length === app.existingLayerGroups().size
+        && previous.layers.every(([id, layer]) => app.existingLayerGroups().get(id) === layer)) {
         return previous.layout;
     }
     previous?.dispose?.();
@@ -102,14 +102,14 @@ export function renderPanelPreview(app, settings = app.panelization) {
     group.appendChild(style);
     const defs = svg('defs');
     group.appendChild(defs);
-    const sourceLayers = [...app._layerGroups].filter(([id]) =>
+    const sourceLayers = [...app.existingLayerGroups()].filter(([id]) =>
         !id.includes('document') && !id.includes('overlay') && id !== 'ratlines' && id !== 'fp-lod');
     const artworkId = `pcb-panel-artwork-${++previewId}`;
     const bounds = layout.sourceBounds;
     const image = svg('image', { id: artworkId, x: bounds.x, y: bounds.y,
         width: bounds.w, height: bounds.h, preserveAspectRatio: 'none', opacity: 0.18 });
     defs.appendChild(image);
-    const holeLayer = app._layerGroups.get('hole');
+    const holeLayer = app.existingLayerGroups().get('hole');
     const previousHoleClip = holeLayer?.getAttribute('clip-path');
     const holeDefs = svg('defs');
     const holeClipId = `${artworkId}-holes`;
@@ -171,7 +171,7 @@ export function renderPanelPreview(app, settings = app.panelization) {
     const overlay = app.getLayerGroup('clearance-overlay') || app.getLayerGroup('selection-overlay');
     if (overlay?.parentNode) overlay.parentNode.insertBefore(group, overlay);
     else app.viewport.addContent(group);
-    previewState.set(app, { group, layout, key, viewport: app.viewport, layers: [...app._layerGroups], dispose });
+    previewState.set(app, { group, layout, key, viewport: app.viewport, layers: [...app.existingLayerGroups()], dispose });
     return layout;
 }
 

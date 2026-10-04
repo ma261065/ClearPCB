@@ -70,6 +70,7 @@ globalThis.document = {
     addEventListener() {}, removeEventListener() {}, body: new Element('body'),
 };
 const { default: PCBApp } = await import('../src/ui/PCBApp.js');
+const { clearanceOverlayState } = await import('../src/pcb/modules/clearance-overlay.js');
 
 function fixture(mode, deferred = false, unrelatedCount = 1) {
     const project = new ProjectDocument(), model = project.pcbDocument;
@@ -654,10 +655,10 @@ for (const mode of ['whole', 'segment', 'node', 'midpoint', 'split', 'bulge']) {
             renderTrack(track, app.getLayerGroup);
         }
         app.showClearances(true);
-        const haloPoints = () => (app._trackClearanceElements.get(track.id) || [])
+        const haloPoints = () => (clearanceOverlayState(app).trackElements.get(track.id) || [])
             .map(element => element.getAttribute('points'));
         const before = haloPoints(), canonical = model.captureGeometry();
-        const stationary = [...app._trackClearanceElements.get(f.unrelated[0].id)];
+        const stationary = [...clearanceOverlayState(app).trackElements.get(f.unrelated[0].id)];
         const overlay = groups.get('clearance-overlay');
         assert.ok(before.length);
         const initialScans = work.trackScans;
@@ -671,9 +672,9 @@ for (const mode of ['whole', 'segment', 'node', 'midpoint', 'split', 'bulge']) {
         assert.deepEqual(model.captureGeometry(), canonical, 'clearance reads detached preview, not authored geometry');
         for (const element of stationary) assert.ok(overlay.children.includes(element),
             'unrelated clearance SVG is retained without detach/rebuild');
-        const currentElements = [...app._trackClearanceElements.get(track.id)];
+        const currentElements = [...clearanceOverlayState(app).trackElements.get(track.id)];
         updateVertexDrag(app, position);
-        assert.deepEqual(app._trackClearanceElements.get(track.id), currentElements,
+        assert.deepEqual(clearanceOverlayState(app).trackElements.get(track.id), currentElements,
             'stationary pointer creates no clearance churn');
         app.showClearances(true);
         assert.deepEqual(haloPoints(), preview, 'targeted preview is identical to the normal full clearance renderer');
@@ -710,14 +711,14 @@ for (const deferred of [false, true]) for (const coincident of [false, true]) {
     for (const object of model.vias) renderVia(object, app.getLayerGroup);
     app.showClearances(true);
     const overlay = groups.get('clearance-overlay');
-    const halo = object => app._viaClearanceCache.get(app._viaClearanceKeys.get(object.id))?.element;
+    const halo = object => clearanceOverlayState(app).viaCache.get(clearanceOverlayState(app).viaKeys.get(object.id))?.element;
     const snapshot = () => ({
-        via: [...app._viaClearanceCache.values()].map(({ element }) =>
+        via: [...clearanceOverlayState(app).viaCache.values()].map(({ element }) =>
             ['cx', 'cy', 'r'].map(key => element.getAttribute(key)).join(',')).sort(),
-        tracks: [track, bottom].map(object => app._trackClearanceElements.get(object.id).map(el => el.getAttribute('points'))),
+        tracks: [track, bottom].map(object => clearanceOverlayState(app).trackElements.get(object.id).map(el => el.getAttribute('points'))),
     });
     const before = snapshot(), saved = model.captureGeometry();
-    const stable = [halo(stationary), ...app._trackClearanceElements.get(f.unrelated[0].id)];
+    const stable = [halo(stationary), ...clearanceOverlayState(app).trackElements.get(f.unrelated[0].id)];
     const counts = { ...work }, position = { x: initial.x + 2, y: initial.y + 3 };
     startViaDrag(app, via, initial);
     updateViaDrag(app, position);
@@ -765,7 +766,7 @@ for (const deferred of [false, true]) for (const coincident of [false, true]) {
     app.showClearances(true);
     startViaDrag(app, via, position);
     updateViaDrag(app, { x: position.x + 2, y: position.y + 2 });
-    assert.equal(app._viaClearanceCache.size, 0, 'hidden via layer does not gain live halos');
+    assert.equal(clearanceOverlayState(app).viaCache.size, 0, 'hidden via layer does not gain live halos');
     cancelViaDrag(app);
     groups.get('vias').style.display = '';
     app.showClearances(true);

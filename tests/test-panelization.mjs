@@ -574,7 +574,7 @@ try {
     sourceUse.setAttribute('clip-path', 'url(#source-image)');
     const previewApp = {
         boardShapes: [rectangleBoardOutline(20, 10)], panelization: { ...PANEL_DEFAULTS },
-        viewport: { svg: root, scale: 1, addContent: node => root.appendChild(node) }, _layerGroups: layers,
+        viewport: { svg: root, scale: 1, addContent: node => root.appendChild(node) }, _layerGroups: layers, existingLayerGroups: () => layers,
         getLayerGroup(id) { return this._layerGroups.get(id); },
     };
     let preview = renderPanelPreview(previewApp);

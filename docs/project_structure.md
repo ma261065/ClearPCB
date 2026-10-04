@@ -179,6 +179,10 @@ PCB editor:
 - `pcb/modules/text-inline-edit.js` — in-place editing of free text (hidden input,
   stroke-font caret overlay, commit and cancel); `selectText` and
   `showTextProperties` are editor services.
+- `pcb/modules/clearance-overlay.js` — the clearance halos (`showClearances`, and
+  incremental refresh for a dragged track, a moved via or a changed shape); other
+  modules read its state through `areClearancesVisible`, `getBoardShapeClearance`
+  and `getPadHaloGroup`.
 
 Schematic editor:
 

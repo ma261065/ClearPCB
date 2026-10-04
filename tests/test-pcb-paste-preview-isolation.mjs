@@ -86,7 +86,7 @@ function fixture(deferred = false) {
         'selection-overlay', 'clearance-overlay'].map(id => [id, new Element()]));
     let derived = 0, crosshairs = 0;
     const app = { project, pcbDocument: model, history: new CommandHistory(), placements, netlist: [], _active: true,
-        _layerGroups: groups, _shapeElements: new Map(), _textElements: new Map(),
+        _layerGroups: groups, existingLayerGroups: () => groups, _shapeElements: new Map(), _textElements: new Map(),
         viewport: { scale: 10, gridVisible: false, svg: new Element('svg'), currentMouseWorld: { x: 10.123456789, y: -12.345678912 },
             setCrosshair() { crosshairs++; }, hideCrosshair() {} },
         getLayerGroup: id => groups.get(id) || null,

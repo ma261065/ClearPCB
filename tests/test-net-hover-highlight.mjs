@@ -81,7 +81,7 @@ const app = {
     _shapeElements: new Map(),
     texts: new Map(),
     viewport: { scale: 10 },
-    _layerGroups: groups,
+    _layerGroups: groups, existingLayerGroups: () => groups,
     getLayerGroup(id) { return groups.get(id) || null; },
 };
 

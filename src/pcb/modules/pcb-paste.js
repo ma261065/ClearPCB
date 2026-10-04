@@ -27,6 +27,7 @@ import { trackIsSelectable } from './track-select.js';
 import { showPcbSelectionProperties } from './selection-interaction.js';
 import { areDragOverlaysDeferred, isBoardViewRefreshSuspended, isFillRefreshPending, isFillRefreshSuspended, setBoardViewRefreshSuspended, setDragOverlaysDeferred, setFillRefreshPending, setFillRefreshSuspended, refreshBoardView } from './refresh-state.js';
 import { isEditorActive } from './pcb-editor-api.js';
+import { forgetBoardShapeClearance, getBoardShapeClearance } from './clearance-overlay.js';
 
 const kinds = ['tracks', 'vias', 'pads', 'shapes', 'texts', 'fills'];
 
@@ -68,6 +69,11 @@ function editable(payload) {
             && !isCopperFillLocked(fill.layer) && isCopperFillVisible(fill.layer));
 }
 
+/** Whether a floating paste is being placed. */
+export function isPcbPasteActive(app) {
+    return !!app._pasteDrop;
+}
+
 export function isPcbPasteEditable(app) {
     return !app._pasteDrop || editable(app._pasteDrop.payload);
 }
@@ -99,9 +105,9 @@ function removeArtwork(app, payload) {
         const current = app.pcbDocument.texts.get(text.id);
         if (current && current !== text) app.refreshText(text.id);
         else {
-            const clearance = app._boardShapeClearanceCache?.get(text.id);
+            const clearance = getBoardShapeClearance(app, text.id);
             for (const element of clearance?.elements || []) element.remove();
-            app._boardShapeClearanceCache?.delete(text.id);
+            forgetBoardShapeClearance(app, text.id);
         }
     }
     for (const fill of payload.fills) {

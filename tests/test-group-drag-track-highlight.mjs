@@ -44,7 +44,7 @@ for (const count of [1, 2]) {
         get tracks() { return getGroupPreview(this)?.tracks || tracks; },
         get boardShapes() { return getGroupPreview(this)?.boardShapes || this.pcbDocument.boardShapes; },
         vias: [], placements: new Map(), texts: new Map(),
-        _shapeElements: new Map(), _layerGroups: layers,
+        _shapeElements: new Map(), _layerGroups: layers, existingLayerGroups: () => layers,
         getLayerGroup(name) {
             for (const track of tracks) assert.deepEqual(track.getBounds(), track._calculateBounds(),
                 'Group movement invalidates track bounds before rendering');

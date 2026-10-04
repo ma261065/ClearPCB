@@ -34,7 +34,7 @@ import { generateGerberArchive, showGerberProgress } from '../pcb/modules/gerber
 import { generateBOM, generatePickAndPlace } from '../pcb/modules/assembly.js';
 import { openBoard3DViewer } from '../pcb/modules/board3d.js';
 import { savePcbPdf, printPcb, projectBaseName } from '../pcb/modules/pcb-export.js';import { tracksFromAutorouterResult } from '../pcb/modules/autorouter-adapter.js';
-import { renderTrack, renderVia, removeTrackElements, removeViaElements, buildTrackLayerRuns, hasTrackElements, hasViaElements } from '../pcb/modules/track-render.js';
+import { renderTrack, renderVia, removeTrackElements, removeViaElements } from '../pcb/modules/track-render.js';
 import { startTrackDraw, updateTrackDraw, refreshTrackDrawPreview, addTrackWaypoint, finishTrackDraw, cancelTrackDraw, resolveTrackDrawSnap, resolveTrackSnap, showTrackSnapMarker, clearTrackSnapMarker, reconcileRatsnest } from '../pcb/modules/track-draw.js';
 import { hitTestTrack, hitTestLockedTrack, selectTrackOrVia, clearTrackSelection, setHoverHighlight, showTrackContextMenu, refreshTrackSelectionHalo, getSelectedTrack, getSelectedVia, selectTrackSegment, dismissTrackContextMenu, trackIsSelectable } from '../pcb/modules/track-select.js';
 import { getBoardShapeRotationPreview, getBoardShapePointerPreview, getBoardShapePropertyPreview, finishBoardShapeRotationPreview } from '../pcb/modules/board-shapes.js';
@@ -100,8 +100,6 @@ import { CopperFill } from '../shapes/copper-fill.js';
 import { padCopperPathD, renderPad } from '../pcb/modules/pad.js';
 import { AddPadCommand, getPadRotationPreview, getPadPropertyPreview } from '../pcb/modules/pad-commands.js';
 import '../pcb/modules/pad-selection.js';
-import { boardShapeClearanceOutlines, pcbTextClearanceOutlines } from '../pcb/modules/copper-fill-geom.js';
-import { shouldDeferShapeClearance } from '../pcb/modules/picture-refresh.js';
 import { renderCopperFill, fillGroupId, setCopperFillClip } from '../pcb/modules/copper-fill-render.js';
 import { RemoveFillCommand, ModifyFillCommand } from '../pcb/modules/copper-fill-commands.js';
 import '../pcb/modules/copper-fill-selection.js';
@@ -125,6 +123,7 @@ import { showTextToolProperties, showTextProperties, bindStrokeTextProps } from 
 import { showPadEditor } from '../pcb/modules/pad-properties.js';
 import { multiPropertyCapabilities, showMultiSelectionProperties } from '../pcb/modules/multi-selection-properties.js';
 import { startTextInlineEdit, endTextInlineEdit } from '../pcb/modules/text-inline-edit.js';
+import { showClearances, computeClearanceOutlines, refreshBoardShapeClearance, refreshClearanceHalos, refreshTrackClearance, refreshViaClearance } from '../pcb/modules/clearance-overlay.js';
 
 /**
  * On-screen size (CSS px) of a footprint's bounding box below which it is
@@ -2427,6 +2426,15 @@ export default class PCBApp {
      * @param {string} layerId
      * @returns {SVGGElement}
      */
+    /**
+     * The layer and overlay groups created so far, by id (read-only; use getLayerGroup
+     * to create one). Lets modules inspect a layer without creating it.
+     * @returns {ReadonlyMap<string, SVGGElement>}
+     */
+    existingLayerGroups() {
+        return this._layerGroups;
+    }
+
     getLayerGroup(layerId) {
         let g = this._layerGroups.get(layerId);
         if (!g) {
@@ -5227,380 +5235,8 @@ export default class PCBApp {
      * @param {boolean} [show] - explicit on/off; omit to toggle.
      * @param {object|null} [liveTrack] - update only this track's rendered clearance during a drag.
      */
-    showClearances(show, liveTrack = null) {
-        const NS = 'http://www.w3.org/2000/svg';
-        const HALO_CLASS = 'debug-clearance';
-        const OVERLAY_LAYER = 'clearance-overlay';
-
-        const overlay = this.getLayerGroup(OVERLAY_LAYER);
-        this._trackClearanceElements ??= new Map();
-        if (liveTrack) {
-            for (const element of this._trackClearanceElements.get(liveTrack.id) || []) element.remove();
-            this._trackClearanceElements.delete(liveTrack.id);
-        } else {
-            while (overlay.firstChild) overlay.removeChild(overlay.firstChild);
-            this._trackClearanceElements.clear();
-            this._viaClearanceCache?.clear();
-            this._viaClearanceKeys?.clear();
-        }
-
-        if (show === undefined) show = !this._clearancesVisible;
-        this._boardShapeClearanceCache ??= new Map();
-        if (!liveTrack) {
-            const shapeIds = new Set([...(this.boardShapes || []), ...(this.texts?.values() || [])].map(shape => shape.id));
-            for (const id of this._boardShapeClearanceCache.keys()) {
-                if (!shapeIds.has(id)) this._boardShapeClearanceCache.delete(id);
-            }
-        }
-        this._clearancesVisible = !!show;
-        if (!this._clearancesVisible) {
-            this._boardShapeClearanceCache.clear();
-            return;
-        }
-
-        const params = this.getRoutingParams();
-        const halo = params.clearance;
-
-        const HALO_STROKE = 'rgba(255, 255, 255, 0.55)';
-        // Stroke width in CSS pixels (constant on screen at any zoom thanks
-        // to vector-effect: non-scaling-stroke). 1px = thin clean line.
-        const OUTLINE_W = 1;
-
-        const styleHalo = (el) => {
-            el.setAttribute('class', HALO_CLASS);
-            el.setAttribute('fill', 'none');
-            el.setAttribute('stroke', HALO_STROKE);
-            el.setAttribute('stroke-width', String(OUTLINE_W));
-            el.setAttribute('vector-effect', 'non-scaling-stroke');
-            el.setAttribute('pointer-events', 'none');
-        };
-
-        const isLayerVisible = (layerId) => {
-            const g = this._layerGroups.get(layerId);
-            return !g || g.style.display !== 'none';
-        };
-        const topVisible = isLayerVisible('top-copper');
-        const bottomVisible = isLayerVisible('bottom-copper');
-
-        // Build a single SVG path representing the Minkowski expansion of a
-        // pad shape by `halo`. Returns null if shape unsupported.
-        // Geometry is sized exactly to the clearance boundary; the constant-
-        // width screen-pixel stroke straddles it.
-        const padHaloPath = (cx, cy, w, h, shape) => {
-            const hw = w / 2, hh = h / 2;
-            const grow = halo;
-            if (shape === 'ellipse') {
-                if (Math.abs(hw - hh) < 1e-9) {
-                    const r = hw + grow;
-                    const c = document.createElementNS(NS, 'circle');
-                    c.setAttribute('cx', String(cx));
-                    c.setAttribute('cy', String(cy));
-                    c.setAttribute('r', String(r));
-                    return c;
-                }
-                const e = document.createElementNS(NS, 'ellipse');
-                e.setAttribute('cx', String(cx));
-                e.setAttribute('cy', String(cy));
-                e.setAttribute('rx', String(hw + grow));
-                e.setAttribute('ry', String(hh + grow));
-                return e;
-            }
-            // 'oval' (stadium) and 'rect' both expand to a rounded rectangle:
-            //   oval: corner radius = min(hw, hh) + halo
-            //   rect: corner radius = halo (true Minkowski sum with a disk)
-            const cornerR = (shape === 'oval' ? Math.min(hw, hh) : 0) + grow;
-            const r = document.createElementNS(NS, 'rect');
-            r.setAttribute('x', String(cx - hw - grow));
-            r.setAttribute('y', String(cy - hh - grow));
-            r.setAttribute('width', String(w + grow * 2));
-            r.setAttribute('height', String(h + grow * 2));
-            r.setAttribute('rx', String(cornerR));
-            r.setAttribute('ry', String(cornerR));
-            return r;
-        };
-
-        // Halos for component pads — wrapped in a per-placement <g> with a
-        // translate() transform so they follow the component during drag
-        // (the drag handler updates the same transform).
-        if (!liveTrack) this._padHaloGroups = new Map();
-        for (const [compId, pl] of liveTrack ? [] : this.placements) {
-            const grp = document.createElementNS(NS, 'g');
-            grp.setAttribute('class', 'halo-comp');
-            grp.setAttribute('data-comp-id', compId);
-            grp.setAttribute('transform', placementTransform(pl));
-            for (const off of (pl.padOffsets || [])) {
-                const padLayer = off.layer || 'top';
-                // Respect copper-layer visibility. 'both' (through-hole pads)
-                // are shown if either copper layer is visible.
-                if (padLayer === 'top' && !topVisible) continue;
-                if (padLayer === 'bottom' && !bottomVisible) continue;
-                if (padLayer === 'both' && !topVisible && !bottomVisible) continue;
-                // Coords are pad offsets from the component origin; the
-                // wrapping <g> applies pl.x/pl.y as a translate.
-                const el = padHaloPath(off.dx, off.dy, off.width || 0, off.height || 0, off.shape || 'rect');
-                styleHalo(el);
-                grp.appendChild(el);
-            }
-            overlay.appendChild(grp);
-            this._padHaloGroups.set(compId, grp);
-        }
-
-        // Halos for routed tracks. Computed as the Minkowski-sum offset
-        // polygon of each track centerline by (trackR + OUTLINE_W/2),
-        // rendered as a closed <polygon> stroked with width OUTLINE_W. Pure
-        // vector — no masks, no rasterization, zero per-frame cost on
-        // zoom/pan.
-        //
-        // Construction (per track):
-        //   - Walk each segment; emit perpendicular offsets on the right
-        //     side going forward, then on the left side going backward.
-        //   - At interior vertices: insert a short arc fan on the OUTSIDE
-        //     of the bend (round-join). Inside vertex uses the segment-
-        //     intersection point.
-        //   - At endpoints: insert a semicircular cap (round-cap).
-        //
-        // Where two tracks meet at a junction, their polygons overlap and
-        // the stroked outlines visibly cross — same artifact as pad/via
-        // halos already have. Acceptable.
-        //
-        // Halo radius is sized per-track from each rendered run's stroke
-        // width (tracks may carry per-segment widths); see the track loop.
-        // Arc tessellation: number of segments per FULL CIRCLE. Each arc
-        // emits a proportional fraction of these. Higher = smoother caps
-        // and corners at the cost of more polygon vertices.
-        const ARC_STEPS_FULL = 64;
-
-        const trackToPoints = (track) => {
-            const out = [];
-            const push = (x, y) => {
-                const xn = parseFloat(x), yn = parseFloat(y);
-                if (Number.isFinite(xn) && Number.isFinite(yn)) out.push([xn, yn]);
-            };
-            if (track.tagName === 'polyline') {
-                const tokens = (track.getAttribute('points') || '').trim().split(/[\s,]+/);
-                for (let i = 0; i + 1 < tokens.length; i += 2) push(tokens[i], tokens[i + 1]);
-            } else if (track.tagName === 'line') {
-                push(track.getAttribute('x1'), track.getAttribute('y1'));
-                push(track.getAttribute('x2'), track.getAttribute('y2'));
-            }
-            // De-dupe consecutive identical points.
-            const dedup = [];
-            for (const p of out) {
-                if (dedup.length === 0 || dedup[dedup.length - 1][0] !== p[0] || dedup[dedup.length - 1][1] !== p[1]) {
-                    dedup.push(p);
-                }
-            }
-            return dedup;
-        };
-
-        // Build the offset polygon of `pts` by radius `r`. Returns array of
-        // [x, y] pairs (closed polygon — first ≠ last).
-        const offsetPolygon = (pts, r) => {
-            if (pts.length < 2) return [];
-            const n = pts.length;
-            // Per-segment unit direction and perpendicular (right-hand normal).
-            const dirs = new Array(n - 1);
-            const perps = new Array(n - 1);
-            for (let i = 0; i < n - 1; i++) {
-                const dx = pts[i + 1][0] - pts[i][0];
-                const dy = pts[i + 1][1] - pts[i][1];
-                const len = Math.hypot(dx, dy) || 1;
-                dirs[i] = [dx / len, dy / len];
-                perps[i] = [dy / len, -dx / len]; // right-hand perpendicular
-            }
-
-            const arcFan = (cx, cy, fromAngle, toAngle, ccw) => {
-                // Returns intermediate arc points (not including endpoints).
-                let delta = toAngle - fromAngle;
-                if (ccw) {
-                    while (delta <= 0) delta += Math.PI * 2;
-                } else {
-                    while (delta >= 0) delta -= Math.PI * 2;
-                }
-                // Number of steps proportional to arc sweep angle.
-                const steps = Math.max(2, Math.ceil(Math.abs(delta) / (Math.PI * 2) * ARC_STEPS_FULL));
-                const out = [];
-                for (let s = 1; s < steps; s++) {
-                    const t = s / steps;
-                    const a = fromAngle + delta * t;
-                    out.push([cx + Math.cos(a) * r, cy + Math.sin(a) * r]);
-                }
-                return out;
-            };
-
-            // Right side, forward (i = 0 .. n-1)
-            const right = [];
-            // Start cap (semicircle from left side around to right side)
-            {
-                const p = perps[0];
-                const startAngle = Math.atan2(-p[1], -p[0]); // left-side angle
-                const endAngle = Math.atan2(p[1], p[0]);     // right-side angle
-                right.push([pts[0][0] + Math.cos(startAngle) * r, pts[0][1] + Math.sin(startAngle) * r]);
-                // CCW so the cap bulges AWAY from the segment (around the back of the start point).
-                for (const a of arcFan(pts[0][0], pts[0][1], startAngle, endAngle, true)) right.push(a);
-                right.push([pts[0][0] + p[0] * r, pts[0][1] + p[1] * r]);
-            }
-            // Forward through interior vertices (1 .. n-2): join between seg i-1 and seg i.
-            for (let i = 1; i < n - 1; i++) {
-                const p0 = perps[i - 1];
-                const p1 = perps[i];
-                // Cross of dirs to determine bend direction.
-                const cross = dirs[i - 1][0] * dirs[i][1] - dirs[i - 1][1] * dirs[i][0];
-                if (Math.abs(cross) < 1e-9) {
-                    // Collinear — just push the point.
-                    right.push([pts[i][0] + p1[0] * r, pts[i][1] + p1[1] * r]);
-                    continue;
-                }
-                if (cross > 0) {
-                    // Right turn — right side is OUTSIDE → arc fan.
-                    const fromA = Math.atan2(p0[1], p0[0]);
-                    const toA = Math.atan2(p1[1], p1[0]);
-                    right.push([pts[i][0] + p0[0] * r, pts[i][1] + p0[1] * r]);
-                    for (const a of arcFan(pts[i][0], pts[i][1], fromA, toA, true)) right.push(a);
-                    right.push([pts[i][0] + p1[0] * r, pts[i][1] + p1[1] * r]);
-                } else {
-                    // Left turn — right side is INSIDE → miter (segment intersection).
-                    // Lines: P1 = pts[i-1]+p0*r + t*dirs[i-1]
-                    //        P2 = pts[i]  +p1*r + s*dirs[i]
-                    // Solve for intersection.
-                    const a1x = pts[i - 1][0] + p0[0] * r;
-                    const a1y = pts[i - 1][1] + p0[1] * r;
-                    const a2x = pts[i][0] + p1[0] * r;
-                    const a2y = pts[i][1] + p1[1] * r;
-                    const denom = dirs[i - 1][0] * (-dirs[i][1]) - dirs[i - 1][1] * (-dirs[i][0]);
-                    if (Math.abs(denom) < 1e-9) {
-                        right.push([a2x, a2y]);
-                    } else {
-                        const t = ((a2x - a1x) * (-dirs[i][1]) - (a2y - a1y) * (-dirs[i][0])) / denom;
-                        const mx = a1x + dirs[i - 1][0] * t;
-                        const my = a1y + dirs[i - 1][1] * t;
-                        // Miter limit: if the miter point is too far from
-                        // the vertex (acute inside corner), fall back to a
-                        // bevel (two endpoints) to avoid the spike.
-                        const distSq = (mx - pts[i][0]) * (mx - pts[i][0]) + (my - pts[i][1]) * (my - pts[i][1]);
-                        const maxDist = r * 4; // miter limit ~4× ring radius
-                        if (distSq > maxDist * maxDist) {
-                            right.push([pts[i][0] + p0[0] * r, pts[i][1] + p0[1] * r]);
-                            right.push([pts[i][0] + p1[0] * r, pts[i][1] + p1[1] * r]);
-                        } else {
-                            right.push([mx, my]);
-                        }
-                    }
-                }
-            }
-            // End cap (right side around to left side)
-            {
-                const p = perps[n - 2];
-                right.push([pts[n - 1][0] + p[0] * r, pts[n - 1][1] + p[1] * r]);
-                const startAngle = Math.atan2(p[1], p[0]);
-                const endAngle = Math.atan2(-p[1], -p[0]);
-                // CCW so the cap bulges AWAY from the segment (around the front of the end point).
-                for (const a of arcFan(pts[n - 1][0], pts[n - 1][1], startAngle, endAngle, true)) right.push(a);
-                right.push([pts[n - 1][0] - p[0] * r, pts[n - 1][1] - p[1] * r]);
-            }
-            // Left side, backward (i = n-2 .. 1): mirror logic with negated perps.
-            for (let i = n - 2; i >= 1; i--) {
-                const p0 = perps[i];      // perp of segment going INTO vertex from left walk
-                const p1 = perps[i - 1];
-                const cross = dirs[i][0] * dirs[i - 1][1] - dirs[i][1] * dirs[i - 1][0];
-                // Left side uses negated perpendiculars.
-                if (Math.abs(cross) < 1e-9) {
-                    right.push([pts[i][0] - p1[0] * r, pts[i][1] - p1[1] * r]);
-                    continue;
-                }
-                if (cross > 0) {
-                    // Walking backwards: a "right turn" in reverse means left side is OUTSIDE → arc fan.
-                    const fromA = Math.atan2(-p0[1], -p0[0]);
-                    const toA = Math.atan2(-p1[1], -p1[0]);
-                    right.push([pts[i][0] - p0[0] * r, pts[i][1] - p0[1] * r]);
-                    for (const a of arcFan(pts[i][0], pts[i][1], fromA, toA, true)) right.push(a);
-                    right.push([pts[i][0] - p1[0] * r, pts[i][1] - p1[1] * r]);
-                } else {
-                    // Inside — miter with limit fallback to bevel.
-                    const a1x = pts[i + 1][0] - p0[0] * r;
-                    const a1y = pts[i + 1][1] - p0[1] * r;
-                    const a2x = pts[i][0] - p1[0] * r;
-                    const a2y = pts[i][1] - p1[1] * r;
-                    const dx0 = -dirs[i][0], dy0 = -dirs[i][1];
-                    const dx1 = -dirs[i - 1][0], dy1 = -dirs[i - 1][1];
-                    const denom = dx0 * (-dy1) - dy0 * (-dx1);
-                    if (Math.abs(denom) < 1e-9) {
-                        right.push([a2x, a2y]);
-                    } else {
-                        const t = ((a2x - a1x) * (-dy1) - (a2y - a1y) * (-dx1)) / denom;
-                        const mx = a1x + dx0 * t;
-                        const my = a1y + dy0 * t;
-                        const distSq = (mx - pts[i][0]) * (mx - pts[i][0]) + (my - pts[i][1]) * (my - pts[i][1]);
-                        const maxDist = r * 4;
-                        if (distSq > maxDist * maxDist) {
-                            right.push([pts[i][0] - p0[0] * r, pts[i][1] - p0[1] * r]);
-                            right.push([pts[i][0] - p1[0] * r, pts[i][1] - p1[1] * r]);
-                        } else {
-                            right.push([mx, my]);
-                        }
-                    }
-                }
-            }
-            return right;
-        };
-
-        const liveRuns = liveTrack ? (hasTrackElements(liveTrack) ? buildTrackLayerRuns(liveTrack) : []) : null;
-        const layerIds = ['top-copper', 'bottom-copper'];
-        for (const layerId of layerIds) {
-            if (layerId === 'top-copper' && !topVisible) continue;
-            if (layerId === 'bottom-copper' && !bottomVisible) continue;
-            // Both the legacy incremental render ('.pcb-routed-track') and
-            // the model-driven render ('.pcb-track') are valid track sources.
-            const tracks = liveRuns ? liveRuns.filter(run => run.layer === layerId).map(run => ({
-                points: run.points.filter((point, index) => !index
-                    || point.x !== run.points[index - 1].x || point.y !== run.points[index - 1].y)
-                    .map(point => [point.x, point.y]), width: run.width,
-                id: liveTrack.id, net: liveTrack.net,
-            })) : [...this.getLayerGroup(layerId).querySelectorAll('.pcb-routed-track, .pcb-track')]
-                .map(track => ({ points: trackToPoints(track), width: parseFloat(track.getAttribute('stroke-width')),
-                    id: track.dataset?.trackId, net: track.dataset?.net }));
-            if (tracks.length === 0) continue;
-
-            for (const track of tracks) {
-                const pts = track.points;
-                if (pts.length < 2) continue;
-                // Each rendered run carries its own stroke-width (tracks can
-                // have per-segment widths), so size the halo from THIS track's
-                // width rather than the global routing width.
-                const sw = track.width;
-                const ringR = (Number.isFinite(sw) && sw > 0 ? sw / 2 : params.trackWidth / 2) + halo;
-                const poly = offsetPolygon(pts, ringR);
-                if (poly.length < 3) continue;
-                const el = document.createElementNS(NS, 'polygon');
-                el.setAttribute('class', HALO_CLASS);
-                el.setAttribute('points', poly.map(p => `${p[0].toFixed(4)},${p[1].toFixed(4)}`).join(' '));
-                el.setAttribute('fill', 'none');
-                el.setAttribute('stroke', HALO_STROKE);
-                el.setAttribute('stroke-width', String(OUTLINE_W));
-                el.setAttribute('vector-effect', 'non-scaling-stroke');
-                el.setAttribute('stroke-linejoin', 'round');
-                el.setAttribute('pointer-events', 'none');
-                // Tag with the source track's net so a footprint drag can hide
-                // the halos of the nets it moves (their tracks shift mid-drag,
-                // leaving the deferred halo stranded at the old position).
-                const tnet = track.net;
-                if (tnet) el.dataset.net = tnet;
-                if (track.id) {
-                    el.dataset.trackId = track.id;
-                    if (!this._trackClearanceElements.has(track.id)) this._trackClearanceElements.set(track.id, []);
-                    this._trackClearanceElements.get(track.id).push(el);
-                }
-                overlay.appendChild(el);
-            }
-        }
-
-        if (liveTrack) return;
-        for (const shape of this.boardShapes || []) {
-            if (shape) this._refreshBoardShapeClearance(shape);
-        }
-        for (const text of this.texts?.values() || []) this._refreshBoardShapeClearance(text);
-
-        this._refreshViaClearance();
+    showClearances(show, liveTrack) {
+        return showClearances(this, show, liveTrack);
     }
 
     /* ─────────────────────── Design Rule Checker ───────────────────── */
@@ -5777,148 +5413,23 @@ export default class PCBApp {
      */
     /** The halo cache's only geometry work: clearance outlines for a board shape or free text. */
     _computeClearanceOutlines(shape, clearance) {
-        return typeof shape.content === 'string'
-            ? pcbTextClearanceOutlines(shape, clearance)
-            : boardShapeClearanceOutlines(shape, clearance);
+        return computeClearanceOutlines(this, shape, clearance);
     }
 
     _refreshBoardShapeClearance(shape) {
-        if (this._pasteDrop) return;
-        if (!this._clearancesVisible) return;
-        const overlay = this.getLayerGroup('clearance-overlay');
-        if (!overlay) return;
-        this._boardShapeClearanceCache ??= new Map();
-        const previous = this._boardShapeClearanceCache.get(shape.id);
-        if (shouldDeferShapeClearance(this, shape)) {
-            for (const element of previous?.elements || []) {
-                element.parentNode?.removeChild(element);
-            }
-            return;
-        }
-        const clearance = this.getRoutingParams().clearance;
-        const layer = this._layerGroups.get(shape.layer);
-        const visible = !!layer && layer.style.display !== 'none';
-        const isText = typeof shape.content === 'string';
-        const points = shape.points || (shape.kind === 'circle' || isText ? [{ x: shape.x, y: shape.y }]
-            : shape.kind === 'arc' ? [shape.start, shape.end, shape.bulge] : []);
-        const style = JSON.stringify([shape.kind, shape.layer, visible, clearance, shape.net, shape.radius,
-            shape.lineWidth, shape.segmentWidths, shape.segmentBulges, shape.filled, shape.copperMode,
-            shape.cornerRadius, shape.nodeCornerRadii,
-            shape.content, shape.size, shape.strokeWidth, shape.rotation]);
-        if (previous && previous.style === style && previous.artwork === shape.artwork
-            && points.length && points.length === previous.points.length) {
-            const dx = points[0].x - previous.points[0].x;
-            const dy = points[0].y - previous.points[0].y;
-            if (points.every((point, index) => Math.abs(point.x - previous.points[index].x - dx) < 1e-9
-                && Math.abs(point.y - previous.points[index].y - dy) < 1e-9)) {
-                for (const element of previous.elements) {
-                    element.setAttribute('transform', `translate(${dx} ${dy})`);
-                    if (element.parentNode !== overlay) overlay.appendChild(element);
-                }
-                return;
-            }
-        }
-        for (const element of previous?.elements || []) {
-            if (element.parentNode === overlay) overlay.removeChild(element);
-        }
-        const elements = [];
-        if (visible) for (const outline of this._computeClearanceOutlines(shape, clearance)) {
-            const element = document.createElementNS('http://www.w3.org/2000/svg', 'polygon');
-            element.setAttribute('class', 'debug-clearance');
-            element.setAttribute('fill', 'none');
-            element.setAttribute('stroke', 'rgba(255, 255, 255, 0.55)');
-            element.setAttribute('stroke-width', '1');
-            element.setAttribute('vector-effect', 'non-scaling-stroke');
-            element.setAttribute('pointer-events', 'none');
-            element.setAttribute('points', outline.map(point => `${point.x},${point.y}`).join(' '));
-            element.setAttribute('data-shape-id', shape.id);
-            if (shape.net) element.dataset.net = shape.net;
-            overlay.appendChild(element);
-            elements.push(element);
-        }
-        this._boardShapeClearanceCache.set(shape.id, { style, artwork: shape.artwork,
-            points: points.map(point => ({ x: point.x, y: point.y })), elements });
+        return refreshBoardShapeClearance(this, shape);
     }
 
     refreshClearanceHalos() {
-        if (this._clearancesVisible) this.showClearances(true);
+        return refreshClearanceHalos(this);
     }
 
     _refreshTrackClearance(track) {
-        if (this._clearancesVisible) this.showClearances(true, track);
+        return refreshTrackClearance(this, track);
     }
 
-    _refreshViaClearance(via = null) {
-        if (!this._clearancesVisible) return;
-        const overlay = this.getLayerGroup('clearance-overlay');
-        const layer = this.getLayerGroup('vias');
-        if (!overlay) return;
-        this._viaClearanceCache ??= new Map();
-        this._viaClearanceKeys ??= new Map();
-        const affected = new Set();
-        if (via) {
-            const previous = this._viaClearanceKeys.get(via.id);
-            if (previous != null) {
-                this._viaClearanceCache.get(previous)?.sources.delete(via.id);
-                this._viaClearanceKeys.delete(via.id);
-                affected.add(previous);
-            }
-        } else {
-            for (const entry of this._viaClearanceCache.values()) entry.element?.remove();
-            this._viaClearanceCache.clear();
-            this._viaClearanceKeys.clear();
-        }
-        const register = (id, cx, cy, r, net) => {
-            if (!Number.isFinite(cx) || !Number.isFinite(cy) || !Number.isFinite(r)) return;
-            const key = `${cx.toFixed(4)},${cy.toFixed(4)}`;
-            if (!this._viaClearanceCache.has(key)) this._viaClearanceCache.set(key, { sources: new Map() });
-            const sources = this._viaClearanceCache.get(key).sources;
-            const previous = sources.get(id);
-            if (!previous || r > previous.r) sources.set(id, { cx, cy, r, net: net || previous?.net });
-            this._viaClearanceKeys.set(id, key);
-            affected.add(key);
-        };
-        if (layer && layer.style.display !== 'none') {
-            if (via) {
-                if (hasViaElements(via)) register(via.id, via.x, via.y, via.diameter / 2, via.net);
-            } else for (const rendered of layer.querySelectorAll('circle.pcb-routed-via, circle.pcb-via, path.pcb-via')) {
-                const path = rendered.localName === 'path';
-                register(rendered.dataset?.viaId || rendered,
-                    parseFloat(rendered.getAttribute(path ? 'data-via-x' : 'cx')),
-                    parseFloat(rendered.getAttribute(path ? 'data-via-y' : 'cy')),
-                    parseFloat(rendered.getAttribute(path ? 'data-via-radius' : 'r')), rendered.dataset?.net);
-            }
-        }
-        const clearance = this.getRoutingParams().clearance;
-        for (const key of affected) {
-            const entry = this._viaClearanceCache.get(key);
-            entry.element?.remove();
-            if (!entry.sources.size) {
-                this._viaClearanceCache.delete(key);
-                continue;
-            }
-            // Coincident vias share the largest ring; moving one must retain any others.
-            let largest = null, net = '';
-            for (const source of entry.sources.values()) {
-                if (!largest || source.r > largest.r) {
-                    largest = source;
-                    net = source.net || net;
-                }
-            }
-            const element = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
-            element.setAttribute('cx', String(largest.cx));
-            element.setAttribute('cy', String(largest.cy));
-            element.setAttribute('r', String(largest.r + clearance));
-            element.setAttribute('class', 'debug-clearance');
-            element.setAttribute('fill', 'none');
-            element.setAttribute('stroke', 'rgba(255, 255, 255, 0.55)');
-            element.setAttribute('stroke-width', '1');
-            element.setAttribute('vector-effect', 'non-scaling-stroke');
-            element.setAttribute('pointer-events', 'none');
-            if (net) element.dataset.net = net;
-            overlay.appendChild(element);
-            entry.element = element;
-        }
+    _refreshViaClearance(via) {
+        return refreshViaClearance(this, via);
     }
 
     /* ──────────────────── Copper fill (pours) ─────────────────────── */

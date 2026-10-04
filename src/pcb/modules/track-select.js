@@ -774,8 +774,9 @@ function _drawSinglePadHighlight(app, componentId, pinNumber, cls, opacity) {
 }
 
 function _removeHalos(app, cls) {
-    if (!app._layerGroups) return;
-    for (const g of app._layerGroups.values()) {
+    const groups = app.existingLayerGroups?.();
+    if (!groups) return;
+    for (const g of groups.values()) {
         g.querySelectorAll(`.${cls}`).forEach((el) => el.remove());
     }
 }

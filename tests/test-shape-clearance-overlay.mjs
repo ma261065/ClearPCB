@@ -87,7 +87,7 @@ for (const shape of [{ ...circle, layer: 'top-silk' }, { ...circle, copperMode: 
     overlay.appendChild(halo);
     let tooltipHides = 0;
     const app = { viewport: {}, _active: true, _clearancesVisible: true,
-        _layerGroups: new Map([['clearance-overlay', overlay]]),
+        _layerGroups: new Map([['clearance-overlay', overlay]]), existingLayerGroups() { return this._layerGroups; },
         _hideNetTooltip() { tooltipHides++; } };
     PCBApp.prototype._bindViewportPanHooks.call(app);
     app.viewport.onPanStart();
@@ -117,7 +117,7 @@ pcbDocument.boardShapes.push(circle, rectangle, hole, line, arc);
 const app = {
     pcbDocument, texts: pcbDocument.texts,
     placements: new Map(), boardShapes: pcbDocument.boardShapes,
-    _layerGroups: groups, getLayerGroup(id) { return groups.get(id); },
+    _layerGroups: groups, existingLayerGroups: () => groups, getLayerGroup(id) { return groups.get(id); },
     getRoutingParams() { return { clearance, trackWidth: 0.2 }; }, showClearances, _refreshViaClearance: refreshVia,
     _refreshBoardShapeClearance: refreshShape, _computeClearanceOutlines: computeClearanceOutlines, _shapeElements: new Map(),
 };
@@ -410,7 +410,7 @@ for (const [kind, filled] of [['line', false], ['polygon', false], ['polygon', t
                 ? [{ x: 0, y: 0 }, { x: 10, y: 0 }]
                 : [{ x: 0, y: 0 }, { x: 10, y: 0 }, { x: 10, y: 10 }, { x: 0, y: 10 }] };
         const layers = new Map([layer, 'clearance-overlay'].map(id => [id, element()]));
-        const curveApp = { _clearancesVisible: true, _shapeElements: new Map(), _layerGroups: layers,
+        const curveApp = { _clearancesVisible: true, _shapeElements: new Map(), _layerGroups: layers, existingLayerGroups: () => layers,
             getLayerGroup: id => layers.get(id), getRoutingParams: () => ({ clearance }),
             _refreshBoardShapeClearance: refreshShape, _computeClearanceOutlines: computeClearanceOutlines };
         const haloPoints = () => curveApp._boardShapeClearanceCache.get(shape.id).elements

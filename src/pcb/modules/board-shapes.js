@@ -96,6 +96,7 @@ import {
 } from '../../shared/pcb/board-shape-geometry.js';
 import { PROP_HIDDEN_LAYERS, showBoardShapeProperties, showBoardShapeToolProperties, syncCircleDiameterProperty, syncShapeBulgeProperty } from './board-shape-properties.js';
 import { isEditorActive } from './pcb-editor-api.js';
+import { forgetBoardShapeClearance, getBoardShapeClearance } from './clearance-overlay.js';
 
 const NS = 'http://www.w3.org/2000/svg';
 const HOLE_BORDER_WIDTH = 0.05;
@@ -800,11 +801,11 @@ export function removeBoardShapeElement(app, id, opts = {}) {
     app._shapeElements.delete(id);
     if (!opts.preserveInteraction) {
         if (getHoveredBoardShape(app)?.id === id) setHoveredBoardShape(app, null);
-        const clearance = app._boardShapeClearanceCache?.get(id);
+        const clearance = getBoardShapeClearance(app, id);
         for (const element of clearance?.elements || []) {
             element.parentNode?.removeChild(element);
         }
-        app._boardShapeClearanceCache?.delete(id);
+        forgetBoardShapeClearance(app, id);
     }
     if (!opts.skipHatchUpdate) app._scheduleRemovalHatchRender?.();
 }

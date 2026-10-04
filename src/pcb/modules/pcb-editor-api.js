@@ -9,6 +9,8 @@
  * @typedef {object} PcbEditorServices
  * @property {(layerId: string) => SVGGElement} getLayerGroup
  *   SVG group for a layer or overlay, created on first use.
+ * @property {() => ReadonlyMap<string, SVGGElement>} existingLayerGroups
+ *   The layer and overlay groups created so far, without creating any.
  * @property {() => ReturnType<import('../../core/PcbDesignSettings.js').PcbDesignSettings['getRoutingParams']>} getRoutingParams
  *   Canonical millimetre design rules, independent of ribbon display rounding.
  * @property {() => void} refreshFills
@@ -73,7 +75,7 @@ export const isEditorActive = app => app._active !== false;
 
 /** Service names, checked against PCBApp by test-pcb-editor-api. */
 export const PCB_EDITOR_SERVICES = Object.freeze([
-    'getLayerGroup', 'getRoutingParams', 'refreshFills', 'refreshClearanceHalos', 'updateRatsnest',
+    'getLayerGroup', 'existingLayerGroups', 'getRoutingParams', 'refreshFills', 'refreshClearanceHalos', 'updateRatsnest',
     'updateCopperCuts', 'refreshText', 'selectFill', 'refreshSelectedDRCMarker', 'clearProperties',
     'setStatus', 'setPcbStatus', 'syncClipboardButtons', 'propertiesItems', 'setPropertiesTitle', 'showPropertiesTab',
     'toolNetOptions', 'bindToolNetControl', 'layerLabel', 'fitToContent', 'setActiveRibbonTab',

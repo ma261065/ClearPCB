@@ -72,9 +72,9 @@ export function listArtworkLayers(app) {
     const meta = new Map(PCB_LAYERS.map((l) => [l.id, l]));
     const out = [];
     for (const id of ARTWORK_LAYER_IDS) {
-        const g = app._layerGroups?.get(id);
-        const fill = id === 'top-copper' ? app._layerGroups?.get('top-fill')
-            : id === 'bottom-copper' ? app._layerGroups?.get('bottom-fill') : null;
+        const g = app.existingLayerGroups?.().get(id);
+        const fill = id === 'top-copper' ? app.existingLayerGroups?.().get('top-fill')
+            : id === 'bottom-copper' ? app.existingLayerGroups?.().get('bottom-fill') : null;
         const populated = !!(g?.childNodes.length || fill?.childNodes.length);
         const m = meta.get(id);
         out.push({ id, name: m?.name || id, color: m?.color || '#888', populated });
@@ -96,7 +96,7 @@ function getArtworkBoundsMm(app, layers) {
     for (const id of [...ARTWORK_LAYER_IDS, 'top-fill', 'bottom-fill']) {
         const owner = id === 'top-fill' ? 'top-copper' : id === 'bottom-fill' ? 'bottom-copper' : id;
         if (layers && !layers.has(owner)) continue;
-        const g = app._layerGroups?.get(id);
+        const g = app.existingLayerGroups?.().get(id);
         if (!g || !g.childNodes.length) continue;
         let bb;
         try {

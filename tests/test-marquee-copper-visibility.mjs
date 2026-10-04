@@ -46,7 +46,7 @@ function fixture(tracks) {
         .map(layer => [layer, new Element()]));
     return {
         tracks, vias: [], pads: [], boardShapes: [], texts: new Map(), placements: new Map(),
-        _layerGroups: layers, getLayerGroup: id => layers.get(id),
+        _layerGroups: layers, existingLayerGroups: () => layers, getLayerGroup: id => layers.get(id),
         viewport: { scale: 10, contentLayer: new Element() },
         _showPcbMultiSelectionProperties() { refreshBoxSelectionHighlights(this); },
         syncClipboardButtons() {},

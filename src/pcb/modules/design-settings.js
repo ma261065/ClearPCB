@@ -1,5 +1,6 @@
 import { refreshBoardView } from './refresh-state.js';
 import { PCB_DESIGN_MAX_MM, clampDesignDimensions } from '../../core/PcbDesignSettings.js';
+import { areClearancesVisible } from './clearance-overlay.js';
 
 const STORAGE_KEY = 'clearpcb_pcb_design_params';
 const INPUTS = {
@@ -109,7 +110,7 @@ export function commitDesignInput(app, key, element, units) {
     if (app.designSettings.update({ [key]: value })) {
         saveDefaults(app);
         app._markDirty?.();
-        if (app._clearancesVisible) app.showClearances?.(true);
+        if (areClearancesVisible(app)) app.showClearances?.(true);
         app.refreshFills?.();
         refreshBoardView(app);
     }

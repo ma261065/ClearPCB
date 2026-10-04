@@ -108,7 +108,7 @@ function fixture(count = 1, unrelatedCount = 1) {
         'deactivate', '_onLayerLockChanged', '_onLayerVisibilityChanged']) app[key] = PCBApp.prototype[key];
     Object.assign(app, {
         project, pcbDocument: model, placements: new Map(), netlist: [], history: new CommandHistory(),
-        _active: true, _layerGroups: groups, _textElements: new Map(), _shapeElements: new Map(),
+        _active: true, _layerGroups: groups, existingLayerGroups: () => groups, _textElements: new Map(), _shapeElements: new Map(),
         viewport: { scale: 100, svg: new Element('svg'), shiftHeld: true, setCrosshair() {}, hideCrosshair() {} },
         propertiesItems: () => items, getLayerGroup: id => groups.get(id) || null,
         setActiveRibbonTab() {}, setPcbStatus() {}, refreshFills() { fills++; },

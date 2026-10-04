@@ -15,7 +15,6 @@
     "_showPcbMultiSelectionProperties"
   ],
   "src/pcb/modules/board-shapes.js": [
-    "_boardShapeClearanceCache",
     "_deferredShapeCopperCuts",
     "_ensureCopperRemovalHatch",
     "_hasCopperCuts",
@@ -52,6 +51,12 @@
     "_pcbSelectionInteraction",
     "_refreshPcbSelectionHighlights",
     "_rerenderFills"
+  ],
+  "src/pcb/modules/clearance-overlay.js": [
+    "_boardShapeClearanceCache",
+    "_clearancesVisible",
+    "_computeClearanceOutlines",
+    "_padHaloGroups"
   ],
   "src/pcb/modules/component-selection.js": [
     "_beginComponentDrag",
@@ -93,7 +98,6 @@
     "_refreshFillProperties"
   ],
   "src/pcb/modules/design-settings.js": [
-    "_clearancesVisible",
     "_markDirty"
   ],
   "src/pcb/modules/drc-refresh.js": [
@@ -155,9 +159,6 @@
     "_rotationHandleDrag",
     "_viaDrag"
   ],
-  "src/pcb/modules/panelization-ui.js": [
-    "_layerGroups"
-  ],
   "src/pcb/modules/path-edit.js": [
     "_trackEdit"
   ],
@@ -165,7 +166,6 @@
     "_active"
   ],
   "src/pcb/modules/pcb-export.js": [
-    "_layerGroups",
     "_uncullAllPlacements",
     "_updatePcbCulling"
   ],
@@ -198,7 +198,6 @@
     "_viaDrag"
   ],
   "src/pcb/modules/pcb-paste.js": [
-    "_boardShapeClearanceCache",
     "_cancelPosePreviews",
     "_deferredShapeCopperCuts",
     "_pasteDrop",
@@ -217,7 +216,6 @@
     "_beginPasteDrop"
   ],
   "src/pcb/modules/picture-refresh.js": [
-    "_boardShapeClearanceCache",
     "_deferredShapeCopperCuts",
     "_pendingShapeClearances",
     "_refreshBoardShapeClearance",
@@ -325,7 +323,6 @@
     "_drawRefOverlay",
     "_drcRatlines",
     "_markDirty",
-    "_padHaloGroups",
     "_refreshPcbSelectionHighlights",
     "_renderRoutedCopper",
     "_rerenderRef",
@@ -338,7 +335,6 @@
   "src/pcb/modules/track-drag.js": [
     "_pcbSelectionInteraction",
     "_refreshTrackClearance",
-    "_refreshViaClearance",
     "_trackEdit",
     "_vertexDrag",
     "_viaDrag"
@@ -360,7 +356,6 @@
   "src/pcb/modules/track-select.js": [
     "_hoveredTrackOrVia",
     "_lastPointerWorld",
-    "_layerGroups",
     "_pcbSelectionInteraction",
     "_trackEdit",
     "_updateVertexDragCrosshair",

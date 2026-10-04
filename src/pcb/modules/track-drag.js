@@ -68,6 +68,7 @@ import { closestPointOnArcEdge } from '../../shapes/arc-edge.js';
 import { commitPropertyEditors, getPropertyEditor } from './property-editors.js';
 import { areDragOverlaysDeferred, isBoardViewRefreshSuspended, setBoardViewRefreshSuspended, setDragOverlaysDeferred, refreshBoardView } from './refresh-state.js';
 import { isEditorActive } from './pcb-editor-api.js';
+import { refreshViaClearance } from './clearance-overlay.js';
 
 /** Screen-px hit tolerance for selecting a Track node to drag. */
 const NODE_HIT_PX = 8;
@@ -1951,7 +1952,7 @@ function restoreTerminalArtwork(app, drag, committed) {
     if (!areDragOverlaysDeferred(app)) {
         if (!committed) app.refreshClearanceHalos?.();
     } else {
-        if (drag.kind === 'via') app._refreshViaClearance?.(drag.original);
+        if (drag.kind === 'via') refreshViaClearance(app, drag.original);
         for (const track of drag.preview.copies.keys()) app._refreshTrackClearance?.(track);
     }
 }
@@ -2067,7 +2068,7 @@ export function updateViaDrag(app, worldPos) {
         app._refreshTrackClearance?.(t);
     }
     drag.render(drag.via, (id) => app.getLayerGroup(id));
-    if (drag.kind === 'via') app._refreshViaClearance?.(drag.via);
+    if (drag.kind === 'via') refreshViaClearance(app, drag.via);
     renderTrackAxisGlowTop(app);
     refreshTrackSelectionHalo(app);
     reconcileRatsnest(app);
