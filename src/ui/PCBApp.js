@@ -102,6 +102,7 @@ import { AddPadCommand, getPadRotationPreview, getPadPropertyPreview } from '../
 import '../pcb/modules/pad-selection.js';
 import { renderCopperFill, fillGroupId } from '../pcb/modules/copper-fill-render.js';
 import { updateCopperCuts, clearCopperCuts, hasCopperCuts, scheduleRemovalHatchRender } from '../pcb/modules/copper-cuts.js';
+import { initDebugTooltip, toggleDebugTooltipPin, updateDebugTooltip } from '../pcb/modules/debug-tooltip.js';
 import { RemoveFillCommand, ModifyFillCommand } from '../pcb/modules/copper-fill-commands.js';
 import '../pcb/modules/copper-fill-selection.js';
 import { startFillEditAt, updateFillEdit, endFillEdit, showFillContextMenu, deleteFocusedFillPart, showFillProperties } from '../pcb/modules/copper-fill-edit.js';
@@ -364,11 +365,6 @@ export default class PCBApp {
             // otherwise rebuild and wipe PCB-only edits.
             onChanged: () => this._onHistoryChanged(),
         });
-        /** Debug tooltip for showing raw footprintShapes data */
-        this._debugTooltip = null;
-        this._debugTooltipVisible = false;
-        this._debugTooltipPinned = false;
-        this._showDebugTooltip = false;
         /** Transient message bubble shown over a component, or null. */
         this._componentPopup = null;
         /** Lazily created owner of routing session and temporary presentation. */
@@ -382,7 +378,7 @@ export default class PCBApp {
 
         this._bindRibbonTabs();
         bindPcbControls(this);
-        this._initDebugTooltip();
+        initDebugTooltip(this);
         this._bindThemeToggle();
         loadAndApplyTheme();
         syncThemeToggleButtons(['themeToggle', 'pcbThemeToggle']);
@@ -919,16 +915,7 @@ export default class PCBApp {
             if (e.button === 2 && this._shapeDraw) {
                 this._shapeRightDown = { x: e.clientX, y: e.clientY };
             }
-            if (e.button === 2 && this._showDebugTooltip && this._debugTooltipVisible) {
-                if (this._debugTooltipPinned) {
-                    this._debugTooltipPinned = false;
-                    this._debugTooltip.style.display = 'none';
-                    this._debugTooltipVisible = false;
-                    return;
-                }
-                this._debugTooltipPinned = true;
-                return;
-            }
+            if (e.button === 2 && toggleDebugTooltipPin(this)) return;
             const isPanButton = e.button === 1 || e.button === 2;
             const isPanTool = this.currentTool === 'pan' && e.button === 0;
             if (isPanButton || isPanTool) {
@@ -993,7 +980,7 @@ export default class PCBApp {
                 this._updateCursorCrosshair(this._screenToWorld(e));
             }
             this.viewport.trackMouse(e);
-            this._updateDebugTooltip(e);
+            updateDebugTooltip(this, e);
         });
 
         svg.addEventListener('dblclick', (e) => {
@@ -5753,102 +5740,5 @@ export default class PCBApp {
             reader.readAsText(file);
         });
         input.click();
-    }
-
-    // ── Debug tooltip ─────────────────────────────────────────────
-
-    /**
-     * Create the debug tooltip element (reuses schematic CSS classes).
-     */
-    _initDebugTooltip() {
-        if (this._debugTooltip) return;
-        const el = document.createElement('div');
-        el.className = 'component-code-tooltip';
-        el.style.display = 'none';
-        el.innerHTML = `
-            <div class="component-code-tooltip-title">Footprint Shapes</div>
-            <button class="component-code-tooltip-close" title="Close">×</button>
-            <textarea class="component-code-tooltip-text" readonly></textarea>
-        `;
-        el.addEventListener('click', (e) => {
-            if (e.target instanceof Element && e.target.classList.contains('component-code-tooltip-close')) {
-                el.style.display = 'none';
-                this._debugTooltipVisible = false;
-                this._debugTooltipPinned = false;
-            }
-        });
-        document.body.appendChild(el);
-        this._debugTooltip = el;
-
-        // Bind the checkbox
-        const cb = document.getElementById('pcbDebugTooltip');
-        if (cb) {
-            cb.addEventListener('change', (e) => {
-                this._showDebugTooltip = /** @type {HTMLInputElement} */ (e.target).checked;
-                if (!this._showDebugTooltip && this._debugTooltip) {
-                    this._debugTooltip.style.display = 'none';
-                    this._debugTooltipVisible = false;
-                }
-            });
-        }
-    }
-
-    /**
-     * Show/hide the debug tooltip based on mouse position over a footprint.
-     * @param {MouseEvent} e
-     */
-    _updateDebugTooltip(e) {
-        if (!this._showDebugTooltip) return;
-        if (this._debugTooltipPinned) return;  // Don't move while pinned
-
-        const rect = this.viewport.svg.getBoundingClientRect();
-        const worldPos = this.viewport.screenToWorld({
-            x: e.clientX - rect.left,
-            y: e.clientY - rect.top
-        });
-        if (!worldPos) return;
-
-        // Find the closest component placement
-        let closest = null;
-        let closestDist = 15; // mm tolerance
-        for (const [compId, pl] of this.placements) {
-            for (const [, pad] of pl.pads) {
-                const d = Math.hypot(pad.x - worldPos.x, pad.y - worldPos.y);
-                if (d < closestDist) {
-                    closestDist = d;
-                    closest = compId;
-                }
-            }
-        }
-
-        if (!closest) {
-            if (!this._debugTooltipVisible) return;
-            this._debugTooltip.style.display = 'none';
-            this._debugTooltipVisible = false;
-            return;
-        }
-
-        // Find the definition for this component
-        const shapes = this.project?.getComponentInfo(closest)?.footprintShapes;
-        if (!Array.isArray(shapes) || shapes.length === 0) return;
-
-        const textEl = /** @type {HTMLTextAreaElement|null} */ (
-            this._debugTooltip.querySelector('.component-code-tooltip-text')
-        );
-        if (textEl && this._debugTooltip.dataset.compId !== closest) {
-            // Format each shape on its own line, truncate long ones
-            textEl.value = shapes
-                .filter(s => typeof s === 'string')
-                .join('\n');
-            this._debugTooltip.dataset.compId = closest;
-        }
-
-        const pad = 12;
-        const maxX = window.innerWidth - this._debugTooltip.offsetWidth - pad;
-        const maxY = window.innerHeight - this._debugTooltip.offsetHeight - pad;
-        this._debugTooltip.style.left = `${Math.min(e.clientX + pad, Math.max(pad, maxX))}px`;
-        this._debugTooltip.style.top = `${Math.min(e.clientY + pad, Math.max(pad, maxY))}px`;
-        this._debugTooltip.style.display = 'block';
-        this._debugTooltipVisible = true;
     }
 }

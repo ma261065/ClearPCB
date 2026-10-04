@@ -187,6 +187,8 @@ PCB editor:
   copper-removal shapes and board holes (`updateCopperCuts`, an editor service), and the
   screen-space canvas that hatches removal shapes; other modules ask `hasCopperCuts`
   whether any cut is active.
+- `pcb/modules/debug-tooltip.js` — the footprint shape-data tooltip (Help tab), pinned
+  and unpinned by a stationary right-click.
 
 Schematic editor:
 

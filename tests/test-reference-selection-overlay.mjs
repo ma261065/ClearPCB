@@ -425,20 +425,36 @@ drawRefOverlay.call(highlightApp, null, false);
 assert.equal(referenceOverlay.children.length, 0);
 console.log('PASS: PCB references use silk selection colors, restore on deselection, and draw no reference box');
 
+const { debugTooltipState, updateDebugTooltip } = await import('../src/pcb/modules/debug-tooltip.js');
 component.definition = { footprintShapes: ['PAD~owned-footprint'] };
 const inspectorText = { value: '' };
 const inspector = {
-    project: componentApi, _showDebugTooltip: true,
+    project: componentApi,
     viewport: { svg: { getBoundingClientRect: () => ({ left: 0, top: 0 }) },
         screenToWorld: () => ({ x: 0, y: 0 }) },
     placements: new Map([[component.id, { pads: new Map([['1', { x: 0, y: 0 }]]) }]]),
-    _debugTooltip: { dataset: {}, style: {}, offsetWidth: 100, offsetHeight: 100,
-        querySelector: () => inspectorText },
 };
+Object.assign(debugTooltipState(inspector), {
+    enabled: true,
+    element: { dataset: {}, style: {}, offsetWidth: 100, offsetHeight: 100, querySelector: () => inspectorText },
+});
 window.innerWidth = window.innerHeight = 800;
-PCBApp.prototype._updateDebugTooltip.call(inspector, { clientX: 10, clientY: 10 });
+updateDebugTooltip(inspector, { clientX: 10, clientY: 10 });
 assert.equal(inspectorText.value, 'PAD~owned-footprint');
-assert.equal(inspector._debugTooltip.style.display, 'block');
+assert.equal(debugTooltipState(inspector).element.style.display, 'block');
+{
+    const { toggleDebugTooltipPin } = await import('../src/pcb/modules/debug-tooltip.js');
+    const tooltip = debugTooltipState(inspector);
+    assert.equal(toggleDebugTooltipPin(inspector), true, 'A right press over the visible tooltip pins it');
+    assert.equal(tooltip.pinned, true);
+    tooltip.element.style.left = 'pinned';
+    updateDebugTooltip(inspector, { clientX: 300, clientY: 300 });
+    assert.equal(tooltip.element.style.left, 'pinned', 'A pinned tooltip does not follow the pointer');
+    assert.equal(toggleDebugTooltipPin(inspector), true, 'A second right press hides the pinned tooltip');
+    assert.deepEqual([tooltip.pinned, tooltip.visible, tooltip.element.style.display], [false, false, 'none']);
+    assert.equal(toggleDebugTooltipPin(inspector), false, 'A hidden tooltip leaves right presses to panning');
+    assert.equal(toggleDebugTooltipPin({}), false, 'Editors without a tooltip ignore right presses');
+}
 const info = project.getComponentInfo(component.id);
 info.reference = 'NOT-A-RENAME';
 info.footprintShapes.push('NOT-MODEL-DATA');
