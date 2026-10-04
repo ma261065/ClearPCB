@@ -85,6 +85,11 @@ const VIA_HALO_CLASS = 'pcb-box-via-sel';
 const PAD_HALO_CLASS = 'pcb-box-pad-sel';
 const COMP_HALO_CLASS = 'pcb-box-comp-sel';
 
+/** The active group (multi-selection) drag, or null. */
+export function getGroupDrag(app) {
+    return app._groupDrag || null;
+}
+
 export function getGroupPreview(app) {
     return app._groupDrag?.preview;
 }

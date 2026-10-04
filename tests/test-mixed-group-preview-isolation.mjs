@@ -96,7 +96,7 @@ function fixture(deferred = false, component = false) {
         Object.defineProperty(app, key, Object.getOwnPropertyDescriptor(PCBApp.prototype, key));
     }
     Object.assign(app, { project, pcbDocument: model, placements, placementState: model.placementState,
-        netlist: [], history: new CommandHistory(), _active: true, _layerGroups: groups, _shapeElements: new Map(), _textElements: new Map(),
+        netlist: [], history: new CommandHistory(), _active: true, _layerGroups: groups, existingLayerGroups() { return this._layerGroups; }, _shapeElements: new Map(), _textElements: new Map(),
         viewport: { scale: 10, gridVisible: false, svg: new Element('svg'), setCrosshair() {}, hideCrosshair() {} },
         getLayerGroup: id => groups.get(id) || null, refreshText() {}, refreshFills() { fills++; },
         updateRatsnest() { ratsnest++; }, _board3d: { refresh() { board++; } },

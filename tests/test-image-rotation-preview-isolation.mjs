@@ -56,7 +56,7 @@ function fixture(layer = 'top-copper', unrelatedCount = 1) {
     const app = {
         project, pcbDocument: model, placements: new Map(), netlist: [], history: new CommandHistory(), _active: true,
         viewport: { scale: 100, svg: new Element('svg'), hideCrosshair() {}, setCrosshair() {} },
-        getLayerGroup: id => groups.get(id) || null, _layerGroups: groups,
+        getLayerGroup: id => groups.get(id) || null, _layerGroups: groups, existingLayerGroups() { return this._layerGroups; },
         _shapeElements: new Map(), _textElements: new Map(),
         refreshFills() { fills++; }, _refreshBoardShapeClearance() { clearances++; },
         _cancelDrawingMode() {}, _clearCursorCrosshair() {}, markSectionClean() {}, _ensureViewport() {},

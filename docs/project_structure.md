@@ -192,6 +192,10 @@ PCB editor:
   whether any cut is active.
 - `pcb/modules/debug-tooltip.js` — the footprint shape-data tooltip (Help tab), pinned
   and unpinned by a stationary right-click.
+- `pcb/modules/layer-changes.js` — what hiding, showing, locking or unlocking a layer,
+  pour or overlay does to the editor (cancels stranded gestures and edits, updates the
+  render groups, prunes the selection); the layer panel calls it through the editor's
+  `_on…Changed` methods.
 
 Schematic editor:
 

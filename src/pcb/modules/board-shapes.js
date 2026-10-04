@@ -105,6 +105,11 @@ const REMOVAL_OUTLINE_WIDTH_PX = 1;
 const boardShapeRotationPreviews = new WeakMap();
 const boardShapePropertyPreviews = new WeakMap();
 
+/** The active board-shape drag (`{ original, mode, ... }`), or null. */
+export function getBoardShapeDrag(app) {
+    return app._shapeDrag || null;
+}
+
 export function getBoardShapePropertyPreview(app) {
     return boardShapePropertyPreviews.get(app);
 }

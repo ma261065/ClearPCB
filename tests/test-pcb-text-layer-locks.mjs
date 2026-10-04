@@ -32,7 +32,7 @@ for (const layerId of TEXT_LAYERS) {
     const app = {
         _active: true, pcbDocument, history: new CommandHistory(),
         viewport: { svg: { style: {} }, scale: 10, snapToGrid: false, setCrosshair() {}, hideCrosshair() {} },
-        placements: new Map(), tracks: [], vias: [], boardShapes: [], _layerGroups: new Map(),
+        placements: new Map(), tracks: [], vias: [], boardShapes: [], _layerGroups: new Map(), existingLayerGroups() { return this._layerGroups; },
         getLayerGroup: () => null, refreshText() {},
         propertiesItems: () => items, setPropertiesTitle: () => propertyShows++,
         layerLabel: value => value, clearProperties: () => cleared++, setActiveRibbonTab() {},

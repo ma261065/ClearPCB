@@ -221,6 +221,8 @@ console.log('PASS visible fill selection and dragging are independent of copper 
 
 const onVisibility = PCBApp.prototype._onLayerVisibilityChanged;
 fillApp._layerGroups = new Map();
+
+fillApp.existingLayerGroups = function () { return this._layerGroups; };
 let hatchRedraws = 0;
 let selectionRefreshes = 0;
 fillApp._scheduleRemovalHatchRender = () => { hatchRedraws++; };
@@ -245,7 +247,7 @@ assert.equal(selectionRefreshes, 5, 'Every layer eye change refreshes selection 
     let shownProperties = null;
     const layerApp = {
         placements: new Map(), pcbDocument: new PcbDocument(), tracks: [], vias: [keptVia], pads: [],
-        boardShapes: [copperShape, silkShape], _layerGroups: new Map(), _shapeElements: new Map(),
+        boardShapes: [copperShape, silkShape], _layerGroups: new Map(), existingLayerGroups() { return this._layerGroups; }, _shapeElements: new Map(),
         viewport: { scale: 10 }, getLayerGroup() { return null; }, refreshText() {}, syncClipboardButtons() {},
         _scheduleRemovalHatchRender() {}, clearProperties() {},
         _showPcbMultiSelectionProperties(selected) { shownProperties = new Set(selected.map(entry => entry.object)); },
@@ -278,6 +280,8 @@ const bottomFill = { ...fill, id: 'bottom-pour', layer: 'bottom-copper' };
 const secondTopFill = { ...fill, id: 'second-top-pour' };
 app.boardShapes.push(bottomFill, secondTopFill);
 app._layerGroups = new Map();
+
+app.existingLayerGroups = function () { return this._layerGroups; };
 setPcbSelection(app, [
     { kind: 'fill', object: bottomFill }, { kind: 'fill', object: fill },
     { kind: 'fill', object: secondTopFill }, { kind: 'text', object: movingText },

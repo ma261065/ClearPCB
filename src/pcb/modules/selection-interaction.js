@@ -26,6 +26,11 @@ import { ROTATION_CURSOR } from './rotation-handle.js';
 
 const SUPPORTED_KINDS = new Set(['component', 'shape', 'track', 'via', 'pad', 'fill', 'text', 'reftext']);
 
+/** The active shared selection interaction (`{ mode, adapter, ... }`), or null. */
+export function getSelectionInteraction(app) {
+    return app._pcbSelectionInteraction || null;
+}
+
 export function selectionInteractionCursor(app) {
     if (app._rotationHandleDrag) return ROTATION_CURSOR;
     const state = app._pcbSelectionInteraction;

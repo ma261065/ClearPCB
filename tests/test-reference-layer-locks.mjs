@@ -38,7 +38,7 @@ for (const side of ['top', 'bottom']) {
         pcbDocument, placementState: pcbDocument.placementState,
         placements: new Map([['part', placement]]), history: new CommandHistory(),
         viewport: { scale: 10, svg: { style: {} }, snapToGrid: false },
-        tracks: [], vias: [], boardShapes: [], texts: new Map(), _layerGroups: new Map(),
+        tracks: [], vias: [], boardShapes: [], texts: new Map(), _layerGroups: new Map(), existingLayerGroups() { return this._layerGroups; },
         getLayerGroup: () => null, _drawRefOverlay() {}, _refreshRefHighlight() {},
         _refBox: () => ({ bx: -1, by: -1, bw: 2, bh: 2, cx: 0, cy: 0 }),
         propertiesItems: () => items, setPropertiesTitle: () => propertyShows++,

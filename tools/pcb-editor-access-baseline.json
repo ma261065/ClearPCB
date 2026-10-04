@@ -149,6 +149,18 @@
     "_recomputeFillsNow",
     "_scheduleDRC"
   ],
+  "src/pcb/modules/layer-changes.js": [
+    "_cancelPasteDrop",
+    "_cancelPosePreviews",
+    "_drcPresentation",
+    "_endRefDrag",
+    "_endTextDrag",
+    "_refDrag",
+    "_refreshPcbSelectionHighlights",
+    "_scheduleRemovalHatchRender",
+    "_selectBoardOutline",
+    "_textDrag"
+  ],
   "src/pcb/modules/layers.js": [
     "_lockedBubbleTimer",
     "_onCopperFillLockChanged",

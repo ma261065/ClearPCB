@@ -15,7 +15,7 @@ import { updateGridDropdown, restoreGridSettings, serializeGridSettings } from '
 import { setToolCursor } from '../shared/ui/cursor.js';
 import { bindRibbonHeight } from '../shared/ui/ribbon-height.js';
 import { applyTextConnectionGuide, setInlineTextInputActive } from '../shared/ui/inline-text-overlay.js';
-import { PCB_LAYERS, PCB_OVERLAYS, PCB_COPPER_FILLS, isLayerLocked, isViaLocked, isLayerVisible, isViaVisible, pcbLayerHoverColor, pcbLayerSelectionColor, refreshPcbLayerOptions, isCopperFillLocked, isCopperFillVisible, saveLayerPrefs } from '../pcb/modules/layers.js';
+import { PCB_LAYERS, PCB_OVERLAYS, PCB_COPPER_FILLS, isLayerLocked, isViaLocked, isLayerVisible, isViaVisible, pcbLayerHoverColor, pcbLayerSelectionColor, isCopperFillLocked, isCopperFillVisible } from '../pcb/modules/layers.js';
 import { exportDSN, importSES } from '../pcb/modules/dsn.js';
 import { DrcPresentation } from '../pcb/modules/drc-presentation.js';
 import { resolveDrcPairMarker } from '../pcb/modules/drc.js';
@@ -35,12 +35,10 @@ import { savePcbPdf, printPcb, projectBaseName } from '../pcb/modules/pcb-export
 import { renderTrack, renderVia, removeTrackElements, removeViaElements } from '../pcb/modules/track-render.js';
 import { startTrackDraw, updateTrackDraw, refreshTrackDrawPreview, addTrackWaypoint, cancelTrackDraw, resolveTrackSnap, clearTrackSnapMarker, reconcileRatsnest } from '../pcb/modules/track-draw.js';
 import { hitTestTrack, selectTrackOrVia, clearTrackSelection, setHoverHighlight, refreshTrackSelectionHalo, getSelectedTrack, getSelectedVia, dismissTrackContextMenu, trackIsSelectable } from '../pcb/modules/track-select.js';
-import { getBoardShapeRotationPreview, getBoardShapePointerPreview, getBoardShapePropertyPreview, finishBoardShapeRotationPreview } from '../pcb/modules/board-shapes.js';
+import { getBoardShapeRotationPreview, getBoardShapePointerPreview, getBoardShapePropertyPreview } from '../pcb/modules/board-shapes.js';
 import {
     startVertexDrag,
     updateVertexDrag,
-    cancelVertexDrag,
-    trackPointerTouchesLayer,
     startViaDrag,
     hitTestTrackNode,
     findSplittableTrackEdge,
@@ -49,14 +47,14 @@ import {
     hitTestTrackMidpoint,
     buildDrawnTrackCommands,
 } from '../pcb/modules/track-drag.js';
-import { AddTrackCommand, AddViaCommand, RemoveTrackCommand, ReplaceRoutesCommand, CompoundCommand, MovePlacementCommand, RotatePlacementCommand, SetPlacementLockedCommand, FlipPlacementCommand, SetPlacementSideCommand, SetPlacementRefVisibleCommand, MoveRefTextCommand, RotateRefTextCommand, SetRefStyleCommand, SetBoardOutlineCommand, previewPlacementPose, finishPlacementPreview, getPlacementPreviewTracks, getViaPropertyPreview, getTrackPropertyPreview, canonicalTrack, renderPlacementPose, renderPlacementSide, applyPlacementRefVisible, placementTransform, isPlacementMirrored } from '../pcb/modules/track-commands.js';
+import { AddTrackCommand, AddViaCommand, RemoveTrackCommand, ReplaceRoutesCommand, CompoundCommand, MovePlacementCommand, RotatePlacementCommand, SetPlacementLockedCommand, FlipPlacementCommand, SetPlacementSideCommand, SetPlacementRefVisibleCommand, MoveRefTextCommand, RotateRefTextCommand, SetRefStyleCommand, previewPlacementPose, finishPlacementPreview, getPlacementPreviewTracks, getViaPropertyPreview, getTrackPropertyPreview, canonicalTrack, renderPlacementPose, renderPlacementSide, applyPlacementRefVisible, placementTransform, isPlacementMirrored } from '../pcb/modules/track-commands.js';
 import { renderPcbText, pcbTextHitTest, textColorForLayer } from '../pcb/modules/pcb-text.js';
 import { createPcbText, serializePcbText } from '../core/pcb-text.js';
 import { showAlert } from '../shared/ui/modal.js';
 import { connectBoxOutlines } from '../core/geometry.js';
 import { AddTextCommand, RemoveTextCommand, MoveTextCommand, EditTextCommand, getTextPosePreviewTexts, previewTextPose, finishTextPosePreview } from '../pcb/modules/text-commands.js';
-import { shapeDrawClick, cancelShapeDraw, hitTestBoardShape, setBoardShapeHover, selectBoardShape, startBoardShapeDrag, endBoardShapeDrag, resolveShapeDrawLayer, renderBoardShape, hitTestBoardShapeVertex } from '../pcb/modules/board-shapes.js';
-import { showBoardShapeProperties, showBoardShapeToolProperties, refreshBoardShapeToolLayer } from '../pcb/modules/board-shape-properties.js';
+import { shapeDrawClick, cancelShapeDraw, hitTestBoardShape, setBoardShapeHover, selectBoardShape, startBoardShapeDrag, resolveShapeDrawLayer, renderBoardShape, hitTestBoardShapeVertex } from '../pcb/modules/board-shapes.js';
+import { showBoardShapeProperties, showBoardShapeToolProperties } from '../pcb/modules/board-shape-properties.js';
 import { normalizeShapeCopperMode } from '../shared/pcb/board-shape-geometry.js';
 import { hitTestPcbSelectionAnchor, renderPcbSelectionAnchors } from '../pcb/modules/selection-anchors.js';
 import { refreshAxisGlow } from '../pcb/modules/axis-glow.js';
@@ -68,7 +66,6 @@ import {
     refreshBoxSelectionHighlights,
     toggleBoxShapeSelection,
     clearBoxSelection,
-    deselectHiddenPcbSelection,
     hasBoxSelection,
     beginGroupDrag,
     getGroupPreview,
@@ -81,7 +78,7 @@ import {
     finishSelectionInteraction,
     selectionInteractionCursor,
 } from '../pcb/modules/selection-interaction.js';
-import { getPcbSelection, getPcbSelectionEntries, getPcbSelectionHits, isPcbSelected, setPcbSelection, syncPcbSelection } from '../pcb/modules/selection-registry.js';
+import { getPcbSelection, getPcbSelectionHits, isPcbSelected, setPcbSelection, syncPcbSelection } from '../pcb/modules/selection-registry.js';
 import { measureText as measureStrokeText } from '../shared/pcb/stroke-font.js';
 import { CommandHistory } from '../core/CommandHistory.js';
 import { Track } from '../shapes/track.js';
@@ -91,10 +88,11 @@ import { CopperFill } from '../shapes/copper-fill.js';
 import { padCopperPathD, renderPad } from '../pcb/modules/pad.js';
 import { AddPadCommand, getPadRotationPreview, getPadPropertyPreview } from '../pcb/modules/pad-commands.js';
 import '../pcb/modules/pad-selection.js';
-import { renderCopperFill, fillGroupId } from '../pcb/modules/copper-fill-render.js';
+import { renderCopperFill } from '../pcb/modules/copper-fill-render.js';
 import { updateCopperCuts, clearCopperCuts, hasCopperCuts, scheduleRemovalHatchRender } from '../pcb/modules/copper-cuts.js';
 import { initDebugTooltip } from '../pcb/modules/debug-tooltip.js';
 import { bindPcbMouseEvents, noteTrackPress } from '../pcb/modules/mouse.js';
+import { onLayerVisibilityChanged, onLayerLockChanged, onCopperFillVisibilityChanged, onCopperFillLockChanged, onOverlayVisibilityChanged } from '../pcb/modules/layer-changes.js';
 import { RemoveFillCommand, ModifyFillCommand } from '../pcb/modules/copper-fill-commands.js';
 import '../pcb/modules/copper-fill-selection.js';
 import { startFillEditAt, updateFillEdit, endFillEdit, deleteFocusedFillPart, showFillProperties } from '../pcb/modules/copper-fill-edit.js';
@@ -106,9 +104,9 @@ import {
     addFillWaypoint,
     cancelFillDraw,
 } from '../pcb/modules/copper-fill-draw.js';
-import { preparePcbPaste, beginPcbPaste, updatePcbPaste, endPcbPaste, cancelPcbPaste, isPcbPasteEditable } from '../pcb/modules/pcb-paste.js';
+import { preparePcbPaste, beginPcbPaste, updatePcbPaste, endPcbPaste, cancelPcbPaste } from '../pcb/modules/pcb-paste.js';
 import { getBoardOutline, boardBoundary } from '../shared/pcb/board-outline.js';
-import { eachPropertyEditorOnLayer, getPropertyEditor, setPropertyEditor } from '../pcb/modules/property-editors.js';
+import { getPropertyEditor, setPropertyEditor } from '../pcb/modules/property-editors.js';
 import { areDragOverlaysDeferred, isFillRefreshPending, onRefreshSuspended, setDragOverlaysDeferred } from '../pcb/modules/refresh-state.js';
 import { endBoardOutlineResize, renderBoardOutlineHandles, getBoardDimensionPreview, showBoardOutlineProperties, showBoardDimensionsDialog, closeBoardDimensionsDialog } from '../pcb/modules/board-outline-resize.js';
 import { getBoardShapeNodeFocus, getBoardShapeSegmentFocus } from '../pcb/modules/board-shape-state.js';
@@ -1724,81 +1722,7 @@ export default class PCBApp {
      * @param {boolean} visible
      */
     _onLayerVisibilityChanged(layerId, visible) {
-        if (this._pasteDrop && !visible && !isPcbPasteEditable(this)) this._cancelPasteDrop();
-        if (!visible && layerId === 'board-outline') {
-            getPropertyEditor(this, 'boardDimension')?.dispose();
-            endBoardOutlineResize(this, false);
-        }
-        if (!visible && this._groupDrag && getPcbSelectionEntries(this).some(entry => entry.visible === false)) {
-            this._cancelPosePreviews();
-        }
-        if (!visible && this._shapeDrag?.original.layer === layerId) {
-            if (!finishSelectionInteraction(this, false)) endBoardShapeDrag(this, false);
-        }
-        if (!visible && this._vertexDrag && trackPointerTouchesLayer(this, layerId)) {
-            if (!finishSelectionInteraction(this, false)) cancelVertexDrag(this);
-        }
-        if (!visible && getBoardShapeRotationPreview(this)?.original.layer === layerId) {
-            if (!finishSelectionInteraction(this, false)) finishBoardShapeRotationPreview(this);
-        }
-        if (!visible) eachPropertyEditorOnLayer(this, layerId, editor => editor.dispose());
-        const g = this._layerGroups.get(layerId);
-        if (g) {
-            g.style.display = visible ? '' : 'none';
-        }
-        // Pad-number labels live on their own layer above each copper layer
-        // (so tracks can't hide them); keep their visibility tied to the
-        // copper side they belong to.
-        if (layerId === 'top-copper' || layerId === 'bottom-copper') {
-            const pn = this._layerGroups.get(layerId === 'bottom-copper' ? 'bottom-pad-numbers' : 'top-pad-numbers');
-            if (pn) pn.style.display = visible ? '' : 'none';
-            // Copper-removal knockouts belong to the copper they cut.
-            const ko = this._layerGroups.get(layerId === 'bottom-copper' ? 'bottom-copper-knockout' : 'top-copper-knockout');
-            if (ko) ko.style.display = visible ? '' : 'none';
-            const labels = this._layerGroups.get(`${layerId}-track-labels`);
-            if (labels) labels.style.display = visible ? '' : 'none';
-            const drills = this._layerGroups.get(`${layerId}-pad-drills`);
-            if (drills) drills.style.display = visible ? '' : 'none';
-            this._scheduleRemovalHatchRender();
-        }
-        // Clearance overlay tracks per-layer visibility.
-        if (this._clearancesVisible && ['top-copper', 'bottom-copper', 'vias', 'hole'].includes(layerId)) {
-            this.showClearances(true);
-        }
-        // A newly-hidden layer must not keep anything on it selected or
-        // hovered — hidden objects are non-interactive (can't be selected,
-        // dragged or deleted), mirroring the locked-layer behaviour. Objects
-        // that stay visible keep their selection.
-        if (!visible) {
-            const viaAffected = layerId === 'vias' && !isViaVisible();
-            const selectedTrack = getSelectedTrack(this);
-            const selectedVia = getSelectedVia(this);
-            if ((selectedTrack && selectedTrack.layer === layerId) ||
-                (selectedVia && viaAffected)) {
-                clearTrackSelection(this);
-                this.clearProperties();
-            }
-            // Single-object teardown (node focus, text refresh); multi-selections
-            // are pruned below so objects on other layers stay selected.
-            const single = getPcbSelectionEntries(this).length === 1;
-            const selectedText = getPcbSelection(this, 'text')[0] || null;
-            if (single && selectedText && selectedText.layer === layerId) {
-                this.selectText(null);
-                this.clearProperties();
-            }
-            const selectedShape = getPcbSelection(this, 'shape')[0] || null;
-            if (single && selectedShape && selectedShape.layer === layerId) {
-                selectBoardShape(this, null);
-                this.clearProperties();
-            }
-            if (this._boardOutlineSelected && layerId === 'board-outline') {
-                this._selectBoardOutline(false);
-            }
-            if (deselectHiddenPcbSelection(this)) showPcbSelectionProperties(this);
-            setHoverHighlight(this, null);
-        }
-        this._refreshPcbSelectionHighlights?.();
-        saveLayerPrefs();
+        onLayerVisibilityChanged(this, layerId, visible);
     }
 
     /**
@@ -1807,61 +1731,7 @@ export default class PCBApp {
      * @param {boolean} locked
      */
     _onLayerLockChanged(layerId, locked) {
-        if (this._pasteDrop && locked && !isPcbPasteEditable(this)) this._cancelPasteDrop();
-        if (locked && layerId === 'board-outline') {
-            getPropertyEditor(this, 'boardDimension')?.cancel();
-            endBoardOutlineResize(this, false);
-        }
-        if (locked && this._groupDrag && getPcbSelectionEntries(this).some(entry => entry.locked)) {
-            this._cancelPosePreviews();
-        }
-        if (locked && this._shapeDrag?.original.layer === layerId) {
-            if (!finishSelectionInteraction(this, false)) endBoardShapeDrag(this, false);
-        }
-        if (locked && this._vertexDrag && trackPointerTouchesLayer(this, layerId)) {
-            if (!finishSelectionInteraction(this, false)) cancelVertexDrag(this);
-        }
-        if (locked && getBoardShapeRotationPreview(this)?.original.layer === layerId) {
-            if (!finishSelectionInteraction(this, false)) finishBoardShapeRotationPreview(this);
-        }
-        if (locked) eachPropertyEditorOnLayer(this, layerId, editor => editor.cancel());
-        const draggingReference = this.placements?.get(this._refDrag?.compId);
-        if (locked && draggingReference
-            && (draggingReference.side === 'bottom' ? 'bottom-silk' : 'top-silk') === layerId) {
-            if (!finishSelectionInteraction(this, false)) this._endRefDrag(false);
-        }
-        const draggingText = this.texts?.get(this._textDrag?.textId);
-        if (locked && draggingText?.layer === layerId) {
-            if (!finishSelectionInteraction(this, false)) this._endTextDrag(false);
-        }
-        const anchorInteraction = this._pcbSelectionInteraction;
-        if (locked && anchorInteraction?.adapter?.kind === 'text'
-            && anchorInteraction.adapter.object.layer === layerId) {
-            finishSelectionInteraction(this, false);
-        }
-        const editingReference = this.placements?.get(this._textEdit?.options?.componentId);
-        const editingLayer = editingReference
-            ? (editingReference.side === 'bottom' ? 'bottom-silk' : 'top-silk') : this._textEdit?.text?.layer;
-        if (locked && editingLayer === layerId) {
-            this._endTextInlineEdit(false);
-        }
-        const g = this._layerGroups.get(layerId);
-        if (g) g.style.opacity = '';
-        if (layerId === 'top-copper' || layerId === 'bottom-copper') {
-            const ko = this._layerGroups.get(layerId === 'bottom-copper' ? 'bottom-copper-knockout' : 'top-copper-knockout');
-            if (ko) ko.style.opacity = '';
-        }
-        saveLayerPrefs();
-        refreshPcbLayerOptions(layerId);
-        refreshBoardShapeToolLayer(this);
-        const checkbox = /** @type {HTMLInputElement|null} */ (document.getElementById('pcbPropOutlineLocked'));
-        if (checkbox) checkbox.checked = locked;
-        this._refreshPcbSelectionHighlights?.();
-        if (getPcbSelection(this, 'reftext').some(id => {
-            const placement = this.placements.get(id);
-            return placement && (placement.side === 'bottom' ? 'bottom-silk' : 'top-silk') === layerId;
-        }) || getPcbSelection(this, 'text').some(text => text.layer === layerId)) showPcbSelectionProperties(this);
-        setHoverHighlight(this, null);
+        onLayerLockChanged(this, layerId, locked);
     }
 
     /**
@@ -1871,15 +1741,7 @@ export default class PCBApp {
      * @param {boolean} visible
      */
     _onOverlayVisibilityChanged(overlayId, visible) {
-        if (overlayId === 'clearance') {
-            this.showClearances(visible);
-        } else if (overlayId === 'ratlines') {
-            // Ratlines have a real SVG layer group; toggle its display.
-            const g = this._layerGroups.get('ratlines');
-            if (g) g.style.display = visible ? '' : 'none';
-            this._drcPresentation?.overlayVisibilityChanged();
-        }
-        saveLayerPrefs();
+        onOverlayVisibilityChanged(this, overlayId, visible);
     }
 
     fitToContent() {
@@ -4652,12 +4514,7 @@ export default class PCBApp {
      * @param {boolean} visible
      */
     _onCopperFillVisibilityChanged(copperLayerId, visible) {
-        if (this._pasteDrop && !visible && !isPcbPasteEditable(this)) this._cancelPasteDrop();
-        if (!visible && this._groupDrag?.fills.some(({ fill }) => fill.layer === copperLayerId)) this._cancelPosePreviews();
-        const g = this._layerGroups.get(fillGroupId(copperLayerId));
-        if (g) g.style.display = visible ? '' : 'none';
-        this._refreshPcbSelectionHighlights?.();
-        saveLayerPrefs();
+        onCopperFillVisibilityChanged(this, copperLayerId, visible);
     }
 
     /**
@@ -4667,15 +4524,7 @@ export default class PCBApp {
      * @param {boolean} locked
      */
     _onCopperFillLockChanged(copperLayerId, locked) {
-        if (this._pasteDrop && locked && !isPcbPasteEditable(this)) this._cancelPasteDrop();
-        if (locked && this._groupDrag?.fills.some(({ fill }) => fill.layer === copperLayerId)) this._cancelPosePreviews();
-        const g = this._layerGroups.get(fillGroupId(copperLayerId));
-        if (g) g.style.opacity = locked ? '0.4' : '';
-        const selectedFill = getPcbSelection(this, 'fill')[0] || null;
-        const checkbox = /** @type {HTMLInputElement|null} */ (document.getElementById('pcbPropFillLocked'));
-        if (checkbox && selectedFill?.layer === copperLayerId) checkbox.checked = locked;
-        this._refreshPcbSelectionHighlights?.();
-        saveLayerPrefs();
+        onCopperFillLockChanged(this, copperLayerId, locked);
     }
 
     /** Hit-test a world point against any pour region outline. */

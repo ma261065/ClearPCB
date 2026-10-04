@@ -9,6 +9,11 @@ import { areDragOverlaysDeferred, isBoardViewRefreshSuspended, setBoardViewRefre
 
 const dimensionPreviews = new WeakMap();
 
+/** Whether the board outline is selected. */
+export function isBoardOutlineSelected(app) {
+    return !!app._boardOutlineSelected;
+}
+
 export function getBoardDimensionPreview(app) {
     return dimensionPreviews.get(app);
 }

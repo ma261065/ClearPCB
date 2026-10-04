@@ -136,6 +136,11 @@ function beginTrackPointerPreview(app, drag) {
     return copy;
 }
 
+/** The active track vertex/segment drag, or null. */
+export function getVertexDrag(app) {
+    return app._vertexDrag || null;
+}
+
 export function trackPointerTouchesLayer(app, layerId) {
     return app._vertexDrag?.layers?.has(layerId) || false;
 }
