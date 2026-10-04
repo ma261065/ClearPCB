@@ -2261,9 +2261,11 @@ export function applyOffGridNeighborSnap(raw, snapped, neighbors, gridSize) {
  * @param {number} threshold - snap distance in world units
  * @param {Array<{ moving: {x,y}, fixed: {x,y}, beyond?: {x,y} }>} edges
  * @param {string} [axisLock] - 'horizontal'|'vertical' drag-axis constraint
+ * @param {{ diagonal?: boolean }} [options] - `diagonal` also snaps and guides 45° segments
+ *   (when no collinear or H/V snap applies)
  * @returns {{ adjustX: number, adjustY: number, guides: Array<{a:{x:number,y:number},b:{x:number,y:number},collinear?:boolean,axisKind?:string}> }}
  */
-export function computeMovingSegmentSnaps(threshold, edges, axisLock) {
+export function computeMovingSegmentSnaps(threshold, edges, axisLock, { diagonal = false } = {}) {
     let adjustX = 0, adjustY = 0;
 
     // ── Collinear snap (first match adjusts position) ──
@@ -2283,6 +2285,7 @@ export function computeMovingSegmentSnaps(threshold, edges, axisLock) {
     }
 
     // ── H/V snap (skipped if collinear already adjusted) ──
+    let axisSnapped = false;
     if (!collinearSnapped) {
         let bestAbsX = Infinity, bestAbsY = Infinity;
         let bestAdjX = 0, bestAdjY = 0;
@@ -2301,6 +2304,30 @@ export function computeMovingSegmentSnaps(threshold, edges, axisLock) {
         }
         adjustX += bestAdjX;
         adjustY += bestAdjY;
+        axisSnapped = bestAbsX < Infinity || bestAbsY < Infinity;
+    }
+
+    // ── 45° snap (only when nothing else snapped): nearest diagonal through a fixed point ──
+    if (diagonal && !collinearSnapped && !axisSnapped) {
+        let best = null;
+        for (const { moving, fixed } of edges) {
+            const mx = moving.x + adjustX, my = moving.y + adjustY;
+            const dx = mx - fixed.x, dy = my - fixed.y;
+            const alongX = { x: mx, y: fixed.y + (Math.sign(dy) || 1) * Math.abs(dx) };
+            const alongY = { x: fixed.x + (Math.sign(dx) || 1) * Math.abs(dy), y: my };
+            const target = axisLock === 'vertical' ? alongX
+                : axisLock === 'horizontal' ? alongY
+                    : Math.abs(dx) >= Math.abs(dy) ? alongX : alongY;
+            if (target.x === fixed.x && target.y === fixed.y) continue;
+            const distance = Math.hypot(target.x - mx, target.y - my);
+            if (distance < threshold && (!best || distance < best.distance)) {
+                best = { distance, offX: target.x - mx, offY: target.y - my };
+            }
+        }
+        if (best) {
+            adjustX += best.offX;
+            adjustY += best.offY;
+        }
     }
 
     // ── Guides: one per unique fixed point, collinear preferred over H/V ──
@@ -2331,6 +2358,18 @@ export function computeMovingSegmentSnaps(threshold, edges, axisLock) {
         if (yAligned || xAligned) {
             guides.push({ a: { x: mx, y: my }, b: fixed, axisKind: yAligned ? 'h' : 'v' });
             covered.add(fixed);
+        }
+    }
+    // 45° guides for segments that now sit exactly on a diagonal.
+    if (diagonal) {
+        for (const { moving, fixed } of edges) {
+            if (covered.has(fixed)) continue;
+            const mx = moving.x + adjustX, my = moving.y + adjustY;
+            const adx = Math.abs(mx - fixed.x), ady = Math.abs(my - fixed.y);
+            if (adx > 1e-9 && Math.abs(adx - ady) < 1e-6) {
+                guides.push({ a: { x: mx, y: my }, b: fixed, axisKind: 'd' });
+                covered.add(fixed);
+            }
         }
     }
 
@@ -2391,7 +2430,7 @@ export function computeAnchorCollinearSnap(app, wire, anchorId, anchorPos) {
         }
     }
 
-    const result = computeMovingSegmentSnaps(threshold, edges);
+    const result = computeMovingSegmentSnaps(threshold, edges, undefined, { diagonal: true });
     return {
         anchorPos: { x: anchorPos.x + result.adjustX, y: anchorPos.y + result.adjustY },
         guides: result.guides
@@ -2526,7 +2565,7 @@ export function computeSegmentDragSnap(app, wire, dragEdgeId, origState, target,
         snapEdges.push({ moving: movingPt, fixed: p, beyond: beyondPt });
     }
     const threshold = SNAP_SCREEN_PX / app.viewport.scale;
-    const snapResult = computeMovingSegmentSnaps(threshold, snapEdges, dragSegAxis);
+    const snapResult = computeMovingSegmentSnaps(threshold, snapEdges, dragSegAxis, { diagonal: true });
     snappedTarget.x += snapResult.adjustX;
     snappedTarget.y += snapResult.adjustY;
 

@@ -514,6 +514,34 @@ for (const [name, edge, collinear, axisKind] of [
     expect(`wire ${name} never creates the old guide pool`, !Object.hasOwn(app, '_collinearGuides'));
 }
 
+// Wire edits also snap and guide 45° segments; callers opt in (component drags with
+// sticky wires stay horizontal/vertical only).
+{
+    const near = { moving: { x: 10.2, y: 10 }, fixed: { x: 0, y: 0 } };
+    const off = wireGuides.computeMovingSegmentSnaps(0.5, [near]);
+    expect('wire 45° snapping is opt-in', off.adjustX === 0 && off.adjustY === 0 && off.guides.length === 0);
+    const on = wireGuides.computeMovingSegmentSnaps(0.5, [near], undefined, { diagonal: true });
+    const end = { x: near.moving.x + on.adjustX, y: near.moving.y + on.adjustY };
+    expect('wire end near 45° snaps onto the diagonal', Math.abs(Math.abs(end.x) - Math.abs(end.y)) < 1e-9
+        && Math.hypot(on.adjustX, on.adjustY) < 0.5);
+    expect('wire 45° segment shows a diagonal guide', on.guides.length === 1 && on.guides[0].axisKind === 'd');
+    const app = { viewport: { scale: 20, contentLayer: element('g') } };
+    sharedGlow.renderGuideLines(app, on.guides);
+    expect('wire 45° guide uses the diagonal color and dashes', app._axisGlowHalos[0].getAttribute('stroke') === '#CC79A7'
+        && app._axisGlowTop[0].getAttribute('stroke-dasharray') === '0.4 0.3');
+    const exact = wireGuides.computeMovingSegmentSnaps(0.5, [{ moving: { x: -4, y: 4 }, fixed: { x: 0, y: 0 } }], undefined, { diagonal: true });
+    expect('an exact 45° wire keeps its position and shows the guide', exact.adjustX === 0 && exact.adjustY === 0
+        && exact.guides[0]?.axisKind === 'd');
+    const vertical = wireGuides.computeMovingSegmentSnaps(0.5, [near], 'vertical', { diagonal: true });
+    expect('a vertical-locked drag reaches 45° by moving only vertically', vertical.adjustX === 0
+        && Math.abs(near.moving.y + vertical.adjustY - 10.2) < 1e-9);
+    const horizontal = wireGuides.computeMovingSegmentSnaps(0.5, [near], 'horizontal', { diagonal: true });
+    expect('a horizontal-locked drag reaches 45° by moving only horizontally', horizontal.adjustY === 0
+        && Math.abs(near.moving.x + horizontal.adjustX - 10) < 1e-9);
+    const axis = wireGuides.computeMovingSegmentSnaps(0.5, [{ moving: { x: 0.2, y: 10 }, fixed: { x: 0, y: 0 } }], undefined, { diagonal: true });
+    expect('horizontal/vertical alignment still wins over 45°', axis.guides.length === 1 && axis.guides[0].axisKind === 'v');
+}
+
 {
     const shape = createRect({ x: 0, y: 0, width: 10, height: 10, cornerRadius: 2 });
     const app = { viewport: { scale: 20, contentLayer: element('g') } };
