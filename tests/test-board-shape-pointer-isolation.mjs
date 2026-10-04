@@ -80,7 +80,7 @@ function fixture(mode, deferred = false, unrelatedCount = 1) {
         getLayerGroup: id => id === 'selection-overlay' ? null : group,
         refreshFills() { fills++; }, _refreshBoardShapeClearance() {},
         propertiesItems: () => null, _cancelDrawingMode() {}, _ensureViewport() {}, markSectionClean() {},
-        _scheduleRemovalHatchRender() {}, _refreshPcbSelectionHighlights() {},
+        _refreshPcbSelectionHighlights() {},
     };
     setDragOverlaysDeferred(app, deferred);
     for (const key of ['boardShapes', 'tracks', 'vias', 'pads', 'texts', '_shapeIdCounter']) {

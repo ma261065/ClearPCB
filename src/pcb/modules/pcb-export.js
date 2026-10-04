@@ -15,6 +15,7 @@ import {
     inlineSvgComputedStyles,
 } from '../../shared/ui/export.js';
 import { PCB_LAYERS } from './layers.js';
+import { stripRemovalHatches } from './removal-hatch.js';
 import { boardBoundary } from '../../shared/pcb/board-outline.js';
 import { ModalManager } from '../../core/ModalManager.js';
 
@@ -179,6 +180,8 @@ export function clonePcbViewportForExport(app, opts) {
         '#gridLayer',
         '#axesLayer',
         '#paperOutlineLayer',
+        // The editor's <defs>: copper-cut clips are sized to the on-screen view.
+        '[data-pcb-defs]',
         '[data-layer="ratlines"]',
         '[data-layer="clearance-overlay"]',
         '.pcb-box-track-sel',
@@ -200,6 +203,9 @@ export function clonePcbViewportForExport(app, opts) {
     // Strip transient selection / hover halos.
     svgNode.querySelectorAll('.pcb-track-selection, .pcb-track-hover')
         .forEach((el) => el.remove());
+
+    // Copper-removal hatching is an on-screen aid; exports show those shapes as outlines.
+    stripRemovalHatches(svgNode);
 
     // Colour treatment. Black & white forces a single ink colour; inverted
     // B&W draws white-on-black (photo negative). Colour mode keeps the

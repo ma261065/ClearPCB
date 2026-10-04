@@ -89,7 +89,7 @@ import { padCopperPathD, renderPad } from '../pcb/modules/pad.js';
 import { AddPadCommand, getPadRotationPreview, getPadPropertyPreview } from '../pcb/modules/pad-commands.js';
 import '../pcb/modules/pad-selection.js';
 import { renderCopperFill } from '../pcb/modules/copper-fill-render.js';
-import { updateCopperCuts, clearCopperCuts, hasCopperCuts, scheduleRemovalHatchRender } from '../pcb/modules/copper-cuts.js';
+import { updateCopperCuts, clearCopperCuts, hasCopperCuts } from '../pcb/modules/copper-cuts.js';
 import { initDebugTooltip } from '../pcb/modules/debug-tooltip.js';
 import { bindPcbMouseEvents, noteTrackPress } from '../pcb/modules/mouse.js';
 import { onLayerVisibilityChanged, onLayerLockChanged, onCopperFillVisibilityChanged, onCopperFillLockChanged, onOverlayVisibilityChanged } from '../pcb/modules/layer-changes.js';
@@ -140,6 +140,15 @@ onRefreshSuspended('overlays', app => {
 onRefreshSuspended('fill', app => {
     if (app instanceof PCBApp) invalidateDrcRefresh(app);
 });
+
+/**
+ * Put the crosshair on a dragged footprint's placement origin: the point the grid snaps,
+ * so the crosshair always sits on the grid point the part is moving to.
+ */
+function showFootprintCrosshair(app, pl) {
+    if (!pl || !app.viewport?.setCrosshair) return;
+    app.viewport.setCrosshair({ x: pl.x, y: pl.y });
+}
 
 /**
  * PCB editor application.
@@ -697,7 +706,6 @@ export default class PCBApp {
                 refreshAxisGlow(this);
                 refreshTrackDrawPreview(this);
             }
-            this._scheduleRemovalHatchRender();
             if (this._lastCrosshairWorld && PCB_CROSSHAIR_TOOLS.has(this.currentTool)) {
                 if (this.currentTool === 'via') {
                     this._updateViaPreview(this._lastCrosshairWorld);
@@ -752,7 +760,6 @@ export default class PCBApp {
         this.viewport.onViewportCull = () => {
             if (!this._active) return;
             this._updatePcbCulling();
-            this._scheduleRemovalHatchRender();
             // Keep the copper-removal clip rectangle following the viewport
             // during a live pan (viewBox moves without firing onViewChanged).
             if (hasCopperCuts(this)) this.updateCopperCuts({ geometryChanged: false });
@@ -1403,22 +1410,22 @@ export default class PCBApp {
     }
 
     /** Get (or lazily create) the shared <defs> in the editor SVG. */
+    /**
+     * The editor's own top-level <defs> (copper-cut clip paths, removal hatches). Not the
+     * grid's: the viewport rebuilds the grid layer, <defs> included, on zoom.
+     */
     _ensureSvgDefs() {
         const svg = this.viewport?.svg;
         if (!svg) return null;
         if (this._svgDefs && this._svgDefs.isConnected) return this._svgDefs;
-        let defs = svg.querySelector('defs');
+        let defs = [...svg.children].find(child => child.localName === 'defs' && child.hasAttribute('data-pcb-defs'));
         if (!defs) {
             defs = document.createElementNS('http://www.w3.org/2000/svg', 'defs');
+            defs.setAttribute('data-pcb-defs', '');
             svg.insertBefore(defs, svg.firstChild);
         }
         this._svgDefs = defs;
         return defs;
-    }
-
-    /** Redraw the copper-removal hatches on the next frame (a seam tests count through). */
-    _scheduleRemovalHatchRender() {
-        scheduleRemovalHatchRender(this);
     }
 
     /** Rebuild the per-side copper-removal clip paths (see copper-cuts.js). */
@@ -3199,6 +3206,7 @@ export default class PCBApp {
                 overlay.style.willChange = 'transform';
             }
         }
+        showFootprintCrosshair(this, pl);
         return true;
     }
 
@@ -3211,6 +3219,7 @@ export default class PCBApp {
         const snap = this._snapToGrid({ x: newX, y: newY });
         if (pl.x === snap.x && pl.y === snap.y) return;
         previewPlacementPose(this, this._drag.compId, { x: snap.x, y: snap.y });
+        showFootprintCrosshair(this, pl);
         this.updateRatsnest({ nets: this._drag.nets });
     }
 
@@ -3351,6 +3360,7 @@ export default class PCBApp {
             if (ov) ov.style.willChange = '';
         }
         this.viewport.svg.style.cursor = getPcbSelection(this, 'component').length ? 'grab' : 'default';
+        this.viewport.hideCrosshair?.();
         if (commit && pl && (pl.x !== startPos.x || pl.y !== startPos.y)) {
             finishPlacementPreview(this, () => {
                 const cmd = new MovePlacementCommand(this, compId, startPos.x, startPos.y, pl.x, pl.y);

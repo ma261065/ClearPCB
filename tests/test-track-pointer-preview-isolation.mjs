@@ -102,7 +102,7 @@ function fixture(mode, deferred = false, unrelatedCount = 1) {
         setActiveRibbonTab() {}, setPcbStatus() {}, refreshFills() { fills++; },
         refreshClearanceHalos() { clearances++; }, _board3d: { refresh() { boardRefreshes++; } },
         _cancelDrawingMode() {}, _ensureViewport() {}, markSectionClean() {},
-        _refreshPcbSelectionHighlights() {}, _scheduleRemovalHatchRender() {},
+        _refreshPcbSelectionHighlights() {},
         alert(message) { this.lastAlert = message; },
     });
     project.registerView('pcb', app);

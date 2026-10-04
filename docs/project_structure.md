@@ -187,9 +187,16 @@ PCB editor:
   modules read its state through `areClearancesVisible`, `getBoardShapeClearance`
   and `getPadHaloGroup`.
 - `pcb/modules/copper-cuts.js` — the per-side clip paths that cut copper under
-  copper-removal shapes and board holes (`updateCopperCuts`, an editor service), and the
-  screen-space canvas that hatches removal shapes; other modules ask `hasCopperCuts`
-  whether any cut is active.
+  copper-removal shapes and board holes (`updateCopperCuts`, an editor service); other
+  modules ask `hasCopperCuts` whether any cut is active.
+- `pcb/modules/removal-hatch.js` — the hatch that fills copper-removal shapes: one SVG
+  `<pattern>` per removal mode in the editor's own `<defs>` (1.8 mm tiles of three lines,
+  0.6 mm apart and 0.1 mm wide, in board units so it zooms with the board), so holes and
+  silk stacked above cover it.
+  Exports strip it (`stripRemovalHatches`). It replaced a canvas overlay drawn above the
+  whole SVG, which hatched over holes. On a stress board (220 removal shapes including 14
+  traced pictures, headless Chromium) SVG hatching did about 25–60% more raster work but
+  halved main-thread frame spikes during zoom and pan (p95 50 ms vs 117–133 ms).
 - `pcb/modules/debug-tooltip.js` — the footprint shape-data tooltip (Help tab), pinned
   and unpinned by a stationary right-click.
 - `pcb/modules/layer-changes.js` — what hiding, showing, locking or unlocking a layer,

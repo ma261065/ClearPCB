@@ -114,7 +114,7 @@ function fixture(count = 1, unrelatedCount = 1) {
         setActiveRibbonTab() {}, setPcbStatus() {}, refreshFills() { fills++; },
         refreshClearanceHalos() { clearances++; },
         _cancelDrawingMode() {}, _ensureViewport() {}, markSectionClean() {},
-        _refreshPcbSelectionHighlights() {}, _scheduleRemovalHatchRender() {},
+        _refreshPcbSelectionHighlights() {},
     });
     project.registerView('pcb', app);
     setPcbSelection(app, vias.map(object => ({ kind: 'via', object })));

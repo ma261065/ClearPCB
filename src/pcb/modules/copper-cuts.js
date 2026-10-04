@@ -1,23 +1,15 @@
-import { isLayerVisible } from './layers.js';
 import { boardShapeCopperCuts, getBoardShapeRotationPreview } from './board-shapes.js';
 import { setCopperFillClip } from './copper-fill-render.js';
 import { areDragOverlaysDeferred } from './refresh-state.js';
 import { isPcbPasteActive } from './pcb-paste.js';
-import { normalizeShapeCopperMode, boardShapeRemovalPathD, boardShapeBounds } from '../../shared/pcb/board-shape-geometry.js';
 import { boardDimensions } from '../../shared/pcb/board-outline.js';
 
 /*
  * Copper cuts: the per-side SVG clip-paths that remove copper under copper-removal
- * shapes and board holes, and the screen-space canvas that hatches removal shapes.
- * The clip and hatch caches are owned here, per editor; other modules ask
- * hasCopperCuts() whether any cut is active.
+ * shapes and board holes. The clip cache is owned here, per editor; other modules ask
+ * hasCopperCuts() whether any cut is active. (Removal shapes' hatching is in
+ * removal-hatch.js.)
  */
-
-const HATCH_COLORS = {
-    'remove-copper': '#5f6770',
-    'remove-solder-mask': '#8a6923',
-    'remove-copper-mask': '#7c3b4c',
-};
 
 const cutStates = new WeakMap();
 
@@ -31,7 +23,6 @@ function cutState(app) {
     if (!state) {
         cutStates.set(app, state = {
             applied: { top: undefined, bottom: undefined }, geometry: {}, active: false, defs: null,
-            hatchCanvas: null, hatchPatterns: new Map(), hatchFrame: 0,
         });
     }
     return state;
@@ -157,100 +148,4 @@ export function clearCopperCuts(app) {
     // sync so the next updateCopperCuts re-applies cuts from scratch.
     state.applied = { top: null, bottom: null };
     state.active = false;
-}
-
-/** Redraw the removal hatches on the next animation frame (coalesced). */
-export function scheduleRemovalHatchRender(app) {
-    const state = cutState(app);
-    if (state.hatchFrame) return;
-    state.hatchFrame = requestAnimationFrame(() => {
-        state.hatchFrame = 0;
-        renderRemovalHatches(app);
-    });
-}
-
-/** Draw copper-removal hatches once into a composited screen-space bitmap. */
-function renderRemovalHatches(app) {
-    const viewport = app.viewport;
-    const container = app.canvasContainer;
-    if (!viewport || !container) return;
-    const state = cutState(app);
-    if (!state.hatchCanvas) {
-        const canvas = document.createElement('canvas');
-        canvas.className = 'pcb-removal-hatch-overlay';
-        canvas.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;pointer-events:none;';
-        container.insertBefore(canvas, viewport.rulerContainer || viewport.crosshairContainer || null);
-        state.hatchCanvas = canvas;
-    }
-    const canvas = state.hatchCanvas;
-    const rect = viewport._getCachedRect();
-    const dpr = window.devicePixelRatio || 1;
-    const width = Math.max(1, Math.round(rect.width * dpr));
-    const height = Math.max(1, Math.round(rect.height * dpr));
-    if (canvas.width !== width || canvas.height !== height) {
-        canvas.width = width;
-        canvas.height = height;
-    }
-    const context = canvas.getContext('2d');
-    if (!context) return;
-    context.setTransform(dpr, 0, 0, dpr, 0, 0);
-    context.clearRect(0, 0, rect.width, rect.height);
-    const viewBox = viewport.viewBox;
-    const scale = viewport.scale || 1;
-    for (const shape of app.boardShapes || []) {
-        if (!shape || shape.type === 'fill' || !isLayerVisible(shape.layer)) continue;
-        if (shape.layer !== 'top-copper' && shape.layer !== 'bottom-copper') continue;
-        const mode = normalizeShapeCopperMode(shape.copperMode);
-        if (!HATCH_COLORS[mode]) continue;
-        const bounds = boardShapeBounds(shape);
-        if (!bounds || bounds.maxX < viewBox.x || bounds.maxY < viewBox.y
-            || bounds.minX > viewBox.x + viewBox.width || bounds.minY > viewBox.y + viewBox.height) continue;
-        const path = boardShapeRemovalPathD(shape);
-        if (!path) continue;
-        context.save();
-        context.setTransform(dpr * scale, 0, 0, dpr * scale, -viewBox.x * dpr * scale, -viewBox.y * dpr * scale);
-        context.beginPath();
-        context.clip(new Path2D(path), 'evenodd');
-        context.setTransform(dpr, 0, 0, dpr, 0, 0);
-        let pattern = state.hatchPatterns.get(mode);
-        if (!pattern) {
-            pattern = context.createPattern(hatchTile(mode), 'repeat');
-            state.hatchPatterns.set(mode, pattern);
-        }
-        context.fillStyle = pattern;
-        context.fillRect(0, 0, rect.width, rect.height);
-        context.restore();
-    }
-}
-
-/** A 36 px hatch tile: a grid for mask removal, a cross for copper, diagonals otherwise. */
-function hatchTile(mode) {
-    const tile = document.createElement('canvas');
-    tile.width = 36;
-    tile.height = 36;
-    const tileContext = tile.getContext('2d');
-    tileContext.strokeStyle = HATCH_COLORS[mode];
-    tileContext.lineWidth = 1.2;
-    if (mode === 'remove-solder-mask') {
-        for (let offset = 0; offset <= 36; offset += 12) {
-            tileContext.beginPath();
-            tileContext.moveTo(offset, 0);
-            tileContext.lineTo(offset, 36);
-            tileContext.moveTo(0, offset);
-            tileContext.lineTo(36, offset);
-            tileContext.stroke();
-        }
-    } else {
-        for (let offset = -36; offset <= 36; offset += 18) {
-            tileContext.beginPath();
-            tileContext.moveTo(offset, 0);
-            tileContext.lineTo(offset + 36, 36);
-            if (mode === 'remove-copper') {
-                tileContext.moveTo(offset, 36);
-                tileContext.lineTo(offset + 36, 0);
-            }
-            tileContext.stroke();
-        }
-    }
-    return tile;
 }

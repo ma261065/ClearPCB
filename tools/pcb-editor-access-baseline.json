@@ -22,7 +22,6 @@
     "_refreshBoardShapeClearance",
     "_refreshPcbSelectionHighlights",
     "_rotationHandleDrag",
-    "_scheduleRemovalHatchRender",
     "_shapeDrag",
     "_shapeDraw",
     "_shapeElements",
@@ -157,7 +156,6 @@
     "_endTextDrag",
     "_refDrag",
     "_refreshPcbSelectionHighlights",
-    "_scheduleRemovalHatchRender",
     "_selectBoardOutline",
     "_textDrag"
   ],
@@ -251,7 +249,6 @@
     "_refreshBoardShapeClearance",
     "_rotationHandleDrag",
     "_scheduleDRC",
-    "_scheduleRemovalHatchRender",
     "_shapeDrag"
   ],
   "src/pcb/modules/project-state.js": [
@@ -291,6 +288,9 @@
   ],
   "src/pcb/modules/refresh-state.js": [
     "_board3d"
+  ],
+  "src/pcb/modules/removal-hatch.js": [
+    "_ensureSvgDefs"
   ],
   "src/pcb/modules/selection-anchors.js": [
     "_lastPointerWorld",

@@ -67,7 +67,6 @@ export function onLayerVisibilityChanged(app, layerId, visible) {
             const companion = groups.get(id);
             if (companion) companion.style.display = display;
         }
-        app._scheduleRemovalHatchRender();
     }
     // Clearance overlay tracks per-layer visibility.
     if (areClearancesVisible(app) && ['top-copper', 'bottom-copper', 'vias', 'hole'].includes(layerId)) {

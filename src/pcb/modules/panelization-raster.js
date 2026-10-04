@@ -1,4 +1,5 @@
 import { inlineSvgComputedStyles } from '../../shared/ui/export.js';
+import { stripRemovalHatches } from './removal-hatch.js';
 
 const NS = 'http://www.w3.org/2000/svg';
 
@@ -34,7 +35,8 @@ export function createPanelArtworkRaster(app, sourceLayers, target, bounds) {
             root.setAttribute('height', String(dimensions.height));
             root.setAttribute('viewBox', `${bounds.x} ${bounds.y} ${bounds.w} ${bounds.h}`);
             for (const child of viewport.svg?.children || []) {
-                if (child.localName === 'defs') root.appendChild(child.cloneNode(true));
+                // Not the editor's <defs>: its copper-cut clips are sized to the on-screen view.
+                if (child.localName === 'defs' && !child.hasAttribute?.('data-pcb-defs')) root.appendChild(child.cloneNode(true));
             }
             const defs = document.createElementNS(NS, 'defs');
             const clip = document.createElementNS(NS, 'clipPath');
@@ -51,6 +53,7 @@ export function createPanelArtworkRaster(app, sourceLayers, target, bounds) {
             for (const [, layer] of sourceLayers) {
                 const clone = layer.cloneNode(true);
                 inlineSvgComputedStyles(layer, clone);
+                stripRemovalHatches(clone);
                 artwork.appendChild(clone);
             }
             root.appendChild(artwork);
@@ -101,7 +104,7 @@ export function createPanelArtworkRaster(app, sourceLayers, target, bounds) {
     const observeDefinitions = () => {
         let added = false;
         for (const child of viewport.svg?.children || []) {
-            if (child.localName !== 'defs' || observedDefs.has(child)) continue;
+            if (child.localName !== 'defs' || child.hasAttribute?.('data-pcb-defs') || observedDefs.has(child)) continue;
             observedDefs.add(child);
             observer.observe(child, { subtree: true, childList: true, attributes: true, characterData: true });
             added = true;

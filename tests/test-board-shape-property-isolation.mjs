@@ -111,7 +111,7 @@ function fixture(kind, count = 1, unrelatedCount = 1, shapeLayer = 'top-copper')
         viewport: { scale: 100, svg: new Element(), setCrosshair() {}, hideCrosshair() {} },
         getLayerGroup: id => id === 'selection-overlay' ? null : group,
         propertiesItems: () => items, setActiveRibbonTab() {}, _refreshPcbSelectionHighlights() {},
-        refreshFills() { pours++; }, _refreshBoardShapeClearance() {}, _scheduleRemovalHatchRender() {},
+        refreshFills() { pours++; }, _refreshBoardShapeClearance() {},
         _cancelDrawingMode() {}, _ensureViewport() {}, markSectionClean() {},
     };
     for (const key of ['boardShapes', 'tracks', 'vias', 'pads', 'texts', '_shapeIdCounter']) {

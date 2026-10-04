@@ -27,7 +27,6 @@ function flushCopperCuts(app) {
     if (!app._deferredShapeCopperCuts) return;
     app._deferredShapeCopperCuts = false;
     app.updateCopperCuts?.();
-    app._scheduleRemovalHatchRender?.();
 }
 
 export function bindPictureRefreshHold(app, input, host = window) {

@@ -377,7 +377,6 @@ app.getLayerGroup = () => null;
 app.refreshClearanceHalos = () => {};
 app.refreshFills = () => {};
 app._refreshBoardShapeClearance = () => {};
-app._scheduleRemovalHatchRender = () => {};
 app.updateRatsnest = () => {};
 app._recomputeFillsNow = () => false;
 app.updateCopperCuts = () => {};

@@ -98,6 +98,7 @@ import { PROP_HIDDEN_LAYERS, showBoardShapeProperties, showBoardShapeToolPropert
 import { isEditorActive } from './pcb-editor-api.js';
 import { forgetBoardShapeClearance, getBoardShapeClearance } from './clearance-overlay.js';
 import { hasCopperCuts } from './copper-cuts.js';
+import { removalHatchFill } from './removal-hatch.js';
 
 const NS = 'http://www.w3.org/2000/svg';
 const HOLE_BORDER_WIDTH = 0.05;
@@ -690,7 +691,7 @@ export function createBoardShapePropertyPreview(app, targets, { liveDrag = false
 export function renderBoardShape(app, shape, opts = {}) {
     if (!opts.interactionOnly) app.refreshSelectedDRCMarker?.();
     shape = displayedBoardShape(app, shape);
-    removeBoardShapeElement(app, shape.id, { skipHatchUpdate: true, preserveInteraction: true });
+    removeBoardShapeElement(app, shape.id, { preserveInteraction: true });
     const selectedSegment = getBoardShapeSegmentFocus(app)?.shapeId === shape.id
         && isPcbSelected(app, 'shape', shape)
         ? getBoardShapeSegmentFocus(app).segment
@@ -715,14 +716,15 @@ export function renderBoardShape(app, shape, opts = {}) {
             : shapePathD(shape, { close: st.filled }));
     }
     if (st.isCopperRemoval || st.isHoleLayer) el.setAttribute('fill-rule', 'evenodd');
-    el.setAttribute('fill', st.filled
-        ? (st.isCopperRemoval
-            ? 'none'
-            : isSelected
+    // Removal shapes are hatched across their whole removal area, filled or not.
+    el.setAttribute('fill', st.isCopperRemoval
+        ? removalHatchFill(app, shape.copperMode)
+        : st.filled
+            ? (isSelected
                 ? shapeSelectionColor(shape)
                 : isHovered ? shapeHoverColor(shape) : st.fillColor)
-        : 'none');
-    if (st.filled) el.setAttribute('fill-opacity', st.isCopperRemoval ? '1' : st.fillOpacity);
+            : 'none');
+    if (st.filled || st.isCopperRemoval) el.setAttribute('fill-opacity', st.isCopperRemoval ? '1' : st.fillOpacity);
     el.setAttribute('stroke', isSelected ? shapeSelectionColor(shape) : isHovered ? shapeHoverColor(shape) : st.baseStroke);
     el.setAttribute('stroke-width', String(st.strokeWidth));
     if (st.isCopperRemoval) el.setAttribute('vector-effect', 'non-scaling-stroke');
@@ -764,7 +766,6 @@ export function renderBoardShape(app, shape, opts = {}) {
     app.getLayerGroup(st.targetLayer)?.appendChild(root);
     app._shapeElements.set(shape.id, root);
     if (!opts.interactionOnly) app._refreshBoardShapeClearance?.(shape);
-    if (!opts.interactionOnly && (!opts.liveDrag || st.isCopperRemoval)) app._scheduleRemovalHatchRender?.();
     if (isPictureCopperRefreshPending(app)) {
         if (!opts.skipCopperUpdate && (shapeAffectsCopperCuts(shape) || (!opts.liveDrag && hasCopperCuts(app)))) app._deferredShapeCopperCuts = true;
         return;
@@ -810,7 +811,6 @@ export function removeBoardShapeElement(app, id, opts = {}) {
         }
         forgetBoardShapeClearance(app, id);
     }
-    if (!opts.skipHatchUpdate) app._scheduleRemovalHatchRender?.();
 }
 
 // ── Hit-test / hover / selection ─────────────────────────────────────────────

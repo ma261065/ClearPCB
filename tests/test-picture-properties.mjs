@@ -141,10 +141,8 @@ console.log('PASS document-layer image Properties choices and undo');
 let fillRefreshes = 0;
 let ratsnestRefreshes = 0;
 let copperCutRefreshes = 0;
-let hatchRefreshes = 0;
 copperCutState(app).active = true;
 app.updateCopperCuts = () => { copperCutRefreshes++; };
-app._scheduleRemovalHatchRender = () => { hatchRefreshes++; };
 app.refreshFills = () => { fillRefreshes++; };
 app.updateRatsnest = () => { ratsnestRefreshes++; };
 for (let step = 1; step <= 20; step++) fields.get('pcbPropImageWidth').change(String(4 + step / 10));
@@ -168,7 +166,6 @@ for (const [id, value] of [['pcbPropImageWidth', '12'], ['pcbPropImageHeight', '
 assert.equal(fillRefreshes, 0, 'Silk spinner edits do not recompute copper pours');
 assert.equal(ratsnestRefreshes, 0, 'Silk spinner edits do not rebuild copper connectivity');
 assert.equal(copperCutRefreshes, 0, 'Silk spinner edits do not rebuild board-wide copper clipping');
-assert.equal(hatchRefreshes, 0, 'Silk spinner edits do not redraw copper-removal hatching');
 fields.get('pcbPropImageLayer').change('top-copper');
 assert.equal(fillRefreshes, 1, 'Moving onto copper refreshes pours');
 assert.equal(ratsnestRefreshes, 1);
@@ -192,7 +189,6 @@ app.updateRatsnest = options => {
     ratsnestRefreshes++;
 };
 const cutsBeforeBurst = copperCutRefreshes;
-const hatchesBeforeBurst = hatchRefreshes;
 try {
     globalThis.setTimeout = (callback, delay) => {
         assert.equal(delay, 100);
@@ -245,7 +241,6 @@ try {
     assert.equal(ratsnestRefreshes, 3, 'Copper spinner clicks and undo do not reconcile synchronously');
     assert.equal(imageClearanceRefreshes, 1, 'Cancellation immediately restores canonical clearance');
     assert.equal(copperCutRefreshes, cutsBeforeBurst, 'Additive copper image edits do not rebuild unrelated copper cuts');
-    assert.equal(hatchRefreshes, hatchesBeforeBurst, 'Additive copper image edits do not rebuild unrelated removal hatching');
     assert.equal(pendingCopper.size, 1, 'Copper spinner burst and undo share one pending refresh');
     const callbacks = [...pendingCopper.values()];
     pendingCopper.clear();

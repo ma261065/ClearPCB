@@ -115,7 +115,7 @@ function fixture(scope = 'whole', unrelatedCount = 1) {
         setActiveRibbonTab() {}, setPcbStatus() {}, refreshFills() { fills++; },
         refreshClearanceHalos() { clearances++; },
         _cancelDrawingMode() {}, _ensureViewport() {}, markSectionClean() {},
-        _refreshPcbSelectionHighlights() {}, _scheduleRemovalHatchRender() {},
+        _refreshPcbSelectionHighlights() {},
     });
     project.registerView('pcb', app);
     for (const object of [track, unrelated[0]].filter(Boolean)) renderTrack(object, app.getLayerGroup);

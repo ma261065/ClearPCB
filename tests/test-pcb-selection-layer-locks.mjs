@@ -223,22 +223,17 @@ const onVisibility = PCBApp.prototype._onLayerVisibilityChanged;
 fillApp._layerGroups = new Map();
 
 fillApp.existingLayerGroups = function () { return this._layerGroups; };
-let hatchRedraws = 0;
 let selectionRefreshes = 0;
-fillApp._scheduleRemovalHatchRender = () => { hatchRedraws++; };
 fillApp._refreshPcbSelectionHighlights = () => { selectionRefreshes++; };
 fillApp.selectFill = () => { throw new Error('Copper visibility must not clear a visible fill'); };
 fillApp.clearProperties = () => { throw new Error('Visible fill properties must remain available'); };
 onVisibility.call(fillApp, 'top-copper', false);
-assert.equal(hatchRedraws, 1, 'Hiding top copper invalidates the separate hatch canvas');
 assert.equal(selectionRefreshes, 1, 'Hiding an outline layer removes its selection lock overlay');
 assert.deepEqual(getPcbSelection(fillApp, 'fill'), [visibleFill]);
 onVisibility.call(fillApp, 'top-copper', true);
 onVisibility.call(fillApp, 'bottom-copper', false);
 onVisibility.call(fillApp, 'bottom-copper', true);
-assert.equal(hatchRedraws, 4, 'Showing and hiding either copper side refreshes hatching');
 onVisibility.call(fillApp, 'top-silk', true);
-assert.equal(hatchRedraws, 4, 'Unrelated layer visibility does not redraw copper hatching');
 assert.equal(selectionRefreshes, 5, 'Every layer eye change refreshes selection affordances');
 {
     const copperShape = { kind: 'polygon', id: 'hidden-copper-shape', layer: 'top-copper', points };
@@ -249,7 +244,7 @@ assert.equal(selectionRefreshes, 5, 'Every layer eye change refreshes selection 
         placements: new Map(), pcbDocument: new PcbDocument(), tracks: [], vias: [keptVia], pads: [],
         boardShapes: [copperShape, silkShape], _layerGroups: new Map(), existingLayerGroups() { return this._layerGroups; }, _shapeElements: new Map(),
         viewport: { scale: 10 }, getLayerGroup() { return null; }, refreshText() {}, syncClipboardButtons() {},
-        _scheduleRemovalHatchRender() {}, clearProperties() {},
+        clearProperties() {},
         _showPcbMultiSelectionProperties(selected) { shownProperties = new Set(selected.map(entry => entry.object)); },
         get texts() { return this.pcbDocument.texts; },
     };

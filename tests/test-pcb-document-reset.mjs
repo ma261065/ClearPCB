@@ -88,7 +88,7 @@ function fixture(active) {
             return layers.get(id);
         },
         updateCopperCuts() {}, _clearFillGroups() {}, _closeDRCPanel() {}, _clearDRCMarker() {},
-        _refreshBoardShapeClearance() {}, setPcbStatus() {}, syncClipboardButtons() {}, _scheduleRemovalHatchRender() {},
+        _refreshBoardShapeClearance() {}, setPcbStatus() {}, syncClipboardButtons() {},
         _updateCursorForTool() {}, _syncPcbHomeToolHighlight() {}, _hideToolOptions() {},
         refreshClearanceHalos() {}, refreshFills() {},
     });

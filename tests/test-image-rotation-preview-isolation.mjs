@@ -60,7 +60,7 @@ function fixture(layer = 'top-copper', unrelatedCount = 1) {
         _shapeElements: new Map(), _textElements: new Map(),
         refreshFills() { fills++; }, _refreshBoardShapeClearance() { clearances++; },
         _cancelDrawingMode() {}, _clearCursorCrosshair() {}, markSectionClean() {}, _ensureViewport() {},
-        _scheduleRemovalHatchRender() {}, _refreshPcbSelectionHighlights() {},
+        _refreshPcbSelectionHighlights() {},
         propertiesItems: () => null,
     };
     for (const key of ['tracks', 'vias', 'pads', 'boardShapes', 'texts']) {

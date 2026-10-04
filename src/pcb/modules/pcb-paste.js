@@ -96,7 +96,7 @@ function removeArtwork(app, payload) {
     payload.vias.forEach(removeViaElements);
     payload.pads.forEach(removePadElements);
     for (const shape of payload.shapes) {
-        removeBoardShapeElement(app, shape.id, { skipHatchUpdate: true });
+        removeBoardShapeElement(app, shape.id);
         const current = app.pcbDocument.boardShapes.find(item => item.id === shape.id && item !== shape);
         if (current) renderBoardShape(app, current, { liveDrag: true, skipCopperUpdate: true });
     }

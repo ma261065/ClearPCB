@@ -105,7 +105,7 @@ export function finishBoardDimensionPreview(app, commit = false) {
     } finally {
         try {
             if (!committed) {
-                removeBoardShapeElement(app, preview.outline.id, { preserveInteraction: true, skipHatchUpdate: true });
+                removeBoardShapeElement(app, preview.outline.id, { preserveInteraction: true });
                 app._drawBoardOutline();
             }
         } finally {

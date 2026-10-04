@@ -101,7 +101,7 @@ function fixture(count = 1, layers = 'both', unrelatedCount = 1) {
         propertiesItems: () => items, getLayerGroup: id => groups.get(id) || null,
         setActiveRibbonTab() {}, setPcbStatus() {}, refreshFills() {}, refreshClearanceHalos() {},
         _cancelDrawingMode() {}, _ensureViewport() {}, markSectionClean() {},
-        _refreshPcbSelectionHighlights() {}, _scheduleRemovalHatchRender() {},
+        _refreshPcbSelectionHighlights() {},
     });
     project.registerView('pcb', app);
     setPcbSelection(app, pads.map(object => ({ kind: 'pad', object })));
