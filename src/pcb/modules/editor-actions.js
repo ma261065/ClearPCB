@@ -3,18 +3,18 @@ import { finishSelectionInteraction, clearSelectionInteractionUi, setSelectionIn
 import { beginGroupDrag, updateGroupDrag, endGroupDrag, cancelGroupDrag, clearBoxSelection, getGroupDrag, hasBoxSelection, deleteBoxSelection } from './box-select.js';
 import { getBoardDimensionPreview, endBoardOutlineResize, finishBoardDimensionPreview, getBoardOutlineResize } from './board-outline-resize.js';
 import { getBoardShapeDrag, getBoardShapeRotationPreview, finishBoardShapeRotationPreview, endBoardShapeDrag, deleteFocusedBoardShape } from './board-shapes.js';
-import { cancelVertexDrag, cancelViaDrag, setSegmentClickEdgeId } from './track-drag.js';
+import { cancelVertexDrag, cancelViaDrag, getVertexDrag, getViaDrag, setSegmentClickEdgeId } from './track-drag.js';
 import { getPcbSelection, getPcbSelectionEntries } from './selection-registry.js';
 import { getSelectedTrack, getSelectedVia, clearTrackSelection, deleteSelectedTrack } from './track-select.js';
 import { canEditFill, deleteFocusedFillPart } from './copper-fill-edit.js';
 import { resetPcbTool } from './tool-lifecycle.js';
-import { getPcbInteraction, isPcbDrawing } from './pcb-interactions.js';
+import { isPcbDrawing } from './pcb-interactions.js';
 import { getPropertyEditor } from './property-editors.js';
 import { isEditorActive } from './pcb-editor-api.js';
 import { flushSettledChanges } from '../../shared/ui/settled-input.js';
-import { cancelPcbPaste } from './pcb-paste.js';
-import { endComponentDrag } from './component-selection.js';
-import { endRefDrag } from './ref-text-selection.js';
+import { cancelPcbPaste, isPcbPasteActive } from './pcb-paste.js';
+import { endComponentDrag, getComponentDrag } from './component-selection.js';
+import { endRefDrag, getRefDrag } from './ref-text-selection.js';
 
 /**
  * Delete the current refinement or selection, retaining drawing/paste ownership
@@ -23,7 +23,7 @@ import { endRefDrag } from './ref-text-selection.js';
  */
 export function runPcbDeleteAction(app) {
     if (!isEditorActive(app) || isPcbDrawing(app)) return false;
-    if (getPcbInteraction(app, '_pasteDrop')) { cancelPcbPaste(app); return true; }
+    if (isPcbPasteActive(app)) { cancelPcbPaste(app); return true; }
     if (getGroupDrag(app)) cancelPcbPosePreviews(app);
     getPropertyEditor(app, 'boardShape')?.cancel();
     getPropertyEditor(app, 'track')?.cancel();
@@ -90,12 +90,12 @@ export function runPcbEscapeAction(app) {
         app._clearCursorCrosshair();
         return true;
     }
-    if (getPcbInteraction(app, '_drag')) {
+    if (getComponentDrag(app)) {
         endComponentDrag(app, false);
         app._clearCursorCrosshair();
         return true;
     }
-    if (getPcbInteraction(app, '_refDrag')) {
+    if (getRefDrag(app)) {
         endRefDrag(app, false);
         app._clearCursorCrosshair();
         return true;
@@ -105,18 +105,18 @@ export function runPcbEscapeAction(app) {
         app.viewport.svg.style.cursor = 'default';
         return true;
     }
-    if (getPcbInteraction(app, '_pasteDrop')) {
+    if (isPcbPasteActive(app)) {
         cancelPcbPaste(app);
         return true;
     }
-    if (getPcbInteraction(app, '_vertexDrag')) {
+    if (getVertexDrag(app)) {
         cancelVertexDrag(app);
         app.viewport.hideCrosshair();
         // No mouse-up cleanup follows a cancelled drag.
         setSegmentClickEdgeId(app, null);
         return true;
     }
-    if (getPcbInteraction(app, '_viaDrag')) { cancelViaDrag(app); return true; }
+    if (getViaDrag(app)) { cancelViaDrag(app); return true; }
     if (app.currentTool !== 'select') {
         clearSelectionInteractionUi(app);
         clearBoxSelection(app);
@@ -166,7 +166,7 @@ export function runPcbHistoryAction(app, action) {
     if (!isEditorActive(app) || isPcbDrawing(app)) return false;
     // A spinner run still settling becomes its own undo step first.
     flushSettledChanges();
-    if (getPcbInteraction(app, '_pasteDrop')) {
+    if (isPcbPasteActive(app)) {
         cancelPcbPaste(app);
         return true;
     }
@@ -185,10 +185,10 @@ export function runPcbHistoryAction(app, action) {
     }
     if (action === 'undo') {
         finishSelectionInteraction(app, false);
-        if (getPcbInteraction(app, '_drag')) endComponentDrag(app, false);
-        if (getPcbInteraction(app, '_refDrag')) endRefDrag(app, false);
-        if (getPcbInteraction(app, '_vertexDrag')) { cancelVertexDrag(app); app.viewport.hideCrosshair(); }
-        if (getPcbInteraction(app, '_viaDrag')) cancelViaDrag(app);
+        if (getComponentDrag(app)) endComponentDrag(app, false);
+        if (getRefDrag(app)) endRefDrag(app, false);
+        if (getVertexDrag(app)) { cancelVertexDrag(app); app.viewport.hideCrosshair(); }
+        if (getViaDrag(app)) cancelViaDrag(app);
         if (getBoardShapeDrag(app)) {
             endBoardShapeDrag(app, false);
             app._clearCursorCrosshair();

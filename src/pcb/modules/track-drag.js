@@ -170,6 +170,35 @@ export function getViaDrag(app) {
     return getPcbInteraction(app, '_viaDrag');
 }
 
+/**
+ * The track a node/bulge drag is moving: `original` is the authored track and `preview`
+ * the copy shown while dragging. Null when no track drag is active.
+ * @returns {{original: any, preview: any}|null}
+ */
+export function draggedTrack(app) {
+    const drag = getVertexDrag(app);
+    return drag ? { original: drag.original, preview: drag.track } : null;
+}
+
+/**
+ * The via a via drag is moving (authored `original`, displayed `preview`), plus the
+ * attached tracks it carries (`tracks.originals` / `tracks.copies`), or null.
+ */
+export function draggedVia(app) {
+    const drag = getViaDrag(app);
+    return drag ? { original: drag.original, preview: drag.via, tracks: drag.preview || null } : null;
+}
+
+/** Whether a node/bulge drag is moving this authored track. */
+export function isDraggingTrack(app, track) {
+    return !!track && getVertexDrag(app)?.original === track;
+}
+
+/** Cancel a node/bulge drag of this track, e.g. before a command replaces the track. */
+export function cancelTrackDragOf(app, track) {
+    if (isDraggingTrack(app, track)) cancelVertexDrag(app);
+}
+
 export function trackPointerTouchesLayer(app, layerId) {
     return getVertexDrag(app)?.layers?.has(layerId) || false;
 }

@@ -32,6 +32,8 @@ import {
     updateVertexDrag,
     finishVertexDrag,
     cancelVertexDrag,
+    getVertexDrag,
+    isDraggingTrack,
 } from './track-drag.js';
 import {
     RemoveTrackCommand,
@@ -46,7 +48,6 @@ import {
     canonicalVia, displayedVia, beginViaPropertyPreview, finishViaPropertyPreview,
     canonicalTrack, displayedTrack, beginTrackPropertyPreview, finishTrackPropertyPreview,
 } from './track-commands.js';
-import { getPcbInteraction } from './pcb-interactions.js';
 import { setSelectionInteraction } from './selection-interaction.js';
 import {
     PCB_HOVER_HIGHLIGHT_OPACITY,
@@ -141,20 +142,19 @@ export function createTrackSelectionAdapter(app, track, id) {
         return started;
     };
     const updateDrag = (worldPos) => {
-        const drag = getPcbInteraction(app, '_vertexDrag');
-        if (drag?.original !== track) return;
+        if (!isDraggingTrack(app, track)) return;
         updateVertexDrag(app, worldPos);
         app._updateVertexDragCrosshair?.();
     };
     const finishNodeMove = (commit, options = {}) => {
-        if (getPcbInteraction(app, '_vertexDrag')?.original !== track) return;
+        if (!isDraggingTrack(app, track)) return;
         if (!commit) {
             cancelVertexDrag(app);
             if ((app.pcbDocument?.tracks || app.tracks).includes(track)) showTrackSelectionProperties(app, track);
             app.setPcbStatus?.();
             return;
         }
-        const drag = getPcbInteraction(app, '_vertexDrag');
+        const drag = getVertexDrag(app);
         if (options.place && drag) {
             const nodeId = app._trackEdit?.track === track ? app._trackEdit.nodeId : null;
             finishVertexDrag(app);
@@ -195,7 +195,7 @@ export function createTrackSelectionAdapter(app, track, id) {
         hitTest(point, tolerance) { return trackHitTest(current(), point, tolerance); },
         getEditPath() {
             if (app._trackEdit?.track === track && app._trackEdit.nodeId != null
-                && getPcbInteraction(app, '_vertexDrag')?.original !== track) return '';
+                && !isDraggingTrack(app, track)) return '';
             const display = current();
             return [...display.edges.entries()].flatMap(([edgeId, edge]) => {
                 if (!isLayerVisible(display.getEdgeLayer(edgeId))) return [];
@@ -252,7 +252,7 @@ export function createTrackSelectionAdapter(app, track, id) {
             updateDrag(worldPos);
         },
         endAnchorDrag(commit, options = {}) {
-            const drag = getPcbInteraction(app, '_vertexDrag');
+            const drag = getVertexDrag(app);
             if (drag?.original !== track) return;
             if (drag?.mode !== 'bulge') return finishNodeMove(commit, options);
             try {
@@ -820,7 +820,7 @@ export function deleteSelectedTrack(app) {
     if (app._trackEdit && selectedTrack === app._trackEdit.track) {
         const { track, edgeId, nodeId } = app._trackEdit;
         if (nodeId != null) {
-            if (getPcbInteraction(app, '_vertexDrag')) {
+            if (getVertexDrag(app)) {
                 setSelectionInteraction(app, null);
                 cancelVertexDrag(app);
             }
@@ -1126,7 +1126,7 @@ function createTrackPropertyBinding(app, track, scope = {}, refresh = () => {}) 
     // copy of this track on the board. Panel edits change the real track, so drop
     // the pickup first or the edit would miss (discrete fields) or fail (numeric fields).
     const dropPointerPreview = () => {
-        if (getPcbInteraction(app, '_vertexDrag')?.original !== track) return;
+        if (!isDraggingTrack(app, track)) return;
         setSelectionInteraction(app, null);
         cancelVertexDrag(app);
         renderPcbSelectionAnchors(app);

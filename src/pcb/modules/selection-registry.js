@@ -7,6 +7,8 @@
 
 import { SelectionManager } from '../../core/SelectionManager.js';
 import { getBoardShapeNodeFocus, getBoardShapeSegmentFocus, setBoardShapeNodeFocus, setBoardShapeSegmentFocus } from './board-shape-state.js';
+// Low-level plumbing that owner modules register into at load time, so it reads the
+// group-drag preview from the import-free store rather than importing box-select.
 import { getPcbInteraction } from './pcb-interactions.js';
 
 const keyFor = (kind, object) => `${kind}:${kind === 'component' || kind === 'reftext' ? object : object.id}`;
