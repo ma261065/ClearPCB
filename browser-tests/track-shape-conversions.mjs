@@ -1,20 +1,8 @@
 import assert from 'node:assert/strict';
+import { openPcb } from './helpers/editor-helpers.mjs';
 
 // Track <-> board-shape conversions driven only through the real Properties panel,
 // the way a user does them, then checked through undo/redo and save + reopen.
-
-/** Load the app, skip the welcome screen, open the PCB tab and accept the default board size. */
-async function openPcb(page, url) {
-    await page.goto(`${url}index.html`);
-    await page.waitForFunction(() => window.bootstrap?.pcbApp && window.bootstrap?.schematicApp);
-    if (await page.locator('#startupSplash').isVisible()) await page.locator('#startupContinue').click();
-    await page.locator('.mode-tab[data-mode="pcb"]').click();
-    const ok = page.locator('.app-modal-overlay button', { hasText: 'OK' });
-    await ok.waitFor();
-    await ok.click();
-    await page.waitForFunction(() => window.bootstrap.pcbApp._boardOutlineDrawn);
-    await settle(page);
-}
 
 /** Wait until the PCB view stops moving (opening zooms to fit with an animation). */
 async function settle(page) {

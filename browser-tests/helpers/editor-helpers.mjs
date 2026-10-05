@@ -20,6 +20,29 @@ export async function openSchematic(page, url) {
     if (await page.locator('#startupSplash').isVisible()) await page.locator('#startupContinue').click();
     await page.locator('.mode-tab[data-mode="schematic"]').click();
     await page.waitForFunction(() => window.bootstrap.schematicApp.viewport?.svg);
+    await viewportSettled(page, 'schematic');
+}
+
+/**
+ * Forget the open project and saved app state, so the next open starts fresh rather
+ * than offering to recover an autosave. For scenarios that reload the page.
+ */
+export async function clearSavedState(page) {
+    await page.evaluate(() => {
+        try { window.bootstrap?.project?.fileManager?.setDirty?.(false); } catch { /* not loaded yet */ }
+        for (const key of Object.keys(localStorage)) if (key.startsWith('clearpcb_')) localStorage.removeItem(key);
+    }).catch(() => {});
+}
+
+/** World point at the middle of an editor's view, rounded to whole millimetres, once the view has settled. */
+export async function viewCentre(page, editor = 'schematic') {
+    await viewportSettled(page, editor);
+    return page.evaluate(editor => {
+        const viewport = (editor === 'schematic' ? window.bootstrap.schematicApp : window.bootstrap.pcbApp).viewport;
+        const rect = viewport.svg.getBoundingClientRect();
+        const world = viewport.screenToWorld({ x: rect.width / 2, y: rect.height / 2 });
+        return { x: Math.round(world.x), y: Math.round(world.y) };
+    }, editor);
 }
 
 export async function viewportSettled(page, editor = 'pcb') {

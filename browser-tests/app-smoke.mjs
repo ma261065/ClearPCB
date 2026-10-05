@@ -1,29 +1,5 @@
 import assert from 'node:assert/strict';
-
-/** Load the app, skip the welcome screen, open the PCB tab and accept the default board size. */
-async function openPcb(page, url) {
-    await page.goto(`${url}index.html`);
-    await page.waitForFunction(() => window.bootstrap?.pcbApp && window.bootstrap?.schematicApp);
-    if (await page.locator('#startupSplash').isVisible()) await page.locator('#startupContinue').click();
-    await page.locator('.mode-tab[data-mode="pcb"]').click();
-    const ok = page.locator('.app-modal-overlay button', { hasText: 'OK' });
-    await ok.waitFor();
-    await ok.click();
-    await page.waitForFunction(() => window.bootstrap.pcbApp._boardOutlineDrawn);
-    await viewportSettled(page);
-}
-
-/** Wait until the PCB view stops moving (the board-size dialog zooms to fit with an animation). */
-async function viewportSettled(page) {
-    let previous = '';
-    for (let attempt = 0; attempt < 50; attempt++) {
-        const current = JSON.stringify(await screenPoint(page, 0, 0)) + JSON.stringify(await screenPoint(page, 10, -10));
-        if (current === previous) return;
-        previous = current;
-        await page.waitForTimeout(100);
-    }
-    throw new Error('The PCB viewport did not settle');
-}
+import { openPcb } from './helpers/editor-helpers.mjs';
 
 /** Screen position of a PCB world point. */
 function screenPoint(page, x, y) {

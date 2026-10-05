@@ -1,21 +1,10 @@
 import assert from 'node:assert/strict';
+import { openPcb } from './helpers/editor-helpers.mjs';
 
 // Properties number fields commit once a run of spinner clicks settles: one undo
 // step, with the live preview showing each step meanwhile. Pressing Undo during a run
 // commits the run first (leaving the field flushes it), so it undoes the whole run.
 // (Keyboard shortcuts belong to the focused field, so Ctrl+Z there is text undo.)
-
-async function openPcb(page, url) {
-    await page.goto(`${url}index.html`);
-    await page.waitForFunction(() => window.bootstrap?.pcbApp && window.bootstrap?.schematicApp);
-    if (await page.locator('#startupSplash').isVisible()) await page.locator('#startupContinue').click();
-    await page.locator('.mode-tab[data-mode="pcb"]').click();
-    const ok = page.locator('.app-modal-overlay button', { hasText: 'OK' });
-    await ok.waitFor();
-    await ok.click();
-    await page.waitForFunction(() => window.bootstrap.pcbApp._boardOutlineDrawn);
-    await page.waitForTimeout(300);
-}
 
 async function screenPoint(page, x, y) {
     return page.evaluate(([x, y]) => {

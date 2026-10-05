@@ -1,19 +1,8 @@
 import assert from 'node:assert/strict';
+import { openPcb } from './helpers/editor-helpers.mjs';
 
 // Individual object locks through the real UI: the Properties "Locked" checkbox,
 // the read-only panel, the selection lock icon and its unlock menu, and save + reopen.
-
-async function openPcb(page, url) {
-    await page.goto(`${url}index.html`);
-    await page.waitForFunction(() => window.bootstrap?.pcbApp && window.bootstrap?.schematicApp);
-    if (await page.locator('#startupSplash').isVisible()) await page.locator('#startupContinue').click();
-    await page.locator('.mode-tab[data-mode="pcb"]').click();
-    const ok = page.locator('.app-modal-overlay button', { hasText: 'OK' });
-    await ok.waitFor();
-    await ok.click();
-    await page.waitForFunction(() => window.bootstrap.pcbApp._boardOutlineDrawn);
-    await settle(page);
-}
 
 async function settle(page) {
     let previous = '';

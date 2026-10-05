@@ -1,30 +1,9 @@
 import assert from 'node:assert/strict';
 
-/** Load the app, skip the welcome screen and open the schematic tab. */
-async function openSchematic(page, url) {
-    await page.goto(`${url}index.html`);
-    await page.waitForFunction(() => window.bootstrap?.pcbApp && window.bootstrap?.schematicApp);
-    if (await page.locator('#startupSplash').isVisible()) await page.locator('#startupContinue').click();
-    await page.locator('.mode-tab[data-mode="schematic"]').click();
-}
+import { openSchematic, screenPoint as editorScreenPoint, viewCentre } from './helpers/editor-helpers.mjs';
 
 /** Screen position of a schematic world point. */
-function screenPoint(page, x, y) {
-    return page.evaluate(([x, y]) => {
-        const viewport = window.bootstrap.schematicApp.viewport;
-        const screen = viewport.worldToScreen({ x, y });
-        const rect = viewport.svg.getBoundingClientRect();
-        return { x: rect.left + screen.x, y: rect.top + screen.y };
-    }, [x, y]);
-}
-
-/** World point at the middle of the schematic view, rounded to whole millimetres. */
-const viewCentre = page => page.evaluate(() => {
-    const viewport = window.bootstrap.schematicApp.viewport;
-    const rect = viewport.svg.getBoundingClientRect();
-    const world = viewport.screenToWorld({ x: rect.width / 2, y: rect.height / 2 });
-    return { x: Math.round(world.x), y: Math.round(world.y) };
-});
+const screenPoint = (page, x, y) => editorScreenPoint(page, 'schematic', x, y);
 
 /** Logical (SelectionManager) selection of every shape and whether its anchor handles are drawn. */
 const selectionState = page => page.evaluate(async () => {

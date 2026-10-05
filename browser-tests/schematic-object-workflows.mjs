@@ -11,22 +11,12 @@ import {
     schematicSnapshot,
     screenPoint,
     undoSchematic,
+    viewCentre,
 } from './helpers/editor-helpers.mjs';
 
 const p = (x, y) => ({ x, y });
 const add = (origin, [x, y]) => [origin.x + x, origin.y + y];
 const addPoint = (origin, point) => ({ x: origin.x + point.x, y: origin.y + point.y });
-
-// The view may still be fitting after the editor opens; measure once it has settled.
-const viewCentre = async page => {
-    await viewportSettled(page, 'schematic');
-    return page.evaluate(() => {
-        const viewport = window.bootstrap.schematicApp.viewport;
-        const rect = viewport.svg.getBoundingClientRect();
-        const world = viewport.screenToWorld({ x: rect.width / 2, y: rect.height / 2 });
-        return { x: Math.round(world.x), y: Math.round(world.y) };
-    });
-};
 
 const selectionVisual = page => page.evaluate(() => window.bootstrap.schematicApp.viewport.svg.outerHTML);
 const selected = page => page.evaluate(() => window.bootstrap.schematicApp.selection.getSelection().map(item => ({

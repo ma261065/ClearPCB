@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { clearSavedState, openSchematic as openSharedSchematic, screenPoint as editorScreenPoint, viewCentre } from './helpers/editor-helpers.mjs';
 
 /*
  * Every schematic gesture, cancelled by every route, leaves the authored model and
@@ -7,33 +8,14 @@ import assert from 'node:assert/strict';
  * this is what proves each cancel restores everything it touched.
  */
 
-/** Load the app with no saved state, skip the welcome screen and open the schematic tab. */
+/** Load the app with no saved state (each cancel route reloads) and open the schematic tab. */
 async function openSchematic(page, url) {
-    await page.evaluate(() => {
-        try { window.bootstrap?.project?.fileManager?.setDirty?.(false); } catch { /* not loaded yet */ }
-        for (const key of Object.keys(localStorage)) if (key.startsWith('clearpcb_')) localStorage.removeItem(key);
-    }).catch(() => {});
-    await page.goto(`${url}index.html`);
-    await page.waitForFunction(() => window.bootstrap?.pcbApp && window.bootstrap?.schematicApp);
-    if (await page.locator('#startupSplash').isVisible()) await page.locator('#startupContinue').click();
-    await page.locator('.mode-tab[data-mode="schematic"]').click();
+    await clearSavedState(page);
+    await openSharedSchematic(page, url);
 }
 
-function screenPoint(page, x, y) {
-    return page.evaluate(([x, y]) => {
-        const viewport = window.bootstrap.schematicApp.viewport;
-        const screen = viewport.worldToScreen({ x, y });
-        const rect = viewport.svg.getBoundingClientRect();
-        return { x: rect.left + screen.x, y: rect.top + screen.y };
-    }, [x, y]);
-}
-
-const viewCentre = page => page.evaluate(() => {
-    const viewport = window.bootstrap.schematicApp.viewport;
-    const rect = viewport.svg.getBoundingClientRect();
-    const world = viewport.screenToWorld({ x: rect.width / 2, y: rect.height / 2 });
-    return { x: Math.round(world.x), y: Math.round(world.y) };
-});
+/** Screen position of a schematic world point. */
+const screenPoint = (page, x, y) => editorScreenPoint(page, 'schematic', x, y);
 
 /** Authored model and history, compared before and after each gesture. */
 const fingerprint = page => page.evaluate(() => {

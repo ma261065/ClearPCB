@@ -1,18 +1,7 @@
 import assert from 'node:assert/strict';
+import { openPcb } from './helpers/editor-helpers.mjs';
 import { propertyRank, PROPERTY_ORDER } from '../src/shared/ui/property-order.js';
 import { collectPropertyPanels } from './property-order-panels.js';
-
-/** Load the app, skip the welcome screen, open the PCB tab and accept the default board size. */
-async function openPcb(page, url) {
-    await page.goto(`${url}index.html`);
-    await page.waitForFunction(() => window.bootstrap?.pcbApp && window.bootstrap?.schematicApp);
-    if (await page.locator('#startupSplash').isVisible()) await page.locator('#startupContinue').click();
-    await page.locator('.mode-tab[data-mode="pcb"]').click();
-    const ok = page.locator('.app-modal-overlay button', { hasText: 'OK' });
-    await ok.waitFor();
-    await ok.click();
-    await page.waitForFunction(() => window.bootstrap.pcbApp._boardOutlineDrawn);
-}
 
 export const scenarios = [
     {

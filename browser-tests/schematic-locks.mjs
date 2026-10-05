@@ -5,28 +5,10 @@ import assert from 'node:assert/strict';
 // locked members staying put while the rest of a selection moves or is edited, and
 // pasted copies arriving unlocked.
 
-async function openSchematic(page, url) {
-    await page.goto(`${url}index.html`);
-    await page.waitForFunction(() => window.bootstrap?.pcbApp && window.bootstrap?.schematicApp);
-    if (await page.locator('#startupSplash').isVisible()) await page.locator('#startupContinue').click();
-    await page.locator('.mode-tab[data-mode="schematic"]').click();
-}
+import { openSchematic, screenPoint as editorScreenPoint, viewCentre } from './helpers/editor-helpers.mjs';
 
-function screenPoint(page, x, y) {
-    return page.evaluate(([x, y]) => {
-        const viewport = window.bootstrap.schematicApp.viewport;
-        const screen = viewport.worldToScreen({ x, y });
-        const rect = viewport.svg.getBoundingClientRect();
-        return { x: rect.left + screen.x, y: rect.top + screen.y };
-    }, [x, y]);
-}
-
-const viewCentre = page => page.evaluate(() => {
-    const viewport = window.bootstrap.schematicApp.viewport;
-    const rect = viewport.svg.getBoundingClientRect();
-    const world = viewport.screenToWorld({ x: rect.width / 2, y: rect.height / 2 });
-    return { x: Math.round(world.x), y: Math.round(world.y) };
-});
+/** Screen position of a schematic world point. */
+const screenPoint = (page, x, y) => editorScreenPoint(page, 'schematic', x, y);
 
 async function clickAt(page, x, y) {
     const point = await screenPoint(page, x, y);
