@@ -83,6 +83,7 @@ import {
 } from '../pcb/modules/selection-interaction.js';
 import { getPcbSelection, getPcbSelectionHits, isPcbSelected, setPcbSelection, syncPcbSelection } from '../pcb/modules/selection-registry.js';
 import { measureText as measureStrokeText } from '../shared/pcb/stroke-font.js';
+import { hitTestRefText, placementLocalToWorld, refBox, refCenterWorld, refEditBoxWorldCorners, worldToPlacementLocal } from '../pcb/modules/ref-text-geometry.js';
 import { CommandHistory } from '../core/CommandHistory.js';
 import { Track } from '../shapes/track.js';
 import { Via } from '../shapes/via.js';
@@ -131,7 +132,6 @@ const PCB_LOD_PIXEL_THRESHOLD = 24;
  * for both its selection outline and its drag grab region, so the box sits
  * comfortably around the label instead of touching the strokes.
  */
-const REF_BOX_PAD = 0.6;
 
 // Raising a suspension invalidates in-flight derived work on the editor, as its
 // former property setters did. Other objects (test doubles) are unaffected.
@@ -2827,31 +2827,9 @@ export default class PCBApp {
         return hits ? hits.reverse() : hit;
     }
 
-    /**
-     * Map a world-space point into a placement's local footprint frame,
-     * inverting `placementTransform` (translate → rotate → mirror). Used so
-     * hit-tests against footprint-local `bounds` match the rendered halo on
-     * rotated/mirrored placements.
-     * @param {{x:number,y:number}} worldPos
-     * @param {object} pl - placement
-     * @returns {{x:number,y:number}} point in footprint-local coordinates
-     */
+    /** See worldToPlacementLocal in pcb/modules/ref-text-geometry.js. */
     _worldToPlacementLocal(worldPos, pl) {
-        // Undo translate.
-        let px = worldPos.x - pl.x;
-        let py = worldPos.y - pl.y;
-        // Undo rotation (inverse = rotate by -θ).
-        const rot = pl.rotation || 0;
-        if (rot) {
-            const rad = rot * Math.PI / 180;
-            const cos = Math.cos(rad), sin = Math.sin(rad);
-            const rx = px * cos + py * sin;
-            const ry = -px * sin + py * cos;
-            px = rx; py = ry;
-        }
-        // Undo mirror (scale(-1,1) is its own inverse).
-        if (isPlacementMirrored(pl)) px = -px;
-        return { x: px, y: py };
+        return worldToPlacementLocal(worldPos, pl);
     }
 
     /**
@@ -3603,32 +3581,9 @@ export default class PCBApp {
         return true;
     }
 
-    /**
-     * Resolve a placement's reference-text element and its footprint-local
-     * bounding box (cached on the placement). Returns null when the footprint
-     * has no reference group. The box `{bx,by,bw,bh,cx,cy}` is authored-local,
-     * the same frame as `_worldToPlacementLocal` output and the pad offsets.
-     * @param {object} pl - placement
-     */
+    /** See refBox in pcb/modules/ref-text-geometry.js. */
     _refBox(pl) {
-        if (!pl) return null;
-        if (pl._refBox && pl._refEl?.isConnected) return pl._refBox;
-        let el = null;
-        for (const layer of (pl.elements || [])) {
-            el = layer.querySelector?.('[data-fp-ref]');
-            if (el) break;
-        }
-        if (!el) return null;
-        const bx = parseFloat(el.getAttribute('data-ref-bx'));
-        const by = parseFloat(el.getAttribute('data-ref-by'));
-        const bw = parseFloat(el.getAttribute('data-ref-bw'));
-        const bh = parseFloat(el.getAttribute('data-ref-bh'));
-        const cx = parseFloat(el.getAttribute('data-mx-center'));
-        const cy = parseFloat(el.getAttribute('data-ref-cy'));
-        if (![bx, by, bw, bh, cx, cy].every(Number.isFinite)) return null;
-        pl._refEl = el;
-        pl._refBox = { bx, by, bw, bh, cx, cy };
-        return pl._refBox;
+        return refBox(pl);
     }
 
     /**
@@ -3666,107 +3621,24 @@ export default class PCBApp {
             : textColorForLayer(pl.side === 'bottom' ? 'bottom-silk' : 'top-silk'));
     }
 
-    /**
-     * Forward transform of an authored-local footprint point to world space,
-     * the inverse of {@link _worldToPlacementLocal}: mirror → rotate → translate.
-     * @param {object} pl - placement
-     * @param {number} lx
-     * @param {number} ly
-     * @returns {{x:number,y:number}}
-     */
+    /** See placementLocalToWorld in pcb/modules/ref-text-geometry.js. */
     _placementLocalToWorld(pl, lx, ly) {
-        let px = isPlacementMirrored(pl) ? -lx : lx;
-        let py = ly;
-        const rot = pl.rotation || 0;
-        if (rot) {
-            const rad = rot * Math.PI / 180;
-            const cos = Math.cos(rad), sin = Math.sin(rad);
-            const rx = px * cos - py * sin;
-            const ry = px * sin + py * cos;
-            px = rx; py = ry;
-        }
-        return { x: px + pl.x, y: py + pl.y };
+        return placementLocalToWorld(pl, lx, ly);
     }
 
-    /**
-     * World-space centre of a placement's reference designator, accounting
-     * for the ref offset (rotation about the centre leaves the centre fixed).
-     * @param {object} pl - placement
-     * @param {{bx:number,by:number,bw:number,bh:number,cx:number,cy:number}} box
-     */
+    /** See refCenterWorld in pcb/modules/ref-text-geometry.js. */
     _refCenterWorld(pl, box) {
-        return this._placementLocalToWorld(pl, box.cx + (pl.refDx || 0), box.cy + (pl.refDy || 0));
+        return refCenterWorld(pl, box);
     }
 
-    /**
-     * World-space corners of the reference's inline-edit rectangle.
-     * Keep these metrics identical to _startTextInlineEdit.updateCaret().
-     */
+    /** See refEditBoxWorldCorners in pcb/modules/ref-text-geometry.js. */
     _refEditBoxWorldCorners(pl, box) {
-        const size = pl.refSize || REF_DEFAULT_SIZE;
-        const width = measureStrokeText(pl.reference || '', size);
-        const baseX = box.cx - width / 2;
-        const baseY = parseFloat(pl._refEl?.getAttribute('data-ref-anchor-y'));
-        if (!Number.isFinite(baseY)) return null;
-
-        const padX = size * 0.15;
-        const padTop = size * 0.25;
-        const padBot = size * 1.0;
-        const referenceAngle = (pl.refRot || 0) * Math.PI / 180;
-        const cosine = Math.cos(referenceAngle), sine = Math.sin(referenceAngle);
-        return [
-            [baseX - padX, baseY - size - padTop],
-            [baseX + width + padX, baseY - size - padTop],
-            [baseX + width + padX, baseY + padBot],
-            [baseX - padX, baseY + padBot],
-        ].map(([x, y]) => {
-            const deltaX = x - box.cx, deltaY = y - box.cy;
-            let localX = box.cx + deltaX * cosine - deltaY * sine;
-            const localY = box.cy + deltaX * sine + deltaY * cosine;
-            if (pl.mirror) localX = 2 * box.cx - localX;
-            return this._placementLocalToWorld(
-                pl,
-                localX + (pl.refDx || 0),
-                localY + (pl.refDy || 0),
-            );
-        });
+        return refEditBoxWorldCorners(pl, box);
     }
 
-    /**
-     * Hit-test the reference designator of every visible placement. Returns
-     * the topmost component id whose ref box contains the world point, or null.
-     * @param {{x:number,y:number}} worldPos
-     * @returns {string|null}
-     */
+    /** See hitTestRefText in pcb/modules/ref-text-geometry.js. */
     _hitTestRefText(worldPos) {
-        const MARGIN = REF_BOX_PAD; // mm — match the drawn selection box
-        let hit = null;
-        for (const [compId, pl] of this.placements) {
-            if (pl.refVisible === false) continue;
-            if (!isLayerVisible(pl.side === 'bottom' ? 'bottom-silk' : 'top-silk')) continue;
-            const box = this._refBox(pl);
-            if (!box) continue;
-            // Undo placement, reference offset, user counter-mirror, then reference rotation.
-            const local = this._worldToPlacementLocal(worldPos, pl);
-            let ax = local.x - (pl.refDx || 0);
-            let ay = local.y - (pl.refDy || 0);
-            if (pl.mirror) ax = 2 * box.cx - ax;
-            const rr = pl.refRot || 0;
-            if (rr) {
-                const rad = -rr * Math.PI / 180;
-                const cos = Math.cos(rad), sin = Math.sin(rad);
-                const ox = ax - box.cx, oy = ay - box.cy;
-                ax = box.cx + ox * cos - oy * sin;
-                ay = box.cy + ox * sin + oy * cos;
-            }
-            if (
-                ax >= box.bx - MARGIN && ax <= box.bx + box.bw + MARGIN
-                && ay >= box.by - MARGIN && ay <= box.by + box.bh + MARGIN
-            ) {
-                hit = compId;
-            }
-        }
-        return hit;
+        return hitTestRefText(this.placements, worldPos, pl => this._refBox(pl));
     }
 
     /** Select/deselect a component's reference text. Pass null to clear. */

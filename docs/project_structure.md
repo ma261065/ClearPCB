@@ -170,6 +170,9 @@ PCB editor:
 - `pcb/modules/project-state.js` — PCB serialization, preparation and restoration.
 - `pcb/modules/board-shapes.js` — board-shape rendering, selection, interaction and
   Track conversion; `board-shape-properties.js` — their Properties panel.
+- `pcb/modules/ref-text-geometry.js` — a reference designator's box, hit test and
+  inline-edit corners, and the footprint-local ↔ board transforms (pure functions of
+  the placement); `ref-text-selection.js` — its selection adapter.
 - Properties panels by object: `track-select.js` (tracks, segments, nodes, vias),
   `pad-properties.js` (pads and the Pad tool), `text-properties.js` (free text, the
   Text tool, and the stroke-text field binder shared with reference designators),
