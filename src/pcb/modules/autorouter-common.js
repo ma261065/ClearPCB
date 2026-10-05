@@ -1,4 +1,3 @@
-// @ts-nocheck — SpatialHash uses runtime type narrowing (obj.isPad) that JSDoc cannot express
 /**
  * ClearPCB Autorouter — Shared Infrastructure
  *
@@ -21,7 +20,8 @@
 
 /**
  * @typedef {Object} RouteInput
- * @property {Array<{net: string, pads: Array<{x: number, y: number, width: number, height: number, layer?: ('top'|'bottom'|'both'), shape?: ('rect'|'ellipse'), alternates?: Array<{x: number, y: number, width: number, height: number, layer?: ('top'|'bottom'|'both'), shape?: ('rect'|'ellipse')}>}>}>} connections
+ * @property {Array<{net: string, pads: Array<{x: number, y: number, width: number, height: number, layer?: ('top'|'bottom'|'both'), shape?: ('rect'|'ellipse'), alternates?: Array<{x: number, y: number, width: number, height: number, layer?: ('top'|'bottom'|'both'), shape?: ('rect'|'ellipse')}>}>, edges?: Array<any>}>} connections
+ *   `edges` is router-internal: the maze router stores each connection's MST edges there.
  *   Each connection pad's `alternates` array (optional) lists physically
  *   distinct pads that share the same logical pin (e.g. thermal/centre
  *   pads of TQFN/SOIC-with-EP). The router treats reaching the primary OR
@@ -47,6 +47,8 @@
  * @typedef {Object} RouteResult
  * @property {Array<{net: string, points: Array<{x: number, y: number}>, layer: string}>} tracks
  * @property {string[]} failed - net names that couldn't be routed
+ * @property {Array<{net: string, from: {x: number, y: number}, to: {x: number, y: number}}>} [failedConnections] -
+ *   unrouted connections, which the editor draws as ratlines after adopting the result
  * @property {number} [failedConnectionCount] - number of unrouted connections
  * @property {number} [totalConnectionCount] - total connections
  * @property {Array<{net: string, x: number, y: number}>} [vias] - via locations
@@ -70,7 +72,7 @@
  * Shared between the cost-based router and the rip-up probe so that
  * both use identical priority-queue semantics.
  *
- * @returns {{ push: (node: {f: number}) => void, pop: () => any, size: () => number }}
+ * @returns {{ push: (node: {f: number, [key: string]: any}) => void, pop: () => any, size: () => number }}
  */
 export function createMinHeap() {
     const heap = [];
@@ -130,6 +132,9 @@ export function createMinHeap() {
  * @property {number} [y1] - segment start Y (segments only)
  * @property {number} [x2] - segment end X (segments only)
  * @property {number} [y2] - segment end Y (segments only)
+ * @property {string} [shape] - pad outline: 'rect', 'ellipse' or 'oval' (pads only)
+ * @property {string} [netName] - routed net name of fixed copper (pads only)
+ * @property {boolean} [fixedCopper] - board copper the router keeps (never ripped up)
  */
 
 export class SpatialHash {
@@ -212,7 +217,7 @@ export class SpatialHash {
      * @param {number} cx @param {number} cy @param {number} w @param {number} h
      * @param {string} net  Pad-instance ID (used for skipIds matching).
      * @param {string} [padLayer='both']
-     * @param {{isVia?: boolean, connId?: string|null, shape?: string}} [options={}]
+     * @param {{isVia?: boolean, connId?: string|null, shape?: string, netName?: string, fixedCopper?: boolean}} [options={}]
      *   `shape` may be 'rect' (default) or 'ellipse'. Ellipse pads use elliptical
      *   distance for blocking checks; rect pads use AABB.
      */
@@ -805,7 +810,7 @@ export function segmentToSegmentDist(ax1, ay1, ax2, ay2, bx1, by1, bx2, by2) {
 /**
  * Returns true if point (x, y) is within `clearance` of the pad obstacle's copper.
  * @param {number} x @param {number} y
- * @param {{cx:number, cy:number, hw:number, hh:number, shape?:string}} obj
+ * @param {{cx?:number, cy?:number, hw:number, hh?:number, shape?:string}} obj a pad obstacle
  * @param {number} clearance
  */
 export function padPointBlocked(x, y, obj, clearance) {

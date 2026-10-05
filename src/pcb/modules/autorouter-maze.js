@@ -1,4 +1,3 @@
-// @ts-nocheck — JSDoc partial types and runtime type narrowing not expressible to TS
 import {
     astarProbe,
     astarRoute,
@@ -11,6 +10,9 @@ import {
     simplifyPath,
     SpatialHash
 } from './autorouter-common.js';
+
+/** @typedef {import('./autorouter-common.js').RouteInput} RouteInput */
+/** @typedef {import('./autorouter-common.js').RouteResult} RouteResult */
 
 // ── Main Router ───────────────────────────────────────────────────
 
@@ -30,6 +32,7 @@ import {
  * @param {function(number, number, string, object=): void} [options.onProgress] - (completed, total, netName, meta)
  * @param {function(Array): void} [options.onNetRouted] - called with track segments after each net is routed
  * @param {function(object): void} [options.onNetFailed] - called with the connection object when a net fails
+ * @param {function(object): void} [options.onConnRipped] - called with a connection when rip-up removes it
  * @param {function(object, object): void} [options.onTrying] - called with (fromPad, toPad) before each routing attempt
  * @param {function(string, number): void} [options.onNetPendingChanged] - called with (netName, pendingConnections)
  * @param {{cancelled: boolean}} [options.cancelToken] - set .cancelled = true to abort

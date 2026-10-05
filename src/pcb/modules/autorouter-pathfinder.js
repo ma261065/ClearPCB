@@ -1,4 +1,3 @@
-// @ts-nocheck — JSDoc partial types and runtime type narrowing not expressible to TS
 import {
     astarRoute,
     fixAngles,
@@ -1717,7 +1716,7 @@ export async function routeAllPathfinder(input, options = {}) {
      *
      * @param {string} connKey
      * @param {Array<{x,y,layer}>|null} newPath - null/empty = unrouted
-     * @param {Array<{x,y}>} [vias]
+     * @param {Array<{x,y}>|undefined} vias
      * @param {string} net
      */
     const emitConnChange = (connKey, newPath, vias, net) => {
