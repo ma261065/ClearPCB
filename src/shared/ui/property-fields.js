@@ -23,6 +23,7 @@
  * placeholder, a disabled `Mixed` select option or an indeterminate checkbox; disabled
  * fields (locked object or layer) use the native `disabled` attribute.
  */
+import { formatNumberInputValue } from '../../core/number-inputs.js';
 import { sortByPropertyOrder } from './property-order.js';
 import { bindSettledChange } from './settled-input.js';
 
@@ -48,7 +49,8 @@ export const MIXED_LABEL = 'Mixed';
  * @property {number} [max]
  * @property {number} [step]
  * @property {'rotation'|'precise'|string} [numberFormat] Display hint for core/number-inputs.js.
- * @property {(value: any) => string} [format] Number display; default String.
+ * @property {(value: any) => string} [format] Number display; default two decimals, as every
+ *   number input, unless `numberFormat` is rotation, precise or integer.
  * @property {(text: string) => number} [parse] Number parse; NaN is invalid. Default Number (blank is NaN).
  * @property {() => number} [seedMixed] Number used when a mixed/blank number starts a spinner or Arrow-key step.
  * @property {boolean} [formatStepped] Format spinner/Arrow-key values with `format`.
@@ -82,8 +84,21 @@ const element = (tag, className = '') => {
 
 const isFocused = control => typeof document !== 'undefined' && document.activeElement === control;
 
-const display = (field, value) => (value === '' || value == null || Number.isNaN(value)
-    ? '' : String(field.format ? field.format(value) : value));
+/** Number formats that keep their own digits (core/number-inputs.js leaves them too). */
+const OWN_DIGITS = new Set(['rotation', 'precise', 'integer']);
+
+/**
+ * A value as its control shows it. Number fields show two decimals like every number
+ * input (core/number-inputs.js), unless their `numberFormat` keeps its own digits;
+ * other numbers drop floating-point noise (15.239999999999998 reads 15.24).
+ */
+const display = (field, value) => {
+    if (value === '' || value == null || Number.isNaN(value)) return '';
+    if (field.format) return String(field.format(value));
+    if (typeof value !== 'number' || !Number.isFinite(value)) return String(value);
+    if (field.type === 'number' && !OWN_DIGITS.has(field.numberFormat)) return formatNumberInputValue(value);
+    return String(Number(value.toPrecision(12)));
+};
 
 const setAttr = (node, name, value) => {
     if (value === undefined || value === null || value === '' || (typeof value === 'number' && !Number.isFinite(value))) {
@@ -203,10 +218,13 @@ class Row {
                 : (input.value.trim() === '' ? NaN : Number(input.value));
             if (!Number.isFinite(value) || !this.field.normalize) return value;
             const normalized = this.field.normalize(value);
-            if (Number.isFinite(normalized) && normalized !== value) input.value = display(this.field, normalized);
+            // Float noise from the arithmetic is not a change to show.
+            if (Number.isFinite(normalized) && Math.abs(normalized - value) > 1e-9) input.value = display(this.field, normalized);
             return normalized;
         };
         const preview = event => {
+            // Text the renderer showed (not typed or stepped) is not an edit, as in a browser.
+            if (input.value === this.shown) return;
             const value = parse();
             // The change that follows an Enter commit repeats the committed value.
             if (event?.type === 'change' && !this.pending && value === this.committed) return;
@@ -250,7 +268,13 @@ class Row {
 
     restore() {
         this.dirty = false;
-        this.control.value = this.field.mixed ? '' : display(this.field, this.field.value);
+        this.show(this.field.mixed ? '' : display(this.field, this.field.value));
+    }
+
+    /** Write text into the control, remembering it as the renderer's own. */
+    show(text) {
+        this.control.value = text;
+        this.shown = text;
     }
 
     /** Whether `field` can reuse this row's controls. */
@@ -298,7 +322,14 @@ class Row {
             setAttr(control, 'step', field.step);
             if (field.numberFormat) control.dataset.numberFormat = field.numberFormat;
             control.placeholder = field.mixed ? MIXED_LABEL : '';
-            if (!editing) this.restore();
+            // Text that already reads as the described number stays as entered.
+            const text = String(control.value ?? '').trim();
+            const exact = !initial && !field.mixed && text !== '' && text !== this.shown && Number(text) === field.value;
+            if (!editing && !exact) this.restore();
+            else if (!editing) {
+                this.dirty = false;
+                if (exact) this.shown = text;
+            }
             return;
         }
         const empty = field.placeholder || (field.type === 'net' ? 'None' : '');

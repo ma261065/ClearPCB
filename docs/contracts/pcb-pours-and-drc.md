@@ -31,6 +31,24 @@ Shared lifecycle cancellation handles fill adapters and orphaned `_fillDrag`
 state on deactivation/load. Grouped fills use the shared mixed-group projection
 described in [pcb-editing.md](pcb-editing.md#previews-and-projections).
 
+The fill panel's number fields (corner radius, size, diameter, node radius,
+bulge) work like a drag. Each spinner step redraws the dashed outline from a
+detached copy, while the copper waits under the same overlay deferral. The settled
+run commits one `ModifyFillCommand` and the pour is recomputed then. The panel's
+`fill` property editor commits or cancels a live outline when the panel is
+replaced, the layer is locked or the editor is left, so the deferral is never
+left on (`test-fill-property-preview`).
+
+Overlapping pours on the same layer never share copper unless they are on the same
+named net, which merges them. Otherwise the earlier pour in document order (the older
+one) keeps the overlap, and a later pour flows around the copper the earlier one
+actually poured, keeping the clearance. A later pour can therefore still reach its own
+net's copper inside an earlier pour's clearance holes. Two pours without a net count
+as different nets. `computeFillPolygonsInOrder` (`copper-fill-geom.js`) computes pours
+in that order and hands each one its predecessors' results (`ctx.poured`). The live
+refresh, the fill worker and fabrication snapshots all use it; a pour computed
+alone avoids its predecessors' outlines (`test-copper-review`).
+
 Live computed pour polygons belong to `pcb/modules/computed-fill-cache.js`,
 an identity-keyed weak map outside authored `CopperFill` entities. SVG, flat 2D,
 3D, DRC, routing contacts, net propagation and ratsnest consumers read the same

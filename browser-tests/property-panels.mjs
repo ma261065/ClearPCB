@@ -115,8 +115,51 @@ export const scenarios = [
             assert.equal(await title(page), 'Copper Fill', 'a finished pour shows its own Properties');
             await clickAt(page, 40, -10);
             assert.equal(await title(page), 'New Fill', 'starting the next pour shows the tool Properties again');
-            assert.equal(await page.locator('#pcbPropFillToolCornerRadius').inputValue(), '1.5');
+            assert.equal(await page.locator('#pcbPropFillToolCornerRadius').inputValue(), '1.50', 'the corner radius shows two decimals');
             await page.keyboard.press('Escape');
+        },
+    },
+    {
+        name: 'pour-outline-follows-number-fields-live',
+        async run(page, url) {
+            await openPcb(page, url);
+            await page.locator('[data-tab="pcb-home"]').click();
+            await page.locator('#pcbToolFill').click();
+            for (const [x, y] of [[10, -10], [40, -10], [40, -30], [10, -30], [10, -10]]) await clickAt(page, x, y);
+            assert.equal(await title(page), 'Copper Fill');
+            const pour = () => page.evaluate(() => {
+                const app = window.bootstrap.pcbApp, fill = app.copperFills[0];
+                const group = app.getLayerGroup(fill.layer === 'bottom-copper' ? 'bottom-fill' : 'top-fill');
+                return { radius: fill.cornerRadius, undo: app.history.undoStack.length,
+                    outline: group.querySelector('.pcb-fill-outline')?.getAttribute('points').split(' ').length,
+                    copper: group.querySelectorAll('.pcb-fill-copper').length };
+            });
+            await page.waitForTimeout(500);
+            const start = await pour();
+            assert.equal(start.outline, 4);
+            await stepUp(page, '#pcbPropFillCornerRadius', 4);
+            const during = await pour();
+            assert.equal(during.radius, start.radius, 'the pour itself waits for the run to settle');
+            assert.ok(during.outline > 4, 'its dashed outline already shows the rounded corners');
+            assert.equal(during.copper, 0, 'and its copper waits too');
+            await page.waitForTimeout(1200);
+            const after = await pour();
+            assert.ok(after.radius > 0, 'the settled run commits');
+            assert.equal(after.undo, start.undo + 1, 'as one undo step');
+            assert.ok(after.copper > 0, 'and the copper is poured again');
+            await page.selectOption('#pcbPropFillKind', 'circle');
+            assert.match(await page.locator('#pcbPropFillDiameter').inputValue(), /^\d+\.\d{2}$/,
+                'a circle diameter shows two decimals when first shown');
+            const selectedPath = () => page.evaluate(() => {
+                const overlay = window.bootstrap.pcbApp.getLayerGroup('selection-overlay');
+                return overlay.querySelector('[data-selection-id] path')?.getAttribute('d') || '';
+            });
+            const pathBefore = await selectedPath();
+            await stepUp(page, '#pcbPropFillDiameter', 3);
+            const pathDuring = await selectedPath();
+            assert.notEqual(pathDuring, pathBefore, 'the selected path follows the live circle outline');
+            await page.waitForTimeout(1200);
+            assert.equal(await selectedPath(), pathDuring, 'and stays with the committed pour');
         },
     },
 ];

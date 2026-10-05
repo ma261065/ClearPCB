@@ -10,7 +10,7 @@
  */
 
 /** Panel editors, in the order lifecycle cancellation and disposal visit them. */
-export const PANEL_EDITOR_KINDS = Object.freeze(['text', 'component', 'pad', 'via', 'track', 'boardShape']);
+export const PANEL_EDITOR_KINDS = Object.freeze(['text', 'component', 'pad', 'via', 'track', 'boardShape', 'fill']);
 /** Every slot: the panel editors plus the board-size fields. */
 export const PROPERTY_EDITOR_KINDS = Object.freeze([...PANEL_EDITOR_KINDS, 'boardDimension']);
 
@@ -57,7 +57,7 @@ export function commitPropertyEditors(app, kinds) {
 }
 
 /** Order in which hiding or locking a layer releases the panel editors on it. */
-const LAYER_RELEASE_ORDER = Object.freeze(['track', 'boardShape', 'via', 'text', 'component', 'pad']);
+const LAYER_RELEASE_ORDER = Object.freeze(['track', 'boardShape', 'via', 'text', 'component', 'pad', 'fill']);
 
 /**
  * Visit the panel editors whose targets are on `layerId`. Each editor's

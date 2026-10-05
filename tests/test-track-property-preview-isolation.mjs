@@ -321,7 +321,7 @@ for (const next of ['width', 'net', 'move', 'midpoint', 'split', 'bulge', 'delet
         assert.equal(track.cornerRadius, 2);
         assert.equal(track.width, 0.234567891);
         assert.equal(app.tracks[0].width, 3.456789123);
-        assert.equal(Number(f.input('Width').value), 3.456789123);
+        assert.equal(f.input('Width').value, formatNumberInputValue(3.456789123));
         f.input('Width').emit('change');
         flushSettledChanges();
         assert.equal(app.history.undoStack.length, 2);

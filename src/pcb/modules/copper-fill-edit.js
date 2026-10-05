@@ -13,6 +13,53 @@ import { distanceToArcEdge, arcEdgePathD } from '../../shapes/arc-edge.js';
 import { CopperFill, normalizeCopperFillKind } from '../../shapes/copper-fill.js';
 import { areDragOverlaysDeferred, setDragOverlaysDeferred } from './refresh-state.js';
 import { fillToolDefaults, setFillToolDefaults } from './copper-fill-draw.js';
+import { setPropertyEditor } from './property-editors.js';
+
+/**
+ * A pour's outline follows its Properties number fields live (corner radius, size,
+ * diameter, bulge) on a detached copy, while its copper waits, as during a drag, for
+ * the run to settle into one ModifyFillCommand.
+ */
+const geometryPreviews = new WeakMap();
+
+/** The live outline copy of `fill` while its Properties numbers preview, else null. */
+export function fillGeometryPreview(app, fill) {
+    const preview = geometryPreviews.get(app);
+    return preview?.fill === fill ? preview.candidate : null;
+}
+
+function previewFillGeometry(app, fill, mutate) {
+    if (!canEditFill(fill)) return false;
+    const candidate = new CopperFill(fill.captureState());
+    mutate(candidate);
+    if (!validFill(candidate)) return false;
+    let preview = geometryPreviews.get(app);
+    if (preview?.fill !== fill) {
+        endFillGeometryPreview(app);
+        preview = { fill, deferred: !!areDragOverlaysDeferred(app), candidate: null };
+        geometryPreviews.set(app, preview);
+        setDragOverlaysDeferred(app, true);
+    }
+    preview.candidate = candidate;
+    renderCopperFill(candidate, id => app.getLayerGroup(id), { selected: true, outlineOnly: true });
+    // The selection path and handles follow the live outline.
+    renderPcbSelectionAnchors(app);
+    return true;
+}
+
+/** End a pour's live outline, showing the pour as it is (copper included). */
+export function endFillGeometryPreview(app) {
+    const preview = geometryPreviews.get(app);
+    if (!preview) return false;
+    geometryPreviews.delete(app);
+    setDragOverlaysDeferred(app, preview.deferred);
+    const getLayerGroup = id => app.getLayerGroup(id);
+    if (app.pcbDocument?.boardShapes.includes(preview.fill)) {
+        renderCopperFill(preview.fill, getLayerGroup, { selected: isPcbSelected(app, 'fill', preview.fill) });
+    } else removeCopperFillElements(preview.fill, getLayerGroup);
+    renderPcbSelectionAnchors(app);
+    return true;
+}
 
 export function canEditFill(fill) {
     return fill && !fill.locked && fill.visible !== false && !isLayerLocked(fill.layer)
@@ -253,7 +300,21 @@ export function showFillProperties(app, fill) {
             ...addFillGeometryProperties(app, fill, lock.readOnly, refresh),
         ],
     });
-    app.openPropertyPanel?.(describe());
+    // The panel's editor: lifecycle and layer locks settle or cancel a live outline.
+    const previewing = () => geometryPreviews.get(app)?.fill === fill;
+    const binding = {
+        get active() { return previewing(); },
+        affectsLayer: layerId => layerId === fill.layer,
+        commit() {
+            if (!previewing()) return;
+            const after = geometryPreviews.get(app).candidate.captureState();
+            endFillGeometryPreview(app);
+            commitFillEdit(app, fill, candidate => candidate.applyState(after));
+        },
+        cancel() { if (previewing()) endFillGeometryPreview(app); },
+        dispose() { binding.cancel(); },
+    };
+    if (app.openPropertyPanel?.(describe())) setPropertyEditor(app, 'fill', binding);
 }
 
 /**
@@ -301,11 +362,20 @@ export function addFillGeometryProperties(app, fill, disabled = false, refresh =
     const { node, segment } = fillEditFocus(app, fill);
     const bounds = fill.getBounds();
     const fields = [];
+    // Each step previews the outline; the settled run commits once.
     const number = (id, key, label, value, min, max = Infinity, mutate) => ({
         key, id, type: 'number', label, value, min, max, step: 0.05, disabled,
+        normalize: next => (next < min || next > max ? NaN : next),
+        preview: next => { previewFillGeometry(app, fill, candidate => mutate(candidate, next)); },
         commit: next => {
-            if (!Number.isFinite(next) || next < min || next > max) return;
-            if (commitFillEdit(app, fill, candidate => mutate(candidate, next))) refresh();
+            endFillGeometryPreview(app);
+            commitFillEdit(app, fill, candidate => mutate(candidate, next));
+            refresh();
+        },
+        cancel: () => {
+            const active = endFillGeometryPreview(app);
+            if (active) refresh();
+            return active;
         },
     });
     if (node == null && segment == null) {

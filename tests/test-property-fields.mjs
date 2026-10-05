@@ -24,7 +24,7 @@ const panel = () => document.body.appendChild(document.createElement('div'));
     const [row] = container.children;
     assert.equal(row.dataset.prop, 'size');
     assert.equal(row.className, 'prop-row');
-    assert.equal(input.value, '1.5');
+    assert.equal(input.value, '1.50', 'numbers show two decimals, like every number input');
     assert.equal(input.getAttribute('min'), '0.05');
     for (const value of ['1.55', '1.6']) {
         input.value = value;
@@ -52,21 +52,44 @@ const panel = () => document.body.appendChild(document.createElement('div'));
     fire(input, 'change');
     flushSettledChanges();
     assert.ok(!calls.some(([kind]) => kind === 'commit'), 'nothing commits');
-    assert.equal(input.value, '1.5', 'and the field shows the described value again');
+    assert.equal(input.value, '1.50', 'and the field shows the described value again');
 
     calls.length = 0;
     input.value = 'abc';
     fire(input, 'change');
     flushSettledChanges();
     assert.deepEqual(calls, [['cancel']], 'An unparsable value cancels');
-    assert.equal(input.value, '1.5', 'and restores the described value');
+    assert.equal(input.value, '1.50', 'and restores the described value');
 
     calls.length = 0;
     input.value = '3';
     fire(input, 'input');
     fire(input, 'keydown', { key: 'Escape' });
     assert.deepEqual(calls, [['preview', 3], ['cancel']], 'Escape cancels the preview');
-    assert.equal(input.value, '1.5');
+    assert.equal(input.value, '1.50');
+}
+
+// Numbers show two decimals, also when updated in place; an untouched field is not an edit.
+{
+    const container = panel();
+    const commits = [];
+    const describe = (height, numberFormat) => [{ key: 'height', type: 'number', label: 'Height (mm)', value: height,
+        numberFormat, commit: value => commits.push(value), preview: value => commits.push(['preview', value]) }];
+    const input = renderPropertyFields(container, describe(2 * 6.350005)).get('height');
+    assert.equal(input.value, '12.70', 'a circle diameter reads two decimals when first shown');
+    renderPropertyFields(container, describe(25.4 - 10.16));
+    assert.equal(input.value, '15.24', 'and when updated in place');
+    fire(input, 'input');
+    fire(input, 'change');
+    flushSettledChanges();
+    assert.deepEqual(commits, [], 'the shown text is not an edit, so nothing is rounded to it');
+    input.value = '2.123456789';
+    fire(input, 'input');
+    renderPropertyFields(container, describe(2.123456789));
+    assert.equal(input.value, '2.123456789', 'text that already reads as the value stays as entered');
+    renderPropertyFields(container, describe(90.5, 'rotation'));
+    assert.equal(input.value, '90.5', 'rotation keeps its own digits');
+    flushSettledChanges();
 }
 
 // One commit per edit: blur without an edit commits nothing; settling, Enter and blur never double up.
@@ -118,7 +141,7 @@ const panel = () => document.body.appendChild(document.createElement('div'));
     assert.equal(size.value, '2');
     document.activeElement = null;
     renderPropertyFields(container, describe(3, 3));
-    assert.equal(size.value, '3', 'an unfocused field shows the described value');
+    assert.equal(size.value, '3.00', 'an unfocused field shows the described value');
     renderPropertyFields(container, describe(3, 3).slice(1));
     assert.deepEqual(container.children.map(row => row.dataset.prop), ['drill'], 'undescribed rows go');
     renderPropertyFields(container, [], { placeholder: 'Nothing to edit' });

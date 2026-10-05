@@ -703,7 +703,7 @@ for (const layer of ['hole', 'top-copper', 'bottom-copper']) {
         diameterInput.dispatchEvent({ type: 'change' });
         flushSettledChanges();
         check(`${layer} filled=${filled} 1 mm diameter stays 1 mm on commit`,
-            diameterInput.value === '1.00' && approx(circleFilledRadius(editableCircle) * 2, 1));
+            Number(diameterInput.value) === 1 && approx(circleFilledRadius(editableCircle) * 2, 1));
         commands.at(-1).undo();
         check(`${layer} filled=${filled} diameter undo restores radius and thick stroke`,
             approx(editableCircle.radius, radiusBeforeShrink) && approx(editableCircle.lineWidth, 4.75));
@@ -781,7 +781,7 @@ for (const layer of ['hole', 'top-copper', 'bottom-copper']) {
             check(`${layer} filled=${filled} typed thickness is not reformatted`, widthInput.value === '0.3');
             widthInput.dispatchEvent({ type: 'change' });
             flushSettledChanges();
-            check(`${layer} filled=${filled} committed thickness has two decimals`, widthInput.value === '0.30');
+            check(`${layer} filled=${filled} committed thickness keeps exact typed text`, widthInput.value === '0.3');
         }
     }
 }

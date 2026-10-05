@@ -3,13 +3,14 @@ import { isPcbObjectLocked } from './object-locks.js';
 import { renderCopperFill } from './copper-fill-render.js';
 import { boundsWithPathNodes, isPcbSelected, registerPcbSelectionAdapter } from './selection-registry.js';
 import { getBoardShapeAnchors } from './board-shapes.js';
-import { beginFillEdit, updateFillEdit, endFillEdit, fillSegmentAt, fillEditFocus, fillEditPath } from './copper-fill-edit.js';
+import { beginFillEdit, updateFillEdit, endFillEdit, fillSegmentAt, fillEditFocus, fillEditPath, fillGeometryPreview } from './copper-fill-edit.js';
 import { lockPositionOutsideOutline } from './selection-anchors.js';
 import { pathMoveInteraction } from './path-edit.js';
 
 export function createCopperFillSelectionAdapter(app, fill, id) {
     if (app._fillDrag?.fill === fill) fill = app._fillDrag.original;
-    const current = () => app._fillDrag?.original === fill ? app._fillDrag.fill : fill;
+    // What is displayed: a drag's or a Properties preview's copy, else the pour itself.
+    const current = () => (app._fillDrag?.original === fill ? app._fillDrag.fill : fillGeometryPreview(app, fill) || fill);
     return {
         id,
         kind: 'fill',
@@ -62,7 +63,7 @@ export function createCopperFillSelectionAdapter(app, fill, id) {
         invalidate() {
             renderCopperFill(current(), (layerId) => app.getLayerGroup(layerId), {
                 selected: isPcbSelected(app, 'fill', fill),
-                outlineOnly: app._fillDrag?.original === fill && app._fillDrag.fill !== fill,
+                outlineOnly: current() !== fill,
             });
         },
         render() { this.invalidate(); },

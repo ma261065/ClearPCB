@@ -63,7 +63,7 @@ assert.deepEqual(PROPERTY_EDITOR_KINDS, [...PANEL_EDITOR_KINDS, 'boardDimension'
     eachPropertyEditorOnLayer(editor, 'top-copper', target => target.dispose());
     assert.deepEqual(events, [
         'test:track', 'dispose:track', 'test:boardShape', 'dispose:boardShape',
-        'test:text', 'test:component', 'dispose:component', 'test:pad', 'dispose:pad',
+        'test:text', 'test:component', 'dispose:component', 'test:pad', 'dispose:pad', 'test:fill', 'dispose:fill',
     ], 'A slot released by an earlier editor is not visited');
 }
 

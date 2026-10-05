@@ -97,7 +97,11 @@ The renderer owns the edit protocol, the same in every panel:
   rejects it) and call `preview`. The run commits once with `commit`, as described
   below. An invalid entry cancels the preview and restores the field. Escape calls
   `cancel` and is consumed only when something was undone. Holding a spinner (the
-  pointer or an Arrow key) brackets the run with `hold.begin` and `hold.end`.
+  pointer or an Arrow key) brackets the run with `hold.begin` and `hold.end`. Values
+  show two decimals, including when updated in place, unless the field keeps its own
+  digits (`numberFormat` rotation, integer or precise, or its own `format`). Text the
+  renderer showed is not an edit, so leaving or "changing" an untouched field never
+  rounds the model to the displayed digits.
 - **Select, checkbox, text and net fields** commit on `change`. A net field's menu
   lists the existing nets.
 - **Mixed values** (the selected objects disagree) show an empty field with a

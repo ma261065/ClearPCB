@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { installFakeDom } from './helpers/fake-dom.mjs';
+import { formatNumberInputValue } from '../src/core/number-inputs.js';
 
 installFakeDom();
 
@@ -122,7 +123,7 @@ for (const count of [1, 4]) for (const layers of ['top-copper', 'bottom-copper',
             }
             assert.equal(projected[count], unrelated[0]);
             const rendered = allocations, scheduled = timerId;
-            for (let i = 0; i < 100; i++) input.emit('input');
+            for (let i = 0; i < 100; i++) input.emit('input', value);
             flushFrames();
             assert.equal(allocations, rendered, 'Identical values do not rebuild SVG');
             assert.equal(timerId, scheduled, 'Identical values do not reschedule copper work');
@@ -338,7 +339,7 @@ for (const commit of [false, true]) {
     const copy = app.pads[0];
     app._showPadEditor(copy);
     assert.equal(getPadPropertyPreview(app), undefined);
-    assert.equal(Number(input('Size').value), pads[0].size, 'Replacing the panel renders canonical values');
+    assert.equal(input('Size').value, formatNumberInputValue(pads[0].size), 'Replacing the panel renders canonical values');
     stale.emit('change', 4);
     assert.deepEqual(model.captureGeometry(), before, 'Detached fields cannot restart an edit');
     cancelPictureCopperRefresh(app);

@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { ProjectDocument } from '../src/core/ProjectDocument.js';
 import { CommandHistory } from '../src/core/CommandHistory.js';
+import { formatNumberInputValue } from '../src/core/number-inputs.js';
 import { Via } from '../src/shapes/via.js';
 import { Pad } from '../src/shapes/pad.js';
 import { Track } from '../src/shapes/track.js';
@@ -78,6 +79,10 @@ class Element {
         ]);
     }
     querySelector(selector) { return this.querySelectorAll(selector)[0] || null; }
+    contains(node) {
+        for (let current = node; current; current = current.parentNode) if (current === this) return true;
+        return false;
+    }
 }
 class Input extends Element {
     constructor(value) { super('input'); this.value = String(value); }
@@ -165,7 +170,7 @@ for (const count of [1, 4]) for (const [name, key, value] of [
         }
         assert.equal(collection[count], unrelated[0]);
         const rendered = allocations, scheduled = frameId;
-        for (let i = 0; i < 100; i++) input.emit('input');
+        for (let i = 0; i < 100; i++) input.emit('input', value);
         flushFrames();
         assert.equal(allocations, rendered, 'Identical values do not redraw SVG or selection halos');
         assert.equal(frameId, scheduled, 'Identical values do not schedule frames');
@@ -482,7 +487,8 @@ for (const invalidFirst of [false, true]) for (const invalidSecond of [false, tr
     assert.equal(!!getViaPropertyPreview(app), !invalidSecond, 'Old blur does not finish the new field');
     if (!invalidSecond) {
         const expected = invalidFirst ? 1.234567891 : 1.8;
-        assert.equal(Number(drill.value), expected, 'Clamp against canonical limits after rejected diameter handoff');
+        const expectedText = invalidFirst ? formatNumberInputValue(expected) : String(expected);
+        assert.equal(drill.value, expectedText, 'Clamp against canonical limits after rejected diameter handoff');
         assert.ok(app.vias.slice(0, 4).every(via => via.drill === expected));
     }
     drill.emit('change');
