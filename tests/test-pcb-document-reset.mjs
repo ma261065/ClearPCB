@@ -89,7 +89,7 @@ function fixture(active) {
         },
         updateCopperCuts() {}, _clearFillGroups() {}, _closeDRCPanel() {}, _clearDRCMarker() {},
         _refreshBoardShapeClearance() {}, setPcbStatus() {}, syncClipboardButtons() {},
-        _updateCursorForTool() {}, _syncPcbHomeToolHighlight() {}, _hideToolOptions() {},
+        _updateCursorForTool() {}, _syncPcbHomeToolHighlight() {},
         refreshClearanceHalos() {}, refreshFills() {},
     });
     const host = {

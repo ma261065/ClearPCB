@@ -98,7 +98,7 @@ import { bindPcbMouseEvents, noteTrackPress } from '../pcb/modules/mouse.js';
 import { onLayerVisibilityChanged, onLayerLockChanged, onCopperFillVisibilityChanged, onCopperFillLockChanged, onOverlayVisibilityChanged } from '../pcb/modules/layer-changes.js';
 import { RemoveFillCommand, ModifyFillCommand } from '../pcb/modules/copper-fill-commands.js';
 import '../pcb/modules/copper-fill-selection.js';
-import { startFillEditAt, updateFillEdit, endFillEdit, deleteFocusedFillPart, showFillProperties } from '../pcb/modules/copper-fill-edit.js';
+import { startFillEditAt, updateFillEdit, endFillEdit, deleteFocusedFillPart, showFillProperties, showFillToolProperties } from '../pcb/modules/copper-fill-edit.js';
 import '../pcb/modules/component-selection.js';
 import '../pcb/modules/pcb-text-selection.js';
 import { isRefTextLocked } from '../pcb/modules/ref-text-selection.js';
@@ -334,6 +334,8 @@ export default class PCBApp {
         this._viaDrag = null;
         /** Copper-fill outline being drawn, or null. */
         this._fillDraw = null;
+        /** Fill tool layer for new pours (copper-fill-draw.js owns the Fill tool defaults). @type {'top-copper'|'bottom-copper'|undefined} */
+        this._fillToolLayer = undefined;
         /** Active selection-anchor gesture (selection-interaction.js), or null. */
         this._pcbSelectionInteraction = null;
         /** Home-tab tool highlight sync, installed by bindPcbControls(). */
@@ -1130,6 +1132,8 @@ export default class PCBApp {
             addFillWaypoint(this, worldPos);
         } else {
             startFillDraw(this, worldPos);
+            // Drawing a pour shows the Fill tool's Properties (a finished pour showed its own).
+            showFillToolProperties(this);
         }
     }
 
@@ -1931,49 +1935,6 @@ export default class PCBApp {
             outline.setAttribute('stroke-width', '0.2');
             outline.removeAttribute('stroke-dasharray');
         }
-    }
-
-    /**
-     * Render extra tool controls inline within the Tools group on the
-     * Home tab — same pattern as the schematic editor's
-     * `.ribbon-shape-options` container.
-     * @param {string} html - inner HTML for the options container
-     * @param {(items: HTMLElement) => void} [bind] - optional listener wiring
-     */
-    _showToolOptions(html, bind) {
-        const items = document.getElementById('pcbToolOptions');
-        if (!items) return;
-        items.innerHTML = html;
-        bind?.(items);
-    }
-
-    _hideToolOptions() {
-        const items = document.getElementById('pcbToolOptions');
-        if (items) items.innerHTML = '';
-    }
-
-    /**
-    * Show Fill tool options (copper-layer picker). If a pour outline is
-    * already in progress, retarget it live.
-     */
-    _showFillToolOptions() {
-        const cur = this._fillToolLayer === 'bottom-copper' ? 'bottom-copper' : 'top-copper';
-        const opt = (id, name) => `<option value="${id}"${id === cur ? ' selected' : ''}>${name}</option>`;
-        this._showToolOptions(
-            `<label>Layer <select id="pcbToolFillLayer">${opt('top-copper', 'Top Copper')}${opt('bottom-copper', 'Bottom Copper')}</select></label>`,
-            () => {
-                const el = /** @type {HTMLSelectElement|null} */ (document.getElementById('pcbToolFillLayer'));
-                el?.addEventListener('change', () => {
-                    const next = el.value === 'bottom-copper' ? 'bottom-copper' : 'top-copper';
-                    if (isLayerLocked(next)) {
-                        el.value = this._fillToolLayer || 'top-copper';
-                        return;
-                    }
-                    this._fillToolLayer = next;
-                    if (this._fillDraw) this._fillDraw.layer = this._fillToolLayer;
-                    this.setPcbStatus();
-                });
-            });
     }
 
     /**

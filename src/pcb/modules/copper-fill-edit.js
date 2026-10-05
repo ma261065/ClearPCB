@@ -12,6 +12,7 @@ import { snapPathPoint, snapPathTranslation, pathContextActions, showPathContext
 import { distanceToArcEdge, arcEdgePathD } from '../../shapes/arc-edge.js';
 import { CopperFill, normalizeCopperFillKind } from '../../shapes/copper-fill.js';
 import { areDragOverlaysDeferred, setDragOverlaysDeferred } from './refresh-state.js';
+import { fillToolDefaults, setFillToolDefaults } from './copper-fill-draw.js';
 
 export function canEditFill(fill) {
     return fill && !fill.locked && fill.visible !== false && !isLayerLocked(fill.layer)
@@ -252,6 +253,35 @@ export function showFillProperties(app, fill) {
             ...addFillGeometryProperties(app, fill, lock.readOnly, refresh),
         ],
     });
+    app.openPropertyPanel?.(describe());
+}
+
+/**
+ * Properties for the Fill tool, like the other drawing tools' "New …" panels: the
+ * layer, net and corner radius a new pour gets. A pour being drawn follows them.
+ */
+export function showFillToolProperties(app) {
+    const refresh = () => app.refreshPropertyPanel?.(describe());
+    const setCornerRadius = value => setFillToolDefaults(app, { cornerRadius: value });
+    /** @returns {import('../../shared/ui/property-fields.js').PropertyPanel} */
+    const describe = () => {
+        const defaults = fillToolDefaults(app);
+        return { title: 'New Fill', fields: [
+            { key: 'layer', id: 'pcbPropFillToolLayer', type: 'select', label: 'Layer', value: defaults.layer,
+                options: [pcbLayerOption('top-copper', 'Top Copper'), pcbLayerOption('bottom-copper', 'Bottom Copper')],
+                commit: value => {
+                    if (value !== 'top-copper' && value !== 'bottom-copper' || isLayerLocked(value)) { refresh(); return; }
+                    setFillToolDefaults(app, { layer: value });
+                    app.setPcbStatus?.();
+                    refresh();
+                } },
+            { key: 'net', id: 'pcbPropFillToolNet', type: 'net', label: 'Net', value: defaults.net,
+                nets: fillNetNames(app), commit: value => { setFillToolDefaults(app, { net: value }); refresh(); } },
+            { key: 'cornerRadius', id: 'pcbPropFillToolCornerRadius', type: 'number', label: 'Corner Radius (mm)',
+                value: defaults.cornerRadius, min: 0, step: 0.05,
+                normalize: value => (value < 0 ? NaN : value), preview: setCornerRadius, commit: setCornerRadius },
+        ] };
+    };
     app.openPropertyPanel?.(describe());
 }
 

@@ -93,4 +93,30 @@ export const scenarios = [
             assert.equal(await page.locator('#pcbPropIntersection_locked').isChecked(), false);
         },
     },
+    {
+        name: 'fill-tool-properties-like-the-other-drawing-tools',
+        async run(page, url) {
+            await openPcb(page, url);
+            await page.locator('[data-tab="pcb-home"]').click();
+            await page.locator('#pcbToolFill').click();
+            assert.equal(await title(page), 'New Fill', 'the Fill tool shows its Properties');
+            assert.deepEqual(await rows(page), ['layer', 'net', 'cornerRadius']);
+            await page.locator('#pcbPropFillToolNet').fill('GND');
+            await page.locator('#pcbPropFillToolNet').press('Enter');
+            await page.locator('#pcbPropFillToolCornerRadius').fill('1.5');
+            await page.locator('#pcbPropFillToolCornerRadius').press('Enter');
+            for (const [x, y] of [[10, -10], [30, -10], [30, -30], [10, -30]]) await clickAt(page, x, y);
+            await clickAt(page, 10, -10);
+            const fill = await page.evaluate(() => {
+                const [item] = window.bootstrap.pcbApp.pcbDocument.copperFills;
+                return item && { net: item.net, cornerRadius: item.cornerRadius, layer: item.layer };
+            });
+            assert.deepEqual(fill, { net: 'GND', cornerRadius: 1.5, layer: 'top-copper' }, 'the pour takes the tool settings');
+            assert.equal(await title(page), 'Copper Fill', 'a finished pour shows its own Properties');
+            await clickAt(page, 40, -10);
+            assert.equal(await title(page), 'New Fill', 'starting the next pour shows the tool Properties again');
+            assert.equal(await page.locator('#pcbPropFillToolCornerRadius').inputValue(), '1.5');
+            await page.keyboard.press('Escape');
+        },
+    },
 ];

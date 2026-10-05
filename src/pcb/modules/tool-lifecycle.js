@@ -1,5 +1,6 @@
 import { isPcbDrawing } from './pcb-interactions.js';
 import { cancelShapeDraw } from './board-shapes.js';
+import { showFillToolProperties } from './copper-fill-edit.js';
 
 export const PCB_SHAPE_TOOLS = new Set(['line', 'circle', 'arc', 'rect', 'polygon']);
 export const PCB_CROSSHAIR_TOOLS = new Set(['track', 'via', 'pad', 'text', 'fill', ...PCB_SHAPE_TOOLS]);
@@ -14,7 +15,6 @@ export function resetPcbTool(app) {
     app._updateCursorForTool?.();
     app._syncPcbHomeToolHighlight?.();
     app.setPcbStatus?.();
-    app._hideToolOptions?.();
 }
 
 /**
@@ -35,12 +35,8 @@ export function selectPcbTool(app, tool) {
     app._syncPcbHomeToolHighlight?.();
     app._updateCursorForTool?.();
     app.setPcbStatus?.();
-    if (next === 'fill') {
-        app._showFillToolOptions?.();
-        return;
-    }
-    app._hideToolOptions?.();
-    if (next === 'via') app._showViaToolProperties?.();
+    if (next === 'fill') showFillToolProperties(app);
+    else if (next === 'via') app._showViaToolProperties?.();
     else if (next === 'pad') app._showPadToolProperties?.();
     else if (next === 'track') app._showTrackDrawProperties?.();
     else if (next === 'text') app._showTextToolProperties?.();

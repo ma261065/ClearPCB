@@ -514,6 +514,13 @@ untouched; accepted batches retain their existing compound history behavior.
 
 ## Command Adapters
 
+Every drawing tool shows a "New …" Properties panel when it is selected (Track,
+Via, Pad, Text, the shapes and Fill), holding what the next object gets. The Fill
+tool's panel (`showFillToolProperties`; the defaults live in `copper-fill-draw.js`)
+sets the Layer, Net and Corner Radius of a new pour. A pour being drawn follows a
+layer or radius change live; starting a pour brings the panel back after a finished
+pour showed its own Properties (`test-fill-tool-properties`).
+
 The Design ribbon and New Track/Via property editors share the same commit path.
 Valid edits mark the PCB dirty and retain the geometry refresh requests;
 unit/router preferences are also saved project edits. Temporarily blank or invalid

@@ -29,7 +29,6 @@ function fixture() {
         _updateCursorForTool() { events.push('cursor'); },
         _syncPcbHomeToolHighlight() { events.push('highlight'); },
         setPcbStatus() { events.push('status'); },
-        _hideToolOptions() { events.push('hide-options'); },
         setActiveRibbonTab(tab) { events.push(tab); },
         handleKeyDown: PCBApp.prototype.handleKeyDown,
     };
@@ -61,7 +60,7 @@ for (const key of propertyKeys) {
     events.length = 0;
     assert.equal(escape(), true);
     assert.equal(app.currentTool, 'select', 'A later Escape leaves the tool');
-    assert.deepEqual(events, ['clear-properties', 'cursor', 'highlight', 'status', 'hide-options', 'pcb-home']);
+    assert.deepEqual(events, ['clear-properties', 'cursor', 'highlight', 'status', 'pcb-home']);
 }
 
 {

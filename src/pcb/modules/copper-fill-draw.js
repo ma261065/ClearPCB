@@ -14,9 +14,13 @@
  *      Clicking near the first vertex (with ≥3 points) closes the region.
  *   5. double-click / Enter / right-click → finishFillDraw(app)
  *   6. Escape / tool-switch     → cancelFillDraw(app)
+ *
+ * A new pour takes the Fill tool's Properties (`showFillToolProperties`): layer, net and
+ * corner radius. The pour being drawn follows them, and its preview shows the rounding.
  */
 
 import { CopperFill } from '../../shapes/copper-fill.js';
+import { closedShapeOutline } from '../../shapes/closed-outline.js';
 import { AddFillCommand } from './copper-fill-commands.js';
 import { setPcbSelection } from './selection-registry.js';
 
@@ -28,6 +32,41 @@ const CLOSE_TOL = 0.6;
 
 function copperLayer(app) {
     return app._fillToolLayer === 'bottom-copper' ? 'bottom-copper' : 'top-copper';
+}
+
+/** The Fill tool's net and corner radius for new pours, per editor. */
+const toolDefaults = new WeakMap();
+
+/**
+ * What a new pour gets (the Fill tool's Properties).
+ * @returns {{layer: 'top-copper'|'bottom-copper', net: string, cornerRadius: number}}
+ */
+export function fillToolDefaults(app) {
+    const { net = '', cornerRadius = 0 } = toolDefaults.get(app) || {};
+    return { layer: copperLayer(app), net, cornerRadius };
+}
+
+/**
+ * Change the Fill tool's defaults; a pour being drawn follows its layer and rounding.
+ * @param {any} app
+ * @param {{layer?: 'top-copper'|'bottom-copper', net?: string, cornerRadius?: number}} [changes]
+ */
+export function setFillToolDefaults(app, changes = {}) {
+    const { layer, net, cornerRadius } = changes;
+    const current = fillToolDefaults(app);
+    toolDefaults.set(app, {
+        net: net === undefined ? current.net : String(net),
+        cornerRadius: cornerRadius === undefined ? current.cornerRadius : Math.max(0, Number(cornerRadius) || 0),
+    });
+    if (layer === 'top-copper' || layer === 'bottom-copper') {
+        app._fillToolLayer = layer;
+        if (app._fillDraw) app._fillDraw.layer = layer;
+    }
+    renderPreview(app);
+}
+
+function toolCornerRadius(app) {
+    return fillToolDefaults(app).cornerRadius;
 }
 
 function snap(app, world) {
@@ -89,8 +128,9 @@ export function finishFillDraw(app) {
     if (fd.points.length < 3) return;
     const fill = new CopperFill({
         layer: fd.layer,
-        net: '',
+        net: fillToolDefaults(app).net,
         outline: fd.points,
+        cornerRadius: toolCornerRadius(app),
     });
     app.history.execute(new AddFillCommand(app, fill));
     // Select the new fill so the user can assign a net immediately.
@@ -130,11 +170,12 @@ function renderPreview(app) {
     const cursor = fd.snap;
     const draft = cursor ? [...pts, cursor] : pts;
 
-    // Closed preview polygon (filled faintly) once we have ≥3 points.
+    // Closed preview polygon (filled faintly) once we have ≥3 points, rounded as the pour will be.
     if (draft.length >= 3) {
+        const outline = closedShapeOutline({ kind: 'polygon', points: draft, cornerRadius: toolCornerRadius(app) });
         const poly = document.createElementNS(NS, 'polygon');
         poly.setAttribute('class', PREVIEW_CLASS);
-        poly.setAttribute('points', draft.map((p) => `${p.x},${p.y}`).join(' '));
+        poly.setAttribute('points', outline.map((p) => `${p.x},${p.y}`).join(' '));
         poly.setAttribute('fill', color);
         poly.setAttribute('fill-opacity', '0.15');
         poly.setAttribute('stroke', color);

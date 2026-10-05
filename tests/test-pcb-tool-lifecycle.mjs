@@ -57,12 +57,12 @@ function fixture() {
         _selectRefText(value) { assert.equal(value, null); events.push('reference'); },
         _updateCursorForTool() { events.push(`cursor:${this.currentTool}`); },
         setPcbStatus() { events.push(`status:${this.currentTool}`); },
-        _hideToolOptions() { events.push('hide-options'); },
         _showViaToolProperties() { events.push('properties:via'); },
         _showPadToolProperties() { events.push('properties:pad'); },
         _showTrackDrawProperties() { events.push('properties:track'); },
         _showTextToolProperties() { events.push('properties:text'); },
-        _showFillToolOptions() { events.push('properties:fill'); },
+        // The Fill tool describes its panel (copper-fill-edit.js) like the selected-object panels.
+        openPropertyPanel(panel) { if (panel.title === 'New Fill') events.push('properties:fill'); return true; },
         _showBoardShapeToolProperties(kind) { events.push(`properties:${kind}`); },
         _scheduleDRC() { events.push('drc'); },
         _getDrcPresentation: PCBApp.prototype._getDrcPresentation,
@@ -98,7 +98,6 @@ for (const previous of tools) for (const next of tools) {
     if (drawing) assert.equal(app._trackDraw || app._fillDraw || app._shapeDraw || null,
         previous === next ? drawing : null, `${previous} -> ${next}: preserve only the same tool's drawing`);
     assert.deepEqual(events.filter(event => event.startsWith('properties:')), next === 'select' ? [] : [`properties:${next}`]);
-    assert.equal(events.includes('hide-options'), next !== 'fill', 'Fill owns its options presentation');
     const highlighted = PCB_SHAPE_TOOLS.has(next) ? 'Shapes' : next[0].toUpperCase() + next.slice(1);
     assert.equal(f.buttons[highlighted].classList.contains('active'), true);
     assert.deepEqual([app.history.undoStack, app.history.redoStack], f.history, 'Tool selection cannot mutate history');
