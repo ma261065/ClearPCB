@@ -4,7 +4,8 @@ import { Component } from '../src/components/Component.js';
 import { Track } from '../src/shapes/track.js';
 import { CommandHistory } from '../src/core/CommandHistory.js';
 import { updatePlacementPadPositions } from '../src/core/pcb-placement-geometry.js';
-import { createComponentSelectionAdapter } from '../src/pcb/modules/component-selection.js';
+import { createComponentSelectionAdapter, getComponentDrag, handleComponentDrag, scheduleComponentDragUpdate } from '../src/pcb/modules/component-selection.js';
+import { getSelectionInteraction, setSelectionInteraction } from '../src/pcb/modules/selection-interaction.js';
 import { areDragOverlaysDeferred } from '../src/pcb/modules/refresh-state.js';
 
 const frames = new Map();
@@ -49,10 +50,11 @@ function fixture(saved = true) {
         _clearancesVisible: true, _padHaloGroups: new Map([['part', padHalo]]),
         _layerGroups: new Map([['clearance-overlay', overlay]]),
         viewport: { svg: { style: {} }, snapToGrid: false, gridVisible: true, hideCrosshair() {} },
-        getLayerGroup: () => null, _hoverComponent() {}, _hideNetTooltip() {},
+        getLayerGroup: id => id === 'clearance-overlay' ? overlay : null, _hoverComponent() {}, _hideNetTooltip() {},
         _netsForComponent: () => new Set(['GND']),
         updateRatsnest: options => ratsnestUpdates.push(options),
-        _screenToWorld: event => ({ x: event.clientX, y: event.clientY }),
+        screenToWorld: event => ({ x: event.clientX, y: event.clientY }),
+        screenToWorld: event => ({ x: event.clientX, y: event.clientY }),
         _markDirty: () => dirty++,
         refreshClearanceHalos() {
             clearanceRefreshes++;
@@ -60,8 +62,7 @@ function fixture(saved = true) {
             trackHalo.style.display = '';
         },
     };
-    for (const method of ['_beginComponentDrag', '_updateComponentDrag', '_endDrag', '_snapToGrid',
-        '_handleDrag', '_scheduleDragUpdate', 'handleKeyDown', '_clearCursorCrosshair']) {
+    for (const method of ['snapToGrid', 'snapToGrid', 'handleKeyDown', '_clearCursorCrosshair']) {
         app[method] = PCBApp.prototype[method];
     }
     const adapter = createComponentSelectionAdapter(app, 'part', 'component:part');
@@ -72,7 +73,7 @@ function fixture(saved = true) {
     });
     const begin = (shared = true) => {
         assert.equal(adapter.beginMove({ x: 0, y: 0 }), true);
-        if (shared) app._pcbSelectionInteraction = { mode: 'move-adapter', entry: adapter };
+        if (shared) setSelectionInteraction(app, { mode: 'move-adapter', entry: adapter });
     };
     return { app, adapter, placement, track, snapshot, begin, renders, padHalo, trackHalo, overlay, ratsnestUpdates,
         dirty: () => dirty, clearanceRefreshes: () => clearanceRefreshes };
@@ -97,17 +98,16 @@ for (const saved of [false, true]) for (const shared of [true, false]) {
     track.getBounds();
     const cachedBounds = track._bounds;
     const beforeCancelRenders = f.renders.length;
-    app._scheduleDragUpdate({ clientX: 100, clientY: 200, shiftKey: false });
+    scheduleComponentDragUpdate(app, { clientX: 100, clientY: 200, shiftKey: false });
     assert.equal(frames.size, 1);
     assert.equal(app.handleKeyDown({ key: 'Escape' }), true);
-    assert.equal(app._drag, null, 'Escape must end the component drag, not only its selection interaction');
-    assert.equal(app._pcbSelectionInteraction || null, null);
+    assert.equal(getComponentDrag(app), null, 'Escape must end the component drag, not only its selection interaction');
+    assert.equal(getSelectionInteraction(app) || null, null);
     assert.deepEqual(f.snapshot(), original, 'Cancel restores pose, pads and bonded nodes without saving preview data');
     assert.equal(track._bounds, cachedBounds, 'Discarding a preview does not invalidate authored track bounds');
     assert.deepEqual(f.renders.slice(beforeCancelRenders), [{ x: original.x, y: original.y }],
         'Cancel discards the pending move and presents only the restored pose');
     assert.equal(frames.size, 0);
-    assert.equal(app._pendingDragEvent, null);
     assert.equal(areDragOverlaysDeferred(app), false);
     assert.equal(f.overlay.style.willChange, '');
     assert.equal(f.padHalo.style.display, '');
@@ -129,7 +129,7 @@ for (const shared of [true, false]) {
     f.app.handleKeyDown({ key: 'z', ctrlKey: true });
     assert.deepEqual(f.snapshot(), original, 'Undo first cancels the live component preview');
     assert.equal(priorValue, 0, 'Undo still applies to the previously committed command');
-    assert.equal(f.app._drag, null);
+    assert.equal(getComponentDrag(f.app), null);
 }
 
 {
@@ -137,7 +137,7 @@ for (const shared of [true, false]) {
     const original = f.snapshot();
     f.begin(false);
     f.adapter.updateMove({ x: 2, y: 3 });
-    f.app._scheduleDragUpdate({ clientX: 7.123456, clientY: -8.234567, shiftKey: false });
+    scheduleComponentDragUpdate(f.app, { clientX: 7.123456, clientY: -8.234567, shiftKey: false });
     f.adapter.endMove(true);
     assert.equal(frames.size, 0, 'Commit cancels the queued frame after flushing its position');
     assert.equal(f.placement.x, original.x + 7.123456);
@@ -154,12 +154,12 @@ for (const shared of [true, false]) {
     const f = fixture(false);
     const original = f.snapshot();
     f.begin(false);
-    f.app._scheduleDragUpdate({ clientX: 100, clientY: 200, shiftKey: false });
+    scheduleComponentDragUpdate(f.app, { clientX: 100, clientY: 200, shiftKey: false });
     f.adapter.endMove(false);
     assert.deepEqual(f.snapshot(), original, 'Cancelling without movement does not author an automatic placement');
     assert.equal(frames.size, 0, 'Cancel before the first frame discards the pending move');
     assert.equal(f.renders.length, 0, 'A discarded preview is never applied or rendered');
-    assert.equal(f.app._drag, null);
+    assert.equal(getComponentDrag(f.app), null);
     assert.equal(f.app.history.canUndo(), false);
     f.begin(false);
     f.adapter.endMove(true);
@@ -176,7 +176,7 @@ for (const legacy of [false, true]) {
     f.begin(false);
     const moveTo = (x, y, shift = false) => {
         const point = { x: x - original.x, y: y - original.y };
-        if (legacy) f.app._handleDrag({ clientX: point.x, clientY: point.y, shiftKey: shift });
+        if (legacy) handleComponentDrag(f.app, { clientX: point.x, clientY: point.y, shiftKey: shift });
         else {
             f.app.viewport.shiftHeld = shift;
             f.adapter.updateMove(point);
@@ -239,7 +239,7 @@ for (const shared of [true, false]) {
     PCBApp.prototype.deactivate.call(f.app);
     assert.deepEqual(f.snapshot(), original, 'Leaving the PCB tab discards component movement previews');
     assert.equal(f.app.tracks, f.app.pcbDocument.tracks);
-    assert.equal(f.app._drag, null);
+    assert.equal(getComponentDrag(f.app), null);
     assert.equal(f.app._active, false);
 }
 

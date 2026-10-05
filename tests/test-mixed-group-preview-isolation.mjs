@@ -20,6 +20,9 @@ import { prepareFabricationSnapshot } from '../src/pcb/modules/fabrication-snaps
 import { loadPcb } from '../src/pcb/modules/project-state.js';
 import { PCB_LAYERS, PCB_COPPER_FILLS } from '../src/pcb/modules/layers.js';
 import { areDragOverlaysDeferred, isBoardViewRefreshSuspended, setBoardViewRefreshSuspended, setDragOverlaysDeferred } from '../src/pcb/modules/refresh-state.js';
+import { getSelectionInteraction } from '../src/pcb/modules/selection-interaction.js';
+import { getGroupDrag } from '../src/pcb/modules/box-select.js';
+import { setPcbInteraction } from '../src/pcb/modules/pcb-interactions.js';
 
 let allocations = 0;
 const trackRenders = new Map();
@@ -200,12 +203,12 @@ for (const component of [false, true]) for (const deferred of [false, true]) for
             const layer = PCB_LAYERS.find(item => item.id === 'top-silk'), field = finish === 'lock' ? 'locked' : 'visible';
             const previous = layer[field]; layer[field] = finish === 'lock';
             try {
-                app._pcbSelectionInteraction = { mode: 'move' };
+                setPcbInteraction(app, '_pcbSelectionInteraction', { mode: 'move' });
                 if (finish === 'lock') app._onLayerLockChanged(layer.id, true);
                 else app._onLayerVisibilityChanged(layer.id, false);
             } finally { layer[field] = previous; }
         } else if (finish === 'deactivate' || finish === 'shared') {
-            if (finish === 'shared') app._pcbSelectionInteraction = { mode: 'move' };
+            if (finish === 'shared') setPcbInteraction(app, '_pcbSelectionInteraction', { mode: 'move' });
             app._cancelPosePreviews();
         } else if (finish === 'load') {
             const graph = track.captureState(), padState = pad.captureState(), fillState = fill.captureState();
@@ -225,7 +228,7 @@ for (const component of [false, true]) for (const deferred of [false, true]) for
         assert.equal(app.history.undoStack.length, 0);
         if (finish !== 'load') assert.deepEqual(model.serialize(), before);
     }
-    assert.equal(app._groupDrag, null);
+    assert.equal(getGroupDrag(app), null);
     assert.equal(getGroupPreview(app), undefined);
     assert.equal(areDragOverlaysDeferred(app), deferred);
     assert.equal(isBoardViewRefreshSuspended(app), deferred);
@@ -249,7 +252,7 @@ for (const component of [false, true]) for (const kind of ['track', 'via', 'pad'
     const deleted = model.serialize();
     assert.throws(() => endGroupDrag(app), /no longer available/);
     assert.deepEqual(model.serialize(), deleted, 'Missing target aborts before authoring any other member');
-    assert.equal(app._groupDrag, null);
+    assert.equal(getGroupDrag(app), null);
     assert.equal(app.history.undoStack.length, 0);
     if (kind === 'track') assert.equal(f.artwork().length, 0, 'Missing attached graph never reappears during cleanup');
     cases++;
@@ -277,7 +280,7 @@ for (const dispatch of [deleteBoxSelection, runPcbDeleteAction,
     beginGroupDrag(app, { x: 0, y: 0 });
     updateGroupDrag(app, { x: 2, y: 3 }, { snap: false });
     assert.equal(dispatch(app), true);
-    assert.equal(app._groupDrag, null);
+    assert.equal(getGroupDrag(app), null);
     assert.equal(model.tracks.length + model.vias.length + model.pads.length + model.boardShapes.length + model.texts.size, 0);
     app.history.undo();
     const restored = model.serialize();
@@ -325,7 +328,7 @@ for (const field of ['locked', 'visible']) {
         if (field === 'locked') app._onCopperFillLockChanged('top-copper', true);
         else app._onCopperFillVisibilityChanged('top-copper', false);
     } finally { layer[field] = previous; }
-    assert.equal(app._groupDrag, null);
+    assert.equal(getGroupDrag(app), null);
     assert.deepEqual(model.serialize(), before);
     cases++;
 }
@@ -355,7 +358,7 @@ for (const commit of [false, true]) {
         assert.equal(getBoardShapePropertyPreview(app), undefined, 'Group pickup first commits the property projection');
         assert.equal(app.history.undoStack.length, 1);
         assert.equal(shape.lineWidth, 0.47);
-        assert.equal(app._groupDrag.shapes[0].shape, shape, 'Group stores the canonical original, never the displayed property copy');
+        assert.equal(getGroupDrag(app).shapes[0].shape, shape, 'Group stores the canonical original, never the displayed property copy');
         const afterProperty = model.captureGeometry();
         updateGroupDrag(app, { x: 3, y: 4 }, { snap: false });
         assert.deepEqual(model.captureGeometry(), afterProperty);

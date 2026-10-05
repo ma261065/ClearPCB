@@ -11,6 +11,8 @@ import { renderPcbSelectionAnchors, hitTestPcbSelectionAnchor } from '../src/pcb
 import { beginSelectionInteraction, updateSelectionInteraction, finishSelectionInteraction } from '../src/pcb/modules/selection-interaction.js';
 import { ROTATION_CURSOR } from '../src/pcb/modules/rotation-handle.js';
 import { attachPropertyPanelHarness } from './helpers/property-panel-controls.mjs';
+import { getSelectionInteraction } from '../src/pcb/modules/selection-interaction.js';
+import { isRotationHandleDragActive } from '../src/pcb/modules/rotation-handle.js';
 
 const ids = new Map(), frames = new Map();
 let frameId = 0;
@@ -150,7 +152,7 @@ for (const saved of [false, true]) for (const side of ['top', 'bottom']) for (co
     const start = f.anchor();
     assert.equal(hitTestPcbSelectionAnchor(app, start)?.anchorId, 'rotate');
     assert.equal(beginSelectionInteraction(app, start, false), true);
-    assert.equal(app._pcbSelectionInteraction.mode, 'anchor');
+    assert.equal(getSelectionInteraction(app).mode, 'anchor');
     assert.equal(f.visibleHandles().length, 0, 'The rotation icon is hidden during a gesture');
     assert.equal(app.viewport.svg.style.cursor, ROTATION_CURSOR);
     updateSelectionInteraction(app, f.pointFor(90, start));
@@ -174,8 +176,8 @@ for (const saved of [false, true]) for (const side of ['top', 'bottom']) for (co
     assert.equal(placement.rotation, 191, 'Mouse-up applies the final angle without requiring another move');
     assert.equal(ids.get('pcbPropCompRot').value, '191');
     assert.equal(f.visibleHandles().length, 1);
-    assert.equal(app._rotationHandleDrag, false);
-    assert.equal(app._pcbSelectionInteraction, null);
+    assert.equal(isRotationHandleDragActive(app), false);
+    assert.equal(getSelectionInteraction(app), null);
     assert.equal(app.history.undoStack.length, 1);
     assert.equal(f.dirty(), 1);
     assert.ok(f.fills() > 0, 'Commit requests derived pour updates through the existing command adapter');
@@ -284,8 +286,8 @@ for (const saved of [false, true]) {
     app.handleKeyDown({ key: 'z', ctrlKey: true });
     assert.deepEqual(capturePlacementOverride(placement), f.original, 'Undo first cancels a live component rotation');
     assert.equal(prior, 0);
-    assert.equal(app._rotationHandleDrag, false);
-    assert.equal(app._pcbSelectionInteraction, null);
+    assert.equal(isRotationHandleDragActive(app), false);
+    assert.equal(getSelectionInteraction(app), null);
     f.verifyBonds();
     beginSelectionInteraction(app, f.anchor(), false);
     updateSelectionInteraction(app, f.pointFor(90));
@@ -296,7 +298,7 @@ for (const saved of [false, true]) {
     assert.equal(placement.locked, true);
     assert.equal(app.placementState.overrides.get('part').rotation, f.original.rotation,
         'Locking must not save the automatic placement at its preview angle');
-    assert.equal(app._pcbSelectionInteraction, null);
+    assert.equal(getSelectionInteraction(app), null);
     assert.equal(ids.get('pcbPropCompRot').disabled, true);
     app.history.undo();
     assert.equal(placement.locked, false);
@@ -324,7 +326,7 @@ for (const saved of [false, true]) {
     PCBApp.prototype.deactivate.call(f.app);
     assertPose(capturePlacementOverride(f.placement), f.original);
     assert.equal(f.app.tracks, f.app.pcbDocument.tracks);
-    assert.equal(f.app._rotationHandleDrag, false);
+    assert.equal(isRotationHandleDragActive(f.app), false);
     assert.equal(f.app.history.canUndo(), false);
 }
 console.log('PASS singleton component rotation, live one-degree spinner, bonded tracks, mirrored sides, history and cancellation');

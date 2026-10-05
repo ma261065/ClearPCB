@@ -8,6 +8,7 @@ import { createPadSelectionAdapter } from '../src/pcb/modules/pad-selection.js';
 import { padCopperPathD, padOutline } from '../src/pcb/modules/pad.js';
 import { cancelPictureCopperRefresh } from '../src/pcb/modules/picture-refresh.js';
 import { getTextPosePreviewTexts } from '../src/pcb/modules/text-commands.js';
+import { isRotationHandleDragActive } from '../src/pcb/modules/rotation-handle.js';
 
 const inputs = new Map();
 globalThis.document = {
@@ -97,7 +98,7 @@ for (const kind of ['text', 'pad']) {
         assert.equal(renders, 102);
         adapter.endAnchorDrag(true);
         assert.equal(app.history.undoStack.length, 1);
-        assert.equal(app._rotationHandleDrag, false);
+        assert.equal(isRotationHandleDragActive(app), false);
         app.history.undo();
         assert.equal(object.rotation, startingRotation, 'Undo preserves the original fractional rotation');
         adapter.beginAnchorDrag('rotate', start);
@@ -122,7 +123,7 @@ for (const kind of ['text', 'pad']) {
         adapter.endAnchorDrag(false);
         assert.equal(object.rotation, 190);
         assert.equal(app.history.undoStack.length, 1, 'Cancel records no history');
-        assert.equal(app._rotationHandleDrag, false);
+        assert.equal(isRotationHandleDragActive(app), false);
     } finally {
         cancelPictureCopperRefresh(app);
         inputs.clear();
@@ -196,7 +197,7 @@ for (const layer of ['top-silk', 'bottom-copper']) {
         assert.equal(input.value, '0');
         const committedPoints = structuredClone(adapter.object.points);
         adapter.endAnchorDrag(true);
-        assert.equal(app._rotationHandleDrag, false);
+        assert.equal(isRotationHandleDragActive(app), false);
         assert.equal(app.history.undoStack.length, 1);
         app.history.undo();
         assert.deepEqual(shape.points, initialPoints, 'Image undo restores exact fractional geometry');

@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { CopperFill } from '../src/shapes/copper-fill.js';
 import { PcbDocument } from '../src/core/PcbDocument.js';
 import { areDragOverlaysDeferred } from '../src/pcb/modules/refresh-state.js';
+import { getBoardShapeDrag } from '../src/pcb/modules/board-shapes.js';
 
 globalThis.window = { addEventListener() {} };
 globalThis.document = {};
@@ -69,12 +70,12 @@ app.boardShapes.push(fill);
 const before = fill.captureState();
 assert.equal(beginFillEdit(app, fill, { x: 10, y: -2 }, 'mid:0'), true);
 assert.deepEqual({ x: crosshair.x, y: crosshair.y }, { x: 10, y: -2 }, 'Midpoint pickup shows the crosshair');
-assert.equal(app._shapeDrag.shape.outline.length, 5);
-assert.equal(app._shapeDrag.shape.segmentBulges[3], 0.25);
-assert.equal(app._shapeDrag.shape.nodeCornerRadii[3], 2);
+assert.equal(getBoardShapeDrag(app).shape.outline.length, 5);
+assert.equal(getBoardShapeDrag(app).shape.segmentBulges[3], 0.25);
+assert.equal(getBoardShapeDrag(app).shape.nodeCornerRadii[3], 2);
 assert.deepEqual(fill.captureState(), before, 'Midpoint insertion is not authored during pickup');
 updateFillEdit(app, { x: 10, y: -1 });
-assert.deepEqual({ x: crosshair.x, y: crosshair.y }, app._shapeDrag.shape.outline[1], 'Crosshair follows the inserted vertex');
+assert.deepEqual({ x: crosshair.x, y: crosshair.y }, getBoardShapeDrag(app).shape.outline[1], 'Crosshair follows the inserted vertex');
 endFillEdit(app, false);
 assert.equal(crosshair, null, 'Cancel hides the crosshair');
 assert.deepEqual(fill.captureState(), before, 'Cancel restores vertices and metadata');
@@ -136,7 +137,7 @@ for (const [region, anchor, point] of [
     [circle, 'radius', { x: 13, y: -6 }],
 ]) {
     const handlePoint = () => {
-        const handle = getBoardShapeAnchors(app._shapeDrag?.shape || region).find(item => item.id === anchor);
+        const handle = getBoardShapeAnchors(getBoardShapeDrag(app)?.shape || region).find(item => item.id === anchor);
         return { x: handle.x, y: handle.y };
     };
     app.boardShapes = [region];

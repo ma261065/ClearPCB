@@ -31,13 +31,17 @@ import { generateBOM, generatePickAndPlace } from '../pcb/modules/assembly.js';
 import { openBoard3DViewer } from '../pcb/modules/board3d.js';
 import { savePcbPdf, printPcb, projectBaseName } from '../pcb/modules/pcb-export.js';import { tracksFromAutorouterResult } from '../pcb/modules/autorouter-adapter.js';
 import { renderTrack, renderVia, removeTrackElements, removeViaElements } from '../pcb/modules/track-render.js';
-import { startTrackDraw, updateTrackDraw, refreshTrackDrawPreview, addTrackWaypoint, cancelTrackDraw, resolveTrackSnap, clearTrackSnapMarker, reconcileRatsnest } from '../pcb/modules/track-draw.js';
+import { getTrackDraw, startTrackDraw, updateTrackDraw, refreshTrackDrawPreview, addTrackWaypoint, cancelTrackDraw, resolveTrackSnap, clearTrackSnapMarker, reconcileRatsnest } from '../pcb/modules/track-draw.js';
 import { hitTestTrack, selectTrackOrVia, clearTrackSelection, setHoverHighlight, refreshTrackSelectionHalo, getSelectedTrack, getSelectedVia, dismissTrackContextMenu, trackIsSelectable } from '../pcb/modules/track-select.js';
-import { getBoardShapeRotationPreview, getBoardShapePointerPreview, getBoardShapePropertyPreview } from '../pcb/modules/board-shapes.js';
+import { getBoardShapeDrag, getBoardShapeRotationPreview, getBoardShapePointerPreview, getBoardShapePropertyPreview, getShapeDraw } from '../pcb/modules/board-shapes.js';
 import {
     startVertexDrag,
     updateVertexDrag,
     startViaDrag,
+    getVertexDrag,
+    getViaDrag,
+    setSegmentClickEdgeId,
+    setVertexDragDownScreen,
     hitTestTrackNode,
     findSplittableTrackEdge,
     splitTrackObjectAtPoint,
@@ -75,6 +79,7 @@ import {
 import {
     beginSelectionInteraction,
     clearSelectionInteractionUi,
+    getSelectionInteraction,
     showPcbSelectionProperties,
     finishSelectionInteraction,
     selectionInteractionCursor,
@@ -98,15 +103,16 @@ import { onLayerVisibilityChanged, onLayerLockChanged, onCopperFillVisibilityCha
 import { RemoveFillCommand, ModifyFillCommand } from '../pcb/modules/copper-fill-commands.js';
 import '../pcb/modules/copper-fill-selection.js';
 import { startFillEditAt, updateFillEdit, endFillEdit, deleteFocusedFillPart, showFillProperties, showFillToolProperties } from '../pcb/modules/copper-fill-edit.js';
-import '../pcb/modules/component-selection.js';
-import '../pcb/modules/pcb-text-selection.js';
-import { isRefTextLocked } from '../pcb/modules/ref-text-selection.js';
+import { beginComponentDrag, endComponentDrag, scheduleComponentDragUpdate, updateComponentDrag } from '../pcb/modules/component-selection.js';
+import { beginTextDrag, endTextDrag, getTextDrag, updateTextDrag } from '../pcb/modules/pcb-text-selection.js';
+import { beginRefTextDrag, endRefDrag, getRefDrag, isRefTextLocked, updateRefTextDrag } from '../pcb/modules/ref-text-selection.js';
 import {
+    getFillDraw,
     startFillDraw,
     addFillWaypoint,
     cancelFillDraw,
 } from '../pcb/modules/copper-fill-draw.js';
-import { preparePcbPaste, beginPcbPaste, updatePcbPaste, endPcbPaste, cancelPcbPaste } from '../pcb/modules/pcb-paste.js';
+import { preparePcbPaste, beginPcbPaste, updatePcbPaste, endPcbPaste, cancelPcbPaste, getPcbPastePreview, isPcbPasteActive } from '../pcb/modules/pcb-paste.js';
 import { getBoardOutline, boardBoundary } from '../shared/pcb/board-outline.js';
 import { getPropertyEditor, setPropertyEditor } from '../pcb/modules/property-editors.js';
 import { areDragOverlaysDeferred, isFillRefreshPending, onRefreshSuspended, setDragOverlaysDeferred } from '../pcb/modules/refresh-state.js';
@@ -115,7 +121,7 @@ import { getBoardShapeNodeFocus, getBoardShapeSegmentFocus } from '../pcb/module
 import { showTextToolProperties, showTextProperties, bindStrokeTextProps } from '../pcb/modules/text-properties.js';
 import { showPadEditor } from '../pcb/modules/pad-properties.js';
 import { multiPropertyCapabilities, showMultiSelectionProperties } from '../pcb/modules/multi-selection-properties.js';
-import { startTextInlineEdit, endTextInlineEdit } from '../pcb/modules/text-inline-edit.js';
+import { activeTextInlineEdit, startTextInlineEdit, endTextInlineEdit } from '../pcb/modules/text-inline-edit.js';
 import { showClearances, computeClearanceOutlines, refreshBoardShapeClearance, refreshClearanceHalos, refreshTrackClearance, refreshViaClearance } from '../pcb/modules/clearance-overlay.js';
 
 /**
@@ -176,20 +182,20 @@ function boardNetNames(app) {
 
 export default class PCBApp {
     get tracks() {
-        return getGroupPreview(this)?.tracks || this._pasteDrop?.preview?.tracks || getPlacementPreviewTracks(this) || this._viaDrag?.preview?.tracks
-            || this._vertexDrag?.preview?.tracks || getTrackPropertyPreview(this)?.tracks || this.pcbDocument.tracks;
+        return getGroupPreview(this)?.tracks || getPcbPastePreview(this)?.tracks || getPlacementPreviewTracks(this) || getViaDrag(this)?.preview?.tracks
+            || getVertexDrag(this)?.preview?.tracks || getTrackPropertyPreview(this)?.tracks || this.pcbDocument.tracks;
     }
     set tracks(value) { this.pcbDocument.tracks = value; }
-    get vias() { return getGroupPreview(this)?.vias || this._pasteDrop?.preview?.vias || this._viaDrag?.preview?.vias || getViaPropertyPreview(this)?.vias || this.pcbDocument.vias; }
+    get vias() { return getGroupPreview(this)?.vias || getPcbPastePreview(this)?.vias || getViaDrag(this)?.preview?.vias || getViaPropertyPreview(this)?.vias || this.pcbDocument.vias; }
     set vias(value) { this.pcbDocument.vias = value; }
     get pads() {
-        return getGroupPreview(this)?.pads || this._pasteDrop?.preview?.pads || this._viaDrag?.preview?.pads || getPadRotationPreview(this)?.pads
+        return getGroupPreview(this)?.pads || getPcbPastePreview(this)?.pads || getViaDrag(this)?.preview?.pads || getPadRotationPreview(this)?.pads
             || getPadPropertyPreview(this)?.pads || this.pcbDocument.pads;
     }
     set pads(value) { this.pcbDocument.pads = value; }
-    get texts() { return this._pasteDrop?.preview?.texts || getTextPosePreviewTexts(this) || this.pcbDocument.texts; }
+    get texts() { return getPcbPastePreview(this)?.texts || getTextPosePreviewTexts(this) || this.pcbDocument.texts; }
     set texts(value) { this.pcbDocument.texts = value; }
-    get boardShapes() { return getGroupPreview(this)?.boardShapes || this._pasteDrop?.preview?.boardShapes || getBoardDimensionPreview(this)?.boardShapes || getBoardShapePointerPreview(this)?.boardShapes || getBoardShapeRotationPreview(this)?.boardShapes || getBoardShapePropertyPreview(this)?.boardShapes || this.pcbDocument.boardShapes; }
+    get boardShapes() { return getGroupPreview(this)?.boardShapes || getPcbPastePreview(this)?.boardShapes || getBoardDimensionPreview(this)?.boardShapes || getBoardShapePointerPreview(this)?.boardShapes || getBoardShapeRotationPreview(this)?.boardShapes || getBoardShapePropertyPreview(this)?.boardShapes || this.pcbDocument.boardShapes; }
     set boardShapes(value) { this.pcbDocument.boardShapes = value; }
     get _shapeIdCounter() { return this.pcbDocument.shapeIdCounter; }
     set _shapeIdCounter(value) { this.pcbDocument.shapeIdCounter = value; }
@@ -284,15 +290,12 @@ export default class PCBApp {
         this._boardOutlineDrawn = !!getBoardOutline(this);
         /** Whether the board outline is currently selected */
         this._boardOutlineSelected = false;
-        this._boardOutlineResize = null;
         /** UI element refs (set by controls.js) */
         this.ui = null;
 
         // ── Selection & drag state ────────────────────────────
         /** Component ID currently showing a hover outline, or null */
         this._hoveredComp = null;
-        /** Drag state: { compId, startWorld, startPos } or null */
-        this._drag = null;
         /**
          * Box (marquee) multi-selection state. Populated lazily by the
          * box-select module: { comps:Set, tracks:Set, vias:Set }.
@@ -302,16 +305,10 @@ export default class PCBApp {
         this._boxSelectArm = null;
         /** True while a marquee is actively being dragged */
         this._boxSelectActive = false;
-        /** Group-drag state for a box selection, or null */
-        this._groupDrag = null;
 
         /** SVG <g> elements keyed by text id for quick remove/replace. */
         this._textElements = new Map();
         /** Currently selected text object, or null. */
-        /** Active text drag: { textId, startWorld, startPos } or null. */
-        this._textDrag = null;
-        /** Active reference-text drag: { compId, startWorld, startDx, startDy } or null. */
-        this._refDrag = null;
         /** Overlay <g> for the ref-text selection box and drag tether. */
         this._refOverlay = null;
         /** Defaults for the Text tool (modifiable via tool options). */
@@ -326,28 +323,12 @@ export default class PCBApp {
         /** Number of selectable PCB objects under the pointer. */
         this._overlapHitCount = 0;
         /** Currently selected board shape, or null. */
-        /** Active in-progress board-shape draw interaction, or null. */
-        this._shapeDraw = null;
-        /** Active board-shape drag: { id, startWorld, before } or null. */
-        this._shapeDrag = null;
         /** Selected-track node/edge edit state (track-select.js), or null. */
         this._trackEdit = null;
-        /** Active track vertex/edge drag (track-drag.js), or null. */
-        this._vertexDrag = null;
-        /** Active via drag (track-drag.js), or null. */
-        this._viaDrag = null;
-        /** Copper-fill outline being drawn, or null. */
-        this._fillDraw = null;
         /** Fill tool layer for new pours (copper-fill-draw.js owns the Fill tool defaults). @type {'top-copper'|'bottom-copper'|undefined} */
         this._fillToolLayer = undefined;
-        /** Active selection-anchor gesture (selection-interaction.js), or null. */
-        this._pcbSelectionInteraction = null;
         /** Home-tab tool highlight sync, installed by bindPcbControls(). */
         this._syncPcbHomeToolHighlight = null;
-        /** Active paste-drop interaction (pasted items glued to cursor). */
-        this._pasteDrop = null;
-        /** Inline free-text edit in progress (pcb/modules/text-inline-edit.js), or null. @type {any} */
-        this._textEdit = null;
 
         /**
          * Undo/redo for PCB-side edits (tracks, vias, vertex drags,
@@ -371,8 +352,6 @@ export default class PCBApp {
         this._autorouter = null;
         /** Lazily created DRC marker/panel presentation (_getDrcPresentation). @type {DrcPresentation|null} */
         this._drcPresentation = null;
-        /** In-progress track draw context (track-draw.js), or null. @type {any} */
-        this._trackDraw = null;
         /** Shared 3D/2D board viewer panel (board3d.js), or null. @type {any} */
         this._board3d = null;
         /** Clearance-halo overlay state (clearance-overlay.js). */
@@ -414,7 +393,7 @@ export default class PCBApp {
     activate() {
         this.initialize();
         this._active = true;
-        setInlineTextInputActive(this._textEdit?.input, true);
+        setInlineTextInputActive(activeTextInlineEdit(this)?.input, true);
 
         (this.retainPcbRibbonHeight || this['_retainRibbonHeight'])?.();
         this._ensureViewport();
@@ -447,7 +426,7 @@ export default class PCBApp {
 
     deactivate() {
         this._cancelAutoRoute?.();
-        setInlineTextInputActive(this._textEdit?.input, false);
+        setInlineTextInputActive(activeTextInlineEdit(this)?.input, false);
         this._cancelPosePreviews();
         this._cancelDrawingMode();
         this._active = false;
@@ -471,17 +450,17 @@ export default class PCBApp {
         const shapeTool = ['line', 'circle', 'rect', 'polygon', 'arc'].includes(rawTool);
         const toolLabel = rawTool.replace(/-/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
         const layer = rawTool === 'text' ? this._textDefaults?.layer || 'top-silk'
-            : rawTool === 'fill' ? this._fillDraw?.layer || this._fillToolLayer || 'top-copper'
-            : rawTool === 'track' ? this._trackDraw?.currentLayer || this._trackToolLayer || 'top-copper'
-            : shapeTool ? this._shapeDraw?.layer || resolveShapeDrawLayer(this, this.activeLayer)
+            : rawTool === 'fill' ? getFillDraw(this)?.layer || this._fillToolLayer || 'top-copper'
+            : rawTool === 'track' ? getTrackDraw(this)?.currentLayer || this._trackToolLayer || 'top-copper'
+            : shapeTool ? getShapeDraw(this)?.layer || resolveShapeDrawLayer(this, this.activeLayer)
             : this.activeLayer;
         const layerLabel = layer ? pcbLayerName(layer) : (shapeTool ? 'No unlocked layers' : 'Top Copper');
         const selectedShape = getPcbSelection(this, 'shape');
         const selectedTrack = getPcbSelection(this, 'track');
         const showSegmentTip = rawTool === 'select'
             && getPcbSelection(this).length === 1
-            && !['vertex', 'segment'].includes(this._shapeDrag?.mode)
-            && !this._vertexDrag
+            && !['vertex', 'segment'].includes(getBoardShapeDrag(this)?.mode)
+            && !getVertexDrag(this)
             && ((selectedShape.length === 1
                 && ['line', 'rect', 'polygon'].includes(selectedShape[0]?.kind)
                 && getBoardShapeSegmentFocus(this)?.shapeId !== selectedShape[0]?.id
@@ -556,7 +535,7 @@ export default class PCBApp {
     }
 
     canUndoPcbHistory() {
-        return !!this._pasteDrop || !!this.history?.canUndo?.();
+        return isPcbPasteActive(this) || !!this.history?.canUndo?.();
     }
     /** Select every visible PCB object not on a locked layer; individually locked objects are included. */
     selectAll() {
@@ -640,7 +619,7 @@ export default class PCBApp {
 
     /** Cut currently-selected PCB entities (copy + remove). */
     cutSelection() {
-        if (this._pasteDrop) { this._cancelPasteDrop(); return true; }
+        if (isPcbPasteActive(this)) { cancelPcbPaste(this); return true; }
         if (!this.copySelection({ unlockedOnly: true })) return false;
         const deleted = deleteBoxSelection(this);
         if (deleted) this.clearProperties();
@@ -862,7 +841,7 @@ export default class PCBApp {
             setHoverHighlight(this, null);
             this._hoverComponent(null);
             this._hideNetTooltip();
-            if (this._pcbSelectionInteraction) svg.style.cursor = selectionInteractionCursor(this);
+            if (getSelectionInteraction(this)) svg.style.cursor = selectionInteractionCursor(this);
             return true;
         }
         return false;
@@ -962,14 +941,14 @@ export default class PCBApp {
                 // selected track refines the selection down to just
                 // that segment on mouse-up. Node grabs and drags are
                 // unaffected.
-                this._segmentClickEdgeId =
-                    this._vertexDrag?.mode === 'segment' ? this._vertexDrag.edgeId : null;
+                const vertexDrag = getVertexDrag(this);
+                setSegmentClickEdgeId(this, vertexDrag?.mode === 'segment' ? vertexDrag.edgeId : null);
                 // Clear any lingering hover halo so it doesn't sit
                 // at the original position while the drag is live
                 // (hover updates are suppressed during a drag).
                 setHoverHighlight(this, null);
                 this._hideNetTooltip();
-                this._vertexDragDownScreen = { x: e.clientX, y: e.clientY };
+                setVertexDragDownScreen(this, { x: e.clientX, y: e.clientY });
                 this._updateVertexDragCrosshair();
                 svg.style.cursor = 'grabbing';
                 return true;
@@ -1022,7 +1001,7 @@ export default class PCBApp {
             this._selectBoardOutline(false);
             selectTrackOrVia(this, trackHit);
             // Fresh whole-track selection — not a segment-refine click.
-            this._segmentClickEdgeId = null;
+            setSegmentClickEdgeId(this, null);
             // Begin a drag immediately so click-and-drag works in
             // one motion (no separate select-then-drag click).
             if (trackHit.type === 'via') {
@@ -1033,7 +1012,7 @@ export default class PCBApp {
             } else if (trackHit.type === 'track') {
                 if (startVertexDrag(this, trackHit.track, worldPos, { allowMidpointInsert: false })) {
                     this._hideNetTooltip();
-                    this._vertexDragDownScreen = { x: e.clientX, y: e.clientY };
+                    setVertexDragDownScreen(this, { x: e.clientX, y: e.clientY });
                     this._updateVertexDragCrosshair();
                     svg.style.cursor = 'grabbing';
                 }
@@ -1066,7 +1045,7 @@ export default class PCBApp {
             this._selectBoardOutline(false);
             this.selectText(textHit);
             this.showTextProperties(textHit);
-            this._beginTextDrag(textHit, worldPos);
+            beginTextDrag(this, textHit, worldPos);
             svg.style.cursor = 'grabbing';
             return;
         }
@@ -1080,7 +1059,7 @@ export default class PCBApp {
             this._selectComponent(null);
             this._selectBoardOutline(false);
             this._selectRefText(refHit);
-            const dragging = this._beginRefTextDrag(refHit, worldPos);
+            const dragging = beginRefTextDrag(this, refHit, worldPos);
             this._showRefProperties(refHit);
             svg.style.cursor = dragging ? 'grabbing' : 'default';
             return;
@@ -1092,7 +1071,7 @@ export default class PCBApp {
             this._selectComponent(hit);
             this._selectBoardOutline(false);
             this.showComponentProperties(hit);
-            if (this._beginComponentDrag(hit, worldPos)) svg.style.cursor = 'grabbing';
+            if (beginComponentDrag(this, hit, worldPos)) svg.style.cursor = 'grabbing';
         } else if (this._hitTestBoardOutline(worldPos)) {
             this._selectComponent(null);
             this.selectFill(null);
@@ -1120,10 +1099,10 @@ export default class PCBApp {
      * Left-click with track tool: start a new track or add a waypoint.
      */
     _pressTrackTool(e) {
-        const worldPos = this._screenToWorld(e);
+        const worldPos = this.screenToWorld(e);
         // Can't draw on a locked layer.
-        if (!this._trackDraw && isLayerLocked(this._trackToolLayer || 'top-copper')) return;
-        if (this._trackDraw) {
+        if (!getTrackDraw(this) && isLayerLocked(this._trackToolLayer || 'top-copper')) return;
+        if (getTrackDraw(this)) {
             addTrackWaypoint(this, worldPos);
         } else {
             startTrackDraw(this, worldPos);
@@ -1138,9 +1117,9 @@ export default class PCBApp {
      * Left-click with fill tool: start a new pour region or add a vertex.
      */
     _pressFillTool(e) {
-        const worldPos = this._screenToWorld(e);
-        if (!this._fillDraw && isLayerLocked(this._fillToolLayer || 'top-copper')) return;
-        if (this._fillDraw) {
+        const worldPos = this.screenToWorld(e);
+        if (!getFillDraw(this) && isLayerLocked(this._fillToolLayer || 'top-copper')) return;
+        if (getFillDraw(this)) {
             addFillWaypoint(this, worldPos);
         } else {
             startFillDraw(this, worldPos);
@@ -1153,7 +1132,7 @@ export default class PCBApp {
      * Left-click with via tool: place a standalone via at the cursor.
      */
     _pressViaTool(e) {
-        const worldPos = this._screenToWorld(e);
+        const worldPos = this.screenToWorld(e);
         // A via spans both copper layers — refuse if either is locked.
         if (isViaLocked()) return;
         const snap = resolveTrackSnap(this, worldPos, {});
@@ -1201,7 +1180,7 @@ export default class PCBApp {
      * Primary press with the pad tool.
      */
     _pressPadTool(e) {
-        const snap = this._snapPadPlacement(this._screenToWorld(e));
+        const snap = this._snapPadPlacement(this.screenToWorld(e));
         const pad = new Pad({ ...this._padDefaults, x: snap.x, y: snap.y });
         if (pad.layers === 'both'
             ? (isLayerLocked('top-copper') || isLayerLocked('bottom-copper'))
@@ -1217,15 +1196,15 @@ export default class PCBApp {
      * clicks, and Line/Polygon accept vertices until double-click or Enter.
      */
     _pressShapeTool(e) {
-        shapeDrawClick(this, this.currentTool, this._screenToWorld(e));
+        shapeDrawClick(this, this.currentTool, this.screenToWorld(e));
     }
 
     /**
      * Left-click with text tool: place a text at the cursor.
      */
     _pressTextTool(e) {
-        const worldPos = this._screenToWorld(e);
-        const snap = this._snapToGrid(worldPos);
+        const worldPos = this.screenToWorld(e);
+        const snap = this.snapToGrid(worldPos);
         const layer = this._textDefaults.layer;
         // Don't place text on a locked layer.
         if (isLayerLocked(layer)) return;
@@ -1266,7 +1245,7 @@ export default class PCBApp {
 
     _updateCursorForTool() {
         if (!this.viewport?.svg) return;
-        if (this._pasteDrop) {
+        if (isPcbPasteActive(this)) {
             this.viewport.svg.style.cursor = 'crosshair';
             this._clearViaRing();
             this._clearPadPreview();
@@ -1295,7 +1274,7 @@ export default class PCBApp {
     _updateCursorCrosshair(worldPos) {
         if (!this.viewport) return;
         const snap = this.currentTool === 'text'
-            ? this._snapToGrid(worldPos) : resolveTrackSnap(this, worldPos, {});
+            ? this.snapToGrid(worldPos) : resolveTrackSnap(this, worldPos, {});
         this._lastCrosshairWorld = { x: worldPos.x, y: worldPos.y };
         this.viewport.setCrosshair({ x: snap.x, y: snap.y });
     }
@@ -1313,7 +1292,7 @@ export default class PCBApp {
      * No-op for segment drags (two moving nodes, no single point).
      */
     _updateVertexDragCrosshair() {
-        const drag = this._vertexDrag;
+        const drag = getVertexDrag(this);
         if (!drag || drag.mode !== 'node' || !this.viewport) return;
         const nd = drag.nodes?.[0];
         const n = nd && drag.track?.nodes?.get(nd.nodeId);
@@ -1422,7 +1401,7 @@ export default class PCBApp {
 
     /** Public hook used by controls.setTool to abort an in-flight track draw. */
     _cancelTrackDraw() {
-        if (this._trackDraw) cancelTrackDraw(this);
+        if (getTrackDraw(this)) cancelTrackDraw(this);
         // Also drop the pre-draw hover snap marker (shown while hovering a
         // bondable target before the first click).
         clearTrackSnapMarker(this);
@@ -1430,7 +1409,7 @@ export default class PCBApp {
 
     /** Public hook used by controls.setTool to abort an in-flight fill draw. */
     _cancelFillDraw() {
-        if (this._fillDraw) cancelFillDraw(this);
+        if (getFillDraw(this)) cancelFillDraw(this);
     }
 
     /** Public hook used by controls.setTool to abort an in-flight shape draw. */
@@ -1892,7 +1871,7 @@ export default class PCBApp {
             selectBoardShape(this, shape);
             return;
         }
-        if (!selected && this._boardOutlineResize) endBoardOutlineResize(this, false);
+        if (!selected) endBoardOutlineResize(this, false);
         if (!selected) getPropertyEditor(this, 'boardDimension')?.dispose();
         this._boardOutlineSelected = selected;
         renderBoardOutlineHandles(this);
@@ -1991,7 +1970,7 @@ export default class PCBApp {
     /** Show Track draw defaults and live draw settings in Properties. */
     _showTrackDrawProperties() {
         this.setPcbStatus();
-        const ctx = this._trackDraw;
+        const ctx = getTrackDraw(this);
         let widthError = '';
         const currentWidth = () => {
             const p = /** @type {Partial<RoutingParams>} */ (this.getRoutingParams?.() || {});
@@ -2394,7 +2373,7 @@ export default class PCBApp {
             renderTrack(t, getGroup, {
                 viaDiameter: routeParams?.viaDiameter,
                 viaDrill: routeParams?.viaDrill,
-                hideNetLabel: t === getSelectedTrack(this) || t === this._vertexDrag?.track,
+                hideNetLabel: t === getSelectedTrack(this) || t === getVertexDrag(this)?.track,
             });
         }
         for (const v of this.vias) {
@@ -2433,7 +2412,7 @@ export default class PCBApp {
             while (g.firstChild) g.removeChild(g.firstChild);
         }
         // Drop any reference-text selection/overlay tied to the old placements.
-        this._refDrag = null;
+        endRefDrag(this, false);
         if (this._refOverlay) {
             while (this._refOverlay.firstChild) this._refOverlay.removeChild(this._refOverlay.firstChild);
         }
@@ -2705,7 +2684,7 @@ export default class PCBApp {
      * @param {MouseEvent} e
      * @returns {{x: number, y: number}}
      */
-    _screenToWorld(e) {
+    screenToWorld(e) {
         // Use the viewport's cached rect rather than calling
         // getBoundingClientRect() directly. The hover code mutates the SVG
         // (halo polylines) every frame, which marks layout dirty; a fresh
@@ -2720,6 +2699,7 @@ export default class PCBApp {
             y: e.clientY - rect.top,
         });
     }
+
 
     /**
      * @overload
@@ -2822,7 +2802,7 @@ export default class PCBApp {
             // Bail if the tool changed or the tab went inactive between the
             // event and this frame.
             if (!ev || !this._active || this.currentTool !== 'select') return;
-            const worldPos = this._screenToWorld(ev);
+            const worldPos = this.screenToWorld(ev);
             this._hoverBoardOutline(this._hitTestBoardOutline(worldPos));
             // Hover highlight for tracks/vias.
             const trackHover = hitTestTrack(this, worldPos);
@@ -3090,60 +3070,6 @@ export default class PCBApp {
         this._updatePcbCulling();
     }
 
-    _beginComponentDrag(compId, worldPos) {
-        const pl = this.placements.get(compId);
-        if (!pl || pl.locked) return false;
-        // Clear the hover net-highlight before dragging: hover updates are
-        // suppressed while a drag is active, so a leftover halo would otherwise
-        // sit at the component's original position the whole drag.
-        setHoverHighlight(this, null);
-        this._hoverComponent(null);
-        this._hideNetTooltip();
-        this._drag = {
-            compId,
-            startWorld: worldPos,
-            startPos: { x: pl.x, y: pl.y },
-            // Only these nets move, so the live ratsnest rebuild is restricted
-            // to them instead of recomputing the whole board each frame.
-            nets: this._netsForComponent(compId),
-        };
-        // Copper pours and clearance halos are rebuilt once in _endDrag.
-        setDragOverlaysDeferred(this, true);
-        if (this._clearancesVisible) {
-            // Hide only the dragged component's pad halos and the halos of the
-            // nets it moves (their bonded tracks shift mid-drag); every other
-            // halo stays visible for judging clearances while placing.
-            const group = this._padHaloGroups?.get(compId);
-            if (group) group.style.display = 'none';
-            const overlay = this._layerGroups.get('clearance-overlay');
-            if (overlay) {
-                for (const net of this._drag.nets) {
-                    for (const element of overlay.querySelectorAll(`.debug-clearance[data-net="${CSS.escape(net)}"]`)) {
-                        /** @type {SVGElement} */ (element).style.display = 'none';
-                    }
-                }
-                // Promote the now-static overlay to its own compositing layer so
-                // per-frame board mutations don't repaint thousands of halo vectors.
-                overlay.style.willChange = 'transform';
-            }
-        }
-        showFootprintCrosshair(this, pl);
-        return true;
-    }
-
-    _updateComponentDrag(worldPos) {
-        if (!this._drag) return;
-        const newX = this._drag.startPos.x + worldPos.x - this._drag.startWorld.x;
-        const newY = this._drag.startPos.y + worldPos.y - this._drag.startWorld.y;
-        const pl = this.placements.get(this._drag.compId);
-        if (!pl || pl.locked) return;
-        const snap = this._snapToGrid({ x: newX, y: newY });
-        if (pl.x === snap.x && pl.y === snap.y) return;
-        previewPlacementPose(this, this._drag.compId, { x: snap.x, y: snap.y });
-        showFootprintCrosshair(this, pl);
-        this.updateRatsnest({ nets: this._drag.nets });
-    }
-
     /**
      * Hover highlight for a component under the select-tool cursor: a faint
      * dashed outline over the footprint's bounds, matching the selection box
@@ -3221,79 +3147,6 @@ export default class PCBApp {
         }, 1400);
     }
 
-    /**
-     * Coalesce footprint-drag updates to one per animation frame.
-     *
-     * Stash the latest pointer event so pose, bonded-track and incremental
-     * ratsnest updates run at most once per frame on this pointer path.
-     * @param {MouseEvent} e
-     */
-    _scheduleDragUpdate(e) {
-        this._pendingDragEvent = e;
-        if (this._dragRaf) return;
-        this._dragRaf = requestAnimationFrame(() => {
-            this._dragRaf = 0;
-            const ev = this._pendingDragEvent;
-            this._pendingDragEvent = null;
-            if (!ev || !this._active || !this._drag) return;
-            this._handleDrag(ev);
-        });
-    }
-
-    /**
-     * Handle drag movement.
-     * @param {MouseEvent} e
-     */
-    _handleDrag(e) {
-        if (!this._drag) return;
-
-        // Keep Shift-to-reverse-snap current from the live event (trackMouse
-        // only runs after this handler, so reading it here would lag a frame).
-        this.viewport.shiftHeld = e.shiftKey;
-
-        this._updateComponentDrag(this._screenToWorld(e));
-    }
-
-    /**
-     * Commit or cancel a component drag and restore derived overlays.
-     */
-    _endDrag(commit = true) {
-        if (!this._drag) return;
-        // Flush any pointer move coalesced by _scheduleDragUpdate so the final
-        // resting position reflects the very last mouse position, not the one
-        // from the previous animation frame.
-        if (this._dragRaf) {
-            cancelAnimationFrame(this._dragRaf);
-            this._dragRaf = 0;
-        }
-        const pending = this._pendingDragEvent;
-        this._pendingDragEvent = null;
-        if (commit && pending) this._handleDrag(pending);
-        const { compId, startPos } = this._drag;
-        const pl = this.placements.get(compId);
-        this._drag = null;
-        // Restore overlays before the placement command refreshes clearance.
-        setDragOverlaysDeferred(this, false);
-        // Drop the GPU-layer promotion applied during the drag so the overlay
-        // returns to normal painting (avoids holding a compositing layer).
-        if (this._clearancesVisible) {
-            const ov = this._layerGroups.get('clearance-overlay');
-            if (ov) ov.style.willChange = '';
-        }
-        this.viewport.svg.style.cursor = getPcbSelection(this, 'component').length ? 'grab' : 'default';
-        this.viewport.hideCrosshair?.();
-        if (commit && pl && (pl.x !== startPos.x || pl.y !== startPos.y)) {
-            finishPlacementPreview(this, () => {
-                const cmd = new MovePlacementCommand(this, compId, startPos.x, startPos.y, pl.x, pl.y);
-                this.history.execute(cmd);
-            });
-        } else {
-            finishPlacementPreview(this);
-            this.refreshClearanceHalos();
-            this.updateRatsnest();
-        }
-    }
-
     _cancelPosePreviews() {
         cancelPcbPosePreviews(this);
     }
@@ -3313,9 +3166,10 @@ export default class PCBApp {
     }
 
     /** Attract nearby coordinates to displayed grid lines, leaving the rest free. */
-    _snapToGrid(p) {
+    snapToGrid(p) {
         return snapToViewportGrid(p, this.viewport);
     }
+
 
     _snapPadPlacement(point) {
         return this.viewport?.getSnappedPosition?.(point) || { x: point.x, y: point.y };
@@ -3333,7 +3187,7 @@ export default class PCBApp {
         const isHover = !isSel && this._hoveredText?.id === text.id;
         // While inline-editing, render the text in white so it doesn't
         // disappear against same-coloured tracks/pads on the layer.
-        const isEditing = this._textEdit?.text?.id === text.id;
+        const isEditing = activeTextInlineEdit(this)?.text?.id === text.id;
         const isLight = document.documentElement.getAttribute('data-theme') === 'light';
         const selColor = pcbLayerSelectionColor(text.layer);
         const hoverColor = pcbLayerHoverColor(text.layer);
@@ -3350,7 +3204,7 @@ export default class PCBApp {
         // If this text is being inline-edited, keep the editing
         // box/caret transform in sync with any property changes
         // (rotation, size, layer mirror) that just re-rendered it.
-        if (isEditing) this._textEdit?.updateCaret?.();
+        if (isEditing) activeTextInlineEdit(this)?.updateCaret?.();
     }
 
     /** Remove the SVG element for a text id (model untouched). */
@@ -3404,57 +3258,6 @@ export default class PCBApp {
         if (prev && (!next || prev.id !== next.id)) this.refreshText(prev.id);
         if (next) this.refreshText(next.id);
         else renderPcbSelectionAnchors(this);
-    }
-
-    _beginTextDrag(text, worldPos) {
-        getPropertyEditor(this, 'text')?.commit();
-        text = text && this.pcbDocument.texts.get(text.id);
-        if (!text || !this.texts.has(text.id) || boardShapeLocked(text) || !isLayerVisible(text.layer)) return false;
-        this._textDrag = {
-            textId: text.id,
-            startWorld: worldPos,
-            startPos: { x: text.x, y: text.y },
-            previousDeferDragOverlays: !!areDragOverlaysDeferred(this),
-        };
-        setDragOverlaysDeferred(this, true);
-        this.viewport?.setCrosshair({ x: text.x, y: text.y });
-        return true;
-    }
-
-    _updateTextDrag(worldPos) {
-        if (!this._textDrag) return;
-        const text = this.texts.get(this._textDrag.textId);
-        if (!text || boardShapeLocked(text) || !isLayerVisible(text.layer)) return;
-        const snap = this._snapToGrid({
-            x: this._textDrag.startPos.x + worldPos.x - this._textDrag.startWorld.x,
-            y: this._textDrag.startPos.y + worldPos.y - this._textDrag.startWorld.y,
-        });
-        if (text.x === snap.x && text.y === snap.y) return;
-        previewTextPose(this, text.id, snap);
-        this.viewport?.setCrosshair({ x: snap.x, y: snap.y });
-        this.refreshText(text.id);
-    }
-
-    /** Drag an already-selected text. */
-    _handleTextDrag(e) {
-        if (!this._textDrag) return;
-        this.viewport.shiftHeld = e.shiftKey;
-        this._updateTextDrag(this._screenToWorld(e));
-    }
-
-    /** End a text drag, pushing a MoveTextCommand if it actually moved. */
-    _endTextDrag(commit = true) {
-        if (!this._textDrag) return;
-        const { textId, startPos, previousDeferDragOverlays } = this._textDrag;
-        this._textDrag = null;
-        setDragOverlaysDeferred(this, previousDeferDragOverlays);
-        this.viewport?.hideCrosshair();
-        this.viewport.svg.style.cursor = 'default';
-        const t = this.texts.get(textId);
-        finishTextPosePreview(this, t && commit && !boardShapeLocked(t) && isLayerVisible(t.layer)
-            && (t.x !== startPos.x || t.y !== startPos.y)
-            ? () => this.history.execute(new MoveTextCommand(this, textId, startPos.x, startPos.y, t.x, t.y))
-            : undefined);
     }
 
     // ── Reference-designator move / rotate ────────────────────
@@ -3573,14 +3376,14 @@ export default class PCBApp {
         }
         renderPlacementPose(this, compId);
         this._refreshRefHighlight(compId);
-        if (this._textEdit?.options?.componentId === compId) this._textEdit.updateCaret?.();
+        if (activeTextInlineEdit(this)?.options?.componentId === compId) activeTextInlineEdit(this).updateCaret?.();
     }
 
     _refreshRefHighlight(compId) {
         const pl = this.placements.get(compId);
         if (!pl || !this._refBox(pl)) return;
         const active = isPcbSelected(this, 'reftext', compId)
-            || this._textEdit?.options?.componentId === compId;
+            || activeTextInlineEdit(this)?.options?.componentId === compId;
         const isLight = document.documentElement.getAttribute('data-theme') === 'light';
         pl._refEl.setAttribute('stroke', active ? (isLight ? '#000000' : '#ffffff')
             : textColorForLayer(pl.side === 'bottom' ? 'bottom-silk' : 'top-silk'));
@@ -3617,37 +3420,6 @@ export default class PCBApp {
         setPcbSelection(this, next ? [{ kind: 'reftext', object: next }] : []);
         this.syncClipboardButtons?.();
         this._drawRefOverlay(next, false);
-    }
-
-    _beginRefTextDrag(compId, worldPos) {
-        getPropertyEditor(this, 'component')?.commit();
-        const pl = this.placements.get(compId);
-        if (!pl || isRefTextLocked(pl)) return false;
-        this._refDrag = {
-            compId,
-            startWorld: worldPos,
-            startDx: pl.refDx || 0,
-            startDy: pl.refDy || 0,
-        };
-        this._drawRefOverlay(compId, true);
-        return true;
-    }
-
-    _updateRefTextDrag(worldPos) {
-        if (!this._refDrag) return;
-        const pl = this.placements.get(this._refDrag.compId);
-        if (!pl || isRefTextLocked(pl)) return;
-        const localNow = this._worldToPlacementLocal(worldPos, pl);
-        const localStart = this._worldToPlacementLocal(this._refDrag.startWorld, pl);
-        const snap = this._snapToGrid({
-            x: this._refDrag.startDx + localNow.x - localStart.x,
-            y: this._refDrag.startDy + localNow.y - localStart.y,
-        });
-        if ((pl.refDx || 0) === snap.x && (pl.refDy || 0) === snap.y) return;
-        pl.refDx = snap.x;
-        pl.refDy = snap.y;
-        renderPlacementPose(this, this._refDrag.compId);
-        this._drawRefOverlay(this._refDrag.compId, true);
     }
 
     /** Lazily create the world-space overlay group for the ref selection/tether. */
@@ -3694,8 +3466,8 @@ export default class PCBApp {
             outline.setAttribute('pointer-events', 'none');
             g.appendChild(outline);
         }
-        if (withTether || isPcbSelected(this, 'reftext', compId) || this._refDrag?.compId === compId
-            || this._textEdit?.options?.componentId === compId) {
+        if (withTether || isPcbSelected(this, 'reftext', compId) || getRefDrag(this)?.compId === compId
+            || activeTextInlineEdit(this)?.options?.componentId === compId) {
             const bounds = pl.bounds;
             if (!bounds || bounds.width <= 0 || bounds.height <= 0) return;
             const textBox = this._refEditBoxWorldCorners(pl, box);
@@ -3709,34 +3481,6 @@ export default class PCBApp {
             const line = document.createElementNS(NS, 'line');
             applyTextConnectionGuide(line, connection, '#3399ff');
             g.appendChild(line);
-        }
-    }
-
-    /** Drag an already-selected reference designator. */
-    _handleRefDrag(e) {
-        if (!this._refDrag) return;
-        this.viewport.shiftHeld = e.shiftKey;
-        this._updateRefTextDrag(this._screenToWorld(e));
-    }
-
-    /** Commit reference offsets through history, or restore the preview on cancel. */
-    _endRefDrag(commit = true) {
-        if (!this._refDrag) return;
-        const { compId, startDx, startDy } = this._refDrag;
-        this._refDrag = null;
-        const pl = this.placements.get(compId);
-        this.viewport.svg.style.cursor = 'default';
-        if (!pl) { this._drawRefOverlay(null, false); return; }
-        if ((pl.refDx || 0) === startDx && (pl.refDy || 0) === startDy) {
-            this._drawRefOverlay(compId, false);
-            return;
-        }
-        if (commit && !isRefTextLocked(pl)) {
-            this.history.execute(new MoveRefTextCommand(this, compId, startDx, startDy, pl.refDx || 0, pl.refDy || 0));
-        } else {
-            pl.refDx = startDx; pl.refDy = startDy;
-            renderPlacementPose(this, compId);
-            this._drawRefOverlay(compId, false);
         }
     }
 
@@ -3772,12 +3516,12 @@ export default class PCBApp {
      * undo collapses each edit into one entry.
      */
     showTextProperties(text) {
-        showTextProperties(this, text, () => this._textEdit,
+        showTextProperties(this, text, () => activeTextInlineEdit(this),
             (textId, symbol) => this._insertInlineTextSymbol(textId, symbol));
     }
 
     _insertInlineTextSymbol(textId, symbol) {
-        const edit = this._textEdit;
+        const edit = activeTextInlineEdit(this);
         if (!edit || edit.text?.id !== textId) return false;
         const input = edit.input;
         const selectionStart = input.selectionStart ?? input.value.length;

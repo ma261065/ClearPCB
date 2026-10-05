@@ -1,10 +1,79 @@
 import { registerPcbSelectionAdapter, getRefTextSelectionHit } from './selection-registry.js';
 import { lockPositionOutsideOutline } from './selection-anchors.js';
 import { isLayerVisible, isLayerLocked } from './layers.js';
+import { getPropertyEditor } from './property-editors.js';
+import { MoveRefTextCommand, renderPlacementPose } from './track-commands.js';
+import { worldToPlacementLocal } from './ref-text-geometry.js';
+import { getPcbInteraction, setPcbInteraction } from './pcb-interactions.js';
 
 export function isRefTextLocked(placement) {
     return !!placement && (!!placement.locked
         || isLayerLocked(placement.side === 'bottom' ? 'bottom-silk' : 'top-silk'));
+}
+
+export function getRefDrag(app) {
+    return getPcbInteraction(app, '_refDrag');
+}
+
+export function beginRefTextDrag(app, componentId, worldPos) {
+    getPropertyEditor(app, 'component')?.commit();
+    const placement = app.placements.get(componentId);
+    if (!placement || isRefTextLocked(placement)) return false;
+    setPcbInteraction(app, '_refDrag', {
+        compId: componentId,
+        startWorld: worldPos,
+        startDx: placement.refDx || 0,
+        startDy: placement.refDy || 0,
+    });
+    app._drawRefOverlay(componentId, true);
+    return true;
+}
+
+export function updateRefTextDrag(app, worldPos) {
+    const drag = getRefDrag(app);
+    if (!drag) return;
+    const placement = app.placements.get(drag.compId);
+    if (!placement || isRefTextLocked(placement)) return;
+    const localNow = worldToPlacementLocal(worldPos, placement);
+    const localStart = worldToPlacementLocal(drag.startWorld, placement);
+    const raw = {
+        x: drag.startDx + localNow.x - localStart.x,
+        y: drag.startDy + localNow.y - localStart.y,
+    };
+    const snap = app.snapToGrid(raw);
+    if ((placement.refDx || 0) === snap.x && (placement.refDy || 0) === snap.y) return;
+    placement.refDx = snap.x;
+    placement.refDy = snap.y;
+    renderPlacementPose(app, drag.compId);
+    app._drawRefOverlay(drag.compId, true);
+}
+
+export function handleRefDrag(app, e) {
+    if (!getRefDrag(app)) return;
+    app.viewport.shiftHeld = e.shiftKey;
+    updateRefTextDrag(app, app.screenToWorld(e));
+}
+
+export function endRefDrag(app, commit = true) {
+    const drag = getRefDrag(app);
+    if (!drag) return;
+    const { compId, startDx, startDy } = drag;
+    setPcbInteraction(app, '_refDrag', null);
+    const placement = app.placements.get(compId);
+    app.viewport.svg.style.cursor = 'default';
+    if (!placement) { app._drawRefOverlay(null, false); return; }
+    if ((placement.refDx || 0) === startDx && (placement.refDy || 0) === startDy) {
+        app._drawRefOverlay(compId, false);
+        return;
+    }
+    if (commit && !isRefTextLocked(placement)) {
+        app.history.execute(new MoveRefTextCommand(app, compId, startDx, startDy, placement.refDx || 0, placement.refDy || 0));
+    } else {
+        placement.refDx = startDx;
+        placement.refDy = startDy;
+        renderPlacementPose(app, compId);
+        app._drawRefOverlay(compId, false);
+    }
 }
 
 function outlineForRefText(app, componentId) {
@@ -70,9 +139,9 @@ export function createRefTextSelectionAdapter(app, componentId, id) {
             const box = app._refBox?.(placement);
             return placement && box ? app._refCenterWorld(placement, box) : { x: 0, y: 0 };
         },
-        beginMove(worldPos) { return app._beginRefTextDrag(componentId, worldPos); },
-        updateMove(worldPos) { app._updateRefTextDrag(worldPos); },
-        endMove(commit) { app._endRefDrag(commit); },
+        beginMove(worldPos) { return beginRefTextDrag(app, componentId, worldPos); },
+        updateMove(worldPos) { updateRefTextDrag(app, worldPos); },
+        endMove(commit) { endRefDrag(app, commit); },
         invalidate() {
             app._refreshRefHighlight?.(componentId);
             app._drawRefOverlay?.(componentId, false);

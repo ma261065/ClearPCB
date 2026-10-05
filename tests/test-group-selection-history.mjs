@@ -4,6 +4,11 @@ import { runPcbNudgeAction } from '../src/pcb/modules/editor-actions.js';
 import { createPropertyPreview } from '../src/shapes/property-preview.js';
 import { setPropertyEditor } from '../src/pcb/modules/property-editors.js';
 import { areDragOverlaysDeferred } from '../src/pcb/modules/refresh-state.js';
+import { getGroupDrag } from '../src/pcb/modules/box-select.js';
+import { setPcbInteraction } from '../src/pcb/modules/pcb-interactions.js';
+import { getFillDraw } from '../src/pcb/modules/copper-fill-draw.js';
+import { getShapeDraw } from '../src/pcb/modules/board-shapes.js';
+import { getTrackDraw } from '../src/pcb/modules/track-draw.js';
 
 function element() {
     return {
@@ -89,7 +94,7 @@ app.viewport.gridSize = 0.25;
 setPcbSelection(app, texts.map(object => ({ kind: 'text', object })));
 let propertyRefreshes = 0;
 app._showPcbMultiSelectionProperties = selected => {
-    assert.equal(app._groupDrag, null, 'Properties refresh follows gesture completion');
+    assert.equal(getGroupDrag(app), null, 'Properties refresh follows gesture completion');
     assert.deepEqual(selected.map(entry => entry.object), texts);
     propertyRefreshes++;
 };
@@ -110,7 +115,7 @@ for (const [key, dx, dy] of [
     app.history.redo();
     assert.deepEqual(texts.map(text => [text.x, text.y]), after, `${key}: redo moves the group`);
     assert.deepEqual(getPcbSelection(app, 'text'), texts);
-    assert.equal(app._groupDrag, null);
+    assert.equal(getGroupDrag(app), null);
     assert.equal(areDragOverlaysDeferred(app), false);
 }
 }
@@ -159,7 +164,7 @@ app.history.undo();
     setPropertyEditor(app, 'pad', { active: true, commit() { throw failure; } });
     assert.throws(() => handleKeyDown.call(app, { key: 'ArrowLeft' }), error => error === failure);
     assert.deepEqual(texts.map(text => [text.x, text.y]), beforeUnsnapped);
-    assert.equal(app._groupDrag, null, 'A failed handoff must not start movement');
+    assert.equal(getGroupDrag(app), null, 'A failed handoff must not start movement');
     assert.deepEqual(app.history.undoStack, beforeUndo);
     assert.deepEqual(app.history.redoStack, beforeRedo);
     setPropertyEditor(app, 'pad', null);
@@ -178,11 +183,13 @@ for (const event of [
 for (const state of ['_pcbSelectionInteraction', '_groupDrag', '_vertexDrag', '_viaDrag', '_shapeDrag',
     '_boardOutlineResize', '_rotationHandleDrag', '_pasteDrop', '_textEdit', '_drag',
     '_textDrag', '_refDrag', '_boxSelectArm', '_boxSelectActive']) {
-    app[state] = {};
+    if (state === '_boxSelectArm' || state === '_boxSelectActive') app[state] = {};
+    else setPcbInteraction(app, state, {});
     assert.equal(handleKeyDown.call(app, { key: 'ArrowLeft' }), false, `${state}: arrows leave active gestures alone`);
     assert.equal(runPcbNudgeAction(app, 'ArrowLeft'), false, `${state}: direct action uses the same guard`);
     assert.deepEqual(texts.map(text => [text.x, text.y]), beforeUnsnapped);
-    app[state] = null;
+    if (state === '_boxSelectArm' || state === '_boxSelectActive') app[state] = null;
+    else setPcbInteraction(app, state, null);
 }
 const selectedEntry = getPcbSelectionEntries(app)[0];
 selectedEntry.visible = false;
@@ -217,9 +224,9 @@ assert.equal(handleKeyDown.call(app, { key: 'ArrowRight' }), false, 'Inactive ed
 assert.equal(runPcbNudgeAction(app, 'ArrowRight'), false);
 app._active = true;
 for (const key of ['_trackDraw', '_fillDraw', '_shapeDraw']) {
-    app[key] = {};
+    setPcbInteraction(app, key, {});
     assert.equal(runPcbNudgeAction(app, 'ArrowRight'), false, 'Direct actions also respect unfinished drawing');
-    app[key] = null;
+    setPcbInteraction(app, key, null);
 }
 assert.deepEqual(texts.map(text => [text.x, text.y]), beforeUnsnapped);
 app.placements.set('ref', {});
@@ -266,9 +273,9 @@ for (const tool of ['line', 'rect', 'polygon', 'circle', 'arc', 'track', 'fill']
         app._active = true;
         app.currentTool = tool;
         const drawingKey = tool === 'track' ? '_trackDraw' : tool === 'fill' ? '_fillDraw' : '_shapeDraw';
-        app[drawingKey] = { kind: tool };
+        setPcbInteraction(app, drawingKey, { kind: tool });
         assert.equal(handleKeyDown.call(app, { key: 'Escape' }), true);
-        assert.equal(app[drawingKey], null, `${tool}: first Escape discards drawing`);
+        assert.equal(getTrackDraw(app) || getFillDraw(app) || getShapeDraw(app), null, `${tool}: first Escape discards drawing`);
         assert.equal(app.currentTool, tool, `${tool}: first Escape retains tool`);
         assert.equal(getPcbSelection(app).length, selected ? 1 : 0);
         assert.equal(handleKeyDown.call(app, { key: 'Escape' }), true);
@@ -292,6 +299,10 @@ for (const [tool, settings, expected] of [
     ['select', {}, 'Select | Hole'],
 ]) {
     Object.assign(app, settings, { currentTool: tool });
+    if (settings._fillDraw) setPcbInteraction(app, '_fillDraw', settings._fillDraw);
+    else setPcbInteraction(app, '_fillDraw', null);
+    if (settings._trackDraw) setPcbInteraction(app, '_trackDraw', settings._trackDraw);
+    else setPcbInteraction(app, '_trackDraw', null);
     setStatus.call(app);
     assert.equal(app.status.modeStatus.textContent, expected);
 }

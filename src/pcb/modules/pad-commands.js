@@ -6,6 +6,8 @@ import { renderPad, removePadElements, updatePadHighlightGeometry } from './pad.
 import { clearPcbSelection, isPcbSelected } from './selection-registry.js';
 import { schedulePictureCopperRefresh } from './picture-refresh.js';
 import { Pad } from '../../shapes/pad.js';
+import { beginRotationHandleDrag, endRotationHandleDrag } from './rotation-handle.js';
+import { getViaDrag } from './track-drag.js';
 
 const padRotationPreviews = new WeakMap();
 const padPropertyPreviews = new WeakMap();
@@ -15,7 +17,8 @@ export function getPadPropertyPreview(app) {
 }
 
 export function canonicalPad(app, pad) {
-    if (app._viaDrag?.via === pad) return app._viaDrag.original;
+    const viaDrag = getViaDrag(app);
+    if (viaDrag?.via === pad) return viaDrag.original;
     const rotation = padRotationPreviews.get(app);
     if (rotation?.pad === pad) return rotation.original;
     return padPropertyPreviews.get(app)?.originals.get(pad) || pad;
@@ -23,7 +26,8 @@ export function canonicalPad(app, pad) {
 
 export function displayedPad(app, pad) {
     pad = canonicalPad(app, pad);
-    if (app._viaDrag?.original === pad) return app._viaDrag.via;
+    const viaDrag = getViaDrag(app);
+    if (viaDrag?.original === pad) return viaDrag.via;
     const rotation = padRotationPreviews.get(app);
     if (rotation?.original === pad) return rotation.pad;
     return padPropertyPreviews.get(app)?.copies.get(pad) || pad;
@@ -31,7 +35,7 @@ export function displayedPad(app, pad) {
 
 /** Numeric fields share one stable projection for the panel's selected pads. */
 export function beginPadPropertyPreview(app, pads) {
-    if (padPropertyPreviews.has(app) || padRotationPreviews.has(app) || app._viaDrag) {
+    if (padPropertyPreviews.has(app) || padRotationPreviews.has(app) || getViaDrag(app)) {
         throw new Error('Finish the current pad preview before editing pad properties.');
     }
     const available = new Set(app.pcbDocument.pads);
@@ -90,7 +94,7 @@ export function beginPadRotationPreview(app, original, start) {
     padRotationPreviews.set(app, {
         original, pad: original, start: { ...start }, rotation: original.rotation, pads: undefined,
     });
-    app._rotationHandleDrag = true;
+    beginRotationHandleDrag(app);
 }
 
 /** Allocate once, on the first changed rotation, without touching authored geometry. */
@@ -115,7 +119,7 @@ export function finishPadRotationPreview(app, commit) {
     const preview = padRotationPreviews.get(app);
     padRotationPreviews.delete(app);
     if (preview) {
-        app._rotationHandleDrag = false;
+        endRotationHandleDrag(app);
         if (preview.pads) removePadElements(preview.pad);
     }
     let committed = false;

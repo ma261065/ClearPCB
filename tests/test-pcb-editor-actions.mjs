@@ -3,6 +3,11 @@ import { CommandHistory } from '../src/core/CommandHistory.js';
 import { bindPcbControls, bindPcbHistoryButtons } from '../src/pcb/modules/controls.js';
 import { savePcbProject } from '../src/pcb/modules/editor-actions.js';
 import { setPropertyEditor } from '../src/pcb/modules/property-editors.js';
+import { getBoardOutlineResize } from '../src/pcb/modules/board-outline-resize.js';
+import { getPcbPaste } from '../src/pcb/modules/pcb-paste.js';
+import { getComponentDrag } from '../src/pcb/modules/component-selection.js';
+import { getGroupDrag } from '../src/pcb/modules/box-select.js';
+import { setPcbInteraction } from '../src/pcb/modules/pcb-interactions.js';
 
 const elements = new Map();
 globalThis.window = { addEventListener() {} };
@@ -43,7 +48,7 @@ function fixture() {
         viewport: { gridSize: 1, getGridOptions: () => [{ value: 1, label: '1 mm' }],
             hideCrosshair() { events.push('crosshair'); } },
         _clearCursorCrosshair() { events.push('cursor'); },
-        _cancelPasteDrop() { events.push('cancel-paste'); this._pasteDrop = null; },
+        _cancelPasteDrop() { events.push('cancel-paste'); setPcbInteraction(this, '_pasteDrop', null); },
         _cancelPosePreviews: PCBApp.prototype._cancelPosePreviews,
         handleKeyDown: PCBApp.prototype.handleKeyDown,
         _showSaveToast(message) { events.push(message); },
@@ -62,21 +67,32 @@ for (const source of ['keyboard', 'ribbon']) for (const action of ['undo', 'redo
     for (const preview of ['paste', 'dimensions', 'group', 'track-draw', 'fill-draw', 'shape-draw']) {
         const f = fixture(), { app } = f;
         const beforeUndo = [...app.history.undoStack], beforeRedo = [...app.history.redoStack];
-        if (preview === 'paste') app._pasteDrop = {};
+        if (preview === 'paste') setPcbInteraction(app, '_pasteDrop', {
+            model: app,
+            payload: { tracks: [], vias: [], pads: [], shapes: [], texts: [], fills: [] },
+            selection: [], flags: {}, suspensions: { overlays: false, fill: false, boardView: false },
+            fillPending: false,
+        });
         else if (preview === 'dimensions') {
-            app._boardOutlineResize = { previousSuspend: false };
+            setPcbInteraction(app, '_boardOutlineResize', { previousSuspend: false });
             setPropertyEditor(app, 'boardDimension', { cancel() { f.events.push('cancel-dimensions'); } });
         } else if (preview === 'group') {
-            app._groupDrag = { posePreview: true, tracks: [], vias: [], pads: [], shapes: [], fills: [],
-                previousDeferDragOverlays: false, previousSuspendBoardViewRefresh: false };
-        } else app[`_${preview.split('-')[0]}Draw`] = {};
+            setPcbInteraction(app, '_groupDrag', { posePreview: true, tracks: [], vias: [], pads: [], shapes: [], fills: [],
+                previousDeferDragOverlays: false, previousSuspendBoardViewRefresh: false });
+        } else if (preview === 'track-draw') {
+            setPcbInteraction(app, '_trackDraw', { previewElements: [] });
+        } else if (preview === 'fill-draw') {
+            setPcbInteraction(app, '_fillDraw', { points: [], snap: null });
+        } else if (preview === 'shape-draw') {
+            setPcbInteraction(app, '_shapeDraw', { preview: { parentNode: null } });
+        }
         f.invoke(source, action);
         assert.deepEqual(app.history.undoStack, beforeUndo, `${source}/${action}/${preview}: do not undo below an unfinished edit`);
         assert.deepEqual(app.history.redoStack, beforeRedo, `${source}/${action}/${preview}: retain redo`);
         assert.equal(f.value(), 1);
-        if (preview === 'paste') assert.equal(app._pasteDrop, null);
-        if (preview === 'dimensions') assert.equal(app._boardOutlineResize, null);
-        if (preview === 'group') assert.equal(app._groupDrag, null);
+        if (preview === 'paste') assert.equal(getPcbPaste(app), null);
+        if (preview === 'dimensions') assert.equal(getBoardOutlineResize(app), null);
+        if (preview === 'group') assert.equal(getGroupDrag(app), null);
     }
     const idle = fixture();
     idle.invoke(source, action);
@@ -85,18 +101,22 @@ for (const source of ['keyboard', 'ribbon']) for (const action of ['undo', 'redo
 
 for (const source of ['keyboard', 'ribbon']) {
     const f = fixture();
-    f.app._drag = {};
-    f.app._endDrag = commit => {
-        assert.equal(commit, false);
-        f.events.push('cancel-drag');
-        f.app._drag = null;
-    };
+    f.app.placements.set('part', { x: 0, y: 0 });
+    f.app.viewport.svg = { style: {} };
+    f.app.refreshClearanceHalos = () => f.events.push('cancel-drag');
+    f.app.updateRatsnest = () => {};
+    setPcbInteraction(f.app, '_drag', { compId: 'part', startPos: { x: 0, y: 0 }, startWorld: { x: 0, y: 0 } });
     f.invoke(source, 'undo');
-    assert.deepEqual(f.events, ['cancel-drag', 'undo'], `${source}: cancel the pointer before history`);
+    assert.deepEqual(f.events, ['crosshair', 'cancel-drag', 'undo'], `${source}: cancel the pointer before history`);
+    assert.equal(getComponentDrag(f.app), null, `${source}: the drag ends`);
+    assert.equal(f.value(), 0, `${source}: the drag is cancelled, not committed, so Undo reverts the earlier edit`);
+    assert.deepEqual(f.app.placements.get('part'), { x: 0, y: 0 });
     const failing = fixture();
     const failure = new Error('Fixture cancellation failed');
-    failing.app._drag = {};
-    failing.app._endDrag = () => { throw failure; };
+    failing.app.placements.set('part', { x: 0, y: 0 });
+    failing.app.viewport.svg = { style: {} };
+    failing.app.refreshClearanceHalos = () => { throw failure; };
+    setPcbInteraction(failing.app, '_drag', { compId: 'part', startPos: { x: 0, y: 0 }, startWorld: { x: 0, y: 0 } });
     assert.throws(() => failing.invoke(source, 'undo'), error => error === failure);
     assert.equal(failing.value(), 1, 'Failed cleanup must not advance history');
 }

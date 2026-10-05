@@ -13,6 +13,9 @@ import { prepareFabricationSnapshot } from '../src/pcb/modules/fabrication-snaps
 import { loadPcb } from '../src/pcb/modules/project-state.js';
 import { cancelPictureCopperRefresh } from '../src/pcb/modules/picture-refresh.js';
 import { getHoveredBoardShape } from '../src/pcb/modules/board-shape-state.js';
+import { getSelectionInteraction } from '../src/pcb/modules/selection-interaction.js';
+import { isRotationHandleDragActive } from '../src/pcb/modules/rotation-handle.js';
+import { setPcbInteraction } from '../src/pcb/modules/pcb-interactions.js';
 
 let allocations = 0;
 class Element {
@@ -141,8 +144,8 @@ for (const layer of ['top-silk', 'bottom-silk', 'top-copper', 'bottom-copper']) 
             assert.equal(f.fills(), 0);
             assert.throws(() => project.serialize(), /Finish the current edit before saving/);
             await assert.rejects(prepareFabricationSnapshot(app), /Finish the current edit before exporting/);
-            app._pcbSelectionInteraction = { mode: 'anchor', adapter: rebuilt, moved: true,
-                anchorId: 'rotate', anchor: { symbol: 'rotate' } };
+            setPcbInteraction(app, '_pcbSelectionInteraction', { mode: 'anchor', adapter: rebuilt, moved: true,
+                anchorId: 'rotate', anchor: { symbol: 'rotate' } });
             if (finish === 'commit') {
                 const execute = app.history.execute.bind(app.history);
                 app.history.execute = command => {
@@ -163,7 +166,7 @@ for (const layer of ['top-silk', 'bottom-silk', 'top-copper', 'bottom-copper']) 
                 const command = new RemoveBoardShapeCommand(app, copy);
                 assert.equal(command.shape, shape);
                 app.history.execute(command);
-                assert.equal(app._pcbSelectionInteraction, null);
+                assert.equal(getSelectionInteraction(app), null);
                 assert.equal(model.boardShapes.includes(shape), false);
                 app.history.undo();
                 assert.deepEqual(captureBoardShapeState(shape), shapeState);
@@ -200,8 +203,8 @@ for (const layer of ['top-silk', 'bottom-silk', 'top-copper', 'bottom-copper']) 
                 assert.equal(app.history.redoStack[0], redo);
             }
             assert.equal(getBoardShapeRotationPreview(app), undefined);
-            assert.equal(app._rotationHandleDrag, false);
-            assert.equal(app._pcbSelectionInteraction, null);
+            assert.equal(isRotationHandleDragActive(app), false);
+            assert.equal(getSelectionInteraction(app), null);
             assert.equal(app.boardShapes, model.boardShapes);
             assert.equal(rebuilt.object, shape);
             assert.equal(app.isSectionEditing(), false);
@@ -253,8 +256,8 @@ for (const action of ['undo', 'redo', 'move']) {
     if (action === 'redo') app.history.undo();
     adapter.beginAnchorDrag('rotate', start);
     adapter.updateAnchorDrag(pointFor(180));
-    app._pcbSelectionInteraction = { mode: 'anchor', adapter, moved: true,
-        anchorId: 'rotate', anchor: { symbol: 'rotate' } };
+    setPcbInteraction(app, '_pcbSelectionInteraction', { mode: 'anchor', adapter, moved: true,
+        anchorId: 'rotate', anchor: { symbol: 'rotate' } });
     if (action === 'move') {
         const copy = adapter.object;
         const next = createBoardShapeSelectionAdapter(app, copy, adapter.id);
@@ -269,7 +272,7 @@ for (const action of ['undo', 'redo', 'move']) {
     } else {
         PCBApp.prototype.handleKeyDown.call(app, { key: action === 'undo' ? 'z' : 'y', ctrlKey: true });
         assert.equal(getBoardShapeRotationPreview(app), undefined);
-        assert.equal(app._pcbSelectionInteraction, null);
+        assert.equal(getSelectionInteraction(app), null);
         assert.deepEqual(model.captureGeometry(), action === 'undo' ? before : rotated);
     }
     cancelPictureCopperRefresh(app);
@@ -279,14 +282,14 @@ for (const action of ['undo', 'redo', 'move']) {
 for (const action of ['commit', 'cancel', 'update']) {
     const { app, model, shape, adapter, start, pointFor } = fixture();
     adapter.beginAnchorDrag('rotate', start);
-    app._pcbSelectionInteraction = { mode: 'anchor', adapter, moved: true,
-        anchorId: 'rotate', anchor: { symbol: 'rotate' } };
+    setPcbInteraction(app, '_pcbSelectionInteraction', { mode: 'anchor', adapter, moved: true,
+        anchorId: 'rotate', anchor: { symbol: 'rotate' } });
     model.boardShapes.splice(model.boardShapes.indexOf(shape), 1);
     if (action === 'update') assert.throws(() => adapter.updateAnchorDrag(pointFor(90)), /Cannot rotate a missing board shape/);
     else if (action === 'commit') assert.throws(() => finishSelectionInteraction(app, true), /Cannot rotate a missing board shape/);
     else finishSelectionInteraction(app, false);
     assert.equal(getBoardShapeRotationPreview(app), undefined);
-    assert.equal(app._pcbSelectionInteraction, null);
+    assert.equal(getSelectionInteraction(app), null);
     assert.equal(app._shapeElements.has(shape.id), false);
     assert.equal(app.isSectionEditing(), false);
     cancelPictureCopperRefresh(app);

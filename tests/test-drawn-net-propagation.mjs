@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { getComputedFill, setComputedFill } from '../src/pcb/modules/computed-fill-cache.js';
 import { PcbDocument } from '../src/core/PcbDocument.js';
+import { getTrackDraw } from '../src/pcb/modules/track-draw.js';
 
 const element = () => ({ setAttribute() {}, appendChild() {}, remove() {}, classList: { add() {} } });
 globalThis.window = { addEventListener() {} };
@@ -93,10 +94,10 @@ await loadClipper();
     const draw = startTrackDraw(app, { x: 20, y: 0 });
     assert.equal(draw?.net, 'SIGNAL', 'The draw starts on the pin despite the surrounding GND pour');
     addTrackWaypoint(app, { x: 10, y: 3 });
-    assert.equal(app._trackDraw?.points.length, 2, 'A bend inside a foreign-net pour is accepted, not a Net conflict');
+    assert.equal(getTrackDraw(app)?.points.length, 2, 'A bend inside a foreign-net pour is accepted, not a Net conflict');
     addTrackWaypoint(app, { x: 5, y: 3 });
     addTrackWaypoint(app, { x: 5, y: 3 });
-    assert.equal(app._trackDraw, null, 'Finishing inside the pour completes the Track');
+    assert.equal(getTrackDraw(app), null, 'Finishing inside the pour completes the Track');
     assert.equal(app.tracks.length, 1);
     assert.equal(app.tracks[0].net, 'SIGNAL');
     assert.equal(ground.net, 'GND');
@@ -152,7 +153,7 @@ for (const reverse of [false, true]) {
     const before = originals.map(item => item.captureState());
     startTrackDraw(app, { x: reverse ? 20 : 0, y: 0 });
     addTrackWaypoint(app, { x: reverse ? 0 : 20, y: 0 });
-    assert.equal(app._trackDraw, null);
+    assert.equal(getTrackDraw(app), null);
     assert.equal(app.commands.length, 1);
     for (const item of [...app.tracks, source, bridge, pad]) assert.equal(item.net, 'SIGNAL');
     assert.equal(unrelated.net, '');
@@ -300,8 +301,8 @@ for (const kind of ['via', 'track', 'pad', 'shape', 'component']) {
     startTrackDraw(app, { x: 0, y: 0 });
     addTrackWaypoint(app, { x: 20, y: 0 });
     assert.equal(app.commands.length, 0, `${kind} conflict rejects the whole route`);
-    assert.equal(app._trackDraw.points.length, 1, 'a rejected destination does not become a waypoint');
-    assert.equal(app._trackDraw.net, '', 'a rejected destination does not change the drawing Net');
+    assert.equal(getTrackDraw(app).points.length, 1, 'a rejected destination does not become a waypoint');
+    assert.equal(getTrackDraw(app).net, '', 'a rejected destination does not change the drawing Net');
     assert.equal(source.net, '');
     assert.deepEqual(chain.captureState(), before);
     assert.match(app.lastAlert, /Cannot connect different nets/);

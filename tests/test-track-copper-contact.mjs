@@ -1,4 +1,6 @@
 import assert from 'node:assert/strict';
+import { getTrackDraw } from '../src/pcb/modules/track-draw.js';
+import { setPcbInteraction } from '../src/pcb/modules/pcb-interactions.js';
 
 const element = () => ({ setAttribute() {}, appendChild() {}, addEventListener() {},
     remove() {}, focus() {}, querySelectorAll: () => [], classList: { add() {}, remove() {} } });
@@ -32,7 +34,7 @@ for (const startKind of ['shape', 'via']) {
                 endKind === 'shape' ? shape(20, 'GND') : via(20, 'GND'));
             assert.equal(startTrackDraw(app, { x: 0, y: 0 }).net, sourceNet);
             addTrackWaypoint(app, { x: 20, y: 0 });
-            assert.equal(app._trackDraw, null);
+            assert.equal(getTrackDraw(app), null);
             assert.equal(app.tracks.length, 1);
             assert.equal(app.tracks[0].net, 'GND', `${startKind} to ${endKind}, source=${sourceNet}`);
         }
@@ -71,7 +73,7 @@ for (const extra of [{ layer: 'bottom-copper' }, { filled: false },
 const strokeApp = board();
 strokeApp.boardShapes.push(shape(0, 'GND', { filled: false }));
 assert.deepEqual(resolveTrackDrawSnap(strokeApp, { x: 2, y: 0 }).contactNets, ['GND']);
-strokeApp._trackDraw = { currentLayer: 'bottom-copper' };
+setPcbInteraction(strokeApp, '_trackDraw', { currentLayer: 'bottom-copper' });
 assert.deepEqual(resolveTrackDrawSnap(strokeApp, { x: 2, y: 0 }).contactNets, []);
 
 const viaApp = board();
@@ -93,7 +95,7 @@ assert.equal(standaloneContext.snap.snapType, 'pad');
 assert.deepEqual(standaloneContext.points[0], { x: 0, y: 0 });
 assert.equal(standaloneContext.net, 'PAD_NET', 'originating pad overrides the previous Track-tool Net');
 addTrackWaypoint(standaloneApp, { x: 19.6, y: 0 });
-assert.equal(standaloneApp._trackDraw, null, 'releasing on a standalone pad finishes the Track');
+assert.equal(getTrackDraw(standaloneApp), null, 'releasing on a standalone pad finishes the Track');
 assert.equal(standaloneApp.tracks[0].net, 'PAD_NET');
 let netCommand = null;
 standaloneApp.history = { execute(command) { netCommand = command; command.execute(); } };
@@ -135,7 +137,7 @@ const componentPadContext = startTrackDraw(componentPadApp, { x: 0.4, y: 0 });
 assert.equal(componentPadContext.net, 'COMPONENT_NET',
     'originating component pad overrides the previous Track-tool Net');
 addTrackWaypoint(componentPadApp, { x: 19.6, y: 0 });
-assert.equal(componentPadApp._trackDraw, null, 'releasing on a component pad finishes the Track');
+assert.equal(getTrackDraw(componentPadApp), null, 'releasing on a component pad finishes the Track');
 assert.deepEqual([...componentPadApp.tracks[0].padConnections.values()], [
     { componentId: 'U1', pinNumber: '1' },
     { componentId: 'U2', pinNumber: '1' },
@@ -146,13 +148,13 @@ viaHighlightApp.viewport.svg = { appendChild() {} };
 viaHighlightApp.vias.push(via(10, 'GND'));
 startTrackDraw(viaHighlightApp, { x: 0, y: 0 });
 updateTrackDraw(viaHighlightApp, { x: 10.2, y: 0 });
-assert.equal(viaHighlightApp._trackDraw.snap.snapType, 'via');
+assert.equal(getTrackDraw(viaHighlightApp).snap.snapType, 'via');
 assert.ok(viaHighlightApp._trackSnapMarker, 'destination via receives the yellow snap highlight');
 
 const overlap = board();
 overlap.boardShapes.push(shape(0, 'GND'), shape(0, 'VCC'));
 assert.equal(startTrackDraw(overlap, { x: 0, y: 0 }), null);
-assert.equal(overlap._trackDraw, undefined);
+assert.equal(getTrackDraw(overlap), null);
 
 const explicit = board();
 explicit._trackToolNet = 'VCC';

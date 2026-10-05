@@ -12,6 +12,9 @@ import { beginPcbAnchorInteraction, finishSelectionInteraction, updateSelectionI
 import { loadPcb } from '../src/pcb/modules/project-state.js';
 import { refreshBoxSelectionHighlights } from '../src/pcb/modules/box-select.js';
 import { areDragOverlaysDeferred, setDragOverlaysDeferred } from '../src/pcb/modules/refresh-state.js';
+import { getSelectionInteraction } from '../src/pcb/modules/selection-interaction.js';
+import { getBoardShapeDrag } from '../src/pcb/modules/board-shapes.js';
+import { setPcbInteraction } from '../src/pcb/modules/pcb-interactions.js';
 
 let allocations = 0;
 class Element {
@@ -137,9 +140,9 @@ for (const mode of ['move', 'segment', 'vertex', 'midpoint', 'bulge', 'center', 
         assert.equal(getPcbSelection(app, 'fill')[0], copy);
         const rebuilt = createCopperFillSelectionAdapter(app, copy, adapter.id);
         assert.equal(rebuilt.object, copy);
-        app._pcbSelectionInteraction = anchor == null
+        setPcbInteraction(app, '_pcbSelectionInteraction', anchor == null
             ? { mode: 'move-adapter', entry: adapter, moved: true }
-            : { mode: 'anchor', adapter, anchorId: anchor, moved: true };
+            : { mode: 'anchor', adapter, anchorId: anchor, moved: true });
         if (finish === 'commit') {
             finishSelectionInteraction(app, true);
             assert.equal(app.history.undoStack.length, 1);
@@ -176,8 +179,8 @@ for (const mode of ['move', 'segment', 'vertex', 'midpoint', 'bulge', 'center', 
                 assert.equal(f.recomputes(), 0, 'Discarding a preview does not recompute a settled pour');
             }
         }
-        assert.equal(app._shapeDrag, null);
-        assert.equal(app._pcbSelectionInteraction, null);
+        assert.equal(getBoardShapeDrag(app), null);
+        assert.equal(getSelectionInteraction(app), null);
         assert.equal(frames.size, 0);
         assert.equal(areDragOverlaysDeferred(app), deferred);
         assert.equal(rebuilt.object, fill);
@@ -190,12 +193,12 @@ for (const reason of ['invalid', 'locked']) {
     const before = fill.captureState();
     beginFillEdit(app, fill, start);
     updateFillEdit(app, target);
-    if (reason === 'invalid') app._shapeDrag.shape.outline = [];
+    if (reason === 'invalid') getBoardShapeDrag(app).shape.outline = [];
     else fill.locked = true;
     endFillEdit(app, true);
     assert.deepEqual(fill.captureState(), { ...before, locked: reason === 'locked' });
     assert.equal(app.history.canUndo(), false);
-    assert.equal(app._shapeDrag, null);
+    assert.equal(getBoardShapeDrag(app), null);
     cases++;
 }
 for (const action of ['place', 'cancel', 'drag']) {
@@ -204,7 +207,7 @@ for (const action of ['place', 'cancel', 'drag']) {
     assert.equal(beginPcbAnchorInteraction(app, adapter, { id: 'mid:0', ...start }, start), true);
     if (action !== 'drag') {
         finishSelectionInteraction(app, true);
-        assert.equal(app._pcbSelectionInteraction.mode, 'floating-anchor');
+        assert.equal(getSelectionInteraction(app).mode, 'floating-anchor');
     }
     assert.deepEqual(fill.captureState(), before, 'Midpoint pickup remains a preview');
     assert.equal(app.history.undoStack.length, 0);
@@ -214,8 +217,8 @@ for (const action of ['place', 'cancel', 'drag']) {
         finishSelectionInteraction(app, false);
         assert.deepEqual(fill.captureState(), before);
         assert.equal(app.history.undoStack.length, 0);
-        assert.equal(app._shapeDrag, null);
-        assert.equal(app._pcbSelectionInteraction, null);
+        assert.equal(getBoardShapeDrag(app), null);
+        assert.equal(getSelectionInteraction(app), null);
         cases++;
         continue;
     }
@@ -223,8 +226,8 @@ for (const action of ['place', 'cancel', 'drag']) {
     else finishSelectionInteraction(app, true);
     assert.equal(fill.outline.length, 5);
     assert.equal(app.history.undoStack.length, 1);
-    assert.equal(app._shapeDrag, null);
-    assert.equal(app._pcbSelectionInteraction, null);
+    assert.equal(getBoardShapeDrag(app), null);
+    assert.equal(getSelectionInteraction(app), null);
     app.history.undo();
     assert.deepEqual(fill.captureState(), before);
     cases++;

@@ -3,6 +3,9 @@ import { installFakeDom } from './helpers/fake-dom.mjs';
 import { setBoardShapeSegmentFocus, setShapeDefaults } from '../src/pcb/modules/board-shape-state.js';
 import { flushSettledChanges } from '../src/shared/ui/settled-input.js';
 import { renderPropertyFields, propertyField } from '../src/shared/ui/property-fields.js';
+import { getShapeDraw } from '../src/pcb/modules/board-shapes.js';
+import { setPcbInteraction } from '../src/pcb/modules/pcb-interactions.js';
+import { getBoardShapeDrag } from '../src/pcb/modules/board-shapes.js';
 
 const pcbShapeGeometry = await import('../src/shared/pcb/board-shape-geometry.js');
 const {
@@ -249,7 +252,7 @@ for (const shape of [
     const original = cloneShapeGeometry(shape);
     const handleApp = {
         boardShapes: [shape], _shapeElements: new Map(),
-        _snapToGrid(point) { return point; }, getLayerGroup() { return null; },
+        snapToGrid(point) { return point; }, getLayerGroup() { return null; },
     };
     for (const anchor of anchors.filter(anchor => !anchor.midpoint)) {
         moveBoardShapeAnchor(handleApp, shape, anchor.id, anchor);
@@ -324,9 +327,9 @@ for (const layer of ['hole', 'top-copper', 'top-mask']) {
     const preview = document.createElementNS();
     preview.setAttribute('fill-opacity', '1');
     const previewApp = {
-        _shapeDraw: { kind: 'line', layer, points: [{ x: 0, y: 0 }, { x: 10, y: 0 }], preview },
-        _snapToGrid: (point) => point,
+        snapToGrid: (point) => point,
     };
+    setPcbInteraction(previewApp, '_shapeDraw', { kind: 'line', layer, points: [{ x: 0, y: 0 }, { x: 10, y: 0 }], preview });
     setShapeDefaults(previewApp, { filled: true });
     updateShapeDrawPreview(previewApp, { x: 10, y: 5 });
     check(`${layer} line preview stays unfilled between its endpoints`,
@@ -338,7 +341,7 @@ const app = {
     boardShapes: [],
     activeLayer: 'top-silk',
     _shapeIdCounter: 1,
-    _snapToGrid: (point) => ({ x: Math.round(point.x), y: Math.round(point.y) }),
+    snapToGrid: (point) => ({ x: Math.round(point.x), y: Math.round(point.y) }),
     getLayerGroup: () => ({ appendChild() {}, insertBefore() {} }),
     history: { execute(command) { app.boardShapes.push(command.shape); } },
     viewport: { scale: 100, gridSize: 1, setCrosshair() {} },
@@ -347,10 +350,10 @@ setShapeDefaults(app, {});
 
 shapeDrawClick(app, 'arc', { x: 0, y: 0 });
 check('PCB shape ghost matches schematic preview styling',
-    app._shapeDraw.preview.getAttribute('stroke') === 'var(--sch-symbol-outline, #ffffff)'
-    && app._shapeDraw.preview.getAttribute('stroke-width') === '1'
-    && app._shapeDraw.preview.getAttribute('opacity') === '0.6'
-    && app._shapeDraw.preview.getAttribute('stroke-dasharray') === null);
+    getShapeDraw(app).preview.getAttribute('stroke') === 'var(--sch-symbol-outline, #ffffff)'
+    && getShapeDraw(app).preview.getAttribute('stroke-width') === '1'
+    && getShapeDraw(app).preview.getAttribute('opacity') === '0.6'
+    && getShapeDraw(app).preview.getAttribute('stroke-dasharray') === null);
 shapeDrawClick(app, 'arc', { x: 10, y: 0 });
 shapeDrawClick(app, 'arc', { x: 8, y: 3 });
 const drawn = app.boardShapes[0];
@@ -374,7 +377,7 @@ for (const [kind, placedPoints, finalPoint] of [
     ['arc', [{ x: 0, y: 0 }, { x: 10, y: 0 }], { x: 8, y: 3 }],
 ]) {
     app.boardShapes = [];
-    app._shapeDraw = null;
+    setPcbInteraction(app, '_shapeDraw', null);
     for (const point of placedPoints) shapeDrawClick(app, kind, point);
     const finished = finishShapeDrawAtPoint(app, finalPoint);
     check(`right-click commits current point and finishes ${kind}`, finished && app.boardShapes.length === 1);
@@ -514,11 +517,11 @@ for (const reversed of [false, true]) {
             boardShapes: [shape], placements: new Map(), tracks: [], vias: [], texts: new Map(),
             _shapeElements: new Map(), viewport: { scale: 100, gridSize: 1, setCrosshair() {} },
             getLayerGroup() { return null; },
-            _snapToGrid(point) { return { x: Math.round(point.x), y: Math.round(point.y) }; },
+            snapToGrid(point) { return { x: Math.round(point.x), y: Math.round(point.y) }; },
         };
         startBoardShapeDrag(dragApp, shape, anchor, corner);
         handleBoardShapeDrag(dragApp, expected);
-        const actual = getBoardShapeAnchors(dragApp._shapeDrag.shape).find(handle => handle.id === corner);
+        const actual = getBoardShapeAnchors(getBoardShapeDrag(dragApp).shape).find(handle => handle.id === corner);
         check(`existing ${kind} reversed=${reversed} corner=${corner} snaps its centreline handle to grid`,
             approx(actual.x, expected.x) && approx(actual.y, expected.y));
     }
@@ -718,7 +721,7 @@ for (const layer of ['hole', 'top-copper', 'bottom-copper']) {
             approx(editableCircle.radius, 0.075)
             && approx(diameterInput.valueAsNumber, editableCircle.radius * 2));
         const beforeDrag = commands.at(-1).after;
-        diameterApp._snapToGrid = (point) => point;
+        diameterApp.snapToGrid = (point) => point;
         diameterApp.viewport.setCrosshair = () => {};
         diameterApp.viewport.hideCrosshair = () => {};
         startBoardShapeDrag(diameterApp, editableCircle,

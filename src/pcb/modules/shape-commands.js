@@ -13,6 +13,7 @@ import {
     canonicalBoardShape,
     getBoardShapeRotationPreview,
     getBoardShapePropertyPreview,
+    getBoardShapeDrag,
     finishBoardShapeRotationPreview,
     endBoardShapeDrag,
 } from './board-shapes.js';
@@ -78,7 +79,7 @@ export class RemoveBoardShapeCommand extends ModelRemoveBoardShapeCommand {
         if (getBoardShapeRotationPreview(this.app)?.original === this.shape) {
             if (!finishSelectionInteraction(this.app, false)) finishBoardShapeRotationPreview(this.app);
         }
-        if (this.app._shapeDrag?.original === this.shape) endBoardShapeDrag(this.app, false);
+        if (getBoardShapeDrag(this.app)?.original === this.shape) endBoardShapeDrag(this.app, false);
         deselectRemovedShape(this.app, this.shape);
         removeBoardShapeElement(this.app, this.shape.id);
         super.execute();
@@ -106,7 +107,7 @@ export class MoveBoardShapeCommand extends ModelMoveBoardShapeCommand {
 
     _apply(geometry) {
         if (getBoardShapePropertyPreview(this.app)?.originals.includes(this.shape)) getPropertyEditor(this.app, 'boardShape').cancel();
-        if (this.app._shapeDrag?.original === this.shape) endBoardShapeDrag(this.app, false);
+        if (getBoardShapeDrag(this.app)?.original === this.shape) endBoardShapeDrag(this.app, false);
         const applied = super._apply(geometry);
         // Retain translated halos; only rebind clearance already invalidated by handle edits.
         schedulePictureCopperRefresh(this.app, this.app._pendingShapeClearances?.has(this.shape.id) ? this.shape : undefined);
@@ -126,7 +127,7 @@ export class ModifyBoardShapeCommand extends ModelModifyBoardShapeCommand {
 
     _apply(state) {
         if (getBoardShapePropertyPreview(this.app)?.originals.includes(this.shape)) getPropertyEditor(this.app, 'boardShape').cancel();
-        if (this.app._shapeDrag?.original === this.shape) endBoardShapeDrag(this.app, false);
+        if (getBoardShapeDrag(this.app)?.original === this.shape) endBoardShapeDrag(this.app, false);
         const affectsCopper = this.shape.kind !== 'image'
             || this.shape.layer.endsWith('copper') || state.layer.endsWith('copper');
         const geometryEdit = this.shape.layer === state.layer && (this.shape.net || '') === (state.net || '')

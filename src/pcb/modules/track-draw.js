@@ -26,8 +26,8 @@ import { GRID_SNAP_PX, snapToGridLines } from '../../core/grid-snap.js';
  *      Aborts the whole draw without committing anything.
  *
  * Track storage:
- *   - The in-progress track is held on `app._trackDraw` (a private context
- *     object). The committed Track is pushed onto `app.tracks` and rendered.
+ *   - The in-progress track is held by this module as a context object.
+ *     The committed Track is pushed onto `app.tracks` and rendered.
  *
  * Snap priority: pad > track node > track segment > grid.
  * Axis lock: H / V / 45° based on dominant cursor axis (with a small
@@ -46,12 +46,13 @@ import { padFlashOutline, placementPose, resolveTrackSegments } from '../../shar
 import { snapNodeToAxis, snapNodeToCollinear } from '../../shapes/path-snap.js';
 export { snapNodeToAxis, snapNodeToCollinear } from '../../shapes/path-snap.js';
 import { boardShapeRatlineTargets, normalizeShapeCopperMode, shapeOutline } from '../../shared/pcb/board-shape-geometry.js';
-import { renderBoardShape } from './board-shapes.js';
+import { getBoardShapeDrag, renderBoardShape } from './board-shapes.js';
 import { resolveTrackContactGeometry, copperShapesTouch, copperContactsTouch, copperRegionShape, copperSegmentShape, copperSegmentContact, resolveTerminalCopperContact, pointInCopperRegion } from './track-contact-geometry.js';
 import { spatialClusterMST } from './cluster-mst.js';
 import { spatialPairs, spatialCrossPairs } from '../../core/spatial-pairs.js';
 import { showAlert } from '../../shared/ui/modal.js';
 import { areDragOverlaysDeferred, isPictureCopperRefreshPending } from './refresh-state.js';
+import { getPcbInteraction, setPcbInteraction } from './pcb-interactions.js';
 import {
     clearAxisGlow,
     makeAxisGlowCenterline,
@@ -238,7 +239,7 @@ export function resolveTrackSnap(app, worldPos, options = {}) {
     const lastPt = options.lastPt || null;
     const net = options.net || '';
 
-    const layer = options.layer || app._trackDraw?.currentLayer || app._trackToolLayer || 'top-copper';
+    const layer = options.layer || getTrackDraw(app)?.currentLayer || app._trackToolLayer || 'top-copper';
     const nearPad = findNearbyPad(app, worldPos, padTol, layer, options.excludePad);
     if (nearPad) {
         return { x: nearPad.x, y: nearPad.y, snapType: 'pad', pad: nearPad };
@@ -434,7 +435,7 @@ function shapeCopperContains(contact, point) {
 /** @returns {TrackSnap & {contactNets: string[], copperContact: boolean, via?: any, copperShapes?: any[]}} */
 export function resolveTrackDrawSnap(app, worldPos, options = {}) {
     const snap = resolveTrackSnap(app, worldPos, options);
-    const layer = app._trackDraw?.currentLayer || app._trackToolLayer || 'top-copper';
+    const layer = getTrackDraw(app)?.currentLayer || app._trackToolLayer || 'top-copper';
     if (!TOGGLE_LAYERS.includes(layer)) return { ...snap, contactNets: [], copperContact: false };
     const sourceNet = snap.pad?.net || snap.trackNode?.track.net || '';
     // A pour of another net is re-poured with clearance around the new track,
@@ -507,7 +508,7 @@ function trackContactConflict(net, contactNets) {
 
 /** The open track drawing session (with its current `snap`), or null. */
 export function getTrackDraw(app) {
-    return app._trackDraw || null;
+    return getPcbInteraction(app, '_trackDraw');
 }
 
 /**
@@ -517,7 +518,7 @@ export function getTrackDraw(app) {
  *
  * @param {object} app - PCBApp
  * @param {object} worldPos - Raw cursor world position
- * @returns {object} the draw context (also stored on app._trackDraw)
+ * @returns {object} the draw context
  */
 export function startTrackDraw(app, worldPos) {
     const snap = resolveTrackDrawSnap(app, worldPos, { checkNodeContacts: true });
@@ -569,7 +570,7 @@ export function startTrackDraw(app, worldPos) {
     for (const shape of ctx.guideSourceShapes) {
         for (const point of shapeOutline(shape)) ctx.guideSourceKeys.add(ratlinePointKey(point));
     }
-    app._trackDraw = ctx;
+    setPcbInteraction(app, '_trackDraw', ctx);
     app.viewport?.setCrosshair({ x: snap.x, y: snap.y });
     _renderPreview(app, ctx, ctx.points[0]);
     app._showTrackDrawProperties?.();
@@ -581,7 +582,7 @@ export function startTrackDraw(app, worldPos) {
  * target and updates the preview polyline.
  */
 export function updateTrackDraw(app, worldPos) {
-    const ctx = app._trackDraw;
+    const ctx = getTrackDraw(app);
     if (!ctx) return;
 
     const last = ctx.points[ctx.points.length - 1];
@@ -605,7 +606,7 @@ export function updateTrackDraw(app, worldPos) {
 
 /** Rebuild the active rubber-band preview after a viewport-scale change. */
 export function refreshTrackDrawPreview(app) {
-    const ctx = app._trackDraw;
+    const ctx = getTrackDraw(app);
     if (!ctx?.snap) return;
     _renderPreview(app, ctx, { x: ctx.snap.x, y: ctx.snap.y });
 }
@@ -616,7 +617,7 @@ export function refreshTrackDrawPreview(app) {
  * the draw is finished automatically.
  */
 export function addTrackWaypoint(app, worldPos) {
-    const ctx = app._trackDraw;
+    const ctx = getTrackDraw(app);
     if (!ctx) return;
 
     const last = ctx.points[ctx.points.length - 1];
@@ -684,7 +685,7 @@ export function addTrackWaypoint(app, worldPos) {
  * node.
  */
 export function toggleTrackLayer(app) {
-    const ctx = app._trackDraw;
+    const ctx = getTrackDraw(app);
     if (!ctx) return;
     const idx = TOGGLE_LAYERS.indexOf(ctx.currentLayer);
     ctx.currentLayer = TOGGLE_LAYERS[(idx + 1) % TOGGLE_LAYERS.length];
@@ -700,7 +701,7 @@ export function toggleTrackLayer(app) {
  * the track has fewer than two points.
  */
 export function finishTrackDraw(app) {
-    const ctx = app._trackDraw;
+    const ctx = getTrackDraw(app);
     if (!ctx) return;
 
     if (ctx.points.length >= 2) {
@@ -758,7 +759,7 @@ export function cancelTrackDraw(app) {
  * If only the start anchor remains, the whole draw is cancelled.
  */
 export function popTrackWaypoint(app) {
-    const ctx = app._trackDraw;
+    const ctx = getTrackDraw(app);
     if (!ctx) return;
     if (ctx.points.length <= 1) {
         cancelTrackDraw(app);
@@ -827,7 +828,8 @@ function trackRatlineTargets(cluster, pathsByTrack) {
  */
 export function reconcileRatsnest(app, opts) {
     app.refreshSelectedDRCMarker?.();
-    const liveShapeDrag = app._shapeDrag?.ratsnestNets && opts?.nets === app._shapeDrag.ratsnestNets;
+    const shapeDrag = getBoardShapeDrag(app);
+    const liveShapeDrag = shapeDrag?.ratsnestNets && opts?.nets === shapeDrag.ratsnestNets;
     if (isPictureCopperRefreshPending(app) && !liveShapeDrag) return;
     if (deferDerivedUpdate(app, 'ratsnest', () => reconcileRatsnest(app))) return;
     // Incremental net filter: when present, restrict all cluster construction
@@ -862,7 +864,7 @@ export function reconcileRatsnest(app, opts) {
     }
 
     const clusters = buildCopperClusters(app, onlyNets).filter((cluster) => cluster.net);
-    const preview = app._trackDraw?.ratlinePreview;
+    const preview = getTrackDraw(app)?.ratlinePreview;
     if (preview) clusters.push(...buildCopperClusters(preview, onlyNets));
     const terminalCount = clusters.length;
 
@@ -1210,14 +1212,14 @@ export function _clusterMST(nodes) {
 /* ────────────────────────── internals ────────────────────────── */
 
 function _teardownDraw(app) {
-    const ctx = app._trackDraw;
+    const ctx = getTrackDraw(app);
     if (!ctx) return;
     _clearPreviewElements(ctx);
     clearTrackSnapMarker(app);
     clearNetGuideLine(app);
     // The selected tool owns the crosshair, not the discarded drawing.
     if (app.currentTool !== 'track') app.viewport?.hideCrosshair();
-    app._trackDraw = null;
+    setPcbInteraction(app, '_trackDraw', null);
     if (ctx.ratlinePreview) {
         reconcileRatsnest(app, { nets: new Set([ctx.ratlinePreviewNet]), skipFillRefresh: true });
     }
@@ -1945,7 +1947,8 @@ function _renderOptsFromApp(app) {
  * @returns {boolean|null} null when no track is being drawn, else whether the key was consumed.
  */
 export function handleTrackDrawKey(app, e) {
-    if (!app._trackDraw) return null;
+    const draw = getTrackDraw(app);
+    if (!draw) return null;
     if (e.key === 'Escape') {
         cancelTrackDraw(app);
         return true;
@@ -1955,9 +1958,9 @@ export function handleTrackDrawKey(app, e) {
         return true;
     }
     if (e.code === 'Space' || e.key === ' ') {
-        const snap = app._trackDraw.snap;
+        const snap = draw.snap;
         if (snap) addTrackWaypoint(app, { x: snap.x, y: snap.y });
-        if (app._trackDraw) toggleTrackLayer(app);
+        if (getTrackDraw(app)) toggleTrackLayer(app);
         return true;
     }
     return false;

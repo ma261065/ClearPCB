@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { beginRefTextDrag, endRefDrag } from '../src/pcb/modules/ref-text-selection.js';
 import { PcbDocument } from '../src/core/PcbDocument.js';
 import { CommandHistory } from '../src/core/CommandHistory.js';
 import { capturePlacementOverride } from '../src/core/PcbPlacementState.js';
@@ -142,8 +143,8 @@ for (const value of ['', '-', 'Infinity', '3']) for (const handoff of ['change',
     else if (handoff === 'commit') getPropertyEditor(app, 'component').commit();
     else if (handoff === 'field') inputs.get('pcbPropRefLW').fire('change', 0.4);
     else if (handoff === 'move') {
-        PCBApp.prototype._beginRefTextDrag.call(app, 'part', { x: 0, y: 0 });
-        PCBApp.prototype._endRefDrag.call(app, false);
+        beginRefTextDrag(app, 'part', { x: 0, y: 0 });
+        endRefDrag(app, false);
     } else PCBApp.prototype.rotateRefText.call(app, 'part');
     assert.equal(placement.refSize, valid ? 3 : before.refSize);
     assert.equal(getPropertyEditor(app, 'component').active, false);

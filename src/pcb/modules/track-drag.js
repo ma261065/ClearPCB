@@ -69,6 +69,8 @@ import { commitPropertyEditors, getPropertyEditor } from './property-editors.js'
 import { areDragOverlaysDeferred, isBoardViewRefreshSuspended, setBoardViewRefreshSuspended, setDragOverlaysDeferred, refreshBoardView } from './refresh-state.js';
 import { isEditorActive } from './pcb-editor-api.js';
 import { refreshViaClearance } from './clearance-overlay.js';
+import { getPcbInteraction, setPcbInteraction } from './pcb-interactions.js';
+import { getSelectionInteraction, setSelectionInteraction } from './selection-interaction.js';
 
 /** Screen-px hit tolerance for selecting a Track node to drag. */
 const NODE_HIT_PX = 8;
@@ -78,6 +80,29 @@ const VIA_NODE_EPS = 1e-4;
 
 /** World-space tolerance for treating two dropped nodes as coincident. */
 const NODE_MERGE_EPS = 1e-3;
+const vertexClickState = new WeakMap();
+
+function clickState(app) {
+    let state = vertexClickState.get(app);
+    if (!state) vertexClickState.set(app, state = { downScreen: null, segmentEdgeId: null });
+    return state;
+}
+
+export function setVertexDragDownScreen(app, point) {
+    clickState(app).downScreen = point ? { x: point.x, y: point.y } : null;
+}
+
+export function getVertexDragDownScreen(app) {
+    return clickState(app).downScreen;
+}
+
+export function setSegmentClickEdgeId(app, edgeId) {
+    clickState(app).segmentEdgeId = edgeId || null;
+}
+
+export function getSegmentClickEdgeId(app) {
+    return clickState(app).segmentEdgeId;
+}
 
 function _beginVertexDragOverlayDeferral(app) {
     const previous = !!areDragOverlaysDeferred(app);
@@ -94,8 +119,8 @@ function _endVertexDragOverlayDeferral(app, drag) {
 function prepareTrackPointer(app, track) {
     track = canonicalTrack(app, track);
     commitPropertyEditors(app, ['track', 'via', 'pad', 'fill']);
-    if (app._viaDrag) finishViaDrag(app);
-    if (app._vertexDrag || getPlacementPreviewTracks(app)) return null;
+    if (getViaDrag(app)) finishViaDrag(app);
+    if (getVertexDrag(app) || getPlacementPreviewTracks(app)) return null;
     return track;
 }
 
@@ -108,7 +133,7 @@ function beginTrackPointer(app, track, details) {
     const drag = { ...details, original: track, track, layers, lastDx: 0, lastDy: 0,
         previousDeferDragOverlays: _beginVertexDragOverlayDeferral(app),
         previousSuspendBoardViewRefresh: !!isBoardViewRefreshSuspended(app) };
-    app._vertexDrag = drag;
+    setPcbInteraction(app, '_vertexDrag', drag);
     setBoardViewRefreshSuspended(app, true);
     return drag;
 }
@@ -138,11 +163,15 @@ function beginTrackPointerPreview(app, drag) {
 
 /** The active track vertex/segment drag, or null. */
 export function getVertexDrag(app) {
-    return app._vertexDrag || null;
+    return getPcbInteraction(app, '_vertexDrag');
+}
+
+export function getViaDrag(app) {
+    return getPcbInteraction(app, '_viaDrag');
 }
 
 export function trackPointerTouchesLayer(app, layerId) {
-    return app._vertexDrag?.layers?.has(layerId) || false;
+    return getVertexDrag(app)?.layers?.has(layerId) || false;
 }
 
 export function startTrackBulgeDrag(app, track, edgeId) {
@@ -161,11 +190,11 @@ function _viaAtPoint(app, x, y) {
     return false;
 }
 
-function _opts(app, track = app._vertexDrag?.track) {
+function _opts(app, track = getVertexDrag(app)?.track) {
     return {
         viaDiameter: app.getRoutingParams?.()?.viaDiameter,
         viaDrill: app.getRoutingParams?.()?.viaDrill,
-        hideNetLabel: !!track && (track === getPcbSelection(app, 'track')[0] || track === app._vertexDrag?.track),
+        hideNetLabel: !!track && (track === getPcbSelection(app, 'track')[0] || track === getVertexDrag(app)?.track),
     };
 }
 
@@ -1099,9 +1128,10 @@ function droppedNodeCommands(app, view, drag) {
  *   hit node or edge (skipping the hit test); `whole` drags the entire track.
  */
 export function startVertexDrag(app, track, worldPos, opts = {}) {
-    if (app._vertexDrag?.preparingSplit
-        && canonicalTrack(app, track) === app._vertexDrag.original
-        && opts.nodeId === app._vertexDrag.splitNodeId) return true;
+    const activeDrag = getVertexDrag(app);
+    if (activeDrag?.preparingSplit
+        && canonicalTrack(app, track) === activeDrag.original
+        && opts.nodeId === activeDrag.splitNodeId) return true;
     track = prepareTrackPointer(app, track);
     if (!track) return false;
     if (opts.whole) {
@@ -1219,7 +1249,7 @@ export function startVertexDrag(app, track, worldPos, opts = {}) {
 
 /** Update the dragged node(s) from the current mouse world pos. */
 export function updateVertexDrag(app, worldPos) {
-    const drag = app._vertexDrag;
+    const drag = getVertexDrag(app);
     if (!drag) return;
     if (!Number.isFinite(worldPos?.x) || !Number.isFinite(worldPos?.y)) {
         cancelVertexDrag(app);
@@ -1670,7 +1700,7 @@ function _snapNodeAcrossNeighbour(track, nodeId, pos, threshold) {
  * movement.
  */
 export function finishVertexDrag(app) {
-    const drag = app._vertexDrag;
+    const drag = getVertexDrag(app);
     if (!drag) return;
     let committed = false;
     try {
@@ -1696,7 +1726,7 @@ export function finishVertexDrag(app) {
         const view = { ...app, tracks: tracks.map(track => track === drag.original ? drag.track : track),
             vias: app.vias, pads: app.pads, boardShapes: app.boardShapes, texts: app.texts };
         const commands = trackPointerCommands(app, view, drag);
-        app._vertexDrag = null;
+        setPcbInteraction(app, '_vertexDrag', null);
         removeTrackElements(drag.track);
         if (commands.length) {
             app.history.execute(commands.length === 1 ? commands[0] : new CompoundCommand(commands));
@@ -1805,7 +1835,7 @@ function trackPointerCommands(app, view, drag) {
 
 /** Discard the in-progress drag and restore canonical artwork. */
 export function cancelVertexDrag(app) {
-    const drag = app._vertexDrag;
+    const drag = getVertexDrag(app);
     if (!drag) return;
     endTrackPointer(app, drag, false);
 }
@@ -1818,12 +1848,12 @@ function clearTrackPointerGuides(app, drag) {
 }
 
 function endTrackPointer(app, drag, committed) {
-    const interaction = app._pcbSelectionInteraction;
+    const interaction = getSelectionInteraction(app);
     if (interaction?.adapter?.kind === 'track'
         || (interaction?.mode === 'move-adapter' && interaction.entry.kind === 'track')) {
-        app._pcbSelectionInteraction = null;
+        setSelectionInteraction(app, null);
     }
-    app._vertexDrag = null;
+    setPcbInteraction(app, '_vertexDrag', null);
     try {
         clearTrackPointerGuides(app, drag);
         const present = (app.pcbDocument?.tracks || app.tracks).includes(drag.original);
@@ -1878,7 +1908,7 @@ export function startPadDrag(app, pad, worldPos) {
 }
 
 function startTerminalDrag(app, via, worldPos, kind) {
-    if (app._vertexDrag) finishVertexDrag(app);
+    if (getVertexDrag(app)) finishVertexDrag(app);
     getPropertyEditor(app, 'track')?.commit();
     const layers = kind === 'pad' ? padLayers(via) : ['top-copper', 'bottom-copper'];
     // Find every Track node at the via's current (x, y). Track endpoints
@@ -1893,7 +1923,7 @@ function startTerminalDrag(app, via, worldPos, kind) {
             }
         }
     }
-    app._viaDrag = {
+    setPcbInteraction(app, '_viaDrag', {
         via,
         original: via,
         kind,
@@ -1906,7 +1936,7 @@ function startTerminalDrag(app, via, worldPos, kind) {
         grabY: worldPos.y,
         attached,
         previousDeferDragOverlays: !!areDragOverlaysDeferred(app),
-    };
+    });
     setDragOverlaysDeferred(app, true);
     app.viewport?.setCrosshair({ x: via.x, y: via.y });
     return true;
@@ -1971,7 +2001,7 @@ function restoreTerminalArtwork(app, drag, committed) {
 
 /** Update a dragged Via or standalone Pad and its layer-compatible Track nodes. */
 export function updateViaDrag(app, worldPos) {
-    const drag = app._viaDrag;
+    const drag = getViaDrag(app);
     if (!drag) return;
     const targetPos = {
         x: drag.startX + worldPos.x - drag.grabX,
@@ -2091,9 +2121,9 @@ export function updateViaDrag(app, worldPos) {
  * attached track-node move as a single compound history entry.
  */
 export function finishViaDrag(app) {
-    const drag = app._viaDrag;
+    const drag = getViaDrag(app);
     if (!drag) return;
-    app._viaDrag = null;
+    setPcbInteraction(app, '_viaDrag', null);
     setDragOverlaysDeferred(app, drag.previousDeferDragOverlays);
     app.viewport?.hideCrosshair();
     clearTrackAxisGlow(app);
@@ -2154,9 +2184,9 @@ export function finishViaDrag(app) {
 
 /** Abort the in-progress Pad/Via drag and restore the terminal and Track nodes. */
 export function cancelViaDrag(app) {
-    const drag = app._viaDrag;
+    const drag = getViaDrag(app);
     if (!drag) return;
-    app._viaDrag = null;
+    setPcbInteraction(app, '_viaDrag', null);
     setDragOverlaysDeferred(app, drag.previousDeferDragOverlays);
     app.viewport?.hideCrosshair();
     clearTrackAxisGlow(app);

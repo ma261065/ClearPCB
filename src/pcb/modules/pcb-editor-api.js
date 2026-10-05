@@ -66,6 +66,10 @@
  *   Rotate a component's reference designator by 90 degrees.
  * @property {(compId: string) => void} showComponentProperties
  *   Show a placed component's Properties panel.
+ * @property {(event: MouseEvent) => {x: number, y: number}} screenToWorld
+ *   Convert a pointer event to world coordinates using the viewport's cached SVG rect.
+ * @property {(point: {x: number, y: number}) => {x: number, y: number}} snapToGrid
+ *   Snap a world point to the PCB viewport grid.
  */
 
 /**
@@ -82,5 +86,5 @@ export const PCB_EDITOR_SERVICES = Object.freeze([
     'setStatus', 'setPcbStatus', 'syncClipboardButtons', 'propertiesItems', 'setPropertiesTitle', 'showPropertiesTab',
     'openPropertyPanel', 'refreshPropertyPanel', 'netNames', 'layerLabel', 'fitToContent', 'setActiveRibbonTab',
     'selectText', 'showTextProperties', 'selectAll', 'rotateComponent', 'flipComponent', 'rotateRefText',
-    'showComponentProperties',
+    'showComponentProperties', 'screenToWorld', 'snapToGrid',
 ]);

@@ -12,6 +12,8 @@ import { refreshBoardShapeToolLayer } from './board-shape-properties.js';
 import { cancelVertexDrag, getVertexDrag, trackPointerTouchesLayer } from './track-drag.js';
 import { getSelectedTrack, getSelectedVia, clearTrackSelection, setHoverHighlight } from './track-select.js';
 import { activeTextInlineEdit, endTextInlineEdit } from './text-inline-edit.js';
+import { endTextDrag, getTextDrag } from './pcb-text-selection.js';
+import { endRefDrag, getRefDrag } from './ref-text-selection.js';
 import { areClearancesVisible } from './clearance-overlay.js';
 import { fillGroupId } from './copper-fill-render.js';
 import { pcbObjectLayers } from './object-locks.js';
@@ -116,13 +118,13 @@ export function onLayerLockChanged(app, layerId, locked) {
         if (layerId === 'board-outline') getPropertyEditor(app, 'boardDimension')?.cancel();
         cancelStrandedGestures(app, layerId, entry => entry.locked);
         eachPropertyEditorOnLayer(app, layerId, editor => editor.cancel());
-        const draggingReference = app.placements?.get(app._refDrag?.compId);
+        const draggingReference = app.placements?.get(getRefDrag(app)?.compId);
         if (draggingReference && silkLayerOf(draggingReference) === layerId) {
-            if (!finishSelectionInteraction(app, false)) app._endRefDrag(false);
+            if (!finishSelectionInteraction(app, false)) endRefDrag(app, false);
         }
-        const draggingText = app.texts?.get(app._textDrag?.textId);
+        const draggingText = app.texts?.get(getTextDrag(app)?.textId);
         if (draggingText?.layer === layerId) {
-            if (!finishSelectionInteraction(app, false)) app._endTextDrag(false);
+            if (!finishSelectionInteraction(app, false)) endTextDrag(app, false);
         }
         const anchorInteraction = getSelectionInteraction(app);
         if (anchorInteraction?.adapter?.kind === 'text'

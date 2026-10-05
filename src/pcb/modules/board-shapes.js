@@ -60,18 +60,19 @@ import {
 } from './selection-registry.js';
 import { clearPcbSelectionAnchors, lockPositionOutsideOutline, renderPcbSelectionAnchors } from './selection-anchors.js';
 import { appendSegmentSelection, insideStrokeGroup } from '../../core/ui-helpers.js';
-import { beginPcbAnchorInteraction, finishSelectionInteraction, showPcbSelectionProperties } from './selection-interaction.js';
+import { beginPcbAnchorInteraction, finishSelectionInteraction, getSelectionInteraction, setSelectionInteraction, showPcbSelectionProperties } from './selection-interaction.js';
 import { pathMoveInteraction, beginPathSplit, snapPathPoint, snapPathTranslation, pathContextActions, showPathContextMenu, dismissPathContextMenu } from './path-edit.js';
 import {
     canDrawPictureCircles,
     resizePicturePoints,
 } from '../../shared/pcb/picture-raster.js';
 import { cancelPictureCopperRefresh, schedulePictureCopperRefresh } from './picture-refresh.js';
-import { rotationHandleAnchor, pointerRotation, rotatedImagePoints } from './rotation-handle.js';
+import { beginRotationHandleDrag, endRotationHandleDrag, isRotationHandleDragActive, rotationHandleAnchor, pointerRotation, rotatedImagePoints } from './rotation-handle.js';
 import { BULGE_EPS, arcFromBulge } from '../../shapes/arc-edge.js';
 import { syncBoardOutlineDimensions } from '../../shared/pcb/board-outline.js';
 import { getPropertyEditor, releasePropertyEditor, setPropertyEditor } from './property-editors.js';
 import { areDragOverlaysDeferred, isPictureCopperRefreshPending, setDragOverlaysDeferred } from './refresh-state.js';
+import { getPcbInteraction, setPcbInteraction } from './pcb-interactions.js';
 
 import {
     normalizeShapeCopperMode,
@@ -192,7 +193,7 @@ function dragProfile(drag) {
 
 /** The active board-shape drag (`{ original, mode, ... }`), or null. */
 export function getBoardShapeDrag(app) {
-    return app._shapeDrag || null;
+    return getPcbInteraction(app, '_shapeDrag');
 }
 
 export function getBoardShapePropertyPreview(app) {
@@ -205,21 +206,22 @@ export function getBoardShapeRotationPreview(app) {
 
 export function canonicalBoardShape(app, shape) {
     shape = boardShapePropertyPreviews.get(app)?.originalsByCopy.get(shape) || shape;
-    if (app._shapeDrag?.shape === shape) return app._shapeDrag.original;
+    const drag = getBoardShapeDrag(app);
+    if (drag?.shape === shape) return drag.original;
     const preview = boardShapeRotationPreviews.get(app);
     return preview && preview.shape === shape ? preview.original : shape;
 }
 
 export function displayedBoardShape(app, shape) {
     shape = boardShapePropertyPreviews.get(app)?.copiesByOriginal.get(shape) || shape;
-    const drag = app._shapeDrag;
+    const drag = getBoardShapeDrag(app);
     if (drag && (drag.original === shape || drag.shape === shape)) return drag.shape;
     const preview = boardShapeRotationPreviews.get(app);
     return preview && (preview.original === shape || preview.shape === shape) ? preview.shape : shape;
 }
 
 export function getBoardShapePointerPreview(app) {
-    return app._shapeDrag?.preview;
+    return getBoardShapeDrag(app)?.preview;
 }
 
 export function copyBoardShape(shape) {
@@ -250,7 +252,7 @@ export function finishBoardShapeRotationPreview(app, commit = false) {
     const preview = boardShapeRotationPreviews.get(app);
     if (!preview) return false;
     boardShapeRotationPreviews.delete(app);
-    app._rotationHandleDrag = false;
+    endRotationHandleDrag(app);
     const { original, shape, before } = preview;
     const present = app.pcbDocument.boardShapes.includes(original);
     let committed = false;
@@ -461,7 +463,7 @@ export function selectReplacementTracks(app, tracks) {
     app._refreshPcbSelectionHighlights?.();
 }
 
-// ── Geometry ────────────────────────────────────────────────────────────────
+// â”€â”€ Geometry â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 /** Keep PCB kinds in lockstep with the schematic Polyline topology. */
 export function normalizeBoardPolylineKind(shape) {
@@ -547,7 +549,7 @@ export function normalizeStraightArc(shape, segment = null) {
     }
 }
 
-// ── Geometry clone / translate (shared by drag + commands) ───────────────────
+// â”€â”€ Geometry clone / translate (shared by drag + commands) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 function geomAnchor(geom) {
     return geom.points ? geom.points[0] : geom.start || { x: geom.x, y: geom.y };
@@ -566,7 +568,7 @@ export function translateShapeGeometry(geom, dx, dy) {
     };
 }
 
-// ── Style ────────────────────────────────────────────────────────────────────
+// â”€â”€ Style â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 const CUT_RING = '#8a929b';
 const REMOVAL_COLORS = {
@@ -624,7 +626,7 @@ function shapeStyle(shape) {
     return { filled, fillColor, fillOpacity, baseStroke, strokeWidth, isHoleLayer, isCopperRemoval, isCopperKnockout, targetLayer };
 }
 
-// ── Render ───────────────────────────────────────────────────────────────────
+// â”€â”€ Render â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 function redrawBoardShapePropertyPreview(app, targets, { liveDrag = false, editProfile: profileArg = null } = {}) {
     const profile = editProfile(profileArg);
@@ -647,7 +649,8 @@ export function createBoardShapePropertyBinding(app, profileArg = null) {
     getPropertyEditor(app, profile.editorKey)?.dispose();
     const binding = createPropertyBinding({
         beforeActivate() {
-            if (app._shapeDrag && dragProfile(app._shapeDrag).editorKey === profile.editorKey) endBoardShapeDrag(app, true);
+            const drag = getBoardShapeDrag(app);
+            if (drag && dragProfile(drag).editorKey === profile.editorKey) endBoardShapeDrag(app, true);
             if (getBoardShapeRotationPreview(app)) finishBoardShapeRotationPreview(app, true);
         },
         onDispose() {
@@ -882,7 +885,7 @@ export function removeBoardShapeElement(app, id, opts = {}) {
     }
 }
 
-// ── Hit-test / hover / selection ─────────────────────────────────────────────
+// â”€â”€ Hit-test / hover / selection â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 export function hitTestBoardShape(app, worldPos) {
     return worldPos ? hitTestPcbSelection(app, worldPos, 'shape') : null;
@@ -914,7 +917,8 @@ export function selectBoardShape(app, shape) {
     shape = canonicalBoardShape(app, shape);
     const properties = boardShapePropertyPreviews.get(app);
     if (properties && !properties.originals.includes(shape)) getPropertyEditor(app, 'boardShape').dispose();
-    if (app._shapeDrag && app._shapeDrag.original !== shape) endBoardShapeDrag(app, false);
+    const drag = getBoardShapeDrag(app);
+    if (drag && drag.original !== shape) endBoardShapeDrag(app, false);
     const rotation = boardShapeRotationPreviews.get(app);
     if (rotation && rotation.original !== shape) {
         if (!finishSelectionInteraction(app, false)) finishBoardShapeRotationPreview(app);
@@ -941,7 +945,7 @@ export function selectBoardShape(app, shape) {
     app.setPcbStatus?.();
 }
 
-// ── Resize handles ───────────────────────────────────────────────────────────
+// â”€â”€ Resize handles â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 function shapeHandlePoints(shape) {
     if (shape.kind === 'arc') {
@@ -997,7 +1001,7 @@ export function getBoardShapeAnchors(shape) {
 /** Move one anchor through the existing geometry and rendering path. */
 export function moveBoardShapeAnchor(app, shape, anchorId, worldPos) {
     const before = cloneShapeGeometry(shape);
-    const snap = app._snapToGrid(worldPos);
+    const snap = app.snapToGrid(worldPos);
     applyBoardShapeVertexResize(shape, { before, handle: anchorId }, snap);
     if (shape.layer === 'board-outline') syncBoardOutlineDimensions(app);
     schedulePictureCopperRefresh(app, shape);
@@ -1082,7 +1086,7 @@ export function createBoardShapeSelectionAdapter(app, shape, id, profileArg = nu
             if (anchorId !== 'rotate' || shape.kind !== 'image') return startBoardShapeDrag(app, shape, worldPos, anchorId, { editProfile: profile });
             getPropertyEditor(app, 'boardShape')?.commit();
             if (boardShapeLocked(shape) || !isLayerVisible(shape.layer)) return false;
-            if (boardShapeRotationPreviews.has(app) || app._rotationHandleDrag || app._shapeDrag) {
+            if (boardShapeRotationPreviews.has(app) || isRotationHandleDragActive(app) || getBoardShapeDrag(app)) {
                 throw new Error('Finish the current shape preview before rotating an image.');
             }
             if (!app.pcbDocument.boardShapes.includes(shape)) throw new Error('Cannot rotate a missing board shape.');
@@ -1095,7 +1099,7 @@ export function createBoardShapeSelectionAdapter(app, shape, id, profileArg = nu
                 original: shape, shape, before, points: before.geom.points,
                 center, start: { ...worldPos }, rotation, currentRotation: rotation,
             });
-            app._rotationHandleDrag = true;
+            beginRotationHandleDrag(app);
             return true;
         },
         updateAnchorDrag(worldPos) {
@@ -1125,7 +1129,7 @@ export function createBoardShapeSelectionAdapter(app, shape, id, profileArg = nu
         },
         endAnchorDrag(commit, options = {}) {
             if (boardShapeRotationPreviews.get(app)?.original === shape) return finishBoardShapeRotationPreview(app, commit);
-            const drag = app._shapeDrag;
+            const drag = getBoardShapeDrag(app);
             if (commit && drag && !options.moved && !options.place
                 && typeof drag.sourceAnchorId === 'number'
                 && ['line', 'rect', 'polygon'].includes(shape.kind)) {
@@ -1426,7 +1430,7 @@ export function setBoardShapeSegmentType(app, shape, segment, type, { floating =
         const anchorId = shape.kind === 'arc' ? 'bulge' : `bulge:${segment}`;
         const stagedAnchor = getBoardShapeAnchors(shape).find(item => item.id === anchorId);
         if (!stagedAnchor || !startBoardShapeDrag(app, original, stagedAnchor, anchorId)) return false;
-        const drag = app._shapeDrag;
+        const drag = getBoardShapeDrag(app);
         applyShapeSnapshot(beginBoardShapePointerPreview(app, drag), after);
         setBoardShapeSegmentFocus(app, { shapeId: original.id, segment });
         drag.editBefore = after.geom;
@@ -1448,15 +1452,16 @@ export function setBoardShapeSegmentType(app, shape, segment, type, { floating =
     return true;
 }
 
-// ── Drag (move whole shape) ──────────────────────────────────────────────────
+// â”€â”€ Drag (move whole shape) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 export function startBoardShapeDrag(app, shape, worldPos, anchorId = null, options = {}) {
     const profile = editProfile(options.editProfile);
     shape = profile.canonical(app, shape);
     getPropertyEditor(app, profile.editorKey)?.commit();
     if (!profile.canEdit(app, shape)) return false;
-    if (app._shapeDrag?.preparing && app._shapeDrag.original === shape) return true;
-    if (app._shapeDrag) throw new Error('Finish the current shape drag before starting another.');
+    const activeDrag = getBoardShapeDrag(app);
+    if (activeDrag?.preparing && activeDrag.original === shape) return true;
+    if (activeDrag) throw new Error('Finish the current shape drag before starting another.');
     if (boardShapeRotationPreviews.has(app)) {
         if (!finishSelectionInteraction(app, true)) finishBoardShapeRotationPreview(app, true);
     }
@@ -1509,13 +1514,13 @@ export function startBoardShapeDrag(app, shape, worldPos, anchorId = null, optio
         && normalizeShapeCopperMode(shape.copperMode) === 'add'
         ? new Set([net])
         : null;
-    app._shapeDrag = Object.assign(drag, {
+    setPcbInteraction(app, '_shapeDrag', Object.assign(drag, {
         mode,
         handle,
         segment,
         vertexBefore: cloneShapeGeometry(shape),
         ratsnestNets,
-    });
+    }));
     app.setPcbStatus?.();
     setDragOverlaysDeferred(app, true);
     if (profile.kind === 'shape' && (mode === 'vertex' || mode === 'segment')) schedulePictureCopperRefresh(app, shape);
@@ -1527,7 +1532,7 @@ export function startBoardShapeDrag(app, shape, worldPos, anchorId = null, optio
 }
 
 export function handleBoardShapeDrag(app, worldPos) {
-    const d = app._shapeDrag;
+    const d = getBoardShapeDrag(app);
     if (!d) return;
     const profile = dragProfile(d);
     if (!Number.isFinite(worldPos?.x) || !Number.isFinite(worldPos?.y)) {
@@ -1623,13 +1628,13 @@ export function handleBoardShapeDrag(app, worldPos) {
 }
 
 export function endBoardShapeDrag(app, commit) {
-    const d = app._shapeDrag;
+    const d = getBoardShapeDrag(app);
     if (!d) return;
     const profile = dragProfile(d);
-    app._shapeDrag = null;
-    const interaction = app._pcbSelectionInteraction;
+    setPcbInteraction(app, '_shapeDrag', null);
+    const interaction = getSelectionInteraction(app);
     if (interaction?.adapter?.kind === profile.kind
-        || (interaction?.mode === 'move-adapter' && interaction.entry.kind === profile.kind)) app._pcbSelectionInteraction = null;
+        || (interaction?.mode === 'move-adapter' && interaction.entry.kind === profile.kind)) setSelectionInteraction(app, null);
     app.setPcbStatus?.();
     app.viewport?.hideCrosshair?.();
     clearPolygonAxisIndicators(app);
@@ -1718,7 +1723,7 @@ export function openBoardShape(app, shape, vertexIndex = 0) {
     if (remainder) remainder.id = `pshape_${app._shapeIdCounter}`;
     selectBoardShape(app, shape);
     if (!startBoardShapeDrag(app, shape, split.moving.points[0], 0)) return false;
-    const drag = app._shapeDrag;
+    const drag = getBoardShapeDrag(app);
     Object.assign(beginBoardShapePointerPreview(app, drag), split.moving);
     drag.editBefore = cloneShapeGeometry(drag.shape);
     drag.editKind = drag.shape.kind;
@@ -1769,10 +1774,11 @@ export function deleteFocusedBoardShape(app) {
     const node = getBoardShapeNodeFocus(app)?.shapeId === shape.id ? getBoardShapeNodeFocus(app).index : null;
     const segment = getBoardShapeSegmentFocus(app)?.shapeId === shape.id ? getBoardShapeSegmentFocus(app).segment : null;
     if (node == null && segment == null) return false;
-    if (app._shapeDrag) {
-        const splitting = !!app._shapeDrag.splitBeforeState;
+    const activeShapeDrag = getBoardShapeDrag(app);
+    if (activeShapeDrag) {
+        const splitting = !!activeShapeDrag.splitBeforeState;
         endBoardShapeDrag(app, false);
-        app._pcbSelectionInteraction = null;
+        setSelectionInteraction(app, null);
         if (splitting) {
             setBoardShapeNodeFocus(app, null);
             setBoardShapeSegmentFocus(app, null);
@@ -1852,7 +1858,7 @@ export function showBoardShapeContextMenu(app, shape, clientX, clientY, worldPos
     return showPathContextMenu('pcbBoardShapeContextMenu', items, clientX, clientY, () => app._refreshPcbSelectionHighlights?.());
 }
 
-// ── Draw lifecycle ───────────────────────────────────────────────────────────
+// â”€â”€ Draw lifecycle â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 /** Prefer the active drawing layer, otherwise the first unlocked valid choice. */
 export function resolveShapeDrawLayer(app, layerId) {
@@ -1877,7 +1883,7 @@ function makePreview(app) {
 }
 
 function shapeDrawSnap(app, worldPos) {
-    const draw = app._shapeDraw;
+    const draw = getShapeDraw(app);
     if (draw?.kind === 'arc' && draw.points.length === 2) return worldPos;
     const previous = draw?.points.at(-1);
     const continuations = draw && ['line', 'polygon'].includes(draw.kind)
@@ -1888,32 +1894,33 @@ function shapeDrawSnap(app, worldPos) {
 /** Screen distance (px) within which a click repeats the last placed vertex. */
 const REPEAT_CLICK_PX = 4;
 
-/** The open shape drawing session (`{ kind, … }`), or null. */
+/** The open shape drawing session (`{ kind, â€¦ }`), or null. */
 export function getShapeDraw(app) {
-    return app._shapeDraw || null;
+    return getPcbInteraction(app, '_shapeDraw');
 }
 
 /** Left-click while a shape tool is active. */
 export function shapeDrawClick(app, kind, worldPos) {
     if (!SHAPE_KINDS.has(kind) || kind === 'image') return;
     const snap = shapeDrawSnap(app, worldPos);
-    if (!app._shapeDraw || app._shapeDraw.kind !== kind) {
+    const activeDraw = getShapeDraw(app);
+    if (!activeDraw || activeDraw.kind !== kind) {
         const layer = resolveShapeDrawLayer(app, app.activeLayer);
         if (!layer) {
             showBoardShapeToolProperties(app, kind);
             return;
         }
         app.activeLayer = layer;
-        app._shapeDraw = {
+        setPcbInteraction(app, '_shapeDraw', {
             kind,
             layer,
             points: [{ x: snap.x, y: snap.y }],
             preview: makePreview(app),
-        };
+        });
         updateShapeDrawPreview(app, worldPos);
         return;
     }
-    const d = app._shapeDraw;
+    const d = activeDraw;
     // The second click of a double-click lands on the vertex it just placed. It
     // must not add another: snapped against itself it can land just off-grid.
     const last = d.points.at(-1);
@@ -1930,7 +1937,7 @@ export function shapeDrawClick(app, kind, worldPos) {
 
 /** Live preview as the cursor moves (cursor acts as the pending next point). */
 export function updateShapeDrawPreview(app, worldPos) {
-    const d = app._shapeDraw;
+    const d = getShapeDraw(app);
     if (!d) return;
     d.cursorWorld = { ...worldPos };
     d.preview.setAttribute('stroke-linejoin', 'round');
@@ -1961,26 +1968,26 @@ export function updateShapeDrawPreview(app, worldPos) {
 
 /** Remove the live preview element and clear draw state. */
 export function cancelShapeDraw(app) {
-    const d = app._shapeDraw;
+    const d = getShapeDraw(app);
     if (!d) return;
     clearAxisGlow(app);
     if (d.preview?.parentNode) d.preview.parentNode.removeChild(d.preview);
-    app._shapeDraw = null;
+    setPcbInteraction(app, '_shapeDraw', null);
 }
 
 /** Finish a multi-click polygon (Enter / double-click). */
 export function finishPolygonDraw(app) {
-    if (app._shapeDraw && app._shapeDraw.kind === 'polygon') finishShapeDraw(app);
+    if (getShapeDraw(app)?.kind === 'polygon') finishShapeDraw(app);
 }
 
 /** Finish a multi-click open Line (Enter / double-click). */
 export function finishLineDraw(app) {
-    if (app._shapeDraw && app._shapeDraw.kind === 'line') finishShapeDraw(app);
+    if (getShapeDraw(app)?.kind === 'line') finishShapeDraw(app);
 }
 
 /** Commit the cursor position as the final point and finish the active shape. */
 export function finishShapeDrawAtPoint(app, worldPos) {
-    const draw = app._shapeDraw;
+    const draw = getShapeDraw(app);
     if (!draw || !worldPos) return false;
     const point = shapeDrawSnap(app, worldPos);
     if (!canFinishShapeAtPoint(draw.kind, draw.points)) return false;
@@ -1991,11 +1998,11 @@ export function finishShapeDrawAtPoint(app, worldPos) {
 
 /** Commit the in-progress draw into a board shape. */
 export function finishShapeDraw(app) {
-    const d = app._shapeDraw;
+    const d = getShapeDraw(app);
     if (!d) return;
     clearAxisGlow(app);
     if (d.preview?.parentNode) d.preview.parentNode.removeChild(d.preview);
-    app._shapeDraw = null;
+    setPcbInteraction(app, '_shapeDraw', null);
 
     const layer = d.layer || app.activeLayer;
     const alwaysFilled = isMaskLayer(layer);
@@ -2031,7 +2038,7 @@ export function finishShapeDraw(app) {
     app.history.execute(new AddBoardShapeCommand(app, shape));
 }
 
-// ── Copper cuts ──────────────────────────────────────────────────────────────
+// â”€â”€ Copper cuts â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 /**
  * SVG sub-paths for board shapes that subtract copper on the given copper
@@ -2048,7 +2055,7 @@ export function boardShapeCopperCuts(app, copperLayer) {
     };
     for (const s of (app.boardShapes || [])) {
         if (!s) continue;
-        // A hole-layer shape is a board cutout — it removes copper on both
+        // A hole-layer shape is a board cutout â€” it removes copper on both
         // sides regardless of mode. Copper-removal shapes only cut their own
         // copper layer.
         if (s.layer === 'hole') {
@@ -2086,7 +2093,7 @@ export function boardShapeCopperCuts(app, copperLayer) {
     return { count, d };
 }
 
-// ── Serialisation ────────────────────────────────────────────────────────────
+// â”€â”€ Serialisation â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 export function loadBoardShapes(app, arr, { render = true, strict = false } = {}) {
     const stage = { boardShapes: [], shapeIdCounter: app._shapeIdCounter };
@@ -2105,21 +2112,22 @@ export function loadBoardShapes(app, arr, { render = true, strict = false } = {}
  * @returns {boolean|null} null when no shape is being drawn, else whether the key was consumed.
  */
 export function handleShapeDrawKey(app, e) {
-    if (!app._shapeDraw) return null;
+    const draw = getShapeDraw(app);
+    if (!draw) return null;
     if (e.key === 'Escape') {
         cancelShapeDraw(app);
         return true;
     }
-    if (e.key === 'Enter' && app._shapeDraw.kind === 'polygon') {
+    if (e.key === 'Enter' && draw.kind === 'polygon') {
         finishPolygonDraw(app);
         return true;
     }
-    if (e.key === 'Enter' && app._shapeDraw.kind === 'line') {
+    if (e.key === 'Enter' && draw.kind === 'line') {
         finishLineDraw(app);
         return true;
     }
     if (e.key === 'Enter') {
-        finishShapeDrawAtPoint(app, app._shapeDraw.cursorWorld);
+        finishShapeDrawAtPoint(app, draw.cursorWorld);
         return true;
     }
     return false;

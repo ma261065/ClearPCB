@@ -14,6 +14,7 @@ import { disposeDrcRefresh, invalidateDrcRefresh } from '../src/pcb/modules/drc-
 import { setComputedFill, getComputedFill } from '../src/pcb/modules/computed-fill-cache.js';
 import { resolveTrackSegments } from '../src/shared/pcb/board-geometry.js';
 import { setDragOverlaysDeferred, setFillRefreshError, setFillRefreshPending, setFillRefreshScheduled, setFillRefreshSuspended, setPictureCopperRefreshPending } from '../src/pcb/modules/refresh-state.js';
+import { setPcbInteraction } from '../src/pcb/modules/pcb-interactions.js';
 
 class Element {
     constructor() { this.children = []; this.attributes = new Map(); this.dataset = {}; this.style = {}; }
@@ -278,7 +279,10 @@ try {
     for (const flag of ['_deferDragOverlays', '_suspendFillRefresh', '_pictureCopperRefreshPending',
         '_fillRefreshScheduled', '_textEdit']) {
         const { app, counts } = fixture();
-        const setFlag = value => { if (refreshSetters[flag]) refreshSetters[flag](app, value); else app[flag] = value; };
+        const setFlag = value => {
+            if (refreshSetters[flag]) refreshSetters[flag](app, value);
+            else setPcbInteraction(app, flag, value ? {} : null);
+        };
         app._scheduleDRC(); flush();
         const worker = workers.at(-1);
         setFlag(true);

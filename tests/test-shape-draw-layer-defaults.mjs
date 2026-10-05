@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { PcbDocument } from '../src/core/PcbDocument.js';
 import { CommandHistory } from '../src/core/CommandHistory.js';
+import { getShapeDraw } from '../src/pcb/modules/board-shapes.js';
 
 let select = null;
 globalThis.window = { addEventListener() {} };
@@ -41,7 +42,7 @@ const app = {
     vias: model.vias, pads: model.pads, texts: model.texts, placements: new Map(),
     history: new CommandHistory(), _shapeElements: new Map(), _shapeIdCounter: 1,
     _layerGroups: new Map(), existingLayerGroups() { return this._layerGroups; }, _hoveredTrackOrVia: null,
-    viewport: { scale: 100 }, _snapToGrid: point => point, getLayerGroup: () => null,
+    viewport: { scale: 100 }, snapToGrid: point => point, getLayerGroup: () => null,
     openPropertyPanel(panel) { syncPanel(panel); return true; },
     refreshPropertyPanel(panel) { syncPanel(panel); },
     setActiveRibbonTab() {},
@@ -63,10 +64,10 @@ try {
         assert.equal(app.activeLayer, select.value, 'The dropdown and drawing default agree');
         assert.ok(app.status.modeStatus.textContent.endsWith(' | Bottom Copper'));
         shapeDrawClick(app, kind, { x: 1, y: -1 });
-        assert.equal(app._shapeDraw.layer, 'bottom-copper', 'The preview uses the displayed default');
-        const draw = app._shapeDraw;
+        assert.equal(getShapeDraw(app).layer, 'bottom-copper', 'The preview uses the displayed default');
+        const draw = getShapeDraw(app);
         app._onLayerLockChanged('top-copper', true);
-        assert.equal(app._shapeDraw, draw, 'Updating lock indicators does not replace an unfinished shape');
+        assert.equal(getShapeDraw(app), draw, 'Updating lock indicators does not replace an unfinished shape');
         cancelShapeDraw(app);
     }
     app.currentTool = 'rect';
@@ -94,7 +95,7 @@ try {
     for (const kind of ['line', 'rect', 'circle', 'polygon', 'arc']) {
         app.currentTool = kind;
         shapeDrawClick(app, kind, { x: 1, y: -1 });
-        assert.equal(app._shapeDraw, null, `${kind}: no preview begins without an unlocked layer`);
+        assert.equal(getShapeDraw(app), null, `${kind}: no preview begins without an unlocked layer`);
         assert.equal(select.disabled, true);
     }
     assert.equal(app.history.undoStack.length, 0);

@@ -1,4 +1,6 @@
 import assert from 'node:assert/strict';
+import { activeTextInlineEdit } from '../src/pcb/modules/text-inline-edit.js';
+import { setPcbInteraction } from '../src/pcb/modules/pcb-interactions.js';
 
 class Element {
     constructor(tagName) {
@@ -50,17 +52,22 @@ const app = {
     _active: true,
     viewport: { svg: {}, addInteractionOverlay: group => container.appendChild(group) },
     getLayerGroup: () => container,
-    _endTextInlineEdit: commit => completions.push(commit),
+    selectText() {},
+    clearProperties() {},
+    setActiveRibbonTab() {},
 };
 const text = { content: 'R12', size: 1.2, strokeWidth: 0.15, layer: 'top-silk' };
-PCBApp.prototype._startTextInlineEdit.call(app, text, null, {
-    componentId: 'reference',
+const startEdit = () => PCBApp.prototype._startTextInlineEdit.call(app, text, null, {
+    componentId: 'reference', finish(_value, commit) { completions.push(commit); },
     select() {}, render() {}, transform: () => 'translate(0,0)',
 });
+startEdit();
 try {
     await new Promise(resolve => setTimeout(resolve, 0));
-    const hiddenInput = app._textEdit.input;
+    const activeEdit = activeTextInlineEdit(app);
+    const hiddenInput = activeEdit.input;
     const key = (value, modifiers = {}) => {
+        if (!listeners.get('keydown')) startEdit();
         const event = { key: value, ...modifiers, prevented: false, stopped: false,
             preventDefault() { this.prevented = true; }, stopPropagation() { this.stopped = true; } };
         listeners.get('keydown')(event);
@@ -101,9 +108,9 @@ try {
     assert.equal(key('7').prevented, true, 'Non-numeric property controls can still resume label typing');
     assert.equal(text.content, 'R127');
 } finally {
-    app._textEdit.overlay.destroy();
-    app._textEdit.input.remove();
-    app._textEdit = null;
+    activeTextInlineEdit(app)?.overlay.destroy();
+    activeTextInlineEdit(app)?.input.remove();
+    setPcbInteraction(app, '_textEdit', null);
     delete globalThis.document;
     delete globalThis.window;
 }

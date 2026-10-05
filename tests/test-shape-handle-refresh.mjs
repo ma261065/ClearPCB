@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { CommandHistory } from '../src/core/CommandHistory.js';
 import { isPictureCopperRefreshPending } from '../src/pcb/modules/refresh-state.js';
+import { getBoardShapeDrag } from '../src/pcb/modules/board-shapes.js';
 globalThis.window = { addEventListener() {} };
 globalThis.document = {
     getElementById() { return null; },
@@ -55,7 +56,7 @@ try {
                 history: new CommandHistory(), _shapeElements: new Map(),
                 _boardShapeClearanceCache: new Map([[shape.id, { elements: [halo] }]]),
                 viewport: { scale: 10, snapToGrid: false, setCrosshair() {}, hideCrosshair() {} },
-                getLayerGroup() { return null; }, _snapToGrid(point) { return point; }, _snapActive() { return false; },
+                getLayerGroup() { return null; }, snapToGrid(point) { return point; }, _snapActive() { return false; },
                 refreshFills() { return scheduleFillRefresh(this); },
                 _clearFillGroups() { fills++; },
                 _refreshBoardShapeClearance() { if (!isPictureCopperRefreshPending(this)) halos++; },
@@ -75,7 +76,7 @@ try {
                 assert.equal(halos, 0);
                 assert.equal(fills, 0);
             }
-            assert.notDeepEqual(cloneShapeGeometry(app._shapeDrag.shape), original, `${shape.kind} updates live`);
+            assert.notDeepEqual(cloneShapeGeometry(getBoardShapeDrag(app).shape), original, `${shape.kind} updates live`);
             assert.deepEqual(cloneShapeGeometry(shape), original, 'Canonical geometry is unchanged during preview');
             endBoardShapeDrag(app, commit);
             if (commit) {

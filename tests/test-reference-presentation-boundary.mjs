@@ -1,4 +1,6 @@
 import assert from 'node:assert/strict';
+import { beginRefTextDrag, endRefDrag, updateRefTextDrag } from '../src/pcb/modules/ref-text-selection.js';
+import { setPcbInteraction } from '../src/pcb/modules/pcb-interactions.js';
 import { PcbDocument } from '../src/core/PcbDocument.js';
 import { CommandHistory } from '../src/core/CommandHistory.js';
 import { MoveRefTextCommand, RotateRefTextCommand, SetRefStyleCommand } from '../src/pcb/modules/track-commands.js';
@@ -46,11 +48,11 @@ for (const side of ['top', 'bottom']) for (const mirror of [false, true]) {
         _markDirty: () => dirty++, _drawRefOverlay: () => overlays++,
         _board3d: { refresh: () => boardRefreshes++ },
         _refBox: () => ({}), _refreshRefHighlight: () => highlights++,
-        _textEdit: { options: { componentId: 'part' }, updateCaret: () => caretUpdates++ },
         history: new CommandHistory(),
     };
-    for (const method of ['_beginRefTextDrag', '_updateRefTextDrag', '_endRefDrag', '_worldToPlacementLocal',
-        '_snapToGrid', '_rerenderRef']) app[method] = PCBApp.prototype[method];
+    setPcbInteraction(app, '_textEdit', { options: { componentId: 'part' }, updateCaret: () => caretUpdates++ });
+    for (const method of ['_worldToPlacementLocal',
+        'snapToGrid', '_rerenderRef']) app[method] = PCBApp.prototype[method];
     const verifyTransform = () => {
         const parts = [];
         if (placement.refDx || placement.refDy) parts.push(`translate(${placement.refDx}, ${placement.refDy})`);
@@ -64,11 +66,11 @@ for (const side of ['top', 'bottom']) for (const mirror of [false, true]) {
         assert.equal(placement.lodEl.getAttribute('transform'), group.getAttribute('transform'));
     };
     const original = structuredClone(app.placementState.overrides.get('part'));
-    app._beginRefTextDrag('part', { x: 10, y: -20 });
-    app._updateRefTextDrag({ x: 14, y: -15 });
+    beginRefTextDrag(app, 'part', { x: 10, y: -20 });
+    updateRefTextDrag(app, { x: 14, y: -15 });
     verifyTransform();
     assert.deepEqual(app.placementState.overrides.get('part'), original, 'Preview does not write authored overrides');
-    app._endRefDrag(false);
+    endRefDrag(app, false);
     verifyTransform();
     assert.equal(dirty, 0);
     assert.equal(boardRefreshes, 0);

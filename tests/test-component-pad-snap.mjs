@@ -1,4 +1,6 @@
 import assert from 'node:assert/strict';
+import { getVertexDrag } from '../src/pcb/modules/track-drag.js';
+import { getTrackDraw } from '../src/pcb/modules/track-draw.js';
 
 const element = () => ({ setAttribute() {}, appendChild() {}, remove() {}, classList: { add() {} } });
 globalThis.window = { addEventListener() {} };
@@ -43,10 +45,10 @@ for (const scale of [1, 10, 100, 1000]) {
 
     startTrackDraw(app, { x: -50, y: -20 });
     updateTrackDraw(app, outside);
-    assert.notEqual(app._trackDraw.snap.snapType, 'pad');
+    assert.notEqual(getTrackDraw(app).snap.snapType, 'pad');
     assert.ok(!app._trackSnapMarker, 'no yellow marker before entering the Pad');
     updateTrackDraw(app, inside);
-    assert.equal(app._trackDraw.snap.snapType, 'pad');
+    assert.equal(getTrackDraw(app).snap.snapType, 'pad');
     assert.ok(app._trackSnapMarker);
     cancelTrackDraw(app);
 
@@ -58,12 +60,12 @@ for (const scale of [1, 10, 100, 1000]) {
     assert.ok(!track.padConnections.has(nodeId), 'dragging does not bond outside the Pad');
     assert.ok(!app._trackSnapMarker);
     updateVertexDrag(app, inside);
-    assert.deepEqual(app._vertexDrag.track.nodes.get(nodeId), { x: 10, y: 10 });
-    assert.deepEqual(app._vertexDrag.track.padConnections.get(nodeId), { componentId: 'U1', pinNumber: '1:2' });
+    assert.deepEqual(getVertexDrag(app).track.nodes.get(nodeId), { x: 10, y: 10 });
+    assert.deepEqual(getVertexDrag(app).track.padConnections.get(nodeId), { componentId: 'U1', pinNumber: '1:2' });
     assert.deepEqual(track.nodes.get(nodeId), { x: -30, y: -10 }, 'Canonical node is not snapped during preview');
     assert.ok(app._trackSnapMarker);
     updateVertexDrag(app, outside);
-    assert.ok(!app._vertexDrag.track.padConnections.has(nodeId), 'leaving the Pad releases the snap');
+    assert.ok(!getVertexDrag(app).track.padConnections.has(nodeId), 'leaving the Pad releases the snap');
     assert.ok(!app._trackSnapMarker);
     cancelVertexDrag(app);
 }

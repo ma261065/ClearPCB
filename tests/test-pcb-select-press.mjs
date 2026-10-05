@@ -1,5 +1,6 @@
 /** PCB select-tool press: phase priority chain, and component presses through the shared drag start. */
 import assert from 'node:assert/strict';
+import { getComponentDrag } from '../src/pcb/modules/component-selection.js';
 
 const noop = () => {};
 const element = () => ({
@@ -62,11 +63,11 @@ for (const locked of [false, true]) {
     app._pressNewTarget(press(), { x: 10, y: 20 });
     assert.equal(selected.at(-1), 'U1', `${locked ? 'locked' : 'unlocked'} component is selected`);
     if (locked) {
-        assert.equal(app._drag, undefined, 'a locked component does not enter drag state');
+        assert.equal(getComponentDrag(app), null, 'a locked component does not enter drag state');
         assert.notEqual(svg.style.cursor, 'grabbing');
         assert.equal(areDragOverlaysDeferred(app), false, 'and overlays are not deferred');
     } else {
-        assert.deepEqual(app._drag, { compId: 'U1', startWorld: { x: 10, y: 20 }, startPos: { x: 10, y: 20 }, nets: new Set(['N1']) });
+        assert.deepEqual(getComponentDrag(app), { compId: 'U1', startWorld: { x: 10, y: 20 }, startPos: { x: 10, y: 20 }, nets: new Set(['N1']) });
         assert.equal(svg.style.cursor, 'grabbing');
         assert.equal(areDragOverlaysDeferred(app), true, 'drag defers pours and halos');
     }

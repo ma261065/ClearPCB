@@ -1,6 +1,8 @@
 import { getPropertyEditor } from './property-editors.js';
 import { isPictureCopperRefreshPending, setPictureCopperRefreshPending, refreshBoardView } from './refresh-state.js';
 import { forgetBoardShapeClearance, getBoardShapeClearance } from './clearance-overlay.js';
+import { getBoardShapeDrag } from './board-shapes.js';
+import { isRotationHandleDragActive } from './rotation-handle.js';
 const pendingRefreshes = new WeakMap();
 const activeHolds = new WeakMap();
 
@@ -79,8 +81,8 @@ export function schedulePictureCopperRefresh(app, shape = null) {
             element.parentNode?.removeChild(element);
         }
     }
-    if (activeHolds.has(app) || app._rotationHandleDrag || getPropertyEditor(app, 'boardShape')?.active
-        || ['vertex', 'segment'].includes(app._shapeDrag?.mode)) return;
+    if (activeHolds.has(app) || isRotationHandleDragActive(app) || getPropertyEditor(app, 'boardShape')?.active
+        || ['vertex', 'segment'].includes(getBoardShapeDrag(app)?.mode)) return;
     pendingRefreshes.set(app, setTimeout(() => {
         pendingRefreshes.delete(app);
         setPictureCopperRefreshPending(app, false);

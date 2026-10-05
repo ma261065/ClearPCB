@@ -11,6 +11,7 @@ import { cancelPictureCopperRefresh } from '../src/pcb/modules/picture-refresh.j
 import { PCB_LAYERS } from '../src/pcb/modules/layers.js';
 import { areDragOverlaysDeferred, isPictureCopperRefreshPending, setDragOverlaysDeferred } from '../src/pcb/modules/refresh-state.js';
 import { setBoardShapeNodeFocus } from '../src/pcb/modules/board-shape-state.js';
+import { getBoardShapeDrag } from '../src/pcb/modules/board-shapes.js';
 
 let allocations = 0;
 class Element {
@@ -112,7 +113,7 @@ for (const mode of ['move', 'segment', 'vertex', 'midpoint', 'bulge', 'outline',
             assert.equal(begin(), true, mode);
             assert.deepEqual(model.captureGeometry(), before, 'Pickup and staged topology leave authored geometry unchanged');
             handleBoardShapeDrag(app, target);
-            const copy = app._shapeDrag.shape, collection = app.boardShapes;
+            const copy = getBoardShapeDrag(app).shape, collection = app.boardShapes;
             assert.notEqual(copy, shape);
             assert.equal(copy.id, shape.id);
             assert.equal(adapter.object, copy);
@@ -120,7 +121,7 @@ for (const mode of ['move', 'segment', 'vertex', 'midpoint', 'bulge', 'outline',
             assert.equal(collection[1], unrelated[0]);
             for (let index = 1; index <= 20; index++) {
                 handleBoardShapeDrag(app, { x: target.x + index / 100, y: target.y });
-                assert.equal(app._shapeDrag.shape, copy);
+                assert.equal(getBoardShapeDrag(app).shape, copy);
                 assert.equal(app.boardShapes, collection);
             }
             const work = allocations;
@@ -146,7 +147,7 @@ for (const mode of ['move', 'segment', 'vertex', 'midpoint', 'bulge', 'outline',
             if (finish === 'commit') {
                 const execute = app.history.execute.bind(app.history);
                 app.history.execute = command => {
-                    assert.equal(app._shapeDrag, null);
+                    assert.equal(getBoardShapeDrag(app), null);
                     assert.equal(app.boardShapes, model.boardShapes);
                     assert.deepEqual(model.captureGeometry(), before);
                     execute(command);
@@ -187,7 +188,7 @@ for (const mode of ['move', 'segment', 'vertex', 'midpoint', 'bulge', 'outline',
                 assert.equal(model.shapeIdCounter, counter);
                 assert.equal(fills(), 0, 'Discarding an isolated edit retains settled pours');
             }
-            assert.equal(app._shapeDrag, null);
+            assert.equal(getBoardShapeDrag(app), null);
             assert.equal(areDragOverlaysDeferred(app), deferred);
             assert.equal(app.boardShapes, model.boardShapes);
             assert.equal(rebuilt.object, shape);
@@ -205,7 +206,7 @@ for (const mode of ['move', 'segment', 'vertex', 'outline', 'circle', 'arc', 'im
     const work = allocations;
     for (let index = 0; index < 100; index++) handleBoardShapeDrag(app, start);
     assert.equal(allocations, work, 'Stationary pickup does not create artwork');
-    assert.equal(app._shapeDrag.preview, undefined, 'Stationary pickup does not copy a large shape collection');
+    assert.equal(getBoardShapeDrag(app).preview, undefined, 'Stationary pickup does not copy a large shape collection');
     endBoardShapeDrag(app, true);
     assert.equal(app.history.undoStack.length, 0);
     assert.deepEqual(model.captureGeometry(), before);
@@ -216,7 +217,7 @@ for (const invalid of [{ x: NaN, y: 0 }, { x: 0, y: Infinity }, null]) {
     const before = model.captureGeometry();
     begin();
     assert.throws(() => handleBoardShapeDrag(app, invalid), /finite position/);
-    assert.equal(app._shapeDrag, null);
+    assert.equal(getBoardShapeDrag(app), null);
     assert.deepEqual(model.captureGeometry(), before);
     assert.equal(isPictureCopperRefreshPending(app), false);
 }
@@ -225,7 +226,7 @@ for (const invalid of [{ x: NaN, y: 0 }, { x: 0, y: Infinity }, null]) {
     begin();
     model.boardShapes.splice(model.boardShapes.indexOf(shape), 1);
     assert.throws(() => handleBoardShapeDrag(app, target), /missing board shape/);
-    assert.equal(app._shapeDrag, null);
+    assert.equal(getBoardShapeDrag(app), null);
     assert.equal(app._shapeElements.has(shape.id), false);
     assert.equal(getPcbSelection(app).length, 0);
 }
@@ -238,7 +239,7 @@ for (const mode of ['vertex', 'split']) {
     handleBoardShapeDrag(app, target);
     setBoardShapeNodeFocus(app, { shapeId: shape.id, index: 0 });
     assert.equal(deleteFocusedBoardShape(app), true);
-    assert.equal(app._shapeDrag, null);
+    assert.equal(getBoardShapeDrag(app), null);
     assert.equal(app.history.undoStack.length, mode === 'split' ? 0 : 1);
     if (mode === 'vertex') {
         assert.equal(shape.points.length, 3, 'Focused deletion targets authored shape, not discarded copy');

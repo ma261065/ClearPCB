@@ -53,23 +53,25 @@ is import-free because `drc.js` (DRC worker) and the fabrication snapshot
 to `collectDrcInputs` explicitly. DRC status itself remains with
 `drc-presentation.js` behind the editor's `_drcPending` accessor.
 
-`pcb/modules/pcb-interactions.js` is the one list of in-progress editor fields
-(`_drag`, `_trackDraw`, `_pcbSelectionInteraction`, …) in pointer-move priority,
-with each field's category (`gesture` or `drawing`) and whether it blocks export.
+`pcb/modules/pcb-interactions.js` is the one list of in-progress interaction
+slots (`_drag`, `_trackDraw`, `_pcbSelectionInteraction`, …) in pointer-move
+priority, with each slot's owner, category (`gesture` or `drawing`) and whether
+it blocks export. The active values live in that module's import-free WeakMap so
 `hasPcbInteractionInProgress`, `isPcbDrawing` and the fabrication-snapshot guard
-derive from it. It has no imports so worker-loaded export code can use it.
-`pcb/modules/pcb-interaction-routing.js` holds each field's pointer-move,
-primary-release and pose-cancel handler. Its mousemove dispatcher is straight
-line for speed (`node tools/bench-pointer-dispatch.mjs`);
+can run from worker-loaded code. Only the named owner writes a slot with
+`setPcbInteraction`; other modules call owner APIs (`getGroupDrag`,
+`endRefDrag`, `getFillDraw`, `activeTextInlineEdit`, …).
+`pcb/modules/pcb-interaction-routing.js` reads the store and holds each slot's
+pointer-move, primary-release and pose-cancel handler. Its mousemove dispatcher
+is straight line for speed (`node tools/bench-pointer-dispatch.mjs`);
 `test-pcb-interaction-registry` proves it follows the table's priority, and
-fails if a new `_…Drag`, `_…Draw`, `_…Drop`, `_…Resize`, `_…Edit` or
-`_…Interaction` field is assigned without being registered. At most one pointer
-drag is active at a time; the selection gesture may wrap one, inline/rotation
-gestures are export-blocking, and drawing sessions persist across other
-gestures. `releasePcbPointerGestures` finishes active gestures in table order on
-a primary release anywhere in the window; once the selection gesture finishes,
-the drags it can wrap (`wrapped`) are left to it, and a pending marquee finishes
-last.
+fails if a slot is unregistered or written outside its owner. At most one
+pointer drag is active at a time; the selection gesture may wrap one,
+inline/rotation gestures are export-blocking, and drawing sessions persist
+across other gestures. `releasePcbPointerGestures` finishes active gestures in
+table order on a primary release anywhere in the window; once the selection
+gesture finishes, the drags it can wrap (`wrapped`) are left to it, and a
+pending marquee finishes last.
 
 The PCB canvas mouse listeners are in `pcb/modules/mouse.js` (`bindPcbMouseEvents`,
 bound through `PCBApp._bindMouseEvents`). The mousedown listener handles only
@@ -81,8 +83,8 @@ release paths.
 `_pressSelectTool` is a priority chain of phase methods, each returning whether
 it handled the press: the shared selection interaction, Ctrl/Cmd shape toggling,
 an active box selection, continuing the current selection, then selecting a new
-target. Component presses use `_beginComponentDrag`, the same start as the
-selection adapter, so locked placements never enter drag state
+target. Component presses use `beginComponentDrag`, the same start as the selection
+adapter, so locked placements never enter drag state
 (`test-pcb-select-press`).
 
 Layer visibility and lock changes are handled in `pcb/modules/layer-changes.js`,

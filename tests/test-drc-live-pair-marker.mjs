@@ -7,6 +7,7 @@ import { Pad } from '../src/shapes/pad.js';
 import { Via } from '../src/shapes/via.js';
 import { setComputedFill } from '../src/pcb/modules/computed-fill-cache.js';
 import { setFillRefreshError, setFillRefreshPending } from '../src/pcb/modules/refresh-state.js';
+import { getVertexDrag } from '../src/pcb/modules/track-drag.js';
 
 const element = () => ({
     style: {}, dataset: {}, setAttribute() {}, appendChild() {}, remove() {}, focus() {},
@@ -294,7 +295,7 @@ for (const finish of ['cancel', 'commit']) {
         app.history.redo();
         near(assertParity(app, violation, 'redo restores contact').y, 2, 'redone marker y');
     }
-    assert.equal(app._vertexDrag, null);
+    assert.equal(getVertexDrag(app), null);
     assert.equal(app.tracks, app.pcbDocument.tracks, 'collection getter returns document after finish');
 }
 

@@ -10,6 +10,7 @@ import { distanceToSegment } from '../src/core/geometry.js';
 import { CORNER_CHORD_TOLERANCE } from '../src/shapes/rounded-path.js';
 import { PcbDocument } from '../src/core/PcbDocument.js';
 import { SelectionManager } from '../src/core/SelectionManager.js';
+import { getBoardShapeDrag } from '../src/pcb/modules/board-shapes.js';
 
 globalThis.window = { addEventListener() {} };
 globalThis.document = {
@@ -126,7 +127,7 @@ for (const rotation of [30, 90, 137.5]) {
                 for (const commit of [false, true]) {
                     assert.equal(startBoardShapeDrag(app, shape, points[index], index), true);
                     handleBoardShapeDrag(app, target);
-                    const displayed = app._shapeDrag.shape;
+                    const displayed = getBoardShapeDrag(app).shape;
                     nearPoints(displayed.points, expected);
                     near(app.viewport.crosshair, displayed.points[index]);
                     near(displayed.points[(index + 2) % 4], fixed);
@@ -170,7 +171,7 @@ for (const rotation of [30, 90, 137.5]) {
             const { target } = resizeTarget(points, index, 1.7, 0.65);
             beginFillEdit(fillApp, fill, points[index], index);
             updateFillEdit(fillApp, target);
-            nearPoints(fillApp._shapeDrag.shape.outline, resizeRectanglePoints(points, index, target));
+            nearPoints(getBoardShapeDrag(fillApp).shape.outline, resizeRectanglePoints(points, index, target));
             assert.deepEqual(fill.captureState(), before, 'Resize does not author fill geometry before drop');
             endFillEdit(fillApp, false);
             assert.deepEqual(fill.captureState(), before);

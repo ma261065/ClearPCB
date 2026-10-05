@@ -9,6 +9,10 @@ import { setPcbSelection, getPcbSelection } from '../src/pcb/modules/selection-r
 import { finishSelectionInteraction } from '../src/pcb/modules/selection-interaction.js';
 import { cancelPictureCopperRefresh } from '../src/pcb/modules/picture-refresh.js';
 import { loadPcb } from '../src/pcb/modules/project-state.js';
+import { getSelectionInteraction } from '../src/pcb/modules/selection-interaction.js';
+import { getTextDrag } from '../src/pcb/modules/pcb-text-selection.js';
+import { isRotationHandleDragActive } from '../src/pcb/modules/rotation-handle.js';
+import { setPcbInteraction } from '../src/pcb/modules/pcb-interactions.js';
 
 class Element {
     constructor() { this.attributes = new Map(); this.children = []; this.dataset = {}; }
@@ -39,7 +43,7 @@ function fixture(layer) {
         _refreshBoardShapeClearance() {}, _cancelDrawingMode() {}, _ensureViewport() {}, markSectionClean() {},
     };
     Object.defineProperty(app, 'texts', Object.getOwnPropertyDescriptor(PCBApp.prototype, 'texts'));
-    for (const name of ['_beginTextDrag', '_updateTextDrag', '_endTextDrag', '_snapToGrid', '_renderText',
+    for (const name of ['snapToGrid', '_renderText',
         'refreshText', '_removeTextElement', '_cancelPosePreviews']) app[name] = PCBApp.prototype[name];
     setPcbSelection(app, [{ kind: 'text', object: text }]);
     app._renderText(text);
@@ -71,10 +75,10 @@ for (const layer of TEXT_LAYERS) for (const gesture of ['move', 'rotate']) {
         };
         if (gesture === 'move') {
             adapter.beginMove(start);
-            app._pcbSelectionInteraction = { mode: 'move-adapter', entry: adapter };
+            setPcbInteraction(app, '_pcbSelectionInteraction', { mode: 'move-adapter', entry: adapter });
         } else {
             adapter.beginAnchorDrag('rotate', start);
-            app._pcbSelectionInteraction = { mode: 'anchor', adapter };
+            setPcbInteraction(app, '_pcbSelectionInteraction', { mode: 'anchor', adapter });
         }
         try {
             assert.equal(getTextPosePreviewTexts(app), undefined, 'Pickup does not allocate a projection');
@@ -112,7 +116,7 @@ for (const layer of TEXT_LAYERS) for (const gesture of ['move', 'rotate']) {
                 else canonicalMap.delete(text.id);
                 assert.throws(() => finishSelectionInteraction(app, true),
                     finish === 'failure' ? /Injected history failure/ : /PCB text is no longer available/);
-                assert.equal(app._pcbSelectionInteraction, null, 'A failed commit cannot leave saving blocked by a stale gesture');
+                assert.equal(getSelectionInteraction(app), null, 'A failed commit cannot leave saving blocked by a stale gesture');
             } else {
                 if (finish === 'no-op') {
                     if (gesture === 'move') adapter.updateMove(start);
@@ -122,9 +126,9 @@ for (const layer of TEXT_LAYERS) for (const gesture of ['move', 'rotate']) {
             }
             assert.equal(getTextPosePreviewTexts(app), undefined);
             assert.equal(app.texts, canonicalMap);
-            assert.equal(app._pcbSelectionInteraction, null);
-            assert.ok(!app._textDrag);
-            assert.ok(!app._rotationHandleDrag);
+            assert.equal(getSelectionInteraction(app), null);
+            assert.ok(!getTextDrag(app));
+            assert.ok(!isRotationHandleDragActive(app));
             if (finish === 'commit') {
                 assert.deepEqual(text, final);
                 assert.equal(app._textElements.get(text.id).getAttribute('transform'), previewSvg);

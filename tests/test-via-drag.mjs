@@ -4,6 +4,7 @@ import { PcbDocument } from '../src/core/PcbDocument.js';
 import { ProjectDocument } from '../src/core/ProjectDocument.js';
 import { Component } from '../src/components/Component.js';
 import { areDragOverlaysDeferred, setDragOverlaysDeferred } from '../src/pcb/modules/refresh-state.js';
+import { getPcbPaste } from '../src/pcb/modules/pcb-paste.js';
 
 globalThis.window = { addEventListener() {} };
 globalThis.document = {
@@ -129,7 +130,7 @@ function trackAppFor(track, previousDeferral = false) {
             return null;
         },
         refreshFills() { fillRefreshes++; },
-        _snapToGrid(point) { return point; },
+        snapToGrid(point) { return point; },
         fillRefreshes() { return fillRefreshes; },
         refreshClearanceHalos() { clearanceRefreshes++; },
         clearanceRefreshes() { return clearanceRefreshes; },
@@ -183,7 +184,7 @@ for (const commit of [false, true]) {
     const pasted = new Track({ id: 'pasted-track' });
     pasted.applyState(track.captureState());
     PCBApp.prototype._beginPasteDrop.call(app, { tracks: [pasted] });
-    app._pasteDrop.anchorWorld = { x: 0, y: 0 };
+    getPcbPaste(app).anchorWorld = { x: 0, y: 0 };
     for (const point of [{ x: -3, y: -2 }, { x: -6, y: -4 }]) {
         PCBApp.prototype._updatePasteDrop.call(app, point);
         assert.deepEqual(pasted.getBounds(), pasted._calculateBounds());

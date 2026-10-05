@@ -13,6 +13,7 @@ import { PCB_LAYERS } from '../src/pcb/modules/layers.js';
 import { getPropertyEditor } from '../src/pcb/modules/property-editors.js';
 import { areDragOverlaysDeferred, isBoardViewRefreshSuspended, setBoardViewRefreshSuspended, setDragOverlaysDeferred } from '../src/pcb/modules/refresh-state.js';
 import { bindSettledChange, flushSettledChanges } from '../src/shared/ui/settled-input.js';
+import { getBoardOutlineResize } from '../src/pcb/modules/board-outline-resize.js';
 
 let allocations = 0;
 class Element {
@@ -212,7 +213,7 @@ for (const mode of ['width', 'height', 'both', 'property-width', 'property-heigh
                 assert.equal(pours(), 0, 'Discard does not rebuild settled fills');
             }
             assert.equal(getBoardDimensionPreview(app), undefined);
-            assert.equal(app._boardOutlineResize ?? null, null);
+            assert.equal(getBoardOutlineResize(app) ?? null, null);
             assert.equal(areDragOverlaysDeferred(app), deferred);
             assert.equal(isBoardViewRefreshSuspended(app), deferred);
             assert.equal(app.boardShapes, model.boardShapes);
@@ -283,7 +284,7 @@ for (const numeric of [false, true]) {
         assert.throws(() => updateBoardOutlineResize(app, { x: start.x + 1, y: start.y }), /Preview renderer failed/);
     }
     assert.equal(getBoardDimensionPreview(app), undefined);
-    assert.equal(app._boardOutlineResize ?? null, null);
+    assert.equal(getBoardOutlineResize(app) ?? null, null);
     assert.equal(areDragOverlaysDeferred(app), false);
     assert.equal(isBoardViewRefreshSuspended(app), false);
     assert.deepEqual(model.captureGeometry(), before);

@@ -1,5 +1,6 @@
 /** Board-shape moves and node edits use grid/alignment magnets only; Track moves still lock onto Pads. */
 import assert from 'node:assert/strict';
+import { getBoardShapeDrag } from '../src/pcb/modules/board-shapes.js';
 
 globalThis.window = { addEventListener() {} };
 function element(tagName) {
@@ -43,7 +44,7 @@ function fixture() {
     };
     return { app, shape };
 }
-const preview = app => app._shapeDrag.shape;
+const preview = app => getBoardShapeDrag(app).shape;
 
 {
     const { app, shape } = fixture();

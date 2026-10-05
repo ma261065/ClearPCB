@@ -22,18 +22,23 @@ import {
     scheduleGroupDrag,
 } from './box-select.js';
 import { hitTestPcbSelectionAnchor, renderPcbSelectionAnchors } from './selection-anchors.js';
-import { ROTATION_CURSOR } from './rotation-handle.js';
+import { isRotationHandleDragActive, ROTATION_CURSOR } from './rotation-handle.js';
+import { getPcbInteraction, setPcbInteraction } from './pcb-interactions.js';
 
 const SUPPORTED_KINDS = new Set(['component', 'shape', 'track', 'via', 'pad', 'fill', 'text', 'reftext']);
 
 /** The active shared selection interaction (`{ mode, adapter, ... }`), or null. */
 export function getSelectionInteraction(app) {
-    return app._pcbSelectionInteraction || null;
+    return getPcbInteraction(app, '_pcbSelectionInteraction');
+}
+
+export function setSelectionInteraction(app, state) {
+    setPcbInteraction(app, '_pcbSelectionInteraction', state);
 }
 
 export function selectionInteractionCursor(app) {
-    if (app._rotationHandleDrag) return ROTATION_CURSOR;
-    const state = app._pcbSelectionInteraction;
+    if (isRotationHandleDragActive(app)) return ROTATION_CURSOR;
+    const state = getSelectionInteraction(app);
     return state?.mode === 'circle-anchor'
         ? (state.anchorKey === 'radius' ? 'ew-resize' : 'move') : 'grabbing';
 }
@@ -102,15 +107,15 @@ export function beginPcbAnchorInteraction(app, adapter, anchor, worldPos, floati
     if (adapter.locked) return false;
     const anchorId = anchor.id ?? anchor.key;
     if (!adapter.beginAnchorDrag?.(anchorId, worldPos, { floating })) return false;
-    app._pcbSelectionInteraction = {
+    setSelectionInteraction(app, {
         mode: floating ? 'floating-anchor' : 'anchor',
         startWorld: { x: worldPos.x, y: worldPos.y },
         moved: false,
         adapter, anchor, anchorId,
-    };
+    });
     showPcbSelectionProperties(app);
     if (floating) adapter.updateAnchorDrag?.(worldPos);
-    if (floating || app._rotationHandleDrag) {
+    if (floating || isRotationHandleDragActive(app)) {
         renderPcbSelectionAnchors(app);
         if (app.viewport?.svg) app.viewport.svg.style.cursor = selectionInteractionCursor(app);
     }
@@ -124,7 +129,7 @@ export function beginSelectionInteraction(app, worldPos, additive, cycle = false
         const entry = hitTestPcbSelectionEntry(app, worldPos, SUPPORTED_KINDS);
         if (!entry) return false;
         if (cycle) {
-            app._pcbSelectionInteraction = { mode: 'cycle', startWorld: { ...worldPos }, additive };
+            setSelectionInteraction(app, { mode: 'cycle', startWorld: { ...worldPos }, additive });
         } else {
             togglePcbSelection(app, entry.kind, entry.object);
             showPcbSelectionProperties(app);
@@ -156,17 +161,17 @@ export function beginSelectionInteraction(app, worldPos, additive, cycle = false
     const alreadySelected = selected.some((item) => item.id === entry.id);
     setPcbSelection(app, [{ kind: entry.kind, object: entry.object }]);
     if (entry.locked) {
-        app._pcbSelectionInteraction = null;
+        setSelectionInteraction(app, null);
     } else if (entry.beginMove?.(worldPos, { alreadySelected, selectedSegment })) {
-        app._pcbSelectionInteraction = {
+        setSelectionInteraction(app, {
             mode: 'move-adapter',
             entry,
             startWorld: { x: worldPos.x, y: worldPos.y },
             moved: false,
-        };
+        });
     } else {
         beginGroupDrag(app, worldPos);
-        app._pcbSelectionInteraction = { mode: 'move', entry };
+        setSelectionInteraction(app, { mode: 'move', entry });
     }
     showPcbSelectionProperties(app);
     refreshBoxSelectionHighlights(app);
@@ -175,18 +180,18 @@ export function beginSelectionInteraction(app, worldPos, additive, cycle = false
 
 /** Update the active supported-entity pointer state. */
 export function updateSelectionInteraction(app, worldPos) {
-    const state = app._pcbSelectionInteraction;
+    const state = getSelectionInteraction(app);
     if (!state) return false;
     if (state.mode === 'cycle') {
         const threshold = 3 / Math.max(0.01, app.viewport?.scale || 1);
         if (Math.hypot(worldPos.x - state.startWorld.x, worldPos.y - state.startWorld.y) <= threshold) return true;
-        app._pcbSelectionInteraction = null;
+        setSelectionInteraction(app, null);
         if (!beginSelectionInteraction(app, state.startWorld, false)) {
             const entry = hitTestPcbSelectionEntry(app, state.startWorld, SUPPORTED_KINDS);
             if (!entry) return true;
             if (getPcbSelectionEntries(app).some((item) => item.id === entry.id)) {
                 beginGroupDrag(app, state.startWorld);
-                app._pcbSelectionInteraction = { mode: 'move' };
+                setSelectionInteraction(app, { mode: 'move' });
             } else {
                 setPcbSelection(app, [{ kind: entry.kind, object: entry.object }]);
                 beginSelectionInteraction(app, state.startWorld, false);
@@ -225,8 +230,8 @@ export function updateSelectionInteraction(app, worldPos) {
 
 /** Finish the active supported-entity pointer state. */
 export function finishSelectionInteraction(app, commit = true, worldPos = null) {
-    if (commit && worldPos && app._pcbSelectionInteraction?.mode === 'cycle') updateSelectionInteraction(app, worldPos);
-    const state = app._pcbSelectionInteraction;
+    if (commit && worldPos && getSelectionInteraction(app)?.mode === 'cycle') updateSelectionInteraction(app, worldPos);
+    const state = getSelectionInteraction(app);
     if (!state) return false;
     if (commit && state.mode === 'anchor' && !state.moved
         && ['shape', 'track', 'fill'].includes(state.adapter.kind)
@@ -261,7 +266,7 @@ export function finishSelectionInteraction(app, commit = true, worldPos = null) 
             state.entry.endMove?.(commit, { moved: state.moved, startWorld: state.startWorld });
         }
     } finally {
-        app._pcbSelectionInteraction = null;
+        setSelectionInteraction(app, null);
         refreshBoxSelectionHighlights(app);
         if (state.anchor?.symbol === 'rotate' && app.viewport?.svg) app.viewport.svg.style.cursor = 'default';
     }
@@ -270,9 +275,9 @@ export function finishSelectionInteraction(app, commit = true, worldPos = null) 
 
 /** Place an anchor picked up by a midpoint click or context-menu action. */
 export function placeFloatingSelectionInteraction(app) {
-    const state = app._pcbSelectionInteraction;
+    const state = getSelectionInteraction(app);
     if (state?.mode !== 'floating-anchor') return false;
-    app._pcbSelectionInteraction = null;
+    setSelectionInteraction(app, null);
     state.adapter.endAnchorDrag?.(true, { moved: true, place: true });
     refreshBoxSelectionHighlights(app);
     return true;

@@ -5,6 +5,9 @@ import { capturePlacementOverride } from '../src/core/PcbPlacementState.js';
 import { createRefTextSelectionAdapter } from '../src/pcb/modules/ref-text-selection.js';
 import { loadPcb } from '../src/pcb/modules/project-state.js';
 import { PROPERTY_EDITOR_KINDS, getPropertyEditor, setPropertyEditor } from '../src/pcb/modules/property-editors.js';
+import { getSelectionInteraction } from '../src/pcb/modules/selection-interaction.js';
+import { getRefDrag } from '../src/pcb/modules/ref-text-selection.js';
+import { setPcbInteraction } from '../src/pcb/modules/pcb-interactions.js';
 
 globalThis.window = { addEventListener() {} };
 globalThis.document = { querySelector: () => null, getElementById: () => null };
@@ -28,8 +31,7 @@ function fixture() {
         getLayerGroup: () => null, _drawRefOverlay() {}, _ensureViewport() {},
         _refreshRefHighlight() {}, markSectionClean() {},
     };
-    for (const name of ['_beginRefTextDrag', '_updateRefTextDrag', '_endRefDrag',
-        '_worldToPlacementLocal', '_snapToGrid', '_cancelPosePreviews', '_cancelDrawingMode',
+    for (const name of ['_worldToPlacementLocal', 'snapToGrid', '_cancelPosePreviews', '_cancelDrawingMode',
         'setPropertiesTitle', 'isSectionEditing', 'deactivate']) app[name] = PCBApp.prototype[name];
     app.history.execute({ execute() {}, undo() {} });
     app.history.undo();
@@ -43,14 +45,14 @@ for (const boundary of ['cancel', 'deactivate', 'replace']) {
         const redo = [...app.history.redoStack];
         adapter.beginMove({ x: 0, y: 0 });
         adapter.updateMove({ x: 5, y: 7 });
-        if (shared) app._pcbSelectionInteraction = { mode: 'move-adapter', entry: adapter };
+        if (shared) setPcbInteraction(app, '_pcbSelectionInteraction', { mode: 'move-adapter', entry: adapter });
         assert.notDeepEqual(capturePlacementOverride(placement), original);
         assert.equal(app.isSectionEditing(), true);
         if (boundary === 'replace') loadPcb(app, null);
         else if (boundary === 'deactivate') app.deactivate();
         else app._cancelPosePreviews();
-        assert.equal(app._refDrag, null, `${boundary}: end the reference drag`);
-        assert.equal(app._pcbSelectionInteraction ?? null, null, `${boundary}: release the selection gesture`);
+        assert.equal(getRefDrag(app), null, `${boundary}: end the reference drag`);
+        assert.equal(getSelectionInteraction(app) ?? null, null, `${boundary}: release the selection gesture`);
         assert.deepEqual(capturePlacementOverride(placement), original, `${boundary}: discard the displayed preview`);
         assert.equal(app.isSectionEditing(), false, `${boundary}: do not leave saving blocked`);
         assert.equal(app.history.canUndo(), false, `${boundary}: cancellation must not commit`);
@@ -67,9 +69,9 @@ for (const mode of ['cycle', 'anchor', 'floating-anchor', 'move-adapter', 'move'
         endMove(commit) { assert.equal(commit, false); cancellations++; },
         endAnchorDrag(commit) { assert.equal(commit, false); cancellations++; },
     };
-    app._pcbSelectionInteraction = { mode, adapter, entry: adapter };
+    setPcbInteraction(app, '_pcbSelectionInteraction', { mode, adapter, entry: adapter });
     app.deactivate();
-    assert.equal(app._pcbSelectionInteraction, null, `${kind}/${mode}: selection ends on deactivation`);
+    assert.equal(getSelectionInteraction(app), null, `${kind}/${mode}: selection ends on deactivation`);
     const expected = ['cycle', 'move'].includes(mode) ? 0 : 1;
     assert.equal(cancellations, expected);
     app.deactivate();

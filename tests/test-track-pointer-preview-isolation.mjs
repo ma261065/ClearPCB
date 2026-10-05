@@ -16,6 +16,8 @@ import { prepareFabricationSnapshot } from '../src/pcb/modules/fabrication-snaps
 import { loadPcb } from '../src/pcb/modules/project-state.js';
 import { PCB_LAYERS } from '../src/pcb/modules/layers.js';
 import { areDragOverlaysDeferred, isBoardViewRefreshSuspended, setBoardViewRefreshSuspended, setDragOverlaysDeferred } from '../src/pcb/modules/refresh-state.js';
+import { getViaDrag } from '../src/pcb/modules/track-drag.js';
+import { getVertexDrag } from '../src/pcb/modules/track-drag.js';
 
 let allocations = 0;
 globalThis.requestAnimationFrame = () => 1;
@@ -227,7 +229,7 @@ for (const finish of ['commit', 'failure', 'no-op', 'cancel']) {
     else if (finish === 'cancel') cancelVertexDrag(app);
     else finishVertexDrag(app);
     assertCleared();
-    assert.equal(app._vertexDrag, null);
+    assert.equal(getVertexDrag(app), null);
     assert.equal(app.history.undoStack.length, finish === 'commit' ? 1 : 0);
     if (finish !== 'commit') assert.deepEqual(track.captureState(), before);
 }
@@ -248,9 +250,9 @@ for (const mode of ['whole', 'segment', 'bridge', 'node', 'midpoint', 'split', '
             Object.freeze(track);
         }
         assert.equal(f.start(), true, mode);
-        assert.equal(app._vertexDrag.original, track);
+        assert.equal(getVertexDrag(app).original, track);
         if (!['midpoint', 'split'].includes(mode)) {
-            assert.equal(app._vertexDrag.preview, undefined, `${mode}: pickup does not allocate a graph copy`);
+            assert.equal(getVertexDrag(app).preview, undefined, `${mode}: pickup does not allocate a graph copy`);
             assert.equal(app.tracks, model.tracks);
         }
         assert.deepEqual(track.captureState(), before, 'Topology pickup is detached too');
@@ -288,7 +290,7 @@ for (const mode of ['whole', 'segment', 'bridge', 'node', 'midpoint', 'split', '
         if (finish === 'commit') {
             const execute = app.history.execute.bind(app.history);
             app.history.execute = command => {
-                assert.equal(app._vertexDrag, null);
+                assert.equal(getVertexDrag(app), null);
                 assert.equal(app.tracks, model.tracks);
                 assert.deepEqual(model.captureGeometry(), original);
                 execute(command);
@@ -331,7 +333,7 @@ for (const mode of ['whole', 'segment', 'bridge', 'node', 'midpoint', 'split', '
             assert.equal(app.history.redoStack[0], redo);
             assert.equal(f.fills(), 0, 'Discarding a preview does not repour unchanged copper');
         }
-        assert.equal(app._vertexDrag, null);
+        assert.equal(getVertexDrag(app), null);
         assert.equal(areDragOverlaysDeferred(app), deferred);
         assert.equal(isBoardViewRefreshSuspended(app), deferred);
         assert.equal(rebuilt.object, track);
@@ -406,7 +408,7 @@ for (const targetKind of ['same-track', 'same-layer', 'cross-layer', 'conflict',
     assert.deepEqual(target.captureState(), targetBefore);
     assert.deepEqual(model.serialize(), serialized);
     assert.equal(track.getBounds(), bounds);
-    assert.equal(app._vertexDrag.snapTargetNode.nodeId, targetId);
+    assert.equal(getVertexDrag(app).snapTargetNode.nodeId, targetId);
     if (targetKind === 'missing') {
         model.tracks.splice(model.tracks.indexOf(target), 1);
         assert.throws(() => finishVertexDrag(app), /missing track node/);
@@ -435,7 +437,7 @@ for (const targetKind of ['same-track', 'same-layer', 'cross-layer', 'conflict',
             assert.deepEqual(model.captureGeometry(), after);
         }
     }
-    assert.equal(app._vertexDrag, null);
+    assert.equal(getVertexDrag(app), null);
     f.assertArtwork(track);
     cases++;
 }
@@ -461,7 +463,7 @@ for (const removed of ['node', 'edge', 'terminal', 'before-preview']) {
         assert.throws(() => finishVertexDrag(app), /missing/);
         assert.deepEqual(track.captureState(), before);
     }
-    assert.equal(app._vertexDrag, null);
+    assert.equal(getVertexDrag(app), null);
     assert.equal(areDragOverlaysDeferred(app), false);
     assert.equal(isBoardViewRefreshSuspended(app), false);
     assert.equal(app.history.canUndo(), false);
@@ -478,7 +480,7 @@ for (const commandKind of ['remove', 'move']) {
         : new MoveVertexCommand(app, copy, nodeId, initial.x, initial.y, 15, 16);
     assert.equal(command.track, track);
     app.history.execute(command);
-    assert.equal(app._vertexDrag, null, 'Independent commands cancel pending pointer ownership first');
+    assert.equal(getVertexDrag(app), null, 'Independent commands cancel pending pointer ownership first');
     if (commandKind === 'remove') {
         assert.equal(model.tracks.includes(track), false);
         assert.equal(f.artwork().length, 0);
@@ -498,7 +500,7 @@ for (const commandKind of ['remove', 'move']) {
     const copy = app.tracks[0], rebuilt = createTrackSelectionAdapter(app, copy, track.id);
     assert.equal(rebuilt.object, copy, 'Placement copies retain dynamic track selection geometry');
     assert.equal(startVertexDrag(app, copy, initial, { nodeId: f.nodeId }), false);
-    assert.equal(app._vertexDrag, undefined, 'Pointer pickup cannot take ownership of an active placement copy');
+    assert.equal(getVertexDrag(app), null, 'Pointer pickup cannot take ownership of an active placement copy');
     finishPlacementPreview(app);
     assert.equal(rebuilt.object, track);
     assert.deepEqual(track.captureState(), before);
@@ -511,7 +513,7 @@ for (const commandKind of ['remove', 'move']) {
     renderTrack(track, app.getLayerGroup);
     const before = model.captureGeometry();
     f.start();
-    assert.equal(app._vertexDrag.preview, undefined);
+    assert.equal(getVertexDrag(app).preview, undefined);
     const point = { x: initial.x + 2, y: initial.y + 3 };
     updateVertexDrag(app, point);
     const copy = app.tracks[0], collection = app.tracks, nodes = copy.nodes;
@@ -539,9 +541,9 @@ for (const commandKind of ['remove', 'move']) {
     f.start();
     const point = { x: initial.x + 2, y: initial.y + 0.02 };
     updateVertexDrag(app, point);
-    const state = app._vertexDrag.track.captureState(), work = f.work();
+    const state = getVertexDrag(app).track.captureState(), work = f.work();
     for (let i = 0; i < 100; i++) updateVertexDrag(app, point);
-    assert.deepEqual(app._vertexDrag.track.captureState(), state, 'Pinned-via constraints apply on the first preview');
+    assert.deepEqual(getVertexDrag(app).track.captureState(), state, 'Pinned-via constraints apply on the first preview');
     assert.deepEqual(f.work(), work, 'Lazy bridge insertion does not change subsequent same-position snaps');
     cancelVertexDrag(app);
     cases++;
@@ -576,7 +578,7 @@ for (const mode of ['whole', 'segment', 'node', 'midpoint', 'split', 'bulge']) {
     const before = track.captureState();
     f.start();
     assert.throws(() => updateVertexDrag(app, { x: NaN, y: 2 }), /finite position/);
-    assert.equal(app._vertexDrag, null);
+    assert.equal(getVertexDrag(app), null);
     assert.deepEqual(track.captureState(), before);
     assert.equal(areDragOverlaysDeferred(app), false);
     cases++;
@@ -601,7 +603,7 @@ for (const mode of ['node', 'bulge']) for (const commit of [false, true]) {
     updateVertexDrag(app, { x: initial.x + 2, y: initial.y + 3 });
     const rebuilt = createTrackSelectionAdapter(app, app.tracks[0], track.id);
     rebuilt.endAnchorDrag(commit, { moved: true });
-    assert.equal(app._vertexDrag, null);
+    assert.equal(getVertexDrag(app), null);
     const after = model.captureGeometry();
     rebuilt.updateAnchorDrag({ x: 50, y: 60 });
     rebuilt.endAnchorDrag(true);
@@ -633,8 +635,8 @@ for (const deferred of [false, true]) {
     assert.equal(rebuilt.object, terminalCopy);
     const point = { ...terminalCopy.nodes.get(nodeId) };
     assert.equal(startVertexDrag(app, terminalCopy, point, { nodeId }), true);
-    assert.equal(app._viaDrag, null);
-    assert.equal(app._vertexDrag.original, track);
+    assert.equal(getViaDrag(app), null);
+    assert.equal(getVertexDrag(app).original, track);
     assert.deepEqual(track.nodes.get(nodeId), point, 'Terminal movement commits before direct-track pickup');
     assert.equal(app.history.undoStack.length, 1);
     cancelVertexDrag(app);
@@ -757,7 +759,7 @@ for (const deferred of [false, true]) for (const coincident of [false, true]) {
     app.viewport.shiftHeld = false;
     startViaDrag(app, via, position);
     updateViaDrag(app, { x: 100, y: 100 });
-    assert.equal(app._viaDrag.snapTargetTrack?.track, f.unrelated[0], 'real pointer finds an incompatible drop target');
+    assert.equal(getViaDrag(app).snapTargetTrack?.track, f.unrelated[0], 'real pointer finds an incompatible drop target');
     finishViaDrag(app);
     assert.ok(app.lastAlert, 'incompatible drop warns');
     assert.deepEqual(snapshot(), preview, 'rejected drop restores the prior via and attached-track outlines');

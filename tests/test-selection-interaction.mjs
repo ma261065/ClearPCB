@@ -1,5 +1,8 @@
 /** Headless regression tests for shared PCB selection interaction state. */
 import { getBoardShapeSegmentFocus, setBoardShapeSegmentFocus } from '../src/pcb/modules/board-shape-state.js';
+import { getSelectionInteraction } from '../src/pcb/modules/selection-interaction.js';
+import { getVertexDrag } from '../src/pcb/modules/track-drag.js';
+import { setPcbInteraction } from '../src/pcb/modules/pcb-interactions.js';
 
 globalThis.window = { addEventListener() {} };
 globalThis.document = { getElementById() { return null; }, querySelector() { return null; },
@@ -133,7 +136,7 @@ function expect(name, condition) {
     };
     expect('Locked object remains directly selectable',
         beginSelectionInteraction(app, { x: 5, y: 5 }, false));
-    expect('Locked object does not begin movement', !beganMove && !app._pcbSelectionInteraction);
+    expect('Locked object does not begin movement', !beganMove && !getSelectionInteraction(app));
 }
 
 {
@@ -212,7 +215,8 @@ function expect(name, condition) {
     let updates = 0;
     const app = {
         viewport: { scale: 1 },
-        _pcbSelectionInteraction: {
+    };
+    setPcbInteraction(app, '_pcbSelectionInteraction', {
             mode: 'anchor',
             startWorld: { x: 0, y: 0 },
             moved: false,
@@ -222,14 +226,13 @@ function expect(name, condition) {
                     endCalls.push(options);
                 },
             },
-        },
-    };
+    });
 
     expect('anchor update is consumed', updateSelectionInteraction(app, { x: 4, y: 0 }));
-    expect('anchor movement crosses the shared threshold', app._pcbSelectionInteraction.moved);
+    expect('anchor movement crosses the shared threshold', getSelectionInteraction(app).moved);
     expect('adapter receives held-drag update', updates === 1);
     expect('release is consumed', finishSelectionInteraction(app, true));
-    expect('release finishes the interaction', app._pcbSelectionInteraction === null);
+    expect('release finishes the interaction', getSelectionInteraction(app) == null);
     expect('release reaches the adapter once', endCalls.length === 1 && endCalls[0].moved);
     expect('movement after release is ignored', !updateSelectionInteraction(app, { x: 8, y: 0 }) && updates === 1);
     expect('ordinary anchor release leaves nothing to drop', !placeFloatingSelectionInteraction(app));
@@ -239,7 +242,8 @@ function expect(name, condition) {
     let endOptions = null;
     const app = {
         viewport: { scale: 10 },
-        _pcbSelectionInteraction: {
+    };
+    setPcbInteraction(app, '_pcbSelectionInteraction', {
             mode: 'move-adapter',
             startWorld: { x: 0, y: 0 },
             moved: false,
@@ -247,8 +251,7 @@ function expect(name, condition) {
                 updateMove() {},
                 endMove(_commit, options) { endOptions = options; },
             },
-        },
-    };
+    });
     updateSelectionInteraction(app, { x: 1, y: 0 });
     finishSelectionInteraction(app, true);
     expect('PCB move adapter receives movement threshold result', endOptions?.moved === true);
@@ -258,36 +261,36 @@ function expect(name, condition) {
     const endCalls = [];
     const app = {
         viewport: { scale: 1 },
-        _pcbSelectionInteraction: {
+    };
+    setPcbInteraction(app, '_pcbSelectionInteraction', {
             mode: 'floating-anchor',
             adapter: { endAnchorDrag(commit) { endCalls.push(commit); } },
-        },
-    };
+    });
 
     finishSelectionInteraction(app, false);
-    expect('Escape cancels a floating interaction', endCalls[0] === false && app._pcbSelectionInteraction === null);
+    expect('Escape cancels a floating interaction', endCalls[0] === false && getSelectionInteraction(app) == null);
 }
 
 for (const kind of ['shape', 'track', 'fill']) for (const anchorId of [0, 'mid:0']) {
     let ended = 0;
     const app = {
         viewport: { scale: 1 },
-        _pcbSelectionInteraction: {
+    };
+    setPcbInteraction(app, '_pcbSelectionInteraction', {
             mode: 'anchor',
             startWorld: { x: 0, y: 0 },
             moved: false,
             anchorId,
             adapter: { kind, endAnchorDrag() { ended++; } },
-        },
-    };
+    });
 
     finishSelectionInteraction(app, true);
     if (anchorId === 'mid:0') {
-        expect(`${kind} midpoint click sticks to the cursor`, ended === 0 && app._pcbSelectionInteraction?.mode === 'floating-anchor');
+        expect(`${kind} midpoint click sticks to the cursor`, ended === 0 && getSelectionInteraction(app)?.mode === 'floating-anchor');
         expect(`${kind} midpoint follows the released pointer`, updateSelectionInteraction(app, { x: 5, y: 4 }));
         expect(`${kind} midpoint drops on the next click`, placeFloatingSelectionInteraction(app) && ended === 1);
     } else {
-        expect(`${kind} existing node click ends without floating`, ended === 1 && app._pcbSelectionInteraction === null);
+        expect(`${kind} existing node click ends without floating`, ended === 1 && getSelectionInteraction(app) == null);
         expect(`${kind} existing node cannot follow the released pointer`, !updateSelectionInteraction(app, { x: 5, y: 4 }));
     }
 }
@@ -301,16 +304,16 @@ for (const kind of ['shape', 'track', 'fill']) for (const anchorId of [0, 'mid:0
     };
     const app = {
         viewport: { scale: 1 },
-        _pcbSelectionInteraction: {
+    };
+    setPcbInteraction(app, '_pcbSelectionInteraction', {
             mode: 'anchor',
             startWorld: { x: 0, y: 0 },
             moved: true,
             adapter: fillAdapter,
-        },
-    };
+    });
 
     finishSelectionInteraction(app, true);
-    expect('a dragged fill anchor commits on mouse-up', committed && app._pcbSelectionInteraction === null);
+    expect('a dragged fill anchor commits on mouse-up', committed && getSelectionInteraction(app) == null);
 }
 
 {
@@ -352,7 +355,7 @@ for (const kind of ['shape', 'track', 'fill']) for (const anchorId of [0, 'mid:0
     expect('clicking a Track node starts an anchor interaction', beginSelectionInteraction(app, node, false));
     finishSelectionInteraction(app, true);
     expect('click-release focuses the Track node', app._trackEdit?.nodeId === nodeId);
-    expect('focused Track node does not float', app._pcbSelectionInteraction === null && app._vertexDrag === null);
+    expect('focused Track node does not float', getSelectionInteraction(app) == null && getVertexDrag(app) == null);
     showPcbSelectionProperties(app);
     const fieldIds = () => new Set((panel?.fields || []).map(field => field.id));
     expect('property refresh preserves Track node focus', app._trackEdit?.nodeId === nodeId && panel?.title === 'Track Node');
@@ -361,7 +364,7 @@ for (const kind of ['shape', 'track', 'fill']) for (const anchorId of [0, 'mid:0
         && fieldIds().has('pcbPropTrackNodeY'));
     finishSelectionInteraction(app, false);
     expect('cancelling the pickup preserves existing Track node focus', app._trackEdit?.nodeId === nodeId
-        && app._vertexDrag === null && panel?.title === 'Track Node');
+        && getVertexDrag(app) == null && panel?.title === 'Track Node');
 }
 
 {
@@ -390,7 +393,7 @@ for (const kind of ['shape', 'track', 'fill']) for (const anchorId of [0, 'mid:0
     expect('shared segment menu has conversion and targeted deletion', pathContextActions({ segment: true, curved: false,
         convert: action, deleteSegment: action }).map(item => item.text).join(',') === 'Convert to Arc Segment,Delete segment');
     const app = { placements: new Map(), viewport: { scale: 100, gridSize: 1, gridVisible: true },
-        _snapToGrid: point => ({ x: Math.round(point.x), y: Math.round(point.y) }) };
+        snapToGrid: point => ({ x: Math.round(point.x), y: Math.round(point.y) }) };
     const free = snapPathPoint(app, { x: 2.3, y: 4.4 });
     expect('shared point snap is free outside the grid magnet band', free.x === 2.3 && free.y === 4.4);
     const grid = snapPathPoint(app, { x: 2.03, y: 4.4 });

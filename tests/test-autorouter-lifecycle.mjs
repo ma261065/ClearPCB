@@ -6,6 +6,8 @@ import { CommandHistory } from '../src/core/CommandHistory.js';
 import { AddTrackCommand } from '../src/pcb/modules/track-commands.js';
 import { getPcbSelection, setPcbSelection } from '../src/pcb/modules/selection-registry.js';
 import { setPropertyEditor } from '../src/pcb/modules/property-editors.js';
+import { getTrackDraw } from '../src/pcb/modules/track-draw.js';
+import { setPcbInteraction } from '../src/pcb/modules/pcb-interactions.js';
 
 globalThis.window = { addEventListener() {} };
 globalThis.document = { getElementById: () => null, querySelector: () => null };
@@ -103,7 +105,7 @@ for (const operation of ['command', 'document', 'clear-document', 'deactivate', 
     if (operation === 'deactivate') app.deactivate();
     if (operation === 'dispose') app.dispose();
     if (operation === 'preview') setPropertyEditor(app, 'via', { active: true, cancel() {} });
-    if (operation === 'drawing') app._trackDraw = {};
+    if (operation === 'drawing') setPcbInteraction(app, '_trackDraw', {});
     if (operation === 'rules') app.getRoutingParams = () => ({ trackWidth: 0.9, clearance: 0.1, viaDiameter: 0.6, viaDrill: 0.3 });
     if (operation === 'schematic') {
         app._active = false;

@@ -15,6 +15,7 @@ import { PCB_LAYERS } from '../src/pcb/modules/layers.js';
 import { getPropertyEditor } from '../src/pcb/modules/property-editors.js';
 import { renderPropertyFields } from '../src/shared/ui/property-fields.js';
 import { flushSettledChanges } from '../src/shared/ui/settled-input.js';
+import { getViaDrag } from '../src/pcb/modules/track-drag.js';
 
 let allocations = 0, frameId = 0, inputs = new Map();
 const frames = new Map();
@@ -526,10 +527,10 @@ for (const moves of [1, 2, 5]) for (const commit of [false, true]) {
     app.viewport.shiftHeld = false;
     assert.equal(adapter.beginMove(vias[0]), true);
     for (let i = 0; i < moves; i++) adapter.updateMove({ x: 0, y: 0 });
-    assert.equal(app._viaDrag.snapTargetTrack.track, attached, 'Snap target retains canonical track identity');
+    assert.equal(getViaDrag(app).snapTargetTrack.track, attached, 'Snap target retains canonical track identity');
     assert.deepEqual(model.captureGeometry(), before, 'Snapping does not mutate authored geometry');
     adapter.endMove(commit);
-    assert.equal(app._viaDrag, null);
+    assert.equal(getViaDrag(app), null);
     assert.equal(app.history.undoStack.length, commit ? 1 : 0);
     if (commit) {
         assert.equal(vias[0].x, 0);

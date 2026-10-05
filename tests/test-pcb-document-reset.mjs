@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { getShapeDraw } from '../src/pcb/modules/board-shapes.js';
 
 function element(tag) {
     const attributes = new Map();
@@ -179,11 +180,11 @@ for (const replacement of [null, { stackup: { copperLayers: ['top-copper', 'bott
     app.currentTool = 'rect';
     shapeDrawClick(app, 'rect', { x: 0, y: 0 });
     updateShapeDrawPreview(app, { x: 8, y: 4 });
-    const preview = app._shapeDraw.preview;
+    const preview = getShapeDraw(app).preview;
     assert.ok(preview.parentNode);
     loadPcb(app, replacement);
     assert.equal(preview.parentNode, null, 'New/Open removes drawing previews before dropping their state');
-    assert.equal(app._shapeDraw, null);
+    assert.equal(getShapeDraw(app), null);
     assert.equal(app.currentTool, 'select');
     assert.equal(app.getLayerGroup('selection-overlay').children.length, 0);
 }

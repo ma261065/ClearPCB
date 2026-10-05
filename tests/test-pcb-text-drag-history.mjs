@@ -2,9 +2,10 @@ import assert from 'node:assert/strict';
 import { PcbDocument } from '../src/core/PcbDocument.js';
 import { CommandHistory } from '../src/core/CommandHistory.js';
 import { createPcbText } from '../src/core/pcb-text.js';
-import { createPcbTextSelectionAdapter } from '../src/pcb/modules/pcb-text-selection.js';
+import { beginTextDrag, createPcbTextSelectionAdapter, endTextDrag, handleTextDrag } from '../src/pcb/modules/pcb-text-selection.js';
 import { cancelPictureCopperRefresh } from '../src/pcb/modules/picture-refresh.js';
 import { areDragOverlaysDeferred, isPictureCopperRefreshPending, setDragOverlaysDeferred } from '../src/pcb/modules/refresh-state.js';
+import { getTextDrag } from '../src/pcb/modules/pcb-text-selection.js';
 
 globalThis.window = { addEventListener() {} };
 const { default: PCBApp } = await import('../src/ui/PCBApp.js');
@@ -26,12 +27,11 @@ function fixture(options = {}) {
             setCrosshair: point => crosshairs.push(point),
             hideCrosshair: () => hiddenCrosshairs++,
         },
-        _screenToWorld: event => ({ x: event.clientX, y: event.clientY }),
+        screenToWorld: event => ({ x: event.clientX, y: event.clientY }),
         refreshText: () => renders.push({ ...app.texts.get(text.id) }),
     };
     Object.defineProperty(app, 'texts', Object.getOwnPropertyDescriptor(PCBApp.prototype, 'texts'));
-    for (const name of ['_beginTextDrag', '_updateTextDrag', '_handleTextDrag', '_endTextDrag',
-        '_snapToGrid', '_snapActive']) app[name] = PCBApp.prototype[name];
+    for (const name of ['snapToGrid', '_snapActive']) app[name] = PCBApp.prototype[name];
     const adapter = createPcbTextSelectionAdapter(app, text, text.id);
     return { app, text, adapter, renders, crosshairs,
         hiddenCrosshairs: () => hiddenCrosshairs, historyChanges: () => historyChanges };
@@ -63,7 +63,7 @@ function fixture(options = {}) {
         adapter.endMove(true);
         assert.deepEqual(renders.slice(beforeDrop), [final],
             'Drop renders the committed position once, never the rollback position');
-        assert.equal(app._textDrag, null);
+        assert.equal(getTextDrag(app), null);
         assert.equal(areDragOverlaysDeferred(app), false);
         assert.equal(hiddenCrosshairs(), 1);
         assert.equal(app.viewport.svg.style.cursor, 'default');
@@ -153,34 +153,34 @@ for (const previousDefer of [false, true]) {
     const { app, text, renders } = fixture({ x: Math.PI, y: -Math.E });
     try {
         const original = { ...text };
-        app._beginTextDrag(text, { x: 0, y: 0 });
-        app._handleTextDrag({ clientX: 0.1234567, clientY: 0.7654321, shiftKey: true });
+        beginTextDrag(app, text, { x: 0, y: 0 });
+        handleTextDrag(app, { clientX: 0.1234567, clientY: 0.7654321, shiftKey: true });
         const final = { ...app.texts.get(text.id) };
         assert.equal(final.x, original.x + 0.1234567, 'Shift disables snapping on a visible grid');
         assert.equal(final.y, original.y + 0.7654321);
-        app._endTextDrag();
+        endTextDrag(app);
         assert.deepEqual(renders, [final, final], 'Unsnapped drag also avoids the rollback repaint');
         app.history.undo();
         assert.deepEqual(text, original, 'Undo preserves unrounded starting coordinates');
         app.history.redo();
         assert.deepEqual(text, final, 'Redo preserves unrounded final coordinates');
-        app._beginTextDrag(text, { x: 0, y: 0 });
-        app._handleTextDrag({ clientX: 1, clientY: 2, shiftKey: false });
+        beginTextDrag(app, text, { x: 0, y: 0 });
+        handleTextDrag(app, { clientX: 1, clientY: 2, shiftKey: false });
         assert.equal(app.texts.get(text.id).x, Math.round(final.x + 1));
         assert.equal(app.texts.get(text.id).y, Math.round(final.y + 2));
-        app._endTextDrag(false);
+        endTextDrag(app, false);
         assert.deepEqual(text, final);
     } finally { cancelPictureCopperRefresh(app); }
 }
 
 {
     const { app, text, adapter } = fixture();
-    assert.equal(app._beginTextDrag(null, { x: 0, y: 0 }), false);
+    assert.equal(beginTextDrag(app, null, { x: 0, y: 0 }), false);
     adapter.beginMove({ x: 0, y: 0 });
     app.texts.delete(text.id);
     adapter.updateMove({ x: 10, y: 20 });
     adapter.endMove(true);
-    assert.equal(app._textDrag, null);
+    assert.equal(getTextDrag(app), null);
     assert.equal(areDragOverlaysDeferred(app), false);
     assert.equal(app.history.canUndo(), false, 'Disappeared text is not recreated on drop');
 }

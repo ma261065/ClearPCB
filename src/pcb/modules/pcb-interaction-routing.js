@@ -1,12 +1,15 @@
-import { PCB_INTERACTIONS } from './pcb-interactions.js';
+import { PCB_INTERACTIONS, getPcbInteraction } from './pcb-interactions.js';
 import { updateBoardOutlineResize, endBoardOutlineResize } from './board-outline-resize.js';
 import { updateSelectionInteraction, selectionInteractionCursor, finishSelectionInteraction, showPcbSelectionProperties } from './selection-interaction.js';
-import { scheduleGroupDrag, cancelGroupDrag, endGroupDrag, finishBoxSelect, refreshBoxSelectionHighlights } from './box-select.js';
-import { handleBoardShapeDrag, endBoardShapeDrag, updateShapeDrawPreview } from './board-shapes.js';
-import { updateVertexDrag, updateViaDrag, cancelVertexDrag, cancelViaDrag, finishVertexDrag, finishViaDrag } from './track-drag.js';
-import { updateTrackDraw } from './track-draw.js';
-import { updateFillDraw } from './copper-fill-draw.js';
+import { scheduleGroupDrag, cancelGroupDrag, endGroupDrag, finishBoxSelect, getGroupDrag, refreshBoxSelectionHighlights } from './box-select.js';
+import { getBoardShapeDrag, handleBoardShapeDrag, endBoardShapeDrag, updateShapeDrawPreview } from './board-shapes.js';
+import { updateVertexDrag, updateViaDrag, cancelVertexDrag, cancelViaDrag, finishVertexDrag, finishViaDrag, getVertexDrag, getVertexDragDownScreen, setVertexDragDownScreen, getSegmentClickEdgeId, setSegmentClickEdgeId } from './track-drag.js';
+import { getTrackDraw, updateTrackDraw } from './track-draw.js';
+import { getFillDraw, updateFillDraw } from './copper-fill-draw.js';
 import { getSelectedTrack, getSelectedVia, clearTrackSelection, selectTrackOrVia, selectTrackSegment } from './track-select.js';
+import { scheduleComponentDragUpdate, endComponentDrag } from './component-selection.js';
+import { handleTextDrag, endTextDrag } from './pcb-text-selection.js';
+import { handleRefDrag, endRefDrag } from './ref-text-selection.js';
 
 /** A release handler's outcome: the release is fully handled, so stop. */
 const RELEASE_CONSUMED = 'consumed';
@@ -27,7 +30,7 @@ const WRAPPER_FINISHED = 'wrapper-finished';
  */
 const HANDLERS = {
     _boardOutlineResize: {
-        move: (app, e) => { updateBoardOutlineResize(app, app._screenToWorld(e)); },
+        move: (app, e) => { updateBoardOutlineResize(app, app.screenToWorld(e)); },
         release: (app, worldPos) => {
             if (worldPos) updateBoardOutlineResize(app, worldPos);
             endBoardOutlineResize(app);
@@ -36,11 +39,11 @@ const HANDLERS = {
         },
     },
     _pasteDrop: {
-        move: (app, e) => { app._updatePasteDrop(app._screenToWorld(e)); },
+        move: (app, e) => { app._updatePasteDrop(app.screenToWorld(e)); },
     },
     _pcbSelectionInteraction: {
         move: (app, e) => {
-            if (!updateSelectionInteraction(app, app._screenToWorld(e))) return false;
+            if (!updateSelectionInteraction(app, app.screenToWorld(e))) return false;
             app.viewport.svg.style.cursor = selectionInteractionCursor(app);
         },
         // Finishing may also leave a midpoint anchor floating (still active) for the next click.
@@ -53,27 +56,27 @@ const HANDLERS = {
         cancel: app => { finishSelectionInteraction(app, false); },
     },
     _drag: {
-        move: (app, e) => { app._scheduleDragUpdate(e); },
-        release: app => { app._endDrag(); },
-        cancel: app => { app._endDrag(false); },
+        move: (app, e) => { scheduleComponentDragUpdate(app, e); },
+        release: app => { endComponentDrag(app); },
+        cancel: app => { endComponentDrag(app, false); },
     },
     _groupDrag: {
-        move: (app, e) => { scheduleGroupDrag(app, app._screenToWorld(e)); },
+        move: (app, e) => { scheduleGroupDrag(app, app.screenToWorld(e)); },
         release: app => {
             endGroupDrag(app);
             app.viewport.svg.style.cursor = 'default';
         },
-        cancel: app => { if (app._groupDrag.posePreview) cancelGroupDrag(app); },
+        cancel: app => { if (getGroupDrag(app)?.posePreview) cancelGroupDrag(app); },
     },
     _textDrag: {
-        move: (app, e) => { app._handleTextDrag(e); },
-        release: app => { app._endTextDrag(); },
-        cancel: app => { app._endTextDrag(false); },
+        move: (app, e) => { handleTextDrag(app, e); },
+        release: app => { endTextDrag(app); },
+        cancel: app => { endTextDrag(app, false); },
     },
     _shapeDrag: {
         move: (app, e) => {
-            const worldPos = app._screenToWorld(e);
-            const draggingVertex = app._shapeDrag.mode === 'vertex';
+            const worldPos = app.screenToWorld(e);
+            const draggingVertex = getBoardShapeDrag(app)?.mode === 'vertex';
             handleBoardShapeDrag(app, worldPos);
             if (draggingVertex) app._updateCursorCrosshair(worldPos);
             refreshBoxSelectionHighlights(app);
@@ -88,23 +91,25 @@ const HANDLERS = {
         cancel: app => { endBoardShapeDrag(app, false); },
     },
     _refDrag: {
-        move: (app, e) => { app._handleRefDrag(e); },
-        release: app => { app._endRefDrag(); },
-        cancel: app => { app._endRefDrag(false); },
+        move: (app, e) => { handleRefDrag(app, e); },
+        release: app => { endRefDrag(app); },
+        cancel: app => { endRefDrag(app, false); },
     },
     _vertexDrag: {
         move: (app, e) => {
             // Preserve click-to-refine selection without treating a drag as a click.
-            const down = app._vertexDragDownScreen;
-            if (down && Math.hypot(e.clientX - down.x, e.clientY - down.y) > 3) app._vertexDrag.userDragged = true;
-            updateVertexDrag(app, app._screenToWorld(e));
+            const down = getVertexDragDownScreen(app);
+            const drag = getVertexDrag(app);
+            if (down && drag && Math.hypot(e.clientX - down.x, e.clientY - down.y) > 3) drag.userDragged = true;
+            updateVertexDrag(app, app.screenToWorld(e));
             app._updateVertexDragCrosshair();
         },
         // A segment press released without dragging refines the selection to that segment.
         release: app => {
-            app._vertexDragDownScreen = null;
-            const segmentEdgeId = app._segmentClickEdgeId;
-            const segmentClick = app._vertexDrag.mode === 'segment' && !app._vertexDrag.userDragged && segmentEdgeId;
+            setVertexDragDownScreen(app, null);
+            const segmentEdgeId = getSegmentClickEdgeId(app);
+            const drag = getVertexDrag(app);
+            const segmentClick = drag?.mode === 'segment' && !drag.userDragged && segmentEdgeId;
             finishVertexDrag(app);
             app.viewport.hideCrosshair();
             app.viewport.svg.style.cursor = 'default';
@@ -117,13 +122,13 @@ const HANDLERS = {
                     selectTrackOrVia(app, { type: 'track', track });
                 }
             }
-            app._segmentClickEdgeId = null;
+            setSegmentClickEdgeId(app, null);
         },
         wrapped: true,
         cancel: app => { cancelVertexDrag(app); },
     },
     _viaDrag: {
-        move: (app, e) => { updateViaDrag(app, app._screenToWorld(e)); },
+        move: (app, e) => { updateViaDrag(app, app.screenToWorld(e)); },
         release: app => {
             finishViaDrag(app);
             app.viewport.svg.style.cursor = 'default';
@@ -138,22 +143,22 @@ const HANDLERS = {
     },
     _trackDraw: {
         move: (app, e) => {
-            updateTrackDraw(app, app._screenToWorld(e));
-            const snap = app._trackDraw?.snap;
+            updateTrackDraw(app, app.screenToWorld(e));
+            const snap = getTrackDraw(app)?.snap;
             if (snap) app._updateCursorCrosshair({ x: snap.x, y: snap.y });
         },
     },
     _fillDraw: {
         move: (app, e) => {
-            updateFillDraw(app, app._screenToWorld(e));
-            const snap = app._fillDraw?.snap;
+            updateFillDraw(app, app.screenToWorld(e));
+            const snap = getFillDraw(app)?.snap;
             if (snap) app._updateCursorCrosshair({ x: snap.x, y: snap.y });
         },
     },
     _shapeDraw: {
         move: (app, e) => {
-            updateShapeDrawPreview(app, app._screenToWorld(e));
-            app._updateCursorCrosshair(app._screenToWorld(e));
+            updateShapeDrawPreview(app, app.screenToWorld(e));
+            app._updateCursorCrosshair(app.screenToWorld(e));
         },
     },
 };
@@ -182,19 +187,19 @@ export const PCB_INTERACTION_ROUTES = Object.freeze({
  */
 export function createPointerMoveDispatch(h) {
     return (app, e) => {
-        if (app._boardOutlineResize && h._boardOutlineResize.move(app, e) !== false) return true;
-        if (app._pasteDrop && h._pasteDrop.move(app, e) !== false) return true;
-        if (app._pcbSelectionInteraction && h._pcbSelectionInteraction.move(app, e) !== false) return true;
-        if (app._drag && h._drag.move(app, e) !== false) return true;
-        if (app._groupDrag && h._groupDrag.move(app, e) !== false) return true;
-        if (app._textDrag && h._textDrag.move(app, e) !== false) return true;
-        if (app._shapeDrag && h._shapeDrag.move(app, e) !== false) return true;
-        if (app._refDrag && h._refDrag.move(app, e) !== false) return true;
-        if (app._vertexDrag && h._vertexDrag.move(app, e) !== false) return true;
-        if (app._viaDrag && h._viaDrag.move(app, e) !== false) return true;
-        if (app._trackDraw && h._trackDraw.move(app, e) !== false) return true;
-        if (app._fillDraw && h._fillDraw.move(app, e) !== false) return true;
-        if (app._shapeDraw && h._shapeDraw.move(app, e) !== false) return true;
+        if (getPcbInteraction(app, '_boardOutlineResize') && h._boardOutlineResize.move(app, e) !== false) return true;
+        if (getPcbInteraction(app, '_pasteDrop') && h._pasteDrop.move(app, e) !== false) return true;
+        if (getPcbInteraction(app, '_pcbSelectionInteraction') && h._pcbSelectionInteraction.move(app, e) !== false) return true;
+        if (getPcbInteraction(app, '_drag') && h._drag.move(app, e) !== false) return true;
+        if (getPcbInteraction(app, '_groupDrag') && h._groupDrag.move(app, e) !== false) return true;
+        if (getPcbInteraction(app, '_textDrag') && h._textDrag.move(app, e) !== false) return true;
+        if (getPcbInteraction(app, '_shapeDrag') && h._shapeDrag.move(app, e) !== false) return true;
+        if (getPcbInteraction(app, '_refDrag') && h._refDrag.move(app, e) !== false) return true;
+        if (getPcbInteraction(app, '_vertexDrag') && h._vertexDrag.move(app, e) !== false) return true;
+        if (getPcbInteraction(app, '_viaDrag') && h._viaDrag.move(app, e) !== false) return true;
+        if (getPcbInteraction(app, '_trackDraw') && h._trackDraw.move(app, e) !== false) return true;
+        if (getPcbInteraction(app, '_fillDraw') && h._fillDraw.move(app, e) !== false) return true;
+        if (getPcbInteraction(app, '_shapeDraw') && h._shapeDraw.move(app, e) !== false) return true;
         return false;
     };
 }
@@ -202,31 +207,62 @@ export function createPointerMoveDispatch(h) {
 /** Route a pointer move to the highest-priority active interaction. */
 export const dispatchPcbPointerMove = createPointerMoveDispatch(HANDLERS);
 
+/**
+ * Build the cancel and primary-release routines over a handler table, in PCB_INTERACTIONS
+ * order. Tests pass recording handlers to check order and arguments.
+ * @param {Record<string, {release?: Function, cancel?: Function, wrapped?: boolean}>} h
+ * @param {(app: any) => void} finishMarquee Runs after the gestures on a release.
+ */
+export function createPointerGestureFinishers(h, finishMarquee = app => {
+    if (finishBoxSelect(app)) showPcbSelectionProperties(app);
+}) {
+    const keysWith = kind => PCB_INTERACTIONS.filter(entry => h[entry.key]?.[kind]).map(entry => entry.key);
+    const cancelKeys = keysWith('cancel');
+    const releaseKeys = keysWith('release');
+    return {
+        /** Cancel the selection gesture and any pointer drag it wraps, in priority order. */
+        cancel(app) {
+            for (const key of cancelKeys) {
+                if (getPcbInteraction(app, key)) h[key].cancel(app);
+            }
+        },
+        /**
+         * Finish the gestures a primary-button release ends, in table order, then any marquee.
+         * The board-outline resize consumes its release. A finished selection interaction has
+         * already ended (or, for a floating midpoint anchor, kept) the drag it wraps, so wrapped
+         * drags are skipped after it. Other drags are mutually exclusive, and a marquee never
+         * runs alongside one, so their relative order does not matter.
+         */
+        release(app, worldPos) {
+            let wrapperFinished = false;
+            for (const key of releaseKeys) {
+                if (!getPcbInteraction(app, key)) continue;
+                const handler = h[key];
+                if (wrapperFinished && handler.wrapped) continue;
+                const outcome = handler.release(app, worldPos);
+                if (outcome === RELEASE_CONSUMED) return;
+                if (outcome === WRAPPER_FINISHED) wrapperFinished = true;
+            }
+            finishMarquee(app);
+        },
+    };
+}
+
+/** Outcomes a release handler can return (see createPointerGestureFinishers). */
+export const PCB_RELEASE_OUTCOMES = Object.freeze({ consumed: RELEASE_CONSUMED, wrapperFinished: WRAPPER_FINISHED });
+
+const finishers = createPointerGestureFinishers(HANDLERS);
+
 /** Cancel the selection gesture and any pointer drag it wraps, in priority order. */
 export function cancelPcbPointerGestures(app) {
-    for (const key of PCB_INTERACTION_ROUTES.cancel) {
-        if (app[key]) HANDLERS[key].cancel(app);
-    }
+    finishers.cancel(app);
 }
 
 /**
- * Finish the gestures a primary-button release ends, in table order, then any marquee.
- * The board-outline resize consumes its release. A finished selection interaction has
- * already ended (or, for a floating midpoint anchor, kept) the drag it wraps, so wrapped
- * drags are skipped after it. Other drags are mutually exclusive, and a marquee never
- * runs alongside one, so their relative order does not matter.
+ * Finish the gestures a primary-button release ends; see createPointerGestureFinishers.
  * @param {any} app
  * @param {{x: number, y: number}|null} worldPos
  */
 export function releasePcbPointerGestures(app, worldPos) {
-    let wrapperFinished = false;
-    for (const key of PCB_INTERACTION_ROUTES.release) {
-        if (!app[key]) continue;
-        const handler = HANDLERS[key];
-        if (wrapperFinished && handler.wrapped) continue;
-        const outcome = handler.release(app, worldPos);
-        if (outcome === RELEASE_CONSUMED) return;
-        if (outcome === WRAPPER_FINISHED) wrapperFinished = true;
-    }
-    if (finishBoxSelect(app)) showPcbSelectionProperties(app);
+    finishers.release(app, worldPos);
 }

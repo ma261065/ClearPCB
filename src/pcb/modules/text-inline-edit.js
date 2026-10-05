@@ -9,13 +9,14 @@ import { isPcbSelected } from './selection-registry.js';
 import { measureText as measureStrokeText, stringToPolylines } from '../../shared/pcb/stroke-font.js';
 import { isEditorActive } from './pcb-editor-api.js';
 import { getPropertyEditor } from './property-editors.js';
+import { getPcbInteraction, setPcbInteraction } from './pcb-interactions.js';
 
 /*
  * In-place editing of free PCB text: a hidden input captures keystrokes, IME and
  * clipboard while an SVG overlay draws the box and caret at the stroke font's real
  * glyph positions. Enter or blur commits, Escape cancels. The edit state is the
  * editor's `_textEdit` interaction (see pcb-interactions.js). Key handlers finish
- * the edit through the editor's `_endTextInlineEdit`, the seam callers wrap.
+ * the edit through endTextInlineEdit().
  */
 
 /** Vertical extent of a string in the stroke font, including half the stroke width. */
@@ -39,7 +40,7 @@ function measureStrokeTextVerticalBounds(text, size, strokeWidth = 0) {
 
 /** The in-progress inline text edit (`{ text, … }`), or null. */
 export function activeTextInlineEdit(app) {
-    return app._textEdit || null;
+    return getPcbInteraction(app, '_textEdit');
 }
 
 /**
@@ -53,7 +54,7 @@ export function activeTextInlineEdit(app) {
  */
 export function startTextInlineEdit(app, text, worldPos, opts = {}) {
     if (!text || boardShapeLocked(text) || !isLayerVisible(text.layer)) return;
-    if (app._textEdit && app._endTextInlineEdit(true) === false) return;
+    if (activeTextInlineEdit(app) && endTextInlineEdit(app, true) === false) return;
 
     const svg = app.viewport?.svg;
     if (!svg) return;
@@ -86,14 +87,14 @@ export function startTextInlineEdit(app, text, worldPos, opts = {}) {
     );
     const { box, caret } = overlay;
 
-    app._textEdit = {
+    setPcbInteraction(app, '_textEdit', {
         text, input, caret, box, overlay,
         options: opts,
         isNewPlacement: !!opts.isNewPlacement,
         originalContent: text.content,
         committed: false,
         blinkTimer: overlay.blinkTimer,
-    };
+    });
 
     // Surface the Properties panel for this text so the user can
     // tweak size/rotation/etc. mid-edit without leaving edit mode.
@@ -103,7 +104,7 @@ export function startTextInlineEdit(app, text, worldPos, opts = {}) {
         app.showTextProperties(text);
     }
     const keepVisible = () => {
-        app._textEdit?.overlay?.keepCaretVisible();
+        activeTextInlineEdit(app)?.overlay?.keepCaretVisible();
     };
 
     const updateCaret = () => {
@@ -135,7 +136,7 @@ export function startTextInlineEdit(app, text, worldPos, opts = {}) {
     };
 
     keepVisible();
-    app._textEdit.updateCaret = updateCaret;
+    activeTextInlineEdit(app).updateCaret = updateCaret;
 
     const live = () => {
         // Inline autoreplace for common typographic symbols. Matches
@@ -177,7 +178,7 @@ export function startTextInlineEdit(app, text, worldPos, opts = {}) {
     // Resume label typing from property controls, but let numeric fields
     // own their editing keys. Enter/Escape still finish the inline edit.
     const docKeyCapture = (ev) => {
-        const st = app._textEdit;
+        const st = activeTextInlineEdit(app);
         if (!st || !isEditorActive(app)) return;
         const active = document.activeElement;
         if (active === input) return;
@@ -242,13 +243,13 @@ export function startTextInlineEdit(app, text, worldPos, opts = {}) {
             try { input.setSelectionRange(pos, pos); } catch { /* */ }
             updateCaret(); keepVisible();
         } else if (k === 'Enter') {
-            app._endTextInlineEdit(true);
+            endTextInlineEdit(app, true);
         } else if (k === 'Escape') {
-            app._endTextInlineEdit(false);
+            endTextInlineEdit(app, false);
         }
     };
     document.addEventListener('keydown', docKeyCapture, true);
-    app._textEdit.docKeyCapture = docKeyCapture;
+    activeTextInlineEdit(app).docKeyCapture = docKeyCapture;
 
     input.addEventListener('keydown', (e) => {
         if (!isEditorActive(app)) {
@@ -258,10 +259,10 @@ export function startTextInlineEdit(app, text, worldPos, opts = {}) {
         e.stopPropagation();
         if (e.key === 'Enter') {
             e.preventDefault();
-            app._endTextInlineEdit(true);
+            endTextInlineEdit(app, true);
         } else if (e.key === 'Escape') {
             e.preventDefault();
-            app._endTextInlineEdit(false);
+            endTextInlineEdit(app, false);
         } else {
             // Arrow/Home/End/Backspace/Delete autorepeat only fires
             // keydown (no keyup, no input event for arrows). Defer
@@ -279,7 +280,8 @@ export function startTextInlineEdit(app, text, worldPos, opts = {}) {
         // via Enter or Escape.
         const propsPanel = document.getElementById('pcbPropertiesPanel');
         setTimeout(() => {
-            if (!isEditorActive(app) || !app._textEdit || app._textEdit.committed) return;
+            const state = activeTextInlineEdit(app);
+            if (!isEditorActive(app) || !state || state.committed) return;
             const active = document.activeElement;
             if (active === input) return;
             if (propsPanel && active && propsPanel.contains(active)) return;
@@ -288,7 +290,7 @@ export function startTextInlineEdit(app, text, worldPos, opts = {}) {
     });
 
     setTimeout(() => {
-        if (!isEditorActive(app) || app._textEdit?.input !== input) return;
+        if (!isEditorActive(app) || activeTextInlineEdit(app)?.input !== input) return;
         input.focus();
         // Place caret at the character nearest the click, if known.
         let idx = input.value.length;
@@ -325,13 +327,13 @@ export function startTextInlineEdit(app, text, worldPos, opts = {}) {
  * @param {boolean} commit
  */
 export function endTextInlineEdit(app, commit) {
-    const state = app._textEdit;
+    const state = activeTextInlineEdit(app);
     if (!state) return;
     if (commit) getPropertyEditor(app, 'text')?.commit();
     else getPropertyEditor(app, 'text')?.cancel();
     if (commit && state.options?.validate && !state.options.validate(state.input.value)) return false;
     state.committed = true;
-    app._textEdit = null;
+    setPcbInteraction(app, '_textEdit', null);
 
     const { text, input, originalContent, isNewPlacement } = state;
     const finalContent = input.value;

@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { PcbDocument } from '../src/core/PcbDocument.js';
+import { getVertexDrag } from '../src/pcb/modules/track-drag.js';
 
 globalThis.window = { addEventListener() {} };
 globalThis.document = { getElementById() { return null; } };
@@ -39,7 +40,7 @@ const rectangle = [{ x: 10, y: -10 }, { x: 30, y: -10 }, { x: 30, y: -25 }, { x:
     const { app, commands } = appFor([track]);
     const before = positions(track);
     assert.ok(startVertexDrag(app, track, { x: 30, y: -25 }, { nodeId: 'n2' }));
-    assert.equal(app._vertexDrag.mode, 'rectangle', 'a rectangular loop corner starts a rectangle resize');
+    assert.equal(getVertexDrag(app).mode, 'rectangle', 'a rectangular loop corner starts a rectangle resize');
     updateVertexDrag(app, { x: 35, y: -30 });
     assert.deepEqual(positions(track), before, 'the resize previews without changing the track');
     finishVertexDrag(app);
@@ -70,7 +71,7 @@ for (const [label, track, pads] of [
     const { app } = appFor([track], pads);
     const nodeId = [...track.nodes.keys()][2];
     assert.ok(startVertexDrag(app, track, track.nodes.get(nodeId), { nodeId }));
-    assert.equal(app._vertexDrag.mode, 'node', `${label} keeps free node dragging`);
+    assert.equal(getVertexDrag(app).mode, 'node', `${label} keeps free node dragging`);
     finishVertexDrag(app);
 }
 

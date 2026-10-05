@@ -147,7 +147,7 @@ function onMouseDown(app, e) {
         return;
     }
     const worldPos = e.button === 0 && app.currentTool === 'select'
-        ? app._screenToWorld(e)
+        ? app.screenToWorld(e)
         : null;
     if (worldPos && beginBoardOutlineResize(app, worldPos)) {
         e.preventDefault();
@@ -236,16 +236,16 @@ function onMouseMove(app, e) {
     if (app.viewport.isPanning) {
         app.viewport.updatePan(e.clientX, e.clientY);
         // Keep tool crosshairs anchored under the cursor while panning.
-        updateToolCursor(app, app._screenToWorld(e));
+        updateToolCursor(app, app.screenToWorld(e));
     } else if (dispatchPcbPointerMove(app, e)) {
         // An in-progress interaction consumed the move; see pcb-interactions.js.
     } else if (app.currentTool === 'select') {
         // A pending or active marquee owns the move. Otherwise hover hit-testing, which is
         // O(N) over every pad, track and text, is coalesced to one pass per animation frame
         // so the highlight keeps up with the cursor on complex boards.
-        if (!maybeStartBoxSelect(app, e, app._screenToWorld(e))) app._scheduleHoverUpdate(e);
+        if (!maybeStartBoxSelect(app, e, app.screenToWorld(e))) app._scheduleHoverUpdate(e);
     } else if (app.currentTool === 'track') {
-        const snap = resolveTrackDrawSnap(app, app._screenToWorld(e), {});
+        const snap = resolveTrackDrawSnap(app, app.screenToWorld(e), {});
         app._updateCursorCrosshair({ x: snap.x, y: snap.y });
         // Pre-draw hover uses the same hard copper targets as the
         // active route so the first press cannot change its snap.
@@ -256,7 +256,7 @@ function onMouseMove(app, e) {
             clearTrackSnapMarker(app);
         }
     } else {
-        updateToolCursor(app, app._screenToWorld(e));
+        updateToolCursor(app, app.screenToWorld(e));
     }
     app.viewport.trackMouse(e);
     updateDebugTooltip(app, e);
@@ -296,7 +296,7 @@ function onDoubleClick(app, e) {
  * cannot be selected.
  */
 function editOrExplainAt(app, e) {
-    const worldPos = app._screenToWorld(e);
+    const worldPos = app.screenToWorld(e);
     const textHit = app._hitTestText(worldPos);
     if (textHit) {
         e.preventDefault();
@@ -331,7 +331,7 @@ function onMouseUp(app, e) {
         app._updateCursorForTool?.();
     }
     // Right/middle releases only end a pan: an armed or active anchor drag stays.
-    if (e.button === 0) releasePcbPointerGestures(app, app._screenToWorld(e));
+    if (e.button === 0) releasePcbPointerGestures(app, app.screenToWorld(e));
     // Releasing the press that started a track away from it is "drag mode": the release
     // is the end point. Released roughly in place, the next click sets the end point.
     if (e.button === 0 && getTrackDraw(app) && state.trackLeft && takeMoved(state, 'trackLeft', e)) {
@@ -346,7 +346,7 @@ function onMouseUp(app, e) {
         finishFillDraw(app);
     }
     if (getShapeDraw(app) && state.shapeRight && !takeMoved(state, 'shapeRight', e)) {
-        finishShapeDrawAtPoint(app, app._screenToWorld(e));
+        finishShapeDrawAtPoint(app, app.screenToWorld(e));
     }
 }
 
@@ -364,7 +364,7 @@ function onContextMenu(app, e) {
     // Never while drawing a track: right-click finishes the draw in that mode.
     if (!isEditorActive(app)) return;
     if (app.currentTool !== 'select' || getTrackDraw(app)) return;
-    const worldPos = app._screenToWorld(e);
+    const worldPos = app.screenToWorld(e);
     // A right-click that started a pan must not leave the viewport panning behind the menu.
     const endPan = () => { if (app.viewport.isPanning) app.viewport.endPan(); };
     const fillAnchor = hitTestPcbSelectionAnchor(app, worldPos, ['fill']);

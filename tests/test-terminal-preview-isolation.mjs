@@ -12,6 +12,9 @@ import { setPcbSelection, syncPcbSelection, getPcbSelection } from '../src/pcb/m
 import { finishSelectionInteraction } from '../src/pcb/modules/selection-interaction.js';
 import { loadPcb } from '../src/pcb/modules/project-state.js';
 import { areDragOverlaysDeferred, setDragOverlaysDeferred } from '../src/pcb/modules/refresh-state.js';
+import { getSelectionInteraction } from '../src/pcb/modules/selection-interaction.js';
+import { getViaDrag } from '../src/pcb/modules/track-drag.js';
+import { setPcbInteraction } from '../src/pcb/modules/pcb-interactions.js';
 
 let allocations = 0;
 class Element {
@@ -94,7 +97,7 @@ for (const kind of ['via', 'pad']) for (const deferred of [false, true]) {
         const start = { x: 0.1, y: 0.1 };
         adapter.beginMove(start);
         adapter.updateMove(start);
-        assert.equal(app._viaDrag.preview, undefined, 'Pickup/unchanged movement does not clone');
+        assert.equal(getViaDrag(app).preview, undefined, 'Pickup/unchanged movement does not clone');
         adapter.updateMove({ x: 3.1, y: -3.9 });
         const projected = app[collection][0], tracks = app.tracks, copiedTrack = tracks[0];
         assert.notEqual(projected, terminal);
@@ -102,7 +105,7 @@ for (const kind of ['via', 'pad']) for (const deferred of [false, true]) {
         assert.equal(projected.id, terminal.id);
         assert.equal(copiedTrack.id, shared.id);
         assert.equal(tracks[1], unrelated);
-        assert.equal(app._viaDrag.preview.copies.size, 1, 'Two attached endpoints share one copy');
+        assert.equal(getViaDrag(app).preview.copies.size, 1, 'Two attached endpoints share one copy');
         assert.deepEqual(copiedTrack.captureState().edgeBulges, shared.captureState().edgeBulges);
         assert.deepEqual(copiedTrack.padConnections, shared.padConnections);
         for (let step = 0; step < 100; step++) {
@@ -129,7 +132,7 @@ for (const kind of ['via', 'pad']) for (const deferred of [false, true]) {
         assert.equal(f.fills(), 0);
         assert.equal(app.history.canUndo(), false);
         const target = { x: projected.x, y: projected.y };
-        app._pcbSelectionInteraction = { mode: 'move-adapter', entry: adapter, moved: true };
+        setPcbInteraction(app, '_pcbSelectionInteraction', { mode: 'move-adapter', entry: adapter, moved: true });
         if (finish === 'commit') {
             finishSelectionInteraction(app, true);
             assert.deepEqual({ x: terminal.x, y: terminal.y }, target);
@@ -164,8 +167,8 @@ for (const kind of ['via', 'pad']) for (const deferred of [false, true]) {
             }
             assert.equal(app.history.canUndo(), false);
         }
-        assert.equal(app._viaDrag, null);
-        assert.equal(app._pcbSelectionInteraction, null);
+        assert.equal(getViaDrag(app), null);
+        assert.equal(getSelectionInteraction(app), null);
         assert.equal(areDragOverlaysDeferred(app), deferred);
         assert.equal(app.tracks, model.tracks);
         assert.equal(app[collection], model[collection]);
@@ -216,7 +219,7 @@ for (const kind of ['via', 'pad']) for (const targetKind of ['segment', 'conflic
         app.history.redo();
         assert.deepEqual(model.captureGeometry(), after);
     }
-    assert.equal(app._viaDrag, null);
+    assert.equal(getViaDrag(app), null);
     assert.equal(app.tracks, model.tracks);
     cases++;
 }

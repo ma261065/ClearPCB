@@ -1,4 +1,7 @@
 import assert from 'node:assert/strict';
+import { getPcbPaste } from '../src/pcb/modules/pcb-paste.js';
+import { getComponentDrag } from '../src/pcb/modules/component-selection.js';
+import { setPcbInteraction } from '../src/pcb/modules/pcb-interactions.js';
 
 const noop = () => {};
 const element = () => ({
@@ -35,7 +38,7 @@ function fixture(tool) {
     };
     const app = Object.assign(Object.create(PCBApp.prototype), {
         _active: true, currentTool: tool, viewport,
-        _screenToWorld: () => world,
+        screenToWorld: () => world,
         _endPasteDrop: () => calls.push(['endPasteDrop']),
     });
     for (const name of PRESS_METHODS) app[name] = (...args) => calls.push([name, ...args]);
@@ -76,7 +79,7 @@ for (const [tool, method] of Object.entries(expected)) {
 
 {
     const { app, calls, press } = fixture('track');
-    app._pasteDrop = {};
+    setPcbInteraction(app, '_pasteDrop', {});
     press(0);
     assert.deepEqual(calls, [['endPasteDrop']], 'A floating paste consumes the press before any tool');
 }
@@ -103,7 +106,9 @@ for (const [tool, method] of Object.entries(expected)) {
         endPan() { calls.push(['endPan']); this.isPanning = false; },
     });
     app._updateCursorForTool = () => calls.push(['cursor']);
-    app._endDrag = () => calls.push(['endDrag']);
+    app.placements = new Map([['part', { x: 0, y: 0 }]]);
+    app.refreshClearanceHalos = () => calls.push(['endDrag']);
+    app.updateRatsnest = noop;
     const release = (button, clientX) => mouseup({ button, clientX, clientY: 20 });
     const menu = () => {
         let prevented = false;
@@ -123,7 +128,7 @@ for (const [tool, method] of Object.entries(expected)) {
     assert.equal(menu(), false, 'A stationary right-click keeps its context menu');
 
     calls.length = 0;
-    app._drag = {};
+    setPcbInteraction(app, '_drag', { compId: 'part', startPos: { x: 0, y: 0 }, startWorld: { x: 0, y: 0 } });
     release(2, 10);
     assert.deepEqual(calls, [], 'Right releases leave drags running');
     release(0, 10);

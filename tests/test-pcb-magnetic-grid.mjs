@@ -7,6 +7,11 @@ import { setPcbSelection } from '../src/pcb/modules/selection-registry.js';
 import { finishPlacementPreview } from '../src/pcb/modules/track-commands.js';
 import { PcbDocument } from '../src/core/PcbDocument.js';
 import { finishTextPosePreview } from '../src/pcb/modules/text-commands.js';
+import { getBoardOutlineResize } from '../src/pcb/modules/board-outline-resize.js';
+import { setPcbInteraction } from '../src/pcb/modules/pcb-interactions.js';
+import { updateComponentDrag, handleComponentDrag } from '../src/pcb/modules/component-selection.js';
+import { updateTextDrag } from '../src/pcb/modules/pcb-text-selection.js';
+import { updateRefTextDrag, handleRefDrag } from '../src/pcb/modules/ref-text-selection.js';
 
 globalThis.window = { addEventListener() {} };
 globalThis.document = { getElementById: () => null };
@@ -21,18 +26,17 @@ function fixture(viewport) {
         viewport, pcbDocument, placements: new Map([['part', placement]]),
         tracks: [], getLayerGroup: () => null,
         refreshText() {}, _removeTextElement() {}, updateRatsnest() {}, _drawRefOverlay() {}, _drawBoardOutline() {},
-        _screenToWorld: event => ({ x: event.clientX, y: event.clientY }),
-        _textDrag: { textId: text.id, startWorld: { x: 0, y: 0 }, startPos: { x: 0, y: 0 } },
-        _drag: { compId: 'part', startWorld: { x: 0, y: 0 }, startPos: { x: 0, y: 0 }, nets: new Set() },
-        _refDrag: { compId: 'part', startWorld: { x: 0, y: 0 }, startDx: 0, startDy: 0 },
+        screenToWorld: event => ({ x: event.clientX, y: event.clientY }),
         _boardOutlineSelected: true, _boardOutlineDrawn: true,
     };
+    setPcbInteraction(app, '_textDrag', { textId: text.id, startWorld: { x: 0, y: 0 }, startPos: { x: 0, y: 0 } });
+    setPcbInteraction(app, '_drag', { compId: 'part', startWorld: { x: 0, y: 0 }, startPos: { x: 0, y: 0 }, nets: new Set() });
+    setPcbInteraction(app, '_refDrag', { compId: 'part', startWorld: { x: 0, y: 0 }, startDx: 0, startDy: 0 });
     Object.defineProperty(app, 'texts', Object.getOwnPropertyDescriptor(PCBApp.prototype, 'texts'));
     for (const key of ['_boardWidth', '_boardHeight', '_boardRadius']) {
         Object.defineProperty(app, key, Object.getOwnPropertyDescriptor(PCBApp.prototype, key));
     }
-    for (const method of ['_snapToGrid', '_snapPadPlacement', '_updateTextDrag', '_updateComponentDrag',
-        '_handleDrag', '_updateRefTextDrag', '_handleRefDrag', '_worldToPlacementLocal',
+    for (const method of ['snapToGrid', '_snapPadPlacement', '_worldToPlacementLocal',
         '_beginPasteDrop', '_updatePasteDrop', '_cancelPasteDrop']) {
         app[method] = PCBApp.prototype[method];
     }
@@ -49,25 +53,25 @@ function check(point, expected, options = {}) {
     assert.deepEqual(viewport.getSnappedPosition(point), expected, 'Shared viewport policy');
     assert.deepEqual(snapToViewportGrid(point, viewport), expected, 'Plain viewport state uses the same policy');
     const { app, text, placement } = fixture(viewport);
-    assert.deepEqual(app._snapToGrid(point), expected, 'PCB text/shape/fill/paste placement helper');
+    assert.deepEqual(app.snapToGrid(point), expected, 'PCB text/shape/fill/paste placement helper');
     app.currentTool = 'text';
     PCBApp.prototype._updateCursorCrosshair.call(app, point);
-    assert.deepEqual(crosshair, app._snapToGrid(point),
+    assert.deepEqual(crosshair, app.snapToGrid(point),
         'Text placement crosshair uses the same snap policy as the new text origin');
     assert.deepEqual(app._snapPadPlacement(point), expected, 'Standalone pad placement');
-    app._updateTextDrag(point);
+    updateTextDrag(app, point);
     const displayed = app.texts.get(text.id);
     assert.deepEqual({ x: displayed.x, y: displayed.y }, expected, 'Text drag');
     finishTextPosePreview(app);
-    app._updateComponentDrag(point);
+    updateComponentDrag(app, point);
     assert.deepEqual({ x: placement.x, y: placement.y }, expected, 'Component adapter drag');
-    app._handleDrag({ clientX: point.x, clientY: point.y, shiftKey: viewport.shiftHeld });
+    handleComponentDrag(app, { clientX: point.x, clientY: point.y, shiftKey: viewport.shiftHeld });
     assert.deepEqual({ x: placement.x, y: placement.y }, expected, 'Legacy component pointer drag');
     finishPlacementPreview(app);
     placement.x = placement.y = 0;
-    app._updateRefTextDrag(point);
+    updateRefTextDrag(app, point);
     assert.deepEqual({ x: placement.refDx, y: placement.refDy }, expected, 'Reference adapter drag');
-    app._handleRefDrag({ clientX: point.x, clientY: point.y, shiftKey: viewport.shiftHeld });
+    handleRefDrag(app, { clientX: point.x, clientY: point.y, shiftKey: viewport.shiftHeld });
     assert.deepEqual({ x: placement.refDx, y: placement.refDy }, expected, 'Legacy reference pointer drag');
     const pastedText = { ...text, id: 'pasted', layer: 'top-silk' };
     app._beginPasteDrop({ texts: [pastedText] });
@@ -84,7 +88,7 @@ function check(point, expected, options = {}) {
     cancelGroupDrag(app);
     assert.ok(beginBoardOutlineResize(app, { x: 100, y: -80 }));
     // Keep threshold deltas exact rather than introducing cancellation error at (100, -80).
-    app._boardOutlineResize.start = { x: 0, y: 0 };
+    getBoardOutlineResize(app).start = { x: 0, y: 0 };
     updateBoardOutlineResize(app, point);
     assert.equal(app._boardWidth, 100 + expected.x, 'Outline resize X');
     assert.equal(app._boardHeight, 80 - expected.y, 'Outline resize Y');

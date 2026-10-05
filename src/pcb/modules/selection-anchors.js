@@ -1,7 +1,7 @@
 /** Shared adapter-driven anchor rendering and hit testing for PCB selection. */
 
 import { getPcbSelectionEntries } from './selection-registry.js';
-import { ROTATION_CURSOR } from './rotation-handle.js';
+import { isRotationHandleDragActive, ROTATION_CURSOR } from './rotation-handle.js';
 import { createLockIcon, lockIconMetrics, LOCK_GAP } from '../../core/ui-helpers.js';
 import { boundsOutline, lockPositionOutsideOutline } from '../../core/lock-position.js';
 
@@ -24,7 +24,7 @@ export function hitTestPcbSelectionAnchor(app, point, kinds = null) {
     const allowed = kinds ? new Set(kinds) : null;
     const tolerance = anchorSize(app);
     const selected = getPcbSelectionEntries(app);
-    const hideRotation = selected.length > 1 || app._rotationHandleDrag;
+    const hideRotation = selected.length > 1 || isRotationHandleDragActive(app);
     for (const adapter of selected) {
         if (!adapter.visible || (allowed && !allowed.has(adapter.kind))) continue;
         for (const anchor of adapter.getAnchors?.() || []) {
@@ -47,7 +47,7 @@ export function renderPcbSelectionAnchors(app) {
     const scale = Math.max(0.01, app.viewport?.scale || 1);
     const { size: lockSize } = lockIconMetrics(scale);
     const selected = getPcbSelectionEntries(app);
-    const hideRotation = selected.length > 1 || app._rotationHandleDrag;
+    const hideRotation = selected.length > 1 || isRotationHandleDragActive(app);
     for (const adapter of selected) {
         if (!adapter.visible) continue;
         if (adapter.locked) {
@@ -107,7 +107,7 @@ export function renderPcbSelectionAnchors(app) {
             handle.setAttribute('stroke-width', String(anchor.strokeWidthPx || 1));
             handle.setAttribute('vector-effect', 'non-scaling-stroke');
             handle.setAttribute('data-anchor-id', String(anchorId(anchor)));
-            handle.style.cursor = app._rotationHandleDrag ? ROTATION_CURSOR : (anchor.cursor || 'move');
+            handle.style.cursor = isRotationHandleDragActive(app) ? ROTATION_CURSOR : (anchor.cursor || 'move');
             if (isRotation) {
                 const title = document.createElementNS(NS, 'title');
                 title.textContent = 'Rotate';

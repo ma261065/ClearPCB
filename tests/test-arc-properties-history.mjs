@@ -25,7 +25,7 @@ for (const offset of [-0.5, 0, 0.5]) {
     };
     const app = { boardShapes: [shape], placements: new Map(), tracks: [], vias: [], texts: new Map(),
         _shapeElements: new Map(), getLayerGroup() { return null; },
-        viewport: { scale: 100, setCrosshair() {}, hideCrosshair() {} }, _snapToGrid(point) { return point; },
+        viewport: { scale: 100, setCrosshair() {}, hideCrosshair() {} }, snapToGrid(point) { return point; },
         openPropertyPanel(panel) { renderPanel(panel); return true; },
         refreshPropertyPanel: renderPanel,
         history: new CommandHistory() };

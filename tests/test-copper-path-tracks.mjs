@@ -4,6 +4,8 @@
  * Fill turns a closed loop back into a filled board shape.
  */
 import { PcbDocument } from '../src/core/PcbDocument.js';
+import { getShapeDraw } from '../src/pcb/modules/board-shapes.js';
+import { setPcbInteraction } from '../src/pcb/modules/pcb-interactions.js';
 
 globalThis.window = { addEventListener() {} };
 globalThis.document = {
@@ -302,8 +304,8 @@ const triangle = [{ x: 0, y: 0 }, { x: 5, y: 0 }, { x: 0, y: 5 }];
         const app = appFor(null);
         Object.assign(app, { activeLayer: layer, viewport: { scale: 10, setCrosshair() {}, hideCrosshair() {} } });
         setShapeDefaults(app, { lineWidth: 0.25, filled, copperMode: 'add', net: '' });
-        app._shapeDraw = { kind, layer, points: kind === 'line'
-            ? [{ x: 0, y: 0 }, { x: 10, y: 0 }] : [{ x: 0, y: 0 }, { x: 10, y: -6 }] };
+        setPcbInteraction(app, '_shapeDraw', { kind, layer, points: kind === 'line'
+            ? [{ x: 0, y: 0 }, { x: 10, y: 0 }] : [{ x: 0, y: 0 }, { x: 10, y: -6 }] });
         finishShapeDraw(app);
         expect(`drawing ${name} creates ${track ? 'a track' : 'a board shape'}`, track
             ? app.tracks.length === 1 && app.boardShapes.length === 0 && app.tracks[0].net === ''
@@ -341,13 +343,13 @@ const triangle = [{ x: 0, y: 0 }, { x: 5, y: 0 }, { x: 0, y: 5 }];
     const app = appFor(null);
     Object.assign(app, { activeLayer: 'top-copper', currentTool: 'line',
         viewport: { scale: 10, gridSize: 1.27, snapToGrid: true, setCrosshair() {}, hideCrosshair() {} },
-        _snapToGrid(point) { return { x: Math.round(point.x / 1.27) * 1.27, y: Math.round(point.y / 1.27) * 1.27 }; },
+        snapToGrid(point) { return { x: Math.round(point.x / 1.27) * 1.27, y: Math.round(point.y / 1.27) * 1.27 }; },
         getLayerGroup() { return null; } });
     setShapeDefaults(app, { lineWidth: 0.25, filled: false, copperMode: 'add', net: '' });
     const vertices = [{ x: 50.8, y: -10.16 }, { x: 66.04, y: -10.16 }, { x: 66.04, y: -20.32 }];
     for (const point of vertices) shapeDrawClick(app, 'line', point);
     shapeDrawClick(app, 'line', { x: 66.04 + 0.05, y: -20.32 + 0.1 });
-    expect('the second click of a double-click adds no vertex', app._shapeDraw.points.length === 3);
+    expect('the second click of a double-click adds no vertex', getShapeDraw(app).points.length === 3);
     finishLineDraw(app);
     const track = app.tracks[0];
     expect('the finished line has exactly the clicked vertices', track?.nodes.size === 3

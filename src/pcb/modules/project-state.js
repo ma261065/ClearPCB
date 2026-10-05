@@ -1,7 +1,7 @@
 import { renderTrack, renderVia, removeTrackElements, removeViaElements } from './track-render.js';
 import { reconcileRatsnest } from './track-draw.js';
 import { clearTrackSelection, getSelectedTrack } from './track-select.js';
-import { removeBoardShapeElement, renderBoardShape } from './board-shapes.js';
+import { cancelShapeDraw, endBoardShapeDrag, getBoardShapeDrag, removeBoardShapeElement, renderBoardShape } from './board-shapes.js';
 import { getBoardOutline } from '../../shared/pcb/board-outline.js';
 import { renderPad, removePadElements } from './pad.js';
 import { serializeGridSettings, restoreGridSettings } from '../../shared/ui/viewport.js';
@@ -53,8 +53,8 @@ export function loadPcb(app, data, prepared = preparePcb(data)) {
     app.pcbDocument.clear();
     app._resetDRC?.();
     setHoveredBoardShape(app, null);
-    app._shapeDraw = null;
-    app._shapeDrag = null;
+    cancelShapeDraw(app);
+    if (getBoardShapeDrag(app)) endBoardShapeDrag(app, false);
     app.updateCopperCuts?.();
     // Copper pours live in boardShapes; clear their SVG state.
     app._clearFillGroups?.();

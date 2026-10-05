@@ -4,6 +4,9 @@ import { getPropertyEditor } from '../src/pcb/modules/property-editors.js';
 import { isPictureCopperRefreshPending } from '../src/pcb/modules/refresh-state.js';
 import { getBoardShapeSegmentFocus } from '../src/pcb/modules/board-shape-state.js';
 import { flushSettledChanges } from '../src/shared/ui/settled-input.js';
+import { getSelectionInteraction } from '../src/pcb/modules/selection-interaction.js';
+import { getBoardShapeDrag } from '../src/pcb/modules/board-shapes.js';
+import { setPcbInteraction } from '../src/pcb/modules/pcb-interactions.js';
 
 function shapeModel(...shapes) {
     const pcbDocument = new PcbDocument();
@@ -58,7 +61,7 @@ const { updateSelectionInteraction, finishSelectionInteraction, placeFloatingSel
     const commands = [];
     const app = { pcbDocument, boardShapes: pcbDocument.boardShapes, _shapeElements: new Map(), tracks: [], vias: [], placements: new Map(),
         texts: new Map(), viewport: { scale: 20, hideCrosshair() {}, setCrosshair() {} },
-        getLayerGroup() { return null; }, _snapToGrid(point) { return point; },
+        getLayerGroup() { return null; }, snapToGrid(point) { return point; },
         history: { execute(command) { commands.push(command); command.execute(); } } };
     assert.equal(validBoardOutline(shape), true);
     assert.equal(openBoardShape(app, shape, 0), false);
@@ -140,24 +143,24 @@ const { updateSelectionInteraction, finishSelectionInteraction, placeFloatingSel
         getLayerGroup(layer) { return layer === 'ratlines' ? ratLayer : null; },
         openPropertyPanel(panel) { title = panel.title; return true; },
         refreshPropertyPanel(panel) { title = panel.title; },
-        setActiveRibbonTab() {}, _snapToGrid(point) { return point; },
+        setActiveRibbonTab() {}, snapToGrid(point) { return point; },
         updateRatsnest(options) { reconcileRatsnest(this, options); },
         history: { execute(command) { commands.push(command); command.execute(); } },
     };
-    Object.defineProperty(app, 'boardShapes', { get() { return this._shapeDrag?.preview?.boardShapes || this.pcbDocument.boardShapes; } });
+    Object.defineProperty(app, 'boardShapes', { get() { return getBoardShapeDrag(this)?.preview?.boardShapes || this.pcbDocument.boardShapes; } });
     for (const [kind, label] of [['arc', 'Arc'], ['line', 'Line']]) {
         showBoardShapeContextMenu(app, shape, 0, 0, { x: 3, y: 0 });
         assert.equal(contextMenu.children[0].textContent, `Convert to ${label}`);
         contextMenu.children[0].click();
         if (kind === 'arc') {
-            assert.equal(app._pcbSelectionInteraction?.mode, 'floating-anchor');
-            assert.equal(app._pcbSelectionInteraction.anchorId, 'bulge');
-            assert.deepEqual(app._shapeDrag.shape.bulge, { x: 5, y: 1.25 }, 'Conversion begins floating at the actual bulge anchor');
+            assert.equal(getSelectionInteraction(app)?.mode, 'floating-anchor');
+            assert.equal(getSelectionInteraction(app).anchorId, 'bulge');
+            assert.deepEqual(getBoardShapeDrag(app).shape.bulge, { x: 5, y: 1.25 }, 'Conversion begins floating at the actual bulge anchor');
             assert.equal(shape.kind, 'line', 'Conversion stages geometry without changing the authored line');
             updateSelectionInteraction(app, { x: 5, y: -2.5 });
-            assert.deepEqual(app._shapeDrag.shape.bulge, { x: 5, y: -2.5 }, 'Converted bulge follows the cursor');
+            assert.deepEqual(getBoardShapeDrag(app).shape.bulge, { x: 5, y: -2.5 }, 'Converted bulge follows the cursor');
             finishSelectionInteraction(app, false);
-            assert.equal(app._pcbSelectionInteraction, null);
+            assert.equal(getSelectionInteraction(app), null);
             assert.equal(shape.kind, 'line', 'Cancelling conversion restores the original line');
             assert.equal(title, 'Line');
             assert.deepEqual(shape.points, endpoints);
@@ -191,7 +194,7 @@ const { updateSelectionInteraction, finishSelectionInteraction, placeFloatingSel
         for (const anchor of [null, kind === 'arc' ? 'end' : 1]) {
             const start = anchor == null ? { x: 3, y: 4 } : { ...endpoints[1] };
             startBoardShapeDrag(app, shape, start, anchor);
-            app.updateRatsnest({ nets: app._shapeDrag.ratsnestNets });
+            app.updateRatsnest({ nets: getBoardShapeDrag(app).ratsnestNets });
             assert.equal(isPictureCopperRefreshPending(app), true);
             assert.equal(ratLayer.children.length, 1);
             const coordinates = () => ['x1', 'y1', 'x2', 'y2'].map(name => ratLayer.children[0].getAttribute(name));
@@ -263,7 +266,7 @@ console.log('PASS standalone conversion uses native shape kinds, menus, properti
     assert.equal(title, 'Arc Segment');
     assert.equal(startBoardShapeDrag(app, shape, { x: 5, y: 1.25 }, 'bulge:0'), true);
     handleBoardShapeDrag(app, { x: 5, y: -2.5 });
-    assert.equal(app._shapeDrag.shape.segmentBulges[0], -0.5);
+    assert.equal(getBoardShapeDrag(app).shape.segmentBulges[0], -0.5);
     endBoardShapeDrag(app, false);
     assert.equal(shape.segmentBulges[0], 0.25);
     commands[0].undo();
@@ -303,7 +306,7 @@ console.log('PASS standalone conversion uses native shape kinds, menus, properti
     shape.segmentWidths = {};
     shape.segmentBulges = { 1: 0.4 };
     assert.equal(startBoardShapeDrag(app, shape, { x: 5, y: 0 }, 'mid:0'), true);
-    assert.deepEqual(app._shapeDrag.shape.segmentBulges, { 2: 0.4 });
+    assert.deepEqual(getBoardShapeDrag(app).shape.segmentBulges, { 2: 0.4 });
     endBoardShapeDrag(app, false);
     for (const [kind, layer] of [['line', 'top-silk'], ['polygon', 'top-silk'], ['rect', 'board-outline']]) {
         shape.kind = kind;
@@ -319,13 +322,13 @@ console.log('PASS standalone conversion uses native shape kinds, menus, properti
         assert.equal(contextMenu.children[0].textContent, 'Convert to Arc Segment');
         contextMenu.children[0].click();
         assert.equal(commands.length, historyDepth, 'Floating conversion has not committed yet');
-        assert.equal(app._pcbSelectionInteraction?.mode, 'floating-anchor');
-        assert.equal(app._pcbSelectionInteraction.anchorId, 'bulge:0');
+        assert.equal(getSelectionInteraction(app)?.mode, 'floating-anchor');
+        assert.equal(getSelectionInteraction(app).anchorId, 'bulge:0');
         updateSelectionInteraction(app, { x: 5, y: -2.5 });
-        assert.equal(app._shapeDrag.shape.segmentBulges[0], -0.5);
+        assert.equal(getBoardShapeDrag(app).shape.segmentBulges[0], -0.5);
         assert.equal(placeFloatingSelectionInteraction(app), true);
-        assert.equal(app._pcbSelectionInteraction, null);
-        assert.equal(app._shapeDrag, null);
+        assert.equal(getSelectionInteraction(app), null);
+        assert.equal(getBoardShapeDrag(app), null);
         assert.equal(shape.segmentBulges[0], -0.5);
         assert.equal(title, layer === 'board-outline' ? 'Board Outline Segment' : 'Arc Segment');
         assert.equal(commands.length, historyDepth + 1);
@@ -506,12 +509,12 @@ for (const commit of [false, true]) {
     const before = cloneShapeGeometry(shape);
     const commands = [];
     const app = { ...shapeModel(shape), _shapeElements: new Map(), getLayerGroup() { return null; },
-        viewport: { scale: 100, setCrosshair() {}, hideCrosshair() {} }, _snapToGrid(point) { return point; },
+        viewport: { scale: 100, setCrosshair() {}, hideCrosshair() {} }, snapToGrid(point) { return point; },
         history: { execute(command) { commands.push(command); command.execute(); } } };
     startBoardShapeDrag(app, shape, { x: 10, y: 0 }, 'mid:0');
     handleBoardShapeDrag(app, { x: -4, y: -3 });
-    assert.deepEqual(app._shapeDrag.shape.points[1], { x: -4, y: -3 });
-    assert.deepEqual(app._shapeDrag.shape.points.filter((_point, index) => index !== 1), before.points);
+    assert.deepEqual(getBoardShapeDrag(app).shape.points[1], { x: -4, y: -3 });
+    assert.deepEqual(getBoardShapeDrag(app).shape.points.filter((_point, index) => index !== 1), before.points);
     endBoardShapeDrag(app, commit);
     if (commit) {
         assert.equal(commands.length, 1);
@@ -539,7 +542,7 @@ console.log('PASS centreline editing, symmetric hit tests, unchanged circles, mi
     };
     const app = { pcbDocument: model, boardShapes: model.boardShapes, tracks: [], vias: [], pads: [],
         texts: new Map(), placements: new Map(), _shapeElements: new Map(),
-        getLayerGroup() { assertDimensions(); return null; }, _snapToGrid(point) { return point; },
+        getLayerGroup() { assertDimensions(); return null; }, snapToGrid(point) { return point; },
         viewport: { scale: 100, snapToGrid: false, setCrosshair() {}, hideCrosshair() {} },
         history: new CommandHistory() };
     for (const key of ['_boardWidth', '_boardHeight', '_boardRadius']) {
@@ -564,14 +567,14 @@ console.log('PASS centreline editing, symmetric hit tests, unchanged circles, mi
         handleBoardShapeDrag(app, end);
         assertDimensions();
         assert.equal(model.board.height, 10, 'Preview leaves canonical dimensions unchanged');
-        assert.notEqual(boardBoundary({ boardShapes: app._shapeDrag.preview.boardShapes }).h, 10, `Anchor ${anchor} changes displayed height`);
+        assert.notEqual(boardBoundary({ boardShapes: getBoardShapeDrag(app).preview.boardShapes }).h, 10, `Anchor ${anchor} changes displayed height`);
         endBoardShapeDrag(app, false);
-        app._pcbSelectionInteraction = null;
+        setPcbInteraction(app, '_pcbSelectionInteraction', null);
         assertDimensions();
         assert.deepEqual(cloneShapeGeometry(outline), original);
     }
     assert.equal(startBoardShapeDrag(app, outline, { x: 10, y: -10 }, null, { allowSegment: true }), true);
-    assert.equal(app._shapeDrag.mode, 'segment');
+    assert.equal(getBoardShapeDrag(app).mode, 'segment');
     handleBoardShapeDrag(app, { x: 10, y: -15 });
     assert.equal(model.board.height, 10, 'Segment preview leaves canonical dimensions unchanged');
     endBoardShapeDrag(app, true);
@@ -659,13 +662,13 @@ for (const reversed of [false, true]) {
     const shape = { id: 'crossing-direction', kind: 'rect', layer: 'top-silk', lineWidth: 1, points };
     const commands = [];
     const app = { ...shapeModel(shape), _shapeElements: new Map(), getLayerGroup() { return null; },
-        viewport: { scale: 100, setCrosshair() {}, hideCrosshair() {} }, _snapToGrid(point) { return point; },
+        viewport: { scale: 100, setCrosshair() {}, hideCrosshair() {} }, snapToGrid(point) { return point; },
         history: { execute(command) { commands.push(command); command.execute(); } } };
     const midpoint = getBoardShapeAnchors(shape).find(anchor => anchor.midpoint && anchor.y === 0);
     startBoardShapeDrag(app, shape, midpoint, midpoint.id);
     for (const height of [21, 40, 60, 21]) {
         handleBoardShapeDrag(app, { x: 10, y: height });
-        const contours = resolveBoardShapeGeometry(app._shapeDrag.shape).physicalContours;
+        const contours = resolveBoardShapeGeometry(getBoardShapeDrag(app).shape).physicalContours;
         assert.ok(contains(contours, { x: 10, y: 15.6 }));
         assert.ok(contains(contours, { x: 10, y: 16.4 }));
     }

@@ -7,6 +7,8 @@ import { RemoveTextCommand as ModelRemoveTextCommand } from '../src/core/pcb-tex
 import { CompoundCommand } from '../src/pcb/modules/track-commands.js';
 import { cancelPictureCopperRefresh } from '../src/pcb/modules/picture-refresh.js';
 import { setPcbSelection, getPcbSelection } from '../src/pcb/modules/selection-registry.js';
+import { activeTextInlineEdit } from '../src/pcb/modules/text-inline-edit.js';
+import { setPcbInteraction } from '../src/pcb/modules/pcb-interactions.js';
 
 globalThis.window = { addEventListener() {} };
 globalThis.document = { getElementById: () => null };
@@ -37,7 +39,7 @@ function fixture({ isNew = false, content = 'Original' } = {}) {
         input: { value: text.content, parentNode: { removeChild: () => inputRemoved++ } },
         overlay: { destroy: () => destroyed++ },
     };
-    app._textEdit = state;
+    setPcbInteraction(app, '_textEdit', state);
     renders.length = 0;
     const preview = value => {
         state.text.content = value;
@@ -46,7 +48,7 @@ function fixture({ isNew = false, content = 'Original' } = {}) {
     };
     const finish = commit => PCBApp.prototype._endTextInlineEdit.call(app, commit);
     const verifyTeardown = () => {
-        assert.equal(app._textEdit, null);
+        assert.equal(activeTextInlineEdit(app), null);
         assert.equal(getTextPosePreviewTexts(app), undefined);
         assert.equal(state.committed, true);
         assert.equal(destroyed, 1);

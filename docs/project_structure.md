@@ -137,12 +137,17 @@ evaluation-order cycle fails.
 - State shared by PCB modules lives in its owning module behind functions, usually
   a WeakMap keyed by the editor, rather than as `app._x` fields:
   `property-editors.js` (Properties bindings), `refresh-state.js` (pour/picture
-  refresh status and refresh suspensions) and `board-shape-state.js` (board-shape
-  node/segment focus, hover and tool defaults).
-- In-progress interaction fields (`_drag`, `_trackDraw`, …) are listed once in
-  `pcb-interactions.js`; `pcb-interaction-routing.js` holds their pointer-move,
-  primary-release and cancel handlers. `test-pcb-interaction-registry` fails if a new
-  one is unregistered.
+  refresh status and refresh suspensions), `board-shape-state.js` (board-shape
+  node/segment focus, hover and tool defaults), and `pcb-interactions.js`
+  (in-progress interaction slots).
+- In-progress interaction slots (`_drag`, `_trackDraw`, …) are listed once in
+  `pcb-interactions.js` with their owner module and stored in its import-free
+  WeakMap. Only the owner writes its slot with `setPcbInteraction`; other code
+  asks the owner through intent APIs such as `getBoardShapeDrag`,
+  `endComponentDrag`, `getTrackDraw`, `cancelFillDraw` or
+  `activeTextInlineEdit`. `pcb-interaction-routing.js` reads the store to route
+  pointer move, release and cancel handlers. `test-pcb-interaction-registry`
+  fails if a slot is unregistered or written outside its owner.
 - `pcb/modules/mouse.js` binds the PCB canvas's mouse events (like the schematic's
   `mouse.js`). Presses go to one `_press…Tool` method per tool through its
   `PCB_TOOL_PRESS_HANDLERS`; releases go to `releasePcbPointerGestures`.

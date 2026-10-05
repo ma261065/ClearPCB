@@ -1,6 +1,9 @@
 import assert from 'node:assert/strict';
 import { PcbDocument } from '../src/core/PcbDocument.js';
 import { setDragOverlaysDeferred, setPictureCopperRefreshPending } from '../src/pcb/modules/refresh-state.js';
+import { endTextDrag, getTextDrag } from '../src/pcb/modules/pcb-text-selection.js';
+import { getBoardShapeDrag } from '../src/pcb/modules/board-shapes.js';
+import { setPcbInteraction } from '../src/pcb/modules/pcb-interactions.js';
 
 globalThis.window = { addEventListener() {} };
 const element = () => ({
@@ -225,7 +228,6 @@ assert.equal(app._boardShapeClearanceCache.has(text.id), false);
 console.log('PASS text clearance rendering, translation cache, deferred rotation and deletion');
 const { schedulePictureCopperRefresh } = await import('../src/pcb/modules/picture-refresh.js');
 const { startBoardShapeDrag, handleBoardShapeDrag, endBoardShapeDrag } = await import('../src/pcb/modules/board-shapes.js');
-const endTextDrag = PCBApp.prototype._endTextDrag;
 const originalSetTimeout = globalThis.setTimeout;
 const originalClearTimeout = globalThis.clearTimeout;
 let deferred;
@@ -246,7 +248,7 @@ try {
     const cachedTextHalos = textHalos().map(child => ({ child, removals: child.removals || 0 }));
     const calculationsBeforeDrop = textOutlineCalls;
     const startPos = { x: text.x, y: text.y };
-    app._textDrag = { textId: text.id, startPos, previousDeferDragOverlays: false };
+    setPcbInteraction(app, '_textDrag', { textId: text.id, startPos, previousDeferDragOverlays: false });
     setDragOverlaysDeferred(app, true);
     text.x += 7;
     text.y -= 2;
@@ -259,7 +261,7 @@ try {
             assert.equal(child.attributes.get('transform'), transform);
         }
     };
-    endTextDrag.call(app);
+    endTextDrag(app);
     assert.equal(commands.length, 1);
     assert.equal(app._pendingShapeClearances?.has(text.id) || false, false, 'Drop does not invalidate translated text clearance');
     assertTextHaloRetained('translate(7 -2)');
@@ -280,7 +282,7 @@ try {
     const polygon = { ...rectangle, kind: 'polygon', points: [{ x: 0, y: 0 }, { x: 5, y: 0 }, { x: 2, y: 4 }] };
     app.viewport.scale = 10;
     app.viewport.setCrosshair = () => {};
-    app._snapToGrid = point => point;
+    app.snapToGrid = point => point;
     // Copper lines and unfilled outlines are Tracks; board-shape copper is areas, arcs and artwork.
     for (const fixture of [circle, rectangle, polygon, arc, image]) {
         for (const pourQueued of [false, true]) {
@@ -298,7 +300,7 @@ try {
             app.refreshFills = () => { pours++; return pourQueued; };
             deferred = null;
             startBoardShapeDrag(app, shape, { x: 1000, y: 1000 });
-            assert.equal(app._shapeDrag.mode, 'move');
+            assert.equal(getBoardShapeDrag(app).mode, 'move');
             handleBoardShapeDrag(app, { x: 1007, y: 998 });
             const assertTranslatedHalo = transform => {
                 assert.equal(outlineCalls, outlineCount, `${shape.kind} translation does not recalculate clearance`);
@@ -344,7 +346,7 @@ try {
         startBoardShapeDrag(app, shape, start, handle, { allowSegment: mode === 'segment' });
         assert.ok(cached.elements.every(child => child.parentNode === overlay), `${mode}: pickup keeps clearance visible`);
         handleBoardShapeDrag(app, { x: start.x + 2, y: start.y + 3 });
-        const preview = app._shapeDrag.shape;
+        const preview = getBoardShapeDrag(app).shape;
         const actual = () => app._boardShapeClearanceCache.get(shape.id).elements;
         const expected = boardShapeClearanceOutlines(preview, clearance)
             .map(contour => contour.map(point => `${point.x},${point.y}`).join(' '));
@@ -358,7 +360,7 @@ try {
         handleBoardShapeDrag(app, { x: start.x + 3, y: start.y + 4 });
         assert.equal(overlay.children.length, 0, 'editing cannot resurrect disabled clearance');
         app._clearancesVisible = true;
-        refreshShape.call(app, app._shapeDrag.shape);
+        refreshShape.call(app, getBoardShapeDrag(app).shape);
         endBoardShapeDrag(app, commit);
         assert.ok(actual().length && actual().every(child => child.parentNode === overlay), 'drop/cancel retains clearance');
         if (!commit) assert.deepEqual(actual().map(child => child.getAttribute('points')), beforePoints);

@@ -6,6 +6,8 @@ import { clearPcbSelection, setPcbSelection, togglePcbSelection }
     from '../src/pcb/modules/selection-registry.js';
 import '../src/pcb/modules/component-selection.js';
 import '../src/pcb/modules/ref-text-selection.js';
+import { activeTextInlineEdit } from '../src/pcb/modules/text-inline-edit.js';
+import { setPcbInteraction } from '../src/pcb/modules/pcb-interactions.js';
 
 const placement = { x: 10, y: 20, refDx: 0, refDy: 0 };
 const overlay = { children: [] };
@@ -126,19 +128,19 @@ assert.equal(alerts.length, 2);
 assert.equal(editor.edit.options.validate(' R7 '), true);
 const beforeRenameRenders = referenceRenders.length, beforeRenameOverlays = referenceOverlays.length;
 let editOverlayDestroyed = 0;
-editor._textEdit = {
+setPcbInteraction(editor, '_textEdit', {
     ...editor.edit, originalContent: 'R1', input: { value: 'R2' },
     overlay: { destroy() { editOverlayDestroyed++; } },
-};
-const activeReferenceEdit = editor._textEdit;
+});
+const activeReferenceEdit = activeTextInlineEdit(editor);
 assert.equal(PCBApp.prototype._endTextInlineEdit.call(editor, true), false);
-assert.equal(editor._textEdit, activeReferenceEdit, 'Invalid names keep the inline editor open');
+assert.equal(activeTextInlineEdit(editor), activeReferenceEdit, 'Invalid names keep the inline editor open');
 assert.equal(editOverlayDestroyed, 0);
 assert.equal(editor.history.canUndo(), false);
 assert.equal(component.reference, 'R1');
-editor._textEdit.input.value = ' R7 ';
+activeTextInlineEdit(editor).input.value = ' R7 ';
 PCBApp.prototype._endTextInlineEdit.call(editor, true);
-assert.equal(editor._textEdit, null);
+assert.equal(activeTextInlineEdit(editor), null);
 assert.equal(editOverlayDestroyed, 1, 'Commit retains inline editing teardown');
 assert.deepEqual(referenceRenders.slice(beforeRenameRenders), ['R7'],
     'Rename commit renders only the final reference, never a rollback to the old label');

@@ -3,6 +3,7 @@ import { PcbDocument } from '../src/core/PcbDocument.js';
 import { Track } from '../src/shapes/track.js';
 import { Via } from '../src/shapes/via.js';
 import { Pad } from '../src/shapes/pad.js';
+import { getViaDrag } from '../src/pcb/modules/track-drag.js';
 
 globalThis.window = { addEventListener() {} };
 const { startViaDrag, startPadDrag } = await import('../src/pcb/modules/track-drag.js');
@@ -32,7 +33,7 @@ for (const kind of ['via', 'pad']) {
     const accepted = (kind === 'via' ? startViaDrag : startPadDrag)(app, terminal, { x: 0.1, y: 0.1 });
     console.log(`${kind} pickup: ${(performance.now() - start).toFixed(2)} ms; incident scans: ${[...calls.values()].join(', ')}`);
     assert.equal(accepted, true);
-    assert.deepEqual(app._viaDrag.attached.map(item => [item.track.id, item.nodeId]),
+    assert.deepEqual(getViaDrag(app).attached.map(item => [item.track.id, item.nodeId]),
         kind === 'via' ? [[top.id, 'n0'], [bottom.id, 'n0']] : [[top.id, 'n0']],
         'Near-coincident nodes still attach only on compatible copper layers');
     assert.deepEqual(model.tracks.map(track => track.captureState()), before, 'Pickup is read-only');
@@ -44,7 +45,7 @@ for (const kind of ['via', 'pad']) {
     const snap = resolveTrackSnap(app, { x: 2000.02, y: 0.01 }, {
         layer: kind === 'pad' ? 'top-copper' : 'both',
         excludeNode: (track, id) => !track.incidentEdges(id)
-            .some(edge => app._viaDrag.layers.includes(track.getEdgeLayer(edge.edgeId))),
+            .some(edge => getViaDrag(app).layers.includes(track.getEdgeLayer(edge.edgeId))),
     });
     console.log(`${kind} node snap: ${(performance.now() - snapStart).toFixed(2)} ms; incident scans: ${[...calls.values()].join(', ')}`);
     assert.equal(snap.snapType, 'track-node');

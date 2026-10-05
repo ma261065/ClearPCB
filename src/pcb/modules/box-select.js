@@ -77,6 +77,8 @@ import {
     syncPcbSelection,
 } from './selection-registry.js';
 import { isEditorActive } from './pcb-editor-api.js';
+import { getPcbInteraction, setPcbInteraction } from './pcb-interactions.js';
+import { setSelectionInteraction } from './selection-interaction.js';
 
 /** Pixel distance the pointer must travel before a marquee starts. */
 const START_THRESHOLD_PX = 3;
@@ -88,11 +90,11 @@ const COMP_HALO_CLASS = 'pcb-box-comp-sel';
 
 /** The active group (multi-selection) drag, or null. */
 export function getGroupDrag(app) {
-    return app._groupDrag || null;
+    return getPcbInteraction(app, '_groupDrag');
 }
 
 export function getGroupPreview(app) {
-    return app._groupDrag?.preview;
+    return getGroupDrag(app)?.preview;
 }
 
 function beginGroupPreview(app, g) {
@@ -523,7 +525,7 @@ function _pointSegDist(p, a, b) {
 
 /** Snapshot start positions of every selected object for a group drag. */
 export function beginGroupDrag(app, worldPos) {
-    if (app._groupDrag) cancelGroupDrag(app);
+    if (getGroupDrag(app)) cancelGroupDrag(app);
     commitPropertyEditors(app, ['text', 'pad', 'via', 'track', 'boardShape', 'fill']);
     const comps = [];
     for (const compId of getPcbSelection(app, 'component')) {
@@ -563,7 +565,7 @@ export function beginGroupDrag(app, worldPos) {
         const shape = entry.shape;
         if (shape.net && normalizeShapeCopperMode(shape.copperMode) === 'add') ratsnestNets.add(shape.net);
     }
-    app._groupDrag = {
+    setPcbInteraction(app, '_groupDrag', {
         startWorld: { x: worldPos.x, y: worldPos.y },
         lastDx: 0, lastDy: 0,
         comps, vias, pads, tracks, shapes, texts, fills,
@@ -573,23 +575,24 @@ export function beginGroupDrag(app, worldPos) {
         padCrosshairStart: pads.length ? { x: pads[0].before.x, y: pads[0].before.y } : null,
         previousDeferDragOverlays: !!areDragOverlaysDeferred(app),
         previousSuspendBoardViewRefresh: !!isBoardViewRefreshSuspended(app),
-    };
+    });
     setDragOverlaysDeferred(app, true);
     setBoardViewRefreshSuspended(app, true);
-    if (app._groupDrag.padCrosshairStart) {
-        app.viewport?.setCrosshair(app._groupDrag.padCrosshairStart);
+    const drag = getGroupDrag(app);
+    if (drag.padCrosshairStart) {
+        app.viewport?.setCrosshair(drag.padCrosshairStart);
     }
 }
 
 /** Live-update positions of every selected object during a group drag. */
 export function scheduleGroupDrag(app, worldPos) {
-    const drag = app._groupDrag;
+    const drag = getGroupDrag(app);
     if (!drag) return;
     drag.pendingWorld = { x: worldPos.x, y: worldPos.y };
     if (drag.frame) return;
     drag.frame = window.requestAnimationFrame(() => {
         drag.frame = 0;
-        if (app._groupDrag !== drag) return;
+        if (getGroupDrag(app) !== drag) return;
         const pending = drag.pendingWorld;
         drag.pendingWorld = null;
         if (pending) updateGroupDrag(app, pending);
@@ -606,7 +609,7 @@ export function updateGroupDrag(app, worldPos, { snap = true } = {}) {
 }
 
 function updateGroupPreview(app, worldPos, snap) {
-    const g = app._groupDrag;
+    const g = getGroupDrag(app);
     if (!g) return;
     if (!groupIsEditable(app, g)) { cancelGroupDrag(app); return; }
     if (!Number.isFinite(worldPos?.x) || !Number.isFinite(worldPos?.y)) {
@@ -681,7 +684,7 @@ function updateGroupPreview(app, worldPos, snap) {
 
 /** Commit a group drag as one undoable compound command. */
 export function endGroupDrag(app) {
-    const g = app._groupDrag;
+    const g = getGroupDrag(app);
     if (!g) return;
     let committed = false;
     try {
@@ -689,12 +692,12 @@ export function endGroupDrag(app) {
         g.frame = 0;
         if (g.pendingWorld) updateGroupDrag(app, g.pendingWorld);
         g.pendingWorld = null;
-        if (app._groupDrag !== g || !groupIsEditable(app, g)) return;
+        if (getGroupDrag(app) !== g || !groupIsEditable(app, g)) return;
         const cmds = groupMoveCommands(app, g);
         if (!cmds.length) return;
         assertGroupTargets(app, g);
         const command = cmds.length === 1 ? cmds[0] : new CompoundCommand(cmds);
-        app._groupDrag = null;
+        setPcbInteraction(app, '_groupDrag', null);
         removeGroupPreviewArtwork(app, g);
         finishPlacementPreview(app, () => finishTextPosePreview(app, () => {
             syncPcbSelection(app);
@@ -757,7 +760,7 @@ function groupMoveCommands(app, g) {
 
 /** Discard the projection and restore canonical artwork without authored rollback. */
 export function cancelGroupDrag(app) {
-    const g = app._groupDrag;
+    const g = getGroupDrag(app);
     if (!g) return;
     finishGroupPreview(app, g, false);
 }
@@ -778,7 +781,7 @@ function removeGroupPreviewArtwork(app, g) {
 function finishGroupPreview(app, g, committed) {
     if (g.finished) return;
     g.finished = true;
-    app._groupDrag = null;
+    setPcbInteraction(app, '_groupDrag', null);
     if (g.frame) window.cancelAnimationFrame(g.frame);
     g.frame = 0;
     g.pendingWorld = null;
@@ -834,9 +837,9 @@ function _trackOpts(app, track) {
  * schematic netlist). Returns true if anything was deleted.
  */
 export function deleteBoxSelection(app) {
-    if (app._groupDrag) {
+    if (getGroupDrag(app)) {
         cancelGroupDrag(app);
-        app._pcbSelectionInteraction = null;
+        setSelectionInteraction(app, null);
     }
     if (!hasBoxSelection(app)) return false;
     // Locked objects (by their own lock or a layer's) stay put.

@@ -1,5 +1,8 @@
 /** Headless regression tests for Track-style generic-shape H/V/45 glow. */
 import { getBoardShapeSegmentFocus, setShapeDefaults } from '../src/pcb/modules/board-shape-state.js';
+import { getShapeDraw } from '../src/pcb/modules/board-shapes.js';
+import { setPcbInteraction } from '../src/pcb/modules/pcb-interactions.js';
+import { getBoardShapeDrag } from '../src/pcb/modules/board-shapes.js';
 
 globalThis.window = { addEventListener() {} };
 
@@ -70,7 +73,7 @@ function glowFor(point, scale = 1) {
     const app = {
         boardShapes: [shape],
         viewport: { scale, setCrosshair() {} },
-        _snapToGrid(value) { return value; },
+        snapToGrid(value) { return value; },
         getLayerGroup() { return overlay; },
         _shapeElements: new Map(),
     };
@@ -119,13 +122,13 @@ for (const [name, target, expectedKind, diagonal] of [
     shape.points = outer.map((point, index) => ({ x: 2 * point.x - expanded[index].x, y: 2 * point.y - expanded[index].y }));
     const app = {
         boardShapes: [shape], viewport: { scale: 20, gridSize: 1, snapToGrid: true, setCrosshair() {} },
-        _snapToGrid(point) { return { x: Math.round(point.x), y: Math.round(point.y) }; },
+        snapToGrid(point) { return { x: Math.round(point.x), y: Math.round(point.y) }; },
         getLayerGroup() { return overlay; }, _shapeElements: new Map(),
     };
     const anchor = getBoardShapeAnchors(shape)[0];
     startBoardShapeDrag(app, shape, anchor, 0);
     handleBoardShapeDrag(app, target);
-    const displayed = app._shapeDrag.shape;
+    const displayed = getBoardShapeDrag(app).shape;
     const moved = getBoardShapeAnchors(displayed)[0];
     if (diagonal) {
         expect('polygon diagonal alignment takes priority over the outer-handle grid',
@@ -150,12 +153,12 @@ for (const [name, target, expectedKind, diagonal] of [
         points: [{ x: 0, y: 0 }, { x: 10, y: 0 }, { x: 10, y: 8 }, { x: 0, y: 8 }] };
     const overlay = element('g');
     const app = { boardShapes: [shape], viewport: { scale: 20, setCrosshair() {} },
-        _shapeElements: new Map(), getLayerGroup() { return overlay; }, _snapToGrid(point) { return point; } };
+        _shapeElements: new Map(), getLayerGroup() { return overlay; }, snapToGrid(point) { return point; } };
     const midpoint = getBoardShapeAnchors(shape).find(anchor => anchor.id === 'mid:0');
     expect('rectangle plus handle is on the centerline', midpoint.x === 5 && midpoint.y === 0);
     startBoardShapeDrag(app, shape, midpoint, midpoint.id);
     handleBoardShapeDrag(app, midpoint);
-    expect('plus insertion has no half-width displacement', Math.abs(app._shapeDrag.shape.points[1].x - 5) < 1e-9 && Math.abs(app._shapeDrag.shape.points[1].y) < 1e-9);
+    expect('plus insertion has no half-width displacement', Math.abs(getBoardShapeDrag(app).shape.points[1].x - 5) < 1e-9 && Math.abs(getBoardShapeDrag(app).shape.points[1].y) < 1e-9);
 }
 
 {
@@ -170,7 +173,7 @@ for (const [name, target, expectedKind, diagonal] of [
     const app = {
         boardShapes: [shape],
         viewport: { scale: 10, setCrosshair() {} },
-        _snapToGrid(value) { return value; },
+        snapToGrid(value) { return value; },
         getLayerGroup() { return overlay; },
         _shapeElements: new Map(),
     };
@@ -197,12 +200,12 @@ for (const commit of [false, true]) {
         points: [{ x: 0, y: 0 }, { x: 20, y: 0 }, { x: 20, y: 16 }, { x: 0, y: 16 }] };
     const app = {
         boardShapes: [shape], viewport, _shapeElements: new Map(), getLayerGroup() { return null; },
-        _snapToGrid(point) { return point; }, history: { execute(command) { command.execute(); } },
+        snapToGrid(point) { return point; }, history: { execute(command) { command.execute(); } },
     };
     const midpoint = getBoardShapeAnchors(shape).find(anchor => anchor.id === 'mid:0');
     startBoardShapeDrag(app, shape, midpoint, midpoint.id);
     const cursorAtNode = () => {
-        const node = getBoardShapeAnchors(app._shapeDrag.shape).find(anchor => anchor.id === 1);
+        const node = getBoardShapeAnchors(getBoardShapeDrag(app).shape).find(anchor => anchor.id === 1);
         const screen = viewport.worldToScreen(node);
         return Number(viewport._crosshairYLine.getAttribute('x1')) === screen.x
             && Number(viewport._crosshairXLine.getAttribute('y1')) === screen.y;
@@ -228,7 +231,7 @@ for (const reversed of [false, true]) {
         const midpoint = getBoardShapeAnchors(shape).find(anchor => anchor.id === `mid:${segment}`);
         const app = {
             boardShapes: [shape], _shapeElements: new Map(), getLayerGroup() { return null; },
-            viewport: { scale: 20, setCrosshair() {} }, _snapToGrid(point) { return point; },
+            viewport: { scale: 20, setCrosshair() {} }, snapToGrid(point) { return point; },
         };
         startBoardShapeDrag(app, shape, midpoint, midpoint.id);
         for (const displacement of [3, -2, 0]) {
@@ -236,7 +239,7 @@ for (const reversed of [false, true]) {
             if (Math.abs(midpoint.x - 10) < 1e-9) target.y += displacement;
             else target.x += displacement;
             handleBoardShapeDrag(app, target);
-            const anchors = getBoardShapeAnchors(app._shapeDrag.shape).filter(anchor => !anchor.midpoint);
+            const anchors = getBoardShapeAnchors(getBoardShapeDrag(app).shape).filter(anchor => !anchor.midpoint);
             expect(`split side ${segment} reversed=${reversed} move=${displacement} fixes existing outer corners`,
                 originalAnchors.every((anchor, index) => {
                     const actual = anchors[index > segment ? index + 1 : index];
@@ -256,7 +259,7 @@ for (const mode of ['move', 'segment', 'insert']) {
     const app = {
         boardShapes: [shape], _shapeElements: new Map(), getLayerGroup() { return null; },
         viewport: { scale: 20, setCrosshair(point) { crosshair = point; } },
-        _snapToGrid(point) { return point; },
+        snapToGrid(point) { return point; },
     };
     const start = mode === 'insert' ? { x: 150, y: 100 } : { x: 130, y: 98 };
     const feedbackStart = mode === 'move' ? { ...shape.points[0] } : start;
@@ -276,7 +279,7 @@ for (const mode of ['move', 'segment', 'insert']) {
     const app = {
         boardShapes: [shape], _shapeElements: new Map(), getLayerGroup() { return null; },
         viewport: { scale: 1e9, setCrosshair(point) { crosshair = point; } },
-        _snapToGrid(point) { return point; },
+        snapToGrid(point) { return point; },
     };
     startBoardShapeDrag(app, shape, { x: 10, y: 0 }, 'mid:0');
     for (const height of [0, 0.001, -0.001, 1, -1]) {
@@ -284,8 +287,8 @@ for (const mode of ['move', 'segment', 'insert']) {
         for (let position = -10; position <= 30; position += 0.5) {
             handleBoardShapeDrag(app, { x: position, y: height });
             stable &&= Math.hypot(crosshair.x - position, crosshair.y - height) < 1e-8
-                && Math.hypot(crosshair.x - app._shapeDrag.shape.points[1].x, crosshair.y - app._shapeDrag.shape.points[1].y) < 1e-8
-                && app._shapeDrag.shape.points.every(point => Number.isFinite(point.x) && Number.isFinite(point.y)
+                && Math.hypot(crosshair.x - getBoardShapeDrag(app).shape.points[1].x, crosshair.y - getBoardShapeDrag(app).shape.points[1].y) < 1e-8
+                && getBoardShapeDrag(app).shape.points.every(point => Number.isFinite(point.x) && Number.isFinite(point.y)
                     && Math.abs(point.x) < 100 && Math.abs(point.y) < 100);
         }
         expect(`split past both endpoints remains bounded at height=${height}`, stable);
@@ -299,7 +302,7 @@ for (const variableWidth of [false, true]) {
     const app = {
         boardShapes: [shape], _shapeElements: new Map(), getLayerGroup() { return null; },
         viewport: { scale: 20, setCrosshair() {}, hideCrosshair() {} },
-        _snapToGrid(point) { return point; },
+        snapToGrid(point) { return point; },
     };
     const adapter = createBoardShapeSelectionAdapter(app, shape, shape.id);
     const startWorld = { x: 30, y: 1.9 };
@@ -318,13 +321,13 @@ for (const kind of ['arc', 'line']) {
                 : { points: [{ x: 0, y: 0 }, { x: 10, y: 0 }, { x: 20, y: 10 }], segmentBulges: { 0: 0.4 } }) };
         const overlay = element('g');
         const app = { boardShapes: [shape], _shapeElements: new Map(), getLayerGroup() { return overlay; },
-            viewport: { scale: 100, setCrosshair() {}, hideCrosshair() {} }, _snapToGrid(point) { return point; } };
+            viewport: { scale: 100, setCrosshair() {}, hideCrosshair() {} }, snapToGrid(point) { return point; } };
         const handle = kind === 'arc' ? 'bulge' : 'bulge:0';
         startBoardShapeDrag(app, shape, { x: 5, y: 2 }, handle);
         handleBoardShapeDrag(app, { x: 5, y: 1 });
         expect('PCB bulge drag suppresses endpoint axis indicators', !app._axisGlowHalos?.length && !app._axisGlowTop?.length);
         handleBoardShapeDrag(app, { x: 5, y: 0.02 });
-        expect('PCB near-zero bulge drag reaches exact zero', kind === 'arc' ? app._shapeDrag.shape.bulge.y === 0 : app._shapeDrag.shape.segmentBulges[0] === 0);
+        expect('PCB near-zero bulge drag reaches exact zero', kind === 'arc' ? getBoardShapeDrag(app).shape.bulge.y === 0 : getBoardShapeDrag(app).shape.segmentBulges[0] === 0);
         expect('PCB straightening uses blue width-aware halo', app._axisGlowHalos?.[0]?.getAttribute('stroke') === '#0072B2'
             && Math.abs(Number(app._axisGlowHalos[0].getAttribute('stroke-width'))
                 - (width + 2 * Math.max(4 / app.viewport.scale, width * 0.25))) < 1e-9);
@@ -334,7 +337,7 @@ for (const kind of ['arc', 'line']) {
             && previous.every(node => node.removed));
         app.viewport.shiftHeld = true;
         handleBoardShapeDrag(app, { x: 5, y: 0.02 });
-        expect('PCB Shift disables straightening snap', kind === 'arc' ? app._shapeDrag.shape.bulge.y !== 0 : app._shapeDrag.shape.segmentBulges[0] !== 0);
+        expect('PCB Shift disables straightening snap', kind === 'arc' ? getBoardShapeDrag(app).shape.bulge.y !== 0 : getBoardShapeDrag(app).shape.segmentBulges[0] !== 0);
         endBoardShapeDrag(app, false);
         expect('PCB cancelling restores original curvature', kind === 'arc' ? shape.bulge.y === 2 : shape.segmentBulges[0] === 0.4);
     }
@@ -580,8 +583,8 @@ for (const commit of [false, true]) {
         viewport: { scale: 20, shiftHeld: true }, activeLayer: 'top-silk',
         _shapeIdCounter: 0,
         getLayerGroup() { return layer; }, history: { execute() {} },
-        _shapeDraw: { kind: 'rect', layer: 'top-silk', points: [{ x: 0, y: 0 }], preview: element('path') },
     };
+    setPcbInteraction(app, '_shapeDraw', { kind: 'rect', layer: 'top-silk', points: [{ x: 0, y: 0 }], preview: element('path') });
     setShapeDefaults(app, { lineWidth: 0.4 });
     updateShapeDrawPreview(app, { x: 10, y: 10 });
     expect('PCB square drawing displays all four sides on the correct layer', app._axisGlowResolved.length === 4
@@ -603,11 +606,11 @@ for (const commit of [false, true]) {
     updateShapeDrawPreview(app, { x: 10, y: 10 });
     const previous = [...app._axisGlowHalos, ...app._axisGlowTop];
     if (commit) {
-        app._shapeDraw.points.push({ x: 10, y: 10 });
+        getShapeDraw(app).points.push({ x: 10, y: 10 });
         finishShapeDraw(app);
     } else cancelShapeDraw(app);
     expect(`PCB rectangle drawing ${commit ? 'completion' : 'cancellation'} clears the indicator`,
-        app._axisGlowResolved === null && app._shapeDraw === null && previous.every(node => node.removed));
+        app._axisGlowResolved === null && getShapeDraw(app) == null && previous.every(node => node.removed));
 }
 
 for (const mode of ['corner', 'segment', 'move']) {
@@ -619,7 +622,7 @@ for (const mode of ['corner', 'segment', 'move']) {
         const app = {
             boardShapes: [shape], _shapeElements: new Map(), getLayerGroup() { return layer; },
             viewport: { scale: 20, shiftHeld: true, setCrosshair() {}, hideCrosshair() {} },
-            _snapToGrid(point) { return point; }, history: { execute() {} },
+            snapToGrid(point) { return point; }, history: { execute() {} },
         };
         const start = mode === 'corner' ? { x: 0, y: 0 } : mode === 'segment' ? { x: 5, y: 0 } : { x: 3, y: 3 };
         const target = mode === 'corner' ? { x: 0, y: -2 } : mode === 'segment' ? { x: 5, y: -2 } : { x: 4, y: 4 };
@@ -647,12 +650,12 @@ for (const height of [8, 10]) {
     const app = {
         boardShapes: [shape], _shapeElements: new Map(), getLayerGroup() { return layer; },
         viewport: { scale: 20, shiftHeld: false, snapToGrid: false, setCrosshair() {}, hideCrosshair() {} },
-        _snapToGrid(point) { return point; }, history: { execute() {} },
+        snapToGrid(point) { return point; }, history: { execute() {} },
     };
     startBoardShapeDrag(app, shape, { x: 0, y: 0 }, 0);
     const target = { x: 0.1, y: height - 9.8 };
     handleBoardShapeDrag(app, target);
-    const displayed = app._shapeDrag.shape;
+    const displayed = getBoardShapeDrag(app).shape;
     const width = Math.abs(displayed.points[2].x - displayed.points[0].x);
     const actualHeight = Math.abs(displayed.points[2].y - displayed.points[0].y);
     expect(`PCB corner snaps ${height === 10 ? 'an existing square' : 'a rectangle'} to exact square geometry`,
@@ -700,11 +703,11 @@ for (const index of [0, 2]) {
     const layer = element('g');
     const app = { boardShapes: [shape], _shapeElements: new Map(), getLayerGroup() { return layer; },
         viewport: { scale: 20, shiftHeld: false, snapToGrid: false, setCrosshair() {}, hideCrosshair() {} },
-        _snapToGrid(point) { return point; },
+        snapToGrid(point) { return point; },
         history: { execute() {} } };
     startBoardShapeDrag(app, shape, shape.points[index], index);
     handleBoardShapeDrag(app, cursor);
-    expect(`PCB endpoint ${index} snaps to exact oblique geometry`, Math.abs(app._shapeDrag.shape.points[index].y * 10 - app._shapeDrag.shape.points[index].x * 3) < 1e-9);
+    expect(`PCB endpoint ${index} snaps to exact oblique geometry`, Math.abs(getBoardShapeDrag(app).shape.points[index].y * 10 - getBoardShapeDrag(app).shape.points[index].x * 3) < 1e-9);
     expect(`PCB endpoint ${index} shows both collinear segments`, app._axisGlowResolved.length === 2
         && app._axisGlowResolved.every(({ segment, dashKind }) => segment.collinear && dashKind === 'dotted'));
     handleBoardShapeDrag(app, { x: points[index].x, y: points[index].y + 1 });
@@ -715,9 +718,9 @@ for (const index of [0, 2]) {
 {
     const layer = element('g');
     const app = { viewport: { scale: 20, shiftHeld: false, snapToGrid: false },
-        _snapToGrid(point) { return point; },
-        getLayerGroup() { return layer; },
-        _shapeDraw: { kind: 'line', layer: 'top-copper', points: [{ x: 0, y: 0 }, { x: 10, y: 3 }], preview: element('path') } };
+        snapToGrid(point) { return point; },
+        getLayerGroup() { return layer; } };
+    setPcbInteraction(app, '_shapeDraw', { kind: 'line', layer: 'top-copper', points: [{ x: 0, y: 0 }, { x: 10, y: 3 }], preview: element('path') });
     setShapeDefaults(app, { lineWidth: 0.4 });
     updateShapeDrawPreview(app, { x: 20, y: 6.15 });
     expect('PCB drawing preview shows collinear continuation', app._axisGlowResolved.length === 2
@@ -789,13 +792,13 @@ for (const index of [0, 2]) {
     }
     const shape = { id: 'segment-continuation', kind: 'line', layer: 'top-silk', lineWidth: 0.2, points: points.map(point => ({ ...point })) };
     const app = { boardShapes: [shape], viewport: { scale: 100, setCrosshair() {}, hideCrosshair() {} },
-        getLayerGroup() { return null; }, _snapToGrid(point) { return point; }, _shapeElements: new Map() };
+        getLayerGroup() { return null; }, snapToGrid(point) { return point; }, _shapeElements: new Map() };
     startBoardShapeDrag(app, shape, { x: 24, y: 10.5 }, null, { allowSegment: true });
     handleBoardShapeDrag(app, { x: 24, y: 10.55 });
-    expect('PCB segment uses the same oblique continuation snap', onContinuation(app._shapeDrag.shape.points[2]));
+    expect('PCB segment uses the same oblique continuation snap', onContinuation(getBoardShapeDrag(app).shape.points[2]));
     app.viewport.shiftHeld = true;
     handleBoardShapeDrag(app, { x: 24, y: 10.55 });
-    expect('Shift bypasses PCB segment continuation snapping', Math.abs(app._shapeDrag.shape.points[2].y - 6.05) < 1e-9);
+    expect('Shift bypasses PCB segment continuation snapping', Math.abs(getBoardShapeDrag(app).shape.points[2].y - 6.05) < 1e-9);
     endBoardShapeDrag(app, false);
     expect('cancelling PCB segment movement restores its original points', JSON.stringify(shape.points) === JSON.stringify(points));
 }

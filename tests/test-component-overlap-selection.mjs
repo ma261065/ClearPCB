@@ -4,6 +4,8 @@ import { SelectionManager } from '../src/core/SelectionManager.js';
 import { CommandHistory } from '../src/core/CommandHistory.js';
 import { ProjectDocument } from '../src/core/ProjectDocument.js';
 import { createRect } from '../src/shapes/polyline.js';
+import { getSelectionInteraction } from '../src/pcb/modules/selection-interaction.js';
+import { getComponentDrag } from '../src/pcb/modules/component-selection.js';
 
 const frames = new Map();
 let frameId = 0;
@@ -65,10 +67,10 @@ function pcbFixture(withShape = false) {
         _hitTestBoardOutline: () => false, _hoverBoardOutline() {},
         _hitTestPad: () => null, _updateNetTooltip() {}, _hitTestText: () => null,
         _hitTestRefText: () => null, _setTextHover() {},
-        _screenToWorld: event => ({ x: event.clientX, y: event.clientY }),
+        screenToWorld: event => ({ x: event.clientX, y: event.clientY }),
     };
-    for (const name of ['_hitTestComponent', '_worldToPlacementLocal', '_beginComponentDrag',
-        '_updateComponentDrag', '_endDrag', '_snapToGrid', 'setPcbStatus', '_scheduleHoverUpdate']) {
+    for (const name of ['_hitTestComponent', '_worldToPlacementLocal',
+        'snapToGrid', 'setPcbStatus', '_scheduleHoverUpdate']) {
         app[name] = PCBApp.prototype[name];
     }
     syncPcbSelection(app);
@@ -101,8 +103,8 @@ for (const withShape of [false, true]) {
     app.placements.get('below').locked = true;
     beginSelectionInteraction(app, point, false);
     assert.deepEqual(selectedPcb(app), ['below']);
-    assert.equal(app._pcbSelectionInteraction, null, 'Locked obscured components remain selectable but cannot move');
-    assert.equal(app._drag, undefined);
+    assert.equal(getSelectionInteraction(app), null, 'Locked obscured components remain selectable but cannot move');
+    assert.equal(getComponentDrag(app), null);
     app.placements.get('below').locked = false;
     beginSelectionInteraction(app, point, true);
     assert.ok(selectedPcb(app).includes(expected[0]), 'Ctrl still toggles the top-priority hit');
@@ -118,7 +120,7 @@ for (const withShape of [false, true]) for (const shiftDrag of [false, true]) {
     assert.deepEqual(selectedPcb(app), ['below']);
     assert.equal(beginSelectionInteraction(app, point, false, shiftDrag), true);
     updateSelectionInteraction(app, { x: 30, y: 0 });
-    assert.equal(app._drag.compId, 'below', 'Pickup retains the selected component beneath the stack');
+    assert.equal(getComponentDrag(app).compId, 'below', 'Pickup retains the selected component beneath the stack');
     assert.equal(app.placements.get('below').x, 30, 'Real component drag moves the obscured placement');
     assert.equal(app.placements.get('top').x, 0, 'The covering component stays still');
     finishSelectionInteraction(app, true);
@@ -144,7 +146,7 @@ for (const withShape of [false, true]) for (const shiftDrag of [false, true]) {
     const entry = getPcbSelectionEntries(app)[0];
     const anchor = entry.getAnchors()[0];
     assert.equal(beginSelectionInteraction(app, anchor, false), true);
-    assert.equal(app._pcbSelectionInteraction.mode, 'anchor', 'Selected component rotation anchors retain priority');
+    assert.equal(getSelectionInteraction(app).mode, 'anchor', 'Selected component rotation anchors retain priority');
     finishSelectionInteraction(app, false);
 }
 

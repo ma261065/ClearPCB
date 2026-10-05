@@ -7,6 +7,7 @@
 
 import { SelectionManager } from '../../core/SelectionManager.js';
 import { getBoardShapeNodeFocus, getBoardShapeSegmentFocus, setBoardShapeNodeFocus, setBoardShapeSegmentFocus } from './board-shape-state.js';
+import { getPcbInteraction } from './pcb-interactions.js';
 
 const keyFor = (kind, object) => `${kind}:${kind === 'component' || kind === 'reftext' ? object : object.id}`;
 const adapterFactories = new Map();
@@ -108,14 +109,14 @@ function manager(app) {
 function createAdapter(app, kind, object) {
     const factory = adapterFactories.get(kind);
     if (factory) {
-        const original = app._groupDrag?.preview?.originals.get(object) || object;
+        const original = getPcbInteraction(app, '_groupDrag')?.preview?.originals.get(object) || object;
         const base = factory(app, original, keyFor(kind, original));
         if (!['track', 'via', 'pad', 'shape', 'fill'].includes(kind)) return base;
         let displayed, projected;
         // Geometry follows the group copy; gesture methods keep canonical command targets.
         return new Proxy(base, {
             get(target, member, receiver) {
-                const copy = app._groupDrag?.preview?.copies.get(original);
+                const copy = getPcbInteraction(app, '_groupDrag')?.preview?.copies.get(original);
                 if (!copy || !groupGeometryMembers.has(member)) return Reflect.get(target, member, receiver);
                 if (displayed !== copy) {
                     displayed = copy;

@@ -6,7 +6,8 @@ import { CommandHistory } from '../src/core/CommandHistory.js';
 import { capturePlacementOverride } from '../src/core/PcbPlacementState.js';
 import { getPlacementPreviewTracks } from '../src/pcb/modules/track-commands.js';
 import { setPcbSelection } from '../src/pcb/modules/selection-registry.js';
-import { beginGroupDrag, updateGroupDrag, scheduleGroupDrag, endGroupDrag, cancelGroupDrag } from '../src/pcb/modules/box-select.js';
+import { beginGroupDrag, updateGroupDrag, scheduleGroupDrag, endGroupDrag, cancelGroupDrag, getGroupDrag } from '../src/pcb/modules/box-select.js';
+import { getSelectionInteraction, setSelectionInteraction } from '../src/pcb/modules/selection-interaction.js';
 import { renderTrack, hasTrackElements } from '../src/pcb/modules/track-render.js';
 import { loadPcb } from '../src/pcb/modules/project-state.js';
 import { areDragOverlaysDeferred, setDragOverlaysDeferred } from '../src/pcb/modules/refresh-state.js';
@@ -84,7 +85,7 @@ for (const saved of [false, true]) for (const finish of ['commit', 'cancel', 'no
         }
     };
     beginGroupDrag(app, { x: 0, y: 0 });
-    assert.equal(app._groupDrag.posePreview, true);
+    assert.equal(getGroupDrag(app).posePreview, true);
     assert.equal(getPlacementPreviewTracks(app), undefined, 'Picking up a group does not clone tracks');
     updateGroupDrag(app, { x: 3, y: -4 }, { snap: false });
     const projected = app.tracks[0];
@@ -130,9 +131,9 @@ for (const saved of [false, true]) for (const finish of ['commit', 'cancel', 'no
             updateGroupDrag(app, { x: 0, y: 0 }, { snap: false });
             endGroupDrag(app);
         } else if (finish.endsWith('deactivate')) {
-            if (finish === 'deactivate') app._pcbSelectionInteraction = { mode: 'move' };
+            if (finish === 'deactivate') setSelectionInteraction(app, { mode: 'move' });
             PCBApp.prototype.deactivate.call(app);
-            if (finish === 'deactivate') assert.equal(app._pcbSelectionInteraction, null);
+            if (finish === 'deactivate') assert.equal(getSelectionInteraction(app), null);
         } else if (finish === 'failure') {
             project.schematicDocument.components = project.schematicDocument.components.filter(component => component.id !== 'b');
             assert.throws(() => endGroupDrag(app), /PCB footprint is no longer available: b/);
@@ -148,7 +149,7 @@ for (const saved of [false, true]) for (const finish of ['commit', 'cancel', 'no
     }
     assert.equal(app.tracks, project.pcbDocument.tracks);
     assert.equal(getPlacementPreviewTracks(app), undefined);
-    assert.equal(app._groupDrag, null);
+    assert.equal(getGroupDrag(app), null);
     assert.equal(areDragOverlaysDeferred(app), false);
     assert.equal(f.lines(), lines);
     assert.ok(hasTrackElements(shared));
@@ -198,7 +199,7 @@ for (const finish of ['commit', 'cancel', 'no-op']) {
     assert.equal(hasTrackElements(projected), false);
     assert.equal(app.pcbDocument.tracks.length, 0);
     assert.equal(app.placements.size, 0);
-    assert.equal(app._groupDrag, null);
+    assert.equal(getGroupDrag(app), null);
     assert.equal(frames.size, 0);
 }
 
@@ -206,7 +207,7 @@ for (const finish of ['commit', 'cancel', 'no-op']) {
     const { app, shared } = fixture(false);
     setPcbSelection(app, [{ kind: 'component', object: 'a' }, { kind: 'track', object: shared }]);
     beginGroupDrag(app, { x: 0, y: 0 });
-    assert.equal(app._groupDrag.posePreview, true, 'Groups with directly selected tracks also isolate preview ownership');
+    assert.equal(getGroupDrag(app).posePreview, true, 'Groups with directly selected tracks also isolate preview ownership');
     cancelGroupDrag(app);
 }
 console.log('PASS component-only group preview isolation, shared-track reuse, pending movement, cancellation, failure preflight and history');

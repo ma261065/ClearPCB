@@ -6,6 +6,7 @@ import { getBoardOutline, rectangleBoardOutline, boardDimensions } from '../../s
 import { removeBoardShapeElement } from './board-shapes.js';
 import { getPropertyEditor, releasePropertyEditor, setPropertyEditor } from './property-editors.js';
 import { areDragOverlaysDeferred, isBoardViewRefreshSuspended, setBoardViewRefreshSuspended, setDragOverlaysDeferred, refreshBoardView } from './refresh-state.js';
+import { getPcbInteraction, setPcbInteraction } from './pcb-interactions.js';
 
 const dimensionPreviews = new WeakMap();
 
@@ -225,20 +226,24 @@ export function hitTestBoardOutlineHandle(app, point) {
 
 export function beginBoardOutlineResize(app, point) {
     getPropertyEditor(app, 'boardDimension')?.commit();
-    if (app._boardOutlineResize) endBoardOutlineResize(app, false);
+    if (getBoardOutlineResize(app)) endBoardOutlineResize(app, false);
     const handle = hitTestBoardOutlineHandle(app, point);
     if (!handle) return false;
-    app._boardOutlineResize = {
+    setPcbInteraction(app, '_boardOutlineResize', {
         handle: handle.id, start: { ...point },
         before: boardDimensions(app),
         previousSuspend: !!isBoardViewRefreshSuspended(app),
-    };
+    });
     setBoardViewRefreshSuspended(app, true);
     return true;
 }
 
+export function getBoardOutlineResize(app) {
+    return getPcbInteraction(app, '_boardOutlineResize');
+}
+
 export function updateBoardOutlineResize(app, point) {
-    const drag = app._boardOutlineResize;
+    const drag = getBoardOutlineResize(app);
     if (!drag) return;
     if (!Number.isFinite(point?.x) || !Number.isFinite(point?.y)) {
         endBoardOutlineResize(app, false);
@@ -264,9 +269,9 @@ export function updateBoardOutlineResize(app, point) {
 }
 
 export function endBoardOutlineResize(app, commit = true) {
-    const drag = app._boardOutlineResize;
+    const drag = getBoardOutlineResize(app);
     if (!drag) return;
-    app._boardOutlineResize = null;
+    setPcbInteraction(app, '_boardOutlineResize', null);
     try {
         finishBoardDimensionPreview(app, commit);
     } finally {
@@ -298,7 +303,7 @@ export function closeBoardDimensionsDialog(app) {
 export function showBoardDimensionsDialog(app) {
     if (dimensionDialogs.has(app)) return;
     getPropertyEditor(app, 'boardDimension')?.commit();
-    if (app._boardOutlineResize) endBoardOutlineResize(app);
+    if (getBoardOutlineResize(app)) endBoardOutlineResize(app);
     const size = boardDimensions(app);
     const overlay = document.createElement('div');
     overlay.className = 'app-modal-overlay';

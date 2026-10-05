@@ -7,6 +7,7 @@ import { CopperFill } from '../src/shapes/copper-fill.js';
 import { Track } from '../src/shapes/track.js';
 import { PcbDocument } from '../src/core/PcbDocument.js';
 import { createPcbText, serializePcbText, TEXT_LAYERS } from '../src/core/pcb-text.js';
+import { setPcbInteraction } from '../src/pcb/modules/pcb-interactions.js';
 globalThis.window = { addEventListener() {} };
 const { exportGerbers, buildZip } = await import('../src/pcb/modules/gerber.js');
 const { prepareFabricationSnapshot, prepareSnapshotFills, hasFabricationContent } = await import('../src/pcb/modules/fabrication-snapshot.js');
@@ -36,8 +37,9 @@ assert.deepEqual(fillProgress, [[0, 1], [1, 1]]);
 const suspensionSetters = { _deferDragOverlays: setDragOverlaysDeferred, _suspendFillRefresh: setFillRefreshSuspended };
 for (const state of ['_deferDragOverlays', '_suspendFillRefresh', '_rotationHandleDrag', '_shapeDrag',
     '_vertexDrag', '_viaDrag', '_textEdit', '_boardOutlineResize']) {
-    const target = suspensionSetters[state] ? { ...app } : { ...app, [state]: {} };
+    const target = { ...app };
     suspensionSetters[state]?.(target, true);
+    if (!suspensionSetters[state]) setPcbInteraction(target, state, {});
     await assert.rejects(prepareFabricationSnapshot(target),
         /Finish the current edit before exporting/, `${state} must not leak preview state into manufacturing output`);
 }
@@ -152,7 +154,9 @@ globalThis.Worker = class {
 };
 try {
     for (const state of ['_textEdit', '_boardOutlineResize']) {
-        await assert.rejects(generateGerberArchive({ ...app, [state]: {} }, () => {}),
+        const target = { ...app };
+        setPcbInteraction(target, state, {});
+        await assert.rejects(generateGerberArchive(target, () => {}),
             /Finish the current edit before exporting/, 'Worker exports enforce the same edit guard');
     }
     const archive = await generateGerberArchive(app, (...progress) => workerProgress.push(progress));

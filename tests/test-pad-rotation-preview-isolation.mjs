@@ -12,6 +12,9 @@ import { finishSelectionInteraction } from '../src/pcb/modules/selection-interac
 import { prepareFabricationSnapshot } from '../src/pcb/modules/fabrication-snapshot.js';
 import { loadPcb } from '../src/pcb/modules/project-state.js';
 import { cancelPictureCopperRefresh } from '../src/pcb/modules/picture-refresh.js';
+import { getSelectionInteraction } from '../src/pcb/modules/selection-interaction.js';
+import { isRotationHandleDragActive } from '../src/pcb/modules/rotation-handle.js';
+import { setPcbInteraction } from '../src/pcb/modules/pcb-interactions.js';
 
 let allocations = 0;
 class Element {
@@ -139,8 +142,8 @@ for (const shape of ['rectangle', 'stadium', 'oval', 'square']) {
             assert.equal(app.history.canUndo(), false);
             assert.throws(() => project.serialize(), /Finish the current edit before saving/);
             await assert.rejects(prepareFabricationSnapshot(app), /Finish the current edit before exporting/);
-            app._pcbSelectionInteraction = { mode: 'anchor', adapter: rebuilt, moved: true,
-                anchorId: 'rotate', anchor: { symbol: 'rotate' } };
+            setPcbInteraction(app, '_pcbSelectionInteraction', { mode: 'anchor', adapter: rebuilt, moved: true,
+                anchorId: 'rotate', anchor: { symbol: 'rotate' } });
             if (finish === 'commit') {
                 const execute = app.history.execute.bind(app.history);
                 app.history.execute = command => {
@@ -187,8 +190,8 @@ for (const shape of ['rectangle', 'stadium', 'oval', 'square']) {
             }
             assert.equal(getPadRotationPreview(app), undefined);
             assert.equal(Number(input.value), pad.rotation);
-            assert.equal(app._rotationHandleDrag, false);
-            assert.equal(app._pcbSelectionInteraction, null);
+            assert.equal(isRotationHandleDragActive(app), false);
+            assert.equal(getSelectionInteraction(app), null);
             assert.equal(app.pads, model.pads);
             assert.equal(rebuilt.object, pad, 'Rebuilt adapter returns to canonical identity');
             assert.equal(app.isSectionEditing(), false);

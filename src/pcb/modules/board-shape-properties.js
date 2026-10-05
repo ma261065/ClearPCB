@@ -32,6 +32,8 @@ import {
     createBoardShapePropertyPreview,
     displayedBoardShape,
     editableShapeBulge,
+    getBoardShapeDrag,
+    getShapeDraw,
     normalizeStraightArc,
     resolveShapeDrawLayer,
     setBoardShapeNodeCornerRadius,
@@ -74,12 +76,12 @@ function boardNetNames(app) {
  */
 export function showBoardShapeToolProperties(app, kind) {
     const defaults = getShapeDefaults(app);
-    const currentLayer = app._shapeDraw?.layer || resolveShapeDrawLayer(app, app.activeLayer);
-    if (!app._shapeDraw && currentLayer) app.activeLayer = currentLayer;
-    const redraw = () => updateShapeDrawPreview(app, app._lastCrosshairWorld || app._shapeDraw?.points.at(-1));
+    const currentLayer = getShapeDraw(app)?.layer || resolveShapeDrawLayer(app, app.activeLayer);
+    if (!getShapeDraw(app) && currentLayer) app.activeLayer = currentLayer;
+    const redraw = () => updateShapeDrawPreview(app, app._lastCrosshairWorld || getShapeDraw(app)?.points.at(-1));
     const refresh = () => app.refreshPropertyPanel?.(describe());
     const describe = () => {
-        const layer = app._shapeDraw?.layer || resolveShapeDrawLayer(app, app.activeLayer);
+        const layer = getShapeDraw(app)?.layer || resolveShapeDrawLayer(app, app.activeLayer);
         const copper = layer === 'top-copper' || layer === 'bottom-copper';
         const showFill = layer !== 'hole' && kind !== 'line';
         const showLineWidth = (layer !== 'hole' || kind === 'line') && !defaults.filled;
@@ -94,7 +96,8 @@ export function showBoardShapeToolProperties(app, kind) {
                         if (!next || isLayerLocked(next)) { refresh(); return; }
                         app.activeLayer = next;
                         app.setPcbStatus?.();
-                        if (app._shapeDraw?.kind === kind) app._shapeDraw.layer = next;
+                        const draw = getShapeDraw(app);
+                        if (draw?.kind === kind) draw.layer = next;
                         redraw();
                         showBoardShapeToolProperties(app, kind);
                     } },
@@ -139,7 +142,7 @@ export function showBoardShapeToolProperties(app, kind) {
 
 export function refreshBoardShapeToolLayer(app) {
     if (!SHAPE_KINDS.has(app.currentTool) || app.currentTool === 'image') return;
-    if (app._shapeDraw) return;
+    if (getShapeDraw(app)) return;
     showBoardShapeToolProperties(app, app.currentTool);
 }
 
@@ -294,7 +297,8 @@ export function syncBoardShapePanel(app, shape) {
 export function showBoardShapeProperties(app, shape) {
     if (getPropertyEditor(app, 'boardShape')?.committing) return;
     shape = canonicalBoardShape(app, shape);
-    if (app._shapeDrag?.original === shape) shape = app._shapeDrag.shape;
+    const drag = getBoardShapeDrag(app);
+    if (drag?.original === shape) shape = drag.shape;
     if (!shape) return;
     syncPcbSelection(app);
     app.setPcbStatus?.();

@@ -3,13 +3,17 @@ import { PcbDocument } from '../src/core/PcbDocument.js';
 import { CommandHistory } from '../src/core/CommandHistory.js';
 import { capturePlacementOverride } from '../src/core/PcbPlacementState.js';
 import { PCB_LAYERS } from '../src/pcb/modules/layers.js';
-import { createRefTextSelectionAdapter } from '../src/pcb/modules/ref-text-selection.js';
+import { beginRefTextDrag, createRefTextSelectionAdapter, handleRefDrag } from '../src/pcb/modules/ref-text-selection.js';
 import { beginSelectionInteraction } from '../src/pcb/modules/selection-interaction.js';
 import { getPcbSelection, setPcbSelection } from '../src/pcb/modules/selection-registry.js';
 import { SetPlacementLockedCommand } from '../src/pcb/modules/track-commands.js';
 import { renderPcbSelectionAnchors } from '../src/pcb/modules/selection-anchors.js';
 import { unlockMenuItems } from '../src/pcb/modules/object-locks.js';
 import { attachPropertyPanelHarness } from './helpers/property-panel-controls.mjs';
+import { getSelectionInteraction } from '../src/pcb/modules/selection-interaction.js';
+import { getRefDrag } from '../src/pcb/modules/ref-text-selection.js';
+import { activeTextInlineEdit } from '../src/pcb/modules/text-inline-edit.js';
+import { setPcbInteraction } from '../src/pcb/modules/pcb-interactions.js';
 
 function element() {
     return {
@@ -44,12 +48,11 @@ for (const side of ['top', 'bottom']) {
         getLayerGroup: () => null, _drawRefOverlay() {}, _refreshRefHighlight() {},
         _refBox: () => ({ bx: -1, by: -1, bw: 2, bh: 2, cx: 0, cy: 0 }),
         setPropertiesTitle: () => propertyShows++,
-        layerLabel: PCBApp.prototype.layerLabel, _screenToWorld: event => ({ x: event.clientX, y: event.clientY }),
+        layerLabel: PCBApp.prototype.layerLabel, screenToWorld: event => ({ x: event.clientX, y: event.clientY }),
     };
     attachPropertyPanelHarness(app, { controls });
-    for (const name of ['_beginRefTextDrag', '_updateRefTextDrag', '_handleRefDrag', '_endRefDrag',
-        'rotateRefText', '_hitTestRefText', '_worldToPlacementLocal', '_placementLocalToWorld',
-        '_snapToGrid', '_showRefProperties', '_bindStrokeTextProps', '_pcbMultiPropertyCapabilities',
+    for (const name of ['rotateRefText', '_hitTestRefText', '_worldToPlacementLocal', '_placementLocalToWorld',
+        'snapToGrid', '_showRefProperties', '_bindStrokeTextProps', '_pcbMultiPropertyCapabilities',
         '_onLayerLockChanged', '_endTextInlineEdit']) app[name] = PCBApp.prototype[name];
     const adapter = createRefTextSelectionAdapter(app, 'part', 'reftext:part');
     const original = capturePlacementOverride(placement);
@@ -63,9 +66,9 @@ for (const side of ['top', 'bottom']) {
         assert.equal(adapter.hitTest({ x: 0, y: 0 }), true);
         assert.equal(beginSelectionInteraction(app, { x: 0, y: 0 }, false), true);
         assert.deepEqual(getPcbSelection(app, 'reftext'), ['part']);
-        assert.equal(app._pcbSelectionInteraction, null, 'Locked selection must not arm a drag');
-        assert.equal(app._refDrag, undefined);
-        assert.equal(app._beginRefTextDrag('part', { x: 0, y: 0 }), false);
+        assert.equal(getSelectionInteraction(app), null, 'Locked selection must not arm a drag');
+        assert.equal(getRefDrag(app), null);
+        assert.equal(beginRefTextDrag(app, 'part', { x: 0, y: 0 }), false);
         app.rotateRefText('part');
         assert.deepEqual(capturePlacementOverride(placement), original);
         assert.equal(app.history.canUndo(), false);
@@ -103,7 +106,7 @@ for (const side of ['top', 'bottom']) {
         layer.locked = true;
         const preview = capturePlacementOverride(placement);
         adapter.updateMove({ x: 8, y: 9 });
-        app._handleRefDrag({ clientX: 10, clientY: 11, shiftKey: false });
+        handleRefDrag(app, { clientX: 10, clientY: 11, shiftKey: false });
         assert.deepEqual(capturePlacementOverride(placement), preview, 'Both pointer paths stop updating after a lock');
         adapter.endMove(true);
         assert.deepEqual(capturePlacementOverride(placement), original, 'A locked drag drops by restoring its preview, not committing');
@@ -113,26 +116,26 @@ for (const side of ['top', 'bottom']) {
         layer.locked = false;
         adapter.beginMove({ x: 0, y: 0 });
         adapter.updateMove({ x: 2, y: 3 });
-        app._pcbSelectionInteraction = { mode: 'move-adapter', entry: adapter };
+        setPcbInteraction(app, '_pcbSelectionInteraction', { mode: 'move-adapter', entry: adapter });
         layer.locked = true;
         app._onLayerLockChanged(layer.id, true);
-        assert.equal(app._refDrag, null, 'The layer-panel callback cancels an active reference preview');
-        assert.equal(app._pcbSelectionInteraction, null);
+        assert.equal(getRefDrag(app), null, 'The layer-panel callback cancels an active reference preview');
+        assert.equal(getSelectionInteraction(app), null);
         assert.deepEqual(capturePlacementOverride(placement), original);
 
         let inlineCommit;
         placement.reference = 'Preview';
-        app._textEdit = {
+        setPcbInteraction(app, '_textEdit', {
             text: { content: 'Preview' }, originalContent: 'R1', input: { value: 'Preview' },
             options: { componentId: 'part', finish(value, commit) {
                 inlineCommit = commit;
                 placement.reference = value;
             } },
-        };
+        });
         app._onLayerLockChanged(other.id, true);
-        assert.ok(app._textEdit, 'Locking the opposite side does not interrupt inline reference editing');
+        assert.ok(activeTextInlineEdit(app), 'Locking the opposite side does not interrupt inline reference editing');
         app._onLayerLockChanged(layer.id, true);
-        assert.equal(app._textEdit, null);
+        assert.equal(activeTextInlineEdit(app), null);
         assert.equal(inlineCommit, false, 'Locking the reference layer cancels its active inline preview');
         assert.equal(placement.reference, 'R1');
         assert.equal(app.history.canUndo(), false);

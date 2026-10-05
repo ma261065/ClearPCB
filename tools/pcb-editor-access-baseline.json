@@ -1,7 +1,6 @@
 {
   "src/pcb/modules/board-outline-resize.js": [
     "_boardOutlineDrawn",
-    "_boardOutlineResize",
     "_boardOutlineSelected",
     "_drawBoardOutline",
     "_markDirty",
@@ -11,23 +10,16 @@
   "src/pcb/modules/board-shape-properties.js": [
     "_lastCrosshairWorld",
     "_refreshPcbSelectionHighlights",
-    "_shapeDrag",
-    "_shapeDraw",
     "_showPcbMultiSelectionProperties"
   ],
   "src/pcb/modules/board-shapes.js": [
     "_deferredShapeCopperCuts",
-    "_pcbSelectionInteraction",
     "_pendingShapeClearances",
     "_refreshBoardShapeClearance",
     "_refreshPcbSelectionHighlights",
-    "_rotationHandleDrag",
-    "_shapeDrag",
-    "_shapeDraw",
     "_shapeElements",
     "_shapeIdCounter",
-    "_snapActive",
-    "_snapToGrid"
+    "_snapActive"
   ],
   "src/pcb/modules/board3d.js": [
     "_board3d",
@@ -44,9 +36,7 @@
     "_boxSelectArm",
     "_boxSelectFrame",
     "_boxSelectPendingWorld",
-    "_groupDrag",
     "_netsForComponent",
-    "_pcbSelectionInteraction",
     "_refreshPcbSelectionHighlights",
     "_rerenderFills"
   ],
@@ -57,13 +47,9 @@
     "_padHaloGroups"
   ],
   "src/pcb/modules/component-selection.js": [
-    "_beginComponentDrag",
-    "_endDrag",
     "_hideNetTooltip",
     "_hoverComponent",
     "_netsForComponent",
-    "_rotationHandleDrag",
-    "_updateComponentDrag",
     "_updatePcbCulling"
   ],
   "src/pcb/modules/controls.js": [
@@ -77,10 +63,8 @@
     "_refreshFillProperties"
   ],
   "src/pcb/modules/copper-fill-draw.js": [
-    "_fillDraw",
     "_fillToolLayer",
-    "_showFillProperties",
-    "_snapToGrid"
+    "_showFillProperties"
   ],
   "src/pcb/modules/copper-fill-edit.js": [
     "_refreshFillProperties",
@@ -102,26 +86,13 @@
     "_scheduleDRC"
   ],
   "src/pcb/modules/editor-actions.js": [
-    "_boardOutlineResize",
     "_boxSelectActive",
     "_boxSelectArm",
-    "_cancelPasteDrop",
     "_clearCursorCrosshair",
-    "_drag",
-    "_endDrag",
-    "_endRefDrag",
-    "_groupDrag",
-    "_pasteDrop",
-    "_pcbSelectionInteraction",
-    "_refDrag",
-    "_segmentClickEdgeId",
     "_selectRefText",
-    "_shapeDrag",
     "_showComponentPopup",
     "_showSaveToast",
-    "_trackEdit",
-    "_vertexDrag",
-    "_viaDrag"
+    "_trackEdit"
   ],
   "src/pcb/modules/fabrication-snapshot.js": [
     "_boardX",
@@ -137,12 +108,8 @@
     "_cancelPasteDrop",
     "_cancelPosePreviews",
     "_drcPresentation",
-    "_endRefDrag",
-    "_endTextDrag",
-    "_refDrag",
     "_refreshPcbSelectionHighlights",
-    "_selectBoardOutline",
-    "_textDrag"
+    "_selectBoardOutline"
   ],
   "src/pcb/modules/layers.js": [
     "_lockedBubbleTimer",
@@ -158,17 +125,12 @@
     "_hitTestFill",
     "_hitTestText",
     "_scheduleHoverUpdate",
-    "_screenToWorld",
     "_showComponent3DMenu",
     "_tryEditReferenceAt",
     "_updateCursorCrosshair",
     "_updateCursorForTool",
     "_updatePadPreview",
     "_updateViaPreview"
-  ],
-  "src/pcb/modules/pad-commands.js": [
-    "_rotationHandleDrag",
-    "_viaDrag"
   ],
   "src/pcb/modules/path-edit.js": [
     "_trackEdit"
@@ -181,47 +143,17 @@
     "_updatePcbCulling"
   ],
   "src/pcb/modules/pcb-interaction-routing.js": [
-    "_boardOutlineResize",
     "_clearCursorCrosshair",
-    "_drag",
-    "_endDrag",
-    "_endRefDrag",
-    "_endTextDrag",
-    "_fillDraw",
-    "_groupDrag",
-    "_handleRefDrag",
-    "_handleTextDrag",
-    "_pasteDrop",
-    "_pcbSelectionInteraction",
-    "_refDrag",
-    "_scheduleDragUpdate",
-    "_screenToWorld",
-    "_segmentClickEdgeId",
-    "_shapeDrag",
-    "_shapeDraw",
-    "_textDrag",
-    "_trackDraw",
     "_updateCursorCrosshair",
     "_updatePasteDrop",
-    "_updateVertexDragCrosshair",
-    "_vertexDrag",
-    "_vertexDragDownScreen",
-    "_viaDrag"
+    "_updateVertexDragCrosshair"
   ],
   "src/pcb/modules/pcb-paste.js": [
     "_cancelPosePreviews",
     "_deferredShapeCopperCuts",
-    "_pasteDrop",
     "_removeTextElement",
-    "_snapToGrid",
     "_syncHistoryButtons",
     "_updateCursorForTool"
-  ],
-  "src/pcb/modules/pcb-text-selection.js": [
-    "_beginTextDrag",
-    "_endTextDrag",
-    "_rotationHandleDrag",
-    "_updateTextDrag"
   ],
   "src/pcb/modules/picture-import.js": [
     "_beginPasteDrop"
@@ -230,9 +162,7 @@
     "_deferredShapeCopperCuts",
     "_pendingShapeClearances",
     "_refreshBoardShapeClearance",
-    "_rotationHandleDrag",
-    "_scheduleDRC",
-    "_shapeDrag"
+    "_scheduleDRC"
   ],
   "src/pcb/modules/project-state.js": [
     "_applyPlacementOverrides",
@@ -253,21 +183,16 @@
     "_renderText",
     "_resetDRC",
     "_selectBoardOutline",
-    "_shapeDrag",
-    "_shapeDraw",
     "_shapeElements",
     "_stale",
     "_textElements"
   ],
   "src/pcb/modules/ref-text-selection.js": [
-    "_beginRefTextDrag",
     "_drawRefOverlay",
-    "_endRefDrag",
     "_placementLocalToWorld",
     "_refBox",
     "_refCenterWorld",
-    "_refreshRefHighlight",
-    "_updateRefTextDrag"
+    "_refreshRefHighlight"
   ],
   "src/pcb/modules/refresh-state.js": [
     "_board3d"
@@ -276,13 +201,10 @@
     "_ensureSvgDefs"
   ],
   "src/pcb/modules/selection-anchors.js": [
-    "_lastPointerWorld",
-    "_rotationHandleDrag"
+    "_lastPointerWorld"
   ],
   "src/pcb/modules/selection-interaction.js": [
     "_lastPointerWorld",
-    "_pcbSelectionInteraction",
-    "_rotationHandleDrag",
     "_selectBoardOutline",
     "_selectComponent",
     "_selectRefText",
@@ -293,39 +215,28 @@
   ],
   "src/pcb/modules/selection-registry.js": [
     "_drawRefOverlay",
-    "_groupDrag",
     "_pcbSelection",
     "_refOverlay"
   ],
   "src/pcb/modules/shape-commands.js": [
-    "_pendingShapeClearances",
-    "_shapeDrag"
+    "_pendingShapeClearances"
   ],
   "src/pcb/modules/text-commands.js": [
     "_removeTextElement",
     "_renderText",
     "_showPcbMultiSelectionProperties"
   ],
-  "src/pcb/modules/text-inline-edit.js": [
-    "_endTextInlineEdit",
-    "_textEdit"
-  ],
   "src/pcb/modules/tool-lifecycle.js": [
     "_cancelFillDraw",
-    "_cancelShapeDraw",
     "_cancelTrackDraw",
-    "_endTextInlineEdit",
-    "_fillDraw",
     "_hoverComponent",
     "_selectRefText",
-    "_shapeDraw",
     "_showBoardShapeToolProperties",
     "_showPadToolProperties",
     "_showTextToolProperties",
     "_showTrackDrawProperties",
     "_showViaToolProperties",
     "_syncPcbHomeToolHighlight",
-    "_textEdit",
     "_updateCursorForTool"
   ],
   "src/pcb/modules/track-commands.js": [
@@ -338,16 +249,11 @@
     "_rerenderRef",
     "_showRefProperties",
     "_syncBoardOutlineInputs",
-    "_syncComponentRotationInput",
-    "_vertexDrag",
-    "_viaDrag"
+    "_syncComponentRotationInput"
   ],
   "src/pcb/modules/track-drag.js": [
-    "_pcbSelectionInteraction",
     "_refreshTrackClearance",
-    "_trackEdit",
-    "_vertexDrag",
-    "_viaDrag"
+    "_trackEdit"
   ],
   "src/pcb/modules/track-draw.js": [
     "_commitTracks",
@@ -356,9 +262,7 @@
     "_followDRCRatline",
     "_invalidateDRC",
     "_netGuideLine",
-    "_shapeDrag",
     "_showTrackDrawProperties",
-    "_trackDraw",
     "_trackSnapMarker",
     "_trackToolLayer",
     "_trackToolNet"
@@ -366,10 +270,8 @@
   "src/pcb/modules/track-select.js": [
     "_hoveredTrackOrVia",
     "_lastPointerWorld",
-    "_pcbSelectionInteraction",
     "_trackEdit",
-    "_updateVertexDragCrosshair",
-    "_vertexDrag"
+    "_updateVertexDragCrosshair"
   ],
   "src/shared/pcb/board-outline.js": [
     "_boardHeight",

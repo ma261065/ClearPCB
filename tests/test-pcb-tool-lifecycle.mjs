@@ -2,6 +2,11 @@ import assert from 'node:assert/strict';
 import { CommandHistory } from '../src/core/CommandHistory.js';
 import { bindPcbControls } from '../src/pcb/modules/controls.js';
 import { PCB_SHAPE_TOOLS, normalizePcbTool, preparePcbRibbonTransition, selectPcbTool } from '../src/pcb/modules/tool-lifecycle.js';
+import { getTrackDraw } from '../src/pcb/modules/track-draw.js';
+import { getFillDraw } from '../src/pcb/modules/copper-fill-draw.js';
+import { getShapeDraw } from '../src/pcb/modules/board-shapes.js';
+import { activeTextInlineEdit } from '../src/pcb/modules/text-inline-edit.js';
+import { setPcbInteraction } from '../src/pcb/modules/pcb-interactions.js';
 
 const elements = new Map();
 globalThis.window = { addEventListener() {} };
@@ -48,11 +53,15 @@ function fixture() {
     const app = {
         ribbon, history: new CommandHistory(), currentTool: 'select', activeLayer: 'top-copper', _active: true,
         viewport: { gridSize: 1, getGridOptions: () => [{ value: 1 }] },
+        getLayerGroup: () => null,
+        refreshText() {},
+        selectText() {},
+        clearProperties() {},
         _cancelDrawingMode: PCBApp.prototype._cancelDrawingMode,
-        _cancelTrackDraw() { events.push('cancel-track'); this._trackDraw = null; },
-        _cancelFillDraw() { events.push('cancel-fill'); this._fillDraw = null; },
-        _cancelShapeDraw() { events.push('cancel-shape'); this._shapeDraw = null; },
-        _endTextInlineEdit(commit) { assert.equal(commit, false); events.push('cancel-text'); this._textEdit = null; },
+        _cancelTrackDraw() { events.push('cancel-track'); setPcbInteraction(this, '_trackDraw', null); },
+        _cancelFillDraw() { events.push('cancel-fill'); setPcbInteraction(this, '_fillDraw', null); },
+        _cancelShapeDraw() { events.push('cancel-shape'); setPcbInteraction(this, '_shapeDraw', null); },
+        _endTextInlineEdit(commit) { assert.equal(commit, false); events.push('cancel-text'); setPcbInteraction(this, '_textEdit', null); },
         _hoverComponent(value) { assert.equal(value, null); events.push('hover'); },
         _selectRefText(value) { assert.equal(value, null); events.push('reference'); },
         _updateCursorForTool() { events.push(`cursor:${this.currentTool}`); },
@@ -85,20 +94,20 @@ function fixture() {
 
 function startDrawing(app, tool) {
     app.currentTool = tool;
-    if (tool === 'track') app._trackDraw = { points: [] };
-    else if (tool === 'fill') app._fillDraw = { points: [] };
-    else if (PCB_SHAPE_TOOLS.has(tool)) app._shapeDraw = { kind: tool, points: [] };
+    if (tool === 'track') setPcbInteraction(app, '_trackDraw', { points: [] });
+    else if (tool === 'fill') setPcbInteraction(app, '_fillDraw', { points: [] });
+    else if (PCB_SHAPE_TOOLS.has(tool)) setPcbInteraction(app, '_shapeDraw', { kind: tool, points: [] });
 }
 
 for (const previous of tools) for (const next of tools) {
     const f = fixture(), { app, events } = f;
     startDrawing(app, previous);
-    const drawing = app._trackDraw || app._fillDraw || app._shapeDraw;
+    const drawing = getTrackDraw(app) || getFillDraw(app) || getShapeDraw(app);
     f.clickTool(next);
     assert.equal(app.currentTool, next);
     assert.ok(events.includes(`cursor:${next}`));
     assert.ok(events.includes(`status:${next}`));
-    if (drawing) assert.equal(app._trackDraw || app._fillDraw || app._shapeDraw || null,
+    if (drawing) assert.equal(getTrackDraw(app) || getFillDraw(app) || getShapeDraw(app) || null,
         previous === next ? drawing : null, `${previous} -> ${next}: preserve only the same tool's drawing`);
     assert.deepEqual(events.filter(event => event.startsWith('properties:')), next === 'select' ? [] : [`properties:${next}`]);
     assert.equal(normalizePcbTool(app.currentTool), normalizePcbTool(next));
@@ -108,15 +117,17 @@ for (const previous of tools) for (const next of tools) {
 for (const userInitiated of [false, true]) for (const sameTab of [false, true]) for (const tool of tools) {
     const f = fixture(), { app } = f;
     startDrawing(app, tool);
-    if (tool === 'text') app._textEdit = {};
-    const before = app._trackDraw || app._fillDraw || app._shapeDraw || app._textEdit;
+    if (tool === 'text') setPcbInteraction(app, '_textEdit', {
+        text: { id: 'text', content: 'x' }, originalContent: 'x', input: { value: 'x' }, overlay: { destroy() {} }, options: {},
+    });
+    const before = getTrackDraw(app) || getFillDraw(app) || getShapeDraw(app) || activeTextInlineEdit(app);
     const target = sameTab ? 'pcb-home' : 'pcb-properties';
     preparePcbRibbonTransition(app, 'pcb-home', target, userInitiated);
     f.tabs.forEach(tab => tab.classList.toggle('active', tab.id === target));
     f.panels.forEach(panel => panel.classList.toggle('active', panel.dataset.panel === target));
     const cancelled = !sameTab && ((userInitiated && tool !== 'select') || PCB_SHAPE_TOOLS.has(tool));
     assert.equal(app.currentTool, cancelled ? 'select' : tool, `${tool}/${userInitiated}/${sameTab}`);
-    if (before) assert.equal(app._trackDraw || app._fillDraw || app._shapeDraw || app._textEdit || null,
+    if (before) assert.equal(getTrackDraw(app) || getFillDraw(app) || getShapeDraw(app) || activeTextInlineEdit(app) || null,
         cancelled ? null : before);
     assert.equal(f.tabs.find(tab => tab.classList.contains('active')).id, target);
     assert.equal(f.panels.find(panel => panel.classList.contains('active')).dataset.panel, target);
@@ -144,11 +155,11 @@ for (const userInitiated of [false, true]) for (const sameTab of [false, true]) 
     const f = fixture();
     f.app._showTrackDrawProperties = () => f.app.setActiveRibbonTab('pcb-properties');
     startDrawing(f.app, 'track');
-    const drawing = f.app._trackDraw;
+    const drawing = getTrackDraw(f.app);
     f.clickTool('track');
-    assert.equal(f.app._trackDraw, drawing, 'A tool opening Properties must not cancel itself');
+    assert.equal(getTrackDraw(f.app), drawing, 'A tool opening Properties must not cancel itself');
     preparePcbRibbonTransition(f.app, 'pcb-home', 'pcb-design', true);
-    assert.equal(f.app._trackDraw, null, 'Explicit navigation still cancels the tool');
+    assert.equal(getTrackDraw(f.app), null, 'Explicit navigation still cancels the tool');
     assert.equal(f.app.currentTool, 'select');
 }
 for (const boundary of ['tool', 'ribbon', 'cancel']) {

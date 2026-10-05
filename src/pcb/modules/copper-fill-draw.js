@@ -8,12 +8,12 @@
  *
  * Lifecycle (driven from PCBApp mouse/key handlers):
  *   1. tool = 'fill'
- *   2. first mousedown          → startFillDraw(app, world)
- *   3. mousemove                → updateFillDraw(app, world)   (rubber band)
- *   4. mousedown                → addFillWaypoint(app, world)
- *      Clicking near the first vertex (with ≥3 points) closes the region.
- *   5. double-click / Enter / right-click → finishFillDraw(app)
- *   6. Escape / tool-switch     → cancelFillDraw(app)
+ *   2. first mousedown          â†’ startFillDraw(app, world)
+ *   3. mousemove                â†’ updateFillDraw(app, world)   (rubber band)
+ *   4. mousedown                â†’ addFillWaypoint(app, world)
+ *      Clicking near the first vertex (with â‰¥3 points) closes the region.
+ *   5. double-click / Enter / right-click â†’ finishFillDraw(app)
+ *   6. Escape / tool-switch     â†’ cancelFillDraw(app)
  *
  * A new pour takes the Fill tool's Properties (`showFillToolProperties`): layer, net and
  * corner radius. The pour being drawn follows them, and its preview shows the rounding.
@@ -23,6 +23,7 @@ import { CopperFill } from '../../shapes/copper-fill.js';
 import { closedShapeOutline } from '../../shapes/closed-outline.js';
 import { AddFillCommand } from './copper-fill-commands.js';
 import { setPcbSelection } from './selection-registry.js';
+import { getPcbInteraction, setPcbInteraction } from './pcb-interactions.js';
 
 const NS = 'http://www.w3.org/2000/svg';
 const PREVIEW_CLASS = 'pcb-fill-preview';
@@ -60,7 +61,8 @@ export function setFillToolDefaults(app, changes = {}) {
     });
     if (layer === 'top-copper' || layer === 'bottom-copper') {
         app._fillToolLayer = layer;
-        if (app._fillDraw) app._fillDraw.layer = layer;
+        const draw = getFillDraw(app);
+        if (draw) draw.layer = layer;
     }
     renderPreview(app);
 }
@@ -70,28 +72,28 @@ function toolCornerRadius(app) {
 }
 
 function snap(app, world) {
-    return app._snapToGrid ? app._snapToGrid(world) : { x: world.x, y: world.y };
+    return app.snapToGrid ? app.snapToGrid(world) : { x: world.x, y: world.y };
 }
 
 /** The open fill-region drawing session, or null. */
 export function getFillDraw(app) {
-    return app._fillDraw || null;
+    return getPcbInteraction(app, '_fillDraw');
 }
 
 /** Begin a new fill region at `world`. */
 export function startFillDraw(app, world) {
     const p = snap(app, world);
-    app._fillDraw = {
+    setPcbInteraction(app, '_fillDraw', {
         points: [{ x: p.x, y: p.y }],
         layer: copperLayer(app),
         snap: { x: p.x, y: p.y },
-    };
+    });
     renderPreview(app);
 }
 
 /** Add a waypoint; closing automatically when near the first vertex. */
 export function addFillWaypoint(app, world) {
-    const fd = app._fillDraw;
+    const fd = getFillDraw(app);
     if (!fd) return;
     const p = snap(app, world);
     // Close on click near the first vertex (need a real polygon first).
@@ -112,19 +114,19 @@ export function addFillWaypoint(app, world) {
 
 /** Update the rubber-band preview as the cursor moves. */
 export function updateFillDraw(app, world) {
-    const fd = app._fillDraw;
+    const fd = getFillDraw(app);
     if (!fd) return;
     const p = snap(app, world);
     fd.snap = { x: p.x, y: p.y };
     renderPreview(app);
 }
 
-/** Commit the region (≥3 points) as a CopperFill, else cancel. */
+/** Commit the region (â‰¥3 points) as a CopperFill, else cancel. */
 export function finishFillDraw(app) {
-    const fd = app._fillDraw;
+    const fd = getFillDraw(app);
     if (!fd) return;
     clearPreview(app);
-    app._fillDraw = null;
+    setPcbInteraction(app, '_fillDraw', null);
     if (fd.points.length < 3) return;
     const fill = new CopperFill({
         layer: fd.layer,
@@ -142,12 +144,12 @@ export function finishFillDraw(app) {
 
 /** Abort the in-progress region without committing. */
 export function cancelFillDraw(app) {
-    if (!app._fillDraw) return;
+    if (!getFillDraw(app)) return;
     clearPreview(app);
-    app._fillDraw = null;
+    setPcbInteraction(app, '_fillDraw', null);
 }
 
-/* ───────────────────────────── preview ───────────────────────────── */
+/* â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ preview â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 
 function previewGroup(app) {
     return app.getLayerGroup('selection-overlay');
@@ -161,7 +163,7 @@ function clearPreview(app) {
 
 function renderPreview(app) {
     clearPreview(app);
-    const fd = app._fillDraw;
+    const fd = getFillDraw(app);
     if (!fd) return;
     const g = previewGroup(app);
     if (!g) return;
@@ -171,7 +173,7 @@ function renderPreview(app) {
     const cursor = fd.snap;
     const draft = cursor ? [...pts, cursor] : pts;
 
-    // Closed preview polygon (filled faintly) once we have ≥3 points, rounded as the pour will be.
+    // Closed preview polygon (filled faintly) once we have â‰¥3 points, rounded as the pour will be.
     if (draft.length >= 3) {
         const outline = closedShapeOutline({ kind: 'polygon', points: draft, cornerRadius: toolCornerRadius(app) });
         const poly = document.createElementNS(NS, 'polygon');
@@ -213,7 +215,7 @@ function renderPreview(app) {
  * @returns {boolean|null} null when no pour is being drawn, else whether the key was consumed.
  */
 export function handleFillDrawKey(app, e) {
-    if (!app._fillDraw) return null;
+    if (!getFillDraw(app)) return null;
     if (e.key === 'Enter') {
         finishFillDraw(app);
         return true;

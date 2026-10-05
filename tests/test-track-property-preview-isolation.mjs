@@ -17,6 +17,9 @@ import { formatNumberInputValue } from '../src/core/number-inputs.js';
 import { getPropertyEditor } from '../src/pcb/modules/property-editors.js';
 import { renderPropertyFields } from '../src/shared/ui/property-fields.js';
 import { flushSettledChanges } from '../src/shared/ui/settled-input.js';
+import { getSelectionInteraction } from '../src/pcb/modules/selection-interaction.js';
+import { getVertexDrag } from '../src/pcb/modules/track-drag.js';
+import { setPcbInteraction } from '../src/pcb/modules/pcb-interactions.js';
 
 let allocations = 0, inputs = new Map();
 globalThis.requestAnimationFrame = () => 1;
@@ -360,7 +363,7 @@ for (const next of ['width', 'net', 'move', 'midpoint', 'split', 'bulge', 'delet
                 : splitTrackNodeAndDrag(app, copy, nodeId);
         assert.equal(started, true);
         assert.equal(track.cornerRadius, 2);
-        assert.equal(app._vertexDrag.original, track);
+        assert.equal(getVertexDrag(app).original, track);
         assert.equal(getTrackPropertyPreview(app), undefined);
         cancelVertexDrag(app);
         assert.equal(track.cornerRadius, 2);
@@ -376,12 +379,12 @@ for (const [field, value] of [['Layer', 'bottom-copper'], ['Width', 0.75]]) {
     const edge = track.edges.get(edgeId), from = track.nodes.get(edge.from), to = track.nodes.get(edge.to);
     const midpoint = { x: (from.x + to.x) / 2, y: (from.y + to.y) / 2 };
     assert.equal(startMidpointInsertDrag(app, app.tracks[0], edgeId), true);
-    app._pcbSelectionInteraction = { mode: 'floating-anchor' };
+    setPcbInteraction(app, '_pcbSelectionInteraction', { mode: 'floating-anchor' });
     assert.notEqual(app.tracks[0], track, 'the pickup shows a preview copy');
     f.input(field).emit('change', value);
     if (field === 'Width') flushSettledChanges();
-    assert.equal(app._vertexDrag, null, `${field}: the pickup is dropped`);
-    assert.equal(app._pcbSelectionInteraction, null);
+    assert.equal(getVertexDrag(app), null, `${field}: the pickup is dropped`);
+    assert.equal(getSelectionInteraction(app), null);
     if (field === 'Layer') {
         assert.ok(model.tracks.some(item => [...item.edges.keys()].some(id => item.getEdgeLayer(id) === 'bottom-copper')),
             'the layer change reaches the track');

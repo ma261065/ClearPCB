@@ -154,11 +154,12 @@ preview-then-commit-once pattern above. Drive it in a unit test with the fake DO
    Properties panel, like the Fill tool).
 3. Presses: add the tool's press handler to `PCB_TOOL_PRESS_HANDLERS`
    (`pcb/modules/mouse.js`); `test-pcb-pointer-press` checks the routing.
-4. In-progress state: a drawing session or drag is registered in
-   `PCB_INTERACTIONS` (`pcb/modules/pcb-interactions.js`) with its move, release
-   and cancel handlers in `pcb-interaction-routing.js`;
-   `test-pcb-interaction-registry` fails if one is missing. The module that starts
-   the gesture owns its state.
+4. In-progress state: a drawing session or drag is a slot in `PCB_INTERACTIONS`
+   (`pcb/modules/pcb-interactions.js`) naming its owner module, with its move,
+   release and cancel handlers in `pcb-interaction-routing.js`. Only the owner
+   writes the slot (`setPcbInteraction`); other modules call the owner's
+   functions (`getFillDraw`, `endRefDrag`, …). `test-pcb-interaction-registry`
+   fails if a slot is unregistered or written outside its owner.
 5. Finish with one command (above) and add a browser scenario.
 
 Schematic tools follow the same shape: `schematic/modules/tool.js`

@@ -6,6 +6,8 @@ import { CopperFill } from '../src/shapes/copper-fill.js';
 import { captureBoardShapeState } from '../src/core/pcb-board-shapes.js';
 import { setPropertyEditor } from '../src/pcb/modules/property-editors.js';
 import { setBoardShapeNodeFocus, setBoardShapeSegmentFocus } from '../src/pcb/modules/board-shape-state.js';
+import { getPcbPaste } from '../src/pcb/modules/pcb-paste.js';
+import { setPcbInteraction } from '../src/pcb/modules/pcb-interactions.js';
 
 globalThis.window = { addEventListener() {} };
 globalThis.document = {
@@ -96,7 +98,7 @@ function fixture() {
         tracks: model.tracks, vias: model.vias, pads: model.pads, texts: model.texts, boardShapes: model.boardShapes,
         history: new CommandHistory(), _shapeElements: new Map(), getLayerGroup() { return null; },
         clearProperties() { events.push('properties'); }, setActiveRibbonTab(tab) { events.push(tab); },
-        _cancelPasteDrop() { this._pasteDrop = null; events.push('paste'); },
+        _cancelPasteDrop() { setPcbInteraction(this, '_pasteDrop', null); events.push('paste'); },
     };
     const shape = { id: 'rect', kind: 'rect', layer: 'top-silk', lineWidth: 0.234567,
         points: [{ x: 0, y: 0 }, { x: 10, y: 0 }, { x: 10, y: 10 }, { x: 0, y: 10 }] };
@@ -108,13 +110,20 @@ function fixture() {
 for (const dispatch of dispatches.slice(1)) {
     for (const guard of ['_active', '_trackDraw', '_fillDraw', '_shapeDraw', '_pasteDrop']) {
         const { app, shape, events } = fixture();
-        app[guard] = guard === '_active' ? false : {};
+        if (guard === '_active') app[guard] = false;
+        else if (guard === '_pasteDrop') setPcbInteraction(app, guard, {
+            model: app,
+            payload: { tracks: [], vias: [], pads: [], shapes: [], texts: [], fills: [] },
+            selection: [], flags: {}, suspensions: { overlays: false, fill: false, boardView: false },
+            fillPending: false,
+        });
+        else setPcbInteraction(app, guard, {});
         setPropertyEditor(app, 'boardShape', { cancel() { assert.fail('Guarded deletion must not cancel Properties'); } });
         assert.equal(dispatch(app), guard === '_pasteDrop');
         assert.deepEqual(app.boardShapes, [shape]);
         assert.deepEqual(getPcbSelection(app, 'shape'), [shape]);
         assert.equal(app.history.undoStack.length, 0);
-        assert.deepEqual(events, guard === '_pasteDrop' ? ['paste'] : []);
+        assert.deepEqual(events, []);
     }
     {
         const { app, shape, events } = fixture();

@@ -1,5 +1,7 @@
 import assert from 'node:assert/strict';
 import { setComputedFill } from '../src/pcb/modules/computed-fill-cache.js';
+import { getVertexDrag } from '../src/pcb/modules/track-drag.js';
+import { getTrackDraw } from '../src/pcb/modules/track-draw.js';
 
 function element() {
     const classes = new Set();
@@ -156,9 +158,9 @@ try {
         updateTrackDraw(app, { x: 8, y: 4 });
         assert.deepEqual(app.tracks, originalTracks, 'draft connectivity never installs provisional tracks in the authored model');
         assert.deepEqual(app.tracks.map(track => track.captureState()), geometry);
-        const preview = app._trackDraw.ratlinePreview;
+        const preview = getTrackDraw(app).ratlinePreview;
         updateTrackDraw(app, { x: 8, y: 4 });
-        assert.equal(app._trackDraw.ratlinePreview, preview, 'unchanged pointer positions reuse provisional graph input');
+        assert.equal(getTrackDraw(app).ratlinePreview, preview, 'unchanged pointer positions reuse provisional graph input');
         assertCompleteGraph(app, layer);
         assert.equal(app._netGuideLine.parent, app.viewport.svg, 'dashed guide is outside the toggleable ratline layer');
         assert.equal(app._netGuideLine.getAttribute('stroke-dasharray'), '4 3');
@@ -194,7 +196,7 @@ try {
         const target = new Track({ points: [{ x: 20, y: -5 }, { x: 20, y: 5 }], net: 'GND' });
         target.edges.values().next().value.bulge = 0.5;
         const tracks = [source, target];
-        Object.defineProperty(app, 'tracks', { get: () => app._vertexDrag?.preview?.tracks || tracks });
+        Object.defineProperty(app, 'tracks', { get: () => getVertexDrag(app)?.preview?.tracks || tracks });
         reconcileRatsnest(app);
         startVertexDrag(app, source, { x: 5, y: 0 });
         updateVertexDrag(app, { x: 8, y: 1 });

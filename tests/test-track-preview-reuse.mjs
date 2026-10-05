@@ -1,4 +1,6 @@
 import assert from 'node:assert/strict';
+import { getTrackDraw } from '../src/pcb/modules/track-draw.js';
+import { setPcbInteraction } from '../src/pcb/modules/pcb-interactions.js';
 
 let allocations = 0;
 function element(tag) {
@@ -29,11 +31,12 @@ const { refreshTrackDrawPreview, toggleTrackLayer, popTrackWaypoint, cancelTrack
 const layers = new Map(['top-copper', 'bottom-copper', 'vias', 'hole'].map((name) => [name, element('g')]));
 const context = () => ({ points: [{ x: 0, y: 0 }], edgeLayers: [], currentLayer: 'top-copper',
     width: 0.2, net: '', previewElements: [], snap: { x: 3, y: 1 } });
-const app = { _trackDraw: context(), getLayerGroup: (name) => layers.get(name),
+const app = { getLayerGroup: (name) => layers.get(name),
     viewport: { scale: 100, hideCrosshair() {} }, getRoutingParams: () => ({ viaDiameter: 0.8, viaDrill: 0.4 }),
     _commitTracks() {} };
+setPcbInteraction(app, '_trackDraw', context());
 refreshTrackDrawPreview(app);
-const ctx = app._trackDraw;
+const ctx = getTrackDraw(app);
 const first = ctx.previewCache.get('run:0');
 const before = allocations;
 for (let frame = 0; frame < 100; frame++) {
@@ -107,15 +110,15 @@ assert.equal(ctx.previewCache.size, 1);
 ctx.snap = { x: 6, y: 0 };
 refreshTrackDrawPreview(app);
 cancelTrackDraw(app);
-assert.equal(app._trackDraw, null);
+assert.equal(getTrackDraw(app), null);
 assert.equal(ctx.previewCache.size, 0);
 for (const layer of layers.values()) assert.equal(layer.children.length, 0);
 
-app._trackDraw = context();
+setPcbInteraction(app, '_trackDraw', context());
 refreshTrackDrawPreview(app);
-app._trackDraw.points.push({ x: 3, y: 1 });
-app._trackDraw.edgeLayers.push('top-copper');
+getTrackDraw(app).points.push({ x: 3, y: 1 });
+getTrackDraw(app).edgeLayers.push('top-copper');
 finishTrackDraw(app);
-assert.equal(app._trackDraw, null);
+assert.equal(getTrackDraw(app), null);
 for (const layer of layers.values()) assert.equal(layer.children.length, 0);
 console.log('PASS: preview node reuse, layer/via changes, backspace, glow order, zoom, cancel, and finish');

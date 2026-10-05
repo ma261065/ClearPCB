@@ -8,6 +8,8 @@ import * as layers from '../src/pcb/modules/layers.js';
 import { trackIsSelectable } from '../src/pcb/modules/track-select.js';
 import { viaBounds } from '../src/shapes/via.js';
 import { lockPositionOutsideOutline } from '../src/pcb/modules/selection-anchors.js';
+import { getGroupDrag } from '../src/pcb/modules/box-select.js';
+import { setPcbInteraction } from '../src/pcb/modules/pcb-interactions.js';
 import {
     LOCK_BOUNDS,
     LOCK_MIN_SCREEN_PX,
@@ -156,7 +158,7 @@ for (const [target, property, blocked] of [
     try {
         target[property] = blocked;
         beginGroupDrag(app, { x: 0, y: 0 });
-        assert.equal(app._groupDrag.fills.length, 0, 'Stale selected locked/hidden pour must not enter a group drag');
+        assert.equal(getGroupDrag(app).fills.length, 0, 'Stale selected locked/hidden pour must not enter a group drag');
         updateGroupDrag(app, { x: 5, y: 5 });
         endGroupDrag(app);
         assert.equal(movingText.x, textStart + 5, 'Other selected objects still move');
@@ -175,7 +177,7 @@ setPcbSelection(app, [
 const lockedStart = { x: lockedPlacement.x, y: lockedPlacement.y };
 const textStart = movingText.x;
 beginGroupDrag(app, { x: 0, y: 0 });
-assert.equal(app._groupDrag.comps.length, 0, 'Locked component must not enter a group drag');
+assert.equal(getGroupDrag(app).comps.length, 0, 'Locked component must not enter a group drag');
 updateGroupDrag(app, { x: 5, y: 5 });
 endGroupDrag(app);
 assert.deepEqual({ x: lockedPlacement.x, y: lockedPlacement.y }, lockedStart);
@@ -200,7 +202,7 @@ try {
         'Shared selection hits the visible fill with copper hidden');
     setPcbSelection(fillApp, [{ kind: 'fill', object: visibleFill }]);
     beginGroupDrag(fillApp, points[0]);
-    assert.equal(fillApp._groupDrag.fills[0]?.fill, visibleFill,
+    assert.equal(getGroupDrag(fillApp).fills[0]?.fill, visibleFill,
         'The selected visible fill can enter group dragging with copper hidden');
     for (const [target, property, blocked] of [
         [topPour, 'visible', false], [topPour, 'locked', true],
@@ -269,9 +271,9 @@ assert.equal(selectionRefreshes, 5, 'Every layer eye change refreshes selection 
 console.log('PASS hiding a layer deselects only the objects it hides');
 
 const onFillVisibility = PCBApp.prototype._onCopperFillVisibilityChanged;
-fillApp._cancelPosePreviews = function () { this._groupDrag = null; };
+fillApp._cancelPosePreviews = function () { setPcbInteraction(this, '_groupDrag', null); };
 onFillVisibility.call(fillApp, 'top-copper', false);
-assert.equal(fillApp._groupDrag, null, 'Hiding a pour discards an active mixed-group preview');
+assert.equal(getGroupDrag(fillApp), null, 'Hiding a pour discards an active mixed-group preview');
 assert.equal(selectionRefreshes, 6, 'Hiding copper-fill outlines removes their selection lock overlay');
 
 const onLock = PCBApp.prototype._onCopperFillLockChanged;

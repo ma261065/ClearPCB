@@ -57,6 +57,7 @@ import { cancelVertexDrag } from './track-drag.js';
 import { getPropertyEditor } from './property-editors.js';
 import { areDragOverlaysDeferred, refreshBoardView } from './refresh-state.js';
 import { getPadHaloGroup } from './clearance-overlay.js';
+import { getPcbInteraction } from './pcb-interactions.js';
 
 const placementPreviews = new WeakMap();
 const viaPropertyPreviews = new WeakMap();
@@ -67,19 +68,23 @@ export function getTrackPropertyPreview(app) {
 }
 
 export function canonicalTrack(app, track) {
-    if (app._vertexDrag?.track === track) return app._vertexDrag.original || track;
+    const vertexDrag = getPcbInteraction(app, '_vertexDrag');
+    const viaDrag = getPcbInteraction(app, '_viaDrag');
+    if (vertexDrag?.track === track) return vertexDrag.original || track;
     const preview = trackPropertyPreviews.get(app);
     if (preview?.track === track) return preview.original;
-    return app._viaDrag?.preview?.originals.get(track)
+    return viaDrag?.preview?.originals.get(track)
         || placementPreviews.get(app)?.originals.get(track) || track;
 }
 
 export function displayedTrack(app, track) {
     track = canonicalTrack(app, track);
+    const vertexDrag = getPcbInteraction(app, '_vertexDrag');
+    const viaDrag = getPcbInteraction(app, '_viaDrag');
     const placement = placementPreviews.get(app)?.copiesByOriginal.get(track);
     if (placement) return placement;
-    if (app._vertexDrag?.original === track) return app._vertexDrag.track;
-    const terminal = app._viaDrag?.preview?.copies.get(track);
+    if (vertexDrag?.original === track) return vertexDrag.track;
+    const terminal = viaDrag?.preview?.copies.get(track);
     if (terminal) return terminal;
     const preview = trackPropertyPreviews.get(app);
     return preview?.original === track ? preview.track : track;
@@ -95,7 +100,8 @@ function assertTrackPropertyTarget(app, track, { edgeId, nodeId }) {
 
 /** Keep one exact graph copy for the active numeric track property field. */
 export function beginTrackPropertyPreview(app, original, scope) {
-    if (trackPropertyPreviews.has(app) || placementPreviews.has(app) || app._viaDrag || app._vertexDrag) {
+    if (trackPropertyPreviews.has(app) || placementPreviews.has(app)
+        || getPcbInteraction(app, '_viaDrag') || getPcbInteraction(app, '_vertexDrag')) {
         throw new Error('Finish the current track preview before editing track properties.');
     }
     assertTrackPropertyTarget(app, original, scope);
@@ -135,19 +141,21 @@ export function getViaPropertyPreview(app) {
 }
 
 export function canonicalVia(app, via) {
-    if (app._viaDrag?.via === via) return app._viaDrag.original;
+    const viaDrag = getPcbInteraction(app, '_viaDrag');
+    if (viaDrag?.via === via) return viaDrag.original;
     return viaPropertyPreviews.get(app)?.originals.get(via) || via;
 }
 
 export function displayedVia(app, via) {
     via = canonicalVia(app, via);
-    if (app._viaDrag?.original === via) return app._viaDrag.via;
+    const viaDrag = getPcbInteraction(app, '_viaDrag');
+    if (viaDrag?.original === via) return viaDrag.via;
     return viaPropertyPreviews.get(app)?.copies.get(via) || via;
 }
 
 /** Numeric via fields reuse one fixed-selection projection from first change. */
 export function beginViaPropertyPreview(app, vias) {
-    if (viaPropertyPreviews.has(app) || app._viaDrag) {
+    if (viaPropertyPreviews.has(app) || getPcbInteraction(app, '_viaDrag')) {
         throw new Error('Finish the current via preview before editing via properties.');
     }
     const available = new Set(app.pcbDocument.vias);
@@ -331,7 +339,7 @@ function _opts(app, track) {
 
 /** Net labels are hidden while a track is selected or being dragged. */
 function _shouldHideNetLabel(app, track) {
-    return !!track && (track === getPcbSelection(app, 'track')[0] || track === app._vertexDrag?.track);
+    return !!track && (track === getPcbSelection(app, 'track')[0] || track === getPcbInteraction(app, '_vertexDrag')?.track);
 }
 
 /**
@@ -451,7 +459,7 @@ export class AddTrackCommand extends ModelAddTrackCommand {
         reconcileRatsnest(this.app);
     }
     undo() {
-        if (this.app._vertexDrag?.original === this.track) cancelVertexDrag(this.app);
+        if (getPcbInteraction(this.app, '_vertexDrag')?.original === this.track) cancelVertexDrag(this.app);
         deselectRemovedTrack(this.app, this.track);
         for (const v of this.vias) {
             removeViaElements(v);
@@ -489,7 +497,7 @@ export class RemoveTrackCommand extends ModelRemoveTrackCommand {
         this.app = app;
     }
     execute() {
-        if (this.app._vertexDrag?.original === this.track) cancelVertexDrag(this.app);
+        if (getPcbInteraction(this.app, '_vertexDrag')?.original === this.track) cancelVertexDrag(this.app);
         if (getPropertyEditor(this.app, 'track')?.track === this.track) getPropertyEditor(this.app, 'track').dispose();
         deselectRemovedTrack(this.app, this.track);
         removeTrackElements(this.track);
@@ -515,7 +523,7 @@ export class ModifyTrackCommand extends ModelModifyTrackCommand {
         this.app = app;
     }
     _apply(state) {
-        if (this.app._vertexDrag?.original === this.track) cancelVertexDrag(this.app);
+        if (getPcbInteraction(this.app, '_vertexDrag')?.original === this.track) cancelVertexDrag(this.app);
         super._apply(state);
         renderTrack(this.track, (id) => this.app.getLayerGroup(id), _opts(this.app, this.track));
         refreshEditedTrackClearance(this.app);
@@ -530,7 +538,7 @@ export class MoveVertexCommand extends ModelMoveVertexCommand {
         this.app = app;
     }
     _set(pt) {
-        if (this.app._vertexDrag?.original === this.track) cancelVertexDrag(this.app);
+        if (getPcbInteraction(this.app, '_vertexDrag')?.original === this.track) cancelVertexDrag(this.app);
         super._set(pt);
         renderTrack(this.track, (id) => this.app.getLayerGroup(id), _opts(this.app, this.track));
         refreshEditedTrackClearance(this.app);
@@ -551,7 +559,7 @@ export class ModifyTrackGraphCommand extends ModelModifyTrackGraphCommand {
         this.app = app;
     }
     _apply(state) {
-        if (this.app._vertexDrag?.original === this.track) cancelVertexDrag(this.app);
+        if (getPcbInteraction(this.app, '_vertexDrag')?.original === this.track) cancelVertexDrag(this.app);
         super._apply(state);
         renderTrack(this.track, (id) => this.app.getLayerGroup(id), _opts(this.app, this.track));
         refreshEditedTrackClearance(this.app);

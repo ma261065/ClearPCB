@@ -2,6 +2,8 @@ import assert from 'node:assert/strict';
 import { PcbDocument } from '../src/core/PcbDocument.js';
 import { rotationHandleAnchor, pointerRotation, rotatedImagePoints, ROTATION_CURSOR } from '../src/pcb/modules/rotation-handle.js';
 import { attachPropertyPanelHarness } from './helpers/property-panel-controls.mjs';
+import { getSelectionInteraction } from '../src/pcb/modules/selection-interaction.js';
+import { isRotationHandleDragActive } from '../src/pcb/modules/rotation-handle.js';
 
 const bounds = { minX: -4, minY: -2, maxX: 4, maxY: 2 };
 for (const scale of [0.1, 1, 20]) {
@@ -104,7 +106,7 @@ try {
             assert.equal(app.history.undoStack.length, 0);
             adapter.endAnchorDrag(true, { moved: true });
             assert.equal(app.history.undoStack.length, 1, 'One undo entry per rotation drag');
-            assert.equal(app._rotationHandleDrag, false);
+            assert.equal(isRotationHandleDragActive(app), false);
             assert.equal(timers.size, 1, 'Release schedules clearance restoration');
             app.history.undo();
             assert.equal(JSON.stringify(kind === 'image' ? object.points : object.rotation), before);
@@ -119,11 +121,11 @@ try {
             assert.equal(app.history.undoStack.length, 1, 'Cancellation adds no undo entry');
             const releaseAnchor = adapter.getAnchors().find(handle => handle.id === 'rotate');
             assert.equal(beginSelectionInteraction(app, releaseAnchor, false), true);
-            assert.equal(app._pcbSelectionInteraction.mode, 'anchor');
+            assert.equal(getSelectionInteraction(app).mode, 'anchor');
             const releasePoint = { x: pivot.x + releaseAnchor.y - pivot.y, y: pivot.y - (releaseAnchor.x - pivot.x) };
             finishSelectionInteraction(app, true, releasePoint);
             assert.equal(app.history.undoStack.length, 2, 'Mouse-up applies final rotation without needing another move event');
-            assert.equal(app._pcbSelectionInteraction, null, 'Rotation release never becomes a floating resize');
+            assert.equal(getSelectionInteraction(app), null, 'Rotation release never becomes a floating resize');
             if (kind === 'text') assert.equal(Number(input.value), 210);
             cancelPictureCopperRefresh(app);
 
@@ -238,8 +240,7 @@ try {
         assert.equal(displayRotationDegrees(rotation), expected, 'rotation inputs display whole degrees');
     }
     // The real text selection and drag methods.
-    const textMethods = Object.fromEntries(['selectText', '_beginTextDrag', '_updateTextDrag', '_handleTextDrag',
-        '_endTextDrag'].map(name => [name, PCBApp.prototype[name]]));
+    const textMethods = { selectText: PCBApp.prototype.selectText };
     const movingText = { id: 'moving-text', content: 'Move', x: 0, y: 0, size: 2, strokeWidth: 0.2,
         rotation: 0, layer: 'top-copper' };
     const movingOverlay = element('g');
@@ -250,7 +251,7 @@ try {
         placements: new Map(), tracks: [], vias: [], history: new CommandHistory(),
         viewport: { scale: 10, svg: element('svg'), setCrosshair() {}, hideCrosshair() {} },
         getLayerGroup(id) { return id === 'selection-overlay' ? movingOverlay : null; },
-        _snapToGrid(point) { return point; },
+        snapToGrid(point) { return point; },
         refreshText() { if (isPcbSelected(this, 'text', movingText)) renderPcbSelectionAnchors(this); },
     };
     movingApp.selectText(movingText);
@@ -268,7 +269,7 @@ try {
         const bounds = pcbTextBounds(movingText);
         const press = { x: (bounds.minX + bounds.maxX) / 2, y: (bounds.minY + bounds.maxY) / 2 };
         assert.equal(beginSelectionInteraction(movingApp, press, false), true);
-        assert.equal(movingApp._pcbSelectionInteraction.mode, 'move-adapter');
+        assert.equal(getSelectionInteraction(movingApp).mode, 'move-adapter');
         assertMovingHandle();
         updateSelectionInteraction(movingApp, { x: press.x + 8, y: press.y + 3 });
         assertMovingHandle();

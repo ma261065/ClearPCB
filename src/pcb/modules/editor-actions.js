@@ -1,17 +1,20 @@
 import { cancelPcbPosePreviews, cancelPcbPropertyPreview, hasPcbInteractionInProgress } from './edit-lifecycle.js';
-import { finishSelectionInteraction, clearSelectionInteractionUi, showPcbSelectionProperties } from './selection-interaction.js';
-import { beginGroupDrag, updateGroupDrag, endGroupDrag, cancelGroupDrag, clearBoxSelection, hasBoxSelection, deleteBoxSelection } from './box-select.js';
-import { getBoardDimensionPreview, endBoardOutlineResize, finishBoardDimensionPreview } from './board-outline-resize.js';
-import { getBoardShapeRotationPreview, finishBoardShapeRotationPreview, endBoardShapeDrag, deleteFocusedBoardShape } from './board-shapes.js';
-import { cancelVertexDrag, cancelViaDrag } from './track-drag.js';
+import { finishSelectionInteraction, clearSelectionInteractionUi, setSelectionInteraction, showPcbSelectionProperties } from './selection-interaction.js';
+import { beginGroupDrag, updateGroupDrag, endGroupDrag, cancelGroupDrag, clearBoxSelection, getGroupDrag, hasBoxSelection, deleteBoxSelection } from './box-select.js';
+import { getBoardDimensionPreview, endBoardOutlineResize, finishBoardDimensionPreview, getBoardOutlineResize } from './board-outline-resize.js';
+import { getBoardShapeDrag, getBoardShapeRotationPreview, finishBoardShapeRotationPreview, endBoardShapeDrag, deleteFocusedBoardShape } from './board-shapes.js';
+import { cancelVertexDrag, cancelViaDrag, setSegmentClickEdgeId } from './track-drag.js';
 import { getPcbSelection, getPcbSelectionEntries } from './selection-registry.js';
 import { getSelectedTrack, getSelectedVia, clearTrackSelection, deleteSelectedTrack } from './track-select.js';
 import { canEditFill, deleteFocusedFillPart } from './copper-fill-edit.js';
 import { resetPcbTool } from './tool-lifecycle.js';
-import { isPcbDrawing } from './pcb-interactions.js';
+import { getPcbInteraction, isPcbDrawing } from './pcb-interactions.js';
 import { getPropertyEditor } from './property-editors.js';
 import { isEditorActive } from './pcb-editor-api.js';
 import { flushSettledChanges } from '../../shared/ui/settled-input.js';
+import { cancelPcbPaste } from './pcb-paste.js';
+import { endComponentDrag } from './component-selection.js';
+import { endRefDrag } from './ref-text-selection.js';
 
 /**
  * Delete the current refinement or selection, retaining drawing/paste ownership
@@ -20,8 +23,8 @@ import { flushSettledChanges } from '../../shared/ui/settled-input.js';
  */
 export function runPcbDeleteAction(app) {
     if (!isEditorActive(app) || isPcbDrawing(app)) return false;
-    if (app._pasteDrop) { app._cancelPasteDrop(); return true; }
-    if (app._groupDrag) cancelPcbPosePreviews(app);
+    if (getPcbInteraction(app, '_pasteDrop')) { cancelPcbPaste(app); return true; }
+    if (getGroupDrag(app)) cancelPcbPosePreviews(app);
     getPropertyEditor(app, 'boardShape')?.cancel();
     getPropertyEditor(app, 'track')?.cancel();
     if (deleteFocusedBoardShape(app)) return true;
@@ -74,7 +77,7 @@ export function runPcbNudgeAction(app, key) {
 export function runPcbEscapeAction(app) {
     if (!isEditorActive(app)) return false;
     if (cancelPcbPropertyPreview(app)) return true;
-    if (app._boardOutlineResize) {
+    if (getBoardOutlineResize(app)) {
         endBoardOutlineResize(app, false);
         app.viewport.svg.style.cursor = 'default';
         return true;
@@ -87,33 +90,33 @@ export function runPcbEscapeAction(app) {
         app._clearCursorCrosshair();
         return true;
     }
-    if (app._drag) {
-        app._endDrag(false);
+    if (getPcbInteraction(app, '_drag')) {
+        endComponentDrag(app, false);
         app._clearCursorCrosshair();
         return true;
     }
-    if (app._refDrag) {
-        app._endRefDrag(false);
+    if (getPcbInteraction(app, '_refDrag')) {
+        endRefDrag(app, false);
         app._clearCursorCrosshair();
         return true;
     }
-    if (app._groupDrag) {
+    if (getGroupDrag(app)) {
         cancelGroupDrag(app);
         app.viewport.svg.style.cursor = 'default';
         return true;
     }
-    if (app._pasteDrop) {
-        app._cancelPasteDrop();
+    if (getPcbInteraction(app, '_pasteDrop')) {
+        cancelPcbPaste(app);
         return true;
     }
-    if (app._vertexDrag) {
+    if (getPcbInteraction(app, '_vertexDrag')) {
         cancelVertexDrag(app);
         app.viewport.hideCrosshair();
         // No mouse-up cleanup follows a cancelled drag.
-        app._segmentClickEdgeId = null;
+        setSegmentClickEdgeId(app, null);
         return true;
     }
-    if (app._viaDrag) { cancelViaDrag(app); return true; }
+    if (getPcbInteraction(app, '_viaDrag')) { cancelViaDrag(app); return true; }
     if (app.currentTool !== 'select') {
         clearSelectionInteractionUi(app);
         clearBoxSelection(app);
@@ -163,30 +166,30 @@ export function runPcbHistoryAction(app, action) {
     if (!isEditorActive(app) || isPcbDrawing(app)) return false;
     // A spinner run still settling becomes its own undo step first.
     flushSettledChanges();
-    if (app._pasteDrop) {
-        app._cancelPasteDrop();
+    if (getPcbInteraction(app, '_pasteDrop')) {
+        cancelPcbPaste(app);
         return true;
     }
-    if (getBoardDimensionPreview(app) || app._boardOutlineResize) {
+    if (getBoardDimensionPreview(app) || getBoardOutlineResize(app)) {
         getPropertyEditor(app, 'boardDimension')?.cancel();
         endBoardOutlineResize(app, false);
         finishBoardDimensionPreview(app);
         return true;
     }
-    if (app._groupDrag) {
+    if (getGroupDrag(app)) {
         if (action === 'undo') {
             cancelGroupDrag(app);
-            app._pcbSelectionInteraction = null;
+            setSelectionInteraction(app, null);
         } else cancelPcbPosePreviews(app);
         return true;
     }
     if (action === 'undo') {
         finishSelectionInteraction(app, false);
-        if (app._drag) app._endDrag(false);
-        if (app._refDrag) app._endRefDrag(false);
-        if (app._vertexDrag) { cancelVertexDrag(app); app.viewport.hideCrosshair(); }
-        if (app._viaDrag) cancelViaDrag(app);
-        if (app._shapeDrag) {
+        if (getPcbInteraction(app, '_drag')) endComponentDrag(app, false);
+        if (getPcbInteraction(app, '_refDrag')) endRefDrag(app, false);
+        if (getPcbInteraction(app, '_vertexDrag')) { cancelVertexDrag(app); app.viewport.hideCrosshair(); }
+        if (getPcbInteraction(app, '_viaDrag')) cancelViaDrag(app);
+        if (getBoardShapeDrag(app)) {
             endBoardShapeDrag(app, false);
             app._clearCursorCrosshair();
         }

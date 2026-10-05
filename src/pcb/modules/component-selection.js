@@ -1,7 +1,124 @@
-import { registerPcbSelectionAdapter, getComponentSelectionHits } from './selection-registry.js';
+import { getPcbSelection, registerPcbSelectionAdapter, getComponentSelectionHits } from './selection-registry.js';
 import { lockPositionOutsideOutline } from './selection-anchors.js';
-import { rotationHandleAnchor, pointerRotation } from './rotation-handle.js';
-import { previewPlacementPose, restorePlacementPosePreview, finishPlacementPreview, RotatePlacementCommand } from './track-commands.js';
+import { beginRotationHandleDrag, endRotationHandleDrag, rotationHandleAnchor, pointerRotation } from './rotation-handle.js';
+import { previewPlacementPose, restorePlacementPosePreview, finishPlacementPreview, MovePlacementCommand, RotatePlacementCommand } from './track-commands.js';
+import { setHoverHighlight } from './track-select.js';
+import { setDragOverlaysDeferred } from './refresh-state.js';
+import { areClearancesVisible, getPadHaloGroup } from './clearance-overlay.js';
+import { getPcbInteraction, setPcbInteraction } from './pcb-interactions.js';
+import { isEditorActive } from './pcb-editor-api.js';
+
+const componentDragFrames = new WeakMap();
+
+function showFootprintCrosshair(app, placement) {
+    if (!placement || !app.viewport?.setCrosshair) return;
+    app.viewport.setCrosshair({ x: placement.x, y: placement.y });
+}
+
+export function getComponentDrag(app) {
+    return getPcbInteraction(app, '_drag');
+}
+
+export function beginComponentDrag(app, componentId, worldPos) {
+    const placement = app.placements.get(componentId);
+    if (!placement || placement.locked) return false;
+    setHoverHighlight(app, null);
+    app._hoverComponent(null);
+    app._hideNetTooltip();
+    const drag = {
+        compId: componentId,
+        startWorld: worldPos,
+        startPos: { x: placement.x, y: placement.y },
+        nets: app._netsForComponent(componentId),
+    };
+    setPcbInteraction(app, '_drag', drag);
+    setDragOverlaysDeferred(app, true);
+    if (areClearancesVisible(app)) {
+        const group = getPadHaloGroup(app, componentId);
+        if (group) group.style.display = 'none';
+        const overlay = app.getLayerGroup('clearance-overlay');
+        if (overlay) {
+            for (const net of drag.nets) {
+                for (const element of overlay.querySelectorAll(`.debug-clearance[data-net="${CSS.escape(net)}"]`)) {
+                    /** @type {SVGElement} */ (element).style.display = 'none';
+                }
+            }
+            overlay.style.willChange = 'transform';
+        }
+    }
+    showFootprintCrosshair(app, placement);
+    return true;
+}
+
+export function updateComponentDrag(app, worldPos) {
+    const drag = getComponentDrag(app);
+    if (!drag) return;
+    const newX = drag.startPos.x + worldPos.x - drag.startWorld.x;
+    const newY = drag.startPos.y + worldPos.y - drag.startWorld.y;
+    const placement = app.placements.get(drag.compId);
+    if (!placement || placement.locked) return;
+    const snap = app.snapToGrid({ x: newX, y: newY });
+    if (placement.x === snap.x && placement.y === snap.y) return;
+    previewPlacementPose(app, drag.compId, { x: snap.x, y: snap.y });
+    showFootprintCrosshair(app, placement);
+    app.updateRatsnest({ nets: drag.nets });
+}
+
+export function scheduleComponentDragUpdate(app, e) {
+    let frame = componentDragFrames.get(app);
+    if (!frame) {
+        frame = { raf: 0, pending: null };
+        componentDragFrames.set(app, frame);
+    }
+    frame.pending = e;
+    if (frame.raf) return;
+    frame.raf = requestAnimationFrame(() => {
+        frame.raf = 0;
+        const ev = frame.pending;
+        frame.pending = null;
+        if (!ev || !isEditorActive(app) || !getComponentDrag(app)) return;
+        handleComponentDrag(app, ev);
+    });
+}
+
+export function handleComponentDrag(app, e) {
+    if (!getComponentDrag(app)) return;
+    app.viewport.shiftHeld = e.shiftKey;
+    updateComponentDrag(app, app.screenToWorld(e));
+}
+
+export function endComponentDrag(app, commit = true) {
+    const drag = getComponentDrag(app);
+    if (!drag) return;
+    const frame = componentDragFrames.get(app);
+    if (frame?.raf) {
+        cancelAnimationFrame(frame.raf);
+        frame.raf = 0;
+    }
+    const pending = frame?.pending || null;
+    if (frame) frame.pending = null;
+    if (commit && pending) handleComponentDrag(app, pending);
+    const { compId, startPos } = drag;
+    const placement = app.placements.get(compId);
+    setPcbInteraction(app, '_drag', null);
+    setDragOverlaysDeferred(app, false);
+    if (areClearancesVisible(app)) {
+        const overlay = app.getLayerGroup('clearance-overlay');
+        if (overlay) overlay.style.willChange = '';
+    }
+    app.viewport.svg.style.cursor = getPcbSelection(app, 'component').length ? 'grab' : 'default';
+    app.viewport.hideCrosshair?.();
+    if (commit && placement && (placement.x !== startPos.x || placement.y !== startPos.y)) {
+        finishPlacementPreview(app, () => {
+            const command = new MovePlacementCommand(app, compId, startPos.x, startPos.y, placement.x, placement.y);
+            app.history.execute(command);
+        });
+    } else {
+        finishPlacementPreview(app);
+        app.refreshClearanceHalos();
+        app.updateRatsnest();
+    }
+}
 
 function outlineForPlacement(placement) {
     const bounds = placement?.bounds;
@@ -75,9 +192,9 @@ export function createComponentSelectionAdapter(app, componentId, id) {
             const placement = app.placements?.get(componentId);
             return { x: placement?.x || 0, y: placement?.y || 0 };
         },
-        beginMove(worldPos) { return app._beginComponentDrag(componentId, worldPos); },
-        updateMove(worldPos) { app._updateComponentDrag(worldPos); },
-        endMove(commit) { app._endDrag(commit); },
+        beginMove(worldPos) { return beginComponentDrag(app, componentId, worldPos); },
+        updateMove(worldPos) { updateComponentDrag(app, worldPos); },
+        endMove(commit) { endComponentDrag(app, commit); },
         beginAnchorDrag(anchorId, worldPos) {
             const placement = app.placements?.get(componentId);
             if (anchorId !== 'rotate' || !placement || placement.locked) return false;
@@ -85,7 +202,7 @@ export function createComponentSelectionAdapter(app, componentId, id) {
                 center: { x: placement.x, y: placement.y }, start: { ...worldPos },
                 rotation: placement.rotation || 0, nets: app._netsForComponent?.(componentId),
             };
-            app._rotationHandleDrag = true;
+            beginRotationHandleDrag(app);
             app._hoverComponent?.(null);
             app._hideNetTooltip?.();
             return true;
@@ -104,7 +221,7 @@ export function createComponentSelectionAdapter(app, componentId, id) {
             const placement = app.placements?.get(componentId);
             const before = rotationDrag.rotation;
             rotationDrag = null;
-            app._rotationHandleDrag = false;
+            endRotationHandleDrag(app);
             if (!placement) {
                 finishPlacementPreview(app);
                 return;

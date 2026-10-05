@@ -16,6 +16,9 @@ import { getPropertyEditor } from '../src/pcb/modules/property-editors.js';
 import { areDragOverlaysDeferred } from '../src/pcb/modules/refresh-state.js';
 import { getBoardShapeNodeFocus, getBoardShapeSegmentFocus, setBoardShapeNodeFocus, setBoardShapeSegmentFocus } from '../src/pcb/modules/board-shape-state.js';
 import { flushSettledChanges } from '../src/shared/ui/settled-input.js';
+import { getSelectionInteraction } from '../src/pcb/modules/selection-interaction.js';
+import { getBoardShapeDrag } from '../src/pcb/modules/board-shapes.js';
+import { isRotationHandleDragActive } from '../src/pcb/modules/rotation-handle.js';
 
 let allocations = 0;
 class Element {
@@ -431,7 +434,7 @@ console.log(`PASS ${checked} shape/image numeric ownership cases: isolation, lif
     startBoardShapeDrag(app, displayed, shapes[0].points[0], 0);
     assert.equal(app.history.undoStack.length, 1);
     assert.equal(shapes[0].lineWidth, 1.8);
-    assert.equal(app._shapeDrag.original, shapes[0]);
+    assert.equal(getBoardShapeDrag(app).original, shapes[0]);
     endBoardShapeDrag(app, false);
     cancelPictureCopperRefresh(app);
 }
@@ -934,7 +937,7 @@ for (const valid of [false, true]) {
     const input = fields.get('pcbPropShapeDiameter');
     input.focus();
     input.value = '12.0'; input.fire('input');
-    assert.equal(app._shapeDrag, null);
+    assert.equal(getBoardShapeDrag(app), null);
     assert.equal(app.history.undoStack.length, 1);
     assert.equal(shape.radius, 7, 'Numeric pickup first accepts the pointer geometry');
     assert.equal(getBoardShapePropertyPreview(app).copies[0].radius, 6);
@@ -954,7 +957,7 @@ for (const finish of ['commit', 'cancel', 'panel', 'different-owner']) {
     const adapter = createBoardShapeSelectionAdapter(app, shape, `shape:${shape.id}`);
     assert.equal(beginPcbAnchorInteraction(app, adapter, { id: 'rotate', symbol: 'rotate' }, { x: 17, y: 6 }), true);
     assert.ok(getBoardShapeRotationPreview(app), 'Showing the image properties must not cancel rotation pickup');
-    assert.equal(app._pcbSelectionInteraction?.mode, 'anchor');
+    assert.equal(getSelectionInteraction(app)?.mode, 'anchor');
     updateSelectionInteraction(app, { x: 7, y: -4 });
     const preview = getBoardShapeRotationPreview(app);
     assert.equal(preview.currentRotation, 90);
@@ -979,8 +982,8 @@ for (const finish of ['commit', 'cancel', 'panel', 'different-owner']) {
         assert.equal(app.history.canUndo(), false);
     }
     assert.equal(getBoardShapeRotationPreview(app), undefined);
-    assert.equal(app._pcbSelectionInteraction, null);
-    assert.equal(app._rotationHandleDrag, false);
+    assert.equal(getSelectionInteraction(app), null);
+    assert.equal(isRotationHandleDragActive(app), false);
     cancelPictureCopperRefresh(app);
 }
 console.log('PASS image rotation through selection and real property bindings, same-owner refresh, cancellation and history');

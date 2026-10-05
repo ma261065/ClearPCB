@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { installFakeDom } from './helpers/fake-dom.mjs';
+import { getFillDraw } from '../src/pcb/modules/copper-fill-draw.js';
 
 // The Fill tool has a "New Fill" Properties panel like the other drawing tools: the
 // layer, net and corner radius a new pour gets. A pour being drawn follows them.
@@ -49,7 +50,7 @@ field('cornerRadius').preview(2);
 assert.equal(fillToolDefaults(app).cornerRadius, 2);
 assert.ok(previewPoints() > 4, 'the pour being drawn shows its rounded corners while the radius changes');
 field('layer').commit('bottom-copper');
-assert.equal(app._fillDraw.layer, 'bottom-copper', 'the pour being drawn moves to the chosen layer');
+assert.equal(getFillDraw(app).layer, 'bottom-copper', 'the pour being drawn moves to the chosen layer');
 assert.equal(panel().fields[0].value, 'bottom-copper');
 field('layer').commit('inner-copper');
 assert.equal(fillToolDefaults(app).layer, 'bottom-copper', 'only copper layers are accepted');
@@ -61,7 +62,7 @@ assert.ok(fill, 'finishing commits the pour');
 assert.deepEqual([fill.layer, fill.net, fill.cornerRadius], ['bottom-copper', 'GND', 2], 'the new pour takes the tool settings');
 assert.deepEqual(shown, [fill], 'and its own Properties replace the tool panel');
 assert.equal(app.history.undoStack.length, 1, 'one undo step');
-assert.equal(app._fillDraw, null);
+assert.equal(getFillDraw(app), null);
 assert.deepEqual(fillToolDefaults(app), { layer: 'bottom-copper', net: 'GND', cornerRadius: 2 }, 'the next pour starts from them too');
 
 console.log('PASS Fill tool Properties: layer, net and corner radius for new pours; live preview; committed pour');

@@ -17,6 +17,7 @@ import { prepareFabricationSnapshot } from '../src/pcb/modules/fabrication-snaps
 import { loadPcb } from '../src/pcb/modules/project-state.js';
 import { PCB_LAYERS } from '../src/pcb/modules/layers.js';
 import { areDragOverlaysDeferred, isBoardViewRefreshSuspended, isFillRefreshSuspended, setBoardViewRefreshSuspended, setDragOverlaysDeferred, setFillRefreshPending, setFillRefreshSuspended } from '../src/pcb/modules/refresh-state.js';
+import { getPcbPaste } from '../src/pcb/modules/pcb-paste.js';
 
 let allocations = 0;
 class Element {
@@ -106,7 +107,7 @@ function fixture(deferred = false) {
         Object.defineProperty(app, key, Object.getOwnPropertyDescriptor(PCBApp.prototype, key));
     }
     for (const method of ['_hasPcbClipboardData', 'pasteSelection', '_beginPasteDrop', '_updatePasteDrop', '_endPasteDrop',
-        '_cancelPasteDrop', '_cancelPosePreviews', '_snapToGrid', '_renderText', 'refreshText', '_removeTextElement',
+        '_cancelPasteDrop', '_cancelPosePreviews', 'snapToGrid', '_renderText', 'refreshText', '_removeTextElement',
         'isSectionEditing', '_onLayerVisibilityChanged', '_onLayerLockChanged',
         '_refreshBoardShapeClearance', '_computeClearanceOutlines']) app[method] = PCBApp.prototype[method];
     project.registerView('pcb', app);
@@ -138,7 +139,7 @@ for (const imageOnly of [false, true]) for (const deferred of [false, true]) for
     const clipboardBefore = structuredClone(clipboard);
     if (imageOnly) app._beginPasteDrop(preparePcbPaste(app, { shapes: [image] }), { select: true });
     else assert.equal(app.pasteSelection(), true);
-    const state = app._pasteDrop, payload = state.payload, projection = state.preview;
+    const state = getPcbPaste(app), payload = state.payload, projection = state.preview;
     const stagedNodes = payload.tracks[0]?.nodes, stagedOutline = payload.fills[0]?.outline;
     assert.deepEqual(app.history.undoStack, oldUndo);
     assert.deepEqual(app.history.redoStack, oldRedo);
@@ -148,7 +149,7 @@ for (const imageOnly of [false, true]) for (const deferred of [false, true]) for
     const counts = work(), point = { x: 29.123456789, y: -21.234567891 };
     for (let i = 0; i < 100; i++) app._updatePasteDrop(point);
     assert.deepEqual(work(), counts, 'Repeated snapped pointer performs no rendering or derived work');
-    assert.equal(app._pasteDrop.preview, projection);
+    assert.equal(getPcbPaste(app).preview, projection);
     assert.equal(payload.tracks[0]?.nodes, stagedNodes);
     assert.equal(payload.tracks[0]?.getBounds(), stagedBounds, 'Unchanged pointers do not invalidate staged graph caches');
     assert.equal(payload.fills[0]?.outline, stagedOutline);
@@ -217,7 +218,7 @@ for (const imageOnly of [false, true]) for (const deferred of [false, true]) for
                 assert.equal(model.shapeIdCounter, counter);
             }
         }
-        assert.equal(app._pasteDrop, null);
+        assert.equal(getPcbPaste(app), null);
         assert.equal(areDragOverlaysDeferred(app), deferred);
         assert.equal(isFillRefreshSuspended(app), deferred);
         assert.equal(isBoardViewRefreshSuspended(app), deferred);
@@ -237,9 +238,9 @@ for (const key of ['tracks', 'vias', 'pads', 'shapes', 'texts', 'fills']) {
     const { app, model, clipboard } = fixture(), before = model.captureGeometry();
     app._pcbClipboard = { [key]: clipboard[key] };
     app.pasteSelection();
-    const first = app._pasteDrop.payload;
+    const first = getPcbPaste(app).payload;
     app.pasteSelection();
-    assert.notEqual(app._pasteDrop.payload, first);
+    assert.notEqual(getPcbPaste(app).payload, first);
     assert.deepEqual(model.captureGeometry(), before, 'Repeated paste replaces only the detached bundle');
     assert.equal(app.history.undoStack.length, 0);
     app._endPasteDrop();
@@ -251,7 +252,7 @@ for (const key of ['Escape', 'Delete', 'z', 'y']) {
     const { app, model } = fixture(), before = model.captureGeometry();
     app.pasteSelection();
     assert.equal(PCBApp.prototype.handleKeyDown.call(app, { key, ctrlKey: ['z', 'y'].includes(key) }), true);
-    assert.equal(app._pasteDrop, null);
+    assert.equal(getPcbPaste(app), null);
     assert.deepEqual(model.captureGeometry(), before);
 }
 {
@@ -259,12 +260,12 @@ for (const key of ['Escape', 'Delete', 'z', 'y']) {
     app.pasteSelection();
     assert.throws(() => app._updatePasteDrop({ x: NaN, y: 2 }), /finite pointer/);
     assert.deepEqual(model.captureGeometry(), before);
-    assert.equal(app._pasteDrop, null);
+    assert.equal(getPcbPaste(app), null);
     app.pasteSelection();
-    app._pasteDrop.payload.tracks[0].nodes.delete('n0');
+    getPcbPaste(app).payload.tracks[0].nodes.delete('n0');
     assert.throws(() => app._endPasteDrop(), /track node is no longer available/);
     assert.deepEqual(model.captureGeometry(), before);
-    assert.equal(app._pasteDrop, null);
+    assert.equal(getPcbPaste(app), null);
 }
 console.log('PASS single-kind/repeated paste, keyboard discard, invalid and missing preview cleanup');
 
@@ -277,7 +278,7 @@ console.log('PASS single-kind/repeated paste, keyboard discard, invalid and miss
         bindPcbHistoryButtons(app, action === 'undo' ? button : null, action === 'redo' ? button : null);
         app.pasteSelection();
         callback();
-        assert.equal(app._pasteDrop, null);
+        assert.equal(getPcbPaste(app), null);
         assert.deepEqual(model.captureGeometry(), before);
         assert.equal(app.history.undoStack.length, 0);
     }
@@ -286,13 +287,13 @@ console.log('PASS single-kind/repeated paste, keyboard discard, invalid and miss
     const { app, model } = fixture(), before = model.captureGeometry();
     app.pasteSelection();
     PCBApp.prototype.cutSelection.call(app);
-    assert.equal(app._pasteDrop, null);
+    assert.equal(getPcbPaste(app), null);
     assert.deepEqual(model.captureGeometry(), before, 'Cut during floating paste never deletes prior authored selection');
 }
 {
     const { app, model } = fixture();
     app.pasteSelection();
-    const shape = app._pasteDrop.payload.shapes[0];
+    const shape = getPcbPaste(app).payload.shapes[0];
     const collision = { ...structuredClone(shape), points: shape.points.map(point => ({ x: point.x + 50, y: point.y })) };
     model.boardShapes.push(collision);
     renderBoardShape(app, collision);
@@ -308,7 +309,7 @@ console.log('PASS single-kind/repeated paste, keyboard discard, invalid and miss
     model.texts.set = () => { throw new Error('Model insertion failed'); };
     assert.throws(() => app._endPasteDrop(), /Model insertion failed/);
     model.texts.set = set;
-    assert.equal(app._pasteDrop, null);
+    assert.equal(getPcbPaste(app), null);
     assert.deepEqual(model.captureGeometry(), before, 'A partly applied bundle rolls back only its own insertions');
     assert.equal(model.shapeIdCounter, counter);
     assert.equal(app.history.undoStack.length, 0);
@@ -322,11 +323,11 @@ console.log('PASS toolbar undo/redo, cut discard, ID collision ownership and par
     })));
     const before = model.captureGeometry();
     app.pasteSelection();
-    const projection = app._pasteDrop.preview, nodes = app._pasteDrop.payload.tracks[0].nodes, counts = work();
+    const projection = getPcbPaste(app).preview, nodes = getPcbPaste(app).payload.tracks[0].nodes, counts = work();
     for (let index = 0; index < 1000; index++) app._updatePasteDrop(app.viewport.currentMouseWorld);
     assert.deepEqual(work(), counts);
-    assert.equal(app._pasteDrop.preview, projection);
-    assert.equal(app._pasteDrop.payload.tracks[0].nodes, nodes);
+    assert.equal(getPcbPaste(app).preview, projection);
+    assert.equal(getPcbPaste(app).payload.tracks[0].nodes, nodes);
     assert.equal(app.boardShapes[1005], model.boardShapes[1005]);
     app._cancelPasteDrop();
     assert.deepEqual(model.captureGeometry(), before);
@@ -360,14 +361,14 @@ console.log('PASS 1000-shape stationary reuse, canonical copper-cut cache seedin
     const payload = preparePcbPaste(app, { vias: clipboard.vias });
     app.viewport.currentMouseWorld = { x: payload.vias[0].x, y: payload.vias[0].y };
     app._beginPasteDrop(payload);
-    assert.equal(app._pasteDrop.dx, 0);
-    assert.equal(app._pasteDrop.dy, 0);
+    assert.equal(getPcbPaste(app).dx, 0);
+    assert.equal(getPcbPaste(app).dy, 0);
     app._endPasteDrop();
     assert.equal(app.history.undoStack.length, 1, 'An unmoved fresh paste is still an insertion, not a no-op');
     app.history.undo();
     assert.deepEqual(model.captureGeometry(), before);
     app._active = false;
     assert.throws(() => app.pasteSelection(), /inactive/);
-    assert.equal(app._pasteDrop, null);
+    assert.equal(getPcbPaste(app), null);
     assert.deepEqual(model.captureGeometry(), before);
 }

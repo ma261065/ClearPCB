@@ -6,6 +6,9 @@ import { Viewport } from '../src/core/Viewport.js';
 import { cancelTrackDraw, finishTrackDraw, popTrackWaypoint } from '../src/pcb/modules/track-draw.js';
 import { selectPcbTool, preparePcbRibbonTransition } from '../src/pcb/modules/tool-lifecycle.js';
 import { getPropertyEditor, setPropertyEditor } from '../src/pcb/modules/property-editors.js';
+import { getSelectionInteraction } from '../src/pcb/modules/selection-interaction.js';
+import { getTrackDraw } from '../src/pcb/modules/track-draw.js';
+import { getPcbInteraction, setPcbInteraction } from '../src/pcb/modules/pcb-interactions.js';
 
 globalThis.window = { addEventListener() {} };
 globalThis.document = { getElementById: () => null, querySelector: () => null };
@@ -95,9 +98,9 @@ for (const kind of ['component', 'shape', 'track', 'via', 'pad', 'fill', 'text',
             endMove(commit) { assert.equal(commit, false); events.push('end-move'); },
             endAnchorDrag(commit) { assert.equal(commit, false); events.push('end-anchor'); },
         };
-        app._pcbSelectionInteraction = { mode, entry: adapter, adapter };
+        setPcbInteraction(app, '_pcbSelectionInteraction', { mode, entry: adapter, adapter });
         assert.equal(escape(), true);
-        assert.equal(app._pcbSelectionInteraction, null, `${kind}/${mode}: use the shared selection state machine`);
+        assert.equal(getSelectionInteraction(app), null, `${kind}/${mode}: use the shared selection state machine`);
         assert.equal(app.currentTool, 'via', 'Cancelling the gesture does not also exit the tool');
         assert.deepEqual(events, [
             ...(['anchor', 'floating-anchor'].includes(mode) ? ['end-anchor'] : mode === 'move-adapter' ? ['end-move'] : []),
@@ -147,7 +150,7 @@ function drawingFixture(tool) {
     preview.parentNode = { removeChild: () => preview.remove() };
     app.currentTool = tool;
     const key = tool === 'track' ? '_trackDraw' : tool === 'fill' ? '_fillDraw' : '_shapeDraw';
-    app[key] = { kind: tool, points: [{ x: 1, y: 2 }], preview, previewElements: [preview] };
+    setPcbInteraction(app, key, { kind: tool, points: [{ x: 1, y: 2 }], preview, previewElements: [preview] });
     if (tool === 'fill') app.getLayerGroup = id => id === 'selection-overlay'
         ? { querySelectorAll: () => [preview] } : null;
     app._lastCrosshairWorld = { x: Math.PI, y: -Math.E };
@@ -162,7 +165,7 @@ for (const tool of ['track', 'fill', 'line', 'rect', 'polygon', 'circle', 'arc']
         const before = structuredClone([app.viewport._crosshairXLine.attributes, app.viewport._crosshairYLine.attributes]);
         const redo = [...app.history.redoStack];
         assert.equal(escape(), true);
-        assert.equal(app[key], null);
+        assert.equal(getPcbInteraction(app, key), null);
         assert.equal(preview.removed, true, `${tool}: drawing artwork is removed`);
         assert.equal(app.currentTool, tool);
         assert.equal(app.viewport.crosshairContainer.style.display, visible ? 'block' : 'none',
@@ -178,17 +181,17 @@ for (const tool of ['track', 'fill', 'line', 'rect', 'polygon', 'circle', 'arc']
 for (const finish of [cancelTrackDraw, finishTrackDraw, popTrackWaypoint]) {
     const { app } = drawingFixture('track');
     finish(app);
-    assert.equal(app._trackDraw, null);
+    assert.equal(getTrackDraw(app), null);
     assert.equal(app.viewport.crosshairContainer.style.display, 'block', 'Track teardown retains the selected tool crosshair');
 }
 {
     const { app } = drawingFixture('track');
-    app._trackDraw.points.push({ x: 5, y: 2 });
-    app._trackDraw.edgeLayers = ['top-copper'];
+    getTrackDraw(app).points.push({ x: 5, y: 2 });
+    getTrackDraw(app).edgeLayers = ['top-copper'];
     app._commitTracks = tracks => app.tracks.push(...tracks);
     finishTrackDraw(app);
     assert.equal(app.tracks.length, 1, 'Successful completion still commits the track');
-    assert.equal(app._trackDraw, null);
+    assert.equal(getTrackDraw(app), null);
     assert.equal(app.viewport.crosshairContainer.style.display, 'block', 'Completion also retains the selected tool crosshair');
 }
 for (const leave of [
@@ -198,7 +201,7 @@ for (const leave of [
 ]) {
     const { app } = drawingFixture('track');
     leave(app);
-    assert.equal(app._trackDraw, null);
+    assert.equal(getTrackDraw(app), null);
     assert.equal(app.currentTool, 'select');
     assert.equal(app.viewport.crosshairContainer.style.display, 'none', 'Leaving drawing mode still clears the crosshair');
 }

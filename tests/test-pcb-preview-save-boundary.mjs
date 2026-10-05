@@ -6,6 +6,7 @@ import { Track } from '../src/shapes/track.js';
 import { CommandHistory } from '../src/core/CommandHistory.js';
 import { updatePlacementPadPositions } from '../src/core/pcb-placement-geometry.js';
 import { createComponentSelectionAdapter } from '../src/pcb/modules/component-selection.js';
+import { setPcbInteraction } from '../src/pcb/modules/pcb-interactions.js';
 import { prepareFabricationSnapshot } from '../src/pcb/modules/fabrication-snapshot.js';
 import { saveFile, saveFileAs } from '../src/schematic/modules/files.js';
 
@@ -138,7 +139,7 @@ try {
         const suspensionSetters = { _deferDragOverlays: setDragOverlaysDeferred, _suspendFillRefresh: setFillRefreshSuspended };
         const setFlag = value => {
             if (suspensionSetters[flag]) suspensionSetters[flag](f.app, value);
-            else f.app[flag] = value;
+            else setPcbInteraction(f.app, flag, value);
         };
         setFlag({});
         f.tick();

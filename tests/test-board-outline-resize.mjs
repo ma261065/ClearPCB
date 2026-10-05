@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { PcbDocument } from '../src/core/PcbDocument.js';
 import { isBoardViewRefreshSuspended } from '../src/pcb/modules/refresh-state.js';
+import { getBoardOutlineResize } from '../src/pcb/modules/board-outline-resize.js';
 globalThis.window = { addEventListener() {} };
 const inputs = new Map([
     ['pcbPropBoardW', { value: '100' }], ['pcbPropBoardH', { value: '80' }],
@@ -179,7 +180,7 @@ assert.ok(beginBoardOutlineResize(app, { x: 110, y: -95 }));
 updateBoardOutlineResize(app, { x: 120, y: -100 });
 layer.locked = true;
 updateBoardOutlineResize(app, { x: 125, y: -105 });
-assert.equal(app._boardOutlineResize, null);
+assert.equal(getBoardOutlineResize(app), null);
 assert.deepEqual([app._boardWidth, app._boardHeight], [110, 95], 'Locking during a drag restores original dimensions');
 layer.locked = false;
 console.log('PASS board resize handles, snapping, minimum dimensions, undo/redo, cancellation, and locks');

@@ -8,6 +8,7 @@ import { ProjectDocument } from '../src/core/ProjectDocument.js';
 import { Component } from '../src/components/Component.js';
 import { Via } from '../src/shapes/via.js';
 import { areDragOverlaysDeferred } from '../src/pcb/modules/refresh-state.js';
+import { getGroupDrag } from '../src/pcb/modules/box-select.js';
 
 globalThis.window = { addEventListener() {} };
 globalThis.document = { createElementNS: () => ({ setAttribute() {}, appendChild() {} }) };
@@ -246,7 +247,7 @@ assert.equal(dragApp.tracks[0].nodes.values().next().value.x, 10);
 assert.deepEqual(model.serialize(), before, 'Group preview does not author copper or component placements');
 assert.deepEqual(draggedTrack.captureState(), originalTrack);
 cancelGroupDrag(dragApp);
-assert.equal(dragApp._groupDrag, null);
+assert.equal(getGroupDrag(dragApp), null);
 assert.equal(areDragOverlaysDeferred(dragApp), false);
 assert.equal(dragApp.placements.get('U1').x, 0);
 assert.deepEqual([draggedVia.x, draggedVia.y], [2, 3]);

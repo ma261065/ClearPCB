@@ -5,6 +5,10 @@ import { capturePlacementOverride } from '../src/core/PcbPlacementState.js';
 import { updatePlacementPadPositions } from '../src/core/pcb-placement-geometry.js';
 import { Track } from '../src/shapes/track.js';
 import { createRefTextSelectionAdapter } from '../src/pcb/modules/ref-text-selection.js';
+import { getSelectionInteraction } from '../src/pcb/modules/selection-interaction.js';
+import { getRefDrag } from '../src/pcb/modules/ref-text-selection.js';
+import { handleRefDrag } from '../src/pcb/modules/ref-text-selection.js';
+import { setPcbInteraction } from '../src/pcb/modules/pcb-interactions.js';
 
 globalThis.window = { addEventListener() {} };
 const { default: PCBApp } = await import('../src/ui/PCBApp.js');
@@ -36,12 +40,12 @@ function fixture({ saved = true, rotation = 37, side = 'bottom', mirror = true }
         getLayerGroup: () => null,
         _drawRefOverlay: (id, withTether) => overlays.push({ id, withTether, ...offsets() }),
         _markDirty: () => dirty++, _board3d: { refresh: () => boardRefreshes++ },
-        _screenToWorld: event => ({ x: event.clientX, y: event.clientY }),
+        screenToWorld: event => ({ x: event.clientX, y: event.clientY }),
     };
-    for (const method of ['_beginRefTextDrag', '_updateRefTextDrag', '_handleRefDrag', '_endRefDrag',
-        '_worldToPlacementLocal', '_placementLocalToWorld', '_snapToGrid', 'handleKeyDown', '_clearCursorCrosshair']) {
+    for (const method of [        '_worldToPlacementLocal', '_placementLocalToWorld', 'snapToGrid', 'handleKeyDown', '_clearCursorCrosshair']) {
         app[method] = PCBApp.prototype[method];
     }
+    app.screenToWorld = event => ({ x: event.clientX, y: event.clientY });
     const adapter = createRefTextSelectionAdapter(app, 'part', 'reftext:part');
     const snapshot = () => ({
         pose: capturePlacementOverride(placement), pads: structuredClone(placement.pads),
@@ -49,7 +53,7 @@ function fixture({ saved = true, rotation = 37, side = 'bottom', mirror = true }
     });
     const begin = (shared = true) => {
         assert.equal(adapter.beginMove({ x: placement.x, y: placement.y }), true);
-        if (shared) app._pcbSelectionInteraction = { mode: 'move-adapter', entry: adapter };
+        if (shared) setPcbInteraction(app, '_pcbSelectionInteraction', { mode: 'move-adapter', entry: adapter });
     };
     return { app, adapter, placement, snapshot, begin, renders, overlays, offsets,
         dirty: () => dirty, boardRefreshes: () => boardRefreshes };
@@ -68,8 +72,8 @@ for (const saved of [false, true]) for (const shared of [true, false]) {
         assert.deepEqual(f.snapshot().pads, original.pads, 'Reference movement must not move physical pads');
         assert.deepEqual(f.snapshot().graph, original.graph, 'Reference movement must not move bonded copper');
         assert.equal(f.app.handleKeyDown({ key: 'Escape' }), true);
-        assert.equal(f.app._refDrag, null, 'Escape must end the reference drag, not only its selection interaction');
-        assert.equal(f.app._pcbSelectionInteraction || null, null);
+        assert.equal(getRefDrag(f.app), null, 'Escape must end the reference drag, not only its selection interaction');
+        assert.equal(getSelectionInteraction(f.app) || null, null);
         assert.deepEqual(f.snapshot(), original, 'Cancel restores offsets without writing a placement override');
         assert.deepEqual(f.renders.at(-1), { refDx: original.pose.refDx, refDy: original.pose.refDy });
         assert.equal(f.overlays.at(-1).withTether, false);
@@ -91,14 +95,14 @@ for (const shared of [true, false]) {
     f.app.handleKeyDown({ key: 'z', ctrlKey: true });
     assert.equal(prior, 0);
     assert.deepEqual(f.snapshot(), original, 'Undo cancels the reference preview before undoing prior history');
-    assert.equal(f.app._refDrag, null);
+    assert.equal(getRefDrag(f.app), null);
 }
 
 for (const saved of [false, true]) {
     const f = fixture({ saved });
     const original = f.snapshot();
     f.begin(false);
-    f.app._handleRefDrag({ clientX: 12.345678, clientY: -9.876543, shiftKey: false });
+    handleRefDrag(f.app, { clientX: 12.345678, clientY: -9.876543, shiftKey: false });
     const final = f.offsets();
     const beforeDrop = f.renders.length, beforeOverlays = f.overlays.length;
     f.adapter.endMove(true);
@@ -126,7 +130,7 @@ for (const saved of [false, true]) {
     f.begin(false);
     f.app.placements.delete('part');
     f.adapter.endMove(false);
-    assert.equal(f.app._refDrag, null);
+    assert.equal(getRefDrag(f.app), null);
     assert.equal(f.overlays.at(-1).id, null, 'Missing placements clear the reference overlay');
     assert.equal(f.app.placementState.overrides.size, 0);
 }
@@ -142,7 +146,7 @@ for (const legacy of [false, true]) for (const side of ['top', 'bottom']) {
         const moveTo = (x, y, shift = false) => {
             const point = f.app._placementLocalToWorld(f.placement,
                 x - original.pose.refDx, y - original.pose.refDy);
-            if (legacy) f.app._handleRefDrag({ clientX: point.x, clientY: point.y, shiftKey: shift });
+            if (legacy) handleRefDrag(f.app, { clientX: point.x, clientY: point.y, shiftKey: shift });
             else {
                 f.app.viewport.shiftHeld = shift;
                 f.adapter.updateMove(point);

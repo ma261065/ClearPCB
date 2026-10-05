@@ -1,6 +1,8 @@
 import { isPcbDrawing } from './pcb-interactions.js';
-import { cancelShapeDraw } from './board-shapes.js';
+import { cancelShapeDraw, getShapeDraw } from './board-shapes.js';
 import { showFillToolProperties } from './copper-fill-edit.js';
+import { getFillDraw, cancelFillDraw } from './copper-fill-draw.js';
+import { activeTextInlineEdit, endTextInlineEdit } from './text-inline-edit.js';
 
 export const PCB_SHAPE_TOOLS = new Set(['line', 'circle', 'arc', 'rect', 'polygon']);
 export const PCB_CROSSHAIR_TOOLS = new Set(['track', 'via', 'pad', 'text', 'fill', ...PCB_SHAPE_TOOLS]);
@@ -25,8 +27,8 @@ export function resetPcbTool(app) {
 export function selectPcbTool(app, tool) {
     const next = normalizePcbTool(tool);
     if (next !== 'track') app._cancelTrackDraw?.();
-    if (app._fillDraw && next !== 'fill') app._cancelFillDraw?.();
-    if (app._shapeDraw && app._shapeDraw.kind !== next) app._cancelShapeDraw?.();
+    if (getFillDraw(app) && next !== 'fill') cancelFillDraw(app);
+    if (getShapeDraw(app) && getShapeDraw(app).kind !== next) cancelShapeDraw(app);
     app.currentTool = next;
     if (next !== 'select') {
         app._hoverComponent?.(null);
@@ -45,8 +47,8 @@ export function selectPcbTool(app, tool) {
 
 /** @param {import('../../ui/PCBApp.js').default} app */
 export function cancelPcbDrawingMode(app) {
-    if (!PCB_CROSSHAIR_TOOLS.has(app.currentTool) && !isPcbDrawing(app) && !app._textEdit) return false;
-    if (app._textEdit) app._endTextInlineEdit(false);
+    if (!PCB_CROSSHAIR_TOOLS.has(app.currentTool) && !isPcbDrawing(app) && !activeTextInlineEdit(app)) return false;
+    if (activeTextInlineEdit(app)) endTextInlineEdit(app, false);
     app._cancelTrackDraw();
     app._cancelFillDraw();
     cancelShapeDraw(app);
@@ -65,7 +67,7 @@ export function cancelPcbDrawingMode(app) {
 export function preparePcbRibbonTransition(app, currentTab, nextTab, userInitiated = false) {
     if (currentTab === nextTab) return;
     if (userInitiated) cancelPcbDrawingMode(app);
-    else if (app._shapeDraw) {
+    else if (getShapeDraw(app)) {
         cancelShapeDraw(app);
         resetPcbTool(app);
     }

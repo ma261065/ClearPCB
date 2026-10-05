@@ -28,6 +28,7 @@ import { showPcbSelectionProperties } from './selection-interaction.js';
 import { areDragOverlaysDeferred, isBoardViewRefreshSuspended, isFillRefreshPending, isFillRefreshSuspended, setBoardViewRefreshSuspended, setDragOverlaysDeferred, setFillRefreshPending, setFillRefreshSuspended, refreshBoardView } from './refresh-state.js';
 import { isEditorActive } from './pcb-editor-api.js';
 import { forgetBoardShapeClearance, getBoardShapeClearance } from './clearance-overlay.js';
+import { getPcbInteraction, setPcbInteraction } from './pcb-interactions.js';
 
 const kinds = ['tracks', 'vias', 'pads', 'shapes', 'texts', 'fills'];
 
@@ -74,11 +75,20 @@ function editable(payload) {
 
 /** Whether a floating paste is being placed. */
 export function isPcbPasteActive(app) {
-    return !!app._pasteDrop;
+    return !!getPcbPaste(app);
+}
+
+export function getPcbPaste(app) {
+    return getPcbInteraction(app, '_pasteDrop');
+}
+
+export function getPcbPastePreview(app) {
+    return getPcbPaste(app)?.preview || null;
 }
 
 export function isPcbPasteEditable(app) {
-    return !app._pasteDrop || editable(app._pasteDrop.payload);
+    const state = getPcbPaste(app);
+    return !state || editable(state.payload);
 }
 
 function assertFresh(document, payload) {
@@ -231,7 +241,7 @@ export function beginPcbPaste(app, source, { select = false } = {}) {
             boardView: isBoardViewRefreshSuspended(app) },
         fillPending: isFillRefreshPending(app),
     };
-    app._pasteDrop = state;
+    setPcbInteraction(app, '_pasteDrop', state);
     setBoardViewRefreshSuspended(app, true);
     setFillRefreshSuspended(app, true);
     setDragOverlaysDeferred(app, true);
@@ -243,17 +253,17 @@ export function beginPcbPaste(app, source, { select = false } = {}) {
         cancelPcbPaste(app);
         throw error;
     }
-    return !!app._pasteDrop;
+    return !!getPcbPaste(app);
 }
 
 export function updatePcbPaste(app, world) {
-    const state = app._pasteDrop;
+    const state = getPcbPaste(app);
     if (!state) return;
     try {
         if (app.pcbDocument !== state.model) throw new Error('The paste document is no longer available.');
         if (!isEditorActive(app) || !editable(state.payload)) { cancelPcbPaste(app); return; }
         if (!Number.isFinite(world?.x) || !Number.isFinite(world?.y)) throw new Error('PCB paste requires a finite pointer position.');
-        const position = app._snapToGrid(world), dx = position.x - state.anchorWorld.x, dy = position.y - state.anchorWorld.y;
+        const position = app.snapToGrid(world), dx = position.x - state.anchorWorld.x, dy = position.y - state.anchorWorld.y;
         if (dx === state.dx && dy === state.dy) return;
         state.dx = dx; state.dy = dy;
         app.viewport?.setCrosshair(position);
@@ -282,7 +292,7 @@ export function updatePcbPaste(app, world) {
 
 function release(app, state) {
     const pendingFill = isFillRefreshPending(app);
-    app._pasteDrop = null;
+    setPcbInteraction(app, '_pasteDrop', null);
     setDragOverlaysDeferred(app, state.suspensions.overlays);
     setFillRefreshSuspended(app, state.suspensions.fill);
     setBoardViewRefreshSuspended(app, state.suspensions.boardView);
@@ -299,10 +309,10 @@ function resumePendingFill(app) {
 }
 
 export function cancelPcbPaste(app) {
-    const state = app._pasteDrop;
+    const state = getPcbPaste(app);
     if (!state) return;
     try {
-        app._pasteDrop = null;
+        setPcbInteraction(app, '_pasteDrop', null);
         removeArtwork(app, state.payload);
         if (state.select) setPcbSelection(app, state.selection);
         else syncPcbSelection(app);
@@ -313,7 +323,7 @@ export function cancelPcbPaste(app) {
 }
 
 export function endPcbPaste(app) {
-    const state = app._pasteDrop;
+    const state = getPcbPaste(app);
     if (!state) return;
     if (!isEditorActive(app) || !editable(state.payload)) { cancelPcbPaste(app); return; }
     const command = new PastePcbCommand(app, state.payload);
@@ -330,13 +340,13 @@ export function endPcbPaste(app) {
         if (state.select && state.payload.shapes.length === 1) showBoardShapeProperties(app, state.payload.shapes[0]);
         else showPcbSelectionProperties(app);
     } catch (error) {
-        if (!command.applied && app._pasteDrop !== state) {
+        if (!command.applied && getPcbPaste(app) !== state) {
             removeArtwork(app, state.payload);
             if (state.select) setPcbSelection(app, state.selection);
         }
         throw error;
     } finally {
-        if (app._pasteDrop === state) cancelPcbPaste(app);
+        if (getPcbPaste(app) === state) cancelPcbPaste(app);
         else if (!command.applied) resumePendingFill(app);
     }
 }

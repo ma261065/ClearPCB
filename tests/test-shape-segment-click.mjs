@@ -3,6 +3,9 @@ import { PcbDocument } from '../src/core/PcbDocument.js';
 import { areDragOverlaysDeferred, isBoardViewRefreshSuspended } from '../src/pcb/modules/refresh-state.js';
 import { getBoardShapeNodeFocus, getBoardShapeSegmentFocus, setBoardShapeNodeFocus, setBoardShapeSegmentFocus } from '../src/pcb/modules/board-shape-state.js';
 import { flushSettledChanges } from '../src/shared/ui/settled-input.js';
+import { getSelectionInteraction } from '../src/pcb/modules/selection-interaction.js';
+import { getBoardShapeDrag } from '../src/pcb/modules/board-shapes.js';
+import { getVertexDrag } from '../src/pcb/modules/track-drag.js';
 
 function shapeModel(shapes = [], tracks = []) {
     const pcbDocument = new PcbDocument();
@@ -190,7 +193,7 @@ for (const kind of ['line', 'track']) {
         const items = { innerHTML: '' };
         const app = { ...shapeModel(kind === 'track' ? [] : [object], kind === 'track' ? [object] : []),
             placements: new Map(), texts: new Map(), _shapeElements: new Map(), _shapeIdCounter: 1,
-            getLayerGroup() { return null; }, _snapToGrid(point) { return point; },
+            getLayerGroup() { return null; }, snapToGrid(point) { return point; },
             propertiesItems() { return items; }, setPropertiesTitle(value) { title = value; },
             openPropertyPanel(panel) { title = panel.title; this._propertyPanel = panel; return true; },
             refreshPropertyPanel(panel) { title = panel.title; this._propertyPanel = panel; },
@@ -205,14 +208,14 @@ for (const kind of ['line', 'track']) {
             setBoardShapeNodeFocus(app, { shapeId: object.id, index: 1 });
             assert.ok(openBoardShape(app, object, 1));
         }
-        const state = app._pcbSelectionInteraction;
+        const state = getSelectionInteraction(app);
         assert.equal(state.mode, 'floating-anchor', `${kind}: Split still floats the endpoint`);
         assert.ok(!state.adapter.getAnchors().some(anchor => anchor.selected), `${kind}: Split has no node selection ring`);
         assert.ok(!title.includes('Node'), `${kind}: Split shows parent properties`);
         updateSelectionInteraction(app, { x: 12, y: 3 });
         if (action === 'place') placeFloatingSelectionInteraction(app);
         else finishSelectionInteraction(app, false);
-        assert.equal(app._pcbSelectionInteraction, null);
+        assert.equal(getSelectionInteraction(app), null);
         assert.ok(!state.adapter.getAnchors().some(anchor => anchor.selected), `${kind}: ${action} does not select a node`);
         assert.ok(!title.includes('Node'), `${kind}: ${action} retains parent properties`);
         const pieces = kind === 'track' ? app.tracks : app.boardShapes;
@@ -258,7 +261,7 @@ for (const kind of ['line', 'polygon', 'rect', 'track']) {
         : { id: `node-gesture-${kind}`, kind, layer: 'top-silk', lineWidth: 0.2, points };
     const app = { ...shapeModel(kind === 'track' ? [] : [object], kind === 'track' ? [object] : []),
         placements: new Map(), texts: new Map(), _shapeElements: new Map(),
-        getLayerGroup() { return null; }, _snapToGrid(point) { return point; },
+        getLayerGroup() { return null; }, snapToGrid(point) { return point; },
         viewport: { scale: 100, setCrosshair() {}, hideCrosshair() {} },
         history: { execute(command) { command.execute(); } } };
     const focusedNode = () => kind === 'track' ? app._trackEdit?.nodeId : getBoardShapeNodeFocus(app)?.index;
@@ -288,18 +291,18 @@ for (const kind of ['line', 'track']) {
         const commands = [];
         const app = { ...shapeModel(kind === 'track' ? [] : [object], kind === 'track' ? [object] : []),
             placements: new Map(), texts: new Map(), _shapeElements: new Map(),
-            getLayerGroup() { return null; }, _snapToGrid(point) { return point; },
+            getLayerGroup() { return null; }, snapToGrid(point) { return point; },
             viewport: { scale: 100, setCrosshair() {}, hideCrosshair() {} },
             history: { execute(command) { commands.push(command); command.execute(); } } };
-        const positions = () => kind === 'track' ? [...(app._vertexDrag?.track || object).nodes.values()] : (app._shapeDrag?.shape || object).points;
+        const positions = () => kind === 'track' ? [...(getVertexDrag(app)?.track || object).nodes.values()] : (getBoardShapeDrag(app)?.shape || object).points;
         if (kind === 'track') selectTrackOrVia(app, { type: 'track', track: object });
         else selectBoardShape(app, object);
         assert.ok(beginSelectionInteraction(app, { x: 5, y: 0 }, false));
-        assert.ok(String(app._pcbSelectionInteraction.anchorId).startsWith('mid:'));
+        assert.ok(String(getSelectionInteraction(app).anchorId).startsWith('mid:'));
         assert.equal(positions().length, 3, `${kind}: pressing (+) inserts a provisional node`);
         if (action === 'place' || action === 'cancel') {
             finishSelectionInteraction(app, true);
-            assert.equal(app._pcbSelectionInteraction?.mode, 'floating-anchor', `${kind}: (+) click sticks to the cursor`);
+            assert.equal(getSelectionInteraction(app)?.mode, 'floating-anchor', `${kind}: (+) click sticks to the cursor`);
             assert.equal(commands.length, 0, `${kind}: pickup creates no history until placed`);
         }
         updateSelectionInteraction(app, { x: 5, y: 2 });
@@ -314,7 +317,7 @@ for (const kind of ['line', 'track']) {
             commands[0].undo();
         }
         assert.deepEqual(positions(), [{ x: 0, y: 0 }, { x: 10, y: 0 }], `${kind}: cancel or undo removes the inserted node`);
-        assert.equal(app._pcbSelectionInteraction, null);
+        assert.equal(getSelectionInteraction(app), null);
     }
 }
 
@@ -331,7 +334,7 @@ for (const kind of ['line', 'polygon', 'rect', 'arc', 'circle', 'track']) {
         getLayerGroup() { return null; },
         viewport: { scale: 100, gridSize: 1, gridVisible: true, snapToGrid: true, shiftHeld: false,
             setCrosshair() {}, hideCrosshair() {} },
-        _snapToGrid: point => ({ x: Math.round(point.x), y: Math.round(point.y) }),
+        snapToGrid: point => ({ x: Math.round(point.x), y: Math.round(point.y) }),
         history: { execute(command) { command.execute(); } } };
     const adapter = kind === 'track' ? createTrackSelectionAdapter(app, object, object.id)
         : createBoardShapeSelectionAdapter(app, object, object.id);
@@ -535,7 +538,7 @@ for (const overall of [2, 3]) {
         points: [{ x: 0, y: 0 }, { x: 10, y: 0 }] };
     const app = { ...shapeModel([shape]), placements: new Map(), texts: new Map(),
         _shapeElements: new Map(), getLayerGroup() { return null; }, netNames: () => [],
-        viewport: { scale: 100, setCrosshair() {}, hideCrosshair() {} }, _snapToGrid(point) { return point; },
+        viewport: { scale: 100, setCrosshair() {}, hideCrosshair() {} }, snapToGrid(point) { return point; },
         openPropertyPanel(panel) { this._propertyPanel = panel; return true; },
         refreshPropertyPanel(panel) { this._propertyPanel = panel; },
         history: { execute(command) { command.execute(); } } };
@@ -543,7 +546,7 @@ for (const overall of [2, 3]) {
     assert.ok(beginSelectionInteraction(app, shape.points[0], false));
     finishSelectionInteraction(app, true);
     assert.deepEqual(getBoardShapeNodeFocus(app), { shapeId: shape.id, index: 0 });
-    assert.equal(app._pcbSelectionInteraction, null, 'A node click selects without starting floating placement');
+    assert.equal(getSelectionInteraction(app), null, 'A node click selects without starting floating placement');
     const { title, fields } = app._propertyPanel;
     assert.equal(title, 'Line Node');
     assert.ok(fields.some(field => field.id === 'pcbPropShapeNodeX'));
@@ -605,7 +608,7 @@ for (const guideClick of [false, true]) {
         points: [{ x: 0, y: 0 }, { x: 40, y: 0 }, { x: 40, y: 30 }, { x: 0, y: 30 }] };
     const app = { ...shapeModel([shape]), placements: new Map(), texts: new Map(),
         _shapeElements: new Map(), getLayerGroup() { return null; },
-        viewport: { scale: 100, setCrosshair() {}, hideCrosshair() {} }, _snapToGrid(point) { return point; },
+        viewport: { scale: 100, setCrosshair() {}, hideCrosshair() {} }, snapToGrid(point) { return point; },
         history: { execute(command) { command.execute(); } } };
     const first = { x: 12, y: 0 };
     const second = guideClick ? { x: 2, y: 0 } : first;
@@ -640,7 +643,7 @@ for (const kind of ['line', 'polygon']) {
         let title = '';
         const app = { ...shapeModel([shape]), placements: new Map(), texts: new Map(),
             _shapeElements: new Map(), getLayerGroup() { return null; },
-            viewport: { scale: 100, setCrosshair() {}, hideCrosshair() {} }, _snapToGrid(point) { return point; },
+            viewport: { scale: 100, setCrosshair() {}, hideCrosshair() {} }, snapToGrid(point) { return point; },
             openPropertyPanel(panel) { title = panel.title; this._propertyPanel = panel; return true; },
             refreshPropertyPanel(panel) { title = panel.title; this._propertyPanel = panel; },
             history: { execute(command) { command.execute(); } } };
@@ -662,14 +665,14 @@ for (const kind of ['line', 'polygon']) {
         const segmentHighlights = () => overlay.querySelectorAll('.pcb-shape-segment-selection');
         const handle = getBoardShapeAnchors(shape).find(anchor => anchor.id === 'bulge:0');
         assert.ok(beginSelectionInteraction(app, handle, false), 'Rendered bulge handle starts a selection interaction');
-        assert.equal(app._pcbSelectionInteraction?.mode, 'anchor');
+        assert.equal(getSelectionInteraction(app)?.mode, 'anchor');
         assert.deepEqual(getBoardShapeSegmentFocus(app), { shapeId: shape.id, segment: 0 });
         assert.equal(title, 'Arc Segment', 'Grabbing the bulge keeps segment properties');
         assert.equal(segmentHighlights().length, 1);
         const originalHighlight = segmentHighlights()[0];
         const originalPath = originalHighlight.getAttribute('d');
         updateSelectionInteraction(app, { x: 5, y: -2.5 });
-        assert.equal(app._shapeDrag.shape.segmentBulges[0], -0.5, 'Dragging the rendered handle changes the displayed segment curvature');
+        assert.equal(getBoardShapeDrag(app).shape.segmentBulges[0], -0.5, 'Dragging the rendered handle changes the displayed segment curvature');
         assert.equal(segmentHighlights().length, 1, 'Dragging retains exactly one segment highlight');
         assert.ok(!overlay.children.includes(originalHighlight), 'The original curve highlight is removed during drag');
         const draggedPath = segmentHighlights()[0].getAttribute('d');
@@ -704,7 +707,7 @@ for (const [kind, zeroOffset] of ['arc', 'line', 'polygon'].flatMap(kind =>
     };
     const app = { ...shapeModel([shape]), placements: new Map(), texts: new Map(),
         _shapeElements: new Map(), getLayerGroup() { return null; },
-        viewport: { scale: 100, setCrosshair() {}, hideCrosshair() {} }, _snapToGrid(point) { return point; },
+        viewport: { scale: 100, setCrosshair() {}, hideCrosshair() {} }, snapToGrid(point) { return point; },
         openPropertyPanel(next) { title = next.title; panel = next; propertyRebuilds++; return true; },
         refreshPropertyPanel(next) { title = next.title; panel = next; propertyRebuilds++; },
         history: { execute(command) { commands.push(command); command.execute(); } } };

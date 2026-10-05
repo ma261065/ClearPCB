@@ -5,7 +5,7 @@ import { createPcbText } from '../src/core/pcb-text.js';
 import { measureText } from '../src/shared/pcb/stroke-font.js';
 import { cancelPictureCopperRefresh } from '../src/pcb/modules/picture-refresh.js';
 import { EditTextCommand, getTextPosePreviewTexts } from '../src/pcb/modules/text-commands.js';
-import { createPcbTextSelectionAdapter } from '../src/pcb/modules/pcb-text-selection.js';
+import { beginTextDrag, createPcbTextSelectionAdapter, endTextDrag, updateTextDrag } from '../src/pcb/modules/pcb-text-selection.js';
 import { getPropertyEditor } from '../src/pcb/modules/property-editors.js';
 import { attachPropertyPanelHarness } from './helpers/property-panel-controls.mjs';
 
@@ -227,7 +227,7 @@ for (const value of ['', '-', 'Infinity', '3']) {
         const { app, text, inputs } = fixture();
         const before = { ...text }, valid = value === '3';
         app.viewport = { scale: 100, svg: { style: {} }, setCrosshair() {}, hideCrosshair() {} };
-        app._snapToGrid = point => point;
+        app.snapToGrid = point => point;
         inputs.get('pcbPropTextSize').fire('input', 3);
         inputs.get('pcbPropTextSize').fire('input', value);
         try {
@@ -235,9 +235,9 @@ for (const value of ['', '-', 'Infinity', '3']) {
             else if (handoff === 'commit') getPropertyEditor(app, 'text').commit();
             else if (handoff === 'field') inputs.get('pcbPropTextLW').fire('change', 0.4);
             else if (handoff === 'move') {
-                PCBApp.prototype._beginTextDrag.call(app, app.texts.get(text.id), { x: text.x, y: text.y });
-                PCBApp.prototype._updateTextDrag.call(app, { x: text.x + 2, y: text.y });
-                PCBApp.prototype._endTextDrag.call(app, true);
+                beginTextDrag(app, app.texts.get(text.id), { x: text.x, y: text.y });
+                updateTextDrag(app, { x: text.x + 2, y: text.y });
+                endTextDrag(app, true);
             } else {
                 const adapter = createPcbTextSelectionAdapter(app, text, `text:${text.id}`);
                 adapter.beginAnchorDrag('rotate', { x: text.x + 10, y: text.y });

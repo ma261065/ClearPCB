@@ -25,6 +25,8 @@ export function pcbEditorFixture(overrides = {}) {
         viewport: { scale: 10, svg: { style: {} } },
         status: {},
         getLayerGroup: () => null,
+        screenToWorld(event) { return { x: event.clientX, y: event.clientY }; },
+        snapToGrid(point) { return { x: point.x, y: point.y }; },
         // A real editor always has its layer-group map (existingLayerGroups()).
         _layerGroups: new Map(),
         setPcbStatus: quiet,

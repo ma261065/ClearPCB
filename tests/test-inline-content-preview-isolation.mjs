@@ -7,6 +7,7 @@ import { cancelPictureCopperRefresh } from '../src/pcb/modules/picture-refresh.j
 import { measureText } from '../src/shared/pcb/stroke-font.js';
 import { loadPcb } from '../src/pcb/modules/project-state.js';
 import { attachPropertyPanelHarness } from './helpers/property-panel-controls.mjs';
+import { activeTextInlineEdit } from '../src/pcb/modules/text-inline-edit.js';
 
 class Element {
     constructor(tag = 'g') {
@@ -92,7 +93,7 @@ for (const layer of TEXT_LAYERS) for (const finish of ['commit', 'cancel', 'deac
     const otherSvg = app._textElements.get(other.id);
     try {
         app._startTextInlineEdit(text);
-        const state = app._textEdit, draft = state.text, map = app.texts;
+        const state = activeTextInlineEdit(app), draft = state.text, map = app.texts;
         assert.notEqual(draft, text);
         assert.equal(map.get(text.id), draft);
         assert.equal(map.get(other.id), other);
@@ -102,7 +103,7 @@ for (const layer of TEXT_LAYERS) for (const finish of ['commit', 'cancel', 'deac
         for (let index = 0; index < 100; index++) {
             state.input.fire('input', `  New content ${index}  `);
             assert.equal(app.texts, map);
-            assert.equal(app._textEdit.text, draft);
+            assert.equal(activeTextInlineEdit(app).text, draft);
         }
         assert.equal(f.renders() - initialRenders, 100, 'One glyph redraw per changed input');
         assert.equal(f.contentReads(), 0, 'Typing never rereads canonical content');
@@ -164,7 +165,7 @@ for (const layer of TEXT_LAYERS) for (const finish of ['commit', 'cancel', 'deac
                 assert.equal(app.history.undoStack.length, historySize);
             }
         }
-        assert.equal(app._textEdit, null);
+        assert.equal(activeTextInlineEdit(app), null);
         assert.equal(getTextPosePreviewTexts(app), undefined);
         assert.equal(app.texts, app.pcbDocument.texts);
         assert.equal(overlay.children.length, 0);
@@ -172,7 +173,7 @@ for (const layer of TEXT_LAYERS) for (const finish of ['commit', 'cancel', 'deac
         assert.equal(state.input.isConnected, false);
         assert.equal(state.overlay.blinkTimer, null);
     } finally {
-        if (app._textEdit) app._endTextInlineEdit(false);
+        if (activeTextInlineEdit(app)) app._endTextInlineEdit(false);
         cancelPictureCopperRefresh(app);
     }
 }
@@ -182,7 +183,7 @@ for (const commit of [false, true]) {
     const original = { ...text };
     try {
         app._startTextInlineEdit(text);
-        app._textEdit.input.fire('input', 'Pending content');
+        activeTextInlineEdit(app).input.fire('input', 'Pending content');
         fields.get('pcbPropTextSize').fire('input', 3);
         assert.deepEqual(text, original);
         app._endTextInlineEdit(commit);
@@ -204,7 +205,7 @@ for (const commit of [false, true]) {
     const f = fixture('top-silk', 5000), { app, text } = f;
     try {
         app._startTextInlineEdit(text);
-        const state = app._textEdit, map = app.texts;
+        const state = activeTextInlineEdit(app), map = app.texts;
         for (const [id, canonical] of app.pcbDocument.texts) {
             assert.equal(map.get(id) === canonical, id !== text.id, 'Only the edited text is copied on a dense board');
         }
@@ -224,7 +225,7 @@ for (const finish of ['cancel', 'blank', 'accept']) for (const committedStyle of
     const originalSize = text.size, size = 3.123456789;
     try {
         app._startTextInlineEdit(text, null, { isNewPlacement: true });
-        app._textEdit.input.fire('input', finish === 'blank' ? '  ' : 'New label');
+        activeTextInlineEdit(app).input.fire('input', finish === 'blank' ? '  ' : 'New label');
         fields.get('pcbPropTextSize').fire('input', size);
         assert.equal(text.size, originalSize);
         assert.equal(text.content, '');
@@ -263,7 +264,7 @@ for (const finish of ['cancel', 'blank', 'accept']) for (const committedStyle of
             }
         }
     } finally {
-        if (app._textEdit) app._endTextInlineEdit(false);
+        if (activeTextInlineEdit(app)) app._endTextInlineEdit(false);
         cancelPictureCopperRefresh(app);
     }
 }

@@ -13,6 +13,9 @@ import { getTextPosePreviewTexts, previewTextPoses } from '../src/pcb/modules/te
 import { cancelPictureCopperRefresh } from '../src/pcb/modules/picture-refresh.js';
 import { loadPcb } from '../src/pcb/modules/project-state.js';
 import { areDragOverlaysDeferred, setDragOverlaysDeferred } from '../src/pcb/modules/refresh-state.js';
+import { getSelectionInteraction } from '../src/pcb/modules/selection-interaction.js';
+import { getGroupDrag } from '../src/pcb/modules/box-select.js';
+import { setPcbInteraction } from '../src/pcb/modules/pcb-interactions.js';
 
 class Element {
     constructor() { this.attributes = new Map(); this.children = []; this.dataset = {}; }
@@ -82,8 +85,8 @@ for (const mixed of [false, true]) for (const deferred of [false, true]) {
         app.history.undo();
         setDragOverlaysDeferred(app, deferred);
         beginGroupDrag(app, { x: 0, y: 0 });
-        app._pcbSelectionInteraction = { mode: 'move' };
-        assert.equal(app._groupDrag.posePreview, true);
+        setPcbInteraction(app, '_pcbSelectionInteraction', { mode: 'move' });
+        assert.equal(getGroupDrag(app).posePreview, true);
         try {
             updateGroupDrag(app, { x: 0.1, y: -0.1 });
             assert.equal(getTextPosePreviewTexts(app), undefined, 'Starting grid magnet does not allocate copies');
@@ -166,8 +169,8 @@ for (const mixed of [false, true]) for (const deferred of [false, true]) {
             assert.equal(getTextPosePreviewTexts(app), undefined);
             assert.equal(getPlacementPreviewTracks(app), undefined);
             assert.equal(app.texts, app.pcbDocument.texts);
-            assert.equal(app._groupDrag, null);
-            assert.equal(app._pcbSelectionInteraction, null);
+            assert.equal(getGroupDrag(app), null);
+            assert.equal(getSelectionInteraction(app), null);
             assert.equal(areDragOverlaysDeferred(app), deferred);
             assert.equal(frames.size, 0);
         } finally { cancelPictureCopperRefresh(app); }
