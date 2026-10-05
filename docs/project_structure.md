@@ -282,6 +282,12 @@ Schematic commands are in `schematic/modules/commands.js`. Shapes implement
 `captureState()` / `applyState()` for serializable snapshots, used by the generic
 modify commands.
 
+Every model command (both editors) declares the objects it changes or removes with
+`lockTargets()`. Each editor's `CommandHistory` runs the lock gate in
+`core/edit-guard.js` on new commands, refusing any that would change a locked
+object before it runs. A new command class must declare `lockTargets()`;
+`test-edit-guard` enforces this.
+
 ## Checks
 
 - `node tools/regression.mjs` — the gate CI runs: import boundaries, both editors'

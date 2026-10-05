@@ -13,6 +13,11 @@ export class SetBoardOutlineCommand {
         this.document.setBoardOutline(state.outline
             || rectangleBoardOutline(state.width, state.height, state.radius));
     }
+    /**
+     * The outline has its own validity rules and lock checkbox, and New/first-open set it
+     * programmatically even when the outline layer lock is remembered from a past session.
+     */
+    lockTargets() { return []; }
     execute() { this._apply(this.after); }
     undo() { this._apply(this.before); }
 }

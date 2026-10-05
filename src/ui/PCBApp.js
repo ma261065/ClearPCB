@@ -57,7 +57,8 @@ import { shapeDrawClick, cancelShapeDraw, hitTestBoardShape, setBoardShapeHover,
 import { showBoardShapeProperties, showBoardShapeToolProperties } from '../pcb/modules/board-shape-properties.js';
 import { normalizeShapeCopperMode } from '../shared/pcb/board-shape-geometry.js';
 import { hitTestPcbSelectionAnchor, renderPcbSelectionAnchors } from '../pcb/modules/selection-anchors.js';
-import { boardShapeLocked, isPcbObjectLayerLocked, isPcbObjectLocked, showUnlockMenu } from '../pcb/modules/object-locks.js';
+import { boardShapeLocked, describeLockedEdit, isPcbObjectLayerLocked, isPcbObjectLocked, lockedRoutedCopper, showUnlockMenu } from '../pcb/modules/object-locks.js';
+import { createLockGuard } from '../core/edit-guard.js';
 import { refreshAxisGlow } from '../pcb/modules/axis-glow.js';
 import { buildFillContext } from '../pcb/modules/fill-context.js';
 import { scheduleFillRefresh, recomputeFillsNow, invalidateFillRefresh, disposeFillRefresh } from '../pcb/modules/fill-refresh.js';
@@ -342,6 +343,10 @@ export default class PCBApp {
             // the schematic\u2192PCB stale-sync listener that would
             // otherwise rebuild and wipe PCB-only edits.
             onChanged: () => this._onHistoryChanged(),
+            // Nothing may change or remove a locked object (core/edit-guard.js).
+            guard: createLockGuard(target => isPcbObjectLocked(this, target.kind, target.object),
+                target => describeLockedEdit(this, target)),
+            onRefused: error => this._showSaveToast(error.message),
         });
         /** Transient message bubble shown over a component, or null. */
         this._componentPopup = null;
@@ -4632,7 +4637,10 @@ export default class PCBApp {
             viaDrill: params.viaDrill,
             placements: this.placements,
         });
-        this.history.execute(new ReplaceRoutesCommand(this, tracks, vias, result.failedConnections));
+        // Locked copper was routed around as fixed copper; keep it alongside the result.
+        const kept = lockedRoutedCopper(this);
+        this.history.execute(new ReplaceRoutesCommand(this, [...kept.tracks, ...tracks], [...kept.vias, ...vias],
+            result.failedConnections));
     }
 
     _renderRoutedCopper(failedRatlines = []) {
@@ -4687,16 +4695,18 @@ export default class PCBApp {
     }
 
     /**
-     * Clear all routed tracks/vias and restore all ratlines.
+     * Clear routed tracks/vias and restore ratlines. Locked copper stays.
      */
     clearRoutes() {
         this._cancelAutoRoute();
 
-        const command = new ReplaceRoutesCommand(this, [], []);
+        const kept = lockedRoutedCopper(this);
+        const command = new ReplaceRoutesCommand(this, kept.tracks, kept.vias);
         command.description = 'Clear routed copper';
-        if (this.pcbDocument.tracks.length || this.pcbDocument.vias.length) this.history.execute(command);
-        else this._renderRoutedCopper();
-        this.setStatus('Routes cleared');
+        if (this.pcbDocument.tracks.length > kept.tracks.length || this.pcbDocument.vias.length > kept.vias.length) {
+            this.history.execute(command);
+        } else this._renderRoutedCopper();
+        this.setStatus(kept.tracks.length || kept.vias.length ? 'Routes cleared; locked copper kept' : 'Routes cleared');
     }
 
     // ── PDF / Print ───────────────────────────────────────────────

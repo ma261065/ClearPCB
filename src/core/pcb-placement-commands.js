@@ -49,6 +49,7 @@ export class MovePlacementCommand {
         this.to = { x: toX, y: toY };
     }
     _apply(point) { return applyPose(this, point); }
+    lockTargets() { return [{ kind: 'component', object: this.compId }]; }
     execute() { this._apply(this.to); }
     undo() { this._apply(this.from); }
 }
@@ -64,6 +65,7 @@ export class RotatePlacementCommand {
         this.to = ((toDeg % 360) + 360) % 360;
     }
     _apply(rotation) { return applyPose(this, { rotation }); }
+    lockTargets() { return [{ kind: 'component', object: this.compId }]; }
     execute() { this._apply(this.to); }
     undo() { this._apply(this.from); }
 }
@@ -83,6 +85,7 @@ export class FlipPlacementCommand {
         };
     }
     _apply(pose) { return applyPose(this, pose); }
+    lockTargets() { return [{ kind: 'component', object: this.compId }]; }
     execute() { this._apply(this.after); }
     undo() { this._apply(this.before); }
 }
@@ -132,6 +135,7 @@ export class SetPlacementSideCommand {
         for (const track of repositionPadConnectedNodes(boardTracks, this.compId, placement.pads)) tracks.add(track);
         return { pose: this.placementState.record(this.compId, placement), pads: placement.pads, tracks };
     }
+    lockTargets() { return [{ kind: 'component', object: this.compId }]; }
     execute() { this._apply(this.after); }
     undo() { this._apply(this.before, true); }
 }
@@ -146,6 +150,8 @@ export class SetPlacementLockedCommand {
         this.after = !!locked;
     }
     _apply(locked) { return applyPatch(this, { locked }); }
+    /** Lock changes are how locks are lifted, so they are never refused. */
+    lockTargets() { return []; }
     execute() { this._apply(this.after); }
     undo() { this._apply(this.before); }
 }
@@ -160,6 +166,7 @@ export class SetPlacementRefVisibleCommand {
         this.after = visible !== false;
     }
     _apply(visible) { return applyPatch(this, { refVisible: visible }); }
+    lockTargets() { return [{ kind: 'component', object: this.compId }]; }
     execute() { this._apply(this.after); }
     undo() { this._apply(this.before); }
 }
@@ -174,6 +181,7 @@ export class MoveRefTextCommand {
         this.to = { refDx: toDx, refDy: toDy };
     }
     _apply(offset) { return applyPatch(this, offset); }
+    lockTargets() { return [{ kind: 'reftext', object: this.compId }]; }
     execute() { this._apply(this.to); }
     undo() { this._apply(this.from); }
 }
@@ -188,6 +196,7 @@ export class RotateRefTextCommand {
         this.to = ((toDeg % 360) + 360) % 360;
     }
     _apply(refRot) { return applyPatch(this, { refRot }); }
+    lockTargets() { return [{ kind: 'reftext', object: this.compId }]; }
     execute() { this._apply(this.to); }
     undo() { this._apply(this.from); }
 }
@@ -208,6 +217,7 @@ export class SetRefStyleCommand {
         if (state.refRot !== undefined) patch.refRot = state.refRot;
         return applyPatch(this, patch);
     }
+    lockTargets() { return [{ kind: 'reftext', object: this.compId }]; }
     execute() { this._apply(this.after); }
     undo() { this._apply(this.before); }
 }

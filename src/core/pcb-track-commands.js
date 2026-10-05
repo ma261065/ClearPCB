@@ -1,3 +1,4 @@
+import { editTargets } from './edit-guard.js';
 /** @typedef {import('./PcbDocument.js').PcbDocument} PcbDocument */
 /** @typedef {import('../shapes/track.js').Track} Track */
 /** @typedef {import('../shapes/via.js').Via} Via */
@@ -9,6 +10,7 @@ export class AddTrackCommand {
         this.track = track;
         this.vias = Array.isArray(vias) ? vias.slice() : [];
     }
+    lockTargets() { return []; }
     execute() {
         if (!this.document.tracks.includes(this.track)) this.document.tracks.push(this.track);
         for (const via of this.vias) {
@@ -28,6 +30,7 @@ export class AddTrackCommand {
 export class RemoveTrackCommand {
     /** @param {PcbDocument} document @param {Track} track */
     constructor(document, track) { this.document = document; this.track = track; }
+    lockTargets() { return [{ kind: 'track', object: this.track }]; }
     execute() {
         const index = this.document.tracks.indexOf(this.track);
         if (index >= 0) this.document.tracks.splice(index, 1);
@@ -48,6 +51,7 @@ export class ModifyTrackCommand {
         Object.assign(this.track, state);
         this.track.invalidate();
     }
+    lockTargets() { return editTargets('track', this.track, this.before, this.after); }
     execute() { this._apply(this.after); }
     undo() { this._apply(this.before); }
 }
@@ -67,6 +71,7 @@ export class MoveVertexCommand {
         node.y = point.y;
         this.track.invalidate();
     }
+    lockTargets() { return [{ kind: 'track', object: this.track }]; }
     execute() { this._set(this.to); }
     undo() { this._set(this.from); }
 }
@@ -79,6 +84,7 @@ export class ModifyTrackGraphCommand {
         this.after = structuredClone(after);
     }
     _apply(state) { this.track.applyState(state); }
+    lockTargets() { return editTargets('track', this.track, this.before, this.after); }
     execute() { this._apply(this.after); }
     undo() { this._apply(this.before); }
 }
@@ -93,6 +99,14 @@ export class ReplaceRoutesCommand {
     _apply(state) {
         this.document.tracks.splice(0, this.document.tracks.length, ...state.tracks);
         this.document.vias.splice(0, this.document.vias.length, ...state.vias);
+    }
+    /** Routing keeps locked copper; anything it would remove is a target. */
+    lockTargets() {
+        const removed = (before, after) => before.filter(item => !after.includes(item));
+        return [
+            ...removed(this.before.tracks, this.after.tracks).map(object => ({ kind: 'track', object })),
+            ...removed(this.before.vias, this.after.vias).map(object => ({ kind: 'via', object })),
+        ];
     }
     execute() { this._apply(this.after); }
     undo() { this._apply(this.before); }

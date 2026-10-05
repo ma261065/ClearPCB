@@ -18,7 +18,7 @@
 
 import { updateStickyWires, updateSnapHighlight, resolveWireSnapPosition, computeAnchorCollinearSnap, computeSegmentDragSnap, computeStickyWireSnaps, applyOffGridNeighborSnap, buildCollinearChain, bridgeCollinearPinEndpoints, SNAP_SCREEN_PX, COLLINEAR_EPSILON, VERTEX_EPSILON, PIN_SNAP_TOL } from './wire.js';
 import { renderGuideLines } from '../../shapes/axis-glow.js';
-import { clearDragState, commitMoveDrag, commitSegmentDrag, resolveAnchorDragOnMouseUp, revertSegmentDragIfNoMove, commitShapeJoin, captureMoveDragStates } from './drag.js';
+import { cancelDragGesture, clearDragState, commitMoveDrag, commitSegmentDrag, resolveAnchorDragOnMouseUp, revertSegmentDragIfNoMove, commitShapeJoin, captureMoveDragStates } from './drag.js';
 import { detectTJunction, showAnchorContextMenu, showSegmentContextMenu, showLabelContextMenu, showComponentContextMenu } from './context-menu.js';
 import { hasAny3DModel } from '../../components/model3d-source.js';
 import { updateToolGhost } from './tool.js';
@@ -636,7 +636,23 @@ function promotePendingAnchorDragSession(app, screenPos, midpointPickup = false)
 
 function handleDragEnd(app) {
     if (!app.drag) return;
+    const lastRecorded = app.history?.undoStack?.at(-1);
+    try {
+        commitDragGesture(app);
+    } catch (error) {
+        if (error?.name !== 'LockedEditError') throw error;
+        // The lock gate refused the commit before anything ran (the editor already
+        // showed why): restore the live preview, as Escape would.
+        if (app.history?.undoStack?.at(-1) === lastRecorded) {
+            cancelDragGesture(app);
+            return;
+        }
+    }
+    finalizeDragInteraction(app, { refreshTextEdit: true });
+    app.interactionState = resolveState(app);
+}
 
+function commitDragGesture(app) {
     if (app.didDrag && app.drag.mode === 'move') {
         commitMoveDrag(app, app.drag.totalDx, app.drag.totalDy);
         // Clean up redundant collinear nodes left by bridge insertion
@@ -661,9 +677,6 @@ function handleDragEnd(app) {
             resolveAnchorDragOnMouseUp(app, app.drag.shape, app.drag.beforeState, app.didDrag, app.drag.wireStates, app.drag.ncLinks, app.drag.junctionBeforeWireStates, app.drag.junctionBeforeLabelTextStates);
         }
     }
-
-    finalizeDragInteraction(app, { refreshTextEdit: true });
-    app.interactionState = resolveState(app);
 }
 
 // ─── Context menu helpers ──────────────────────────────────────────

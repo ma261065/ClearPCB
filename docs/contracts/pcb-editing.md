@@ -128,6 +128,19 @@ enabled under a layer lock, while the panel's other controls become read-only.
 The board outline keeps its existing layer-lock checkbox
 (`test-pcb-object-locks`, `browser-tests/object-locks.mjs`).
 
+The editor checks above give feedback; the **lock gate** guarantees the rule.
+Every model command declares what it changes with `lockTargets()`
+(`core/edit-guard.js`), and the editor's `CommandHistory` guard refuses, before
+anything runs, a new command that would change or remove a locked object. It
+shows why ("This track is locked", "Top Copper layer is locked") and throws a
+`LockedEditError`, which preview-commit paths already clean up after like any
+command failure. Outside the gate: lock changes, undo/redo, net-only changes
+(nets follow connectivity, so routing to locked copper works), the board outline
+(set programmatically by New), and copper that follows a moved part's pads.
+Routing and Clear Routes keep locked tracks and vias (`lockedRoutedCopper`), which
+the router treats as fixed copper. `test-edit-guard` checks the gate and fails if
+a command class does not declare `lockTargets()`.
+
 ## PCB Derived Refreshes
 
 - `fill-refresh.js` coalesces pour requests; pour completion reconciles the

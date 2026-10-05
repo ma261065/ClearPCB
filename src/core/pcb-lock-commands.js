@@ -31,6 +31,8 @@ export class SetObjectLockedCommand {
     }
 
     _apply(locked) { this.target().locked = locked; }
+    /** Lock changes are how locks are lifted, so they are never refused. */
+    lockTargets() { return []; }
     execute() { this._apply(this.after); }
     undo() { this._apply(this.before); }
     get description() { return this.after ? 'Lock' : 'Unlock'; }

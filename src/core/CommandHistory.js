@@ -4,6 +4,9 @@ export class CommandHistory {
      * @param {Object} [options]
      * @param {number} [options.maxSize=100] - Maximum number of undo entries to keep
      * @param {Function} [options.onChanged] - Callback fired after every undo/redo/execute/clear
+     * @param {(command: any) => void} [options.guard] - Throws to refuse a new command before it
+     *   runs (see core/edit-guard.js); undo, redo and record() are not guarded
+     * @param {(error: Error) => void} [options.onRefused] - Told about a refusal, which is rethrown
      */
     constructor(options = {}) {
         this.undoStack = [];
@@ -12,13 +15,25 @@ export class CommandHistory {
         
         // Callbacks
         this.onChanged = options.onChanged || null;
+        this.guard = options.guard || null;
+        this.onRefused = options.onRefused || null;
     }
     
     /**
-     * Execute a command and add it to the undo stack
+     * Execute a command and add it to the undo stack. A guard refusal throws before
+     * the command runs, so nothing changes; callers' cleanup handles it like any
+     * other command failure.
      * @param {Command} command - Command to execute
      */
     execute(command) {
+        if (this.guard) {
+            try {
+                this.guard(command);
+            } catch (error) {
+                this.onRefused?.(error);
+                throw error;
+            }
+        }
         command.execute();
         this.undoStack.push(command);
         

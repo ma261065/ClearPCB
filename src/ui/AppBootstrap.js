@@ -6,6 +6,7 @@ import { ProjectDocument } from '../core/ProjectDocument.js';
 import { readProjectFile } from '../core/FileManager.js';
 import { duplicateIdRepairMessage, repairDuplicateIds } from '../core/project-format.js';
 import { installNumberInputFormatting } from '../core/number-inputs.js';
+import { installLockedEditErrorFilter } from '../core/edit-guard.js';
 import { ModalManager } from '../core/ModalManager.js';
 import { renderRecentFiles } from '../shared/ui/recents.js';
 import { McpBridge } from '../core/McpBridge.js';
@@ -42,6 +43,7 @@ export class AppBootstrap {
 
     async initialize() {
         installNumberInputFormatting();
+        installLockedEditErrorFilter(window);
         this._registerServiceWorker();
 
         this.pcbApp = new this._services.PCBApp(this.project);

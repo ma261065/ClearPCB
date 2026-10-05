@@ -72,6 +72,17 @@ export function isPcbObjectLocked(app, kind, object) {
     return state.object || state.layers.length > 0;
 }
 
+/**
+ * Tracks and vias that routing and Clear Routes keep: everything locked. The router
+ * treats them as fixed copper, so new routes join same-net copper and avoid the rest.
+ */
+export function lockedRoutedCopper(app) {
+    return {
+        tracks: (app.tracks || []).filter(track => isPcbObjectLocked(app, 'track', track)),
+        vias: (app.vias || []).filter(via => isPcbObjectLocked(app, 'via', via)),
+    };
+}
+
 /** A board shape (or free text) is locked by its own flag or its layer. */
 export function boardShapeLocked(shape) {
     return !!shape && (!!shape.locked || isLayerLocked(shape.layer));
@@ -125,6 +136,13 @@ function layerName(app, lock) {
 export function describeLayerLocks(app, layers) {
     const names = layers.map(lock => layerName(app, lock));
     return `${names.join(' and ')} layer${names.length > 1 ? 's' : ''}`;
+}
+
+/** Message for an edit the lock gate refused, e.g. "This track is locked" or "Top Copper layer is locked". */
+export function describeLockedEdit(app, { kind, object }) {
+    const state = pcbLockState(app, kind, object);
+    if (state.object || !state.layers.length) return `This ${NOUNS[kind] || 'object'} is locked`;
+    return `${describeLayerLocks(app, state.layers)} ${state.layers.length > 1 ? 'are' : 'is'} locked`;
 }
 
 /** Menu items lifting the object's own lock, its layer locks, or both; only applicable ones. */

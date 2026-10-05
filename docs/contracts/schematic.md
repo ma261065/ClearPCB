@@ -92,6 +92,12 @@ marquee) but not moved, edited or deleted:
 
 `test-schematic-lock-placement` and `browser-tests/schematic-locks.mjs` cover these.
 
+The same lock gate as the PCB editor (`core/edit-guard.js`) refuses any new schematic
+command whose `lockTargets()` include a locked object. A refused drag commit restores
+the gesture as Escape would. Schematic gestures edit live entities and then `record`
+the result, so side effects recorded that way (wires stretched or merged by a move)
+are outside the gate, like copper following a PCB part.
+
 ## Startup and Component Picker
 
 Schematic startup immediately starts KiCad index loading in the background,

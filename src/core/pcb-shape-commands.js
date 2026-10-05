@@ -1,3 +1,4 @@
+import { editTargets } from './edit-guard.js';
 import { applyShapeGeometry, applyShapeSnapshot } from './pcb-board-shapes.js';
 import { validBoardOutline } from '../shared/pcb/board-outline.js';
 
@@ -25,6 +26,7 @@ export class AddBoardShapeCommand {
         this.shape = shape;
     }
 
+    lockTargets() { return []; }
     execute() {
         if (this.shape.layer === 'board-outline') return;
         if (!this.document.boardShapes.includes(this.shape)) this.document.boardShapes.push(this.shape);
@@ -46,6 +48,7 @@ export class RemoveBoardShapeCommand {
         this.shape = shape;
     }
 
+    lockTargets() { return [{ kind: 'shape', object: this.shape }]; }
     execute() {
         if (this.shape.layer === 'board-outline') return;
         const index = this.document.boardShapes.indexOf(this.shape);
@@ -68,6 +71,7 @@ export class MoveBoardShapeCommand {
     }
 
     _apply(geometry) { return applyEdit(this.document, this.shape, geometry, applyShapeGeometry); }
+    lockTargets() { return [{ kind: 'shape', object: this.shape }]; }
     execute() { return this._apply(this.after); }
     undo() { return this._apply(this.before); }
 }
@@ -82,6 +86,7 @@ export class ModifyBoardShapeCommand {
     }
 
     _apply(state) { return applyEdit(this.document, this.shape, state, applyShapeSnapshot); }
+    lockTargets() { return editTargets('shape', this.shape, this.before, this.after); }
     execute() { return this._apply(this.after); }
     undo() { return this._apply(this.before); }
 }

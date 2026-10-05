@@ -1,4 +1,5 @@
 import { Command } from '../../core/CommandHistory.js';
+import { editTargets } from '../../core/edit-guard.js';
 import { setComponentReference } from '../../core/SchematicDocument.js';
 import { Component } from '../../components/Component.js';
 /**
@@ -54,6 +55,7 @@ export class AddShapeCommand extends Command {
     }
     
     /** Add the shape to the canvas. */
+    lockTargets() { return []; }
     execute() {
         this.linkedLabelText = this.app.commandAddShape(this.shape, this.linkedLabelText) || this.linkedLabelText;
     }
@@ -122,6 +124,7 @@ export class DeleteShapesCommand extends Command {
     }
     
     /** Remove the shapes from the canvas and deselect them. */
+    lockTargets() { return this.shapesData.map(({ shape }) => ({ object: shape })); }
     execute() {
         this.app.commandDeleteShapes(this.shapesData, this.linkedLabelData);
     }
@@ -165,6 +168,10 @@ export class MoveShapesCommand extends Command {
     }
     
     /** Move all items by (dx, dy) and update sticky wires. */
+    lockTargets() {
+        const items = new Map([...this.app.shapes, ...this.app.components].map(item => [item.id, item]));
+        return this.itemIds.map(id => ({ object: items.get(id) }));
+    }
     execute() {
         const lookup = this._buildLookup();
         for (const id of this.itemIds) {
@@ -223,6 +230,7 @@ export class ModifyShapeCommand extends Command {
     }
     
     /** Apply the after-state to restore the modification. */
+    lockTargets() { return editTargets(undefined, this._findItem(this.shapeId), this.beforeState, this.afterState); }
     execute() {
         const shape = this._findItem(this.shapeId);
         if (shape) {
@@ -415,6 +423,12 @@ export class ModifyPropertyCommand extends Command {
     }
 
     /** Apply the new property values. */
+    /** Lock changes are how locks are lifted; net renames follow connectivity. */
+    lockTargets() {
+        if (this.prop === 'locked' || this.prop === 'net') return [];
+        const items = new Map([...this.app.shapes, ...this.app.components].map(item => [item.id, item]));
+        return this.entries.map(({ id }) => ({ object: items.get(id) }));
+    }
     execute() { this._applyValues(true); }
     /** Restore the old property values. */
     undo() { this._applyValues(false); }
@@ -465,6 +479,7 @@ export class DeleteComponentsCommand extends Command {
     }
 
     /** Remove the components and their field texts from the canvas. */
+    lockTargets() { return this.componentsData.map(({ component }) => ({ object: component })); }
     execute() {
         const app = this.app;
         // Collect all items to remove
@@ -584,6 +599,7 @@ export class AddComponentCommand extends Command {
     }
 
     /** Add the component and its field texts to the canvas. */
+    lockTargets() { return []; }
     execute() {
         // On first execute, snapshot wire states before placement so undo can restore them
         if (!this._wireStatesBeforePlace) {
@@ -769,6 +785,10 @@ export class TransformComponentCommand extends Command {
     }
 
     /** Perform the transform. */
+    lockTargets() {
+        const items = new Map([...this.app.shapes, ...this.app.components].map(item => [item.id, item]));
+        return this.entries.map(({ id }) => ({ object: items.get(id) }));
+    }
     execute() { this._apply(false); }
     /** Reverse the transform by restoring captured state. */
     undo() { this._apply(true); }
@@ -830,6 +850,7 @@ export class PasteCommand extends Command {
     }
 
     /** Add all pasted shapes and components to the canvas. */
+    lockTargets() { return []; }
     execute() {
         const app = this.app;
         // Build a Set for O(1) membership checks on field texts
@@ -929,6 +950,8 @@ export class BatchCommand extends Command {
     }
 
     /** Execute all sub-commands in order. */
+    /** A batch is checked through its child commands. */
+    lockTargets() { return []; }
     execute() {
         for (const cmd of this.commands) cmd.execute();
     }

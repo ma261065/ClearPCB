@@ -1,3 +1,4 @@
+import { editTargets } from './edit-guard.js';
 import { serializePcbText } from './pcb-text.js';
 
 /** @typedef {import('./PcbDocument.js').PcbDocument} PcbDocument */
@@ -16,6 +17,7 @@ export class AddTextCommand {
         this.document = document;
         this.text = text;
     }
+    lockTargets() { return []; }
     execute() { this.document.texts.set(this.text.id, this.text); }
     undo() {
         // Deletion undo may have recreated the text since this command ran.
@@ -31,6 +33,7 @@ export class RemoveTextCommand {
         this.document = document;
         this.snapshot = serializePcbText(requireText(document, textId));
     }
+    lockTargets() { return [{ kind: 'text', object: this.document.texts.get(this.snapshot.id) }]; }
     execute() { this.document.texts.delete(this.snapshot.id); }
     undo() { this.document.texts.set(this.snapshot.id, /** @type {any} */ ({ ...this.snapshot })); }
     get description() { return `Delete text "${this.snapshot.content}"`; }
@@ -44,6 +47,7 @@ export class MoveTextCommand {
         this.x0 = x0; this.y0 = y0;
         this.x1 = x1; this.y1 = y1;
     }
+    lockTargets() { return [{ kind: 'text', object: this.document.texts.get(this.id) }]; }
     execute() { this._set(this.x1, this.y1); }
     undo() { this._set(this.x0, this.y0); }
     _set(x, y) {
@@ -66,6 +70,7 @@ export class EditTextCommand {
             this.after[key] = after[key];
         }
     }
+    lockTargets() { return editTargets('text', this.document.texts.get(this.id), this.before, this.after); }
     execute() { this._apply(this.after); }
     undo() { this._apply(this.before); }
     _apply(patch) { Object.assign(requireText(this.document, this.id), patch); }
