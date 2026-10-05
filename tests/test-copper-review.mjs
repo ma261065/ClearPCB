@@ -12,7 +12,7 @@ import { areDragOverlaysDeferred } from '../src/pcb/modules/refresh-state.js';
 globalThis.window = { addEventListener() {} };
 globalThis.document = { createElementNS: () => ({ setAttribute() {}, appendChild() {} }) };
 const { buildFillContext } = await import('../src/pcb/modules/fill-context.js');
-const { computeFillPolygons, loadClipper } = await import('../src/pcb/modules/copper-fill-geom.js');
+const { computeFillPolygons, computeFillPolygonsInOrder, loadClipper } = await import('../src/pcb/modules/copper-fill-geom.js');
 const { CopperFill } = await import('../src/shapes/copper-fill.js');
 const { collectCopper, runDRC } = await import('../src/pcb/modules/drc.js');
 const { CompoundCommand, getPlacementPreviewTracks } = await import('../src/pcb/modules/track-commands.js');
@@ -126,9 +126,41 @@ for (const clearance of [0.1, 0.5, 1.67]) {
             'Moving the circle into an unchanged pour must still fail clearance');
     }
 }
-assert.equal(contains(computeFillPolygons(first, context, clipper), { x: 7, y: 5 }), false);
-assert.equal(contains(computeFillPolygons(second, context, clipper), { x: 7, y: 5 }), false);
-assert.equal(contains(computeFillPolygons(first, context, clipper), { x: 2, y: 5 }), true);
+// Overlapping pours of different nets never share copper: the earlier pour keeps the
+// overlap and the later one flows around the copper it poured, keeping the clearance.
+{
+    const [firstCopper, secondCopper] = computeFillPolygonsInOrder([first, second], context, clipper);
+    assert.equal(contains(firstCopper, { x: 7, y: 5 }), true, 'the earlier pour keeps the overlap');
+    assert.equal(contains(secondCopper, { x: 7, y: 5 }), false, 'the later pour leaves it');
+    assert.equal(contains(secondCopper, { x: 10.1, y: 5 }), false, 'with the clearance gap');
+    assert.equal(contains(secondCopper, { x: 14, y: 5 }), true, 'and pours the rest of its outline');
+    assert.equal(contains(firstCopper, { x: 2, y: 5 }), true);
+    assert.deepEqual(computeFillPolygonsInOrder([second, first], context, clipper), [secondCopper, firstCopper],
+        'precedence is document order, whatever order the pours are computed in');
+    const unassigned = board();
+    const older = new CopperFill({ outline: rectangle(0, 0, 10, 10) });
+    const newer = new CopperFill({ outline: rectangle(5, 0, 15, 10) });
+    unassigned.copperFills = [older, newer];
+    const [olderCopper, newerCopper] = computeFillPolygonsInOrder([older, newer], buildFillContext(unassigned), clipper);
+    assert.equal(contains(olderCopper, { x: 7, y: 5 }), true, 'two pours without a net: the earlier keeps the overlap');
+    assert.equal(contains(newerCopper, { x: 7, y: 5 }), false);
+    assert.equal(contains(newerCopper, { x: 14, y: 5 }), true);
+    // The later pour flows around the copper the earlier one poured, not its outline: a
+    // VCC via inside the overlap voids the GND pour, and a later VCC pour reaches it there.
+    const withVia = board();
+    withVia.vias = [new Via({ x: 7, y: 5, diameter: 1, drill: 0.4, net: 'VCC' })];
+    const ground = new CopperFill({ net: 'GND', outline: rectangle(0, 0, 10, 10) });
+    const supply = new CopperFill({ net: 'VCC', outline: rectangle(5, 0, 15, 10) });
+    withVia.copperFills = [ground, supply];
+    const [groundCopper, supplyCopper] = computeFillPolygonsInOrder([ground, supply], buildFillContext(withVia), clipper);
+    assert.equal(contains(groundCopper, { x: 7, y: 5 }), false, 'the GND pour clears the VCC via');
+    assert.equal(contains(supplyCopper, { x: 7, y: 5 }), true, 'the VCC pour reaches its via inside the GND clearance hole');
+    assert.equal(contains(supplyCopper, { x: 7, y: 7 }), false, 'but not the GND copper around it');
+    newer.net = older.net = 'GND';
+    const [mergedOlder, mergedNewer] = computeFillPolygonsInOrder([older, newer], buildFillContext(unassigned), clipper);
+    assert.equal(contains(mergedOlder, { x: 7, y: 5 }) && contains(mergedNewer, { x: 7, y: 5 }), true,
+        'same-net pours still overlap and merge');
+}
 
 fillApp.texts.set('label', { id: 'label', content: 'I', x: 2, y: 5, size: 2, strokeWidth: 0.2, layer: 'top-copper' });
 second.net = 'GND';

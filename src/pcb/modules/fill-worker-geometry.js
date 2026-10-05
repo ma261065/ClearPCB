@@ -1,5 +1,5 @@
 import { buildFillContext } from './fill-context.js';
-import { computeFillPolygons, loadClipper } from './copper-fill-geom.js';
+import { computeFillPolygonsInOrder, loadClipper } from './copper-fill-geom.js';
 import { serializePcbText } from '../../core/pcb-text.js';
 import { boardDimensions } from '../../shared/pcb/board-outline.js';
 
@@ -32,5 +32,5 @@ export async function computeFillBatch(inputs) {
     const context = { ...inputs, tracks: inputs.tracks.map(track => ({
         ...track, getEdgeWidth: id => track.edges.get(id).width, getEdgeLayer: id => track.edges.get(id).layer,
     })) };
-    return inputs.fills.map(fill => computeFillPolygons(fill, context, clipper));
+    return computeFillPolygonsInOrder(inputs.fills, context, clipper);
 }

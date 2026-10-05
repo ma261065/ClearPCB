@@ -77,7 +77,8 @@ const U = (v) => v / SCALE;
  * @property {Array<{x:number,y:number,width:number,height:number,shape:string,layer:string,net:string}>} pads
  * @property {Array} boardShapes - app.boardShapes (including hole-layer cutouts)
  * @property {Array} texts
- * @property {Array} fills
+ * @property {Array} fills - every pour, in document (precedence) order
+ * @property {Map<string, Array>} [poured] - copper already poured by earlier pours, by id (computeFillPolygonsInOrder)
  * @property {Array<{x:number,y:number,dia:number,slot?:null|{x2:number,y2:number}}>} holes
  * @property {{clearance:number}} params
  * @property {{w:number,h:number,r:number,x?:number,y?:number,points?:Array<{x:number,y:number}>}|null} board
@@ -138,6 +139,60 @@ export function computeFillPolygons(fill, ctx, C = _clipper) {
         outer: ex.outer.map((pt) => ({ x: U(pt.X), y: U(pt.Y) })),
         holes: (ex.holes || []).map((h) => h.map((pt) => ({ x: U(pt.X), y: U(pt.Y) }))),
     }));
+}
+
+/** A pour's precedence: its place in document order (a pour not listed comes last). */
+function pourRank(order, fill) {
+    const index = order.findIndex(other => other === fill || (other?.id != null && other.id === fill?.id));
+    return index < 0 ? order.length : index;
+}
+
+/**
+ * Compute pours in precedence order (document order), each seeing the copper the
+ * earlier ones poured: where pours of different nets overlap, the earlier pour keeps the
+ * copper and the later one flows around it.
+ * @param {Array} fills
+ * @param {FillContext} ctx
+ * @param {object} [C] ClipperLib namespace
+ * @param {(done: number, total: number) => void} [onEach] called before each pour
+ * @returns {Array} results in `fills` order
+ */
+export function computeFillPolygonsInOrder(fills, ctx, C = _clipper, onEach = () => {}) {
+    const order = ctx?.fills || fills;
+    const poured = new Map();
+    const context = { ...ctx, poured };
+    const sorted = [...fills].sort((a, b) => pourRank(order, a) - pourRank(order, b));
+    const results = new Map();
+    sorted.forEach((fill, index) => {
+        onEach(index, sorted.length);
+        const result = computeFillPolygons(fill, context, C);
+        results.set(fill, result);
+        poured.set(fill.id, result);
+    });
+    return fills.map(fill => results.get(fill));
+}
+
+/** An earlier pour's copper (outer contours and holes), grown by the clearance. */
+function offsetPouredCopper(C, regions, clearance) {
+    const paths = [];
+    for (const { outer, holes = [] } of regions || []) {
+        if (!Array.isArray(outer) || outer.length < 3) continue;
+        const contour = outer.map(point => ({ X: S(point.x), Y: S(point.y) }));
+        if (!C.Clipper.Orientation(contour)) contour.reverse();
+        paths.push(contour);
+        for (const hole of holes) {
+            if (!Array.isArray(hole) || hole.length < 3) continue;
+            const path = hole.map(point => ({ X: S(point.x), Y: S(point.y) }));
+            if (C.Clipper.Orientation(path)) path.reverse();
+            paths.push(path);
+        }
+    }
+    if (!paths.length) return [];
+    const offset = new C.ClipperOffset(2, ARC_TOL);
+    offset.AddPaths(paths, C.JoinType.jtRound, C.EndType.etClosedPolygon);
+    const result = new C.Paths();
+    offset.Execute(result, (clearance + OFFSET_MARGIN) * SCALE);
+    return result;
 }
 
 /** Build the (optional) board clip polygon, shrunk inward by `clearance`. */
@@ -216,11 +271,20 @@ function collectObstacles(C, fill, ctx, clearance) {
         }
     }
 
-    // Other pours are copper too. Different/unassigned nets keep clearance;
-    // same-net pours may overlap and merge.
-    for (const otherFill of (ctx.fills || [])) {
-        if (!otherFill || otherFill === fill || otherFill.layer !== fill.layer) continue;
-        if (sameNet(otherFill.net || '')) continue;
+    // Pours of another net (or none) never share copper: the earlier pour (document
+    // order) keeps an overlap and a later one flows around the copper it poured, keeping
+    // the clearance; until that copper is known, around its outline. Same-net pours may
+    // overlap and merge.
+    const order = ctx.fills || [];
+    const rank = pourRank(order, fill);
+    for (const [index, otherFill] of order.entries()) {
+        if (index >= rank) break;
+        if (!otherFill || otherFill.layer !== fill.layer || sameNet(otherFill.net || '')) continue;
+        const poured = ctx.poured?.get(otherFill.id);
+        if (poured) {
+            out.push(...offsetPouredCopper(C, poured, clearance));
+            continue;
+        }
         const outline = otherFill.getOutline?.() || otherFill.outline;
         if (!Array.isArray(outline) || outline.length < 3) continue;
         out.push(...offsetClosedPath(C, outline, clearance));

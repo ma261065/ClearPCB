@@ -9,7 +9,7 @@ const { generateFootprint } = await import('../src/shared/pcb/footprint.js');
 const { extractNetlist } = await import('../src/core/netlist.js');
 const { loadBoardShapes } = await import('../src/pcb/modules/board-shapes.js');
 const { buildFillContext } = await import('../src/pcb/modules/fill-context.js');
-const { computeFillPolygons, loadClipper } = await import('../src/pcb/modules/copper-fill-geom.js');
+const { computeFillPolygonsInOrder, loadClipper } = await import('../src/pcb/modules/copper-fill-geom.js');
 const { runDRC } = await import('../src/pcb/modules/drc.js');
 
 const entries = unzipSync(readFileSync(process.argv[2]));
@@ -51,7 +51,8 @@ for (const isolated of [false, true]) {
         app.texts.clear();
     }
     const context = buildFillContext(app);
-    for (const fill of app.copperFills) fill._computed = computeFillPolygons(fill, context, clipper);
+    const poured = computeFillPolygonsInOrder(app.copperFills, context, clipper);
+    app.copperFills.forEach((fill, index) => { fill._computed = poured[index]; });
     const result = runDRC(app, { clearance: pcb.design.clearance });
     const padPour = result.violations.filter((item) => item.id.includes('pad:') && item.id.includes('fill:'));
     console.log(JSON.stringify({ isolated, clearance: pcb.design.clearance, pads: context.pads.length,

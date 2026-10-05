@@ -1,7 +1,7 @@
 import { capturePcbGeometry } from '../../core/pcb-geometry-snapshot.js';
 import { captureResolvedPlacement } from '../../core/pcb-placement-geometry.js';
 import { buildFillContext } from './fill-context.js';
-import { computeFillPolygons, loadClipper } from './copper-fill-geom.js';
+import { computeFillPolygonsInOrder, loadClipper } from './copper-fill-geom.js';
 import { panelSettings } from './panelization.js';
 import { blocksPcbExport } from './pcb-interactions.js';
 import { hasActivePropertyEditor } from './property-editors.js';
@@ -51,9 +51,7 @@ export async function prepareSnapshotFills(snapshot, onProgress = (done, total) 
         copperFills: fills, getRoutingParams: () => params,
         _boardWidth: snapshot.boardWidth, _boardHeight: snapshot.boardHeight, _boardRadius: snapshot.boardRadius });
     const clipper = await loadClipper();
-    for (const [index, fill] of fills.entries()) {
-        onProgress(index, fills.length);
-        fill._computed = computeFillPolygons(fill, context, clipper);
-    }
+    const results = computeFillPolygonsInOrder(fills, context, clipper, onProgress);
+    fills.forEach((fill, index) => { fill._computed = results[index]; });
     onProgress(fills.length, fills.length);
 }

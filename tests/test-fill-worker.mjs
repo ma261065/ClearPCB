@@ -13,7 +13,7 @@ import { scheduleFillRefresh, invalidateFillRefresh, disposeFillRefresh, adoptFi
 import { prepareCopperRegionContact, installCopperRegionContact, copperRegionShape,
     resolveTrackContactGeometry, copperContactsTouch } from '../src/pcb/modules/track-contact-geometry.js';
 import { runDRC } from '../src/pcb/modules/drc.js';
-import { computeFillPolygons, loadClipper } from '../src/pcb/modules/copper-fill-geom.js';
+import { computeFillPolygonsInOrder, loadClipper } from '../src/pcb/modules/copper-fill-geom.js';
 import { getComputedFill } from '../src/pcb/modules/computed-fill-cache.js';
 import { schedulePictureCopperRefresh, cancelPictureCopperRefresh } from '../src/pcb/modules/picture-refresh.js';
 import { EditTextCommand } from '../src/pcb/modules/text-commands.js';
@@ -139,7 +139,7 @@ function fixture() {
     assert.equal(inputs.tracks[0].edges.get('e0').width, 0.713456789);
     assert.equal(inputs.holes.length, 1, 'Detached context includes placed non-plated holes');
     assert.equal('artwork' in inputs.boardShapes.find(shape => shape.kind === 'image'), false);
-    const expected = model.copperFills.map(fill => computeFillPolygons(fill, buildFillContext(app)));
+    const expected = computeFillPolygonsInOrder(model.copperFills, buildFillContext(app));
     assert.ok(expected.some(regions => regions.some(region => region.holes.length)), 'Parity fixture includes real holes');
     let native, started, completed = false;
     const startedPromise = new Promise(resolve => { started = resolve; });

@@ -1,4 +1,4 @@
-import { computeFillPolygons, isClipperReady, loadClipper } from './copper-fill-geom.js';
+import { computeFillPolygonsInOrder, isClipperReady, loadClipper } from './copper-fill-geom.js';
 import { captureFillInputs } from './fill-worker-geometry.js';
 import { createFillWorker } from './fill-worker-client.js';
 import { getComputedFill, setComputedFill } from './computed-fill-cache.js';
@@ -159,7 +159,7 @@ export function recomputeFillsNow(app) {
     let results;
     try {
         const context = buildFillContext(app);
-        results = fills.map(fill => computeFillPolygons(fill, context));
+        results = computeFillPolygonsInOrder(fills, context);
     } catch (error) {
         reportFailure(app, 'Failed to compute copper fills; retaining settled pours:', error);
         setFillRefreshPending(app, true);
