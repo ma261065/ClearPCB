@@ -13,9 +13,7 @@ import { distanceToArcEdge, arcEdgePathD } from '../../shapes/arc-edge.js';
 import { formatNumberInputValue } from '../../core/number-inputs.js';
 import { CopperFill, normalizeCopperFillKind } from '../../shapes/copper-fill.js';
 import { areDragOverlaysDeferred, setDragOverlaysDeferred } from './refresh-state.js';
-
-/** Quiet period after the last spinner step before a fill field edit recomputes the pour. */
-const FILL_FIELD_SETTLE_MS = 400;
+import { bindSettledChange } from '../../shared/ui/settled-input.js';
 
 export function canEditFill(fill) {
     return fill && !fill.locked && fill.visible !== false && !isLayerLocked(fill.layer)
@@ -279,25 +277,14 @@ export function addFillGeometryProperties(app, fill, items) {
                 + (fill.kind === 'circle' ? number('pcbPropFillDiameter', 'diameter', 'Diameter (mm)', fill.radius * 2, 0.1)
                     : number('pcbPropFillCornerRadius', 'cornerRadius', 'Corner Radius (mm)', fill.cornerRadius, 0)));
     // Spinner clicks fire `change` on every step, and each commit recomputes the whole pour.
-    // Commit once the value settles, or straight away when the field loses focus.
     const bind = (id, mutate, min, max = Infinity) => {
         const input = items.querySelector(`#${id}`);
         if (!input) return;
-        let timer = 0;
-        const commit = () => {
-            clearTimeout(timer);
-            timer = 0;
-            // A rebuilt panel (undo, another selection) has dropped this edit.
-            if (input.isConnected === false) return;
+        bindSettledChange(input, () => {
             const value = input.valueAsNumber;
             if (!Number.isFinite(value) || value < min || value > max) return;
             commitFillEdit(app, fill, candidate => mutate(candidate, value));
-        };
-        input.addEventListener('change', () => {
-            clearTimeout(timer);
-            timer = setTimeout(commit, FILL_FIELD_SETTLE_MS);
         });
-        input.addEventListener('blur', () => { if (timer) commit(); });
     };
     bind('pcbPropFillNodeRadius', (fill, value) => { fill.nodeCornerRadii[node] = value; }, 0);
     bind('pcbPropFillBulge', (fill, value) => {

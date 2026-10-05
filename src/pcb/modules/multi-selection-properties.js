@@ -11,6 +11,7 @@ import { REF_DEFAULT_SIZE, REF_DEFAULT_STROKE } from '../../shared/pcb/footprint
 import { PICTURE_LAYERS } from '../../shared/pcb/picture-raster.js';
 import { measureText as measureStrokeText } from '../../shared/pcb/stroke-font.js';
 import { sortByPropertyOrder } from '../../shared/ui/property-order.js';
+import { bindSettledChange } from '../../shared/ui/settled-input.js';
 import { applyShapeSnapshot, captureBoardShapeState } from './board-shapes.js';
 import { refreshBoxSelectionHighlights } from './box-select.js';
 import { ModifyFillCommand } from './copper-fill-commands.js';
@@ -382,17 +383,17 @@ export function showMultiSelectionProperties(app, entries) {
             checkbox.addEventListener('change', () => commit(key, checkbox.checked));
         } else if (info.descriptor.type === 'net') {
             app.bindToolNetControl(items, info.id, value => commit(key, value));
-        } else {
-            input.addEventListener('change', () => {
-                /** @type {any} */
-                let value = info.descriptor.type === 'number' ? Number(input.value) : input.value;
-                if (info.descriptor.type === 'number') {
-                    if (!Number.isFinite(value)) return;
-                    if (key === 'rotation') value = ((value % 360) + 360) % 360;
-                    value = Math.max(info.descriptor.min, Math.min(info.descriptor.max, value));
-                }
-                commit(key, value);
+        } else if (info.descriptor.type === 'number') {
+            // A run of spinner clicks commits once: each commit can recompute pours.
+            const field = /** @type {HTMLInputElement} */ (input);
+            bindSettledChange(field, () => {
+                let value = Number(field.value);
+                if (!Number.isFinite(value)) return;
+                if (key === 'rotation') value = ((value % 360) + 360) % 360;
+                commit(key, Math.max(info.descriptor.min, Math.min(info.descriptor.max, value)));
             });
+        } else {
+            input.addEventListener('change', () => commit(key, input.value));
         }
     }
     app.showPropertiesTab?.();

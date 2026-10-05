@@ -75,3 +75,11 @@ Rotation (°), Outer Diameter (mm) for a stroked circle, Layer (including a
 pad's copper sides) and Net. Tracks label their width "Width (mm)" because a
 track's line is its width; field text is named for its field (Reference,
 Value, Label).
+
+Pop-up menus (context menus and the lock icon's unlock menu) come from
+`shared/ui/context-menu.js` in both editors: opened at the pointer, one per id,
+closed by choosing an item, an outside press or Escape. Number fields whose commit
+is expensive (pour geometry, the PCB multi-selection panel) use
+`shared/ui/settled-input.js`, so a run of spinner clicks commits once: after a
+quiet period, or at once on Enter or blur. Fields with a live preview (PCB pad,
+via and track panels, schematic numbers) commit on `change` as before.

@@ -150,6 +150,9 @@ for (const property of ['locked', 'refVisible', 'layer', 'rotation']) {
 const componentRotationInput = controls.get('#pcbPropIntersection_rotation');
 componentRotationInput.value = '180';
 componentRotationInput.emit('change');
+assert.deepEqual(['U1', 'U2'].map(id => app.placements.get(id).rotation), [0, 90],
+   'shared number fields wait for the value to settle before committing');
+componentRotationInput.emit('blur');
 assert.deepEqual(['U1', 'U2'].map(id => app.placements.get(id).rotation), [180, 180],
    'changing shared Component Rotation updates every selected Component');
 lastCommand.undo();

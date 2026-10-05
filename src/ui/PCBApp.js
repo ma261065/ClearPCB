@@ -59,6 +59,7 @@ import { normalizeShapeCopperMode } from '../shared/pcb/board-shape-geometry.js'
 import { hitTestPcbSelectionAnchor, renderPcbSelectionAnchors } from '../pcb/modules/selection-anchors.js';
 import { boardShapeLocked, describeLockedEdit, isPcbObjectLayerLocked, isPcbObjectLocked, lockedRoutedCopper, showUnlockMenu } from '../pcb/modules/object-locks.js';
 import { createLockGuard } from '../core/edit-guard.js';
+import { showContextMenu } from '../shared/ui/context-menu.js';
 import { refreshAxisGlow } from '../pcb/modules/axis-glow.js';
 import { buildFillContext } from '../pcb/modules/fill-context.js';
 import { scheduleFillRefresh, recomputeFillsNow, invalidateFillRefresh, disposeFillRefresh } from '../pcb/modules/fill-refresh.js';
@@ -2230,30 +2231,8 @@ export default class PCBApp {
     _showComponent3DMenu(compId, clientX, clientY) {
         if (!hasAny3DModel(this.placements.get(compId))) return;
         dismissTrackContextMenu();
-        const menu = document.createElement('div');
-        menu.id = 'pcbTrackContextMenu';
-        menu.style.cssText = `position:fixed;z-index:10000;background:#2b2b2b;border:1px solid #555;border-radius:4px;padding:2px 0;box-shadow:0 2px 8px rgba(0,0,0,0.4);min-width:120px;left:${clientX}px;top:${clientY}px;`;
-        const el = document.createElement('div');
-        el.textContent = '\uD83E\uDDCA Show 3D';
-        el.style.cssText = 'padding:6px 16px;color:#eee;cursor:pointer;font:13px/1.4 system-ui,sans-serif;white-space:nowrap;';
-        el.addEventListener('mouseenter', () => { el.style.background = '#3a3a3a'; });
-        el.addEventListener('mouseleave', () => { el.style.background = ''; });
-        el.addEventListener('click', () => {
-            dismissTrackContextMenu();
-            this._openComponent3DPopout(compId);
-        });
-        menu.appendChild(el);
-        menu.addEventListener('contextmenu', (e) => e.preventDefault());
-        document.body.appendChild(menu);
-        const dismiss = (e) => {
-            if (!menu.contains(/** @type {Node|null} */ (e.target))) dismissTrackContextMenu();
-        };
-        const onKey = (e) => { if (e.key === 'Escape') dismissTrackContextMenu(); };
-        setTimeout(() => {
-            document.addEventListener('mousedown', dismiss, { capture: true });
-            document.addEventListener('keydown', onKey, { capture: true });
-        }, 0);
-        /** @type {any} */ (menu)._dismiss = { dismiss, onKey };
+        showContextMenu('pcbTrackContextMenu',
+            [{ text: '\uD83E\uDDCA Show 3D', onClick: () => this._openComponent3DPopout(compId) }], clientX, clientY);
     }
 
     /**

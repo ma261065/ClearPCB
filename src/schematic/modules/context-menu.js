@@ -19,45 +19,7 @@ import { Arc } from '../../shapes/arc.js';
 import { addShapeInternal } from './shape-management.js';
 import { applyShapeState, captureShapeState } from './selection.js';
 import { getShapeNodeFocus, getShapeSegmentFocus, setShapeNodeFocus, setShapeSegmentFocus } from './shape-focus.js';
-
-/**
- * @typedef {HTMLDivElement & {
- *   _dismissHandlers?: {
- *     dismiss: (e: MouseEvent) => void,
- *     dismissOnKey: (e: KeyboardEvent) => void,
- *     timer: ReturnType<typeof setTimeout>
- *   },
- *   _dismissAttached?: boolean
- * }} AnchorContextMenuEl
- */
-
-/** @param {Element | null} el */
-function asAnchorContextMenuEl(el) {
-    return /** @type {AnchorContextMenuEl | null} */ (el);
-}
-
-/** @param {AnchorContextMenuEl} menu */
-function attachDismissHandlers(menu) {
-    const dismiss = (e) => {
-        if (!menu.contains(/** @type {Node | null} */ (e.target))) dismissAnchorContextMenu();
-    };
-    const dismissOnKey = (e) => {
-        if (e.key === 'Escape') dismissAnchorContextMenu();
-    };
-    // Defer attaching the global dismiss listeners so the same gesture that
-    // opened the menu doesn't immediately close it. If the menu is dismissed
-    // before this timer fires (e.g. a rapid second right-click superseding it),
-    // dismissAnchorContextMenu() clears this timer so the listeners are never
-    // attached — otherwise they would leak, closing over a detached menu node
-    // and tearing down every future menu on mousedown (before its click runs).
-    const timer = setTimeout(() => {
-        if (!menu.isConnected) return;
-        document.addEventListener('mousedown', dismiss, { capture: true });
-        document.addEventListener('keydown', dismissOnKey, { capture: true });
-        menu._dismissAttached = true;
-    }, 0);
-    menu._dismissHandlers = { dismiss, dismissOnKey, timer };
-}
+import { dismissContextMenu, showContextMenu } from '../../shared/ui/context-menu.js';
 
 function getWireSplitLabelMeta(wire) {
     const attached = wire.attachedLabels instanceof Set
@@ -633,41 +595,16 @@ function disconnectPinAndDrag(app, wire, anchorId) {
 
 // ─── Context menu UI ───────────────────────────────────────────────
 
-// ─── Shared context menu builder ───────────────────────────────────
-
-const MENU_STYLE = `position:fixed;z-index:10000;background:#2b2b2b;border:1px solid #555;border-radius:4px;padding:2px 0;box-shadow:0 2px 8px rgba(0,0,0,0.4);min-width:120px;`;
-const ITEM_STYLE = `padding:6px 16px;color:#eee;cursor:pointer;font:13px/1.4 system-ui,sans-serif;white-space:nowrap;`;
+const MENU_ID = 'schematicContextMenu';
 
 /**
- * Create and show a context menu at the given screen position.
+ * Open the schematic's context menu (the editors' shared menu, shared/ui/context-menu.js).
  * @param {Array<{text: string, onClick: () => void}>} items
  * @param {number} clientX
  * @param {number} clientY
  */
 export function createContextMenu(items, clientX, clientY) {
-    dismissAnchorContextMenu();
-
-    const menu = /** @type {AnchorContextMenuEl} */ (document.createElement('div'));
-    menu.className = 'anchor-context-menu';
-    menu.style.cssText = `${MENU_STYLE}left:${clientX}px;top:${clientY}px;`;
-
-    for (const item of items) {
-        const el = document.createElement('div');
-        el.textContent = item.text;
-        el.style.cssText = ITEM_STYLE;
-        el.addEventListener('mouseenter', () => el.style.background = '#3a3a3a');
-        el.addEventListener('mouseleave', () => el.style.background = '');
-        el.addEventListener('click', () => {
-            dismissAnchorContextMenu();
-            item.onClick();
-        });
-        menu.appendChild(el);
-    }
-
-    menu.addEventListener('contextmenu', e => e.preventDefault());
-    document.body.appendChild(menu);
-    attachDismissHandlers(menu);
-    return menu;
+    return showContextMenu(MENU_ID, items, clientX, clientY, { className: 'anchor-context-menu' });
 }
 
 /**
@@ -732,15 +669,7 @@ export function showAnchorContextMenu(app, shape, anchorId, clientX, clientY, ca
  * global event listeners. Safe to call when no menu is open.
  */
 export function dismissAnchorContextMenu() {
-    const existing = asAnchorContextMenuEl(document.querySelector('.anchor-context-menu'));
-    if (existing) {
-        if (existing._dismissHandlers) {
-            clearTimeout(existing._dismissHandlers.timer);
-            document.removeEventListener('mousedown', existing._dismissHandlers.dismiss, { capture: true });
-            document.removeEventListener('keydown', existing._dismissHandlers.dismissOnKey, { capture: true });
-        }
-        existing.remove();
-    }
+    dismissContextMenu(MENU_ID);
 }
 
 /**

@@ -93,7 +93,8 @@ clearpcb/
   import either editor.
 - `src/shared/ui/*` holds UI helpers both editors use (modal dialogs, viewport
   grid controls, cursors, export helpers, box selection, recents, ribbon height,
-  inline text, theme, the Properties panel control order). `src/shared/pcb/*` holds PCB geometry that the project
+  inline text, theme, the Properties panel control order, pop-up menus, settled
+  number fields). `src/shared/pcb/*` holds PCB geometry that the project
   model in `core` and the PCB editor both need (board outline and shape
   geometry, footprint generation, reference text, stroke font, picture artwork).
   Promote code there, rather than importing across editors, when both sides need it.
