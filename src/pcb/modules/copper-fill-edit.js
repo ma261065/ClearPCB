@@ -47,6 +47,18 @@ function previewFillGeometry(app, fill, mutate) {
     return true;
 }
 
+/**
+ * Commit a pour's live outline now. Pointer gestures call this before they save the
+ * overlay deferral, so a preview ending mid-gesture cannot leave pours deferred.
+ */
+export function settleFillGeometryPreview(app) {
+    const preview = geometryPreviews.get(app);
+    if (!preview) return false;
+    const after = preview.candidate.captureState();
+    endFillGeometryPreview(app);
+    return commitFillEdit(app, preview.fill, candidate => candidate.applyState(after));
+}
+
 /** End a pour's live outline, showing the pour as it is (copper included). */
 export function endFillGeometryPreview(app) {
     const preview = geometryPreviews.get(app);
@@ -111,6 +123,7 @@ function updateFillHandleCrosshair(app, fill, anchor) {
 
 export function beginFillEdit(app, fill, point, anchor = null, segment = null) {
     if (!canEditFill(fill)) return false;
+    settleFillGeometryPreview(app);
     const before = fill.captureState();
     const previousFocus = app._fillEdit;
     const midpoint = /^mid:(\d+)$/.exec(String(anchor));
@@ -305,12 +318,7 @@ export function showFillProperties(app, fill) {
     const binding = {
         get active() { return previewing(); },
         affectsLayer: layerId => layerId === fill.layer,
-        commit() {
-            if (!previewing()) return;
-            const after = geometryPreviews.get(app).candidate.captureState();
-            endFillGeometryPreview(app);
-            commitFillEdit(app, fill, candidate => candidate.applyState(after));
-        },
+        commit() { if (previewing()) settleFillGeometryPreview(app); },
         cancel() { if (previewing()) endFillGeometryPreview(app); },
         dispose() { binding.cancel(); },
     };

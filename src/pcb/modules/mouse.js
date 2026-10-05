@@ -34,7 +34,7 @@ import {
     getTrackDraw, resolveTrackDrawSnap, showTrackSnapMarker, clearTrackSnapMarker, addTrackWaypoint, finishTrackDraw,
 } from './track-draw.js';
 import { getFillDraw, finishFillDraw } from './copper-fill-draw.js';
-import { showFillContextMenu } from './copper-fill-edit.js';
+import { settleFillGeometryPreview, showFillContextMenu } from './copper-fill-edit.js';
 import { hitTestTrack, hitTestLockedTrack, showTrackContextMenu } from './track-select.js';
 import { showLockedLayerBubble } from './layers.js';
 import { isUnmodifiedPrimaryDoublePress } from '../../shared/ui/inline-edit-activation.js';
@@ -127,6 +127,9 @@ export function bindPcbMouseEvents(app) {
 
 function onMouseDown(app, e) {
     if (!isEditorActive(app)) return;
+    // A live pour outline from Properties settles before any gesture saves the
+    // overlay deferral (the field's blur only follows this press).
+    settleFillGeometryPreview(app);
     const svg = app.viewport.svg;
     app.viewport.onInteractionStart?.('pointer');
     app.viewport.shiftHeld = e.shiftKey;

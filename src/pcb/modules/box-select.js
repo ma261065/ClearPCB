@@ -524,7 +524,7 @@ function _pointSegDist(p, a, b) {
 /** Snapshot start positions of every selected object for a group drag. */
 export function beginGroupDrag(app, worldPos) {
     if (app._groupDrag) cancelGroupDrag(app);
-    commitPropertyEditors(app, ['text', 'pad', 'via', 'track', 'boardShape']);
+    commitPropertyEditors(app, ['text', 'pad', 'via', 'track', 'boardShape', 'fill']);
     const comps = [];
     for (const compId of getPcbSelection(app, 'component')) {
         const pl = app.placements.get(compId);

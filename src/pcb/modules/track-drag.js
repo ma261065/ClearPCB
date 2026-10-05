@@ -93,7 +93,7 @@ function _endVertexDragOverlayDeferral(app, drag) {
 
 function prepareTrackPointer(app, track) {
     track = canonicalTrack(app, track);
-    commitPropertyEditors(app, ['track', 'via', 'pad']);
+    commitPropertyEditors(app, ['track', 'via', 'pad', 'fill']);
     if (app._viaDrag) finishViaDrag(app);
     if (app._vertexDrag || getPlacementPreviewTracks(app)) return null;
     return track;

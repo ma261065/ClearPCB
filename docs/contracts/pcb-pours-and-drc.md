@@ -37,7 +37,10 @@ detached copy, while the copper waits under the same overlay deferral. The settl
 run commits one `ModifyFillCommand` and the pour is recomputed then. The panel's
 `fill` property editor commits or cancels a live outline when the panel is
 replaced, the layer is locked or the editor is left, so the deferral is never
-left on (`test-fill-property-preview`).
+left on. A canvas press, a pour drag, and the group/track drags settle a live
+outline first (`settleFillGeometryPreview`). The press arrives before the field's
+blur, and a gesture that saved and later restored the deferral while the preview
+held it would leave pours deferred (`test-fill-property-preview`).
 
 Overlapping pours on the same layer never share copper unless they are on the same
 named net, which merges them. Otherwise the earlier pour in document order (the older

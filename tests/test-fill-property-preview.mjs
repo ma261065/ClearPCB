@@ -5,7 +5,7 @@ import { installFakeDom } from './helpers/fake-dom.mjs';
 // spinner run to settle into one command (like a drag), and nothing is left deferred.
 installFakeDom();
 const { pcbEditorFixture } = await import('./pcb-editor-fixture.mjs');
-const { showFillProperties } = await import('../src/pcb/modules/copper-fill-edit.js');
+const { showFillProperties, beginFillEdit, endFillEdit, updateFillEdit } = await import('../src/pcb/modules/copper-fill-edit.js');
 const { CopperFill } = await import('../src/shapes/copper-fill.js');
 const { areDragOverlaysDeferred } = await import('../src/pcb/modules/refresh-state.js');
 const { setPcbSelection } = await import('../src/pcb/modules/selection-registry.js');
@@ -63,6 +63,19 @@ assert.equal(fill.cornerRadius, 3);
 
 showFillProperties(app, fill);
 assert.ok(Number.isNaN(field('cornerRadius').normalize(-1)), 'a negative radius is rejected');
+
+// A canvas press comes before the field's blur: a drag started while the outline is live
+// first commits it, so the drag never saves (and later restores) a deferral it doesn't own.
+field('cornerRadius').preview(2);
+const undoBefore = app.history.undoStack.length;
+assert.equal(beginFillEdit(app, fill, { x: 1, y: 1 }), true);
+assert.equal(fill.cornerRadius, 2, 'the live value is committed before the drag starts');
+assert.equal(app.history.undoStack.length, undoBefore + 1);
+updateFillEdit(app, { x: 3, y: 1 });
+endFillEdit(app, true);
+assert.equal(areDragOverlaysDeferred(app), false, 'pours are not left deferred after the drag');
+field('cornerRadius').commit(2);
+assert.equal(app.history.undoStack.length, undoBefore + 2, 'the later settle of the same value adds nothing');
 
 fill.kind = 'circle';
 fill.x = 5; fill.y = 5; fill.radius = 4;
