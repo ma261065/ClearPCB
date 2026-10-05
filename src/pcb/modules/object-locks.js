@@ -9,6 +9,8 @@
  * object lock, the layer lock, or both.
  */
 import { SetObjectLockedCommand as ModelSetObjectLockedCommand } from '../../core/pcb-lock-commands.js';
+import { CommandHistory } from '../../core/CommandHistory.js';
+import { createLockGuard } from '../../core/edit-guard.js';
 import { padLayers } from '../../shapes/pad-geometry.js';
 import { PCB_COPPER_FILLS, isCopperFillLocked, isLayerLocked, isLayerVisible, unlockPcbCopperFill, unlockPcbLayer } from './layers.js';
 import { showPathContextMenu } from './path-edit.js';
@@ -138,11 +140,31 @@ export function describeLayerLocks(app, layers) {
     return `${names.join(' and ')} layer${names.length > 1 ? 's' : ''}`;
 }
 
-/** Message for an edit the lock gate refused, e.g. "This track is locked" or "Top Copper layer is locked". */
+/**
+ * Message for an edit the lock gate refused, e.g. "This track is locked" or "Top Copper layer is locked".
+ * @param {any} app
+ * @param {import('../../core/edit-guard.js').LockTarget} target
+ */
 export function describeLockedEdit(app, { kind, object }) {
     const state = pcbLockState(app, kind, object);
     if (state.object || !state.layers.length) return `This ${NOUNS[kind] || 'object'} is locked`;
     return `${describeLayerLocks(app, state.layers)} ${state.layers.length > 1 ? 'are' : 'is'} locked`;
+}
+
+/**
+ * The PCB editor's undo history, guarded by the lock gate (core/edit-guard.js).
+ * PCBApp and the test fixtures both build it here, so they cannot drift apart.
+ * @param {any} app
+ * @param {{onChanged?: Function, onRefused?: (error: Error) => void}} [options] `onRefused` tells the user why
+ */
+export function createPcbHistory(app, { onChanged, onRefused } = {}) {
+    return new CommandHistory({
+        maxSize: 200,
+        onChanged,
+        guard: createLockGuard(target => isPcbObjectLocked(app, target.kind, target.object),
+            target => describeLockedEdit(app, target)),
+        onRefused,
+    });
 }
 
 /** Menu items lifting the object's own lock, its layer locks, or both; only applicable ones. */

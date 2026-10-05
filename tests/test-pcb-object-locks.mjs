@@ -1,6 +1,5 @@
 import assert from 'node:assert/strict';
 import { PcbDocument } from '../src/core/PcbDocument.js';
-import { CommandHistory } from '../src/core/CommandHistory.js';
 import { compactProjectAliases } from '../src/core/project-field-aliases.js';
 import { defaultPcbStackup } from '../src/core/project-format.js';
 import { SetObjectLockedCommand as ModelSetObjectLockedCommand } from '../src/core/pcb-lock-commands.js';
@@ -11,15 +10,10 @@ import { Track } from '../src/shapes/track.js';
 import { Via } from '../src/shapes/via.js';
 import { PCB_COPPER_FILLS, PCB_LAYERS } from '../src/pcb/modules/layers.js';
 
-globalThis.window = { addEventListener() {} };
-globalThis.document = {
-    getElementById() { return null; },
-    querySelector() { return null; },
-    querySelectorAll() { return []; },
-    createElementNS() {
-        return { setAttribute() {}, getAttribute() { return null; }, removeAttribute() {}, appendChild() {} };
-    },
-};
+import { installFakeDom } from './helpers/fake-dom.mjs';
+
+installFakeDom();
+const { pcbEditorFixture } = await import('./pcb-editor-fixture.mjs');
 
 const { pcbLockState, isPcbObjectLocked, unlockMenuItems, setPcbObjectsLocked, lockedPropertyHtml } =
     await import('../src/pcb/modules/object-locks.js');
@@ -87,16 +81,10 @@ const textData = (id, extra = {}) => ({ id, content: 'Label', x: 1, y: 1, size: 
     assert.equal(document.texts.get('label').locked, false, 'Undo reaches the recreated text');
 }
 
+/** The real editor prototype and its guarded undo history, with presentation quiet. */
 function fixture() {
-    const pcbDocument = new PcbDocument();
-    const app = {
-        _active: true, pcbDocument, history: new CommandHistory(),
-        boardShapes: pcbDocument.boardShapes, tracks: pcbDocument.tracks, vias: pcbDocument.vias,
-        pads: pcbDocument.pads, texts: pcbDocument.texts, placements: new Map(),
-        _shapeElements: new Map(), getLayerGroup() { return null; }, refreshText() {},
-        layerLabel: id => layer(id)?.name || id, clearProperties() {}, setActiveRibbonTab() {},
-    };
-    return app;
+    return pcbEditorFixture({ _active: true, _shapeElements: new Map(), refreshText() {},
+        clearProperties() {}, setActiveRibbonTab() {}, syncClipboardButtons() {} });
 }
 
 // Lock state: the object's own lock, the layers holding it, and the unlock menu choices.

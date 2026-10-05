@@ -5,6 +5,7 @@ import { Circle } from '../src/shapes/circle.js';
 import { lockIconMetrics } from '../src/core/ui-helpers.js';
 import { schematicLockPosition } from '../src/schematic/render/lock-placement.js';
 import { lockNoun } from '../src/schematic/modules/locks.js';
+import { installFakeDom } from './helpers/fake-dom.mjs';
 
 // A lock icon's world box, from its top-left position.
 const scale = 10;
@@ -88,7 +89,7 @@ assert.equal(lockNoun({ type: 'net' }), 'net label');
     assert.ok(free.getPropertyDescriptors().some(desc => desc.key === 'locked'));
     assert.equal(lockNoun(lockOwner(reference)), 'component', 'Its lock icon offers to unlock the component');
 
-    globalThis.document ??= { getElementById: () => null, createElement: () => ({}) };
+    installFakeDom();
     const { mergeDescriptors } = await import('../src/schematic/modules/properties.js');
     const keys = mergeDescriptors([reference, free]).map(desc => desc.key);
     assert.ok(keys.includes('locked'), 'A mixed selection still offers the Locked checkbox');

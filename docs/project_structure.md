@@ -312,6 +312,10 @@ object before it runs. A new command class must declare `lockTargets()`;
 - Tests call real functions; editor methods run on `tests/pcb-editor-fixture.mjs` or
   via `PCBApp.prototype.method.call(fixture)`. `test-source-text-ratchet` fails any test that
   evaluates sliced source text; add a small seam when a collaborator must be observed.
+- The PCB fixture uses the editor's real undo history (`createPcbHistory`, with the lock
+  gate). New tests build their DOM with `installFakeDom()` from
+  `tests/helpers/fake-dom.mjs`; `test-fixture-ratchet` counts the tests that still
+  hand-roll a `globalThis.document` stub, and that number may only go down.
 
 ## Coding & Tooling Conventions
 

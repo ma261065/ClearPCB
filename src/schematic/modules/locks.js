@@ -7,7 +7,24 @@
 import { ModifyPropertyCommand } from './commands.js';
 import { createContextMenu } from './context-menu.js';
 import { updateRibbonState } from './ribbon.js';
-import { lockOwner } from '../../shapes/lock-owner.js';
+import { isSchematicLocked, lockOwner } from '../../shapes/lock-owner.js';
+import { CommandHistory } from '../../core/CommandHistory.js';
+import { createLockGuard } from '../../core/edit-guard.js';
+
+/**
+ * The schematic editor's undo history, guarded by the lock gate (core/edit-guard.js).
+ * SchematicApp and tests both build it here, so they cannot drift apart.
+ * @param {any} app
+ * @param {{onChanged?: Function, onRefused?: (error: Error) => void}} [options] `onRefused` tells the user why
+ */
+export function createSchematicHistory(app, { onChanged, onRefused } = {}) {
+    return new CommandHistory({
+        onChanged,
+        guard: createLockGuard(target => isSchematicLocked(target.object),
+            target => `This ${lockNoun(lockOwner(target.object))} is locked`),
+        onRefused,
+    });
+}
 
 /** The word the unlock menu uses for an object, e.g. "Unlock wire". */
 export function lockNoun(item) {

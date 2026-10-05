@@ -57,8 +57,7 @@ import { shapeDrawClick, cancelShapeDraw, hitTestBoardShape, setBoardShapeHover,
 import { showBoardShapeProperties, showBoardShapeToolProperties } from '../pcb/modules/board-shape-properties.js';
 import { normalizeShapeCopperMode } from '../shared/pcb/board-shape-geometry.js';
 import { hitTestPcbSelectionAnchor, renderPcbSelectionAnchors } from '../pcb/modules/selection-anchors.js';
-import { boardShapeLocked, describeLockedEdit, isPcbObjectLayerLocked, isPcbObjectLocked, lockedRoutedCopper, showUnlockMenu } from '../pcb/modules/object-locks.js';
-import { createLockGuard } from '../core/edit-guard.js';
+import { boardShapeLocked, createPcbHistory, isPcbObjectLayerLocked, isPcbObjectLocked, lockedRoutedCopper, showUnlockMenu } from '../pcb/modules/object-locks.js';
 import { showContextMenu } from '../shared/ui/context-menu.js';
 import { refreshAxisGlow } from '../pcb/modules/axis-glow.js';
 import { buildFillContext } from '../pcb/modules/fill-context.js';
@@ -332,11 +331,11 @@ export default class PCBApp {
 
         /**
          * Undo/redo for PCB-side edits (tracks, vias, vertex drags,
-         * property tweaks). Separate from the schematic's history.
+         * property tweaks), guarded by the lock gate. Separate from the
+         * schematic's history.
          * @type {CommandHistory}
          */
-        this.history = new CommandHistory({
-            maxSize: 200,
+        this.history = createPcbHistory(this, {
             // Flag PCB as having unsaved changes so the schematic-side
             // autosave (which serialises the combined document) fires.
             // Setting a private flag here \u2014 rather than calling
@@ -344,9 +343,6 @@ export default class PCBApp {
             // the schematic\u2192PCB stale-sync listener that would
             // otherwise rebuild and wipe PCB-only edits.
             onChanged: () => this._onHistoryChanged(),
-            // Nothing may change or remove a locked object (core/edit-guard.js).
-            guard: createLockGuard(target => isPcbObjectLocked(this, target.kind, target.object),
-                target => describeLockedEdit(this, target)),
             onRefused: error => this._showSaveToast(error.message),
         });
         /** Transient message bubble shown over a component, or null. */

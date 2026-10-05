@@ -9,11 +9,9 @@ import { Polyline } from '../src/shapes/polyline.js';
 import { Text } from '../src/shapes/text.js';
 import { PCB_LAYERS } from '../src/pcb/modules/layers.js';
 
-globalThis.window = { addEventListener() {} };
-globalThis.document = {
-    getElementById: () => null, querySelector: () => null, querySelectorAll: () => [],
-    createElementNS: () => ({ setAttribute() {}, appendChild() {}, style: {} }),
-};
+import { installFakeDom } from './helpers/fake-dom.mjs';
+
+installFakeDom();
 
 const pcbModels = await Promise.all(readdirSync(new URL('../src/core/', import.meta.url))
     .filter(name => /^pcb-.*-commands\.js$/.test(name))

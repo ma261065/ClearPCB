@@ -24,9 +24,7 @@ import { setToolCursor } from '../shared/ui/cursor.js';
 import { bindViewportControls, updateGridDropdown, fitToContent } from '../shared/ui/viewport.js';
 import { bindThemeToggle, toggleTheme, loadTheme } from '../schematic/modules/theme.js';
 import { captureShapeState, applyShapeState } from '../schematic/modules/selection.js';
-import { lockNoun, showUnlockMenu } from '../schematic/modules/locks.js';
-import { createLockGuard } from '../core/edit-guard.js';
-import { isSchematicLocked, lockOwner } from '../shapes/lock-owner.js';
+import { createSchematicHistory, showUnlockMenu } from '../schematic/modules/locks.js';
 import { runSchematicDeleteAction } from '../schematic/modules/editor-actions.js';
 import { copySelection, cancelPaste } from '../schematic/modules/clipboard.js';
 import { removeBoxSelectElement } from '../shared/ui/box-selection.js';
@@ -116,11 +114,8 @@ export default class SchematicApp {
         this.viewport = new Viewport(this.container);
         /** @type {any} */ (this.viewport)._app = this; // back-reference for state-aware pan suppression
         this.eventBus = globalEventBus;
-        this.history = new CommandHistory({
+        this.history = createSchematicHistory(this, {
             onChanged: () => this._onHistoryChanged(),
-            // Nothing may change or remove a locked object (core/edit-guard.js).
-            guard: createLockGuard(target => isSchematicLocked(target.object),
-                target => `This ${lockNoun(lockOwner(target.object))} is locked`),
             onRefused: error => this._showSaveToast?.(error.message),
         });
         // fileManager already created above

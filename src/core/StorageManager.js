@@ -33,6 +33,11 @@ export class StorageManager {
     //  Internal: IndexedDB 
 
     async _openDB() {
+        // Without IndexedDB (Node tests, some private modes) memory is the expected cache.
+        if (typeof indexedDB === 'undefined') {
+            this._migrateFromLocalStorage();
+            return;
+        }
         try {
             this._db = await new Promise((resolve, reject) => {
                 const req = indexedDB.open(DB_NAME, DB_VERSION);
