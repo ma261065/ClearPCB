@@ -1,0 +1,19 @@
+# Line endings: LF in the repository and in every working copy, on every platform,
+# so editors, scripted edits, tests and CI all see the same bytes. This overrides a
+# machine-wide core.autocrlf for this repository.
+* text=auto eol=lf
+
+# Binary assets: never convert or diff as text.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.webp binary
+*.wasm binary
+*.woff binary
+*.woff2 binary
+*.ttf binary
+*.pdf binary
+*.zip binary
+*.glb binary
