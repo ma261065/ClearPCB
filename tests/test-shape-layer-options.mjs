@@ -1,20 +1,23 @@
 import assert from 'node:assert/strict';
-import { PcbDocument } from '../src/core/PcbDocument.js';
+import { installFakeDom } from './helpers/fake-dom.mjs';
 
-globalThis.window = { addEventListener() {} };
-globalThis.document = {
-    getElementById() { return null; },
-    querySelector() { return null; },
-};
+installFakeDom();
 
 const { default: PCBApp } = await import('../src/ui/PCBApp.js');
+const { PcbDocument } = await import('../src/core/PcbDocument.js');
 const { PCB_LAYERS, isViaVisible, isViaLocked } = await import('../src/pcb/modules/layers.js');
 const { resolveShapeDrawLayer } =
     await import('../src/pcb/modules/board-shapes.js');
 const { showBoardShapeToolProperties, showBoardShapeProperties } = await import('../src/pcb/modules/board-shape-properties.js');
 const { syncPcbSelection } = await import('../src/pcb/modules/selection-registry.js');
 
-const items = { innerHTML: '', querySelector() { return null; } };
+const panel = document.createElement('div');
+panel.id = 'pcbPropertiesPanel';
+const items = document.createElement('div');
+items.id = 'pcbPropsItems';
+panel.appendChild(items);
+document.body.appendChild(panel);
+const fire = (control, type, extra = {}) => control.dispatchEvent({ type, ...extra });
 const app = Object.create(PCBApp.prototype);
 app.pcbDocument = new PcbDocument();
 Object.assign(app, {
@@ -31,10 +34,16 @@ syncPcbSelection(app);
 
 function selectableLayers(id) {
     const select = items.innerHTML.match(new RegExp(`<select id="${id}"[^>]*>([\\s\\S]*?)</select>`));
-    assert.ok(select, `${id} is rendered`);
-    return [...select[1].matchAll(/<option value="([^"]*)"([^>]*)>/g)]
-        .filter(([, , attributes]) => !/\b(hidden|disabled)\b/.test(attributes))
-        .map(([, value]) => value);
+    if (select) {
+        return [...select[1].matchAll(/<option value="([^"]*)"([^>]*)>/g)]
+            .filter(([, , attributes]) => !/\b(hidden|disabled)\b/.test(attributes))
+            .map(([, value]) => value);
+    }
+    const control = document.getElementById(id);
+    assert.ok(control, `${id} is rendered`);
+    return control.children
+        .filter(option => option.tagName === 'option' && option.textContent && !option.hidden && !option.disabled)
+        .map(option => option.value);
 }
 
 const expectedShapeLayers = [
@@ -67,7 +76,7 @@ for (const kind of ['line', 'circle', 'rect', 'polygon', 'arc']) {
 app.activeLayer = 'vias';
 showBoardShapeToolProperties(app, 'rect');
 assert.deepEqual(selectableLayers('pcbToolShapeLayer'), expectedShapeLayers);
-assert.match(items.innerHTML, /value="top-silk" selected/);
+assert.equal(layerOption('pcbToolShapeLayer', 'top-silk').selected, true);
 assert.equal(resolveShapeDrawLayer(app, 'vias'), 'top-silk',
     'starting a shape while Via is active follows the existing non-graphic layer fallback');
 for (const layer of expectedShapeLayers) {
@@ -100,11 +109,20 @@ console.log('PASS shape creation, single/multi-selection layer options, Via fall
 
 function layerOption(selectId, layerId) {
     const select = items.innerHTML.match(new RegExp(`<select id="${selectId}"[^>]*>([\\s\\S]*?)</select>`));
-    assert.ok(select);
-    const option = select[1].match(new RegExp(`<option value="${layerId}"([^>]*)>([^<]*)</option>`));
+    if (select) {
+        const option = select[1].match(new RegExp(`<option value="${layerId}"([^>]*)>([^<]*)</option>`));
+        assert.ok(option, `${layerId} is present in ${selectId}`);
+        return { disabled: /\bdisabled\b/.test(option[1]), selected: /\bselected\b/.test(option[1]),
+            label: option[2] };
+    }
+    return renderedLayerOption(selectId, layerId);
+}
+function renderedLayerOption(selectId, layerId) {
+    const select = document.getElementById(selectId);
+    assert.ok(select, `${selectId} is rendered`);
+    const option = select.children.find(child => child.value === layerId);
     assert.ok(option, `${layerId} is present in ${selectId}`);
-    return { disabled: /\bdisabled\b/.test(option[1]), selected: /\bselected\b/.test(option[1]),
-        label: option[2] };
+    return { disabled: !!option.disabled, selected: select.value === layerId, label: option.textContent };
 }
 const holeLayer = PCB_LAYERS.find(layer => layer.id === 'hole');
 const silkLayer = PCB_LAYERS.find(layer => layer.id === 'bottom-silk');
@@ -130,8 +148,8 @@ try {
                     { disabled: false, selected: true, label: 'Top Silk' });
             }
             app._showPcbMultiSelectionProperties([shape, second].map(object => ({ kind: 'shape', object })));
-            assert.equal(layerOption('pcbPropIntersection_layer', 'hole').disabled, locked);
-            assert.equal(layerOption('pcbPropIntersection_layer', 'hole').label, `Hole${locked ? ' \u{1F512}\uFE0E' : ''}`);
+            assert.equal(renderedLayerOption('pcbPropIntersection_layer', 'hole').disabled, locked);
+            assert.equal(renderedLayerOption('pcbPropIntersection_layer', 'hole').label, `Hole${locked ? ' \u{1F512}\uFE0E' : ''}`);
         }
         const image = { ...legacy, id: 'image', kind: 'image', layer: 'top-silk',
             artwork: { width: 10, height: 8, rectangles: [] } };
@@ -163,29 +181,27 @@ try {
         assert.equal(items.innerHTML, formBefore, 'Lock changes do not rebuild the shape property form');
     }
 
-    const listeners = new Map();
-    const control = { value: 'hole', addEventListener(type, callback) { listeners.set(type, callback); } };
-    items.querySelector = selector => selector === '#pcbPropIntersection_layer' ? control : null;
     const mixedShapes = [
         { ...legacy, id: 'first', layer: 'top-silk' },
         { ...legacy, id: 'second', layer: 'top-document' },
     ];
     app.history = { execute() { assert.fail('A locked destination must not enter history'); } };
     app._showPcbMultiSelectionProperties(mixedShapes.map(object => ({ kind: 'shape', object })));
-    control.value = 'hole';
-    listeners.get('change')();
+    const multiLayer = document.getElementById('pcbPropIntersection_layer');
+    multiLayer.value = 'hole';
+    fire(multiLayer, 'change');
     assert.deepEqual(mixedShapes.map(shape => shape.layer), ['top-silk', 'top-document'],
         'Forced multi-selection changes cannot bypass the destination lock');
-    items.querySelector = selector => selector === '#pcbToolShapeLayer' ? control : null;
     app.activeLayer = 'top-silk';
     showBoardShapeToolProperties(app, 'rect');
-    control.value = 'hole';
-    listeners.get('change')();
+    const toolControl = document.getElementById('pcbToolShapeLayer');
+    toolControl.value = 'hole';
+    fire(toolControl, 'change');
     assert.equal(app.activeLayer, 'top-silk', 'Even a forced change cannot choose a locked destination');
-    assert.equal(control.value, 'top-silk');
+    assert.equal(toolControl.value, 'top-silk');
     holeLayer.locked = false;
-    control.value = 'hole';
-    listeners.get('change')();
+    toolControl.value = 'hole';
+    fire(toolControl, 'change');
     assert.equal(app.activeLayer, 'hole', 'Hole can be chosen after unlocking');
     assert.equal(layerOption('pcbToolShapeLayer', 'hole').selected, true);
     assert.equal(layerOption('pcbToolShapeLayer', 'hole').disabled, false);

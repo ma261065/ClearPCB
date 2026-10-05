@@ -13,6 +13,7 @@ const { boardOutlineHandles, renderBoardOutlineHandles, beginBoardOutlineResize,
     await import('../src/pcb/modules/board-outline-resize.js');
 const { PCB_LAYERS } = await import('../src/pcb/modules/layers.js');
 const { prepareFabricationSnapshot } = await import('../src/pcb/modules/fabrication-snapshot.js');
+const { setPropertyEditor } = await import('../src/pcb/modules/property-editors.js');
 const commands = [];
 // The real methods, run against this test's minimal editors.
 const syncInputs = PCBApp.prototype._syncBoardOutlineInputs;
@@ -80,6 +81,10 @@ const app = Object.assign(Object.create(dimensionPrototype), {
     _syncBoardOutlineInputs: syncInputs,
     history: { execute(command) { commands.push(command); command.execute(); } },
 });
+setPropertyEditor(app, 'boardDimension', { commit() {}, cancel() {}, sync() {
+    inputs.get('pcbPropBoardW').value = Number(app._boardWidth).toFixed(2);
+    inputs.get('pcbPropBoardH').value = Number(app._boardHeight).toFixed(2);
+} });
 assert.equal(boardOutlineHandles(app).length, 3);
 assert.ok(beginBoardOutlineResize(app, { x: 100, y: -80 }));
 updateBoardOutlineResize(app, { x: 110.2, y: -85.2 });

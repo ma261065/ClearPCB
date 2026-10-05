@@ -93,8 +93,8 @@ clearpcb/
   import either editor.
 - `src/shared/ui/*` holds UI helpers both editors use (modal dialogs, viewport
   grid controls, cursors, export helpers, box selection, recents, ribbon height,
-  inline text, theme, the Properties panel control order, pop-up menus, settled
-  number fields). `src/shared/pcb/*` holds PCB geometry that the project
+  inline text, theme, the Properties panel renderer and control order, pop-up menus,
+  settled number fields). `src/shared/pcb/*` holds PCB geometry that the project
   model in `core` and the PCB editor both need (board outline and shape
   geometry, footprint generation, reference text, stroke font, picture artwork).
   Promote code there, rather than importing across editors, when both sides need it.
@@ -180,10 +180,12 @@ PCB editor:
   outline shape exists, and the Board Dimensions dialog for a new board),
   `component-properties.js` (components and references) and
   `multi-selection-properties.js` (the shared properties of a mixed selection).
-  They use the panel services in `pcb-editor-api.js` (`propertiesItems`,
-  `setPropertiesTitle`, `showPropertiesTab`, `toolNetOptions`, `bindToolNetControl`,
-  `layerLabel`); `PCBApp` keeps a one-line forwarding method for each, passing tool
-  state (pad and text defaults, inline-edit state) explicitly.
+  Each describes its panel as data (`shared/ui/property-fields.js`) and shows it
+  through the editor services in `pcb-editor-api.js` (`openPropertyPanel`,
+  `refreshPropertyPanel`, `netNames`, `setPropertiesTitle`, `showPropertiesTab`,
+  `layerLabel`); `PCBApp` hosts the rendering and keeps a one-line forwarding
+  method for each panel, passing tool state (pad and text defaults, inline-edit
+  state) explicitly. The Track and Via tool panels live in `PCBApp`.
 - `pcb/modules/text-inline-edit.js` — in-place editing of free text (hidden input,
   stroke-font caret overlay, commit and cancel); `selectText` and
   `showTextProperties` are editor services.
@@ -231,7 +233,8 @@ Schematic editor:
   the editors' shared `core/lock-position.js`).
 - `schematic/modules/commands.js` — undo/redo commands; `shape-management.js` — the
   add/remove/delete/restore work behind the command view hooks.
-- `schematic/modules/properties.js` — the Properties panel; `files.js` — Open, Save
+- `schematic/modules/properties.js` — the Properties panel (described as data);
+  `property-host.js` — where it is rendered; `files.js` — Open, Save
   and document loading; `tool.js` — tool selection and persisted tool options.
 
 Derived PCB work:
@@ -316,14 +319,16 @@ object before it runs. A new command class must declare `lockTargets()`;
   gate). New tests build their DOM with `installFakeDom()` from
   `tests/helpers/fake-dom.mjs`; `test-fixture-ratchet` counts the tests that still
   hand-roll a `globalThis.document` stub, and that number may only go down.
+- `test-property-panels-logic-only` keeps Properties panels as descriptions: panel
+  modules use no DOM, and only `shared/ui/property-fields.js` and the editors' hosts
+  build property rows. Panel tests drive the description (`field.preview`/`commit`)
+  or the rendered controls on the fake DOM.
 
 ## Coding & Tooling Conventions
 
 - Vanilla JS ES modules; **no bundler**. Browser loads `src/**` directly.
-- `// @ts-nocheck` is on `ui/PCBApp.js` and the autorouter modules
-  (`autorouter-common.js`, `autorouter-maze.js`, `autorouter-pathfinder.js`); when
-  splitting one of these files, carry the pragma into every part. All other source is
-  type-checked.
+- All source is type-checked (`node tools/typecheck.mjs`); no file opts out with
+  `// @ts-nocheck`.
 - Use `console.info` (not `console.warn`) for diagnostics that must
   survive PowerShell `2>$null` redirection.
 - Node-side routing checks in `tools/` import the router modules directly:

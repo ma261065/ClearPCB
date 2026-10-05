@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { ComponentProperties } from '../src/pcb/modules/component-properties.js';
 import { PCB_LAYERS } from '../src/pcb/modules/layers.js';
+import { attachPropertyPanelHarness } from './helpers/property-panel-controls.mjs';
 
 class Element {
     constructor() {
@@ -43,20 +44,18 @@ function fixture() {
     let placement = { reference: 'R1', side: 'bottom', mirror: true, rotation: 37.123456789,
         x: Math.PI, y: -Math.E, refSize: 1.23456789, refStrokeWidth: 0.123456789,
         refRot: 23.456789, model3dObj: 'model' };
-    const items = new Element(), panel = new Element();
+    const controls = new Map(), buttons = new Map();
+    const propertyHost = {};
+    attachPropertyPanelHarness(propertyHost, { controls, actions: buttons });
+    const items = { querySelector: selector => controls.get(selector.slice(1)) || null };
     const actions = [], renders = [], overlays = [], bindings = [], titles = [];
-    const runtime = { getDocument: () => ({
-        getElementById: id => id === 'pcbPropertiesPanel' ? panel : null,
-        createElement: () => new Element(),
-    }) };
     let owner;
     const capabilities = Object.freeze({
         getPlacement: id => id === 'part' ? placement : undefined,
         isActive: () => active,
         isSelected: (kind, id) => selected && id === 'part',
-        getItems: () => available ? items : null,
-        setTitle: title => titles.push(title),
-        activateTab: () => {},
+        openPanel: panel => available ? propertyHost.openPropertyPanel(panel) : false,
+        refreshPanel: panel => propertyHost.refreshPropertyPanel(panel),
         layerLabel: layer => layer,
         rotate: (id, before, after) => {
             actions.push(['rotate', id, before, after]);
@@ -79,11 +78,21 @@ function fixture() {
         },
         // The owner's contract uses a binding service, not a PCBApp-shaped object.
         // Real helper parsing/history/keyboard contracts remain integration-tested.
-        bindStrokeText: (container, model, spec) => {
+        bindStrokeText: (model, spec) => {
             let snapshot = null, disposed = false;
             const binding = {
-                model, spec, container, disposals: 0,
+                model, spec, disposals: 0,
                 get active() { return snapshot !== null; },
+                fields(disabled = false) {
+                    return spec.fields.map(field => ({
+                        key: field.key || field.field,
+                        id: field.id,
+                        type: field.type || 'number',
+                        label: field.label,
+                        value: field.value ? field.value(model) : model[field.field],
+                        disabled,
+                    }));
+                },
                 input(field, value) {
                     if (disposed) return;
                     if (!spec.editable()) { binding.cancel(); return; }
@@ -117,8 +126,8 @@ function fixture() {
             return binding;
         },
     });
-    owner = new ComponentProperties(capabilities, runtime);
-    return { owner, items, panel, actions, renders, overlays, bindings, titles,
+    owner = new ComponentProperties(capabilities);
+    return { owner, items, buttons, actions, renders, overlays, bindings, titles,
         get placement() { return placement; },
         replace() { placement = { ...placement }; },
         setActive(value) { active = value; },
@@ -141,8 +150,6 @@ function fixture() {
     const f = fixture();
     f.owner.showComponent('part');
     const rotation = f.items.querySelector('#pcbPropCompRot');
-    const transform = f.panel.children[0];
-    assert.equal(f.owner.panel.extra, transform);
     rotation.value = '401.6';
     rotation.fire('change');
     assert.deepEqual(f.actions.pop(), ['rotate', 'part', 37.123456789, 42]);
@@ -152,9 +159,9 @@ function fixture() {
     rotation.fire('change');
     assert.equal(rotation.value, '42');
     assert.deepEqual(f.actions, [], 'Invalid rotation restores the field without a command');
-    transform.querySelector('#pcbPropRotateLeft').fire('click');
+    f.buttons.get('pcbPropRotateLeft').fire('click');
     assert.deepEqual(f.actions.pop(), ['rotate', 'part', 42, 312]);
-    transform.querySelector('#pcbPropRotateRight').fire('click');
+    f.buttons.get('pcbPropRotateRight').fire('click');
     assert.deepEqual(f.actions.pop(), ['rotate', 'part', 312, 42]);
     const side = f.items.querySelector('#pcbPropCompSide');
     side.value = 'invalid';
@@ -163,7 +170,7 @@ function fixture() {
     side.value = 'bottom';
     side.fire('change');
     assert.deepEqual(f.actions.pop(), ['side', 'part', 'bottom']);
-    f.items.querySelector('#pcbPropShow3D').fire('click');
+    f.buttons.get('pcbPropShow3D').fire('click');
     assert.deepEqual(f.actions.pop(), ['3d', 'part']);
     const reference = f.items.querySelector('#pcbPropCompRefVis');
     reference.checked = false;
@@ -174,25 +181,30 @@ function fixture() {
     locked.fire('change');
     assert.deepEqual(f.actions.pop(), ['lock', 'part', true]);
     locked.fire('change');
-    transform.querySelector('#pcbPropRotateLeft').fire('click');
+    f.buttons.get('pcbPropRotateLeft').fire('click');
     side.fire('change');
     reference.fire('change');
     assert.deepEqual(f.actions, [], 'Locked components reject transforms and duplicate lock commands');
     locked.checked = false;
     locked.fire('change');
     assert.deepEqual(f.actions.pop(), ['lock', 'part', false]);
-    transform.querySelector('#pcbPropFlipV').fire('click');
+    const staleFlipH = f.buttons.get('pcbPropFlipH');
+    f.buttons.get('pcbPropFlipV').fire('click');
     assert.deepEqual(f.actions.pop(), ['flip', 'part', 'V']);
-    assert.equal(transform.parent, null, 'Rebuilding removes the owned Transform group');
-    assert.equal(f.panel.children.length, 1);
-    transform.querySelector('#pcbPropFlipH').fire('click');
+    staleFlipH.fire('click');
     assert.deepEqual(f.actions, [], 'Detached Transform callbacks cannot rebuild the panel');
 }
 
 for (const boundary of ['inactive', 'replace', 'dispose', 'reference']) {
     const f = fixture();
     f.owner.showComponent('part');
-    const controls = [...f.items.controls.values(), ...f.panel.children[0].controls.values()];
+    const controls = [
+        f.items.querySelector('#pcbPropCompRot'),
+        f.items.querySelector('#pcbPropCompSide'),
+        f.items.querySelector('#pcbPropCompRefVis'),
+        f.items.querySelector('#pcbPropCompLocked'),
+        ...f.buttons.values(),
+    ];
     if (boundary === 'inactive') f.setActive(false);
     if (boundary === 'replace') f.replace();
     if (boundary === 'dispose') f.owner.dispose();
@@ -211,11 +223,10 @@ for (const boundary of ['inactive', 'replace', 'dispose', 'reference']) {
     f.owner.showReference('part');
     const binding = f.bindings[0];
     assert.equal(binding.model, f.placement);
-    assert.equal(binding.container, f.items);
     assert.equal(f.owner.affectsLayer('bottom-silk'), true);
     assert.equal(f.owner.affectsLayer('top-silk'), false);
-    assert.match(f.items.innerHTML, /id="pcbPropRefName"[^>]*disabled/);
-    assert.match(f.items.innerHTML, /id="pcbPropRefLayer"[^>]*disabled/);
+    assert.equal(f.items.querySelector('#pcbPropRefName').textContent, 'R1');
+    assert.equal(f.items.querySelector('#pcbPropRefLayer').textContent, 'bottom-silk');
     assert.equal(binding.spec.fields[1].parse('-1'), 359);
     for (const field of binding.spec.fields) assert.equal(field.parse(''), null);
     binding.input('refSize', '2.3456789');

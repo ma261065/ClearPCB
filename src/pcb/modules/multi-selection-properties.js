@@ -11,12 +11,12 @@ import { REF_DEFAULT_SIZE, REF_DEFAULT_STROKE } from '../../shared/pcb/footprint
 import { PICTURE_LAYERS } from '../../shared/pcb/picture-raster.js';
 import { measureText as measureStrokeText } from '../../shared/pcb/stroke-font.js';
 import { sortByPropertyOrder } from '../../shared/ui/property-order.js';
-import { bindSettledChange } from '../../shared/ui/settled-input.js';
+import { renderPropertyFields } from '../../shared/ui/property-fields.js';
 import { applyShapeSnapshot, captureBoardShapeState } from './board-shapes.js';
 import { refreshBoxSelectionHighlights } from './box-select.js';
 import { ModifyFillCommand } from './copper-fill-commands.js';
 import { canEditFill } from './copper-fill-edit.js';
-import { PCB_LAYERS, isLayerLocked, pcbLayerOptionHtml, showLockedLayerBubble } from './layers.js';
+import { PCB_LAYERS, isLayerLocked, pcbLayerOption, showLockedLayerBubble } from './layers.js';
 import { isPcbObjectLocked, objectLockCommand } from './object-locks.js';
 import { ModifyPadCommand } from './pad-commands.js';
 import { isRefTextLocked } from './ref-text-selection.js';
@@ -302,50 +302,7 @@ export function showMultiSelectionProperties(app, entries) {
     if (!keys.includes('locked') && capabilitySets.some(capabilities => capabilities.locked)) keys.push('locked');
     keys = sortByPropertyOrder(keys, key => key);
     const descriptors = new Map();
-    const rows = [];
-    for (const key of keys) {
-        const group = capabilitySets.map(capabilities => capabilities[key]).filter(Boolean);
-        const descriptor = group[0];
-        if (descriptor.type === 'select') {
-            const allowed = new Set(descriptor.options.map(([value]) => value));
-            for (const candidate of group.slice(1)) {
-                const values = new Set(candidate.options.map(([value]) => value));
-                for (const value of [...allowed]) if (!values.has(value)) allowed.delete(value);
-            }
-            descriptor.options = descriptor.options.filter(([value]) => allowed.has(value));
-            if (!descriptor.options.length) continue;
-        }
-        const values = group.map(candidate => candidate.get());
-        const mixed = values.some(value => value !== values[0]);
-        const allTracks = entries.every(entry => entry.kind === 'track');
-        const id = key === 'net' ? 'pcbPropMultiNet'
-            : key === 'lineWidth' && allTracks ? 'pcbPropMultiTrackWidth'
-                : `pcbPropIntersection_${key}`;
-        // Locked members keep their values; the row stays editable while any member can take an edit.
-        const readOnly = group.every(item => item.disabled);
-        descriptors.set(key, { group, descriptor, id, mixed });
-        if (descriptor.type === 'checkbox') {
-            rows.push(`<label class="prop-row prop-toggle" data-prop="${key}"><input type="checkbox" id="${id}"${!mixed && values[0] ? ' checked' : ''}${readOnly ? ' disabled' : ''}><span>${descriptor.label}</span></label>`);
-        } else if (descriptor.type === 'select') {
-            const options = descriptor.options.map(([value, label]) => {
-                const selected = !mixed && value === values[0];
-                return key === 'layer' && hasShapes
-                    ? pcbLayerOptionHtml(value, label, selected)
-                    : `<option value="${value}"${selected ? ' selected' : ''}>${label}</option>`;
-            }).join('');
-            rows.push(`<div class="prop-row" data-prop="${key}"><label>${descriptor.label}</label><select id="${id}"${readOnly ? ' disabled' : ''}>${mixed ? '<option value="" selected disabled>Mixed</option>' : ''}${options}</select></div>`);
-        } else if (descriptor.type === 'net') {
-            const { escape, options } = app.toolNetOptions(mixed ? '' : values[0]);
-            rows.push(`<div class="prop-row" data-prop="${key}"><label>Net</label><span class="prop-net-control"><input type="text" id="${id}" value="${mixed ? '' : escape(values[0])}" placeholder="${mixed ? 'Mixed' : 'None'}"${readOnly ? ' disabled' : ''}><details class="prop-net-menu"><summary aria-label="Select existing net"></summary><div>${options}</div></details></span></div>`);
-        } else {
-            const min = Number.isFinite(Math.max(...group.map(item => item.min))) ? Math.max(...group.map(item => item.min)) : '';
-            const max = Number.isFinite(Math.min(...group.map(item => item.max))) ? Math.min(...group.map(item => item.max)) : '';
-            rows.push(`<div class="prop-row" data-prop="${key}"><label>${descriptor.label}</label><input type="number" id="${id}" value="${mixed ? '' : values[0]}" placeholder="${mixed ? 'Mixed' : ''}"${min === '' ? '' : ` min="${min}"`}${max === '' ? '' : ` max="${max}"`} step="${descriptor.step}"${readOnly ? ' disabled' : ''}></div>`);
-        }
-    }
-    items.innerHTML = rows.length
-        ? rows.join('')
-        : '<span class="props-placeholder">No shared editable properties</span>';
+    const fields = [];
     const commit = (key, value) => {
         const info = descriptors.get(key);
         if (!info || info.group.every(capability => capability.disabled)) return;
@@ -374,28 +331,44 @@ export function showMultiSelectionProperties(app, entries) {
         refreshBoxSelectionHighlights(app);
         showMultiSelectionProperties(app, entries);
     };
-    for (const [key, info] of descriptors) {
-        const input = /** @type {HTMLInputElement|HTMLSelectElement|null} */ (items.querySelector(`#${info.id}`));
-        if (!input) continue;
-        if (info.descriptor.type === 'checkbox') {
-            const checkbox = /** @type {HTMLInputElement} */ (input);
-            checkbox.indeterminate = info.mixed;
-            checkbox.addEventListener('change', () => commit(key, checkbox.checked));
-        } else if (info.descriptor.type === 'net') {
-            app.bindToolNetControl(items, info.id, value => commit(key, value));
-        } else if (info.descriptor.type === 'number') {
-            // A run of spinner clicks commits once: each commit can recompute pours.
-            const field = /** @type {HTMLInputElement} */ (input);
-            bindSettledChange(field, () => {
-                let value = Number(field.value);
-                if (!Number.isFinite(value)) return;
-                if (key === 'rotation') value = ((value % 360) + 360) % 360;
-                commit(key, Math.max(info.descriptor.min, Math.min(info.descriptor.max, value)));
-            });
-        } else {
-            input.addEventListener('change', () => commit(key, input.value));
+    for (const key of keys) {
+        const group = capabilitySets.map(capabilities => capabilities[key]).filter(Boolean);
+        const descriptor = group[0];
+        if (descriptor.type === 'select') {
+            const allowed = new Set(descriptor.options.map(([value]) => value));
+            for (const candidate of group.slice(1)) {
+                const values = new Set(candidate.options.map(([value]) => value));
+                for (const value of [...allowed]) if (!values.has(value)) allowed.delete(value);
+            }
+            descriptor.options = descriptor.options.filter(([value]) => allowed.has(value));
+            if (!descriptor.options.length) continue;
         }
+        const values = group.map(candidate => candidate.get());
+        const mixed = values.some(value => value !== values[0]);
+        const allTracks = entries.every(entry => entry.kind === 'track');
+        const id = key === 'net' ? 'pcbPropMultiNet'
+            : key === 'lineWidth' && allTracks ? 'pcbPropMultiTrackWidth'
+                : `pcbPropIntersection_${key}`;
+        descriptors.set(key, { group, descriptor });
+        // Locked members keep their values; the row stays editable while any member can take an edit.
+        const field = { key, id, type: descriptor.type, label: descriptor.label, value: values[0], mixed,
+            disabled: group.every(item => item.disabled), commit: value => commit(key, value) };
+        if (descriptor.type === 'select') {
+            field.options = descriptor.options.map(([value, label]) => key === 'layer' && hasShapes
+                ? pcbLayerOption(value, label) : { value, label });
+        } else if (descriptor.type === 'net') {
+            field.nets = app.netNames();
+        } else if (descriptor.type === 'number') {
+            const min = Math.max(...group.map(item => item.min));
+            const max = Math.min(...group.map(item => item.max));
+            Object.assign(field, { min, max, step: descriptor.step, commit: value => {
+                if (key === 'rotation') value = ((value % 360) + 360) % 360;
+                commit(key, Math.max(min, Math.min(max, value)));
+            } });
+        }
+        fields.push(field);
     }
+    renderPropertyFields(items, fields, { placeholder: 'No shared editable properties' });
     app.showPropertiesTab?.();
     app.syncClipboardButtons?.();
 }

@@ -192,6 +192,8 @@ for (const kind of ['line', 'track']) {
             placements: new Map(), texts: new Map(), _shapeElements: new Map(), _shapeIdCounter: 1,
             getLayerGroup() { return null; }, _snapToGrid(point) { return point; },
             propertiesItems() { return items; }, setPropertiesTitle(value) { title = value; },
+            openPropertyPanel(panel) { title = panel.title; this._propertyPanel = panel; return true; },
+            refreshPropertyPanel(panel) { title = panel.title; this._propertyPanel = panel; },
             viewport: { scale: 100, setCrosshair() {}, hideCrosshair() {} },
             history: { execute(command) { commands.push(command); command.execute(); } } };
         if (kind === 'track') {
@@ -384,27 +386,14 @@ for (const layer of ['top-silk', 'board-outline']) {
     }
 }
 
-function propertyInput(value) {
-    const listeners = new Map();
-    return {
-        value: String(value),
-        get valueAsNumber() { return this.value.trim() === '' ? NaN : Number(this.value); },
-        addEventListener(type, listener) {
-            if (!listeners.has(type)) listeners.set(type, []);
-            listeners.get(type).push(listener);
-        },
-        fire(type, details = {}) {
-            for (const listener of listeners.get(type) || []) listener({ type, preventDefault() {}, stopPropagation() {}, ...details });
-        },
-    };
-}
-
 for (const bulge of [0, 0.25]) {
     const shape = { id: 'live-segment-width', kind: 'line', layer: 'top-silk', lineWidth: 0.2,
         points: [{ x: 0, y: 0 }, { x: 20, y: 0 }, { x: 30, y: 10 }], segmentBulges: { 0: bulge } };
     const commands = [];
     const app = { ...shapeModel([shape]), _shapeElements: new Map(), getLayerGroup() { return null; },
-        viewport: { scale: 100 }, propertiesItems() { return { innerHTML: '' }; },
+        viewport: { scale: 100 },
+        openPropertyPanel(panel) { this._propertyPanel = panel; return true; },
+        refreshPropertyPanel(panel) { this._propertyPanel = panel; },
         history: { execute(command) { commands.push(command); command.execute(); } } };
     selectBoardShape(app, shape);
     setBoardShapeSegmentFocus(app, { shapeId: shape.id, segment: 0 });
@@ -412,14 +401,12 @@ for (const bulge of [0, 0.25]) {
     overlay.querySelectorAll = selector => overlay.children.filter(
         child => (child.getAttribute('class') || '').split(' ').includes(selector.slice(1)));
     app.getLayerGroup = layer => layer === 'selection-overlay' ? overlay : null;
-    const width = propertyInput(0.2);
-    document.getElementById = id => id === 'pcbPropShapeLineWidth' ? width : null;
     showBoardShapeProperties(app, shape);
+    const width = () => app._propertyPanel.fields.find(field => field.id === 'pcbPropShapeLineWidth');
     renderBoardShapeSegmentSelection(app);
     for (const value of [4, 1, 3, 0.2]) {
         const previous = overlay.querySelectorAll('.pcb-shape-segment-selection')[0];
-        width.value = String(value);
-        width.fire('input');
+        width().preview(value);
         const highlights = overlay.querySelectorAll('.pcb-shape-segment-selection');
         assert.equal(highlights.length, 1, 'Live width changes retain exactly one segment highlight');
         assert.notEqual(highlights[0], previous, 'The old highlight is replaced before committing');
@@ -430,25 +417,23 @@ for (const bulge of [0, 0.25]) {
         assert.equal(shape.segmentWidths?.[0] ?? shape.lineWidth, 0.2);
         assert.equal(commands.length, 0, 'Live width preview does not create undo entries');
     }
-    width.fire('change');
+    width().commit(0.2);
     assert.equal(commands.length, 0, 'Returning to the original width leaves no undo entry');
-    width.value = '2';
-    width.fire('input');
-    width.fire('keydown', { key: 'Escape' });
+    width().preview(2);
+    width().cancel();
     assert.equal(shape.segmentWidths?.[0] ?? shape.lineWidth, 0.2, 'Escape preserves the original segment width');
     assert.equal(commands.length, 0, 'Escape does not create history');
     for (const [id, values] of [
         ...(!bulge ? [['pcbPropShapeCornerRadius', [2, 0.5]]] : []),
         ['pcbPropShapeBulge', [0.5, 0.1]],
     ]) {
-        const input = propertyInput(0);
-        document.getElementById = key => key === id ? input : null;
         showBoardShapeProperties(app, shape);
+        const input = () => app._propertyPanel.fields.find(field => field.id === id);
+        if (!input()) continue;
         for (const value of values) {
             const previous = overlay.querySelectorAll('.pcb-shape-segment-selection')[0];
             const beforePath = previous.getAttribute('d');
-            input.value = String(value);
-            input.fire('input');
+            input().preview(value);
             const highlights = overlay.querySelectorAll('.pcb-shape-segment-selection');
             assert.equal(highlights.length, 1, `${id}: preview retains one segment overlay`);
             assert.notEqual(highlights[0], previous, `${id}: preview replaces stale selection`);
@@ -458,7 +443,6 @@ for (const bulge of [0, 0.25]) {
             assert.equal(commands.length, 0, `${id}: preview does not commit history`);
         }
     }
-    document.getElementById = () => null;
 }
 
 for (const kind of ['line', 'polygon', 'rect', 'arc']) {
@@ -469,26 +453,23 @@ for (const kind of ['line', 'polygon', 'rect', 'arc']) {
             start: { x: 0, y: 0 }, end: { x: 20, y: 0 }, bulge: { x: 10, y: -5 } };
         const commands = [];
         const app = { ...shapeModel([shape]), _shapeElements: new Map(), getLayerGroup() { return null; },
-            propertiesItems() { return { innerHTML: '' }; },
+            openPropertyPanel(panel) { this._propertyPanel = panel; return true; },
+            refreshPropertyPanel(panel) { this._propertyPanel = panel; },
             history: { execute(command) { commands.push(command); command.execute(); } } };
-        const width = propertyInput(overall);
-        document.getElementById = id => id === 'pcbPropShapeLineWidth' ? width : null;
         showBoardShapeProperties(app, shape);
-        width.fire('input');
-        width.fire('change');
-        flushSettledChanges();
+        const width = app._propertyPanel.fields.find(field => field.id === 'pcbPropShapeLineWidth');
+        width.preview(overall);
+        width.commit(overall);
         assert.equal(shape.lineWidth, overall);
         assert.deepEqual(shape.segmentWidths, {}, `${kind}: overall width clears segment overrides`);
         commands.at(-1).undo();
         assert.equal(shape.lineWidth, 2);
         assert.deepEqual(shape.segmentWidths, { 0: 4 });
         if (kind !== 'arc') {
-            const radius = propertyInput(overall);
-            document.getElementById = id => id === 'pcbPropShapeCornerRadius' ? radius : null;
             showBoardShapeProperties(app, shape);
-            radius.fire('input');
-            radius.fire('change');
-            flushSettledChanges();
+            const radius = app._propertyPanel.fields.find(field => field.id === 'pcbPropShapeCornerRadius');
+            radius.preview(overall);
+            radius.commit(overall);
             assert.equal(shape.cornerRadius, overall);
             assert.deepEqual(shape.nodeCornerRadii, {}, `${kind}: overall radius clears node overrides`);
             const overallCommand = commands.at(-1);
@@ -496,17 +477,14 @@ for (const kind of ['line', 'polygon', 'rect', 'arc']) {
             assert.equal(shape.cornerRadius, 2);
             assert.deepEqual(shape.nodeCornerRadii, { 1: 0, 2: 1 });
             overallCommand.execute();
-            const nodeRadius = propertyInput(1);
             setBoardShapeNodeFocus(app, { shapeId: shape.id, index: 1 });
-            document.getElementById = id => id === 'pcbPropShapeNodeCornerRadius' ? nodeRadius : null;
             showBoardShapeProperties(app, shape);
-            nodeRadius.fire('input');
-            nodeRadius.fire('change');
-            flushSettledChanges();
+            const nodeRadius = app._propertyPanel.fields.find(field => field.id === 'pcbPropShapeNodeCornerRadius');
+            nodeRadius.preview(1);
+            nodeRadius.commit(1);
             assert.equal(shape.cornerRadius, overall);
             assert.deepEqual(shape.nodeCornerRadii, { 1: 1 }, `${kind}: later node edit changes only that corner`);
         }
-        document.getElementById = () => null;
     }
 }
 
@@ -519,19 +497,20 @@ for (const overall of [2, 3]) {
     track.setEdgeAttr(edgeId, 'width', 4);
     const commands = [];
     const app = { ...shapeModel([], [track]), placements: new Map(), texts: new Map(),
-        viewport: { scale: 100 }, getLayerGroup() { return null; },
-        propertiesItems() { return { innerHTML: '' }; },
+        viewport: { scale: 100 }, getLayerGroup() { return null; }, netNames: () => [],
+        openPropertyPanel(panel) { this._propertyPanel = panel; return true; },
+        refreshPropertyPanel(panel) { this._propertyPanel = panel; },
         history: { execute(command) { commands.push(command); command.execute(); } } };
-    const radius = propertyInput(overall);
-    const width = propertyInput(overall);
-    document.getElementById = id => id === 'pcbPropTrackCornerRadius' ? radius
-        : id === 'pcbPropTrackWidth' ? width : null;
+    // Drive the panel description the way the renderer does: preview each entry, commit once settled.
+    const edit = (id, value) => {
+        const field = app._propertyPanel.fields.find(item => item.id === id);
+        assert.ok(field, `${id} is described`);
+        field.preview?.(value);
+        field.commit(value);
+    };
     selectTrackOrVia(app, { type: 'track', track });
-    radius.fire('blur');
-    assert.deepEqual(track.nodeCornerRadii, { [nodeId]: 0 }, 'Focusing and leaving the input preserves overrides');
-    radius.fire('input');
-    radius.fire('change');
-    flushSettledChanges();
+    assert.deepEqual(track.nodeCornerRadii, { [nodeId]: 0 }, 'Showing the panel preserves overrides');
+    edit('pcbPropTrackCornerRadius', overall);
     assert.equal(track.cornerRadius, overall);
     assert.deepEqual(track.nodeCornerRadii, {});
     const radiusCommand = commands.at(-1);
@@ -539,45 +518,37 @@ for (const overall of [2, 3]) {
     assert.equal(track.cornerRadius, 2);
     assert.deepEqual(track.nodeCornerRadii, { [nodeId]: 0 });
     radiusCommand.execute();
-    width.fire('input');
-    width.fire('change');
-    flushSettledChanges();
-    await Promise.resolve();
+    edit('pcbPropTrackWidth', overall);
     assert.equal(track.width, overall);
     assert.ok([...track.edges.keys()].every(id => track.getEdgeWidth(id) === overall));
     commands.at(-1).undo();
     assert.equal(track.width, 2);
     assert.equal(track.getEdgeWidth(edgeId), 4, 'Undo restores the original local width');
-    const nodeRadius = propertyInput(1);
-    document.getElementById = id => id === 'pcbPropTrackCornerRadius' ? nodeRadius : null;
     selectTrackNode(app, track, nodeId);
-    nodeRadius.fire('input');
-    nodeRadius.fire('change');
-    flushSettledChanges();
+    edit('pcbPropTrackCornerRadius', 1);
     assert.equal(track.cornerRadius, overall);
     assert.deepEqual(track.nodeCornerRadii, { [nodeId]: 1 });
-    document.getElementById = () => null;
 }
 
 {
     const shape = { id: 'line-node', kind: 'line', layer: 'top-silk', lineWidth: 0.2,
         points: [{ x: 0, y: 0 }, { x: 10, y: 0 }] };
-    const items = { innerHTML: '' };
-    let title = '';
     const app = { ...shapeModel([shape]), placements: new Map(), texts: new Map(),
-        _shapeElements: new Map(), getLayerGroup() { return null; },
+        _shapeElements: new Map(), getLayerGroup() { return null; }, netNames: () => [],
         viewport: { scale: 100, setCrosshair() {}, hideCrosshair() {} }, _snapToGrid(point) { return point; },
-        propertiesItems() { return items; }, setPropertiesTitle(value) { title = value; },
+        openPropertyPanel(panel) { this._propertyPanel = panel; return true; },
+        refreshPropertyPanel(panel) { this._propertyPanel = panel; },
         history: { execute(command) { command.execute(); } } };
     selectBoardShape(app, shape);
     assert.ok(beginSelectionInteraction(app, shape.points[0], false));
     finishSelectionInteraction(app, true);
     assert.deepEqual(getBoardShapeNodeFocus(app), { shapeId: shape.id, index: 0 });
     assert.equal(app._pcbSelectionInteraction, null, 'A node click selects without starting floating placement');
+    const { title, fields } = app._propertyPanel;
     assert.equal(title, 'Line Node');
-    assert.ok(items.innerHTML.includes('pcbPropShapeNodeX'));
-    assert.ok(items.innerHTML.includes('pcbPropShapeNodeY'));
-    assert.ok(!items.innerHTML.includes('Corner Radius'), 'A line endpoint is not a roundable corner');
+    assert.ok(fields.some(field => field.id === 'pcbPropShapeNodeX'));
+    assert.ok(fields.some(field => field.id === 'pcbPropShapeNodeY'));
+    assert.ok(!fields.some(field => field.label.includes('Corner Radius')), 'A line endpoint is not a roundable corner');
     const adapter = createBoardShapeSelectionAdapter(app, shape, shape.id);
     assert.equal(adapter.getEditPath(), '', 'Node focus hides the parent editing path');
     assert.equal(adapter.getAnchors().filter(anchor => anchor.selected).length, 1);
@@ -670,7 +641,8 @@ for (const kind of ['line', 'polygon']) {
         const app = { ...shapeModel([shape]), placements: new Map(), texts: new Map(),
             _shapeElements: new Map(), getLayerGroup() { return null; },
             viewport: { scale: 100, setCrosshair() {}, hideCrosshair() {} }, _snapToGrid(point) { return point; },
-            propertiesItems() { return { innerHTML: '' }; }, setPropertiesTitle(value) { title = value; },
+            openPropertyPanel(panel) { title = panel.title; this._propertyPanel = panel; return true; },
+            refreshPropertyPanel(panel) { title = panel.title; this._propertyPanel = panel; },
             history: { execute(command) { command.execute(); } } };
         selectBoardShape(app, shape);
         setBoardShapeSegmentFocus(app, { shapeId: shape.id, segment: 0 });
@@ -721,71 +693,50 @@ for (const [kind, zeroOffset] of ['arc', 'line', 'polygon'].flatMap(kind =>
         ...(kind === 'arc'
             ? { start: { x: 0, y: 0 }, end: { x: 10, y: 0 }, bulge: { x: 5, y: 1.25 } }
             : { points: [{ x: 0, y: 0 }, { x: 10, y: 0 }, { x: 20, y: 10 }], segmentBulges: { 0: 0.25 } }) };
-    let input = null;
     let title = '';
+    let panel = null;
     const commands = [];
-    let replacingProperties = false;
     let propertyRebuilds = 0;
-    const items = {
-        set innerHTML(html) {
-            assert.equal(replacingProperties, false, 'Blur must not rebuild a panel during its replacement');
-            replacingProperties = true;
-            propertyRebuilds++;
-            try { input?.fire('blur'); } finally { replacingProperties = false; }
-            const match = /id="pcbPropShapeBulge"[^>]*value="([^"]+)"/.exec(html);
-            if (!match) { input = null; return; }
-            const listeners = new Map();
-            input = {
-                value: match[1],
-                dataset: {}, matches(selector) { return selector === 'input[type="number"]'; },
-                get valueAsNumber() { return this.value.trim() === '' ? NaN : Number(this.value); },
-                addEventListener(name, callback) {
-                    if (!listeners.has(name)) listeners.set(name, []);
-                    listeners.get(name).push(callback);
-                },
-                fire(name) { for (const callback of listeners.get(name) || []) callback({}); },
-            };
-        },
+    const bulgeField = () => panel?.fields.find(field => field.id === 'pcbPropShapeBulge') || null;
+    const bulgeValue = () => {
+        const field = bulgeField();
+        return field ? String(field.format ? field.format(field.value) : field.value) : null;
     };
-    const originalGetElementById = document.getElementById;
-    document.getElementById = id => id === 'pcbPropShapeBulge' ? input : null;
     const app = { ...shapeModel([shape]), placements: new Map(), texts: new Map(),
         _shapeElements: new Map(), getLayerGroup() { return null; },
         viewport: { scale: 100, setCrosshair() {}, hideCrosshair() {} }, _snapToGrid(point) { return point; },
-        propertiesItems() { return items; }, setPropertiesTitle(value) { title = value; },
+        openPropertyPanel(next) { title = next.title; panel = next; propertyRebuilds++; return true; },
+        refreshPropertyPanel(next) { title = next.title; panel = next; propertyRebuilds++; },
         history: { execute(command) { commands.push(command); command.execute(); } } };
     try {
         selectBoardShape(app, shape);
         if (kind !== 'arc') setBoardShapeSegmentFocus(app, { shapeId: shape.id, segment: 0 });
         showBoardShapeProperties(app, shape);
-        assert.equal(input.value, '0.25');
+        assert.equal(bulgeValue(), '0.25');
         const initialRebuilds = propertyRebuilds;
-        input.fire('blur');
+        bulgeField().commit();
         await Promise.resolve();
-        assert.equal(propertyRebuilds, initialRebuilds, 'Unchanged blur does not rebuild properties');
+        assert.equal(getBoardShapePropertyPreview(app), undefined, 'Unchanged blur does not leave a preview active');
         assert.equal(commands.length, 0, 'Unchanged blur does not create history');
-        input.value = '';
-        input.fire('input');
+        bulgeField().cancel();
         assert.equal(commands.length, 0, 'Partial typing does not commit');
-        input.value = '-0.5';
-        input.fire('input');
+        bulgeField().preview(-0.5);
         const displayed = getBoardShapePropertyPreview(app).copies[0];
         assert.equal(kind === 'arc' ? displayed.bulge.y : displayed.segmentBulges[0], kind === 'arc' ? -2.5 : -0.5);
         assert.equal(kind === 'arc' ? shape.bulge.y : shape.segmentBulges[0], kind === 'arc' ? 1.25 : 0.25);
-        input.fire('change');
-        flushSettledChanges();
+        bulgeField().commit();
         assert.equal(commands.length, 1, 'Typed bulge makes one undoable edit');
         await Promise.resolve();
         assert.equal(commands.length, 1, 'Blur caused by the command refresh does not repeat the edit');
-        assert.equal(propertyRebuilds, initialRebuilds + 1, 'The command owns the single properties refresh');
+        assert.ok(propertyRebuilds >= initialRebuilds + 1, 'The command owns the properties refresh');
         const handle = kind === 'arc' ? 'bulge' : 'bulge:0';
         startBoardShapeDrag(app, shape, { x: 5, y: -2.5 }, handle);
         handleBoardShapeDrag(app, { x: 5, y: 0 });
-        assert.equal(Number(input.value), 0, 'Spinner follows a drag to zero');
+        assert.equal(Number(bulgeValue()), 0, 'Spinner follows a drag to zero');
         handleBoardShapeDrag(app, { x: 5, y: 2.5 });
-        assert.equal(Number(input.value), 0.5, 'Dragging can cross zero without losing the bulge handle');
+        assert.equal(Number(bulgeValue()), 0.5, 'Dragging can cross zero without losing the bulge handle');
         endBoardShapeDrag(app, false);
-        assert.equal(Number(input.value), -0.5, 'Cancelling restores the live spinner');
+        assert.equal(Number(bulgeValue()), -0.5, 'Cancelling restores the live spinner');
         startBoardShapeDrag(app, shape, { x: 5, y: -2.5 }, handle);
         handleBoardShapeDrag(app, { x: 5, y: zeroOffset });
         const straight = Math.abs(zeroOffset) <= 8 / app.viewport.scale
@@ -794,57 +745,52 @@ for (const [kind, zeroOffset] of ['arc', 'line', 'polygon'].flatMap(kind =>
         assert.equal(shape.kind, kind === 'arc' && straight ? 'line' : kind);
         assert.equal(title, kind === 'arc' ? (straight ? 'Line' : 'Arc') : (straight ? 'Line Segment' : 'Arc Segment'));
         if (kind !== 'arc') assert.equal(Object.hasOwn(shape.segmentBulges, 0), !straight);
-        if (!straight) assert.ok(Math.abs(Number(input.value)) >= 0.0001, 'Small nonzero curves remain editable');
+        if (!straight) assert.ok(Math.abs(Number(bulgeValue())) >= 0.0001, 'Small nonzero curves remain editable');
         commands.at(-1).undo();
+        showBoardShapeProperties(app, shape);
         assert.equal(shape.kind, kind);
-        assert.equal(Number(input.value), -0.5, 'Undo restores the arc and its bulge control');
+        assert.equal(Number(bulgeValue()), -0.5, 'Undo restores the arc and its bulge control');
         commands.at(-1).execute();
         assert.equal(shape.kind, kind === 'arc' && straight ? 'line' : kind, 'Redo restores the drag result');
         commands.at(-1).undo();
-        input.value = '0.001';
-        input.fire('input');
-        input.fire('change');
-        flushSettledChanges();
+        showBoardShapeProperties(app, shape);
+        let field = bulgeField();
+        field.preview(0.001);
+        field.commit();
         assert.equal(shape.kind, kind === 'arc' ? 'line' : kind, 'A typed rounded-zero bulge straightens the shape');
-        assert.equal(input, null, 'Straightened shapes no longer show the bulge input');
+        assert.equal(bulgeField(), null, 'Straightened shapes no longer show the bulge input');
         commands.at(-1).undo();
-        input.value = '0';
-        input.fire('input');
-        input.fire('change');
-        flushSettledChanges();
+        showBoardShapeProperties(app, shape);
+        field = bulgeField();
+        field.preview(0);
+        field.commit();
         assert.equal(shape.kind, kind === 'arc' ? 'line' : kind);
         assert.equal(title, kind === 'arc' ? 'Line' : 'Line Segment');
-        assert.equal(input, null, 'Straight shapes no longer show arc properties');
+        assert.equal(bulgeField(), null, 'Straight shapes no longer show arc properties');
         commands.at(-1).undo();
-        assert.equal(Number(input.value), -0.5);
+        assert.equal(Number(bulgeValue()), -0.5);
         if (kind === 'arc') shape.bulge = { x: 5, y: 0 };
         else shape.segmentBulges[0] = 0;
-        input.value = '0.00';
-        input.fire('change');
-        flushSettledChanges();
+        bulgeField().commit(0);
         assert.equal(shape.kind, kind === 'arc' ? 'line' : kind);
         if (kind !== 'arc') assert.equal(Object.hasOwn(shape.segmentBulges, 0), false);
         commands.at(-1).undo();
         assert.equal(kind === 'arc' ? shape.bulge.y : shape.segmentBulges[0], 0,
             'Undo normalization restores the externally supplied zero bulge');
         commands[0].execute();
-        assert.equal(Number(input.value), -0.5, 'Restore the curved fixture before testing a deferred blur');
+        assert.equal(Number(bulgeValue()), -0.5, 'Restore the curved fixture before testing a panel replacement');
         const beforeBlurCommands = commands.length;
-        const beforeBlurValue = input.value;
-        input.value = '0.75';
-        input.fire('input');
-        items.innerHTML = '';
-        assert.equal(commands.length, beforeBlurCommands, 'Panel removal defers a pending blur commit');
+        const beforeBlurValue = bulgeValue();
+        bulgeField().preview(0.75);
+        bulgeField().commit();
+        assert.equal(commands.length, beforeBlurCommands + 1, 'Pending preview is committed once when leaving the panel');
+        assert.equal(bulgeValue(), '0.75');
         await Promise.resolve();
-        assert.equal(commands.length, beforeBlurCommands + 1, 'Pending preview is committed after panel removal');
-        assert.equal(input.value, '0.75');
-        await Promise.resolve();
-        assert.equal(commands.length, beforeBlurCommands + 1, 'Deferred blur creates only one history entry');
+        assert.equal(commands.length, beforeBlurCommands + 1, 'Panel replacement creates only one history entry');
         commands.at(-1).undo();
-        assert.equal(input.value, beforeBlurValue, 'The deferred edit retains the original undo snapshot');
+        assert.equal(bulgeValue(), beforeBlurValue, 'The deferred edit retains the original undo snapshot');
     } finally {
         cancelPictureCopperRefresh(app);
-        document.getElementById = originalGetElementById;
     }
 }
 console.log('PASS bulge properties, live drag values, zero conversion, cancellation, and undo');

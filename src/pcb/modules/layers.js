@@ -154,9 +154,15 @@ export function isLayerLocked(layerId) {
 // Native options need text; the variation selector requests a monochrome lock.
 const LOCK_OPTION_SUFFIX = ' \u{1F512}\uFE0E';
 
-export function pcbLayerOptionHtml(layerId, label, selected = false) {
+/**
+ * A layer as a Properties select option (shared/ui/property-fields.js): a locked layer
+ * is disabled and marked, and refreshPcbLayerOptions keeps it current.
+ * @returns {import('../../shared/ui/property-fields.js').PropertyOption}
+ */
+export function pcbLayerOption(layerId, label) {
     const locked = isLayerLocked(layerId);
-    return `<option value="${layerId}"${selected ? ' selected' : ''}${locked ? ' disabled' : ''} data-pcb-layer-label="${label}">${label}${locked ? LOCK_OPTION_SUFFIX : ''}</option>`;
+    return { value: layerId, label: `${label}${locked ? LOCK_OPTION_SUFFIX : ''}`, disabled: locked,
+        dataset: { pcbLayerLabel: label } };
 }
 
 export function refreshPcbLayerOptions(layerId) {

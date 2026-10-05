@@ -6,6 +6,7 @@ import { AddTextCommand, getTextPosePreviewTexts } from '../src/pcb/modules/text
 import { cancelPictureCopperRefresh } from '../src/pcb/modules/picture-refresh.js';
 import { measureText } from '../src/shared/pcb/stroke-font.js';
 import { loadPcb } from '../src/pcb/modules/project-state.js';
+import { attachPropertyPanelHarness } from './helpers/property-panel-controls.mjs';
 
 class Element {
     constructor(tag = 'g') {
@@ -56,8 +57,7 @@ function fixture(layer, extraTexts = 0, isNew = false) {
         pcbDocument.texts.set(extra.id, extra);
     }
     pcbDocument.texts[Symbol.iterator] = function () { mapCopies++; return this.entries(); };
-    fields = new Map(['pcbPropTextLayer', 'pcbPropTextSize', 'pcbPropTextRot', 'pcbPropTextLW', 'pcbPropTextBorder']
-        .map(id => [id, new Element(id === 'pcbPropTextLayer' ? 'select' : 'input')]));
+    fields = new Map();
     const properties = { innerHTML: '', querySelector: selector => fields.get(selector.slice(1)) || null };
     const groups = new Map(TEXT_LAYERS.map(id => [id, new Element()]));
     const overlay = new Element();
@@ -70,9 +70,11 @@ function fixture(layer, extraTexts = 0, isNew = false) {
         getLayerGroup: id => groups.get(id) || null,
         propertiesItems: () => properties, setPropertiesTitle() {}, layerLabel: id => id,
         clearProperties() {}, setActiveRibbonTab() {}, _refreshBoardShapeClearance() {},
+        _insertInlineTextSymbol: () => false,
         _cancelTrackDraw() {}, _cancelFillDraw() {}, _cancelShapeDraw() {}, _ensureViewport() {}, markSectionClean() {},
         _renderText(value) { renders++; PCBApp.prototype._renderText.call(this, value); },
     };
+    attachPropertyPanelHarness(app, { controls: fields });
     Object.defineProperty(app, 'texts', Object.getOwnPropertyDescriptor(PCBApp.prototype, 'texts'));
     for (const name of ['_startTextInlineEdit', '_endTextInlineEdit', 'refreshText', '_removeTextElement', 'selectText',
         'showTextProperties', '_bindStrokeTextProps', '_cancelPosePreviews', '_cancelDrawingMode']) app[name] = PCBApp.prototype[name];

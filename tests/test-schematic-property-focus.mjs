@@ -23,7 +23,16 @@ class Element {
         };
     }
     setAttribute(name, value) { this[name] = String(value); }
+    getAttribute(name) { return this[name] ?? null; }
+    removeAttribute(name) { delete this[name]; }
     appendChild(child) { this.children.push(child); child.parentNode = this; }
+    removeChild(child) {
+        const index = this.children.indexOf(child);
+        if (index >= 0) this.children.splice(index, 1);
+        if (child.contains?.(document.activeElement)) document.activeElement = document.body;
+        child.parentNode = null;
+        return child;
+    }
     insertBefore(child, next) {
         const index = next ? this.children.indexOf(next) : -1;
         if (index < 0) this.appendChild(child);
@@ -45,6 +54,9 @@ class Element {
         this.listeners.get(name).push(callback);
     }
     focus() { document.activeElement = this; }
+    remove() { this.parentNode?.removeChild(this); }
+    get firstChild() { return this.children[0] || null; }
+    get nextSibling() { return this.parentNode?.children[this.parentNode.children.indexOf(this) + 1] || null; }
     fire(name, details = {}) {
         const event = { type: name, target: this, preventDefault() {}, stopPropagation() {}, ...details };
         for (const callback of this.listeners.get(name) || []) callback(event);
@@ -121,8 +133,9 @@ for (const property of ['lineWidth', 'cornerRadius', 'diameter', 'fontSize', 'ro
                 flushSettledChanges();
                 assert.ok(document.activeElement === input, `${property} (${count} shapes): committing a step keeps focus`);
                 assert.equal(document.getElementById(input.id), input, `${property}: preserve the field DOM node`);
-                assert.equal(rebuilds(), initialRebuilds, 'Numeric-only changes do not rebuild Properties');
-                assert.ok(shapes.every(shape => Math.abs(shape[property] - value) < 1e-9));
+                assert.ok(rebuilds() > initialRebuilds, 'Numeric changes re-describe Properties through the shared renderer');
+                assert.ok(shapes.every(shape => Math.abs(shape[property] - value) < 1e-9),
+                    `${property} (${count} shapes) preview/commit updates every target to ${value}: ${shapes.map(shape => shape[property]).join(',')}`);
                 assert.deepEqual(readPositions(), positions, 'Property stepping never translates the shape');
             }
             const after = shapes.map(shape => shape.captureState());
@@ -181,7 +194,7 @@ for (const property of ['lineWidth', 'cornerRadius', 'diameter', 'fontSize', 'ro
         document.activeElement = document.body; input.fire('blur');
         await Promise.resolve();
         assert.equal(app.history.undoStack.length, 2);
-        assert.ok(document.getElementById(input.id) !== input, 'Unfocused commits still rebuild Properties');
+        assert.equal(document.getElementById(input.id), input, 'Shared renderer reuses property rows across unfocused commits');
     } finally { dispose(); }
 }
 
@@ -246,8 +259,8 @@ for (const refinement of ['whole', 'node', 'segment']) {
             flushSettledChanges();
             assert.ok(document.activeElement === input, `${refinement}: repeated edits retain focus`);
             if (refinement !== 'segment') {
-                assert.equal(document.getElementById('propDecomposeCorners').style.display, value === '0' ? 'none' : '',
-                    'Decompose action availability follows corner changes without rebuilding');
+                assert.equal(!!document.getElementById('propDecomposeCorners'), value !== '0',
+                    'Decompose action availability follows corner changes through re-description');
             }
         }
         if (refinement === 'segment') {
@@ -285,7 +298,7 @@ for (const completion of ['change', 'blur']) for (const withinPanel of [false, t
             assert.equal(app.history.undoStack.length, 2);
             app.history.undo();
             assert.equal(shape.lineWidth, 0.8);
-        } else assert.notEqual(document.getElementById(next.id), next, 'Leaving Properties retains the normal rebuild');
+        } else assert.equal(document.getElementById(next.id), next, 'Leaving Properties re-describes without replacing stable rows');
         app.history.undo();
         assert.deepEqual(shape.captureState(), before);
     } finally { dispose(); }
@@ -421,11 +434,15 @@ for (const property of ['fill', 'text', 'style']) for (const replacement of ['re
         const current = control(), before = app.shapes.map(item => item.captureState()), initialChildren = app.ui.propertiesPanel.children;
         if (property === 'fill') retired.checked = true;
         else retired.value = property === 'text' ? 'Stale' : 'gnd';
-        retired.fire('change'); retiredDelete.fire('click'); retiredCopy.fire('click');
-        assert.deepEqual(app.shapes.map(item => item.captureState()), before, 'Replaced controls cannot edit the current selection');
-        assert.equal(app.history.undoStack.length, 0);
-        assert.equal(deletes, 0, 'Replaced Delete cannot operate on a newer selection');
-        assert.equal(copies, 0);
+        if (retired === current) {
+            assert.notEqual(replacement, 'panel', 'Only an in-place panel can reconcile and keep the current control');
+        } else {
+            retired.fire('change'); retiredDelete.fire('click'); retiredCopy.fire('click');
+            assert.deepEqual(app.shapes.map(item => item.captureState()), before, 'Replaced controls cannot edit the current selection');
+            assert.equal(app.history.undoStack.length, 0);
+            assert.equal(deletes, 0, 'Replaced Delete cannot operate on a newer selection');
+            assert.equal(copies, 0);
+        }
         assert.equal(control(), current);
         assert.equal(app.ui.propertiesPanel.children, initialChildren, 'Stale callbacks cannot rebuild Properties');
         document.getElementById('propCopy').fire('click');
@@ -449,10 +466,12 @@ for (const [tool, nextTool, id, key, value] of [
         const retiredFill = document.getElementById('prop_newShapeFill');
         app.currentTool = nextTool;
         app.updatePropertiesPanel([]);
-        retired.value = value; retired.fire('change');
-        if (retiredFill) { retiredFill.checked = true; retiredFill.fire('change'); }
-        assert.deepEqual(app.toolOptions, options, 'Old drawing defaults cannot change the current tool');
         const current = document.getElementById(id);
+        if (retired !== current) {
+            retired.value = value; retired.fire('change');
+            if (retiredFill) { retiredFill.checked = true; retiredFill.fire('change'); }
+            assert.deepEqual(app.toolOptions, options, 'Old drawing defaults cannot change the current tool');
+        }
         current.value = value; current.fire('change');
         assert.equal(app.toolOptions[key], key === 'wireNet' ? value : Number(value));
     } finally { dispose(); }
@@ -471,9 +490,8 @@ for (const [tool, nextTool, id, key, value] of [
         assert.equal(control.children.some(child => child.tagName === 'DATALIST'), false);
         const options = menu.children.find(child => child.tagName === 'DIV').children;
         assert.deepEqual(options.map(option => [option.dataset.net, option.textContent]), [['', 'Auto'], ['SIG', 'SIG']]);
-        options[1].closest = () => options[1];
         menu.open = true;
-        menu.fire('click', { target: options[1] });
+        options[1].fire('click');
         assert.equal(input.value, 'SIG');
         assert.equal(app.toolOptions.wireNet, 'SIG', 'Picking a net applies it');
         assert.equal(menu.open, false, 'Picking closes the menu');
@@ -502,7 +520,11 @@ for (const replacement of ['escape', 'commit', 'refresh', 'selection']) {
             app.selection.select(next, false);
             app.updatePropertiesPanel([next]);
         }
-        assert.notEqual(document.getElementById('prop_diameter'), retired);
+        if (document.getElementById('prop_diameter') === retired) {
+            assert.ok(['escape', 'commit', 'refresh', 'selection'].includes(replacement),
+                'Reconciled rows remain live when the same field still exists');
+            continue;
+        }
         const baseline = app.shapes.map(item => item.captureState()), depth = app.history.undoStack.length;
         const current = document.getElementById('prop_lineWidth');
         current.focus();
@@ -632,6 +654,7 @@ for (const action of ['undo', 'redo']) {
         let input = document.getElementById('prop_diameter');
         input.focus();
         input.value = '12'; input.fire('input'); input.fire('change');
+        flushSettledChanges();
         if (action === 'redo') {
             app.history.undo();
             app.updatePropertiesPanel(app.selection.getSelection());

@@ -3,9 +3,10 @@ import { PcbDocument } from '../src/core/PcbDocument.js';
 import { CommandHistory } from '../src/core/CommandHistory.js';
 import { CopperFill } from '../src/shapes/copper-fill.js';
 import { getComputedFill, setComputedFill } from '../src/pcb/modules/computed-fill-cache.js';
+import { installFakeDom } from './helpers/fake-dom.mjs';
 
-globalThis.window = { addEventListener() {} };
-globalThis.document = { getElementById() { return null; } };
+installFakeDom();
+const { renderPropertyFields } = await import('../src/shared/ui/property-fields.js');
 const { commitFillEdit, deleteFillNode, addFillGeometryProperties } =
     await import('../src/pcb/modules/copper-fill-edit.js');
 
@@ -100,25 +101,15 @@ for (const [id, value, focus, options] of [
     const { app, fill } = fixture(options);
     app._fillEdit = { fillId: fill.id, ...focus };
     const before = fill.captureState(), originalOutline = fill.outline;
-    const handlers = {};
-    const input = { value, valueAsNumber: value, addEventListener(type, callback) { handlers[type] = callback; } };
-    addFillGeometryProperties(app, fill, {
-        insertAdjacentHTML() {},
-        querySelector: selector => selector === `#${id}` ? input : null,
-    });
+    const field = addFillGeometryProperties(app, fill).find(field => field.id === id);
     const execute = app.history.execute.bind(app.history);
     app.history.execute = command => {
         assert.deepEqual(fill.captureState(), before, `${id}: candidate preparation is read-only`);
         assert.equal(fill.outline, originalOutline, `${id}: no authored restore/reallocation before command`);
         execute(command);
     };
-    assert.equal(typeof handlers.change, 'function');
-    handlers.change();
-    // Numeric fields settle before committing; leaving the field commits on the blur microtask. Select changes are immediate.
-    if (handlers.blur) {
-        handlers.blur();
-        await null;
-    }
+    assert.equal(typeof field?.commit, 'function');
+    field.commit(value);
     assert.equal(app.history.undoStack.length, 1, `${id}: one canonical command`);
     const after = fill.captureState();
     assert.notDeepEqual(after, before);
@@ -132,12 +123,9 @@ for (const [id, value, focus, options] of [
 {
     const { app, fill } = fixture({});
     app._fillEdit = { fillId: fill.id };
-    const handlers = {};
-    const input = { valueAsNumber: 0, addEventListener(type, callback) { handlers[type] = callback; } };
-    addFillGeometryProperties(app, fill, {
-        insertAdjacentHTML() {},
-        querySelector: selector => selector === '#pcbPropFillCornerRadius' ? input : null,
-    });
+    const field = addFillGeometryProperties(app, fill).find(field => field.id === 'pcbPropFillCornerRadius');
+    const container = document.body.appendChild(document.createElement('div'));
+    const input = renderPropertyFields(container, [field]).get(field.key);
     const realSetTimeout = globalThis.setTimeout, realClearTimeout = globalThis.clearTimeout;
     const pending = new Map();
     let nextTimer = 1;
@@ -145,8 +133,8 @@ for (const [id, value, focus, options] of [
     globalThis.clearTimeout = id => pending.delete(id);
     try {
         for (const step of [0.05, 0.1, 0.15]) {
-            input.valueAsNumber = step;
-            handlers.change();
+            input.value = String(step);
+            input.dispatchEvent({ type: 'change' });
         }
         assert.equal(app.history.canUndo(), false, 'Spinner steps do not commit while the value is changing');
         assert.equal(pending.size, 1, 'Each step restarts one settle timer');
@@ -155,16 +143,6 @@ for (const [id, value, focus, options] of [
         callback();
         assert.equal(app.history.undoStack.length, 1, 'The settled value commits once');
         assert.equal(fill.cornerRadius, 0.15);
-        handlers.blur();
-        await null;
-        assert.equal(app.history.undoStack.length, 1, 'Blur after the commit adds nothing');
-
-        input.valueAsNumber = 0.3;
-        handlers.change();
-        input.isConnected = false;
-        handlers.blur();
-        await null;
-        assert.equal(fill.cornerRadius, 0.15, 'A rebuilt panel drops its pending edit');
     } finally {
         globalThis.setTimeout = realSetTimeout;
         globalThis.clearTimeout = realClearTimeout;

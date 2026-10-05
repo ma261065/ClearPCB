@@ -6,18 +6,17 @@
  */
 
 import { bulgePointFromRatio } from '../../core/geometry.js';
-import { displayRotationDegrees, formatNumberInput, formatNumberInputValue } from '../../core/number-inputs.js';
+import { displayRotationDegrees, formatNumberInputValue } from '../../core/number-inputs.js';
 import { canRoundPathNode } from '../../shapes/path-geometry.js';
 import { SHAPE_KINDS, applyShapeGeometry, applyShapeSnapshot, captureBoardShapeState as shapeSnapshot } from '../../core/pcb-board-shapes.js';
-import { isLayerLocked, PCB_LAYERS, pcbLayerOptionHtml, setPcbLayerLocked } from './layers.js';
-import { bindLockedProperty, lockedPropertyHtml } from './object-locks.js';
+import { isLayerLocked, PCB_LAYERS, pcbLayerOption, setPcbLayerLocked } from './layers.js';
+import { lockedProperty } from './object-locks.js';
 import { ModifyBoardShapeCommand } from './shape-commands.js';
 import { CompoundCommand } from './track-commands.js';
-import { commitPropertyPreviewInput, bindPropertyPreviewInput } from '../../shapes/property-preview.js';
 import { getPcbSelection, getPcbSelectionEntries, isPcbSelected, syncPcbSelection } from './selection-registry.js';
 import { showPcbSelectionProperties } from './selection-interaction.js';
 import { PICTURE_LAYERS } from '../../shared/pcb/picture-raster.js';
-import { bindPictureRefreshHold } from './picture-refresh.js';
+import { pictureRefreshHold } from './picture-refresh.js';
 import { rotatedImagePoints } from './rotation-handle.js';
 import { BULGE_EPS } from '../../shapes/arc-edge.js';
 import { boardBoundary } from '../../shared/pcb/board-outline.js';
@@ -40,10 +39,6 @@ import {
     updateShapeDrawPreview,
 } from './board-shapes.js';
 import { getBoardShapeNodeFocus, getBoardShapeSegmentFocus, getShapeDefaults } from './board-shape-state.js';
-import { bindSettledChange } from '../../shared/ui/settled-input.js';
-
-/** A field's `change` previews; its commit waits for the spinner run to settle. */
-const settle = (input, commit) => { if (input) bindSettledChange(input, commit); };
 
 // ── Properties panel ─────────────────────────────────────────────────────────
 
@@ -52,6 +47,13 @@ export const PROP_HIDDEN_LAYERS = new Set([
     'top-mask', 'bottom-mask',
     'board-outline', 'vias',
 ]);
+
+const COPPER_MODE_OPTIONS = [
+    { value: 'add', label: 'Add Copper' },
+    { value: 'remove-copper', label: 'Remove Copper' },
+    { value: 'remove-solder-mask', label: 'Remove Solder Mask' },
+    { value: 'remove-copper-mask', label: 'Remove Copper + Mask' },
+];
 
 function boardNetNames(app) {
     const netNames = new Set((app.netlist || []).map((entry) => String(entry.net || '')).filter(Boolean));
@@ -64,22 +66,6 @@ function boardNetNames(app) {
     return [...netNames].sort();
 }
 
-function netOptions(app, current = '') {
-    const names = boardNetNames(app);
-    const selected = String(current || '');
-    return `<button type="button" data-net="">None</button>${names.map((name) =>
-        `<button type="button" data-net="${name.replace(/&/g, '&amp;').replace(/"/g, '&quot;')}"${name === selected ? ' aria-current="true"' : ''}>${name.replace(/&/g, '&amp;').replace(/</g, '&lt;')}</button>`
-    ).join('')}`;
-}
-
-function syncNetMenuSelection(menu, input) {
-    if (!menu || !input) return;
-    const current = input.value.trim();
-    for (const option of menu.querySelectorAll('button[data-net]')) {
-        option.toggleAttribute('aria-current', option.dataset.net === current);
-    }
-}
-
 /**
  * Show Properties-tab controls for the active board-shape tool. These edit
  * creation defaults (and an unfinished draw), rather than a saved shape.
@@ -87,128 +73,84 @@ function syncNetMenuSelection(menu, input) {
  * @param {'line'|'circle'|'rect'|'polygon'|'arc'} kind
  */
 export function showBoardShapeToolProperties(app, kind) {
-        const items = app.propertiesItems?.();
-        if (!items) return;
-        const defaults = getShapeDefaults(app);
-        const currentLayer = app._shapeDraw?.layer || resolveShapeDrawLayer(app, app.activeLayer);
-        if (!app._shapeDraw && currentLayer) app.activeLayer = currentLayer;
-        const layerOptionsHtml = PCB_LAYERS
-            .filter((layer) => !PROP_HIDDEN_LAYERS.has(layer.id))
-            .map((layer) => pcbLayerOptionHtml(layer.id, layer.name, layer.id === currentLayer))
-            .join('');
-        const initialCopperMode = normalizeShapeCopperMode(defaults.copperMode);
-        const initialNet = String(defaults.net || '').replace(/&/g, '&amp;').replace(/"/g, '&quot;');
-        const toolNetOptions = netOptions(app, defaults.net);
-        const showFill = currentLayer !== 'hole' && kind !== 'line';
-        const showLineWidth = currentLayer !== 'hole' || kind === 'line';
-        const lineWidthMinimum = boardShapeLineWidthMinimum({ kind, layer: currentLayer });
-        const toolLineWidth = normalizedBoardShapeLineWidth(
-            { kind, layer: currentLayer },
-            defaults.lineWidth,
-        );
-
-        app.setPropertiesTitle?.(`New ${shapeKindLabel(kind)}`);
-        items.innerHTML = `
-            <div class="prop-row" data-prop="layer"><label>Layer</label><select id="pcbToolShapeLayer"${currentLayer ? '' : ' disabled'}>${currentLayer ? '' : '<option value="" selected disabled>No unlocked layers</option>'}${layerOptionsHtml}</select></div>
-            <div class="prop-row" data-prop="copperMode" id="pcbToolShapeCopperModeRow"><label>Copper Mode</label><select id="pcbToolShapeCopperMode"><option value="add"${initialCopperMode === 'add' ? ' selected' : ''}>Add Copper</option><option value="remove-copper"${initialCopperMode === 'remove-copper' ? ' selected' : ''}>Remove Copper</option><option value="remove-solder-mask"${initialCopperMode === 'remove-solder-mask' ? ' selected' : ''}>Remove Solder Mask</option><option value="remove-copper-mask"${initialCopperMode === 'remove-copper-mask' ? ' selected' : ''}>Remove Copper + Mask</option></select></div>
-            <div class="prop-row" data-prop="net" id="pcbToolShapeNetRow"><label>Net</label><span class="prop-net-control"><input type="text" id="pcbToolShapeNet" value="${initialNet}" placeholder="None"><details class="prop-net-menu"><summary aria-label="Select existing net"></summary><div>${toolNetOptions}</div></details></span></div>
-            ${showFill ? `<label class="prop-row prop-toggle" data-prop="fill"><input type="checkbox" id="pcbToolShapeFilled"${defaults.filled ? ' checked' : ''}><span>Fill</span></label>` : ''}
-            ${currentLayer === 'hole' ? `<label class="prop-row prop-toggle" data-prop="plated"><input type="checkbox" id="pcbToolShapePlated"${defaults.plated ? ' checked' : ''}><span>Plated</span></label>` : ''}
-            ${showLineWidth ? `<div class="prop-row" data-prop="lineWidth" id="pcbToolShapeLineWidthRow"><label>Line Width (mm)</label><input type="number" id="pcbToolShapeLineWidth" min="${lineWidthMinimum}" step="0.05" value="${toolLineWidth.toFixed(2)}"></div>` : ''}
-            ${kind === 'rect' ? `<div class="prop-row" data-prop="cornerRadius"><label>Corner Radius (mm)</label><input type="number" id="pcbToolShapeCornerRadius" min="0" max="25" step="0.5" value="${Math.max(0, Number(defaults.cornerRadius) || 0).toFixed(2)}"></div>` : ''}
-        `;
-
-        const lineEl = /** @type {HTMLInputElement|null} */ (items.querySelector('#pcbToolShapeLineWidth'));
-        const lineRowEl = /** @type {HTMLDivElement|null} */ (items.querySelector('#pcbToolShapeLineWidthRow'));
-    const cornerRadiusEl = /** @type {HTMLInputElement|null} */ (items.querySelector('#pcbToolShapeCornerRadius'));
-        const filledEl = /** @type {HTMLInputElement|null} */ (items.querySelector('#pcbToolShapeFilled'));
-        const platedEl = /** @type {HTMLInputElement|null} */ (items.querySelector('#pcbToolShapePlated'));
-        const layerEl = /** @type {HTMLSelectElement|null} */ (items.querySelector('#pcbToolShapeLayer'));
-        const copperModeRowEl = /** @type {HTMLDivElement|null} */ (items.querySelector('#pcbToolShapeCopperModeRow'));
-        const copperModeEl = /** @type {HTMLSelectElement|null} */ (items.querySelector('#pcbToolShapeCopperMode'));
-        const netRowEl = /** @type {HTMLDivElement|null} */ (items.querySelector('#pcbToolShapeNetRow'));
-        const netEl = /** @type {HTMLInputElement|null} */ (items.querySelector('#pcbToolShapeNet'));
-        const netMenuEl = /** @type {HTMLDetailsElement|null} */ (items.querySelector('.prop-net-menu'));
-        const syncAvailability = () => {
-            if (!layerEl || !copperModeEl || !copperModeRowEl) return;
-            const copper = layerEl.value === 'top-copper' || layerEl.value === 'bottom-copper';
-            copperModeRowEl.style.display = copper ? '' : 'none';
-            copperModeEl.disabled = !copper;
-            if (netRowEl) netRowEl.style.display = copper && copperModeEl.value === 'add' ? '' : 'none';
-            if (lineRowEl) lineRowEl.style.display = filledEl?.checked ? 'none' : '';
+    const defaults = getShapeDefaults(app);
+    const currentLayer = app._shapeDraw?.layer || resolveShapeDrawLayer(app, app.activeLayer);
+    if (!app._shapeDraw && currentLayer) app.activeLayer = currentLayer;
+    const redraw = () => updateShapeDrawPreview(app, app._lastCrosshairWorld || app._shapeDraw?.points.at(-1));
+    const refresh = () => app.refreshPropertyPanel?.(describe());
+    const describe = () => {
+        const layer = app._shapeDraw?.layer || resolveShapeDrawLayer(app, app.activeLayer);
+        const copper = layer === 'top-copper' || layer === 'bottom-copper';
+        const showFill = layer !== 'hole' && kind !== 'line';
+        const showLineWidth = (layer !== 'hole' || kind === 'line') && !defaults.filled;
+        const lineWidthMinimum = boardShapeLineWidthMinimum({ kind, layer });
+        return {
+            title: `New ${shapeKindLabel(kind)}`,
+            fields: [
+                { key: 'layer', id: 'pcbToolShapeLayer', type: 'select', label: 'Layer', value: layer || '', disabled: !layer,
+                    options: layer ? PCB_LAYERS.filter(item => !PROP_HIDDEN_LAYERS.has(item.id))
+                        .map(item => pcbLayerOption(item.id, item.name)) : [{ value: '', label: 'No unlocked layers', disabled: true }],
+                    commit: next => {
+                        if (!next || isLayerLocked(next)) { refresh(); return; }
+                        app.activeLayer = next;
+                        app.setPcbStatus?.();
+                        if (app._shapeDraw?.kind === kind) app._shapeDraw.layer = next;
+                        redraw();
+                        showBoardShapeToolProperties(app, kind);
+                    } },
+                ...(copper ? [{ key: 'copperMode', id: 'pcbToolShapeCopperMode', type: 'select', label: 'Copper Mode',
+                    value: normalizeShapeCopperMode(defaults.copperMode), options: COPPER_MODE_OPTIONS, commit: value => {
+                        defaults.copperMode = normalizeShapeCopperMode(value);
+                        redraw();
+                        refresh();
+                    } }] : []),
+                ...(copper && normalizeShapeCopperMode(defaults.copperMode) === 'add'
+                    ? [{ key: 'net', id: 'pcbToolShapeNet', type: 'net', label: 'Net', value: defaults.net || '',
+                        nets: boardNetNames(app), commit: value => { defaults.net = value.trim(); } }] : []),
+                ...(showFill ? [{ key: 'fill', id: 'pcbToolShapeFilled', type: 'checkbox', label: 'Fill', value: !!defaults.filled,
+                    commit: value => { defaults.filled = !!value; redraw(); refresh(); } }] : []),
+                ...(layer === 'hole' ? [{ key: 'plated', id: 'pcbToolShapePlated', type: 'checkbox', label: 'Plated',
+                    value: !!defaults.plated, commit: value => { defaults.plated = !!value; } }] : []),
+                ...(showLineWidth ? [{ key: 'lineWidth', id: 'pcbToolShapeLineWidth', type: 'number', label: 'Line Width (mm)',
+                    value: normalizedBoardShapeLineWidth({ kind, layer }, defaults.lineWidth), min: lineWidthMinimum, step: 0.05,
+                    format: value => Number(value).toFixed(2), preview: value => {
+                        const next = normalizedBoardShapeLineWidth({ kind, layer }, value);
+                        if (defaults.lineWidth === next) return;
+                        defaults.lineWidth = next;
+                        redraw();
+                        refresh();
+                    }, commit: () => {} }] : []),
+                ...(kind === 'rect' ? [{ key: 'cornerRadius', id: 'pcbToolShapeCornerRadius', type: 'number',
+                    label: 'Corner Radius (mm)', value: Math.max(0, Number(defaults.cornerRadius) || 0), min: 0, max: 25, step: 0.5,
+                    format: value => Number(value).toFixed(2), normalize: value => Math.min(25, Math.max(0, value)),
+                    preview: value => {
+                        const next = Math.min(25, Math.max(0, value));
+                        if (defaults.cornerRadius === next) return;
+                        defaults.cornerRadius = next;
+                        redraw();
+                        refresh();
+                    }, commit: () => {} }] : []),
+            ],
         };
-
-        lineEl?.addEventListener('input', () => {
-            defaults.lineWidth = normalizedBoardShapeLineWidth(
-                { kind, layer: layerEl?.value || currentLayer },
-                lineEl.value,
-            );
-            if (Number(lineEl.value) < defaults.lineWidth) lineEl.value = defaults.lineWidth.toFixed(2);
-            updateShapeDrawPreview(app, app._lastCrosshairWorld || app._shapeDraw?.points.at(-1));
-        });
-        cornerRadiusEl?.addEventListener('input', () => {
-            defaults.cornerRadius = Math.min(25, Math.max(0, Number(cornerRadiusEl.value) || 0));
-            cornerRadiusEl.value = defaults.cornerRadius.toFixed(2);
-            updateShapeDrawPreview(app, app._lastCrosshairWorld || app._shapeDraw?.points.at(-1));
-        });
-        filledEl?.addEventListener('change', () => {
-            defaults.filled = !!filledEl.checked;
-            updateShapeDrawPreview(app, app._lastCrosshairWorld || app._shapeDraw?.points.at(-1));
-            syncAvailability();
-        });
-        platedEl?.addEventListener('change', () => {
-            defaults.plated = !!platedEl.checked;
-        });
-        netEl?.addEventListener('change', () => {
-            defaults.net = netEl.value.trim();
-        });
-        netMenuEl?.addEventListener('click', (event) => {
-            const option = /** @type {HTMLButtonElement|null} */ (event.target instanceof Element ? event.target.closest('button[data-net]') : null);
-            if (!option || !netEl) return;
-            netEl.value = option.dataset.net || '';
-            netEl.dispatchEvent(new Event('change'));
-            netMenuEl.open = false;
-        });
-        netMenuEl?.addEventListener('toggle', () => {
-            if (netMenuEl.open) syncNetMenuSelection(netMenuEl, netEl);
-        });
-        layerEl?.addEventListener('change', () => {
-            const next = layerEl.value;
-            if (!next || isLayerLocked(next)) {
-                layerEl.value = app._shapeDraw?.layer || app.activeLayer;
-                syncAvailability();
-                return;
-            }
-            app.activeLayer = next;
-            app.setPcbStatus?.();
-            if (app._shapeDraw?.kind === kind) app._shapeDraw.layer = next;
-            updateShapeDrawPreview(app, app._lastCrosshairWorld || app._shapeDraw?.points.at(-1));
-            syncAvailability();
-            showBoardShapeToolProperties(app, kind);
-        });
-        copperModeEl?.addEventListener('change', () => {
-            defaults.copperMode = normalizeShapeCopperMode(copperModeEl.value);
-            updateShapeDrawPreview(app, app._lastCrosshairWorld || app._shapeDraw?.points.at(-1));
-        });
-        syncAvailability();
-        app.setPcbStatus?.();
-        app.showPropertiesTab?.();
+    };
+    if (!app.openPropertyPanel?.(describe())) return;
+    app.setPcbStatus?.();
 }
 
 export function refreshBoardShapeToolLayer(app) {
     if (!SHAPE_KINDS.has(app.currentTool) || app.currentTool === 'image') return;
-    const select = /** @type {HTMLSelectElement|null} */ (document.getElementById('pcbToolShapeLayer'));
-    if (!select || app._shapeDraw) return;
-    const layer = resolveShapeDrawLayer(app, app.activeLayer);
-    if ((select.value || null) !== layer) showBoardShapeToolProperties(app, app.currentTool);
+    if (app._shapeDraw) return;
+    showBoardShapeToolProperties(app, app.currentTool);
 }
 
-export function showImageProperties(app, shape, items) {
+export function showImageProperties(app, shape) {
     if (getPropertyEditor(app, 'boardShape')?.committing) return;
     shape = canonicalBoardShape(app, shape);
-    getPropertyEditor(app, 'boardShape')?.dispose();
-    app.setPropertiesTitle?.('Image', shape);
-    const binding = createBoardShapePropertyBinding(app);
+    let binding = null;
+    let widthPreview = null;
+    let heightPreview = null;
+    let rotationPreview = null;
+    const hold = pictureRefreshHold(app);
     const geometryValues = () => {
         const { points } = displayedBoardShape(app, shape);
         return {
@@ -218,85 +160,40 @@ export function showImageProperties(app, shape, items) {
                 points[1].x - points[0].x) * 180 / Math.PI) % 360 + 360) % 360,
         };
     };
-    const { width, height, rotation } = geometryValues();
-    const layers = PCB_LAYERS.filter(layer => PICTURE_LAYERS.includes(layer.id));
-    const names = [...new Set([...boardNetNames(app), String(shape.net || '')])].filter(Boolean).sort();
-    const imageNetOptions = names.map(name => {
-        const escaped = name.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/"/g, '&quot;');
-        return `<option value="${escaped}">${escaped}</option>`;
-    }).join('');
     const lockEntries = [{ kind: 'shape', object: shape }];
-    items.innerHTML = `
-        ${lockedPropertyHtml(app, lockEntries)}
-        <div class="prop-row" data-prop="layer"><label>Layer</label><select id="pcbPropImageLayer">${layers.map(layer =>
-            pcbLayerOptionHtml(layer.id, layer.name, layer.id === shape.layer)).join('')}</select></div>
-        ${shape.layer.endsWith('copper') ? `<div class="prop-row" data-prop="net"><label>Net</label><select id="pcbPropImageNet"><option value="">Unassigned</option>${imageNetOptions}</select></div>` : ''}
-        <div class="prop-row" data-prop="width"><label>Width (mm)</label><input id="pcbPropImageWidth" type="number" min="0.1" max="500" step="0.1" value="${width.toFixed(2)}"></div>
-        <div class="prop-row" data-prop="height"><label>Height (mm)</label><input id="pcbPropImageHeight" type="number" min="0.1" max="500" step="0.1" value="${height.toFixed(2)}"></div>
-        <div class="prop-row" data-prop="rotation"><label>Rotation (°)</label><input id="pcbPropImageRot" type="number" step="1" data-number-format="rotation" value="${displayRotationDegrees(rotation)}"></div>
-        <div class="prop-row" data-prop="flipHorizontal"><label for="pcbPropImageFlipHorizontal">Flip Horizontal</label><input id="pcbPropImageFlipHorizontal" type="checkbox"${shape.artwork.flipHorizontal ? ' checked' : ''}></div>
-        <div class="prop-row" data-prop="flipVertical"><label for="pcbPropImageFlipVertical">Flip Vertical</label><input id="pcbPropImageFlipVertical" type="checkbox"${shape.artwork.flipVertical ? ' checked' : ''}></div>
-        <div class="prop-row" data-prop="invert"><label for="pcbPropImageInvert">Invert</label><input id="pcbPropImageInvert" type="checkbox"${shape.artwork.invert ? ' checked' : ''}></div>`;
+    const lock = lockedProperty(app, lockEntries);
+    const readOnly = lock.readOnly;
+    const refresh = () => { if (!binding?.disposed) app.refreshPropertyPanel?.(describe()); };
     const commit = mutate => {
-        if (!binding.prepare()) return;
+        if (!binding?.prepare()) return;
         const before = shapeSnapshot(shape);
         const candidate = copyBoardShape(shape);
         mutate(candidate);
         const after = shapeSnapshot(candidate);
         if (JSON.stringify(before) !== JSON.stringify(after)) app.history.execute(new ModifyBoardShapeCommand(app, shape, before, after));
-        else showImageProperties(app, shape, items);
+        refresh();
     };
-    const commitNumericPreview = (input, preview) => {
-        const keepFocus = document.activeElement === input || items.contains?.(document.activeElement);
-        commitPropertyPreviewInput(input, preview, { focusRoot: items });
-        if (binding.disposed) return;
-        if (!keepFocus) {
-            showImageProperties(app, shape, items);
-            return;
-        }
-        // Native number stepping emits change while the field is still focused.
-        const geometry = geometryValues();
-        for (const [id, value] of [
-            ['pcbPropImageWidth', geometry.width.toFixed(2)],
-            ['pcbPropImageHeight', geometry.height.toFixed(2)],
-            ['pcbPropImageRot', String(Math.round(geometry.rotation) % 360)],
-        ]) {
-            const field = /** @type {HTMLInputElement|null} */ (document.getElementById(id));
-            if (field) field.value = value;
-        }
+    const finishPreview = preview => {
+        if (!preview || binding?.disposed) return;
+        preview.commit({ rebuild: false });
+        refresh();
     };
-    const layerInput = /** @type {HTMLSelectElement} */ (document.getElementById('pcbPropImageLayer'));
-    for (const [id, property] of [
-        ['pcbPropImageInvert', 'invert'],
-        ['pcbPropImageFlipHorizontal', 'flipHorizontal'],
-        ['pcbPropImageFlipVertical', 'flipVertical'],
-    ]) {
-        const input = /** @type {HTMLInputElement|null} */ (document.getElementById(id));
-        input?.addEventListener('change', () => commit(candidate => {
-            candidate.artwork = { ...candidate.artwork, [property]: input.checked };
-        }));
-    }
-    layerInput?.addEventListener('change', () => {
-        if (!PICTURE_LAYERS.includes(layerInput.value) || isLayerLocked(layerInput.value)) return;
-        commit(candidate => { candidate.layer = layerInput.value; });
-    });
-    for (const [id, dimension] of [['pcbPropImageWidth', width], ['pcbPropImageHeight', height]]) {
-        const input = /** @type {HTMLInputElement} */ (document.getElementById(String(id)));
-        bindPictureRefreshHold(app, input);
-        const resizePreview = createBoardShapePropertyPreview(app, [shape], { liveDrag: true });
-        bindPropertyPreviewInput(input, resizePreview, {
-            binding, isCurrent: () => !binding.disposed, focusRoot: items,
-            onCancel: () => showImageProperties(app, shape, items),
-        });
-        const previewResize = () => {
-            if (binding.disposed) return;
-            const value = input.valueAsNumber;
-            const factor = value / Number(dimension);
+    const cancelPreview = preview => {
+        const active = preview?.cancel() || false;
+        refresh();
+        return active;
+    };
+    const previewResize = (axis, value) => {
+            if (binding?.disposed) return;
+            const { width, height } = geometryValues();
+            const dimension = axis === 'width' ? width : height;
+            const factor = value / dimension;
             if (!Number.isFinite(factor) || value < 0.1 || Math.max(width, height) * factor > 500) return;
             const current = displayedBoardShape(app, shape);
-            const edge = id === 'pcbPropImageWidth' ? 1 : 3;
+            const edge = axis === 'width' ? 1 : 3;
             if (Math.abs(Math.hypot(current.points[edge].x - current.points[0].x,
                 current.points[edge].y - current.points[0].y) - value) < 1e-9) return;
+            const resizePreview = axis === 'width' ? widthPreview : heightPreview;
             resizePreview.update((before, [candidate]) => {
                 applyShapeSnapshot(candidate, before[0]);
                 const baseline = Math.hypot(candidate.points[edge].x - candidate.points[0].x,
@@ -306,24 +203,10 @@ export function showImageProperties(app, shape, items) {
                 if (scale !== 1) candidate.points = candidate.points.map(point => ({ x: center.x + (point.x - center.x) * scale,
                     y: center.y + (point.y - center.y) * scale }));
             });
-            const pairedId = id === 'pcbPropImageWidth' ? 'pcbPropImageHeight' : 'pcbPropImageWidth';
-            const pairedInput = /** @type {HTMLInputElement} */ (document.getElementById(pairedId));
-            if (pairedInput) pairedInput.value = ((id === 'pcbPropImageWidth' ? height : width) * factor).toFixed(2);
-        };
-        input?.addEventListener('input', previewResize);
-        input?.addEventListener('change', previewResize);
-        settle(input, () => commitNumericPreview(input, resizePreview));
-    }
-    const rotationInput = /** @type {HTMLInputElement} */ (document.getElementById('pcbPropImageRot'));
-    bindPictureRefreshHold(app, rotationInput);
-    const rotationPreview = createBoardShapePropertyPreview(app, [shape], { liveDrag: true });
-    bindPropertyPreviewInput(rotationInput, rotationPreview, {
-        binding, isCurrent: () => !binding.disposed, focusRoot: items,
-        onCancel: () => showImageProperties(app, shape, items),
-    });
-    const previewRotation = () => {
-        if (binding.disposed) return;
-        const value = parseFloat(rotationInput.value);
+            refresh();
+    };
+    const previewRotation = value => {
+        if (binding?.disposed) return;
         if (!Number.isFinite(value)) return;
         const next = ((Math.round(value) % 360) + 360) % 360;
         const current = displayedBoardShape(app, shape);
@@ -338,35 +221,63 @@ export function showImageProperties(app, shape, items) {
                 y: (candidate.points[0].y + candidate.points[2].y) / 2 };
             if (next !== baseline) candidate.points = rotatedImagePoints(candidate.points, center, next - baseline);
         });
+        refresh();
     };
-    rotationInput?.addEventListener('input', previewRotation);
-    rotationInput?.addEventListener('change', previewRotation);
-    settle(rotationInput, () => commitNumericPreview(rotationInput, rotationPreview));
-    const wrapRotation = () => {
-        if (binding.disposed) return;
-        const value = parseFloat(rotationInput.value);
-        if (!Number.isFinite(value)) return;
-        const wrapped = ((Math.round(value) % 360) + 360) % 360;
-        if (wrapped !== value) rotationInput.value = String(wrapped);
+    const describe = () => {
+        const { width, height, rotation } = geometryValues();
+        const names = [...new Set([...boardNetNames(app), String(shape.net || '')])].filter(Boolean).sort();
+        return {
+            title: 'Image',
+            fields: [
+                lock.field,
+                { key: 'layer', id: 'pcbPropImageLayer', type: 'select', label: 'Layer', value: shape.layer, disabled: readOnly,
+                    options: PCB_LAYERS.filter(layer => PICTURE_LAYERS.includes(layer.id)).map(layer => pcbLayerOption(layer.id, layer.name)),
+                    commit: value => {
+                        if (!PICTURE_LAYERS.includes(value) || isLayerLocked(value)) { refresh(); return; }
+                        commit(candidate => { candidate.layer = value; });
+                    } },
+                ...(shape.layer.endsWith('copper') ? [{ key: 'net', id: 'pcbPropImageNet', type: 'select', label: 'Net',
+                    value: shape.net || '', disabled: readOnly, options: [{ value: '', label: 'Unassigned' },
+                        ...names.map(name => ({ value: name, label: name }))],
+                    commit: value => commit(candidate => { candidate.net = value.trim(); }) }] : []),
+                { key: 'width', id: 'pcbPropImageWidth', type: 'number', label: 'Width (mm)', value: width, min: 0.1, max: 500,
+                    step: 0.1, hold, format: value => Number(value).toFixed(2), disabled: readOnly,
+                    preview: value => previewResize('width', value), commit: () => finishPreview(widthPreview),
+                    cancel: () => cancelPreview(widthPreview) },
+                { key: 'height', id: 'pcbPropImageHeight', type: 'number', label: 'Height (mm)', value: height, min: 0.1, max: 500,
+                    step: 0.1, hold, format: value => Number(value).toFixed(2), disabled: readOnly,
+                    preview: value => previewResize('height', value), commit: () => finishPreview(heightPreview),
+                    cancel: () => cancelPreview(heightPreview) },
+                { key: 'rotation', id: 'pcbPropImageRot', type: 'number', label: 'Rotation (°)', value: Math.round(rotation) % 360,
+                    step: 1, numberFormat: 'rotation', hold, format: displayRotationDegrees, disabled: readOnly,
+                    normalize: value => ((Math.round(value) % 360) + 360) % 360,
+                    preview: previewRotation, commit: () => finishPreview(rotationPreview),
+                    cancel: () => cancelPreview(rotationPreview) },
+                { key: 'flipHorizontal', id: 'pcbPropImageFlipHorizontal', type: 'checkbox', label: 'Flip Horizontal',
+                    value: !!shape.artwork.flipHorizontal, disabled: readOnly,
+                    commit: value => commit(candidate => { candidate.artwork = { ...candidate.artwork, flipHorizontal: value }; }) },
+                { key: 'flipVertical', id: 'pcbPropImageFlipVertical', type: 'checkbox', label: 'Flip Vertical',
+                    value: !!shape.artwork.flipVertical, disabled: readOnly,
+                    commit: value => commit(candidate => { candidate.artwork = { ...candidate.artwork, flipVertical: value }; }) },
+                { key: 'invert', id: 'pcbPropImageInvert', type: 'checkbox', label: 'Invert',
+                    value: !!shape.artwork.invert, disabled: readOnly,
+                    commit: value => commit(candidate => { candidate.artwork = { ...candidate.artwork, invert: value }; }) },
+            ],
+        };
     };
-    rotationInput?.addEventListener('input', wrapRotation);
-    rotationInput?.addEventListener('change', wrapRotation);
-    const netInput = /** @type {HTMLSelectElement} */ (document.getElementById('pcbPropImageNet'));
-    if (netInput) {
-        netInput.value = shape.net || '';
-        netInput.addEventListener('change', () => commit(candidate => { candidate.net = netInput.value.trim(); }));
-    }
-    bindLockedProperty(app, items, lockEntries);
-    app.showPropertiesTab?.();
+    if (!app.openPropertyPanel?.(describe(), shape)) return;
+    binding = createBoardShapePropertyBinding(app);
+    widthPreview = createBoardShapePropertyPreview(app, [shape], { liveDrag: true });
+    heightPreview = createBoardShapePropertyPreview(app, [shape], { liveDrag: true });
+    rotationPreview = createBoardShapePropertyPreview(app, [shape], { liveDrag: true });
+    refresh();
 }
 
 export function showBoardShapeProperties(app, shape) {
     if (getPropertyEditor(app, 'boardShape')?.committing) return;
     shape = canonicalBoardShape(app, shape);
-    getPropertyEditor(app, 'boardShape')?.dispose();
     if (app._shapeDrag?.original === shape) shape = app._shapeDrag.shape;
-    const items = app.propertiesItems?.();
-    if (!items || !shape) return;
+    if (!shape) return;
     syncPcbSelection(app);
     app.setPcbStatus?.();
 
@@ -379,196 +290,58 @@ export function showBoardShapeProperties(app, shape) {
     const hasOutline = initialTargets.some(target => target.layer === 'board-outline');
     const outlineBounds = outlineTarget ? boardBoundary(app) : null;
     if (initialTargets.some(target => target.kind === 'image')) {
-        if (initialTargets.length === 1) showImageProperties(app, shape, items);
+        if (initialTargets.length === 1) showImageProperties(app, shape);
         else app._showPcbMultiSelectionProperties?.(
             initialTargets.map((object) => ({ kind: 'shape', object })),
         );
         return;
     }
-    const selectedSegment = initialTargets.length === 1
-        && getBoardShapeSegmentFocus(app)?.shapeId === shape.id
-        ? getBoardShapeSegmentFocus(app).segment
-        : null;
+    const segmentFocus = getBoardShapeSegmentFocus(app);
+    const selectedSegment = initialTargets.length === 1 && segmentFocus?.shapeId === shape.id
+        && (shape.kind === 'arc' || shape.points?.[segmentFocus.segment])
+        ? segmentFocus.segment : null;
     const selectedNode = initialTargets.length === 1
         && getBoardShapeNodeFocus(app)?.shapeId === shape.id
         && shape.points?.[getBoardShapeNodeFocus(app).index]
         ? getBoardShapeNodeFocus(app).index
         : null;
-    const mixedKind = initialTargets.some((target) => target.kind !== initialTargets[0].kind);
-    const segmentLabel = shape.kind === 'arc' || boardShapeSegmentBulge(shape, selectedSegment) ? 'Arc' : 'Line';
-    const standalone = shape.kind === 'arc' || (shape.kind === 'line' && shape.points.length === 2);
-    app.setPropertiesTitle?.(outlineTarget
+    const panelTitle = () => {
+        const mixedKind = initialTargets.some((target) => target.kind !== initialTargets[0].kind);
+        const segmentLabel = shape.kind === 'arc' || boardShapeSegmentBulge(shape, selectedSegment) ? 'Arc' : 'Line';
+        const standalone = shape.kind === 'arc' || (shape.kind === 'line' && shape.points.length === 2);
+        return outlineTarget
         ? selectedNode != null ? 'Board Outline Node'
             : selectedSegment != null ? 'Board Outline Segment'
                 : 'Board Outline'
         : selectedNode != null ? `${shapeKindLabel(shape.kind)} Node`
             : selectedSegment != null ? `${segmentLabel}${standalone ? '' : ' Segment'}`
-                : mixedKind ? 'Mixed' : shapeKindLabel(initialTargets[0].kind));
-    const binding = createBoardShapePropertyBinding(app);
-    const lineWidthMinimum = Math.max(...initialTargets.map((target) => boardShapeLineWidthMinimum(target)));
-    const initialLineWidth = selectedSegment == null
-        ? normalizedBoardShapeLineWidth(initialTargets[0], initialTargets[0].lineWidth)
-        : boardShapeSegmentWidth(shape, selectedSegment);
-    const mixedLineWidth = selectedSegment == null && initialTargets.some(
-        (target) => Math.abs(normalizedBoardShapeLineWidth(target, target.lineWidth) - initialLineWidth) >= 1e-9,
-    );
-    const mixedFill = initialTargets.some((target) => !!target.filled !== !!initialTargets[0].filled);
-    const allCircleTargets = initialTargets.every((target) => target.kind === 'circle');
-    const initialDiameter = allCircleTargets ? circleFilledRadius(initialTargets[0]) * 2 : 0;
-    const mixedDiameter = allCircleTargets && initialTargets.some(
-        (target) => Math.abs(circleFilledRadius(target) * 2 - initialDiameter) >= 1e-9,
-    );
+                : mixedKind ? 'Mixed' : shapeKindLabel(initialTargets[0].kind);
+    };
     const diameterMinimum = () => Number(Math.max(...propertyTargets().map(
         (target) => boardShapeLineWidthMinimum(target) + 0.1,
     )).toFixed(6));
+    const allCircleTargets = initialTargets.every((target) => target.kind === 'circle');
     const allRoundedTargets = initialTargets.every((target) => ['line', 'rect', 'polygon'].includes(target.kind));
     const targetCornerRadius = (target) => target.kind === 'rect'
         ? rectCornerRadius(target)
         : polygonCornerRadius(target);
-    const initialCornerRadius = targetCornerRadius(shape);
-    const mixedCornerRadius = initialTargets.some(
-        (target) => Math.abs(targetCornerRadius(target) - initialCornerRadius) >= 1e-9,
-    );
-
-    const currentLayer = String(shape.layer || 'top-silk');
-    const mixedLayer = initialTargets.some((target) => String(target.layer || 'top-silk') !== currentLayer);
-    const holeTargets = initialTargets.filter((target) => target.layer === 'hole');
-    const showFill = !hasOutline && initialTargets.every((target) => target.layer !== 'hole' && target.kind !== 'line');
-    const showLineWidth = !hasOutline && initialTargets.every(
-        (target) => target.layer !== 'hole' || target.kind === 'line',
-    );
-    const showPlated = initialTargets.every((target) => target.layer === 'hole');
-    const mixedPlated = holeTargets.some((target) => !!target.plated !== !!holeTargets[0]?.plated);
-    const legacyCurrentOpt = !mixedLayer && PROP_HIDDEN_LAYERS.has(currentLayer)
-        ? `<option value="${currentLayer}" selected hidden></option>`
-        : '';
-    const layerOpts = PCB_LAYERS
-        .filter((l) => !PROP_HIDDEN_LAYERS.has(l.id))
-        .map((l) => pcbLayerOptionHtml(l.id, l.name, !mixedLayer && l.id === currentLayer));
-    const layerOptionsHtml = [legacyCurrentOpt, ...layerOpts].join('');
     const isCopperLayer = (id) => id === 'top-copper' || id === 'bottom-copper';
-    const showCopperMode = initialTargets.every((target) => isCopperLayer(target.layer));
-    const initialCopperMode = normalizeShapeCopperMode(shape.copperMode);
-    const mixedCopperMode = initialTargets.some(
-        (target) => normalizeShapeCopperMode(target.copperMode) !== initialCopperMode,
-    );
-    const initialNet = String(shape.net || '');
-    const mixedNet = initialTargets.some((target) => String(target.net || '') !== initialNet);
-    const shapeNetOptions = netOptions(app, mixedNet ? '' : initialNet);
-    const showNet = showCopperMode && initialTargets.every(
-        (target) => normalizeShapeCopperMode(target.copperMode) === 'add',
-    );
-    const showBulge = initialTargets.length === 1 && selectedNode == null
-        && (shape.kind === 'arc' || (selectedSegment != null && boardShapeSegmentBulge(shape, selectedSegment) !== 0));
-    const bulgeHtml = showBulge
-        ? `<div class="prop-row" data-prop="bulge"><label for="pcbPropShapeBulge">Bulge</label><input type="number" id="pcbPropShapeBulge" min="-1" max="1" step="0.05" value="${formatNumberInputValue(editableShapeBulge(shape, selectedSegment))}"></div>`
-        : '';
-
     const lockEntries = selectedNode == null && selectedSegment == null && !hasOutline
         ? propertyOriginals.map(object => ({ kind: 'shape', object })) : [];
-    items.innerHTML = selectedNode != null
-        ? `<div class="prop-row" data-prop="x"><label>X (mm)</label><span id="pcbPropShapeNodeX">${formatNumberInputValue(shape.points[selectedNode].x)}</span></div>
-                <div class="prop-row" data-prop="y"><label>Y (mm)</label><span id="pcbPropShapeNodeY">${formatNumberInputValue(shape.points[selectedNode].y)}</span></div>
-                ${canRoundPathNode(shape, selectedNode) ? `<div class="prop-row" data-prop="cornerRadius"><label>Corner Radius (mm)</label><input type="number" id="pcbPropShapeNodeCornerRadius" min="0" max="25" step="0.5" value="${formatNumberInputValue(boardShapeNodeCornerRadius(shape, selectedNode))}"></div>` : ''}`
-        : selectedSegment != null
-        ? `${hasOutline ? '' : `<div class="prop-row" data-prop="lineWidth" id="pcbPropShapeLineWidthRow"><label>Line Width (mm)</label><input type="number" id="pcbPropShapeLineWidth" min="${lineWidthMinimum}" step="0.05" value="${initialLineWidth.toFixed(2)}"></div>`}${bulgeHtml}`
-        : `
-            ${lockEntries.length ? lockedPropertyHtml(app, lockEntries) : ''}
-            ${outlineTarget ? `<label class="prop-row prop-toggle" data-prop="locked"><input type="checkbox" id="pcbPropOutlineLocked"${isLayerLocked('board-outline') ? ' checked' : ''}><span>Locked</span></label>` : ''}
-            ${outlineTarget ? `<div class="prop-row" data-prop="outline"><label>Outline</label><select id="pcbPropOutlineKind">${['rect', 'polygon', 'circle'].map(kind => `<option value="${kind}"${kind === shape.kind ? ' selected' : ''}>${shapeKindLabel(kind)}</option>`).join('')}</select></div>` : ''}
-            ${hasOutline ? '' : `<div class="prop-row" data-prop="layer"><label>Layer</label><select id="pcbPropShapeLayer">${mixedLayer ? '<option value="" selected disabled>Mixed</option>' : ''}${layerOptionsHtml}</select></div>`}
-            ${showCopperMode ? `<div class="prop-row" data-prop="copperMode" id="pcbPropShapeCopperModeRow"><label>Copper Mode</label><select id="pcbPropShapeCopperMode">${mixedCopperMode ? '<option value="" selected disabled>Mixed</option>' : ''}<option value="add"${!mixedCopperMode && initialCopperMode === 'add' ? ' selected' : ''}>Add Copper</option><option value="remove-copper"${!mixedCopperMode && initialCopperMode === 'remove-copper' ? ' selected' : ''}>Remove Copper</option><option value="remove-solder-mask"${!mixedCopperMode && initialCopperMode === 'remove-solder-mask' ? ' selected' : ''}>Remove Solder Mask</option><option value="remove-copper-mask"${!mixedCopperMode && initialCopperMode === 'remove-copper-mask' ? ' selected' : ''}>Remove Copper + Mask</option></select></div>` : ''}
-            ${showNet ? `<div class="prop-row" data-prop="net"><label>Net</label><span class="prop-net-control"><input type="text" id="pcbPropShapeNet" value="${mixedNet ? '' : initialNet.replace(/&/g, '&amp;').replace(/"/g, '&quot;')}" placeholder="${mixedNet ? 'Mixed' : 'None'}"><details class="prop-net-menu"><summary aria-label="Select existing net"></summary><div>${shapeNetOptions}</div></details></span></div>` : ''}
-            ${showFill ? `<label class="prop-row prop-toggle" data-prop="fill"><input type="checkbox" id="pcbPropShapeFilled"${shape.filled ? ' checked' : ''}><span>Fill</span></label>` : ''}
-            ${showPlated ? `<label class="prop-row prop-toggle" data-prop="plated"><input type="checkbox" id="pcbPropShapePlated"${!mixedPlated && holeTargets[0]?.plated ? ' checked' : ''}><span>Plated</span></label>` : ''}
-            ${outlineTarget && shape.kind === 'rect' ? `<div class="prop-row" data-prop="width"><label>Width (mm)</label><input id="pcbPropOutlineWidth" type="number" min="0.1" step="1" value="${formatNumberInputValue(outlineBounds.w)}"></div><div class="prop-row" data-prop="height"><label>Height (mm)</label><input id="pcbPropOutlineHeight" type="number" min="0.1" step="1" value="${formatNumberInputValue(outlineBounds.h)}"></div>` : ''}
-            ${showLineWidth ? `<div class="prop-row" data-prop="lineWidth" id="pcbPropShapeLineWidthRow"><label>Line Width (mm)</label><input type="number" id="pcbPropShapeLineWidth" min="${lineWidthMinimum}" step="0.05" value="${mixedLineWidth ? '' : initialLineWidth.toFixed(2)}"${mixedLineWidth ? ' placeholder="Mixed"' : ''}></div>` : ''}
-            ${allCircleTargets ? `<div class="prop-row" data-prop="outerDiameter"><label for="pcbPropShapeDiameter">Outer Diameter (mm)</label><input type="number" id="pcbPropShapeDiameter" min="${diameterMinimum()}" step="0.05" value="${mixedDiameter ? '' : initialDiameter.toFixed(2)}"${mixedDiameter ? ' placeholder="Mixed"' : ''}></div>` : ''}
-            ${allRoundedTargets ? `<div class="prop-row" data-prop="cornerRadius"><label>Corner Radius (mm)</label><input type="number" id="pcbPropShapeCornerRadius" min="0" max="25" step="0.5" value="${mixedCornerRadius ? '' : initialCornerRadius.toFixed(2)}"${mixedCornerRadius ? ' placeholder="Mixed"' : ''}></div>` : ''}
-            ${bulgeHtml}
-        `;
-
-    const outlineLocked = /** @type {HTMLInputElement|null} */ (document.getElementById('pcbPropOutlineLocked'));
-    outlineLocked?.addEventListener('change', () => {
-        setPcbLayerLocked(app, 'board-outline', outlineLocked.checked);
-    });
-    for (const [id, axis, dimension] of [
-        ['pcbPropOutlineWidth', 'x', 'w'],
-        ['pcbPropOutlineHeight', 'y', 'h'],
-    ]) {
-        const input = /** @type {HTMLInputElement|null} */ (document.getElementById(String(id)));
-        input?.addEventListener('change', () => {
-            if (isLayerLocked(shape.layer) || !Number.isFinite(input.valueAsNumber) || input.valueAsNumber < 0.1) return;
-            const bounds = boardBoundary(app);
-            const factor = input.valueAsNumber / bounds[dimension];
-            commit(candidate => {
-                candidate.points = candidate.points.map(point => ({ ...point, [axis]: bounds[axis] + (point[axis] - bounds[axis]) * factor }));
-            });
-        });
-    }
-    const outlineKind = /** @type {HTMLSelectElement|null} */ (document.getElementById('pcbPropOutlineKind'));
-    outlineKind?.addEventListener('change', () => {
-        if (isLayerLocked(shape.layer) || shape.kind === outlineKind.value || !['rect', 'polygon', 'circle'].includes(outlineKind.value)) return;
-        const bounds = boardBoundary(app);
-        const keepCorners = shape.kind === 'rect' && outlineKind.value === 'polygon';
-        const points = keepCorners ? shape.points.map(point => ({ ...point })) : shapeOutline(shape);
-        commit(candidate => {
-            candidate.kind = outlineKind.value;
-            if (!keepCorners) {
-                candidate.segmentBulges = {};
-                candidate.nodeCornerRadii = {};
-                candidate.cornerRadius = 0;
-            }
-            applyShapeGeometry(candidate, candidate.kind === 'circle'
-                ? { x: bounds.x + bounds.w / 2, y: bounds.y + bounds.h / 2, radius: Math.min(bounds.w, bounds.h) / 2 }
-                : { points: candidate.kind === 'polygon' ? points : [
-                    { x: bounds.x, y: bounds.y }, { x: bounds.x + bounds.w, y: bounds.y },
-                    { x: bounds.x + bounds.w, y: bounds.y + bounds.h }, { x: bounds.x, y: bounds.y + bounds.h }] });
-        });
-    });
-    const bulgeEl = /** @type {HTMLInputElement|null} */ (document.getElementById('pcbPropShapeBulge'));
-    const bulgePreview = createBoardShapePropertyPreview(app, [shape], {
-        liveDrag: true,
-        beforeCommit: ([candidate]) => {
-            formatNumberInput(bulgeEl);
-            const straight = Math.abs(editableShapeBulge(candidate, selectedSegment)) < BULGE_EPS;
-            normalizeStraightArc(candidate, selectedSegment);
-            if (straight) collapseCollinearPolylinePoints(candidate);
-            return straight;
-        },
-    });
-    const previewBulge = () => {
-        if (binding.disposed) return;
-        if (!bulgeEl || !Number.isFinite(bulgeEl.valueAsNumber)) return;
-        const value = Number(formatNumberInputValue(Math.max(-1, Math.min(1, bulgeEl.valueAsNumber))));
-        if (value === editableShapeBulge(displayedBoardShape(app, shape), selectedSegment)) return;
-        const text = bulgeEl.value;
-        bulgePreview.update((_before, [candidate]) => {
-            if (candidate.kind === 'arc') candidate.bulge = bulgePointFromRatio(candidate.start, candidate.end, value);
-            else if (selectedSegment != null) {
-                candidate.segmentBulges ||= {};
-                candidate.segmentBulges[selectedSegment] = value;
-            }
-        });
-        if (!binding.disposed) bulgeEl.value = text;
-    };
-    const commitBulge = () => {
-        if (binding.disposed) return;
-        if (!bulgeEl) return;
-        if (!Number.isFinite(bulgeEl.valueAsNumber)) { commitNumericPreview(bulgeEl, bulgePreview); return; }
-        // An externally supplied zero-bulge arc still needs a normalization transaction.
-        if (!bulgePreview.active && Math.abs(editableShapeBulge(displayedBoardShape(app, shape), selectedSegment)) < BULGE_EPS) {
-            bulgePreview.update(() => {});
-        }
-        commitNumericPreview(bulgeEl, bulgePreview);
-    };
-    bulgeEl?.addEventListener('input', previewBulge);
-    bulgeEl?.addEventListener('change', previewBulge);
-    settle(bulgeEl, commitBulge);
+    const lock = lockEntries.length ? lockedProperty(app, lockEntries) : null;
+    const readOnly = !!lock?.readOnly;
+    const hold = pictureRefreshHold(app);
+    let binding = null;
+    let lineWidthPreview = null;
+    let diameterPreview = null;
+    let cornerRadiusPreview = null;
+    let nodeCornerRadiusPreview = null;
+    let bulgePreview = null;
+    const refresh = () => { if (!binding?.disposed) app.refreshPropertyPanel?.(describe()); };
 
     /** Apply an edit; returns true when it turned the shapes into Tracks (the shape panel is then stale). */
     const commit = (mutate) => {
-        if (!binding.prepare()) return false;
+        if (!binding?.prepare()) return false;
         const tracks = [];
         const commands = propertyTargets().flatMap(displayed => {
             const target = canonicalBoardShape(app, displayed);
@@ -594,15 +367,19 @@ export function showBoardShapeProperties(app, shape) {
         app._refreshPcbSelectionHighlights?.();
         return false;
     };
-    const lineWidthPreview = createBoardShapePropertyPreview(app, propertyTargets());
-    const diameterPreview = createBoardShapePropertyPreview(app, propertyTargets().filter(target => target.kind === 'circle'));
-    const cornerRadiusPreview = createBoardShapePropertyPreview(app, propertyTargets().filter(target => ['line', 'rect', 'polygon'].includes(target.kind)));
-    const nodeCornerRadiusPreview = createBoardShapePropertyPreview(app, [shape]);
-    const previewCornerRadius = () => {
-        if (binding.disposed) return;
-        if (!cornerRadiusEl || !Number.isFinite(cornerRadiusEl.valueAsNumber)) return;
-        const radius = Math.min(25, Math.max(0, cornerRadiusEl.valueAsNumber));
-        cornerRadiusEl.value = radius.toFixed(2);
+    const finishPreview = preview => {
+        if (!preview || binding?.disposed) return;
+        preview.commit({ rebuild: false });
+        refresh();
+    };
+    const cancelPreview = preview => {
+        const active = preview?.cancel() || false;
+        refresh();
+        return active;
+    };
+    const previewCornerRadius = value => {
+        if (binding?.disposed) return;
+        const radius = Math.min(25, Math.max(0, value));
         const targets = propertyTargets().filter((target) => ['line', 'rect', 'polygon'].includes(target.kind));
         if (targets.every((target) => Math.abs(targetCornerRadius(target) - radius) < 1e-9
             && !Object.keys(target.nodeCornerRadii || {}).length)) return;
@@ -612,155 +389,40 @@ export function showBoardShapeProperties(app, shape) {
                 target.nodeCornerRadii = {};
             }
         });
+        refresh();
     };
 
-    const previewNodeCornerRadius = () => {
-        if (binding.disposed) return;
-        if (!nodeCornerRadiusEl || selectedNode == null || !Number.isFinite(nodeCornerRadiusEl.valueAsNumber)) return;
-        const radius = Math.min(25, Math.max(0, nodeCornerRadiusEl.valueAsNumber));
-        nodeCornerRadiusEl.value = radius.toFixed(2);
+    const previewNodeCornerRadius = value => {
+        if (binding?.disposed || selectedNode == null) return;
+        const radius = Math.min(25, Math.max(0, value));
         if (Math.abs(boardShapeNodeCornerRadius(displayedBoardShape(app, shape), selectedNode) - radius) < 1e-9) return;
         nodeCornerRadiusPreview.update((_before, [candidate]) => setBoardShapeNodeCornerRadius(candidate, selectedNode, radius));
+        refresh();
     };
 
-    const diameterEl = /** @type {HTMLInputElement|null} */ (document.getElementById('pcbPropShapeDiameter'));
-    const syncDiameter = () => {
-        if (binding.disposed) return;
-        if (!diameterEl) return;
-        const targets = propertyTargets();
-        const diameter = circleFilledRadius(targets[0]) * 2;
-        const mixed = targets.some((target) => Math.abs(circleFilledRadius(target) * 2 - diameter) >= 1e-9);
-        diameterEl.min = String(diameterMinimum());
-        diameterEl.value = mixed ? '' : diameter.toFixed(2);
-        diameterEl.placeholder = mixed ? 'Mixed' : '';
-    };
-    const previewDiameter = () => {
-        if (binding.disposed) return;
-        if (!diameterEl || !Number.isFinite(diameterEl.valueAsNumber)) return;
-        const diameter = Number(diameterEl.valueAsNumber.toFixed(6));
+    const previewDiameter = value => {
+        if (binding?.disposed) return;
+        const diameter = Number(value.toFixed(6));
         if (diameter < diameterMinimum()) return;
         const targets = propertyTargets().filter((target) => target.kind === 'circle');
         if (targets.every((target) => Math.abs(circleFilledRadius(target) * 2 - diameter) < 1e-9)) return;
-        const text = diameterEl.value;
         diameterPreview.update((before, copies) => {
             copies.forEach((target, index) => {
                 target.lineWidth = Math.min(normalizedBoardShapeLineWidth(target, before[index].lineWidth), diameter / 2);
                 target.radius = Math.max(0.05, diameter / 2);
             });
-            if (!binding.disposed) diameterEl.value = text;
         });
-        if (lineEl) {
-            const displayed = propertyTargets();
-            const width = displayed[0].lineWidth;
-            const mixed = displayed.some((target) => Math.abs(target.lineWidth - width) >= 1e-9);
-            lineEl.value = mixed ? '' : width.toFixed(2);
-            lineEl.placeholder = mixed ? 'Mixed' : '';
-        }
-    };
-    const seedMixedDiameter = () => {
-        if (!diameterEl || Number.isFinite(diameterEl.valueAsNumber)) return;
-        diameterEl.value = (circleFilledRadius(propertyTargets()[0]) * 2).toFixed(2);
-    };
-    let steppingDiameter = false;
-    diameterEl?.addEventListener('pointerdown', () => { steppingDiameter = true; });
-    for (const eventName of ['pointerup', 'pointercancel', 'pointerleave', 'keyup', 'blur']) {
-        diameterEl?.addEventListener(eventName, () => { steppingDiameter = false; });
-    }
-    diameterEl?.addEventListener('keydown', (event) => {
-        steppingDiameter = event.key === 'ArrowUp' || event.key === 'ArrowDown';
-        if (steppingDiameter) seedMixedDiameter();
-    });
-    diameterEl?.addEventListener('input', () => {
-        if (steppingDiameter && Number.isFinite(diameterEl.valueAsNumber)) {
-            diameterEl.value = diameterEl.valueAsNumber.toFixed(2);
-        }
-        previewDiameter();
-    });
-    diameterEl?.addEventListener('change', () => {
-        if (binding.disposed || !Number.isFinite(diameterEl.valueAsNumber)) return;
-        diameterEl.value = Math.max(diameterMinimum(), diameterEl.valueAsNumber).toFixed(2);
-        previewDiameter();
-        syncDiameter();
-    });
-    settle(diameterEl, () => commitNumericPreview(diameterEl, diameterPreview));
-    const lineEl = /** @type {HTMLInputElement|null} */ (document.getElementById('pcbPropShapeLineWidth'));
-    const lineRowEl = /** @type {HTMLDivElement|null} */ (document.getElementById('pcbPropShapeLineWidthRow'));
-    const cornerRadiusEl = /** @type {HTMLInputElement|null} */ (document.getElementById('pcbPropShapeCornerRadius'));
-    const nodeCornerRadiusEl = /** @type {HTMLInputElement|null} */ (document.getElementById('pcbPropShapeNodeCornerRadius'));
-    const commitNumericPreview = (input, preview, forceRebuild = false) => {
-        commitPropertyPreviewInput(input, preview, {
-            forceRebuild, isCurrent: () => !binding.disposed, focusRoot: items,
-        });
-        if (binding.disposed) return;
-        const targets = propertyTargets();
-        const syncMixed = (field, values) => {
-            const mixed = values.some(value => Math.abs(value - values[0]) >= 1e-9);
-            field.value = mixed ? '' : values[0].toFixed(2);
-            field.placeholder = mixed ? 'Mixed' : '';
-        };
-        if (lineEl) syncMixed(lineEl, selectedSegment == null
-            ? targets.map(target => normalizedBoardShapeLineWidth(target, target.lineWidth))
-            : [boardShapeSegmentWidth(displayedBoardShape(app, shape), selectedSegment)]);
-        syncDiameter();
-        if (cornerRadiusEl) syncMixed(cornerRadiusEl, targets.map(targetCornerRadius));
-        if (nodeCornerRadiusEl && selectedNode != null) {
-            nodeCornerRadiusEl.value = formatNumberInputValue(boardShapeNodeCornerRadius(displayedBoardShape(app, shape), selectedNode));
-        }
-        if (bulgeEl) {
-            bulgeEl.value = formatNumberInputValue(editableShapeBulge(displayedBoardShape(app, shape), selectedSegment));
-        }
-    };
-    const filledEl = /** @type {HTMLInputElement|null} */ (document.getElementById('pcbPropShapeFilled'));
-    const platedEl = /** @type {HTMLInputElement|null} */ (document.getElementById('pcbPropShapePlated'));
-    const layerEl = /** @type {HTMLSelectElement|null} */ (document.getElementById('pcbPropShapeLayer'));
-    const copperModeRowEl = /** @type {HTMLDivElement|null} */ (document.getElementById('pcbPropShapeCopperModeRow'));
-    const copperModeEl = /** @type {HTMLSelectElement|null} */ (document.getElementById('pcbPropShapeCopperMode'));
-    const netEl = /** @type {HTMLInputElement|null} */ (document.getElementById('pcbPropShapeNet'));
-    const netMenuEl = /** @type {HTMLDetailsElement|null} */ (document.querySelector('.prop-net-menu'));
-    for (const input of [diameterEl, lineEl, cornerRadiusEl, nodeCornerRadiusEl, bulgeEl]) bindPictureRefreshHold(app, input);
-    for (const [input, preview] of /** @type {Array<[HTMLInputElement|null, any]>} */ ([[diameterEl, diameterPreview], [lineEl, lineWidthPreview],
-        [cornerRadiusEl, cornerRadiusPreview], [nodeCornerRadiusEl, nodeCornerRadiusPreview], [bulgeEl, bulgePreview]])) {
-        bindPropertyPreviewInput(input, preview, {
-            binding, isCurrent: () => !binding.disposed, focusRoot: items,
-            onCancel: () => showBoardShapeProperties(app, shape),
-        });
-    }
-    if (filledEl) {
-        filledEl.checked = mixedFill ? false : !!shape.filled;
-        filledEl.indeterminate = mixedFill;
-    }
-    if (platedEl) {
-        platedEl.checked = mixedPlated ? false : !!holeTargets[0]?.plated;
-        platedEl.indeterminate = mixedPlated;
-    }
-    let fillIsMixed = mixedFill;
-
-    const syncCopperModeAvailability = () => {
-        if (!copperModeEl || !layerEl || !copperModeRowEl) return;
-        const targets = propertyTargets();
-        const mixed = targets.some(
-            (target) => normalizeShapeCopperMode(target.copperMode) !== normalizeShapeCopperMode(shape.copperMode),
-        );
-        const hasCopperTarget = targets.some((target) => isCopperLayer(target.layer));
-        const allCopperTargets = targets.every((target) => isCopperLayer(target.layer));
-        copperModeRowEl.style.display = hasCopperTarget ? '' : 'none';
-        copperModeEl.disabled = !allCopperTargets;
-        copperModeEl.value = mixed ? '' : normalizeShapeCopperMode(shape.copperMode);
-        // A hole-layer shape is a board cutout — "Filled" doesn't apply.
-        if (filledEl) filledEl.disabled = layerEl.value === 'hole';
-        if (lineRowEl) lineRowEl.style.display = targets.every((target) => !!target.filled) ? 'none' : '';
+        refresh();
     };
 
-    const previewLineWidth = () => {
-        if (binding.disposed) return;
-        if (!lineEl || !Number.isFinite(lineEl.valueAsNumber)) return;
+    const previewLineWidth = value => {
+        if (binding?.disposed) return;
         const targets = propertyTargets();
         const minimum = Math.max(...targets.map((target) => boardShapeLineWidthMinimum(target)));
         const maximum = selectedSegment == null
             ? Math.min(...targets.map((target) => target.kind === 'circle' ? circleFilledRadius(target) : Infinity))
             : Infinity;
-        const v = Math.max(minimum, Math.min(maximum, lineEl.valueAsNumber));
-        if (lineEl.valueAsNumber !== v) lineEl.value = v.toFixed(2);
+        const v = Math.max(minimum, Math.min(maximum, value));
         if (selectedSegment != null && Math.abs(v - boardShapeSegmentWidth(displayedBoardShape(app, shape), selectedSegment)) < 1e-9) return;
         if (selectedSegment == null
             && targets.every((target) => Math.abs(v - (Number(target.lineWidth) || 0.2)) < 1e-9
@@ -780,136 +442,233 @@ export function showBoardShapeProperties(app, shape) {
                 }
             }
         });
-        syncDiameter();
+        refresh();
     };
-    const seedMixedLineWidth = () => {
-        if (!lineEl || Number.isFinite(lineEl.valueAsNumber)) return;
-        lineEl.value = initialLineWidth.toFixed(2);
+    const previewBulge = value => {
+        if (binding?.disposed) return;
+        value = Number(formatNumberInputValue(Math.max(-1, Math.min(1, value))));
+        if (value === editableShapeBulge(displayedBoardShape(app, shape), selectedSegment)) return;
+        bulgePreview.update((_before, [candidate]) => {
+            if (candidate.kind === 'arc') candidate.bulge = bulgePointFromRatio(candidate.start, candidate.end, value);
+            else if (selectedSegment != null) {
+                candidate.segmentBulges ||= {};
+                candidate.segmentBulges[selectedSegment] = value;
+            }
+        });
+        refresh();
     };
-    // Native number steppers may retain an empty mixed value, leaving
-    // valueAsNumber as NaN and bypassing the batch preview entirely.
-    let steppingLineWidth = false;
-    lineEl?.addEventListener('pointerdown', () => {
-        steppingLineWidth = true;
-        seedMixedLineWidth();
-    });
-    for (const eventName of ['pointerup', 'pointercancel', 'pointerleave', 'keyup', 'blur']) {
-        lineEl?.addEventListener(eventName, () => { steppingLineWidth = false; });
-    }
-    lineEl?.addEventListener('keydown', (event) => {
-        steppingLineWidth = event.key === 'ArrowUp' || event.key === 'ArrowDown';
-        if (steppingLineWidth) seedMixedLineWidth();
-    });
-    lineEl?.addEventListener('input', () => {
-        if (steppingLineWidth && Number.isFinite(lineEl.valueAsNumber)) {
-            lineEl.value = lineEl.valueAsNumber.toFixed(2);
+    const commitBulge = () => {
+        if (binding?.disposed) return;
+        if (!bulgePreview.active && Math.abs(editableShapeBulge(displayedBoardShape(app, shape), selectedSegment)) < BULGE_EPS) {
+            bulgePreview.update(() => {});
         }
-        previewLineWidth();
+        finishPreview(bulgePreview);
+    };
+    const commitAndRefresh = (mutate, rebuild = false) => {
+        const replaced = commit(mutate);
+        if (!replaced) (rebuild ? showBoardShapeProperties(app, shape) : refresh());
+        return replaced;
+    };
+    const outlineDimensionField = (key, id, label, axis, dimension) => ({
+        key, id, type: 'number', label, value: outlineBounds?.[dimension] ?? 0, min: 0.1, step: 1,
+        format: formatNumberInputValue, disabled: isLayerLocked(shape.layer),
+        commit: value => {
+            if (isLayerLocked(shape.layer) || !Number.isFinite(value) || value < 0.1) return;
+            const bounds = boardBoundary(app);
+            const factor = value / bounds[dimension];
+            commitAndRefresh(candidate => {
+                candidate.points = candidate.points.map(point => ({ ...point, [axis]: bounds[axis] + (point[axis] - bounds[axis]) * factor }));
+            }, true);
+        },
     });
-    lineEl?.addEventListener('change', () => {
-        if (binding.disposed || !Number.isFinite(lineEl.valueAsNumber)) return;
-        lineEl.value = lineEl.valueAsNumber.toFixed(2);
-        previewLineWidth();
-    });
-    settle(lineEl, () => commitNumericPreview(lineEl, lineWidthPreview));
-    cornerRadiusEl?.addEventListener('input', previewCornerRadius);
-    cornerRadiusEl?.addEventListener('change', previewCornerRadius);
-    settle(cornerRadiusEl, () => commitNumericPreview(cornerRadiusEl, cornerRadiusPreview));
-    nodeCornerRadiusEl?.addEventListener('input', previewNodeCornerRadius);
-    nodeCornerRadiusEl?.addEventListener('change', previewNodeCornerRadius);
-    settle(nodeCornerRadiusEl, () => commitNumericPreview(nodeCornerRadiusEl, nodeCornerRadiusPreview));
-    filledEl?.addEventListener('change', () => {
-        if (binding.disposed) return;
-        const v = !!filledEl.checked;
-        fillIsMixed = false;
-        filledEl.indeterminate = false;
-        filledEl.checked = v;
-        if (propertyTargets().every((target) => v === !!target.filled)) return;
-        commit((target) => { target.filled = v; });
-    });
-    platedEl?.addEventListener('change', () => {
-        if (binding.disposed) return;
-        const plated = !!platedEl.checked;
-        platedEl.indeterminate = false;
-        if (propertyTargets().filter((target) => target.layer === 'hole').every(
-            (target) => plated === !!target.plated,
-        )) return;
-        commit((target) => {
-            if (target.layer === 'hole') target.plated = plated;
-        });
-    });
-    layerEl?.addEventListener('change', () => {
-        if (binding.disposed) return;
-        const next = layerEl.value;
-        if (!next || propertyTargets().every((target) => next === target.layer)) return;
-        if (isLayerLocked(next)) {
-            layerEl.value = shape.layer;
-            syncCopperModeAvailability();
-            return;
-        }
-        const replaced = commit((target) => {
-            target.layer = next;
-            target.lineWidth = normalizedBoardShapeLineWidth(target, target.lineWidth);
-        });
-        // A move onto copper can turn the shape into a Track that is now selected instead.
-        if (replaced) return;
-        syncCopperModeAvailability();
-        showBoardShapeProperties(app, shape);
-    });
-    copperModeEl?.addEventListener('change', () => {
-        if (binding.disposed || copperModeEl.disabled) return;
-        const next = normalizeShapeCopperMode(copperModeEl.value);
-        if (!copperModeEl.value || propertyTargets().every(
-            (target) => next === normalizeShapeCopperMode(target.copperMode),
-        )) return;
-        if (commit((target) => { target.copperMode = next; })) return;
-        syncCopperModeAvailability();
-    });
-    netEl?.addEventListener('change', () => {
-        if (binding.disposed) return;
-        const next = netEl.value.trim();
-        if (!binding.prepare()) return;
+    const describe = () => {
         const targets = propertyTargets();
-        if (targets.every((target) => String(target.net || '') === next)) return;
-        commit((target) => { target.net = next; });
+        const lineWidthMinimum = Math.max(...targets.map((target) => boardShapeLineWidthMinimum(target)));
+        const initialLineWidth = selectedSegment == null
+            ? normalizedBoardShapeLineWidth(targets[0], targets[0].lineWidth)
+            : boardShapeSegmentWidth(displayedBoardShape(app, shape), selectedSegment);
+        const mixedLineWidth = selectedSegment == null && targets.some(
+            (target) => Math.abs(normalizedBoardShapeLineWidth(target, target.lineWidth) - initialLineWidth) >= 1e-9,
+        );
+        const mixedFill = targets.some((target) => !!target.filled !== !!targets[0].filled);
+        const initialDiameter = allCircleTargets ? circleFilledRadius(targets[0]) * 2 : 0;
+        const mixedDiameter = allCircleTargets && targets.some(
+            (target) => Math.abs(circleFilledRadius(target) * 2 - initialDiameter) >= 1e-9,
+        );
+        const initialCornerRadius = allRoundedTargets ? targetCornerRadius(targets[0]) : 0;
+        const mixedCornerRadius = allRoundedTargets && targets.some(
+            (target) => Math.abs(targetCornerRadius(target) - initialCornerRadius) >= 1e-9,
+        );
+        const currentLayer = String(targets[0].layer || 'top-silk');
+        const mixedLayer = targets.some((target) => String(target.layer || 'top-silk') !== currentLayer);
+        const holeTargets = targets.filter((target) => target.layer === 'hole');
+        const showFill = !hasOutline && targets.every((target) => target.layer !== 'hole' && target.kind !== 'line');
+        const showLineWidth = !hasOutline && targets.every(
+            (target) => (target.layer !== 'hole' || target.kind === 'line') && !target.filled,
+        );
+        const showPlated = targets.every((target) => target.layer === 'hole');
+        const mixedPlated = holeTargets.some((target) => !!target.plated !== !!holeTargets[0]?.plated);
+        const hasCopperTarget = targets.some((target) => isCopperLayer(target.layer));
+        const showCopperMode = hasCopperTarget;
+        const allCopperTargets = targets.every((target) => isCopperLayer(target.layer));
+        const initialCopperMode = normalizeShapeCopperMode(targets[0].copperMode);
+        const mixedCopperMode = targets.some(
+            (target) => normalizeShapeCopperMode(target.copperMode) !== initialCopperMode,
+        );
+        const initialNet = String(targets[0].net || '');
+        const mixedNet = targets.some((target) => String(target.net || '') !== initialNet);
+        const showNet = allCopperTargets && targets.every(
+            (target) => normalizeShapeCopperMode(target.copperMode) === 'add',
+        );
+        const showBulge = targets.length === 1 && selectedNode == null
+            && (shape.kind === 'arc' || (selectedSegment != null && boardShapeSegmentBulge(displayedBoardShape(app, shape), selectedSegment) !== 0));
+        const fields = [];
+        if (selectedNode != null) {
+            fields.push(
+                { key: 'x', id: 'pcbPropShapeNodeX', type: 'readout', label: 'X (mm)', value: formatNumberInputValue(shape.points[selectedNode].x) },
+                { key: 'y', id: 'pcbPropShapeNodeY', type: 'readout', label: 'Y (mm)', value: formatNumberInputValue(shape.points[selectedNode].y) },
+            );
+            if (canRoundPathNode(shape, selectedNode)) fields.push({ key: 'cornerRadius', id: 'pcbPropShapeNodeCornerRadius',
+                type: 'number', label: 'Corner Radius (mm)', value: boardShapeNodeCornerRadius(displayedBoardShape(app, shape), selectedNode),
+                min: 0, max: 25, step: 0.5, hold, format: formatNumberInputValue,
+                normalize: value => Math.min(25, Math.max(0, value)), preview: previewNodeCornerRadius,
+                commit: () => finishPreview(nodeCornerRadiusPreview), cancel: () => cancelPreview(nodeCornerRadiusPreview) });
+        } else if (selectedSegment != null) {
+            if (!hasOutline) fields.push({ key: 'lineWidth', id: 'pcbPropShapeLineWidth', type: 'number',
+                label: 'Line Width (mm)', value: initialLineWidth, min: lineWidthMinimum, step: 0.05, hold,
+                format: value => Number(value).toFixed(2), formatStepped: true,
+                preview: previewLineWidth, commit: () => finishPreview(lineWidthPreview), cancel: () => cancelPreview(lineWidthPreview) });
+            if (showBulge) fields.push({ key: 'bulge', id: 'pcbPropShapeBulge', type: 'number', label: 'Bulge',
+                value: editableShapeBulge(displayedBoardShape(app, shape), selectedSegment), min: -1, max: 1, step: 0.05, hold,
+                format: formatNumberInputValue, normalize: value => Math.max(-1, Math.min(1, value)),
+                preview: previewBulge, commit: commitBulge, cancel: () => cancelPreview(bulgePreview) });
+        } else {
+            if (lock) fields.push({ ...lock.field, commit: value => { lock.field.commit(value); showBoardShapeProperties(app, shape); } });
+            if (outlineTarget) {
+                fields.push(
+                    { key: 'locked', id: 'pcbPropOutlineLocked', type: 'checkbox', label: 'Locked',
+                        value: isLayerLocked('board-outline'), commit: value => { setPcbLayerLocked(app, 'board-outline', value); refresh(); } },
+                    { key: 'outline', id: 'pcbPropOutlineKind', type: 'select', label: 'Outline', value: shape.kind,
+                        disabled: isLayerLocked(shape.layer), options: ['rect', 'polygon', 'circle']
+                            .map(kind => ({ value: kind, label: shapeKindLabel(kind) })),
+                        commit: value => {
+                            if (isLayerLocked(shape.layer) || shape.kind === value || !['rect', 'polygon', 'circle'].includes(value)) return;
+                            const bounds = boardBoundary(app);
+                            const keepCorners = shape.kind === 'rect' && value === 'polygon';
+                            const points = keepCorners ? shape.points.map(point => ({ ...point })) : shapeOutline(shape);
+                            commitAndRefresh(candidate => {
+                                candidate.kind = value;
+                                if (!keepCorners) {
+                                    candidate.segmentBulges = {};
+                                    candidate.nodeCornerRadii = {};
+                                    candidate.cornerRadius = 0;
+                                }
+                                applyShapeGeometry(candidate, candidate.kind === 'circle'
+                                    ? { x: bounds.x + bounds.w / 2, y: bounds.y + bounds.h / 2, radius: Math.min(bounds.w, bounds.h) / 2 }
+                                    : { points: candidate.kind === 'polygon' ? points : [
+                                        { x: bounds.x, y: bounds.y }, { x: bounds.x + bounds.w, y: bounds.y },
+                                        { x: bounds.x + bounds.w, y: bounds.y + bounds.h }, { x: bounds.x, y: bounds.y + bounds.h }] });
+                            }, true);
+                        } },
+                );
+            }
+            if (!hasOutline) fields.push({ key: 'layer', id: 'pcbPropShapeLayer', type: 'select', label: 'Layer',
+                value: currentLayer, mixed: mixedLayer, disabled: readOnly,
+                options: [
+                    ...(!mixedLayer && PROP_HIDDEN_LAYERS.has(currentLayer) ? [{ value: currentLayer, label: '' }] : []),
+                    ...PCB_LAYERS.filter((l) => !PROP_HIDDEN_LAYERS.has(l.id)).map((l) => pcbLayerOption(l.id, l.name)),
+                ],
+                commit: next => {
+                    if (!next || targets.every((target) => next === target.layer)) return;
+                    if (isLayerLocked(next)) { refresh(); return; }
+                    const replaced = commit((target) => {
+                        target.layer = next;
+                        target.lineWidth = normalizedBoardShapeLineWidth(target, target.lineWidth);
+                    });
+                    if (!replaced) showBoardShapeProperties(app, shape);
+                } });
+            if (showCopperMode) fields.push({ key: 'copperMode', id: 'pcbPropShapeCopperMode', type: 'select', label: 'Copper Mode',
+                value: initialCopperMode, mixed: mixedCopperMode, disabled: readOnly || !allCopperTargets,
+                options: COPPER_MODE_OPTIONS, commit: value => {
+                    const next = normalizeShapeCopperMode(value);
+                    if (!value || targets.every((target) => next === normalizeShapeCopperMode(target.copperMode))) return;
+                    if (!commit((target) => { target.copperMode = next; })) showBoardShapeProperties(app, shape);
+                } });
+            if (showNet) fields.push({ key: 'net', id: 'pcbPropShapeNet', type: 'net', label: 'Net', value: initialNet,
+                mixed: mixedNet, disabled: readOnly, nets: boardNetNames(app),
+                commit: value => {
+                    const next = value.trim();
+                    if (targets.every((target) => String(target.net || '') === next)) return;
+                    commitAndRefresh((target) => { target.net = next; });
+                } });
+            if (showFill) fields.push({ key: 'fill', id: 'pcbPropShapeFilled', type: 'checkbox', label: 'Fill',
+                value: !!targets[0].filled, mixed: mixedFill, disabled: readOnly,
+                commit: value => {
+                    if (targets.every((target) => value === !!target.filled)) return;
+                    commitAndRefresh((target) => { target.filled = value; }, true);
+                } });
+            if (showPlated) fields.push({ key: 'plated', id: 'pcbPropShapePlated', type: 'checkbox', label: 'Plated',
+                value: !!holeTargets[0]?.plated, mixed: mixedPlated, disabled: readOnly,
+                commit: plated => {
+                    if (targets.filter((target) => target.layer === 'hole').every((target) => plated === !!target.plated)) return;
+                    commitAndRefresh((target) => { if (target.layer === 'hole') target.plated = plated; });
+                } });
+            if (outlineTarget && shape.kind === 'rect') {
+                fields.push(
+                    outlineDimensionField('width', 'pcbPropOutlineWidth', 'Width (mm)', 'x', 'w'),
+                    outlineDimensionField('height', 'pcbPropOutlineHeight', 'Height (mm)', 'y', 'h'),
+                );
+            }
+            if (showLineWidth) fields.push({ key: 'lineWidth', id: 'pcbPropShapeLineWidth', type: 'number',
+                label: 'Line Width (mm)', value: initialLineWidth, mixed: mixedLineWidth, min: lineWidthMinimum, step: 0.05,
+                hold, format: value => Number(value).toFixed(2), formatStepped: true,
+                seedMixed: () => initialLineWidth, disabled: readOnly,
+                preview: previewLineWidth, commit: () => finishPreview(lineWidthPreview), cancel: () => cancelPreview(lineWidthPreview) });
+            if (allCircleTargets) fields.push({ key: 'outerDiameter', id: 'pcbPropShapeDiameter', type: 'number',
+                label: 'Outer Diameter (mm)', value: initialDiameter, mixed: mixedDiameter, min: diameterMinimum(), step: 0.05,
+                hold, format: value => Number(value).toFixed(2), formatStepped: true, seedMixed: () => initialDiameter,
+                disabled: readOnly, preview: previewDiameter,
+                commit: value => {
+                    if (Number.isFinite(value)) previewDiameter(Number(Math.max(diameterMinimum(), value).toFixed(2)));
+                    finishPreview(diameterPreview);
+                },
+                cancel: () => cancelPreview(diameterPreview) });
+            if (allRoundedTargets) fields.push({ key: 'cornerRadius', id: 'pcbPropShapeCornerRadius', type: 'number',
+                label: 'Corner Radius (mm)', value: initialCornerRadius, mixed: mixedCornerRadius, min: 0, max: 25, step: 0.5,
+                hold, format: value => Number(value).toFixed(2), disabled: readOnly,
+                normalize: value => Math.min(25, Math.max(0, value)), preview: previewCornerRadius,
+                commit: () => finishPreview(cornerRadiusPreview), cancel: () => cancelPreview(cornerRadiusPreview) });
+            if (showBulge) fields.push({ key: 'bulge', id: 'pcbPropShapeBulge', type: 'number', label: 'Bulge',
+                value: editableShapeBulge(displayedBoardShape(app, shape), selectedSegment), min: -1, max: 1, step: 0.05,
+                hold, format: formatNumberInputValue, normalize: value => Math.max(-1, Math.min(1, value)),
+                disabled: readOnly, preview: previewBulge, commit: commitBulge, cancel: () => cancelPreview(bulgePreview) });
+        }
+        return { title: panelTitle(), fields };
+    };
+    if (!app.openPropertyPanel?.(describe(), shape)) return;
+    binding = createBoardShapePropertyBinding(app);
+    lineWidthPreview = createBoardShapePropertyPreview(app, propertyTargets());
+    diameterPreview = createBoardShapePropertyPreview(app, propertyTargets().filter(target => target.kind === 'circle'));
+    cornerRadiusPreview = createBoardShapePropertyPreview(app, propertyTargets().filter(target => ['line', 'rect', 'polygon'].includes(target.kind)));
+    nodeCornerRadiusPreview = createBoardShapePropertyPreview(app, [shape]);
+    bulgePreview = createBoardShapePropertyPreview(app, [shape], {
+        liveDrag: true,
+        beforeCommit: ([candidate]) => {
+            const straight = Math.abs(editableShapeBulge(candidate, selectedSegment)) < BULGE_EPS;
+            normalizeStraightArc(candidate, selectedSegment);
+            if (straight) collapseCollinearPolylinePoints(candidate);
+            return straight;
+        },
     });
-    netMenuEl?.addEventListener('click', (event) => {
-        if (binding.disposed) return;
-        const option = /** @type {HTMLButtonElement|null} */ (event.target instanceof Element ? event.target.closest('button[data-net]') : null);
-        if (!option || !netEl) return;
-        netEl.value = option.dataset.net || '';
-        netEl.dispatchEvent(new Event('change'));
-        netMenuEl.open = false;
-    });
-    netMenuEl?.addEventListener('toggle', () => {
-        if (!binding.disposed && netMenuEl.open) syncNetMenuSelection(netMenuEl, netEl);
-    });
-
-    syncCopperModeAvailability();
-    if (lockEntries.length) bindLockedProperty(app, items, lockEntries);
-    app.showPropertiesTab?.();
+    refresh();
 }
 
 export function syncShapeBulgeProperty(app, shape) {
-    const input = /** @type {HTMLInputElement|null} */ (document.getElementById('pcbPropShapeBulge'));
-    if (!input) return;
-    const segment = getBoardShapeSegmentFocus(app)?.shapeId === shape.id
-        ? getBoardShapeSegmentFocus(app).segment : null;
-    input.value = String(editableShapeBulge(shape, segment));
-    formatNumberInput(input);
+    if (shape) showBoardShapeProperties(app, shape);
 }
 
 export function syncCircleDiameterProperty(app, shape) {
-    if (shape.kind !== 'circle') return;
-    const input = /** @type {HTMLInputElement|null} */ (document.getElementById('pcbPropShapeDiameter'));
-    if (!input) return;
-    const selected = getPcbSelection(app, 'shape');
-    const targets = selected.length ? selected : [shape];
-    if (!targets.every((target) => target.kind === 'circle')) return;
-    const diameter = circleFilledRadius(targets[0]) * 2;
-    const mixed = targets.some((target) => Math.abs(circleFilledRadius(target) * 2 - diameter) >= 1e-9);
-    input.value = mixed ? '' : diameter.toFixed(2);
-    input.placeholder = mixed ? 'Mixed' : '';
+    if (shape?.kind === 'circle') showBoardShapeProperties(app, shape);
 }
 
 export function refreshBoardShapeProperties(app, shape) {

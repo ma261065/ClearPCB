@@ -103,7 +103,10 @@ function fixture(deferred = false, component = false) {
         refreshClearanceHalos() {}, _netsForComponent: () => new Set(),
         _cancelPosePreviews: PCBApp.prototype._cancelPosePreviews, isSectionEditing: PCBApp.prototype.isSectionEditing,
         _cancelDrawingMode: () => false, _ensureViewport() {}, markSectionClean() {}, setActiveRibbonTab() {}, setPcbStatus() {},
-        propertiesItems: () => ({ innerHTML: '' }), setPropertiesTitle: PCBApp.prototype.setPropertiesTitle,
+        propertiesItems: () => ({ innerHTML: '' }),
+        setPropertiesTitle: PCBApp.prototype.setPropertiesTitle,
+        openPropertyPanel(panel, owner = null) { this.setPropertiesTitle(panel.title, owner); this._propertyPanel = panel; return true; },
+        refreshPropertyPanel(panel) { this._propertyPanel = panel; },
         selectText() {}, _removeTextElement() {}, _renderText() {},
         clearProperties: PCBApp.prototype.clearProperties,
         _onLayerLockChanged: PCBApp.prototype._onLayerLockChanged,
@@ -341,18 +344,9 @@ for (const field of ['locked', 'visible']) {
 }
 for (const commit of [false, true]) {
     const { app, model, shape } = fixture(), before = model.captureGeometry();
-    const listeners = new Map();
-    const input = {
-        value: String(shape.lineWidth),
-        get valueAsNumber() { return Number(this.value); },
-        addEventListener(name, listener) { listeners.set(name, listener); },
-    };
-    const getElement = document.getElementById;
-    document.getElementById = id => id === 'pcbPropShapeLineWidth' ? input : null;
     try {
         showBoardShapeProperties(app, shape);
-        input.value = '0.47';
-        listeners.get('input')();
+        app._propertyPanel.fields.find(field => field.id === 'pcbPropShapeLineWidth').preview(0.47);
         const copy = getBoardShapePropertyPreview(app).copies[0];
         assert.notEqual(copy, shape);
         assert.equal(getPcbSelectionEntries(app).find(entry => entry.kind === 'shape').object, copy);
@@ -380,7 +374,6 @@ for (const commit of [false, true]) {
         assert.deepEqual(model.captureGeometry(), before, 'Property and group edits retain separate exact history');
         cases++;
     } finally {
-        document.getElementById = getElement;
         cancelPictureCopperRefresh(app);
     }
 }

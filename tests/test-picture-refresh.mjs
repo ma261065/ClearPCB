@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { PcbDocument } from '../src/core/PcbDocument.js';
-import { bindPictureRefreshHold, cancelPictureCopperRefresh, schedulePictureCopperRefresh } from '../src/pcb/modules/picture-refresh.js';
+import { pictureRefreshHold, cancelPictureCopperRefresh, schedulePictureCopperRefresh } from '../src/pcb/modules/picture-refresh.js';
 import { Pad } from '../src/shapes/pad.js';
 import { AddPadCommand, RemovePadCommand, ModifyPadCommand, MovePadCommand } from '../src/pcb/modules/pad-commands.js';
 import { isPictureCopperRefreshPending } from '../src/pcb/modules/refresh-state.js';
@@ -82,27 +82,13 @@ try {
     advance(1);
     assert.equal(fills, 3, 'Exactly 100 ms after the final click triggers one refresh');
     assert.equal(isPictureCopperRefreshPending(app), false);
-    const eventTarget = () => {
-        const listeners = new Map();
-        return {
-            addEventListener(name, handler) { listeners.set(name, handler); },
-            removeEventListener(name) { listeners.delete(name); },
-            fire(type, details = {}) { listeners.get(type)?.({ type, ...details }); },
-            get listenerCount() { return listeners.size; },
-        };
-    };
-    const input = eventTarget();
-    const host = eventTarget();
-    bindPictureRefreshHold(app, input, host);
-    for (const [start, end, details] of [
-        ['pointerdown', 'pointerup', { button: 0, pointerId: 1 }],
-        ['pointerdown', 'pointercancel', { button: 0, pointerId: 2 }],
-        ['keydown', 'keyup', { key: 'ArrowUp' }],
-        ['pointerdown', 'blur', { button: 0, pointerId: 3 }],
-    ]) {
+    // A held Properties spinner (the renderer detects the press and its release:
+    // test-property-fields) holds refreshes until it is released.
+    const hold = pictureRefreshHold(app);
+    for (let run = 0; run < 3; run++) {
         const before = fills;
         schedulePictureCopperRefresh(app, shape);
-        input.fire(start, details);
+        hold.begin();
         schedulePictureCopperRefresh(app, shape);
         advance(1000);
         assert.equal(fills, before, 'Initial auto-repeat delay cannot refresh clearance during a hold');
@@ -111,8 +97,8 @@ try {
         schedulePictureCopperRefresh(app, shape);
         advance(300);
         assert.equal(fills, before, 'Repeat events keep clearance deferred');
-        host.fire(end, details);
-        assert.equal(host.listenerCount, 0, 'Release listeners are cleaned up even if the input was replaced');
+        hold.end();
+        hold.end();
         advance(99);
         assert.equal(fills, before);
         advance(1);

@@ -188,31 +188,21 @@ export function showUnlockMenu(app, kind, object, clientX, clientY) {
 
 const LOCK_INPUT_ID = 'pcbPropObjectLocked';
 
-/** Properties "Locked" row for the objects' own locks (layer locks live in the layer panel). */
-export function lockedPropertyHtml(app, entries) {
+/**
+ * The Properties "Locked" field for the objects' own locks (layer locks live in the
+ * layer panel), and whether the panel's other fields are read-only: an object or its
+ * layer is locked. Edit paths enforce the same rule; this keeps the panel from
+ * offering edits that would be refused.
+ * @returns {{field: import('../../shared/ui/property-fields.js').PropertyField, readOnly: boolean}}
+ */
+export function lockedProperty(app, entries) {
     const own = entries.filter(({ kind, object }) => pcbLockState(app, kind, object).object).length;
     const checked = entries.length > 0 && own === entries.length;
-    const mixed = own > 0 && !checked ? ' data-mixed="true"' : '';
-    return `<label class="prop-row prop-toggle" data-prop="locked"><input type="checkbox" id="${LOCK_INPUT_ID}"${checked ? ' checked' : ''}${mixed}><span>Locked</span></label>`;
+    return {
+        field: { key: 'locked', type: 'checkbox', id: LOCK_INPUT_ID, label: 'Locked', value: checked,
+            mixed: own > 0 && !checked, commit: value => setPcbObjectsLocked(app, entries, value) },
+        readOnly: entries.some(({ kind, object }) => isPcbObjectLocked(app, kind, object)),
+    };
 }
 
-/**
- * Bind the Locked row and, while any entry is locked by itself or a layer, make
- * the panel's other controls read-only. Edit paths enforce the same rule; this
- * keeps the panel from offering edits that would be refused.
- */
-export function bindLockedProperty(app, items, entries) {
-    const input = /** @type {HTMLInputElement|null} */ (items?.querySelector?.(`#${LOCK_INPUT_ID}`));
-    if (input) {
-        if (input.dataset?.mixed) input.indeterminate = true;
-        input.addEventListener('change', () => setPcbObjectsLocked(app, entries, input.checked));
-    }
-    if (!entries.some(({ kind, object }) => isPcbObjectLocked(app, kind, object))) return;
-    for (const control of items?.querySelectorAll?.('input, select, textarea, button') || []) {
-        if (control !== input) control.disabled = true;
-    }
-    for (const menu of items?.querySelectorAll?.('details') || []) {
-        menu.open = false;
-        menu.inert = true;
-    }
-}
+

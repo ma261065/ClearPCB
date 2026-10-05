@@ -12,7 +12,7 @@ import { loadPcb } from '../src/pcb/modules/project-state.js';
 import { PCB_LAYERS } from '../src/pcb/modules/layers.js';
 import { getPropertyEditor } from '../src/pcb/modules/property-editors.js';
 import { areDragOverlaysDeferred, isBoardViewRefreshSuspended, setBoardViewRefreshSuspended, setDragOverlaysDeferred } from '../src/pcb/modules/refresh-state.js';
-import { flushSettledChanges } from '../src/shared/ui/settled-input.js';
+import { bindSettledChange, flushSettledChanges } from '../src/shared/ui/settled-input.js';
 
 let allocations = 0;
 class Element {
@@ -32,7 +32,7 @@ class Element {
     querySelector(selector) { return this.querySelectorAll(selector)[0] || null; }
 }
 class Input {
-    constructor(value) { this.value = value; this.listeners = new Map(); this.validity = ''; }
+    constructor(value) { this.value = value; this.listeners = new Map(); this.validity = ''; this.isConnected = true; }
     addEventListener(name, listener) { this.listeners.set(name, listener); }
     setCustomValidity(message) { this.validity = message; }
     reportValidity() { this.reportedValidity = this.validity; return !this.validity; }
@@ -87,7 +87,33 @@ function fixture(existing = true, deferred = false) {
     app._drawBoardOutline();
     const inputs = new Map(Object.entries(fields).map(([key, id]) => [id, new Input(model.board[key].toFixed(2))]));
     currentInputs = inputs;
-    const bind = () => bindBoardDimensionProperties(app, { querySelector: selector => inputs.get(selector.slice(1)) });
+    const bind = () => {
+        const binding = bindBoardDimensionProperties(app, () => {});
+        for (const [key, id] of Object.entries(fields)) {
+            const input = inputs.get(id);
+            input.addEventListener('input', () => {
+                const value = parseFloat(input.value);
+                binding.setValid(key, Number.isFinite(value));
+                if (Number.isFinite(value)) binding.preview(key, value);
+            });
+            bindSettledChange(input, () => {
+                const value = parseFloat(input.value);
+                binding.setValid(key, Number.isFinite(value));
+                if (Number.isFinite(value)) binding.commit();
+                else {
+                    binding.cancel();
+                    input.value = String(model.board[key]);
+                }
+            });
+            input.addEventListener('keydown', event => {
+                if (event.key !== 'Escape') return;
+                binding.cancel();
+                event.preventDefault();
+                event.stopPropagation();
+            });
+        }
+        return binding;
+    };
     return { app, model, fill, group, inputs, bind, draws: () => draws, pours: () => pours,
         fits: () => fits, refresh3d: () => refresh3d };
 }
@@ -281,8 +307,15 @@ for (const value of ['', '-', 'Infinity', '56']) for (const handoff of ['change'
     app.history.redoStack.push(redo);
     input.value = '56'; input.emit('input');
     input.value = value;
+    input.emit('input');
     if (handoff === 'change') { input.emit('change'); flushSettledChanges(); }
-    else if (handoff === 'commit') binding.commit();
+    else if (handoff === 'commit') {
+        if (Number.isFinite(parseFloat(input.value))) binding.commit();
+        else {
+            binding.cancel();
+            input.value = String(model.board.width);
+        }
+    }
     else {
         const start = boardOutlineHandles(app).find(handle => handle.id === 'width');
         const began = beginBoardOutlineResize(app, start);
@@ -298,6 +331,7 @@ for (const value of ['', '-', 'Infinity', '56']) for (const handoff of ['change'
         assert.deepEqual(model.captureGeometry(), before, `${handoff}: invalid text never authorizes the previous preview`);
         assert.equal(app.history.undoStack.length, 0);
         assert.deepEqual(app.history.redoStack, [redo]);
+        if (!Number.isFinite(parseFloat(input.value))) input.value = String(model.board.width);
         assert.equal(input.value, String(model.board.width));
         input.emit('change');
         flushSettledChanges();

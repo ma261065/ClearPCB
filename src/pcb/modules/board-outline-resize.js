@@ -6,7 +6,6 @@ import { getBoardOutline, rectangleBoardOutline, boardDimensions } from '../../s
 import { removeBoardShapeElement } from './board-shapes.js';
 import { getPropertyEditor, releasePropertyEditor, setPropertyEditor } from './property-editors.js';
 import { areDragOverlaysDeferred, isBoardViewRefreshSuspended, setBoardViewRefreshSuspended, setDragOverlaysDeferred, refreshBoardView } from './refresh-state.js';
-import { bindSettledChange } from '../../shared/ui/settled-input.js';
 
 const dimensionPreviews = new WeakMap();
 
@@ -27,22 +26,38 @@ export function showBoardOutlineProperties(app) {
         showBoardShapeProperties(app, outline);
         return;
     }
-    const items = app.propertiesItems();
-    if (!items) return;
-    app.setPropertiesTitle('Board Outline');
-    const board = getBoardDimensionPreview(app)?.board ?? app.pcbDocument.board;
-    items.innerHTML = `
-        <label class="prop-row prop-toggle" data-prop="locked"><input type="checkbox" id="pcbPropOutlineLocked"${isLayerLocked('board-outline') ? ' checked' : ''}><span>Locked</span></label>
-        <div class="prop-row" data-prop="width"><label>Width (mm)</label><input type="number" id="pcbPropBoardW" value="${Number(board.width).toFixed(2)}" min="5" step="1"></div>
-        <div class="prop-row" data-prop="height"><label>Height (mm)</label><input type="number" id="pcbPropBoardH" value="${Number(board.height).toFixed(2)}" min="5" step="1"></div>
-        <div class="prop-row" data-prop="cornerRadius"><label>Corner Radius (mm)</label><input type="number" id="pcbPropBoardR" value="${Number(board.radius).toFixed(2)}" min="0" step="0.5"></div>
-    `;
-    const lockedEl = /** @type {HTMLInputElement|null} */ (document.getElementById('pcbPropOutlineLocked'));
-    lockedEl?.addEventListener('change', () => {
-        setPcbLayerLocked(app, 'board-outline', lockedEl.checked);
-    });
-    bindBoardDimensionProperties(app, items);
-    app.showPropertiesTab?.();
+    let binding = null;
+    const refresh = () => app.refreshPropertyPanel?.(describe());
+    const describe = () => {
+        const board = getBoardDimensionPreview(app)?.board ?? app.pcbDocument.board;
+        const locked = isLayerLocked('board-outline') || !isLayerVisible('board-outline');
+        const number = (key, id, label, min, step) => ({
+            key, id, type: 'number', label, value: board[key], min, step, disabled: locked,
+            format: value => Number(value).toFixed(2),
+            parse: text => {
+                const value = text.trim() === '' ? NaN : Number(text);
+                binding?.setValid(key, Number.isFinite(value));
+                return value;
+            },
+            normalize: value => Math.max(min, value),
+            preview: value => binding?.preview(key, value),
+            commit: () => binding?.commit(),
+            cancel: () => { const active = binding?.active; binding?.cancel(); return active; },
+        });
+        return {
+            title: 'Board Outline',
+            fields: [
+                { key: 'locked', id: 'pcbPropOutlineLocked', type: 'checkbox', label: 'Locked',
+                    value: isLayerLocked('board-outline'), commit: value => { setPcbLayerLocked(app, 'board-outline', value); refresh(); } },
+                number('width', 'pcbPropBoardW', 'Width (mm)', 5, 1),
+                number('height', 'pcbPropBoardH', 'Height (mm)', 5, 1),
+                number('radius', 'pcbPropBoardR', 'Corner Radius (mm)', 0, 0.5),
+            ],
+        };
+    };
+    if (!app.openPropertyPanel?.(describe())) return;
+    binding = bindBoardDimensionProperties(app, refresh);
+    refresh();
 }
 
 export function previewBoardDimensions(app, dimensions) {
@@ -118,32 +133,42 @@ export function finishBoardDimensionPreview(app, commit = false) {
     if (committed && !isBoardViewRefreshSuspended(app)) refreshBoardView(app);
 }
 
-export function bindBoardDimensionProperties(app, items) {
+export function bindBoardDimensionProperties(app, refresh = () => {}) {
     let disposed = false;
-    const fields = [['pcbPropBoardW', 'width', 5], ['pcbPropBoardH', 'height', 5], ['pcbPropBoardR', 'radius', 0]];
-    const inputs = fields.map(([id, key, minimum]) => ({ input: items.querySelector('#' + id), key, minimum, displayed: '' }));
-    const remember = () => { for (const entry of inputs) if (entry.input) entry.displayed = entry.input.value; };
-    const reset = () => {
-        for (const { input, key } of inputs) if (input) {
-            input.value = String(app.pcbDocument.board[key]);
-            input.setCustomValidity?.('');
-        }
-        remember();
-    };
+    const invalid = new Set();
     const binding = {
         get active() { return !!getBoardDimensionPreview(app); },
-        sync: remember,
+        sync: refresh,
+        setValid(key, valid) {
+            if (valid) invalid.delete(key);
+            else invalid.add(key);
+        },
+        preview(key, value) {
+            if (disposed) return false;
+            const minimum = key === 'radius' ? 0 : 5;
+            if (isLayerLocked('board-outline') || !isLayerVisible('board-outline')) { binding.cancel(); return false; }
+            if (!Number.isFinite(value)) return false;
+            const current = getBoardDimensionPreview(app)?.board || app.pcbDocument.board;
+            try {
+                const changed = previewBoardDimensions(app, { ...current, [key]: Math.max(minimum, value) });
+                refresh();
+                return changed;
+            } catch (error) {
+                binding.cancel();
+                throw error;
+            }
+        },
         commit() {
             if (disposed) return;
-            if (inputs.some(({ input }) => input && !Number.isFinite(parseFloat(input.value)))) {
+            if (invalid.size) {
                 binding.cancel();
                 return;
             }
-            try { finishBoardDimensionPreview(app, true); } finally { reset(); }
+            try { finishBoardDimensionPreview(app, true); } finally { refresh(); }
         },
         cancel() {
             if (disposed) return;
-            try { finishBoardDimensionPreview(app); } finally { reset(); }
+            try { finishBoardDimensionPreview(app); } finally { refresh(); }
         },
         dispose() {
             if (disposed) return;
@@ -154,34 +179,6 @@ export function bindBoardDimensionProperties(app, items) {
         },
     };
     setPropertyEditor(app, 'boardDimension', binding);
-    remember();
-    const update = entry => {
-        if (disposed) return false;
-        if (isLayerLocked('board-outline') || !isLayerVisible('board-outline')) { binding.cancel(); return false; }
-        const value = parseFloat(entry.input.value);
-        if (!Number.isFinite(value)) { entry.input.setCustomValidity?.('Enter a finite board dimension.'); return false; }
-        entry.input.setCustomValidity?.('');
-        const current = getBoardDimensionPreview(app)?.board || app.pcbDocument.board;
-        const next = entry.input.value === entry.displayed ? app.pcbDocument.board[entry.key] : Math.max(entry.minimum, value);
-        try {
-            previewBoardDimensions(app, { ...current, [entry.key]: next });
-        } catch (error) {
-            binding.cancel();
-            throw error;
-        }
-        return true;
-    };
-    for (const entry of inputs) if (entry.input) {
-        entry.input.addEventListener('input', () => update(entry));
-        entry.input.addEventListener('change', () => update(entry));
-        bindSettledChange(entry.input, () => binding.commit());
-        entry.input.addEventListener('keydown', event => {
-            if (disposed || event.key !== 'Escape') return;
-            binding.cancel();
-            event.preventDefault();
-            event.stopPropagation();
-        });
-    }
     return binding;
 }
 
@@ -263,10 +260,7 @@ export function updateBoardOutlineResize(app, point) {
         endBoardOutlineResize(app, false);
         throw error;
     }
-    for (const [id, value] of [['pcbPropBoardW', width], ['pcbPropBoardH', height]]) {
-        const input = /** @type {HTMLInputElement|null} */ (document.getElementById(id));
-        if (input) input.value = Number(value).toFixed(2);
-    }
+    getPropertyEditor(app, 'boardDimension')?.sync();
 }
 
 export function endBoardOutlineResize(app, commit = true) {

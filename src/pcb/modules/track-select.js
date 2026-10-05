@@ -54,9 +54,9 @@ import {
     isViaLocked,
     isLayerVisible,
     isViaVisible,
-    pcbLayerOptionHtml,
+    pcbLayerOption,
 } from './layers.js';
-import { bindLockedProperty, isPcbObjectLocked, lockedPropertyHtml } from './object-locks.js';
+import { isPcbObjectLocked, lockedProperty } from './object-locks.js';
 import { setBoardShapeNetHover, canFillTrackLoop, fillTrackLoop, canMoveTrackToBoardLayer, moveTrackToBoardLayer, setTrackCopperMode } from './board-shapes.js';
 import { PROP_HIDDEN_LAYERS } from './board-shape-properties.js';
 import { normalizeShapeCopperMode } from '../../shared/pcb/board-shape-geometry.js';
@@ -77,7 +77,6 @@ import { viaBounds, viaHitTest } from '../../shapes/via.js';
 import { beginPcbAnchorInteraction } from './selection-interaction.js';
 import { getPropertyEditor, releasePropertyEditor, setPropertyEditor } from './property-editors.js';
 import { isEditorActive } from './pcb-editor-api.js';
-import { bindSettledChange } from '../../shared/ui/settled-input.js';
 
 const NS = 'http://www.w3.org/2000/svg';
 const HALO_CLASS = 'pcb-track-selection';
@@ -519,11 +518,7 @@ export function refreshTrackSelectionHalo(app) {
     } else if (selectedTrack && !selectedNode) _drawTrackHalo(app, selectedTrack, HALO_CLASS, HALO_OPACITY_SELECTED);
     else if (selectedVia) _drawViaHalo(app, selectedVia, HALO_CLASS, HALO_OPACITY_SELECTED);
     if (selectedTrack && app._trackEdit?.track === canonicalTrack(app, selectedTrack)) {
-        const node = selectedTrack.nodes.get(app._trackEdit.nodeId);
-        for (const axis of ['x', 'y']) {
-            const field = document.getElementById(`pcbPropTrackNode${axis.toUpperCase()}`);
-            if (field && node) field.textContent = formatNumberInputValue(node[axis]);
-        }
+        getPropertyEditor(app, 'track')?.refresh?.();
     }
     renderPcbSelectionAnchors(app);
 }
@@ -1113,28 +1108,17 @@ function regionRewritesLockedCopper(app, track, region) {
     return locked;
 }
 
-function trackCornerRadiusProperty(track, nodeId = null) {
-    const radius = nodeId == null ? track.cornerRadius : track.nodeCornerRadius(nodeId);
-    return `<div class="prop-row" data-prop="cornerRadius"><label>Corner Radius (mm)</label><input type="number" id="pcbPropTrackCornerRadius" min="0" step="0.5" value="${formatNumberInputValue(radius)}"></div>`;
-}
-
-function createTrackPropertyBinding(app, track, scope = {}) {
-    getPropertyEditor(app, 'track')?.dispose();
+function createTrackPropertyBinding(app, track, scope = {}, refresh = () => {}) {
     let preview = null;
-    let field = null;
+    let activeSpec = null;
+    let activeKey = null;
     let disposed = false;
-    const fields = [];
     const layers = () => [...track.edges].filter(([id, edge]) => scope.edgeId != null
         ? id === scope.edgeId : scope.nodeId == null || edge.from === scope.nodeId || edge.to === scope.nodeId)
         .map(([id]) => track.getEdgeLayer(id));
     const editable = () => !disposed && isEditorActive(app) && !track.locked
         && layers().every(layer => isLayerVisible(layer) && !isLayerLocked(layer));
-    const resetFields = () => {
-        for (const { input, spec } of fields) {
-            const value = spec.read(track);
-            input.value = Number.isFinite(value) ? String(value) : '';
-        }
-    };
+    const currentTrack = () => preview?.track || track;
     // A node picked up from a midpoint "+" (or any unfinished drag) shows a preview
     // copy of this track on the board. Panel edits change the real track, so drop
     // the pickup first or the edit would miss (discrete fields) or fail (numeric fields).
@@ -1146,10 +1130,10 @@ function createTrackPropertyBinding(app, track, scope = {}) {
     };
     const finish = commit => {
         if (!preview) return;
-        commit = commit && Number.isFinite(field.spec.parse(field.input));
-        const refreshFills = field.spec.fills;
+        const refreshFills = activeSpec?.fills;
         preview = null;
-        field = null;
+        activeSpec = null;
+        activeKey = null;
         let committed = false;
         try {
             finishTrackPropertyPreview(app, commit ? (before, after) => {
@@ -1157,17 +1141,35 @@ function createTrackPropertyBinding(app, track, scope = {}) {
                 committed = true;
             } : null);
         } finally {
-            if (!committed) resetFields();
             refreshTrackSelectionHalo(app);
             if (!committed) {
                 app.refreshClearanceHalos?.();
                 if (refreshFills) app.refreshFills?.();
             }
+            refresh();
         }
+    };
+    const previewNumber = (key, spec, value) => {
+        if (!Number.isFinite(value)) return;
+        if (!editable()) { binding.cancel(); return; }
+        dropPointerPreview();
+        if (activeKey && activeKey !== key) binding.commit();
+        const current = currentTrack();
+        if (!spec.changed(current, value)) return;
+        preview ||= beginTrackPropertyPreview(app, track, scope);
+        activeSpec = spec;
+        activeKey = key;
+        spec.apply(preview.track, value, preview.before);
+        renderTrack(preview.track, layerId => app.getLayerGroup(layerId), { hideNetLabel: true });
+        refreshTrackSelectionHalo(app);
+        app.refreshClearanceHalos?.();
+        if (spec.fills) app.refreshFills?.();
+        refresh();
     };
     const binding = {
         track,
         get active() { return !!preview; },
+        get disposed() { return disposed; },
         affectsLayer(layerId) { return layers().includes(layerId); },
         commit() { finish(editable()); },
         cancel() { finish(false); },
@@ -1183,65 +1185,33 @@ function createTrackPropertyBinding(app, track, scope = {}) {
             binding.commit();
             return true;
         },
-        bind(id, spec) {
-            const input = /** @type {HTMLInputElement|null} */ (document.getElementById(id));
-            if (!input) return;
-            const entry = { input, spec };
-            fields.push(entry);
-            const update = () => {
-                if (!editable()) { binding.cancel(); return; }
-                dropPointerPreview();
-                if (field && field !== entry) {
-                    const text = input.value;
+        refresh,
+        numberField(key, id, label, spec, extra = {}) {
+            return {
+                key, id, type: 'number', label,
+                value: spec.read(currentTrack()),
+                disabled: !editable(),
+                preview: value => previewNumber(key, spec, value),
+                commit: () => {
+                    const changed = !!preview;
                     binding.commit();
-                    input.value = text;
-                }
-                const value = spec.parse(input);
-                if (!Number.isFinite(value)) return;
-                const current = preview?.track || track;
-                if (!spec.changed(current, value)) return;
-                preview ||= beginTrackPropertyPreview(app, track, scope);
-                field = entry;
-                spec.apply(preview.track, value, preview.before);
-                renderTrack(preview.track, layerId => app.getLayerGroup(layerId), { hideNetLabel: true });
-                refreshTrackSelectionHalo(app);
-                app.refreshClearanceHalos?.();
-                if (spec.fills) app.refreshFills?.();
+                    if (changed && spec.rebuild && !disposed) showTrackSelectionProperties(app, track);
+                },
+                cancel: () => {
+                    const active = !!preview;
+                    binding.cancel();
+                    return active;
+                },
+                ...extra,
             };
-            const commit = () => {
-                if (disposed) return;
-                const changed = !!preview;
-                binding.commit();
-                if (!Number.isFinite(spec.parse(input))) {
-                    const value = spec.read(track);
-                    input.value = Number.isFinite(value) ? String(value) : '';
-                }
-                if (changed && spec.rebuild) showTrackSelectionProperties(app, track);
-            };
-            input.addEventListener('input', update);
-            input.addEventListener('change', update);
-            bindSettledChange(input, commit);
-            input.addEventListener('blur', () => {
-                queueMicrotask(() => {
-                    if (!disposed && field === entry) commit();
-                });
-            });
-            input.addEventListener('keydown', event => {
-                if (disposed || event.key !== 'Escape') return;
-                binding.cancel();
-                event.preventDefault();
-                event.stopPropagation();
-            });
         },
     };
-    setPropertyEditor(app, 'track', binding);
     return binding;
 }
 
-function bindTrackCornerRadius(binding, nodeId = null) {
-    binding.bind('pcbPropTrackCornerRadius', {
+function trackCornerRadiusProperty(binding, nodeId = null) {
+    return binding.numberField('cornerRadius', 'pcbPropTrackCornerRadius', 'Corner Radius (mm)', {
         read: track => nodeId == null ? track.cornerRadius : track.nodeCornerRadius(nodeId),
-        parse: input => Number.isFinite(input.valueAsNumber) ? Math.max(0, input.valueAsNumber) : NaN,
         changed: (track, radius) => Math.abs((nodeId == null ? track.cornerRadius : track.nodeCornerRadius(nodeId)) - radius) >= 1e-9
             || (nodeId == null && Object.keys(track.nodeCornerRadii || {}).length > 0),
         apply: (track, radius, before) => {
@@ -1256,16 +1226,16 @@ function bindTrackCornerRadius(binding, nodeId = null) {
             } else track.setNodeCornerRadius(nodeId, radius);
         },
         fills: true,
-    });
+    }, { min: 0, step: 0.5, normalize: value => Math.max(0, value) });
+}
+
+function bindTrackCornerRadius(binding, nodeId = null) {
+    return trackCornerRadiusProperty(binding, nodeId);
 }
 
 function bindTrackWidth(binding, edgeId = null) {
-    binding.bind('pcbPropTrackWidth', {
+    return binding.numberField('lineWidth', 'pcbPropTrackWidth', 'Width (mm)', {
         read: track => edgeId == null ? track.width : track.getEdgeWidth(edgeId),
-        parse: input => {
-            const value = input.value.trim() === '' ? NaN : Number(input.value);
-            return value > 0 ? value : NaN;
-        },
         changed: (track, width) => edgeId == null
             ? track.width !== width || [...track.edges.keys()].some(id => track.getEdgeWidth(id) !== width)
             : track.getEdgeWidth(edgeId) !== width,
@@ -1283,28 +1253,34 @@ function bindTrackWidth(binding, edgeId = null) {
                 for (const id of track.edges.keys()) setWidth(id);
             } else setWidth(edgeId);
         },
-    });
+    }, { min: 0.05, step: 0.05, normalize: value => value > 0 ? value : NaN });
 }
 
 function _showTrackNodeProperties(app, track, nodeId) {
     const node = track.nodes.get(nodeId);
-    const items = app.propertiesItems?.() || document.getElementById('pcbPropsItems');
-    if (!items || !node) return;
-    app.setPropertiesTitle?.('Track Node');
-    items.innerHTML = `
-        <div class="prop-row" data-prop="x"><label>X (mm)</label><span id="pcbPropTrackNodeX">${formatNumberInputValue(node.x)}</span></div>
-        <div class="prop-row" data-prop="y"><label>Y (mm)</label><span id="pcbPropTrackNodeY">${formatNumberInputValue(node.y)}</span></div>
-        ${trackCornerRadiusProperty(track, nodeId)}
-    `;
-    const binding = createTrackPropertyBinding(app, track, { nodeId });
-    bindTrackCornerRadius(binding, nodeId);
-    app.showPropertiesTab?.();
+    if (!node) return;
+    let binding;
+    const describe = () => {
+        const current = track.nodes.get(nodeId);
+        return {
+            title: 'Track Node',
+            fields: [
+                { key: 'x', id: 'pcbPropTrackNodeX', type: 'readout', label: 'X (mm)',
+                    value: current ? formatNumberInputValue(current.x) : '' },
+                { key: 'y', id: 'pcbPropTrackNodeY', type: 'readout', label: 'Y (mm)',
+                    value: current ? formatNumberInputValue(current.y) : '' },
+                bindTrackCornerRadius(binding, nodeId),
+            ],
+        };
+    };
+    const refresh = () => { if (!binding.disposed) app.refreshPropertyPanel(describe()); };
+    binding = createTrackPropertyBinding(app, track, { nodeId }, refresh);
+    if (!app.openPropertyPanel?.(describe(), track)) { binding.dispose(); return; }
+    setPropertyEditor(app, 'track', binding);
 }
 
 function _showTrackProperties(app, track) {
-    const items = app.propertiesItems?.() || document.getElementById('pcbPropsItems');
-    if (!items) return;
-    app.setPropertiesTitle?.('Track');
+    let binding;
     const layers = new Set();
     for (const eid of track.edges.keys()) layers.add(track.getEdgeLayer(eid));
     const mixed = layers.size > 1;
@@ -1314,99 +1290,39 @@ function _showTrackProperties(app, track) {
     const unmovableReason = mixed
         ? 'This track uses both copper layers. Only a track that is a single line or loop on one layer can move to a non-copper layer.'
         : 'This track branches. Only a track that is a single line or loop can move to a non-copper layer.';
-    const layerOpts = PCB_LAYERS.filter((l) => !PROP_HIDDEN_LAYERS.has(l.id)).map((l) => {
-        if (COPPER_LAYERS.includes(l)) {
-            return `<option value="${l.id}"${l.id === currentLayer ? ' selected' : ''}>${_escape(l.name)}</option>`;
-        }
-        return movable
-            ? pcbLayerOptionHtml(l.id, l.name)
-            : `<option value="${l.id}" disabled title="${_escape(unmovableReason)}">${_escape(l.name)}</option>`;
-    }).join('');
     // Removal modes add no copper, so they also turn the track back into a board shape.
     const unmovableModeReason = mixed
         ? 'This track uses both copper layers. Only a track that is a single line or loop on one layer can use a removal mode.'
         : 'This track branches. Only a track that is a single line or loop can use a removal mode.';
-    const copperModeOpts = '<option value="add" selected>Add Copper</option>' + [
-        ['remove-copper', 'Remove Copper'], ['remove-solder-mask', 'Remove Solder Mask'], ['remove-copper-mask', 'Remove Copper + Mask'],
-    ].map(([value, label]) => `<option value="${value}"${movable ? '' : ` disabled title="${_escape(unmovableModeReason)}"`}>${label}</option>`).join('');
-    const mixedOpt = mixed ? `<option value="" selected>Multiple</option>` : '';
-    const netOptions = _netOptions(app, track.net || '');
     const lockEntries = [{ kind: 'track', object: track }];
-    items.innerHTML = `
-        ${lockedPropertyHtml(app, lockEntries)}
-        <div class="prop-row" data-prop="layer"><label>Layer</label><select id="pcbPropTrackLayer">${mixedOpt}${layerOpts}</select></div>
-        <div class="prop-row" data-prop="copperMode"><label>Copper Mode</label><select id="pcbPropTrackCopperMode">${copperModeOpts}</select></div>
-        <div class="prop-row" data-prop="net"><label>Net</label><span class="prop-net-control"><input type="text" id="pcbPropTrackNet" value="${_escape(track.net || '')}" placeholder="None"><details class="prop-net-menu"><summary aria-label="Select existing net"></summary><div>${netOptions}</div></details></span></div>
-        ${canFillTrackLoop(track) ? '<label class="prop-row prop-toggle" data-prop="fill"><input type="checkbox" id="pcbPropTrackFill"><span>Fill</span></label>' : ''}
-        <div class="prop-row" data-prop="lineWidth"><label>Width (mm)</label><input type="number" id="pcbPropTrackWidth" value="${formatNumberInputValue(track.width)}" min="0.05" step="0.05"></div>
-        ${trackCornerRadiusProperty(track)}
-    `;
-    const binding = createTrackPropertyBinding(app, track);
-    bindTrackCornerRadius(binding);
-    bindTrackWidth(binding);
-    const fillEl = /** @type {HTMLInputElement|null} */ (document.getElementById('pcbPropTrackFill'));
-    fillEl?.addEventListener('change', () => {
-        // A filled loop is a copper area, which a Track cannot represent.
-        if (!fillEl.checked || !binding.prepare()) return;
-        clearTrackSelection(app);
-        if (!fillTrackLoop(app, track)) fillEl.checked = false;
-    });
-    const baseline = { net: track.net || '' };
-    const netEl = /** @type {HTMLInputElement|null} */ (document.getElementById('pcbPropTrackNet'));
-    const netMenuEl = /** @type {HTMLDetailsElement|null} */ (document.querySelector('.prop-net-menu'));
     const netSeedEdgeId = hitTestTrackEdge(app, track, app._lastPointerWorld || {})?.edgeId
         || track.edges.keys().next().value;
-    netEl?.addEventListener('change', () => {
+    const applyNet = value => {
         if (!binding.prepare()) return;
-        const v = netEl.value.trim();
-        if (v === baseline.net) return;
+        const v = String(value || '').trim();
+        if (v === (track.net || '')) return;
         if (_applyNetToBondedCopper(app, { track, edgeId: netSeedEdgeId }, v)) {
-            baseline.net = v;
-        } else {
-            netEl.value = baseline.net; // refused — restore the field
-        }
-    });
-    netEl?.addEventListener('input', () => {
-        // The properties panel can be rebuilt before a blur emits `change`,
-        // so commit clearing the Net immediately.
-        if (!netEl.value.trim() && baseline.net) netEl.dispatchEvent(new Event('change'));
-    });
-    netMenuEl?.addEventListener('click', (event) => {
-        const option = /** @type {HTMLButtonElement|null} */ (event.target instanceof Element ? event.target.closest('button[data-net]') : null);
-        if (!option) return;
-        netEl.value = option.dataset.net || '';
-        netEl.dispatchEvent(new Event('change'));
-        netMenuEl.open = false;
-    });
-    netMenuEl?.addEventListener('toggle', () => {
-        if (!netMenuEl.open || !netEl) return;
-        const current = netEl.value.trim();
-        for (const option of /** @type {NodeListOf<HTMLElement>} */ (netMenuEl.querySelectorAll('button[data-net]'))) {
-            option.toggleAttribute('aria-current', option.dataset.net === current);
-        }
-    });
-    const layerEl = /** @type {HTMLSelectElement|null} */ (document.getElementById('pcbPropTrackLayer'));
-    const copperModeEl = /** @type {HTMLSelectElement|null} */ (document.getElementById('pcbPropTrackCopperMode'));
-    copperModeEl?.addEventListener('change', () => {
+            showTrackSelectionProperties(app, track);
+        } else showTrackSelectionProperties(app, track);
+    };
+    const applyCopperMode = mode => {
         if (!binding.prepare()) return;
-        const mode = copperModeEl.value;
         const layer = track.getEdgeLayer(track.edges.keys().next().value) || track.layer;
         if (mode === 'add' || isLayerLocked(layer) || !canMoveTrackToBoardLayer(track)) {
-            copperModeEl.value = 'add';
+            showTrackSelectionProperties(app, track);
             return;
         }
         clearTrackSelection(app);
         setTrackCopperMode(app, track, mode);
         reconcileRatsnest(app);
         app.showPropertiesTab?.();
-    });
-    layerEl?.addEventListener('change', () => {
+    };
+    const applyLayer = v => {
         if (!binding.prepare()) return;
-        const v = layerEl.value;
-        if (!v) return; // the "Multiple" placeholder
+        if (!v) return; // the Mixed placeholder
         if (!COPPER_LAYERS.some((l) => l.id === v)) {
             if (isLayerLocked(v) || !canMoveTrackToBoardLayer(track)) {
-                layerEl.value = currentLayer;
+                showTrackSelectionProperties(app, track);
                 return;
             }
             clearTrackSelection(app);
@@ -1428,7 +1344,7 @@ function _showTrackProperties(app, track) {
         // Restore the seed so its RemoveTrackCommand captures clean undo.
         track.applyState(before);
         if (regionRewritesLockedCopper(app, track, region)) {
-            layerEl.value = currentLayer;
+            showTrackSelectionProperties(app, track);
             return;
         }
         // Drop the selection FIRST, while the original tracks are still
@@ -1442,9 +1358,47 @@ function _showTrackProperties(app, track) {
         if (cmds.length) app.history?.execute(new CompoundCommand(cmds));
         reconcileRatsnest(app);
         app.showPropertiesTab?.();
-    });
-    bindLockedProperty(app, items, lockEntries);
-    app.showPropertiesTab?.();
+    };
+    const describe = () => {
+        const lock = lockedProperty(app, lockEntries);
+        const readOnly = lock.readOnly;
+        const fields = [
+            lock.field,
+            { key: 'layer', id: 'pcbPropTrackLayer', type: 'select', label: 'Layer',
+                value: currentLayer, mixed, disabled: readOnly,
+                options: PCB_LAYERS.filter((l) => !PROP_HIDDEN_LAYERS.has(l.id)).map((l) => {
+                    if (COPPER_LAYERS.includes(l)) return pcbLayerOption(l.id, l.name);
+                    return movable ? pcbLayerOption(l.id, l.name)
+                        : { value: l.id, label: l.name, disabled: true, title: unmovableReason };
+                }),
+                commit: applyLayer },
+            { key: 'copperMode', id: 'pcbPropTrackCopperMode', type: 'select', label: 'Copper Mode',
+                value: 'add', disabled: readOnly,
+                options: [
+                    { value: 'add', label: 'Add Copper' },
+                    ...[['remove-copper', 'Remove Copper'], ['remove-solder-mask', 'Remove Solder Mask'], ['remove-copper-mask', 'Remove Copper + Mask']]
+                        .map(([value, label]) => ({ value, label, disabled: !movable,
+                            title: movable ? undefined : unmovableModeReason })),
+                ],
+                commit: applyCopperMode },
+            { key: 'net', id: 'pcbPropTrackNet', type: 'net', label: 'Net', value: track.net || '',
+                disabled: readOnly, nets: copperNetNames(app), commit: applyNet },
+            ...(canFillTrackLoop(track) ? [{ key: 'fill', id: 'pcbPropTrackFill', type: 'checkbox', label: 'Fill',
+                disabled: readOnly, value: false, commit: checked => {
+                    if (!checked || !binding.prepare()) return;
+                    clearTrackSelection(app);
+                    if (!fillTrackLoop(app, track)) showTrackSelectionProperties(app, track);
+                } }] : []),
+            bindTrackWidth(binding),
+            bindTrackCornerRadius(binding),
+        ];
+        for (const field of fields) if (field.key !== 'locked') field.disabled ||= readOnly;
+        return { title: 'Track', fields };
+    };
+    const refresh = () => { if (!binding.disposed) app.refreshPropertyPanel(describe()); };
+    binding = createTrackPropertyBinding(app, track, {}, refresh);
+    if (!app.openPropertyPanel?.(describe(), track)) { binding.dispose(); return; }
+    setPropertyEditor(app, 'track', binding);
 }
 
 /**
@@ -1453,65 +1407,24 @@ function _showTrackProperties(app, track) {
  * single segment can hop layers and change width independently.
  */
 function _showTrackSegmentProperties(app, track, edgeId) {
-    const items = app.propertiesItems?.() || document.getElementById('pcbPropsItems');
-    if (!items) return;
-    app.setPropertiesTitle?.(track.edges.get(edgeId)?.bulge ? 'Arc Segment' : 'Track Segment');
+    let binding;
     const currentLayer = track.getEdgeLayer(edgeId) || 'top-copper';
-    const segWidth = track.getEdgeWidth(edgeId);
-    const layerOpts = COPPER_LAYERS.map(
-        (l) => `<option value="${l.id}"${l.id === currentLayer ? ' selected' : ''}>${_escape(l.name)}</option>`
-    ).join('');
-    const netOptions = _netOptions(app, track.net || '');
-    items.innerHTML = `
-        <div class="prop-row" data-prop="layer"><label>Layer</label><select id="pcbPropSegLayer">${layerOpts}</select></div>
-        <div class="prop-row" data-prop="net"><label>Net</label><span class="prop-net-control"><input type="text" id="pcbPropTrackNet" value="${_escape(track.net || '')}" placeholder="None"><details class="prop-net-menu"><summary aria-label="Select existing net"></summary><div>${netOptions}</div></details></span></div>
-        <div class="prop-row" data-prop="lineWidth"><label>Width (mm)</label><input type="number" id="pcbPropTrackWidth" value="${formatNumberInputValue(segWidth)}" min="0.05" step="0.05"></div>
-        ${track.edges.get(edgeId)?.bulge ? `<div class="prop-row" data-prop="bulge"><label>Bulge</label><input type="number" id="pcbPropTrackBulge" min="-1" max="1" step="0.05" value="${formatNumberInputValue(track.edges.get(edgeId).bulge)}"></div>` : ''}
-    `;
-    const binding = createTrackPropertyBinding(app, track, { edgeId });
-    bindTrackWidth(binding, edgeId);
-    binding.bind('pcbPropTrackBulge', {
+    const bulgeField = () => binding.numberField('bulge', 'pcbPropTrackBulge', 'Bulge', {
         read: track => track.edges.get(edgeId)?.bulge || 0,
-        parse: input => Number.isFinite(input.valueAsNumber)
-            ? Number(formatNumberInputValue(Math.max(-1, Math.min(1, input.valueAsNumber)))) : NaN,
         changed: (track, bulge) => (track.edges.get(edgeId)?.bulge || 0) !== bulge,
         apply: (track, bulge) => track.setEdgeAttr(edgeId, 'bulge', bulge),
         fills: true, rebuild: true,
-    });
-    const baseline = { net: track.net || '' };
-    const netEl = /** @type {HTMLInputElement|null} */ (document.getElementById('pcbPropTrackNet'));
-    const netMenuEl = /** @type {HTMLDetailsElement|null} */ (document.querySelector('.prop-net-menu'));
-    netEl?.addEventListener('change', () => {
+    }, { min: -1, max: 1, step: 0.05, normalize: value => Number(formatNumberInputValue(Math.max(-1, Math.min(1, value)))) });
+    const applyNet = value => {
         if (!binding.prepare()) return;
-        const v = netEl.value.trim();
-        if (v === baseline.net) return;
+        const v = String(value || '').trim();
+        if (v === (track.net || '')) return;
         if (_applyNetToBondedCopper(app, { track, edgeId }, v)) {
-            baseline.net = v;
-        } else {
-            netEl.value = baseline.net;
-        }
-    });
-    netEl?.addEventListener('input', () => {
-        if (!netEl.value.trim() && baseline.net) netEl.dispatchEvent(new Event('change'));
-    });
-    netMenuEl?.addEventListener('click', (event) => {
-        const option = /** @type {HTMLButtonElement|null} */ (event.target instanceof Element ? event.target.closest('button[data-net]') : null);
-        if (!option) return;
-        netEl.value = option.dataset.net || '';
-        netEl.dispatchEvent(new Event('change'));
-        netMenuEl.open = false;
-    });
-    netMenuEl?.addEventListener('toggle', () => {
-        if (!netMenuEl.open || !netEl) return;
-        const current = netEl.value.trim();
-        for (const option of /** @type {NodeListOf<HTMLElement>} */ (netMenuEl.querySelectorAll('button[data-net]'))) {
-            option.toggleAttribute('aria-current', option.dataset.net === current);
-        }
-    });
-    const layerEl = /** @type {HTMLSelectElement|null} */ (document.getElementById('pcbPropSegLayer'));
-    layerEl?.addEventListener('change', () => {
+            showTrackSelectionProperties(app, track);
+        } else showTrackSelectionProperties(app, track);
+    };
+    const applyLayer = v => {
         if (!binding.prepare()) return;
-        const v = layerEl.value;
         if (!v) return;
         const before = track.captureState();
         track.setEdgeAttr(edgeId, 'layer', v);
@@ -1524,7 +1437,7 @@ function _showTrackSegmentProperties(app, track, edgeId) {
         // Restore the seed so its RemoveTrackCommand captures clean undo.
         track.applyState(before);
         if (regionRewritesLockedCopper(app, track, region)) {
-            layerEl.value = track.getEdgeLayer(edgeId);
+            showTrackSelectionProperties(app, track);
             return;
         }
         // Drop the selection FIRST, while the original tracks are still
@@ -1542,8 +1455,23 @@ function _showTrackSegmentProperties(app, track, edgeId) {
         if (cmds.length) app.history?.execute(new CompoundCommand(cmds));
         reconcileRatsnest(app);
         app.showPropertiesTab?.();
-    });
-    app.showPropertiesTab?.();
+    };
+    const describe = () => {
+        const fields = [
+            { key: 'layer', id: 'pcbPropSegLayer', type: 'select', label: 'Layer',
+                value: track.getEdgeLayer(edgeId) || 'top-copper', disabled: !binding.affectsLayer(currentLayer),
+                options: COPPER_LAYERS.map((l) => pcbLayerOption(l.id, l.name)), commit: applyLayer },
+            { key: 'net', id: 'pcbPropTrackNet', type: 'net', label: 'Net', value: track.net || '',
+                nets: copperNetNames(app), commit: applyNet },
+            bindTrackWidth(binding, edgeId),
+        ];
+        if (track.edges.get(edgeId)?.bulge) fields.push(bulgeField());
+        return { title: track.edges.get(edgeId)?.bulge ? 'Arc Segment' : 'Track Segment', fields };
+    };
+    const refresh = () => { if (!binding.disposed) app.refreshPropertyPanel(describe()); };
+    binding = createTrackPropertyBinding(app, track, { edgeId }, refresh);
+    if (!app.openPropertyPanel?.(describe(), track)) { binding.dispose(); return; }
+    setPropertyEditor(app, 'track', binding);
 }
 
 /**
@@ -1703,32 +1631,21 @@ export function applyNetToCopperSelection(app, entries, v, additionalCommands = 
 }
 
 export function showViaProperties(app, via) {
-    const items = app.propertiesItems?.() || document.getElementById('pcbPropsItems');
-    if (!items) return;
     via = canonicalVia(app, via);
     const selectedVias = getPcbSelection(app, 'via').map(target => canonicalVia(app, target));
     const vias = selectedVias.includes(via) && selectedVias.length ? selectedVias : [via];
     let preview = null;
     let activeProperty = null;
     let disposed = false;
-    const mixedDiameter = vias.some((target) => target.diameter !== via.diameter);
-    const mixedDrill = vias.some((target) => target.drill !== via.drill);
-    const mixedNet = vias.some((target) => (target.net || '') !== (via.net || ''));
+    const shown = target => preview?.copies.get(target) || target;
+    const mixed = property => vias.map(shown).some((target) => (target[property] ?? '') !== (shown(via)[property] ?? ''));
     const limits = () => ({
-        minDiameter: Math.max(...vias.map(target => (preview?.copies.get(target) || target).drill)),
-        maxDrill: Math.min(...vias.map(target => (preview?.copies.get(target) || target).diameter)),
+        minDiameter: Math.max(...vias.map(target => shown(target).drill)),
+        maxDrill: Math.min(...vias.map(target => shown(target).diameter)),
     });
-    const { minDiameter, maxDrill } = limits();
-    app.setPropertiesTitle?.('Via');
-    const netOptions = _netOptions(app, via.net || '');
     const lockEntries = vias.map(target => ({ kind: 'via', object: target }));
-    items.innerHTML = `
-        ${lockedPropertyHtml(app, lockEntries)}
-        <div class="prop-row" data-prop="net"><label>Net</label><span class="prop-net-control"><input type="text" id="pcbPropViaNet" value="${mixedNet ? '' : _escape(via.net || '')}" placeholder="${mixedNet ? 'Mixed' : 'None'}"><details class="prop-net-menu"><summary aria-label="Select existing net"></summary><div>${netOptions}</div></details></span></div>
-        <div class="prop-row" data-prop="diameter"><label>Diameter (mm)</label><input type="number" id="pcbPropViaDia" value="${mixedDiameter ? '' : via.diameter}" placeholder="${mixedDiameter ? 'Mixed' : ''}" min="${minDiameter}" step="0.05"></div>
-        <div class="prop-row" data-prop="drill"><label>Drill (mm)</label><input type="number" id="pcbPropViaDrill" value="${mixedDrill ? '' : via.drill}" placeholder="${mixedDrill ? 'Mixed' : ''}" min="0.05" max="${maxDrill}" step="0.05"></div>
-    `;
     let renderFrame = null;
+    const refresh = () => { if (!disposed) app.refreshPropertyPanel(describe()); };
     const reRender = () => {
         if (renderFrame !== null) return;
         renderFrame = requestAnimationFrame(() => {
@@ -1744,27 +1661,8 @@ export function showViaProperties(app, via) {
         cancelAnimationFrame(renderFrame);
         renderFrame = null;
     };
-    const validValue = (key, value) => {
-        if (!Number.isFinite(value)) return NaN;
-        const current = limits();
-        return key === 'diameter'
-            ? Math.max(value, current.minDiameter)
-            : Math.min(value, current.maxDrill);
-    };
-    const updateLimits = () => {
-        const current = limits();
-        if (diaEl) diaEl.min = String(current.minDiameter);
-        if (drlEl) drlEl.max = String(current.maxDrill);
-    };
-    const resetFields = () => {
-        if (diaEl) diaEl.value = vias.some(target => target.diameter !== via.diameter) ? '' : String(via.diameter);
-        if (drlEl) drlEl.value = vias.some(target => target.drill !== via.drill) ? '' : String(via.drill);
-    };
     const finish = commit => {
         if (!preview) return;
-        const input = activeProperty === 'diameter' ? diaEl : drlEl;
-        const value = readValue(activeProperty, input);
-        commit = commit && Number.isFinite(value) && value > 0;
         preview = null;
         activeProperty = null;
         cancelLiveRender();
@@ -1777,14 +1675,14 @@ export function showViaProperties(app, via) {
             } : undefined);
             committed = commit;
         } finally {
-            if (!committed) resetFields();
-            updateLimits();
             refreshTrackSelectionHalo(app);
+            refresh();
         }
     };
     const editable = () => !disposed && isEditorActive(app) && !isViaLocked() && isViaVisible()
         && vias.every(target => !target.locked && target.visible !== false);
     const binding = {
+        vias,
         affectsLayer: layerId => layerId === 'vias',
         get active() { return preview !== null; },
         commit: () => finish(editable()),
@@ -1794,56 +1692,45 @@ export function showViaProperties(app, via) {
             finish(false);
             cancelLiveRender();
         },
+        prepare() {
+            if (disposed) return false;
+            binding.commit();
+            return true;
+        },
     };
-    setPropertyEditor(app, 'via', binding);
-    const readValue = (key, input) => validValue(key, input.value.trim() === '' ? NaN : Number(input.value));
-    const live = (key) => (e) => {
+    const live = (key, value) => {
         if (!editable()) {
             binding.cancel();
             return;
         }
-        const input = /** @type {HTMLInputElement} */ (e.target);
         if (preview && activeProperty !== key) {
-            const text = input.value;
             binding.commit();
-            input.value = text;
         }
-        const v = readValue(key, input);
-        if (Number.isFinite(v) && v > 0) {
-            if (Number(input.value) !== v) input.value = String(v);
-            if (vias.every(target => (preview?.copies.get(target) || target)[key] === v)) return;
-            preview ??= beginViaPropertyPreview(app, vias);
-            activeProperty = key;
-            for (const target of preview.copies.values()) target[key] = v;
-            updateLimits();
-            reRender();
-        }
+        if (!Number.isFinite(value) || value <= 0) return;
+        if (vias.every(target => shown(target)[key] === value)) return;
+        preview ??= beginViaPropertyPreview(app, vias);
+        activeProperty = key;
+        for (const target of preview.copies.values()) target[key] = value;
+        reRender();
+        refresh();
     };
-    const diaEl = /** @type {HTMLInputElement|null} */ (document.getElementById('pcbPropViaDia'));
-    const drlEl = /** @type {HTMLInputElement|null} */ (document.getElementById('pcbPropViaDrill'));
-    for (const [input, key] of /** @type {Array<[HTMLInputElement|null, string]>} */ ([[diaEl, 'diameter'], [drlEl, 'drill']])) {
-        const onInput = live(key);
-        input?.addEventListener('input', onInput);
-        input?.addEventListener('change', onInput);
-        if (input) bindSettledChange(input, () => {
-            binding.commit();
-            if (!disposed && !(readValue(key, input) > 0)) resetFields();
-        });
-        input?.addEventListener('blur', () => {
-            queueMicrotask(() => {
-                if (!disposed && preview && activeProperty === key) binding.commit();
-            });
-        });
-        input?.addEventListener('keydown', event => {
-            if (disposed || event.key !== 'Escape') return;
-            binding.cancel();
-            event.preventDefault();
-            event.stopPropagation();
-        });
-    }
-    const netEl = /** @type {HTMLInputElement|null} */ (document.getElementById('pcbPropViaNet'));
-    const netMenuEl = /** @type {HTMLDetailsElement|null} */ (document.querySelector('.prop-net-menu'));
-    netEl?.addEventListener('change', () => {
+    const numberField = (key, id, label) => {
+        const current = shown(via);
+        const currentLimits = limits();
+        const isDiameter = key === 'diameter';
+        return {
+            key, id, type: 'number', label, value: current[key], mixed: mixed(key), disabled: !editable(),
+            min: isDiameter ? currentLimits.minDiameter : 0.05,
+            max: isDiameter ? undefined : currentLimits.maxDrill,
+            step: 0.05,
+            normalize: value => isDiameter ? Math.max(value, limits().minDiameter)
+                : Math.min(Math.max(value, 0.05), limits().maxDrill),
+            preview: value => live(key, value),
+            commit: () => binding.commit(),
+            cancel: () => { const active = preview !== null; binding.cancel(); return active; },
+        };
+    };
+    const applyNet = value => {
         if (!editable()) {
             binding.cancel();
             return;
@@ -1851,38 +1738,33 @@ export function showViaProperties(app, via) {
         let applied = false;
         try {
             binding.commit();
-            const v = netEl.value.trim();
+            const v = String(value || '').trim();
             applied = vias.every(target => (target.net || '') === v) || _applyNetToSelectedVias(app, vias, v);
         } finally {
-            if (!applied) netEl.value = vias.some(target => target.net !== via.net) ? '' : via.net || '';
+            if (!applied) refresh();
         }
-    });
-    netMenuEl?.addEventListener('click', (event) => {
-        if (disposed) return;
-        const option = /** @type {HTMLButtonElement|null} */ (event.target instanceof Element ? event.target.closest('button[data-net]') : null);
-        if (!option) return;
-        netEl.value = option.dataset.net || '';
-        netEl.dispatchEvent(new Event('change'));
-        netMenuEl.open = false;
-    });
-    netMenuEl?.addEventListener('toggle', () => {
-        if (disposed || !netMenuEl.open || !netEl) return;
-        const current = netEl.value.trim();
-        for (const option of /** @type {NodeListOf<HTMLElement>} */ (netMenuEl.querySelectorAll('button[data-net]'))) {
-            option.toggleAttribute('aria-current', option.dataset.net === current);
-        }
-    });
-    bindLockedProperty(app, items, lockEntries);
-    app.showPropertiesTab?.();
+    };
+    function describe() {
+        const lock = lockedProperty(app, lockEntries);
+        const readOnly = lock.readOnly;
+        return {
+            title: 'Via',
+            fields: [
+                lock.field,
+                { key: 'net', id: 'pcbPropViaNet', type: 'net', label: 'Net',
+                    value: shown(via).net || '', mixed: mixed('net'), disabled: readOnly, nets: copperNetNames(app),
+                    commit: applyNet },
+                numberField('diameter', 'pcbPropViaDia', 'Diameter (mm)'),
+                numberField('drill', 'pcbPropViaDrill', 'Drill (mm)'),
+            ].map(field => field.key === 'locked' ? field : { ...field, disabled: field.disabled || readOnly }),
+        };
+    }
+    if (!app.openPropertyPanel?.(describe(), via)) { binding.dispose(); return; }
+    setPropertyEditor(app, 'via', binding);
 }
 
-function _escape(s) {
-    return String(s).replace(/[&<>"]/g, (c) => (
-        { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]
-    ));
-}
-
-function _netOptions(app, current = '') {
+function copperNetNames(app) {
+    if (typeof app.netNames === 'function') return app.netNames();
     const netNames = new Set((app.netlist || []).map((entry) => String(entry.net || '')).filter(Boolean));
     for (const source of [app.tracks, app.vias, app.boardShapes, app.copperFills]) {
         for (const item of source || []) {
@@ -1890,7 +1772,5 @@ function _netOptions(app, current = '') {
             if (net) netNames.add(net);
         }
     }
-    const names = [...netNames].sort();
-    const selected = String(current || '');
-    return `<button type="button" data-net="">None</button>${names.map((name) => `<button type="button" data-net="${_escape(name)}"${name === selected ? ' aria-current="true"' : ''}>${_escape(name)}</button>`).join('')}`;
+    return [...netNames].sort();
 }

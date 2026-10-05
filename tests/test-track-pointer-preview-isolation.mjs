@@ -98,7 +98,7 @@ function fixture(mode, deferred = false, unrelatedCount = 1) {
         project, pcbDocument: model, placements: new Map(), netlist: [], history: new CommandHistory(),
         _active: true, _layerGroups: groups, existingLayerGroups() { return this._layerGroups; }, _textElements: new Map(), _shapeElements: new Map(),
         viewport: { scale: 100, svg: new Element('svg'), shiftHeld: true, setCrosshair() {}, hideCrosshair() {} },
-        propertiesItems: () => ({ innerHTML: '' }), getLayerGroup: id => groups.get(id) || null,
+        propertiesItems: () => ({ innerHTML: '' }), refreshPropertyPanel() {}, getLayerGroup: id => groups.get(id) || null,
         setActiveRibbonTab() {}, setPcbStatus() {}, refreshFills() { fills++; },
         refreshClearanceHalos() { clearances++; }, _board3d: { refresh() { boardRefreshes++; } },
         _cancelDrawingMode() {}, _ensureViewport() {}, markSectionClean() {},

@@ -18,7 +18,7 @@ const { loadClipper } = await import('../src/pcb/modules/copper-fill-geom.js');
 const { ModifyBoardShapeCommand } = await import('../src/pcb/modules/shape-commands.js');
 const { AddFillCommand, RemoveFillCommand, ModifyFillCommand } = await import('../src/pcb/modules/copper-fill-commands.js');
 const { captureBoardShapeState } = await import('../src/pcb/modules/board-shapes.js');
-const { bindPictureRefreshHold } = await import('../src/pcb/modules/picture-refresh.js');
+const { pictureRefreshHold } = await import('../src/pcb/modules/picture-refresh.js');
 const { runDRC } = await import('../src/pcb/modules/drc.js');
 await loadClipper();
 
@@ -120,22 +120,15 @@ try {
     assert.ok(noFill.reports[0].violations.some(v => v.rule === 'clearance' || v.rule === 'short'),
         'genuine conflicts are still reported once geometry settles');
 
-    const eventTarget = () => {
-        const handlers = new Map();
-        return { addEventListener: (type, fn) => handlers.set(type, fn),
-            removeEventListener: type => handlers.delete(type),
-            fire: (type, event) => handlers.get(type)?.({ type, ...event }) };
-    };
-    const input = eventTarget(), host = eventTarget();
-    bindPictureRefreshHold(app, input, host);
-    input.fire('pointerdown', { button: 0, pointerId: 1 });
+    const hold = pictureRefreshHold(app);
+    hold.begin();
     command.undo();
     const count = reports.length;
     assert.ok(timers.size <= 1, 'held input postpones geometry; only deferred DRC debt may poll');
     app._scheduleDRC();
     flushFrames();
     assert.equal(reports.length, count, 'DRC also waits throughout held property edits');
-    host.fire('pointerup', { pointerId: 1 });
+    hold.end();
     flushTimers();
     flushFrames();
     assert.equal(reports.length, count + 1);

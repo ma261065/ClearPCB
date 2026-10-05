@@ -1,4 +1,3 @@
-import { setCheckboxState } from './ui-utils.js';
 import { propertyRank, sortByPropertyOrder } from '../../shared/ui/property-order.js';
 import { ModifyPropertyCommand, ModifyShapeCommand, BatchCommand } from './commands.js';
 import { BULGE_EPS } from '../../shapes/arc-edge.js';
@@ -8,26 +7,32 @@ import { adaptShortcutText } from './platform-keys.js';
 import { canDecomposeRoundedCorners } from '../../shapes/shape-decompose.js';
 import { decomposeShapeCorners, appendArcToLineCommand } from './context-menu.js';
 import { hasAny3DModel, openComponent3DFromData } from '../../components/model3d-source.js';
-import { redrawPropertyPreview, createPropertyPreview, createPropertyBinding,
-    commitPropertyPreviewInput, bindPropertyPreviewInput } from '../../shapes/property-preview.js';
+import { redrawPropertyPreview, createPropertyPreview, createPropertyBinding } from '../../shapes/property-preview.js';
 import { canRoundPathNode } from '../../shapes/path-geometry.js';
 import { beginPastePreview, cutSelection } from './clipboard.js';
 import { flipComponentH, flipComponentV, rotateComponentLeft, rotateComponentRight } from './components.js';
 import { hasOwnLock, isSchematicLocked } from '../../shapes/lock-owner.js';
 import { runSchematicDeleteAction } from './editor-actions.js';
 import { getShapeNodeFocus, getShapeSegmentFocus, setShapeNodeFocus, setShapeSegmentFocus } from './shape-focus.js';
-import { bindSettledChange } from '../../shared/ui/settled-input.js';
+import { renderSchematicPropertyPanel } from './property-host.js';
 
-// Retire panel callbacks on rebuild without losing pending numeric completion.
+/** @typedef {import('../../shared/ui/property-fields.js').PropertyField} PropertyField */
+/** @typedef {import('../../shared/ui/property-fields.js').PropertyPanel} PropertyPanel */
+
 const propertyPanels = new WeakMap();
-const propertyBindings = new WeakMap();
+const propertyStates = new WeakMap();
 
 export function hasSchematicPropertyPreview(app) {
-    return !!propertyBindings.get(app)?.active;
+    return !!propertyStates.get(app)?.binding.active;
 }
 
 export function cancelSchematicPropertyPreview(app) {
-    return propertyBindings.get(app)?.cancel() || false;
+    const state = propertyStates.get(app);
+    if (!state) return false;
+    const active = state.binding.active;
+    const cancelled = state.binding.cancel() || false;
+    if (active) state.generation = (state.generation || 0) + 1;
+    return cancelled;
 }
 
 /**
@@ -56,9 +61,6 @@ export function mergeDescriptors(selection) {
     const first = sortByPropertyOrder(selection[0].getPropertyDescriptors(), descriptorOrderKey);
     if (selection.length === 1) return first;
 
-    // Keep only keys that every item declares, except Locked: it shows whenever any
-    // item has its own lock (owned field texts follow their owner), so a whole
-    // selection can always be unlocked in one step, as in the PCB editor.
     const descriptors = selection.map(s => s.getPropertyDescriptors());
     const lockDescriptor = descriptors.flat().find(item => item.key === 'locked');
     const merged = first.some(desc => desc.key === 'locked') || !lockDescriptor ? first : [lockDescriptor, ...first];
@@ -78,17 +80,6 @@ export function mergeDescriptors(selection) {
 /** Canonical-order key of a descriptor; `orderKey` lets a property sort as a related one. */
 const descriptorOrderKey = desc => desc.orderKey || desc.key;
 
-/**
- * Insert a `data-prop` row before the first sibling row that the canonical order puts after it.
- * @param {HTMLElement} container @param {HTMLElement} row
- */
-function insertByPropertyOrder(container, row) {
-    const rank = propertyRank(row.dataset.prop);
-    const next = /** @type {HTMLElement[]} */ ([...container.children])
-        .find(child => child.dataset?.prop && propertyRank(child.dataset.prop) > rank);
-    container.insertBefore(row, next || null);
-}
-
 function headerLabel(selection) {
     if (selection.length === 0) return 'Properties';
     const displayNames = { rect: 'Rectangle', text: 'Label', Net: 'Net', noconnect: 'No Connect', polyline: 'Line' };
@@ -102,9 +93,7 @@ function headerLabel(selection) {
     if (types.every(t => t === first)) {
         if (first === 'Component') {
             const names = new Set(selection.map(s => s.name).filter(Boolean));
-            if (names.size === 1) {
-                return `Component - ${[...names][0].toUpperCase()}`;
-            }
+            if (names.size === 1) return `Component - ${[...names][0].toUpperCase()}`;
             return 'Component';
         }
         return displayNames[first] || first.charAt(0).toUpperCase() + first.slice(1);
@@ -112,19 +101,8 @@ function headerLabel(selection) {
     return 'Multiple';
 }
 
-/** Create a ribbon-group style sub-section with a title label. */
-function _createSection(title) {
-    const group = document.createElement('div');
-    group.className = 'ribbon-group';
-    const titleEl = document.createElement('div');
-    titleEl.className = 'ribbon-group-title';
-    titleEl.textContent = title;
-    group.appendChild(titleEl);
-    const content = document.createElement('div');
-    content.className = 'ribbon-group-items';
-    group.appendChild(content);
-    return { group, content };
-}
+const summaryText = selection => selection.length === 0 ? 'None selected'
+    : selection.length === 1 ? '1 selected' : `${selection.length} selected`;
 
 /** Collect existing electrical net names for editable wire suggestions. */
 function wireNetNames(app) {
@@ -136,66 +114,19 @@ function wireNetNames(app) {
 }
 
 /**
- * Append an editable Net field with a menu of the current schematic's nets (same control as the PCB editor).
- * @param {any} app @param {HTMLElement} content @param {string} id @param {string} value
+ * Append an editable Net field descriptor with a menu of current schematic nets.
+ * @param {any} app @param {PropertyField[]} fields @param {string} id @param {string} value
  * @param {(net: string) => void} onChange
- * @param {{allowAuto?: boolean, isCurrent?: () => boolean, readOnly?: boolean}} [options]
+ * @param {{allowAuto?: boolean, isCurrent?: () => boolean, readOnly?: boolean, key?: string}} [options]
  */
-function appendWireNetField(app, content, id, value, onChange, { allowAuto = false, isCurrent = () => true, readOnly = false } = {}) {
-    const row = document.createElement('div');
-    row.className = 'prop-row';
-    row.dataset.prop = 'net';
-    const label = document.createElement('label');
-    label.setAttribute('for', id);
-    label.textContent = 'Net';
-    const control = document.createElement('span');
-    control.className = 'prop-net-control';
-    const input = document.createElement('input');
-    input.type = 'text';
-    input.id = id;
-    input.value = value || '';
-    input.placeholder = allowAuto ? 'Auto' : 'None';
-    const menu = document.createElement('details');
-    menu.className = 'prop-net-menu';
-    const summary = document.createElement('summary');
-    summary.setAttribute('aria-label', 'Select existing net');
-    const options = document.createElement('div');
-    for (const net of ['', ...wireNetNames(app)]) {
-        const option = document.createElement('button');
-        option.type = 'button';
-        option.dataset.net = net;
-        option.textContent = net || input.placeholder;
-        options.appendChild(option);
-    }
-    menu.append(summary, options);
-    const commit = () => {
-        if (isCurrent()) onChange(input.value.trim());
-    };
-    input.addEventListener('change', commit);
-    menu.addEventListener('click', (event) => {
-        const target = /** @type {Element|null} */ (event.target);
-        const option = /** @type {HTMLElement|null} */ (target?.closest?.('button[data-net]') || null);
-        if (!option) return;
-        input.value = option.dataset.net || '';
-        commit();
-        menu.open = false;
+function appendWireNetField(app, fields, id, value, onChange, {
+    allowAuto = false, isCurrent = () => true, readOnly = false, key = 'net',
+} = {}) {
+    fields.push({
+        key, prop: 'net', id, type: 'net', label: 'Net', value: value || '',
+        placeholder: allowAuto ? 'Auto' : 'None', disabled: readOnly, nets: wireNetNames(app),
+        commit: net => { if (isCurrent()) onChange(net); },
     });
-    menu.addEventListener('toggle', () => {
-        if (!menu.open) return;
-        const current = input.value.trim();
-        for (const option of /** @type {NodeListOf<HTMLElement>} */ (options.querySelectorAll('button[data-net]'))) {
-            option.toggleAttribute('aria-current', option.dataset.net === current);
-        }
-    });
-    control.append(input);
-    if (readOnly) {
-        input.readOnly = true;
-        input.style.opacity = '0.7';
-    } else {
-        control.append(menu);
-    }
-    row.append(label, control);
-    content.appendChild(row);
 }
 
 const NEW_SHAPE_TOOLS = new Map([
@@ -210,721 +141,386 @@ const NEW_SHAPE_TOOLS = new Map([
     ['noconnect', 'No Connect'],
 ]);
 
-/** Render drawing defaults in Properties before a geometric shape is placed. */
-function renderNewShapeProperties(app, panel, tool, isCurrent) {
-    const label = NEW_SHAPE_TOOLS.get(tool);
-    if (!label) return false;
-    const canEdit = () => isCurrent() && app.currentTool === tool;
+const clamp = (value, min = -Infinity, max = Infinity) => Math.min(max, Math.max(min, value));
+const round2 = value => Number(value.toFixed(2));
+const sameContext = (a, b) => !!a && !!b
+    && a.selection.length === b.selection.length
+    && a.selection.every((item, index) => item === b.selection[index])
+    && a.segmentShape === b.segmentShape && a.segmentEdge === b.segmentEdge
+    && a.nodeShape === b.nodeShape && a.nodeId === b.nodeId;
 
-    const sec = _createSection(`New ${label}`);
-    if (tool === 'wire') {
-        appendWireNetField(app, sec.content, 'prop_newWireNet', app.toolOptions?.wireNet, (net) => {
-            app.toolOptions.wireNet = net;
-        }, { allowAuto: true, isCurrent: canEdit });
-        panel.appendChild(sec.group);
-        return true;
-    }
-    if (tool === 'noconnect') {
-        panel.appendChild(sec.group);
-        return true;
-    }
-    if (tool === 'text' || tool === 'net') {
-        const fontSizeRow = document.createElement('div');
-        fontSizeRow.className = 'prop-row';
-        fontSizeRow.dataset.prop = 'fontSize';
-        const fontSizeLabel = document.createElement('label');
-        fontSizeLabel.setAttribute('for', 'prop_newShapeFontSize');
-        fontSizeLabel.textContent = 'Text Size (mm)';
-        const fontSizeInput = document.createElement('input');
-        fontSizeInput.type = 'number';
-        fontSizeInput.id = 'prop_newShapeFontSize';
-        fontSizeInput.min = '0.5';
-        fontSizeInput.max = '50';
-        fontSizeInput.step = '0.5';
-        const optionKey = tool === 'text' ? 'fontSize' : 'netFontSize';
-        fontSizeInput.value = String(app.toolOptions?.[optionKey] ?? (tool === 'text' ? 2 : 1.4));
-        fontSizeInput.addEventListener('change', () => {
-            if (!canEdit()) return;
-            const value = Number(fontSizeInput.value);
-            if (!Number.isFinite(value)) return;
-            app.toolOptions[optionKey] = Math.min(50, Math.max(0.5, value));
-            fontSizeInput.value = String(app.toolOptions[optionKey]);
-        });
-        fontSizeRow.append(fontSizeLabel, fontSizeInput);
-        sec.content.appendChild(fontSizeRow);
-        panel.appendChild(sec.group);
-        return true;
-    }
-
-    const lineWidthRow = document.createElement('div');
-    lineWidthRow.className = 'prop-row';
-    const lineWidthLabel = document.createElement('label');
-    lineWidthLabel.setAttribute('for', 'prop_newShapeLineWidth');
-    lineWidthLabel.textContent = 'Line Width (mm)';
-    const lineWidthInput = document.createElement('input');
-    lineWidthInput.type = 'number';
-    lineWidthInput.id = 'prop_newShapeLineWidth';
-    lineWidthInput.min = '0.05';
-    lineWidthInput.max = '5';
-    lineWidthInput.step = '0.05';
-    lineWidthInput.value = String(app.toolOptions?.lineWidth ?? 0.2);
-    lineWidthInput.addEventListener('change', () => {
-        if (!canEdit()) return;
-        const value = Number(lineWidthInput.value);
-        if (!Number.isFinite(value)) return;
-        app.toolOptions.lineWidth = Math.min(5, Math.max(0.05, value));
-        lineWidthInput.value = String(app.toolOptions.lineWidth);
-    });
-    lineWidthRow.dataset.prop = 'lineWidth';
-    lineWidthRow.append(lineWidthLabel, lineWidthInput);
-
-    const fillRow = document.createElement('div');
-    fillRow.className = 'prop-row';
-    fillRow.dataset.prop = 'fill';
-    const fillLabel = document.createElement('label');
-    const fillInput = document.createElement('input');
-    fillInput.type = 'checkbox';
-    fillInput.id = 'prop_newShapeFill';
-    fillInput.checked = !!app.toolOptions?.fill;
-    fillInput.addEventListener('change', () => {
-        if (canEdit()) app.toolOptions.fill = fillInput.checked;
-    });
-    fillLabel.append(fillInput, ' Fill');
-    fillRow.appendChild(fillLabel);
-    sec.content.append(fillRow, lineWidthRow);
-
-    panel.appendChild(sec.group);
-    return true;
+function contextFor(selection, selectedSegment, selectedNode) {
+    return {
+        selection: [...selection],
+        segmentShape: selectedSegment?.shape || null,
+        segmentEdge: selectedSegment?.edgeId || null,
+        nodeShape: selectedNode?.shape || null,
+        nodeId: selectedNode?.nodeId || null,
+    };
 }
 
-// ── panel rendering ──────────────────────────────────────────────
+function editorState(app, context) {
+    let state = propertyStates.get(app);
+    if (!state) {
+        state = { binding: createPropertyBinding(), context: null, previews: new Map(), isCurrent: () => false, generation: 0 };
+        propertyStates.set(app, state);
+    }
+    if (!sameContext(state.context, context)) {
+        state.context = context;
+        state.previews = new Map();
+    }
+    return state;
+}
 
-/**
- * Rebuilds the properties panel DOM: shows merged property descriptors,
- * clipboard actions, transform buttons (for components), and delete.
- * @param {object} app - Application state.
- * @param {Array} selection - Currently selected shapes/components.
- */
-export function updatePropertiesPanel(app, selection) {
-    const panel = app.ui.propertiesPanel;
-    if (!panel) return;
-    // A replaced panel root must not hide an unfinished edit from save/history.
-    const binding = propertyBindings.get(app) || createPropertyBinding();
-    propertyBindings.set(app, binding);
-    const currentPanel = { binding };
-    propertyPanels.set(panel, currentPanel);
-    const refreshControls = [];
-    const isCurrentSelection = () => {
-        if (app.ui.propertiesPanel !== panel || propertyPanels.get(panel) !== currentPanel) return false;
-        const current = app.selection.getSelection();
-        return current.length === selection.length && current.every((item, index) => item === selection[index]);
-    };
-    const applyProperty = (key, value) => {
-        if (isCurrentSelection()) applyCommonProperty(app, key, value);
-    };
+function optionValue(value) {
+    const numeric = parseFloat(value);
+    return !Number.isNaN(numeric) && String(numeric) === String(value) ? numeric : value;
+}
 
-    // Clear previous content
-    panel.innerHTML = '';
-    if (selection.length === 0 && renderNewShapeProperties(app, panel, app.currentTool, isCurrentSelection)) return;
-    const singleWire = selection.length === 1 && selection[0].type === 'wire' ? selection[0] : null;
+function valuesFor(selection, key) {
+    return selection.map(item => item[key]);
+}
+
+function allSame(values, equal = (a, b) => a === b) {
+    return values.length > 0 && values.every(value => equal(value, values[0]));
+}
+
+function scalarFieldValue(selection, key, empty = '') {
+    const values = valuesFor(selection, key);
+    const same = allSame(values);
+    return { value: same ? values[0] ?? empty : empty, mixed: !same };
+}
+
+function numberValue(selection, key, selectedSegment, selectedNode) {
+    if (key === 'bulge' && selectedSegment) {
+        return { value: selectedSegment.shape.getEdgeAttr(selectedSegment.edgeId, 'bulge') || 0, mixed: false };
+    }
+    if (key === 'lineWidth' && selectedSegment) {
+        return { value: selectedSegment.shape.getEdgeAttr(selectedSegment.edgeId, 'width'), mixed: false };
+    }
+    if (key === 'cornerRadius' && selectedNode) {
+        return { value: selectedNode.shape.nodeCornerRadius(selectedNode.nodeId), mixed: false };
+    }
+    const values = valuesFor(selection, key).filter(value => typeof value === 'number');
+    const same = allSame(values, (a, b) => Math.abs(a - b) < 1e-6);
+    return { value: same ? values[0] : undefined, mixed: !same };
+}
+
+function selectedFocus(app, selection) {
+    const segmentFocus = getShapeSegmentFocus(app);
     const selectedSegment = selection.length === 1
         && selection[0].type === 'polyline'
-        && getShapeSegmentFocus(app)?.shapeId === selection[0].id
-        && selection[0].edges?.has(getShapeSegmentFocus(app).edgeId)
-        ? { shape: selection[0], edgeId: getShapeSegmentFocus(app).edgeId }
+        && segmentFocus?.shapeId === selection[0].id
+        && selection[0].edges?.has(segmentFocus.edgeId)
+        ? { shape: selection[0], edgeId: segmentFocus.edgeId }
         : null;
+    const nodeFocus = getShapeNodeFocus(app);
     const selectedNode = selection.length === 1
         && selection[0].type === 'polyline'
-        && getShapeNodeFocus(app)?.shapeId === selection[0].id
-        && selection[0].nodes?.has(getShapeNodeFocus(app).nodeId)
-        ? { shape: selection[0], nodeId: getShapeNodeFocus(app).nodeId }
+        && nodeFocus?.shapeId === selection[0].id
+        && selection[0].nodes?.has(nodeFocus.nodeId)
+        ? { shape: selection[0], nodeId: nodeFocus.nodeId }
         : null;
-    const singlePolyline = selection.length === 1 && selection[0].type === 'polyline'
-        ? selection[0]
-        : null;
+    return { selectedSegment, selectedNode };
+}
+
+/**
+ * Describe drawing defaults in Properties before a geometric shape is placed.
+ * @returns {PropertyPanel|null}
+ */
+function renderNewShapeProperties(app, tool, isCurrent) {
+    const label = NEW_SHAPE_TOOLS.get(tool);
+    if (!label) return null;
+    const canEdit = () => isCurrent() && app.currentTool === tool;
+    const options = app.toolOptions || {};
+    const setOption = (key, value) => {
+        if (!canEdit()) return;
+        app.toolOptions[key] = value;
+    };
+    /** @returns {PropertyField} */
+    const numberDefault = (key, id, fieldLabel, value, { min, max, step }) => ({
+        key, id, type: 'number', label: fieldLabel, value, min, max, step,
+        normalize: next => clamp(next, min, max),
+        preview: next => setOption(key, clamp(next, min, max)),
+        commit: next => setOption(key, clamp(next, min, max)),
+        cancel: () => false,
+    });
+    /** @type {PropertyField[]} */
+    const fields = [];
+    if (tool === 'wire') {
+        appendWireNetField(app, fields, 'prop_newWireNet', options.wireNet, net => {
+            app.toolOptions.wireNet = net;
+        }, { allowAuto: true, isCurrent: canEdit });
+    } else if (tool === 'text' || tool === 'net') {
+        const key = tool === 'text' ? 'fontSize' : 'netFontSize';
+        fields.push({ ...numberDefault(key, 'prop_newShapeFontSize', 'Text Size (mm)',
+            options[key] ?? (tool === 'text' ? 2 : 1.4), { min: 0.5, max: 50, step: 0.5 }), prop: 'fontSize' });
+    } else if (tool !== 'noconnect') {
+        fields.push({
+            key: 'fill', id: 'prop_newShapeFill', type: 'checkbox', label: 'Fill', value: !!options.fill,
+            commit: value => { if (canEdit()) app.toolOptions.fill = value; },
+        });
+        fields.push(numberDefault('lineWidth', 'prop_newShapeLineWidth', 'Line Width (mm)',
+            options.lineWidth ?? 0.2, { min: 0.05, max: 5, step: 0.05 }));
+    }
+    return { title: `New ${label}`, summary: 'None selected', fields, actions: [] };
+}
+
+function normalizeNumber(desc, affected, value) {
+    let next = value;
+    if (desc.key === 'rotation') next = ((Math.round(next) % 360) + 360) % 360;
+    if (desc.min != null) next = Math.max(desc.min, next);
+    if (desc.max != null) next = Math.min(desc.max, next);
+    if (desc.key === 'lineWidth') {
+        const circleLimit = Math.min(...affected.map(item => item.type === 'circle' ? item.radius : Infinity));
+        next = Math.min(next, circleLimit);
+    }
+    if (['cornerRadius', 'bulge'].includes(desc.key)) next = round2(next);
+    return next;
+}
+
+function numberFieldKey(desc, selectedSegment, selectedNode) {
+    if (selectedSegment && desc.key === 'lineWidth') return 'segmentLineWidth';
+    if (selectedSegment && desc.key === 'bulge') return 'segmentBulge';
+    if (selectedNode && desc.key === 'cornerRadius') return 'nodeCornerRadius';
+    return desc.key;
+}
+
+/** @returns {PropertyField} */
+function createNumberField(app, selection, desc, context) {
+    const { selectedSegment, selectedNode, singlePolyline, allLocked, state, isCurrentSelection } = context;
+    const key = desc.key;
+    const affected = key === 'bulge' && selectedSegment ? [selectedSegment.shape]
+        : selection.filter(item => key in item && !isSchematicLocked(item));
+    const usesGeometryState = item => ['lineWidth', 'cornerRadius', 'diameter', 'bulge'].includes(key)
+        && ['polyline', 'circle', 'arc'].includes(item.type);
+    const geometryEdit = affected.some(usesGeometryState);
+    const baseFieldKey = numberFieldKey(desc, selectedSegment, selectedNode);
+    const fieldKey = `${baseFieldKey}@${state.generation || 0}`;
+    const previewKey = `${baseFieldKey}:${selectedSegment?.edgeId || ''}:${selectedNode?.nodeId || ''}`;
+    let preview = state.previews.get(previewKey);
+    const readValue = () => numberValue(selection, key, selectedSegment, selectedNode);
+    const refresh = () => { if (state.isCurrent()) app.updatePropertiesPanel?.(app.selection.getSelection()); };
+    if (!preview) {
+        preview = createPropertyPreview({
+            binding: state.binding,
+            isCurrent: () => state.isCurrent(),
+            beforeCommit: () => {
+                if (key === 'bulge' && selectedSegment
+                    && Math.abs(selectedSegment.shape.getEdgeAttr(selectedSegment.edgeId, 'bulge') || 0) < BULGE_EPS) {
+                    selectedSegment.shape.cleanGraph();
+                }
+            },
+            capture: () => affected.map(item => usesGeometryState(item) ? item.captureState() : item[key]),
+            restore: snapshot => {
+                affected.forEach((item, index) => {
+                    if (usesGeometryState(item)) item.applyState(snapshot[index]);
+                    else item[key] = snapshot[index];
+                    item.invalidate?.();
+                });
+            },
+            redraw: () => redrawPropertyPreview(selection, { renderScene: () => {
+                app.renderShapes(false);
+                if (key === 'rotation' && affected.includes(app.textEdit?.shape)) app.updateTextEditOverlay?.();
+            } }),
+            commit: (before, after, { rebuild = true } = {}) => {
+                let structureChanged = false;
+                if (geometryEdit) {
+                    const batch = new BatchCommand(`Change ${key}`);
+                    const replacements = new Map();
+                    affected.forEach((item, index) => {
+                        if (key === 'bulge' && item.type === 'arc'
+                            && Math.abs(bulgeRatio(after[index].startPoint, after[index].endPoint, after[index].bulgePoint)) < BULGE_EPS) {
+                            replacements.set(item, appendArcToLineCommand(app, batch, item, after[index]));
+                        } else if (JSON.stringify(before[index]) !== JSON.stringify(after[index])) {
+                            batch.add(usesGeometryState(item) ? new ModifyShapeCommand(app, item, before[index], after[index])
+                                : new ModifyPropertyCommand(app, [item], key, after[index]));
+                        }
+                    });
+                    app.history.execute(batch);
+                    if (selectedSegment && !selectedSegment.shape.edges.has(selectedSegment.edgeId)) setShapeSegmentFocus(app, null);
+                    if (replacements.size) {
+                        const nextSelection = selection.map(item => replacements.get(item) || item);
+                        app.selection.clearSelection();
+                        for (const item of nextSelection) app.selection.select(item, true);
+                        setShapeSegmentFocus(app, null);
+                        setShapeNodeFocus(app, null);
+                    }
+                    structureChanged = replacements.size > 0 || (key === 'bulge' && !!selectedSegment
+                        && Math.abs(selectedSegment.shape.getEdgeAttr(selectedSegment.edgeId, 'bulge') || 0) < BULGE_EPS);
+                } else {
+                    app.history.execute(new ModifyPropertyCommand(app, affected, key, after[0]));
+                    if (['fontSize', 'rotation'].includes(key) && affected.includes(app.textEdit?.shape)) app.updateTextEditOverlay?.();
+                }
+                app.fileManager.setDirty(true);
+                if (!structureChanged && !rebuild) refresh();
+                else app.updatePropertiesPanel?.(app.selection.getSelection());
+            },
+        });
+        state.previews.set(previewKey, preview);
+    }
+    const { value, mixed } = readValue();
+    const previewValue = raw => {
+        if (!isCurrentSelection()) return;
+        const next = normalizeNumber(desc, affected, raw);
+        preview.update(before => {
+            if (key === 'bulge' && selectedSegment) {
+                selectedSegment.shape.setEdgeAttr(selectedSegment.edgeId, 'bulge', next);
+                selectedSegment.shape.isRect = selectedSegment.shape.isAxisAlignedRect();
+            } else if (key === 'lineWidth' && singlePolyline) {
+                if (selectedSegment) singlePolyline.setEdgeAttr(selectedSegment.edgeId, 'width', next);
+                else {
+                    singlePolyline.lineWidth = next;
+                    for (const edge of singlePolyline.edges.values()) delete edge.width;
+                    singlePolyline.invalidate();
+                }
+            } else if (key === 'cornerRadius' && selectedNode) {
+                selectedNode.shape.setNodeCornerRadius(selectedNode.nodeId, next);
+            } else affected.forEach((item, index) => {
+                if (geometryEdit && key === 'diameter') item.applyState(before[index]);
+                item[key] = next;
+                if (item.type === 'polyline' && key === 'lineWidth') {
+                    for (const edge of item.edges.values()) delete edge.width;
+                }
+                if (item.type === 'polyline' && key === 'cornerRadius') item.nodeCornerRadii = {};
+                item.invalidate?.();
+            });
+        });
+        refresh();
+    };
+    return {
+        key: fieldKey, prop: descriptorOrderKey(desc), id: `prop_${key}`, type: 'number', label: desc.label,
+        value, mixed, disabled: allLocked, min: desc.min, max: desc.max, step: desc.step,
+        numberFormat: key === 'rotation' ? 'rotation' : undefined,
+        format: ['cornerRadius', 'bulge'].includes(key) ? next => Number(next).toFixed(2) : undefined,
+        normalize: next => normalizeNumber(desc, affected, next),
+        preview: previewValue,
+        commit: () => state.binding.commit({ rebuild: true }),
+        cancel: () => {
+            const changed = state.binding.cancel();
+            refresh();
+            return changed;
+        },
+    };
+}
+
+/** @returns {PropertyField|null} */
+function descriptorField(app, selection, desc, context) {
+    const { allLocked, selectedSegment, selectedNode, applyProperty } = context;
+    const disabled = allLocked && desc.key !== 'locked';
+    const common = { key: desc.key, prop: descriptorOrderKey(desc), id: `prop_${desc.key}`, label: desc.label, disabled };
+    if (desc.type === 'number') return createNumberField(app, selection, desc, context);
+    if (desc.type === 'checkbox') {
+        const values = desc.key === 'locked' ? selection.filter(hasOwnLock).map(s => s.locked) : valuesFor(selection, desc.key);
+        const same = allSame(values);
+        return { ...common, type: 'checkbox', value: same ? !!values[0] : false,
+            mixed: !same, disabled, commit: value => applyProperty(desc.key, value) };
+    }
+    if (desc.type === 'text') {
+        const { value, mixed } = scalarFieldValue(selection, desc.key, '');
+        return { ...common, type: 'text', value: String(value ?? ''), mixed, disabled: disabled || !!desc.readonly,
+            commit: value => applyProperty(desc.key, value) };
+    }
+    if (desc.type === 'select' && Array.isArray(desc.options)) {
+        const { value, mixed } = scalarFieldValue(selection, desc.key, '');
+        return { ...common, type: 'select', value, mixed, options: desc.options,
+            commit: value => applyProperty(desc.key, optionValue(value)) };
+    }
+    return null;
+}
+
+/** @returns {PropertyField[]} */
+function describeFields(app, selection, context) {
+    const { selectedSegment, selectedNode, singleWire, allLocked, applyProperty, isCurrentSelection, state } = context;
     const selectedNodePath = selectedNode ? selectedNode.shape.toEditablePath() : null;
     const showNodeCornerRadius = selectedNodePath && canRoundPathNode(selectedNodePath,
         Object.values(selectedNodePath.nodeIds).indexOf(selectedNode.nodeId));
-    const previewPolylineWidth = (value) => {
-        if (!singlePolyline) return;
-        if (selectedSegment) {
-            singlePolyline.setEdgeAttr(selectedSegment.edgeId, 'width', value);
-        } else {
-            singlePolyline.lineWidth = value;
-            for (const edge of singlePolyline.edges.values()) delete edge.width;
-            singlePolyline.invalidate();
-        }
+    const fields = [];
+    const descriptors = selectedNode
+        ? (showNodeCornerRadius
+            ? [{ key: 'cornerRadius', label: 'Corner Radius (mm)', type: 'number', min: 0, max: 25, step: 0.5 }] : [])
+        : selectedSegment
+            ? mergeDescriptors(selection).filter((desc) => desc.key === 'lineWidth')
+            : mergeDescriptors(selection);
+    const activeSegmentBulge = selectedSegment
+        && state.previews.get(`segmentBulge:${selectedSegment.edgeId}:`)?.active;
+    if (selectedSegment && (activeSegmentBulge
+        || Math.abs(selectedSegment.shape.getEdgeAttr(selectedSegment.edgeId, 'bulge') || 0) >= BULGE_EPS)) {
+        descriptors.push({ key: 'bulge', label: 'Bulge', type: 'number', min: -1, max: 1, step: 0.05 });
+    }
+    let netShown = !singleWire;
+    const appendNet = () => {
+        appendWireNetField(app, fields, 'prop_net', singleWire.net, net => {
+            if (!net) {
+                app.updatePropertiesPanel?.(selection);
+                return;
+            }
+            applyProperty('net', net);
+        }, { isCurrent: isCurrentSelection, readOnly: allLocked });
     };
-    const allLocked = selection.length > 0 && selection.every(isSchematicLocked);
-
-    // ── Selection / Properties section ──
-    {
-        const label = selectedNode ? 'Node' : selectedSegment
-            ? `${Math.abs(selectedSegment.shape.getEdgeAttr(selectedSegment.edgeId, 'bulge') || 0) >= BULGE_EPS ? 'Arc' : 'Line'}${selectedSegment.shape.edges.size === 1 ? '' : ' Segment'}`
-            : headerLabel(selection);
-        const sec = _createSection(label);
-
-        const countEl = document.createElement('div');
-        countEl.className = 'prop-row';
-        const countSpan = document.createElement('span');
-        countSpan.className = 'prop-value';
-        countSpan.textContent = selection.length === 0 ? 'None selected'
-            : selection.length === 1 ? '1 selected'
-            : `${selection.length} selected`;
-        countEl.appendChild(countSpan);
-        sec.content.appendChild(countEl);
-
-        if (selection.length > 0) {
-            // Spacing after selection count
-            const spacer = document.createElement('div');
-            spacer.style.height = '6px';
-            sec.content.appendChild(spacer);
-
-            // One divider separates Locked from the rest of the properties.
-            const separateFromLocked = () => {
-                const last = /** @type {HTMLElement|null} */ (sec.content.lastElementChild);
-                if (last?.dataset?.prop !== 'locked') return;
-                const divider = document.createElement('hr');
-                divider.style.cssText = 'border:none;border-top:1px solid var(--border-color);margin:4px 0;';
-                sec.content.appendChild(divider);
-            };
-            // A single wire's Net row takes its canonical place among the descriptors.
-            const appendNet = () => {
-                separateFromLocked();
-                if (allLocked) {
-                    appendWireNetField(app, sec.content, 'prop_net', singleWire.net, () => {}, { readOnly: true });
-                } else {
-                    appendWireNetField(app, sec.content, 'prop_net', singleWire.net, (net) => {
-                        if (!net) {
-                            app.updatePropertiesPanel?.(selection);
-                            return;
-                        }
-                        applyProperty('net', net);
-                    }, { isCurrent: isCurrentSelection });
-                }
-            };
-            let netShown = !singleWire;
-
-            const descriptors = selectedNode
-                ? (showNodeCornerRadius
-                    ? [{ key: 'cornerRadius', label: 'Corner Radius (mm)', type: 'number', min: 0, max: 25, step: 0.5 }] : [])
-                : selectedSegment
-                    ? mergeDescriptors(selection).filter((desc) => desc.key === 'lineWidth')
-                    : mergeDescriptors(selection);
-            if (selectedSegment && Math.abs(selectedSegment.shape.getEdgeAttr(selectedSegment.edgeId, 'bulge') || 0) >= BULGE_EPS) {
-                descriptors.push({ key: 'bulge', label: 'Bulge', type: 'number', min: -1, max: 1, step: 0.05 });
-            }
-
-            for (const desc of descriptors) {
-                if (!netShown && propertyRank(descriptorOrderKey(desc)) > propertyRank('net')) {
-                    appendNet();
-                    netShown = true;
-                }
-                if (desc.key !== 'locked') separateFromLocked();
-
-                const row = document.createElement('div');
-                row.className = 'prop-row';
-                row.dataset.prop = descriptorOrderKey(desc);
-                const disabled = allLocked && desc.key !== 'locked';
-
-                if (desc.type === 'checkbox') {
-                    const lbl = document.createElement('label');
-                    const input = document.createElement('input');
-                    input.type = 'checkbox';
-                    const values = desc.key === 'locked'
-                        ? selection.filter(hasOwnLock).map(s => s.locked)
-                        : selection.map(s => s[desc.key]);
-                    setCheckboxState(input, values);
-                    if (disabled) {
-                        input.disabled = true;
-                        lbl.style.opacity = '0.4';
-                        lbl.style.pointerEvents = 'none';
-                    }
-                    input.addEventListener('change', () => {
-                        applyProperty(desc.key, input.checked);
-                    });
-                    lbl.appendChild(input);
-                    lbl.append(` ${desc.label}`);
-                    row.appendChild(lbl);
-
-                } else if (desc.type === 'number') {
-                    const lbl = document.createElement('label');
-                    lbl.setAttribute('for', `prop_${desc.key}`);
-                    lbl.textContent = desc.label;
-                    row.appendChild(lbl);
-
-                    const input = document.createElement('input');
-                    input.type = 'number';
-                    input.id = `prop_${desc.key}`;
-                    if (desc.key === 'rotation') input.dataset.numberFormat = 'rotation';
-                    if (desc.min != null) input.min = desc.min;
-                    if (desc.max != null) input.max = desc.max;
-                    if (desc.step != null) input.step = desc.step;
-
-                    const refreshNumber = () => {
-                        const values = desc.key === 'bulge' && selectedSegment
-                            ? [selectedSegment.shape.getEdgeAttr(selectedSegment.edgeId, 'bulge') || 0]
-                            : desc.key === 'lineWidth' && selectedSegment
-                                ? [selectedSegment.shape.getEdgeAttr(selectedSegment.edgeId, 'width')]
-                                : desc.key === 'cornerRadius' && selectedNode
-                                    ? [selectedNode.shape.nodeCornerRadius(selectedNode.nodeId)]
-                                    : selection.map(s => s[desc.key]).filter(v => typeof v === 'number');
-                        const first = values[0];
-                        const allSame = values.length > 0 && values.every(v => Math.abs(v - first) < 1e-6);
-                        input.value = allSame
-                            ? (['cornerRadius', 'bulge'].includes(desc.key) ? Number(first).toFixed(2) : first)
-                            : '';
-                        input.placeholder = allSame ? '' : '—';
-                    };
-                    refreshNumber();
-                    refreshControls.push(refreshNumber);
-                    const isCurrentControl = () => document.getElementById(input.id) === input && isCurrentSelection();
-                    const refreshCurrentControls = () => {
-                        if (isCurrentControl()) {
-                            for (const refresh of refreshControls) refresh();
-                        }
-                    };
-
-                    const affected = desc.key === 'bulge' && selectedSegment ? [selectedSegment.shape]
-                        : selection.filter(item => desc.key in item && !isSchematicLocked(item));
-                    const usesGeometryState = item => ['lineWidth', 'cornerRadius', 'diameter', 'bulge'].includes(desc.key)
-                        && ['polyline', 'circle', 'arc'].includes(item.type);
-                    const geometryEdit = affected.some(usesGeometryState);
-                    const preview = createPropertyPreview({
-                        binding, isCurrent: isCurrentControl,
-                        beforeCommit: () => {
-                            if (desc.key === 'bulge' && selectedSegment
-                                && Math.abs(selectedSegment.shape.getEdgeAttr(selectedSegment.edgeId, 'bulge') || 0) < BULGE_EPS) {
-                                selectedSegment.shape.cleanGraph();
-                            }
-                        },
-                        capture: () => affected.map(item => usesGeometryState(item) ? item.captureState() : item[desc.key]),
-                        restore: state => {
-                            affected.forEach((item, index) => {
-                                if (usesGeometryState(item)) item.applyState(state[index]);
-                                else item[desc.key] = state[index];
-                                item.invalidate?.();
-                            });
-                        },
-                        redraw: () => redrawPropertyPreview(selection, { renderScene: () => {
-                            app.renderShapes(false);
-                            if (desc.key === 'rotation' && affected.includes(app.textEdit?.shape)) app.updateTextEditOverlay?.();
-                        } }),
-                        commit: (before, after, { rebuild = true } = {}) => {
-                            let structureChanged = false;
-                            if (geometryEdit) {
-                                const batch = new BatchCommand(`Change ${desc.key}`);
-                                const replacements = new Map();
-                                affected.forEach((item, index) => {
-                                    if (desc.key === 'bulge' && item.type === 'arc'
-                                        && Math.abs(bulgeRatio(after[index].startPoint, after[index].endPoint, after[index].bulgePoint)) < BULGE_EPS) {
-                                        replacements.set(item, appendArcToLineCommand(app, batch, item, after[index]));
-                                    } else if (JSON.stringify(before[index]) !== JSON.stringify(after[index])) {
-                                        batch.add(usesGeometryState(item) ? new ModifyShapeCommand(app, item, before[index], after[index])
-                                            : new ModifyPropertyCommand(app, [item], desc.key, after[index]));
-                                    }
-                                });
-                                app.history.execute(batch);
-                                if (selectedSegment && !selectedSegment.shape.edges.has(selectedSegment.edgeId)) {
-                                    setShapeSegmentFocus(app, null);
-                                }
-                                if (replacements.size) {
-                                    const nextSelection = selection.map(item => replacements.get(item) || item);
-                                    app.selection.clearSelection();
-                                    for (const item of nextSelection) app.selection.select(item, true);
-                                    setShapeSegmentFocus(app, null);
-                                    setShapeNodeFocus(app, null);
-                                }
-                                structureChanged = replacements.size > 0 || (desc.key === 'bulge' && !!selectedSegment
-                                    && Math.abs(selectedSegment.shape.getEdgeAttr(selectedSegment.edgeId, 'bulge') || 0) < BULGE_EPS);
-                            } else {
-                                app.history.execute(new ModifyPropertyCommand(app, affected, desc.key, after[0]));
-                                if (['fontSize', 'rotation'].includes(desc.key) && affected.includes(app.textEdit?.shape)) app.updateTextEditOverlay?.();
-                            }
-                            app.fileManager.setDirty(true);
-                            if (!structureChanged && !rebuild) {
-                                refreshCurrentControls();
-                            } else {
-                                app.updatePropertiesPanel?.(app.selection.getSelection());
-                            }
-                        },
-                    });
-                    const previewValue = value => {
-                        const text = input.value;
-                        preview.update(before => {
-                            input.value = text;
-                            if (desc.key === 'bulge') value = Number(value.toFixed(2));
-                            if (desc.key === 'lineWidth') value = Math.min(value, ...affected.map(item => item.type === 'circle' ? item.radius : Infinity));
-                            if (desc.key === 'bulge' && selectedSegment) {
-                                selectedSegment.shape.setEdgeAttr(selectedSegment.edgeId, 'bulge', value);
-                                selectedSegment.shape.isRect = selectedSegment.shape.isAxisAlignedRect();
-                            } else if (desc.key === 'lineWidth' && singlePolyline) previewPolylineWidth(value);
-                            else if (desc.key === 'cornerRadius' && selectedNode) selectedNode.shape.setNodeCornerRadius(selectedNode.nodeId, value);
-                            else affected.forEach((item, index) => {
-                                if (geometryEdit && desc.key === 'diameter') item.applyState(before[index]);
-                                item[desc.key] = value;
-                                if (item.type === 'polyline' && desc.key === 'lineWidth') {
-                                    for (const edge of item.edges.values()) delete edge.width;
-                                }
-                                if (item.type === 'polyline' && desc.key === 'cornerRadius') item.nodeCornerRadii = {};
-                                item.invalidate?.();
-                            });
-                            if (desc.key === 'lineWidth' && Number(input.value) !== value) input.value = String(value);
-                            if (desc.key === 'diameter') {
-                                const widthInput = /** @type {HTMLInputElement|null} */ (document.getElementById('prop_lineWidth'));
-                                if (widthInput) {
-                                    const width = affected[0]?.lineWidth;
-                                    const mixed = affected.some(item => Math.abs(item.lineWidth - width) >= 1e-9);
-                                    widthInput.value = mixed ? '' : width.toFixed(2);
-                                    widthInput.placeholder = mixed ? 'Mixed' : '';
-                                }
-                            }
-                        });
-                    };
-                    const commitPreview = () => commitPropertyPreviewInput(input, preview, {
-                        isCurrent: isCurrentControl, focusRoot: panel, refresh: refreshCurrentControls,
-                    });
-                    input.addEventListener('change', () => {
-                        if (!isCurrentControl()) return;
-                        let v = parseFloat(input.value);
-                        if (!Number.isFinite(v)) {
-                            commitPreview();
-                            return;
-                        }
-                        if (desc.key === 'rotation') v = ((Math.round(v) % 360) + 360) % 360;
-                        if (desc.min != null && v < desc.min) v = desc.min;
-                        if (desc.max != null && v > desc.max) v = desc.max;
-                        if (['cornerRadius', 'bulge'].includes(desc.key)) input.value = v.toFixed(2);
-                        else if (parseFloat(input.value) !== v) input.value = String(v);
-                        previewValue(v);
-                    });
-                    bindSettledChange(input, commitPreview);
-                    // Real-time preview while dragging spinner
-                    input.addEventListener('input', () => {
-                        if (!isCurrentControl()) return;
-                        let v = parseFloat(input.value);
-                        if (!Number.isFinite(v)) return;
-                        if (desc.key === 'rotation') {
-                            v = ((Math.round(v) % 360) + 360) % 360;
-                            input.value = String(v);
-                        }
-                        if (desc.min != null && v < desc.min) v = desc.min;
-                        if (desc.max != null && v > desc.max) v = desc.max;
-                        if (desc.key === 'cornerRadius') input.value = v.toFixed(2);
-                        previewValue(v);
-                    });
-                    bindPropertyPreviewInput(input, preview, {
-                        binding, isCurrent: isCurrentControl, focusRoot: panel, refresh: refreshCurrentControls,
-                        onCancel: () => app.updatePropertiesPanel?.(selection),
-                    });
-                    if (disabled) {
-                        input.readOnly = true;
-                        input.style.opacity = '0.7';
-                    }
-                    row.appendChild(input);
-
-                } else if (desc.type === 'text') {
-                    const lbl = document.createElement('label');
-                    lbl.setAttribute('for', `prop_${desc.key}`);
-                    lbl.textContent = desc.label;
-                    row.appendChild(lbl);
-
-                    const input = document.createElement('input');
-                    input.type = 'text';
-                    input.id = `prop_${desc.key}`;
-
-                    const values = selection.map(s => s[desc.key]).filter(v => v != null);
-                    if (values.length === 0) {
-                        input.value = '';
-                        input.placeholder = '—';
-                    } else {
-                        const first = String(values[0]);
-                        const allSame = values.every(v => String(v) === first);
-                        input.value = allSame ? first : '';
-                        if (!allSame) input.placeholder = '—';
-                    }
-
-                    if (desc.readonly || disabled) {
-                        input.readOnly = true;
-                        input.style.opacity = '0.7';
-                    } else {
-                        input.addEventListener('change', () => {
-                            applyProperty(desc.key, input.value);
-                        });
-                    }
-                    row.appendChild(input);
-
-                } else if (desc.type === 'select' && Array.isArray(desc.options)) {
-                    const lbl = document.createElement('label');
-                    lbl.setAttribute('for', `prop_${desc.key}`);
-                    lbl.textContent = desc.label;
-                    row.appendChild(lbl);
-
-                    const select = document.createElement('select');
-                    select.id = `prop_${desc.key}`;
-                    for (const opt of desc.options) {
-                        const option = document.createElement('option');
-                        option.value = opt.value;
-                        option.textContent = opt.label;
-                        select.appendChild(option);
-                    }
-
-                    const values = selection.map(s => s[desc.key]);
-                    const first = values[0];
-                    const allSame = values.every(v => v === first);
-                    select.value = allSame ? first : '';
-
-                    if (disabled) {
-                        select.disabled = true;
-                        select.style.opacity = '0.7';
-                    } else {
-                        select.addEventListener('change', () => {
-                            /** @type {string|number} */
-                            let v = select.value;
-                            // Convert to number if the option values are numeric
-                            const num = parseFloat(v);
-                            if (!Number.isNaN(num) && String(num) === v) v = num;
-                            applyProperty(desc.key, v);
-                        });
-                    }
-                    row.appendChild(select);
-                }
-
-                sec.content.appendChild(row);
-            }
-            if (!netShown) appendNet();
-
-            // H/V controls for text without a full rotation property.
-            const textShapes = selection.filter(s => s.type === 'text');
-            if (textShapes.length > 0 && textShapes.length === selection.length
-                && !descriptors.some(desc => desc.key === 'rotation')) {
-                const hvRow = document.createElement('div');
-                hvRow.className = 'prop-row';
-                hvRow.dataset.prop = 'orientation';
-                const hvLabel = document.createElement('label');
-                hvLabel.textContent = 'Orientation';
-                hvRow.appendChild(hvLabel);
-
-                const hvBtns = document.createElement('span');
-                hvBtns.style.cssText = 'display:flex;gap:2px;';
-                const curRot = textShapes[0].rotation || 0;
-                const allSameRot = textShapes.every(s => (s.rotation || 0) === curRot);
-
-                const hBtn = document.createElement('button');
-                hBtn.textContent = 'H';
-                hBtn.title = 'Horizontal';
-                hBtn.style.cssText = 'padding:1px 6px;font-size:11px;min-width:0;';
-                if (allSameRot && curRot === 0) hBtn.classList.add('active');
-                if (allLocked) hBtn.disabled = true;
-                hBtn.addEventListener('click', () => {
-                    applyProperty('rotation', 0);
-                });
-                const vBtn = document.createElement('button');
-                vBtn.textContent = 'V';
-                vBtn.title = 'Vertical (bottom to top)';
-                vBtn.style.cssText = 'padding:1px 6px;font-size:11px;min-width:0;';
-                if (allSameRot && curRot === 270) vBtn.classList.add('active');
-                if (allLocked) vBtn.disabled = true;
-                vBtn.addEventListener('click', () => {
-                    applyProperty('rotation', 270);
-                });
-                hvBtns.appendChild(hBtn);
-                hvBtns.appendChild(vBtn);
-                hvRow.appendChild(hvBtns);
-                insertByPropertyOrder(sec.content, hvRow);
-            }
-
+    for (const desc of descriptors) {
+        if (!netShown && propertyRank(descriptorOrderKey(desc)) > propertyRank('net')) {
+            appendNet();
+            netShown = true;
         }
-
-        panel.appendChild(sec.group);
+        const field = descriptorField(app, selection, desc, context);
+        if (field) fields.push(field);
     }
+    if (!netShown) appendNet();
+    return sortByPropertyOrder(fields, field => field.prop || field.key);
+}
 
-    if (selection.length === 0) return;
+function action(id, label, title, run, disabled = false) {
+    return { id, label, title, disabled, run };
+}
 
-    // ── Clipboard section ──
-    {
-        const sec = _createSection('Clipboard');
-        const div = document.createElement('div');
-        div.className = 'prop-actions';
-
-        const cutBtn = document.createElement('button');
-        cutBtn.title = adaptShortcutText('Cut (Ctrl+X)');
-        cutBtn.id = 'propCut';
-        cutBtn.textContent = '✂ Cut';
-        if (allLocked) { cutBtn.disabled = true; }
-        div.appendChild(cutBtn);
-
-        const copyBtn = document.createElement('button');
-        copyBtn.title = adaptShortcutText('Copy (Ctrl+C)');
-        copyBtn.id = 'propCopy';
-        copyBtn.textContent = '⧉ Copy';
-        div.appendChild(copyBtn);
-
-        const pasteBtn = document.createElement('button');
-        pasteBtn.title = adaptShortcutText('Paste (Ctrl+V)');
-        pasteBtn.id = 'propPaste';
-        pasteBtn.textContent = '📋 Paste';
-        div.appendChild(pasteBtn);
-
-        sec.content.appendChild(div);
-        panel.appendChild(sec.group);
-    }
-
-    // ── Transform section (for components or net shapes) ──
+function _bindActionButtons(app, selection, isCurrent, allLocked, applyProperty) {
+    if (selection.length === 0) return [];
+    const groups = [{
+        title: 'Clipboard',
+        actions: [
+            action('propCut', '✂ Cut', adaptShortcutText('Cut (Ctrl+X)'), () => { if (isCurrent()) cutSelection(app); }, allLocked),
+            action('propCopy', '⧉ Copy', adaptShortcutText('Copy (Ctrl+C)'), () => { if (isCurrent()) app.copySelection(); }),
+            action('propPaste', '📋 Paste', adaptShortcutText('Paste (Ctrl+V)'), () => { if (isCurrent()) beginPastePreview(app); }),
+        ],
+    }];
     const hasComponent = selection.some(s => s.definition);
     const hasNet = selection.every(s => s.type === 'net') && selection.length > 0;
     if (hasComponent || hasNet) {
-        const sec = _createSection('Transform');
-        const div = document.createElement('div');
-        div.className = 'prop-actions';
-
+        const actions = [];
         if (hasNet) {
-            const rotLeftBtn = document.createElement('button');
-            rotLeftBtn.title = 'Rotate Left';
-            rotLeftBtn.id = 'propNetRotateLeft';
-            rotLeftBtn.textContent = '↶ Rotate L';
-            if (allLocked) rotLeftBtn.disabled = true;
-            rotLeftBtn.addEventListener('click', () => {
+            actions.push(action('propNetRotateLeft', '↶ Rotate L', 'Rotate Left', () => {
+                if (!isCurrent()) return;
                 const cur = selection[0].orientation || 'E';
-                const next = rotateNetOrientation(rotateNetOrientation(rotateNetOrientation(cur)));
-                applyProperty('orientation', next);
-            });
-            div.appendChild(rotLeftBtn);
-
-            const rotRightBtn = document.createElement('button');
-            rotRightBtn.title = 'Rotate Right';
-            rotRightBtn.id = 'propNetRotateRight';
-            rotRightBtn.textContent = '↷ Rotate R';
-            if (allLocked) rotRightBtn.disabled = true;
-            rotRightBtn.addEventListener('click', () => {
-                const cur = selection[0].orientation || 'E';
-                const next = rotateNetOrientation(cur);
-                applyProperty('orientation', next);
-            });
-            div.appendChild(rotRightBtn);
+                applyProperty('orientation', rotateNetOrientation(rotateNetOrientation(rotateNetOrientation(cur))));
+            }, allLocked));
+            actions.push(action('propNetRotateRight', '↷ Rotate R', 'Rotate Right', () => {
+                if (!isCurrent()) return;
+                applyProperty('orientation', rotateNetOrientation(selection[0].orientation || 'E'));
+            }, allLocked));
         }
-
         if (hasComponent) {
-            const rotLeftBtn = document.createElement('button');
-            rotLeftBtn.title = 'Rotate Left';
-            rotLeftBtn.id = 'propRotateLeft';
-            rotLeftBtn.textContent = '↶ Rotate L';
-            div.appendChild(rotLeftBtn);
-
-            const rotRightBtn = document.createElement('button');
-            rotRightBtn.title = 'Rotate Right';
-            rotRightBtn.id = 'propRotateRight';
-            rotRightBtn.textContent = '↷ Rotate R';
-            div.appendChild(rotRightBtn);
-
-            const flipHBtn = document.createElement('button');
-            flipHBtn.title = 'Flip Horizontal';
-            flipHBtn.id = 'propFlipH';
-            flipHBtn.textContent = '⇔ Flip H';
-            div.appendChild(flipHBtn);
-
-            const flipVBtn = document.createElement('button');
-            flipVBtn.title = 'Flip Vertical';
-            flipVBtn.id = 'propFlipV';
-            flipVBtn.textContent = '⇕ Flip V';
-            div.appendChild(flipVBtn);
+            actions.push(action('propRotateLeft', '↶ Rotate L', 'Rotate Left', () => { if (isCurrent()) rotateComponentLeft(app); }));
+            actions.push(action('propRotateRight', '↷ Rotate R', 'Rotate Right', () => { if (isCurrent()) rotateComponentRight(app); }));
+            actions.push(action('propFlipH', '⇔ Flip H', 'Flip Horizontal', () => { if (isCurrent()) flipComponentH(app); }));
+            actions.push(action('propFlipV', '⇕ Flip V', 'Flip Vertical', () => { if (isCurrent()) flipComponentV(app); }));
         }
-
-        sec.content.appendChild(div);
-        panel.appendChild(sec.group);
+        groups.push({ title: 'Transform', actions });
     }
-
-    // ── Actions section ──
-    {
-        const sec = _createSection('Actions');
-        const div = document.createElement('div');
-        div.className = 'prop-actions';
-
-        if (selection.length === 1 && hasAny3DModel(selection[0].definition)) {
-            const show3dBtn = document.createElement('button');
-            show3dBtn.title = 'Show 3D model';
-            show3dBtn.id = 'propShow3D';
-            show3dBtn.textContent = '🧊 Show 3D';
-            div.appendChild(show3dBtn);
-        }
-
-        if (selection.length === 1 && selection[0].type === 'polyline' && !allLocked) {
-            const decomposeBtn = document.createElement('button');
-            decomposeBtn.title = 'Convert rounded corners into editable arc edges';
-            decomposeBtn.id = 'propDecomposeCorners';
-            decomposeBtn.textContent = '⌒ Decompose corners';
-            const refreshDecompose = () => {
-                decomposeBtn.style.display = canDecomposeRoundedCorners(selection[0]) ? '' : 'none';
-            };
-            refreshDecompose();
-            refreshControls.push(refreshDecompose);
-            div.appendChild(decomposeBtn);
-        }
-
-        const deleteBtn = document.createElement('button');
-        deleteBtn.className = 'ribbon-danger';
-        deleteBtn.title = 'Delete (Del)';
-        deleteBtn.id = 'ribbonDelete';
-        deleteBtn.textContent = '🗑 Delete';
-        if (allLocked) {
-            deleteBtn.disabled = true;
-        }
-        div.appendChild(deleteBtn);
-
-        sec.content.appendChild(div);
-        panel.appendChild(sec.group);
-    }
-
-    // Rebind action buttons (ids are used by ribbon.js / callbacks.js)
-    _bindActionButtons(app, isCurrentSelection);
-}
-
-// ── action button rebinding ──────────────────────────────────────
-
-function _bindActionButtons(app, isCurrent) {
-    const deleteBtn = document.getElementById('ribbonDelete');
-    if (deleteBtn) {
-        deleteBtn.addEventListener('click', () => { if (isCurrent()) runSchematicDeleteAction(app); });
-    }
-    const decomposeBtn = document.getElementById('propDecomposeCorners');
-    if (decomposeBtn) {
-        decomposeBtn.addEventListener('click', () => {
-            if (!isCurrent()) return;
-            const sel = app.selection?.getSelection?.() || [];
-            if (sel.length === 1) decomposeShapeCorners(app, sel[0]);
+    const textShapes = selection.filter(s => s.type === 'text');
+    if (textShapes.length > 0 && textShapes.length === selection.length
+        && !mergeDescriptors(selection).some(desc => desc.key === 'rotation')) {
+        groups.push({
+            title: 'Orientation',
+            actions: [
+                action('propTextHorizontal', 'H', 'Horizontal', () => applyProperty('rotation', 0), allLocked),
+                action('propTextVertical', 'V', 'Vertical (bottom to top)', () => applyProperty('rotation', 270), allLocked),
+            ],
         });
     }
-    const cutBtn = document.getElementById('propCut');
-    if (cutBtn) {
-        cutBtn.addEventListener('click', () => { if (isCurrent()) cutSelection(app); });
-    }
-    const copyBtn = document.getElementById('propCopy');
-    if (copyBtn) {
-        copyBtn.addEventListener('click', () => { if (isCurrent()) app.copySelection(); });
-    }
-    const pasteBtn = document.getElementById('propPaste');
-    if (pasteBtn) {
-        pasteBtn.addEventListener('click', () => { if (isCurrent()) beginPastePreview(app); });
-    }
-    const rotLeftBtn = document.getElementById('propRotateLeft');
-    if (rotLeftBtn) {
-        rotLeftBtn.addEventListener('click', () => { if (isCurrent()) rotateComponentLeft(app); });
-    }
-    const rotRightBtn = document.getElementById('propRotateRight');
-    if (rotRightBtn) {
-        rotRightBtn.addEventListener('click', () => { if (isCurrent()) rotateComponentRight(app); });
-    }
-    const flipHBtn = document.getElementById('propFlipH');
-    if (flipHBtn) {
-        flipHBtn.addEventListener('click', () => { if (isCurrent()) flipComponentH(app); });
-    }
-    const flipVBtn = document.getElementById('propFlipV');
-    if (flipVBtn) {
-        flipVBtn.addEventListener('click', () => { if (isCurrent()) flipComponentV(app); });
-    }
-    const show3dBtn = document.getElementById('propShow3D');
-    if (show3dBtn) {
-        show3dBtn.addEventListener('click', async () => {
+    const finalActions = [];
+    if (selection.length === 1 && hasAny3DModel(selection[0].definition)) {
+        finalActions.push(action('propShow3D', '🧊 Show 3D', 'Show 3D model', async () => {
             if (!isCurrent()) return;
             const sel = app.selection?.getSelection?.() || [];
             const comp = sel.length === 1 ? sel[0] : null;
@@ -937,8 +533,74 @@ function _bindActionButtons(app, isCurrent) {
             } catch (err) {
                 console.error('Failed to open 3D pop-out:', err);
             }
-        });
+        }));
     }
+    if (selection.length === 1 && selection[0].type === 'polyline' && !allLocked && canDecomposeRoundedCorners(selection[0])) {
+        finalActions.push(action('propDecomposeCorners', '⌒ Decompose corners',
+            'Convert rounded corners into editable arc edges', () => {
+                if (!isCurrent()) return;
+                const sel = app.selection?.getSelection?.() || [];
+                if (sel.length === 1) decomposeShapeCorners(app, sel[0]);
+            }));
+    }
+    finalActions.push(action('ribbonDelete', '🗑 Delete', 'Delete (Del)', () => {
+        if (isCurrent()) runSchematicDeleteAction(app);
+    }, allLocked));
+    groups.push({ title: 'Actions', actions: finalActions });
+    return groups;
+}
+
+/** @returns {PropertyPanel} */
+export function describePropertiesPanel(app, selection) {
+    const { selectedSegment, selectedNode } = selectedFocus(app, selection);
+    const context = contextFor(selection, selectedSegment, selectedNode);
+    const state = editorState(app, context);
+    const panel = app.ui.propertiesPanel;
+    const currentPanel = { binding: state.binding, previews: state.previews };
+    if (panel) propertyPanels.set(panel, currentPanel);
+    const isCurrentSelection = () => {
+        if (app.ui.propertiesPanel !== panel || propertyPanels.get(panel) !== currentPanel) return false;
+        const current = app.selection.getSelection();
+        return current.length === selection.length && current.every((item, index) => item === selection[index]);
+    };
+    state.isCurrent = isCurrentSelection;
+    if (selection.length === 0) {
+        return renderNewShapeProperties(app, app.currentTool, isCurrentSelection)
+            || { title: headerLabel(selection), summary: summaryText(selection), fields: [], actions: [] };
+    }
+    const applyProperty = (key, value) => {
+        if (isCurrentSelection()) applyCommonProperty(app, key, value);
+    };
+    const singleWire = selection.length === 1 && selection[0].type === 'wire' ? selection[0] : null;
+    const singlePolyline = selection.length === 1 && selection[0].type === 'polyline' ? selection[0] : null;
+    const allLocked = selection.length > 0 && selection.every(isSchematicLocked);
+    const title = selectedNode ? 'Node' : selectedSegment
+        ? `${Math.abs(selectedSegment.shape.getEdgeAttr(selectedSegment.edgeId, 'bulge') || 0) >= BULGE_EPS ? 'Arc' : 'Line'}${selectedSegment.shape.edges.size === 1 ? '' : ' Segment'}`
+        : headerLabel(selection);
+    const descriptorContext = {
+        selectedSegment, selectedNode, singleWire, singlePolyline, allLocked, state,
+        isCurrentSelection, applyProperty,
+    };
+    return {
+        title,
+        summary: summaryText(selection),
+        fields: describeFields(app, selection, descriptorContext),
+        actions: _bindActionButtons(app, selection, isCurrentSelection, allLocked, applyProperty),
+    };
+}
+
+// ── panel rendering ──────────────────────────────────────────────
+
+/**
+ * Rebuilds the properties panel from a description: merged property descriptors,
+ * clipboard actions, transform buttons, and delete.
+ * @param {object} app - Application state.
+ * @param {Array} selection - Currently selected shapes/components.
+ */
+export function updatePropertiesPanel(app, selection) {
+    const panel = app.ui.propertiesPanel;
+    if (!panel) return;
+    renderSchematicPropertyPanel(panel, describePropertiesPanel(app, selection));
 }
 
 // ── property application ─────────────────────────────────────────
@@ -951,17 +613,14 @@ function _bindActionButtons(app, isCurrent) {
  * @param {*} value - New value for the property.
  */
 export function applyCommonProperty(app, prop, value) {
-    if (propertyBindings.get(app)?.prepare() === false) return;
+    if (propertyStates.get(app)?.binding.prepare() === false) return;
     const selection = app.selection.getSelection();
     if (selection.length === 0) return;
 
-    // Filter to items that actually have this property. Locked items keep their
-    // values; only the Locked checkbox itself changes them.
     const affected = selection.filter(item => prop in item
         && (prop === 'locked' ? hasOwnLock(item) : !isSchematicLocked(item)));
     if (affected.length === 0) return;
 
-    // Check if any value actually changes
     const changing = affected.filter(item => item[prop] !== value);
     if (changing.length === 0) return;
 
@@ -972,7 +631,6 @@ export function applyCommonProperty(app, prop, value) {
         return;
     }
 
-    // Enforce unique component references (direct on component OR via field text)
     if (prop === 'reference' && value) {
         const duplicate = app.components.find(c =>
             c.reference.toUpperCase() === value.toUpperCase() && !changing.includes(c));
@@ -983,7 +641,6 @@ export function applyCommonProperty(app, prop, value) {
         }
     }
     if (prop === 'text') {
-        // Check if any affected item is a reference field text
         const refFields = changing.filter(s => s.parentComponent && s.fieldKey === 'reference');
         if (refFields.length > 0 && value) {
             const parentIds = new Set(refFields.map(f => f.parentComponent.id));
@@ -995,7 +652,6 @@ export function applyCommonProperty(app, prop, value) {
                 return;
             }
         }
-        // Check if any affected item is a wire label field text
         const wireLabelFields = changing.filter(s => s.parentComponent?.type === 'wire' && (s.fieldKey === 'wireLabel' || s.fieldKey === 'label'));
         if (wireLabelFields.length > 0 && value) {
             const parentWireIds = new Set(wireLabelFields.map(f => f.parentComponent.id));
@@ -1010,7 +666,6 @@ export function applyCommonProperty(app, prop, value) {
         }
     }
 
-    // Enforce unique wire labels (via properties panel or inline edit)
     if (prop === 'wireLabel' && value) {
         const changingIds = new Set(changing.map(s => s.id));
         const dup = app.shapes.find(s =>
@@ -1023,7 +678,6 @@ export function applyCommonProperty(app, prop, value) {
         }
     }
 
-    // Create undoable command
     const command = new ModifyPropertyCommand(app, changing, prop, value);
     app.history.execute(command);
 
@@ -1032,9 +686,5 @@ export function applyCommonProperty(app, prop, value) {
     if (prop === 'fontSize' && app.textEdit?.shape && selection.includes(app.textEdit.shape)) {
         app.updateTextEditOverlay?.();
     }
-    if (prop === 'locked') {
-        if (value) {
-            app.endTextEdit?.(true);
-        }
-    }
+    if (prop === 'locked' && value) app.endTextEdit?.(true);
 }

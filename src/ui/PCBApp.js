@@ -7,7 +7,7 @@ import { bindPcbControls } from '../pcb/modules/controls.js';
 import { Viewport } from '../core/Viewport.js';
 import { snapToViewportGrid } from '../core/grid-snap.js';
 import { PcbDocument } from '../core/PcbDocument.js';
-import { commitDesignInput, renderDesignSettings } from '../pcb/modules/design-settings.js';
+import { commitDesignValue, renderDesignSettings } from '../pcb/modules/design-settings.js';
 import { loadAndApplyTheme, toggleTheme as toggleSharedTheme, syncThemeToggleButtons } from '../shared/ui/theme.js';
 import { renderFootprint, applyRefGeometry, REF_DEFAULT_SIZE, REF_DEFAULT_STROKE } from '../shared/pcb/footprint.js';
 import { updateGridDropdown, restoreGridSettings, serializeGridSettings } from '../shared/ui/viewport.js';
@@ -58,6 +58,7 @@ import { normalizeShapeCopperMode } from '../shared/pcb/board-shape-geometry.js'
 import { hitTestPcbSelectionAnchor, renderPcbSelectionAnchors } from '../pcb/modules/selection-anchors.js';
 import { boardShapeLocked, createPcbHistory, isPcbObjectLayerLocked, isPcbObjectLocked, lockedRoutedCopper, showUnlockMenu } from '../pcb/modules/object-locks.js';
 import { showContextMenu } from '../shared/ui/context-menu.js';
+import { renderPropertyActions, renderPropertyFields } from '../shared/ui/property-fields.js';
 import { refreshAxisGlow } from '../pcb/modules/axis-glow.js';
 import { buildFillContext } from '../pcb/modules/fill-context.js';
 import { scheduleFillRefresh, recomputeFillsNow, invalidateFillRefresh, disposeFillRefresh } from '../pcb/modules/fill-refresh.js';
@@ -161,6 +162,18 @@ function showFootprintCrosshair(app, pl) {
  * immediately (debounced).
  */
 /** @typedef {ReturnType<import('../core/PcbDesignSettings.js').PcbDesignSettings['getRoutingParams']>} RoutingParams */
+
+/** Every net on the board or in the netlist, sorted. */
+function boardNetNames(app) {
+    const names = new Set((app.netlist || []).map((entry) => String(entry.net || '')).filter(Boolean));
+    for (const source of [app.tracks, app.vias, app.pads, app.boardShapes, app.copperFills]) {
+        for (const item of source || []) {
+            const net = String(item?.net || '');
+            if (net) names.add(net);
+        }
+    }
+    return [...names].sort();
+}
 
 export default class PCBApp {
     get tracks() {
@@ -1968,9 +1981,8 @@ export default class PCBApp {
      */
     clearProperties() {
         this.setPropertiesTitle('Properties');
-        const items = this.propertiesItems();
-        if (items) {
-            items.innerHTML = '<span style="font-size:11px;color:var(--text-muted)">Click an object to see its properties</span>';
+        if (this.propertiesItems()) {
+            this.refreshPropertyPanel({ title: 'Properties', fields: [], placeholder: 'Click an object to see its properties' });
         }
         this.syncClipboardButtons?.();
     }
@@ -1992,13 +2004,42 @@ export default class PCBApp {
      * with the base Properties group as the sole panel content.
      */
     propertiesItems() {
-        getPropertyEditor(this, 'component')?.clearExtras();
+        const host = document.getElementById('pcbPropertiesPanel');
+        if (host) renderPropertyActions(host, []);
         return document.getElementById('pcbPropsItems');
     }
 
     /** Bring the Properties ribbon tab to the front (after showing a panel). */
     showPropertiesTab() {
         this.setActiveRibbonTab('pcb-properties');
+    }
+
+    /**
+     * Show a panel description (shared/ui/property-fields.js) as a new Properties
+     * panel: release the previous panel's editors, then render it.
+     * @param {import('../shared/ui/property-fields.js').PropertyPanel} panel
+     * @param {object|null} [owner] Canonical target retained by a same-object panel refresh.
+     * @returns {boolean} false when there is no panel to show it in
+     */
+    openPropertyPanel(panel, owner = null) {
+        const items = this.propertiesItems();
+        if (!items) return false;
+        this.setPropertiesTitle(panel.title, owner);
+        this.refreshPropertyPanel(panel);
+        this.showPropertiesTab?.();
+        return true;
+    }
+
+    /**
+     * Re-render the open panel from a fresh description of it, keeping its editors and
+     * the focused control. Action groups sit beside the Properties group.
+     * @param {import('../shared/ui/property-fields.js').PropertyPanel} panel
+     */
+    refreshPropertyPanel(panel) {
+        const items = document.getElementById('pcbPropsItems');
+        if (items) renderPropertyFields(items, panel.fields, { placeholder: panel.placeholder });
+        const host = document.getElementById('pcbPropertiesPanel');
+        if (host) renderPropertyActions(host, panel.actions);
     }
 
     /**
@@ -2009,142 +2050,131 @@ export default class PCBApp {
         this._activateRibbonTab?.(tabId);
     }
 
-    /** Build the shared editable Net dropdown used by PCB tool properties. */
-    toolNetOptions(current = '') {
-        const escape = (value) => String(value).replace(/[&<>"']/g, (char) => (
-            { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char]
-        ));
-        const netNames = new Set((this.netlist || []).map((entry) => String(entry.net || '')).filter(Boolean));
-        for (const source of [this.tracks, this.vias, this.pads, this.boardShapes, this.copperFills]) {
-            for (const item of source || []) {
-                const net = String(item?.net || '');
-                if (net) netNames.add(net);
-            }
-        }
-        const selected = String(current || '');
-        const options = `<button type="button" data-net="">None</button>${[...netNames].sort().map((net) =>
-            `<button type="button" data-net="${escape(net)}"${net === selected ? ' aria-current="true"' : ''}>${escape(net)}</button>`
-        ).join('')}`;
-        return { escape, options };
-    }
-
-    /** Bind an editable Net input and its picker menu to a tool-setting callback. */
-    bindToolNetControl(items, inputId, onChange) {
-        const netEl = /** @type {HTMLInputElement|null} */ (items.querySelector(`#${inputId}`));
-        const menuEl = /** @type {HTMLDetailsElement|null} */ (items.querySelector('.prop-net-menu'));
-        netEl?.addEventListener('change', () => onChange(netEl.value.trim()));
-        menuEl?.addEventListener('click', (event) => {
-            const option = /** @type {HTMLButtonElement|null} */ (event.target instanceof Element ? event.target.closest('button[data-net]') : null);
-            if (!option || !netEl) return;
-            netEl.value = option.dataset.net || '';
-            netEl.dispatchEvent(new Event('change'));
-            menuEl.open = false;
-        });
-        menuEl?.addEventListener('toggle', () => {
-            if (!menuEl.open || !netEl) return;
-            const current = netEl.value.trim();
-            for (const option of menuEl.querySelectorAll('button[data-net]')) {
-                option.toggleAttribute('aria-current', /** @type {HTMLElement} */ (option).dataset.net === current);
-            }
-        });
+    /** Every net on the board or in the netlist, sorted: the Properties Net menu. */
+    netNames() {
+        return boardNetNames(this);
     }
 
     /** Show Track draw defaults and live draw settings in Properties. */
     _showTrackDrawProperties() {
         this.setPcbStatus();
-        const items = this.propertiesItems();
-        if (!items) return;
         const ctx = this._trackDraw;
-        const p = /** @type {Partial<RoutingParams>} */ (this.getRoutingParams?.() || {});
-        const width = ctx?.width || (Number.isFinite(p.trackWidth) && p.trackWidth > 0 ? p.trackWidth : 0.2);
-        const layer = ctx?.currentLayer || (this._trackToolLayer === 'bottom-copper' ? 'bottom-copper' : 'top-copper');
-        const net = ctx?.net ?? String(this._trackToolNet || '');
-        const { escape, options } = this.toolNetOptions(net);
-        this.setPropertiesTitle('New Track');
-        items.innerHTML = `
-            <div class="prop-row" data-prop="layer"><label>Layer</label><select id="pcbPropTrackToolLayer"><option value="top-copper"${layer === 'top-copper' ? ' selected' : ''}>Top Copper</option><option value="bottom-copper"${layer === 'bottom-copper' ? ' selected' : ''}>Bottom Copper</option></select></div>
-            <div class="prop-row" data-prop="net"><label>Net</label><span class="prop-net-control"><input type="text" id="pcbPropTrackToolNet" value="${escape(net)}" placeholder="None"><details class="prop-net-menu"><summary aria-label="Select existing net"></summary><div>${options}</div></details></span></div>
-            <div class="prop-row" data-prop="lineWidth"><label>Width (mm)</label><input type="number" id="pcbPropTrackToolWidth" value="${width}" min="0.05" step="0.05" data-number-format="precise"></div>
-        `;
-        const layerEl = /** @type {HTMLSelectElement|null} */ (items.querySelector('#pcbPropTrackToolLayer'));
-        const widthEl = /** @type {HTMLInputElement|null} */ (items.querySelector('#pcbPropTrackToolWidth'));
-        this.bindToolNetControl(items, 'pcbPropTrackToolNet', (next) => {
+        let widthError = '';
+        const currentWidth = () => {
+            const p = /** @type {Partial<RoutingParams>} */ (this.getRoutingParams?.() || {});
+            return ctx?.width || (Number.isFinite(p.trackWidth) && p.trackWidth > 0 ? p.trackWidth : 0.2);
+        };
+        const currentLayer = () => ctx?.currentLayer || (this._trackToolLayer === 'bottom-copper' ? 'bottom-copper' : 'top-copper');
+        const currentNet = () => ctx?.net ?? String(this._trackToolNet || '');
+        const refresh = () => this.refreshPropertyPanel(describe());
+        const setNet = next => {
             this._trackToolNet = next;
             if (ctx) {
                 ctx.net = next;
                 const last = ctx.points[ctx.points.length - 1];
                 updateTrackDraw(this, ctx.snap ? { x: ctx.snap.x, y: ctx.snap.y } : last);
             }
-        });
-        layerEl?.addEventListener('change', () => {
-            const next = layerEl.value === 'bottom-copper' ? 'bottom-copper' : 'top-copper';
+            refresh();
+        };
+        const setLayer = value => {
+            const next = value === 'bottom-copper' ? 'bottom-copper' : 'top-copper';
             if (isLayerLocked(next)) {
-                layerEl.value = layer;
+                refresh();
                 return;
             }
             this._trackToolLayer = next;
             if (ctx) ctx.currentLayer = next;
             this.setPcbStatus();
-        });
-        widthEl?.addEventListener('input', () => {
-            if (!commitDesignInput(this, 'trackWidth', widthEl, 'mm')) return;
+            refresh();
+        };
+        const setWidth = value => {
+            const hadError = !!widthError;
+            const result = commitDesignValue(this, 'trackWidth', value, 'mm');
+            widthError = result.message;
+            if (result.message) refresh();
+            if (!result.ok) return;
             const next = this.designSettings.values.trackWidth;
             renderDesignSettings(this);
-            if (!ctx) return;
-            ctx.width = next;
-            const last = ctx.points[ctx.points.length - 1];
-            updateTrackDraw(this, ctx.snap ? { x: ctx.snap.x, y: ctx.snap.y } : last);
+            if (ctx) {
+                ctx.width = next;
+                const last = ctx.points[ctx.points.length - 1];
+                updateTrackDraw(this, ctx.snap ? { x: ctx.snap.x, y: ctx.snap.y } : last);
+            }
+            if (hadError) refresh();
+        };
+        /** @returns {import('../shared/ui/property-fields.js').PropertyPanel} */
+        const describe = () => ({
+            title: 'New Track',
+            fields: [
+                { key: 'layer', id: 'pcbPropTrackToolLayer', type: 'select', label: 'Layer', value: currentLayer(),
+                    options: [
+                        { value: 'top-copper', label: 'Top Copper', disabled: isLayerLocked('top-copper') },
+                        { value: 'bottom-copper', label: 'Bottom Copper', disabled: isLayerLocked('bottom-copper') },
+                    ], commit: setLayer },
+                { key: 'net', id: 'pcbPropTrackToolNet', type: 'net', label: 'Net', value: currentNet(),
+                    nets: this.netNames(), commit: setNet },
+                { key: 'lineWidth', id: 'pcbPropTrackToolWidth', type: 'number', label: 'Width (mm)',
+                    value: currentWidth(), min: 0.05, step: 0.05, numberFormat: 'precise',
+                    error: widthError, preview: setWidth, commit: setWidth },
+            ],
         });
-        widthEl?.addEventListener('change', () => {
-            if (widthEl.validity.customError) widthEl.reportValidity();
-        });
-        this.setActiveRibbonTab?.('pcb-properties');
+        this.openPropertyPanel(describe());
     }
 
     /** Show Via placement defaults in Properties. */
     _showViaToolProperties() {
-        const items = this.propertiesItems();
-        if (!items) return;
-        const p = /** @type {Partial<RoutingParams>} */ (this.getRoutingParams?.() || {});
-        const diameter = Number.isFinite(p.viaDiameter) && p.viaDiameter > 0 ? p.viaDiameter : 0.6;
-        const drill = Number.isFinite(p.viaDrill) && p.viaDrill > 0 ? p.viaDrill : 0.3;
-        const net = String(this._viaToolNet || '');
-        const { escape, options } = this.toolNetOptions(net);
-        this.setPropertiesTitle('New Via');
-        items.innerHTML = `
-            <div class="prop-row" data-prop="net"><label>Net</label><span class="prop-net-control"><input type="text" id="pcbPropViaToolNet" value="${escape(net)}" placeholder="None"><details class="prop-net-menu"><summary aria-label="Select existing net"></summary><div>${options}</div></details></span></div>
-            <div class="prop-row" data-prop="diameter"><label>Diameter (mm)</label><input type="number" id="pcbPropViaToolDiameter" value="${diameter}" min="${drill}" step="0.05" data-number-format="precise"></div>
-            <div class="prop-row" data-prop="drill"><label>Drill (mm)</label><input type="number" id="pcbPropViaToolDrill" value="${drill}" min="0.05" max="${diameter}" step="0.05" data-number-format="precise"></div>
-        `;
-        const diameterEl = /** @type {HTMLInputElement|null} */ (items.querySelector('#pcbPropViaToolDiameter'));
-        const drillEl = /** @type {HTMLInputElement|null} */ (items.querySelector('#pcbPropViaToolDrill'));
-        this.bindToolNetControl(items, 'pcbPropViaToolNet', (next) => { this._viaToolNet = next; });
-        diameterEl?.addEventListener('input', () => {
-            const next = parseFloat(diameterEl.value);
-            if (Number.isFinite(next) && next > 0 && next < parseFloat(drillEl?.value || '0')) {
-                diameterEl.value = drillEl.value;
-            }
-            if (!commitDesignInput(this, 'viaDiameter', diameterEl, 'mm')) return;
-            if (drillEl) drillEl.max = diameterEl.value;
+        let diameterError = '', drillError = '';
+        const routing = () => /** @type {Partial<RoutingParams>} */ (this.getRoutingParams?.() || {});
+        const currentDiameter = () => {
+            const p = routing();
+            return Number.isFinite(p.viaDiameter) && p.viaDiameter > 0 ? p.viaDiameter : 0.6;
+        };
+        const currentDrill = () => {
+            const p = routing();
+            return Number.isFinite(p.viaDrill) && p.viaDrill > 0 ? p.viaDrill : 0.3;
+        };
+        const refresh = () => this.refreshPropertyPanel(describe());
+        const updatePreview = () => {
             renderDesignSettings(this);
             if (this._lastCrosshairWorld) this._updateViaPreview(this._lastCrosshairWorld);
+        };
+        const setDiameter = value => {
+            const next = Number.isFinite(value) && value > 0 ? Math.max(value, currentDrill()) : value;
+            const hadError = !!diameterError;
+            const result = commitDesignValue(this, 'viaDiameter', next, 'mm');
+            diameterError = result.message;
+            if (result.message) refresh();
+            if (!result.ok) return;
+            updatePreview();
+            if (hadError) refresh();
+        };
+        const setDrill = value => {
+            const next = Number.isFinite(value) && value > currentDiameter() ? currentDiameter() : value;
+            const hadError = !!drillError;
+            const result = commitDesignValue(this, 'viaDrill', next, 'mm');
+            drillError = result.message;
+            if (result.message) refresh();
+            if (!result.ok) return;
+            updatePreview();
+            if (hadError) refresh();
+        };
+        /** @returns {import('../shared/ui/property-fields.js').PropertyPanel} */
+        const describe = () => ({
+            title: 'New Via',
+            fields: [
+                { key: 'net', id: 'pcbPropViaToolNet', type: 'net', label: 'Net', value: String(this._viaToolNet || ''),
+                    nets: this.netNames(), commit: value => { this._viaToolNet = value; refresh(); } },
+                { key: 'diameter', id: 'pcbPropViaToolDiameter', type: 'number', label: 'Diameter (mm)',
+                    value: currentDiameter(), min: currentDrill(), step: 0.05, numberFormat: 'precise',
+                    error: diameterError, normalize: value => value > 0 ? Math.max(value, currentDrill()) : value,
+                    preview: setDiameter, commit: setDiameter },
+                { key: 'drill', id: 'pcbPropViaToolDrill', type: 'number', label: 'Drill (mm)',
+                    value: currentDrill(), min: 0.05, max: currentDiameter(), step: 0.05, numberFormat: 'precise',
+                    error: drillError, normalize: value => value > currentDiameter() ? currentDiameter() : value,
+                    preview: setDrill, commit: setDrill },
+            ],
         });
-        drillEl?.addEventListener('input', () => {
-            const next = parseFloat(drillEl.value);
-            if (Number.isFinite(next) && next > parseFloat(diameterEl?.value || '0')) {
-                drillEl.value = diameterEl.value;
-            }
-            if (!commitDesignInput(this, 'viaDrill', drillEl, 'mm')) return;
-            if (diameterEl) diameterEl.min = drillEl.value;
-            renderDesignSettings(this);
-            if (this._lastCrosshairWorld) this._updateViaPreview(this._lastCrosshairWorld);
-        });
-        for (const element of [diameterEl, drillEl]) {
-            element?.addEventListener('change', () => {
-                if (element.validity.customError) element.reportValidity();
-            });
-        }
-        this.setActiveRibbonTab?.('pcb-properties');
+        this.openPropertyPanel(describe());
     }
 
     _showPadToolProperties() {
@@ -2168,14 +2198,6 @@ export default class PCBApp {
     }
 
     _syncBoardOutlineInputs() {
-        for (const [id, value] of [
-            ['pcbPropBoardW', this._boardWidth],
-            ['pcbPropBoardH', this._boardHeight],
-            ['pcbPropBoardR', this._boardRadius],
-        ]) {
-            const input = /** @type {HTMLInputElement|null} */ (document.getElementById(id));
-            if (input) input.value = Number(value).toFixed(2);
-        }
         getPropertyEditor(this, 'boardDimension')?.sync();
     }
 
@@ -2191,11 +2213,10 @@ export default class PCBApp {
             getPlacement: id => this.placements.get(id),
             isActive: () => this._active !== false,
             isSelected: (kind, id) => isPcbSelected(this, kind, id),
-            getItems: () => this.propertiesItems(),
-            setTitle: title => this.setPropertiesTitle(title),
-            activateTab: () => this.setActiveRibbonTab?.('pcb-properties'),
+            openPanel: (panel, owner) => this.openPropertyPanel(panel, owner),
+            refreshPanel: panel => this.refreshPropertyPanel(panel),
             layerLabel: layer => this.layerLabel(layer),
-            bindStrokeText: (items, model, spec) => this._bindStrokeTextProps(items, model, spec),
+            bindStrokeText: (model, spec) => this._bindStrokeTextProps(model, spec),
             rotate: (id, before, after) => this.history.execute(new RotatePlacementCommand(this, id, before, after)),
             setLocked: (id, locked) => {
                 finishSelectionInteraction(this, false);
@@ -3823,7 +3844,23 @@ export default class PCBApp {
      * undo collapses each edit into one entry.
      */
     showTextProperties(text) {
-        showTextProperties(this, text, () => this._textEdit);
+        showTextProperties(this, text, () => this._textEdit,
+            (textId, symbol) => this._insertInlineTextSymbol(textId, symbol));
+    }
+
+    _insertInlineTextSymbol(textId, symbol) {
+        const edit = this._textEdit;
+        if (!edit || edit.text?.id !== textId) return false;
+        const input = edit.input;
+        const selectionStart = input.selectionStart ?? input.value.length;
+        const selectionEnd = input.selectionEnd ?? selectionStart;
+        input.value = input.value.slice(0, selectionStart) + symbol + input.value.slice(selectionEnd);
+        const position = selectionStart + symbol.length;
+        try { input.setSelectionRange(position, position); } catch { /* Some test doubles do not implement selections. */ }
+        const event = typeof Event === 'function' ? new Event('input', { bubbles: true }) : { type: 'input', bubbles: true };
+        input.dispatchEvent(event);
+        input.focus?.();
+        return true;
     }
 
     /**
@@ -3833,12 +3870,11 @@ export default class PCBApp {
      * and collapse into a single undo entry on commit (via spec.commit). A
      * snapshot of the model is taken on the first keystroke so spec.commit
      * can diff against the pre-edit state.
-     * @param {Element} items container holding the inputs
      * @param {any} model object whose fields the inputs drive
-     * @param {{fields: Array<{id:string, field:string, parse:(v:string)=>any, apply?:(m:any,v:any)=>void, value?:(m:any)=>any, wrap?:boolean}>, editable?:()=>boolean, begin?:(m:any)=>any, cancel?:(snap:any)=>void, preview:(m:any)=>void, commit:(m:any, snap:any)=>void}} spec
+     * @param {any} spec field descriptions and preview/commit hooks
      */
-    _bindStrokeTextProps(items, model, spec) {
-        return bindStrokeTextProps(this, items, model, spec);
+    _bindStrokeTextProps(model, spec) {
+        return bindStrokeTextProps(this, model, spec);
     }
 
     /**

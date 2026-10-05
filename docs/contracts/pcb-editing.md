@@ -122,9 +122,10 @@ The selection lock icon dispatches `unlock-shape` with the click position; the
 editor answers with a menu of the applicable choices: unlock the object (an
 undoable `SetObjectLockedCommand`, or `SetPlacementLockedCommand` for
 components), unlock the holding layers (layer-panel preferences, outside
-history), or both. Properties panels put a Locked row first
-(`lockedPropertyHtml`/`bindLockedProperty`); it sets the object lock and stays
-enabled under a layer lock, while the panel's other controls become read-only.
+history), or both. Properties panels put a Locked field first
+(`lockedProperty`, which also says whether the panel is read-only); it sets the
+object lock and stays enabled under a layer lock, while the panel's other fields
+are described disabled.
 The board outline keeps its existing layer-lock checkbox
 (`test-pcb-object-locks`, `browser-tests/object-locks.mjs`).
 

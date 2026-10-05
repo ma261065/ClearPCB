@@ -5,33 +5,16 @@ import { capturePlacementOverride } from '../src/core/PcbPlacementState.js';
 import { setPcbSelection } from '../src/pcb/modules/selection-registry.js';
 import { PCB_LAYERS } from '../src/pcb/modules/layers.js';
 import { getPropertyEditor } from '../src/pcb/modules/property-editors.js';
+import { attachPropertyPanelHarness } from './helpers/property-panel-controls.mjs';
 
 globalThis.window = { addEventListener() {} };
 const { default: PCBApp } = await import('../src/ui/PCBApp.js');
-
-class Input {
-    constructor(value) { this.value = String(value); this.listeners = new Map(); }
-    addEventListener(type, listener) {
-        if (!this.listeners.has(type)) this.listeners.set(type, []);
-        this.listeners.get(type).push(listener);
-    }
-    fire(type, value = this.value, extra = {}) {
-        this.value = String(value);
-        for (const listener of this.listeners.get(type) || []) {
-            listener({ type, preventDefault() {}, stopPropagation() {}, ...extra });
-        }
-    }
-}
 
 function fixture(saved, selected = false) {
     const placement = { x: Math.PI, y: -Math.E, rotation: 37.1234567, side: 'bottom', mirror: true,
         reference: 'R12', refDx: 1.234567, refDy: -2.345678,
         refSize: 1.234567, refStrokeWidth: 0.1234567, refRot: 23.456789 };
-    const inputs = new Map(Object.entries({
-        pcbPropRefSize: placement.refSize, pcbPropRefRot: placement.refRot,
-        pcbPropRefLW: placement.refStrokeWidth,
-    }).map(([id, value]) => [id, new Input(value)]));
-    const items = { innerHTML: '', querySelector: selector => inputs.get(selector.slice(1)) || null };
+    const inputs = new Map();
     const pcbDocument = new PcbDocument();
     if (saved) pcbDocument.placementState.record('part', placement);
     const renders = [], overlays = [];
@@ -39,16 +22,17 @@ function fixture(saved, selected = false) {
     const app = {
         pcbDocument, placementState: pcbDocument.placementState, placements: new Map([['part', placement]]),
         history: new CommandHistory(),
-        propertiesItems: () => items, setPropertiesTitle() {}, layerLabel: layer => layer,
+        setPropertiesTitle() {}, layerLabel: layer => layer,
         _bindStrokeTextProps: PCBApp.prototype._bindStrokeTextProps,
         _rerenderRef: () => renders.push(capturePlacementOverride(placement)),
         _drawRefOverlay: (id, tether) => overlays.push({ id, tether, pose: capturePlacementOverride(placement) }),
         _markDirty: () => dirty++, _board3d: { refresh: () => boardRefreshes++ },
     };
+    attachPropertyPanelHarness(app, { controls: inputs });
     if (selected) setPcbSelection(app, [{ kind: 'reftext', object: 'part' }]);
     overlays.length = 0;
     PCBApp.prototype._showRefProperties.call(app, 'part');
-    assert.match(items.innerHTML, /id="pcbPropRefRot"[^>]*step="1"/,
+    assert.equal(inputs.get('pcbPropRefRot').field.step, 1,
         'Reference rotation spinner uses one-degree increments');
     assert.equal(PCBApp.prototype._pcbMultiPropertyCapabilities.call(app,
         { kind: 'reftext', object: 'part' }).rotation.step, 1,
@@ -152,7 +136,7 @@ for (const value of ['', '-', 'Infinity', '3']) for (const handoff of ['change',
     const before = capturePlacementOverride(placement), valid = value === '3';
     app.viewport = { svg: { style: {} } };
     inputs.get('pcbPropRefSize').fire('input', 3);
-    inputs.get('pcbPropRefSize').value = value;
+    inputs.get('pcbPropRefSize').fire('input', value);
     assert.equal(PCBApp.prototype.isSectionEditing.call(app), true);
     if (handoff === 'change') inputs.get('pcbPropRefSize').fire('change');
     else if (handoff === 'commit') getPropertyEditor(app, 'component').commit();

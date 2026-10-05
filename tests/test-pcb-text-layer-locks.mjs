@@ -9,6 +9,7 @@ import { cancelPictureCopperRefresh } from '../src/pcb/modules/picture-refresh.j
 import { beginTextContentPreview } from '../src/pcb/modules/text-commands.js';
 import { areDragOverlaysDeferred } from '../src/pcb/modules/refresh-state.js';
 import { unlockMenuItems } from '../src/pcb/modules/object-locks.js';
+import { attachPropertyPanelHarness } from './helpers/property-panel-controls.mjs';
 
 globalThis.window = { addEventListener() {} };
 globalThis.document = {
@@ -28,17 +29,19 @@ for (const layerId of TEXT_LAYERS) {
     const original = { ...text };
     const pcbDocument = new PcbDocument();
     pcbDocument.texts.set(text.id, text);
-    const items = { innerHTML: '', querySelector: () => ({ addEventListener() {} }) };
+    const controls = new Map();
     let propertyShows = 0, cleared = 0;
     const app = {
         _active: true, pcbDocument, history: new CommandHistory(),
         viewport: { svg: { style: {} }, scale: 10, snapToGrid: false, setCrosshair() {}, hideCrosshair() {} },
         placements: new Map(), tracks: [], vias: [], boardShapes: [], _layerGroups: new Map(), existingLayerGroups() { return this._layerGroups; },
         getLayerGroup: () => null, refreshText() {},
-        propertiesItems: () => items, setPropertiesTitle: () => propertyShows++,
+        setPropertiesTitle: () => propertyShows++,
         layerLabel: PCBApp.prototype.layerLabel, clearProperties: () => cleared++, setActiveRibbonTab() {},
         _screenToWorld: event => ({ x: event.clientX, y: event.clientY }),
+        _insertInlineTextSymbol: () => false,
     };
+    attachPropertyPanelHarness(app, { controls });
     Object.defineProperty(app, 'texts', Object.getOwnPropertyDescriptor(PCBApp.prototype, 'texts'));
     for (const name of ['_beginTextDrag', '_updateTextDrag', '_handleTextDrag', '_endTextDrag',
         '_snapToGrid', 'selectText', 'showTextProperties', '_bindStrokeTextProps',
@@ -50,17 +53,16 @@ for (const layerId of TEXT_LAYERS) {
         setPcbSelection(app, [{ kind: 'text', object: text }]);
         app.showTextProperties(text);
         for (const id of ['pcbPropTextLayer', 'pcbPropTextSize', 'pcbPropTextRot', 'pcbPropTextLW', 'pcbPropTextBorder']) {
-            assert.match(items.innerHTML, new RegExp(`id="${id}"[^>]* disabled`),
-                'Locked text properties must remain read-only');
+            assert.equal(controls.get(id).disabled, true, 'Locked text properties must remain read-only');
         }
         const { locked: ownLock, ...edits } = app._pcbMultiPropertyCapabilities({ kind: 'text', object: text });
         assert.ok(Object.values(edits).every(capability => capability.disabled),
             'Multi-selection must not bypass a text layer lock');
         assert.equal(ownLock.disabled, false, 'The object lock stays editable under a layer lock');
-        assert.doesNotMatch(items.innerHTML, /id="pcbPropObjectLocked"[^>]* disabled/);
+        assert.equal(controls.get('pcbPropObjectLocked').disabled, false);
         app._textEdit = { text };
         app.showTextProperties(text);
-        assert.match(items.innerHTML, /id="pcbPropTextInsert"[^>]* disabled/);
+        assert.equal(controls.get('pcbPropTextInsert').disabled, true);
         app._textEdit = null;
         assert.equal(adapter.beginMove({ x: 0, y: 0 }), false);
         assert.equal(adapter.beginAnchorDrag('rotate', { x: text.x + 1, y: text.y }), false);
@@ -76,7 +78,7 @@ for (const layerId of TEXT_LAYERS) {
         choices[0].onClick();
         assert.equal(layer.locked, false);
         assert.ok(propertyShows > beforeUnlock, 'Layer unlock refreshes selected text controls');
-        assert.doesNotMatch(items.innerHTML, /id="pcbPropTextRot"[^>]* disabled/);
+        assert.equal(controls.get('pcbPropTextRot').disabled, false);
         assert.equal(adapter.beginMove({ x: 0, y: 0 }), true);
         adapter.updateMove({ x: 3, y: 4 });
         const preview = { ...adapter.object };

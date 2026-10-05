@@ -7,7 +7,7 @@
 import assert from 'node:assert/strict';
 import { readdirSync, readFileSync } from 'node:fs';
 
-const BASELINE = 182;
+const BASELINE = 170;
 
 const testsDir = new URL('./', import.meta.url);
 const handRolled = readdirSync(testsDir)

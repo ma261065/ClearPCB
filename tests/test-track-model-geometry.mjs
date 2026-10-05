@@ -122,20 +122,40 @@ try {
 } finally {
     layer.visible = originalVisible;
 }
-const radiusInput = { valueAsNumber: 4, listeners: new Map(),
-    addEventListener(type, listener) { this.listeners.set(type, listener); } };
-globalThis.document = { getElementById: id => id === 'pcbPropTrackCornerRadius' ? radiusInput : null,
-    querySelector: () => null };
 const previewTrack = new Track({ points: [{ x: -10, y: 10 }, { x: 0, y: 0 }, { x: 10, y: 10 }] });
+const controls = new Map();
+const syncPanel = panel => {
+    controls.clear();
+    for (const field of panel.fields || []) {
+        const id = field.id || field.key;
+        controls.set(id, {
+            value: field.mixed ? '' : String(field.value ?? ''),
+            field,
+            fire(type, value) {
+                if (value !== undefined) this.value = String(value);
+                if (field.type !== 'number' || !['input', 'change'].includes(type)) return;
+                let parsed = field.parse ? field.parse(this.value) : (this.value.trim() === '' ? NaN : Number(this.value));
+                if (Number.isFinite(parsed) && field.normalize) {
+                    parsed = field.normalize(parsed);
+                    this.value = String(parsed);
+                }
+                if (Number.isFinite(parsed)) {
+                    field.preview?.(parsed);
+                    if (type === 'change') field.commit?.(parsed);
+                }
+            },
+        });
+    }
+};
 const previewApp = { tracks: [previewTrack], vias: [], pads: [], boardShapes: [], texts: new Map(), placements: new Map(),
     pcbDocument: { tracks: [previewTrack] },
-    viewport: { scale: 10 }, propertiesItems: () => ({}), getLayerGroup: () => null };
+    viewport: { scale: 10 }, propertiesItems: () => ({}), getLayerGroup: () => null,
+    openPropertyPanel(panel) { syncPanel(panel); return true; }, refreshPropertyPanel: syncPanel };
 selectTrackOrVia(previewApp, { type: 'track', track: previewTrack });
 const previewBefore = previewTrack.getBounds();
-radiusInput.listeners.get('input')({ type: 'input' });
+controls.get('pcbPropTrackCornerRadius').fire('input', 4);
 const previewAdapter = createTrackSelectionAdapter(previewApp, previewTrack, previewTrack.id);
 assertResolvedBounds(previewAdapter.object);
 assert.ok(previewAdapter.getBounds().minY > previewBefore.minY, 'Whole-track radius preview invalidates display bounds');
 assert.equal(previewTrack.getBounds(), previewBefore, 'Property preview preserves canonical cached bounds');
-delete globalThis.document;
 console.log('PASS headless copper widths, rounded paths, arcs, topology, history and selection bounds');

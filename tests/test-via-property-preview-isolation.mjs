@@ -12,6 +12,7 @@ import { prepareFabricationSnapshot } from '../src/pcb/modules/fabrication-snaps
 import { loadPcb } from '../src/pcb/modules/project-state.js';
 import { PCB_LAYERS } from '../src/pcb/modules/layers.js';
 import { getPropertyEditor } from '../src/pcb/modules/property-editors.js';
+import { renderPropertyFields } from '../src/shared/ui/property-fields.js';
 import { flushSettledChanges } from '../src/shared/ui/settled-input.js';
 
 let allocations = 0, frameId = 0, inputs = new Map();
@@ -30,6 +31,7 @@ class Element {
     }
     setAttribute(name, value) { this.attributes.set(name, String(value)); }
     getAttribute(name) { return this.attributes.get(name) ?? null; }
+    removeAttribute(name) { this.attributes.delete(name); }
     set className(value) { this.setAttribute('class', value); }
     get classList() {
         return {
@@ -42,6 +44,7 @@ class Element {
         this.listeners.get(type).push(callback);
     }
     focus() {}
+    append(...children) { for (const child of children) this.appendChild(child); }
     appendChild(child) { child.remove(); this.children.push(child); child.parentNode = this; }
     insertBefore(child, before) {
         child.remove();
@@ -54,6 +57,20 @@ class Element {
         if (this.parentNode) this.parentNode.children.splice(this.parentNode.children.indexOf(this), 1);
         this.parentNode = null;
     }
+    removeChild(child) {
+        this.children.splice(this.children.indexOf(child), 1);
+        child.parentNode = null;
+        return child;
+    }
+    dispatchEvent(event) {
+        for (const callback of this.listeners.get(event.type) || []) callback(event);
+        return true;
+    }
+    emit(type, value = this.value, extra = {}) {
+        if (value !== undefined) this.value = String(value);
+        return this.dispatchEvent({ type, target: this, preventDefault() {}, stopPropagation() {}, ...extra });
+    }
+    get valueAsNumber() { return this.value?.trim?.() === '' ? NaN : Number(this.value); }
     querySelectorAll(selector) {
         return this.children.flatMap(child => [
             ...(selector.startsWith('.') && child.classList.contains(selector.slice(1)) ? [child] : []),
@@ -89,16 +106,7 @@ function fixture(count = 1, unrelatedCount = 1) {
     model.vias.push(...vias, ...unrelated);
     model.tracks.push(attached);
     inputs = new Map();
-    const items = {
-        set innerHTML(html) {
-            inputs = new Map();
-            for (const match of html.matchAll(/<input\b([^>]+)>/g)) {
-                const id = match[1].match(/id="([^"]+)"/)?.[1];
-                if (id) inputs.set(id, new Input(match[1].match(/value="([^"]*)"/)?.[1] || ''));
-            }
-        },
-        querySelector: selector => inputs.get(selector.slice(1)) || null,
-    };
+    const items = new Element('div');
     const groups = new Map([['vias', new Element('g')]]);
     let fills = 0, clearances = 0;
     const app = {};
@@ -112,6 +120,11 @@ function fixture(count = 1, unrelatedCount = 1) {
         _active: true, _layerGroups: groups, existingLayerGroups: () => groups, _textElements: new Map(), _shapeElements: new Map(),
         viewport: { scale: 100, svg: new Element('svg'), shiftHeld: true, setCrosshair() {}, hideCrosshair() {} },
         propertiesItems: () => items, getLayerGroup: id => groups.get(id) || null,
+        openPropertyPanel(panel) { this.setPropertiesTitle?.(panel.title); this.refreshPropertyPanel(panel); this.showPropertiesTab?.(); return true; },
+        refreshPropertyPanel(panel) {
+            const controls = renderPropertyFields(items, panel.fields, { placeholder: panel.placeholder });
+            inputs = new Map([...controls.values()].filter(control => control.id).map(control => [control.id, control]));
+        },
         setActiveRibbonTab() {}, setPcbStatus() {}, refreshFills() { fills++; },
         refreshClearanceHalos() { clearances++; },
         _cancelDrawingMode() {}, _ensureViewport() {}, markSectionClean() {},
@@ -355,6 +368,10 @@ for (const commit of [false, true]) {
     flushSettledChanges();
     assert.ok(vias.every(via => via.drill === 0.8), 'Drill clamps to the smallest selected diameter');
     app.history.undo();
+    input('Drill').emit('change', -1);
+    flushSettledChanges();
+    assert.ok(vias.every(via => via.drill === 0.05), 'Drill clamps to its described minimum');
+    app.history.undo();
     app.history.undo();
     assert.deepEqual(model.captureGeometry(), before);
     input('Dia').emit('change', 2);
@@ -421,7 +438,7 @@ for (const commit of [false, true]) {
     cases++;
 }
 for (const count of [1, 4]) for (const [field, value] of [['Dia', 2], ['Drill', 0.6]]) {
-    for (const invalid of ['', 'bad', '2junk', 'Infinity', '-Infinity', ...(field === 'Drill' ? ['0', '-1'] : [])]) {
+    for (const invalid of ['', 'bad', '2junk', 'Infinity', '-Infinity']) {
         for (const finish of ['change', 'blur', 'binding', 'pointer', 'cancel', 'net']) {
             const f = fixture(count), { app, model, vias } = f;
             const input = f.input(field), before = model.captureGeometry();

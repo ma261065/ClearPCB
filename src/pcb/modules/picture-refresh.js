@@ -29,31 +29,30 @@ function flushCopperCuts(app) {
     app.updateCopperCuts?.();
 }
 
-export function bindPictureRefreshHold(app, input, host = window) {
-    if (!input) return;
-    const begin = (event) => {
-        const pointer = event.type === 'pointerdown';
-        if (pointer ? event.button !== 0 : !['ArrowUp', 'ArrowDown'].includes(event.key)) return;
-        if (event.repeat) return;
-        activeHolds.get(app)?.();
-        const release = (endEvent) => {
-            if (endEvent && endEvent.type !== 'blur') {
-                if (pointer ? endEvent.pointerId !== event.pointerId : endEvent.key !== event.key) return;
-            }
-            for (const name of endings) host.removeEventListener(name, release, true);
-            activeHolds.delete(app);
-            if (isPictureCopperRefreshPending(app)) schedulePictureCopperRefresh(app);
-        };
-        const endings = pointer ? ['pointerup', 'pointercancel', 'blur'] : ['keyup', 'blur'];
-        activeHolds.set(app, release);
-        const timer = pendingRefreshes.get(app);
-        if (timer !== undefined) clearTimeout(timer);
-        pendingRefreshes.delete(app);
-        for (const name of endings) host.addEventListener(name, release, true);
+/**
+ * Hold picture-copper refreshes while a Properties number field is held (its
+ * spinner pressed or an Arrow key held): a field's `hold` hooks
+ * (shared/ui/property-fields.js). The refresh owed meanwhile runs on release.
+ * @returns {{begin: () => void, end: () => void}}
+ */
+export function pictureRefreshHold(app) {
+    const end = () => {
+        if (activeHolds.get(app) !== end) return;
+        activeHolds.delete(app);
+        if (isPictureCopperRefreshPending(app)) schedulePictureCopperRefresh(app);
     };
-    input.addEventListener('pointerdown', begin);
-    input.addEventListener('keydown', begin);
+    return {
+        begin() {
+            activeHolds.get(app)?.();
+            const timer = pendingRefreshes.get(app);
+            if (timer !== undefined) clearTimeout(timer);
+            pendingRefreshes.delete(app);
+            activeHolds.set(app, end);
+        },
+        end,
+    };
 }
+
 
 export function cancelPictureCopperRefresh(app) {
     const timer = pendingRefreshes.get(app);

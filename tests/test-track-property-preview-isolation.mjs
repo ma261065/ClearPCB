@@ -15,6 +15,7 @@ import { loadPcb } from '../src/pcb/modules/project-state.js';
 import { PCB_LAYERS } from '../src/pcb/modules/layers.js';
 import { formatNumberInputValue } from '../src/core/number-inputs.js';
 import { getPropertyEditor } from '../src/pcb/modules/property-editors.js';
+import { renderPropertyFields } from '../src/shared/ui/property-fields.js';
 import { flushSettledChanges } from '../src/shared/ui/settled-input.js';
 
 let allocations = 0, inputs = new Map();
@@ -41,6 +42,7 @@ class Element {
         if (!this.listeners.has(type)) this.listeners.set(type, []);
         this.listeners.get(type).push(callback);
     }
+    append(...children) { for (const child of children) this.appendChild(child); }
     appendChild(child) { child.remove(); this.children.push(child); child.parentNode = this; }
     insertBefore(child, before) {
         child.remove();
@@ -53,6 +55,21 @@ class Element {
         if (this.parentNode) this.parentNode.children.splice(this.parentNode.children.indexOf(this), 1);
         this.parentNode = null;
     }
+    removeChild(child) {
+        this.children.splice(this.children.indexOf(child), 1);
+        child.parentNode = null;
+        return child;
+    }
+    dispatchEvent(event) {
+        for (const callback of this.listeners.get(event.type) || []) callback(event);
+        return true;
+    }
+    emit(type, value = this.value, extra = {}) {
+        if (value !== undefined) this.value = String(value);
+        return this.dispatchEvent({ type, target: this, preventDefault() {}, stopPropagation() {}, ...extra });
+    }
+    focus() { document.activeElement = this; }
+    get valueAsNumber() { return this.value?.trim?.() === '' ? NaN : Number(this.value); }
     querySelectorAll(selector) {
         return this.children.flatMap(child => [
             ...(selector.startsWith('.') && child.classList.contains(selector.slice(1)) ? [child] : []),
@@ -90,16 +107,7 @@ function fixture(scope = 'whole', unrelatedCount = 1) {
         points: [{ x: 100 + index, y: 100 }, { x: 101 + index, y: 100 }], net: 'OTHER' }));
     model.tracks.push(track, ...unrelated);
     inputs = new Map();
-    const items = {
-        set innerHTML(html) {
-            inputs = new Map();
-            for (const match of html.matchAll(/<(?:input|select)\b([^>]+)>/g)) {
-                const id = match[1].match(/id="([^"]+)"/)?.[1];
-                if (id) inputs.set(id, new Input(match[1].match(/value="([^"]*)"/)?.[1] || ''));
-            }
-        },
-        querySelector: selector => inputs.get(selector.slice(1)) || null,
-    };
+    const items = new Element('div');
     const groups = new Map(['top-copper', 'bottom-copper', 'selection-overlay'].map(id => [id, new Element('g')]));
     let fills = 0, clearances = 0;
     const app = {};
@@ -113,6 +121,11 @@ function fixture(scope = 'whole', unrelatedCount = 1) {
         _active: true, _layerGroups: groups, existingLayerGroups() { return this._layerGroups; }, _textElements: new Map(), _shapeElements: new Map(),
         viewport: { scale: 100, svg: new Element('svg'), shiftHeld: true, setCrosshair() {}, hideCrosshair() {} },
         propertiesItems: () => items, getLayerGroup: id => groups.get(id) || null,
+        openPropertyPanel(panel) { this.setPropertiesTitle?.(panel.title); this.refreshPropertyPanel(panel); this.showPropertiesTab?.(); return true; },
+        refreshPropertyPanel(panel) {
+            const controls = renderPropertyFields(items, panel.fields, { placeholder: panel.placeholder });
+            inputs = new Map([...controls.values()].filter(control => control.id).map(control => [control.id, control]));
+        },
         setActiveRibbonTab() {}, setPcbStatus() {}, refreshFills() { fills++; },
         refreshClearanceHalos() { clearances++; },
         _cancelDrawingMode() {}, _ensureViewport() {}, markSectionClean() {},

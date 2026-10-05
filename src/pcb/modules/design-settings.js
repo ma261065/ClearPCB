@@ -88,8 +88,8 @@ export function bindDesignSettings(app) {
     }
 }
 
-function readDesignInput(element, units, key) {
-    const value = Number(element.value) * (units === 'inch' ? 25.4 : 1);
+function readDesignValue(key, rawValue, units) {
+    const value = Number(rawValue) * (units === 'inch' ? 25.4 : 1);
     const maximum = PCB_DESIGN_MAX_MM[key];
     let message = '';
     if (!Number.isFinite(value) || value <= 0) message = 'Enter a positive finite number.';
@@ -99,14 +99,16 @@ function readDesignInput(element, units, key) {
             ? `Enter a value no larger than ${Number((maximum / 25.4).toFixed(4))} in.`
             : `Enter a value no larger than ${maximum} mm.`;
     }
-    element.setCustomValidity(message);
-    return message ? null : Math.min(value, maximum);
+    return { value: message ? null : Math.min(value, maximum), message };
 }
 
-/** Both ribbon and drawing-tool editors commit through the same mm conversion. */
-export function commitDesignInput(app, key, element, units) {
-    const value = readDesignInput(element, units, key);
-    if (value === null) return false;
+function readDesignInput(element, units, key) {
+    const result = readDesignValue(key, element.value, units);
+    element.setCustomValidity(result.message);
+    return result.value;
+}
+
+function commitDesignUpdate(app, key, value) {
     if (app.designSettings.update({ [key]: value })) {
         saveDefaults(app);
         app._markDirty?.();
@@ -114,5 +116,24 @@ export function commitDesignInput(app, key, element, units) {
         app.refreshFills?.();
         refreshBoardView(app);
     }
+}
+
+/** Both ribbon and drawing-tool editors commit through the same mm conversion. */
+export function commitDesignInput(app, key, element, units) {
+    const value = readDesignInput(element, units, key);
+    if (value === null) return false;
+    commitDesignUpdate(app, key, value);
     return true;
+}
+
+/** Commit a design value without a DOM input; returns the validation message for panels. */
+export function commitDesignValue(app, key, rawValue, units = 'mm', onError = null) {
+    const { value, message } = readDesignValue(key, rawValue, units);
+    if (value === null) {
+        onError?.(message);
+        app.setStatus?.(message);
+        return { ok: false, message };
+    }
+    commitDesignUpdate(app, key, value);
+    return { ok: true, message: '' };
 }

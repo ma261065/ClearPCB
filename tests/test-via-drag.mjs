@@ -97,6 +97,8 @@ function appFor(via) {
         },
         history: { execute(command) { command.execute(); } },
         alert(message, options) { this.lastAlert = { message, options }; },
+        openPropertyPanel() { return true; },
+        refreshPropertyPanel() {},
     };
     for (const key of ['tracks', 'vias', 'pads']) {
         Object.defineProperty(app, key, Object.getOwnPropertyDescriptor(PCBApp.prototype, key));
@@ -139,6 +141,8 @@ function trackAppFor(track, previousDeferral = false) {
         },
         history: { execute(command) { command.execute(); } },
         alert(message, options) { this.lastAlert = { message, options }; },
+        openPropertyPanel() { return true; },
+        refreshPropertyPanel() {},
     };
     setDragOverlaysDeferred(app, previousDeferral);
     return app;

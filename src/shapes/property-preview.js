@@ -56,53 +56,6 @@ export function createPropertyBinding({ beforeActivate = () => {}, onDispose = (
     return binding;
 }
 
-/**
- * @param {HTMLInputElement|null} input
- * @param {any} preview
- * @param {{forceRebuild?: boolean, isCurrent?: () => boolean, focusRoot?: Element|null,
- *   commit?: (options: any) => boolean, refresh?: () => void}} [options]
- */
-export function commitPropertyPreviewInput(input, preview, {
-    forceRebuild = false, isCurrent = () => true, focusRoot = null,
-    commit = options => preview.commit(options), refresh = () => {},
-} = {}) {
-    const current = isCurrent();
-    if (!current && !preview.active) return false;
-    const keepFocus = document.activeElement === input || focusRoot?.contains?.(document.activeElement);
-    const changed = Number.isFinite(parseFloat(input.value))
-        ? commit({ rebuild: current && (forceRebuild || !keepFocus) })
-        : preview.cancel();
-    if (current) refresh();
-    return changed;
-}
-
-/**
- * @param {HTMLInputElement|null} input
- * @param {any} preview
- * @param {{binding?: any, isCurrent?: () => boolean, focusRoot?: Element|null,
- *   commit?: (options: any) => boolean, refresh?: () => void, onCancel?: () => void}} [options]
- */
-export function bindPropertyPreviewInput(input, preview, {
-    binding = null, isCurrent = () => true, focusRoot = null, commit = options => preview.commit(options),
-    refresh = () => {}, onCancel = refresh,
-} = {}) {
-    const finish = options => commitPropertyPreviewInput(input, preview, {
-        isCurrent, focusRoot, refresh, commit: settings => commit({ ...settings, ...options }),
-    });
-    if (input) binding?.registerCompletion(preview, finish);
-    input?.addEventListener('keydown', event => {
-        if (!isCurrent() || event.key !== 'Escape' || !preview.cancel()) return;
-        event.preventDefault();
-        event.stopPropagation();
-        onCancel();
-    });
-    input?.addEventListener('blur', () => {
-        queueMicrotask(() => {
-            if (preview.active) finish();
-        });
-    });
-}
-
 export function createPropertyPreview({
     capture, restore, redraw, commit, binding = null, isCurrent = () => true, beforeCommit = () => {},
 }) {

@@ -6,14 +6,12 @@ import { ModifyFillCommand, RemoveFillCommand } from './copper-fill-commands.js'
 import { renderCopperFill, removeCopperFillElements } from './copper-fill-render.js';
 import { renderPcbSelectionAnchors } from './selection-anchors.js';
 import { isPcbSelected, setPcbSelection } from './selection-registry.js';
-import { isCopperFillLocked, isCopperFillVisible, isLayerLocked } from './layers.js';
-import { bindLockedProperty, lockedPropertyHtml } from './object-locks.js';
+import { isCopperFillLocked, isCopperFillVisible, isLayerLocked, pcbLayerOption } from './layers.js';
+import { lockedProperty } from './object-locks.js';
 import { snapPathPoint, snapPathTranslation, pathContextActions, showPathContextMenu } from './path-edit.js';
 import { distanceToArcEdge, arcEdgePathD } from '../../shapes/arc-edge.js';
-import { formatNumberInputValue } from '../../core/number-inputs.js';
 import { CopperFill, normalizeCopperFillKind } from '../../shapes/copper-fill.js';
 import { areDragOverlaysDeferred, setDragOverlaysDeferred } from './refresh-state.js';
-import { bindSettledChange } from '../../shared/ui/settled-input.js';
 
 export function canEditFill(fill) {
     return fill && !fill.locked && fill.visible !== false && !isLayerLocked(fill.layer)
@@ -221,20 +219,10 @@ export function fillEditPath(app, fill) {
 
 /** Properties for a copper pour: Locked, Layer, Net, then its outline geometry. */
 export function showFillProperties(app, fill) {
-    const items = app.propertiesItems();
-    if (!items || !fill) return;
-    app.setPropertiesTitle('Copper Fill');
-    const { escape, options } = app.toolNetOptions(fill.net || '');
-    const layerOpts = [
-        ['top-copper', 'Top Copper'],
-        ['bottom-copper', 'Bottom Copper'],
-    ].map(([id, name]) => `<option value="${id}"${id === fill.layer ? ' selected' : ''}>${name}</option>`).join('');
+    if (!fill) return;
     const lockEntries = [{ kind: 'fill', object: fill }];
-    items.innerHTML = `
-        ${lockedPropertyHtml(app, lockEntries)}
-        <div class="prop-row" data-prop="layer"><label>Layer</label><select id="pcbPropFillLayer">${layerOpts}</select></div>
-        <div class="prop-row" data-prop="net"><label>Net</label><span class="prop-net-control"><input type="text" id="pcbPropFillNet" placeholder="None" value="${escape(fill.net || '')}"><details class="prop-net-menu"><summary aria-label="Select existing net"></summary><div>${options}</div></details></span></div>
-    `;
+    const lock = lockedProperty(app, lockEntries);
+    const refresh = () => app.refreshPropertyPanel?.(describe());
     const commit = (mutate) => {
         if (!canEditFill(fill)) return;
         const before = fill.captureState();
@@ -242,86 +230,117 @@ export function showFillProperties(app, fill) {
         const after = fill.captureState();
         fill.applyState(before);
         app.history.execute(new ModifyFillCommand(app, fill, before, after));
+        refresh();
     };
-    app.bindToolNetControl(items, 'pcbPropFillNet', (value) => {
-        if ((fill.net || '') === value) return;
-        commit(() => { fill.net = value; });
+    const describe = () => ({
+        title: 'Copper Fill',
+        fields: [
+            { ...lock.field, commit: value => { lock.field.commit(value); refresh(); } },
+            { key: 'layer', id: 'pcbPropFillLayer', type: 'select', label: 'Layer', value: fill.layer,
+                disabled: lock.readOnly, options: [
+                    pcbLayerOption('top-copper', 'Top Copper'),
+                    pcbLayerOption('bottom-copper', 'Bottom Copper'),
+                ], commit: value => {
+                    if (fill.layer === value || isLayerLocked(value)) { refresh(); return; }
+                    commit(() => { fill.layer = value; });
+                } },
+            { key: 'net', id: 'pcbPropFillNet', type: 'net', label: 'Net', value: fill.net || '', disabled: lock.readOnly,
+                nets: fillNetNames(app), commit: value => {
+                    if ((fill.net || '') === value) return;
+                    commit(() => { fill.net = value; });
+                } },
+            ...addFillGeometryProperties(app, fill, lock.readOnly, refresh),
+        ],
     });
-    const layerEl = /** @type {HTMLSelectElement|null} */ (items.querySelector('#pcbPropFillLayer'));
-    layerEl?.addEventListener('change', () => {
-        if (fill.layer === layerEl.value) return;
-        commit(() => { fill.layer = layerEl.value; });
-    });
-    addFillGeometryProperties(app, fill, items);
-    bindLockedProperty(app, items, lockEntries);
-    app.showPropertiesTab?.();
+    app.openPropertyPanel?.(describe());
 }
 
-export function addFillGeometryProperties(app, fill, items) {
+function fillNetNames(app) {
+    if (typeof app.netNames === 'function') return app.netNames();
+    const names = new Set((app.netlist || []).map(entry => String(entry.net || '')).filter(Boolean));
+    for (const source of [app.tracks, app.vias, app.boardShapes, app.copperFills]) {
+        for (const item of source || []) {
+            const net = String(item?.net || '');
+            if (net) names.add(net);
+        }
+    }
+    return [...names].sort();
+}
+
+export function addFillGeometryProperties(app, fill, disabled = false, refresh = () => {}) {
     const { node, segment } = fillEditFocus(app, fill);
-    const number = (id, key, label, value, min, /** @type {number|''} */ max = '') => `<div class="prop-row" data-prop="${key}"><label for="${id}">${label}</label><input id="${id}" type="number" min="${min}" ${max === '' ? '' : `max="${max}"`} step="0.05" value="${formatNumberInputValue(value)}"></div>`;
     const bounds = fill.getBounds();
-    if (node == null && segment == null) {
-        // "What it is" sits directly under Locked, before Layer and Net.
-        const outline = `<div class="prop-row" data-prop="outline"><label>Outline</label><select id="pcbPropFillKind">${[['rect', 'Rectangle'], ['polygon', 'Polygon'], ['circle', 'Circle']].map(([kind, label]) => `<option value="${kind}"${fill.kind === kind ? ' selected' : ''}>${label}</option>`).join('')}</select></div>`;
-        const locked = items.querySelector('[data-prop="locked"]');
-        if (locked) locked.insertAdjacentHTML('afterend', outline);
-        else items.insertAdjacentHTML('afterbegin', outline);
-    }
-    items.insertAdjacentHTML('beforeend', node != null
-        ? number('pcbPropFillNodeRadius', 'cornerRadius', 'Corner Radius (mm)', fill.nodeCornerRadii[node] ?? fill.cornerRadius, 0)
-        : segment != null
-            ? number('pcbPropFillBulge', 'bulge', 'Bulge', fill.segmentBulges[segment] || 0, -1, 1)
-            : (fill.kind === 'rect' && bounds ? number('pcbPropFillWidth', 'width', 'Width (mm)', bounds.maxX - bounds.minX, 0.1)
-                    + number('pcbPropFillHeight', 'height', 'Height (mm)', bounds.maxY - bounds.minY, 0.1) : '')
-                + (fill.kind === 'circle' ? number('pcbPropFillDiameter', 'diameter', 'Diameter (mm)', fill.radius * 2, 0.1)
-                    : number('pcbPropFillCornerRadius', 'cornerRadius', 'Corner Radius (mm)', fill.cornerRadius, 0)));
-    // Spinner clicks fire `change` on every step, and each commit recomputes the whole pour.
-    const bind = (id, mutate, min, max = Infinity) => {
-        const input = items.querySelector(`#${id}`);
-        if (!input) return;
-        bindSettledChange(input, () => {
-            const value = input.valueAsNumber;
-            if (!Number.isFinite(value) || value < min || value > max) return;
-            commitFillEdit(app, fill, candidate => mutate(candidate, value));
-        });
-    };
-    bind('pcbPropFillNodeRadius', (fill, value) => { fill.nodeCornerRadii[node] = value; }, 0);
-    bind('pcbPropFillBulge', (fill, value) => {
-        fill.kind = 'polygon';
-        if (Math.abs(value) < 1e-4) delete fill.segmentBulges[segment];
-        else fill.segmentBulges[segment] = value;
-        normalizeCopperFillKind(fill);
-    }, -1, 1);
-    bind('pcbPropFillCornerRadius', (fill, value) => { fill.cornerRadius = value; fill.nodeCornerRadii = {}; }, 0);
-    bind('pcbPropFillDiameter', (fill, value) => { fill.radius = value / 2; }, 0.1);
-    for (const [id, axis, minimum, maximum] of [['pcbPropFillWidth', 'x', 'minX', 'maxX'], ['pcbPropFillHeight', 'y', 'minY', 'maxY']]) {
-        bind(id, (fill, value) => {
-            const current = fill.getBounds();
-            const factor = value / (current[maximum] - current[minimum]);
-            fill.outline = fill.outline.map(point => ({ ...point, [axis]: current[minimum] + (point[axis] - current[minimum]) * factor }));
-        }, 0.1);
-    }
-    const kindInput = items.querySelector('#pcbPropFillKind');
-    kindInput?.addEventListener('change', () => {
-        const kind = kindInput.value;
-        if (!bounds || kind === fill.kind || !['rect', 'polygon', 'circle'].includes(kind)) return;
-        commitFillEdit(app, fill, fill => {
-            if (kind === 'polygon' && fill.kind !== 'circle') { fill.kind = kind; return; }
-            const contour = fill.getOutline();
-            fill.kind = kind;
-            fill.cornerRadius = 0;
-            fill.nodeCornerRadii = {};
-            fill.segmentBulges = {};
-            if (kind === 'circle') {
-                fill.outline = [];
-                fill.x = (bounds.minX + bounds.maxX) / 2;
-                fill.y = (bounds.minY + bounds.maxY) / 2;
-                fill.radius = Math.min(bounds.maxX - bounds.minX, bounds.maxY - bounds.minY) / 2;
-            } else fill.outline = kind === 'polygon' ? contour : [
-                { x: bounds.minX, y: bounds.minY }, { x: bounds.maxX, y: bounds.minY },
-                { x: bounds.maxX, y: bounds.maxY }, { x: bounds.minX, y: bounds.maxY },
-            ];
-        });
+    const fields = [];
+    const number = (id, key, label, value, min, max = Infinity, mutate) => ({
+        key, id, type: 'number', label, value, min, max, step: 0.05, disabled,
+        commit: next => {
+            if (!Number.isFinite(next) || next < min || next > max) return;
+            if (commitFillEdit(app, fill, candidate => mutate(candidate, next))) refresh();
+        },
     });
+    if (node == null && segment == null) {
+        fields.push({ key: 'outline', id: 'pcbPropFillKind', type: 'select', label: 'Outline', value: fill.kind,
+            disabled, options: [
+                { value: 'rect', label: 'Rectangle' },
+                { value: 'polygon', label: 'Polygon' },
+                { value: 'circle', label: 'Circle' },
+            ], commit: kind => {
+                if (!bounds || kind === fill.kind || !['rect', 'polygon', 'circle'].includes(kind)) return;
+                if (commitFillEdit(app, fill, fill => {
+                    if (kind === 'polygon' && fill.kind !== 'circle') { fill.kind = kind; return; }
+                    const contour = fill.getOutline();
+                    fill.kind = kind;
+                    fill.cornerRadius = 0;
+                    fill.nodeCornerRadii = {};
+                    fill.segmentBulges = {};
+                    if (kind === 'circle') {
+                        fill.outline = [];
+                        fill.x = (bounds.minX + bounds.maxX) / 2;
+                        fill.y = (bounds.minY + bounds.maxY) / 2;
+                        fill.radius = Math.min(bounds.maxX - bounds.minX, bounds.maxY - bounds.minY) / 2;
+                    } else fill.outline = kind === 'polygon' ? contour : [
+                        { x: bounds.minX, y: bounds.minY }, { x: bounds.maxX, y: bounds.minY },
+                        { x: bounds.maxX, y: bounds.maxY }, { x: bounds.minX, y: bounds.maxY },
+                    ];
+                })) refresh();
+            } });
+    }
+    if (node != null) {
+        fields.push(number('pcbPropFillNodeRadius', 'cornerRadius', 'Corner Radius (mm)',
+            fill.nodeCornerRadii[node] ?? fill.cornerRadius, 0, Infinity,
+            (fill, value) => { fill.nodeCornerRadii[node] = value; }));
+    } else if (segment != null) {
+        fields.push(number('pcbPropFillBulge', 'bulge', 'Bulge', fill.segmentBulges[segment] || 0, -1, 1,
+            (fill, value) => {
+                fill.kind = 'polygon';
+                if (Math.abs(value) < 1e-4) delete fill.segmentBulges[segment];
+                else fill.segmentBulges[segment] = value;
+                normalizeCopperFillKind(fill);
+            }));
+    } else {
+        if (fill.kind === 'rect' && bounds) {
+            fields.push(
+                number('pcbPropFillWidth', 'width', 'Width (mm)', bounds.maxX - bounds.minX, 0.1, Infinity,
+                    (fill, value) => {
+                        const current = fill.getBounds();
+                        const factor = value / (current.maxX - current.minX);
+                        fill.outline = fill.outline.map(point => ({ ...point, x: current.minX + (point.x - current.minX) * factor }));
+                    }),
+                number('pcbPropFillHeight', 'height', 'Height (mm)', bounds.maxY - bounds.minY, 0.1, Infinity,
+                    (fill, value) => {
+                        const current = fill.getBounds();
+                        const factor = value / (current.maxY - current.minY);
+                        fill.outline = fill.outline.map(point => ({ ...point, y: current.minY + (point.y - current.minY) * factor }));
+                    }),
+            );
+        }
+        if (fill.kind === 'circle') {
+            fields.push(number('pcbPropFillDiameter', 'diameter', 'Diameter (mm)', fill.radius * 2, 0.1, Infinity,
+                (fill, value) => { fill.radius = value / 2; }));
+        } else {
+            fields.push(number('pcbPropFillCornerRadius', 'cornerRadius', 'Corner Radius (mm)', fill.cornerRadius, 0, Infinity,
+                (fill, value) => { fill.cornerRadius = value; fill.nodeCornerRadii = {}; }));
+        }
+    }
+    return fields;
 }

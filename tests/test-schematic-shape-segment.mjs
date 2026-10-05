@@ -8,7 +8,7 @@ globalThis.document = {
     createElementNS() {
         return {
             attributes: {},
-            setAttribute(name, value) { this.attributes[name] = value; },
+            setAttribute(name, value) { this.attributes[name] = value; this[name] = String(value); },
             remove() {},
             classList: { add() {} },
             style: {},
@@ -53,10 +53,27 @@ function expect(name, condition) {
     const elements = [];
     document.createElement = tag => {
         const listeners = new Map();
-        const element = { tag, children: [], style: {}, dataset: {}, value: '', attributes: {},
-            appendChild(child) { this.children.push(child); },
-            append(...children) { this.children.push(...children); },
+        const element = { tag, tagName: String(tag).toUpperCase(), children: [], style: {}, dataset: {}, value: '', attributes: {}, parentNode: null,
+            get firstChild() { return this.children[0] || null; },
+            get nextSibling() { return this.parentNode?.children[this.parentNode.children.indexOf(this) + 1] || null; },
+            get isConnected() { return true; },
+            appendChild(child) { child.parentNode?.removeChild?.(child); this.children.push(child); child.parentNode = this; return child; },
+            append(...children) { for (const child of children) if (typeof child === 'object') this.appendChild(child); },
+            insertBefore(child, next) {
+                child.parentNode?.removeChild?.(child);
+                const index = this.children.indexOf(next);
+                this.children.splice(index < 0 ? this.children.length : index, 0, child);
+                child.parentNode = this;
+            },
+            removeChild(child) {
+                this.children = this.children.filter(item => item !== child);
+                child.parentNode = null;
+                return child;
+            },
+            remove() { this.parentNode?.removeChild(this); },
             setAttribute(name, value) { this.attributes[name] = value; },
+            getAttribute(name) { return this.attributes[name] ?? null; },
+            removeAttribute(name) { delete this.attributes[name]; },
             addEventListener(type, listener) {
                 if (!listeners.has(type)) listeners.set(type, []);
                 listeners.get(type).push(listener);
@@ -69,6 +86,8 @@ function expect(name, condition) {
         return element;
     };
     document.getElementById = id => elements.find(element => element.id === id) || null;
+    const findIn = (root, id) => root?.id === id ? root
+        : root?.children?.map(child => findIn(child, id)).find(Boolean) || null;
     try {
         const circle = new Circle({ radius: 5, lineWidth: 0.2 });
         const arc = new Arc({ startPoint: { x: 0, y: 0 }, endPoint: { x: 10, y: 0 }, bulgePoint: { x: 5, y: 2 }, lineWidth: 0.4 });
@@ -86,7 +105,7 @@ function expect(name, condition) {
             const build = () => {
                 elements.length = 0;
                 updatePropertiesPanel(app, selection);
-                return document.getElementById(`prop_${property}`);
+                return findIn(app.ui.propertiesPanel, `prop_${property}`);
             };
             const original = selection.map(item => item[property]);
             let input = build();
@@ -125,7 +144,7 @@ function expect(name, condition) {
                 shape.getPropertyDescriptors = () => descriptors.filter(desc => desc.key === property);
             }
             updatePropertiesPanel(app, [...app.selection.getSelection()]);
-            return document.getElementById(`prop_${property}`);
+            return findIn(app.ui.propertiesPanel, `prop_${property}`);
         };
         for (const standalone of [false, true]) {
             for (const curved of [false, true]) {
@@ -146,7 +165,8 @@ function expect(name, condition) {
             if (selectedNode) setShapeNodeFocus(app, { shapeId: shape.id, nodeId: 'n0' });
             const before = shape.captureState();
             const input = buildInput(app, 'cornerRadius');
-            expect('corner radius spinner is bounded from zero to 25', Number(input.max) === 25 && Number(input.min) === 0);
+            const attr = name => input[name] ?? input.attributes?.[name];
+            expect('corner radius spinner is bounded from zero to 25', Number(attr('max')) === 25 && Number(attr('min')) === 0);
             input.value = '30';
             input.fire('input');
             input.fire('change');

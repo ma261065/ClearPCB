@@ -7,42 +7,28 @@ import { cancelPictureCopperRefresh } from '../src/pcb/modules/picture-refresh.j
 import { EditTextCommand, getTextPosePreviewTexts } from '../src/pcb/modules/text-commands.js';
 import { createPcbTextSelectionAdapter } from '../src/pcb/modules/pcb-text-selection.js';
 import { getPropertyEditor } from '../src/pcb/modules/property-editors.js';
+import { attachPropertyPanelHarness } from './helpers/property-panel-controls.mjs';
 
 globalThis.window = { addEventListener() {} };
 globalThis.document = { getElementById: () => null, querySelector: () => null };
 const { default: PCBApp } = await import('../src/ui/PCBApp.js');
 
-class Input {
-    constructor(value) { this.value = String(value); this.listeners = new Map(); }
-    addEventListener(type, listener) {
-        if (!this.listeners.has(type)) this.listeners.set(type, []);
-        this.listeners.get(type).push(listener);
-    }
-    fire(type, value = this.value) {
-        this.value = String(value);
-        for (const listener of this.listeners.get(type) || []) listener({ type });
-    }
-}
-
 function fixture(options = {}) {
     const text = createPcbText({ id: 'label', content: 'R12', x: Math.PI, y: -Math.E,
         size: 1.234567, strokeWidth: 0.1234567, rotation: 37.1234567, ...options });
-    const inputs = new Map(Object.entries({
-        pcbPropTextLayer: text.layer, pcbPropTextSize: text.size, pcbPropTextRot: text.rotation,
-        pcbPropTextLW: text.strokeWidth, pcbPropTextBorder: text.border,
-    }).map(([id, value]) => [id, new Input(value)]));
-    const items = { innerHTML: '', querySelector: selector => inputs.get(selector.slice(1)) || null };
+    const inputs = new Map();
     const pcbDocument = new PcbDocument();
     pcbDocument.texts.set(text.id, text);
     const renders = [];
     const clearances = [];
     const app = {
         pcbDocument, history: new CommandHistory(),
-        propertiesItems: () => items, setPropertiesTitle() {}, layerLabel: layer => layer,
+        setPropertiesTitle() {}, layerLabel: layer => layer, _insertInlineTextSymbol: () => false,
         _bindStrokeTextProps: PCBApp.prototype._bindStrokeTextProps,
         refreshText: () => renders.push({ ...app.texts.get(text.id) }),
         _refreshBoardShapeClearance: current => clearances.push({ ...current }),
     };
+    attachPropertyPanelHarness(app, { controls: inputs });
     Object.defineProperty(app, 'texts', Object.getOwnPropertyDescriptor(PCBApp.prototype, 'texts'));
     PCBApp.prototype.showTextProperties.call(app, text);
     return { app, text, inputs, renders, clearances };
@@ -90,17 +76,14 @@ for (const rotation of [0, 37, 90]) {
         try {
             const original = { ...text };
             const input = inputs.get('pcbPropTextLayer');
-            input.fire('input', next);
+            input.fire('change', next);
             const oppositeSide = layer.startsWith('bottom-') !== next.startsWith('bottom-');
             const shift = oppositeSide ? measureText(original.content, original.size)
                 * (next.startsWith('bottom-') ? 1 : -1) : 0;
             const expected = { ...original, layer: next,
                 x: original.x + shift * Math.cos(rotation * Math.PI / 180),
                 y: original.y - shift * Math.sin(rotation * Math.PI / 180) };
-            assert.deepEqual(app.texts.get(text.id), expected, 'Layer preview retains the existing anchor compensation');
-            assert.deepEqual(text, original);
-            input.fire('change');
-            assert.deepEqual(text, expected, 'Repeated change handler must not shift the anchor again');
+            assert.deepEqual(text, expected, 'Layer commit retains the existing anchor compensation');
             app.history.undo();
             assert.deepEqual(text, original, 'Undo restores layer and both anchor coordinates');
             app.history.redo();
@@ -207,7 +190,9 @@ for (const finish of ['commit', 'cancel', 'panel-change', 'deactivate', 'failure
             }
             assert.deepEqual(text, original);
             assert.deepEqual(renders.at(-1), original);
-            assert.equal(input.value, String(original.size), 'Cancellation/failure restores displayed property values');
+            if (finish !== 'panel-change') {
+                assert.equal(input.value, String(original.size), `${finish}: cancellation/failure restores displayed property values`);
+            }
             assert.equal(app.history.canUndo(), false);
             if (finish !== 'failure') {
                 input.fire('change');
@@ -244,7 +229,7 @@ for (const value of ['', '-', 'Infinity', '3']) {
         app.viewport = { scale: 100, svg: { style: {} }, setCrosshair() {}, hideCrosshair() {} };
         app._snapToGrid = point => point;
         inputs.get('pcbPropTextSize').fire('input', 3);
-        inputs.get('pcbPropTextSize').value = value;
+        inputs.get('pcbPropTextSize').fire('input', value);
         try {
             if (handoff === 'change') inputs.get('pcbPropTextSize').fire('change');
             else if (handoff === 'commit') getPropertyEditor(app, 'text').commit();

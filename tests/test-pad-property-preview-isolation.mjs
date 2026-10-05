@@ -1,67 +1,65 @@
 import assert from 'node:assert/strict';
-import { ProjectDocument } from '../src/core/ProjectDocument.js';
-import { CommandHistory } from '../src/core/CommandHistory.js';
-import { Pad } from '../src/shapes/pad.js';
-import { Track } from '../src/shapes/track.js';
-import { renderPad, padCopperPathD } from '../src/pcb/modules/pad.js';
-import { getPadPropertyPreview } from '../src/pcb/modules/pad-commands.js';
-import { createPadSelectionAdapter } from '../src/pcb/modules/pad-selection.js';
-import { setPcbSelection, syncPcbSelection, getPcbSelection } from '../src/pcb/modules/selection-registry.js';
-import { prepareFabricationSnapshot } from '../src/pcb/modules/fabrication-snapshot.js';
-import { loadPcb } from '../src/pcb/modules/project-state.js';
-import { PCB_LAYERS } from '../src/pcb/modules/layers.js';
-import { cancelPictureCopperRefresh } from '../src/pcb/modules/picture-refresh.js';
-import { getPropertyEditor } from '../src/pcb/modules/property-editors.js';
-import { flushSettledChanges } from '../src/shared/ui/settled-input.js';
+import { installFakeDom } from './helpers/fake-dom.mjs';
 
-let allocations = 0, frameId = 0, timerId = 0, inputs = new Map();
+installFakeDom();
+
+let allocations = 0, frameId = 0, timerId = 0;
 const frames = new Map(), timers = new Map();
 globalThis.requestAnimationFrame = callback => { frames.set(++frameId, callback); return frameId; };
 globalThis.cancelAnimationFrame = id => frames.delete(id);
 globalThis.setTimeout = callback => { timers.set(++timerId, callback); return timerId; };
 globalThis.clearTimeout = id => timers.delete(id);
-globalThis.window = { addEventListener() {}, removeEventListener() {} };
-globalThis.localStorage = { setItem() {} };
+globalThis.window.requestAnimationFrame = globalThis.requestAnimationFrame;
+globalThis.window.cancelAnimationFrame = globalThis.cancelAnimationFrame;
 function flushFrames() {
     for (const [id, callback] of [...frames]) { frames.delete(id); callback(); }
 }
-class Element {
-    constructor(tag) { allocations++; this.tag = tag; this.children = []; this.attributes = new Map(); this.dataset = {}; this.style = {}; }
-    setAttribute(name, value) { this.attributes.set(name, String(value)); }
-    getAttribute(name) { return this.attributes.get(name) ?? null; }
-    appendChild(child) { child.remove(); this.children.push(child); child.parentNode = this; }
-    insertBefore(child, before) {
-        child.remove();
-        const index = this.children.indexOf(before);
-        this.children.splice(index < 0 ? this.children.length : index, 0, child);
-        child.parentNode = this;
-    }
-    get firstChild() { return this.children[0] || null; }
-    remove() {
-        if (this.parentNode) this.parentNode.children.splice(this.parentNode.children.indexOf(this), 1);
-        this.parentNode = null;
-    }
-}
-class Input {
-    constructor(value) { this.value = String(value); this.listeners = new Map(); }
-    addEventListener(type, callback) {
-        if (!this.listeners.has(type)) this.listeners.set(type, []);
-        this.listeners.get(type).push(callback);
-    }
-    emit(type, value = this.value, extra = {}) {
-        this.value = String(value);
-        const event = { type, target: this, preventDefault() {}, stopPropagation() {}, ...extra };
-        for (const callback of this.listeners.get(type) || []) callback(event);
-    }
-}
-globalThis.document = {
-    createElementNS: (_, tag) => new Element(tag),
-    getElementById: id => inputs.get(id) || null,
-    querySelector: () => null, querySelectorAll: () => [],
+const createElementNS = document.createElementNS.bind(document);
+document.createElementNS = (namespace, tag) => {
+    allocations++;
+    const element = createElementNS(namespace, tag);
+    element.tag = tag;
+    return element;
 };
+function resetPanel() {
+    while (document.body.firstChild) document.body.removeChild(document.body.firstChild);
+    const panel = document.createElement('div');
+    panel.id = 'pcbPropertiesPanel';
+    const items = document.createElement('div');
+    items.id = 'pcbPropsItems';
+    panel.appendChild(items);
+    document.body.appendChild(panel);
+    return items;
+}
+function fire(control, type, extra = {}) {
+    control.dispatchEvent({ type, ...extra });
+}
+function withEmit(control) {
+    control.emit ??= (type, value = control.value, extra = {}) => {
+        control.value = String(value);
+        fire(control, type, extra);
+    };
+    return control;
+}
+
 const { default: PCBApp } = await import('../src/ui/PCBApp.js');
+const { ProjectDocument } = await import('../src/core/ProjectDocument.js');
+const { CommandHistory } = await import('../src/core/CommandHistory.js');
+const { Pad } = await import('../src/shapes/pad.js');
+const { Track } = await import('../src/shapes/track.js');
+const { renderPad, padCopperPathD } = await import('../src/pcb/modules/pad.js');
+const { getPadPropertyPreview } = await import('../src/pcb/modules/pad-commands.js');
+const { createPadSelectionAdapter } = await import('../src/pcb/modules/pad-selection.js');
+const { setPcbSelection, syncPcbSelection, getPcbSelection } = await import('../src/pcb/modules/selection-registry.js');
+const { prepareFabricationSnapshot } = await import('../src/pcb/modules/fabrication-snapshot.js');
+const { loadPcb } = await import('../src/pcb/modules/project-state.js');
+const { PCB_LAYERS } = await import('../src/pcb/modules/layers.js');
+const { cancelPictureCopperRefresh } = await import('../src/pcb/modules/picture-refresh.js');
+const { getPropertyEditor } = await import('../src/pcb/modules/property-editors.js');
+const { flushSettledChanges } = await import('../src/shared/ui/settled-input.js');
 
 function fixture(count = 1, layers = 'both', unrelatedCount = 1) {
+    const items = resetPanel();
     const project = new ProjectDocument(), model = project.pcbDocument;
     const pads = Array.from({ length: count }, (_, index) => new Pad({
         x: Math.PI + index * 10, y: -Math.E, shape: 'rectangle', layers,
@@ -71,34 +69,19 @@ function fixture(count = 1, layers = 'both', unrelatedCount = 1) {
     const attached = new Track({ points: [{ x: pads[0].x, y: pads[0].y }, { x: 0, y: 0 }] });
     model.pads.push(...pads, ...unrelated);
     model.tracks.push(attached);
-    inputs = new Map();
-    const items = {
-        set innerHTML(html) {
-            inputs = new Map();
-            for (const match of html.matchAll(/<input\b([^>]+)>/g)) {
-                const id = match[1].match(/id="([^"]+)"/)?.[1];
-                if (id) inputs.set(id, new Input(match[1].match(/value="([^"]*)"/)?.[1] || ''));
-            }
-            for (const match of html.matchAll(/<select\b[^>]*id="([^"]+)"[^>]*>([\s\S]*?)<\/select>/g)) {
-                const options = [...match[2].matchAll(/<option value="([^"]*)"([^>]*)>/g)];
-                inputs.set(match[1], new Input((options.find(option => option[2].includes('selected')) || options[0])[1]));
-            }
-        },
-        querySelector: selector => inputs.get(selector.slice(1)) || null,
-    };
     const groups = new Map(['top-copper', 'bottom-copper', 'top-copper-pad-drills', 'bottom-copper-pad-drills']
-        .map(id => [id, new Element('g')]));
+        .map(id => [id, document.createElementNS('http://www.w3.org/2000/svg', 'g')]));
     const app = {};
     for (const key of ['pads', 'vias', 'tracks', 'boardShapes', 'texts']) {
         Object.defineProperty(app, key, Object.getOwnPropertyDescriptor(PCBApp.prototype, key));
     }
-    for (const key of ['_showPadEditor', 'toolNetOptions', 'setPropertiesTitle', 'bindToolNetControl',
-        'clearProperties', '_cancelPosePreviews', 'isSectionEditing', 'deactivate',
+    for (const key of ['_showPadEditor', 'openPropertyPanel', 'refreshPropertyPanel', 'showPropertiesTab', 'netNames',
+        'setPropertiesTitle', 'clearProperties', '_cancelPosePreviews', 'isSectionEditing', 'deactivate',
         '_onLayerLockChanged', '_onLayerVisibilityChanged']) app[key] = PCBApp.prototype[key];
     Object.assign(app, {
         project, pcbDocument: model, placements: new Map(), netlist: [], history: new CommandHistory(),
         _active: true, _layerGroups: new Map(), existingLayerGroups() { return this._layerGroups; }, _textElements: new Map(), _shapeElements: new Map(),
-        viewport: { scale: 100, svg: new Element('svg'), shiftHeld: true, setCrosshair() {}, hideCrosshair() {} },
+        viewport: { scale: 100, svg: document.createElementNS('http://www.w3.org/2000/svg', 'svg'), shiftHeld: true, setCrosshair() {}, hideCrosshair() {} },
         propertiesItems: () => items, getLayerGroup: id => groups.get(id) || null,
         setActiveRibbonTab() {}, setPcbStatus() {}, refreshFills() {}, refreshClearanceHalos() {},
         _cancelDrawingMode() {}, _ensureViewport() {}, markSectionClean() {},
@@ -109,7 +92,8 @@ function fixture(count = 1, layers = 'both', unrelatedCount = 1) {
     for (const pad of [...pads, unrelated[0]].filter(Boolean)) renderPad(pad, app.getLayerGroup);
     app._showPadEditor(pads[0]);
     const artwork = () => [...groups.values()].flatMap(group => group.children);
-    return { app, project, model, pads, unrelated, attached, artwork, input: name => inputs.get(`pcbPropPad${name}`) };
+    return { app, project, model, pads, unrelated, attached, artwork,
+        input: name => withEmit(document.getElementById(`pcbPropPad${name}`)) };
 }
 
 let cases = 0;
@@ -381,14 +365,26 @@ for (const count of [1, 4]) for (const value of ['', '-', 'Infinity', '0.01', '3
     for (const handoff of ['change', 'commit', 'Shape', 'Ratio', 'move', 'rotate']) {
         const { app, pads, model, input } = fixture(count);
         const before = model.captureGeometry(), originalSize = pads[0].size;
-        input('Size').emit('input', 3);
-        input('Size').value = value;
+        const sizeInput = input('Size');
+        sizeInput.emit('input', 3);
+        sizeInput.emit('input', value);
         const valid = value === '3', additional = !['change', 'commit'].includes(handoff);
-        if (handoff === 'change') input('Size').emit('change');
-        else if (handoff === 'commit') getPropertyEditor(app, 'pad').commit();
-        else if (handoff === 'Shape') input('Shape').emit('change', 'oval');
-        else if (handoff === 'Ratio') input('Ratio').emit('change', 4);
-        else {
+        if (handoff === 'change') sizeInput.emit('change', value);
+        else if (handoff === 'commit') {
+            if (valid) getPropertyEditor(app, 'pad').commit();
+            else {
+                sizeInput.emit('change', value);
+                flushSettledChanges();
+            }
+        } else {
+            if (!valid) {
+                sizeInput.emit('change', value);
+                flushSettledChanges();
+            }
+            if (handoff === 'Shape') input('Shape').emit('change', 'oval');
+            else if (handoff === 'Ratio') input('Ratio').emit('change', 4);
+        }
+        if (handoff === 'move' || handoff === 'rotate') {
             const adapter = createPadSelectionAdapter(app, pads[0], `pad:${pads[0].id}`);
             const start = { x: pads[0].x + 10, y: pads[0].y };
             if (handoff === 'move') {
@@ -403,7 +399,8 @@ for (const count of [1, 4]) for (const value of ['', '-', 'Infinity', '0.01', '3
         }
         flushSettledChanges();
         assert.equal(getPadPropertyPreview(app), undefined);
-        assert.ok(pads.every(pad => pad.size === (valid ? 3 : originalSize)));
+        assert.ok(pads.every(pad => pad.size === (valid ? 3 : originalSize)),
+            `${count}/${value}/${handoff}: pad sizes follow valid source edits only`);
         assert.equal(app.history.undoStack.length, Number(valid) + Number(additional),
             `${handoff}: history contains only valid source/destination edits`);
         while (app.history.canUndo()) app.history.undo();

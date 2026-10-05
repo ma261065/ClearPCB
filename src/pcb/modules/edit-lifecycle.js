@@ -49,7 +49,8 @@ export function disposePcbPropertyEditors(app, owner = null) {
         if (!finishSelectionInteraction(app, false)) finishBoardShapeRotationPreview(app);
     }
     for (const kind of PANEL_EDITOR_KINDS) {
-        getPropertyEditor(app, kind)?.dispose();
+        const editor = getPropertyEditor(app, kind);
+        if (editor && !(kind === 'component' && editor === owner)) editor.dispose();
         // The component owner survives panel replacement; its retained controls do not.
         if (kind !== 'component') setPropertyEditor(app, kind, null);
     }

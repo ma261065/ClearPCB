@@ -27,6 +27,7 @@ globalThis.localStorage = { getItem: () => null, setItem() {}, removeItem() {} }
 const { ModifyBoardShapeCommand } = await import('../src/pcb/modules/shape-commands.js');
 const { cloneShapeGeometry } = await import('../src/pcb/modules/board-shapes.js');
 const { EditTextCommand, AddTextCommand, RemoveTextCommand } = await import('../src/pcb/modules/text-commands.js');
+const { pictureRefreshHold } = await import('../src/pcb/modules/picture-refresh.js');
 const { default: PCBApp } = await import('../src/ui/PCBApp.js');
 // The real method, run against this test's minimal editor.
 const bindText = PCBApp.prototype._bindStrokeTextProps;
@@ -85,10 +86,9 @@ try {
     const text = { id: 'text-1', content: 'O', layer: 'top-copper', size: 1, rotation: 0, strokeWidth: 0.2, x: 0, y: 0 };
     app.texts.set(text.id, text);
     for (const field of ['size', 'rotation', 'strokeWidth']) {
-        const input = eventTarget();
         let command;
-        bindText.call(app, { querySelector() { return input; } }, text, {
-            fields: [{ id: 'test', field, parse: value => Number(value), wrap: field === 'rotation' }],
+        const binding = bindText.call(app, text, {
+            fields: [{ id: 'test', label: field, field, parse: value => Number(value), wrap: field === 'rotation' }],
             preview(model) { app.refreshText(model.id); },
             commit(model, before) {
                 const after = { [field]: model[field] };
@@ -97,18 +97,19 @@ try {
                 command.execute();
             },
         });
+        const control = binding.fields(false, pictureRefreshHold(app))[0];
         const original = text[field];
         const count = refreshes;
-        input.fire('pointerdown', { button: 0, pointerId: 7 });
+        control.hold.begin();
         for (const value of [2, 3, 4]) {
-            input.value = String(value);
-            input.fire('input');
+            const parsed = control.parse(String(value));
+            control.preview(parsed);
             assert.equal(text[field], value);
             assert.equal(timers.size, 0, 'Text spinner hold does not start a refresh timer');
         }
-        input.fire('change');
+        control.commit();
         assert.equal(refreshes, count);
-        window.fire('pointerup', { pointerId: 7 });
+        control.hold.end();
         assert.equal(timers.size, 1);
         flush();
         assert.equal(refreshes, count + 1);

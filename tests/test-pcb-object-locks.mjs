@@ -15,7 +15,7 @@ import { installFakeDom } from './helpers/fake-dom.mjs';
 installFakeDom();
 const { pcbEditorFixture } = await import('./pcb-editor-fixture.mjs');
 
-const { pcbLockState, isPcbObjectLocked, unlockMenuItems, setPcbObjectsLocked, lockedPropertyHtml } =
+const { pcbLockState, isPcbObjectLocked, unlockMenuItems, setPcbObjectsLocked, lockedProperty } =
     await import('../src/pcb/modules/object-locks.js');
 const { deleteBoxSelection, selectEnclosed, beginGroupDrag, updateGroupDrag, endGroupDrag } =
     await import('../src/pcb/modules/box-select.js');
@@ -157,8 +157,12 @@ function fixture() {
     const a = line('pshape_1', { locked: true }), b = line('pshape_2');
     app.boardShapes.push(a, b);
     const both = [{ kind: 'shape', object: a }, { kind: 'shape', object: b }];
-    assert.match(lockedPropertyHtml(app, both), /id="pcbPropObjectLocked" data-mixed="true"/, 'Mixed locks show indeterminate');
-    assert.match(lockedPropertyHtml(app, [both[0]]), /id="pcbPropObjectLocked" checked/);
+    const mixedLock = lockedProperty(app, both);
+    assert.deepEqual([mixedLock.field.id, mixedLock.field.mixed], ['pcbPropObjectLocked', true], 'Mixed locks show indeterminate');
+    assert.equal(mixedLock.readOnly, true, 'a selection with a locked member is read-only');
+    const ownLock = lockedProperty(app, [both[0]]);
+    assert.deepEqual([ownLock.field.value, ownLock.field.mixed], [true, false]);
+    assert.equal(lockedProperty(app, [both[1]]).readOnly, false);
 
     assert.equal(setPcbObjectsLocked(app, both, true), true);
     assert.equal(a.locked && b.locked, true);

@@ -30,16 +30,10 @@ const { resolveShapeDrawLayer, shapeDrawClick, cancelShapeDraw } =
 const { showBoardShapeToolProperties } = await import('../src/pcb/modules/board-shape-properties.js');
 const { default: PCBApp } = await import('../src/ui/PCBApp.js');
 let html = '';
-const items = {
-    get innerHTML() { return html; },
-    set innerHTML(value) {
-        html = value;
-        const match = /<select id="pcbToolShapeLayer"([^>]*)>([\s\S]*?)<\/select>/.exec(value);
-        const selected = [...match[2].matchAll(/<option value="([^"]*)"([^>]*)>/g)]
-            .find(([, , attributes]) => /\bselected\b/.test(attributes));
-        select = { value: selected?.[1] || '', disabled: /\bdisabled\b/.test(match[1]), addEventListener() {} };
-    },
-    querySelector: selector => selector === '#pcbToolShapeLayer' ? select : null,
+const syncPanel = panel => {
+    const layer = panel.fields.find(field => field.id === 'pcbToolShapeLayer');
+    select = { value: layer?.value || '', disabled: !!layer?.disabled, addEventListener() {} };
+    html = layer?.disabled ? '<option value="" selected disabled>No unlocked layers</option>' : '';
 };
 const model = new PcbDocument();
 const app = {
@@ -48,7 +42,9 @@ const app = {
     history: new CommandHistory(), _shapeElements: new Map(), _shapeIdCounter: 1,
     _layerGroups: new Map(), existingLayerGroups() { return this._layerGroups; }, _hoveredTrackOrVia: null,
     viewport: { scale: 100 }, _snapToGrid: point => point, getLayerGroup: () => null,
-    propertiesItems: () => items, setActiveRibbonTab() {},
+    openPropertyPanel(panel) { syncPanel(panel); return true; },
+    refreshPropertyPanel(panel) { syncPanel(panel); },
+    setActiveRibbonTab() {},
     status: { modeStatus: { textContent: '' } },
     setPcbStatus: PCBApp.prototype.setPcbStatus,
     _onLayerLockChanged: PCBApp.prototype._onLayerLockChanged,

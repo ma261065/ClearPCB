@@ -1120,6 +1120,10 @@ body {
     min-width: 0;
 }
 
+[data-panel="properties"] .prop-fields {
+    display: contents;
+}
+
 /* Paste-preview ghost: override selection highlight colours via CSS
    so we don't need per-element querySelectorAll fixup */
 .paste-preview [stroke="#e94560"] { stroke: currentColor; }

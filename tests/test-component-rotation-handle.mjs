@@ -10,6 +10,7 @@ import { getPcbSelectionEntries, setPcbSelection } from '../src/pcb/modules/sele
 import { renderPcbSelectionAnchors, hitTestPcbSelectionAnchor } from '../src/pcb/modules/selection-anchors.js';
 import { beginSelectionInteraction, updateSelectionInteraction, finishSelectionInteraction } from '../src/pcb/modules/selection-interaction.js';
 import { ROTATION_CURSOR } from '../src/pcb/modules/rotation-handle.js';
+import { attachPropertyPanelHarness } from './helpers/property-panel-controls.mjs';
 
 const ids = new Map(), frames = new Map();
 let frameId = 0;
@@ -100,6 +101,7 @@ function fixture(saved = true, side = 'top', mirror = false) {
         _netsForComponent: () => new Set(['N1']), updateRatsnest: PCBApp.prototype.updateRatsnest, refreshClearanceHalos() {},
         _markDirty: () => dirty++, refreshFills: () => fills++, _board3d: { refresh: () => views3d++ },
     };
+    attachPropertyPanelHarness(app, { controls: ids });
     for (const method of ['showComponentProperties', '_syncComponentRotationInput', 'handleKeyDown', '_clearCursorCrosshair']) {
         app[method] = PCBApp.prototype[method];
     }
@@ -144,7 +146,7 @@ for (const saved of [false, true]) for (const side of ['top', 'bottom']) for (co
     const unrelated = f.unrelated.captureState();
     renderPcbSelectionAnchors(app);
     assert.equal(f.visibleHandles().length, 1, 'One component exposes one rotation handle');
-    assert.match(f.items.innerHTML, /id="pcbPropCompRot"[^>]*step="1"/);
+    assert.equal(ids.get('pcbPropCompRot').field.step, 1);
     const start = f.anchor();
     assert.equal(hitTestPcbSelectionAnchor(app, start)?.anchorId, 'rotate');
     assert.equal(beginSelectionInteraction(app, start, false), true);

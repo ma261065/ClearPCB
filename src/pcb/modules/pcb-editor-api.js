@@ -43,10 +43,12 @@
  *   Bring the Properties ribbon tab to the front.
  * @property {(tabId: string) => void} setActiveRibbonTab
  *   Bring any ribbon tab to the front; a no-op before the ribbon is bound.
- * @property {(current?: string) => {escape: (value: string) => string, options: string}} toolNetOptions
- *   HTML for the shared Net picker menu, with an escape helper.
- * @property {(items: HTMLElement, inputId: string, onChange: (net: string) => void) => void} bindToolNetControl
- *   Wire a Net input and its picker menu to a callback.
+ * @property {(panel: import('../../shared/ui/property-fields.js').PropertyPanel, owner?: object|null) => boolean} openPropertyPanel
+ *   Show a Properties panel description, releasing the previous panel's editors.
+ * @property {(panel: import('../../shared/ui/property-fields.js').PropertyPanel) => void} refreshPropertyPanel
+ *   Re-render the open panel from a fresh description, keeping its editors and focus.
+ * @property {() => string[]} netNames
+ *   Every net on the board or in the netlist, for the Net menu.
  * @property {(layer: string) => string} layerLabel
  *   The layer panel's name for a PCB layer.
  * @property {() => void} fitToContent
@@ -78,7 +80,7 @@ export const PCB_EDITOR_SERVICES = Object.freeze([
     'getLayerGroup', 'existingLayerGroups', 'getRoutingParams', 'refreshFills', 'refreshClearanceHalos', 'updateRatsnest',
     'updateCopperCuts', 'refreshText', 'selectFill', 'refreshSelectedDRCMarker', 'clearProperties',
     'setStatus', 'setPcbStatus', 'syncClipboardButtons', 'propertiesItems', 'setPropertiesTitle', 'showPropertiesTab',
-    'toolNetOptions', 'bindToolNetControl', 'layerLabel', 'fitToContent', 'setActiveRibbonTab',
+    'openPropertyPanel', 'refreshPropertyPanel', 'netNames', 'layerLabel', 'fitToContent', 'setActiveRibbonTab',
     'selectText', 'showTextProperties', 'selectAll', 'rotateComponent', 'flipComponent', 'rotateRefText',
     'showComponentProperties',
 ]);

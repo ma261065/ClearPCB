@@ -1,305 +1,285 @@
 /**
  * Properties panels for PCB free text: the Text tool's defaults and a selected text,
- * plus the stroke-text field binder they share with the reference-designator panel.
- * The editor passes in the state these panels need (tool defaults, inline-edit state)
- * rather than the panels reaching into it.
+ * plus the stroke-text field binding they share with the reference-designator panel.
+ * Panels describe fields only; shared/ui/property-fields.js owns the DOM.
  */
 import { displayRotationDegrees } from '../../core/number-inputs.js';
 import { TEXT_LAYERS } from '../../core/pcb-text.js';
 import { measureText as measureStrokeText } from '../../shared/pcb/stroke-font.js';
-import { isLayerVisible } from './layers.js';
-import { bindLockedProperty, boardShapeLocked, lockedPropertyHtml } from './object-locks.js';
-import { bindPictureRefreshHold, schedulePictureCopperRefresh } from './picture-refresh.js';
+import { pcbLayerOption, isLayerVisible } from './layers.js';
+import { boardShapeLocked, lockedProperty } from './object-locks.js';
+import { pictureRefreshHold, schedulePictureCopperRefresh } from './picture-refresh.js';
 import { setPropertyEditor } from './property-editors.js';
 import { EditTextCommand, beginTextPropertyPreview, finishTextPropertyPreview } from './text-commands.js';
 import { isEditorActive } from './pcb-editor-api.js';
-import { bindSettledChange } from '../../shared/ui/settled-input.js';
+
+const SYMBOLS = [
+    ['', 'Symbol\u2026'],
+    ['\u00A9', '\u00A9 Copyright'],
+    ['\u00AE', '\u00AE Registered'],
+    ['\u2122', '\u2122 Trademark'],
+    ['\u00B0', '\u00B0 Degree'],
+    ['\u00B5', '\u00B5 Micro'],
+    ['\u03A9', '\u03A9 Ohm'],
+    ['\u00B1', '\u00B1 Plus-minus'],
+    ['\u00D7', '\u00D7 Times'],
+    ['\u00F7', '\u00F7 Divide'],
+].map(([value, label]) => ({ value, label }));
+
+const wrapDegrees = value => ((Math.round(value) % 360) + 360) % 360;
+const positive = min => value => Math.max(min, value);
+const numberParse = (min, normalize = value => value) => text => {
+    const value = Number.parseFloat(text);
+    if (!Number.isFinite(value)) return null;
+    return normalize(min === undefined ? value : Math.max(min, value));
+};
 
 /** Show Text drawing defaults in Properties. */
 export function showTextToolProperties(app, defaults) {
-    const d = defaults;
-    const items = app.propertiesItems();
-    if (!items) return;
-    const layerOpts = TEXT_LAYERS.map(layer =>
-        `<option value="${layer}"${layer === d.layer ? ' selected' : ''}>${app.layerLabel(layer)}</option>`
-    ).join('');
-    app.setPropertiesTitle('New Text');
-    items.innerHTML = `
-        <div class="prop-row" data-prop="layer"><label>Layer</label><select id="pcbPropTextToolLayer">${layerOpts}</select></div>
-        <div class="prop-row" data-prop="fontSize"><label>Text Size (mm)</label><input type="number" id="pcbPropTextToolSize" value="${d.size}" min="0.2" max="20" step="0.1"></div>
-        <div class="prop-row" data-prop="lineWidth"><label>Line Width (mm)</label><input type="number" id="pcbPropTextToolLW" value="${d.strokeWidth}" min="0.05" max="2" step="0.05"></div>
-        <div class="prop-row" data-prop="rotation"><label>Rotation (°)</label><input type="number" id="pcbPropTextToolRot" data-number-format="rotation" value="${displayRotationDegrees(d.rotation)}" step="1"></div>
-        <div class="prop-row" data-prop="border"><label><input type="checkbox" id="pcbPropTextToolBorder"${d.border ? ' checked' : ''}> Border</label></div>
-    `;
-    const layerEl = /** @type {HTMLSelectElement|null} */ (items.querySelector('#pcbPropTextToolLayer'));
-    const sizeEl = /** @type {HTMLInputElement|null} */ (items.querySelector('#pcbPropTextToolSize'));
-    const rotationEl = /** @type {HTMLInputElement|null} */ (items.querySelector('#pcbPropTextToolRot'));
-    const lineWidthEl = /** @type {HTMLInputElement|null} */ (items.querySelector('#pcbPropTextToolLW'));
-    const borderEl = /** @type {HTMLInputElement|null} */ (items.querySelector('#pcbPropTextToolBorder'));
-    layerEl?.addEventListener('change', () => {
-        if (TEXT_LAYERS.includes(layerEl.value)) defaults.layer = layerEl.value;
-        app.setPcbStatus();
+    const hold = pictureRefreshHold(app);
+    const refresh = () => app.refreshPropertyPanel?.(describe());
+    const number = (key, id, label, property, extra = {}) => {
+        const { value, after, ...field } = extra;
+        return {
+            key, id, type: 'number', label, value: value?.() ?? defaults[property], hold,
+            preview: next => { defaults[property] = next; after?.(); },
+            commit: next => { defaults[property] = next; after?.(); refresh(); },
+            ...field,
+        };
+    };
+    const describe = () => ({
+        title: 'New Text',
+        fields: [
+            { key: 'layer', id: 'pcbPropTextToolLayer', type: 'select', label: 'Layer', value: defaults.layer,
+                options: TEXT_LAYERS.map(layer => pcbLayerOption(layer, app.layerLabel(layer))),
+                commit: value => {
+                    if (TEXT_LAYERS.includes(value)) defaults.layer = value;
+                    app.setPcbStatus?.();
+                    refresh();
+                } },
+            number('fontSize', 'pcbPropTextToolSize', 'Text Size (mm)', 'size',
+                { min: 0.2, max: 20, step: 0.1, normalize: positive(0.2) }),
+            number('lineWidth', 'pcbPropTextToolLW', 'Line Width (mm)', 'strokeWidth',
+                { min: 0.05, max: 2, step: 0.05, normalize: positive(0.05) }),
+            number('rotation', 'pcbPropTextToolRot', 'Rotation (\u00B0)', 'rotation',
+                { step: 1, numberFormat: 'rotation', value: () => displayRotationDegrees(defaults.rotation),
+                    normalize: wrapDegrees }),
+            { key: 'border', id: 'pcbPropTextToolBorder', type: 'checkbox', label: 'Border',
+                value: defaults.border, commit: value => { defaults.border = value; refresh(); } },
+        ],
     });
-    sizeEl?.addEventListener('input', () => {
-        const size = parseFloat(sizeEl.value);
-        if (Number.isFinite(size) && size > 0) defaults.size = size;
-    });
-    rotationEl?.addEventListener('input', () => {
-        const rotation = parseFloat(rotationEl.value);
-        if (Number.isFinite(rotation)) {
-            defaults.rotation = ((Math.round(rotation) % 360) + 360) % 360;
-            rotationEl.value = String(defaults.rotation);
-        }
-    });
-    lineWidthEl?.addEventListener('input', () => {
-        const lineWidth = parseFloat(lineWidthEl.value);
-        if (Number.isFinite(lineWidth) && lineWidth > 0) defaults.strokeWidth = lineWidth;
-    });
-    borderEl?.addEventListener('change', () => {
-        defaults.border = borderEl.checked;
-    });
-    app.showPropertiesTab?.();
+    app.openPropertyPanel?.(describe());
 }
 
 /**
  * Show properties for the given text and switch to Properties tab.
- * Editing pushes EditTextCommand on `change` (not per keystroke) so
- * undo collapses each edit into one entry.
+ * Editing pushes EditTextCommand on settled commit so undo collapses each edit run
+ * into one entry.
  * @param {any} app
  * @param {any} text
  * @param {() => any} [textEdit] The editor's inline text edit, if any.
+ * @param {(textId:string, symbol:string) => boolean} [insertInlineSymbol]
  */
-export function showTextProperties(app, text, textEdit = () => null) {
+export function showTextProperties(app, text, textEdit = () => null, insertInlineSymbol = () => false) {
     text = app.pcbDocument.texts.get(text.id);
-    const items = app.propertiesItems();
-    if (!items) return;
-    app.setPropertiesTitle('Text');
-    const disabled = boardShapeLocked(text) ? ' disabled' : '';
-    const layerOpts = TEXT_LAYERS.map(l =>
-        `<option value="${l}" ${l === text.layer ? 'selected' : ''}>${app.layerLabel(l)}</option>`
-    ).join('');
-    const isEditingThis = textEdit()?.text?.id === text.id;
-    const insertRow = isEditingThis ? `
-        <div class="prop-row" data-prop="insert"><label>Insert</label><select id="pcbPropTextInsert"${disabled}>
-            <option value="">Symbol…</option>
-            <option value="\u00A9">© Copyright</option>
-            <option value="\u00AE">® Registered</option>
-            <option value="\u2122">™ Trademark</option>
-            <option value="\u00B0">° Degree</option>
-            <option value="\u00B5">µ Micro</option>
-            <option value="\u03A9">Ω Ohm</option>
-            <option value="\u00B1">± Plus-minus</option>
-            <option value="\u00D7">× Times</option>
-            <option value="\u00F7">÷ Divide</option>
-        </select></div>` : '';
+    if (!text) return;
     const lockEntries = [{ kind: 'text', object: text }];
-    items.innerHTML = `
-        ${lockedPropertyHtml(app, lockEntries)}
-        ${insertRow}
-        <div class="prop-row" data-prop="layer"><label>Layer</label><select id="pcbPropTextLayer"${disabled}>${layerOpts}</select></div>
-        <div class="prop-row" data-prop="fontSize"><label>Text Size (mm)</label><input type="number" id="pcbPropTextSize" value="${text.size}" min="0.2" step="0.1"${disabled}></div>
-        <div class="prop-row" data-prop="lineWidth"><label>Line Width (mm)</label><input type="number" id="pcbPropTextLW" value="${text.strokeWidth}" min="0.05" step="0.05"${disabled}></div>
-        <div class="prop-row" data-prop="rotation"><label>Rotation (°)</label><input type="number" id="pcbPropTextRot" data-number-format="rotation" value="${displayRotationDegrees(text.rotation)}" step="1"${disabled}></div>
-        <div class="prop-row" data-prop="border"><label><input type="checkbox" id="pcbPropTextBorder"${text.border ? ' checked' : ''}${disabled}> Border</label></div>
-    `;
-    // Snapshot at first edit so undo collapses keystrokes into a
-    // single command per field. The field binding/commit machinery is
-    // shared with the reference-designator panel via _bindStrokeTextProps.
-    const layerApply = (model, v) => {
-        // Layer change: if mirror flips (top↔bottom), the rendered
-        // text reflects about its anchor x and visually jumps. Shift
-        // the anchor by the text width (rotated into world space) so
-        // the visible glyphs stay put.
+    let disposed = false;
+    const hold = pictureRefreshHold(app);
+    const isEditingThis = () => textEdit()?.text?.id === text.id;
+    const layerApply = (model, value) => {
         const wasBottom = typeof model.layer === 'string' && model.layer.startsWith('bottom-');
-        const willBottom = typeof v === 'string' && v.startsWith('bottom-');
+        const willBottom = typeof value === 'string' && value.startsWith('bottom-');
         if (wasBottom !== willBottom) {
-            const content = textEdit()?.text?.id === model.id ? textEdit().text.content : model.content;
-            const w = measureStrokeText(content, model.size);
-            const sign = willBottom ? 1 : -1; // top→bottom: +w; bottom→top: -w
-            const rot = (model.rotation || 0) * Math.PI / 180;
-            // SVG-Y-down with rotate(-rot): dx,dy in local frame map
-            // to (cos(rot)*dx, -sin(rot)*dx) in world.
-            model.x += sign * w * Math.cos(rot);
-            model.y += sign * w * -Math.sin(rot);
+            const edit = textEdit();
+            const content = edit?.text?.id === model.id ? edit.text.content : model.content;
+            const width = measureStrokeText(content, model.size);
+            const sign = willBottom ? 1 : -1;
+            const rotation = (model.rotation || 0) * Math.PI / 180;
+            model.x += sign * width * Math.cos(rotation);
+            model.y += sign * width * -Math.sin(rotation);
         }
-        model.layer = v;
+        model.layer = value;
     };
-    const num = (min) => (v) => {
-        const n = parseFloat(v);
-        if (!Number.isFinite(n)) return null;
-        return min !== undefined ? Math.max(min, n) : n;
-    };
-    const rotParse = (v) => {
-        const n = parseFloat(v);
-        if (!Number.isFinite(n)) return null;
-        return ((Math.round(n) % 360) + 360) % 360;
-    };
-    setPropertyEditor(app, 'text', bindStrokeTextProps(app, items, text, {
-        editable: () => isEditorActive(app) && app.pcbDocument.texts.get(text.id) === text
+    const binding = bindStrokeTextProps(app, text, {
+        refresh: () => refresh(),
+        editable: () => isEditorActive(app)
             && !boardShapeLocked(text) && isLayerVisible(text.layer),
         fields: [
-            { id: 'pcbPropTextLayer', field: 'layer', parse: (v) => TEXT_LAYERS.includes(v) ? v : null, apply: layerApply },
-            { id: 'pcbPropTextSize', field: 'size', parse: num(0.1) },
-            { id: 'pcbPropTextRot', field: 'rotation', parse: rotParse, wrap: true },
-            { id: 'pcbPropTextLW', field: 'strokeWidth', parse: num(0.01) },
+            { key: 'layer', id: 'pcbPropTextLayer', type: 'select', label: 'Layer', field: 'layer',
+                options: () => TEXT_LAYERS.map(layer => pcbLayerOption(layer, app.layerLabel(layer))),
+                parse: value => TEXT_LAYERS.includes(value) ? value : null, apply: layerApply },
+            { key: 'fontSize', id: 'pcbPropTextSize', type: 'number', label: 'Text Size (mm)', field: 'size',
+                min: 0.2, step: 0.1, parse: numberParse(0.1) },
+            { key: 'rotation', id: 'pcbPropTextRot', type: 'number', label: 'Rotation (\u00B0)', field: 'rotation',
+                step: 1, numberFormat: 'rotation', parse: numberParse(undefined, wrapDegrees),
+                value: model => displayRotationDegrees(model.rotation), wrap: true },
+            { key: 'lineWidth', id: 'pcbPropTextLW', type: 'number', label: 'Line Width (mm)', field: 'strokeWidth',
+                min: 0.05, step: 0.05, parse: numberParse(0.01) },
         ],
-        begin: (t) => beginTextPropertyPreview(app, t.id),
+        begin: target => beginTextPropertyPreview(app, target.id),
         cancel: () => finishTextPropertyPreview(app),
-        preview: (t) => app.refreshText(t.id),
-        commit: (t, snap) => {
+        preview: target => app.refreshText(target.id),
+        commit: (target, snapshot) => {
             const after = {};
-            for (const k of ['layer', 'size', 'rotation', 'strokeWidth', 'x', 'y']) {
-                if (snap[k] !== t[k]) {
-                    after[k] = t[k];
-                }
+            for (const key of ['layer', 'size', 'rotation', 'strokeWidth', 'x', 'y']) {
+                if (snapshot[key] !== target[key]) after[key] = target[key];
             }
             finishTextPropertyPreview(app, Object.keys(after).length
-                ? () => app.history.execute(new EditTextCommand(app, t.id, after)) : undefined);
+                ? () => app.history.execute(new EditTextCommand(app, target.id, after)) : undefined);
         },
-    }));
-    const borderEl = /** @type {HTMLInputElement|null} */ (items.querySelector('#pcbPropTextBorder'));
-    borderEl?.addEventListener('change', () => {
-        if (boardShapeLocked(text)) return;
-        app.history.execute(new EditTextCommand(app, text.id, { border: borderEl.checked }));
     });
-    // Insert-symbol dropdown: insert at caret when inline-editing,
-    // otherwise append to the text via an EditTextCommand. Resets
-    // to the placeholder after each selection so the same symbol
-    // can be inserted again.
-    const insertEl = /** @type {HTMLSelectElement|null} */
-        (document.getElementById('pcbPropTextInsert'));
-    insertEl?.addEventListener('change', () => {
-        const sym = insertEl.value;
-        insertEl.value = '';
-        if (!sym || boardShapeLocked(text)) return;
-        const edit = textEdit();
-        if (edit && edit.text?.id === text.id) {
-            const inp = edit.input;
-            const sel = inp.selectionStart ?? inp.value.length;
-            const end = inp.selectionEnd ?? sel;
-            inp.value = inp.value.slice(0, sel) + sym + inp.value.slice(end);
-            const pos = sel + sym.length;
-            try { inp.setSelectionRange(pos, pos); } catch { /* */ }
-            inp.dispatchEvent(new Event('input', { bubbles: true }));
-            inp.focus();
-        } else {
-            app.history.execute(new EditTextCommand(app, text.id,
-                { content: (text.content || '') + sym }));
-        }
-    });
-    bindLockedProperty(app, items, lockEntries);
-
-    app.showPropertiesTab?.();
+    const refresh = () => {
+        if (!disposed) app.refreshPropertyPanel?.(describe());
+    };
+    const describe = () => {
+        const lock = lockedProperty(app, lockEntries);
+        const readOnly = lock.readOnly;
+        return {
+            title: 'Text',
+            fields: [
+                lock.field,
+                ...(isEditingThis() ? [{ key: 'insert', id: 'pcbPropTextInsert', type: 'select', label: 'Insert',
+                    value: '', disabled: readOnly, options: SYMBOLS, commit: symbol => {
+                        if (!symbol || boardShapeLocked(text)) { refresh(); return; }
+                        if (!insertInlineSymbol(text.id, symbol)) {
+                            app.history.execute(new EditTextCommand(app, text.id,
+                                { content: (text.content || '') + symbol }));
+                        }
+                        refresh();
+                    } }] : []),
+                ...binding.fields(readOnly, hold),
+                { key: 'border', id: 'pcbPropTextBorder', type: 'checkbox', label: 'Border',
+                    value: text.border, disabled: readOnly, commit: value => {
+                        if (boardShapeLocked(text)) return;
+                        app.history.execute(new EditTextCommand(app, text.id, { border: value }));
+                        refresh();
+                    } },
+            ],
+        };
+    };
+    binding.dispose = ((dispose) => () => {
+        disposed = true;
+        dispose();
+    })(binding.dispose);
+    if (!app.openPropertyPanel?.(describe())) {
+        binding.dispose();
+        return;
+    }
+    setPropertyEditor(app, 'text', binding);
 }
 
 /**
- * Shared field-binding machinery for the stroke-text style panels (Text
- * objects and reference designators). For each spec field it wires the
- * input/change events so edits update the selected preview (via spec.preview)
- * and collapse into a single undo entry on commit (via spec.commit). A
- * snapshot of the model is taken on the first keystroke so spec.commit
- * can diff against the pre-edit state.
- * @param {Element} items container holding the inputs
+ * Shared field-binding machinery for stroke-text style panels. It exposes
+ * PropertyField descriptions whose hooks preview into a temporary model and commit
+ * one undo command when a number run settles.
+ * @param {any} app
  * @param {any} model object whose fields the inputs drive
- * @param {{fields: Array<{id:string, field:string, parse:(v:string)=>any, apply?:(m:any,v:any)=>void, value?:(m:any)=>any, wrap?:boolean}>, editable?:()=>boolean, begin?:(m:any)=>any, cancel?:(snap:any)=>void, preview:(m:any)=>void, commit:(m:any, snap:any)=>void}} spec
+ * @param {{fields: Array<{key?:string, id:string, type?:'number'|'select', label:string, field:string, min?:number, max?:number, step?:number, numberFormat?:'rotation', options?:()=>Array<any>, parse?:(v:string)=>any, apply?:(m:any,v:any)=>void, value?:(m:any)=>any, wrap?:boolean}>, editable?:()=>boolean, begin?:(m:any)=>any, cancel?:(snap:any)=>void, preview:(m:any)=>void, commit:(m:any, snap:any)=>void, refresh?:()=>void}} spec
  */
-export function bindStrokeTextProps(app, items, model, spec) {
+export function bindStrokeTextProps(app, model, spec) {
     let snapshot = null;
     let target = model;
     let disposed = false;
     let activeField = null;
-    const controls = new Map(spec.fields.map(f => [f, items.querySelector('#' + f.id)]));
+    let invalidField = null;
     const editable = () => !disposed && (!spec.editable || spec.editable());
-    const resetFields = () => {
-        for (const f of spec.fields) {
-            const el = controls.get(f);
-            const value = f.value ? f.value(model) : model[f.field];
-            if (el) el.value = String(f.wrap ? Math.round(value) % 360 : value);
-        }
+    const fieldValue = field => field.value ? field.value(target) : target[field.field];
+    const apply = (field, value) => {
+        if (field.apply) field.apply(target, value);
+        else target[field.field] = value;
     };
-    const onInput = (f) => () => {
+    const parse = (field, text) => {
+        const value = field.parse ? field.parse(text) : Number.parseFloat(text);
+        if (value === null || value === undefined) {
+            invalidField = field;
+            return NaN;
+        }
+        if (invalidField === field) invalidField = null;
+        return value;
+    };
+    const previewField = (field, value) => {
         if (disposed) return;
         if (!editable()) { binding.cancel(); return; }
-        const el = controls.get(f);
-        if (snapshot && activeField !== f) {
-            const pending = el.value;
-            onCommit();
-            el.value = pending;
-        }
-        const v = f.parse(el ? el.value : '');
-        if (v === null || v === undefined) return;
-        if (target[f.field] === v) return;
+        if (snapshot && activeField !== field) binding.commit();
+        if (fieldValue(field) === value) return;
+        if (invalidField === field) invalidField = null;
         if (!snapshot) {
             target = spec.begin ? spec.begin(model) : model;
             snapshot = { ...target };
         }
-        activeField = f;
-        if (f.apply) f.apply(target, v); else target[f.field] = v;
+        activeField = field;
+        apply(field, value);
         if (typeof target.content === 'string') schedulePictureCopperRefresh(app, target);
         spec.preview(target);
     };
     const onCommit = () => {
         if (disposed || !snapshot) return;
-        if (!editable() || activeField.parse(controls.get(activeField)?.value || '') == null) {
-            binding.cancel();
-            return;
-        }
+        if (!editable() || invalidField === activeField) { binding.cancel(); return; }
         const snap = snapshot;
+        const edited = target;
         snapshot = null;
         activeField = null;
-        const edited = target;
+        invalidField = null;
         target = model;
         let committed = false;
         try {
             spec.commit(edited, snap);
             committed = true;
         } finally {
-            if (!committed) {
-                spec.cancel?.(snap);
-                resetFields();
-            }
+            if (!committed) spec.cancel?.(snap);
+            spec.refresh?.();
         }
     };
-    for (const f of spec.fields) {
-        const el = controls.get(f);
-        if (!el) continue;
-        bindPictureRefreshHold(app, el);
-        const handler = onInput(f);
-        el.addEventListener('input', handler);
-        // Spinner step clicks on number inputs fire 'change' without 'input'.
-        el.addEventListener('change', handler);
-        if (el.type === 'number') bindSettledChange(el, onCommit);
-        else el.addEventListener('change', onCommit);
-        el.addEventListener('keydown', event => {
-            if (disposed || event.key !== 'Escape' || !snapshot) return;
-            binding.cancel();
-            event.preventDefault();
-            event.stopPropagation();
-        });
-        if (f.wrap) {
-            const wrapDeg = () => {
-                if (disposed) return;
-                const n = parseFloat(el.value);
-                if (!Number.isFinite(n)) return;
-                const wrapped = ((Math.round(n) % 360) + 360) % 360;
-                if (wrapped !== n) el.value = String(wrapped);
-            };
-            el.addEventListener('change', wrapDeg);
-        }
-    }
     const binding = {
         model,
-        affectsLayer: layerId => model.layer === layerId,
+        spec,
+        affectsLayer: layerId => model.layer === layerId || target.layer === layerId,
         get active() { return snapshot !== null; },
+        fields(disabled = false, hold = undefined) {
+            return spec.fields.map(field => {
+                const base = {
+                    key: field.key || field.field,
+                    id: field.id,
+                    type: field.type || 'number',
+                    label: field.label,
+                    prop: field.key,
+                    value: fieldValue(field),
+                    disabled,
+                };
+                if (base.type === 'select') {
+                    return { ...base, options: field.options?.() || [], commit: value => {
+                        const parsed = field.parse ? field.parse(value) : value;
+                        if (parsed === null || parsed === undefined) return;
+                        previewField(field, parsed);
+                        onCommit();
+                    } };
+                }
+                return {
+                    ...base,
+                    min: field.min,
+                    max: field.max,
+                    step: field.step,
+                    numberFormat: field.numberFormat,
+                    hold,
+                    parse: text => parse(field, text),
+                    preview: value => previewField(field, value),
+                    commit: () => onCommit(),
+                    cancel: () => binding.cancel(),
+                };
+            });
+        },
         commit: onCommit,
         cancel: () => {
-            if (!snapshot) return;
+            if (!snapshot) return false;
             const snap = snapshot;
             snapshot = null;
             activeField = null;
+            invalidField = null;
             target = model;
             spec.cancel?.(snap);
-            resetFields();
+            spec.refresh?.();
+            return true;
         },
         dispose: () => {
             if (disposed) return;

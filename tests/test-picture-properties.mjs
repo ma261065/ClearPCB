@@ -3,42 +3,32 @@ import { CommandHistory } from '../src/core/CommandHistory.js';
 import { pictureShape } from '../src/shared/pcb/picture-raster.js';
 import { isPictureCopperRefreshPending } from '../src/pcb/modules/refresh-state.js';
 import { flushSettledChanges } from '../src/shared/ui/settled-input.js';
+import { installFakeDom } from './helpers/fake-dom.mjs';
 
+installFakeDom();
+const { renderPropertyFields, propertyField } = await import('../src/shared/ui/property-fields.js');
 const fields = new Map();
-const items = { html: '', set innerHTML(html) {
-    this.html = html;
+const items = document.body.appendChild(document.createElement('div'));
+let currentPanel = null;
+const syncPanel = panel => {
+    currentPanel = panel;
+    renderPropertyFields(items, panel.fields);
     fields.clear();
-    for (const match of html.matchAll(/<[^>]*\bid="([^"]+)"[^>]*>/g)) {
-        const listeners = new Map();
-        fields.set(match[1], { value: '', checked: /\schecked(?:\s|>)/.test(match[0]),
-            get valueAsNumber() { return this.value === '' ? NaN : Number(this.value); },
-            addEventListener(name, listener) {
-                if (!listeners.has(name)) listeners.set(name, []);
-                listeners.get(name).push(listener);
-            },
-            input(value) { this.value = value; for (const listener of listeners.get('input') || []) listener(); },
-            keydown(key) {
-                for (const listener of listeners.get('keydown') || []) {
-                    listener({ key, preventDefault() {}, stopPropagation() {} });
-                }
-            },
-            toggle(checked) { this.checked = checked; for (const listener of listeners.get('change') || []) listener(); },
-            change(value) {
-                this.value = value;
-                for (const listener of listeners.get('change') || []) listener();
-            } });
+    for (const field of panel.fields) {
+        const id = field.id || field.key;
+        const control = document.getElementById(id);
+        if (!control) continue;
+        control.input = value => { control.value = String(value); control.dispatchEvent({ type: 'input' }); };
+        control.keydown = key => control.dispatchEvent({ type: 'keydown', key, preventDefault() {}, stopPropagation() {} });
+        control.toggle = checked => { control.checked = checked; control.dispatchEvent({ type: 'change' }); };
+        control.change = value => { control.value = String(value); control.dispatchEvent({ type: 'change' }); };
+        fields.set(id, control);
     }
-} };
+};
 const settleChange = (field, value) => {
     field.change(value);
     flushSettledChanges();
 };
-globalThis.window = { addEventListener() {} };
-globalThis.document = { getElementById(id) { return fields.get(id) || null; }, createElementNS() {
-    const attributes = new Map();
-    return { style: {}, setAttribute(name, value) { attributes.set(name, value); }, getAttribute(name) { return attributes.get(name); },
-        removeAttribute(name) { attributes.delete(name); }, appendChild() {}, remove() {}, querySelectorAll() { return []; } };
-} };
 const { cloneShapeGeometry, createBoardShapeSelectionAdapter } = await import('../src/pcb/modules/board-shapes.js');
 const { showBoardShapeProperties } = await import('../src/pcb/modules/board-shape-properties.js');
 const { setPcbSelection } = await import('../src/pcb/modules/selection-registry.js');
@@ -47,11 +37,13 @@ const image = { ...pictureShape({ width: 4, height: 2, rectangles: [{ x: 0, y: 0
     { widthMm: 4, layer: 'top-silk' }), id: 'pshape_1' };
 const app = { boardShapes: [image], placements: new Map(), tracks: [], vias: [], texts: new Map(),
     _shapeElements: new Map(), getLayerGroup() { return null; }, viewport: { scale: 10, setCrosshair() {}, hideCrosshair() {} },
-    history: new CommandHistory(), propertiesItems() { return items; }, _snapToGrid(point) { return point; } };
+    history: new CommandHistory(), openPropertyPanel(panel) { syncPanel(panel); return true; },
+    refreshPropertyPanel(panel) { syncPanel(panel); }, _snapToGrid(point) { return point; } };
 setPcbSelection(app, [{ kind: 'shape', object: image }]);
 showBoardShapeProperties(app, image);
 assert.ok(fields.has('pcbPropImageWidth'));
-assert.ok(!items.html.includes('Corner Radius') && !items.html.includes('Line Thickness'));
+assert.equal(propertyField(currentPanel, 'cornerRadius'), null);
+assert.equal(propertyField(currentPanel, 'lineWidth'), null);
 const before = cloneShapeGeometry(image);
 app.netlist = [{ net: 'GND' }, { net: 'VCC' }, { net: 'GND' }, { net: 'A<&"' }];
 settleChange(fields.get('pcbPropImageWidth'), '8');
@@ -65,11 +57,9 @@ settleChange(fields.get('pcbPropImageHeight'), '2');
 assert.deepEqual(cloneShapeGeometry(image), before);
 fields.get('pcbPropImageLayer').change('bottom-copper');
 assert.equal(image.layer, 'bottom-copper');
-assert.ok(items.html.includes('<select id="pcbPropImageNet">'));
-assert.ok(items.html.includes('<option value="">Unassigned</option>'));
-assert.equal(items.html.match(/<option value="GND">/g).length, 1);
-assert.ok(items.html.includes('<option value="VCC">VCC</option>'));
-assert.ok(items.html.includes('<option value="A&lt;&amp;&quot;">A&lt;&amp;&quot;</option>'));
+const imageNet = propertyField(currentPanel, 'net');
+assert.equal(imageNet?.id, 'pcbPropImageNet');
+assert.deepEqual(imageNet.options.map(option => option.value), ['', 'A<&"', 'GND', 'VCC']);
 fields.get('pcbPropImageNet').change('GND');
 assert.equal(image.net, 'GND');
 assert.equal(fields.get('pcbPropImageNet').value, 'GND');
@@ -92,7 +82,7 @@ app.history.undo();
 assert.deepEqual(cloneShapeGeometry(image), before);
 console.log('PASS image Properties controls, proportional dimensions, layer/net changes, drag and resize undo');
 const artwork = image.artwork;
-assert.ok(items.html.includes('id="pcbPropImageRot" type="number" step="1"'));
+assert.equal(propertyField(currentPanel, 'rotation')?.step, 1);
 settleChange(fields.get('pcbPropImageRot'), '90');
 assert.ok(Math.abs(image.points[0].x + 1) < 1e-9);
 assert.ok(Math.abs(image.points[0].y - 2) < 1e-9, 'Positive rotation matches text counterclockwise convention');
@@ -102,11 +92,11 @@ assert.equal(image.artwork, artwork);
 app.history.undo();
 assert.deepEqual(cloneShapeGeometry(image), before);
 app.history.redo();
-assert.ok(items.html.includes('value="90"'));
+assert.equal(fields.get('pcbPropImageRot').value, '90');
 settleChange(fields.get('pcbPropImageRot'), '-15');
-assert.ok(items.html.includes('value="345"'));
+assert.equal(fields.get('pcbPropImageRot').value, '345');
 settleChange(fields.get('pcbPropImageRot'), '375');
-assert.ok(items.html.includes('value="15"'));
+assert.equal(fields.get('pcbPropImageRot').value, '15');
 const rotated = cloneShapeGeometry(image);
 settleChange(fields.get('pcbPropImageRot'), '');
 assert.deepEqual(cloneShapeGeometry(image), rotated);
@@ -137,7 +127,7 @@ app.history.redo();
 assert.deepEqual(cloneShapeGeometry(image), finalRotation);
 console.log('PASS live image rotation preserves spinner and commits a single undo entry');
 for (const [layer, label] of [['top-document', 'Top Document'], ['bottom-document', 'Bottom Document']]) {
-    assert.match(items.html, new RegExp(`<option value="${layer}"[^>]*>${label}</option>`));
+    assert.ok(propertyField(currentPanel, 'layer').options.some(option => option.value === layer && option.label === label));
     const previousLayer = image.layer;
     fields.get('pcbPropImageLayer').change(layer);
     assert.equal(image.layer, layer);

@@ -1,34 +1,41 @@
-import { isPictureCopperRefreshPending } from '../src/pcb/modules/refresh-state.js';
 import assert from 'node:assert/strict';
-import { ProjectDocument } from '../src/core/ProjectDocument.js';
-import { CommandHistory } from '../src/core/CommandHistory.js';
-import { captureBoardShapeState } from '../src/core/pcb-board-shapes.js';
-import { Track } from '../src/shapes/track.js';
-import { CopperFill } from '../src/shapes/copper-fill.js';
-import { cancelPictureCopperRefresh } from '../src/pcb/modules/picture-refresh.js';
-import { getComputedFill, setComputedFill } from '../src/pcb/modules/computed-fill-cache.js';
+import { installFakeDom } from './helpers/fake-dom.mjs';
 
+installFakeDom();
 let allocations = 0;
-class Element {
-    constructor() { allocations++; this.children = []; this.attributes = new Map(); this.style = {}; this.dataset = {}; }
-    setAttribute(key, value) { this.attributes.set(key, String(value)); }
-    getAttribute(key) { return this.attributes.get(key) ?? null; }
-    removeAttribute(key) { this.attributes.delete(key); }
-    appendChild(child) { child.remove(); this.children.push(child); child.parentNode = this; }
-    removeChild(child) { child.remove(); }
-    remove() {
-        if (this.parentNode) this.parentNode.children.splice(this.parentNode.children.indexOf(this), 1);
-        this.parentNode = null;
-    }
-    querySelector() { return null; }
-    querySelectorAll() { return []; }
-    addEventListener() {}
-}
-globalThis.window = { addEventListener() {} };
-globalThis.document = { getElementById: () => null, createElementNS: () => new Element() };
+const createElementNS = document.createElementNS.bind(document);
+document.createElementNS = (namespace, tag) => {
+    allocations++;
+    const element = createElementNS(namespace, tag);
+    element.tag = tag;
+    return element;
+};
 globalThis.requestAnimationFrame = () => 1;
 globalThis.cancelAnimationFrame = () => {};
+globalThis.window.requestAnimationFrame = globalThis.requestAnimationFrame;
+globalThis.window.cancelAnimationFrame = globalThis.cancelAnimationFrame;
+
 const { default: PCBApp } = await import('../src/ui/PCBApp.js');
+const { isPictureCopperRefreshPending } = await import('../src/pcb/modules/refresh-state.js');
+const { ProjectDocument } = await import('../src/core/ProjectDocument.js');
+const { CommandHistory } = await import('../src/core/CommandHistory.js');
+const { captureBoardShapeState } = await import('../src/core/pcb-board-shapes.js');
+const { Track } = await import('../src/shapes/track.js');
+const { CopperFill } = await import('../src/shapes/copper-fill.js');
+const { cancelPictureCopperRefresh } = await import('../src/pcb/modules/picture-refresh.js');
+const { getComputedFill, setComputedFill } = await import('../src/pcb/modules/computed-fill-cache.js');
+
+function resetPanel() {
+    while (document.body.firstChild) document.body.removeChild(document.body.firstChild);
+    const panel = document.createElement('div');
+    panel.id = 'pcbPropertiesPanel';
+    const items = document.createElement('div');
+    items.id = 'pcbPropsItems';
+    panel.appendChild(items);
+    document.body.appendChild(panel);
+    return items;
+}
+const fire = (control, type, extra = {}) => control.dispatchEvent({ type, ...extra });
 
 const points = () => [
     { x: Math.PI, y: -Math.E }, { x: 15.123456789, y: -Math.E },
@@ -108,13 +115,15 @@ function freeze(object) {
 }
 const state = object => object.captureState ? object.captureState() : captureBoardShapeState(object);
 function netPanel(app, entries) {
-    const items = { innerHTML: '', querySelector: selector => selector === '#pcbPropMultiNet' ? {} : null };
-    let commit;
+    const items = resetPanel();
     app.propertiesItems = () => items;
     app.setPropertiesTitle = () => {};
-    app.bindToolNetControl = (_items, _id, callback) => { commit = callback; };
     app._showPcbMultiSelectionProperties(entries);
-    return value => commit(value);
+    return value => {
+        const input = document.getElementById('pcbPropMultiNet');
+        input.value = value;
+        fire(input, 'change');
+    };
 }
 function guard(f) {
     const geometry = f.model.captureGeometry(), saved = f.model.serialize(), authored = state(f.object);

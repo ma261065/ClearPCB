@@ -344,10 +344,9 @@ for (const kind of ['shape', 'track', 'fill']) for (const anchorId of [0, 'mid:0
     adapter.endMove(true);
     expect('second Track click refines to the clicked segment', app._trackEdit?.edgeId === edgeId);
 
-    const items = { innerHTML: '' };
-    let title = '';
-    app.propertiesItems = () => items;
-    app.setPropertiesTitle = value => { title = value; };
+    let panel = null;
+    app.openPropertyPanel = next => { panel = next; return true; };
+    app.refreshPropertyPanel = next => { panel = next; };
     const nodeId = track.nodes.keys().next().value;
     const node = track.nodes.get(nodeId);
     expect('clicking a Track node starts an anchor interaction', beginSelectionInteraction(app, node, false));
@@ -355,13 +354,14 @@ for (const kind of ['shape', 'track', 'fill']) for (const anchorId of [0, 'mid:0
     expect('click-release focuses the Track node', app._trackEdit?.nodeId === nodeId);
     expect('focused Track node does not float', app._pcbSelectionInteraction === null && app._vertexDrag === null);
     showPcbSelectionProperties(app);
-    expect('property refresh preserves Track node focus', app._trackEdit?.nodeId === nodeId && title === 'Track Node');
-    expect('Track node properties include corner radius', items.innerHTML.includes('pcbPropTrackCornerRadius'));
-    expect('Track node properties display coordinates', items.innerHTML.includes('pcbPropTrackNodeX')
-        && items.innerHTML.includes('pcbPropTrackNodeY'));
+    const fieldIds = () => new Set((panel?.fields || []).map(field => field.id));
+    expect('property refresh preserves Track node focus', app._trackEdit?.nodeId === nodeId && panel?.title === 'Track Node');
+    expect('Track node properties include corner radius', fieldIds().has('pcbPropTrackCornerRadius'));
+    expect('Track node properties display coordinates', fieldIds().has('pcbPropTrackNodeX')
+        && fieldIds().has('pcbPropTrackNodeY'));
     finishSelectionInteraction(app, false);
     expect('cancelling the pickup preserves existing Track node focus', app._trackEdit?.nodeId === nodeId
-        && app._vertexDrag === null && title === 'Track Node');
+        && app._vertexDrag === null && panel?.title === 'Track Node');
 }
 
 {

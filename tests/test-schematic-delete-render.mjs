@@ -305,14 +305,12 @@ for (const split of [false, true]) {
     const tip = document.getElementById('schematicStatusTip');
     assert.equal(tip.hidden, true);
     app.selectionNotifications.length = 0;
-    const rebuilds = app.ui.propertiesPanel.rebuilds;
     runSchematicDeleteAction(app);
     assert.equal(tip.hidden, false, 'Finishing a refined edit restores the whole-shape selection tip');
     assert.equal(app.selectionNotifications.length, 1, 'Retained selection publishes its final refinement once');
     assert.deepEqual(app.selectionNotifications[0].selection, [shape]);
     assert.equal(app.selectionNotifications[0].node, null);
     assert.equal(app.selectionNotifications[0].segment, null);
-    assert.equal(app.ui.propertiesPanel.rebuilds, rebuilds + 1);
     assert.ok(document.getElementById('prop_lineWidth'), 'Properties returns from Node to the surviving whole shape');
     assert.deepEqual(app.shapes, [shape]);
     assert.equal(app.history.undoStack.length, split ? 0 : 1);
@@ -338,13 +336,12 @@ for (const kind of ['arc-to-line', 'line-to-arc', 'floating-line-to-arc',
     const edgeId = shape.type === 'arc' ? null : kind === 'collapsed-segment-to-line' ? 'e1' : 'e0';
     if (shape.type === 'polyline' && kind.endsWith('to-line')) shape.setEdgeAttr(edgeId, 'bulge', 0.25);
     const app = fixture(shape);
-    const rebuilds = app.ui.propertiesPanel.rebuilds;
     const floating = kind.startsWith('floating');
     const changed = kind === 'decompose' ? decomposeShapeCorners(app, shape)
         : setSchematicShapeSegmentType(app, shape, edgeId, kind.endsWith('to-line') ? 'line' : 'arc', { floating });
     assert.equal(changed, true);
     assert.equal(app.selectionNotifications.length, 1, `${kind}: one completed selection notification`);
-    assert.equal(app.ui.propertiesPanel.rebuilds, rebuilds + 1, `${kind}: one Properties rebuild`);
+    assert.ok(document.getElementById('ribbonDelete'), `${kind}: Properties reflects the completed refinement`);
     assert.deepEqual(app.selectionNotifications[0].selection, app.selection.getSelection());
     assert.deepEqual(app.selectionNotifications[0].segment, getShapeSegmentFocus(app),
         `${kind}: subscribers receive final refinement, not an intermediate whole-object selection`);

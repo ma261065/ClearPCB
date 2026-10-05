@@ -1,18 +1,34 @@
 import assert from 'node:assert/strict';
-import { ProjectDocument } from '../src/core/ProjectDocument.js';
-import { Component } from '../src/components/Component.js';
-import { flushSettledChanges } from '../src/shared/ui/settled-input.js';
+import { installFakeDom } from './helpers/fake-dom.mjs';
 
-globalThis.window = { addEventListener() {} };
+installFakeDom();
 globalThis.requestAnimationFrame = callback => { callback(); return 1; };
 globalThis.cancelAnimationFrame = () => {};
-const items = { innerHTML: '', querySelector() { return null; } };
-globalThis.document = {
-    getElementById() { return null; },
-};
+globalThis.window.requestAnimationFrame = globalThis.requestAnimationFrame;
+globalThis.window.cancelAnimationFrame = globalThis.cancelAnimationFrame;
 
 const { default: PCBApp } = await import('../src/ui/PCBApp.js');
+const { ProjectDocument } = await import('../src/core/ProjectDocument.js');
+const { Component } = await import('../src/components/Component.js');
+const { flushSettledChanges } = await import('../src/shared/ui/settled-input.js');
 const { setPcbSelection } = await import('../src/pcb/modules/selection-registry.js');
+
+function mountPanel() {
+    const panel = document.createElement('div');
+    panel.id = 'pcbPropertiesPanel';
+    const items = document.createElement('div');
+    items.id = 'pcbPropsItems';
+    panel.appendChild(items);
+    document.body.appendChild(panel);
+    return items;
+}
+
+const items = mountPanel();
+const fire = (control, type, extra = {}) => control.dispatchEvent({ type, ...extra });
+const control = id => document.getElementById(id);
+const props = () => items.children.map(row => row.dataset.prop);
+const row = prop => items.children.find(candidate => candidate.dataset.prop === prop);
+
 const app = Object.create(PCBApp.prototype);
 app.project = new ProjectDocument();
 app.pcbDocument = app.project.pcbDocument;
@@ -36,22 +52,21 @@ app._showPcbMultiSelectionProperties([
     { kind: 'track', object: { net: 'GND' } },
     { kind: 'via', object: { net: 'GND' } },
 ]);
-assert.match(items.innerHTML, /pcbPropMultiNet/, 'Track and Via expose their shared Net property');
-assert.match(items.innerHTML, /prop-net-control/, 'mixed Net uses the standard editable picker control');
-assert.match(items.innerHTML, /prop-net-menu/, 'mixed Net exposes the standard styled menu');
-assert.match(items.innerHTML, /button type="button" data-net="GND"/, 'the current Net is available in the picker');
-assert.doesNotMatch(items.innerHTML, /datalist|list="pcbPropMultiNetList"/,
-    'mixed Net does not use the browser-native datalist');
-assert.doesNotMatch(items.innerHTML, /Diameter|Width|Drill/,
-    'Track and Via do not expose properties that are not shared');
+assert.ok(control('pcbPropMultiNet'), 'Track and Via expose their shared Net property');
+assert.ok(row('net').querySelector('.prop-net-control'), 'mixed Net uses the standard editable picker control');
+assert.ok(row('net').querySelector('.prop-net-menu'), 'mixed Net exposes the standard styled menu');
+assert.ok(row('net').querySelector('button[data-net="GND"]'), 'the current Net is available in the picker');
+assert.equal(control('pcbPropMultiNetList'), null, 'mixed Net does not use the browser-native datalist');
+assert.deepEqual(props(), ['locked', 'net'], 'Track and Via do not expose properties that are not shared');
 
 app._showPcbMultiSelectionProperties([
     { kind: 'track', object: { net: 'GND', width: 0.2 } },
     { kind: 'track', object: { net: 'VCC', width: 0.3 } },
 ]);
-assert.match(items.innerHTML, /pcbPropMultiNet/, 'multiple Tracks expose Net');
-assert.match(items.innerHTML, /pcbPropMultiTrackWidth/, 'multiple Tracks expose Width');
-assert.match(items.innerHTML, /placeholder="Mixed"/, 'mixed values are represented without choosing one');
+assert.ok(control('pcbPropMultiNet'), 'multiple Tracks expose Net');
+assert.ok(control('pcbPropMultiTrackWidth'), 'multiple Tracks expose Width');
+assert.equal(control('pcbPropMultiNet').placeholder, 'Mixed', 'mixed Net values are represented without choosing one');
+assert.equal(control('pcbPropMultiTrackWidth').placeholder, 'Mixed', 'mixed Width values are represented without choosing one');
 
 const makePad = (id, net, rotation) => ({
     id, net, shape: 'rectangle', size: 1, ratio: 2, drill: 0.4, rotation, layers: 'both',
@@ -71,42 +86,26 @@ app.pads = [
 ];
 app.getLayerGroup = () => null;
 setPcbSelection(app, app.pads.map(object => ({ kind: 'pad', object })));
-const controls = new Map();
-for (const selector of ['#pcbPropPadShape', '#pcbPropPadLayers', '#pcbPropPadSize',
-    '#pcbPropPadRatio', '#pcbPropPadDrill', '#pcbPropPadRotation',
-    '#pcbPropIntersection_rotation', '#pcbPropMultiNet']) {
-    controls.set(selector, {
-        value: '',
-        listeners: new Map(),
-        addEventListener(type, callback) { this.listeners.set(type, callback); },
-        emit(type) { this.listeners.get(type)?.({ target: this }); },
-    });
-}
-items.querySelector = selector => controls.get(selector) || null;
-let applyPadNet;
-let applyIntersectionNet;
-app.bindToolNetControl = (_items, inputId, onChange) => {
-    if (inputId === 'pcbPropPadNet') applyPadNet = onChange;
-    else if (inputId === 'pcbPropMultiNet') applyIntersectionNet = onChange;
-    else assert.fail(`Unexpected Net input: ${inputId}`);
-};
 let lastCommand = null;
 app.history = { execute(command) { lastCommand = command; command.execute(); } };
 app.refreshFills = () => {};
 app._showPadProperties(app.pads[0]);
-assert.match(items.innerHTML, /id="pcbPropPadNet" value="" placeholder="Mixed"/,
-   'multiple Pads with different Nets show a mixed Net value');
-assert.match(items.innerHTML, /id="pcbPropPadRotation" value="" placeholder="Mixed"/,
-   'multiple Pads with different rotations show a mixed Rotation value');
-applyPadNet('SIGNAL');
+assert.equal(control('pcbPropPadNet').value, '');
+assert.equal(control('pcbPropPadNet').placeholder, 'Mixed',
+    'multiple Pads with different Nets show a mixed Net value');
+assert.equal(control('pcbPropPadRotation').value, '');
+assert.equal(control('pcbPropPadRotation').placeholder, 'Mixed',
+    'multiple Pads with different rotations show a mixed Rotation value');
+control('pcbPropPadNet').value = 'SIGNAL';
+fire(control('pcbPropPadNet'), 'change');
 assert.deepEqual(app.pads.map(pad => pad.net), ['SIGNAL', 'SIGNAL', 'SIGNAL', 'SIGNAL'],
    'changing the Pad Net applies to every selected Pad');
-const rotationInput = controls.get('#pcbPropPadRotation');
+const rotationInput = control('pcbPropPadRotation');
 rotationInput.value = '90';
-rotationInput.emit('input');
+fire(rotationInput, 'input');
 assert.deepEqual(app.pads.map(pad => pad.rotation), [90, 90, 90, 90],
    'live Rotation editing updates every selected Pad');
-rotationInput.emit('change');
+fire(rotationInput, 'change');
 flushSettledChanges();
 assert.deepEqual(app.pads.map(pad => pad.rotation), [90, 90, 90, 90],
    'committing Rotation preserves the batch edit');
@@ -124,7 +123,7 @@ app._showPcbMultiSelectionProperties([
    { kind: 'text', object: textB },
 ]);
 for (const property of ['layer', 'size', 'rotation', 'lineWidth', 'border']) {
-   assert.match(items.innerHTML, new RegExp(`pcbPropIntersection_${property}`),
+   assert.ok(control(`pcbPropIntersection_${property}`),
        `multiple Text objects expose ${property}`);
 }
 
@@ -146,16 +145,15 @@ app._showPcbMultiSelectionProperties([
    { kind: 'component', object: 'U2' },
 ]);
 for (const property of ['locked', 'refVisible', 'layer', 'rotation']) {
-   assert.match(items.innerHTML, new RegExp(`pcbPropIntersection_${property}`),
+   assert.ok(control(`pcbPropIntersection_${property}`),
        `multiple Components expose ${property}`);
 }
-const componentRotationInput = controls.get('#pcbPropIntersection_rotation');
+const componentRotationInput = control('pcbPropIntersection_rotation');
 componentRotationInput.value = '180';
-componentRotationInput.emit('change');
+fire(componentRotationInput, 'change');
 assert.deepEqual(['U1', 'U2'].map(id => app.placements.get(id).rotation), [0, 90],
    'shared number fields wait for the value to settle before committing');
-componentRotationInput.emit('blur');
-await null;
+flushSettledChanges();
 assert.deepEqual(['U1', 'U2'].map(id => app.placements.get(id).rotation), [180, 180],
    'changing shared Component Rotation updates every selected Component');
 lastCommand.undo();
@@ -167,10 +165,11 @@ app._showPcbMultiSelectionProperties([
    { kind: 'reftext', object: 'U1' },
 ]);
 for (const property of ['size', 'rotation', 'lineWidth']) {
-   assert.match(items.innerHTML, new RegExp(`pcbPropIntersection_${property}`),
+   assert.ok(control(`pcbPropIntersection_${property}`),
        `Text and References expose shared ${property}`);
 }
-assert.doesNotMatch(items.innerHTML, /pcbPropIntersection_(layer|border)/,
+assert.equal(control('pcbPropIntersection_layer'), null);
+assert.equal(control('pcbPropIntersection_border'), null,
    'Text-only properties are omitted from a mixed Text and Reference selection');
 
 const makeFill = (id, net, layer, cornerRadius) => ({
@@ -192,9 +191,10 @@ const fills = [makeFill('f1', 'GND', 'top-copper', 0), makeFill('f2', 'VCC', 'bo
 app._showPcbMultiSelectionProperties(fills.map(object => ({ kind: 'fill', object })));
 for (const property of ['net', 'layer', 'shapeKind', 'cornerRadius', 'width', 'height']) {
    const id = property === 'net' ? 'pcbPropMultiNet' : `pcbPropIntersection_${property}`;
-   assert.match(items.innerHTML, new RegExp(id), `multiple Copper Fills expose ${property}`);
+   assert.ok(control(id), `multiple Copper Fills expose ${property}`);
 }
-applyIntersectionNet('POWER');
+control('pcbPropMultiNet').value = 'POWER';
+fire(control('pcbPropMultiNet'), 'change');
 assert.deepEqual(fills.map(fill => fill.net), ['POWER', 'POWER'],
    'changing shared Fill Net updates every selected Fill');
 lastCommand.undo();
@@ -216,7 +216,7 @@ app._showPcbMultiSelectionProperties([
    { kind: 'shape', object: image('i2', 'bottom-silk', 90) },
 ]);
 for (const property of ['layer', 'width', 'height', 'rotation', 'invert', 'flipHorizontal', 'flipVertical']) {
-   assert.match(items.innerHTML, new RegExp(`pcbPropIntersection_${property}`),
+   assert.ok(control(`pcbPropIntersection_${property}`),
        `multiple Images expose ${property}`);
 }
 
@@ -227,8 +227,8 @@ app._showPcbMultiSelectionProperties([
    { kind: 'fill', object: fills[0] },
    { kind: 'shape', object: { ...image('i3', 'top-copper'), net: 'GND' } },
 ]);
-assert.match(items.innerHTML, /pcbPropMultiNet/, 'all Net-bearing object families share Net');
-assert.doesNotMatch(items.innerHTML, /pcbPropIntersection_(layer|size|rotation|lineWidth)/,
+assert.ok(control('pcbPropMultiNet'), 'all Net-bearing object families share Net');
+assert.deepEqual(props(), ['locked', 'net'],
    'mixed Net-bearing families expose only their true property intersection');
 
 console.log('PASS: PCB multi-selection properties use the shared property intersection');

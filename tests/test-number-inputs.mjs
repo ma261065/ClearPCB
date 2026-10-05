@@ -85,8 +85,8 @@ for (const [path, ids] of [
 ]) {
     const source = readFileSync(new URL(path, import.meta.url), 'utf8');
     for (const id of ids) {
-        const tag = source.match(new RegExp(`<input[^>]*id="${id}"[^>]*>`))?.[0];
-        assert.ok(tag?.includes('data-number-format="rotation"'), `${id} opts out of decimal formatting`);
+        const field = source.match(new RegExp(`['"]${id}['"][\\s\\S]{0,240}numberFormat:\\s*['"]rotation['"]`))?.[0];
+        assert.ok(field, `${id} opts out of decimal formatting`);
     }
 }
 console.log('PASS shared number formatting, dynamic dialogs, live steps, manual entry and rotation exclusion');

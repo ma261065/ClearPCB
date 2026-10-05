@@ -112,6 +112,99 @@ function fixture(kind, count = 1, unrelatedCount = 1, shapeLayer = 'top-copper')
         viewport: { scale: 100, svg: new Element(), setCrosshair() {}, hideCrosshair() {} },
         getLayerGroup: id => id === 'selection-overlay' ? null : group,
         propertiesItems: () => items, setActiveRibbonTab() {}, _refreshPcbSelectionHighlights() {},
+        syncPropertyPanel(panel, reuse = true) {
+            const token = this._propertyPanelToken || 1;
+            const oldFields = new Map(fields);
+            const previous = reuse ? oldFields : new Map();
+            const active = document.activeElement;
+            fields.clear();
+            for (const field of panel.fields || []) {
+                const id = field.id || field.key;
+                const control = previous.get(id) || {
+                    get valueAsNumber() { return this.value === '' ? NaN : Number(this.value); },
+                    fire(type, value) {
+                        if (this.token !== app._propertyPanelToken) return;
+                        const currentField = this.field;
+                        if (type === 'input') this.dirty = true;
+                        if (type === 'keydown' && value?.key === 'Escape') {
+                            currentField.cancel?.();
+                            this.canceled = true;
+                            this.dirty = false;
+                            this.value = currentField.mixed ? '' : String(currentField.value ?? '');
+                            return;
+                        }
+                        if (type === 'change' && this.canceled) {
+                            this.canceled = false;
+                            return;
+                        }
+                        if (value !== undefined && (type === 'input' || type === 'change')) this.value = String(value);
+                        if (this.disabled) return;
+                        if (currentField.type === 'number' && type === 'blur') {
+                            if (this.canceled) {
+                                this.canceled = false;
+                                this.dirty = false;
+                                this.value = currentField.mixed ? '' : String(currentField.value ?? '');
+                                return;
+                            }
+                            currentField.commit?.();
+                            this.dirty = false;
+                            return;
+                        }
+                        if (currentField.type === 'number' && (type === 'input' || type === 'change')) {
+                            let parsed = currentField.parse ? currentField.parse(this.value)
+                                : (this.value.trim() === '' ? NaN : Number(this.value));
+                            if (Number.isFinite(parsed) && currentField.normalize) {
+                                parsed = currentField.normalize(parsed);
+                                this.value = currentField.format ? String(currentField.format(parsed)) : String(parsed);
+                            }
+                            if (Number.isFinite(parsed)) {
+                                currentField.preview?.(parsed);
+                                if (type === 'change') {
+                                    currentField.commit?.(parsed);
+                                    this.dirty = false;
+                                }
+                            } else {
+                                if (currentField.cancel?.()) this.canceled = true;
+                                if (type === 'change') {
+                                    this.canceled = false;
+                                    this.dirty = false;
+                                    this.value = currentField.mixed ? '' : String(currentField.value ?? '');
+                                }
+                            }
+                            return;
+                        }
+                        if (type === 'change') {
+                            currentField.commit?.(currentField.type === 'checkbox' ? this.checked : this.value);
+                            this.dirty = false;
+                        }
+                    },
+                };
+                const editing = active === control && control.dirty;
+                Object.assign(control, {
+                    placeholder: field.mixed ? 'Mixed' : field.placeholder || '',
+                    checked: !field.mixed && !!field.value,
+                    disabled: !!field.disabled,
+                    field,
+                    token,
+                    tagName: field.type === 'select' ? 'SELECT' : 'INPUT',
+                    focus() { document.activeElement = this; },
+                    matches: selector => selector === 'input[type="number"]',
+                });
+                if (!editing) control.value = field.mixed ? ''
+                    : String(field.format && field.value != null ? field.format(field.value) : field.value ?? '');
+                fields.set(id, control);
+            }
+            if ([...oldFields.values()].includes(active) && ![...fields.values()].includes(active)) {
+                document.activeElement = document.body;
+            }
+            return true;
+        },
+        openPropertyPanel(panel, owner = null) {
+            this._propertyPanelToken = (this._propertyPanelToken || 0) + 1;
+            this.setPropertiesTitle?.(panel.title, owner);
+            return this.syncPropertyPanel(panel, false);
+        },
+        refreshPropertyPanel(panel) { return this.syncPropertyPanel(panel); },
         refreshFills() { pours++; }, _refreshBoardShapeClearance() {},
         _cancelDrawingMode() {}, _ensureViewport() {}, markSectionClean() {},
     };
@@ -716,7 +809,10 @@ for (const kind of ['cornerRadius', 'imageWidth']) for (const completion of ['ch
             assert.equal(app.history.undoStack.length, 2);
             document.activeElement = document.body;
             app.history.undo();
-        } else assert.notEqual(fields.get(nextId), next, 'Leaving Properties retains the normal rebuild');
+        } else {
+            assert.equal(document.activeElement, document.body, 'Leaving Properties does not retain field focus');
+            assert.equal(getPropertyEditor(app, 'boardShape').active, false, 'Leaving Properties commits the pending preview');
+        }
         app.history.undo();
         assert.deepEqual(model.captureGeometry(), before);
         cancelPictureCopperRefresh(app);
@@ -836,6 +932,7 @@ for (const valid of [false, true]) {
     handleBoardShapeDrag(app, { x: shape.x + 7, y: shape.y });
     showBoardShapeProperties(app, shape);
     const input = fields.get('pcbPropShapeDiameter');
+    input.focus();
     input.value = '12.0'; input.fire('input');
     assert.equal(app._shapeDrag, null);
     assert.equal(app.history.undoStack.length, 1);

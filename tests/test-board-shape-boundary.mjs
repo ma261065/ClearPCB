@@ -138,7 +138,8 @@ const { updateSelectionInteraction, finishSelectionInteraction, placeFloatingSel
         ...shapeModel(shape, remote), placements: new Map(), tracks: [], vias: [], texts: new Map(), netlist: [],
         _shapeElements: new Map(), viewport: { scale: 20, setCrosshair() {}, hideCrosshair() {} },
         getLayerGroup(layer) { return layer === 'ratlines' ? ratLayer : null; },
-        propertiesItems() { return { innerHTML: '' }; }, setPropertiesTitle(value) { title = value; },
+        openPropertyPanel(panel) { title = panel.title; return true; },
+        refreshPropertyPanel(panel) { title = panel.title; },
         setActiveRibbonTab() {}, _snapToGrid(point) { return point; },
         updateRatsnest(options) { reconcileRatsnest(this, options); },
         history: { execute(command) { commands.push(command); command.execute(); } },
@@ -247,7 +248,8 @@ console.log('PASS standalone conversion uses native shape kinds, menus, properti
         ...shapeModel(shape), placements: new Map(), tracks: [], vias: [], texts: new Map(),
         _shapeElements: new Map(), viewport: { scale: 20, setCrosshair() {}, hideCrosshair() {} },
         getLayerGroup(layer) { return layer === 'selection-overlay' ? overlay : null; },
-        propertiesItems() { return { innerHTML: '' }; }, setPropertiesTitle(value) { title = value; },
+        openPropertyPanel(panel) { title = panel.title; return true; },
+        refreshPropertyPanel(panel) { title = panel.title; },
         setActiveRibbonTab() {}, history: { execute(command) { commands.push(command); command.execute(); } },
     };
     assert.equal(setBoardShapeSegmentType(app, shape, 0, 'arc'), true);
@@ -442,20 +444,18 @@ for (const cornerRadius of [0, 2]) {
     assert.equal(bounds.minY, -1.5);
     assert.equal(bounds.maxY, 16.5);
     const before = cloneShapeGeometry(shape);
-    const listeners = new Map();
-    const input = { value: '5', valueAsNumber: 5, addEventListener(type, listener) { listeners.set(type, listener); } };
+    let panel = null;
     const app = { ...shapeModel(shape), _shapeElements: new Map(), getLayerGroup() { return null; },
-        propertiesItems() { return { innerHTML: '' }; } };
-    document.getElementById = id => id === 'pcbPropShapeLineWidth' ? input : null;
+        openPropertyPanel(next) { panel = next; return true; },
+        refreshPropertyPanel(next) { panel = next; } };
     showBoardShapeProperties(app, shape);
-    listeners.get('input')();
+    panel.fields.find(field => field.id === 'pcbPropShapeLineWidth').preview(5);
     assert.deepEqual(cloneShapeGeometry(shape), before);
     assert.equal(shape.cornerRadius, cornerRadius);
     assert.deepEqual(getBoardShapeAnchors(shape), anchors);
     assert.equal(getBoardShapePropertyPreview(app).copies[0].lineWidth, 5);
     assert.equal(shape.lineWidth, 1, 'Typing preserves authored width');
     getPropertyEditor(app, 'boardShape').cancel();
-    document.getElementById = () => null;
     const serialized = serializeBoardShapes(app);
     const loaded = { boardShapes: [], _shapeIdCounter: 1 };
     loadBoardShapes(loaded, serialized, { render: false });
@@ -599,32 +599,21 @@ console.log('PASS centreline editing, symmetric hit tests, unchanged circles, mi
     assertDimensions();
     assert.equal(synchronizations, 0, 'Discard does not synchronize unchanged geometry');
     assert.deepEqual(cloneShapeGeometry(outline), original);
-    model.setBoardOutline({ id: 'board-outline', kind: 'circle', layer: 'board-outline', x: 0, y: 0, radius: 5 });
-    const listeners = new Map();
-    const diameter = { value: '',
-        get valueAsNumber() { return Number(this.value); },
-        addEventListener(name, callback) {
-            if (!listeners.has(name)) listeners.set(name, []);
-            listeners.get(name).push(callback);
-        } };
-    const dispatch = (name, event) => [...listeners.get(name)].forEach(callback => callback(event));
-    app.propertiesItems = () => ({ set innerHTML(value) {
-        listeners.clear();
-        diameter.value = String(outline.radius * 2);
-    } });
-    document.getElementById = id => id === 'pcbPropShapeDiameter' ? diameter : null;
-    showBoardShapeProperties(app, outline);
-    diameter.value = '16.246912';
-    dispatch('input');
+    const circleOutline = model.setBoardOutline({ id: 'board-outline', kind: 'circle', layer: 'board-outline', x: 0, y: 0, radius: 5 });
+    selectBoardShape(app, circleOutline);
+    let panel = null;
+    app.openPropertyPanel = next => { panel = next; return true; };
+    app.refreshPropertyPanel = next => { panel = next; };
+    showBoardShapeProperties(app, circleOutline);
+    let diameter = () => panel.fields.find(field => field.id === 'pcbPropShapeDiameter');
+    diameter().preview(16.246912);
     assert.equal(model.board.width, 10, 'Properties leave authored dimensions unchanged');
     assert.equal(getBoardShapePropertyPreview(app).copies[0].radius * 2, 16.246912);
     assertDimensions();
-    dispatch('keydown', { key: 'Escape', preventDefault() {}, stopPropagation() {} });
+    diameter().cancel();
     assert.equal(model.board.width, 10, 'Property-preview cancellation restores dimension metadata');
-    diameter.value = '16.246912';
-    dispatch('input');
-    dispatch('change');
-    flushSettledChanges();
+    diameter().preview(16.246912);
+    diameter().commit(16.246912);
     assert.equal(model.board.width, 16.25, 'Commit retains existing property-field rounding');
     app.history.undo();
     assert.equal(model.board.width, 10);

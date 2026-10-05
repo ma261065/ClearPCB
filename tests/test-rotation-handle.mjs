@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { PcbDocument } from '../src/core/PcbDocument.js';
 import { rotationHandleAnchor, pointerRotation, rotatedImagePoints, ROTATION_CURSOR } from '../src/pcb/modules/rotation-handle.js';
+import { attachPropertyPanelHarness } from './helpers/property-panel-controls.mjs';
 
 const bounds = { minX: -4, minY: -2, maxX: 4, maxY: 2 };
 for (const scale of [0.1, 1, 20]) {
@@ -204,7 +205,7 @@ try {
             assert.equal(visibleRotationParts().length, 2, 'Returning to a single image/text restores rotation');
         }
     }
-    // Render the real Properties panels and read the rotation inputs from their markup.
+    // Render the real Properties panels and read the rotation inputs from their descriptions/markup.
     const { showImageProperties } = await import('../src/pcb/modules/board-shape-properties.js');
     const panelMarkup = render => {
         const items = { innerHTML: '', querySelector: () => null, querySelectorAll: () => [] };
@@ -214,19 +215,25 @@ try {
     const panelApp = { propertiesItems: () => panelItems, setPropertiesTitle() {}, layerLabel: PCBApp.prototype.layerLabel,
         _textDefaults: { size: 1, rotation: 37.6, layer: 'top-silk', strokeWidth: 0.15, border: false },
         pcbDocument: { texts: new Map([['t', { id: 't', content: 'T', x: 0, y: 0, size: 1, rotation: 12.34567,
-            layer: 'top-silk', strokeWidth: 0.15 }]]) } };
+            layer: 'top-silk', strokeWidth: 0.15 }]]) },
+        _insertInlineTextSymbol: () => false };
+    const panelControls = new Map();
+    attachPropertyPanelHarness(panelApp, { controls: panelControls });
     let panelItems;
-    const markup = {
-        pcbPropTextToolRot: panelMarkup(items => { panelItems = items; PCBApp.prototype._showTextToolProperties.call(panelApp); }),
-        pcbPropTextRot: panelMarkup(items => { panelItems = items; PCBApp.prototype.showTextProperties.call(panelApp, { id: 't' }); }),
-        pcbPropImageRot: panelMarkup(items => showImageProperties(panelApp, { ...pictureShape({ width: 4, height: 2, rectangles: [{ x: 0, y: 0, width: 4, height: 2 }] }, { widthMm: 8, layer: 'top-silk' }), rotation: 359.99999 }, items)),
-    };
-    for (const [inputId, expected] of [['pcbPropTextToolRot', '38'], ['pcbPropTextRot', '12'], ['pcbPropImageRot', '0']]) {
-        const template = markup[inputId].match(new RegExp(`<input[^>]*id="${inputId}"[^>]*>`))?.[0];
-        assert.ok(template, `${inputId} is rendered`);
-        assert.match(template, /step="1"/, `${inputId} increments by one degree`);
-        assert.match(template, new RegExp(`value="${expected}"`), `${inputId} displays whole degrees`);
+    PCBApp.prototype._showTextToolProperties.call(panelApp);
+    const textToolRot = panelControls.get('pcbPropTextToolRot');
+    PCBApp.prototype.showTextProperties.call(panelApp, { id: 't' });
+    const textRot = panelControls.get('pcbPropTextRot');
+    for (const [control, inputId, expected] of [[textToolRot, 'pcbPropTextToolRot', '38'], [textRot, 'pcbPropTextRot', '12']]) {
+        assert.ok(control, `${inputId} is rendered`);
+        assert.equal(control.field.step, 1, `${inputId} increments by one degree`);
+        assert.equal(control.value, expected, `${inputId} displays whole degrees`);
     }
+    showImageProperties(panelApp, { ...pictureShape({ width: 4, height: 2, rectangles: [{ x: 0, y: 0, width: 4, height: 2 }] }, { widthMm: 8, layer: 'top-silk' }), rotation: 359.99999 });
+    const imageRot = panelControls.get('pcbPropImageRot');
+    assert.ok(imageRot, 'pcbPropImageRot is rendered');
+    assert.equal(imageRot.field.step, 1, 'pcbPropImageRot increments by one degree');
+    assert.equal(imageRot.value, '0', 'pcbPropImageRot displays whole degrees');
     for (const [rotation, expected] of [[12.34567, 12], [12.6, 13], [42, 42], [359.99999, 0]]) {
         assert.equal(displayRotationDegrees(rotation), expected, 'rotation inputs display whole degrees');
     }

@@ -61,13 +61,51 @@ the rows that apply; whatever is shown keeps its place:
 8. Border, Invert, Style
 
 Controls that decide which other controls apply come first (Locked disables the
-rest; Layer decides Copper Mode and Net; Fill decides the line width). PCB rows
-carry `data-prop` with their key; the schematic sorts its descriptors with
-`sortByPropertyOrder` (a descriptor's `orderKey` can rank it as a related
-property) and the PCB multi-selection panel sorts its shared keys the same way.
-`test-property-order` checks every key is ranked and every row is tagged;
+rest; Layer decides Copper Mode and Net; Fill decides the line width). Every row
+carries `data-prop` with its key, and the renderer (below) shows fields in this
+order by their `prop` (or `key`), so no panel orders its own rows; a schematic
+descriptor's `orderKey` becomes the field's `prop`, ranking it as a related
+property. `test-property-order` checks every key is ranked and every row is tagged;
 the `properties-panels-share-one-control-order-and-labels` browser scenario
 renders each panel and checks the order and that each property has one label.
+
+### Properties panels: description, renderer, host
+
+A Properties panel is logic only. It describes itself as a `PropertyPanel`
+(`shared/ui/property-fields.js`): a title, fields and action groups. A field has a
+key, a type (number, select, checkbox, text, net or readout), a label and its
+value, plus Mixed and disabled state, limits and options. Its edit hooks are
+`normalize`, `preview`, `commit`, `cancel` and `hold`. Action groups are titled
+buttons such as Transform. `renderPropertyFields` and `renderPropertyActions` are
+the only code that builds the controls.
+
+Each editor has a small host that decides where a description appears. The PCB
+host is `openPropertyPanel` / `refreshPropertyPanel` in `PCBApp`; the schematic
+host is `schematic/modules/property-host.js`. A new look for the panels (for
+example a redesigned ribbon) changes only the renderer and the hosts. Panel
+modules never touch the DOM; `test-property-panels-logic-only` enforces this.
+
+A panel updates by describing itself again, never by patching controls. The
+renderer reconciles rows by key and updates them in place, and a focused field
+with unsaved edits keeps what the user is typing. Limits that follow another value
+(a via's drill follows its diameter) and rows that come and go (a pad's Ratio)
+are simply part of the next description.
+
+The renderer owns the edit protocol, the same in every panel:
+
+- **Number fields:** `input` and `change` normalize the entry (clamp or wrap; NaN
+  rejects it) and call `preview`. The run commits once with `commit`, as described
+  below. An invalid entry cancels the preview and restores the field. Escape calls
+  `cancel` and is consumed only when something was undone. Holding a spinner (the
+  pointer or an Arrow key) brackets the run with `hold.begin` and `hold.end`.
+- **Select, checkbox, text and net fields** commit on `change`. A net field's menu
+  lists the existing nets.
+- **Mixed values** (the selected objects disagree) show an empty field with a
+  `Mixed` placeholder, a disabled `Mixed` option or an indeterminate checkbox, in
+  both editors.
+- **Locked or layer-locked objects** use the native `disabled` attribute. The
+  PCB's `lockedProperty(app, entries)` gives each panel its Locked field and
+  read-only state.
 
 Labels use Title Case with units on measured values, and a property has the
 same label everywhere: Line Width (mm), Corner Radius (mm), Text Size (mm),

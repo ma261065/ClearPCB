@@ -9,6 +9,7 @@ import { getPcbSelection, setPcbSelection } from '../src/pcb/modules/selection-r
 import { SetPlacementLockedCommand } from '../src/pcb/modules/track-commands.js';
 import { renderPcbSelectionAnchors } from '../src/pcb/modules/selection-anchors.js';
 import { unlockMenuItems } from '../src/pcb/modules/object-locks.js';
+import { attachPropertyPanelHarness } from './helpers/property-panel-controls.mjs';
 
 function element() {
     return {
@@ -33,7 +34,7 @@ for (const side of ['top', 'bottom']) {
         refStrokeWidth: 0.15, reference: 'R1', elements: [] };
     const pcbDocument = new PcbDocument();
     pcbDocument.placementState.record('part', placement);
-    const items = { innerHTML: '', querySelector: () => ({ addEventListener() {} }) };
+    const controls = new Map();
     let propertyShows = 0;
     const app = {
         pcbDocument, placementState: pcbDocument.placementState,
@@ -42,9 +43,10 @@ for (const side of ['top', 'bottom']) {
         tracks: [], vias: [], boardShapes: [], texts: new Map(), _layerGroups: new Map(), existingLayerGroups() { return this._layerGroups; },
         getLayerGroup: () => null, _drawRefOverlay() {}, _refreshRefHighlight() {},
         _refBox: () => ({ bx: -1, by: -1, bw: 2, bh: 2, cx: 0, cy: 0 }),
-        propertiesItems: () => items, setPropertiesTitle: () => propertyShows++,
+        setPropertiesTitle: () => propertyShows++,
         layerLabel: PCBApp.prototype.layerLabel, _screenToWorld: event => ({ x: event.clientX, y: event.clientY }),
     };
+    attachPropertyPanelHarness(app, { controls });
     for (const name of ['_beginRefTextDrag', '_updateRefTextDrag', '_handleRefDrag', '_endRefDrag',
         'rotateRefText', '_hitTestRefText', '_worldToPlacementLocal', '_placementLocalToWorld',
         '_snapToGrid', '_showRefProperties', '_bindStrokeTextProps', '_pcbMultiPropertyCapabilities',
@@ -68,7 +70,7 @@ for (const side of ['top', 'bottom']) {
         assert.deepEqual(capturePlacementOverride(placement), original);
         assert.equal(app.history.canUndo(), false);
         for (const id of ['pcbPropRefSize', 'pcbPropRefRot', 'pcbPropRefLW']) {
-            assert.match(items.innerHTML, new RegExp(`id="${id}"[^>]* disabled`), 'Single-reference properties are read-only');
+            assert.equal(controls.get(id).disabled, true, 'Single-reference properties are read-only');
         }
         const capabilities = app._pcbMultiPropertyCapabilities({ kind: 'reftext', object: 'part' });
         assert.ok(Object.values(capabilities).every(capability => capability.disabled),
@@ -90,7 +92,7 @@ for (const side of ['top', 'bottom']) {
         assert.equal(layer.locked, false);
         assert.equal(other.locked, true, 'Unlock only the reference side');
         assert.ok(propertyShows > beforeUnlockProperties, 'Layer unlock refreshes selected-reference controls');
-        assert.doesNotMatch(items.innerHTML, /id="pcbPropRefRot"[^>]* disabled/);
+        assert.equal(controls.get('pcbPropRefRot').disabled, false);
         app.rotateRefText('part');
         assert.equal(placement.refRot, 90);
         app.history.undo();

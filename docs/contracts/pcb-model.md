@@ -479,8 +479,8 @@ the same treatment; geometry, hit tests and exports are not inset.
 
 `board-shapes.js` owns interaction, mutation, commands, SVG rendering, the
 selection adapter and Track conversion; `board-shape-properties.js` owns the
-Properties panel (markup, input bindings and committing edits through
-previews and commands). Neither re-exports geometry functions. All geometry
+Properties panel (its description, and committing edits through previews and
+commands; `shared/ui/property-fields.js` renders it). Neither re-exports geometry functions. All geometry
 consumers, including editor adapters and tests, import directly from
 `board-shape-geometry.js`. Consumers that also need editor operations use
 separate imports for the two responsibilities.
