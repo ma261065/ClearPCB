@@ -13,6 +13,7 @@ import { bindPictureRefreshHold, schedulePictureCopperRefresh } from './picture-
 import { setPropertyEditor } from './property-editors.js';
 import { EditTextCommand, beginTextPropertyPreview, finishTextPropertyPreview } from './text-commands.js';
 import { isEditorActive } from './pcb-editor-api.js';
+import { bindSettledChange } from '../../shared/ui/settled-input.js';
 
 /** Show Text drawing defaults in Properties. */
 export function showTextToolProperties(app, defaults) {
@@ -267,7 +268,8 @@ export function bindStrokeTextProps(app, items, model, spec) {
         el.addEventListener('input', handler);
         // Spinner step clicks on number inputs fire 'change' without 'input'.
         el.addEventListener('change', handler);
-        el.addEventListener('change', onCommit);
+        if (el.type === 'number') bindSettledChange(el, onCommit);
+        else el.addEventListener('change', onCommit);
         el.addEventListener('keydown', event => {
             if (disposed || event.key !== 'Escape' || !snapshot) return;
             binding.cancel();

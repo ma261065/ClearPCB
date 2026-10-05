@@ -16,6 +16,7 @@ import { flipComponentH, flipComponentV, rotateComponentLeft, rotateComponentRig
 import { hasOwnLock, isSchematicLocked } from '../../shapes/lock-owner.js';
 import { runSchematicDeleteAction } from './editor-actions.js';
 import { getShapeNodeFocus, getShapeSegmentFocus, setShapeNodeFocus, setShapeSegmentFocus } from './shape-focus.js';
+import { bindSettledChange } from '../../shared/ui/settled-input.js';
 
 // Retire panel callbacks on rebuild without losing pending numeric completion.
 const propertyPanels = new WeakMap();
@@ -596,8 +597,8 @@ export function updatePropertiesPanel(app, selection) {
                         if (['cornerRadius', 'bulge'].includes(desc.key)) input.value = v.toFixed(2);
                         else if (parseFloat(input.value) !== v) input.value = String(v);
                         previewValue(v);
-                        commitPreview();
                     });
+                    bindSettledChange(input, commitPreview);
                     // Real-time preview while dragging spinner
                     input.addEventListener('input', () => {
                         if (!isCurrentControl()) return;

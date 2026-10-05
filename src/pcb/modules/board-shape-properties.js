@@ -40,6 +40,10 @@ import {
     updateShapeDrawPreview,
 } from './board-shapes.js';
 import { getBoardShapeNodeFocus, getBoardShapeSegmentFocus, getShapeDefaults } from './board-shape-state.js';
+import { bindSettledChange } from '../../shared/ui/settled-input.js';
+
+/** A field's `change` previews; its commit waits for the spinner run to settle. */
+const settle = (input, commit) => { if (input) bindSettledChange(input, commit); };
 
 // ── Properties panel ─────────────────────────────────────────────────────────
 
@@ -307,11 +311,8 @@ export function showImageProperties(app, shape, items) {
             if (pairedInput) pairedInput.value = ((id === 'pcbPropImageWidth' ? height : width) * factor).toFixed(2);
         };
         input?.addEventListener('input', previewResize);
-        input?.addEventListener('change', () => {
-            if (binding.disposed) return;
-            previewResize();
-            commitNumericPreview(input, resizePreview);
-        });
+        input?.addEventListener('change', previewResize);
+        settle(input, () => commitNumericPreview(input, resizePreview));
     }
     const rotationInput = /** @type {HTMLInputElement} */ (document.getElementById('pcbPropImageRot'));
     bindPictureRefreshHold(app, rotationInput);
@@ -339,11 +340,8 @@ export function showImageProperties(app, shape, items) {
         });
     };
     rotationInput?.addEventListener('input', previewRotation);
-    rotationInput?.addEventListener('change', () => {
-        if (binding.disposed) return;
-        previewRotation();
-        commitNumericPreview(rotationInput, rotationPreview);
-    });
+    rotationInput?.addEventListener('change', previewRotation);
+    settle(rotationInput, () => commitNumericPreview(rotationInput, rotationPreview));
     const wrapRotation = () => {
         if (binding.disposed) return;
         const value = parseFloat(rotationInput.value);
@@ -558,7 +556,6 @@ export function showBoardShapeProperties(app, shape) {
         if (binding.disposed) return;
         if (!bulgeEl) return;
         if (!Number.isFinite(bulgeEl.valueAsNumber)) { commitNumericPreview(bulgeEl, bulgePreview); return; }
-        previewBulge();
         // An externally supplied zero-bulge arc still needs a normalization transaction.
         if (!bulgePreview.active && Math.abs(editableShapeBulge(displayedBoardShape(app, shape), selectedSegment)) < BULGE_EPS) {
             bulgePreview.update(() => {});
@@ -566,7 +563,8 @@ export function showBoardShapeProperties(app, shape) {
         commitNumericPreview(bulgeEl, bulgePreview);
     };
     bulgeEl?.addEventListener('input', previewBulge);
-    bulgeEl?.addEventListener('change', commitBulge);
+    bulgeEl?.addEventListener('change', previewBulge);
+    settle(bulgeEl, commitBulge);
 
     /** Apply an edit; returns true when it turned the shapes into Tracks (the shape panel is then stale). */
     const commit = (mutate) => {
@@ -679,15 +677,12 @@ export function showBoardShapeProperties(app, shape) {
         previewDiameter();
     });
     diameterEl?.addEventListener('change', () => {
-        if (binding.disposed) return;
-        if (!Number.isFinite(diameterEl.valueAsNumber)) { commitNumericPreview(diameterEl, diameterPreview); return; }
-        if (Number.isFinite(diameterEl.valueAsNumber)) {
-            diameterEl.value = Math.max(diameterMinimum(), diameterEl.valueAsNumber).toFixed(2);
-        }
+        if (binding.disposed || !Number.isFinite(diameterEl.valueAsNumber)) return;
+        diameterEl.value = Math.max(diameterMinimum(), diameterEl.valueAsNumber).toFixed(2);
         previewDiameter();
         syncDiameter();
-        commitNumericPreview(diameterEl, diameterPreview);
     });
+    settle(diameterEl, () => commitNumericPreview(diameterEl, diameterPreview));
     const lineEl = /** @type {HTMLInputElement|null} */ (document.getElementById('pcbPropShapeLineWidth'));
     const lineRowEl = /** @type {HTMLDivElement|null} */ (document.getElementById('pcbPropShapeLineWidthRow'));
     const cornerRadiusEl = /** @type {HTMLInputElement|null} */ (document.getElementById('pcbPropShapeCornerRadius'));
@@ -812,26 +807,17 @@ export function showBoardShapeProperties(app, shape) {
         previewLineWidth();
     });
     lineEl?.addEventListener('change', () => {
-        if (binding.disposed) return;
-        if (!Number.isFinite(lineEl.valueAsNumber)) { commitNumericPreview(lineEl, lineWidthPreview); return; }
-        if (Number.isFinite(lineEl.valueAsNumber)) lineEl.value = lineEl.valueAsNumber.toFixed(2);
+        if (binding.disposed || !Number.isFinite(lineEl.valueAsNumber)) return;
+        lineEl.value = lineEl.valueAsNumber.toFixed(2);
         previewLineWidth();
-        commitNumericPreview(lineEl, lineWidthPreview);
     });
+    settle(lineEl, () => commitNumericPreview(lineEl, lineWidthPreview));
     cornerRadiusEl?.addEventListener('input', previewCornerRadius);
-    cornerRadiusEl?.addEventListener('change', () => {
-        if (binding.disposed) return;
-        if (!Number.isFinite(cornerRadiusEl.valueAsNumber)) { commitNumericPreview(cornerRadiusEl, cornerRadiusPreview); return; }
-        previewCornerRadius();
-        commitNumericPreview(cornerRadiusEl, cornerRadiusPreview);
-    });
+    cornerRadiusEl?.addEventListener('change', previewCornerRadius);
+    settle(cornerRadiusEl, () => commitNumericPreview(cornerRadiusEl, cornerRadiusPreview));
     nodeCornerRadiusEl?.addEventListener('input', previewNodeCornerRadius);
-    nodeCornerRadiusEl?.addEventListener('change', () => {
-        if (binding.disposed) return;
-        if (!Number.isFinite(nodeCornerRadiusEl.valueAsNumber)) { commitNumericPreview(nodeCornerRadiusEl, nodeCornerRadiusPreview); return; }
-        previewNodeCornerRadius();
-        commitNumericPreview(nodeCornerRadiusEl, nodeCornerRadiusPreview);
-    });
+    nodeCornerRadiusEl?.addEventListener('change', previewNodeCornerRadius);
+    settle(nodeCornerRadiusEl, () => commitNumericPreview(nodeCornerRadiusEl, nodeCornerRadiusPreview));
     filledEl?.addEventListener('change', () => {
         if (binding.disposed) return;
         const v = !!filledEl.checked;

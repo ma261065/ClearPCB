@@ -12,6 +12,7 @@ import { loadPcb } from '../src/pcb/modules/project-state.js';
 import { PCB_LAYERS } from '../src/pcb/modules/layers.js';
 import { getPropertyEditor } from '../src/pcb/modules/property-editors.js';
 import { areDragOverlaysDeferred, isBoardViewRefreshSuspended, setBoardViewRefreshSuspended, setDragOverlaysDeferred } from '../src/pcb/modules/refresh-state.js';
+import { flushSettledChanges } from '../src/shared/ui/settled-input.js';
 
 let allocations = 0;
 class Element {
@@ -201,6 +202,7 @@ console.log(`PASS ${cases} generic dimension isolation cases: numeric/resize, se
     const { app, model, inputs, bind, draws } = fixture(false);
     const binding = bind(), before = { ...model.board }, input = inputs.get(fields.width);
     input.emit('change');
+    flushSettledChanges();
     assert.equal(app.history.undoStack.length, 0, 'Rounded untouched display does not author dimensions');
     const work = draws();
     input.value = String(before.width + 3);
@@ -216,20 +218,25 @@ console.log(`PASS ${cases} generic dimension isolation cases: numeric/resize, se
     input.value = String(before.width);
     input.emit('change');
     assert.equal(app.history.undoStack.length, 0, 'Returning to the original dimensions creates no command');
+    binding.cancel();
+    flushSettledChanges();
     assert.ok(draws() > work);
     input.value = '55.123456789'; input.emit('input');
     input.emit('keydown', { key: 'Escape' });
     input.emit('change');
+    flushSettledChanges();
     assert.deepEqual(model.board, before);
     assert.equal(app.history.undoStack.length, 0, 'Escape suppresses the following native change');
     input.value = '56'; input.emit('input');
     input.value = ''; input.emit('change');
+    flushSettledChanges();
     assert.equal(input.value, String(before.width));
     assert.equal(binding.active, false, 'Invalid completion cancels an earlier preview');
     binding.cancel();
     input.value = '57'; input.emit('input');
     app.setPropertiesTitle('Other');
     input.value = '58'; input.emit('change');
+    flushSettledChanges();
     assert.equal(getBoardDimensionPreview(app), undefined);
     assert.deepEqual(model.board, before, 'Disposed callbacks cannot reauthor the model');
 }
@@ -274,7 +281,7 @@ for (const value of ['', '-', 'Infinity', '56']) for (const handoff of ['change'
     app.history.redoStack.push(redo);
     input.value = '56'; input.emit('input');
     input.value = value;
-    if (handoff === 'change') input.emit('change');
+    if (handoff === 'change') { input.emit('change'); flushSettledChanges(); }
     else if (handoff === 'commit') binding.commit();
     else {
         const start = boardOutlineHandles(app).find(handle => handle.id === 'width');
@@ -293,6 +300,7 @@ for (const value of ['', '-', 'Infinity', '56']) for (const handoff of ['change'
         assert.deepEqual(app.history.redoStack, [redo]);
         assert.equal(input.value, String(model.board.width));
         input.emit('change');
+        flushSettledChanges();
         assert.equal(app.history.undoStack.length, 0, 'Following native change cannot revive the cancelled preview');
     }
 }

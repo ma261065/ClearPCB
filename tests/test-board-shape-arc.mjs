@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { setBoardShapeSegmentFocus, setShapeDefaults } from '../src/pcb/modules/board-shape-state.js';
+import { flushSettledChanges } from '../src/shared/ui/settled-input.js';
 
 const pcbShapeGeometry = await import('../src/shared/pcb/board-shape-geometry.js');
 const {
@@ -545,6 +546,10 @@ function propertyInput(value) {
         fire(type, event = {}) { for (const listener of listeners.get(type) || []) listener(event); },
     };
 }
+function flushChange(input) {
+    input.fire('change');
+    flushSettledChanges();
+}
 const originalGetElementById = document.getElementById;
 for (const kind of ['rect', 'polygon']) {
 for (const reversed of [false, true]) {
@@ -585,7 +590,7 @@ for (const reversed of [false, true]) {
             && approx(shape.points[0].x + shape.cornerRadius, 2)
             && approx(shape.points[0].y + shape.cornerRadius, 2));
     }
-    widthInput.fire('change');
+    flushChange(widthInput);
 }
 for (const kind of ['rect', 'polygon']) {
     for (const reversed of [false, true]) {
@@ -622,7 +627,7 @@ for (const kind of ['rect', 'polygon']) {
                         && approx(anchor.y, (shape.points[index].y + next.y) / 2);
                 }));
         }
-        widthInput.fire('change');
+        flushChange(widthInput);
         check(`${kind} thickness preview commits as one undo step`, commands.length === 1);
         commands[0].undo();
         check(`${kind} thickness undo restores original geometry`,
@@ -632,7 +637,7 @@ for (const kind of ['rect', 'polygon']) {
             JSON.stringify(shape.points) === JSON.stringify(initial.points) && shape.lineWidth === 1);
         widthInput.value = '100';
         widthInput.fire('input');
-        widthInput.fire('change');
+        flushChange(widthInput);
         check(`${kind} excessive thickness fills across the centreline`, shape.lineWidth === 100
             && resolveBoardShapeGeometry(shape).physicalContours.length === 1
             && JSON.stringify(shape.points) === JSON.stringify(initial.points)
@@ -686,7 +691,7 @@ for (const layer of ['hole', 'top-copper', 'bottom-copper']) {
             && displayedCircle().x === circlePropertyShape.x && displayedCircle().y === circlePropertyShape.y
             && displayedCircle().lineWidth === 0.4 && displayedCircle().filled === filled
             && editableCircle.radius === 3 && commands.length === 0 && fillRefreshes === 0);
-        diameterInput.fire('change');
+        flushChange(diameterInput);
         check(`${layer} filled=${filled} committed diameter removes floating-point tails`,
             diameterInput.value === '30.00');
         check(`${layer} filled=${filled} diameter edits create one undo command`, commands.length === 1);
@@ -703,7 +708,7 @@ for (const layer of ['hole', 'top-copper', 'bottom-copper']) {
         diameterInput.fire('pointerdown');
         check(`${layer} filled=${filled} backspace can leave diameter empty`, diameterInput.value === '');
         diameterInput.fire('pointerup');
-        diameterInput.fire('change');
+        flushChange(diameterInput);
         check(`${layer} filled=${filled} empty diameter is ignored`,
             approx(editableCircle.radius, 15) && commands.length === 1);
         if (layer !== 'hole') {
@@ -716,7 +721,7 @@ for (const layer of ['hole', 'top-copper', 'bottom-copper']) {
             check(`${layer} filled=${filled} narrower stroke moves inward from fixed outer edge`,
                 approx(diameterInput.valueAsNumber, 30) && approx(editableCircle.radius, 15)
                 && approx(circleFilledRadius(editableCircle) * 2, 30));
-            widthInput.fire('change');
+            flushChange(widthInput);
             commands.at(-1).undo();
             check(`${layer} filled=${filled} thickness undo restores width and radius`,
                 approx(editableCircle.lineWidth, 0.4) && approx(editableCircle.radius, 15));
@@ -725,7 +730,7 @@ for (const layer of ['hole', 'top-copper', 'bottom-copper']) {
                 approx(editableCircle.lineWidth, 0.1) && approx(circleFilledRadius(editableCircle) * 2, 30));
             widthInput.value = '40';
             widthInput.fire('input');
-            widthInput.fire('change');
+            flushChange(widthInput);
             check(`${layer} filled=${filled} oversized thickness cannot enlarge circle`,
                 approx(circleFilledRadius(editableCircle) * 2, 30)
                 && approx(editableCircle.radius, 15) && approx(widthInput.valueAsNumber, 15));
@@ -743,7 +748,7 @@ for (const layer of ['hole', 'top-copper', 'bottom-copper']) {
             approx(displayedCircle().lineWidth, 4.75));
         diameterInput.value = '1';
         diameterInput.fire('input');
-        diameterInput.fire('change');
+        flushChange(diameterInput);
         check(`${layer} filled=${filled} 1 mm diameter stays 1 mm on commit`,
             diameterInput.value === '1.00' && approx(circleFilledRadius(editableCircle) * 2, 1));
         commands.at(-1).undo();
@@ -754,7 +759,7 @@ for (const layer of ['hole', 'top-copper', 'bottom-copper']) {
             approx(circleFilledRadius(editableCircle) * 2, 1));
         diameterInput.value = '-1';
         diameterInput.fire('input');
-        diameterInput.fire('change');
+        flushChange(diameterInput);
         check(`${layer} filled=${filled} diameter clamps to minimum radius`,
             approx(editableCircle.radius, 0.075)
             && approx(diameterInput.valueAsNumber, editableCircle.radius * 2));
@@ -786,7 +791,7 @@ for (const layer of ['hole', 'top-copper', 'bottom-copper']) {
         check(`${layer} filled=${filled} pressed spinner keeps two decimal places`,
             diameterInput.value === '7.50');
         diameterInput.fire('pointerup');
-        diameterInput.fire('change');
+        flushChange(diameterInput);
         diameterInput.fire('keydown', { key: 'ArrowDown' });
         diameterInput.value = '7.4';
         diameterInput.fire('input');
@@ -804,7 +809,7 @@ for (const layer of ['hole', 'top-copper', 'bottom-copper']) {
             widthInput.fire('input');
             check(`${layer} filled=${filled} pressed thickness spinner keeps two decimals`, widthInput.value === '0.50');
             widthInput.fire('pointerup');
-            widthInput.fire('change');
+            flushChange(widthInput);
             widthInput.fire('keydown', { key: 'ArrowDown' });
             widthInput.value = '0.4';
             widthInput.fire('input');
@@ -818,7 +823,7 @@ for (const layer of ['hole', 'top-copper', 'bottom-copper']) {
             widthInput.value = '0.3';
             widthInput.fire('input');
             check(`${layer} filled=${filled} typed thickness is not reformatted`, widthInput.value === '0.3');
-            widthInput.fire('change');
+            flushChange(widthInput);
             check(`${layer} filled=${filled} committed thickness has two decimals`, widthInput.value === '0.30');
         }
     }

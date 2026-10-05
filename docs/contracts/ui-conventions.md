@@ -78,8 +78,11 @@ Value, Label).
 
 Pop-up menus (context menus and the lock icon's unlock menu) come from
 `shared/ui/context-menu.js` in both editors: opened at the pointer, one per id,
-closed by choosing an item, an outside press or Escape. Number fields whose commit
-is expensive (pour geometry, the PCB multi-selection panel) use
-`shared/ui/settled-input.js`, so a run of spinner clicks commits once: after a
-quiet period, or at once on Enter or blur. Fields with a live preview (PCB pad,
-via and track panels, schematic numbers) commit on `change` as before.
+closed by choosing an item, an outside press or Escape. Every Properties number
+field, in both editors, commits through `shared/ui/settled-input.js`, so a run of
+spinner clicks is one undo step and one pour/DRC refresh: the commit comes after a
+quiet period, or at once on Enter or when the field loses focus. Fields with a live
+preview keep showing each step while the run settles; Escape discards it. Undo/redo,
+save/open/new, PCB fabrication export and switching editors call
+`flushSettledChanges()` first, so a run still settling is committed rather than
+lost or refused.

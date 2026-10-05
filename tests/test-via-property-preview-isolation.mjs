@@ -12,6 +12,7 @@ import { prepareFabricationSnapshot } from '../src/pcb/modules/fabrication-snaps
 import { loadPcb } from '../src/pcb/modules/project-state.js';
 import { PCB_LAYERS } from '../src/pcb/modules/layers.js';
 import { getPropertyEditor } from '../src/pcb/modules/property-editors.js';
+import { flushSettledChanges } from '../src/shared/ui/settled-input.js';
 
 let allocations = 0, frameId = 0, inputs = new Map();
 const frames = new Map();
@@ -187,6 +188,7 @@ for (const count of [1, 4]) for (const [name, key, value] of [
                 execute(command);
             };
             input.emit('change');
+            flushSettledChanges();
             assert.equal(app.history.undoStack.length, 1);
             assert.equal(f.fills(), 1, 'Batch modification performs one derived refresh');
             assert.equal(f.clearances(), 1);
@@ -199,24 +201,28 @@ for (const count of [1, 4]) for (const [name, key, value] of [
             loadPcb(app, null);
             input.emit('input', value + 1);
             input.emit('change');
+            flushSettledChanges();
         } else {
             if (finish === 'no-op') {
                 input.emit('input', baseline[0][key]);
                 input.emit('change');
+                flushSettledChanges();
             } else if (finish === 'panel') {
                 app.clearProperties();
                 input.emit('input', value + 1);
                 input.emit('change');
+                flushSettledChanges();
             } else if (finish === 'deactivate') {
                 app.deactivate();
                 input.emit('input', value + 1);
                 input.emit('change');
+                flushSettledChanges();
             } else if (finish === 'failure') {
                 app.history.execute = () => { throw new Error('Rejected via property command'); };
-                assert.throws(() => input.emit('change'), /Rejected via property command/);
+                assert.throws(() => { input.emit('change'); flushSettledChanges(); }, /Rejected via property command/);
             } else if (finish === 'missing') {
                 model.vias.splice(count - 1, 1);
-                assert.throws(() => input.emit('change'), /Cannot edit a missing via/);
+                assert.throws(() => { input.emit('change'); flushSettledChanges(); }, /Cannot edit a missing via/);
                 assert.deepEqual(vias.map(via => via.captureState()), baseline);
             } else if (finish === 'lock' || finish === 'hide') {
                 const layer = PCB_LAYERS.find(layer => layer.id === 'vias');
@@ -271,6 +277,7 @@ for (const count of [1, 4]) for (const [name, key, value] of [
     assert.deepEqual(model.captureGeometry(), before);
     assert.equal(getViaPropertyPreview(app).copies.size, 4);
     field.emit('change');
+    flushSettledChanges();
     app.history.undo();
     assert.deepEqual(model.captureGeometry(), before);
     assert.equal(app.vias[0], vias[0]);
@@ -294,6 +301,7 @@ for (const count of [1, 4]) for (const next of ['net', 'drill', 'move']) {
         rebuilt.updateMove({ x: vias[0].x + 3, y: vias[0].y + 2 });
         rebuilt.endMove(true);
     }
+    flushSettledChanges();
     assert.equal(getViaPropertyPreview(app), undefined);
     assert.equal(app.history.undoStack.length, 2);
     app.history.undo();
@@ -310,6 +318,7 @@ for (const commit of [false, true]) {
     assert.ok(frames.size);
     if (commit) input('Dia').emit('change');
     else getPropertyEditor(app, 'via').cancel();
+    if (commit) flushSettledChanges();
     const rendered = allocations;
     flushFrames();
     assert.equal(allocations, rendered);
@@ -327,18 +336,23 @@ for (const commit of [false, true]) {
     assert.equal(input('Dia').value, '');
     assert.equal(input('Drill').value, '');
     input('Dia').emit('change');
+    flushSettledChanges();
     input('Drill').emit('change');
+    flushSettledChanges();
     assert.equal(app.history.canUndo(), false, 'Untouched mixed fields remain unchanged');
     input('Dia').emit('input', vias[0].diameter);
     flushFrames();
     input('Dia').emit('change');
+    flushSettledChanges();
     assert.equal(artwork().length, count, 'Partly unchanged selections regain every canonical SVG');
     app.history.undo();
     assert.deepEqual(model.captureGeometry(), before);
     input('Dia').emit('change', 0.1);
+    flushSettledChanges();
     assert.ok(vias.every(via => via.diameter === 0.8), 'Diameter clamps to the largest selected drill');
     assert.equal(artwork().length, count, 'Unchanged selected targets retain artwork on batch commit');
     input('Drill').emit('change', 10);
+    flushSettledChanges();
     assert.ok(vias.every(via => via.drill === 0.8), 'Drill clamps to the smallest selected diameter');
     app.history.undo();
     app.history.undo();
@@ -424,6 +438,7 @@ for (const count of [1, 4]) for (const [field, value] of [['Dia', 2], ['Drill', 
             } else if (finish === 'cancel') input.emit('keydown', input.value, { key: 'Escape' });
             else if (finish === 'net') f.input('Net').emit('change', 'SIGNAL');
             else input.emit(finish);
+            if (finish === 'change') flushSettledChanges();
             await Promise.resolve();
             flushFrames();
             assert.equal(getViaPropertyPreview(app), undefined, `${field}: ${finish} ends invalid preview`);
@@ -454,6 +469,7 @@ for (const invalidFirst of [false, true]) for (const invalidSecond of [false, tr
         assert.ok(app.vias.slice(0, 4).every(via => via.drill === expected));
     }
     drill.emit('change');
+    flushSettledChanges();
     assert.equal(app.history.undoStack.length, Number(!invalidFirst) + Number(!invalidSecond));
     while (app.history.canUndo()) app.history.undo();
     assert.deepEqual(model.captureGeometry(), before);

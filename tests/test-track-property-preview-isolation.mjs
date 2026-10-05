@@ -15,6 +15,7 @@ import { loadPcb } from '../src/pcb/modules/project-state.js';
 import { PCB_LAYERS } from '../src/pcb/modules/layers.js';
 import { formatNumberInputValue } from '../src/core/number-inputs.js';
 import { getPropertyEditor } from '../src/pcb/modules/property-editors.js';
+import { flushSettledChanges } from '../src/shared/ui/settled-input.js';
 
 let allocations = 0, inputs = new Map();
 globalThis.requestAnimationFrame = () => 1;
@@ -211,6 +212,7 @@ for (const [scope, field, value] of [
             execute(command);
         };
         input.emit('change');
+        flushSettledChanges();
         assert.equal(app.history.undoStack.length, 1);
         const after = model.captureGeometry();
         assert.notDeepEqual(after, original);
@@ -222,24 +224,28 @@ for (const [scope, field, value] of [
         loadPcb(app, null);
         input.emit('input', value + 1);
         input.emit('change');
+        flushSettledChanges();
     } else {
         if (finish === 'no-op') {
             input.emit('input', initialValue);
             input.emit('change');
+            flushSettledChanges();
         } else if (finish === 'panel') {
             app.clearProperties();
             input.emit('input', value + 1);
             input.emit('change');
+            flushSettledChanges();
         } else if (finish === 'deactivate') {
             app.deactivate();
             input.emit('input', value + 1);
             input.emit('change');
+            flushSettledChanges();
         } else if (finish === 'failure') {
             app.history.execute = () => { throw new Error('Rejected track property command'); };
-            assert.throws(() => input.emit('change'), /Rejected track property command/);
+            assert.throws(() => { input.emit('change'); flushSettledChanges(); }, /Rejected track property command/);
         } else if (finish === 'missing') {
             model.tracks.shift();
-            assert.throws(() => input.emit('change'), /Cannot edit a missing track/);
+            assert.throws(() => { input.emit('change'); flushSettledChanges(); }, /Cannot edit a missing track/);
         } else if (finish === 'lock' || finish === 'hide') {
             const layer = PCB_LAYERS.find(layer => layer.id === 'top-copper');
             try {
@@ -285,6 +291,7 @@ for (const [scope, field, value] of [
     }
     assert.deepEqual(model.captureGeometry(), original);
     input.emit('change');
+    flushSettledChanges();
     app.history.undo();
     assert.deepEqual(model.captureGeometry(), original);
     assert.equal(app.tracks[0], track);
@@ -303,6 +310,7 @@ for (const next of ['width', 'net', 'move', 'midpoint', 'split', 'bulge', 'delet
         assert.equal(app.tracks[0].width, 3.456789123);
         assert.equal(Number(f.input('Width').value), 3.456789123);
         f.input('Width').emit('change');
+        flushSettledChanges();
         assert.equal(app.history.undoStack.length, 2);
     } else if (next === 'net') {
         f.input('Net').emit('change', 'POWER');
@@ -358,6 +366,7 @@ for (const [field, value] of [['Layer', 'bottom-copper'], ['Width', 0.75]]) {
     app._pcbSelectionInteraction = { mode: 'floating-anchor' };
     assert.notEqual(app.tracks[0], track, 'the pickup shows a preview copy');
     f.input(field).emit('change', value);
+    if (field === 'Width') flushSettledChanges();
     assert.equal(app._vertexDrag, null, `${field}: the pickup is dropped`);
     assert.equal(app._pcbSelectionInteraction, null);
     if (field === 'Layer') {
@@ -380,7 +389,7 @@ for (const scope of ['segment', 'node']) {
     if (scope === 'node') track.nodes.delete(nodeId);
     else track.edges.delete(edgeId);
     const before = track.captureState();
-    assert.throws(() => input.emit('change'), /missing track, segment or node/);
+    assert.throws(() => { input.emit('change'); flushSettledChanges(); }, /missing track, segment or node/);
     assert.deepEqual(track.captureState(), before);
     assert.equal(getTrackPropertyPreview(app), undefined);
     assert.equal(app.history.canUndo(), false);
@@ -410,12 +419,14 @@ for (const scope of ['whole', 'segment']) {
     track.setEdgeAttr(edgeId, 'width', 0.876543219);
     const before = track.captureState();
     input.emit('change', 1.765432198);
+    flushSettledChanges();
     assert.equal(track.getEdgeWidth(edgeId), 1.765432198, 'Change-only events preview before committing');
     app.history.undo();
     assert.deepEqual(track.captureState(), before, 'Baseline is captured at first edit, not panel opening');
     input.emit('input', 4);
     input.emit('input', 0.876543219);
     input.emit('change');
+    flushSettledChanges();
     assert.equal(app.history.canRedo(), true);
     cases++;
 }
@@ -462,6 +473,7 @@ for (const [scope, field, value] of [
         else if (finish === 'layer') inputs.get(scope === 'whole' ? 'pcbPropTrackLayer' : 'pcbPropSegLayer')
             .emit('change', 'bottom-copper');
         else input.emit(finish);
+        if (finish === 'change') flushSettledChanges();
         await Promise.resolve();
         assert.equal(getTrackPropertyPreview(app), undefined, `${scope} ${field}: ${finish} ends invalid preview`);
         assert.equal(app.isSectionEditing(), false);
@@ -488,6 +500,7 @@ for (const invalidFirst of [false, true]) for (const invalidSecond of [false, tr
     assert.equal(!!getTrackPropertyPreview(app), !invalidSecond, 'Old blur does not finish the new field');
     if (!invalidSecond) assert.equal(width.value, '3', 'Canceling the previous field preserves incoming text');
     width.emit('change');
+    flushSettledChanges();
     assert.equal(app.history.undoStack.length, Number(!invalidFirst) + Number(!invalidSecond));
     while (app.history.canUndo()) app.history.undo();
     assert.deepEqual(model.captureGeometry(), before);

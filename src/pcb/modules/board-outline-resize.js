@@ -6,6 +6,7 @@ import { getBoardOutline, rectangleBoardOutline, boardDimensions } from '../../s
 import { removeBoardShapeElement } from './board-shapes.js';
 import { getPropertyEditor, releasePropertyEditor, setPropertyEditor } from './property-editors.js';
 import { areDragOverlaysDeferred, isBoardViewRefreshSuspended, setBoardViewRefreshSuspended, setDragOverlaysDeferred, refreshBoardView } from './refresh-state.js';
+import { bindSettledChange } from '../../shared/ui/settled-input.js';
 
 const dimensionPreviews = new WeakMap();
 
@@ -172,7 +173,8 @@ export function bindBoardDimensionProperties(app, items) {
     };
     for (const entry of inputs) if (entry.input) {
         entry.input.addEventListener('input', () => update(entry));
-        entry.input.addEventListener('change', () => { update(entry); binding.commit(); });
+        entry.input.addEventListener('change', () => update(entry));
+        bindSettledChange(entry.input, () => binding.commit());
         entry.input.addEventListener('keydown', event => {
             if (disposed || event.key !== 'Escape') return;
             binding.cancel();

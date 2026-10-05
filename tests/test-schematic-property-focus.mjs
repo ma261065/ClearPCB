@@ -6,6 +6,7 @@ import { Circle } from '../src/shapes/circle.js';
 import { Text } from '../src/shapes/text.js';
 import { Net } from '../src/shapes/net.js';
 import { getShapeSegmentFocus, setShapeNodeFocus, setShapeSegmentFocus } from '../src/schematic/modules/shape-focus.js';
+import { flushSettledChanges } from '../src/shared/ui/settled-input.js';
 
 class Element {
     constructor(tag) {
@@ -117,6 +118,7 @@ for (const property of ['lineWidth', 'cornerRadius', 'diameter', 'fontSize', 'ro
                 assert.equal(keydown('ArrowUp').defaultPrevented, false, 'The native number field owns every arrow key');
                 assert.equal(keydown('ArrowDown').defaultPrevented, false, 'Down arrows also stay in the number field');
                 input.value = String(value); input.fire('input'); input.fire('change');
+                flushSettledChanges();
                 assert.ok(document.activeElement === input, `${property} (${count} shapes): committing a step keeps focus`);
                 assert.equal(document.getElementById(input.id), input, `${property}: preserve the field DOM node`);
                 assert.equal(rebuilds(), initialRebuilds, 'Numeric-only changes do not rebuild Properties');
@@ -126,6 +128,7 @@ for (const property of ['lineWidth', 'cornerRadius', 'diameter', 'fontSize', 'ro
             const after = shapes.map(shape => shape.captureState());
             assert.equal(app.history.undoStack.length, 3);
             input.fire('change');
+            flushSettledChanges();
             assert.equal(app.history.undoStack.length, 3);
             document.activeElement = document.body;
             for (let i = 0; i < 3; i++) app.history.undo();
@@ -164,12 +167,14 @@ for (const property of ['lineWidth', 'cornerRadius', 'diameter', 'fontSize', 'ro
         input.focus();
         input.value = '0.7'; input.fire('input');
         input.value = ''; input.fire('change');
+        flushSettledChanges();
         assert.deepEqual(shapes.map(shape => shape.lineWidth), [0.2, 0.5]);
         assert.equal(input.value, '');
         assert.ok(input.placeholder, 'Invalid edits restore the mixed value');
         assert.ok(document.activeElement === input);
         assert.equal(app.history.undoStack.length, 0);
         input.value = '0.8'; input.fire('input'); input.fire('change');
+        flushSettledChanges();
         assert.equal(input.placeholder, '', 'Committing a common value clears the mixed placeholder');
         assert.equal(Number(input.value), 0.8);
         input.value = '0.9'; input.fire('input');
@@ -188,6 +193,7 @@ for (const property of ['lineWidth', 'cornerRadius', 'diameter', 'fontSize', 'ro
         const width = document.getElementById('prop_lineWidth');
         diameter.focus();
         diameter.value = '0.4'; diameter.fire('input'); diameter.fire('change');
+        flushSettledChanges();
         assert.equal(circle.radius, 0.2);
         assert.equal(Number(width.value), 0.2, 'Shrinking a circle synchronizes the constrained width');
         assert.ok(document.activeElement === diameter);
@@ -197,14 +203,17 @@ for (const property of ['lineWidth', 'cornerRadius', 'diameter', 'fontSize', 'ro
         await Promise.resolve();
         assert.ok(document.activeElement === width, 'Deferred blur of a committed field leaves the new field alone');
         width.fire('change');
+        flushSettledChanges();
         assert.equal(circle.lineWidth, 0.1);
         assert.equal(app.history.undoStack.length, 2);
         width.value = '4'; width.fire('input'); width.fire('change');
+        flushSettledChanges();
         assert.equal(Number(width.value), 0.2, 'Clamping updates the focused field in place');
         assert.ok(document.activeElement === width);
         diameter.focus();
         diameter.value = '0.15'; diameter.fire('input');
         diameter.value = ''; diameter.fire('change');
+        flushSettledChanges();
         assert.equal(Number(diameter.value), 0.4);
         assert.equal(Number(width.value), 0.2, 'Cancelling restores paired controls as well as geometry');
     } finally { dispose(); }
@@ -225,6 +234,7 @@ for (const refinement of ['whole', 'node', 'segment']) {
             width.focus();
             for (const value of ['0.3', '0.4']) {
                 width.value = value; width.fire('input'); width.fire('change');
+                flushSettledChanges();
                 assert.ok(document.activeElement === width, 'Refined segment width keeps focus');
                 assert.equal(rectangle.getEdgeAttr('e0', 'width'), Number(value));
                 assert.equal(rectangle.lineWidth, before.lineWidth, 'A segment edit does not change the whole shape width');
@@ -233,6 +243,7 @@ for (const refinement of ['whole', 'node', 'segment']) {
         input.focus();
         for (const value of refinement === 'segment' ? ['0.5', '0.6'] : ['1', '2', '0']) {
             input.value = value; input.fire('input'); input.fire('change');
+            flushSettledChanges();
             assert.ok(document.activeElement === input, `${refinement}: repeated edits retain focus`);
             if (refinement !== 'segment') {
                 assert.equal(document.getElementById('propDecomposeCorners').style.display, value === '0' ? 'none' : '',
@@ -241,6 +252,7 @@ for (const refinement of ['whole', 'node', 'segment']) {
         }
         if (refinement === 'segment') {
             input.value = '0'; input.fire('input'); input.fire('change');
+            flushSettledChanges();
             assert.equal(document.getElementById('prop_bulge'), null, 'Straightening removes the obsolete Bulge field');
             assert.ok(document.activeElement !== input, 'Schema changes still rebuild Properties');
         }
@@ -260,6 +272,7 @@ for (const completion of ['change', 'blur']) for (const withinPanel of [false, t
         if (withinPanel) next.focus();
         else document.activeElement = document.body;
         previous.fire(completion);
+        if (completion === 'change') flushSettledChanges();
         await Promise.resolve();
         assert.equal(app.history.undoStack.length, 1);
         assert.equal(shape.lineWidth, 0.8);
@@ -268,6 +281,7 @@ for (const completion of ['change', 'blur']) for (const withinPanel of [false, t
             assert.equal(document.getElementById(next.id), next);
             assert.equal(keydown('ArrowUp').defaultPrevented, false, 'The next field, not canvas nudging, owns the arrow');
             next.value = '1.5'; next.fire('input'); next.fire('change');
+            flushSettledChanges();
             assert.equal(app.history.undoStack.length, 2);
             app.history.undo();
             assert.equal(shape.lineWidth, 0.8);
@@ -297,6 +311,7 @@ for (const nextProperty of ['cornerRadius', 'lineWidth']) {
         assert.equal(document.getElementById(next.id), next);
         assert.equal(document.activeElement, next);
         next.fire('change');
+        flushSettledChanges();
         assert.equal(app.history.undoStack.length, 2);
         const after = shape.captureState();
         app.history.undo();
@@ -326,6 +341,7 @@ for (const invalid of ['', '-']) {
         assert.equal(Number(radius.value), 1.5);
         assert.ok(document.activeElement === radius);
         radius.fire('change');
+        flushSettledChanges();
         assert.equal(app.history.undoStack.length, 1);
         const after = shape.captureState();
         app.history.undo();
@@ -506,6 +522,7 @@ for (const replacement of ['escape', 'commit', 'refresh', 'selection']) {
         assert.deepEqual(app.shapes.map(item => item.captureState()), pending);
         assert.equal(document.getElementById('prop_lineWidth'), current);
         current.fire('change');
+        flushSettledChanges();
         assert.equal(app.history.undoStack.length, depth + 1);
         app.history.undo();
         assert.deepEqual(app.shapes.map(item => item.captureState()), baseline);
@@ -522,6 +539,7 @@ for (const replacement of ['escape', 'commit', 'refresh', 'selection']) {
         const retired = document.getElementById('prop_bulge');
         retired.focus();
         retired.value = '0'; retired.fire('input'); retired.fire('change');
+        flushSettledChanges();
         const after = shape.captureState();
         assert.equal(document.getElementById('prop_bulge'), null);
         retired.value = '0.5'; retired.fire('input'); retired.fire('change'); retired.fire('blur');
@@ -586,6 +604,7 @@ for (const closed of [false, true]) for (const boundary of ['uniform', 'width', 
             assert.equal(shape.getEdgeAttr('e1', 'bulge'), 0.4);
             input.value = '0'; input.fire('input');
             input.fire(completion);
+            if (completion === 'change') flushSettledChanges();
             await Promise.resolve();
             const expected = points.filter((_, index) => boundary === 'selected-width'
                 || index !== 2 && (index !== 1 || boundary !== 'uniform'));

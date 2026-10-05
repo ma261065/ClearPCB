@@ -6,6 +6,7 @@ import { PcbDocument } from './PcbDocument.js';
 import { extractComponents } from './netlist.js';
 import { createPcbFootprint } from './pcb-footprint.js';
 import { disconnectIncompatiblePadNodes, repositionPadConnectedNodes } from './pcb-placement-geometry.js';
+import { flushSettledChanges } from '../shared/ui/settled-input.js';
 
 /** @typedef {{id: string, reference: string, locked: boolean, footprintShapes: string[]}} ComponentInfo */
 
@@ -305,17 +306,19 @@ export class ProjectDocument {
     // Both editors' File menus call these so neither depends on the other.
     // The concrete implementation is injected by the UI-host view via
     // registerView({ lifecycle }), keeping `core` free of view imports.
+    // Each first commits a number field still settling, so it is saved or
+    // counted as unsaved rather than lost.
 
     /** Create a new blank document (prompts if unsaved). */
-    async newDocument() { return this._lifecycle.new?.(); }
+    async newDocument() { flushSettledChanges(); return this._lifecycle.new?.(); }
     /** Open a document from disk (prompts if unsaved). */
-    async open() { return this._lifecycle.open?.(); }
+    async open() { flushSettledChanges(); return this._lifecycle.open?.(); }
     /** Re-open a file from the recents list (prompts if unsaved). */
-    async openRecent(name) { return this._lifecycle.openRecent?.(name); }
+    async openRecent(name) { flushSettledChanges(); return this._lifecycle.openRecent?.(name); }
     /** Save the document, prompting for a location if needed. */
-    async save() { return this._lifecycle.save?.(); }
+    async save() { flushSettledChanges(); return this._lifecycle.save?.(); }
     /** Save the document to a new location. */
-    async saveAs() { return this._lifecycle.saveAs?.(); }
+    async saveAs() { flushSettledChanges(); return this._lifecycle.saveAs?.(); }
     /** Import an EasyEDA schematic into a fresh document. */
-    async importEasyEDA() { return this._lifecycle.importEasyEDA?.(); }
+    async importEasyEDA() { flushSettledChanges(); return this._lifecycle.importEasyEDA?.(); }
 }

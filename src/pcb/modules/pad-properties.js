@@ -13,6 +13,7 @@ import { setPropertyEditor } from './property-editors.js';
 import { getPcbSelection } from './selection-registry.js';
 import { CompoundCommand } from './track-commands.js';
 import { isEditorActive } from './pcb-editor-api.js';
+import { bindSettledChange } from '../../shared/ui/settled-input.js';
 
 export function showPadEditor(app, pad, tool) {
     const items = app.propertiesItems();
@@ -202,10 +203,8 @@ export function showPadEditor(app, pad, tool) {
             renderLivePads();
         };
         input.addEventListener('input', onInput);
-        input.addEventListener('change', () => {
-            onInput();
-            binding.commit();
-        });
+        input.addEventListener('change', onInput);
+        bindSettledChange(input, () => binding.commit());
         input.addEventListener('keydown', event => {
             if (disposed || event.key !== 'Escape') return;
             binding.cancel();

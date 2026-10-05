@@ -12,6 +12,7 @@ import { loadPcb } from '../src/pcb/modules/project-state.js';
 import { PCB_LAYERS } from '../src/pcb/modules/layers.js';
 import { cancelPictureCopperRefresh } from '../src/pcb/modules/picture-refresh.js';
 import { getPropertyEditor } from '../src/pcb/modules/property-editors.js';
+import { flushSettledChanges } from '../src/shared/ui/settled-input.js';
 
 let allocations = 0, frameId = 0, timerId = 0, inputs = new Map();
 const frames = new Map(), timers = new Map();
@@ -162,6 +163,7 @@ for (const count of [1, 4]) for (const layers of ['top-copper', 'bottom-copper',
                     execute(command);
                 };
                 input.emit('change');
+                flushSettledChanges();
                 assert.equal(app.history.undoStack.length, 1);
                 const after = model.captureGeometry();
                 assert.notDeepEqual(after, original);
@@ -173,24 +175,28 @@ for (const count of [1, 4]) for (const layers of ['top-copper', 'bottom-copper',
                 loadPcb(app, null);
                 input.emit('input', value + 1);
                 input.emit('change');
+                flushSettledChanges();
             } else {
                 if (finish === 'no-op') {
                     input.emit('input', baseline[0][property]);
                     input.emit('change');
+                    flushSettledChanges();
                 } else if (finish === 'panel') {
                     app.clearProperties();
                     input.emit('input', value + 1);
                     input.emit('change');
+                    flushSettledChanges();
                 } else if (finish === 'deactivate') {
                     app.deactivate();
                     input.emit('input', value + 1);
                     input.emit('change');
+                    flushSettledChanges();
                 } else if (finish === 'failure') {
                     app.history.execute = () => { throw new Error('Rejected pad property command'); };
-                    assert.throws(() => input.emit('change'), /Rejected pad property command/);
+                    assert.throws(() => { input.emit('change'); flushSettledChanges(); }, /Rejected pad property command/);
                 } else if (finish === 'missing') {
                     model.pads.splice(count - 1, 1);
-                    assert.throws(() => input.emit('change'), /Cannot edit a missing pad/);
+                    assert.throws(() => { input.emit('change'); flushSettledChanges(); }, /Cannot edit a missing pad/);
                     assert.deepEqual(pads.map(pad => pad.captureState()), baseline, 'Preflight checks every target before commands');
                 } else if (finish === 'lock' || finish === 'hide') {
                     const layer = PCB_LAYERS.find(layer => layer.id === (layers === 'both' ? 'top-copper' : layers));
@@ -250,6 +256,7 @@ for (const count of [1, 4]) for (const layers of ['top-copper', 'bottom-copper',
     assert.deepEqual(model.captureGeometry(), before);
     assert.equal(getPadPropertyPreview(app).copies.size, 4);
     field.emit('change');
+    flushSettledChanges();
     assert.equal(app.history.undoStack.length, 1);
     app.history.undo();
     assert.deepEqual(model.captureGeometry(), before);
@@ -277,6 +284,7 @@ for (const count of [1, 4]) for (const subsequent of ['Shape', 'Layers', 'Net', 
         const value = { Shape: 'oval', Layers: 'bottom-copper', Net: 'SIGNAL', Ratio: 3 }[subsequent];
         input(subsequent).emit('change', value);
     }
+    flushSettledChanges();
     assert.equal(getPadPropertyPreview(app), undefined);
     assert.equal(app.history.undoStack.length, 2, 'Pending numeric edit commits independently before the next action');
     app.history.undo();
@@ -294,6 +302,7 @@ for (const commit of [false, true]) {
     assert.ok(frames.size);
     if (commit) input('Size').emit('change');
     else getPropertyEditor(app, 'pad').cancel();
+    if (commit) flushSettledChanges();
     const rendered = allocations;
     flushFrames();
     assert.equal(allocations, rendered, 'Completion cancels a pending preview frame');
@@ -312,6 +321,7 @@ for (const commit of [false, true]) {
     input('Size').emit('input', pads[0].size);
     flushFrames();
     input('Size').emit('change');
+    flushSettledChanges();
     assert.equal(artwork().length, count, 'Unchanged selected pads regain canonical artwork on commit');
     assert.ok(pads.every(pad => pad.size === pads[0].size));
     app.history.undo();
@@ -326,14 +336,18 @@ for (const commit of [false, true]) {
     app._showPadEditor(pads[0]);
     assert.equal(input('Rotation').value, '');
     input('Rotation').emit('change');
+    flushSettledChanges();
     assert.equal(app.history.canUndo(), false, 'Untouched mixed fields do not author zero');
     input('Rotation').emit('change', -450.25);
+    flushSettledChanges();
     assert.ok(pads.every(pad => pad.rotation === 269.75), 'Change-only spinner events normalize rotation');
     input('Drill').emit('change', 100);
+    flushSettledChanges();
     assert.ok(pads.every(pad => pad.drill === pad.size), 'Drill remains constrained by the smallest selected size');
     const before = model.captureGeometry();
     input('Size').emit('input', '');
     input('Size').emit('change', '');
+    flushSettledChanges();
     assert.deepEqual(model.captureGeometry(), before);
     const stale = input('Ratio');
     input('Size').emit('input', 3);
@@ -387,6 +401,7 @@ for (const count of [1, 4]) for (const value of ['', '-', 'Infinity', '0.01', '3
                 adapter.endAnchorDrag(true);
             }
         }
+        flushSettledChanges();
         assert.equal(getPadPropertyPreview(app), undefined);
         assert.ok(pads.every(pad => pad.size === (valid ? 3 : originalSize)));
         assert.equal(app.history.undoStack.length, Number(valid) + Number(additional),

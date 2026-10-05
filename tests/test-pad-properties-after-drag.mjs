@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { PcbDocument } from '../src/core/PcbDocument.js';
+import { flushSettledChanges } from '../src/shared/ui/settled-input.js';
 
 globalThis.window = { addEventListener() {} };
 globalThis.document = { getElementById() { return null; } };
@@ -65,6 +66,7 @@ for (const count of [1, 6]) {
         input.value = String(value);
         if (numeric) input.emit('input');
         input.emit('change');
+        if (numeric) flushSettledChanges();
         const expected = moved.map(pad => ({
             ...pad, [property]: value,
             ...(property === 'size' ? { drill: Math.min(pad.drill, value) } : {}),
@@ -87,6 +89,7 @@ for (const count of [1, 6]) {
             input.value = String(value);
             input.emit('input');
             input.emit('change');
+            flushSettledChanges();
             commands[2].undo();
             assert.deepEqual(app.pads.map(pad => pad.captureState()), moved,
                 'a new live edit after Undo captures current state only once');
@@ -100,6 +103,7 @@ for (const count of [1, 6]) {
     updateGroupDrag(app, { x: 20, y: -30 }, { snap: false });
     endGroupDrag(app);
     controls.get('#pcbPropPadRotation').emit('change');
+    flushSettledChanges();
     assert.equal(commands.length, 1, 'an untouched field must not record the preceding drag as a property edit');
 }
 

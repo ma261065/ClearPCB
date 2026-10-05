@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { PcbDocument } from '../src/core/PcbDocument.js';
 import { areDragOverlaysDeferred, isBoardViewRefreshSuspended } from '../src/pcb/modules/refresh-state.js';
 import { getBoardShapeNodeFocus, getBoardShapeSegmentFocus, setBoardShapeNodeFocus, setBoardShapeSegmentFocus } from '../src/pcb/modules/board-shape-state.js';
+import { flushSettledChanges } from '../src/shared/ui/settled-input.js';
 
 function shapeModel(shapes = [], tracks = []) {
     const pcbDocument = new PcbDocument();
@@ -475,6 +476,7 @@ for (const kind of ['line', 'polygon', 'rect', 'arc']) {
         showBoardShapeProperties(app, shape);
         width.fire('input');
         width.fire('change');
+        flushSettledChanges();
         assert.equal(shape.lineWidth, overall);
         assert.deepEqual(shape.segmentWidths, {}, `${kind}: overall width clears segment overrides`);
         commands.at(-1).undo();
@@ -486,6 +488,7 @@ for (const kind of ['line', 'polygon', 'rect', 'arc']) {
             showBoardShapeProperties(app, shape);
             radius.fire('input');
             radius.fire('change');
+            flushSettledChanges();
             assert.equal(shape.cornerRadius, overall);
             assert.deepEqual(shape.nodeCornerRadii, {}, `${kind}: overall radius clears node overrides`);
             const overallCommand = commands.at(-1);
@@ -499,6 +502,7 @@ for (const kind of ['line', 'polygon', 'rect', 'arc']) {
             showBoardShapeProperties(app, shape);
             nodeRadius.fire('input');
             nodeRadius.fire('change');
+            flushSettledChanges();
             assert.equal(shape.cornerRadius, overall);
             assert.deepEqual(shape.nodeCornerRadii, { 1: 1 }, `${kind}: later node edit changes only that corner`);
         }
@@ -527,6 +531,7 @@ for (const overall of [2, 3]) {
     assert.deepEqual(track.nodeCornerRadii, { [nodeId]: 0 }, 'Focusing and leaving the input preserves overrides');
     radius.fire('input');
     radius.fire('change');
+    flushSettledChanges();
     assert.equal(track.cornerRadius, overall);
     assert.deepEqual(track.nodeCornerRadii, {});
     const radiusCommand = commands.at(-1);
@@ -536,6 +541,7 @@ for (const overall of [2, 3]) {
     radiusCommand.execute();
     width.fire('input');
     width.fire('change');
+    flushSettledChanges();
     await Promise.resolve();
     assert.equal(track.width, overall);
     assert.ok([...track.edges.keys()].every(id => track.getEdgeWidth(id) === overall));
@@ -547,6 +553,7 @@ for (const overall of [2, 3]) {
     selectTrackNode(app, track, nodeId);
     nodeRadius.fire('input');
     nodeRadius.fire('change');
+    flushSettledChanges();
     assert.equal(track.cornerRadius, overall);
     assert.deepEqual(track.nodeCornerRadii, { [nodeId]: 1 });
     document.getElementById = () => null;
@@ -766,6 +773,7 @@ for (const [kind, zeroOffset] of ['arc', 'line', 'polygon'].flatMap(kind =>
         assert.equal(kind === 'arc' ? displayed.bulge.y : displayed.segmentBulges[0], kind === 'arc' ? -2.5 : -0.5);
         assert.equal(kind === 'arc' ? shape.bulge.y : shape.segmentBulges[0], kind === 'arc' ? 1.25 : 0.25);
         input.fire('change');
+        flushSettledChanges();
         assert.equal(commands.length, 1, 'Typed bulge makes one undoable edit');
         await Promise.resolve();
         assert.equal(commands.length, 1, 'Blur caused by the command refresh does not repeat the edit');
@@ -796,12 +804,14 @@ for (const [kind, zeroOffset] of ['arc', 'line', 'polygon'].flatMap(kind =>
         input.value = '0.001';
         input.fire('input');
         input.fire('change');
+        flushSettledChanges();
         assert.equal(shape.kind, kind === 'arc' ? 'line' : kind, 'A typed rounded-zero bulge straightens the shape');
         assert.equal(input, null, 'Straightened shapes no longer show the bulge input');
         commands.at(-1).undo();
         input.value = '0';
         input.fire('input');
         input.fire('change');
+        flushSettledChanges();
         assert.equal(shape.kind, kind === 'arc' ? 'line' : kind);
         assert.equal(title, kind === 'arc' ? 'Line' : 'Line Segment');
         assert.equal(input, null, 'Straight shapes no longer show arc properties');
@@ -811,6 +821,7 @@ for (const [kind, zeroOffset] of ['arc', 'line', 'polygon'].flatMap(kind =>
         else shape.segmentBulges[0] = 0;
         input.value = '0.00';
         input.fire('change');
+        flushSettledChanges();
         assert.equal(shape.kind, kind === 'arc' ? 'line' : kind);
         if (kind !== 'arc') assert.equal(Object.hasOwn(shape.segmentBulges, 0), false);
         commands.at(-1).undo();

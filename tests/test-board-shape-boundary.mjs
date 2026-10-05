@@ -3,6 +3,7 @@ import { PcbDocument } from '../src/core/PcbDocument.js';
 import { getPropertyEditor } from '../src/pcb/modules/property-editors.js';
 import { isPictureCopperRefreshPending } from '../src/pcb/modules/refresh-state.js';
 import { getBoardShapeSegmentFocus } from '../src/pcb/modules/board-shape-state.js';
+import { flushSettledChanges } from '../src/shared/ui/settled-input.js';
 
 function shapeModel(...shapes) {
     const pcbDocument = new PcbDocument();
@@ -623,6 +624,7 @@ console.log('PASS centreline editing, symmetric hit tests, unchanged circles, mi
     diameter.value = '16.246912';
     dispatch('input');
     dispatch('change');
+    flushSettledChanges();
     assert.equal(model.board.width, 16.25, 'Commit retains existing property-field rounding');
     app.history.undo();
     assert.equal(model.board.width, 10);

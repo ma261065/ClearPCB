@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { ProjectDocument } from '../src/core/ProjectDocument.js';
 import { Component } from '../src/components/Component.js';
+import { flushSettledChanges } from '../src/shared/ui/settled-input.js';
 
 globalThis.window = { addEventListener() {} };
 globalThis.requestAnimationFrame = callback => { callback(); return 1; };
@@ -106,6 +107,7 @@ rotationInput.emit('input');
 assert.deepEqual(app.pads.map(pad => pad.rotation), [90, 90, 90, 90],
    'live Rotation editing updates every selected Pad');
 rotationInput.emit('change');
+flushSettledChanges();
 assert.deepEqual(app.pads.map(pad => pad.rotation), [90, 90, 90, 90],
    'committing Rotation preserves the batch edit');
 lastCommand.undo();
@@ -153,6 +155,7 @@ componentRotationInput.emit('change');
 assert.deepEqual(['U1', 'U2'].map(id => app.placements.get(id).rotation), [0, 90],
    'shared number fields wait for the value to settle before committing');
 componentRotationInput.emit('blur');
+await null;
 assert.deepEqual(['U1', 'U2'].map(id => app.placements.get(id).rotation), [180, 180],
    'changing shared Component Rotation updates every selected Component');
 lastCommand.undo();

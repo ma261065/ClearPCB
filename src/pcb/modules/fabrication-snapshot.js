@@ -7,6 +7,7 @@ import { blocksPcbExport } from './pcb-interactions.js';
 import { hasActivePropertyEditor } from './property-editors.js';
 import { areDragOverlaysDeferred, isFillRefreshSuspended } from './refresh-state.js';
 import { boardDimensions } from '../../shared/pcb/board-outline.js';
+import { flushSettledChanges } from '../../shared/ui/settled-input.js';
 
 export function hasFabricationContent(app) {
     const entities = app.pcbDocument || app;
@@ -16,6 +17,7 @@ export function hasFabricationContent(app) {
 }
 
 export async function prepareFabricationSnapshot(app, { computeFills = true } = {}) {
+    flushSettledChanges();
     if (areDragOverlaysDeferred(app) || isFillRefreshSuspended(app) || blocksPcbExport(app)
         || hasActivePropertyEditor(app, ['pad', 'via', 'track', 'boardShape'])) {
         throw new Error('Finish the current edit before exporting.');

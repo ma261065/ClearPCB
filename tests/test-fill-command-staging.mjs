@@ -114,8 +114,11 @@ for (const [id, value, focus, options] of [
     };
     assert.equal(typeof handlers.change, 'function');
     handlers.change();
-    // Numeric fields settle before committing; leaving the field commits at once. Select changes are immediate.
-    handlers.blur?.();
+    // Numeric fields settle before committing; leaving the field commits on the blur microtask. Select changes are immediate.
+    if (handlers.blur) {
+        handlers.blur();
+        await null;
+    }
     assert.equal(app.history.undoStack.length, 1, `${id}: one canonical command`);
     const after = fill.captureState();
     assert.notDeepEqual(after, before);
@@ -153,12 +156,14 @@ for (const [id, value, focus, options] of [
         assert.equal(app.history.undoStack.length, 1, 'The settled value commits once');
         assert.equal(fill.cornerRadius, 0.15);
         handlers.blur();
+        await null;
         assert.equal(app.history.undoStack.length, 1, 'Blur after the commit adds nothing');
 
         input.valueAsNumber = 0.3;
         handlers.change();
         input.isConnected = false;
         handlers.blur();
+        await null;
         assert.equal(fill.cornerRadius, 0.15, 'A rebuilt panel drops its pending edit');
     } finally {
         globalThis.setTimeout = realSetTimeout;

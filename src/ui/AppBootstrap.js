@@ -9,6 +9,7 @@ import { installNumberInputFormatting } from '../core/number-inputs.js';
 import { installLockedEditErrorFilter } from '../core/edit-guard.js';
 import { ModalManager } from '../core/ModalManager.js';
 import { renderRecentFiles } from '../shared/ui/recents.js';
+import { flushSettledChanges } from '../shared/ui/settled-input.js';
 import { McpBridge } from '../core/McpBridge.js';
 import { createMcpSessionUi } from './mcp-session.js';
 
@@ -240,6 +241,8 @@ export class AppBootstrap {
 
     async switchMode(mode) {
         if (this.project.fileManager.loading || this._switchingMode) return;
+        // The editor being left keeps a number field's settling value.
+        flushSettledChanges();
         this._cancelPcbPreload();
         const isPcb = mode === 'pcb';
 

@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { CommandHistory } from '../src/core/CommandHistory.js';
 import { pictureShape } from '../src/shared/pcb/picture-raster.js';
 import { isPictureCopperRefreshPending } from '../src/pcb/modules/refresh-state.js';
+import { flushSettledChanges } from '../src/shared/ui/settled-input.js';
 
 const fields = new Map();
 const items = { html: '', set innerHTML(html) {
@@ -22,9 +23,16 @@ const items = { html: '', set innerHTML(html) {
                 }
             },
             toggle(checked) { this.checked = checked; for (const listener of listeners.get('change') || []) listener(); },
-            change(value) { this.value = value; for (const listener of listeners.get('change') || []) listener(); } });
+            change(value) {
+                this.value = value;
+                for (const listener of listeners.get('change') || []) listener();
+            } });
     }
 } };
+const settleChange = (field, value) => {
+    field.change(value);
+    flushSettledChanges();
+};
 globalThis.window = { addEventListener() {} };
 globalThis.document = { getElementById(id) { return fields.get(id) || null; }, createElementNS() {
     const attributes = new Map();
@@ -46,14 +54,14 @@ assert.ok(fields.has('pcbPropImageWidth'));
 assert.ok(!items.html.includes('Corner Radius') && !items.html.includes('Line Thickness'));
 const before = cloneShapeGeometry(image);
 app.netlist = [{ net: 'GND' }, { net: 'VCC' }, { net: 'GND' }, { net: 'A<&"' }];
-fields.get('pcbPropImageWidth').change('8');
+settleChange(fields.get('pcbPropImageWidth'), '8');
 assert.equal(image.points[1].x - image.points[0].x, 8);
 assert.equal(image.points[3].y - image.points[0].y, 4);
 assert.equal(app.history.undoStack.length, 1);
 app.history.undo();
 assert.deepEqual(cloneShapeGeometry(image), before);
 app.history.redo();
-fields.get('pcbPropImageHeight').change('2');
+settleChange(fields.get('pcbPropImageHeight'), '2');
 assert.deepEqual(cloneShapeGeometry(image), before);
 fields.get('pcbPropImageLayer').change('bottom-copper');
 assert.equal(image.layer, 'bottom-copper');
@@ -85,7 +93,7 @@ assert.deepEqual(cloneShapeGeometry(image), before);
 console.log('PASS image Properties controls, proportional dimensions, layer/net changes, drag and resize undo');
 const artwork = image.artwork;
 assert.ok(items.html.includes('id="pcbPropImageRot" type="number" step="1"'));
-fields.get('pcbPropImageRot').change('90');
+settleChange(fields.get('pcbPropImageRot'), '90');
 assert.ok(Math.abs(image.points[0].x + 1) < 1e-9);
 assert.ok(Math.abs(image.points[0].y - 2) < 1e-9, 'Positive rotation matches text counterclockwise convention');
 assert.ok(Math.abs(Math.hypot(image.points[1].x - image.points[0].x, image.points[1].y - image.points[0].y) - 4) < 1e-9);
@@ -95,12 +103,12 @@ app.history.undo();
 assert.deepEqual(cloneShapeGeometry(image), before);
 app.history.redo();
 assert.ok(items.html.includes('value="90"'));
-fields.get('pcbPropImageRot').change('-15');
+settleChange(fields.get('pcbPropImageRot'), '-15');
 assert.ok(items.html.includes('value="345"'));
-fields.get('pcbPropImageRot').change('375');
+settleChange(fields.get('pcbPropImageRot'), '375');
 assert.ok(items.html.includes('value="15"'));
 const rotated = cloneShapeGeometry(image);
-fields.get('pcbPropImageRot').change('');
+settleChange(fields.get('pcbPropImageRot'), '');
 assert.deepEqual(cloneShapeGeometry(image), rotated);
 console.log('PASS image rotation spinner, text-compatible direction, angle wrapping and undo/redo');
 const spinner = fields.get('pcbPropImageRot');
@@ -120,7 +128,7 @@ for (const angle of [30, 45, 60, 90, 345, 360, 15, 0, -15, 360, 375]) {
 }
 assert.equal(spinner.value, '15');
 spinner.input('60');
-spinner.change('60');
+settleChange(spinner, '60');
 const finalRotation = cloneShapeGeometry(image);
 assert.equal(app.history.undoStack.length, historyDepth + 1);
 app.history.undo();
@@ -146,8 +154,9 @@ app.updateCopperCuts = () => { copperCutRefreshes++; };
 app.refreshFills = () => { fillRefreshes++; };
 app.updateRatsnest = () => { ratsnestRefreshes++; };
 for (let step = 1; step <= 20; step++) fields.get('pcbPropImageWidth').change(String(4 + step / 10));
+flushSettledChanges();
 fields.get('pcbPropImageRot').input('90');
-fields.get('pcbPropImageRot').change('90');
+settleChange(fields.get('pcbPropImageRot'), '90');
 app.history.undo();
 app.history.redo();
 for (const [id, value] of [['pcbPropImageWidth', '12'], ['pcbPropImageHeight', '6'], ['pcbPropImageRot', '135']]) {
@@ -159,7 +168,7 @@ for (const [id, value] of [['pcbPropImageWidth', '12'], ['pcbPropImageHeight', '
     fields.get(id).keydown('Escape');
     assert.deepEqual(cloneShapeGeometry(image), original, 'Escape restores the silk preview');
     fields.get(id).input(value);
-    fields.get(id).change('');
+    settleChange(fields.get(id), '');
     assert.deepEqual(cloneShapeGeometry(image), original, 'An invalid edit restores the silk preview');
     assert.equal(app.history.undoStack.length, depth, 'Cancelled previews do not create history');
 }
@@ -190,12 +199,18 @@ app.updateRatsnest = options => {
 };
 const cutsBeforeBurst = copperCutRefreshes;
 try {
+    const pendingSettle = new Map();
     globalThis.setTimeout = (callback, delay) => {
-        assert.equal(delay, 100);
-        pendingCopper.set(++copperTimerId, callback);
-        return copperTimerId;
+        if (delay === 100) {
+            pendingCopper.set(++copperTimerId, callback);
+            return copperTimerId;
+        }
+        assert.equal(delay, 400);
+        const id = `settle-${++copperTimerId}`;
+        pendingSettle.set(id, callback);
+        return id;
     };
-    globalThis.clearTimeout = id => { pendingCopper.delete(id); };
+    globalThis.clearTimeout = id => { pendingCopper.delete(id); pendingSettle.delete(id); };
     for (const [id, pairedId, edge] of [
         ['pcbPropImageWidth', 'pcbPropImageHeight', 1],
         ['pcbPropImageHeight', 'pcbPropImageWidth', 3],
@@ -218,7 +233,7 @@ try {
             assert.equal(halo.parentNode, null, 'Live resizing hides clearance immediately');
             assert.equal(pendingCopper.size, 0, 'Typing retains settled pours until acceptance');
         }
-        spinner.change(String(dimension * 1.3));
+        settleChange(spinner, String(dimension * 1.3));
         assert.equal(app.history.undoStack.length, historySize + 1);
         const resized = cloneShapeGeometry(image);
         app.history.undo();
@@ -228,8 +243,9 @@ try {
         app.history.undo();
     }
     for (let step = 1; step <= 20; step++) fields.get('pcbPropImageWidth').change(String(6 + step / 10));
+    flushSettledChanges();
     fields.get('pcbPropImageRot').input('105');
-    fields.get('pcbPropImageRot').change('105');
+    settleChange(fields.get('pcbPropImageRot'), '105');
     app.history.undo();
     const beforeCancel = cloneShapeGeometry(image);
     const depthBeforeCancel = app.history.undoStack.length;

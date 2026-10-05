@@ -77,6 +77,7 @@ import { viaBounds, viaHitTest } from '../../shapes/via.js';
 import { beginPcbAnchorInteraction } from './selection-interaction.js';
 import { getPropertyEditor, releasePropertyEditor, setPropertyEditor } from './property-editors.js';
 import { isEditorActive } from './pcb-editor-api.js';
+import { bindSettledChange } from '../../shared/ui/settled-input.js';
 
 const NS = 'http://www.w3.org/2000/svg';
 const HALO_CLASS = 'pcb-track-selection';
@@ -1207,9 +1208,8 @@ function createTrackPropertyBinding(app, track, scope = {}) {
                 app.refreshClearanceHalos?.();
                 if (spec.fills) app.refreshFills?.();
             };
-            const commit = event => {
+            const commit = () => {
                 if (disposed) return;
-                if (event.type === 'change') update();
                 const changed = !!preview;
                 binding.commit();
                 if (!Number.isFinite(spec.parse(input))) {
@@ -1219,10 +1219,11 @@ function createTrackPropertyBinding(app, track, scope = {}) {
                 if (changed && spec.rebuild) showTrackSelectionProperties(app, track);
             };
             input.addEventListener('input', update);
-            input.addEventListener('change', commit);
+            input.addEventListener('change', update);
+            bindSettledChange(input, commit);
             input.addEventListener('blur', () => {
                 queueMicrotask(() => {
-                    if (!disposed && field === entry) commit({ type: 'blur' });
+                    if (!disposed && field === entry) commit();
                 });
             });
             input.addEventListener('keydown', event => {
@@ -1823,8 +1824,8 @@ export function showViaProperties(app, via) {
     for (const [input, key] of /** @type {Array<[HTMLInputElement|null, string]>} */ ([[diaEl, 'diameter'], [drlEl, 'drill']])) {
         const onInput = live(key);
         input?.addEventListener('input', onInput);
-        input?.addEventListener('change', event => {
-            onInput(event);
+        input?.addEventListener('change', onInput);
+        if (input) bindSettledChange(input, () => {
             binding.commit();
             if (!disposed && !(readValue(key, input) > 0)) resetFields();
         });

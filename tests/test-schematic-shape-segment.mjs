@@ -1,4 +1,5 @@
 import { getShapeNodeFocus, getShapeSegmentFocus, setShapeNodeFocus, setShapeSegmentFocus } from '../src/schematic/modules/shape-focus.js';
+import { flushSettledChanges } from '../src/shared/ui/settled-input.js';
 /** Headless regression tests for schematic polyline segment refinement. */
 
 globalThis.window = { addEventListener() {} };
@@ -149,6 +150,7 @@ function expect(name, condition) {
             input.value = '30';
             input.fire('input');
             input.fire('change');
+            flushSettledChanges();
             expect('corner radius clamps values above 25', (selectedNode ? shape.nodeCornerRadius('n0') : shape.cornerRadius) === 25
                 && input.value === '25.00');
             expect('corner radius edit creates one undo command', app.commands.length === 1);
@@ -173,6 +175,7 @@ function expect(name, condition) {
                 ? [...shape.edges.keys()].every(edgeId => shape.getEdgeAttr(edgeId, 'width') === 2.5)
                 : Object.keys(shape.nodeCornerRadii).length === 0));
             input.fire('change');
+            flushSettledChanges();
             expect('multi-shape override reset is one command', app.commands.length === 1);
             app.commands[0].undo();
             expect('undo restores all overrides and original defaults', app.shapes.every((shape, index) =>
@@ -189,7 +192,7 @@ function expect(name, condition) {
             expect('diameter shrink constrains both circle widths', app.shapes.every(shape => shape.radius === 0.5 && shape.lineWidth === 0.5));
             input.value = '8'; input.fire('input');
             expect('diameter regrowth restores pre-preview widths', first.radius === 4 && first.lineWidth === 2 && second.lineWidth === 1);
-            input.fire('change'); app.commands[0].undo();
+            input.fire('change'); flushSettledChanges(); app.commands[0].undo();
             expect('diameter undo restores both original sizes and widths', first.radius === 5 && second.radius === 3 && first.lineWidth === 2 && second.lineWidth === 1);
         }
         for (const standalone of [false, true]) {
@@ -205,6 +208,7 @@ function expect(name, condition) {
             expect('arc properties display two-decimal bulges', input.value === '0.25'
                 && input.attributes['data-number-format'] !== 'precise');
             input.value = '0.001'; input.fire('input'); input.fire('change');
+            flushSettledChanges();
             expect('small bulges round to zero and become straight lines', input.value === '0.00' && (standalone
                 ? app.shapes.length === 1 && app.shapes[0].type === 'polyline' && !app.shapes[0].closed
                 : !shape.getEdgeAttr('e0', 'bulge')));
@@ -213,6 +217,7 @@ function expect(name, condition) {
             app.selection.select(shape, false);
             input = buildInput(app, 'bulge');
             input.value = '0'; input.fire('input'); input.fire('change');
+            flushSettledChanges();
             expect('zero bulge becomes a straight line', standalone
                 ? app.shapes.length === 1 && app.shapes[0].type === 'polyline' && !app.shapes[0].closed
                 : !shape.getEdgeAttr('e0', 'bulge'));

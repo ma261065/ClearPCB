@@ -15,6 +15,7 @@ import { beginPcbAnchorInteraction, updateSelectionInteraction, finishSelectionI
 import { getPropertyEditor } from '../src/pcb/modules/property-editors.js';
 import { areDragOverlaysDeferred } from '../src/pcb/modules/refresh-state.js';
 import { getBoardShapeNodeFocus, getBoardShapeSegmentFocus, setBoardShapeNodeFocus, setBoardShapeSegmentFocus } from '../src/pcb/modules/board-shape-state.js';
+import { flushSettledChanges } from '../src/shared/ui/settled-input.js';
 
 let allocations = 0;
 class Element {
@@ -277,6 +278,7 @@ for (const [kind, id, value] of cases) for (const count of ['lineWidth', 'corner
                     execute(command);
                 };
                 input.fire('change');
+                flushSettledChanges();
                 assert.equal(app.history.undoStack.length, 1);
                 const after = model.captureGeometry();
                 app.history.undo();
@@ -298,10 +300,10 @@ for (const [kind, id, value] of cases) for (const count of ['lineWidth', 'corner
                     try { app._onLayerLockChanged(layer.id, true); } finally { layer.locked = false; }
                 } else if (finish === 'missing') {
                     model.boardShapes.splice(model.boardShapes.indexOf(shapes.at(-1)), 1);
-                    assert.throws(() => input.fire('change'), /missing board shape/);
+                    assert.throws(() => { input.fire('change'); flushSettledChanges(); }, /missing board shape/);
                 } else {
                     app.history.execute = () => { throw new Error('Rejected property edit'); };
-                    assert.throws(() => input.fire('change'), /Rejected property edit/);
+                    assert.throws(() => { input.fire('change'); flushSettledChanges(); }, /Rejected property edit/);
                 }
                 if (finish === 'load') assert.equal(model.boardShapes.length, 0);
                 else if (finish !== 'missing') assert.deepEqual(model.captureGeometry(), before);
@@ -414,6 +416,7 @@ for (const [field, layer, mode] of [['pcbPropShapeLayer', 'top-copper', null], [
     assert.equal(candidate.points[3].y - candidate.points[0].y, 18);
     assert.equal(candidate.points[1].x - candidate.points[0].x, 30);
     height.fire('change');
+    flushSettledChanges();
     assert.equal(app.history.undoStack.length, 2);
     app.history.undo(); app.history.undo();
     assert.deepEqual(model.captureGeometry(), before);
@@ -425,6 +428,7 @@ for (const [field, layer, mode] of [['pcbPropShapeLayer', 'top-copper', null], [
     shapes[0].lineWidth = 0.7654321;
     const before = model.captureGeometry();
     input.value = '1.2'; input.fire('input'); input.fire('change');
+    flushSettledChanges();
     app.history.undo();
     assert.deepEqual(model.captureGeometry(), before, 'History captures first-change state, not panel-open state');
     cancelPictureCopperRefresh(app);
@@ -461,6 +465,7 @@ for (const [kind, id, values] of [
         input.value = String(value);
         input.fire('input');
         input.fire('change');
+        flushSettledChanges();
         assert.equal(fields.get(id), input, `${kind}: native input/change must not replace the focused field`);
         assert.equal(document.activeElement, input, `${kind}: repeated arrow keys retain focus`);
         assert.equal(getPropertyEditor(app, 'boardShape'), binding);
@@ -483,9 +488,11 @@ for (const [kind, id, values] of [
     const after = model.captureGeometry(), depth = app.history.undoStack.length;
     assert.equal(depth, values.length, 'Each completed native change remains one undoable edit');
     input.fire('change');
+    flushSettledChanges();
     assert.equal(app.history.undoStack.length, depth, 'Repeated unchanged values do not author commands');
     assert.equal(fields.get(id), input, 'A no-op change also retains the focused field');
     input.value = ''; input.fire('change');
+    flushSettledChanges();
     assert.equal(fields.get(id), input, 'Invalid input resets in place instead of dropping focus');
     assert.ok(Number.isFinite(input.valueAsNumber));
     assert.deepEqual(model.captureGeometry(), after);
@@ -516,6 +523,7 @@ for (const [kind, id, value] of cases.filter(([kind]) => !kind.startsWith('image
             assert.equal(PCBApp.prototype.handleKeyDown.call(app, { key: 'ArrowUp', target: document.activeElement }), false);
             input.fire('keydown', { key: 'ArrowUp' });
             input.value = String(next); input.fire('input'); input.fire('change');
+            flushSettledChanges();
             assert.equal(fields.get(id), input, `${kind}: retain the focused numeric control across native changes`);
             assert.equal(document.activeElement, input);
             assert.equal(getPropertyEditor(app, 'boardShape'), binding);
@@ -525,8 +533,10 @@ for (const [kind, id, value] of cases.filter(([kind]) => !kind.startsWith('image
         const after = model.captureGeometry(), depth = app.history.undoStack.length;
         assert.equal(depth, 3);
         input.fire('change');
+        flushSettledChanges();
         assert.equal(app.history.undoStack.length, depth);
         input.value = ''; input.fire('change');
+        flushSettledChanges();
         assert.equal(fields.get(id), input, `${kind}: invalid values reset without dropping focus`);
         assert.ok(Number.isFinite(input.valueAsNumber));
         assert.deepEqual(model.captureGeometry(), after);
@@ -554,6 +564,7 @@ for (const kind of ['lineWidth', 'diameter', 'cornerRadius']) {
     input.focus();
     input.value = kind === 'diameter' ? '0.4' : '0.5';
     input.fire('input'); input.fire('change');
+    flushSettledChanges();
     assert.equal(input.placeholder, '', 'Batch commit clears the obsolete Mixed placeholder in place');
     assert.equal(fields.get(id), input);
     if (kind === 'diameter') {
@@ -571,11 +582,13 @@ for (const kind of ['arcBulge', 'segmentBulge']) {
     const input = fields.get('pcbPropShapeBulge');
     input.focus();
     input.value = '0'; input.fire('input'); input.fire('change');
+    flushSettledChanges();
     assert.equal(fields.has('pcbPropShapeBulge'), false, 'Straightening removes the obsolete bulge control');
     assert.equal(document.activeElement, document.body, 'A removed control must not retain phantom focus');
     assert.equal(shapes[0].kind, kind === 'arcBulge' ? 'line' : 'polygon');
     const after = model.captureGeometry();
     input.value = '0.5'; input.fire('input'); input.fire('change');
+    flushSettledChanges();
     assert.deepEqual(model.captureGeometry(), after, 'A removed curved-geometry control cannot edit the new shape');
     app.history.undo();
     assert.deepEqual(model.captureGeometry(), before);
@@ -616,6 +629,7 @@ for (const closed of [false, true]) for (const boundary of ['uniform', 'width', 
         assert.equal(getBoardShapePropertyPreview(app).copies[0].segmentBulges[1], 0.4);
         input.value = '0'; input.fire('input');
         input.fire(completion);
+        if (completion === 'change') flushSettledChanges();
         await Promise.resolve();
         const expected = points.filter((_, index) => boundary === 'selected-width'
             || index !== 2 && (index !== 1 || boundary !== 'uniform'));
@@ -691,12 +705,14 @@ for (const kind of ['cornerRadius', 'imageWidth']) for (const completion of ['ch
         if (withinPanel) next.focus();
         else document.activeElement = document.body;
         previous.fire(completion);
+        if (completion === 'change') flushSettledChanges();
         await Promise.resolve();
         assert.equal(app.history.undoStack.length, 1);
         if (withinPanel) {
             assert.ok(document.activeElement === next, 'Finishing the previous field must retain focus in Properties');
             assert.equal(fields.get(nextId), next, 'A pending commit must not replace the next field before typing starts');
             next.value = kind === 'imageWidth' ? '18' : '2'; next.fire('input'); next.fire('change');
+            flushSettledChanges();
             assert.equal(app.history.undoStack.length, 2);
             document.activeElement = document.body;
             app.history.undo();
@@ -732,6 +748,7 @@ for (const kind of ['cornerRadius', 'imageWidth', 'arcBulge']) {
             assert.equal(fields.get(kind === 'imageWidth' ? 'pcbPropImageHeight'
                 : kind === 'arcBulge' ? 'pcbPropShapeLineWidth' : 'pcbPropShapeCornerRadius'), next);
             next.fire('change');
+            flushSettledChanges();
             assert.equal(app.history.undoStack.length, 1);
             const after = model.captureGeometry();
             app.history.undo();
@@ -783,6 +800,7 @@ for (const valid of [false, true]) {
     assert.equal(getBoardShapePropertyPreview(app).copies[0].cornerRadius, 2, 'The next field retains its own pending preview');
     assert.equal(shapes[0].cornerRadius, 0.123456789);
     radius.fire('change');
+    flushSettledChanges();
     assert.equal(shapes[0].cornerRadius, 2);
     assert.equal(app.history.undoStack.length, 2);
     document.activeElement = document.body;
@@ -796,9 +814,11 @@ for (const valid of [false, true]) {
     width.focus(); width.value = '20'; width.fire('input'); width.fire('change');
     assert.equal(height.value, '12.00');
     height.focus(); height.fire('change');
+    flushSettledChanges();
     assert.equal(height.value, '12.00', 'A paired-field no-op must not restore its panel-open value');
     assert.equal(app.history.undoStack.length, 1);
     height.value = '18'; height.fire('input'); height.fire('change');
+    flushSettledChanges();
     assert.equal(width.value, '30.00');
     assert.equal(shapes[0].points[1].x - shapes[0].points[0].x, 30);
     assert.equal(fields.get('pcbPropImageWidth'), width);
@@ -823,6 +843,7 @@ for (const valid of [false, true]) {
     assert.equal(getBoardShapePropertyPreview(app).copies[0].radius, 6);
     assert.equal(input.value, '12.0', 'Pointer completion cannot overwrite the in-progress typed value');
     input.fire('change');
+    flushSettledChanges();
     assert.equal(app.history.undoStack.length, 2);
     app.history.undo(); app.history.undo();
     assert.deepEqual(model.captureGeometry(), before);

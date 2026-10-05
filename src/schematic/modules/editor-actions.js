@@ -6,6 +6,7 @@ import {
     cancelSchematicInteraction, cancelSchematicPointerInteraction, SCHEMATIC_MODAL_GESTURES,
 } from './schematic-interaction-routing.js';
 import { isSchematicLocked } from '../../shapes/lock-owner.js';
+import { flushSettledChanges } from '../../shared/ui/settled-input.js';
 
 /**
  * Keyboard, ribbon and Properties entry points for the schematic editor's Escape,
@@ -84,6 +85,8 @@ export function runSchematicHistoryAction(app, action) {
     // placement) are only cancelled, and pointer previews are cancelled first.
     if (isSchematicDrawing(app)) return false;
     if (cancelSchematicInteraction(app, SCHEMATIC_MODAL_GESTURES)) return true;
+    // A spinner run still settling becomes its own undo step first.
+    flushSettledChanges();
     const cancelledProperty = cancelSchematicPropertyPreview(app);
     cancelSchematicPointerInteraction(app);
     const changed = app.history[action]();

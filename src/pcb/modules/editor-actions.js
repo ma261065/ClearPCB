@@ -11,6 +11,7 @@ import { resetPcbTool } from './tool-lifecycle.js';
 import { isPcbDrawing } from './pcb-interactions.js';
 import { getPropertyEditor } from './property-editors.js';
 import { isEditorActive } from './pcb-editor-api.js';
+import { flushSettledChanges } from '../../shared/ui/settled-input.js';
 
 /**
  * Delete the current refinement or selection, retaining drawing/paste ownership
@@ -160,6 +161,8 @@ export function runPcbEscapeAction(app) {
  */
 export function runPcbHistoryAction(app, action) {
     if (!isEditorActive(app) || isPcbDrawing(app)) return false;
+    // A spinner run still settling becomes its own undo step first.
+    flushSettledChanges();
     if (app._pasteDrop) {
         app._cancelPasteDrop();
         return true;
