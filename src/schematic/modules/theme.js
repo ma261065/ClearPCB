@@ -1,6 +1,6 @@
 import { storageManager } from '../../core/StorageManager.js';
 import { rebuildComponentSymbol } from './schematic-view.js';
-import { loadAndApplyTheme, toggleTheme as toggleSharedTheme, syncThemeToggleButtons } from '../../shared/ui/theme.js';
+import { loadAndApplyTheme, toggleTheme as toggleSharedTheme } from '../../shared/ui/theme.js';
 import { createComponentPreview } from './components.js';
 
 /**
@@ -12,12 +12,7 @@ export function bindThemeToggle(app) {
     window.addEventListener('clearpcb-theme-changed', () => {
         app.viewport?.updateTheme();
         updateComponentColors(app);
-    });
-    const themeToggle = document.getElementById('themeToggle');
-    if (!themeToggle) return;
-
-    themeToggle.addEventListener('click', () => {
-        app._toggleTheme();
+        app.refreshRibbon?.();
     });
 
     app._loadTheme();
@@ -29,8 +24,8 @@ export function bindThemeToggle(app) {
  * @param {object} app - Application state.
  */
 export function toggleTheme(app) {
-    const newTheme = toggleSharedTheme();
-    syncThemeToggleButtons(['themeToggle', 'pcbThemeToggle'], newTheme);
+    toggleSharedTheme();
+    app.refreshRibbon?.();
 }
 
 /**
@@ -40,11 +35,9 @@ export function toggleTheme(app) {
  */
 export function loadTheme(app) {
     loadAndApplyTheme();
-    syncThemeToggleButtons(['themeToggle', 'pcbThemeToggle']);
+    app.refreshRibbon?.();
 
-    if (app.viewport) {
-        app.viewport.updateTheme();
-    }
+    app.viewport?.updateTheme?.();
 }
 
 /**

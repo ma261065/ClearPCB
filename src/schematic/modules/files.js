@@ -89,12 +89,7 @@ export async function loadDocument(app, data, prepared = prepareDocument(app, da
         restoreGridSettings(app, settings);
         // Restore paper size, orientation, and title block from file
         if (settings.paperSize && typeof settings.paperSize === 'string') {
-            const paperSelect = /** @type {HTMLSelectElement|null} */ (document.getElementById('paperSize'));
-            const orientationSelect = /** @type {HTMLSelectElement|null} */ (document.getElementById('paperOrientation'));
-            const titleBlockCheckbox = /** @type {HTMLInputElement|null} */ (document.getElementById('showTitleBlock'));
             const orientation = settings.paperOrientation || 'landscape';
-            if (paperSelect) paperSelect.value = settings.paperSize;
-            if (orientationSelect) orientationSelect.value = orientation;
             // Trigger paper display update via the same path as UI
             const { PAPER_SIZES } = await import('./paper.js');
             if (PAPER_SIZES[settings.paperSize]) {
@@ -110,18 +105,16 @@ export async function loadDocument(app, data, prepared = prepareDocument(app, da
             }
             const showTitleBlock = settings.titleBlock || false;
             app.viewport.setTitleBlock(showTitleBlock);
-            if (titleBlockCheckbox) titleBlockCheckbox.checked = showTitleBlock;
             localStorage.setItem('clearpcb_title_block', String(showTitleBlock));
             // Restore title block info box state
             const showTitleBlockInfo = settings.titleBlockInfo || false;
-            const titleBlockInfoCheckbox = /** @type {HTMLInputElement|null} */ (document.getElementById('showTitleBlockInfo'));
             app.viewport.setTitleBlockInfo(showTitleBlockInfo);
-            if (titleBlockInfoCheckbox) titleBlockInfoCheckbox.checked = showTitleBlockInfo;
             localStorage.setItem('clearpcb_title_block_info', String(showTitleBlockInfo));
             // Restore title block info data
             if (settings.titleBlockData) {
                 app.viewport.setTitleBlockData(settings.titleBlockData);
             }
+            app.refreshRibbon?.();
         }
     }
 

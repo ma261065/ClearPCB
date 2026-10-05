@@ -27,6 +27,8 @@ export function restoreGridSettings(app, settings) {
 export function syncGridSettings(app) {
     const viewport = app.viewport;
     if (!viewport) return;
+    app._ribbonRefresh?.();
+    app.refreshPcbRibbon?.();
     const ui = app.ui || {};
     if (ui.units) ui.units.value = viewport.units;
     if (ui.gridStyle) ui.gridStyle.value = viewport.gridStyle;

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { CommandHistory } from '../src/core/CommandHistory.js';
-import { bindPcbControls } from '../src/pcb/modules/controls.js';
+import { bindPcbControls, bindPcbHistoryButtons } from '../src/pcb/modules/controls.js';
 import { savePcbProject } from '../src/pcb/modules/editor-actions.js';
 import { setPropertyEditor } from '../src/pcb/modules/property-editors.js';
 
@@ -49,6 +49,9 @@ function fixture() {
         _showSaveToast(message) { events.push(message); },
     };
     bindPcbControls(app);
+    bindPcbHistoryButtons(app, buttons.UndoBtn, buttons.RedoBtn);
+    buttons.RibbonSave.addEventListener('click', () => savePcbProject(app));
+    buttons.RibbonSaveAs.addEventListener('click', () => savePcbProject(app, true));
     const invoke = (source, action) => source === 'ribbon'
         ? buttons[action === 'undo' ? 'UndoBtn' : 'RedoBtn'].click()
         : app.handleKeyDown({ key: action === 'undo' ? 'z' : 'y', ctrlKey: true });

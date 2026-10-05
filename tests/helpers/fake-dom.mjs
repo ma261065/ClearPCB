@@ -197,6 +197,7 @@ export function fakeElement(tagName = 'div') {
             for (let current = node; current; current = current.parentNode) if (current === element) return true;
             return false;
         },
+        matches(selector) { return matches(element, selector); },
         closest(selector) {
             for (let current = element; current; current = current.parentNode) if (matches(current, selector)) return current;
             return null;
@@ -267,6 +268,7 @@ export function installFakeDom({ theme = 'dark' } = {}) {
         activeElement: null,
         createElement: tag => fakeElement(tag),
         createElementNS: (_namespace, tag) => fakeElement(tag),
+        createTextNode: text => Object.assign(fakeElement('#text'), { textContent: String(text) }),
         getElementById: id => documentElement.querySelector(`#${id}`),
         querySelector: selector => documentElement.querySelector(selector),
         querySelectorAll: selector => documentElement.querySelectorAll(selector),

@@ -50,7 +50,7 @@ function fixture(shape = new Circle({ radius: 5 })) {
     project.registerView('schematic', app);
     app._bindUIControls();
     bindKeyboardShortcuts(app);
-    const invoke = (source, action) => source === 'ribbon' ? app.ui[`${action}Btn`].click()
+    const invoke = (source, action) => source === 'ribbon' ? runSchematicHistoryAction(app, action)
         : listeners.get('keydown')({ key: action === 'undo' ? 'z' : 'y', ctrlKey: true,
             target: { tagName: 'svg' }, preventDefault() {} });
     return { app, project, shape, invoke };

@@ -1,9 +1,9 @@
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
 import { PcbDesignSettings } from '../src/core/PcbDesignSettings.js';
 import { ProjectDocument } from '../src/core/ProjectDocument.js';
 import { defaultPcbStackup } from '../src/core/project-format.js';
 import { formatNumberInput } from '../src/core/number-inputs.js';
+import { installFakeDom } from './helpers/fake-dom.mjs';
 
 assert.equal(typeof document, 'undefined');
 const model = new PcbDesignSettings();
@@ -27,35 +27,30 @@ model.update({ clearance: 0.123456 });
 assert.equal(model.serialize().clearance, 0.1235);
 assert.equal(model.getRoutingParams().clearance, 0.123456, 'File rounding does not change routing precision');
 
-globalThis.window = { addEventListener() {} };
 const { default: PCBApp } = await import('../src/ui/PCBApp.js');
 const { bindPcbControls } = await import('../src/pcb/modules/controls.js');
 const { serializePcb, preparePcb } = await import('../src/pcb/modules/project-state.js');
 const { refreshDesignSettings } = await import('../src/pcb/modules/design-settings.js');
 const { normalizePcbSection } = await import('../src/core/project-field-aliases.js');
 const ids = ['pcbTrackWidth', 'pcbClearance', 'pcbViaDiameter', 'pcbViaDrill'];
-const html = readFileSync(new URL('../index.html', import.meta.url), 'utf8');
 const storage = new Map();
 globalThis.localStorage = {
     getItem: key => storage.get(key) ?? null,
     setItem: (key, value) => storage.set(key, value),
 };
-function inputElement(value = '') {
-    const handlers = new Map();
-    return { value, dataset: { numberFormat: 'precise' }, validationMessage: '', reports: 0,
-        matches: () => true, get valueAsNumber() { return Number(this.value); },
-        get validity() { return { customError: !!this.validationMessage }; },
-        addEventListener(event, handler) { handlers.set(event, handler); },
-        setCustomValidity(message) { this.validationMessage = message; },
-        reportValidity() { this.reports++; },
-        fire(event) { handlers.get(event)?.(); },
-    };
+function addElement(id, tag = 'div') {
+    const element = document.createElement(tag);
+    element.id = id;
+    document.body.appendChild(element);
+    return element;
 }
+
 function fixture(prepareModel = () => {}) {
-    const elements = new Map([...ids, 'pcbRouteUnits', 'pcbRouterMode'].map(id =>
-        [id, inputElement(id === 'pcbRouteUnits' ? 'mm' : id === 'pcbRouterMode' ? 'maze' : '')]));
-    globalThis.document = { getElementById: id => elements.get(id) || null,
-        addEventListener() {}, querySelectorAll: () => [] };
+    installFakeDom();
+    for (const id of ['ribbonPCB', 'pcbCanvasContainer', 'pcbCursorPos', 'pcbGridSnap',
+        'pcbViewportInfo', 'pcbZoomPercent', 'pcbStatusTip', 'pcbModeStatus', 'pcbDocTitle']) {
+        addElement(id);
+    }
     const project = new ProjectDocument();
     prepareModel(project.pcbDocument);
     const app = new PCBApp(project);
@@ -66,6 +61,7 @@ function fixture(prepareModel = () => {}) {
     app._clearancesVisible = true;
     app._board3d = { refresh() { changes.board3d++; } };
     bindPcbControls(app);
+    const elements = new Map([...ids, 'pcbRouteUnits', 'pcbRouterMode'].map(id => [id, document.getElementById(id)]));
     assert.equal(app.designSettings, project.pcbDocument.designSettings);
     return { app, changes, elements };
 }
@@ -94,8 +90,7 @@ function fixture(prepareModel = () => {}) {
 }
 const { app, changes, elements } = fixture();
 for (const id of ids) {
-    const tag = html.match(new RegExp(`<input[^>]*id="${id}"[^>]*>`))[0];
-    assert.match(tag, /data-number-format="precise"/, 'Design fields opt out of shared two-decimal formatting');
+    assert.equal(elements.get(id).dataset.numberFormat, 'precise', 'Design fields opt out of shared two-decimal formatting');
     elements.get(id).value = '0.1234';
     formatNumberInput(elements.get(id));
     assert.equal(elements.get(id).value, '0.1234');

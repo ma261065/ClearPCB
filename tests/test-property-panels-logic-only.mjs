@@ -28,7 +28,7 @@ for (const path of PANELS) {
 }
 
 /** Property-row markup belongs to the renderer and the editors' hosts. */
-const RENDERERS = new Set(['shared/ui/property-fields.js', 'schematic/modules/property-host.js']);
+const RENDERERS = new Set(['shared/ui/property-fields.js', 'shared/ui/ribbon.js', 'schematic/modules/property-host.js']);
 const MARKUP = /\bprop-(row|toggle|net-control|net-menu|value|action)\b|props-placeholder/;
 const files = [];
 const walk = dir => {

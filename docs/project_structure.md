@@ -39,13 +39,13 @@ clearpcb/
 │   │   │                       # footprint, reference-text, stroke-font, picture-*)
 │   │   └── ui/                 # UI helpers used by both editors (theme, modal,
 │   │                           # viewport, cursor, export, box-selection, recents,
-│   │                           # ribbon-height, inline-text-overlay,
+│   │                           # ribbon renderer/height, inline-text-overlay,
 │   │                           # property-order, …)
 │   ├── schematic/
 │   │   ├── render/             # Schematic shape/component SVG renderers + WeakMap view state
 │   │   └── modules/            # Schematic-only modules: interaction (mouse, keyboard,
 │   │                           # drag, drawing, draw-states, clipboard, context-menu,
-│   │                           # properties, ribbon, tool, text-edit), model helpers
+│   │                           # properties, ribbon + ribbon-description, tool, text-edit), model helpers
 │   │                           # (wire, label-attachment, pin-wire-connect, commands,
 │   │                           # files, shape-management) and schematic-view (the
 │   │                           # entity-SVG lifecycle boundary)
@@ -92,8 +92,8 @@ clearpcb/
 - Shared code (`core`, `shapes`, `components`, `shared`, `easyeda`) must not
   import either editor.
 - `src/shared/ui/*` holds UI helpers both editors use (modal dialogs, viewport
-  grid controls, cursors, export helpers, box selection, recents, ribbon height,
-  inline text, theme, the Properties panel renderer and control order, pop-up menus,
+  grid controls, cursors, export helpers, box selection, recents, the shared ribbon
+  renderer and ribbon height, inline text, theme, the Properties panel renderer and control order, pop-up menus,
   settled number fields). `src/shared/pcb/*` holds PCB geometry that the project
   model in `core` and the PCB editor both need (board outline and shape
   geometry, footprint generation, reference text, stroke font, picture artwork).
@@ -102,6 +102,13 @@ clearpcb/
 `node tools/check-imports.mjs` enforces these import directions as part of the
 regression gate. `tools/import-baseline.json` lists known violations (currently
 none); new ones fail, and fixed ones must be removed so the baseline only shrinks.
+
+Ribbon markup follows the same ownership rule as Properties panels:
+`src/shared/ui/ribbon.js` builds the DOM from editor-local descriptions in
+`src/schematic/modules/ribbon-description.js` and
+`src/pcb/modules/ribbon-description.js`. `index.html` owns only the empty ribbon
+host elements, while editor control modules bind behaviour to the generated stable
+IDs.
 
 Both editors follow the same module rules. A module that needs another module's
 behaviour imports that module's function and calls it directly; it does not go
@@ -168,15 +175,18 @@ PCB editor:
   `keyboard.js` — the PCB keyboard shortcuts (like `schematic/modules/keyboard.js`),
   with each drawing tool handling its own keys (`handleTrackDrawKey`, …).
 - `pcb/modules/project-state.js` — PCB serialization, preparation and restoration.
-- `pcb/modules/board-shapes.js` — board-shape rendering, selection, interaction and
-  Track conversion; `board-shape-properties.js` — their Properties panel.
+- `pcb/modules/board-shapes.js` — board-shape rendering, selection, interaction,
+  Track conversion and the shared path-edit/profile machinery also used by copper
+  fills; `board-shape-properties.js` — board-shape Properties and shared geometry
+  preview transactions.
 - `pcb/modules/ref-text-geometry.js` — a reference designator's box, hit test and
   inline-edit corners, and the footprint-local ↔ board transforms (pure functions of
   the placement); `ref-text-selection.js` — its selection adapter.
 - Properties panels by object: `track-select.js` (tracks, segments, nodes, vias),
   `pad-properties.js` (pads and the Pad tool), `text-properties.js` (free text, the
   Text tool, and the stroke-text field binder shared with reference designators),
-  `copper-fill-edit.js` (pours), `board-outline-resize.js` (board size before an
+  `copper-fill-edit.js` (pour-specific fill fields plus the fill edit profile used
+  by the shared board-shape path editor), `board-outline-resize.js` (board size before an
   outline shape exists, and the Board Dimensions dialog for a new board),
   `component-properties.js` (components and references) and
   `multi-selection-properties.js` (the shared properties of a mixed selection).

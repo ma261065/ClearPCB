@@ -4,17 +4,7 @@
  * @param {object} app - Application state.
  */
 export function updateUndoRedoButtons(app) {
-    const canUndo = app.history.canUndo();
-    const canRedo = app.history.canRedo();
-
-    if (app.ui.undoBtn) {
-        app.ui.undoBtn.disabled = !canUndo;
-        app.ui.undoBtn.style.opacity = canUndo ? '1' : '0.4';
-    }
-    if (app.ui.redoBtn) {
-        app.ui.redoBtn.disabled = !canRedo;
-        app.ui.redoBtn.style.opacity = canRedo ? '1' : '0.4';
-    }
+    app.refreshRibbon?.();
 }
 
 /**

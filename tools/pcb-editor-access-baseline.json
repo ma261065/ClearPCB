@@ -67,12 +67,7 @@
     "_updatePcbCulling"
   ],
   "src/pcb/modules/controls.js": [
-    "_ensureViewport",
-    "_last2DSide",
-    "_markDirty",
-    "_syncHistoryButtons",
-    "_syncPcbHomeToolHighlight",
-    "_updateGridDropdown"
+    "_syncPcbHomeToolHighlight"
   ],
   "src/pcb/modules/copper-cuts.js": [
     "_ensureSvgDefs"
@@ -88,18 +83,8 @@
     "_snapToGrid"
   ],
   "src/pcb/modules/copper-fill-edit.js": [
-    "_fillDrag",
-    "_fillEdit",
     "_refreshFillProperties",
     "_showFillProperties"
-  ],
-  "src/pcb/modules/copper-fill-selection.js": [
-    "_fillDrag",
-    "_fillEdit",
-    "_refreshFillProperties"
-  ],
-  "src/pcb/modules/design-settings.js": [
-    "_markDirty"
   ],
   "src/pcb/modules/drc-refresh.js": [
     "_adoptDRCResult",
@@ -202,10 +187,8 @@
     "_endDrag",
     "_endRefDrag",
     "_endTextDrag",
-    "_fillDrag",
     "_fillDraw",
     "_groupDrag",
-    "_handleFillDrag",
     "_handleRefDrag",
     "_handleTextDrag",
     "_pasteDrop",
@@ -310,7 +293,6 @@
   ],
   "src/pcb/modules/selection-registry.js": [
     "_drawRefOverlay",
-    "_fillEdit",
     "_groupDrag",
     "_pcbSelection",
     "_refOverlay"

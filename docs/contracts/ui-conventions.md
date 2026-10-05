@@ -45,6 +45,31 @@ Schematic reactivation also rechecks the cache after resizing while hidden.
 Panel classes and height are restored if measurement fails. Existing flex layout,
 inactive-panel hiding and maximum-height behavior are unchanged.
 
+### Ribbon: description, renderer
+
+The schematic and PCB ribbons are described as plain data in
+`schematic/modules/ribbon-description.js` and `pcb/modules/ribbon-description.js`.
+A description lists tabs, panels, titled groups and items; items cover the shared
+control shapes currently used by both editors: buttons, tool buttons, checkboxes,
+selects, dropdowns, split buttons, menu items and generic structured elements for
+rich help/flyout content. Items also carry their behaviour (`run`, `onChange` and
+`onInput`) and state accessors (`active`, `disabled`, `checked`, `value`,
+dynamic labels and dynamic options). `shared/ui/ribbon.js` is the only module
+that turns those descriptions into ribbon DOM, binds those handlers and refreshes
+state; `index.html` keeps only the empty `#ribbonSchematic` and `#ribbonPCB`
+hosts.
+
+Ribbons keep stable IDs, classes, `data-*` attributes, titles, labels and order so
+existing controller code and browser scenarios can continue to wire behaviour by
+ID. The renderer exposes a refresh API for description-owned state accessors
+(`active`, `disabled`, `checked`, `value`), so a visual redesign should change the
+renderer rather than rewriting either editor's description. Truly custom or
+externally populated areas remain slots: recent-file menus, the schematic shape
+options container, the PCB layer picker/panel, DRC status, and the schematic/PCB
+Properties hosts (`#propertiesPanel`, `#pcbPropertiesPanel`, `#pcbPropsItems`).
+`test-ribbons-logic-only` enforces that ribbon descriptions do not touch the DOM
+and that `index.html` contains no static ribbon controls.
+
 Every Properties panel, in both editors, lists its controls in one order
 defined by `PROPERTY_ORDER` in `shared/ui/property-order.js`. Panels show only
 the rows that apply; whatever is shown keeps its place:

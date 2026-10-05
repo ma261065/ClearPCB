@@ -4,9 +4,11 @@ import { runInNewContext } from 'node:vm';
 
 const read = path => readFileSync(new URL(`../${path}`, import.meta.url), 'utf8');
 const html = read('index.html');
-assert.doesNotMatch(html, /\btraces?\b/i, 'PCB help and tooltips consistently say track');
-assert.match(html, /Clear all tracks and restore ratlines/);
-assert.match(html, /Tracks and vias will appear/);
+const ribbon = read('src/pcb/modules/ribbon-description.js');
+const uiText = `${html}\n${ribbon}`;
+assert.doesNotMatch(uiText, /\btraces?\b/i, 'PCB help and tooltips consistently say track');
+assert.match(uiText, /Clear all tracks and restore ratlines/);
+assert.match(uiText, /Tracks and vias will appear/);
 
 // Drive the real SES import: file picker -> FileReader -> parser -> status line.
 let picker;

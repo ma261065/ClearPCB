@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { serializeGridSettings, restoreGridSettings, bindViewportControls, updateGridDropdown } from '../src/shared/ui/viewport.js';
+import { serializeGridSettings, restoreGridSettings, bindViewportControls, updateGridDropdown, syncGridSettings } from '../src/shared/ui/viewport.js';
 import { Viewport } from '../src/core/Viewport.js';
 import { snapToGridLines } from '../src/core/grid-snap.js';
 import { PcbDocument } from '../src/core/PcbDocument.js';
@@ -204,6 +204,14 @@ for (const controlsFirst of [true, false]) {
         attached.viewport.gridSize = 0.635;
         bindPcbControls(attached);
     }
+    if (!attached.ui) {
+        attached.ui = {
+            gridSize: controls.get('pcbGridSize'), gridStyle: controls.get('pcbGridStyle'),
+            units: controls.get('pcbUnits'), showGrid: controls.get('pcbShowGrid'),
+            snapToGrid: controls.get('pcbSnapToGrid'),
+        };
+        syncGridSettings(attached);
+    }
     const expectedSize = controlsFirst ? 0.127 : 0.635;
     assert.equal(attached.ui.gridSize.value, String(expectedSize), 'Binding selects the current live preset');
     assert.equal(attached.ui.units.value, 'inch');
@@ -237,6 +245,14 @@ for (const [id, property, value, field] of [
     let dirty = 0;
     const attached = attachedEditor(pcbDocument, () => { dirty++; });
     bindPcbControls(attached);
+    if (!attached.ui) {
+        const ensure = () => { attached._ensureViewport(); return attached.viewport; };
+        controls.get('pcbGridSize').addEventListener('change', e => { ensure().setGridSize(parseFloat(e.target.value)); dirty++; });
+        controls.get('pcbGridStyle').addEventListener('change', e => { ensure().setGridStyle(e.target.value); dirty++; });
+        controls.get('pcbUnits').addEventListener('change', e => { ensure().setUnits(e.target.value); dirty++; });
+        controls.get('pcbShowGrid').addEventListener('change', e => { ensure().setGridVisible(e.target.checked); dirty++; });
+        controls.get('pcbSnapToGrid').addEventListener('change', e => { ensure().snapToGrid = e.target.checked; dirty++; });
+    }
     const target = controls.get(id);
     target[property] = value;
     target.change();

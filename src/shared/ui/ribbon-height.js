@@ -11,6 +11,7 @@ export function bindRibbonHeight(ribbon) {
 
     const retain = () => {
         if (!container) return;
+        if (typeof container.getBoundingClientRect !== 'function') return;
         const { width } = container.getBoundingClientRect();
         if (!width || (width === retainedWidth && container.style.minHeight === retainedHeight)) return;
 

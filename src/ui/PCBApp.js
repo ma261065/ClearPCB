@@ -8,11 +8,10 @@ import { Viewport } from '../core/Viewport.js';
 import { snapToViewportGrid } from '../core/grid-snap.js';
 import { PcbDocument } from '../core/PcbDocument.js';
 import { commitDesignValue, renderDesignSettings } from '../pcb/modules/design-settings.js';
-import { loadAndApplyTheme, toggleTheme as toggleSharedTheme, syncThemeToggleButtons } from '../shared/ui/theme.js';
+import { loadAndApplyTheme } from '../shared/ui/theme.js';
 import { renderFootprint, applyRefGeometry, REF_DEFAULT_SIZE, REF_DEFAULT_STROKE } from '../shared/pcb/footprint.js';
 import { updateGridDropdown, restoreGridSettings, serializeGridSettings } from '../shared/ui/viewport.js';
 import { setToolCursor } from '../shared/ui/cursor.js';
-import { bindRibbonHeight } from '../shared/ui/ribbon-height.js';
 import { applyTextConnectionGuide, setInlineTextInputActive } from '../shared/ui/inline-text-overlay.js';
 import { PCB_LAYERS, PCB_OVERLAYS, PCB_COPPER_FILLS, pcbLayerName, isLayerLocked, isViaLocked, isLayerVisible, isViaVisible, pcbLayerHoverColor, pcbLayerSelectionColor, isCopperFillLocked, isCopperFillVisible } from '../pcb/modules/layers.js';
 import { exportDSN, importSES } from '../pcb/modules/dsn.js';
@@ -22,7 +21,7 @@ import { scheduleDrcRefresh, runDrcNow, invalidateDrcRefresh, disposeDrcRefresh 
 import { cancelPcbPosePreviews, disposePcbPropertyEditors, hasPcbEditInProgress } from '../pcb/modules/edit-lifecycle.js';
 import { isPcbDrawing } from '../pcb/modules/pcb-interactions.js';
 import { handlePcbKeyDown } from '../pcb/modules/keyboard.js';
-import { PCB_CROSSHAIR_TOOLS, cancelPcbDrawingMode, preparePcbRibbonTransition } from '../pcb/modules/tool-lifecycle.js';
+import { PCB_CROSSHAIR_TOOLS, cancelPcbDrawingMode } from '../pcb/modules/tool-lifecycle.js';
 import { buildCopperObstacles } from '../pcb/modules/copper-obstacles.js';
 import { buildRouteInput } from '../pcb/modules/route-input.js';
 import { hasFabricationContent } from '../pcb/modules/fabrication-snapshot.js';
@@ -215,7 +214,6 @@ export default class PCBApp {
         this.placementState = this.pcbDocument.placementState;
         this.designSettings = this.pcbDocument.designSettings;
         this.ribbon = document.getElementById('ribbonPCB');
-        this.themeToggle = document.getElementById('pcbThemeToggle');
         this.canvasContainer = document.getElementById('pcbCanvasContainer');
         this.status = {
             cursorPos: document.getElementById('pcbCursorPos'),
@@ -233,6 +231,12 @@ export default class PCBApp {
         this.syncPcbViewToggles = null;
         this.currentTool = 'select';
         this.activeLayer = 'top-copper';
+        /** @type {(() => void)|null} Refreshes renderer-owned PCB ribbon state. */
+        this.refreshPcbRibbon = null;
+        /** @type {((tabId: string, userInitiated?: boolean) => void)|null} */
+        this.activatePcbRibbonTab = null;
+        /** @type {(() => void)|null} Retains the measured PCB ribbon height. */
+        this.retainPcbRibbonHeight = null;
 
         /** @type {SVGGElement|null} Group containing all placed footprints */
         this._footprintGroup = null;
@@ -384,12 +388,11 @@ export default class PCBApp {
     initialize() {
         if (this._initialized) return;
 
-        this._bindRibbonTabs();
         bindPcbControls(this);
         initDebugTooltip(this);
         this._bindThemeToggle();
         loadAndApplyTheme();
-        syncThemeToggleButtons(['themeToggle', 'pcbThemeToggle']);
+        this.refreshPcbRibbon?.();
         this._initDRC();
 
         this._initialized = true;
@@ -413,7 +416,7 @@ export default class PCBApp {
         this._active = true;
         setInlineTextInputActive(this._textEdit?.input, true);
 
-        this._retainRibbonHeight?.();
+        (this.retainPcbRibbonHeight || this['_retainRibbonHeight'])?.();
         this._ensureViewport();
         this._updateCursorForTool();
         this._syncPcbHomeToolHighlight?.();
@@ -514,12 +517,11 @@ export default class PCBApp {
 
     /** Enable/disable PCB home-tab Undo/Redo buttons from history state. */
     _syncHistoryButtons() {
-        const undoBtn = /** @type {HTMLButtonElement|null} */ (document.getElementById('pcbUndoBtn'));
-        const redoBtn = /** @type {HTMLButtonElement|null} */ (document.getElementById('pcbRedoBtn'));
-        const canUndo = !!this._pasteDrop || !!this.history?.canUndo?.();
-        const canRedo = !!this.history?.canRedo?.();
-        if (undoBtn) undoBtn.disabled = !canUndo;
-        if (redoBtn) redoBtn.disabled = !canRedo;
+        this.refreshPcbRibbon?.();
+    }
+
+    syncPcbHistoryButtons() {
+        this._syncHistoryButtons();
     }
 
     /** Whether there is any pasteable payload on the PCB clipboard. */
@@ -535,6 +537,10 @@ export default class PCBApp {
         );
     }
 
+    hasPcbClipboardData() {
+        return this._hasPcbClipboardData();
+    }
+
     /** Whether current selection can be copied/cut from PCB. */
     _canCopyCutPcbSelection() {
         return getPcbSelection(this, 'track').length > 0
@@ -543,6 +549,14 @@ export default class PCBApp {
             || getPcbSelection(this, 'shape').some(shape => shape.layer !== 'board-outline')
             || getPcbSelection(this, 'text').length > 0
             || getPcbSelection(this, 'fill').length > 0;
+    }
+
+    canCopyCutPcbSelection() {
+        return this._canCopyCutPcbSelection();
+    }
+
+    canUndoPcbHistory() {
+        return !!this._pasteDrop || !!this.history?.canUndo?.();
     }
     /** Select every visible PCB object not on a locked layer; individually locked objects are included. */
     selectAll() {
@@ -579,14 +593,7 @@ export default class PCBApp {
 
     /** Enable/disable PCB ribbon clipboard buttons to match current state. */
     syncClipboardButtons() {
-        const canCopyCut = this._canCopyCutPcbSelection();
-        const canPaste = this._hasPcbClipboardData();
-        for (const id of ['pcbCopyHome', 'pcbCopyProps', 'pcbCutHome', 'pcbCutProps', 'pcbPasteHome', 'pcbPasteProps']) {
-            const el = /** @type {HTMLButtonElement|null} */ (document.getElementById(id));
-            if (!el) continue;
-            if (id.includes('Paste')) el.disabled = !canPaste;
-            else el.disabled = !canCopyCut;
-        }
+        this.refreshPcbRibbon?.();
     }
 
     /**
@@ -818,6 +825,11 @@ export default class PCBApp {
         // Apply current theme to the viewport
         this.viewport.updateTheme();
         this._updateViewportStatus();
+    }
+
+    ensureViewport() {
+        this._ensureViewport();
+        return this.viewport;
     }
 
     /** Wire the canvas's mouse events (pcb/modules/mouse.js); a seam tests bind through. */
@@ -1590,6 +1602,10 @@ export default class PCBApp {
         this._scheduleDRC();
     }
 
+    markDirty() {
+        this._markDirty();
+    }
+
     /**
      * Show a transient "Saved" toast anchored to the PCB status-bar filename.
      * Mirrors the schematic editor's toast, but anchors to the PCB filename so
@@ -1788,52 +1804,8 @@ export default class PCBApp {
     }
 
     _bindRibbonTabs() {
-        if (!this.ribbon) return;
-
-        const tabs = this.ribbon.querySelectorAll('.ribbon-tab[data-tab]');
-        const panels = this.ribbon.querySelectorAll('.ribbon-panel');
-        let activeTabId = /** @type {HTMLElement|null} */ (
-            this.ribbon.querySelector('.ribbon-tab.active')
-        )?.dataset.tab || null;
-
-        const retainRibbonHeight = bindRibbonHeight(this.ribbon);
-        this._retainRibbonHeight = retainRibbonHeight;
-
-        const setActive = (tabId, userInitiated = false) => {
-            preparePcbRibbonTransition(this, activeTabId, tabId, userInitiated);
-            retainRibbonHeight();
-            tabs.forEach(tab => {
-                const tabEl = /** @type {HTMLElement} */ (tab);
-                tabEl.classList.toggle('active', tabEl.dataset.tab === tabId);
-            });
-
-            panels.forEach(panel => {
-                const panelEl = /** @type {HTMLElement} */ (panel);
-                panelEl.classList.toggle('active', panelEl.dataset.panel === tabId);
-            });
-            activeTabId = tabId;
-
-            this.syncClipboardButtons?.();
-
-            if (tabId === 'pcb-home') {
-                this._syncPcbHomeToolHighlight?.();
-            }
-
-            // The DRC runs live only while the Design tab is active. The
-            // slide-in problem panel, however, stays open across tab switches
-            // — it's dismissed only by re-clicking the DRC button or its X.
-            this._getDrcPresentation().setDesignActive(tabId === 'pcb-design');
-        };
-
-        this._activateRibbonTab = setActive;
-
-        tabs.forEach(tab => {
-            tab.addEventListener('click', () => {
-                const tabEl = /** @type {HTMLElement} */ (tab);
-                if (!tabEl.dataset.tab) return;
-                setActive(tabEl.dataset.tab, true);
-            });
-        });
+        // Ribbon tabs are rendered and bound by shared/ui/ribbon.js from the
+        // PCB ribbon description. This legacy seam remains for older tests.
     }
 
     // ── Board Outline ─────────────────────────────────────────────
@@ -2008,7 +1980,7 @@ export default class PCBApp {
      * @param {string} tabId - `pcb-home`, `pcb-properties`, `pcb-design`, …
      */
     setActiveRibbonTab(tabId) {
-        this._activateRibbonTab?.(tabId);
+        this.activatePcbRibbonTab?.(tabId);
     }
 
     /** Every net on the board or in the netlist, sorted: the Properties Net menu. */
@@ -2292,12 +2264,7 @@ export default class PCBApp {
         window.addEventListener('clearpcb-theme-changed', () => {
             this.viewport?.updateTheme?.();
             for (const compId of getPcbSelection(this, 'reftext')) this._refreshRefHighlight(compId);
-        });
-        if (!this.themeToggle) return;
-
-        this.themeToggle.addEventListener('click', () => {
-            const newTheme = toggleSharedTheme();
-            syncThemeToggleButtons(['themeToggle', 'pcbThemeToggle'], newTheme);
+            this.refreshPcbRibbon?.();
         });
     }
 
@@ -4141,6 +4108,10 @@ export default class PCBApp {
         });
     }
 
+    getDrcPresentation() {
+        return this._getDrcPresentation();
+    }
+
     get _drcViolations() { return this._getDrcPresentation().violations; }
     set _drcViolations(value) { this._getDrcPresentation().violations = value; }
     get _drcActive() { return this._getDrcPresentation().designActive; }
@@ -4745,6 +4716,15 @@ export default class PCBApp {
         openBoard3DViewer(this, { view: '3d' });
     }
 
+    currentBoardView() {
+        const p = this._board3d;
+        return p && !p.closed && !p.hidden ? p.view : null;
+    }
+
+    last2DSide() {
+        return this._last2DSide || 'top';
+    }
+
     /**
      * Toggle the flat 2D board visualiser for one side. Reuses the same sliding
      * panel as the 3D view (the two buttons are mutually exclusive): clicking
@@ -4769,13 +4749,7 @@ export default class PCBApp {
      * buttons. Only one is highlighted at a time (or neither, when hidden).
      */
     _update3DButtonState() {
-        const btn3d = document.getElementById('pcb3dView');
-        const btn2d = document.getElementById('pcb2dView');
-        const p = this._board3d;
-        const live = !!(p && !p.closed && !p.hidden);
-        const view = live ? p.view : null;
-        btn3d?.classList.toggle('active', view === '3d');
-        btn2d?.classList.toggle('active', view === 'top' || view === 'bottom');
+        this.refreshPcbRibbon?.();
     }
 
     /**

@@ -9,8 +9,6 @@ const INPUTS = {
 };
 const MINIMUM_MM = { trackWidth: 0.05, clearance: 0.05, viaDiameter: 0.1, viaDrill: 0.05 };
 
-const input = id => /** @type {HTMLInputElement|null} */ (document.getElementById(id));
-
 function saveDefaults(app) {
     try {
         localStorage.setItem(STORAGE_KEY, JSON.stringify(app.designSettings.values));
@@ -20,21 +18,7 @@ function saveDefaults(app) {
 }
 
 export function renderDesignSettings(app) {
-    const values = app.designSettings.values;
-    const factor = values.units === 'inch' ? 1 / 25.4 : 1;
-    const digits = values.units === 'inch' ? 4 : 3;
-    const units = input('pcbRouteUnits'), router = input('pcbRouterMode');
-    if (units) units.value = values.units;
-    if (router) router.value = values.router;
-    for (const [key, id] of Object.entries(INPUTS)) {
-        const element = input(id);
-        if (!element) continue;
-        element.value = String(Number((values[key] * factor).toFixed(digits)));
-        element.step = values.units === 'inch' ? '0.001' : '0.01';
-        element.min = String(MINIMUM_MM[key] * factor);
-        element.max = String(Number((PCB_DESIGN_MAX_MM[key] * factor).toFixed(digits)));
-        element.setCustomValidity('');
-    }
+    app.refreshPcbRibbon?.();
 }
 
 /** Refresh controls and local defaults after model adoption, without editing data. */
@@ -45,8 +29,7 @@ export function refreshDesignSettings(app) {
 
 /** Bind presentation to the model; never read rounded controls back on unit changes. */
 export function bindDesignSettings(app) {
-    const units = input('pcbRouteUnits'), router = input('pcbRouterMode');
-    if (!units && !router && !Object.values(INPUTS).some(id => input(id))) return;
+    if (!app.designSettings) return;
     try {
         const stored = app.designSettings.hasAppliedSettings
             ? null : JSON.parse(localStorage.getItem(STORAGE_KEY) || 'null');
@@ -63,29 +46,6 @@ export function bindDesignSettings(app) {
         console.warn('Could not restore PCB design defaults:', error);
     }
     renderDesignSettings(app);
-
-    units?.addEventListener('change', () => {
-        if (!app.designSettings.update({ units: units.value })) return;
-        renderDesignSettings(app);
-        saveDefaults(app);
-        app._markDirty?.();
-    });
-    router?.addEventListener('change', () => {
-        if (!app.designSettings.update({ router: router.value })) return;
-        saveDefaults(app);
-        app._markDirty?.();
-    });
-
-    for (const [key, id] of Object.entries(INPUTS)) {
-        const element = input(id);
-        if (!element) continue;
-        element.addEventListener('input', () => {
-            commitDesignInput(app, key, element, app.designSettings.values.units);
-        });
-        element.addEventListener('change', () => {
-            if (readDesignInput(element, app.designSettings.values.units, key) === null) element.reportValidity();
-        });
-    }
 }
 
 function readDesignValue(key, rawValue, units) {
@@ -111,7 +71,7 @@ function readDesignInput(element, units, key) {
 function commitDesignUpdate(app, key, value) {
     if (app.designSettings.update({ [key]: value })) {
         saveDefaults(app);
-        app._markDirty?.();
+        app.markDirty?.();
         if (areClearancesVisible(app)) app.showClearances?.(true);
         app.refreshFills?.();
         refreshBoardView(app);

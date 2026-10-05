@@ -17,18 +17,16 @@ import { warmKiCadIndex } from '../components/KiCadFetcher.js';
 // to keep the import block manageable.
 import { bindMouseEvents } from '../schematic/modules/mouse.js';
 import { bindKeyboardShortcuts } from '../schematic/modules/keyboard.js';
-import { runSchematicHistoryAction } from '../schematic/modules/editor-actions.js';
 import { bindPropertiesPanel, applyCommonProperty, updatePropertiesPanel, hasSchematicPropertyPreview } from '../schematic/modules/properties.js';
 import { bindRibbon, updateShapePanelOptions } from '../schematic/modules/ribbon.js';
 import { setToolCursor } from '../shared/ui/cursor.js';
-import { bindViewportControls, updateGridDropdown, fitToContent } from '../shared/ui/viewport.js';
+import { updateGridDropdown, fitToContent } from '../shared/ui/viewport.js';
 import { bindThemeToggle, toggleTheme, loadTheme } from '../schematic/modules/theme.js';
 import { captureShapeState, applyShapeState } from '../schematic/modules/selection.js';
 import { createSchematicHistory, showUnlockMenu } from '../schematic/modules/locks.js';
 import { runSchematicDeleteAction } from '../schematic/modules/editor-actions.js';
 import { copySelection, cancelPaste } from '../schematic/modules/clipboard.js';
 import { removeBoxSelectElement } from '../shared/ui/box-selection.js';
-import { bindPaperEvents } from '../schematic/modules/paper.js';
 import * as WireTools from '../schematic/modules/wire.js';
 import * as DrawingTools from '../schematic/modules/drawing.js';
 import * as ComponentTools from '../schematic/modules/components.js';
@@ -193,15 +191,7 @@ export default class SchematicApp {
             gridSnap: document.getElementById('gridSnap'),
             zoomPercent: document.getElementById('zoomPercent'),
             viewportInfo: document.getElementById('viewportInfo'),
-            gridSize: document.getElementById('gridSize'),
-            gridStyle: document.getElementById('gridStyle'),
-            units: document.getElementById('units'),
-            showGrid: document.getElementById('showGrid'),
-            snapToGrid: document.getElementById('snapToGrid'),
             docTitle: document.getElementById('docTitle'),
-            undoBtn: document.getElementById('undoBtn'),
-            redoBtn: document.getElementById('redoBtn'),
-            propertiesPanel: document.getElementById('propertiesPanel'),
         };
 
         document.querySelector('.ribbon')?.addEventListener('contextmenu', (e) => {
@@ -225,6 +215,8 @@ export default class SchematicApp {
         this._componentCodeTooltipPosition = null;
         this.showComponentDebugTooltip = false;
         this._showSaveToast = null;
+        /** @type {(() => void)|null} Refreshes renderer-owned schematic ribbon state. */
+        this.refreshRibbon = null;
         this._componentCodeTooltip.addEventListener('click', (e) => {
             if (e.target instanceof Element && e.target.classList.contains('component-code-tooltip-close')) {
                 this.updateComponentCodeTooltip(null, null, { forceHide: true });
@@ -250,8 +242,6 @@ export default class SchematicApp {
         this._bindUIControls();
         this._bindMouseEvents();
         this._bindKeyboardShortcuts();
-        bindPaperEvents(this);
-
         // A lock icon click offers to unlock that object (bubbles up from the icon).
         this.viewport.svg.addEventListener('unlock-shape', (e) => {
             const { shape, clientX, clientY } = /** @type {CustomEvent} */ (e).detail || {};
@@ -754,18 +744,10 @@ export default class SchematicApp {
      * Binds viewport controls, undo/redo, theme, and paper events.
      */
     _bindUIControls() {
-        bindViewportControls(this);
+        // Ribbon renders controls that viewport/history/theme binding uses.
+        this._bindRibbon();
         
         // Ribbon handles file/export actions
-        
-        // Undo/Redo buttons
-        this.ui.undoBtn.addEventListener('click', () => {
-            runSchematicHistoryAction(this, 'undo');
-        });
-        
-        this.ui.redoBtn.addEventListener('click', () => {
-            runSchematicHistoryAction(this, 'redo');
-        });
         
         // Theme toggle
         bindThemeToggle(this);
@@ -779,8 +761,6 @@ export default class SchematicApp {
         // Properties panel
         this._bindPropertiesPanel();
 
-        // Ribbon
-        this._bindRibbon();
     }
 
     /**
@@ -918,6 +898,10 @@ export default class SchematicApp {
         }
     }
 
+    async clearComponentCaches() {
+        return this._clearComponentCaches();
+    }
+
     // ==================== Modal helpers ====================
 
     async alert(message, options = {}) {
@@ -938,6 +922,10 @@ export default class SchematicApp {
     _toggleTheme() {
         toggleTheme(this);
     }
+
+    toggleTheme() {
+        this._toggleTheme();
+    }
     
     /**
      * Loads the saved theme from storage on startup.
@@ -951,6 +939,7 @@ export default class SchematicApp {
      */
     _updateGridDropdown() {
         updateGridDropdown(this);
+        this.refreshRibbon?.();
     }
 
     /**
@@ -1265,5 +1254,13 @@ export default class SchematicApp {
     async _importEasyEDA() {
         if (this.project) return await this.project.importEasyEDA();
         await FileTools.importEasyEDA(this);
+    }
+
+    async importEasyEDA() {
+        return await this._importEasyEDA();
+    }
+
+    showSaveToast(text = 'Saved') {
+        this._showSaveToast?.(text);
     }
 }

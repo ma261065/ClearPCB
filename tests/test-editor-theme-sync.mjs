@@ -54,8 +54,14 @@ setPcbSelection(pcb, [{ kind: 'reftext', object: 'part' }]);
 highlights.length = 0;
 pcb._bindThemeToggle();
 schematicUpdates = 0;
-for (const [index, id] of ['pcbThemeToggle', 'themeToggle', 'themeToggle', 'pcbThemeToggle'].entries()) {
-    buttons.get(id).dispatchEvent(new Event('click'));
+const toggles = [
+    () => toggleTheme(schematic),
+    () => shared.toggleTheme(),
+    () => toggleTheme(schematic),
+    () => shared.toggleTheme(),
+];
+for (const [index, run] of toggles.entries()) {
+    run();
     const expected = index % 2 === 0 ? 'light' : 'dark';
     assert.equal(shared.getSavedTheme(), expected);
     assert.equal(attributes.get('data-theme') || 'dark', expected);
@@ -63,6 +69,6 @@ for (const [index, id] of ['pcbThemeToggle', 'themeToggle', 'themeToggle', 'pcbT
     assert.equal(pcbUpdates, index + 1, 'Either toggle refreshes PCB once');
     assert.deepEqual(highlights, Array(index + 1).fill('part'), 'Either toggle refreshes the selected reference highlight');
     assert.equal(symbols, index + 1, 'Either toggle refreshes schematic symbols');
-    for (const button of buttons.values()) assert.equal(button.textContent, shared.getThemeIcon(expected));
+    assert.equal(shared.getThemeIcon(expected), expected === 'light' ? '☀️' : '🌙');
 }
-console.log('PASS either editor theme toggle updates both viewports, schematic symbols, button icons, and saved theme');
+console.log('PASS either editor theme action updates both viewports, schematic symbols, and saved theme');

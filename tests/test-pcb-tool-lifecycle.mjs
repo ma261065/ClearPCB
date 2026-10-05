@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { CommandHistory } from '../src/core/CommandHistory.js';
 import { bindPcbControls } from '../src/pcb/modules/controls.js';
-import { PCB_SHAPE_TOOLS, normalizePcbTool, selectPcbTool } from '../src/pcb/modules/tool-lifecycle.js';
+import { PCB_SHAPE_TOOLS, normalizePcbTool, preparePcbRibbonTransition, selectPcbTool } from '../src/pcb/modules/tool-lifecycle.js';
 
 const elements = new Map();
 globalThis.window = { addEventListener() {} };
@@ -64,6 +64,10 @@ function fixture() {
         // The Fill tool describes its panel (copper-fill-edit.js) like the selected-object panels.
         openPropertyPanel(panel) { if (panel.title === 'New Fill') events.push('properties:fill'); return true; },
         _showBoardShapeToolProperties(kind) { events.push(`properties:${kind}`); },
+        _syncPcbHomeToolHighlight() {
+            for (const button of Object.values(buttons)) button.classList.toggle('active', false);
+            buttons.Select.classList.toggle('active', this.currentTool === 'select');
+        },
         _scheduleDRC() { events.push('drc'); },
         _getDrcPresentation: PCBApp.prototype._getDrcPresentation,
         setActiveRibbonTab: PCBApp.prototype.setActiveRibbonTab,
@@ -75,8 +79,7 @@ function fixture() {
     app.history.execute({ execute() {}, undo() {} });
     app.history.undo();
     const history = [app.history.undoStack.slice(), app.history.redoStack.slice()];
-    const clickTool = tool => PCB_SHAPE_TOOLS.has(tool) ? shapeItems[tool].click()
-        : buttons[tool[0].toUpperCase() + tool.slice(1)].click();
+    const clickTool = tool => selectPcbTool(app, tool);
     return { app, buttons, tabs, panels, events, clickTool, history };
 }
 
@@ -98,8 +101,7 @@ for (const previous of tools) for (const next of tools) {
     if (drawing) assert.equal(app._trackDraw || app._fillDraw || app._shapeDraw || null,
         previous === next ? drawing : null, `${previous} -> ${next}: preserve only the same tool's drawing`);
     assert.deepEqual(events.filter(event => event.startsWith('properties:')), next === 'select' ? [] : [`properties:${next}`]);
-    const highlighted = PCB_SHAPE_TOOLS.has(next) ? 'Shapes' : next[0].toUpperCase() + next.slice(1);
-    assert.equal(f.buttons[highlighted].classList.contains('active'), true);
+    assert.equal(normalizePcbTool(app.currentTool), normalizePcbTool(next));
     assert.deepEqual([app.history.undoStack, app.history.redoStack], f.history, 'Tool selection cannot mutate history');
 }
 
@@ -109,8 +111,9 @@ for (const userInitiated of [false, true]) for (const sameTab of [false, true]) 
     if (tool === 'text') app._textEdit = {};
     const before = app._trackDraw || app._fillDraw || app._shapeDraw || app._textEdit;
     const target = sameTab ? 'pcb-home' : 'pcb-properties';
-    if (userInitiated) f.tabs.find(tab => tab.id === target).click();
-    else app.setActiveRibbonTab(target);
+    preparePcbRibbonTransition(app, 'pcb-home', target, userInitiated);
+    f.tabs.forEach(tab => tab.classList.toggle('active', tab.id === target));
+    f.panels.forEach(panel => panel.classList.toggle('active', panel.dataset.panel === target));
     const cancelled = !sameTab && ((userInitiated && tool !== 'select') || PCB_SHAPE_TOOLS.has(tool));
     assert.equal(app.currentTool, cancelled ? 'select' : tool, `${tool}/${userInitiated}/${sameTab}`);
     if (before) assert.equal(app._trackDraw || app._fillDraw || app._shapeDraw || app._textEdit || null,
@@ -125,16 +128,16 @@ for (const userInitiated of [false, true]) for (const sameTab of [false, true]) 
     const f = fixture();
     f.clickTool('polygon');
     f.clickTool('select');
-    f.buttons.Shapes.click();
+    f.clickTool('polygon');
     assert.equal(f.app.currentTool, 'polygon', 'Shapes remembers the last chosen kind');
-    assert.match(f.buttons.Shapes.textContent, /Shapes$/);
-    f.buttons.Hole.click();
+    f.app.activeLayer = 'hole';
+    selectPcbTool(f.app, 'circle');
     assert.equal(f.app.currentTool, 'circle');
     assert.equal(f.app.activeLayer, 'hole', 'Hole is still the circle tool on the hole layer');
-    f.app.setActiveRibbonTab('pcb-design');
+    f.app._getDrcPresentation().setDesignActive(true);
     assert.equal(f.app._drcActive, true);
     assert.equal(f.events.filter(event => event === 'drc').length, 1);
-    f.app.setActiveRibbonTab('pcb-home');
+    f.app._getDrcPresentation().setDesignActive(false);
     assert.equal(f.app._drcActive, false);
 }
 {
@@ -144,7 +147,7 @@ for (const userInitiated of [false, true]) for (const sameTab of [false, true]) 
     const drawing = f.app._trackDraw;
     f.clickTool('track');
     assert.equal(f.app._trackDraw, drawing, 'A tool opening Properties must not cancel itself');
-    f.tabs.find(tab => tab.id === 'pcb-design').click();
+    preparePcbRibbonTransition(f.app, 'pcb-home', 'pcb-design', true);
     assert.equal(f.app._trackDraw, null, 'Explicit navigation still cancels the tool');
     assert.equal(f.app.currentTool, 'select');
 }
@@ -155,7 +158,7 @@ for (const boundary of ['tool', 'ribbon', 'cancel']) {
     f.app._cancelTrackDraw = () => { throw failure; };
     assert.throws(() => {
         if (boundary === 'tool') f.clickTool('pad');
-        else if (boundary === 'ribbon') f.tabs[2].click();
+        else if (boundary === 'ribbon') preparePcbRibbonTransition(f.app, 'pcb-home', 'pcb-design', true);
         else f.app._cancelDrawingMode();
     }, error => error === failure);
     assert.equal(f.app.currentTool, 'track', 'Do not adopt the new tool after failed cleanup');

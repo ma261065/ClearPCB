@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { installFakeDom } from './helpers/fake-dom.mjs';
 
 globalThis.window = { addEventListener() {} };
 globalThis.localStorage = { getItem() { return null; } };
@@ -161,19 +162,10 @@ for (const outcome of ['success', 'declined', 'busy', 'reset-error']) {
 }
 {
     const calls = [];
-    const node = () => {
-        const handlers = new Map(), classes = new Set();
-        return { children: [], appendChild(child) { this.children.push(child); }, setAttribute() {},
-            addEventListener: (event, handler) => handlers.set(event, handler),
-            click: event => handlers.get('click')?.(event || { stopPropagation() {} }),
-            classList: { contains: name => classes.has(name), remove: name => classes.delete(name),
-                toggle(name) { if (!classes.delete(name)) classes.add(name); } },
-        };
-    };
-    const ids = ['New', 'Open', 'Save', 'SaveAs', 'ExportPdf', 'Print', 'Import', 'ImportMenu', 'OpenRecent', 'RecentMenu'];
-    const elements = new Map(ids.map(id => [`pcbRibbon${id}`, node()]));
-    globalThis.document = { getElementById: id => elements.get(id) || null,
-        querySelectorAll: () => [], addEventListener() {}, createElement: node };
+    installFakeDom();
+    const ribbon = document.createElement('div');
+    ribbon.id = 'ribbonPCB';
+    document.body.appendChild(ribbon);
     Object.defineProperty(window, 'bootstrap', {
         get() { assert.fail('PCB File commands must use their own project'); },
     });
@@ -185,14 +177,28 @@ for (const outcome of ['success', 'declined', 'busy', 'reset-error']) {
         async saveAs() { calls.push('saveAs'); return { success: true }; },
         fileManager: { getRecentFiles: () => [{ name: 'owned.cpcb' }] },
     };
-    const pcbControls = { project: null, _showSaveToast() { calls.push('toast'); },
+    const pcbControls = { project: null, currentTool: 'select', activeLayer: 'top-copper',
+        history: { canUndo: () => false, canRedo: () => false },
+        viewport: { gridVisible: true, snapToGrid: true, gridSize: 1.27, units: 'mm', gridStyle: 'lines',
+            getGridOptions: () => [{ value: 1.27, label: '1.27 mm' }],
+            setGridSize(value) { this.gridSize = value; }, setUnits(value) { this.units = value; },
+            setGridStyle(value) { this.gridStyle = value; }, setGridVisible(value) { this.gridVisible = value; } },
+        designSettings: { values: { trackWidth: 0.2, clearance: 0.1, viaDiameter: 0.3, viaDrill: 0.15, units: 'mm', router: 'maze' },
+            hasAppliedSettings: true, update(values) { Object.assign(this.values, values); return true; } },
+        _showSaveToast() { calls.push('toast'); },
         savePdf() { calls.push('pdf'); }, print() { calls.push('print'); } };
     bindPcbControls(pcbControls);
     pcbControls.project = project;
-    for (const id of ['New', 'Open', 'OpenRecent']) await elements.get(`pcbRibbon${id}`).click();
-    elements.get('pcbRibbonRecentMenu').children[0].children[0].click();
-    elements.get('pcbRibbonImportMenu').click({ target: { closest: () => ({ dataset: { format: 'easyeda-sch' } }) } });
-    for (const id of ['Save', 'SaveAs', 'ExportPdf', 'Print']) await elements.get(`pcbRibbon${id}`).click();
+    for (const id of ['New', 'Open', 'OpenRecent']) document.getElementById(`pcbRibbon${id}`).click();
+    await Promise.resolve();
+    document.getElementById('pcbRibbonRecentMenu').children[0].children[0].click();
+    document.getElementById('pcbRibbonImport').click();
+    document.getElementById('pcbRibbonImportMenu').children[0].click();
+    document.getElementById('pcbRibbonSave').click();
+    await Promise.resolve();
+    document.getElementById('pcbRibbonSaveAs').click();
+    await Promise.resolve();
+    for (const id of ['ExportPdf', 'Print']) document.getElementById(`pcbRibbon${id}`).click();
     assert.deepEqual(calls, ['new', 'open', 'owned.cpcb', 'import', 'save', 'toast', 'saveAs', 'toast', 'pdf', 'print']);
     await SchematicApp.prototype.onAutoSaveError.call({
         async alert(message, options) {

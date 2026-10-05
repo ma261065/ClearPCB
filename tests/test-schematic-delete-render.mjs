@@ -103,6 +103,7 @@ function fixture(shape) {
     tip.id = 'schematicStatusTip';
     document.body.appendChild(tip);
     const ribbon = new Element();
+    ribbon.id = 'ribbonSchematic';
     ribbon.className = 'ribbon';
     document.body.appendChild(ribbon);
     for (const name of ['home', 'properties']) {
@@ -153,8 +154,8 @@ function fixture(shape) {
     bindRibbon(app);
     commandAddShapeInternal(app, shape);
     app.selection.select(shape);
-    assert.ok(panel.textContent.includes('1 selected'), 'Properties starts with the selected shape');
-    assert.equal(document.querySelector('.ribbon-tab.active').dataset.tab, 'properties');
+    assert.ok(app.ui.propertiesPanel.textContent.includes('1 selected'), 'Properties starts with the selected shape');
+    assert.equal(app.activeRibbonTab, 'properties');
     app.selectionNotifications.length = 0;
     return app;
 }
