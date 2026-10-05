@@ -1,4 +1,3 @@
-// @ts-nocheck — PCBApp uses loosely-typed Maps and nullable viewport access throughout
 // PCBApp.js - PCB Editor Application
 
 import { serializePcb, preparePcb, loadPcb } from '../pcb/modules/project-state.js';
@@ -161,6 +160,8 @@ function showFootprintCrosshair(app, pl) {
  * visible.  If the PCB pane is already visible the rebuild happens
  * immediately (debounced).
  */
+/** @typedef {ReturnType<import('../core/PcbDesignSettings.js').PcbDesignSettings['getRoutingParams']>} RoutingParams */
+
 export default class PCBApp {
     get tracks() {
         return getGroupPreview(this)?.tracks || this._pasteDrop?.preview?.tracks || getPlacementPreviewTracks(this) || this._viaDrag?.preview?.tracks
@@ -349,6 +350,18 @@ export default class PCBApp {
         this._componentPopup = null;
         /** Lazily created owner of routing session and temporary presentation. */
         this._autorouter = null;
+        /** Lazily created DRC marker/panel presentation (_getDrcPresentation). @type {DrcPresentation|null} */
+        this._drcPresentation = null;
+        /** In-progress track draw context (track-draw.js), or null. @type {any} */
+        this._trackDraw = null;
+        /** Shared 3D/2D board viewer panel (board3d.js), or null. @type {any} */
+        this._board3d = null;
+        /** Clearance-halo overlay state (clearance-overlay.js). */
+        this._clearancesVisible = false;
+        /** Pad halo groups keyed by component id (clearance-overlay.js). @type {Map<string, SVGGElement>|null} */
+        this._padHaloGroups = null;
+        /** Document-change hook installed by ProjectDocument. @type {(() => void)|null} */
+        this.onDocumentChanged = null;
         /** @type {object|null} Stored test board RouteInput for direct routing. */
         this._testBoardRouteInput = null;
     }
@@ -774,7 +787,7 @@ export default class PCBApp {
         // Bind mouse events for panning
         this._bindMouseEvents();
         this.viewport.svg.addEventListener('unlock-shape', (event) => {
-            const { shape: owner, clientX, clientY } = event.detail || {};
+            const { shape: owner, clientX, clientY } = /** @type {CustomEvent} */ (event).detail || {};
             if (owner?.kind) showUnlockMenu(this, owner.kind, owner.object, clientX, clientY);
         });
 
@@ -1115,7 +1128,7 @@ export default class PCBApp {
         // A via spans both copper layers — refuse if either is locked.
         if (isViaLocked()) return;
         const snap = resolveTrackSnap(this, worldPos, {});
-        const p = this.getRoutingParams?.() || {};
+        const p = /** @type {Partial<RoutingParams>} */ (this.getRoutingParams?.() || {});
         const diameter = Number.isFinite(p.viaDiameter) && p.viaDiameter > 0 ? p.viaDiameter : 0.6;
         const drill = Number.isFinite(p.viaDrill) && p.viaDrill > 0 ? p.viaDrill : 0.3;
         const selectedNet = String(this._viaToolNet || '').trim();
@@ -1138,6 +1151,7 @@ export default class PCBApp {
                 const parts = splitTrackObjectAtPoint(
                     split.track, split.edgeId, { x: split.px, y: split.py });
                 if (parts && parts.length) {
+                    /** @type {any[]} */
                     const cmds = [new RemoveTrackCommand(this, split.track)];
                     for (const part of parts) cmds.push(new AddTrackCommand(this, part));
                     cmds.push(new AddViaCommand(this, via));
@@ -1227,7 +1241,6 @@ export default class PCBApp {
             this.viewport.svg.style.cursor = 'crosshair';
             this._clearViaRing();
             this._clearPadPreview();
-            this._clearHoleRing();
             return;
         }
         const t = this.currentTool;
@@ -1287,7 +1300,7 @@ export default class PCBApp {
         const svg = this.viewport?.svg;
         if (!svg) return;
         const snap = resolveTrackSnap(this, worldPos, {});
-        const p = this.getRoutingParams?.() || {};
+        const p = /** @type {Partial<RoutingParams>} */ (this.getRoutingParams?.() || {});
         const dia = Number.isFinite(p.viaDiameter) && p.viaDiameter > 0 ? p.viaDiameter : 0.6;
         const drill = Number.isFinite(p.viaDrill) && p.viaDrill > 0 ? p.viaDrill : 0.3;
         const scale = this.viewport.scale || 1;
@@ -1375,11 +1388,6 @@ export default class PCBApp {
 
     _clearViaPreview() {
         this._clearViaRing();
-        this._clearCursorCrosshair();
-    }
-
-    _clearHolePreview() {
-        this._clearHoleRing();
         this._clearCursorCrosshair();
     }
 
@@ -2036,7 +2044,7 @@ export default class PCBApp {
             if (!menuEl.open || !netEl) return;
             const current = netEl.value.trim();
             for (const option of menuEl.querySelectorAll('button[data-net]')) {
-                option.toggleAttribute('aria-current', option.dataset.net === current);
+                option.toggleAttribute('aria-current', /** @type {HTMLElement} */ (option).dataset.net === current);
             }
         });
     }
@@ -2047,7 +2055,7 @@ export default class PCBApp {
         const items = this.propertiesItems();
         if (!items) return;
         const ctx = this._trackDraw;
-        const p = this.getRoutingParams?.() || {};
+        const p = /** @type {Partial<RoutingParams>} */ (this.getRoutingParams?.() || {});
         const width = ctx?.width || (Number.isFinite(p.trackWidth) && p.trackWidth > 0 ? p.trackWidth : 0.2);
         const layer = ctx?.currentLayer || (this._trackToolLayer === 'bottom-copper' ? 'bottom-copper' : 'top-copper');
         const net = ctx?.net ?? String(this._trackToolNet || '');
@@ -2097,7 +2105,7 @@ export default class PCBApp {
     _showViaToolProperties() {
         const items = this.propertiesItems();
         if (!items) return;
-        const p = this.getRoutingParams?.() || {};
+        const p = /** @type {Partial<RoutingParams>} */ (this.getRoutingParams?.() || {});
         const diameter = Number.isFinite(p.viaDiameter) && p.viaDiameter > 0 ? p.viaDiameter : 0.6;
         const drill = Number.isFinite(p.viaDrill) && p.viaDrill > 0 ? p.viaDrill : 0.3;
         const net = String(this._viaToolNet || '');
@@ -2194,8 +2202,8 @@ export default class PCBApp {
                 this.history.execute(new SetPlacementLockedCommand(this, id, locked));
             },
             setReferenceVisible: (id, visible) => this._setComponentRefVisible(id, visible),
-            setSide: (id, side) => this._setPlacementSide(id, side),
-            flip: (id, axis) => this.flipComponent(id, axis),
+            setSide: (id, side) => this._setPlacementSide(id, /** @type {'top'|'bottom'} */ (side)),
+            flip: (id, axis) => this.flipComponent(id, /** @type {'H'|'V'} */ (axis)),
             open3D: id => this._openComponent3DPopout(id),
             renderReference: id => this._rerenderRef(id),
             drawReferenceOverlay: (id, tether) => this._drawRefOverlay(id, tether),
@@ -2765,6 +2773,18 @@ export default class PCBApp {
     }
 
     /**
+     * @overload
+     * @param {{x: number, y: number}} worldPos
+     * @param {false} [all]
+     * @returns {string|null}
+     */
+    /**
+     * @overload
+     * @param {{x: number, y: number}} worldPos
+     * @param {true} all
+     * @returns {string[]}
+     */
+    /**
      * Hit-test: find which component contains a world position.
      * Tests against the footprint's courtyard/outline bounds (the same box
      * drawn as the selection highlight). Falls back to the pad bounding-box
@@ -2968,7 +2988,7 @@ export default class PCBApp {
 
     /**
      * Resolve the net name for a hovered pad/track/via hit, or '' if none.
-     * @param {{type:string, track?:any, via?:any, componentId?:string, pinNumber?:string|number}|null} hovered
+     * @param {{type:string, track?:any, via?:any, pad?:any, shape?:any, componentId?:string, pinNumber?:string|number}|null} hovered
      * @returns {string}
      */
     _netNameForHover(hovered) {
@@ -3853,6 +3873,7 @@ export default class PCBApp {
      * @param {{x:number,y:number}} [worldPos] - if given, the caret is
      *   placed at the character nearest this click point; otherwise it
      *   goes to the end of the text.
+     * @param {object} [opts] - Component-text hooks; see startTextInlineEdit.
      */
     _startTextInlineEdit(text, worldPos, opts) {
         return startTextInlineEdit(this, text, worldPos, opts);
@@ -4767,7 +4788,7 @@ export default class PCBApp {
      * cancelled the picker.
     * @param {Blob | (() => Promise<Blob>)} blob
      * @param {string} suggestedName
-     * @param {{description?: string, accept?: Record<string,string[]>}} [opts]
+     * @param {{description?: string, accept?: Record<string,string[]>, win?: Window|null}} [opts]
      * @returns {Promise<boolean>}
      */
     async _saveBlob(blob, suggestedName, opts = {}) {

@@ -130,7 +130,10 @@ export function adoptFillResults(app, fills, results, contacts) {
     refreshBoardView(app);
 }
 
-/** Command callers retain synchronous computation and the existing true/undefined contract. */
+/**
+ * Command callers retain synchronous computation and the existing true/undefined contract.
+ * @returns {true|undefined}
+ */
 export function recomputeFillsNow(app) {
     const state = cancelScheduled(app);
     if (areDragOverlaysDeferred(app) || isFillRefreshSuspended(app)) {

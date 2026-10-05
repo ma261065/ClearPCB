@@ -23,7 +23,8 @@ export class CommandHistory {
      * Execute a command and add it to the undo stack. A guard refusal throws before
      * the command runs, so nothing changes; callers' cleanup handles it like any
      * other command failure.
-     * @param {Command} command - Command to execute
+     * @param {{execute(): void, undo(): void, description?: string}} command - any command object;
+     *   it need not extend Command (PCB model commands are plain classes)
      */
     execute(command) {
         if (this.guard) {
