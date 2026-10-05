@@ -100,8 +100,8 @@ for (const [id, value, focus, options] of [
     const { app, fill } = fixture(options);
     app._fillEdit = { fillId: fill.id, ...focus };
     const before = fill.captureState(), originalOutline = fill.outline;
-    let handler;
-    const input = { value, valueAsNumber: value, addEventListener(type, callback) { if (type === 'change') handler = callback; } };
+    const handlers = {};
+    const input = { value, valueAsNumber: value, addEventListener(type, callback) { handlers[type] = callback; } };
     addFillGeometryProperties(app, fill, {
         insertAdjacentHTML() {},
         querySelector: selector => selector === `#${id}` ? input : null,
@@ -112,8 +112,10 @@ for (const [id, value, focus, options] of [
         assert.equal(fill.outline, originalOutline, `${id}: no authored restore/reallocation before command`);
         execute(command);
     };
-    assert.equal(typeof handler, 'function');
-    handler();
+    assert.equal(typeof handlers.change, 'function');
+    handlers.change();
+    // Numeric fields settle before committing; leaving the field commits at once. Select changes are immediate.
+    handlers.blur?.();
     assert.equal(app.history.undoStack.length, 1, `${id}: one canonical command`);
     const after = fill.captureState();
     assert.notDeepEqual(after, before);
@@ -121,6 +123,47 @@ for (const [id, value, focus, options] of [
     assert.deepEqual(fill.captureState(), before);
     app.history.redo();
     assert.deepEqual(fill.captureState(), after);
+}
+
+// Spinner steps coalesce: one pour recomputation and one undo step once the value settles.
+{
+    const { app, fill } = fixture({});
+    app._fillEdit = { fillId: fill.id };
+    const handlers = {};
+    const input = { valueAsNumber: 0, addEventListener(type, callback) { handlers[type] = callback; } };
+    addFillGeometryProperties(app, fill, {
+        insertAdjacentHTML() {},
+        querySelector: selector => selector === '#pcbPropFillCornerRadius' ? input : null,
+    });
+    const realSetTimeout = globalThis.setTimeout, realClearTimeout = globalThis.clearTimeout;
+    const pending = new Map();
+    let nextTimer = 1;
+    globalThis.setTimeout = (callback, delay) => { pending.set(nextTimer, { callback, delay }); return nextTimer++; };
+    globalThis.clearTimeout = id => pending.delete(id);
+    try {
+        for (const step of [0.05, 0.1, 0.15]) {
+            input.valueAsNumber = step;
+            handlers.change();
+        }
+        assert.equal(app.history.canUndo(), false, 'Spinner steps do not commit while the value is changing');
+        assert.equal(pending.size, 1, 'Each step restarts one settle timer');
+        const [{ callback, delay }] = pending.values();
+        assert.ok(delay >= 200, 'The settle delay outlasts a spinner step');
+        callback();
+        assert.equal(app.history.undoStack.length, 1, 'The settled value commits once');
+        assert.equal(fill.cornerRadius, 0.15);
+        handlers.blur();
+        assert.equal(app.history.undoStack.length, 1, 'Blur after the commit adds nothing');
+
+        input.valueAsNumber = 0.3;
+        handlers.change();
+        input.isConnected = false;
+        handlers.blur();
+        assert.equal(fill.cornerRadius, 0.15, 'A rebuilt panel drops its pending edit');
+    } finally {
+        globalThis.setTimeout = realSetTimeout;
+        globalThis.clearTimeout = realClearTimeout;
+    }
 }
 
 {
