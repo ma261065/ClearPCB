@@ -1,7 +1,8 @@
 # ClearPCB Module Contracts
 
 Detailed behaviour and ownership contracts for individual modules, split by
-area. The layout, the enforced import rules and the owner index are in
+area. New to the code? Read the [developer guide](developer-guide.md) first.
+The layout, the enforced import rules and the owner index are in
 [project_structure.md](project_structure.md); start there to find which module
 owns something, then read its area page here for how it behaves.
 

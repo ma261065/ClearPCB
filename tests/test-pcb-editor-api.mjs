@@ -35,4 +35,21 @@ assert.deepEqual(privateEditorMembers(`
     /* app._blockCommented */
 `), ['_one', '_two']);
 
-console.log('PASS PCB editor services: implemented publicly, no private aliases, access scanner semantics');
+const { editorAccessLoopholes } = await import('../tools/check-pcb-editor-access.mjs');
+assert.deepEqual(editorAccessLoopholes([
+    'Object.defineProperties(PCBApp.prototype, Object.getOwnPropertyDescriptors(MIXIN));',
+    'Object.assign(PCBApp.prototype, helpers);',
+    'get _x() { return MIXIN.__lookupGetter__("_x").call(this); }',
+    'Object.defineProperty(app, key, { get() { return state[key]; } });',
+    'return helper.call(app, value);',
+    '// Object.assign(PCBApp.prototype, commentedOut);',
+    'Object.defineProperty(window, "x", {}); fn.call(this); app._kept();',
+].join('\n')), [
+    '1: mixes members into a class prototype',
+    '2: mixes members into a class prototype',
+    '3: uses a legacy accessor lookup',
+    '4: installs an accessor on the editor',
+    '5: runs module code with the editor as `this`',
+], 'Disguised editor access is reported; ordinary code and comments are not');
+
+console.log('PASS PCB editor services: implemented publicly, no private aliases, access scanner semantics, loopholes');

@@ -89,7 +89,7 @@ but the editor currently supports only two-layer boards.
 
 ```
 clearpcb/
-├── index.html            # Entry point: all HTML, both editors' ribbons and panels
+├── index.html            # Entry point: page layout and empty ribbon/panel hosts
 ├── sw.js, manifest.json  # PWA service worker and manifest
 ├── src/
 │   ├── core/             # Project model and editor-neutral services: ProjectDocument,
@@ -115,6 +115,8 @@ clearpcb/
 └── docs/                 # Architecture, module contracts, file format, release process
 ```
 
+New to the code? Start with the [developer guide](docs/developer-guide.md): the
+mental model, one edit traced end to end, and recipes for common changes.
 The module-level layout, the enforced import rules and the owner of each piece of
 shared state are in [docs/project_structure.md](docs/project_structure.md); how
 each module behaves is in [docs/module-contracts.md](docs/module-contracts.md).

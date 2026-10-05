@@ -17,6 +17,7 @@ const root = fileURLToPath(new URL('../', import.meta.url));
 runEditorAccessCheck({
     label: 'Schematic',
     roots: [join(root, 'src', 'schematic')],
+    facade: join(root, 'src', 'ui', 'SchematicApp.js'),
     baselinePath: join(root, 'tools', 'schematic-editor-access-baseline.json'),
     hint: 'Use a public SchematicApp method or a schematic module export instead.',
 });
