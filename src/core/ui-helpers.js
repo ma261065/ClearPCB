@@ -126,7 +126,7 @@ export function createLockIcon(x, y, item, cls, scale = Infinity) {
  * Renders point anchors as white/red squares and midpoint anchors as white/blue
  * circles with a "+" sign.
  *
- * @param {object} shape   Shape instance (must have getAnchors(), locked, element)
+ * @param {object} shape   Shape instance (must have getAnchors()); locked shapes show a lock instead
  * @param {number} scale   Current viewport scale
  */
 export function buildPointAnchorsGroup(shape, scale) {
@@ -207,14 +207,6 @@ export function buildPointAnchorsGroup(shape, scale) {
         g.appendChild(circle);
     }
 
-    // Lock icon when locked
-    if (shape.locked && pointAnchors.length > 0) {
-        const primary = pointAnchors[0];
-        const { size } = lockIconMetrics(scale);
-        const lockX = primary.x + LOCK_GAP;
-        const lockY = primary.y - LOCK_GAP - size * 0.6;
-        g.appendChild(createLockIcon(lockX, lockY, shape, 'lock-icon', scale));
-    }
 
     return { group: g, rects };
 }

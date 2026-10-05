@@ -59,6 +59,39 @@ see a half-finished edit because `ProjectDocument` refuses to snapshot while
 `isSectionEditing()` is true. Revisit copies if the schematic gains work that reads
 the model during a gesture (live electrical-rule checks, live PCB sync).
 
+## Object Locks
+
+Locks follow the PCB editor's rules (see [PCB Editing](pcb-editing.md#object-locks));
+the schematic has no layer locks, so a shape or component's own `locked` flag
+(saved as `lk`) is the whole story. A field text that belongs to another object (a
+component's reference or value, a wire's name, a net label's text) has no lock of its
+own and follows its owner's, as a PCB reference designator follows its component
+(`shapes/lock-owner.js`: `lockOwner`, `isSchematicLocked`, `hasOwnLock`); its
+Properties show no Locked checkbox and its lock icon offers to unlock the owner.
+Detachable labels and free texts keep their own lock. Every lock check uses
+`isSchematicLocked`. A locked object can be selected (by click, Select All or the
+marquee) but not moved, edited or deleted:
+
+- Move drags and arrow nudges carry only the unlocked part of the selection, and
+  their snapping, sticky-wire and junction helpers see only that part; grabbing a
+  locked member of a selection moves the rest. Rotate and flip skip locked
+  components; Delete and Cut skip locked objects; Copy takes them, and pasted copies
+  start unlocked.
+- Properties edits apply to the unlocked members only; a field is read-only only when
+  every selected object is locked. The Locked checkbox (mixed for a mixed selection)
+  locks or unlocks the whole selection as one undo step; it appears whenever any
+  selected object has its own lock, even alongside owned field texts.
+- A selected locked object shows a lock icon instead of edit handles.
+  `render/lock-placement.js` places it with the shared `core/lock-position.js`:
+  just outside the object's outline (closed shapes as one loop, wires and lines by
+  their stroked segments, other entities by their world bounds), beside the part
+  nearest the press that selected it (`SelectionManager.lockPointer`, recorded by
+  `mouse.js`). Component locks are drawn in world space next to the symbol, so they
+  never rotate or mirror with it. Clicking the icon opens a menu to unlock that
+  object (`locks.js`), undoable.
+
+`test-schematic-lock-placement` and `browser-tests/schematic-locks.mjs` cover these.
+
 ## Startup and Component Picker
 
 Schematic startup immediately starts KiCad index loading in the background,

@@ -11,6 +11,7 @@ import { finishDrawing, finishLine, finishPolygon } from './drawing.js';
 import {
     canRunSchematicSelectionAction, runSchematicDeleteAction, runSchematicEscapeAction, runSchematicHistoryAction,
 } from './editor-actions.js';
+import { isSchematicLocked } from '../../shapes/lock-owner.js';
 
 /**
  * Single-letter shortcuts that simply select a tool. Overloaded keys
@@ -100,7 +101,7 @@ function handleSpaceRotate(app, e) {
     if (canActOnSelection(app)) {
         const sel = app.selection.getSelection();
 
-        const netShapes = sel.filter(s => s.type === 'net' && !s.locked);
+        const netShapes = sel.filter(s => s.type === 'net' && !isSchematicLocked(s));
         if (netShapes.length > 0) {
             const newOrientation = rotateNetOrientation(netShapes[0].orientation || 'E');
             app.history.execute(new ModifyPropertyCommand(app, netShapes, 'orientation', newOrientation));
@@ -110,7 +111,7 @@ function handleSpaceRotate(app, e) {
             return;
         }
 
-        const textShapes = sel.filter(s => s.type === 'text' && !s.locked);
+        const textShapes = sel.filter(s => s.type === 'text' && !isSchematicLocked(s));
         if (textShapes.length > 0) {
             const newRot = textShapes.every(shape => shape.fieldKey === 'reference')
                 ? (((textShapes[0].rotation || 0) + 90) % 360 + 360) % 360
@@ -310,7 +311,10 @@ export function bindKeyboardShortcuts(app) {
                     const sel = app.selection.getSelection();
                     if (sel.length > 0) {
                         if (!canRunSchematicSelectionAction(app)) break;
-                        const cmd = new MoveShapesCommand(app, sel, dx, dy);
+                        // Locked objects stay put; the rest of the selection moves.
+                        const movable = sel.filter(item => !isSchematicLocked(item));
+                        if (!movable.length) break;
+                        const cmd = new MoveShapesCommand(app, movable, dx, dy);
                         app.history.execute(cmd);
                         app.updatePropertiesPanel(sel);
                     } else {

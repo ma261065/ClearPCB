@@ -5,6 +5,7 @@ import { hasSchematicInteraction, isSchematicDrawing } from './schematic-interac
 import {
     cancelSchematicInteraction, cancelSchematicPointerInteraction, SCHEMATIC_MODAL_GESTURES,
 } from './schematic-interaction-routing.js';
+import { isSchematicLocked } from '../../shapes/lock-owner.js';
 
 /**
  * Keyboard, ribbon and Properties entry points for the schematic editor's Escape,
@@ -100,7 +101,7 @@ export function runSchematicDeleteAction(app) {
     // A focused node or segment delete settles its own drag on that shape first.
     if (deleteFocusedSchematicShape(app)) return;
     if (!canRunSchematicSelectionAction(app)) return;
-    const toDelete = app.selection.getSelection().filter(item => !item.locked);
+    const toDelete = app.selection.getSelection().filter(item => !isSchematicLocked(item));
     if (toDelete.length === 0) return;
 
     app.selection.clearSelection({ notify: false });

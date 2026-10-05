@@ -181,7 +181,7 @@ export function rotateComponentRight(app) {
             updateComponentPreview(app, app.lastCrosshairWorld);
         }
     } else {
-        const selected = getSelectedComponents(app);
+        const selected = getSelectedComponents(app).filter(component => !component.locked);
         if (selected.length > 0) {
             const command = new TransformComponentCommand(app, selected, 'RotateRight');
             app.history.execute(command);
@@ -202,7 +202,7 @@ export function rotateComponentLeft(app) {
             updateComponentPreview(app, app.lastCrosshairWorld);
         }
     } else {
-        const selected = getSelectedComponents(app);
+        const selected = getSelectedComponents(app).filter(component => !component.locked);
         if (selected.length > 0) {
             const command = new TransformComponentCommand(app, selected, 'RotateLeft');
             app.history.execute(command);
@@ -225,7 +225,7 @@ export function flipComponentH(app) {
             updateComponentPreview(app, app.lastCrosshairWorld);
         }
     } else {
-        const selected = getSelectedComponents(app);
+        const selected = getSelectedComponents(app).filter(component => !component.locked);
         if (selected.length > 0) {
             const command = new TransformComponentCommand(app, selected, 'FlipH');
             app.history.execute(command);
@@ -248,7 +248,7 @@ export function flipComponentV(app) {
             updateComponentPreview(app, app.lastCrosshairWorld);
         }
     } else {
-        const selected = getSelectedComponents(app);
+        const selected = getSelectedComponents(app).filter(component => !component.locked);
         if (selected.length > 0) {
             const command = new TransformComponentCommand(app, selected, 'FlipV');
             app.history.execute(command);

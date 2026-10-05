@@ -644,7 +644,7 @@ const ITEM_STYLE = `padding:6px 16px;color:#eee;cursor:pointer;font:13px/1.4 sys
  * @param {number} clientX
  * @param {number} clientY
  */
-function createContextMenu(items, clientX, clientY) {
+export function createContextMenu(items, clientX, clientY) {
     dismissAnchorContextMenu();
 
     const menu = /** @type {AnchorContextMenuEl} */ (document.createElement('div'));
@@ -921,6 +921,7 @@ export function decomposeShapeCorners(app, shape) {
  * Show a context menu for attached labels.
  */
 export function showLabelContextMenu(app, labelShape, clientX, clientY) {
+    if (labelShape?.locked) return;
     const items = [];
     const isAttached = !!labelShape.parentComponent;
 

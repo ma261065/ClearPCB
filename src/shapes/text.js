@@ -4,6 +4,7 @@
 
 import { Shape } from './shape.js';
 import { ShapeValidator } from '../core/ShapeValidator.js';
+import { hasOwnLock } from './lock-owner.js';
 
 /** Round to 4 decimal places for compact serialisation. */
 const _r4 = v => Math.round(v * 10000) / 10000;
@@ -241,7 +242,8 @@ export class Text extends Shape {
                         : 'Value';
             /** @type {ReturnType<import('./shape.js').Shape['getPropertyDescriptors']>} */
             const descriptors = [
-                { key: 'locked',   label: 'Locked',    type: 'checkbox' },
+                // An owned field text follows its owner's lock (lock-owner.js); a detachable label has its own.
+                ...(hasOwnLock(this) ? [{ key: 'locked', label: 'Locked', type: 'checkbox' }] : []),
                 { key: 'text',     label,               type: 'text' },
                 { key: 'fontSize', label: 'Text Size (mm)',  type: 'number', min: 0.5, max: 50, step: 0.5 },
             ];

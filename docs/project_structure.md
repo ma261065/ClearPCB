@@ -222,7 +222,9 @@ Schematic editor:
   that drive it and the editor actions.
 - `schematic/modules/drawing.js`, `wire.js`, `components.js`, `clipboard.js`,
   `drag.js`, `text-edit.js` — drawing, wiring, placement, paste, drag commits and
-  inline text; `selection.js` — lock and shape-state capture.
+  inline text; `selection.js` — lock toggling and shape-state capture; `locks.js` —
+  the lock icon's unlock menu (`render/lock-placement.js` places lock icons, using
+  the editors' shared `core/lock-position.js`).
 - `schematic/modules/commands.js` — undo/redo commands; `shape-management.js` — the
   add/remove/delete/restore work behind the command view hooks.
 - `schematic/modules/properties.js` — the Properties panel; `files.js` — Open, Save

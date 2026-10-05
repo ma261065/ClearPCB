@@ -1,4 +1,5 @@
-import { createLockIcon, lockIconMetrics, LOCK_GAP } from '../../core/ui-helpers.js';
+import { createLockIcon } from '../../core/ui-helpers.js';
+import { schematicLockPosition } from './lock-placement.js';
 import { NO_SELECTION } from '../../shapes/selection-view.js';
 import { ensureComponentView, deleteComponentView, componentViewOf } from './shape-view-state.js';
 import { createSymbolGraphicElement, createSymbolPinElement } from '../../components/symbol-svg.js';
@@ -110,13 +111,14 @@ export function renderComponent(component, scale, options = {}) {
         viewState.lockIconEl = null;
     }
 
-    if (component.locked && view.isSelected(component)) {
-        const localBounds = component._getLocalBounds();
-        const { size } = lockIconMetrics(scale);
-        const lockX = localBounds.minX - LOCK_GAP - size;
-        const lockY = localBounds.minY - LOCK_GAP - size * 0.6;
-        viewState.lockIconEl = createLockIcon(lockX, lockY, component, 'component-lock-icon', scale);
-        element.appendChild(viewState.lockIconEl);
+    // The lock is drawn in world space beside the component, not inside its group,
+    // so it never rotates or mirrors with the symbol.
+    const position = component.locked && view.isSelected(component)
+        ? schematicLockPosition(component, view.lockPointer, scale) : null;
+    if (position) {
+        viewState.lockIconEl = createLockIcon(position.x, position.y, component, 'component-lock-icon', scale);
+        if (element.parentNode) element.parentNode.insertBefore(viewState.lockIconEl, element.nextSibling);
+        else element.appendChild(viewState.lockIconEl);
     }
     return element;
 }

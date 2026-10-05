@@ -12,8 +12,10 @@ import { roundedPathData, roundedCornerContinuation } from '../../shapes/rounded
 import { primitiveShapePath } from '../../shapes/shape-drawing.js';
 import { circleOuterRadius } from '../../shapes/path-geometry.js';
 import { getTextEditBoxGeometry, setTextEditElementProvider } from '../../core/text-edit-geometry.js';
-import { createLockIcon, lockIconMetrics, LOCK_GAP, buildPointAnchorsGroup } from '../../core/ui-helpers.js';
+import { createLockIcon, buildPointAnchorsGroup } from '../../core/ui-helpers.js';
 import { ensureView, viewOf } from './shape-view-state.js';
+import { schematicLockPosition } from './lock-placement.js';
+import { isSchematicLocked } from '../../shapes/lock-owner.js';
 
 const NS = 'http://www.w3.org/2000/svg';
 const MIN_STROKE_PIXELS = 1;
@@ -111,7 +113,7 @@ export function renderShape(shape, scale, options = {}) {
         }
     }
 
-    updateShapeAnchors(shape, scale, visuallySelected);
+    updateShapeAnchors(shape, scale, visuallySelected, null, view);
 
     shape._dirty = false;
     viewState.lastScale = scale;
@@ -129,9 +131,28 @@ function updateShapeElement(shape, element, strokeColor, fillColor, scale, view)
     if (shape instanceof Shape) return;
 }
 
-export function updateShapeAnchors(shape, scale, visuallySelected = false, selectedNodeId = null) {
+/**
+ * @param {import('../../shapes/selection-view.js').SelectionView} [view] its `lockPointer` places a lock icon
+ */
+export function updateShapeAnchors(shape, scale, visuallySelected = false, selectedNodeId = null, view = NO_SELECTION) {
+    if (visuallySelected && isSchematicLocked(shape)) return showLockOnly(shape, scale, view.lockPointer);
     if (shape instanceof PolylineGraph) return updatePolylineGraphAnchors(shape, scale, visuallySelected, selectedNodeId);
     return updateBaseAnchors(shape, scale, visuallySelected);
+}
+
+/** A selected locked shape shows its lock instead of edit handles, as in the PCB editor. */
+function showLockOnly(shape, scale, pointer) {
+    const viewState = ensureView(shape);
+    viewState.anchorsGroup?.remove();
+    const group = document.createElementNS(NS, 'g');
+    group.setAttribute('class', 'shape-anchors');
+    const position = schematicLockPosition(shape, pointer, scale);
+    if (position) group.appendChild(createLockIcon(position.x, position.y, shape, 'lock-icon', scale));
+    viewState.anchorsGroup = group;
+    viewState.anchorRects = null;
+    viewState.anchorsHaveLock = true;
+    const element = viewState.element;
+    if (element?.parentNode) element.parentNode.insertBefore(group, element.nextSibling);
 }
 
 function updateBaseAnchors(shape, scale, visuallySelected = false) {
@@ -148,7 +169,7 @@ function updateBaseAnchors(shape, scale, visuallySelected = false) {
 
     const anchors = shape.getAnchors();
     const visibleAnchors = anchors.filter(anchor => !anchor.hidden);
-    if (visibleAnchors.length === 0 && !shape.locked) {
+    if (visibleAnchors.length === 0) {
         if (viewState.anchorsGroup) {
             viewState.anchorsGroup.remove();
             viewState.anchorsGroup = null;
@@ -161,7 +182,7 @@ function updateBaseAnchors(shape, scale, visuallySelected = false) {
     const strokeW = 1 / scale;
 
     if (viewState.anchorsGroup && viewState.anchorRects && viewState.anchorRects.length === visibleAnchors.length
-        && !shape.locked && !viewState.anchorsHaveLock) {
+        && !viewState.anchorsHaveLock) {
         for (let i = 0; i < visibleAnchors.length; i++) {
             const anchor = visibleAnchors[i];
             const rect = viewState.anchorRects[i];
@@ -210,22 +231,6 @@ function updateBaseAnchors(shape, scale, visuallySelected = false) {
         rect.setAttribute('data-anchor-id', anchor.id);
         viewState.anchorsGroup.appendChild(rect);
         viewState.anchorRects.push(rect);
-    }
-
-    if (shape.locked && anchors.length > 0) {
-        const primary = anchors[0];
-        const { size: lockSize } = lockIconMetrics(scale);
-        let lockX = primary.x + LOCK_GAP;
-        let lockY = primary.y - LOCK_GAP - lockSize * 0.6;
-
-        if (shape.type === 'text') {
-            const bounds = shape.getBounds();
-            lockX = bounds.maxX + LOCK_GAP;
-            lockY = bounds.minY - LOCK_GAP - lockSize * 0.6;
-        }
-
-        viewState.anchorsGroup.appendChild(createLockIcon(lockX, lockY, shape, 'lock-icon', scale));
-        viewState.anchorsHaveLock = true;
     }
 
     if (element?.parentNode) {

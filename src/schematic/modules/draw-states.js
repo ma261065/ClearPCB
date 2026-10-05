@@ -42,6 +42,7 @@ import { addWireWaypoint, finishWireDrawing, startWireDrawing, updateWireDrawing
 import { addLinePoint, addPolygonPoint, finishDrawing, finishLine, finishPolygon, startDrawing, updateDrawing } from './drawing.js';
 import { applyShapeState, captureShapeState } from './selection.js';
 import { getShapeSegmentFocus, setShapeNodeFocus, setShapeSegmentFocus } from './shape-focus.js';
+import { isSchematicLocked } from '../../shapes/lock-owner.js';
 // ─── Constants ─────────────────────────────────────────────────────
 
 const DRAWING_TOOLS = new Set(['line', 'rect', 'circle', 'polygon']);
@@ -109,6 +110,22 @@ function selectContextTargetShape(app, shape) {
         selectOnlyShapeAndRender(app, shape);
     }
     app.selection.keepSelected(shape);
+}
+
+/** The selected items a move drag carries: locked ones stay where they are. */
+function movableSelection(app) {
+    return app.selection.getSelection().filter(item => !isSchematicLocked(item));
+}
+
+/** Start moving the unlocked part of the selection from a press at `worldPos`. */
+function beginSelectionMove(app, worldPos, snapped) {
+    const movable = movableSelection(app);
+    const dragObjectStartPos = movable[0] ? movable[0].getPosition() : { ...snapped };
+    beginMoveDragSession(app, worldPos, dragObjectStartPos);
+    // Bridge pin-connected wire nodes ONCE so pins can move freely
+    bridgeStickyPinNodes(app, collectMovingComponentIds(movable));
+    app.viewport.svg.style.cursor = 'move';
+    app.renderShapes();
 }
 
 function collectMovingComponentIds(selection) {
@@ -654,7 +671,7 @@ function handleDragEnd(app) {
 function handleAnchorContextMenu(app, worldPos, clientX, clientY) {
     const selectedShapes = app.selection.getSelection();
     for (const shape of selectedShapes) {
-        if (shape.locked) continue;
+        if (isSchematicLocked(shape)) continue;
         const anchorId = shape.hitTestAnchor(worldPos, app.viewport.scale);
         if (anchorId && !anchorId.startsWith('mid')) {
             let canDeletePoint = false;
@@ -1093,7 +1110,7 @@ export const idleState = {
         // Anchor drag on selected shapes
         const selectedShapes = app.selection.getSelection();
         for (const shape of selectedShapes) {
-            if (shape.locked) continue;
+            if (isSchematicLocked(shape)) continue;
             const anchorId = shape.hitTestAnchor(worldPos, app.viewport.scale);
             if (!anchorId) continue;
 
@@ -1152,7 +1169,13 @@ export const idleState = {
                 }
             }
 
-            if (hitShape.locked) { event.preventDefault(); return; }
+            // A locked object never moves itself, but grabbing a locked member of a
+            // selection moves the unlocked rest, as in the PCB editor.
+            if (isSchematicLocked(hitShape)) {
+                if (wasSelected && movableSelection(app).length) beginSelectionMove(app, worldPos, snapped);
+                event.preventDefault();
+                return;
+            }
 
             const selectedShapeSegment = getShapeSegmentFocus(app)?.shapeId === hitShape.id
                 ? { ...getShapeSegmentFocus(app) }
@@ -1184,13 +1207,7 @@ export const idleState = {
             }
 
             // Move drag
-            const firstShape = app.selection.getSelection()[0];
-            const dragObjectStartPos = firstShape ? firstShape.getPosition() : { ...snapped };
-            beginMoveDragSession(app, worldPos, dragObjectStartPos);
-            // Bridge pin-connected wire nodes ONCE so pins can move freely
-            bridgeStickyPinNodes(app, collectMovingComponentIds(app.selection.getSelection()));
-            app.viewport.svg.style.cursor = 'move';
-            app.renderShapes();
+            beginSelectionMove(app, worldPos, snapped);
             event.preventDefault();
             return;
         }
@@ -1580,7 +1597,7 @@ export const moveDragState = {
     mousemove(app, event, { worldPos }) {
         if (app.viewport.isPanning) return;
 
-        const selNow = app.selection.getSelection();
+        const selNow = movableSelection(app);
         const isDraggingText = selNow.length === 1 && selNow[0]?.type === 'text';
         const isGenericLabel = isDraggingText && selNow[0].fieldKey === 'label';
         if (isGenericLabel) {
@@ -1603,7 +1620,7 @@ export const moveDragState = {
 
         const mouseDelta = { x: worldPos.x - app.drag.startWorldPos.x, y: worldPos.y - app.drag.startWorldPos.y };
         const targetPos = { x: app.drag.objectStartPos.x + mouseDelta.x, y: app.drag.objectStartPos.y + mouseDelta.y };
-        const sel = app.selection.getSelection();
+        const sel = selNow;
         const movingCompIds = collectMovingComponentIds(sel);
         const snappedTarget = app._moveDragSnappedTarget || (app._moveDragSnappedTarget = { x: 0, y: 0 });
         const stickyGuides = resolveMoveDragTarget(app, targetPos, sel, movingCompIds, snappedTarget);
@@ -1654,7 +1671,6 @@ export const moveDragState = {
             app.drag.totalDy += dy;
 
             for (const shape of sel) {
-                if (shape.locked) continue;
                 if (shape.parentComponent && movingCompIds.has(shape.parentComponent.id)) continue;
                 shape.move(dx, dy);
                 if (shape.definition) refreshComponentPose(shape);
@@ -1687,7 +1703,7 @@ export const moveDragState = {
     mouseup(app, event, { worldPos }) {
         if (event.button !== 0) return;
 
-        const sel = app.selection.getSelection();
+        const sel = movableSelection(app);
         const isGenericLabel = sel.length === 1 && sel[0]?.type === 'text' && sel[0].fieldKey === 'label';
         if (isGenericLabel) {
             const labelShape = sel[0];

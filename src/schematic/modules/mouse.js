@@ -50,6 +50,8 @@ export function bindMouseEvents(app) {
             return;
         }
         const positions = getEventPositions(e, app.viewport);
+        // Lock icons sit beside the part of a locked object nearest this press.
+        if (app.selection) app.selection.lockPointer = { x: positions.worldPos.x, y: positions.worldPos.y };
         dispatch(app, 'mousedown', e, positions);
     });
 

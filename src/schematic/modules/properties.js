@@ -13,6 +13,7 @@ import { redrawPropertyPreview, createPropertyPreview, createPropertyBinding,
 import { canRoundPathNode } from '../../shapes/path-geometry.js';
 import { beginPastePreview, cutSelection } from './clipboard.js';
 import { flipComponentH, flipComponentV, rotateComponentLeft, rotateComponentRight } from './components.js';
+import { hasOwnLock, isSchematicLocked } from '../../shapes/lock-owner.js';
 import { runSchematicDeleteAction } from './editor-actions.js';
 import { getShapeNodeFocus, getShapeSegmentFocus, setShapeNodeFocus, setShapeSegmentFocus } from './shape-focus.js';
 
@@ -54,11 +55,15 @@ export function mergeDescriptors(selection) {
     const first = sortByPropertyOrder(selection[0].getPropertyDescriptors(), descriptorOrderKey);
     if (selection.length === 1) return first;
 
-    // Keep only keys that every item declares
+    // Keep only keys that every item declares, except Locked: it shows whenever any
+    // item has its own lock (owned field texts follow their owner), so a whole
+    // selection can always be unlocked in one step, as in the PCB editor.
     const descriptors = selection.map(s => s.getPropertyDescriptors());
-    return first.flatMap(desc => {
+    const lockDescriptor = descriptors.flat().find(item => item.key === 'locked');
+    const merged = first.some(desc => desc.key === 'locked') || !lockDescriptor ? first : [lockDescriptor, ...first];
+    return sortByPropertyOrder(merged, descriptorOrderKey).flatMap(desc => {
         const matches = descriptors.map(list => list.find(item => item.key === desc.key));
-        if (matches.some(item => !item)) return [];
+        if (desc.key !== 'locked' && matches.some(item => !item)) return [];
         if (desc.type !== 'select' || !Array.isArray(desc.options)) return [desc];
         const options = desc.options.filter(option =>
             matches.every(item => item.options?.some(other => other.value === option.value)));
@@ -349,7 +354,7 @@ export function updatePropertiesPanel(app, selection) {
             singlePolyline.invalidate();
         }
     };
-    const allLocked = selection.length > 0 && selection.every(s => s.locked);
+    const allLocked = selection.length > 0 && selection.every(isSchematicLocked);
 
     // ── Selection / Properties section ──
     {
@@ -425,7 +430,9 @@ export function updatePropertiesPanel(app, selection) {
                     const lbl = document.createElement('label');
                     const input = document.createElement('input');
                     input.type = 'checkbox';
-                    const values = selection.map(s => s[desc.key]);
+                    const values = desc.key === 'locked'
+                        ? selection.filter(hasOwnLock).map(s => s.locked)
+                        : selection.map(s => s[desc.key]);
                     setCheckboxState(input, values);
                     if (disabled) {
                         input.disabled = true;
@@ -478,7 +485,7 @@ export function updatePropertiesPanel(app, selection) {
                     };
 
                     const affected = desc.key === 'bulge' && selectedSegment ? [selectedSegment.shape]
-                        : selection.filter(item => desc.key in item);
+                        : selection.filter(item => desc.key in item && !isSchematicLocked(item));
                     const usesGeometryState = item => ['lineWidth', 'cornerRadius', 'diameter', 'bulge'].includes(desc.key)
                         && ['polyline', 'circle', 'arc'].includes(item.type);
                     const geometryEdit = affected.some(usesGeometryState);
@@ -947,8 +954,10 @@ export function applyCommonProperty(app, prop, value) {
     const selection = app.selection.getSelection();
     if (selection.length === 0) return;
 
-    // Filter to items that actually have this property
-    const affected = selection.filter(item => prop in item);
+    // Filter to items that actually have this property. Locked items keep their
+    // values; only the Locked checkbox itself changes them.
+    const affected = selection.filter(item => prop in item
+        && (prop === 'locked' ? hasOwnLock(item) : !isSchematicLocked(item)));
     if (affected.length === 0) return;
 
     // Check if any value actually changes

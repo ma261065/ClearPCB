@@ -218,7 +218,7 @@ export function renderShapes(app, force = false) {
                 selection: view,
             });
             if (refined && selected && shape.type === 'polyline') {
-                updateShapeAnchors(shape, scale, true, selectedNodeId);
+                updateShapeAnchors(shape, scale, true, selectedNodeId, view);
             }
         } else if (scaleChanged) {
             const shapeView = viewOf(shape);

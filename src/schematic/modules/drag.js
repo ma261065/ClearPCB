@@ -21,6 +21,7 @@ import { appendArcToLineCommand } from './context-menu.js';
 import { refreshComponentPose } from './schematic-view.js';
 import { applyShapeState, captureShapeState } from './selection.js';
 import { setShapeNodeFocus, setShapeSegmentFocus } from './shape-focus.js';
+import { isSchematicLocked } from '../../shapes/lock-owner.js';
 
 /**
  * Compare two captured shape states for equality.
@@ -639,7 +640,7 @@ export function revertSegmentDragIfNoMove(app, wireStates) {
  */
 export function commitMoveDrag(app, totalDx, totalDy) {
     const selectedShapes = app.selection.getSelection();
-    const movedShapes = selectedShapes.filter(s => !s.locked);
+    const movedShapes = selectedShapes.filter(s => !isSchematicLocked(s));
 
     if (movedShapes.length === 0 || (totalDx === 0 && totalDy === 0)) return true;
 

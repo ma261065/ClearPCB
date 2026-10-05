@@ -1,4 +1,5 @@
 import { ModifyPropertyCommand } from './commands.js';
+import { hasOwnLock } from '../../shapes/lock-owner.js';
 import { updateRibbonState } from './ribbon.js';
 import { refreshComponentPose } from './schematic-view.js';
 
@@ -10,9 +11,11 @@ import { refreshComponentPose } from './schematic-view.js';
 export function toggleSelectionLock(app) {
     const selection = app.selection.getSelection();
     if (selection.length === 0) return;
-    const allLocked = selection.every(item => item.locked === true);
+    // Owned field texts follow their owner's lock and have none of their own.
+    const lockable = selection.filter(hasOwnLock);
+    const allLocked = lockable.length > 0 && lockable.every(item => item.locked === true);
     const nextValue = !allLocked;
-    const affected = selection.filter(item => typeof item.locked === 'boolean' && item.locked !== nextValue);
+    const affected = lockable.filter(item => item.locked !== nextValue);
     if (affected.length === 0) return;
 
     const command = new ModifyPropertyCommand(app, affected, 'locked', nextValue);

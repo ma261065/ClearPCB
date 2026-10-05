@@ -6,6 +6,7 @@ import { Component } from '../../components/Component.js';
 import { createShape } from '../../shapes/index.js';
 import { cloneEntityElement, componentPreviewElement, shapePreviewElement } from './schematic-view.js';
 import { generateReference } from './components.js';
+import { isSchematicLocked } from '../../shapes/lock-owner.js';
 
 // Internal clipboard (array of serialised items)
 let clipboard = [];
@@ -89,7 +90,7 @@ export function cutSelection(app) {
     if (selection.length === 0) return;
 
     // Only cut unlocked items
-    const cuttable = selection.filter(item => !item.locked);
+    const cuttable = selection.filter(item => !isSchematicLocked(item));
     if (cuttable.length === 0) return;
 
     // Deduplicate: skip field texts whose parent component is also selected
@@ -270,7 +271,8 @@ export function confirmPaste(app, worldPos) {
         } else {
             // structuredClone is faster than JSON round-trip and handles all types
             const clone = structuredClone(data);
-            const { id, _clipX, _clipY, _clipType, cid, fk, att, ...shapeData } = clone;
+            // Pasted copies are new objects, so they start unlocked (as in the PCB editor).
+            const { id, _clipX, _clipY, _clipType, cid, fk, att, lk, locked, ...shapeData } = clone;
             offsetShapeData(shapeData, snapped.x + _clipX, snapped.y + _clipY);
 
             const shape = createShape(shapeData);

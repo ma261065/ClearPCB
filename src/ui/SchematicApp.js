@@ -24,6 +24,7 @@ import { setToolCursor } from '../shared/ui/cursor.js';
 import { bindViewportControls, updateGridDropdown, fitToContent } from '../shared/ui/viewport.js';
 import { bindThemeToggle, toggleTheme, loadTheme } from '../schematic/modules/theme.js';
 import { captureShapeState, applyShapeState } from '../schematic/modules/selection.js';
+import { showUnlockMenu } from '../schematic/modules/locks.js';
 import { runSchematicDeleteAction } from '../schematic/modules/editor-actions.js';
 import { copySelection, cancelPaste } from '../schematic/modules/clipboard.js';
 import { removeBoxSelectElement } from '../shared/ui/box-selection.js';
@@ -250,13 +251,10 @@ export default class SchematicApp {
         this._bindKeyboardShortcuts();
         bindPaperEvents(this);
 
-        // Listen for lock icon clicks (bubbles up from shape SVG elements)
+        // A lock icon click offers to unlock that object (bubbles up from the icon).
         this.viewport.svg.addEventListener('unlock-shape', (e) => {
-            const customEvent = /** @type {CustomEvent} */ (e);
-            const shape = customEvent.detail?.shape;
-            if (shape && shape.locked) {
-                this._applyCommonProperty('locked', false);
-            }
+            const { shape, clientX, clientY } = /** @type {CustomEvent} */ (e).detail || {};
+            showUnlockMenu(this, shape, clientX, clientY);
         });
 
         // Initial view

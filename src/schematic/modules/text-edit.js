@@ -7,6 +7,7 @@ import {
     measureTextGlyphBBox,
 } from '../../core/text-edit-geometry.js';
 import { createInlineTextOverlay } from '../../shared/ui/inline-text-overlay.js';
+import { isSchematicLocked } from '../../shapes/lock-owner.js';
 
 /**
  * Begins inline text editing on a text shape: initializes caret, creates
@@ -16,7 +17,7 @@ import { createInlineTextOverlay } from '../../shared/ui/inline-text-overlay.js'
  */
 export function startTextEdit(app, shape) {
     if (!shape || !shape.supportsInlineEdit) return;
-    if (shape.locked) return;
+    if (isSchematicLocked(shape)) return;
 
     // When editing from Select mode, keep the shape selected so render
     // ordering stays stable while typing. During placement-mode text entry,
@@ -304,7 +305,7 @@ export function handleTextEditKey(app, e) {
 export function updateTextEditOverlay(app) {
     const state = app.textEdit;
     if (!state || !state.shape || !state.overlayGroup) return;
-    if (state.shape.locked) {
+    if (isSchematicLocked(state.shape)) {
         endTextEdit(app, true);
         return;
     }
