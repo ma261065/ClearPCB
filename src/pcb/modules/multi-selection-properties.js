@@ -16,6 +16,7 @@ import { refreshBoxSelectionHighlights } from './box-select.js';
 import { ModifyFillCommand } from './copper-fill-commands.js';
 import { canEditFill } from './copper-fill-edit.js';
 import { PCB_LAYERS, isLayerLocked, pcbLayerOptionHtml, showLockedLayerBubble } from './layers.js';
+import { isPcbObjectLocked, objectLockCommand } from './object-locks.js';
 import { ModifyPadCommand } from './pad-commands.js';
 import { isRefTextLocked } from './ref-text-selection.js';
 import { ModifyBoardShapeCommand } from './shape-commands.js';
@@ -273,6 +274,14 @@ export function multiPropertyCapabilities(app, entry) {
                 value => shapeCommand(target => { target.lineWidth = value; }), 0.05, 0.05);
         }
     }
+    // Components carry their placement lock above; reference text follows it, and the
+    // board outline is locked through its layer.
+    if (kind !== 'component' && kind !== 'reftext' && !(kind === 'shape' && object.layer === 'board-outline')) {
+        const locked = isPcbObjectLocked(app, kind, object);
+        for (const capability of Object.values(capabilities)) capability.disabled ||= locked;
+        capabilities.locked = checkbox('Locked', () => !!object.locked,
+            value => !!object.locked === value ? null : objectLockCommand(app, kind, object, value));
+    }
     return capabilities;
 }
 
@@ -287,11 +296,14 @@ export function showMultiSelectionProperties(app, entries) {
     for (const capabilities of capabilitySets.slice(1)) {
         keys = keys.filter(key => capabilities[key]?.type === capabilitySets[0][key]?.type);
     }
+    // Locked shows whenever any member has its own lock (the board outline has none), so a
+    // Select All can always be unlocked in one step; it applies to the members that have one.
+    if (!keys.includes('locked') && capabilitySets.some(capabilities => capabilities.locked)) keys.push('locked');
     keys = sortByPropertyOrder(keys, key => key);
     const descriptors = new Map();
     const rows = [];
     for (const key of keys) {
-        const group = capabilitySets.map(capabilities => capabilities[key]);
+        const group = capabilitySets.map(capabilities => capabilities[key]).filter(Boolean);
         const descriptor = group[0];
         if (descriptor.type === 'select') {
             const allowed = new Set(descriptor.options.map(([value]) => value));
@@ -308,9 +320,11 @@ export function showMultiSelectionProperties(app, entries) {
         const id = key === 'net' ? 'pcbPropMultiNet'
             : key === 'lineWidth' && allTracks ? 'pcbPropMultiTrackWidth'
                 : `pcbPropIntersection_${key}`;
+        // Locked members keep their values; the row stays editable while any member can take an edit.
+        const readOnly = group.every(item => item.disabled);
         descriptors.set(key, { group, descriptor, id, mixed });
         if (descriptor.type === 'checkbox') {
-            rows.push(`<label class="prop-row prop-toggle" data-prop="${key}"><input type="checkbox" id="${id}"${!mixed && values[0] ? ' checked' : ''}${group.some(item => item.disabled) ? ' disabled' : ''}><span>${descriptor.label}</span></label>`);
+            rows.push(`<label class="prop-row prop-toggle" data-prop="${key}"><input type="checkbox" id="${id}"${!mixed && values[0] ? ' checked' : ''}${readOnly ? ' disabled' : ''}><span>${descriptor.label}</span></label>`);
         } else if (descriptor.type === 'select') {
             const options = descriptor.options.map(([value, label]) => {
                 const selected = !mixed && value === values[0];
@@ -318,14 +332,14 @@ export function showMultiSelectionProperties(app, entries) {
                     ? pcbLayerOptionHtml(value, label, selected)
                     : `<option value="${value}"${selected ? ' selected' : ''}>${label}</option>`;
             }).join('');
-            rows.push(`<div class="prop-row" data-prop="${key}"><label>${descriptor.label}</label><select id="${id}"${group.some(item => item.disabled) ? ' disabled' : ''}>${mixed ? '<option value="" selected disabled>Mixed</option>' : ''}${options}</select></div>`);
+            rows.push(`<div class="prop-row" data-prop="${key}"><label>${descriptor.label}</label><select id="${id}"${readOnly ? ' disabled' : ''}>${mixed ? '<option value="" selected disabled>Mixed</option>' : ''}${options}</select></div>`);
         } else if (descriptor.type === 'net') {
             const { escape, options } = app.toolNetOptions(mixed ? '' : values[0]);
-            rows.push(`<div class="prop-row" data-prop="${key}"><label>Net</label><span class="prop-net-control"><input type="text" id="${id}" value="${mixed ? '' : escape(values[0])}" placeholder="${mixed ? 'Mixed' : 'None'}"${group.some(item => item.disabled) ? ' disabled' : ''}><details class="prop-net-menu"><summary aria-label="Select existing net"></summary><div>${options}</div></details></span></div>`);
+            rows.push(`<div class="prop-row" data-prop="${key}"><label>Net</label><span class="prop-net-control"><input type="text" id="${id}" value="${mixed ? '' : escape(values[0])}" placeholder="${mixed ? 'Mixed' : 'None'}"${readOnly ? ' disabled' : ''}><details class="prop-net-menu"><summary aria-label="Select existing net"></summary><div>${options}</div></details></span></div>`);
         } else {
             const min = Number.isFinite(Math.max(...group.map(item => item.min))) ? Math.max(...group.map(item => item.min)) : '';
             const max = Number.isFinite(Math.min(...group.map(item => item.max))) ? Math.min(...group.map(item => item.max)) : '';
-            rows.push(`<div class="prop-row" data-prop="${key}"><label>${descriptor.label}</label><input type="number" id="${id}" value="${mixed ? '' : values[0]}" placeholder="${mixed ? 'Mixed' : ''}"${min === '' ? '' : ` min="${min}"`}${max === '' ? '' : ` max="${max}"`} step="${descriptor.step}"${group.some(item => item.disabled) ? ' disabled' : ''}></div>`);
+            rows.push(`<div class="prop-row" data-prop="${key}"><label>${descriptor.label}</label><input type="number" id="${id}" value="${mixed ? '' : values[0]}" placeholder="${mixed ? 'Mixed' : ''}"${min === '' ? '' : ` min="${min}"`}${max === '' ? '' : ` max="${max}"`} step="${descriptor.step}"${readOnly ? ' disabled' : ''}></div>`);
         }
     }
     items.innerHTML = rows.length
@@ -333,22 +347,25 @@ export function showMultiSelectionProperties(app, entries) {
         : '<span class="props-placeholder">No shared editable properties</span>';
     const commit = (key, value) => {
         const info = descriptors.get(key);
-        if (!info || info.group.some(capability => capability.disabled)) return;
+        if (!info || info.group.every(capability => capability.disabled)) return;
+        const editable = info.group.map(capability => !capability.disabled);
         if (key === 'layer' && hasShapes && isLayerLocked(value)) {
             showLockedLayerBubble(app, value);
             showMultiSelectionProperties(app, entries);
             return;
         }
         if (key === 'net') {
-            const routedEntries = entries.filter(entry => entry.kind === 'track' || entry.kind === 'via');
-            const otherCommands = entries.map((entry, index) =>
-                routedEntries.includes(entry) ? null : info.group[index].command?.(value)).filter(Boolean);
-            if (!applyNetToCopperSelection(app, entries, value, otherCommands)) {
+            const targets = entries.filter((entry, index) => editable[index]);
+            const routed = entry => entry.kind === 'track' || entry.kind === 'via';
+            const otherCommands = entries.map((entry, index) => !editable[index] || routed(entry)
+                ? null : info.group[index].command?.(value)).filter(Boolean);
+            if (!applyNetToCopperSelection(app, targets, value, otherCommands)) {
                 showMultiSelectionProperties(app, entries);
                 return;
             }
         } else {
-            const commands = info.group.map(capability => capability.command?.(value)).filter(Boolean);
+            const commands = info.group.filter(capability => !capability.disabled)
+                .map(capability => capability.command?.(value)).filter(Boolean);
             if (commands.length) {
                 app.history.execute(commands.length === 1 ? commands[0] : new CompoundCommand(commands));
             }

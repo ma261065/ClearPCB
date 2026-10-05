@@ -52,7 +52,8 @@ export function runPcbNudgeAction(app, key) {
         || hasPcbInteractionInProgress(app) || app._boxSelectArm
         || app._boxSelectActive || app.viewport.isPanning) return false;
     const selected = getPcbSelectionEntries(app);
-    if (!selected.length || selected.some(entry => entry.locked || entry.visible === false
+    // Locked members stay put (the group drag skips them); one movable member is enough.
+    if (!selected.some(entry => !entry.locked) || selected.some(entry => entry.visible === false
         || entry.kind === 'reftext')) return false;
     const step = app.viewport.snapToGrid ? app.viewport.gridSize / 4 : 1;
     const dx = key === 'ArrowLeft' ? -step : key === 'ArrowRight' ? step : 0;

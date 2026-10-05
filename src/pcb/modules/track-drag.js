@@ -553,8 +553,12 @@ export function startMidpointInsertDrag(app, track, edgeId) {
  * Find a node (on any track) coincident with `(x, y)`, other than the
  * dragged node itself. Returns `{track, nodeId}` or null.
  */
+/** A locked track is never a join target: joining would rewrite or delete it. */
+const lockedJoinTarget = (app, track) => !!canonicalTrack(app, track)?.locked;
+
 function _findCoincidentNode(app, dragTrack, dragNodeId, x, y) {
     for (const t of (app.tracks || [])) {
+        if (t !== dragTrack && lockedJoinTarget(app, t)) continue;
         for (const [nid, p] of t.nodes) {
             if (t === dragTrack && nid === dragNodeId) continue;
             if (Math.abs(p.x - x) < NODE_MERGE_EPS && Math.abs(p.y - y) < NODE_MERGE_EPS) {
@@ -587,7 +591,7 @@ function _incidentLayers(track, nodeId) {
 function _findExistingMergeNode(app, x, y, net, layer, exclude) {
     const excludeSet = exclude instanceof Set ? exclude : new Set(exclude || []);
     for (const t of (app.tracks || [])) {
-        if (excludeSet.has(t)) continue;
+        if (excludeSet.has(t) || lockedJoinTarget(app, t)) continue;
         const otherNet = t.net || '';
         if (net && otherNet && net !== otherNet) continue; // net conflict
         for (const [nid, p] of t.nodes) {
@@ -999,6 +1003,7 @@ function _droppedNodeTarget(app, drag) {
     if (drag.snapTargetNode
         && !(drag.snapTargetNode.track === track && drag.snapTargetNode.nodeId === nd.nodeId)
         && app.tracks?.includes(drag.snapTargetNode.track)
+        && !lockedJoinTarget(app, drag.snapTargetNode.track)
         && drag.snapTargetNode.track.nodes?.has(drag.snapTargetNode.nodeId)) {
         return drag.snapTargetNode;
     }
@@ -1342,6 +1347,7 @@ export function updateVertexDrag(app, worldPos) {
     // into THAT node even though the smaller node-snap band means the
     // released position may not re-detect by coincidence alone.
     drag.snapTargetNode = snap.snapType === 'track-node' && snap.trackNode
+        && !lockedJoinTarget(app, snap.trackNode.track)
         ? { track: snap.trackNode.track, nodeId: snap.trackNode.nodeId }
         : null;
 
@@ -1669,7 +1675,8 @@ export function finishVertexDrag(app) {
     let committed = false;
     try {
         clearTrackPointerGuides(app, drag);
-        if (!isEditorActive(app) || [...drag.layers].some(layer => isLayerLocked(layer) || !isLayerVisible(layer))) return;
+        if (!isEditorActive(app) || drag.original.locked
+            || [...drag.layers].some(layer => isLayerLocked(layer) || !isLayerVisible(layer))) return;
         if (!drag.preview && drag.snapTargetNode) beginTrackPointerPreview(app, drag);
         if (!drag.preview) return;
         const tracks = app.pcbDocument?.tracks || app.tracks;

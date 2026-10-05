@@ -3,7 +3,8 @@ export const TEXT_LAYERS = ['top-silk', 'bottom-silk', 'top-copper', 'bottom-cop
 
 /**
  * @param {Partial<{id:string, content:string, x:number, y:number,
- *   size:number, rotation:number, layer:string, strokeWidth:number, border:boolean}>} opts
+ *   size:number, rotation:number, layer:string, strokeWidth:number, border:boolean,
+ *   locked:boolean}>} opts
  */
 export function createPcbText(opts = {}) {
     return {
@@ -16,6 +17,7 @@ export function createPcbText(opts = {}) {
         layer: TEXT_LAYERS.includes(opts.layer) ? opts.layer : 'top-silk',
         strokeWidth: opts.strokeWidth ?? 0.15,
         border: !!opts.border,
+        ...(opts.locked ? { locked: true } : {}),
     };
 }
 
@@ -32,5 +34,6 @@ export function serializePcbText(text) {
         strokeWidth: text.strokeWidth,
     };
     if (text.border) saved.border = true;
+    if (text.locked) saved.locked = true;
     return saved;
 }

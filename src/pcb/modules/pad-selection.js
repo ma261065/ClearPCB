@@ -1,4 +1,5 @@
-import { isLayerLocked, isLayerVisible, unlockPcbLayer } from './layers.js';
+import { isLayerVisible } from './layers.js';
+import { isPcbObjectLocked } from './object-locks.js';
 import { padLayers } from '../../shapes/pad-geometry.js';
 import { renderPad, updatePadHighlightGeometry } from './pad.js';
 import { registerPcbSelectionAdapter } from './selection-registry.js';
@@ -19,8 +20,7 @@ export function createPadSelectionAdapter(app, pad, id) {
     return {
         id, kind: 'pad', get object() { return current(); },
         get visible() { return pad.visible !== false && layers().some(isLayerVisible); },
-        get locked() { return pad.locked || layers().some(isLayerLocked); },
-        unlock() { for (const layer of layers()) unlockPcbLayer(app, layer); },
+        get locked() { return isPcbObjectLocked(app, 'pad', pad); },
         getBounds() { return current().getBounds(); },
         getLockPosition(pointer, scale) {
             const pad = current();

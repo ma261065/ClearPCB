@@ -98,13 +98,13 @@ const app = {
 for (const select of [() => PCBApp.prototype.selectAll.call(app),
     () => selectEnclosed(app, { minX: 0, minY: 0, maxX: 10, maxY: 10 })]) {
     select();
-    assert.ok(!app.selected.some(entry => entry.object === lockedPlacement.id),
-        'Locked component is excluded from bulk selection');
+    assert.ok(app.selected.some(entry => entry.object === lockedPlacement.id),
+        'A locked component is included in bulk selection so it can be unlocked in bulk');
     assert.ok(app.selected.some(entry => entry.object === fill), 'Unlocked pour is selectable');
     for (const [target, property, blocked] of [
         [topPour, 'locked', true], [topPour, 'visible', false],
         [topLayer, 'locked', true],
-        [fill, 'locked', true], [fill, 'visible', false],
+        [fill, 'visible', false],
     ]) {
         const previous = target[property];
         try {
@@ -119,6 +119,10 @@ for (const select of [() => PCBApp.prototype.selectAll.call(app),
         select();
         assert.ok(app.selected.some(entry => entry.object === fill), 'Restored pour is selectable again');
     }
+    fill.locked = true;
+    select();
+    assert.ok(app.selected.some(entry => entry.object === fill), 'An individually locked pour is still bulk-selected');
+    fill.locked = false;
     const previousVisibility = topLayer.visible;
     try {
         topLayer.visible = false;

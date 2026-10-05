@@ -1,4 +1,5 @@
-import { isLayerLocked, isLayerVisible, unlockPcbLayer } from './layers.js';
+import { isLayerVisible } from './layers.js';
+import { boardShapeLocked, isPcbObjectLocked } from './object-locks.js';
 import { pcbTextBounds, pcbTextHitTest, pcbTextOutline, renderPcbText } from './pcb-text.js';
 import { registerPcbSelectionAdapter } from './selection-registry.js';
 import { lockPositionOutsideOutline } from './selection-anchors.js';
@@ -15,8 +16,7 @@ export function createPcbTextSelectionAdapter(app, text, id) {
         kind: 'text',
         get object() { return current(); },
         get visible() { return isLayerVisible(current().layer); },
-        get locked() { return isLayerLocked(current().layer); },
-        unlock() { unlockPcbLayer(app, current().layer); },
+        get locked() { return isPcbObjectLocked(app, 'text', current()); },
         getBounds() { return pcbTextBounds(current()); },
         getLockPosition(pointer, scale) {
             const text = current();
@@ -34,7 +34,7 @@ export function createPcbTextSelectionAdapter(app, text, id) {
         beginAnchorDrag(anchorId, worldPos) {
             getPropertyEditor(app, 'text')?.commit();
             const text = current();
-            if (anchorId !== 'rotate' || isLayerLocked(text.layer) || !isLayerVisible(text.layer)) return false;
+            if (anchorId !== 'rotate' || boardShapeLocked(text) || !isLayerVisible(text.layer)) return false;
             rotationDrag = { center: { x: text.x, y: text.y }, start: { ...worldPos }, rotation: text.rotation || 0 };
             app._rotationHandleDrag = true;
             schedulePictureCopperRefresh(app, text);
@@ -42,7 +42,7 @@ export function createPcbTextSelectionAdapter(app, text, id) {
         },
         updateAnchorDrag(worldPos) {
             const text = current();
-            if (!rotationDrag || isLayerLocked(text.layer) || !isLayerVisible(text.layer)) return;
+            if (!rotationDrag || boardShapeLocked(text) || !isLayerVisible(text.layer)) return;
             const rotation = pointerRotation(rotationDrag.center, rotationDrag.start, worldPos, rotationDrag.rotation);
             if (text.rotation === rotation) return;
             previewTextPose(app, text.id, { rotation });
@@ -59,7 +59,7 @@ export function createPcbTextSelectionAdapter(app, text, id) {
             rotationDrag = null;
             app._rotationHandleDrag = false;
             try {
-                finishTextPosePreview(app, commit && !isLayerLocked(text.layer)
+                finishTextPosePreview(app, commit && !boardShapeLocked(text)
                     && isLayerVisible(text.layer) && after !== before
                     ? () => app.history.execute(new EditTextCommand(app, text.id, { rotation: after }))
                     : undefined);

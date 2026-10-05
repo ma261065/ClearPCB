@@ -35,6 +35,7 @@ import { Pad } from '../../shapes/pad.js';
 import { CopperFill } from '../../shapes/copper-fill.js';
 import { renderCopperFill, removeCopperFillElements } from './copper-fill-render.js';
 import { isLayerLocked, isViaLocked, isCopperFillLocked, isCopperFillVisible, isLayerVisible, isViaVisible } from './layers.js';
+import { isPcbObjectLocked } from './object-locks.js';
 import {
     applyShapeGeometry,
     cloneShapeGeometry,
@@ -133,7 +134,7 @@ function beginGroupPreview(app, g) {
 function groupIsEditable(app, g) {
     return isEditorActive(app)
         && g.comps.every(entry => !app.placements.get(entry.id)?.locked)
-        && g.tracks.every(entry => trackIsSelectable(entry.track))
+        && g.tracks.every(entry => !entry.track.locked && trackIsSelectable(entry.track))
         && g.vias.every(entry => !entry.via.locked && entry.via.visible !== false && !isViaLocked() && isViaVisible())
         && g.pads.every(entry => !entry.pad.locked && entry.pad.visible !== false
             && padLayers(entry.pad).every(layer => !isLayerLocked(layer)) && padLayers(entry.pad).some(isLayerVisible))
@@ -308,7 +309,6 @@ export function selectEnclosed(app, bounds) {
 
     // Components: every pad must lie inside the rectangle.
     for (const [compId, pl] of app.placements) {
-        if (pl.locked) continue;
         if (!pl.pads || pl.pads.size === 0) continue;
         let allInside = true;
         for (const [, pad] of pl.pads) {
@@ -344,7 +344,7 @@ export function selectEnclosed(app, bounds) {
         }
     }
     for (const pad of app.pads || []) {
-        if (pad.locked || pad.visible === false) continue;
+        if (pad.visible === false || padLayers(pad).some(isLayerLocked)) continue;
         const padBox = padBounds(pad);
         if (padBox.minX >= minX && padBox.maxX <= maxX
             && padBox.minY >= minY && padBox.maxY <= maxY) {
@@ -362,13 +362,14 @@ export function selectEnclosed(app, bounds) {
         }
     }
     for (const text of app.texts?.values?.() || []) {
+        if (isLayerLocked(text.layer) || !isLayerVisible(text.layer)) continue;
         const bounds = pcbTextBounds(text);
         if (bounds.minX >= minX && bounds.maxX <= maxX && bounds.minY >= minY && bounds.maxY <= maxY) {
             selected.push({ kind: 'text', object: text });
         }
     }
     for (const fill of (app.boardShapes || [])) {
-        if (fill?.type !== 'fill' || fill.locked || fill.visible === false) continue;
+        if (fill?.type !== 'fill' || fill.visible === false) continue;
         if (isLayerLocked(fill.layer)
             || isCopperFillLocked(fill.layer) || !isCopperFillVisible(fill.layer)) continue;
         const outline = fill.getOutline?.() || fill.outline;
@@ -530,19 +531,21 @@ export function beginGroupDrag(app, worldPos) {
         if (pl && !pl.locked) comps.push({ id: compId, x: pl.x, y: pl.y });
     }
     const vias = [];
-    for (const v of getPcbSelection(app, 'via')) vias.push({ via: v, x: v.x, y: v.y });
+    // Locked members (own or layer lock) stay where they are; the rest move.
+    const movable = kind => getPcbSelection(app, kind).filter(object => !isPcbObjectLocked(app, kind, object));
+    for (const v of movable('via')) vias.push({ via: v, x: v.x, y: v.y });
     const pads = [];
-    for (const pad of getPcbSelection(app, 'pad')) pads.push({ pad, before: pad.captureState() });
+    for (const pad of movable('pad')) pads.push({ pad, before: pad.captureState() });
     const tracks = [];
-    for (const t of getPcbSelection(app, 'track')) {
+    for (const t of movable('track')) {
         const nodes = new Map();
         for (const [nid, n] of t.nodes) nodes.set(nid, { x: n.x, y: n.y });
         tracks.push({ track: t, nodes, before: t.captureState() });
     }
     const shapes = [];
-    for (const shape of getPcbSelection(app, 'shape')) shapes.push({ shape, before: cloneShapeGeometry(shape) });
+    for (const shape of movable('shape')) shapes.push({ shape, before: cloneShapeGeometry(shape) });
     const texts = [];
-    for (const text of getPcbSelection(app, 'text')) texts.push({ text, x: text.x, y: text.y });
+    for (const text of movable('text')) texts.push({ text, x: text.x, y: text.y });
     const fills = [];
     for (const fill of getPcbSelection(app, 'fill')) {
         if (fill.locked || fill.visible === false || isLayerLocked(fill.layer)
@@ -836,15 +839,18 @@ export function deleteBoxSelection(app) {
         app._pcbSelectionInteraction = null;
     }
     if (!hasBoxSelection(app)) return false;
+    // Locked objects (by their own lock or a layer's) stay put.
+    const removable = kind => getPcbSelectionEntries(app)
+        .filter(entry => entry.kind === kind && !entry.locked).map(entry => entry.object);
     const cmds = [];
-    for (const t of getPcbSelection(app, 'track')) cmds.push(new RemoveTrackCommand(app, t));
-    for (const v of getPcbSelection(app, 'via')) cmds.push(new RemoveViaCommand(app, v));
-    for (const pad of getPcbSelection(app, 'pad')) cmds.push(new RemovePadCommand(app, pad));
-    for (const shape of getPcbSelection(app, 'shape')) {
+    for (const t of removable('track')) cmds.push(new RemoveTrackCommand(app, t));
+    for (const v of removable('via')) cmds.push(new RemoveViaCommand(app, v));
+    for (const pad of removable('pad')) cmds.push(new RemovePadCommand(app, pad));
+    for (const shape of removable('shape')) {
         if (shape.layer !== 'board-outline') cmds.push(new RemoveBoardShapeCommand(app, shape));
     }
-    for (const text of getPcbSelection(app, 'text')) cmds.push(new RemoveTextCommand(app, text.id));
-    for (const fill of getPcbSelection(app, 'fill')) cmds.push(new RemoveFillCommand(app, fill));
+    for (const text of removable('text')) cmds.push(new RemoveTextCommand(app, text.id));
+    for (const fill of removable('fill')) cmds.push(new RemoveFillCommand(app, fill));
 
     // Clear the selection (and its halos) before mutating the model.
     clearBoxSelection(app);

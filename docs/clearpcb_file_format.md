@@ -385,6 +385,11 @@ fields such as property maps and footprint shape arrays.
 }
 ```
 
+Tracks, vias, standalone pads, board shapes, copper fills, PCB text and
+placements can each carry their own lock, `lk` (`locked`), written only when
+`true`. A locked object can be selected but not moved, edited or deleted.
+Layer locks are separate: they are local editor preferences and are not saved.
+
 ### Board and Design
 
 | Field | Type | Description |
@@ -697,6 +702,7 @@ Every entry contains:
 | `cr` (`cornerRadius`) | number | Default corner radius in mm for line, rectangle and polygon nodes. |
 | `ncr` (`nodeCornerRadii`) | object | Optional node-index to corner-radius overrides, including zero to retain a sharp corner. |
 | `sb` (`segmentBulges`) | object | Optional segment-index to signed arc bulge ratio for line and polygon segments. Missing entries are straight. |
+| `lk` (`locked`) | boolean | Optional object lock; written only when `true`. |
 
 Geometry depends on `k` (`kind`):
 
@@ -944,10 +950,12 @@ and reject self-intersecting or degenerate outlines.
 | `l` (`layer`) | PCB layer containing the text. | Required. |
 | `lw` (`strokeWidth`) | Glyph and border line width in mm. | Required. |
 | `bd` (`border`) | Rectangular border matching the PCB inline-editing box, in the text color. | `false`. |
+| `lk` (`locked`) | Locked. | `false`. |
 
 PCB text uses Hershey stroke geometry. Positive rotation is visually
 counter-clockwise even though model Y points down. Valid text layers are
-`top-silk`, `bottom-silk`, `top-copper`, and `bottom-copper`. `bd` uses the
+`top-silk`, `bottom-silk`, `top-copper`, `bottom-copper`, `top-document`, and
+`bottom-document`. `bd` uses the
 same geometry as the inline-editing box, including its cursor and descender
 room, so entering and leaving edit mode does not show two almost-matching boxes.
 
@@ -1081,10 +1089,10 @@ keep the same name in both forms, including `type`, `id`, `x`, and `y`.
 | PCB track | `c`, `l`, `lw`, `v`, `lk`, `nd`, `ed`, `cl`, `f`, `fa`, `cr`, `ncr`, `bg`, `el`, `ew`, `n`, `w`, `pdc`, `sbs` | `color`, `layer`, `lineWidth`, `visible`, `locked`, `graphNodes`, `graphEdges`, `closed`, `fill`, `fillAlpha`, `cornerRadius`, `nodeCornerRadii`, `edgeBulges`, `edgeLayers`, `edgeWidths`, `net`, `width`, `padConnections`, `sourceBoardShape` |
 | PCB via | `d`, `dr`, `n`, `lk`, `v`, `sp` | `diameter`, `drill`, `net`, `locked`, `visible`, `span` |
 | Via span | `f`, `t` | `from`, `to` |
-| Board shape | `k`, `l`, `lw`, `f`, `cm`, `p`, `n`, `sw`, `sb`, `ncr`, `cr`, `sp`, `ep`, `bp`, `r`, `nm`, `aw`, `pts`, `w`, `h`, `rot`, `rev` | `kind`, `layer`, `lineWidth`, `filled`, `copperMode`, `plated`, `net`, `segmentWidths`, `segmentBulges`, `nodeCornerRadii`, `cornerRadius`, `start`, `end`, `bulge`, `radius`, `name`, `artwork`, `points`, `width`, `height`, `rotation`, `reversed` |
+| Board shape | `k`, `l`, `lw`, `f`, `cm`, `p`, `n`, `sw`, `sb`, `ncr`, `cr`, `sp`, `ep`, `bp`, `r`, `nm`, `aw`, `pts`, `w`, `h`, `rot`, `rev`, `lk` | `kind`, `layer`, `lineWidth`, `filled`, `copperMode`, `plated`, `net`, `segmentWidths`, `segmentBulges`, `nodeCornerRadii`, `cornerRadius`, `start`, `end`, `bulge`, `radius`, `name`, `artwork`, `points`, `width`, `height`, `rotation`, `reversed`, `locked` |
 | Artwork | `e`, `b`, `d`, `i` | `encoding`, `bytes`, `data`, `index` |
 | Copper fill | `l`, `pts`, `n`, `lk`, `v`, `k`, `cr`, `ncr`, `sb`, `r`, `w`, `h`, `rot`, `rev` | `layer`, `points`, `net`, `locked`, `visible`, `kind`, `cornerRadius`, `nodeCornerRadii`, `segmentBulges`, `radius`, `width`, `height`, `rotation`, `reversed` |
-| PCB text | `t`, `s`, `rot`, `l`, `lw`, `bd` | `content`, `size`, `rotation`, `layer`, `strokeWidth`, `border` |
+| PCB text | `t`, `s`, `rot`, `l`, `lw`, `bd`, `lk` | `content`, `size`, `rotation`, `layer`, `strokeWidth`, `border`, `locked` |
 | Placement | `rot`, `lk`, `mir`, `sd`, `rv`, `rdx`, `rdy`, `rr`, `rs`, `rw` | `rotation`, `locked`, `mirror`, `side`, `refVisible`, `refDx`, `refDy`, `refRot`, `refSize`, `refStrokeWidth` |
 | Panelization | `r`, `c`, `rs`, `cs`, `sp`, `rt`, `rb`, `rl`, `rr`, `vt`, `ht`, `vo`, `ho` | `rows`, `columns`, `rowSpacing`, `columnSpacing`, `separation`, `railTop`, `railBottom`, `railLeft`, `railRight`, `verticalTabsPerEdge`, `horizontalTabsPerEdge`, `verticalTabOffset`, `horizontalTabOffset` |
 | Panelization features | `vph`, `hf`, `hph`, `vf`, `tw`, `hd`, `hp`, `nc` | `verticalPositioningHoles`, `horizontalFiducials`, `horizontalPositioningHoles`, `verticalFiducials`, `tabWidth`, `holeDiameter`, `holePitch`, `noteCreated` |

@@ -15,7 +15,7 @@ import { updateGridDropdown, restoreGridSettings, serializeGridSettings } from '
 import { setToolCursor } from '../shared/ui/cursor.js';
 import { bindRibbonHeight } from '../shared/ui/ribbon-height.js';
 import { applyTextConnectionGuide, setInlineTextInputActive } from '../shared/ui/inline-text-overlay.js';
-import { PCB_LAYERS, PCB_OVERLAYS, PCB_COPPER_FILLS, isLayerLocked, isViaLocked, isLayerVisible, isViaVisible, pcbLayerHoverColor, pcbLayerSelectionColor, isCopperFillLocked, isCopperFillVisible } from '../pcb/modules/layers.js';
+import { PCB_LAYERS, PCB_OVERLAYS, PCB_COPPER_FILLS, pcbLayerName, isLayerLocked, isViaLocked, isLayerVisible, isViaVisible, pcbLayerHoverColor, pcbLayerSelectionColor, isCopperFillLocked, isCopperFillVisible } from '../pcb/modules/layers.js';
 import { exportDSN, importSES } from '../pcb/modules/dsn.js';
 import { DrcPresentation } from '../pcb/modules/drc-presentation.js';
 import { resolveDrcPairMarker } from '../pcb/modules/drc.js';
@@ -57,6 +57,7 @@ import { shapeDrawClick, cancelShapeDraw, hitTestBoardShape, setBoardShapeHover,
 import { showBoardShapeProperties, showBoardShapeToolProperties } from '../pcb/modules/board-shape-properties.js';
 import { normalizeShapeCopperMode } from '../shared/pcb/board-shape-geometry.js';
 import { hitTestPcbSelectionAnchor, renderPcbSelectionAnchors } from '../pcb/modules/selection-anchors.js';
+import { boardShapeLocked, isPcbObjectLayerLocked, isPcbObjectLocked, showUnlockMenu } from '../pcb/modules/object-locks.js';
 import { refreshAxisGlow } from '../pcb/modules/axis-glow.js';
 import { buildFillContext } from '../pcb/modules/fill-context.js';
 import { scheduleFillRefresh, recomputeFillsNow, invalidateFillRefresh, disposeFillRefresh } from '../pcb/modules/fill-refresh.js';
@@ -441,8 +442,7 @@ export default class PCBApp {
             : rawTool === 'track' ? this._trackDraw?.currentLayer || this._trackToolLayer || 'top-copper'
             : shapeTool ? this._shapeDraw?.layer || resolveShapeDrawLayer(this, this.activeLayer)
             : this.activeLayer;
-        const layerLabel = layer?.replace(/-/g, ' ')?.replace(/\b\w/g, c => c.toUpperCase())
-            || (shapeTool ? 'No unlocked layers' : 'Top Copper');
+        const layerLabel = layer ? pcbLayerName(layer) : (shapeTool ? 'No unlocked layers' : 'Top Copper');
         const selectedShape = getPcbSelection(this, 'shape');
         const selectedTrack = getPcbSelection(this, 'track');
         const showSegmentTip = rawTool === 'select'
@@ -514,39 +514,32 @@ export default class PCBApp {
             || getPcbSelection(this, 'text').length > 0
             || getPcbSelection(this, 'fill').length > 0;
     }
-    /** Select every currently visible, unlocked PCB object. */
+    /** Select every visible PCB object not on a locked layer; individually locked objects are included. */
     selectAll() {
         window.getSelection?.()?.removeAllRanges();
         const selected = [];
-        for (const [componentId, placement] of this.placements) {
-            if (placement.locked) continue;
-            selected.push({ kind: 'component', object: componentId });
-        }
+        const add = (kind, object) => {
+            if (!isPcbObjectLayerLocked(this, kind, object)) selected.push({ kind, object });
+        };
+        for (const [componentId] of this.placements) add('component', componentId);
         for (const track of this.tracks) {
-            if (trackIsSelectable(track)) {
-                selected.push({ kind: 'track', object: track });
-            }
+            if (trackIsSelectable(track)) add('track', track);
         }
-        if (!isViaLocked() && isViaVisible()) {
-            for (const via of this.vias) selected.push({ kind: 'via', object: via });
+        if (isViaVisible()) {
+            for (const via of this.vias) if (via.visible !== false) add('via', via);
         }
         for (const pad of this.pads || []) {
-            if (!pad.locked && pad.visible !== false) selected.push({ kind: 'pad', object: pad });
+            if (pad.visible !== false) add('pad', pad);
         }
         for (const shape of this.boardShapes) {
             if (shape?.type === 'fill') {
-                if (!shape.locked && shape.visible !== false && !isLayerLocked(shape.layer)
-                    && !isCopperFillLocked(shape.layer) && isCopperFillVisible(shape.layer)) {
-                    selected.push({ kind: 'fill', object: shape });
-                }
-            } else if (shape && !isLayerLocked(shape.layer) && isLayerVisible(shape.layer)) {
-                selected.push({ kind: 'shape', object: shape });
+                if (shape.visible !== false && isCopperFillVisible(shape.layer)) add('fill', shape);
+            } else if (shape && isLayerVisible(shape.layer)) {
+                add('shape', shape);
             }
         }
         for (const text of this.texts.values()) {
-            if (!isLayerLocked(text.layer) && isLayerVisible(text.layer)) {
-                selected.push({ kind: 'text', object: text });
-            }
+            if (isLayerVisible(text.layer)) add('text', text);
         }
         setPcbSelection(this, selected);
         refreshBoxSelectionHighlights(this);
@@ -570,24 +563,30 @@ export default class PCBApp {
      * Build a clipboard payload from current PCB selection.
      * Components/reference labels are intentionally excluded.
      */
-    _capturePcbClipboardSelection() {
+    /** @param {{unlockedOnly?: boolean}} [options] Cut copies only what it can remove. */
+    _capturePcbClipboardSelection({ unlockedOnly = false } = {}) {
         const payload = { tracks: [], vias: [], pads: [], shapes: [], texts: [], fills: [] };
-        for (const track of getPcbSelection(this, 'track')) payload.tracks.push(track.toJSON());
-        for (const via of getPcbSelection(this, 'via')) payload.vias.push(via.toJSON());
-        for (const pad of getPcbSelection(this, 'pad')) payload.pads.push(pad.toJSON());
-        for (const shape of getPcbSelection(this, 'shape')) {
+        const selected = kind => getPcbSelection(this, kind)
+            .filter(object => !unlockedOnly || !isPcbObjectLocked(this, kind, object));
+        for (const track of selected('track')) payload.tracks.push(track.toJSON());
+        for (const via of selected('via')) payload.vias.push(via.toJSON());
+        for (const pad of selected('pad')) payload.pads.push(pad.toJSON());
+        for (const shape of selected('shape')) {
             if (shape.layer !== 'board-outline') payload.shapes.push(JSON.parse(JSON.stringify(shape)));
         }
-        for (const text of getPcbSelection(this, 'text')) payload.texts.push(serializePcbText(text));
-        for (const fill of getPcbSelection(this, 'fill')) payload.fills.push(fill.captureState());
+        for (const text of selected('text')) payload.texts.push(serializePcbText(text));
+        for (const fill of selected('fill')) payload.fills.push(fill.captureState());
         if (!payload.tracks.length && !payload.vias.length && !payload.pads.length && !payload.shapes.length
             && !payload.texts.length && !payload.fills.length) return null;
         return payload;
     }
 
-    /** Copy currently-selected PCB entities (except components). */
-    copySelection() {
-        const payload = this._capturePcbClipboardSelection();
+    /**
+     * Copy currently-selected PCB entities (except components).
+     * @param {{unlockedOnly?: boolean}} [options]
+     */
+    copySelection(options) {
+        const payload = this._capturePcbClipboardSelection(options);
         if (!payload) {
             const componentId = getPcbSelection(this, 'component')[0] || getPcbSelection(this, 'reftext')[0];
             if (componentId) {
@@ -605,7 +604,7 @@ export default class PCBApp {
     /** Cut currently-selected PCB entities (copy + remove). */
     cutSelection() {
         if (this._pasteDrop) { this._cancelPasteDrop(); return true; }
-        if (!this.copySelection()) return false;
+        if (!this.copySelection({ unlockedOnly: true })) return false;
         const deleted = deleteBoxSelection(this);
         if (deleted) this.clearProperties();
         this.syncClipboardButtons();
@@ -773,13 +772,8 @@ export default class PCBApp {
         // Bind mouse events for panning
         this._bindMouseEvents();
         this.viewport.svg.addEventListener('unlock-shape', (event) => {
-            const item = event.detail?.shape;
-            const compId = item?.componentId;
-            if (compId && this.placements.get(compId)?.locked) {
-                this.history.execute(new SetPlacementLockedCommand(this, compId, false));
-            } else {
-                item?.unlock?.();
-            }
+            const { shape: owner, clientX, clientY } = event.detail || {};
+            if (owner?.kind) showUnlockMenu(this, owner.kind, owner.object, clientX, clientY);
         });
 
         // Create SVG layer groups (one <g> per PCB layer, in z-order)
@@ -3464,7 +3458,7 @@ export default class PCBApp {
     _hitTestText(worldPos) {
         let hit = null;
         for (const t of this.texts.values()) {
-            if (isLayerLocked(t.layer) || !isLayerVisible(t.layer)) continue;
+            if (boardShapeLocked(t) || !isLayerVisible(t.layer)) continue;
             if (pcbTextHitTest(t, worldPos.x, worldPos.y)) hit = t;
         }
         return hit;
@@ -3488,7 +3482,7 @@ export default class PCBApp {
     _beginTextDrag(text, worldPos) {
         getPropertyEditor(this, 'text')?.commit();
         text = text && this.pcbDocument.texts.get(text.id);
-        if (!text || !this.texts.has(text.id) || isLayerLocked(text.layer) || !isLayerVisible(text.layer)) return false;
+        if (!text || !this.texts.has(text.id) || boardShapeLocked(text) || !isLayerVisible(text.layer)) return false;
         this._textDrag = {
             textId: text.id,
             startWorld: worldPos,
@@ -3503,7 +3497,7 @@ export default class PCBApp {
     _updateTextDrag(worldPos) {
         if (!this._textDrag) return;
         const text = this.texts.get(this._textDrag.textId);
-        if (!text || isLayerLocked(text.layer) || !isLayerVisible(text.layer)) return;
+        if (!text || boardShapeLocked(text) || !isLayerVisible(text.layer)) return;
         const snap = this._snapToGrid({
             x: this._textDrag.startPos.x + worldPos.x - this._textDrag.startWorld.x,
             y: this._textDrag.startPos.y + worldPos.y - this._textDrag.startWorld.y,
@@ -3530,7 +3524,7 @@ export default class PCBApp {
         this.viewport?.hideCrosshair();
         this.viewport.svg.style.cursor = 'default';
         const t = this.texts.get(textId);
-        finishTextPosePreview(this, t && commit && !isLayerLocked(t.layer) && isLayerVisible(t.layer)
+        finishTextPosePreview(this, t && commit && !boardShapeLocked(t) && isLayerVisible(t.layer)
             && (t.x !== startPos.x || t.y !== startPos.y)
             ? () => this.history.execute(new MoveTextCommand(this, textId, startPos.x, startPos.y, t.x, t.y))
             : undefined);
@@ -3942,16 +3936,9 @@ export default class PCBApp {
         showTextToolProperties(this, this._textDefaults);
     }
 
+    /** The layer panel's name for a layer, so every menu and label matches the panel. */
     layerLabel(layer) {
-        switch (layer) {
-            case 'top-silk':      return 'Top Silk';
-            case 'bottom-silk':   return 'Bottom Silk';
-            case 'top-copper':    return 'Top Copper';
-            case 'bottom-copper': return 'Bottom Copper';
-            case 'top-document':  return 'Top Document';
-            case 'bottom-document': return 'Bottom Document';
-            default:              return layer;
-        }
+        return pcbLayerName(layer);
     }
 
     _escapeAttr(s) {
@@ -3999,7 +3986,7 @@ export default class PCBApp {
      */
     _deleteSelectedText() {
         const text = getPcbSelection(this, 'text')[0] || null;
-        if (!text || isLayerLocked(text.layer) || !isLayerVisible(text.layer)) return false;
+        if (!text || boardShapeLocked(text) || !isLayerVisible(text.layer)) return false;
         const id = text.id;
         this.history.execute(new RemoveTextCommand(this, id));
         this.clearProperties?.();

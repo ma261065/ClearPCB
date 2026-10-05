@@ -7,7 +7,8 @@
 import { displayRotationDegrees } from '../../core/number-inputs.js';
 import { TEXT_LAYERS } from '../../core/pcb-text.js';
 import { measureText as measureStrokeText } from '../../shared/pcb/stroke-font.js';
-import { isLayerLocked, isLayerVisible } from './layers.js';
+import { isLayerVisible } from './layers.js';
+import { bindLockedProperty, boardShapeLocked, lockedPropertyHtml } from './object-locks.js';
 import { bindPictureRefreshHold, schedulePictureCopperRefresh } from './picture-refresh.js';
 import { setPropertyEditor } from './property-editors.js';
 import { EditTextCommand, beginTextPropertyPreview, finishTextPropertyPreview } from './text-commands.js';
@@ -72,7 +73,7 @@ export function showTextProperties(app, text, textEdit = () => null) {
     const items = app.propertiesItems();
     if (!items) return;
     app.setPropertiesTitle('Text');
-    const disabled = isLayerLocked(text.layer) ? ' disabled' : '';
+    const disabled = boardShapeLocked(text) ? ' disabled' : '';
     const layerOpts = TEXT_LAYERS.map(l =>
         `<option value="${l}" ${l === text.layer ? 'selected' : ''}>${app.layerLabel(l)}</option>`
     ).join('');
@@ -90,7 +91,9 @@ export function showTextProperties(app, text, textEdit = () => null) {
             <option value="\u00D7">× Times</option>
             <option value="\u00F7">÷ Divide</option>
         </select></div>` : '';
+    const lockEntries = [{ kind: 'text', object: text }];
     items.innerHTML = `
+        ${lockedPropertyHtml(app, lockEntries)}
         ${insertRow}
         <div class="prop-row" data-prop="layer"><label>Layer</label><select id="pcbPropTextLayer"${disabled}>${layerOpts}</select></div>
         <div class="prop-row" data-prop="fontSize"><label>Text Size (mm)</label><input type="number" id="pcbPropTextSize" value="${text.size}" min="0.2" step="0.1"${disabled}></div>
@@ -132,7 +135,7 @@ export function showTextProperties(app, text, textEdit = () => null) {
     };
     setPropertyEditor(app, 'text', bindStrokeTextProps(app, items, text, {
         editable: () => isEditorActive(app) && app.pcbDocument.texts.get(text.id) === text
-            && !isLayerLocked(text.layer) && isLayerVisible(text.layer),
+            && !boardShapeLocked(text) && isLayerVisible(text.layer),
         fields: [
             { id: 'pcbPropTextLayer', field: 'layer', parse: (v) => TEXT_LAYERS.includes(v) ? v : null, apply: layerApply },
             { id: 'pcbPropTextSize', field: 'size', parse: num(0.1) },
@@ -155,6 +158,7 @@ export function showTextProperties(app, text, textEdit = () => null) {
     }));
     const borderEl = /** @type {HTMLInputElement|null} */ (items.querySelector('#pcbPropTextBorder'));
     borderEl?.addEventListener('change', () => {
+        if (boardShapeLocked(text)) return;
         app.history.execute(new EditTextCommand(app, text.id, { border: borderEl.checked }));
     });
     // Insert-symbol dropdown: insert at caret when inline-editing,
@@ -166,7 +170,7 @@ export function showTextProperties(app, text, textEdit = () => null) {
     insertEl?.addEventListener('change', () => {
         const sym = insertEl.value;
         insertEl.value = '';
-        if (!sym) return;
+        if (!sym || boardShapeLocked(text)) return;
         const edit = textEdit();
         if (edit && edit.text?.id === text.id) {
             const inp = edit.input;
@@ -182,6 +186,7 @@ export function showTextProperties(app, text, textEdit = () => null) {
                 { content: (text.content || '') + sym }));
         }
     });
+    bindLockedProperty(app, items, lockEntries);
 
     app.showPropertiesTab?.();
 }

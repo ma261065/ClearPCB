@@ -10,10 +10,12 @@ import { displayRotationDegrees, formatNumberInput, formatNumberInputValue } fro
 import { canRoundPathNode } from '../../shapes/path-geometry.js';
 import { SHAPE_KINDS, applyShapeGeometry, applyShapeSnapshot, captureBoardShapeState as shapeSnapshot } from '../../core/pcb-board-shapes.js';
 import { isLayerLocked, PCB_LAYERS, pcbLayerOptionHtml, setPcbLayerLocked } from './layers.js';
+import { bindLockedProperty, lockedPropertyHtml } from './object-locks.js';
 import { ModifyBoardShapeCommand } from './shape-commands.js';
 import { CompoundCommand } from './track-commands.js';
 import { commitPropertyPreviewInput, bindPropertyPreviewInput } from '../../shapes/property-preview.js';
-import { getPcbSelection, isPcbSelected, syncPcbSelection } from './selection-registry.js';
+import { getPcbSelection, getPcbSelectionEntries, isPcbSelected, syncPcbSelection } from './selection-registry.js';
+import { showPcbSelectionProperties } from './selection-interaction.js';
 import { PICTURE_LAYERS } from '../../shared/pcb/picture-raster.js';
 import { bindPictureRefreshHold } from './picture-refresh.js';
 import { rotatedImagePoints } from './rotation-handle.js';
@@ -219,7 +221,9 @@ export function showImageProperties(app, shape, items) {
         const escaped = name.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/"/g, '&quot;');
         return `<option value="${escaped}">${escaped}</option>`;
     }).join('');
+    const lockEntries = [{ kind: 'shape', object: shape }];
     items.innerHTML = `
+        ${lockedPropertyHtml(app, lockEntries)}
         <div class="prop-row" data-prop="layer"><label>Layer</label><select id="pcbPropImageLayer">${layers.map(layer =>
             pcbLayerOptionHtml(layer.id, layer.name, layer.id === shape.layer)).join('')}</select></div>
         ${shape.layer.endsWith('copper') ? `<div class="prop-row" data-prop="net"><label>Net</label><select id="pcbPropImageNet"><option value="">Unassigned</option>${imageNetOptions}</select></div>` : ''}
@@ -354,6 +358,7 @@ export function showImageProperties(app, shape, items) {
         netInput.value = shape.net || '';
         netInput.addEventListener('change', () => commit(candidate => { candidate.net = netInput.value.trim(); }));
     }
+    bindLockedProperty(app, items, lockEntries);
     app.showPropertiesTab?.();
 }
 
@@ -461,6 +466,8 @@ export function showBoardShapeProperties(app, shape) {
         ? `<div class="prop-row" data-prop="bulge"><label for="pcbPropShapeBulge">Bulge</label><input type="number" id="pcbPropShapeBulge" min="-1" max="1" step="0.05" value="${formatNumberInputValue(editableShapeBulge(shape, selectedSegment))}"></div>`
         : '';
 
+    const lockEntries = selectedNode == null && selectedSegment == null && !hasOutline
+        ? propertyOriginals.map(object => ({ kind: 'shape', object })) : [];
     items.innerHTML = selectedNode != null
         ? `<div class="prop-row" data-prop="x"><label>X (mm)</label><span id="pcbPropShapeNodeX">${formatNumberInputValue(shape.points[selectedNode].x)}</span></div>
                 <div class="prop-row" data-prop="y"><label>Y (mm)</label><span id="pcbPropShapeNodeY">${formatNumberInputValue(shape.points[selectedNode].y)}</span></div>
@@ -468,6 +475,7 @@ export function showBoardShapeProperties(app, shape) {
         : selectedSegment != null
         ? `${hasOutline ? '' : `<div class="prop-row" data-prop="lineWidth" id="pcbPropShapeLineWidthRow"><label>Line Width (mm)</label><input type="number" id="pcbPropShapeLineWidth" min="${lineWidthMinimum}" step="0.05" value="${initialLineWidth.toFixed(2)}"></div>`}${bulgeHtml}`
         : `
+            ${lockEntries.length ? lockedPropertyHtml(app, lockEntries) : ''}
             ${outlineTarget ? `<label class="prop-row prop-toggle" data-prop="locked"><input type="checkbox" id="pcbPropOutlineLocked"${isLayerLocked('board-outline') ? ' checked' : ''}><span>Locked</span></label>` : ''}
             ${outlineTarget ? `<div class="prop-row" data-prop="outline"><label>Outline</label><select id="pcbPropOutlineKind">${['rect', 'polygon', 'circle'].map(kind => `<option value="${kind}"${kind === shape.kind ? ' selected' : ''}>${shapeKindLabel(kind)}</option>`).join('')}</select></div>` : ''}
             ${hasOutline ? '' : `<div class="prop-row" data-prop="layer"><label>Layer</label><select id="pcbPropShapeLayer">${mixedLayer ? '<option value="" selected disabled>Mixed</option>' : ''}${layerOptionsHtml}</select></div>`}
@@ -892,6 +900,7 @@ export function showBoardShapeProperties(app, shape) {
     });
 
     syncCopperModeAvailability();
+    if (lockEntries.length) bindLockedProperty(app, items, lockEntries);
     app.showPropertiesTab?.();
 }
 
@@ -918,7 +927,8 @@ export function syncCircleDiameterProperty(app, shape) {
 }
 
 export function refreshBoardShapeProperties(app, shape) {
-    if (shape && isPcbSelected(app, 'shape', shape)) {
-        showBoardShapeProperties(app, shape);
-    }
+    if (!shape || !isPcbSelected(app, 'shape', shape)) return;
+    // A multi-selection may be showing the shared panel (mixed kinds or locked members).
+    if (getPcbSelectionEntries(app).length > 1) showPcbSelectionProperties(app);
+    else showBoardShapeProperties(app, shape);
 }

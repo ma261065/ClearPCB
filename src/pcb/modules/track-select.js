@@ -55,8 +55,8 @@ import {
     isLayerVisible,
     isViaVisible,
     pcbLayerOptionHtml,
-    unlockPcbLayer,
 } from './layers.js';
+import { bindLockedProperty, isPcbObjectLocked, lockedPropertyHtml } from './object-locks.js';
 import { setBoardShapeNetHover, canFillTrackLoop, fillTrackLoop, canMoveTrackToBoardLayer, moveTrackToBoardLayer, setTrackCopperMode } from './board-shapes.js';
 import { PROP_HIDDEN_LAYERS } from './board-shape-properties.js';
 import { normalizeShapeCopperMode } from '../../shared/pcb/board-shape-geometry.js';
@@ -177,13 +177,7 @@ export function createTrackSelectionAdapter(app, track, id) {
         kind: 'track',
         get object() { return current(); },
         get visible() { return trackIsVisible(current()); },
-        get locked() { return !trackIsSelectable(track); },
-        unlock() {
-            for (const [edgeId] of track.edges || []) {
-                const layer = track.getEdgeLayer(edgeId);
-                if (isLayerLocked(layer)) unlockPcbLayer(app, layer);
-            }
-        },
+        get locked() { return isPcbObjectLocked(app, 'track', track); },
         getLockPosition(pointer, scale) {
             const track = current();
             const paths = [...resolveTrackEdgePaths(track).entries()];
@@ -293,10 +287,7 @@ export function createViaSelectionAdapter(app, via, id) {
         kind: 'via',
         get object() { return current(); },
         get visible() { return isViaVisible(); },
-        get locked() { return isViaLocked(); },
-        unlock() {
-            unlockPcbLayer(app, 'vias');
-        },
+        get locked() { return isPcbObjectLocked(app, 'via', via); },
         getLockPosition(pointer, scale) {
             const via = current();
             const radius = (Number(via.diameter) || 0.6) / 2;
@@ -340,18 +331,18 @@ export function hitTestTrack(app, worldPos, pxTol = HIT_TOL_PX) {
     if (!isViaLocked() && isViaVisible()) {
         for (let i = app.vias.length - 1; i >= 0; i--) {
             const v = app.vias[i];
-            if (viaHitTest(v, worldPos, worldTol)) {
+            if (!v.locked && viaHitTest(v, worldPos, worldTol)) {
                 return { type: 'via', via: v };
             }
         }
     }
 
     // Tracks: distance to any segment within (width/2 + tol). Width is
-    // per-edge, so resolve it inside the segment loop. Locked- or hidden-layer
-    // tracks are not hit-testable.
+    // per-edge, so resolve it inside the segment loop. Locked (by layer or
+    // individually) and hidden-layer tracks are not hit-testable.
     for (let i = app.tracks.length - 1; i >= 0; i--) {
         const t = app.tracks[i];
-        if (isLayerLocked(t.layer) || !isLayerVisible(t.layer)) continue;
+        if (t.locked || isLayerLocked(t.layer) || !isLayerVisible(t.layer)) continue;
         if (trackHitTest(t, worldPos, worldTol)) return { type: 'track', track: t };
     }
     return null;
@@ -820,6 +811,9 @@ export function removeHalosByClass(app, cls) {
  */
 export function deleteSelectedTrack(app) {
     getPropertyEditor(app, 'track')?.cancel();
+    const lockedTrack = getSelectedTrack(app), lockedVia = getSelectedVia(app);
+    if (lockedTrack ? isPcbObjectLocked(app, 'track', canonicalTrack(app, lockedTrack))
+        : lockedVia && isPcbObjectLocked(app, 'via', canonicalVia(app, lockedVia))) return;
     // A single highlighted segment deletes just that edge (the rest of the
     // track survives as its remaining connected pieces). The focused edge is
     // explicit edit state, so verify its Track is still registry-selected.
@@ -1107,6 +1101,17 @@ function _drawHoleHalo(app, hole, cls = HALO_CLASS, opacity = HALO_OPACITY_SELEC
 
 /* ──────────────────────────── properties panel ──────────────────────────── */
 
+/**
+ * A layer change rebuilds the bonded copper region, removing and re-adding its
+ * other tracks and vias; refuse it when that would rewrite a locked one.
+ */
+function regionRewritesLockedCopper(app, track, region) {
+    const locked = region.removeTracks.some(other => other !== track && isPcbObjectLocked(app, 'track', other))
+        || region.removeVias.some(via => isPcbObjectLocked(app, 'via', via));
+    if (locked) app.setStatus?.('Connected copper is locked. Unlock it to change this layer.');
+    return locked;
+}
+
 function trackCornerRadiusProperty(track, nodeId = null) {
     const radius = nodeId == null ? track.cornerRadius : track.nodeCornerRadius(nodeId);
     return `<div class="prop-row" data-prop="cornerRadius"><label>Corner Radius (mm)</label><input type="number" id="pcbPropTrackCornerRadius" min="0" step="0.5" value="${formatNumberInputValue(radius)}"></div>`;
@@ -1121,7 +1126,7 @@ function createTrackPropertyBinding(app, track, scope = {}) {
     const layers = () => [...track.edges].filter(([id, edge]) => scope.edgeId != null
         ? id === scope.edgeId : scope.nodeId == null || edge.from === scope.nodeId || edge.to === scope.nodeId)
         .map(([id]) => track.getEdgeLayer(id));
-    const editable = () => !disposed && isEditorActive(app)
+    const editable = () => !disposed && isEditorActive(app) && !track.locked
         && layers().every(layer => isLayerVisible(layer) && !isLayerLocked(layer));
     const resetFields = () => {
         for (const { input, spec } of fields) {
@@ -1325,7 +1330,9 @@ function _showTrackProperties(app, track) {
     ].map(([value, label]) => `<option value="${value}"${movable ? '' : ` disabled title="${_escape(unmovableModeReason)}"`}>${label}</option>`).join('');
     const mixedOpt = mixed ? `<option value="" selected>Multiple</option>` : '';
     const netOptions = _netOptions(app, track.net || '');
+    const lockEntries = [{ kind: 'track', object: track }];
     items.innerHTML = `
+        ${lockedPropertyHtml(app, lockEntries)}
         <div class="prop-row" data-prop="layer"><label>Layer</label><select id="pcbPropTrackLayer">${mixedOpt}${layerOpts}</select></div>
         <div class="prop-row" data-prop="copperMode"><label>Copper Mode</label><select id="pcbPropTrackCopperMode">${copperModeOpts}</select></div>
         <div class="prop-row" data-prop="net"><label>Net</label><span class="prop-net-control"><input type="text" id="pcbPropTrackNet" value="${_escape(track.net || '')}" placeholder="None"><details class="prop-net-menu"><summary aria-label="Select existing net"></summary><div>${netOptions}</div></details></span></div>
@@ -1419,6 +1426,10 @@ function _showTrackProperties(app, track) {
         const region = reconcileCopperRegion(app, track);
         // Restore the seed so its RemoveTrackCommand captures clean undo.
         track.applyState(before);
+        if (regionRewritesLockedCopper(app, track, region)) {
+            layerEl.value = currentLayer;
+            return;
+        }
         // Drop the selection FIRST, while the original tracks are still
         // present and rendered (see the segment handler for why).
         clearTrackSelection(app);
@@ -1431,6 +1442,7 @@ function _showTrackProperties(app, track) {
         reconcileRatsnest(app);
         app.showPropertiesTab?.();
     });
+    bindLockedProperty(app, items, lockEntries);
     app.showPropertiesTab?.();
 }
 
@@ -1510,6 +1522,10 @@ function _showTrackSegmentProperties(app, track, edgeId) {
         const region = reconcileCopperRegion(app, track);
         // Restore the seed so its RemoveTrackCommand captures clean undo.
         track.applyState(before);
+        if (regionRewritesLockedCopper(app, track, region)) {
+            layerEl.value = track.getEdgeLayer(edgeId);
+            return;
+        }
         // Drop the selection FIRST, while the original tracks are still
         // present and rendered. clearTrackSelection re-renders a selected
         // track whose labels can't be restored — and once RemoveTrackCommand
@@ -1704,7 +1720,9 @@ export function showViaProperties(app, via) {
     const { minDiameter, maxDrill } = limits();
     app.setPropertiesTitle?.('Via');
     const netOptions = _netOptions(app, via.net || '');
+    const lockEntries = vias.map(target => ({ kind: 'via', object: target }));
     items.innerHTML = `
+        ${lockedPropertyHtml(app, lockEntries)}
         <div class="prop-row" data-prop="net"><label>Net</label><span class="prop-net-control"><input type="text" id="pcbPropViaNet" value="${mixedNet ? '' : _escape(via.net || '')}" placeholder="${mixedNet ? 'Mixed' : 'None'}"><details class="prop-net-menu"><summary aria-label="Select existing net"></summary><div>${netOptions}</div></details></span></div>
         <div class="prop-row" data-prop="diameter"><label>Diameter (mm)</label><input type="number" id="pcbPropViaDia" value="${mixedDiameter ? '' : via.diameter}" placeholder="${mixedDiameter ? 'Mixed' : ''}" min="${minDiameter}" step="0.05"></div>
         <div class="prop-row" data-prop="drill"><label>Drill (mm)</label><input type="number" id="pcbPropViaDrill" value="${mixedDrill ? '' : via.drill}" placeholder="${mixedDrill ? 'Mixed' : ''}" min="0.05" max="${maxDrill}" step="0.05"></div>
@@ -1853,6 +1871,7 @@ export function showViaProperties(app, via) {
             option.toggleAttribute('aria-current', option.dataset.net === current);
         }
     });
+    bindLockedProperty(app, items, lockEntries);
     app.showPropertiesTab?.();
 }
 

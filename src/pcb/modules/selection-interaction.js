@@ -80,10 +80,13 @@ export function showPcbSelectionProperties(app) {
         return;
     }
     const kinds = new Set(selected.map((entry) => entry.kind));
-    // Families with geometry-aware batch editors keep those specialized
-    // panels. Every other selection is handled by PCBApp's shared capability
-    // intersection editor.
-    if (kinds.size === 1 && selected[0].kind === 'shape') {
+    // Families with geometry-aware batch editors keep those specialized panels while
+    // every member is editable. A selection holding a locked object uses PCBApp's
+    // shared capability panel, which applies edits to the unlocked members only.
+    const anyLocked = selected.some(entry => entry.locked);
+    if (anyLocked) {
+        app._showPcbMultiSelectionProperties?.(selected);
+    } else if (kinds.size === 1 && selected[0].kind === 'shape') {
         showBoardShapeProperties(app, selected[0].object);
     } else if (kinds.size === 1 && selected[0].kind === 'via') {
         showViaProperties(app, selected[0].object);

@@ -1,6 +1,6 @@
 import { registerPcbSelectionAdapter, getRefTextSelectionHit } from './selection-registry.js';
 import { lockPositionOutsideOutline } from './selection-anchors.js';
-import { isLayerVisible, isLayerLocked, unlockPcbLayer } from './layers.js';
+import { isLayerVisible, isLayerLocked } from './layers.js';
 
 export function isRefTextLocked(placement) {
     return !!placement && (!!placement.locked
@@ -56,10 +56,6 @@ export function createRefTextSelectionAdapter(app, componentId, id) {
                 && isLayerVisible(placement.side === 'bottom' ? 'bottom-silk' : 'top-silk');
         },
         get locked() { return isRefTextLocked(app.placements?.get(componentId)); },
-        unlock() {
-            const placement = app.placements?.get(componentId);
-            if (placement) unlockPcbLayer(app, placement.side === 'bottom' ? 'bottom-silk' : 'top-silk');
-        },
         getBounds() { return boundsForRefText(app, componentId); },
         getLockPosition(pointer, scale) {
             return lockPositionOutsideOutline(

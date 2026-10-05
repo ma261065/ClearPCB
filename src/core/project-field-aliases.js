@@ -73,7 +73,7 @@ const BOARD_SHAPE = {
     p: 'plated', n: 'net', sw: 'segmentWidths', sb: 'segmentBulges',
     ncr: 'nodeCornerRadii', cr: 'cornerRadius', sp: 'start', ep: 'end',
     bp: 'bulge', r: 'radius', nm: 'name', aw: 'artwork', pts: 'points',
-    w: 'width', h: 'height', rot: 'rotation', rev: 'reversed',
+    w: 'width', h: 'height', rot: 'rotation', rev: 'reversed', lk: 'locked',
 };
 const FILL_BASE = { l: 'layer', pts: 'points', n: 'net', lk: 'locked', v: 'visible' };
 const FILL_GEOMETRY = {
@@ -83,6 +83,7 @@ const FILL_GEOMETRY = {
 const ARTWORK = { e: 'encoding', b: 'bytes', d: 'data', i: 'index' };
 const PCB_TEXT = {
     t: 'content', s: 'size', rot: 'rotation', l: 'layer', lw: 'strokeWidth', bd: 'border',
+    lk: 'locked',
 };
 const PAD = {
     sh: 'shape', s: 'size', dr: 'drill', ra: 'ratio', rot: 'rotation',

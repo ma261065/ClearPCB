@@ -72,6 +72,12 @@ a successful no-op. Geometry edits invalidate existing entity bounds without
 rendering; connectivity, clearance, selection and SVG work remain in the
 `pcb/modules/track-commands.js` adapters.
 
+`core/pcb-lock-commands.js` sets one object's own `locked` flag (tracks, vias,
+pads, board shapes, fills, text). Free text resolves by id, like the text
+commands, because deletion undo recreates its record; other kinds keep their
+instance. Placement locks stay in `core/pcb-placement-commands.js`. Layer locks
+are editor preferences and never reach the model.
+
 Track drawing and single-node drops distinguish edit-time connections from
 physical copper contact. The connection policy follows explicitly placed nodes
 on compatible copper layers (including nodes placed onto segment/arc interiors,

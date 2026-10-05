@@ -89,8 +89,44 @@ Layer visibility and lock changes are handled in `pcb/modules/layer-changes.js`,
 called through the editor's thin `_on…Changed` seams. The module cancels
 gestures and property editors stranded by the change, updates render-group
 visibility or opacity, prunes hidden selections and hover state, keeps the
-clearance overlay aligned with visible copper layers, and saves the layer-panel
-preferences.
+clearance overlay aligned with visible copper layers, refreshes the Properties
+panel when a selected object lives on the changed layer, and saves the
+layer-panel preferences.
+
+### Object Locks
+
+Every PCB object also has its own lock, saved as `lk`: tracks, vias, standalone
+pads, board shapes, pours and free text use their `locked` flag; components and
+their reference text share the placement lock. `pcb/modules/object-locks.js` owns
+the rule. `pcbLockState(app, kind, object)` reports the object lock and the layer
+locks holding the object (a track only when none of its edges is on an unlocked,
+visible layer; a pour also by its copper-fill lock), and `isPcbObjectLocked`
+combines them. Adapters' `locked` getters, group moves, delete and Cut, hit
+testing for legacy track/via presses and track joins, property-editor `editable`
+checks, the board-shape and text edit paths, and copper-region rebuilds after a
+track layer change all use these predicates, so a locked object can be selected
+but not moved, edited or deleted. Pasted copies start unlocked.
+
+Select All and the marquee take individually locked objects but skip objects on
+a locked layer (`isPcbObjectLayerLocked`), so a whole selection that was locked
+from Properties can be unlocked the same way. Bulk actions then work on the
+unlocked members only: group drags and arrow nudges leave locked members in
+place, delete skips them, Cut copies only what it removes (Copy still copies
+everything), and the shared multi-selection panel applies an edit to the members
+that accept it. A same-kind selection that holds a locked member uses that shared
+panel instead of its specialised batch panel. Its Locked row appears whenever any
+member has its own lock (the board outline has none) and shows a mixed state.
+Every selected locked object shows its lock icon.
+
+The selection lock icon dispatches `unlock-shape` with the click position; the
+editor answers with a menu of the applicable choices: unlock the object (an
+undoable `SetObjectLockedCommand`, or `SetPlacementLockedCommand` for
+components), unlock the holding layers (layer-panel preferences, outside
+history), or both. Properties panels put a Locked row first
+(`lockedPropertyHtml`/`bindLockedProperty`); it sets the object lock and stays
+enabled under a layer lock, while the panel's other controls become read-only.
+The board outline keeps its existing layer-lock checkbox
+(`test-pcb-object-locks`, `browser-tests/object-locks.mjs`).
 
 ## PCB Derived Refreshes
 

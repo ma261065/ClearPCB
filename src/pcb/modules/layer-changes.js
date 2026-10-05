@@ -14,6 +14,7 @@ import { getSelectedTrack, getSelectedVia, clearTrackSelection, setHoverHighligh
 import { activeTextInlineEdit, endTextInlineEdit } from './text-inline-edit.js';
 import { areClearancesVisible } from './clearance-overlay.js';
 import { fillGroupId } from './copper-fill-render.js';
+import { pcbObjectLayers } from './object-locks.js';
 
 /*
  * What the PCB editor does when the layer panel hides, shows, locks or unlocks a layer,
@@ -146,10 +147,9 @@ export function onLayerLockChanged(app, layerId, locked) {
     const checkbox = /** @type {HTMLInputElement|null} */ (document.getElementById('pcbPropOutlineLocked'));
     if (checkbox) checkbox.checked = locked;
     app._refreshPcbSelectionHighlights?.();
-    if (getPcbSelection(app, 'reftext').some(id => {
-        const placement = app.placements.get(id);
-        return placement && silkLayerOf(placement) === layerId;
-    }) || getPcbSelection(app, 'text').some(text => text.layer === layerId)) showPcbSelectionProperties(app);
+    if (getPcbSelectionEntries(app).some(entry => pcbObjectLayers(app, entry.kind, entry.object).includes(layerId))) {
+        showPcbSelectionProperties(app);
+    }
     setHoverHighlight(app, null);
 }
 
@@ -175,10 +175,8 @@ export function onCopperFillLockChanged(app, copperLayerId, locked) {
     if (locked && groupDragsPourOn(app, copperLayerId)) app._cancelPosePreviews();
     const g = app.existingLayerGroups().get(fillGroupId(copperLayerId));
     if (g) g.style.opacity = locked ? '0.4' : '';
-    const selectedFill = getPcbSelection(app, 'fill')[0] || null;
-    const checkbox = /** @type {HTMLInputElement|null} */ (document.getElementById('pcbPropFillLocked'));
-    if (checkbox && selectedFill?.layer === copperLayerId) checkbox.checked = locked;
     app._refreshPcbSelectionHighlights?.();
+    if (getPcbSelection(app, 'fill').some(fill => fill.layer === copperLayerId)) showPcbSelectionProperties(app);
     saveLayerPrefs();
 }
 

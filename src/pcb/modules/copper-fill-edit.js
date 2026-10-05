@@ -6,7 +6,8 @@ import { ModifyFillCommand, RemoveFillCommand } from './copper-fill-commands.js'
 import { renderCopperFill, removeCopperFillElements } from './copper-fill-render.js';
 import { renderPcbSelectionAnchors } from './selection-anchors.js';
 import { isPcbSelected, setPcbSelection } from './selection-registry.js';
-import { isCopperFillLocked, isCopperFillVisible, isLayerLocked, setPcbCopperFillLocked } from './layers.js';
+import { isCopperFillLocked, isCopperFillVisible, isLayerLocked } from './layers.js';
+import { bindLockedProperty, lockedPropertyHtml } from './object-locks.js';
 import { snapPathPoint, snapPathTranslation, pathContextActions, showPathContextMenu } from './path-edit.js';
 import { distanceToArcEdge, arcEdgePathD } from '../../shapes/arc-edge.js';
 import { formatNumberInputValue } from '../../core/number-inputs.js';
@@ -227,15 +228,12 @@ export function showFillProperties(app, fill) {
         ['top-copper', 'Top Copper'],
         ['bottom-copper', 'Bottom Copper'],
     ].map(([id, name]) => `<option value="${id}"${id === fill.layer ? ' selected' : ''}>${name}</option>`).join('');
+    const lockEntries = [{ kind: 'fill', object: fill }];
     items.innerHTML = `
-        <label class="prop-row prop-toggle" data-prop="locked"><input type="checkbox" id="pcbPropFillLocked"${isCopperFillLocked(fill.layer) ? ' checked' : ''}><span>Locked</span></label>
+        ${lockedPropertyHtml(app, lockEntries)}
         <div class="prop-row" data-prop="layer"><label>Layer</label><select id="pcbPropFillLayer">${layerOpts}</select></div>
         <div class="prop-row" data-prop="net"><label>Net</label><span class="prop-net-control"><input type="text" id="pcbPropFillNet" placeholder="None" value="${escape(fill.net || '')}"><details class="prop-net-menu"><summary aria-label="Select existing net"></summary><div>${options}</div></details></span></div>
     `;
-    const lockedEl = /** @type {HTMLInputElement|null} */ (items.querySelector('#pcbPropFillLocked'));
-    lockedEl?.addEventListener('change', () => {
-        setPcbCopperFillLocked(app, fill.layer, lockedEl.checked);
-    });
     const commit = (mutate) => {
         if (!canEditFill(fill)) return;
         const before = fill.captureState();
@@ -254,6 +252,7 @@ export function showFillProperties(app, fill) {
         commit(() => { fill.layer = layerEl.value; });
     });
     addFillGeometryProperties(app, fill, items);
+    bindLockedProperty(app, items, lockEntries);
     app.showPropertiesTab?.();
 }
 

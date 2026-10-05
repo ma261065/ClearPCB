@@ -30,14 +30,13 @@ import { getBoardShapeNodeFocus, getBoardShapeSegmentFocus, getHoveredBoardShape
 export { serializeBoardShapes, cloneShapeGeometry, applyShapeGeometry,
     applyShapeSnapshot, captureBoardShapeState } from '../../core/pcb-board-shapes.js';
 import {
-    isLayerLocked,
     isLayerVisible,
     pcbHighlightColor,
     PCB_HOVER_HIGHLIGHT_OPACITY,
     PCB_LAYERS,
     PCB_SELECTION_HIGHLIGHT_OPACITY,
-    unlockPcbLayer,
 } from './layers.js';
+import { boardShapeLocked, isPcbObjectLocked } from './object-locks.js';
 import {
     AddBoardShapeCommand,
     RemoveBoardShapeCommand,
@@ -171,7 +170,7 @@ export function finishBoardShapeRotationPreview(app, commit = false) {
     let committed = false;
     try {
         if (commit && !present) throw new Error('Cannot rotate a missing board shape.');
-        if (commit && isLayerVisible(original.layer) && !isLayerLocked(original.layer) && shape !== original) {
+        if (commit && isLayerVisible(original.layer) && !boardShapeLocked(original) && shape !== original) {
             const after = shapeSnapshot(shape);
             if (JSON.stringify(before) !== JSON.stringify(after)) {
                 schedulePictureCopperRefresh(app, original);
@@ -587,7 +586,7 @@ export function createBoardShapePropertyPreview(app, targets, { liveDrag = false
     const originals = targets.map(target => canonicalBoardShape(app, target));
     const collection = () => app.pcbDocument?.boardShapes || app.boardShapes;
     const editable = () => !binding.disposed && isEditorActive(app)
-        && originals.every(shape => isLayerVisible(shape.layer) && !isLayerLocked(shape.layer));
+        && originals.every(shape => isLayerVisible(shape.layer) && !boardShapeLocked(shape));
     let state = null;
     const finish = (commit, { rebuild = true } = {}) => {
         if (!state) return false;
@@ -945,8 +944,7 @@ export function createBoardShapeSelectionAdapter(app, shape, id) {
         kind: 'shape',
         get object() { return displayed(); },
         get visible() { return isLayerVisible(shape.layer); },
-        get locked() { return isLayerLocked(shape.layer); },
-        unlock() { unlockPcbLayer(app, shape.layer); },
+        get locked() { return isPcbObjectLocked(app, 'shape', shape); },
         getLockPosition(pointer, scale) {
             const shape = displayed();
             const geometry = resolveBoardShapeGeometry(shape);
@@ -1009,7 +1007,7 @@ export function createBoardShapeSelectionAdapter(app, shape, id) {
         beginAnchorDrag(anchorId, worldPos) {
             if (anchorId !== 'rotate' || shape.kind !== 'image') return startBoardShapeDrag(app, shape, worldPos, anchorId);
             getPropertyEditor(app, 'boardShape')?.commit();
-            if (isLayerLocked(shape.layer) || !isLayerVisible(shape.layer)) return false;
+            if (boardShapeLocked(shape) || !isLayerVisible(shape.layer)) return false;
             if (boardShapeRotationPreviews.has(app) || app._rotationHandleDrag || app._shapeDrag) {
                 throw new Error('Finish the current shape preview before rotating an image.');
             }
@@ -1105,7 +1103,7 @@ registerPcbSelectionAdapter('shape', createBoardShapeSelectionAdapter);
 /** Draw the resize handles for the selected shape on the overlay layer. */
 export function renderBoardShapeHandles(app, shape) {
     shape = displayedBoardShape(app, shape);
-    if (!shape || isLayerLocked(shape.layer) || !isLayerVisible(shape.layer)) return;
+    if (!shape || boardShapeLocked(shape) || !isLayerVisible(shape.layer)) return;
     const selectedNode = getBoardShapeNodeFocus(app);
     const node = selectedNode?.shapeId === shape.id ? shape.points?.[selectedNode.index] : null;
     if (shape.kind === 'line' && node) {
@@ -1307,7 +1305,7 @@ export function deleteSelectedBoardShape(app) {
     const s = getPcbSelection(app, 'shape')[0] || null;
     if (!s) return false;
     if (s.layer === 'board-outline') return false;
-    if (isLayerLocked(s.layer)) return false;
+    if (boardShapeLocked(s)) return false;
     app.history.execute(new RemoveBoardShapeCommand(app, s));
     selectBoardShape(app, null);
     finishBoardShapeRemoval(app);
@@ -1321,7 +1319,7 @@ export function setBoardShapeSegmentType(app, shape, segment, type, { floating =
     const count = shape?.kind === 'line' ? shape.points?.length - 1
         : ['polygon', 'rect'].includes(shape?.kind) ? shape.points?.length : shape?.kind === 'arc' ? 1 : 0;
     if (!Number.isInteger(segment) || segment < 0 || segment >= count
-        || !['line', 'arc'].includes(type) || isLayerLocked(shape.layer)) return false;
+        || !['line', 'arc'].includes(type) || boardShapeLocked(shape)) return false;
     const before = shapeSnapshot(shape);
     shape = copyBoardShape(shape);
     if (shape.kind === 'rect') shape.kind = 'polygon';
@@ -1379,7 +1377,7 @@ export function setBoardShapeSegmentType(app, shape, segment, type, { floating =
 export function startBoardShapeDrag(app, shape, worldPos, anchorId = null, options = {}) {
     shape = canonicalBoardShape(app, shape);
     getPropertyEditor(app, 'boardShape')?.commit();
-    if (!shape || isLayerLocked(shape.layer) || !isLayerVisible(shape.layer)) return false;
+    if (!shape || boardShapeLocked(shape) || !isLayerVisible(shape.layer)) return false;
     if (app._shapeDrag?.preparing && app._shapeDrag.original === shape) return true;
     if (app._shapeDrag) throw new Error('Finish the current shape drag before starting another.');
     if (boardShapeRotationPreviews.has(app)) {
@@ -1456,7 +1454,7 @@ export function handleBoardShapeDrag(app, worldPos) {
         endBoardShapeDrag(app, false);
         throw new Error('Shape drag requires a finite position.');
     }
-    if (isLayerLocked(d.original.layer) || !isLayerVisible(d.original.layer)) {
+    if (boardShapeLocked(d.original) || !isLayerVisible(d.original.layer)) {
         endBoardShapeDrag(app, false);
         return;
     }
@@ -1563,7 +1561,7 @@ export function endBoardShapeDrag(app, commit) {
     let committed = false;
     try {
         if (commit && !present) throw new Error('Cannot finish a drag of a missing board shape.');
-        if (!commit || !d.preview || isLayerLocked(original.layer) || !isLayerVisible(original.layer)) return;
+        if (!commit || !d.preview || boardShapeLocked(original) || !isLayerVisible(original.layer)) return;
         if (d.splitBeforeState) {
             const first = s.points[0], last = d.splitOrigin || s.points.at(-1);
             if (Math.hypot(first.x - last.x, first.y - last.y) < 1e-9) return;
@@ -1571,7 +1569,7 @@ export function endBoardShapeDrag(app, commit) {
         const target = d.splitBeforeState ? null : d.joinTarget?.shape;
         if (s.kind === 'line' && target) {
             if (!originals.includes(target)) throw new Error('Cannot join a missing board shape.');
-            if (isLayerLocked(target.layer) || !isLayerVisible(target.layer)) return;
+            if (boardShapeLocked(target) || !isLayerVisible(target.layer)) return;
             const merged = mergeBoardLines(app, s, d.handle, target, d.joinTarget.endpoint);
             const added = addBoardShapeOrTrackCommand(app, merged);
             selectBoardShape(app, null);
@@ -1639,7 +1637,7 @@ export function endBoardShapeDrag(app, commit) {
 export function openBoardShape(app, shape, vertexIndex = 0) {
     shape = canonicalBoardShape(app, shape);
     if (shape?.layer === 'board-outline') return false;
-    if (!shape || !['line', 'polygon', 'rect'].includes(shape.kind) || isLayerLocked(shape.layer)) return false;
+    if (!shape || !['line', 'polygon', 'rect'].includes(shape.kind) || boardShapeLocked(shape)) return false;
     const points = shape.points || [];
     if (points.length < 3) return false;
     const before = shapeSnapshot(shape);
@@ -1675,14 +1673,14 @@ export function deleteBoardShapeSegment(app, shape, segment) {
         if (!Number.isInteger(segment) || segment < 0 || segment >= (shape.points?.length || 0)) return false;
         return deleteBoardShapeVertex(app, shape, (segment + 1) % shape.points.length);
     }
-    if (shape.kind === 'arc' && segment === 0 && !isLayerLocked(shape.layer)) {
+    if (shape.kind === 'arc' && segment === 0 && !boardShapeLocked(shape)) {
         setPcbSelection(app, []);
         app.history.execute(new RemoveBoardShapeCommand(app, shape));
         finishBoardShapeRemoval(app);
         return true;
     }
     const count = shape.kind === 'line' ? shape.points.length - 1 : shape.points?.length;
-    if (!Number.isInteger(segment) || segment < 0 || segment >= count || isLayerLocked(shape.layer)) return false;
+    if (!Number.isInteger(segment) || segment < 0 || segment >= count || boardShapeLocked(shape)) return false;
     const parts = deletePathSegment(shape, segment).map(part => {
         part.id = `pshape_${app._shapeIdCounter++}`;
         return part;
@@ -1723,7 +1721,7 @@ export function deleteFocusedBoardShape(app) {
 /** Delete a polyline vertex; a triangle reduces to an open two-point Line. */
 export function deleteBoardShapeVertex(app, shape, vertexIndex) {
     shape = canonicalBoardShape(app, shape);
-    if (!shape || !['line', 'polygon', 'rect'].includes(shape.kind) || isLayerLocked(shape.layer)) return false;
+    if (!shape || !['line', 'polygon', 'rect'].includes(shape.kind) || boardShapeLocked(shape)) return false;
     const points = shape.points || [];
     if (shape.layer === 'board-outline' && points.length <= 3) return false;
     if (!Number.isInteger(vertexIndex) || vertexIndex < 0 || vertexIndex >= points.length) return false;
@@ -1753,7 +1751,7 @@ export function dismissBoardShapeContextMenu() {
 /** Show topology actions for a Line, Polygon, or Rectangle. */
 export function showBoardShapeContextMenu(app, shape, clientX, clientY, worldPos) {
     dismissBoardShapeContextMenu();
-    if (!shape || !['line', 'polygon', 'rect', 'arc'].includes(shape.kind) || isLayerLocked(shape.layer)) return;
+    if (!shape || !['line', 'polygon', 'rect', 'arc'].includes(shape.kind) || boardShapeLocked(shape)) return;
     selectBoardShape(app, shape);
     const vertexIndex = hitTestBoardShapeVertex(app, shape, worldPos);
     const node = typeof vertexIndex === 'number';

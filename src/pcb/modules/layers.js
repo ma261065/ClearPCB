@@ -89,6 +89,11 @@ export function isCopperFillVisible(copperLayerId) {
  * @param {string} copperLayerId
  * @returns {boolean}
  */
+/** The layer panel's name for a layer ("Top Copper", "Hole"); unknown ids come back unchanged. */
+export function pcbLayerName(layerId) {
+    return PCB_LAYERS.find(layer => layer.id === layerId)?.name || layerId;
+}
+
 export function isCopperFillLocked(copperLayerId) {
     const def = PCB_COPPER_FILLS.find(f => f.id === copperLayerId);
     return !!(def && def.locked);

@@ -40,7 +40,7 @@ export function preparePcbPaste(app, clipboard) {
     };
     // Copper paths copied as board shapes (older clipboards) paste as Tracks.
     const copperPaths = (clipboard.shapes || []).filter(isCopperPathShape);
-    return {
+    const payload = {
         tracks: [...(clipboard.tracks || []).map(data => {
             const json = structuredClone(data);
             delete json.id; delete json.i;
@@ -56,6 +56,9 @@ export function preparePcbPaste(app, clipboard) {
         texts: (clipboard.texts || []).map(data => createPcbText({ ...data, id: undefined })),
         fills: (clipboard.fills || []).map(data => new CopperFill({ ...structuredClone(data), id: undefined })),
     };
+    // Pasted copies are new objects, so they start unlocked.
+    for (const kind of kinds) for (const item of payload[kind]) item.locked = false;
+    return payload;
 }
 
 function editable(payload) {

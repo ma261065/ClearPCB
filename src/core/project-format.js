@@ -35,10 +35,10 @@ const VIA_FIELDS = fields('type', 'id', 'x', 'y', 'd', 'dr', 'n', 'lk', 'v', 'sp
 const VIA_SPAN_FIELDS = fields('from', 'to');
 const BOARD_SHAPE_FIELDS = fields('id', 'kind', 'layer', 'lineWidth', 'filled', 'copperMode', 'plated', 'net',
     'segmentWidths', 'segmentBulges', 'nodeCornerRadii', 'cornerRadius', 'start', 'end', 'bulge',
-    'x', 'y', 'radius', 'name', 'artwork', 'points', 'width', 'height', 'rotation', 'reversed');
+    'x', 'y', 'radius', 'name', 'artwork', 'points', 'width', 'height', 'rotation', 'reversed', 'locked');
 const FILL_FIELDS = fields('type', 'id', 'l', 'pts', 'n', 'lk', 'v', 'kind', 'cornerRadius',
     'nodeCornerRadii', 'segmentBulges', 'x', 'y', 'radius', 'width', 'height', 'rotation', 'reversed');
-const PCB_TEXT_FIELDS = fields('id', 'content', 'x', 'y', 'size', 'rotation', 'layer', 'strokeWidth', 'border');
+const PCB_TEXT_FIELDS = fields('id', 'content', 'x', 'y', 'size', 'rotation', 'layer', 'strokeWidth', 'border', 'locked');
 const PAD_FIELDS = fields('type', 'id', 'x', 'y', 'shape', 'size', 'drill', 'ratio',
     'rotation', 'layers', 'net', 'locked', 'visible');
 const PLACEMENT_FIELDS = fields('x', 'y', 'rotation', 'locked', 'mirror', 'side', 'refVisible',

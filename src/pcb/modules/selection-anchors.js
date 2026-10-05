@@ -161,11 +161,7 @@ export function renderPcbSelectionAnchors(app) {
                     x: bounds.minX - LOCK_GAP - lockSize,
                     y: bounds.minY - LOCK_GAP - lockSize * 0.6,
                 };
-            const owner = {
-                element: overlay,
-                unlock: adapter.unlock,
-                componentId: adapter.kind === 'component' || adapter.kind === 'reftext' ? adapter.object : null,
-            };
+            const owner = { element: overlay, kind: adapter.kind, object: adapter.object };
             overlay.appendChild(createLockIcon(
                 position.x,
                 position.y,

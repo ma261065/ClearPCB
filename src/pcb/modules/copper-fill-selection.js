@@ -1,10 +1,5 @@
-import {
-    isCopperFillLocked,
-    isCopperFillVisible,
-    isLayerLocked,
-    unlockPcbCopperFill,
-    unlockPcbLayer,
-} from './layers.js';
+import { isCopperFillVisible } from './layers.js';
+import { isPcbObjectLocked } from './object-locks.js';
 import { renderCopperFill } from './copper-fill-render.js';
 import { boundsWithPathNodes, isPcbSelected, registerPcbSelectionAdapter } from './selection-registry.js';
 import { getBoardShapeAnchors } from './board-shapes.js';
@@ -22,15 +17,7 @@ export function createCopperFillSelectionAdapter(app, fill, id) {
         get visible() {
             return fill.visible !== false && isCopperFillVisible(fill.layer);
         },
-        get locked() {
-            return !!fill.locked || isLayerLocked(fill.layer) || isCopperFillLocked(fill.layer);
-        },
-        unlock() {
-            if (fill.locked) fill.locked = false;
-            if (isLayerLocked(fill.layer)) unlockPcbLayer(app, fill.layer);
-            if (isCopperFillLocked(fill.layer)) unlockPcbCopperFill(app, fill.layer);
-            this.invalidate();
-        },
+        get locked() { return isPcbObjectLocked(app, 'fill', fill); },
         getLockPosition(pointer, scale) {
             return lockPositionOutsideOutline(current().getOutline(), pointer, scale);
         },

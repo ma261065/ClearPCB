@@ -54,6 +54,7 @@ export function captureBoardShapeState(shape) {
         copperMode: normalizeShapeCopperMode(shape.copperMode),
         plated: !!shape.plated,
         net: String(shape.net || ''),
+        locked: !!shape.locked,
     };
 }
 
@@ -73,6 +74,7 @@ export function applyShapeSnapshot(shape, state) {
     shape.copperMode = normalizeShapeCopperMode(state.copperMode);
     shape.plated = !!state.plated;
     shape.net = String(state.net || '');
+    shape.locked = !!state.locked;
 }
 
 export function serializeBoardShapes(state, { compactArtwork = true, roundGeometry = true, parametricRectangles = true } = {}) {
@@ -92,6 +94,7 @@ export function serializeBoardShapes(state, { compactArtwork = true, roundGeomet
             plated: !!s.plated,
             net: String(s.net || ''),
         };
+        if (s.locked) base.locked = true;
         if (Object.keys(s.segmentWidths || {}).length) base.segmentWidths = numbers(s.segmentWidths);
         if (Object.keys(s.segmentBulges || {}).length) base.segmentBulges = numbers(s.segmentBulges);
         if (Object.keys(s.nodeCornerRadii || {}).length) base.nodeCornerRadii = numbers(s.nodeCornerRadii);
@@ -153,6 +156,7 @@ export function loadBoardShapeData(state, arr, { strict = false, lineWidth = 0.2
             plated: !!sd.plated,
             net: String(sd.net || ''),
         };
+        if (sd.locked) base.locked = true;
         if (sd.segmentWidths && typeof sd.segmentWidths === 'object') {
             base.segmentWidths = Object.fromEntries(Object.entries(sd.segmentWidths)
                 .filter(([index, width]) => Number.isInteger(Number(index)) && Number(width) >= 0.05)

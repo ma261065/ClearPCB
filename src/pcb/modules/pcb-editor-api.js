@@ -48,7 +48,7 @@
  * @property {(items: HTMLElement, inputId: string, onChange: (net: string) => void) => void} bindToolNetControl
  *   Wire a Net input and its picker menu to a callback.
  * @property {(layer: string) => string} layerLabel
- *   Display name of a PCB layer.
+ *   The layer panel's name for a PCB layer.
  * @property {() => void} fitToContent
  *   Fit the view to the board (or panel preview); shared viewport controls call it on either editor.
  * @property {(text: object|null) => void} selectText

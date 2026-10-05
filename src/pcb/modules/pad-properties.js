@@ -4,7 +4,8 @@
  * object it edits and a callback that redraws the placement preview.
  */
 import { refreshBoxSelectionHighlights } from './box-select.js';
-import { isLayerLocked, isLayerVisible } from './layers.js';
+import { isLayerVisible } from './layers.js';
+import { bindLockedProperty, isPcbObjectLocked, lockedPropertyHtml } from './object-locks.js';
 import { ModifyPadCommand, beginPadPropertyPreview, canonicalPad, finishPadPropertyPreview } from './pad-commands.js';
 import { padLayers, renderPad } from './pad.js';
 import { bindPictureRefreshHold, schedulePictureCopperRefresh } from './picture-refresh.js';
@@ -34,7 +35,9 @@ export function showPadEditor(app, pad, tool) {
     const maximumDrill = pad ? Math.min(...pads.map(target => target.size)) : state.size;
     const { escape, options } = app.toolNetOptions(state.net || '');
     app.setPropertiesTitle(pad ? 'Pad' : 'New Pad');
+    const lockEntries = pads.map(target => ({ kind: 'pad', object: target }));
     items.innerHTML = `
+        ${pad ? lockedPropertyHtml(app, lockEntries) : ''}
         <div class="prop-row" data-prop="padShape"><label>Shape</label><select id="pcbPropPadShape">
             ${mixedShape ? '<option value="" selected disabled>Mixed</option>' : ''}
             ${[['round', 'Round'], ['stadium', 'Stadium'], ['square', 'Square'], ['rectangle', 'Rectangle'], ['oval', 'Oval']]
@@ -58,7 +61,7 @@ export function showPadEditor(app, pad, tool) {
     const fields = new Map();
     const minimums = new Map();
     const apply = (property, value) => {
-        if (disposed) return;
+        if (disposed || (pad && !editable())) return;
         finish(true);
         if (pad) {
             const commands = [];
@@ -127,8 +130,8 @@ export function showPadEditor(app, pad, tool) {
             refreshBoxSelectionHighlights(app);
         }
     };
-    const editable = () => !disposed && isEditorActive(app) && (!pad || pads.every(target => !target.locked
-        && target.visible !== false && !padLayers(target).some(isLayerLocked) && padLayers(target).some(isLayerVisible)));
+    const editable = () => !disposed && isEditorActive(app) && (!pad || pads.every(target => !isPcbObjectLocked(app, 'pad', target)
+        && target.visible !== false && padLayers(target).some(isLayerVisible)));
     const binding = {
         pads,
         affectsLayer: layerId => pads.some(target => padLayers(target).includes(layerId)),
@@ -215,5 +218,6 @@ export function showPadEditor(app, pad, tool) {
     bindLiveNumber('#pcbPropPadDrill', 'drill', 0);
     bindLiveNumber('#pcbPropPadRotation', 'rotation', -Infinity);
     app.bindToolNetControl(items, 'pcbPropPadNet', next => apply('net', next));
+    if (pad) bindLockedProperty(app, items, lockEntries);
     app.showPropertiesTab?.();
 }

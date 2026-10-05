@@ -8,6 +8,7 @@ import { setPcbSelection } from '../src/pcb/modules/selection-registry.js';
 import { cancelPictureCopperRefresh } from '../src/pcb/modules/picture-refresh.js';
 import { beginTextContentPreview } from '../src/pcb/modules/text-commands.js';
 import { areDragOverlaysDeferred } from '../src/pcb/modules/refresh-state.js';
+import { unlockMenuItems } from '../src/pcb/modules/object-locks.js';
 
 globalThis.window = { addEventListener() {} };
 globalThis.document = {
@@ -35,7 +36,7 @@ for (const layerId of TEXT_LAYERS) {
         placements: new Map(), tracks: [], vias: [], boardShapes: [], _layerGroups: new Map(), existingLayerGroups() { return this._layerGroups; },
         getLayerGroup: () => null, refreshText() {},
         propertiesItems: () => items, setPropertiesTitle: () => propertyShows++,
-        layerLabel: value => value, clearProperties: () => cleared++, setActiveRibbonTab() {},
+        layerLabel: PCBApp.prototype.layerLabel, clearProperties: () => cleared++, setActiveRibbonTab() {},
         _screenToWorld: event => ({ x: event.clientX, y: event.clientY }),
     };
     Object.defineProperty(app, 'texts', Object.getOwnPropertyDescriptor(PCBApp.prototype, 'texts'));
@@ -52,8 +53,11 @@ for (const layerId of TEXT_LAYERS) {
             assert.match(items.innerHTML, new RegExp(`id="${id}"[^>]* disabled`),
                 'Locked text properties must remain read-only');
         }
-        assert.ok(Object.values(app._pcbMultiPropertyCapabilities({ kind: 'text', object: text }))
-            .every(capability => capability.disabled), 'Multi-selection must not bypass a text layer lock');
+        const { locked: ownLock, ...edits } = app._pcbMultiPropertyCapabilities({ kind: 'text', object: text });
+        assert.ok(Object.values(edits).every(capability => capability.disabled),
+            'Multi-selection must not bypass a text layer lock');
+        assert.equal(ownLock.disabled, false, 'The object lock stays editable under a layer lock');
+        assert.doesNotMatch(items.innerHTML, /id="pcbPropObjectLocked"[^>]* disabled/);
         app._textEdit = { text };
         app.showTextProperties(text);
         assert.match(items.innerHTML, /id="pcbPropTextInsert"[^>]* disabled/);
@@ -67,7 +71,9 @@ for (const layerId of TEXT_LAYERS) {
         assert.equal(app.history.canUndo(), false);
 
         const beforeUnlock = propertyShows;
-        adapter.unlock();
+        const choices = unlockMenuItems(app, 'text', text);
+        assert.deepEqual(choices.map(item => item.text), [`Unlock ${layer.name} layer`]);
+        choices[0].onClick();
         assert.equal(layer.locked, false);
         assert.ok(propertyShows > beforeUnlock, 'Layer unlock refreshes selected text controls');
         assert.doesNotMatch(items.innerHTML, /id="pcbPropTextRot"[^>]* disabled/);

@@ -1,5 +1,6 @@
 import { createInlineTextOverlay, setInlineTextInputActive } from '../../shared/ui/inline-text-overlay.js';
-import { isLayerLocked, isLayerVisible } from './layers.js';
+import { isLayerVisible } from './layers.js';
+import { boardShapeLocked } from './object-locks.js';
 import { invalidateDrcRefresh } from './drc-refresh.js';
 import { pcbTextEditBox } from './pcb-text.js';
 import { AddTextCommand, RemoveTextCommand, EditTextCommand, finishTextPosePreview, beginTextContentPreview } from './text-commands.js';
@@ -51,7 +52,7 @@ export function activeTextInlineEdit(app) {
  *   goes to the end of the text.
  */
 export function startTextInlineEdit(app, text, worldPos, opts = {}) {
-    if (!text || isLayerLocked(text.layer) || !isLayerVisible(text.layer)) return;
+    if (!text || boardShapeLocked(text) || !isLayerVisible(text.layer)) return;
     if (app._textEdit && app._endTextInlineEdit(true) === false) return;
 
     const svg = app.viewport?.svg;

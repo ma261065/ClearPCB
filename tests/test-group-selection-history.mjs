@@ -7,7 +7,7 @@ import { areDragOverlaysDeferred } from '../src/pcb/modules/refresh-state.js';
 
 function element() {
     return {
-        attributes: {}, children: [], style: {}, parentNode: null,
+        attributes: {}, children: [], style: {}, parentNode: null, addEventListener() {},
         setAttribute(name, value) { this.attributes[name] = String(value); },
         appendChild(child) { child.parentNode = this; this.children.push(child); },
         remove() {
@@ -188,9 +188,24 @@ const selectedEntry = getPcbSelectionEntries(app)[0];
 selectedEntry.visible = false;
 assert.equal(handleKeyDown.call(app, { key: 'ArrowLeft' }), false, 'Hidden or layer-locked entries cannot move');
 selectedEntry.visible = true;
+// A locked member stays put while the rest of the selection moves.
+const lockedText = selectedEntry.object;
+const lockedAt = [lockedText.x, lockedText.y];
+const movingText = texts.find(text => text !== lockedText);
+const movingAt = [movingText.x, movingText.y];
 selectedEntry.locked = true;
-assert.equal(handleKeyDown.call(app, { key: 'ArrowRight' }), false, 'A locked member blocks the whole selection move');
+lockedText.locked = true;
+assert.equal(handleKeyDown.call(app, { key: 'ArrowRight' }), true, 'Unlocked members still move');
+assert.deepEqual([lockedText.x, lockedText.y], lockedAt, 'The locked member stays put');
+assert.notDeepEqual([movingText.x, movingText.y], movingAt);
+app.history.undo();
+assert.deepEqual([movingText.x, movingText.y], movingAt);
 selectedEntry.locked = false;
+delete lockedText.locked;
+selectedEntry.locked = true;
+for (const entry of getPcbSelectionEntries(app)) entry.locked = true;
+assert.equal(handleKeyDown.call(app, { key: 'ArrowRight' }), false, 'An all-locked selection does not move');
+for (const entry of getPcbSelectionEntries(app)) entry.locked = false;
 app.viewport.isPanning = true;
 assert.equal(handleKeyDown.call(app, { key: 'ArrowRight' }), false, 'Panning retains ownership of navigation');
 app.viewport.isPanning = false;

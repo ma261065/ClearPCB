@@ -201,6 +201,9 @@ PCB editor:
   pour or overlay does to the editor (cancels stranded gestures and edits, updates the
   render groups, prunes the selection); the layer panel calls it through the editor's
   `_on…Changed` methods.
+- `pcb/modules/object-locks.js` — individual object locks alongside layer locks: the
+  combined lock predicates every edit path uses, the undoable lock command, the lock
+  icon's unlock menu and the Properties "Locked" row.
 
 Schematic editor:
 
@@ -263,7 +266,7 @@ Every authored change goes through `core/CommandHistory` as a command. PCB comma
 come in two layers:
 
 - **Model commands** in `core/pcb-*-commands.js` (track, via, pad, fill, shape, text,
-  placement, outline) change only `PcbDocument`. Tests and `pcb-paste.js` use them
+  lock, placement, outline) change only `PcbDocument`. Tests and `pcb-paste.js` use them
   directly.
 - **Editor commands** in `pcb/modules` (`track-commands.js`, `pad-commands.js`,
   `shape-commands.js`, `text-commands.js`, `copper-fill-commands.js`) subclass the

@@ -8,6 +8,7 @@ import { beginSelectionInteraction } from '../src/pcb/modules/selection-interact
 import { getPcbSelection, setPcbSelection } from '../src/pcb/modules/selection-registry.js';
 import { SetPlacementLockedCommand } from '../src/pcb/modules/track-commands.js';
 import { renderPcbSelectionAnchors } from '../src/pcb/modules/selection-anchors.js';
+import { unlockMenuItems } from '../src/pcb/modules/object-locks.js';
 
 function element() {
     return {
@@ -42,7 +43,7 @@ for (const side of ['top', 'bottom']) {
         getLayerGroup: () => null, _drawRefOverlay() {}, _refreshRefHighlight() {},
         _refBox: () => ({ bx: -1, by: -1, bw: 2, bh: 2, cx: 0, cy: 0 }),
         propertiesItems: () => items, setPropertiesTitle: () => propertyShows++,
-        layerLabel: value => value, _screenToWorld: event => ({ x: event.clientX, y: event.clientY }),
+        layerLabel: PCBApp.prototype.layerLabel, _screenToWorld: event => ({ x: event.clientX, y: event.clientY }),
     };
     for (const name of ['_beginRefTextDrag', '_updateRefTextDrag', '_handleRefDrag', '_endRefDrag',
         'rotateRefText', '_hitTestRefText', '_worldToPlacementLocal', '_placementLocalToWorld',
@@ -78,12 +79,14 @@ for (const side of ['top', 'bottom']) {
         app.getLayerGroup = () => overlay;
         renderPcbSelectionAnchors(app);
         overlay.children[0].listeners.get('click')({ stopPropagation() {} });
-        assert.equal(lockOwner.componentId, 'part', 'Reference lock icons retain the owning component for object unlock');
-        assert.equal(typeof lockOwner.unlock, 'function', 'Reference lock icons also support independent layer unlock');
+        assert.equal(lockOwner.kind, 'reftext');
+        assert.equal(lockOwner.object, 'part', 'Reference lock icons retain the owning component for the unlock menu');
+        assert.deepEqual(unlockMenuItems(app, 'reftext', 'part').map(item => item.text), [`Unlock ${layer.name} layer`],
+            'A silk-only lock offers just the layer unlock');
         app.getLayerGroup = () => null;
 
         const beforeUnlockProperties = propertyShows;
-        adapter.unlock();
+        unlockMenuItems(app, 'reftext', 'part')[0].onClick();
         assert.equal(layer.locked, false);
         assert.equal(other.locked, true, 'Unlock only the reference side');
         assert.ok(propertyShows > beforeUnlockProperties, 'Layer unlock refreshes selected-reference controls');
@@ -134,7 +137,9 @@ for (const side of ['top', 'bottom']) {
 
         placement.locked = true;
         app.placementState.record('part', placement);
-        adapter.unlock();
+        const choices = unlockMenuItems(app, 'reftext', 'part');
+        assert.deepEqual(choices.map(item => item.text), ['Unlock component', `Unlock ${layer.name} layer`, 'Unlock both']);
+        choices[1].onClick();
         assert.equal(adapter.locked, true, 'Unlocking silk must not bypass a separate component lock');
         setPcbSelection(app, [{ kind: 'reftext', object: 'part' }]);
         const beforePlacementUnlock = propertyShows;

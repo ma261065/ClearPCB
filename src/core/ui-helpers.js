@@ -114,7 +114,7 @@ export function createLockIcon(x, y, item, cls, scale = Infinity) {
         e.stopPropagation();
         (item.element || g).dispatchEvent(new CustomEvent('unlock-shape', {
             bubbles: true,
-            detail: { shape: item }
+            detail: { shape: item, clientX: e.clientX, clientY: e.clientY }
         }));
     });
 
