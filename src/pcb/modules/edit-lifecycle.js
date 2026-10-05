@@ -5,6 +5,7 @@ import { endBoardOutlineResize, finishBoardDimensionPreview } from './board-outl
 import { finishPadRotationPreview } from './pad-commands.js';
 import { disposeFillRefresh } from './fill-refresh.js';
 import { disposeDrcRefresh } from './drc-refresh.js';
+import { peekDrcPresentation, scheduleDrc } from './drc-state.js';
 import { hasPcbGesture } from './pcb-interactions.js';
 import { cancelPcbPointerGestures } from './pcb-interaction-routing.js';
 import { PANEL_EDITOR_KINDS, getPropertyEditor, setPropertyEditor, hasActivePropertyEditor } from './property-editors.js';
@@ -73,5 +74,5 @@ export function cancelPcbPosePreviews(app) {
     cancelPcbPointerGestures(app);
     finishBoardShapeRotationPreview(app);
     finishPadRotationPreview(app);
-    if (app._drcPending) app._scheduleDRC();
+    if (peekDrcPresentation(app)?.pending) scheduleDrc(app);
 }

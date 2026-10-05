@@ -17,6 +17,7 @@ import { endRefDrag, getRefDrag } from './ref-text-selection.js';
 import { areClearancesVisible } from './clearance-overlay.js';
 import { fillGroupId } from './copper-fill-render.js';
 import { pcbObjectLayers } from './object-locks.js';
+import { peekDrcPresentation } from './drc-state.js';
 
 /*
  * What the PCB editor does when the layer panel hides, shows, locks or unlocks a layer,
@@ -190,7 +191,7 @@ export function onOverlayVisibilityChanged(app, overlayId, visible) {
         // Ratlines have a real SVG layer group; toggle its display.
         const g = app.existingLayerGroups().get('ratlines');
         if (g) g.style.display = visible ? '' : 'none';
-        app._drcPresentation?.overlayVisibilityChanged();
+        peekDrcPresentation(app)?.overlayVisibilityChanged();
     }
     saveLayerPrefs();
 }

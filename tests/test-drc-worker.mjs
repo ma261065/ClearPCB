@@ -10,7 +10,15 @@ import { MovePadCommand } from '../src/core/pcb-pad-commands.js';
 import { runDRC, runDrcInputs } from '../src/pcb/modules/drc.js';
 import { captureDrcInputs } from '../src/pcb/modules/drc-worker-inputs.js';
 import { createDrcWorker } from '../src/pcb/modules/drc-worker-client.js';
-import { disposeDrcRefresh, invalidateDrcRefresh } from '../src/pcb/modules/drc-refresh.js';
+import { disposeDrcRefresh, invalidateDrcRefresh, runDrcNow } from '../src/pcb/modules/drc-refresh.js';
+import {
+    collectDrcRatlines,
+    getDrcPresentation,
+    resetDrc,
+    scheduleDrc,
+    setDrcRatlines,
+    storedDrcRatlines,
+} from '../src/pcb/modules/drc-state.js';
 import { setComputedFill, getComputedFill } from '../src/pcb/modules/computed-fill-cache.js';
 import { resolveTrackSegments } from '../src/shared/pcb/board-geometry.js';
 import { setDragOverlaysDeferred, setFillRefreshError, setFillRefreshPending, setFillRefreshScheduled, setFillRefreshSuspended, setPictureCopperRefreshPending } from '../src/pcb/modules/refresh-state.js';
@@ -45,23 +53,24 @@ function fixture() {
     const app = Object.create(PCBApp.prototype), model = new PcbDocument(), layer = new Element();
     const counts = { accepted: 0, pending: 0, lists: 0, markers: 0, cleared: 0, connectors: 0 };
     Object.assign(app, {
-        pcbDocument: model, placements: new Map(), netlist: [], _active: true, _drcViolations: [],
-        _drcSelectedId: null, _drcRatlines: [], getRoutingParams: () => ({ clearance: 0.2 }),
-        _drcShouldRun: () => true, getLayerGroup: id => id === 'ratlines' ? layer : null,
-        _updateDRCStatus(result, pending) {
-            if (pending) counts.pending++;
-            else { counts.accepted++; app.lastResult = result; }
-        },
+        pcbDocument: model, placements: new Map(), netlist: [], _active: true,
+        getRoutingParams: () => ({ clearance: 0.2 }),
+        getLayerGroup: id => id === 'ratlines' ? layer : null,
         setStatus(message) { app.lastStatus = message; },
         _cancelDrawingMode() {}, _closeBoardDimensionsDialog() {},
     });
-    Object.assign(app._getDrcPresentation(), {
-        updateStatus: app._updateDRCStatus,
+    const drc = getDrcPresentation(app);
+    Object.assign(drc, {
+        shouldRun: () => true,
+        updateStatus(result, pending) {
+            if (pending) counts.pending++;
+            else { counts.accepted++; app.lastResult = result; }
+        },
         renderList() { counts.lists++; },
         drawMarker() { counts.markers++; }, clearMarker() { counts.cleared++; },
         updateConnector() { counts.connectors++; },
     });
-    app._drcRatlinesModel = model;
+    setDrcRatlines(app, []);
     model.tracks.push(new Track({ id: 'track', net: 'N1', points: [{ x: Math.PI, y: 2 }, { x: 8, y: 2 }, { x: 8, y: 8 }],
         width: 0.3123456789, edgeWidths: { e0: 0.5123456789 }, edgeLayers: { e1: 'bottom-copper' },
         edgeBulges: { e0: 0.23456789 } }));
@@ -83,8 +92,8 @@ function fixture() {
     model.texts.set('text', { id: 'text', content: 'A', x: 2, y: 14, layer: 'top-copper',
         size: 1.5123456789, strokeWidth: 0.1123456789, rotation: 31 });
     setComputedFill(fill, [{ outer: fill.outline, holes: [ring(6, 6, 0.8123456789)] }]);
-    const rules = () => ({ clearance: 0.2, minAnnularRing: 0.05, ratlines: app._collectRatlines() });
-    return { app, model, fill, counts, layer, rules };
+    const rules = () => ({ clearance: 0.2, minAnnularRing: 0.05, ratlines: collectDrcRatlines(app) });
+    return { app, model, fill, counts, layer, rules, drc };
 }
 const tick = async () => { await Promise.resolve(); await Promise.resolve(); await Promise.resolve(); };
 const nativeCases = [];
@@ -92,7 +101,7 @@ const nativeCases = [];
 // Capture must not read any editor projection or DOM, and must strip incidental model refs/methods.
 {
     const { app, model, fill, rules } = fixture();
-    app._drcRatlines = [{ net: 'precise', x1: Math.PI, y1: Math.E, x2: 9.123456789, y2: 4.987654321 }];
+    setDrcRatlines(app, [{ net: 'precise', x1: Math.PI, y1: Math.E, x2: 9.123456789, y2: 4.987654321 }]);
     const expected = runDRC(app, rules()), saved = model.captureGeometry(), serialized = model.serialize();
     const snapshots = model.tracks.map(resolveTrackSegments), pour = getComputedFill(fill);
     const identities = [...model.tracks, ...model.tracks[0].nodes.values(), ...model.tracks[0].edges.values(),
@@ -157,9 +166,9 @@ const nativeCases = [];
         model.vias.push(new Via({ x: index % 10 * 1.8 + 0.8, y: Math.floor(index / 10) * 1.8,
             diameter: 0.5, drill: 0.2, net: `N${index % 5}` }));
     }
-    app._drcRatlines = Array.from({ length: 38 }, (_, index) => ({
+    setDrcRatlines(app, Array.from({ length: 38 }, (_, index) => ({
         net: `N${index % 5}`, x1: index * 0.41, y1: 0, x2: index * 0.41 + 0.3, y2: 1.123456789,
-    }));
+    })));
     const saved = model.serialize(), geometry = model.captureGeometry();
     const startCapture = performance.now(), inputs = captureDrcInputs(app, rules());
     const captureMs = performance.now() - startCapture;
@@ -209,7 +218,7 @@ const nativeCases = [];
         assert.deepEqual(audit.accesses, []);
         assert.ok(audit.imports.some(url => url.endsWith('/drc.js')));
         const startAdopt = performance.now();
-        app._adoptDRCResult(actual);
+        getDrcPresentation(app).adoptResult(actual);
         const adoptionMs = performance.now() - startAdopt;
         for (const { inputs, expected } of nativeCases) {
             assert.deepEqual(await client.build(inputs), expected, 'Native parity includes anonymous No Net bridges and pending/failed/missing pours');
@@ -251,26 +260,26 @@ class FakeWorker {
 globalThis.Worker = FakeWorker;
 try {
     {
-        const { app, model, counts } = fixture();
+        const { app, model, counts, drc } = fixture();
         const saved = model.serialize();
-        app._runDRCLive();
-        const previous = app._drcViolations, accepted = counts.accepted;
-        for (let i = 0; i < 25; i++) app._scheduleDRC();
+        runDrcNow(app);
+        const previous = drc.violations, accepted = counts.accepted;
+        for (let i = 0; i < 25; i++) scheduleDrc(app);
         assert.equal(frames.length, 1);
-        assert.equal(app._drcPending, true);
+        assert.equal(drc.pending, true);
         assert.equal(app.isSectionEditing(), false, 'Derived DRC work does not broaden the file-action editing guard');
-        assert.equal(app._drcViolations, previous);
+        assert.equal(drc.violations, previous);
         flush();
         const worker = workers.at(-1);
         assert.equal(worker.jobs.length, 1);
-        for (let i = 0; i < 25; i++) { app._scheduleDRC(); flush(); }
+        for (let i = 0; i < 25; i++) { scheduleDrc(app); flush(); }
         assert.equal(worker.jobs.length, 1, 'One active check plus one replaceable pending snapshot');
         worker.finish(worker.jobs[0]); await tick();
         assert.equal(counts.accepted, accepted);
         assert.equal(worker.jobs.length, 2);
         worker.finish(worker.jobs[1]); await tick();
         assert.equal(counts.accepted, accepted + 1);
-        assert.equal(app._drcPending, false);
+        assert.equal(drc.pending, false);
         assert.deepEqual(model.serialize(), saved);
         disposeDrcRefresh(app);
     }
@@ -283,7 +292,7 @@ try {
             if (refreshSetters[flag]) refreshSetters[flag](app, value);
             else setPcbInteraction(app, flag, value ? {} : null);
         };
-        app._scheduleDRC(); flush();
+        scheduleDrc(app); flush();
         const worker = workers.at(-1);
         setFlag(true);
         worker.finish(); await tick();
@@ -299,7 +308,7 @@ try {
     // Raising a suspension invalidates an in-flight check, even if it is lowered before the result arrives.
     for (const [label, suspend] of [['overlay deferral', setDragOverlaysDeferred], ['fill suspension', setFillRefreshSuspended]]) {
         const { app, counts } = fixture();
-        app._scheduleDRC(); flush();
+        scheduleDrc(app); flush();
         const stale = workers.at(-1).jobs.at(-1);
         suspend(app, true);
         suspend(app, false);
@@ -313,14 +322,14 @@ try {
     {
         const { app, counts } = fixture();
         let visible = true;
-        app._drcShouldRun = () => visible;
-        app._scheduleDRC(); flush();
+        getDrcPresentation(app).shouldRun = () => visible;
+        scheduleDrc(app); flush();
         visible = false;
         workers.at(-1).finish(); await tick();
         assert.equal(counts.accepted, 0);
-        assert.equal(app._drcPending, true);
+        assert.equal(getDrcPresentation(app).pending, true);
         visible = true;
-        app._scheduleDRC(); flush();
+        scheduleDrc(app); flush();
         workers.at(-1).finish(); await tick();
         assert.equal(counts.accepted, 1, 'Reopening the UI resumes hidden result debt');
         disposeDrcRefresh(app);
@@ -329,15 +338,15 @@ try {
         const { app, counts } = fixture(), before = workers.length;
         delete globalThis.Worker;
         try {
-            app._scheduleDRC(); flush();
+            scheduleDrc(app); flush();
             assert.equal(counts.accepted, 1);
             assert.equal(workers.length, before, 'No-Worker environments retain scheduled synchronous evaluation');
         } finally { globalThis.Worker = FakeWorker; disposeDrcRefresh(app); }
     }
     {
         const { app, model, counts } = fixture();
-        app.history = new CommandHistory({ onChanged: () => app._scheduleDRC() });
-        app._scheduleDRC(); flush();
+        app.history = new CommandHistory({ onChanged: () => scheduleDrc(app) });
+        scheduleDrc(app); flush();
         const worker = workers.at(-1);
         app.history.execute(new MovePadCommand(model.pads[0], { x: 5, y: 2 }, { x: 8.123456789, y: 8 }));
         flush(); worker.finish(worker.jobs[0]); await tick();
@@ -351,28 +360,28 @@ try {
     }
     for (const action of ['fill-cache', 'fill-replacement', 'document', 'deactivate', 'cancel', 'clear', 'dispose', 'sync']) {
         const { app, model, fill, counts } = fixture();
-        app._scheduleDRC(); flush();
+        scheduleDrc(app); flush();
         const worker = workers.at(-1), old = worker.jobs[0];
         if (action === 'fill-cache') setComputedFill(fill, []);
         if (action === 'fill-replacement') model.boardShapes[0] = new CopperFill({ id: fill.id, outline: fill.outline });
         if (action === 'document') app.pcbDocument = new PcbDocument();
         if (action === 'deactivate') app.deactivate();
         if (action === 'cancel') app._cancelPosePreviews();
-        if (action === 'clear') { app._resetDRC(); model.clear(); flush(); }
+        if (action === 'clear') { resetDrc(app); model.clear(); flush(); }
         if (action === 'dispose') app.dispose();
-        if (action === 'sync') app._runDRCLive();
+        if (action === 'sync') runDrcNow(app);
         const before = counts.accepted;
         worker.finish(old); await tick();
         assert.equal(counts.accepted, before, `Reject old result after ${action}`);
         if (['document', 'deactivate', 'cancel', 'dispose', 'sync'].includes(action)) assert.equal(worker.terminated, true);
-        if (action === 'dispose') { app._scheduleDRC(); flush(); assert.equal(workers.at(-1), worker); }
+        if (action === 'dispose') { scheduleDrc(app); flush(); assert.equal(workers.at(-1), worker); }
         if (['fill-cache', 'fill-replacement'].includes(action)) {
             retry(); workers.at(-1).finish(); await tick();
             assert.equal(counts.accepted, before + 1);
         }
         if (action === 'deactivate') {
             app._active = true;
-            app._scheduleDRC();
+            scheduleDrc(app);
         }
         if (action === 'deactivate' || action === 'cancel') {
             flush();
@@ -386,7 +395,7 @@ try {
         const { app, counts } = fixture();
         setFillRefreshPending(app, true);
         const before = workers.length;
-        app._scheduleDRC(); flush();
+        scheduleDrc(app); flush();
         assert.equal(workers.length, before, 'Wait for outstanding pour math instead of checking stale copper');
         setFillRefreshError(app, new Error('Pour failure'));
         retry(); workers.at(-1).finish(); await tick();
@@ -396,20 +405,20 @@ try {
         disposeDrcRefresh(app);
     }
     {
-        const { app, counts } = fixture();
-        app._runDRCLive();
-        app._drcSelectedId = app._drcViolations[0].id;
-        app._scheduleDRC(); flush();
-        app._drcSelectedId = app._drcViolations.at(-1).id;
-        const selected = app._drcSelectedId;
+        const { app, counts, drc } = fixture();
+        runDrcNow(app);
+        drc.selectedId = drc.violations[0].id;
+        scheduleDrc(app); flush();
+        drc.selectedId = drc.violations.at(-1).id;
+        const selected = drc.selectedId;
         workers.at(-1).finish(); await tick();
-        assert.equal(app._drcSelectedId, selected, 'Acceptance respects selection changed while the job was outstanding');
+        assert.equal(drc.selectedId, selected, 'Acceptance respects selection changed while the job was outstanding');
         assert.ok(counts.markers > 0 && counts.connectors > 0);
         const old = { id: 'old', rule: 'unrouted', marker: { type: 'ratline', net: 'N',
             a: { x: 0, y: 0 }, b: { x: 1, y: 1 } } };
-        app._drcViolations = [old]; app._drcSelectedId = old.id;
-        app._adoptDRCResult({ violations: [{ ...old, id: 'new' }], counts: { errors: 1, warnings: 0 }, ok: false });
-        assert.equal(app._drcSelectedId, 'new');
+        drc.violations = [old]; drc.selectedId = old.id;
+        drc.adoptResult({ violations: [{ ...old, id: 'new' }], counts: { errors: 1, warnings: 0 }, ok: false });
+        assert.equal(drc.selectedId, 'new');
         disposeDrcRefresh(app);
     }
     for (const mode of ['construct', 'post', 'error', 'messageerror', 'malformed', 'compute']) {
@@ -421,7 +430,7 @@ try {
             postMessage(data) { if (mode === 'post') throw new Error('post failed'); super.postMessage(data); }
         };
         try {
-            app._scheduleDRC(); flush();
+            scheduleDrc(app); flush();
             const worker = workers.at(-1);
             if (mode === 'error') worker.onerror({ message: 'worker failed' });
             if (mode === 'messageerror') worker.onmessageerror();
@@ -430,12 +439,12 @@ try {
             await tick();
             assert.equal(counts.accepted, 1, `${mode} recovers using synchronous DRC`);
             assert.ok(errors.length && app.lastStatus.includes('failed'));
-            assert.equal(app._drcError, null);
+            assert.equal(getDrcPresentation(app).error, null);
             if (mode === 'post') {
                 app.deactivate();
                 globalThis.Worker = FakeWorker;
                 app._active = true;
-                app._scheduleDRC(); flush();
+                scheduleDrc(app); flush();
                 workers.at(-1).finish(); await tick();
                 assert.equal(counts.accepted, 2, 'A new activation lifecycle retries the native transport');
             }
@@ -443,46 +452,45 @@ try {
         } finally { console.error = log; globalThis.Worker = FakeWorker; }
     }
     {
-        const { app, counts } = fixture();
-        app._runDRCLive();
-        const previous = app._drcViolations, before = counts.accepted;
+        const { app, counts, drc } = fixture();
+        runDrcNow(app);
+        const previous = drc.violations, before = counts.accepted;
         const log = console.error; console.error = () => {};
         const model = app.pcbDocument;
         Object.defineProperty(model, 'tracks', { configurable: true, get() { throw new Error('capture failed'); } });
         try {
-            app._scheduleDRC(); flush();
+            scheduleDrc(app); flush();
             assert.equal(counts.accepted, before);
-            assert.equal(app._drcViolations, previous);
-            assert.ok(app._drcPending && app._drcError);
+            assert.equal(drc.violations, previous);
+            assert.ok(drc.pending && drc.error);
         } finally {
             Object.defineProperty(model, 'tracks', { configurable: true, writable: true, value: [] });
             console.error = log; disposeDrcRefresh(app);
         }
     }
     {
-        const { app, counts } = fixture();
-        app._runDRCLive();
-        const previous = app._drcViolations, before = counts.accepted, rules = app.getRoutingParams;
+        const { app, counts, drc } = fixture();
+        runDrcNow(app);
+        const previous = drc.violations, before = counts.accepted, rules = app.getRoutingParams;
         const log = console.error; console.error = () => {};
         try {
-            app._scheduleDRC(); flush();
+            scheduleDrc(app); flush();
             app.getRoutingParams = () => { throw new Error('Synchronous fallback failed'); };
             workers.at(-1).onerror({ message: 'Transport failed' }); await tick();
             assert.equal(counts.accepted, before);
-            assert.equal(app._drcViolations, previous);
-            assert.ok(app._drcPending && app._drcError);
+            assert.equal(drc.violations, previous);
+            assert.ok(drc.pending && drc.error);
             app.getRoutingParams = rules;
-            app._scheduleDRC(); flush();
+            scheduleDrc(app); flush();
             assert.equal(counts.accepted, before + 1, 'A later request can recover after both transport and fallback failure');
-            assert.equal(app._drcError, null);
+            assert.equal(drc.error, null);
         } finally { console.error = log; disposeDrcRefresh(app); }
     }
     {
         const { app, layer } = fixture();
-        app._scheduleDRC = () => {};
-        app._drcRatlines = [{ net: 'failed', x1: 1, y1: 2, x2: 3, y2: 4, failed: true }];
+        setDrcRatlines(app, [{ net: 'failed', x1: 1, y1: 2, x2: 3, y2: 4, failed: true }]);
         const failed = new Element(); failed.setAttribute('class', 'ratsnest-line ratsnest-failed'); failed.dataset.net = 'failed';
-        for (const [key, value] of Object.entries(app._drcRatlines[0])) if (key !== 'net' && key !== 'failed') failed.setAttribute(key, value);
+        for (const [key, value] of Object.entries(storedDrcRatlines(app)[0])) if (key !== 'net' && key !== 'failed') failed.setAttribute(key, value);
         layer.appendChild(failed);
         app.pcbDocument.boardShapes = [];
         app.pcbDocument.tracks = [];
@@ -492,9 +500,9 @@ try {
         reconcileRatsnest(app, { skipFillRefresh: true });
         const svg = () => layer.children.map(line => ({ net: line.dataset.net,
             ...Object.fromEntries(['x1', 'y1', 'x2', 'y2'].map(key => [key, parseFloat(line.getAttribute(key))])) }));
-        assert.deepEqual(app._collectRatlines(), svg(), 'Neutral data matches rendered order and precise failed/normal lines');
+        assert.deepEqual(collectDrcRatlines(app), svg(), 'Neutral data matches rendered order and precise failed/normal lines');
         reconcileRatsnest(app, { nets: new Set(['N']), skipFillRefresh: true });
-        assert.deepEqual(app._collectRatlines(), svg(), 'Incremental rebuild preserves unaffected/failed records');
+        assert.deepEqual(collectDrcRatlines(app), svg(), 'Incremental rebuild preserves unaffected/failed records');
         app._flushRatsnestVisibilityQueue = () => {};
         app.refreshClearanceHalos = () => {};
         app.history = new CommandHistory();
@@ -504,13 +512,13 @@ try {
         app._renderRouteResult({ tracks: [], vias: [], failedConnections: [
             { net: 'failed-again', from: { x: -0, y: Math.E }, to: { x: 8.123456789, y: 9.987654321 } },
         ] });
-        assert.deepEqual(app._collectRatlines(), svg(), 'Actual autorouter failed-line producer publishes neutral data too');
-        const expected = app._collectRatlines();
+        assert.deepEqual(collectDrcRatlines(app), svg(), 'Actual autorouter failed-line producer publishes neutral data too');
+        const expected = collectDrcRatlines(app);
         app.getLayerGroup = () => { throw new Error('Ratline capture traversed SVG'); };
-        assert.deepEqual(app._collectRatlines(), expected);
-        const plain = { _drcRatlines: app._drcRatlines };
-        plain._drcRatlinesModel = plain;
-        assert.deepEqual(PCBApp.prototype._collectRatlines.call(plain), expected, 'Neutral consumers share the plain-app model fallback');
+        assert.deepEqual(collectDrcRatlines(app), expected);
+        const plain = {};
+        setDrcRatlines(plain, expected);
+        assert.deepEqual(collectDrcRatlines(plain), expected, 'Neutral consumers share the plain-app model fallback');
     }
 } finally {
     Object.assign(globalThis, originalTimers);

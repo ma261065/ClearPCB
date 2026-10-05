@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { setComputedFill } from '../src/pcb/modules/computed-fill-cache.js';
 import { getVertexDrag } from '../src/pcb/modules/track-drag.js';
 import { getTrackDraw } from '../src/pcb/modules/track-draw.js';
+import { storedDrcRatlines } from '../src/pcb/modules/drc-state.js';
 
 function element() {
     const classes = new Set();
@@ -42,7 +43,7 @@ function assertCompleteGraph(app, layer) {
     const visible = layer.children.filter(line => line.style.visibility !== 'hidden');
     if (app._netGuideLine) visible.push(app._netGuideLine);
     assert.deepEqual(visible.map(line => edgeKey(line.dataset.net, endpoints(line))).sort(),
-        app._drcRatlines.map(line => edgeKey(line.net, [line.x1, line.y1, line.x2, line.y2])).sort(),
+        storedDrcRatlines(app).map(line => edgeKey(line.net, [line.x1, line.y1, line.x2, line.y2])).sort(),
         'solid lines plus the dashed replacement represent every real ratline exactly once');
     assert.equal(layer.children.filter(line => line.style.visibility === 'hidden').length,
         app._netGuideLine ? 1 : 0, 'only the exact dashed replacement is hidden');
@@ -153,7 +154,7 @@ try {
         reconcileRatsnest(app);
         const originalTracks = [...app.tracks];
         const geometry = originalTracks.map(track => track.captureState());
-        const idleGraph = app._drcRatlines.map(line => JSON.stringify(line)).sort();
+        const idleGraph = storedDrcRatlines(app).map(line => JSON.stringify(line)).sort();
         startTrackDraw(app, { x: 0, y: 0 });
         updateTrackDraw(app, { x: 8, y: 4 });
         assert.deepEqual(app.tracks, originalTracks, 'draft connectivity never installs provisional tracks in the authored model');
@@ -164,10 +165,10 @@ try {
         assertCompleteGraph(app, layer);
         assert.equal(app._netGuideLine.parent, app.viewport.svg, 'dashed guide is outside the toggleable ratline layer');
         assert.equal(app._netGuideLine.getAttribute('stroke-dasharray'), '4 3');
-        const records = structuredClone(app._drcRatlines);
+        const records = structuredClone(storedDrcRatlines(app));
         reconcileRatsnest(app);
         assertCompleteGraph(app, layer);
-        assert.deepEqual(app._drcRatlines.map(line => JSON.stringify(line)).sort(),
+        assert.deepEqual(storedDrcRatlines(app).map(line => JSON.stringify(line)).sort(),
             records.map(line => JSON.stringify(line)).sort(), 'presentation styling never removes DRC connectivity records');
         layer.style.display = visible ? 'none' : '';
         updateTrackDraw(app, { x: 9, y: 4 });
@@ -176,7 +177,7 @@ try {
         updateTrackDraw(app, { x: 9, y: 4 });
         assertCompleteGraph(app, layer);
         cancelTrackDraw(app);
-        assert.deepEqual(app._drcRatlines.map(line => JSON.stringify(line)).sort(), idleGraph,
+        assert.deepEqual(storedDrcRatlines(app).map(line => JSON.stringify(line)).sort(), idleGraph,
             'cancelling removes every provisional connectivity change');
         startTrackDraw(app, { x: 0, y: 0 });
         updateTrackDraw(app, { x: 8, y: 4 });
@@ -210,7 +211,7 @@ try {
         for (const point of [{ x: 8, y: 1 }, { x: 12, y: 14 }, { x: 28, y: 9 }, { x: 8, y: 1 }]) {
             updateVertexDrag(app, point);
             assertCompleteGraph(app, layer);
-            graphs.add(JSON.stringify(app._drcRatlines));
+            graphs.add(JSON.stringify(storedDrcRatlines(app)));
         }
         assert.ok(graphs.size >= 3, 'coverage is checked across real multi-island MST rewiring, not a fixed two-object graph');
         cancelVertexDrag(app);

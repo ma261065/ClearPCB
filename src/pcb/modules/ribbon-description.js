@@ -6,6 +6,7 @@ import { runPcbHistoryAction, savePcbProject } from './editor-actions.js';
 import { commitDesignInput } from './design-settings.js';
 import { PCB_DESIGN_MAX_MM } from '../../core/PcbDesignSettings.js';
 import { PCB_SHAPE_TOOLS as SHAPE_TOOLS, normalizePcbTool, preparePcbRibbonTransition, selectPcbTool } from './tool-lifecycle.js';
+import { peekDrcPresentation } from './drc-state.js';
 
 const E = (tag, props = {}, children = undefined) => ({ kind: 'element', tag, ...props, children });
 const B = (id, content, title, props = {}) => ({ kind: 'button', id, title, content, ...props });
@@ -121,7 +122,7 @@ export function createPcbRibbonDescription(app) {
         onTabChange({ to }) {
             app.syncClipboardButtons?.();
             if (to === 'pcb-home') app.refreshPcbRibbon?.();
-            app.getDrcPresentation?.().setDesignActive(to === 'pcb-design');
+            peekDrcPresentation(app)?.setDesignActive(to === 'pcb-design');
         },
         tabs: [
             { id: 'pcb-file', label: 'File' },

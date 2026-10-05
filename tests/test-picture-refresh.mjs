@@ -4,9 +4,13 @@ import { pictureRefreshHold, cancelPictureCopperRefresh, schedulePictureCopperRe
 import { Pad } from '../src/shapes/pad.js';
 import { AddPadCommand, RemovePadCommand, ModifyPadCommand, MovePadCommand } from '../src/pcb/modules/pad-commands.js';
 import { isPictureCopperRefreshPending } from '../src/pcb/modules/refresh-state.js';
+import { getDrcPresentation } from '../src/pcb/modules/drc-state.js';
+import { installFakeDom } from './helpers/fake-dom.mjs';
 
+installFakeDom();
 const originalSetTimeout = globalThis.setTimeout;
 const originalClearTimeout = globalThis.clearTimeout;
+const originalRequestAnimationFrame = globalThis.requestAnimationFrame;
 const timers = new Map();
 let timerId = 0;
 let now = 0;
@@ -22,8 +26,8 @@ const app = {
     getLayerGroup: () => null,
     refreshFills() { fills++; observedValue = this.value; return poursHandleRatsnest; },
     updateRatsnest(options) { assert.equal(options.skipFillRefresh, true); ratsnest++; },
-    _scheduleDRC() { drcRequests++; },
 };
+getDrcPresentation(app).shouldRun = () => true;
 const shape = { id: 'image', kind: 'image' };
 const halo = { parentNode: { removeChild(element) { element.parentNode = null; } } };
 app._boardShapeClearanceCache = new Map([[shape.id, { elements: [halo] }]]);
@@ -34,6 +38,7 @@ try {
         return timerId;
     };
     globalThis.clearTimeout = id => { timers.delete(id); };
+    globalThis.requestAnimationFrame = () => { drcRequests++; return drcRequests; };
     const flush = () => {
         const callbacks = [...timers.values()];
         timers.clear();
@@ -140,5 +145,7 @@ try {
 } finally {
     globalThis.setTimeout = originalSetTimeout;
     globalThis.clearTimeout = originalClearTimeout;
+    if (originalRequestAnimationFrame) globalThis.requestAnimationFrame = originalRequestAnimationFrame;
+    else delete globalThis.requestAnimationFrame;
 }
 console.log('PASS copper image refresh burst coalescing, latest state, pour reconciliation and cancellation');

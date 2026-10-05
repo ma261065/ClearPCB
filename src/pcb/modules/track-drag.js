@@ -71,6 +71,7 @@ import { isEditorActive } from './pcb-editor-api.js';
 import { refreshViaClearance } from './clearance-overlay.js';
 import { getPcbInteraction, setPcbInteraction } from './pcb-interactions.js';
 import { getSelectionInteraction, setSelectionInteraction } from './selection-interaction.js';
+import { refreshSelectedDrcMarker } from './drc-state.js';
 
 /** Screen-px hit tolerance for selecting a Track node to drag. */
 const NODE_HIT_PX = 8;
@@ -1298,7 +1299,7 @@ export function updateVertexDrag(app, worldPos) {
         copy.setEdgeAttr(drag.edgeId, 'bulge', bulge);
         renderTrack(copy, layer => app.getLayerGroup(layer), _opts(app));
         app._refreshTrackClearance?.(copy);
-        app.refreshSelectedDRCMarker?.();
+        refreshSelectedDrcMarker(app);
         refreshTrackSelectionHalo(app);
         const input = /** @type {HTMLInputElement|null} */ (document.getElementById('pcbPropTrackBulge'));
         if (input) input.value = formatNumberInputValue(bulge);

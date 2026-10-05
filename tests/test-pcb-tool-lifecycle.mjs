@@ -7,6 +7,7 @@ import { getFillDraw } from '../src/pcb/modules/copper-fill-draw.js';
 import { getShapeDraw } from '../src/pcb/modules/board-shapes.js';
 import { activeTextInlineEdit } from '../src/pcb/modules/text-inline-edit.js';
 import { setPcbInteraction } from '../src/pcb/modules/pcb-interactions.js';
+import { getDrcPresentation } from '../src/pcb/modules/drc-state.js';
 
 const elements = new Map();
 globalThis.window = { addEventListener() {} };
@@ -77,11 +78,8 @@ function fixture() {
             for (const button of Object.values(buttons)) button.classList.toggle('active', false);
             buttons.Select.classList.toggle('active', this.currentTool === 'select');
         },
-        _scheduleDRC() { events.push('drc'); },
-        _getDrcPresentation: PCBApp.prototype._getDrcPresentation,
         setActiveRibbonTab: PCBApp.prototype.setActiveRibbonTab,
     };
-    Object.defineProperty(app, '_drcActive', Object.getOwnPropertyDescriptor(PCBApp.prototype, '_drcActive'));
     PCBApp.prototype._bindRibbonTabs.call(app);
     bindPcbControls(app);
     events.length = 0;
@@ -145,11 +143,19 @@ for (const userInitiated of [false, true]) for (const sameTab of [false, true]) 
     selectPcbTool(f.app, 'circle');
     assert.equal(f.app.currentTool, 'circle');
     assert.equal(f.app.activeLayer, 'hole', 'Hole is still the circle tool on the hole layer');
-    f.app._getDrcPresentation().setDesignActive(true);
-    assert.equal(f.app._drcActive, true);
-    assert.equal(f.events.filter(event => event === 'drc').length, 1);
-    f.app._getDrcPresentation().setDesignActive(false);
-    assert.equal(f.app._drcActive, false);
+    const originalRequestAnimationFrame = globalThis.requestAnimationFrame;
+    globalThis.requestAnimationFrame = () => { f.events.push('drc'); return f.events.length; };
+    const drc = getDrcPresentation(f.app);
+    try {
+        drc.setDesignActive(true);
+        assert.equal(drc.designActive, true);
+        assert.equal(f.events.filter(event => event === 'drc').length, 1);
+        drc.setDesignActive(false);
+        assert.equal(drc.designActive, false);
+    } finally {
+        if (originalRequestAnimationFrame) globalThis.requestAnimationFrame = originalRequestAnimationFrame;
+        else delete globalThis.requestAnimationFrame;
+    }
 }
 {
     const f = fixture();

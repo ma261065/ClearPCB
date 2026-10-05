@@ -25,8 +25,6 @@
  *   Re-render one free text in place.
  * @property {(fill: object|null) => void} selectFill
  *   Select (or clear) the focused copper pour.
- * @property {() => void} refreshSelectedDRCMarker
- *   Reposition the highlighted design-rule marker.
  * @property {() => void} clearProperties
  *   Reset the Properties panel.
  * @property {(text: string) => void} setStatus
@@ -82,7 +80,7 @@ export const isEditorActive = app => app._active !== false;
 /** Service names, checked against PCBApp by test-pcb-editor-api. */
 export const PCB_EDITOR_SERVICES = Object.freeze([
     'getLayerGroup', 'existingLayerGroups', 'getRoutingParams', 'refreshFills', 'refreshClearanceHalos', 'updateRatsnest',
-    'updateCopperCuts', 'refreshText', 'selectFill', 'refreshSelectedDRCMarker', 'clearProperties',
+    'updateCopperCuts', 'refreshText', 'selectFill', 'clearProperties',
     'setStatus', 'setPcbStatus', 'syncClipboardButtons', 'propertiesItems', 'setPropertiesTitle', 'showPropertiesTab',
     'openPropertyPanel', 'refreshPropertyPanel', 'netNames', 'layerLabel', 'fitToContent', 'setActiveRibbonTab',
     'selectText', 'showTextProperties', 'selectAll', 'rotateComponent', 'flipComponent', 'rotateRefText',

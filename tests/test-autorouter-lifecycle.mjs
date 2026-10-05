@@ -44,9 +44,9 @@ function fixture() {
         _getRouterMode: () => 'maze',
         _buildRouteInput: () => ({ connections: [{ net: 'ORIGINAL', pads: [] }] }),
         setStatus(message) { this.lastStatus = message; },
-        refreshClearanceHalos() {}, _scheduleDRC() {},
-        refreshFills: () => false, _ensureViewport() {}, _resetDRC() {}, updateCopperCuts() {},
-        _closeDRCPanel() {}, _clearDRCMarker() {}, _selectBoardOutline() {},
+        refreshClearanceHalos() {},
+        refreshFills: () => false, _ensureViewport() {}, updateCopperCuts() {},
+        _selectBoardOutline() {},
         _closeBoardDimensionsDialog() {}, _clearFillGroups() {},
     });
     app.history = new CommandHistory({ onChanged: () => app._markDirty() });

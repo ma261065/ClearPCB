@@ -14,6 +14,7 @@ import { disposePcbPropertyEditors } from './edit-lifecycle.js';
 import { setHoveredBoardShape } from './board-shape-state.js';
 import { refreshBoardView } from './refresh-state.js';
 import { isEditorActive } from './pcb-editor-api.js';
+import { clearDrcResults, resetDrc } from './drc-state.js';
 
 /** @param {any} app */
 export function serializePcb(app) {
@@ -51,7 +52,7 @@ export function loadPcb(app, data, prepared = preparePcb(data)) {
     for (const id of app._textElements.keys()) app._removeTextElement(id);
     for (const id of app._shapeElements.keys()) removeBoardShapeElement(app, id);
     app.pcbDocument.clear();
-    app._resetDRC?.();
+    resetDrc(app);
     setHoveredBoardShape(app, null);
     cancelShapeDraw(app);
     if (getBoardShapeDrag(app)) endBoardShapeDrag(app, false);
@@ -62,10 +63,7 @@ export function loadPcb(app, data, prepared = preparePcb(data)) {
 
     // A new/opened document invalidates any current DRC results, so close
     // the problem panel and clear its marker/leader.
-    app._closeDRCPanel?.();
-    app._drcSelectedId = null;
-    app._clearDRCMarker?.();
-    app._drcViolations = [];
+    clearDrcResults(app);
 
     // Reset the board outline to "undrawn" so a document without board
     // dimensions (a brand-new board) prompts for them on activation, and a

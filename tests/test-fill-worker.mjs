@@ -10,6 +10,7 @@ import { buildFillContext } from '../src/pcb/modules/fill-context.js';
 import { captureFillInputs, computeFillBatch } from '../src/pcb/modules/fill-worker-geometry.js';
 import { createFillWorker } from '../src/pcb/modules/fill-worker-client.js';
 import { scheduleFillRefresh, invalidateFillRefresh, disposeFillRefresh, adoptFillResults } from '../src/pcb/modules/fill-refresh.js';
+import { disposeDrcRefresh } from '../src/pcb/modules/drc-refresh.js';
 import { prepareCopperRegionContact, installCopperRegionContact, copperRegionShape,
     resolveTrackContactGeometry, copperContactsTouch } from '../src/pcb/modules/track-contact-geometry.js';
 import { runDRC } from '../src/pcb/modules/drc.js';
@@ -18,6 +19,7 @@ import { getComputedFill } from '../src/pcb/modules/computed-fill-cache.js';
 import { schedulePictureCopperRefresh, cancelPictureCopperRefresh } from '../src/pcb/modules/picture-refresh.js';
 import { EditTextCommand } from '../src/pcb/modules/text-commands.js';
 import { loadPcb } from '../src/pcb/modules/project-state.js';
+import { getDrcPresentation } from '../src/pcb/modules/drc-state.js';
 import { fillRefreshError, isFillRefreshPending, setDragOverlaysDeferred, setPictureCopperRefreshPending } from '../src/pcb/modules/refresh-state.js';
 
 class Element {
@@ -51,6 +53,9 @@ class Element {
 globalThis.window = { addEventListener() {} };
 globalThis.document = { createElementNS: () => new Element(), getElementById: () => null };
 globalThis.localStorage = { setItem() {} };
+const originalRequestAnimationFrame = globalThis.requestAnimationFrame;
+let observeDrcFrame = null;
+globalThis.requestAnimationFrame = () => { observeDrcFrame?.(); return 1; };
 const { default: PCBApp } = await import('../src/ui/PCBApp.js');
 
 const rectangle = (x, y, w, h) => [{ x, y }, { x: x + w, y }, { x: x + w, y: y + h }, { x, y: y + h }];
@@ -68,7 +73,13 @@ function fixture() {
     const ratlines = { get children() { counts.rats++; return []; }, appendChild() {} };
     app.getLayerGroup = id => id === 'ratlines' ? ratlines : app._layerGroups.get(id) || null;
     app._clearFillGroups = () => { counts.clear++; PCBApp.prototype._clearFillGroups.call(app); };
-    app._scheduleDRC = () => { counts.drc++; drcStates.push([isFillRefreshPending(app), fillRefreshError(app)]); };
+    const drc = getDrcPresentation(app);
+    drc.shouldRun = () => true;
+    drc.updateStatus = (_result, pending) => {
+        if (!pending) return;
+        counts.drc++;
+        drcStates.push([isFillRefreshPending(app), fillRefreshError(app)]);
+    };
     app._board3d = { refresh() { counts.views++; } };
     app._recomputeFillsNow = () => { counts.sync++; return PCBApp.prototype._recomputeFillsNow.call(app); };
     app.setStatus = message => { app.lastStatus = message; };
@@ -111,11 +122,15 @@ function fixture() {
         assert.equal(isFillRefreshPending(app), true);
         invalidateFillRefresh(app);
         await loadClipper();
+
         await new Promise(resolve => setTimeout(resolve, 70));
         for (const frame of coldFrames) frame();
         assert.equal(counts.clear, 1, 'Cold synchronous refresh debt survives the following history notification');
         assert.equal(isFillRefreshPending(app), false);
-    } finally { disposeFillRefresh(app); delete globalThis.requestAnimationFrame; }
+    } finally {
+        disposeFillRefresh(app);
+        globalThis.requestAnimationFrame = () => { observeDrcFrame?.(); return 1; };
+    }
 }
 
 // Exercise the actual browser-worker module inside a native Node worker thread.
@@ -251,6 +266,9 @@ function settled() {
     assert.equal(f.app._recomputeFillsNow(), true);
     f.old = f.model.copperFills.map(getComputedFill);
     f.artwork = paths(f.app);
+    disposeDrcRefresh(f.app);
+    getDrcPresentation(f.app).pending = false;
+    frames.length = 0;
     for (const key of Object.keys(f.counts)) f.counts[key] = 0;
     return f;
 }
@@ -374,7 +392,7 @@ for (const content of [null, 'reload']) {
         const worker = workers.at(-1), job = worker.jobs[0];
         f.app._textElements = new Map();
         f.app._shapeElements = new Map();
-        for (const method of ['_ensureViewport', '_closeDRCPanel', '_clearDRCMarker',
+        for (const method of ['_ensureViewport',
             '_closeBoardDimensionsDialog', '_selectBoardOutline', 'syncClipboardButtons',
             'updateCopperCuts', 'markSectionClean']) f.app[method] = () => {};
         f.app._active = false;
@@ -510,6 +528,7 @@ delete globalThis.Worker;
         assert.equal(f.counts.clear, 1);
     } finally { disposeFillRefresh(f.app); }
 }
-delete globalThis.requestAnimationFrame;
+if (originalRequestAnimationFrame) globalThis.requestAnimationFrame = originalRequestAnimationFrame;
+else delete globalThis.requestAnimationFrame;
 delete globalThis.localStorage;
 console.log('PASS native fill-worker parity/responsiveness; latest-only scheduling, model/cache isolation, staged SVG, lifecycle, debt and failure fallback');

@@ -59,7 +59,7 @@ function fixture(model = new PcbDocument()) {
                 while (group.firstChild) group.firstChild.remove();
             }
         },
-        _scheduleDRC() {}, _board3d: { refresh() {} },
+        _board3d: { refresh() {} },
     };
     for (const key of ['tracks', 'vias', 'pads', 'boardShapes', 'copperFills']) {
         Object.defineProperty(app, key, { get: () => app.pcbDocument[key] });

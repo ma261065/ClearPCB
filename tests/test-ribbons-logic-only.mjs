@@ -33,6 +33,7 @@ const { createSchematicRibbonDescription } = await import('../src/schematic/modu
 const { createPcbRibbonDescription } = await import('../src/pcb/modules/ribbon-description.js');
 
 const document = installFakeDom();
+globalThis.requestAnimationFrame = globalThis.requestAnimationFrame || (() => 1);
 globalThis.localStorage ??= { getItem: () => null, setItem() {}, removeItem() {} };
 const viewport = {
     gridVisible: true, snapToGrid: true, gridSize: 1.27, units: 'mm', gridStyle: 'lines',
@@ -57,7 +58,6 @@ const pcbApp = {
         update(values) { Object.assign(this.values, values); return true; },
     },
     _canCopyCutPcbSelection: () => false, _hasPcbClipboardData: () => false,
-    _getDrcPresentation: () => ({ setDesignActive() {} }),
 };
 const schematicHost = document.createElement('div');
 schematicHost.id = 'ribbonSchematic';

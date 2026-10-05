@@ -127,11 +127,16 @@ the same synchronous calculation. Failed capture/calculation does not replace
 previous results with an empty successful report. Capture, transfer and result
 rendering remain main-thread work, so offloading is not a zero-latency guarantee.
 
-`pcb/modules/drc-presentation.js` owns the DRC panel, grouped list, selected
-violation identity, collapsed groups, pending/error display and viewport markers.
-It also owns Design-tab activity, DOM listeners and suspension/disposal. Its
-capabilities request refreshes, resolve the selected copper pair, collect neutral
-ratlines, clear board selection and access layer groups and the limited viewport
+`pcb/modules/drc-state.js` owns the editor-scoped DRC presentation, ratline
+cache and disposal flag. The editor creates the `DrcPresentation` once, in
+`initDrc`, and the module supplies its capabilities; refresh, status and
+marker paths use it only if it exists (`peekDrcPresentation`), so code that
+never set DRC up (fixtures, hidden loads) has no DRC to update. `pcb/modules/drc-presentation.js` owns the DRC panel, grouped
+list, selected violation identity, collapsed groups, pending/error display and
+viewport markers. It also owns Design-tab activity, DOM listeners and
+suspension/disposal. Its capabilities request refreshes, resolve the selected
+copper pair, collect neutral ratlines, clear board selection and access layer
+groups and the limited viewport
 navigation interface.
 The owner accepts injected DOM for independent tests and never receives
 `PCBApp`. The existing scheduler/checker publishes through thin editor adapters;

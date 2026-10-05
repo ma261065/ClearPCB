@@ -4,6 +4,7 @@ import { setDragOverlaysDeferred, setPictureCopperRefreshPending } from '../src/
 import { endTextDrag, getTextDrag } from '../src/pcb/modules/pcb-text-selection.js';
 import { getBoardShapeDrag } from '../src/pcb/modules/board-shapes.js';
 import { setPcbInteraction } from '../src/pcb/modules/pcb-interactions.js';
+import { getDrcPresentation } from '../src/pcb/modules/drc-state.js';
 
 globalThis.window = { addEventListener() {} };
 const element = () => ({
@@ -271,8 +272,9 @@ try {
     assertTextHaloRetained('translate(7 -2)');
     let movedTextPourRefreshes = 0;
     let drcRefreshes = 0;
-    app._drcShouldRun = () => true;
-    app._scheduleDRC = () => { drcRefreshes++; };
+    const originalRequestAnimationFrame = globalThis.requestAnimationFrame;
+    globalThis.requestAnimationFrame = callback => { drcRefreshes++; callback(); return drcRefreshes; };
+    getDrcPresentation(app).shouldRun = () => true;
     app.refreshFills = () => { movedTextPourRefreshes++; return false; };
     deferred();
     assert.equal(movedTextPourRefreshes, 1, 'Moved text still refreshes copper pours after the debounce');
@@ -329,6 +331,8 @@ try {
             assertTranslatedHalo('translate(7 -2)');
         }
     }
+    if (originalRequestAnimationFrame) globalThis.requestAnimationFrame = originalRequestAnimationFrame;
+    else delete globalThis.requestAnimationFrame;
     console.log('PASS all board-shape translations retain halos through drag/drop and undo/redo, with pour/DRC release updates');
     for (const mode of ['vertex', 'segment', 'midpoint', 'bulge']) for (const commit of [false, true]) {
         const shape = { id: `live-line-${mode}-${commit}`, kind: 'polygon', filled: true, layer: 'top-copper', lineWidth: 0.4,

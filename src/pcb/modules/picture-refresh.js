@@ -3,6 +3,7 @@ import { isPictureCopperRefreshPending, setPictureCopperRefreshPending, refreshB
 import { forgetBoardShapeClearance, getBoardShapeClearance } from './clearance-overlay.js';
 import { getBoardShapeDrag } from './board-shapes.js';
 import { isRotationHandleDragActive } from './rotation-handle.js';
+import { refreshSelectedDrcMarker, scheduleDrc } from './drc-state.js';
 const pendingRefreshes = new WeakMap();
 const activeHolds = new WeakMap();
 
@@ -66,7 +67,7 @@ export function cancelPictureCopperRefresh(app) {
 }
 
 export function schedulePictureCopperRefresh(app, shape = null) {
-    app.refreshSelectedDRCMarker?.();
+    refreshSelectedDrcMarker(app);
     const timer = pendingRefreshes.get(app);
     if (timer !== undefined) clearTimeout(timer);
     pendingRefreshes.delete(app);
@@ -90,7 +91,7 @@ export function schedulePictureCopperRefresh(app, shape = null) {
         refreshEditedClearances(app);
         if (app.refreshFills?.() !== true) {
             app.updateRatsnest?.({ skipFillRefresh: true });
-            app._scheduleDRC?.();
+            scheduleDrc(app);
         }
         refreshBoardView(app);
     }, 100));

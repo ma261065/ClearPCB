@@ -28,24 +28,26 @@ globalThis.document = {
 };
 
 const { default: PCBApp } = await import('../src/ui/PCBApp.js');
+const { getDrcPresentation, initDrc } = await import('../src/pcb/modules/drc-state.js');
 const app = Object.create(PCBApp.prototype);
 app.pcbDocument = new PcbDocument();
-app._drcSelectedId = null;
-app._getDrcPresentation().selectViolation = id => { app._drcSelectedId = id; };
+const drc = getDrcPresentation(app);
+drc.selectedId = null;
+drc.selectViolation = id => { drc.selectedId = id; };
 
-app._moveDRCSelection(1);
-assert.equal(app._drcSelectedId, 'a', 'Arrow Down starts at the first visible violation');
-app._moveDRCSelection(1);
-assert.equal(app._drcSelectedId, 'b', 'Arrow Down selects the next visible violation');
+drc.moveSelection(1);
+assert.equal(drc.selectedId, 'a', 'Arrow Down starts at the first visible violation');
+drc.moveSelection(1);
+assert.equal(drc.selectedId, 'b', 'Arrow Down selects the next visible violation');
 assert.equal(rows[1].focused, true, 'keyboard navigation moves focus to the selected row');
 assert.equal(rows[1].scrolled, true, 'keyboard navigation scrolls the selected row into view');
-app._moveDRCSelection(-1);
-assert.equal(app._drcSelectedId, 'a', 'Arrow Up selects the previous visible violation');
-app._moveDRCSelection(-1);
-assert.equal(app._drcSelectedId, 'a', 'Arrow Up stops at the first visible violation');
-app._drcSelectedId = null;
-app._moveDRCSelection(-1);
-assert.equal(app._drcSelectedId, 'c', 'Arrow Up starts at the last visible violation');
+drc.moveSelection(-1);
+assert.equal(drc.selectedId, 'a', 'Arrow Up selects the previous visible violation');
+drc.moveSelection(-1);
+assert.equal(drc.selectedId, 'a', 'Arrow Up stops at the first visible violation');
+drc.selectedId = null;
+drc.moveSelection(-1);
+assert.equal(drc.selectedId, 'c', 'Arrow Up starts at the last visible violation');
 
 const listeners = new Map();
 const panel = {
@@ -76,7 +78,7 @@ const objects = [{ id: 'via:one', kind: 'via', object: { id: 'one', x: 5, y: 6 }
     { id: 'text:label', kind: 'text', object: { id: 'label', x: 9, y: 10 } }];
 for (const object of objects) object.invalidate = () => {};
 app._pcbSelection.setShapes(objects);
-app._initDRC();
+initDrc(app);
 assert.equal(panel.attributes.tabindex, '-1', 'panel padding can receive pointer focus');
 assert.equal(listeners.get('pointerdown').options.capture, true, 'deselection precedes row click handling');
 
@@ -85,12 +87,12 @@ for (const ids of [['via:one'], objects.map(entry => entry.id)]) {
     app._pcbSelection.selectMultiple(ids);
     app._trackEdit = {};
     app._boardOutlineSelected = true;
-    app._drcSelectedId = 'a';
+    drc.selectedId = 'a';
     listeners.get('pointerdown').handler();
     assert.equal(getPcbSelection(app).length, 0, 'clicking anywhere in the panel clears single/multiple selection');
     assert.equal(app._trackEdit, null, 'Track edit state is cleared');
     assert.equal(app._boardOutlineSelected, false, 'board-outline selection is cleared');
-    assert.equal(app._drcSelectedId, 'a', 'deselection preserves the selected DRC issue');
+    assert.equal(drc.selectedId, 'a', 'deselection preserves the selected DRC issue');
     assert.equal(document.activeElement, panel);
 
     let prevented = false, stopped = false;
@@ -100,7 +102,7 @@ for (const ids of [['via:one'], objects.map(entry => entry.id)]) {
     };
     assert.equal(app.handleKeyDown(event), false, 'window-capture handler yields to the DRC panel');
     listeners.get('keydown').handler(event);
-    assert.equal(app._drcSelectedId, 'b', 'Arrow Down navigates after the panel click');
+    assert.equal(drc.selectedId, 'b', 'Arrow Down navigates after the panel click');
     assert.ok(prevented && stopped);
     assert.deepEqual(objects.map(entry => entry.object), before, 'navigation never moves board objects');
 }

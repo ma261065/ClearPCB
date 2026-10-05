@@ -139,7 +139,7 @@ for (const outcome of ['success', 'declined', 'busy', 'reset-error']) {
     };
     const pcb = Object.assign(Object.create(PCBApp.prototype), {
         pcbDocument: project.pcbDocument,
-        refreshClearanceHalos() {}, _scheduleDRC() {},
+        refreshClearanceHalos() {},
     });
     project.registerView('schematic', host, { isUiHost: true });
     project.registerView('pcb', pcb);

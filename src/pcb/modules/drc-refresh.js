@@ -4,13 +4,14 @@ import { createDrcWorker } from './drc-worker-client.js';
 import { getComputedFill } from './computed-fill-cache.js';
 import { fillRefreshError, isFillRefreshPending, refreshStatus } from './refresh-state.js';
 import { isEditorActive } from './pcb-editor-api.js';
+import { collectDrcRatlines, drcShouldRun, isDrcDisposed, peekDrcPresentation, storedDrcRatlines } from './drc-state.js';
 
 const states = new WeakMap();
 const stateFor = app => {
     if (!states.has(app)) states.set(app, { revision: 0, frame: null, retry: null, owed: false, worker: null, failed: false });
     return states.get(app);
 };
-const visible = app => isEditorActive(app) && !app._drcDisposed && app._drcShouldRun();
+const visible = app => isEditorActive(app) && !isDrcDisposed(app) && drcShouldRun(app);
 const deferred = app => {
     const status = refreshStatus(app);
     if (status.overlaysDeferred || status.fillSuspended) return true;
@@ -18,15 +19,16 @@ const deferred = app => {
         || app.isSectionEditing?.();
 };
 const rulesFor = app => ({ clearance: app.getRoutingParams().clearance, minAnnularRing: 0.05,
-    ratlines: app._collectRatlines() });
+    ratlines: collectDrcRatlines(app) });
 const clearRetry = state => {
     if (state.retry !== null) clearTimeout(state.retry);
     state.retry = null;
 };
 function pending(app) {
-    if (!app._drcPending) {
-        app._drcPending = true;
-        app._updateDRCStatus?.(null, true);
+    const presentation = peekDrcPresentation(app);
+    if (presentation && !presentation.pending) {
+        presentation.pending = true;
+        presentation.updateStatus(null, true);
     }
 }
 function retry(app, state) {
@@ -42,11 +44,13 @@ function retry(app, state) {
     state.retry?.unref?.();
 }
 function report(app, error) {
-    app._drcError = error;
-    app._drcPending = true;
     console.error('[DRC] check failed', error);
     app.setStatus?.(`DRC check failed: ${error instanceof Error ? error.message : String(error)}`);
-    app._updateDRCStatus?.(null, true);
+    const presentation = peekDrcPresentation(app);
+    if (!presentation) return;
+    presentation.error = error;
+    presentation.pending = true;
+    presentation.updateStatus(null, true);
 }
 export function invalidateDrcRefresh(app) {
     const state = states.get(app);
@@ -61,25 +65,25 @@ export function disposeDrcRefresh(app) {
     state.worker?.dispose();
     clearRetry(state);
     states.delete(app);
-    app._drcRaf = 0;
 }
 function accept(app, state, result) {
     state.owed = false;
     clearRetry(state);
-    app._drcPending = false;
-    app._drcError = null;
-    app._adoptDRCResult(result);
+    const presentation = peekDrcPresentation(app);
+    if (!presentation) return;
+    presentation.pending = false;
+    presentation.error = null;
+    presentation.adoptResult(result);
 }
 
 /** Direct callers and unavailable/failed worker transports retain synchronous evaluation. */
 export function runDrcNow(app) {
-    if (app._drcDisposed) return;
+    if (isDrcDisposed(app)) return;
     const state = stateFor(app);
     state.revision++;
     state.worker?.dispose();
     state.worker = null;
     state.frame = null;
-    app._drcRaf = 0;
     clearRetry(state);
     if (deferred(app)) { retry(app, state); return; }
     state.owed = false;
@@ -93,7 +97,7 @@ function ownership(app) {
         [...(model.texts?.values() || [])], [...(app.placements?.values() || [])]];
     const fills = model.copperFills || (model.boardShapes || []).filter(shape => shape.type === 'fill');
     return { model, lists: lists.map(list => [...list]), fills: fills.map(getComputedFill),
-        ratlines: app._drcRatlines, fillPending: isFillRefreshPending(app), fillError: fillRefreshError(app) };
+        ratlines: storedDrcRatlines(app), fillPending: isFillRefreshPending(app), fillError: fillRefreshError(app) };
 }
 function unchanged(app, saved) {
     const current = ownership(app);
@@ -105,7 +109,7 @@ function unchanged(app, saved) {
 }
 
 export function scheduleDrcRefresh(app) {
-    if (app._drcDisposed) return;
+    if (isDrcDisposed(app)) return;
     const state = stateFor(app);
     state.revision++;
     state.worker?.invalidate();
@@ -117,10 +121,9 @@ export function scheduleDrcRefresh(app) {
     if (state.frame !== null) return;
     const token = {};
     state.frame = token;
-    app._drcRaf = requestAnimationFrame(() => {
+    requestAnimationFrame(() => {
         if (states.get(app) !== state || state.frame !== token) return;
         state.frame = null;
-        app._drcRaf = 0;
         if (!visible(app)) return;
         if (deferred(app)) { retry(app, state); return; }
         if (state.failed || typeof Worker === 'undefined') { runDrcNow(app); return; }
@@ -130,7 +133,7 @@ export function scheduleDrcRefresh(app) {
         catch (error) { state.owed = false; report(app, error); return; }
         state.worker ||= createDrcWorker();
         const valid = () => {
-            if (states.get(app) !== state || state.revision !== revision || app._drcDisposed) return false;
+            if (states.get(app) !== state || state.revision !== revision || isDrcDisposed(app)) return false;
             try { return unchanged(app, saved); }
             catch (error) { state.owed = false; report(app, error); return false; }
         };

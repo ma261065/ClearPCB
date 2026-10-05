@@ -53,6 +53,8 @@ import { spatialPairs, spatialCrossPairs } from '../../core/spatial-pairs.js';
 import { showAlert } from '../../shared/ui/modal.js';
 import { areDragOverlaysDeferred, isPictureCopperRefreshPending } from './refresh-state.js';
 import { getPcbInteraction, setPcbInteraction } from './pcb-interactions.js';
+import { peekDrcPresentation, refreshSelectedDrcMarker, setDrcRatlines, storedDrcRatlines } from './drc-state.js';
+import { invalidateDrcRefresh } from './drc-refresh.js';
 import {
     clearAxisGlow,
     makeAxisGlowCenterline,
@@ -827,7 +829,7 @@ function trackRatlineTargets(cluster, pathsByTrack) {
  *   fill pass.
  */
 export function reconcileRatsnest(app, opts) {
-    app.refreshSelectedDRCMarker?.();
+    refreshSelectedDrcMarker(app);
     const shapeDrag = getBoardShapeDrag(app);
     const liveShapeDrag = shapeDrag?.ratsnestNets && opts?.nets === shapeDrag.ratsnestNets;
     if (isPictureCopperRefreshPending(app) && !liveShapeDrag) return;
@@ -846,13 +848,11 @@ export function reconcileRatsnest(app, opts) {
 
     const ratLayer = app.getLayerGroup?.('ratlines');
     if (!ratLayer) return;
-    const ratlines = (app._drcRatlinesModel === (app.pcbDocument || app) ? app._drcRatlines || [] : [])
-        .filter(line => line.failed || (onlyNets && !onlyNets.has(line.net)));
+    const ratlines = storedDrcRatlines(app).filter(line => line.failed || (onlyNets && !onlyNets.has(line.net)));
     const publishRatlines = () => {
-        app._drcRatlines = ratlines;
-        app._drcRatlinesModel = app.pcbDocument || app;
+        setDrcRatlines(app, ratlines);
         refreshNetGuideLine(app);
-        app._invalidateDRC?.();
+        invalidateDrcRefresh(app);
     };
 
     // Clear previously-generated ratsnest (keep autorouter failed lines).
@@ -967,7 +967,7 @@ export function reconcileRatsnest(app, opts) {
     // derived lines. Re-anchor it after every rebuild, including callers that
     // invoke reconcileRatsnest directly during track/via/group movement.
     publishRatlines();
-    app._followDRCRatline?.();
+    peekDrcPresentation(app)?.followRatline();
 }
 
 /**

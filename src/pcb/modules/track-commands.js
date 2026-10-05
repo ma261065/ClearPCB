@@ -17,6 +17,7 @@ import { clearTrackSelection, refreshTrackSelectionHalo } from './track-select.j
 import { getPcbSelection, togglePcbSelection } from './selection-registry.js';
 import { batchDerivedUpdates, deferDerivedUpdate } from '../../core/DerivedUpdates.js';
 import { isPlacementMirrored } from '../../shared/pcb/board-geometry.js';
+import { storedDrcRatlines } from './drc-state.js';
 export { isPlacementMirrored } from '../../shared/pcb/board-geometry.js';
 import {
     updatePlacementPadPositions,
@@ -473,7 +474,7 @@ export class ReplaceRoutesCommand extends ModelReplaceRoutesCommand {
         super(app.pcbDocument, tracks, vias);
         this.app = app;
         this.description = 'Replace routed copper';
-        this.beforeFailed = (app._drcRatlines || []).filter(line => line.failed).map(line => ({ ...line }));
+        this.beforeFailed = storedDrcRatlines(app).filter(line => line.failed).map(line => ({ ...line }));
         this.afterFailed = failedConnections.map(fc => ({
             net: String(fc.net), x1: fc.from.x, y1: fc.from.y, x2: fc.to.x, y2: fc.to.y, failed: true,
         }));

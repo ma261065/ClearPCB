@@ -70,21 +70,6 @@
     "_refreshFillProperties",
     "_showFillProperties"
   ],
-  "src/pcb/modules/drc-refresh.js": [
-    "_adoptDRCResult",
-    "_collectRatlines",
-    "_drcDisposed",
-    "_drcError",
-    "_drcPending",
-    "_drcRaf",
-    "_drcRatlines",
-    "_drcShouldRun",
-    "_updateDRCStatus"
-  ],
-  "src/pcb/modules/edit-lifecycle.js": [
-    "_drcPending",
-    "_scheduleDRC"
-  ],
   "src/pcb/modules/editor-actions.js": [
     "_boxSelectActive",
     "_boxSelectArm",
@@ -101,13 +86,11 @@
   "src/pcb/modules/fill-refresh.js": [
     "_clearFillGroups",
     "_fillRefreshDisposed",
-    "_recomputeFillsNow",
-    "_scheduleDRC"
+    "_recomputeFillsNow"
   ],
   "src/pcb/modules/layer-changes.js": [
     "_cancelPasteDrop",
     "_cancelPosePreviews",
-    "_drcPresentation",
     "_refreshPcbSelectionHighlights",
     "_selectBoardOutline"
   ],
@@ -161,8 +144,7 @@
   "src/pcb/modules/picture-refresh.js": [
     "_deferredShapeCopperCuts",
     "_pendingShapeClearances",
-    "_refreshBoardShapeClearance",
-    "_scheduleDRC"
+    "_refreshBoardShapeClearance"
   ],
   "src/pcb/modules/project-state.js": [
     "_applyPlacementOverrides",
@@ -170,18 +152,13 @@
     "_cancelAutoRoute",
     "_cancelDrawingMode",
     "_cancelPosePreviews",
-    "_clearDRCMarker",
     "_clearFillGroups",
     "_closeBoardDimensionsDialog",
-    "_closeDRCPanel",
     "_drawBoardOutline",
-    "_drcSelectedId",
-    "_drcViolations",
     "_ensureViewport",
     "_isDirty",
     "_removeTextElement",
     "_renderText",
-    "_resetDRC",
     "_selectBoardOutline",
     "_shapeElements",
     "_stale",
@@ -242,7 +219,6 @@
   "src/pcb/modules/track-commands.js": [
     "_drawBoardOutline",
     "_drawRefOverlay",
-    "_drcRatlines",
     "_markDirty",
     "_refreshPcbSelectionHighlights",
     "_renderRoutedCopper",
@@ -257,10 +233,6 @@
   ],
   "src/pcb/modules/track-draw.js": [
     "_commitTracks",
-    "_drcRatlines",
-    "_drcRatlinesModel",
-    "_followDRCRatline",
-    "_invalidateDRC",
     "_netGuideLine",
     "_showTrackDrawProperties",
     "_trackSnapMarker",

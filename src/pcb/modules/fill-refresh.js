@@ -10,6 +10,7 @@ import { installCopperRegionContact, validateCopperRegionContact } from './track
 import { areDragOverlaysDeferred, isFillRefreshPending, isFillRefreshSuspended, isPictureCopperRefreshPending, refreshStatus, setFillRefreshError, setFillRefreshPending, setFillRefreshScheduled, refreshBoardView } from './refresh-state.js';
 import { isEditorActive } from './pcb-editor-api.js';
 import { buildFillContext } from './fill-context.js';
+import { scheduleDrc } from './drc-state.js';
 
 const states = new WeakMap();
 function stateFor(app) {
@@ -126,7 +127,7 @@ export function adoptFillResults(app, fills, results, contacts) {
     setFillRefreshError(app, null);
     if (getPcbSelection(app, 'fill').length) renderPcbSelectionAnchors(app);
     reconcileRatsnest(app, { skipFillRefresh: true });
-    app._scheduleDRC?.();
+    scheduleDrc(app);
     refreshBoardView(app);
 }
 

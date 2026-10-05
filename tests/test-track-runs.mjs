@@ -16,6 +16,7 @@ const { buildTrackLayerRuns } = await import('../src/pcb/modules/track-render.js
 const { CORNER_CHORD_TOLERANCE, roundedPathCorners, sampleRoundedCorner,
     resolveTrackEdgePaths, resolveTrackSegments } = await import('../src/shared/pcb/board-geometry.js');
 const { collectBondedCopper, reconcileRatsnest } = await import('../src/pcb/modules/track-draw.js');
+const { getDrcPresentation } = await import('../src/pcb/modules/drc-state.js');
 
 let failures = 0;
 
@@ -123,25 +124,26 @@ function connectivityApp(viaY) {
     const children = [];
     let drcFollowCount = 0;
     let drcFollowSawRatline = false;
+    const app = {
+        tracks: [track],
+        vias: [via],
+        netlist: [],
+        placements: new Map(),
+        boardShapes: [],
+        copperFills: [],
+        getLayerGroup: () => ({ children, appendChild: (element) => children.push(element) }),
+    };
+    getDrcPresentation(app).followRatline = () => {
+        drcFollowCount++;
+        drcFollowSawRatline = children.length > 0;
+    };
     return {
         track,
         via,
         children,
         drcFollowCount: () => drcFollowCount,
         drcFollowSawRatline: () => drcFollowSawRatline,
-        app: {
-            tracks: [track],
-            vias: [via],
-            netlist: [],
-            placements: new Map(),
-            boardShapes: [],
-            copperFills: [],
-            getLayerGroup: () => ({ children, appendChild: (element) => children.push(element) }),
-            _followDRCRatline() {
-                drcFollowCount++;
-                drcFollowSawRatline = children.length > 0;
-            },
-        },
+        app,
     };
 }
 

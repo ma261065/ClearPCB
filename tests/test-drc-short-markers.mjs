@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 globalThis.window = { addEventListener() {} };
 const { runDRC } = await import('../src/pcb/modules/drc.js');
 const { default: PCBApp } = await import('../src/ui/PCBApp.js');
+const { getDrcPresentation } = await import('../src/pcb/modules/drc-state.js');
 
 const track = (id, net, points, layer = 'top-copper') => ({
     id, net, layer, width: 0.2,
@@ -99,34 +100,35 @@ globalThis.document = {
 const ui = Object.create(PCBApp.prototype);
 const overlay = new Element('g');
 ui.getLayerGroup = () => overlay;
-ui._drcViolations = [violation];
-ui._drcConnectorLine = new Element('polyline');
+const drc = getDrcPresentation(ui);
+drc.violations = [violation];
+drc.connectorLine = new Element('polyline');
 const connector = new Element('svg');
 connector.parentElement = { getBoundingClientRect: () => ({ left: 0, top: 0 }) };
-ui._getDrcPresentation().ensureConnector = () => connector;
+drc.ensureConnector = () => connector;
 ui.viewport = {
     scale: 5,
     worldToScreen: p => ({ x: p.x * 5 + 100, y: p.y * 5 + 100 }),
     svg: { getBoundingClientRect: () => ({ left: 0, top: 0 }) },
 };
 let navigation;
-ui._getDrcPresentation().ensurePointVisible = (x, y) => { navigation = { x, y }; };
-ui._selectDRCViolation(violation.id);
+drc.ensurePointVisible = (x, y) => { navigation = { x, y }; };
+drc.selectViolation(violation.id);
 assert.deepEqual(navigation, { x: 100, y: 0 }, 'navigation targets the physical junction');
 assert.deepEqual(overlay.children.map(el => el.tag), ['circle'], 'exactly one ring, without a red sample line');
 assert.equal(overlay.children[0].getAttribute('cx'), '100');
 assert.equal(overlay.children[0].getAttribute('cy'), '0');
-const leader = ui._drcConnectorLine.getAttribute('points').split(' ').map(p => p.split(',').map(Number));
+const leader = drc.connectorLine.getAttribute('points').split(' ').map(p => p.split(',').map(Number));
 assert.ok(Math.abs(Math.hypot(leader[1][0] - 600, leader[1][1] - 100) - 3) < 1e-7,
     'panel leader ends at the contact ring');
-ui._selectDRCViolation(violation.id);
+drc.selectViolation(violation.id);
 assert.equal(overlay.children.length, 1, 'reselecting does not accumulate rings');
-ui._drawDRCMarker({ x: 1, y: 2, marker: { type: 'clearance' } });
+drc.drawMarker({ x: 1, y: 2, marker: { type: 'clearance' } });
 assert.equal(overlay.children.length, 1, 'clearance retains its location ring');
-ui._drawDRCMarker({ x: 1, y: 2, marker: { type: 'ring', r: 0.8 } });
+drc.drawMarker({ x: 1, y: 2, marker: { type: 'ring', r: 0.8 } });
 assert.equal(overlay.children[0].getAttribute('r'), '1.05', 'annular-ring sizing is unchanged');
-ui._getDrcPresentation().isRatlineVisible = () => false;
-ui._drawDRCMarker({ x: 1, y: 2, marker: { type: 'ratline', a: { x: 0, y: 0 }, b: { x: 2, y: 4 } } });
+drc.isRatlineVisible = () => false;
+drc.drawMarker({ x: 1, y: 2, marker: { type: 'ratline', a: { x: 0, y: 0 }, b: { x: 2, y: 4 } } });
 assert.deepEqual(overlay.children.map(el => el.tag), ['circle', 'line'], 'hidden incomplete connections remain visible');
 
 console.log('PASS short contact locations, No Net bridges, layers, clipped copper, single-ring rendering and panel leader');

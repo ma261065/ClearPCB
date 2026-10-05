@@ -2,6 +2,8 @@ import assert from 'node:assert/strict';
 import { getComputedFill } from '../src/pcb/modules/computed-fill-cache.js';
 import { PcbDocument } from '../src/core/PcbDocument.js';
 import { isFillRefreshScheduled, isPictureCopperRefreshPending, setDragOverlaysDeferred } from '../src/pcb/modules/refresh-state.js';
+import { getDrcPresentation, scheduleDrc } from '../src/pcb/modules/drc-state.js';
+import { runDrcNow } from '../src/pcb/modules/drc-refresh.js';
 
 globalThis.window = { addEventListener() {} };
 globalThis.document = {
@@ -55,20 +57,19 @@ function fixture(withFill = true) {
         boardShapes: [{ id: 'board-outline', kind: 'rect', layer: 'board-outline',
             points: rectangle(-20, -20, 20, 20) }, shape, ...(withFill ? [new CopperFill({ net: 'GND', layer: 'top-copper',
             outline: rectangle(-10, -10, 10, 10) })] : [])], _shapeElements: new Map(),
-        _drcViolations: [], _drcSelectedId: null,
         getRoutingParams: () => ({ clearance: 0.2 }),
         getLayerGroup: () => null, _clearFillGroups() {}, updateCopperCuts() {},
-        _refreshBoardShapeClearance() {}, _collectRatlines: () => [],
-        _drcShouldRun: () => true, _renderDRCList() {},
-        _updateDRCStatus(result, pending) { if (!pending) reports.push(result); },
+        _refreshBoardShapeClearance() {},
     });
-    app._getDrcPresentation().updateStatus = app._updateDRCStatus;
-    app._getDrcPresentation().renderList = app._renderDRCList;
+    const drc = getDrcPresentation(app);
+    drc.shouldRun = () => true;
+    drc.updateStatus = (result, pending) => { if (!pending) reports.push(result); };
+    drc.renderList = () => {};
     const before = captureBoardShapeState(shape);
     shape.points = shape.points.map(({ x, y }) => ({ x: -y, y: x }));
     const after = captureBoardShapeState(shape);
     shape.points = before.geom.points.map(point => ({ ...point }));
-    return { app, reports, command: new ModifyBoardShapeCommand(app, shape, before, after) };
+    return { app, reports, drc, command: new ModifyBoardShapeCommand(app, shape, before, after) };
 }
 
 try {
@@ -86,21 +87,21 @@ try {
     assert.equal(reports.length, 1);
     assert.equal(reports[0].ok, true, 'initial pour clears the unrotated shape');
     for (const action of ['execute', 'undo', 'execute']) {
-        const previous = app._drcViolations;
+        const previous = getDrcPresentation(app).violations;
         const reportCount = reports.length;
         command[action]();
         assert.equal(isPictureCopperRefreshPending(app), true);
         assert.ok(runDRC(app, { clearance: 0.2 }).violations.some(v =>
             v.rule === 'short' || v.rule === 'clearance'), 'stale pour really intersects the rotated geometry');
-        app._scheduleDRC();
+        scheduleDrc(app);
         flushFrames();
-        app._runDRCLive();
+        runDrcNow(app);
         assert.equal(reports.length, reportCount, 'neither scheduled nor direct DRC publishes a stale-copper report');
-        assert.equal(app._drcViolations, previous, 'retain the last coherent results during debounce');
+        assert.equal(getDrcPresentation(app).violations, previous, 'retain the last coherent results during debounce');
         flushTimers();
         assert.equal(isPictureCopperRefreshPending(app), false);
         assert.equal(isFillRefreshScheduled(app), true);
-        app._runDRCLive();
+        runDrcNow(app);
         assert.equal(reports.length, reportCount, 'still wait for the queued pour rebuild');
         flushFrames();
         assert.equal(reports.length, reportCount + 1, 'pour completion runs DRC once');
@@ -111,7 +112,7 @@ try {
     noFill.app.boardShapes.push({ id: 'real-conflict', kind: 'circle', layer: 'top-copper',
         net: 'GND', copperMode: 'add', x: 0, y: 3, radius: 0.5, filled: true, lineWidth: 0.2 });
     noFill.command.execute();
-    noFill.app._scheduleDRC();
+    scheduleDrc(noFill.app);
     flushFrames();
     assert.equal(noFill.reports.length, 0);
     flushTimers();
@@ -125,7 +126,7 @@ try {
     command.undo();
     const count = reports.length;
     assert.ok(timers.size <= 1, 'held input postpones geometry; only deferred DRC debt may poll');
-    app._scheduleDRC();
+    scheduleDrc(app);
     flushFrames();
     assert.equal(reports.length, count, 'DRC also waits throughout held property edits');
     hold.end();
@@ -136,19 +137,19 @@ try {
 
     const gated = fixture(false);
     let visible = false;
-    gated.app._drcShouldRun = () => visible;
-    gated.app._scheduleDRC();
+    getDrcPresentation(gated.app).shouldRun = () => visible;
+    scheduleDrc(gated.app);
     assert.equal(frames.length, 0, 'The scheduler owns visibility gating, not its callers');
     visible = true;
-    gated.app._scheduleDRC();
-    gated.app._scheduleDRC();
+    scheduleDrc(gated.app);
+    scheduleDrc(gated.app);
     assert.equal(frames.length, 1, 'Multiple requests still coalesce into one frame');
     visible = false;
     flushFrames();
     assert.equal(gated.reports.length, 0, 'Closing the DRC UI suppresses an already queued check');
-    assert.equal(gated.app._drcRaf, 0, 'A skipped check releases the scheduling slot');
+    assert.equal(frames.length, 0, 'A skipped check releases the scheduling slot');
     visible = true;
-    gated.app._scheduleDRC();
+    scheduleDrc(gated.app);
     flushFrames();
     assert.equal(gated.reports.length, 1, 'Reopening allows subsequent refresh requests');
 
@@ -174,7 +175,7 @@ try {
             if (edited.copperFills.length) assert.ok(getComputedFill(fill).length, 'Fill edits remain synchronous');
             const expected = edited.copperFills.some(pour => pour.net === 'GND') ? 0 : 1;
             assert.equal(ratlines.children.length, expected, 'Connectivity immediately follows fill add/remove/net changes');
-            edited._scheduleDRC();
+            scheduleDrc(edited);
             flushFrames();
             assert.equal(recomputes, previous + 1, `${operation}/${action} must not schedule a second pour`);
             assert.equal(ratlines.children.length, expected, 'Last-fill removal and undo/redo retain correct ratlines');

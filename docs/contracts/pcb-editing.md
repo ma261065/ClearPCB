@@ -50,8 +50,8 @@ fields.
 Predicates that test several flags read `refreshStatus(app)` once. The module
 is import-free because `drc.js` (DRC worker) and the fabrication snapshot
 (Gerber worker) read it; detached DRC snapshots pass the editor's pour status
-to `collectDrcInputs` explicitly. DRC status itself remains with
-`drc-presentation.js` behind the editor's `_drcPending` accessor.
+to `collectDrcInputs` explicitly. DRC status itself remains in the presentation
+owned through `pcb/modules/drc-state.js`.
 
 `pcb/modules/pcb-interactions.js` is the one list of in-progress interaction
 slots (`_drag`, `_trackDraw`, `_pcbSelectionInteraction`, …) in pointer-move
@@ -154,9 +154,10 @@ a command class does not declare `lockTargets()`.
 - `picture-refresh.js` retains the 100 ms geometry-edit debounce. Without pours,
   its completion reconciles connectivity and requests DRC itself. Pad commands
   use this same deferred path without a separate immediate fill request.
-- `PCBApp._scheduleDRC()` owns visibility gating and frame coalescing for queued
-  checks, including rechecking visibility when the callback runs. Callers only
-  request a check; `_runDRCLive()` waits for deferred geometry/pours to settle.
+- `pcb/modules/drc-state.js` exposes `scheduleDrc(app)` as the editor-facing
+  request path; `pcb/modules/drc-refresh.js` owns visibility gating, worker
+  revision state and frame coalescing, including rechecking visibility when the
+  callback runs. Direct checks wait for deferred geometry/pours to settle.
 
 ## Keyboard and Ribbon Actions
 

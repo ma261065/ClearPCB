@@ -8,6 +8,7 @@ import { runDRC } from '../src/pcb/modules/drc.js';
 import { collectCopperArtwork } from '../src/pcb/modules/copper-artwork.js';
 import { prepareFabricationSnapshot } from '../src/pcb/modules/fabrication-snapshot.js';
 import { fillRefreshError, isFillRefreshPending, setDragOverlaysDeferred, setFillRefreshPending, setFillRefreshSuspended } from '../src/pcb/modules/refresh-state.js';
+import { getDrcPresentation } from '../src/pcb/modules/drc-state.js';
 
 globalThis.window = { addEventListener() {} };
 globalThis.document = { getElementById: () => null };
@@ -25,11 +26,14 @@ for (const point of fill.outline) Object.freeze(point);
 Object.freeze(fill.outline);
 Object.freeze(fill);
 let checks = 0, previews = 0;
+const originalRequestAnimationFrame = globalThis.requestAnimationFrame;
+globalThis.requestAnimationFrame = () => { checks++; return checks; };
 const app = { placements: new Map(), tracks: [], vias: [], pads: [], texts: new Map(), netlist: [],
     boardShapes: model.boardShapes, copperFills: [fill], _boardWidth: 10, _boardHeight: 10, _boardRadius: 0,
     getRoutingParams: () => ({ clearance: 0.2 }), getLayerGroup: () => null,
     _clearFillGroups() {}, _fillContext() { return buildFillContext(this); },
-    _scheduleDRC() { checks++; }, _board3d: { refresh() { previews++; } } };
+    _board3d: { refresh() { previews++; } } };
+getDrcPresentation(app).shouldRun = () => true;
 assert.equal(getComputedFill(fill), null);
 assert.equal('_computed' in fill, false, 'Authored fill entities have no derived result field');
 assert.ok(runDRC(app).violations.some(item => item.rule === 'fill'));
@@ -125,4 +129,6 @@ assert.ok(runDRC(app).violations.some(item => item.rule === 'fill' && /refresh f
 assert.equal(errors.length, 1);
 assert.match(errors[0][0], /retaining settled pours/);
 assert.match(errors[0][1].message, /Invalid test geometry/);
+if (originalRequestAnimationFrame) globalThis.requestAnimationFrame = originalRequestAnimationFrame;
+else delete globalThis.requestAnimationFrame;
 console.log('PASS external fill results, frozen model, identity, preview/DRC consumers and export isolation');

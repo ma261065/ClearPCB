@@ -15,9 +15,16 @@ import { setToolCursor } from '../shared/ui/cursor.js';
 import { applyTextConnectionGuide, setInlineTextInputActive } from '../shared/ui/inline-text-overlay.js';
 import { PCB_LAYERS, PCB_OVERLAYS, PCB_COPPER_FILLS, pcbLayerName, isLayerLocked, isViaLocked, isLayerVisible, isViaVisible, pcbLayerHoverColor, pcbLayerSelectionColor, isCopperFillLocked, isCopperFillVisible } from '../pcb/modules/layers.js';
 import { exportDSN, importSES } from '../pcb/modules/dsn.js';
-import { DrcPresentation } from '../pcb/modules/drc-presentation.js';
-import { resolveDrcPairMarker } from '../pcb/modules/drc.js';
-import { scheduleDrcRefresh, runDrcNow, invalidateDrcRefresh, disposeDrcRefresh } from '../pcb/modules/drc-refresh.js';
+import { disposeDrcRefresh, invalidateDrcRefresh } from '../pcb/modules/drc-refresh.js';
+import {
+    disposeDrc,
+    drcShouldRun,
+    initDrc,
+    peekDrcPresentation,
+    refreshSelectedDrcMarker,
+    scheduleDrc,
+    setDrcRatlines,
+} from '../pcb/modules/drc-state.js';
 import { cancelPcbPosePreviews, disposePcbPropertyEditors, hasPcbEditInProgress } from '../pcb/modules/edit-lifecycle.js';
 import { isPcbDrawing } from '../pcb/modules/pcb-interactions.js';
 import { handlePcbKeyDown } from '../pcb/modules/keyboard.js';
@@ -350,8 +357,6 @@ export default class PCBApp {
         this._componentPopup = null;
         /** Lazily created owner of routing session and temporary presentation. */
         this._autorouter = null;
-        /** Lazily created DRC marker/panel presentation (_getDrcPresentation). @type {DrcPresentation|null} */
-        this._drcPresentation = null;
         /** Shared 3D/2D board viewer panel (board3d.js), or null. @type {any} */
         this._board3d = null;
         /** Clearance-halo overlay state (clearance-overlay.js). */
@@ -372,7 +377,7 @@ export default class PCBApp {
         this._bindThemeToggle();
         loadAndApplyTheme();
         this.refreshPcbRibbon?.();
-        this._initDRC();
+        initDrc(this);
 
         this._initialized = true;
     }
@@ -400,7 +405,7 @@ export default class PCBApp {
         this._updateCursorForTool();
         this._syncPcbHomeToolHighlight?.();
         this.viewport?._onResize?.();
-        this._drcPresentation?.activate();
+        peekDrcPresentation(this)?.activate();
         this._updateViewportStatus();
         this.syncPcbViewToggles?.();
         updateGridDropdown(this);
@@ -408,7 +413,7 @@ export default class PCBApp {
         // Rebuild if schematic changed while we were away
         if (this._stale) this._syncFromSchematic();
         if (isFillRefreshPending(this)) this.refreshFills();
-        if (this._drcPending || this._drcShouldRun()) this._scheduleDRC();
+        if (peekDrcPresentation(this)?.pending || drcShouldRun(this)) scheduleDrc(this);
 
         this.setPcbStatus();
         if (this.viewport) {
@@ -430,7 +435,7 @@ export default class PCBApp {
         this._cancelPosePreviews();
         this._cancelDrawingMode();
         this._active = false;
-        this._drcPresentation?.deactivate();
+        peekDrcPresentation(this)?.deactivate();
         disposeFillRefresh(this);
         disposeDrcRefresh(this);
     }
@@ -439,9 +444,7 @@ export default class PCBApp {
         this._autorouter?.dispose();
         this._fillRefreshDisposed = true;
         disposeFillRefresh(this);
-        this._drcDisposed = true;
-        disposeDrcRefresh(this);
-        this._drcPresentation?.dispose();
+        disposeDrc(this);
     }
 
     setPcbStatus() {
@@ -732,7 +735,7 @@ export default class PCBApp {
             }
             this._updatePcbCulling();
             if (hasCopperCuts(this)) this.updateCopperCuts({ geometryChanged: false });
-            if (this._drcSelectedId) this._updateDRCConnector();
+            if (peekDrcPresentation(this)?.selectedId) peekDrcPresentation(this).updateConnector();
         };
 
         this.viewport.onInteractionStart = (kind) => {
@@ -780,7 +783,7 @@ export default class PCBApp {
             if (hasCopperCuts(this)) this.updateCopperCuts({ geometryChanged: false });
             // The viewBox moves continuously during a pan without firing
             // onViewChanged, so keep the DRC leader anchored here too.
-            if (this._drcSelectedId) this._updateDRCConnector();
+            if (peekDrcPresentation(this)?.selectedId) peekDrcPresentation(this).updateConnector();
         };
 
         this._bindViewportPanHooks();
@@ -1578,7 +1581,7 @@ export default class PCBApp {
         // Keep the clearance overlay in sync after any committed edit (e.g. an
         // undo/redo that relocates a via leaves orphaned halos otherwise).
         this.refreshClearanceHalos?.();
-        this._scheduleDRC();
+        scheduleDrc(this);
     }
 
     markDirty() {
@@ -2405,8 +2408,7 @@ export default class PCBApp {
      */
     _clearPCBContent() {
         disposeDrcRefresh(this);
-        this._drcRatlines = [];
-        this._drcRatlinesModel = this.pcbDocument;
+        setDrcRatlines(this, []);
         // Clear children of layer groups (but keep the groups themselves)
         for (const [, g] of this._layerGroups) {
             while (g.firstChild) g.removeChild(g.firstChild);
@@ -2611,17 +2613,6 @@ export default class PCBApp {
         // `opts.nets` is supplied (live footprint drag) only those nets are
         // recomputed; every other net's ratlines are left untouched.
         reconcileRatsnest(this, opts);
-    }
-
-    /**
-     * Re-anchor the selected incomplete-connection marker's temporary ratline
-     * to the live ratsnest geometry, so it follows whatever it connects to as
-     * that copper is moved (just like a real ratline). Matches the marker to
-     * the live ratline of the same net whose endpoints are nearest its current
-     * ones, then redraws the marker.
-     */
-    _followDRCRatline() {
-        return this._getDrcPresentation().followRatline();
     }
 
     /**
@@ -3229,7 +3220,7 @@ export default class PCBApp {
         const t = this.texts.get(id);
         if (!t) return;
         this._renderText(t);
-        this.refreshSelectedDRCMarker?.();
+        refreshSelectedDrcMarker(this);
     }
 
     /**
@@ -3825,166 +3816,6 @@ export default class PCBApp {
         return showClearances(this, show, liveTrack);
     }
 
-    /* ─────────────────────── Design Rule Checker ───────────────────── */
-
-    _getDrcPresentation() {
-        return this._drcPresentation ??= new DrcPresentation({
-            requestRefresh: () => this._scheduleDRC(),
-            collectRatlines: () => this._collectRatlines(),
-            resolvePairMarker: violation => resolveDrcPairMarker(this, violation, this.getRoutingParams()),
-            clearBoardSelection: () => {
-                if (!getPcbSelection(this).length && !this._boardOutlineSelected && !this._trackEdit) return;
-                clearSelectionInteractionUi(this);
-                clearBoxSelection(this);
-                this.clearProperties?.();
-            },
-            getLayerGroup: (id, create = false) => create
-                ? this.getLayerGroup(id) : this._layerGroups?.get(id),
-            getViewport: () => {
-                const vp = this.viewport;
-                return vp ? {
-                    viewBox: vp.viewBox, svg: vp.svg, scale: vp.scale,
-                    worldToScreen: vp.worldToScreen ? point => vp.worldToScreen(point) : null,
-                    updateViewBox: () => vp._updateViewBox?.(),
-                    notifyViewChanged: () => vp._notifyViewChanged?.(),
-                } : null;
-            },
-        });
-    }
-
-    getDrcPresentation() {
-        return this._getDrcPresentation();
-    }
-
-    get _drcViolations() { return this._getDrcPresentation().violations; }
-    set _drcViolations(value) { this._getDrcPresentation().violations = value; }
-    get _drcActive() { return this._getDrcPresentation().designActive; }
-    set _drcActive(value) { this._getDrcPresentation().designActive = value; }
-    get _drcSelectedId() { return this._getDrcPresentation().selectedId; }
-    set _drcSelectedId(value) { this._getDrcPresentation().selectedId = value; }
-    get _drcCollapsedGroups() { return this._getDrcPresentation().collapsedGroups; }
-    set _drcCollapsedGroups(value) { this._getDrcPresentation().collapsedGroups = value; }
-    get _drcConnectorLine() { return this._getDrcPresentation().connectorLine; }
-    set _drcConnectorLine(value) { this._getDrcPresentation().connectorLine = value; }
-    get _drcPending() { return this._getDrcPresentation().pending; }
-    set _drcPending(value) { this._getDrcPresentation().pending = value; }
-    get _drcError() { return this._getDrcPresentation().error; }
-    set _drcError(value) { this._getDrcPresentation().error = value; }
-
-    _initDRC() {
-        this._drcRaf = 0;
-        return this._getDrcPresentation().initialize();
-    }
-
-    /** True when DRC should re-evaluate: Design tab active or panel open. */
-    _drcShouldRun() {
-        return this._getDrcPresentation().shouldRun();
-    }
-
-    /** Request a visible live check, coalesced to one per animation frame. */
-    _scheduleDRC() {
-        this.refreshSelectedDRCMarker?.();
-        scheduleDrcRefresh(this);
-    }
-
-    refreshSelectedDRCMarker() {
-        this._drcPresentation?.scheduleMarkerRefresh();
-    }
-
-    _invalidateDRC() {
-        invalidateDrcRefresh(this);
-    }
-
-    /**
-     * Collect neutral ratsnest air wires (remaining + autorouter-failed)
-     * as plain segments for the DRC's incomplete-connection check.
-     * @returns {Array<{net:string, x1:number, y1:number, x2:number, y2:number}>}
-     */
-    _collectRatlines() {
-        if (this._drcRatlinesModel && this._drcRatlinesModel !== (this.pcbDocument || this)) return [];
-        // SVG numeric attributes previously normalized signed zero, but retained all other precision.
-        return (this._drcRatlines || []).map(({ net, x1, y1, x2, y2 }) => ({
-            net, x1: x1 === 0 ? 0 : x1, y1: y1 === 0 ? 0 : y1,
-            x2: x2 === 0 ? 0 : x2, y2: y2 === 0 ? 0 : y2,
-        }));
-    }
-
-    _resetDRC() {
-        disposeDrcRefresh(this);
-        this._drcRatlines = [];
-        this._drcRatlinesModel = this.pcbDocument;
-        this._drcError = null;
-        this._drcPending = false;
-        this._scheduleDRC();
-    }
-
-    /** Refresh DRC only after deferred copper geometry and pours are current. */
-    _runDRCLive() {
-        runDrcNow(this);
-    }
-
-    _adoptDRCResult(result) {
-        return this._getDrcPresentation().adoptResult(result);
-    }
-
-    /**
-     * Update the green-tick / red-cross status button.
-     * @param {{ok:boolean, violations:Array, counts:{errors:number, warnings:number}}} result
-     * @param {boolean} [pending]
-     */
-    _updateDRCStatus(result, pending = false) {
-        return this._getDrcPresentation().updateStatus(result, pending);
-    }
-
-    /** Populate the problem dropdown; each item points to its issue on click. */
-    _renderDRCList() {
-        return this._getDrcPresentation().renderList();
-    }
-
-    _closeDRCPanel() {
-        return this._getDrcPresentation().closePanel();
-    }
-
-    /** Select the adjacent visible DRC row using keyboard list navigation. */
-    _moveDRCSelection(direction) {
-        return this._getDrcPresentation().moveSelection(direction);
-    }
-
-    /**
-     * Highlight a violation: draw a dotted marker pointing to it on the board,
-     * scroll it into view, and flag the matching list row.
-     * @param {string} id
-     */
-    _selectDRCViolation(id) {
-        return this._getDrcPresentation().selectViolation(id);
-    }
-
-    /** Draw the dotted marker for a violation on the DRC overlay layer. */
-    _drawDRCMarker(v) {
-        return this._getDrcPresentation().drawMarker(v);
-    }
-
-    /** Remove the DRC marker overlay. */
-    _clearDRCMarker() {
-        return this._getDrcPresentation().clearMarker();
-    }
-
-    /**
-     * Draw the dotted leader from the selected problem row in the slide panel
-     * to its marker on the board. Recomputed on selection and on view change.
-     */
-    _updateDRCConnector() {
-        return this._getDrcPresentation().updateConnector();
-    }
-
-    /**
-     * Pan (preserving zoom) so a world point is comfortably on-screen. Only
-     * moves the view if the point sits outside the unobscured viewport.
-     */
-    _ensurePointVisible(x, y) {
-        return this._getDrcPresentation().ensurePointVisible(x, y);
-    }
-
     /**
      * Read canonical millimetre values, independent of ribbon display rounding.
      */
@@ -4262,8 +4093,7 @@ export default class PCBApp {
             }
         }
 
-        this._drcRatlines = failedRatlines.map(line => ({ ...line }));
-        this._drcRatlinesModel = this.pcbDocument;
+        setDrcRatlines(this, failedRatlines.map(line => ({ ...line })));
         reconcileRatsnest(this);
         syncPcbSelection(this);
         refreshBoxSelectionHighlights(this);
@@ -4271,7 +4101,7 @@ export default class PCBApp {
         this.setPcbStatus?.();
 
         this.refreshClearanceHalos();
-        this._scheduleDRC();
+        scheduleDrc(this);
     }
 
     /**

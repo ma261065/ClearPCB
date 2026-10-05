@@ -102,6 +102,10 @@ export function getSelectedTrack(app) {
     return getPcbSelection(app, 'track')[0] || null;
 }
 
+export function hasTrackEdit(app) {
+    return !!app._trackEdit;
+}
+
 export function getSelectedVia(app) {
     return getPcbSelection(app, 'via')[0] || null;
 }

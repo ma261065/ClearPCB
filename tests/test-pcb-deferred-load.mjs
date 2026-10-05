@@ -275,7 +275,6 @@ for (const withComponents of [false, true]) {
         _retainRibbonHeight: record('ribbon-height'),
         viewport: viewportStub({ _onResize: record('viewport-resize') }),
         setPcbStatus() {}, setStatus() {}, _fitToPlacedContent() {},
-        _drcShouldRun: () => false, _scheduleDRC: record('drc'),
         _clearPCBContent() { this.placements.clear(); calls.push('clear'); },
         _placeFootprints: record('footprints'), updateRatsnest: record('ratsnest'),
         _showBoardDimensionsDialog: record('dimensions-dialog'),

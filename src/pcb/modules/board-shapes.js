@@ -99,6 +99,7 @@ import { isEditorActive } from './pcb-editor-api.js';
 import { forgetBoardShapeClearance, getBoardShapeClearance } from './clearance-overlay.js';
 import { hasCopperCuts } from './copper-cuts.js';
 import { removalHatchFill } from './removal-hatch.js';
+import { refreshSelectedDrcMarker } from './drc-state.js';
 
 const NS = 'http://www.w3.org/2000/svg';
 const HOLE_BORDER_WIDTH = 0.05;
@@ -761,7 +762,7 @@ export function createBoardShapePropertyPreview(app, targets, { liveDrag = false
 }
 
 export function renderBoardShape(app, shape, opts = {}) {
-    if (!opts.interactionOnly) app.refreshSelectedDRCMarker?.();
+    if (!opts.interactionOnly) refreshSelectedDrcMarker(app);
     shape = displayedBoardShape(app, shape);
     removeBoardShapeElement(app, shape.id, { preserveInteraction: true });
     const selectedSegment = getBoardShapeSegmentFocus(app)?.shapeId === shape.id
