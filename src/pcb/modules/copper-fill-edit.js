@@ -1,19 +1,20 @@
-import { applyBoardShapeVertexResize, getBoardShapeAnchors,
-    splitBoardShapeSegmentMetadata, remapBoardShapeNodeRadii } from './board-shapes.js';
+import { canonicalBoardShape, createBoardShapePropertyBinding, createBoardShapePropertyPreview, displayedBoardShape,
+    getBoardShapeAnchors, handleBoardShapeDrag, startBoardShapeDrag, endBoardShapeDrag,
+    remapBoardShapeNodeRadii } from './board-shapes.js';
+import { getBoardShapeNodeFocus, getBoardShapeSegmentFocus, setBoardShapeNodeFocus, setBoardShapeSegmentFocus } from './board-shape-state.js';
 import { shapePathD } from '../../shared/pcb/board-shape-geometry.js';
 import { validBoardOutline } from '../../shared/pcb/board-outline.js';
 import { ModifyFillCommand, RemoveFillCommand } from './copper-fill-commands.js';
 import { renderCopperFill, removeCopperFillElements } from './copper-fill-render.js';
-import { renderPcbSelectionAnchors } from './selection-anchors.js';
+import { lockPositionOutsideOutline, renderPcbSelectionAnchors } from './selection-anchors.js';
 import { isPcbSelected, setPcbSelection } from './selection-registry.js';
 import { isCopperFillLocked, isCopperFillVisible, isLayerLocked, pcbLayerOption } from './layers.js';
-import { lockedProperty } from './object-locks.js';
-import { snapPathPoint, snapPathTranslation, pathContextActions, showPathContextMenu } from './path-edit.js';
+import { isPcbObjectLocked, lockedProperty } from './object-locks.js';
+import { pathContextActions, showPathContextMenu } from './path-edit.js';
 import { distanceToArcEdge, arcEdgePathD } from '../../shapes/arc-edge.js';
 import { CopperFill, normalizeCopperFillKind } from '../../shapes/copper-fill.js';
-import { areDragOverlaysDeferred, setDragOverlaysDeferred } from './refresh-state.js';
 import { fillToolDefaults, setFillToolDefaults } from './copper-fill-draw.js';
-import { setPropertyEditor } from './property-editors.js';
+import { getPropertyEditor } from './property-editors.js';
 
 /**
  * A pour's outline follows its Properties number fields live (corner radius, size,
@@ -22,29 +23,98 @@ import { setPropertyEditor } from './property-editors.js';
  */
 const geometryPreviews = new WeakMap();
 
+export function fillEditProfile() {
+    return {
+        kind: 'fill',
+        editorKey: 'fill',
+        missingEditMessage: 'Cannot edit a missing copper fill.',
+        missingDragMessage: 'Cannot finish a drag of a missing copper fill.',
+        canonical: canonicalBoardShape,
+        displayed: (app, fill) => displayedBoardShape(app, fill),
+        collection: app => app.pcbDocument?.boardShapes || app.boardShapes,
+        copy: fill => new CopperFill(fill.captureState()),
+        capture: fill => fill.captureState(),
+        canEdit: (_app, fill) => canEditFill(fill),
+        visible: (_app, fill) => fill.visible !== false && isCopperFillVisible(fill.layer),
+        locked: (app, fill) => isPcbObjectLocked(app, 'fill', fill),
+        getNodeFocus: getBoardShapeNodeFocus,
+        getSegmentFocus: getBoardShapeSegmentFocus,
+        setNodeFocus: setBoardShapeNodeFocus,
+        setSegmentFocus: setBoardShapeSegmentFocus,
+        clearFocus(app) {
+            setBoardShapeNodeFocus(app, null);
+            setBoardShapeSegmentFocus(app, null);
+        },
+        getBounds(_app, fill) { return fill.getBounds() || { minX: 0, minY: 0, maxX: 0, maxY: 0 }; },
+        getLockPosition(_app, fill, pointer, scale) {
+            return lockPositionOutsideOutline(fill.getOutline(), pointer, scale);
+        },
+        hitTest(app, fill, point, tolerance) {
+            return fill.distanceToEdge(point.x, point.y) <= Math.max(0.6, tolerance)
+                || (isPcbSelected(app, 'fill', fill) && fillSegmentAt(fill, point, tolerance) != null);
+        },
+        segmentAt(_app, fill, point, tolerance) { return fillSegmentAt(fill, point, tolerance); },
+        getEditPath(app, fill) { return fillEditPath(app, fill); },
+        anchorColor: () => '#3399ff',
+        render(app, fill, opts = {}) {
+            renderCopperFill(fill, id => app.getLayerGroup(id), {
+                selected: isPcbSelected(app, 'fill', this.collection(app).includes(fill) ? fill : this.canonical(app, fill)),
+                outlineOnly: opts.outlineOnly || !this.collection(app).includes(fill),
+            });
+        },
+        renderHandles(app) { renderPcbSelectionAnchors(app); },
+        renderSegmentSelection(app) { renderPcbSelectionAnchors(app); },
+        remove(app, fill) { removeCopperFillElements(fill, id => app.getLayerGroup(id)); },
+        showProperties(app, fill) { app._showFillProperties?.(fill); },
+        refreshProperties(app, fill) { app._refreshFillProperties?.(fill); },
+        syncProperties(app, fill) { syncFillPanel(app, fill); },
+        propertyPreviewPrepare() {},
+        propertyPreviewRender(app, changed) {
+            for (const fill of changed) this.render(app, fill, { outlineOnly: true });
+        },
+        propertyPreviewCancel(app, originals) {
+            for (const original of originals) {
+                if (this.collection(app).includes(original)) this.render(app, original);
+                else this.remove(app, original);
+            }
+            renderPcbSelectionAnchors(app);
+        },
+        makeCommand(app, original, beforeState, afterState) {
+            return new ModifyFillCommand(app, original, beforeState, afterState);
+        },
+        modifyCommand(app, original, beforeState, afterState) {
+            return new ModifyFillCommand(app, original, beforeState, afterState);
+        },
+        removeCommand(app, fill) { return new RemoveFillCommand(app, fill); },
+        valid(_app, fill) { return validFill(fill); },
+        afterCommit(app, original) {
+            if (this.collection(app).includes(original)) {
+                app._refreshFillProperties?.(original);
+                renderPcbSelectionAnchors(app);
+            }
+        },
+    };
+}
+
 /** The live outline copy of `fill` while its Properties numbers preview, else null. */
 export function fillGeometryPreview(app, fill) {
-    const preview = geometryPreviews.get(app);
-    return preview?.fill === fill ? preview.candidate : null;
+    const displayed = displayedBoardShape(app, fill);
+    return displayed === fill ? null : displayed;
 }
 
 function previewFillGeometry(app, fill, mutate) {
-    if (!canEditFill(fill)) return false;
-    const candidate = new CopperFill(fill.captureState());
-    mutate(candidate);
-    if (!validFill(candidate)) return false;
+    if (!getPropertyEditor(app, 'fill')) createBoardShapePropertyBinding(app, fillEditProfile());
     let preview = geometryPreviews.get(app);
-    if (preview?.fill !== fill) {
+    if (preview?.fill !== fill || !preview.control.active) {
         endFillGeometryPreview(app);
-        preview = { fill, deferred: !!areDragOverlaysDeferred(app), candidate: null };
+        preview = { fill, control: createBoardShapePropertyPreview(app, [fill], { editProfile: fillEditProfile() }) };
         geometryPreviews.set(app, preview);
-        setDragOverlaysDeferred(app, true);
     }
-    preview.candidate = candidate;
-    renderCopperFill(candidate, id => app.getLayerGroup(id), { selected: true, outlineOnly: true });
-    // The selection path and handles follow the live outline.
-    renderPcbSelectionAnchors(app);
-    return true;
+    preview.control.update((_before, [candidate]) => {
+        mutate(candidate);
+        if (!validFill(candidate)) throw new Error('Invalid copper fill preview geometry.');
+    });
+    return preview.control.active;
 }
 
 /**
@@ -54,9 +124,8 @@ function previewFillGeometry(app, fill, mutate) {
 export function settleFillGeometryPreview(app) {
     const preview = geometryPreviews.get(app);
     if (!preview) return false;
-    const after = preview.candidate.captureState();
-    endFillGeometryPreview(app);
-    return commitFillEdit(app, preview.fill, candidate => candidate.applyState(after));
+    geometryPreviews.delete(app);
+    return preview.control.commit({ rebuild: false });
 }
 
 /** End a pour's live outline, showing the pour as it is (copper included). */
@@ -64,13 +133,7 @@ export function endFillGeometryPreview(app) {
     const preview = geometryPreviews.get(app);
     if (!preview) return false;
     geometryPreviews.delete(app);
-    setDragOverlaysDeferred(app, preview.deferred);
-    const getLayerGroup = id => app.getLayerGroup(id);
-    if (app.pcbDocument?.boardShapes.includes(preview.fill)) {
-        renderCopperFill(preview.fill, getLayerGroup, { selected: isPcbSelected(app, 'fill', preview.fill) });
-    } else removeCopperFillElements(preview.fill, getLayerGroup);
-    renderPcbSelectionAnchors(app);
-    return true;
+    return preview.control.cancel();
 }
 
 export function canEditFill(fill) {
@@ -79,8 +142,11 @@ export function canEditFill(fill) {
 }
 
 export function fillEditFocus(app, fill) {
-    if (app._fillEdit?.fillId !== fill.id || fill.kind === 'circle') return {};
-    const { node, segment } = app._fillEdit;
+    if (fill.kind === 'circle') return {};
+    const nodeFocus = getBoardShapeNodeFocus(app);
+    const segmentFocus = getBoardShapeSegmentFocus(app);
+    const node = nodeFocus?.shapeId === fill.id ? nodeFocus.index : null;
+    const segment = segmentFocus?.shapeId === fill.id ? segmentFocus.segment : null;
     return {
         node: Number.isInteger(node) && node >= 0 && node < fill.outline.length ? node : null,
         segment: Number.isInteger(segment) && segment >= 0 && segment < fill.outline.length ? segment : null,
@@ -115,101 +181,22 @@ export function commitFillEdit(app, fill, mutate) {
     return true;
 }
 
-function updateFillHandleCrosshair(app, fill, anchor) {
-    if (anchor == null) return;
-    const handle = getBoardShapeAnchors(fill).find(item => item.id === anchor);
-    if (handle) app.viewport?.setCrosshair?.({ x: handle.x, y: handle.y });
-}
-
 export function beginFillEdit(app, fill, point, anchor = null, segment = null) {
-    if (!canEditFill(fill)) return false;
     settleFillGeometryPreview(app);
-    const before = fill.captureState();
-    const previousFocus = app._fillEdit;
-    const midpoint = /^mid:(\d+)$/.exec(String(anchor));
-    const original = fill;
-    if (midpoint) {
-        const index = Number(midpoint[1]);
-        const start = fill.outline[index], end = fill.outline[(index + 1) % fill.outline.length];
-        if (!start || !end) return false;
-        fill = new CopperFill(before);
-        fill.kind = 'polygon';
-        splitBoardShapeSegmentMetadata(fill, index);
-        remapBoardShapeNodeRadii(fill, index + 1, 1);
-        fill.outline.splice(index + 1, 0, { x: (start.x + end.x) / 2, y: (start.y + end.y) / 2 });
-        anchor = index + 1;
-    }
-    const bulge = /^bulge:(\d+)$/.exec(String(anchor));
-    app._fillEdit = { fillId: fill.id, node: typeof anchor === 'number' ? anchor : null,
-        segment: bulge ? Number(bulge[1]) : segment };
-    app._fillDrag = { original, fill, before, editBefore: fill.captureState(), anchor, segment,
-        start: { ...point }, lastPoint: { ...point }, previousFocus, previousDeferDragOverlays: !!areDragOverlaysDeferred(app) };
-    setDragOverlaysDeferred(app, true);
-    updateFillHandleCrosshair(app, fill, anchor);
-    return true;
+    return startBoardShapeDrag(app, fill, point, anchor, {
+        editProfile: fillEditProfile(),
+        whole: anchor == null && segment == null,
+        allowSegment: segment != null,
+        segment,
+    });
 }
 
 export function updateFillEdit(app, point) {
-    const drag = app._fillDrag;
-    if (!drag) return;
-    if (point.x === drag.lastPoint.x && point.y === drag.lastPoint.y) return;
-    if (drag.fill === drag.original) drag.fill = new CopperFill(drag.before);
-    const { fill, editBefore, anchor, segment, start } = drag;
-    fill.applyState(editBefore);
-    if (anchor != null) {
-        const count = fill.outline.length;
-        const neighbours = typeof anchor === 'number'
-            ? [fill.outline[(anchor + count - 1) % count], fill.outline[(anchor + 1) % count]] : [];
-        const snap = snapPathPoint(app, point, neighbours);
-        applyBoardShapeVertexResize(fill, { before: { points: editBefore.outline }, handle: anchor }, snap);
-        updateFillHandleCrosshair(app, fill, anchor);
-    } else {
-        const indices = segment == null ? null : [segment, (segment + 1) % fill.outline.length];
-        const vertices = indices ? indices.map(index => fill.outline[index])
-            : fill.kind === 'circle' ? [{ x: fill.x, y: fill.y }] : fill.outline;
-        const delta = snapPathTranslation(app, vertices, { x: point.x - start.x, y: point.y - start.y });
-        if (indices) {
-            fill.kind = 'polygon';
-            for (const index of indices) {
-                fill.outline[index].x += delta.x;
-                fill.outline[index].y += delta.y;
-            }
-        } else fill.move(delta.x, delta.y);
-    }
-    drag.lastPoint = { ...point };
-    renderCopperFill(fill, id => app.getLayerGroup(id), { selected: true, outlineOnly: true });
-    renderPcbSelectionAnchors(app);
+    handleBoardShapeDrag(app, point);
 }
 
 export function endFillEdit(app, commit) {
-    const drag = app._fillDrag;
-    if (!drag) return;
-    app._fillDrag = null;
-    if (drag.anchor != null) app.viewport?.hideCrosshair?.();
-    setDragOverlaysDeferred(app, drag.previousDeferDragOverlays);
-    const { original, fill, before } = drag;
-    if (fill !== original && (drag.anchor != null || drag.segment != null)) normalizeCopperFillKind(fill);
-    const after = fill.captureState();
-    const valid = commit && canEditFill(original) && validFill(fill);
-    if (!valid) app._fillEdit = drag.previousFocus;
-    const changed = valid && JSON.stringify(before) !== JSON.stringify(after);
-    let committed = false;
-    try {
-        if (changed) {
-            if (!app.pcbDocument.boardShapes.includes(original)) throw new Error('Cannot edit a missing copper fill.');
-            app.history.execute(new ModifyFillCommand(app, original, before, after));
-            committed = true;
-        }
-    } finally {
-        if (!committed) {
-            if (changed) app._fillEdit = drag.previousFocus;
-            if (app.pcbDocument.boardShapes.includes(original)) {
-                renderCopperFill(original, id => app.getLayerGroup(id), { selected: isPcbSelected(app, 'fill', original) });
-                app._refreshFillProperties?.(original);
-            } else removeCopperFillElements(original, id => app.getLayerGroup(id));
-        }
-        renderPcbSelectionAnchors(app);
-    }
+    endBoardShapeDrag(app, commit);
 }
 
 export function startFillEditAt(app, fill, point) {
@@ -233,7 +220,8 @@ export function deleteFillNode(app, fill, index) {
         remapBoardShapeNodeRadii(fill, index, -1);
         fill.outline.splice(index, 1);
         normalizeCopperFillKind(fill);
-        app._fillEdit = null;
+        setBoardShapeNodeFocus(app, null);
+        setBoardShapeSegmentFocus(app, null);
     });
 }
 
@@ -252,7 +240,8 @@ export function showFillContextMenu(app, fill, clientX, clientY, point) {
         && Math.hypot(point.x - item.x, point.y - item.y) <= tolerance);
     const node = anchor?.id;
     const segment = node == null ? fillSegmentAt(fill, point, tolerance) : null;
-    app._fillEdit = { fillId: fill.id, node, segment };
+    setBoardShapeNodeFocus(app, node != null ? { shapeId: fill.id, index: node } : null);
+    setBoardShapeSegmentFocus(app, segment != null ? { shapeId: fill.id, segment } : null);
     const curved = !!fill.segmentBulges[segment];
     const items = pathContextActions({ node: node != null, segment: segment != null, curved,
         deleteNode: fill.outline.length > 3 ? () => deleteFillNode(app, fill, node) : null,
@@ -278,11 +267,19 @@ export function fillEditPath(app, fill) {
     return shapePathD({ ...fill, points: fill.outline, cornerRadius: 0, nodeCornerRadii: {} });
 }
 
+/** The open pour panel per editor: its pour id and in-place refresh. */
+const openFillPanels = new WeakMap();
+
+/** Re-describe the open pour panel in place when it shows `fill` (during a drag). */
+export function syncFillPanel(app, fill) {
+    const panel = openFillPanels.get(app);
+    if (fill && panel && panel.id === fill.id) panel.refresh();
+}
+
 /** Properties for a copper pour: Locked, Layer, Net, then its outline geometry. */
 export function showFillProperties(app, fill) {
     if (!fill) return;
     const lockEntries = [{ kind: 'fill', object: fill }];
-    const lock = lockedProperty(app, lockEntries);
     const refresh = () => app.refreshPropertyPanel?.(describe());
     const commit = (mutate) => {
         if (!canEditFill(fill)) return;
@@ -293,9 +290,10 @@ export function showFillProperties(app, fill) {
         app.history.execute(new ModifyFillCommand(app, fill, before, after));
         refresh();
     };
-    const describe = () => ({
-        title: 'Copper Fill',
-        fields: [
+    const describe = () => {
+        // Read on every description: locking the pour from this panel changes it.
+        const lock = lockedProperty(app, lockEntries);
+        return { title: 'Copper Fill', fields: [
             { ...lock.field, commit: value => { lock.field.commit(value); refresh(); } },
             { key: 'layer', id: 'pcbPropFillLayer', type: 'select', label: 'Layer', value: fill.layer,
                 disabled: lock.readOnly, options: [
@@ -311,18 +309,12 @@ export function showFillProperties(app, fill) {
                     commit(() => { fill.net = value; });
                 } },
             ...addFillGeometryProperties(app, fill, lock.readOnly, refresh),
-        ],
-    });
-    // The panel's editor: lifecycle and layer locks settle or cancel a live outline.
-    const previewing = () => geometryPreviews.get(app)?.fill === fill;
-    const binding = {
-        get active() { return previewing(); },
-        affectsLayer: layerId => layerId === fill.layer,
-        commit() { if (previewing()) settleFillGeometryPreview(app); },
-        cancel() { if (previewing()) endFillGeometryPreview(app); },
-        dispose() { binding.cancel(); },
+        ] };
     };
-    if (app.openPropertyPanel?.(describe())) setPropertyEditor(app, 'fill', binding);
+    if (app.openPropertyPanel?.(describe())) {
+        openFillPanels.set(app, { id: fill.id, refresh });
+        createBoardShapePropertyBinding(app, fillEditProfile());
+    }
 }
 
 /**
@@ -369,6 +361,9 @@ function fillNetNames(app) {
 export function addFillGeometryProperties(app, fill, disabled = false, refresh = () => {}) {
     const { node, segment } = fillEditFocus(app, fill);
     const bounds = fill.getBounds();
+    // Values show the displayed pour: a drag's or preview's live copy, else the pour.
+    const shown = displayedBoardShape(app, fill) || fill;
+    const shownBounds = shown.getBounds();
     const fields = [];
     // Each step previews the outline; the settled run commits once.
     const number = (id, key, label, value, min, max = Infinity, mutate) => ({
@@ -376,8 +371,8 @@ export function addFillGeometryProperties(app, fill, disabled = false, refresh =
         normalize: next => (next < min || next > max ? NaN : next),
         preview: next => { previewFillGeometry(app, fill, candidate => mutate(candidate, next)); },
         commit: next => {
-            endFillGeometryPreview(app);
-            commitFillEdit(app, fill, candidate => mutate(candidate, next));
+            previewFillGeometry(app, fill, candidate => mutate(candidate, next));
+            settleFillGeometryPreview(app);
             refresh();
         },
         cancel: () => {
@@ -387,7 +382,7 @@ export function addFillGeometryProperties(app, fill, disabled = false, refresh =
         },
     });
     if (node == null && segment == null) {
-        fields.push({ key: 'outline', id: 'pcbPropFillKind', type: 'select', label: 'Outline', value: fill.kind,
+        fields.push({ key: 'outline', id: 'pcbPropFillKind', type: 'select', label: 'Outline', value: shown.kind,
             disabled, options: [
                 { value: 'rect', label: 'Rectangle' },
                 { value: 'polygon', label: 'Polygon' },
@@ -415,10 +410,10 @@ export function addFillGeometryProperties(app, fill, disabled = false, refresh =
     }
     if (node != null) {
         fields.push(number('pcbPropFillNodeRadius', 'cornerRadius', 'Corner Radius (mm)',
-            fill.nodeCornerRadii[node] ?? fill.cornerRadius, 0, Infinity,
+            shown.nodeCornerRadii[node] ?? shown.cornerRadius, 0, Infinity,
             (fill, value) => { fill.nodeCornerRadii[node] = value; }));
     } else if (segment != null) {
-        fields.push(number('pcbPropFillBulge', 'bulge', 'Bulge', fill.segmentBulges[segment] || 0, -1, 1,
+        fields.push(number('pcbPropFillBulge', 'bulge', 'Bulge', shown.segmentBulges[segment] || 0, -1, 1,
             (fill, value) => {
                 fill.kind = 'polygon';
                 if (Math.abs(value) < 1e-4) delete fill.segmentBulges[segment];
@@ -426,15 +421,15 @@ export function addFillGeometryProperties(app, fill, disabled = false, refresh =
                 normalizeCopperFillKind(fill);
             }));
     } else {
-        if (fill.kind === 'rect' && bounds) {
+        if (shown.kind === 'rect' && shownBounds) {
             fields.push(
-                number('pcbPropFillWidth', 'width', 'Width (mm)', bounds.maxX - bounds.minX, 0.1, Infinity,
+                number('pcbPropFillWidth', 'width', 'Width (mm)', shownBounds.maxX - shownBounds.minX, 0.1, Infinity,
                     (fill, value) => {
                         const current = fill.getBounds();
                         const factor = value / (current.maxX - current.minX);
                         fill.outline = fill.outline.map(point => ({ ...point, x: current.minX + (point.x - current.minX) * factor }));
                     }),
-                number('pcbPropFillHeight', 'height', 'Height (mm)', bounds.maxY - bounds.minY, 0.1, Infinity,
+                number('pcbPropFillHeight', 'height', 'Height (mm)', shownBounds.maxY - shownBounds.minY, 0.1, Infinity,
                     (fill, value) => {
                         const current = fill.getBounds();
                         const factor = value / (current.maxY - current.minY);
@@ -442,11 +437,11 @@ export function addFillGeometryProperties(app, fill, disabled = false, refresh =
                     }),
             );
         }
-        if (fill.kind === 'circle') {
-            fields.push(number('pcbPropFillDiameter', 'diameter', 'Diameter (mm)', fill.radius * 2, 0.1, Infinity,
+        if (shown.kind === 'circle') {
+            fields.push(number('pcbPropFillDiameter', 'diameter', 'Diameter (mm)', shown.radius * 2, 0.1, Infinity,
                 (fill, value) => { fill.radius = value / 2; }));
         } else {
-            fields.push(number('pcbPropFillCornerRadius', 'cornerRadius', 'Corner Radius (mm)', fill.cornerRadius, 0, Infinity,
+            fields.push(number('pcbPropFillCornerRadius', 'cornerRadius', 'Corner Radius (mm)', shown.cornerRadius, 0, Infinity,
                 (fill, value) => { fill.cornerRadius = value; fill.nodeCornerRadii = {}; }));
         }
     }

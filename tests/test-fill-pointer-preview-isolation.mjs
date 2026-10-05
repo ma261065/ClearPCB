@@ -110,15 +110,15 @@ for (const mode of ['move', 'segment', 'vertex', 'midpoint', 'bulge', 'center', 
         app.history.redoStack.push(redo);
         beginFillEdit(app, fill, start, anchor, mode === 'segment' ? 0 : null);
         assert.deepEqual(fill.captureState(), before, 'Pickup, including midpoint insertion, is read-only');
-        if (mode !== 'midpoint') assert.equal(app._fillDrag.fill, fill, 'Ordinary pickup does not clone');
+        if (mode !== 'midpoint') assert.equal(adapter.object, fill, 'Ordinary pickup displays the canonical fill');
         updateFillEdit(app, target);
         refreshBoxSelectionHighlights(app);
-        const copy = app._fillDrag.fill;
+        const copy = adapter.object;
         assert.notEqual(copy, fill);
         assert.equal(copy.id, fill.id);
         for (let step = 1; step <= 20; step++) {
             updateFillEdit(app, { x: target.x + step / 1000, y: target.y });
-            assert.equal(app._fillDrag.fill, copy, 'Changed pointer positions reuse the fill object');
+            assert.equal(adapter.object, copy, 'Changed pointer positions reuse the displayed fill object');
             assert.equal(layer.querySelectorAll('.pcb-fill-outline').length, 1);
         }
         const allocated = allocations;
@@ -176,7 +176,7 @@ for (const mode of ['move', 'segment', 'vertex', 'midpoint', 'bulge', 'center', 
                 assert.equal(f.recomputes(), 0, 'Discarding a preview does not recompute a settled pour');
             }
         }
-        assert.equal(app._fillDrag, null);
+        assert.equal(app._shapeDrag, null);
         assert.equal(app._pcbSelectionInteraction, null);
         assert.equal(frames.size, 0);
         assert.equal(areDragOverlaysDeferred(app), deferred);
@@ -190,12 +190,12 @@ for (const reason of ['invalid', 'locked']) {
     const before = fill.captureState();
     beginFillEdit(app, fill, start);
     updateFillEdit(app, target);
-    if (reason === 'invalid') app._fillDrag.fill.outline = [];
+    if (reason === 'invalid') app._shapeDrag.shape.outline = [];
     else fill.locked = true;
     endFillEdit(app, true);
     assert.deepEqual(fill.captureState(), { ...before, locked: reason === 'locked' });
     assert.equal(app.history.canUndo(), false);
-    assert.equal(app._fillDrag, null);
+    assert.equal(app._shapeDrag, null);
     cases++;
 }
 for (const action of ['place', 'cancel', 'drag']) {
@@ -214,7 +214,7 @@ for (const action of ['place', 'cancel', 'drag']) {
         finishSelectionInteraction(app, false);
         assert.deepEqual(fill.captureState(), before);
         assert.equal(app.history.undoStack.length, 0);
-        assert.equal(app._fillDrag, null);
+        assert.equal(app._shapeDrag, null);
         assert.equal(app._pcbSelectionInteraction, null);
         cases++;
         continue;
@@ -223,7 +223,7 @@ for (const action of ['place', 'cancel', 'drag']) {
     else finishSelectionInteraction(app, true);
     assert.equal(fill.outline.length, 5);
     assert.equal(app.history.undoStack.length, 1);
-    assert.equal(app._fillDrag, null);
+    assert.equal(app._shapeDrag, null);
     assert.equal(app._pcbSelectionInteraction, null);
     app.history.undo();
     assert.deepEqual(fill.captureState(), before);

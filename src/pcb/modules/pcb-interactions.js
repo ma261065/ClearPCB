@@ -24,7 +24,6 @@ export const PCB_INTERACTIONS = Object.freeze([
     { key: '_refDrag', category: 'gesture', blocksExport: false },
     { key: '_vertexDrag', category: 'gesture', blocksExport: true },
     { key: '_viaDrag', category: 'gesture', blocksExport: true },
-    { key: '_fillDrag', category: 'gesture', blocksExport: false },
     { key: '_trackDraw', category: 'drawing', blocksExport: false },
     { key: '_fillDraw', category: 'drawing', blocksExport: false },
     { key: '_shapeDraw', category: 'drawing', blocksExport: false },

@@ -83,7 +83,7 @@ function manager(app) {
             onSelectionChanged: (selected) => {
                 const segment = getBoardShapeSegmentFocus(app);
                 const segmentStillSelected = segment && selected.some(
-                    (item) => item.kind === 'shape' && item.object?.id === segment.shapeId,
+                    (item) => (item.kind === 'shape' || item.kind === 'fill') && item.object?.id === segment.shapeId,
                 );
                 if (segment && !segmentStillSelected) {
                     setBoardShapeSegmentFocus(app, null);
@@ -94,11 +94,9 @@ function manager(app) {
                 }
                 const node = getBoardShapeNodeFocus(app);
                 const nodeStillSelected = node && selected.some(
-                    (item) => item.kind === 'shape' && item.object?.id === node.shapeId,
+                    (item) => (item.kind === 'shape' || item.kind === 'fill') && item.object?.id === node.shapeId,
                 );
                 if (node && !nodeStillSelected) setBoardShapeNodeFocus(app, null);
-                if (app._fillEdit && !selected.some(item => item.kind === 'fill'
-                    && item.object?.id === app._fillEdit.fillId)) app._fillEdit = null;
                 app.setPcbStatus?.();
                 refreshPcbReferenceOverlay(app);
             },

@@ -81,6 +81,22 @@ assert.deepEqual(image.points[2], { x: 6, y: 3 });
 app.history.undo();
 assert.deepEqual(cloneShapeGeometry(image), before);
 console.log('PASS image Properties controls, proportional dimensions, layer/net changes, drag and resize undo');
+
+// Locking from the panel sticks and makes the other controls read-only; unlocking reverses it.
+{
+    setPcbSelection(app, [{ kind: 'shape', object: image }]);
+    showBoardShapeProperties(app, image);
+    propertyField(currentPanel, 'locked').commit(true);
+    assert.equal(image.locked, true);
+    assert.equal(propertyField(currentPanel, 'locked').value, true, 'the Locked box stays ticked after the panel refreshes');
+    assert.equal(propertyField(currentPanel, 'width').disabled, true, 'a locked picture is read-only');
+    propertyField(currentPanel, 'locked').commit(false);
+    assert.equal(image.locked, false);
+    assert.equal(propertyField(currentPanel, 'width').disabled, false);
+    app.history.undo();
+    app.history.undo();
+    showBoardShapeProperties(app, image);
+}
 const artwork = image.artwork;
 assert.equal(propertyField(currentPanel, 'rotation')?.step, 1);
 settleChange(fields.get('pcbPropImageRot'), '90');

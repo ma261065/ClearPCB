@@ -6,7 +6,6 @@ import { handleBoardShapeDrag, endBoardShapeDrag, updateShapeDrawPreview } from 
 import { updateVertexDrag, updateViaDrag, cancelVertexDrag, cancelViaDrag, finishVertexDrag, finishViaDrag } from './track-drag.js';
 import { updateTrackDraw } from './track-draw.js';
 import { updateFillDraw } from './copper-fill-draw.js';
-import { endFillEdit } from './copper-fill-edit.js';
 import { getSelectedTrack, getSelectedVia, clearTrackSelection, selectTrackOrVia, selectTrackSegment } from './track-select.js';
 
 /** A release handler's outcome: the release is fully handled, so stop. */
@@ -137,15 +136,6 @@ const HANDLERS = {
         },
         cancel: app => { cancelViaDrag(app); },
     },
-    _fillDrag: {
-        move: (app, e) => { app._handleFillDrag(app._screenToWorld(e)); },
-        release: app => {
-            endFillEdit(app, true);
-            app.viewport.svg.style.cursor = 'default';
-        },
-        wrapped: true,
-        cancel: app => { endFillEdit(app, false); },
-    },
     _trackDraw: {
         move: (app, e) => {
             updateTrackDraw(app, app._screenToWorld(e));
@@ -202,7 +192,6 @@ export function createPointerMoveDispatch(h) {
         if (app._refDrag && h._refDrag.move(app, e) !== false) return true;
         if (app._vertexDrag && h._vertexDrag.move(app, e) !== false) return true;
         if (app._viaDrag && h._viaDrag.move(app, e) !== false) return true;
-        if (app._fillDrag && h._fillDrag.move(app, e) !== false) return true;
         if (app._trackDraw && h._trackDraw.move(app, e) !== false) return true;
         if (app._fillDraw && h._fillDraw.move(app, e) !== false) return true;
         if (app._shapeDraw && h._shapeDraw.move(app, e) !== false) return true;

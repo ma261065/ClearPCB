@@ -161,8 +161,6 @@ export function showImageProperties(app, shape) {
         };
     };
     const lockEntries = [{ kind: 'shape', object: shape }];
-    const lock = lockedProperty(app, lockEntries);
-    const readOnly = lock.readOnly;
     const refresh = () => { if (!binding?.disposed) app.refreshPropertyPanel?.(describe()); };
     const commit = mutate => {
         if (!binding?.prepare()) return;
@@ -226,10 +224,13 @@ export function showImageProperties(app, shape) {
     const describe = () => {
         const { width, height, rotation } = geometryValues();
         const names = [...new Set([...boardNetNames(app), String(shape.net || '')])].filter(Boolean).sort();
+        // Read on every description: locking the picture from this panel changes it.
+        const lock = lockedProperty(app, lockEntries);
+        const readOnly = lock.readOnly;
         return {
             title: 'Image',
             fields: [
-                lock.field,
+                { ...lock.field, commit: value => { lock.field.commit(value); refresh(); } },
                 { key: 'layer', id: 'pcbPropImageLayer', type: 'select', label: 'Layer', value: shape.layer, disabled: readOnly,
                     options: PCB_LAYERS.filter(layer => PICTURE_LAYERS.includes(layer.id)).map(layer => pcbLayerOption(layer.id, layer.name)),
                     commit: value => {
@@ -266,11 +267,28 @@ export function showImageProperties(app, shape) {
         };
     };
     if (!app.openPropertyPanel?.(describe(), shape)) return;
+    openShapePanels.set(app, { id: shape.id, refresh, live: () => !binding?.disposed });
     binding = createBoardShapePropertyBinding(app);
     widthPreview = createBoardShapePropertyPreview(app, [shape], { liveDrag: true });
     heightPreview = createBoardShapePropertyPreview(app, [shape], { liveDrag: true });
     rotationPreview = createBoardShapePropertyPreview(app, [shape], { liveDrag: true });
     refresh();
+}
+
+/** The open board-shape panel per editor: its target id and in-place refresh. */
+const openShapePanels = new WeakMap();
+
+/**
+ * Re-describe the open board-shape panel in place when it shows `shape` (a drag or
+ * preview changed values it displays). Opening a new panel each pointer move would
+ * churn editors and focus.
+ */
+export function syncBoardShapePanel(app, shape) {
+    const panel = openShapePanels.get(app);
+    if (!shape || !panel || panel.id !== shape.id) return;
+    // A gesture can retire the panel's editors; reopen once, then refresh in place.
+    if (panel.live()) panel.refresh();
+    else showBoardShapeProperties(app, shape);
 }
 
 export function showBoardShapeProperties(app, shape) {
@@ -288,7 +306,6 @@ export function showBoardShapeProperties(app, shape) {
     const initialTargets = propertyTargets();
     const outlineTarget = initialTargets.length === 1 && shape.layer === 'board-outline';
     const hasOutline = initialTargets.some(target => target.layer === 'board-outline');
-    const outlineBounds = outlineTarget ? boardBoundary(app) : null;
     if (initialTargets.some(target => target.kind === 'image')) {
         if (initialTargets.length === 1) showImageProperties(app, shape);
         else app._showPcbMultiSelectionProperties?.(
@@ -469,17 +486,27 @@ export function showBoardShapeProperties(app, shape) {
         if (!replaced) (rebuild ? showBoardShapeProperties(app, shape) : refresh());
         return replaced;
     };
+    // Board outline width/height scale the outline about its bounds; each step previews it live.
+    const outlineDimensionPreviews = {};
     const outlineDimensionField = (key, id, label, axis, dimension) => ({
-        key, id, type: 'number', label, value: outlineBounds?.[dimension] ?? 0, min: 0.1, step: 1,
-        format: formatNumberInputValue, disabled: isLayerLocked(shape.layer),
-        commit: value => {
-            if (isLayerLocked(shape.layer) || !Number.isFinite(value) || value < 0.1) return;
-            const bounds = boardBoundary(app);
-            const factor = value / bounds[dimension];
-            commitAndRefresh(candidate => {
-                candidate.points = candidate.points.map(point => ({ ...point, [axis]: bounds[axis] + (point[axis] - bounds[axis]) * factor }));
-            }, true);
+        key, id, type: 'number', label, value: boardBoundary(app)?.[dimension] ?? 0, min: 0.1, step: 1,
+        format: formatNumberInputValue, disabled: isLayerLocked(shape.layer), hold,
+        normalize: value => (value < 0.1 ? NaN : value),
+        preview: value => {
+            const preview = outlineDimensionPreviews[key];
+            if (binding?.disposed || !preview || isLayerLocked(shape.layer)) return;
+            preview.update((before, [candidate]) => {
+                // Scale from the outline as it was before this run.
+                applyShapeSnapshot(candidate, before[0]);
+                const coords = shapeOutline(candidate).map(point => point[axis]);
+                const start = Math.min(...coords), size = Math.max(...coords) - start;
+                if (!(size > 0)) return;
+                const factor = value / size;
+                candidate.points = candidate.points.map(point => ({ ...point, [axis]: start + (point[axis] - start) * factor }));
+            });
         },
+        commit: () => finishPreview(outlineDimensionPreviews[key]),
+        cancel: () => cancelPreview(outlineDimensionPreviews[key]),
     });
     const describe = () => {
         const targets = propertyTargets();
@@ -646,11 +673,16 @@ export function showBoardShapeProperties(app, shape) {
         return { title: panelTitle(), fields };
     };
     if (!app.openPropertyPanel?.(describe(), shape)) return;
+    openShapePanels.set(app, { id: shape.id, refresh, live: () => !binding?.disposed });
     binding = createBoardShapePropertyBinding(app);
     lineWidthPreview = createBoardShapePropertyPreview(app, propertyTargets());
     diameterPreview = createBoardShapePropertyPreview(app, propertyTargets().filter(target => target.kind === 'circle'));
     cornerRadiusPreview = createBoardShapePropertyPreview(app, propertyTargets().filter(target => ['line', 'rect', 'polygon'].includes(target.kind)));
     nodeCornerRadiusPreview = createBoardShapePropertyPreview(app, [shape]);
+    if (outlineTarget) {
+        outlineDimensionPreviews.width = createBoardShapePropertyPreview(app, [shape], { liveDrag: true });
+        outlineDimensionPreviews.height = createBoardShapePropertyPreview(app, [shape], { liveDrag: true });
+    }
     bulgePreview = createBoardShapePropertyPreview(app, [shape], {
         liveDrag: true,
         beforeCommit: ([candidate]) => {
@@ -664,11 +696,11 @@ export function showBoardShapeProperties(app, shape) {
 }
 
 export function syncShapeBulgeProperty(app, shape) {
-    if (shape) showBoardShapeProperties(app, shape);
+    syncBoardShapePanel(app, shape);
 }
 
 export function syncCircleDiameterProperty(app, shape) {
-    if (shape?.kind === 'circle') showBoardShapeProperties(app, shape);
+    if (shape?.kind === 'circle') syncBoardShapePanel(app, shape);
 }
 
 export function refreshBoardShapeProperties(app, shape) {

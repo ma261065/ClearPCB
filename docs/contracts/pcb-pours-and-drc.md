@@ -8,39 +8,35 @@ Collection commands use the model's existing `boardShapes` array; modification
 applies authored state to a `CopperFill`. Undo snapshots deeply copy outline
 points, per-node radii and per-segment curvature. These commands do not calculate
 pours or update connectivity. The `pcb/modules/copper-fill-commands.js` adapters
-retain synchronous pour refresh, drag deferral, property controls and selection
-anchors.
+retain synchronous pour refresh and selection/property refresh after accepted
+fill commands.
 
-`commitFillEdit` in `pcb/modules/copper-fill-edit.js` stages geometry changes on
-a detached `CopperFill` supplied to each mutation callback. It constructs and
-validates the command snapshot without replacing canonical geometry references
-or changing the authored fill/cache; throwing callbacks cannot leave partial
-authored edits behind. Only the existing command applies accepted changes.
-This helper isolates command preparation independently of pointer previews.
-
-Single-fill pointer gestures keep the canonical target and a lazy reusable
-`CopperFill` copy in `_fillDrag`. Move, segment, vertex, bulge, center and radius
-updates change only that copy; midpoint insertion creates it immediately to
-stage topology. The selection adapter dynamically resolves displayed identity,
-bounds, hits, anchors and paths. `boardShapes` and the computed-pour weak map
-remain canonical, and the existing overlay deferral suppresses fill rerenders.
-Completion clears gesture ownership before the existing `ModifyFillCommand`;
-cancellation, no-op, invalid edits and command rejection restore canonical
-artwork without authored rollback. Missing targets remove orphan preview SVG.
-Shared lifecycle cancellation handles fill adapters and orphaned `_fillDrag`
-state on deactivation/load. Grouped fills use the shared mixed-group projection
-described in [pcb-editing.md](pcb-editing.md#previews-and-projections).
+`commitFillEdit` in `pcb/modules/copper-fill-edit.js` remains the small
+command-preparation helper for fill-specific callers. Interactive fill editing,
+however, no longer owns a separate path editor. Fills provide a pour-specific
+edit profile to `pcb/modules/board-shapes.js`, and the board-shape implementation
+owns selection-adapter geometry, node/segment focus, midpoint insertion, vertex,
+segment, bulge, circle handle and whole-object drags, deletion/context-menu
+topology actions, and property-preview transactions. The profile supplies only
+the CopperFill copy/snapshot, fill lock/visibility checks, `ModifyFillCommand` /
+`RemoveFillCommand`, copper-layer rendering and fill validation. Pointer and
+property previews operate on detached `CopperFill` copies resolved through the
+same displayed-copy maps as board shapes, so `boardShapes` and the computed-pour
+weak map remain canonical. Overlay deferral suppresses computed-pour rerenders
+during previews; accepted fill geometry still settles into one
+`ModifyFillCommand`, and cancellation, no-op, invalid edits, command rejection,
+deactivation/load and missing targets restore or remove preview artwork without
+authored rollback. Grouped fills use the shared mixed-group projection described
+in [pcb-editing.md](pcb-editing.md#previews-and-projections).
 
 The fill panel's number fields (corner radius, size, diameter, node radius,
-bulge) work like a drag. Each spinner step redraws the dashed outline from a
-detached copy, while the copper waits under the same overlay deferral. The settled
-run commits one `ModifyFillCommand` and the pour is recomputed then. The panel's
-`fill` property editor commits or cancels a live outline when the panel is
-replaced, the layer is locked or the editor is left, so the deferral is never
-left on. A canvas press, a pour drag, and the group/track drags settle a live
-outline first (`settleFillGeometryPreview`). The press arrives before the field's
-blur, and a gesture that saved and later restored the deferral while the preview
-held it would leave pours deferred (`test-fill-property-preview`).
+bulge and geometry kind) use the shared board-shape property-preview transaction
+with fill-specific field IDs/labels. Each spinner step redraws the dashed outline
+from a detached copy, while the copper waits under the same overlay deferral.
+The settled run commits one `ModifyFillCommand` and the pour is recomputed then.
+The panel's `fill` property editor commits or cancels a live outline when the
+panel is replaced, the layer is locked or the editor is left, so the deferral is
+never left on (`test-fill-property-preview`).
 
 Overlapping pours on the same layer never share copper unless they are on the same
 named net, which merges them. Otherwise the earlier pour in document order (the older

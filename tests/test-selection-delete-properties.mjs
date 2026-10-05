@@ -160,7 +160,7 @@ for (const dispatch of dispatches.slice(1)) {
         const fill = new CopperFill({ outline: shape.points.slice(0, size) });
         model.boardShapes.splice(0, 1, fill);
         setPcbSelection(app, [{ kind: 'fill', object: fill }]);
-        app._fillEdit = { fillId: fill.id, node: 1 };
+        setBoardShapeNodeFocus(app, { shapeId: fill.id, index: 1 });
         const before = fill.captureState();
         assert.equal(dispatch(app), true, 'Even a blocked refined deletion is consumed');
         assert.equal(fill.outline.length, 3);

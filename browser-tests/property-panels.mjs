@@ -162,4 +162,34 @@ export const scenarios = [
             assert.equal(await selectedPath(), pathDuring, 'and stays with the committed pour');
         },
     },
+    {
+        name: 'dragging-a-pour-keeps-its-own-panel-live',
+        async run(page, url) {
+            await openPcb(page, url);
+            await page.evaluate(async () => {
+                const app = window.bootstrap.pcbApp;
+                const { CopperFill } = await import('/src/shapes/copper-fill.js');
+                const { AddFillCommand } = await import('/src/pcb/modules/copper-fill-commands.js');
+                app.history.execute(new AddFillCommand(app, new CopperFill({ kind: 'circle', x: 30, y: -30, radius: 8, net: 'GND' })));
+                window.__panelsOpened = 0;
+                const open = app.openPropertyPanel.bind(app);
+                app.openPropertyPanel = (...args) => { window.__panelsOpened++; return open(...args); };
+            });
+            await page.waitForTimeout(400);
+            await clickAt(page, 38, -30);
+            assert.equal(await title(page), 'Copper Fill');
+            const start = await screenPoint(page, 38, -30), end = await screenPoint(page, 44, -30);
+            await page.evaluate(() => { window.__panelsOpened = 0; });
+            await page.mouse.move(start.x, start.y);
+            await page.mouse.down();
+            await page.mouse.move(end.x, end.y, { steps: 10 });
+            assert.equal(await title(page), 'Copper Fill', 'the pour keeps its own panel during a drag');
+            const live = Number(await page.locator('#pcbPropFillDiameter').inputValue());
+            assert.ok(live > 16.5, 'and its Diameter follows the drag');
+            assert.ok(await page.evaluate(() => window.__panelsOpened) <= 1, 'updated in place, not reopened on every move');
+            await page.mouse.up();
+            const radius = await page.evaluate(() => window.bootstrap.pcbApp.pcbDocument.copperFills[0].radius);
+            assert.ok(Math.abs(radius * 2 - live) < 0.6, 'the committed pour matches what the panel showed');
+        },
+    },
 ];

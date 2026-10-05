@@ -130,6 +130,7 @@ export function finishFillDraw(app) {
         layer: fd.layer,
         net: fillToolDefaults(app).net,
         outline: fd.points,
+        kind: 'polygon',
         cornerRadius: toolCornerRadius(app),
     });
     app.history.execute(new AddFillCommand(app, fill));

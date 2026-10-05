@@ -177,7 +177,7 @@ for (const event of [
 }
 for (const state of ['_pcbSelectionInteraction', '_groupDrag', '_vertexDrag', '_viaDrag', '_shapeDrag',
     '_boardOutlineResize', '_rotationHandleDrag', '_pasteDrop', '_textEdit', '_drag',
-    '_textDrag', '_refDrag', '_fillDrag', '_boxSelectArm', '_boxSelectActive']) {
+    '_textDrag', '_refDrag', '_boxSelectArm', '_boxSelectActive']) {
     app[state] = {};
     assert.equal(handleKeyDown.call(app, { key: 'ArrowLeft' }), false, `${state}: arrows leave active gestures alone`);
     assert.equal(runPcbNudgeAction(app, 'ArrowLeft'), false, `${state}: direct action uses the same guard`);

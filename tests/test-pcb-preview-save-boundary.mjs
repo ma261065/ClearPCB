@@ -132,7 +132,7 @@ try {
         f.project.fileManager.stopAutoSave();
     }
     for (const flag of ['_drag', '_refDrag', '_textDrag', '_groupDrag', '_shapeDrag', '_vertexDrag',
-        '_viaDrag', '_fillDrag', '_pasteDrop', '_textEdit', '_boardOutlineResize', '_pcbSelectionInteraction',
+        '_viaDrag', '_pasteDrop', '_textEdit', '_boardOutlineResize', '_pcbSelectionInteraction',
         '_rotationHandleDrag', '_deferDragOverlays', '_suspendFillRefresh']) {
         const f = fixture();
         const suspensionSetters = { _deferDragOverlays: setDragOverlaysDeferred, _suspendFillRefresh: setFillRefreshSuspended };

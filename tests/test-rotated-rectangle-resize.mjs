@@ -170,7 +170,7 @@ for (const rotation of [30, 90, 137.5]) {
             const { target } = resizeTarget(points, index, 1.7, 0.65);
             beginFillEdit(fillApp, fill, points[index], index);
             updateFillEdit(fillApp, target);
-            nearPoints(fillApp._fillDrag.fill.outline, resizeRectanglePoints(points, index, target));
+            nearPoints(fillApp._shapeDrag.shape.outline, resizeRectanglePoints(points, index, target));
             assert.deepEqual(fill.captureState(), before, 'Resize does not author fill geometry before drop');
             endFillEdit(fillApp, false);
             assert.deepEqual(fill.captureState(), before);

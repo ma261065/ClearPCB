@@ -226,6 +226,11 @@ Pointer, property, group and generic-dimension previews use detached copies;
 canonical outline geometry and dimensions remain unchanged until acceptance.
 Generic shape rendering, hover, selection and dedicated outline redraw do not
 write dimension metadata.
+Copper-fill region editing uses the same board-shape selection, focus, drag,
+topology and property-preview implementation through a fill edit profile. Fills
+remain `CopperFill` entities stored in `boardShapes` with `type: "fill"` and keep
+their own commands, copper-layer/net fields, file format and computed-pour
+pipeline; only the interactive outline-editing mechanics are shared.
 
 Copper-removal clipping retains its last settled cutout geometry while drag
 overlays and pours are deferred. Moving removal artwork therefore leaves the old

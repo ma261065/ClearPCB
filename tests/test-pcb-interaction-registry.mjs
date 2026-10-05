@@ -28,7 +28,6 @@ const keys = PCB_INTERACTIONS.map(entry => entry.key);
 // 1. Every interaction-like editor field is registered (or is a persistent refinement selection).
 const EXEMPT = new Map([
     ['_trackEdit', 'persistent track refinement selection, not an in-progress gesture'],
-    ['_fillEdit', 'persistent fill refinement selection, not an in-progress gesture'],
 ]);
 const pcbSources = [
     ...readdirSync(join(root, 'src/pcb/modules')).filter(name => name.endsWith('.js')).map(name => join(root, 'src/pcb/modules', name)),
@@ -46,7 +45,7 @@ assert.equal(new Set(keys).size, keys.length, 'Interaction keys are unique');
 
 // 2. Derived sets reproduce the lists they replaced.
 const keysOf = predicate => keys.filter(key => predicate({ [key]: {} }));
-assert.deepEqual(keysOf(hasPcbGesture).sort(), ['_boardOutlineResize', '_drag', '_fillDrag', '_groupDrag', '_pasteDrop',
+assert.deepEqual(keysOf(hasPcbGesture).sort(), ['_boardOutlineResize', '_drag', '_groupDrag', '_pasteDrop',
     '_pcbSelectionInteraction', '_refDrag', '_rotationHandleDrag', '_shapeDrag', '_textDrag', '_textEdit',
     '_vertexDrag', '_viaDrag']);
 assert.deepEqual(keysOf(isPcbDrawing).sort(), ['_fillDraw', '_shapeDraw', '_trackDraw']);
@@ -59,7 +58,7 @@ for (const predicate of [hasPcbGesture, isPcbDrawing, blocksPcbExport]) {
 
 // 3. Pointer-move priority matches the former mousemove chain.
 assert.deepEqual(PCB_INTERACTION_ROUTES.move, ['_boardOutlineResize', '_pasteDrop', '_pcbSelectionInteraction',
-    '_drag', '_groupDrag', '_textDrag', '_shapeDrag', '_refDrag', '_vertexDrag', '_viaDrag', '_fillDrag',
+    '_drag', '_groupDrag', '_textDrag', '_shapeDrag', '_refDrag', '_vertexDrag', '_viaDrag',
     '_trackDraw', '_fillDraw', '_shapeDraw']);
 // The hand-written dispatcher routes exactly that order: every pair, plus declined fall-through.
 {
@@ -99,14 +98,13 @@ const editor = state => ({
     _scheduleDragUpdate: () => calls.push('drag'),
     _handleTextDrag: () => calls.push('text'),
     _handleRefDrag: () => calls.push('ref'),
-    _handleFillDrag: () => calls.push('fill'),
     ...state,
 });
 const event = { clientX: 0, clientY: 0 };
 assert.equal(dispatchPcbPointerMove(editor({}), event), false, 'Idle moves fall through to the active tool');
 assert.deepEqual(calls, []);
 for (const [state, expected] of [
-    [{ _drag: {} }, 'drag'], [{ _textDrag: {} }, 'text'], [{ _refDrag: {} }, 'ref'], [{ _fillDrag: {} }, 'fill'],
+    [{ _drag: {} }, 'drag'], [{ _textDrag: {} }, 'text'], [{ _refDrag: {} }, 'ref'],
     [{ _pasteDrop: {}, _drag: {} }, 'paste'],
     [{ _drag: {}, _textDrag: {} }, 'drag'],
     [{ _pcbSelectionInteraction: { mode: 'unrecognised' }, _textDrag: {} }, 'text'],
@@ -119,7 +117,7 @@ for (const [state, expected] of [
 
 // 4. Cancellation covers the selection wrapper first, then each pointer drag.
 assert.deepEqual(PCB_INTERACTION_ROUTES.cancel, ['_pcbSelectionInteraction', '_drag', '_groupDrag', '_textDrag',
-    '_shapeDrag', '_refDrag', '_vertexDrag', '_viaDrag', '_fillDrag']);
+    '_shapeDrag', '_refDrag', '_vertexDrag', '_viaDrag']);
 const ended = [];
 cancelPcbPointerGestures({
     _drag: {}, _refDrag: {}, _textDrag: null,
@@ -131,7 +129,7 @@ assert.deepEqual(ended, [['drag', false], ['ref', false]], 'Only active drags ar
 
 // 5. Primary releases finish gestures in table order; the selection wrapper's own drags are skipped once it finishes.
 assert.deepEqual(PCB_INTERACTION_ROUTES.release, ['_boardOutlineResize', '_pcbSelectionInteraction', '_drag',
-    '_groupDrag', '_textDrag', '_shapeDrag', '_refDrag', '_vertexDrag', '_viaDrag', '_fillDrag']);
+    '_groupDrag', '_textDrag', '_shapeDrag', '_refDrag', '_vertexDrag', '_viaDrag']);
 {
     const released = [];
     const app = {

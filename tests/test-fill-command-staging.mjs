@@ -9,6 +9,7 @@ installFakeDom();
 const { renderPropertyFields } = await import('../src/shared/ui/property-fields.js');
 const { commitFillEdit, deleteFillNode, addFillGeometryProperties } =
     await import('../src/pcb/modules/copper-fill-edit.js');
+const { setBoardShapeNodeFocus, setBoardShapeSegmentFocus } = await import('../src/pcb/modules/board-shape-state.js');
 
 function fixture(options = {}) {
     const fill = new CopperFill({
@@ -99,7 +100,10 @@ for (const [id, value, focus, options] of [
     ['pcbPropFillKind', 'rect', {}, { kind: 'circle', x: 5, y: 5, radius: 4 }],
 ]) {
     const { app, fill } = fixture(options);
-    app._fillEdit = { fillId: fill.id, ...focus };
+    if (focus.node != null) setBoardShapeNodeFocus(app, { shapeId: fill.id, index: focus.node });
+    else setBoardShapeNodeFocus(app, null);
+    if (focus.segment != null) setBoardShapeSegmentFocus(app, { shapeId: fill.id, segment: focus.segment });
+    else setBoardShapeSegmentFocus(app, null);
     const before = fill.captureState(), originalOutline = fill.outline;
     const field = addFillGeometryProperties(app, fill).find(field => field.id === id);
     const execute = app.history.execute.bind(app.history);
@@ -122,7 +126,8 @@ for (const [id, value, focus, options] of [
 // Spinner steps coalesce: one pour recomputation and one undo step once the value settles.
 {
     const { app, fill } = fixture({});
-    app._fillEdit = { fillId: fill.id };
+    setBoardShapeNodeFocus(app, null);
+    setBoardShapeSegmentFocus(app, null);
     const field = addFillGeometryProperties(app, fill).find(field => field.id === 'pcbPropFillCornerRadius');
     const container = document.body.appendChild(document.createElement('div'));
     const input = renderPropertyFields(container, [field]).get(field.key);

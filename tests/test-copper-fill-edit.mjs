@@ -13,6 +13,7 @@ const { createCopperFillSelectionAdapter } = await import('../src/pcb/modules/co
 const { computeFillPolygons, loadClipper } = await import('../src/pcb/modules/copper-fill-geom.js');
 const { prepareFabricationSnapshot } = await import('../src/pcb/modules/fabrication-snapshot.js');
 const { PCB_LAYERS, PCB_COPPER_FILLS } = await import('../src/pcb/modules/layers.js');
+const { setBoardShapeNodeFocus } = await import('../src/pcb/modules/board-shape-state.js');
 const outline = [{ x: 2, y: -2 }, { x: 18, y: -2 }, { x: 18, y: -18 }, { x: 2, y: -18 }];
 assert.equal(new CopperFill({ outline }).kind, 'rect',
     'An axis-aligned fill created without an explicit kind normalizes to Rectangle');
@@ -67,13 +68,13 @@ const fill = new CopperFill({ outline, cornerRadius: 1, nodeCornerRadii: { 2: 2 
 app.boardShapes.push(fill);
 const before = fill.captureState();
 assert.equal(beginFillEdit(app, fill, { x: 10, y: -2 }, 'mid:0'), true);
-assert.deepEqual(crosshair, { x: 10, y: -2 }, 'Midpoint pickup shows the crosshair');
-assert.equal(app._fillDrag.fill.outline.length, 5);
-assert.equal(app._fillDrag.fill.segmentBulges[3], 0.25);
-assert.equal(app._fillDrag.fill.nodeCornerRadii[3], 2);
+assert.deepEqual({ x: crosshair.x, y: crosshair.y }, { x: 10, y: -2 }, 'Midpoint pickup shows the crosshair');
+assert.equal(app._shapeDrag.shape.outline.length, 5);
+assert.equal(app._shapeDrag.shape.segmentBulges[3], 0.25);
+assert.equal(app._shapeDrag.shape.nodeCornerRadii[3], 2);
 assert.deepEqual(fill.captureState(), before, 'Midpoint insertion is not authored during pickup');
 updateFillEdit(app, { x: 10, y: -1 });
-assert.deepEqual(crosshair, app._fillDrag.fill.outline[1], 'Crosshair follows the inserted vertex');
+assert.deepEqual({ x: crosshair.x, y: crosshair.y }, app._shapeDrag.shape.outline[1], 'Crosshair follows the inserted vertex');
 endFillEdit(app, false);
 assert.equal(crosshair, null, 'Cancel hides the crosshair');
 assert.deepEqual(fill.captureState(), before, 'Cancel restores vertices and metadata');
@@ -97,7 +98,7 @@ assert.equal(fill.outline.length, 4);
 assert.equal(deleteFillNode(app, fill, 1), true);
 assert.equal(fill.outline.length, 3);
 assert.equal(deleteFillNode(app, fill, 1), false, 'Closed boundary cannot drop below three vertices');
-app._fillEdit = { fillId: fill.id, node: 1 };
+setBoardShapeNodeFocus(app, { shapeId: fill.id, index: 1 });
 assert.equal(deleteFocusedFillPart(app, fill), true, 'Blocked node deletion must not delete the entire fill');
 
 const plain = new CopperFill({ outline });
@@ -135,14 +136,14 @@ for (const [region, anchor, point] of [
     [circle, 'radius', { x: 13, y: -6 }],
 ]) {
     const handlePoint = () => {
-        const handle = getBoardShapeAnchors(app._fillDrag?.fill || region).find(item => item.id === anchor);
+        const handle = getBoardShapeAnchors(app._shapeDrag?.shape || region).find(item => item.id === anchor);
         return { x: handle.x, y: handle.y };
     };
     app.boardShapes = [region];
     beginFillEdit(app, region, handlePoint(), anchor);
-    assert.deepEqual(crosshair, handlePoint(), `${anchor} pickup shows the actual handle position`);
+    assert.deepEqual({ x: crosshair.x, y: crosshair.y }, handlePoint(), `${anchor} pickup shows the actual handle position`);
     updateFillEdit(app, point);
-    assert.deepEqual(crosshair, handlePoint(), `${anchor} crosshair follows resolved geometry, not the raw pointer`);
+    assert.deepEqual({ x: crosshair.x, y: crosshair.y }, handlePoint(), `${anchor} crosshair follows resolved geometry, not the raw pointer`);
     endFillEdit(app, false);
     assert.equal(crosshair, null);
 }
