@@ -234,7 +234,12 @@ body {
 .app-slider {
     flex: 1;
     display: flex;
-    overflow: hidden;
+    /* clip, not hidden: focusing a field (e.g. the component search) must not scroll
+       the editors sideways and show half of the other one. */
+    overflow: clip;
+    /* clip is not a scroll container, so restore the zero flex minimum hidden gave. */
+    min-height: 0;
+    min-width: 0;
     position: relative;
 }
 

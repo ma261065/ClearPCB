@@ -500,10 +500,11 @@ function _bindActionButtons(app, selection, isCurrent, allLocked, applyProperty)
             }, allLocked));
         }
         if (hasComponent) {
-            actions.push(action('propRotateLeft', '↶ Rotate L', 'Rotate Left', () => { if (isCurrent()) rotateComponentLeft(app); }));
-            actions.push(action('propRotateRight', '↷ Rotate R', 'Rotate Right', () => { if (isCurrent()) rotateComponentRight(app); }));
-            actions.push(action('propFlipH', '⇔ Flip H', 'Flip Horizontal', () => { if (isCurrent()) flipComponentH(app); }));
-            actions.push(action('propFlipV', '⇕ Flip V', 'Flip Vertical', () => { if (isCurrent()) flipComponentV(app); }));
+            // Locked parts are left alone (as in the PCB editor), so offer no transform.
+            actions.push(action('propRotateLeft', '↶ Rotate L', 'Rotate Left', () => { if (isCurrent()) rotateComponentLeft(app); }, allLocked));
+            actions.push(action('propRotateRight', '↷ Rotate R', 'Rotate Right', () => { if (isCurrent()) rotateComponentRight(app); }, allLocked));
+            actions.push(action('propFlipH', '⇔ Flip H', 'Flip Horizontal', () => { if (isCurrent()) flipComponentH(app); }, allLocked));
+            actions.push(action('propFlipV', '⇕ Flip V', 'Flip Vertical', () => { if (isCurrent()) flipComponentV(app); }, allLocked));
         }
         groups.push({ title: 'Transform', actions });
     }

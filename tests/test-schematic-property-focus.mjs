@@ -106,7 +106,8 @@ function fixture(shapes, refinement = {}) {
     return { app, dispose, keydown, rebuilds: () => rebuilds };
 }
 
-for (const property of ['lineWidth', 'cornerRadius', 'diameter', 'fontSize', 'rotation']) {
+// A reference reads horizontally or vertically like every schematic text (no Rotation field).
+for (const property of ['lineWidth', 'cornerRadius', 'diameter', 'fontSize']) {
     for (const count of [1, 3]) {
         const shapes = Array.from({ length: count }, (_, i) => property === 'diameter'
             ? new Circle({ x: 10 + i * 20, y: 10, radius: 5, lineWidth: 0.2 })
@@ -155,18 +156,18 @@ for (const property of ['lineWidth', 'cornerRadius', 'diameter', 'fontSize', 'ro
     }
 }
 
+// A reference is oriented like any schematic text: H/V buttons, no free Rotation field.
 {
-    const text = new Text({ text: 'Label' });
+    const text = new Text({ text: 'Label', rotation: 37 });
     text.fieldKey = 'reference';
+    assert.equal(text.rotation, 0, 'a stored free angle snaps to horizontal or vertical');
     const { dispose } = fixture([text]);
     try {
-        const input = document.getElementById('prop_rotation');
-        input.focus();
-        for (const value of ['270', '12', '360']) {
-            input.value = value; input.fire('input'); input.fire('change');
-            assert.ok(document.activeElement === input);
-            assert.equal(Number(input.value), Number(value) % 360);
-        }
+        assert.equal(document.getElementById('prop_rotation'), null, 'no free-angle Rotation field');
+        document.getElementById('propTextVertical').fire('click');
+        assert.equal(text.rotation, 270);
+        document.getElementById('propTextHorizontal').fire('click');
+        assert.equal(text.rotation, 0);
     } finally { dispose(); }
 }
 

@@ -75,7 +75,8 @@ marquee) but not moved, edited or deleted:
 - Move drags and arrow nudges carry only the unlocked part of the selection, and
   their snapping, sticky-wire and junction helpers see only that part; grabbing a
   locked member of a selection moves the rest. Rotate and flip skip locked
-  components; Delete and Cut skip locked objects; Copy takes them, and pasted copies
+  components (their Transform buttons are disabled when the whole selection is
+  locked); Delete and Cut skip locked objects; Copy takes them, and pasted copies
   start unlocked.
 - Properties edits apply to the unlocked members only; a field is read-only only when
   every selected object is locked. The Locked checkbox (mixed for a mixed selection)
@@ -126,3 +127,18 @@ The picker's "Exact match" checkbox filters the current Online (EasyEDA/KiCad)
 or Local results to those whose part number, manufacturer part number or name
 equals the search text, ignoring case (`isExactNameMatch()`); toggling it
 re-filters without a new online search.
+
+## Text Orientation and Field Guides
+
+Every schematic text reads horizontally (rotation 0) or vertically, bottom to top
+(270), like every other schematic object; a component's reference and value are no
+exception. Properties offers the H and V buttons (no free-angle Rotation field), R
+toggles between the two, and `textOrientation` (`shapes/text.js`) snaps any other
+stored angle to the nearer one when a document loads. PCB references keep free
+rotation.
+
+While a component's reference or value text is selected or edited, a dotted guide
+joins it to the component: from the symbol's outline (its local bounds grown by
+0.5 mm) to the text's outline, never from the component's centre. Other attached
+labels lead from their attachment point (`label-attachment.js` `updateLabelGuide`;
+`test-reference-selection-overlay`).

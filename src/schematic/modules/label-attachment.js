@@ -200,7 +200,8 @@ export function updateLabelGuide(app) {
     if (target) {
         const textBox = getTextEditBoxWorldCorners(label);
         if (!textBox) return;
-        if (target.refText === label) {
+        // A component's field texts (reference and value) lead from its box outline.
+        if (target.refText === label || target.valueText === label) {
             const local = target._getLocalBounds();
             const angle = (target.rotation || 0) * Math.PI / 180;
             const cosine = Math.cos(angle), sine = Math.sin(angle);

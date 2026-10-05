@@ -15,6 +15,17 @@ export function setTextMeasurer(fn) {
     textMeasurer = typeof fn === 'function' ? fn : null;
 }
 
+/**
+ * Schematic text reads horizontally (0) or vertically, bottom to top (270), like every
+ * other schematic object; any other stored angle snaps to the nearer of the two.
+ * @param {number} [rotation]
+ * @returns {0|270}
+ */
+export function textOrientation(rotation = 0) {
+    const angle = ((Number(rotation) || 0) % 180 + 180) % 180;
+    return angle > 45 && angle < 135 ? 270 : 0;
+}
+
 export class Text extends Shape {
     /**
      * @param {Object} [options]
@@ -45,7 +56,7 @@ export class Text extends Shape {
         });
         this.fontFamily = options.fontFamily || 'Arial';
         this.textAnchor = options.textAnchor || 'start';
-        this.rotation = options.rotation || 0;
+        this.rotation = textOrientation(options.rotation);
         this.border = !!options.border;
 
         // Text is rendered as a filled glyph, so its fill follows `color`
@@ -247,9 +258,6 @@ export class Text extends Shape {
                 { key: 'text',     label,               type: 'text' },
                 { key: 'fontSize', label: 'Text Size (mm)',  type: 'number', min: 0.5, max: 50, step: 0.5 },
             ];
-            if (this.fieldKey === 'reference') {
-                descriptors.push({ key: 'rotation', label: 'Rotation (°)', type: 'number', step: 15 });
-            }
             if (this.fieldKey === 'label') {
                 descriptors.push({ key: 'border', label: 'Border', type: 'checkbox' });
             }

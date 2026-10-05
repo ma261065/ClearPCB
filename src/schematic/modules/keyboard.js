@@ -113,9 +113,8 @@ function handleSpaceRotate(app, e) {
 
         const textShapes = sel.filter(s => s.type === 'text' && !isSchematicLocked(s));
         if (textShapes.length > 0) {
-            const newRot = textShapes.every(shape => shape.fieldKey === 'reference')
-                ? (((textShapes[0].rotation || 0) + 90) % 360 + 360) % 360
-                : textShapes[0].rotation === 270 ? 0 : 270;
+            // Every schematic text, a reference included, toggles horizontal / vertical.
+            const newRot = textShapes[0].rotation === 270 ? 0 : 270;
             app.history.execute(new ModifyPropertyCommand(app, textShapes, 'rotation', newRot));
             app.renderShapes(true);
             app.updatePropertiesPanel(sel);

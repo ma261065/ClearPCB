@@ -320,6 +320,28 @@ for (const rotation of [0, 37, 90]) for (const mirrored of [false, true]) {
     guideApp.textEdit = null;
     updateLabelGuide(guideApp);
     assert.equal(guideLayer.children.length, 0, 'Deselecting clears the guide');
+
+    // The value leads from the component outline too, never from its centre.
+    let valueCenter = toWorld(-12, 0);
+    const value = { type: 'text', parentComponent: parent, textAnchor: 'middle', fontSize: 2, rotation: 0,
+        get x() { return valueCenter.x; }, get y() { return valueCenter.y; },
+        element: {
+            getBBox() { return { x: valueCenter.x - 1, y: valueCenter.y - 1, width: 2, height: 2 }; },
+            getAttribute(name) { return name === 'y' ? String(valueCenter.y) : null; },
+        } };
+    parent.valueText = value;
+    selected = [value];
+    updateLabelGuide(guideApp);
+    const valueConnection = connectBoxOutlines(componentBox, getTextEditBoxWorldCorners(value));
+    near(guideApp._labelGuide.attributes.x2, valueConnection.start.x);
+    near(guideApp._labelGuide.attributes.y2, valueConnection.start.y);
+    near(guideApp._labelGuide.attributes.x1, valueConnection.end.x);
+    near(guideApp._labelGuide.attributes.y1, valueConnection.end.y);
+    assert.ok(Math.hypot(Number(guideApp._labelGuide.attributes.x2) - parent.x,
+        Number(guideApp._labelGuide.attributes.y2) - parent.y) > 1, 'The value guide starts on the outline, not the centre');
+    valueCenter = toWorld(12, 0);
+    selected = [];
+    updateLabelGuide(guideApp);
 }
 
 let renderedX = 10;
