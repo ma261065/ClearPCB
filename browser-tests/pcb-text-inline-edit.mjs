@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { openPcb, screenPoint } from './helpers/editor-helpers.mjs';
+import { openPcb, screenPoint, viewportSettled, waitForPage } from './helpers/editor-helpers.mjs';
 
 /** The hidden input that captures keystrokes for the text being edited on the canvas. */
 const editState = page => page.evaluate(async () => {
@@ -10,6 +10,8 @@ const editState = page => page.evaluate(async () => {
         editing: !!edit,
         caret: edit?.input.selectionStart ?? null,
         focused: !!edit && document.activeElement === edit.input,
+        focus: document.activeElement
+            ? `${document.activeElement.tagName}#${document.activeElement.id}.${document.activeElement.className}` : 'none',
         shown: app.texts.get('probe')?.content,
         authored: app.pcbDocument.texts.get('probe')?.content,
         rotation: app.pcbDocument.texts.get('probe')?.rotation,
@@ -43,7 +45,7 @@ async function startEditing(page, url) {
     const centre = await textPoint(page, 'centre');
     const at = await screenPoint(page, 'pcb', centre.x, centre.y);
     await page.mouse.dblclick(at.x, at.y);
-    await page.waitForFunction(async () => !!(await import('/src/pcb/modules/text-inline-edit.js'))
+    await waitForPage(page, async () => !!(await import('/src/pcb/modules/text-inline-edit.js'))
         .activeTextInlineEdit(window.bootstrap.pcbApp));
     await page.keyboard.press('End');
 }
@@ -75,7 +77,7 @@ export const scenarios = [{
             window.__releaseTimers = () => { window.setTimeout = realSetTimeout; held.splice(0).forEach(run => run()); };
         });
         await page.mouse.dblclick(at.x, at.y);
-        await page.waitForFunction(async () => !!(await import('/src/pcb/modules/text-inline-edit.js'))
+        await waitForPage(page, async () => !!(await import('/src/pcb/modules/text-inline-edit.js'))
             .activeTextInlineEdit(window.bootstrap.pcbApp));
         await page.keyboard.type('XY');
         let state = await editState(page);
@@ -103,7 +105,7 @@ export const scenarios = [{
         const centre = await textPoint(page, 'centre');
         const at = await screenPoint(page, 'pcb', centre.x, centre.y);
         await page.mouse.dblclick(at.x, at.y);
-        await page.waitForFunction(async () => !!(await import('/src/pcb/modules/text-inline-edit.js'))
+        await waitForPage(page, async () => !!(await import('/src/pcb/modules/text-inline-edit.js'))
             .activeTextInlineEdit(window.bootstrap.pcbApp));
         await page.keyboard.press('End');
         await page.keyboard.type('XYZ');
@@ -239,7 +241,7 @@ export const scenarios = [{
         const depth = await undoDepth(page);
         await page.keyboard.type('XY');
         await page.locator('.mode-tab[data-mode="schematic"]').click();
-        await page.waitForFunction(async () => !(await import('/src/pcb/modules/pcb-editor-api.js')).isEditorActive(window.bootstrap.pcbApp));
+        await waitForPage(page, async () => !(await import('/src/pcb/modules/pcb-editor-api.js')).isEditorActive(window.bootstrap.pcbApp));
         let state = await editState(page);
         assert.equal(state.editing, false, 'switching to the schematic ends the edit');
         assert.equal(state.authored, 'ABCXY', 'and keeps what was typed');
@@ -249,14 +251,18 @@ export const scenarios = [{
 
         // Going to another ribbon tab (to pick a tool) also commits.
         await page.locator('.mode-tab[data-mode="pcb"]').click();
-        await page.waitForFunction(async () => (await import('/src/pcb/modules/pcb-editor-api.js')).isEditorActive(window.bootstrap.pcbApp));
+        await waitForPage(page, async () => (await import('/src/pcb/modules/pcb-editor-api.js')).isEditorActive(window.bootstrap.pcbApp));
+        await viewportSettled(page, 'pcb');
         const centre = await textPoint(page, 'centre');
         const at = await screenPoint(page, 'pcb', centre.x, centre.y);
         await page.mouse.dblclick(at.x, at.y);
-        await page.waitForFunction(async () => !!(await import('/src/pcb/modules/text-inline-edit.js'))
+        await waitForPage(page, async () => !!(await import('/src/pcb/modules/text-inline-edit.js'))
             .activeTextInlineEdit(window.bootstrap.pcbApp));
         await page.keyboard.press('End');
         await page.keyboard.type('Z');
+        state = await editState(page);
+        assert.equal(state.editing, true, `the reopened edit is still open (focus: ${state.focus})`);
+        assert.equal(state.shown, 'ABCXYZ', `typing reaches the reopened edit (focus: ${state.focus})`);
         await page.locator('#ribbonPCB .ribbon-tab[data-tab="pcb-home"]').click();
         state = await editState(page);
         assert.equal(state.editing, false, 'going to another ribbon tab ends the edit');
@@ -278,7 +284,7 @@ export const scenarios = [{
         const centre = await textPoint(page, 'centre');
         const at = await screenPoint(page, 'pcb', centre.x, centre.y);
         await page.mouse.dblclick(at.x, at.y);
-        await page.waitForFunction(async () => !!(await import('/src/pcb/modules/text-inline-edit.js'))
+        await waitForPage(page, async () => !!(await import('/src/pcb/modules/text-inline-edit.js'))
             .activeTextInlineEdit(window.bootstrap.pcbApp));
         await page.keyboard.press('End');
         await page.keyboard.type('Z');

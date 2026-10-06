@@ -1,5 +1,26 @@
 import assert from 'node:assert/strict';
 
+/**
+ * Wait until `predicate`, run in the page, returns a truthy value. Unlike
+ * page.waitForFunction, the predicate may be async (e.g. to import an app module):
+ * waitForFunction does not await a returned promise, so an async predicate passes at
+ * once. test-browser-test-waits rejects async predicates passed to waitForFunction.
+ * @template T
+ * @param {import('playwright').Page} page
+ * @param {(arg: T) => unknown} predicate
+ * @param {T} [arg]
+ * @param {{ timeout?: number }} [options]
+ */
+export async function waitForPage(page, predicate, arg, { timeout = 30000 } = {}) {
+    const deadline = Date.now() + timeout;
+    for (;;) {
+        const value = await page.evaluate(predicate, arg);
+        if (value) return value;
+        if (Date.now() > deadline) throw new Error(`waitForPage timed out after ${timeout} ms: ${predicate}`);
+        await new Promise(resolve => setTimeout(resolve, 50));
+    }
+}
+
 // The startup splash is shown or skipped only after autosave recovery and the recent-file
 // list load, which can take seconds on a busy machine; until then a visibility check
 // would miss a splash that is about to cover the editor.
@@ -22,7 +43,7 @@ export async function openPcb(page, url) {
     await page.waitForFunction(() => window.bootstrap.pcbApp.isBoardOutlineDrawn());
     // The outline can be drawn by the hidden preload before the editor is active, and an
     // inactive editor ignores the pointer.
-    await page.waitForFunction(() => import('/src/pcb/modules/pcb-editor-api.js')
+    await waitForPage(page, () => import('/src/pcb/modules/pcb-editor-api.js')
         .then(api => api.isEditorActive(window.bootstrap.pcbApp)));
     await viewportSettled(page, 'pcb');
 }
