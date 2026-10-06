@@ -11,7 +11,8 @@
 //   npx playwright install chromium
 // or point PLAYWRIGHT at a Playwright package installed elsewhere.
 //
-// Usage: node tools/browser-test.mjs [scenario-name-filter]   (HEADED=1 shows the browser)
+// Usage: node tools/browser-test.mjs [scenario-name-filter]   (HEADED=1 shows the browser;
+// CPU_THROTTLE=4 slows the page down like a CI runner)
 
 import { readdirSync } from 'node:fs';
 import { createRequire } from 'node:module';
@@ -54,6 +55,11 @@ try {
     for (const scenario of scenarios) {
         const context = await browser.newContext({ viewport: { width: 1400, height: 900 } });
         const page = await context.newPage();
+        // CPU_THROTTLE=4 slows the page like a shared CI runner, to reproduce timing failures locally.
+        if (process.env.CPU_THROTTLE) {
+            const cdp = await context.newCDPSession(page);
+            await cdp.send('Emulation.setCPUThrottlingRate', { rate: Number(process.env.CPU_THROTTLE) });
+        }
         const pageErrors = [];
         page.on('pageerror', error => pageErrors.push(String(error?.stack || error)));
         // beforeunload ("unsaved changes") and app-level confirm() dialogs.

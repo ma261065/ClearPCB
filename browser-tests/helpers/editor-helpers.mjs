@@ -205,9 +205,8 @@ export async function exerciseSchematicNumberField(page, selector, readValue, se
         const input = document.querySelector(selector);
         return input && Number(input.value) !== startValue;
     }, [selector, startValue], { timeout: waitMs + 1500 }).catch(() => {});
-    await page.waitForFunction(([startValue]) => {
-        const app = window.bootstrap.schematicApp;
-        return JSON.stringify(app.project?.serialize?.().schematic ?? app.serializeSection?.()) && true;
-    }, [startValue], { timeout: waitMs + 1500 }).catch(() => {});
+    // The run commits once it settles (Enter commits at once); wait for the model, not a fixed delay.
+    const deadline = Date.now() + waitMs + 1500;
+    while (await readValue() === startValue && Date.now() < deadline) await page.waitForTimeout(50);
     assert.notEqual(await readValue(), startValue, `${selector} commits after the spinner run settles`);
 }

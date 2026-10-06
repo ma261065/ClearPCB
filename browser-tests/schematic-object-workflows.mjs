@@ -28,6 +28,28 @@ async function selectAt(page, x, y) {
     await clickWorld(page, 'schematic', x, y);
 }
 
+/**
+ * Select the object of `type` under a point. Objects can overlap there (a net label's
+ * text sits over its anchor, by an amount that depends on the platform's fonts), so
+ * Shift+click cycles through them as a user would.
+ */
+async function selectTypeAt(page, type, x, y) {
+    await selectAt(page, x, y);
+    for (let attempt = 0; attempt < 4 && (await selected(page))[0]?.type !== type; attempt++) {
+        await page.keyboard.down('Shift');
+        await clickWorld(page, 'schematic', x, y);
+        await page.keyboard.up('Shift');
+    }
+    assert.equal((await selected(page))[0]?.type, type, `the ${type} at ${x}, ${y} is selected`);
+}
+
+/** Midpoint of a drawn polyline's first edge, from the model (clicks snap to the grid). */
+const firstEdgeMidpoint = page => page.evaluate(() => {
+    const shape = window.bootstrap.schematicApp.shapes.find(s => s.type === 'polyline');
+    const [a, b] = shape.nodes instanceof Map ? [...shape.nodes.values()] : Object.values(shape.nodes);
+    return { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+});
+
 async function undoRedoReopen(page, before, after) {
     await undoSchematic(page, before);
     assert.equal(await schematicSnapshot(page), before, 'Undo restores the previous schematic model exactly');
@@ -94,7 +116,7 @@ export const scenarios = [
             const c = await viewCentre(page);
             await chooseSchematicTool(page, 'net');
             await clickWorld(page, 'schematic', c.x, c.y);
-            await selectAt(page, c.x, c.y);
+            await selectTypeAt(page, 'net', c.x, c.y);
             await exerciseSchematicNumberField(page, '#prop_fontSize',
                 () => page.evaluate(() => window.bootstrap.schematicApp.shapes.find(s => s.type === 'net').fontSize),
                 () => selectionVisual(page));
@@ -142,7 +164,9 @@ export const scenarios = [
             const c = await viewCentre(page);
             await drawSchematicShape(page, tool, points.map(value => add(c, value)));
             // An arc is selected on its curve: its third (bulge) point lies on it.
-            const selectedPoint = tool === 'arc' ? p(...add(c, points[2])) : addPoint(c, selectPoint);
+            const selectedPoint = tool === 'arc' ? p(...add(c, points[2]))
+                : tool === 'polygon' ? await firstEdgeMidpoint(page)
+                    : addPoint(c, selectPoint);
             const dragPoint = tool === 'arc' ? addPoint(selectedPoint, dragTo) : addPoint(c, dragTo);
             await selectAt(page, selectedPoint.x, selectedPoint.y);
             const field = tool === 'circle' ? '#prop_diameter' : '#prop_lineWidth';
