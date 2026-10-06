@@ -51,6 +51,12 @@ in that order and hands each one its predecessors' results (`ctx.poured`). The l
 refresh, the fill worker and fabrication snapshots all use it; a pour computed
 alone avoids its predecessors' outlines (`test-copper-review`).
 
+A pour voids other-net pads with their clearance. A pad on the pour's own net gets a
+thermal relief: its clearance ring is voided too, except for four spokes along the
+pad's own axes. The spokes follow its width, height and rotation, so each one reaches
+the pour past the pad's edge whatever its aspect ratio or angle
+(`test-thermal-relief-pad-axes`).
+
 Live computed pour polygons belong to `pcb/modules/computed-fill-cache.js`,
 an identity-keyed weak map outside authored `CopperFill` entities. SVG, flat 2D,
 3D, DRC, routing contacts, net propagation and ratsnest consumers read the same

@@ -455,9 +455,10 @@ const THERMAL_SPOKE_WIDTH = 0.4;
 
 /**
  * Void geometry for a same-net pad with a plus-shaped thermal relief. Takes
- * the pad's clearance ring and subtracts two crossed spokes (a horizontal and
- * a vertical bar through the pad centre), so the returned obstacle leaves four
- * copper bridges tying the pad to the surrounding pour.
+ * the pad's clearance ring and subtracts two crossed spokes along the pad's own
+ * axes (its width and height, turned by its rotation like its outline), so the
+ * returned obstacle leaves four copper bridges tying the pad to the surrounding
+ * pour, whatever the pad's aspect ratio and rotation.
  * @returns {Array} scaled int paths to subtract from the pour
  */
 function thermalReliefPaths(C, pad, clearance) {
@@ -468,12 +469,13 @@ function thermalReliefPaths(C, pad, clearance) {
     // Arms reach two clearances past the ring so they merge with the pour.
     const armX = hw + clearance * 2;
     const armY = hh + clearance * 2;
-    const cx = pad.x, cy = pad.y;
+    const rad = -(pad.rotation || 0) * Math.PI / 180;
+    const cos = Math.cos(rad), sin = Math.sin(rad);
+    const bar = (halfAlong, halfAcross) => [[-halfAlong, -halfAcross], [halfAlong, -halfAcross],
+        [halfAlong, halfAcross], [-halfAlong, halfAcross]]
+        .map(([x, y]) => ({ X: S(pad.x + x * cos - y * sin), Y: S(pad.y + x * sin + y * cos) }));
     const ring = padObstaclePaths(C, pad, clearance);
-    const plus = [
-        roundedRectPath(C, cx - armX, cy - sh, armX * 2, sh * 2, 0), // horizontal
-        roundedRectPath(C, cx - sh, cy - armY, sh * 2, armY * 2, 0), // vertical
-    ];
+    const plus = [bar(armX, sh), bar(sh, armY)];
     const clip = new C.Clipper();
     clip.AddPaths(ring, C.PolyType.ptSubject, true);
     clip.AddPaths(plus, C.PolyType.ptClip, true);
