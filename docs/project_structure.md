@@ -30,7 +30,8 @@ clearpcb/
 │   │                           # shared path editing (path-*, arc-*, shape-join, axis-glow, …)
 │   ├── components/             # Component/symbol ingestion and preview (BuiltInComponents,
 │   │                           # BuiltInPackages, BuiltInModels3D, ComponentLibrary,
-│   │                           # ComponentPicker, KiCadFetcher, LCSCFetcher, Model3D*, …)
+│   │                           # ComponentPicker, KiCadFetcher, kicad-index-format,
+│   │                           # LCSCFetcher, Model3D*, …)
 │   ├── easyeda/                # EasyEDA importers (schematic-importer.js)
 │   ├── shared/
 │   │   ├── 3d/                 # Arcball controller, model rendering
@@ -65,7 +66,8 @@ clearpcb/
 ├── browser-tests/              # Playwright scenarios run by tools/browser-test.mjs
 ├── tools/                      # Regression gate and checks (regression, test, typecheck,
 │                               # check-imports, check-*-editor-access, check-clearance-*),
-│                               # browser-test, serve, benchmarks, release packaging
+│                               # browser-test, serve, benchmarks, release packaging,
+│                               # build-kicad-index (release-time KiCad index)
 └── docs/
     ├── project_structure.md    # This page: layout, enforced rules, owners
     ├── module-contracts.md     # Index of the per-module behaviour contracts

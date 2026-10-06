@@ -9,6 +9,11 @@
 
 import { storageManager } from '../core/StorageManager.js';
 import { circumcircle } from '../core/geometry.js';
+import {
+    KICAD_FOOTPRINTS_PROJECT_PATH, KICAD_SYMBOLS_PROJECT_PATH, REQUIRED_LIBRARY_NAMES,
+    addSymbolTreeEntries, footprintNameFromPath, isLikelyValidFootprintIndex,
+    isLikelyValidSymbolIndex, isValidStaticIndex, latestStableTag
+} from './kicad-index-format.js';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const SEARCH_CACHE_TTL_MS = DAY_MS;
@@ -19,15 +24,11 @@ const CONTENT_PREVIEW_LENGTH = 200;
 const KICAD_FALLBACK_RELEASE = '9.0.2';
 const KICAD_GIT_REFS_BRANCHES = ['master', 'main'];
 const KICAD_LATEST_TAG_CACHE_KEY = 'kicad_latest_release_tag';
-const KICAD_SYMBOLS_PROJECT_PATH = 'kicad%2Flibraries%2Fkicad-symbols';
-const KICAD_FOOTPRINTS_PROJECT_PATH = 'kicad%2Flibraries%2Fkicad-footprints';
 const KICAD_LIBRARY_INDEX_CACHE_KEY = 'kicad_library_index';
 const KICAD_FULL_SYMBOL_INDEX_CACHE_KEY = 'kicad_full_symbol_index';
 const KICAD_FULL_FOOTPRINT_INDEX_CACHE_KEY = 'kicad_full_footprint_index';
-const MIN_EXPECTED_LIBRARY_COUNT = 100;
-const REQUIRED_LIBRARY_NAMES = ['Device', 'Timer'];
-const MIN_EXPECTED_FOOTPRINT_COUNT = 5000;
-const REQUIRED_FOOTPRINT_LIB_PREFIXES = ['Package_TO_SOT_SMD:', 'Package_SO:', 'Resistor_SMD:'];
+// Built into the deployed site at release time by tools/build-kicad-index.mjs.
+const STATIC_INDEX_URL = new URL('../../assets/kicad-index.json', import.meta.url).href;
 
 export class KiCadFetcher {
     /** Initialise GitLab base URLs, CORS proxies and in-memory caches. */
@@ -60,6 +61,7 @@ export class KiCadFetcher {
         this.fetchFailed = false;
         this._latestRelease = null;
         this._latestReleasePromise = null;
+        this._staticIndexPromise = null;
     }
     
     /** @returns {string} The primary CORS proxy URL. */
@@ -97,10 +99,46 @@ export class KiCadFetcher {
     }
 
     /**
-     * Fetch latest stable release tag from GitLab tags API.
+     * Load the KiCad index published with the site. Resolves null when it is
+     * absent or invalid (e.g. a local checkout), so callers fall back to live
+     * GitLab loading. Loaded at most once per fetcher.
+     * @returns {Promise<import('./kicad-index-format.js').StaticKiCadIndex|null>}
+     */
+    _loadStaticIndex() {
+        if (!this._staticIndexPromise) {
+            this._staticIndexPromise = this._fetchStaticIndex();
+        }
+        return this._staticIndexPromise;
+    }
+
+    /** @returns {Promise<import('./kicad-index-format.js').StaticKiCadIndex|null>} */
+    async _fetchStaticIndex() {
+        try {
+            const response = await fetch(STATIC_INDEX_URL);
+            if (!response.ok) return null;
+            const doc = await response.json();
+            if (isValidStaticIndex(doc)) {
+                console.log(`KiCadFetcher: Using published index for KiCad ${doc.tag}`);
+                return doc;
+            }
+            console.warn('KiCadFetcher: Published KiCad index is invalid; loading from GitLab.');
+        } catch {
+            // Not published with this copy of the app; the live path takes over.
+        }
+        return null;
+    }
+
+    /**
+     * Latest stable release tag: the published index's tag (so symbol and
+     * footprint lookups match the index), else the GitLab tags API.
      * @returns {Promise<string>}
      */
     async _fetchLatestRelease() {
+        const published = await this._loadStaticIndex();
+        if (published) {
+            return published.tag;
+        }
+
         const cached = storageManager.get(KICAD_LATEST_TAG_CACHE_KEY);
         if (typeof cached === 'string' && cached.length > 0) {
             return cached;
@@ -109,16 +147,11 @@ export class KiCadFetcher {
         try {
             const apiUrl = `https://gitlab.com/api/v4/projects/${KICAD_FOOTPRINTS_PROJECT_PATH}/repository/tags?per_page=10&order_by=version`;
             const data = await this._fetchJsonWithProxy(apiUrl);
-            if (Array.isArray(data)) {
-                const stable = data
-                    .map(t => typeof t?.name === 'string' ? t.name : '')
-                    .filter(name => name && !/rc|alpha|beta|backport|^v/i.test(name))
-                    .sort((a, b) => b.localeCompare(a, undefined, { numeric: true }));
-                if (stable.length > 0) {
-                    storageManager.set(KICAD_LATEST_TAG_CACHE_KEY, stable[0], CONTENT_CACHE_TTL_MS);
-                    console.log(`KiCad latest release tag: ${stable[0]}`);
-                    return stable[0];
-                }
+            const latest = Array.isArray(data) ? latestStableTag(data.map(t => t?.name)) : null;
+            if (latest) {
+                storageManager.set(KICAD_LATEST_TAG_CACHE_KEY, latest, CONTENT_CACHE_TTL_MS);
+                console.log(`KiCad latest release tag: ${latest}`);
+                return latest;
             }
         } catch (err) {
             console.warn('Failed to detect KiCad release tag, using fallback:', err);
@@ -570,14 +603,18 @@ export class KiCadFetcher {
      * @returns {Promise<void>}
      */
     async _loadFootprintNameIndex() {
+        const published = await this._loadStaticIndex();
+        if (published) {
+            this.footprintNameIndex = published.footprints;
+            return;
+        }
+
         // Ensure we know the latest release tag before fetching
         await this._detectLatestRelease();
 
         const cacheKey = KICAD_FULL_FOOTPRINT_INDEX_CACHE_KEY;
         const cached = storageManager.get(cacheKey);
-        if (Array.isArray(cached)
-            && cached.length >= MIN_EXPECTED_FOOTPRINT_COUNT
-            && this._isLikelyValidFootprintIndex(cached)) {
+        if (isLikelyValidFootprintIndex(cached)) {
             this.footprintNameIndex = cached;
             return;
         }
@@ -608,18 +645,16 @@ export class KiCadFetcher {
                 }
 
                 for (const entry of data) {
-                    const path = typeof entry?.path === 'string' ? entry.path : '';
-                    const match = path.match(/^(.+?)\.pretty\/(.+?)\.kicad_mod$/i);
-                    if (!match) continue;
-                    names.add(`${match[1]}:${match[2]}`);
+                    const name = footprintNameFromPath(entry?.path);
+                    if (name) names.add(name);
                 }
 
                 page += 1;
             }
 
-            if (failedPages === 0 && names.size >= MIN_EXPECTED_FOOTPRINT_COUNT) {
+            if (failedPages === 0) {
                 const list = Array.from(names).sort((a, b) => a.localeCompare(b));
-                if (this._isLikelyValidFootprintIndex(list)) {
+                if (isLikelyValidFootprintIndex(list)) {
                     this.footprintNameIndex = list;
                     this._setContentCache(cacheKey, list);
                     return;
@@ -628,23 +663,11 @@ export class KiCadFetcher {
         }
 
         // If live refresh fails, keep whatever valid cache exists; otherwise empty.
-        if (Array.isArray(cached) && this._isLikelyValidFootprintIndex(cached)) {
+        if (isLikelyValidFootprintIndex(cached)) {
             this.footprintNameIndex = cached;
         } else {
             this.footprintNameIndex = [];
         }
-    }
-
-    /**
-     * Basic sanity checks to reject obviously partial footprint indexes.
-     * @param {string[]} list
-     * @returns {boolean}
-     */
-    _isLikelyValidFootprintIndex(list) {
-        if (!Array.isArray(list) || list.length < MIN_EXPECTED_FOOTPRINT_COUNT) return false;
-        return REQUIRED_FOOTPRINT_LIB_PREFIXES.every(prefix =>
-            list.some(name => typeof name === 'string' && name.startsWith(prefix))
-        );
     }
     
     /**
@@ -1543,6 +1566,13 @@ export class KiCadFetcher {
         // before checking the cache, otherwise we'd miss cached data.
         await storageManager.ready;
 
+        const published = await this._loadStaticIndex();
+        if (this.libraryIndex) return;
+        if (published) {
+            this._useSymbolIndex(published.symbols);
+            return;
+        }
+
         // Detect latest KiCad release tag (cached, non-blocking after first call)
         await this._detectLatestRelease();
 
@@ -1556,13 +1586,8 @@ export class KiCadFetcher {
 
         if (cached && cached.data && typeof cached.data === 'object'
             && Object.keys(cached.data).length > 0) {
-            if (this._isLikelyValidSymbolIndex(cached.data)) {
-                this.libraryIndex = { symbols: cached.data };
-                for (const [lib, symbols] of Object.entries(cached.data)) {
-                    if (!this._symdirCache.has(lib)) {
-                        this._symdirCache.set(lib, symbols);
-                    }
-                }
+            if (isLikelyValidSymbolIndex(cached.data)) {
+                this._useSymbolIndex(cached.data);
 
                 if (cached.expired) {
                     // Serve stale data now — refresh silently in the background
@@ -1588,23 +1613,17 @@ export class KiCadFetcher {
     }
 
     /**
-     * Heuristic guard against partial cached indexes (e.g. interrupted downloads).
-     * @param {Object.<string, string[]>} indexData
-     * @returns {boolean}
+     * Adopt an already-complete symbol index without overwriting per-library
+     * listings fetched earlier.
+     * @param {Object.<string, string[]>} symbols
      */
-    _isLikelyValidSymbolIndex(indexData) {
-        if (!indexData || typeof indexData !== 'object') {
-            return false;
+    _useSymbolIndex(symbols) {
+        this.libraryIndex = { symbols };
+        for (const [lib, names] of Object.entries(symbols)) {
+            if (!this._symdirCache.has(lib)) {
+                this._symdirCache.set(lib, names);
+            }
         }
-
-        const libNames = Object.keys(indexData);
-        if (libNames.length < MIN_EXPECTED_LIBRARY_COUNT) {
-            return false;
-        }
-
-        return REQUIRED_LIBRARY_NAMES.every(name =>
-            Array.isArray(indexData[name]) && indexData[name].length > 0
-        );
     }
 
     /**
@@ -1645,24 +1664,7 @@ export class KiCadFetcher {
             if (!Array.isArray(entries)) {
                 return 0;
             }
-
-            for (const entry of entries) {
-                if (entry.type !== 'blob') continue;
-                const p = entry.path;
-                if (!p || !p.endsWith('.kicad_sym')) continue;
-
-                const parts = p.split('/');
-                if (parts.length !== 2) continue;
-
-                const dir = parts[0];
-                if (!dir.endsWith('.kicad_symdir')) continue;
-
-                const libName = dir.replace(/\.kicad_symdir$/, '');
-                const symName = parts[1].replace(/\.kicad_sym$/, '');
-                if (!index[libName]) index[libName] = [];
-                index[libName].push(symName);
-            }
-
+            addSymbolTreeEntries(entries, index);
             return entries.length;
         };
 

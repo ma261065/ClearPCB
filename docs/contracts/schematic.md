@@ -118,6 +118,9 @@ Opening the Online picker or starting a search joins the shared in-flight load,
 uses its warmed result, or retries a failed load. Switching an open picker from
 Local to Online retains that behavior; Local mode does not add a separate request.
 The fetcher owns cache hydration and stale-cache refresh as well as shared work.
+A released site serves a prebuilt index (`assets/kicad-index.json`, see
+[releases.md](../releases.md#kicad-library-index)); the fetcher uses it, and its KiCad
+tag, before any cache or GitLab request, and falls back to them when it is absent or invalid.
 Progress belongs to the current visible empty-query picker, and searches retain
 their generation guard. Exhausting every index ref rejects explicitly without
 publishing incomplete data or replacing a usable cached index. First-search

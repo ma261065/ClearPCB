@@ -9,6 +9,9 @@ EasyEDA*.json
 dist/
 ClearPCB-v*.zip
 
+# Locally built KiCad index (tools/build-kicad-index.mjs; releases build their own)
+/assets/kicad-index.json
+
 # MCP Worker dependencies
 mcp-worker/node_modules/
 

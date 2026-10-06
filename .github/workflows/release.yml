@@ -48,6 +48,11 @@ jobs:
         run: node tools/regression.mjs
       - name: Package site
         run: node tools/package-release.mjs "$RELEASE_TAG"
+      - name: Build KiCad library index
+        # A GitLab outage must not block a release: the app falls back to live
+        # loading, and the weekly KiCad index check reports the missing index.
+        continue-on-error: true
+        run: node tools/build-kicad-index.mjs dist/assets/kicad-index.json
       - name: Attach downloadable release
         shell: bash
         run: |

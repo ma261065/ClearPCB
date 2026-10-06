@@ -56,6 +56,28 @@ A failed gate leaves the existing stable deployment untouched. GitHub may alread
 show the release as published; this check blocks distribution by the workflow,
 not creation of the release entry itself.
 
+## KiCad Library Index
+
+The schematic component picker needs the names of every KiCad symbol and footprint.
+Building that list live takes about 380 GitLab API pages per new visitor, all through
+the Cloudflare CORS proxy. Instead, **Publish Stable Release** runs
+`node tools/build-kicad-index.mjs dist/assets/kicad-index.json` after packaging. It
+calls GitLab directly, at the latest stable KiCad library tag, and validates the
+result with the same rules as the app
+(`src/components/kicad-index-format.js`). The file is about 1.2 MB, 170 KB gzipped,
+and is not committed.
+
+The app loads `assets/kicad-index.json` first and takes its KiCad tag as the release
+for symbol and footprint lookups. If the file is missing or invalid (a local
+checkout, or a release whose index build failed), the app falls back to live loading
+through the proxy. A GitLab outage therefore does not block a release: that step is
+`continue-on-error`.
+
+**KiCad Index Check** runs every Monday and on demand. It fails when clearpcb.org has
+no valid index, or when KiCad has published a newer library release than the deployed
+index. Publish a ClearPCB release (a patch release is enough) to rebuild it. To build
+one locally, run `node tools/build-kicad-index.mjs assets/kicad-index.json` (git-ignored).
+
 After pushing the workflow and seeing its first successful hosted run, configure
 the `dev` and `release_*` branch rulesets to require **Regression gate** before
 merging. Workflow files alone do not enable branch protection. Hosted execution
