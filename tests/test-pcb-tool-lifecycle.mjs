@@ -8,12 +8,16 @@ import { getShapeDraw } from '../src/pcb/modules/board-shapes.js';
 import { activeTextInlineEdit } from '../src/pcb/modules/text-inline-edit.js';
 import { setPcbInteraction } from '../src/pcb/modules/pcb-interactions.js';
 import { getDrcPresentation } from '../src/pcb/modules/drc-state.js';
+import { getHoveredComponent, hoverComponent } from '../src/pcb/modules/component-selection.js';
+import { selectRefText } from '../src/pcb/modules/ref-text-selection.js';
+import { getPcbSelection } from '../src/pcb/modules/selection-registry.js';
 
 const elements = new Map();
 globalThis.window = { addEventListener() {} };
 globalThis.document = {
     getElementById: id => elements.get(id) || null,
     querySelector: () => null, querySelectorAll: () => [], addEventListener() {},
+    createElementNS: () => ({ setAttribute() {}, appendChild() {}, remove() {} }),
 };
 const { default: PCBApp } = await import('../src/ui/PCBApp.js');
 
@@ -53,7 +57,9 @@ function fixture() {
     };
     const app = {
         ribbon, history: new CommandHistory(), currentTool: 'select', activeLayer: 'top-copper', _active: true,
-        viewport: { gridSize: 1, getGridOptions: () => [{ value: 1 }] },
+        placements: new Map([['hovered', { bounds: { x: 0, y: 0, width: 1, height: 1 },
+            elements: [{ appendChild() {}, querySelector: () => ({ remove() {} }) }] }]]),
+        viewport: { gridSize: 1, getGridOptions: () => [{ value: 1 }], svg: { style: {} } },
         getLayerGroup: () => null,
         refreshText() {},
         selectText() {},
@@ -63,17 +69,22 @@ function fixture() {
         _cancelFillDraw() { events.push('cancel-fill'); setPcbInteraction(this, '_fillDraw', null); },
         _cancelShapeDraw() { events.push('cancel-shape'); setPcbInteraction(this, '_shapeDraw', null); },
         _endTextInlineEdit(commit) { assert.equal(commit, false); events.push('cancel-text'); setPcbInteraction(this, '_textEdit', null); },
-        _hoverComponent(value) { assert.equal(value, null); events.push('hover'); },
-        _selectRefText(value) { assert.equal(value, null); events.push('reference'); },
-        _updateCursorForTool() { events.push(`cursor:${this.currentTool}`); },
+        _drawRefOverlay() { events.push('reference'); },
+        _clearCursorCrosshair() {},
         setPcbStatus() { events.push(`status:${this.currentTool}`); },
-        _showViaToolProperties() { events.push('properties:via'); },
-        _showPadToolProperties() { events.push('properties:pad'); },
-        _showTrackDrawProperties() { events.push('properties:track'); },
-        _showTextToolProperties() { events.push('properties:text'); },
-        // The Fill tool describes its panel (copper-fill-edit.js) like the selected-object panels.
-        openPropertyPanel(panel) { if (panel.title === 'New Fill') events.push('properties:fill'); return true; },
-        _showBoardShapeToolProperties(kind) { events.push(`properties:${kind}`); },
+        netNames: () => [],
+        layerLabel: layer => layer === 'bottom-silk' ? 'Bottom Silk' : layer === 'top-silk' ? 'Top Silk'
+            : layer === 'bottom-copper' ? 'Bottom Copper' : layer === 'top-copper' ? 'Top Copper' : layer,
+        openPropertyPanel(panel) {
+            const names = {
+                'New Fill': 'fill', 'New Via': 'via', 'New Pad': 'pad',
+                'New Track': 'track', 'New Text': 'text',
+                'New Line': 'line', 'New Rectangle': 'rect', 'New Circle': 'circle',
+                'New Polygon': 'polygon', 'New Arc': 'arc',
+            };
+            events.push(`properties:${names[panel.title] || String(panel.title).replace(/^New /, '').toLowerCase()}`);
+            return true;
+        },
         _syncPcbHomeToolHighlight() {
             for (const button of Object.values(buttons)) button.classList.toggle('active', false);
             buttons.Select.classList.toggle('active', this.currentTool === 'select');
@@ -101,10 +112,17 @@ for (const previous of tools) for (const next of tools) {
     const f = fixture(), { app, events } = f;
     startDrawing(app, previous);
     const drawing = getTrackDraw(app) || getFillDraw(app) || getShapeDraw(app);
+    hoverComponent(app, 'hovered');
+    selectRefText(app, 'ref');
     f.clickTool(next);
     assert.equal(app.currentTool, next);
-    assert.ok(events.includes(`cursor:${next}`));
     assert.ok(events.includes(`status:${next}`));
+    if (next === 'select') assert.equal(app.viewport.svg.style.cursor, 'default');
+    else assert.match(app.viewport.svg.style.cursor, /crosshair/);
+    if (next !== 'select') {
+        assert.equal(getHoveredComponent(app), null, `${previous} -> ${next}: tool switch clears component hover`);
+        assert.equal(getPcbSelection(app, 'reftext').length, 0, `${previous} -> ${next}: tool switch clears reference text`);
+    }
     if (drawing) assert.equal(getTrackDraw(app) || getFillDraw(app) || getShapeDraw(app) || null,
         previous === next ? drawing : null, `${previous} -> ${next}: preserve only the same tool's drawing`);
     assert.deepEqual(events.filter(event => event.startsWith('properties:')), next === 'select' ? [] : [`properties:${next}`]);
@@ -159,7 +177,7 @@ for (const userInitiated of [false, true]) for (const sameTab of [false, true]) 
 }
 {
     const f = fixture();
-    f.app._showTrackDrawProperties = () => f.app.setActiveRibbonTab('pcb-properties');
+    f.app.openPropertyPanel = () => { f.app.setActiveRibbonTab('pcb-properties'); return true; };
     startDrawing(f.app, 'track');
     const drawing = getTrackDraw(f.app);
     f.clickTool('track');

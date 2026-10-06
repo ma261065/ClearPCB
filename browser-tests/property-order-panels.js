@@ -8,13 +8,14 @@ export async function collectPropertyPanels() {
     const at = path => import(new URL(path, location.origin).href);
     const [{ Track }, { Via }, { Pad }, { CopperFill }, { createPcbText }, trackCommands, { AddPadCommand }, { AddFillCommand },
         { AddTextCommand }, { AddBoardShapeCommand }, { setPcbSelection }, trackSelect, shapeProps, { createRect, createLine },
-        { Circle }, { Arc }, { Text }, { Net }, { Wire }] = await Promise.all([
+        { Circle }, { Arc }, { Text }, { Net }, { Wire }, trackDraw, viaTool, padProps, textProps] = await Promise.all([
         at('/src/shapes/track.js'), at('/src/shapes/via.js'), at('/src/shapes/pad.js'), at('/src/shapes/copper-fill.js'),
         at('/src/core/pcb-text.js'), at('/src/pcb/modules/track-commands.js'), at('/src/pcb/modules/pad-commands.js'),
         at('/src/pcb/modules/copper-fill-commands.js'), at('/src/pcb/modules/text-commands.js'), at('/src/pcb/modules/shape-commands.js'),
         at('/src/pcb/modules/selection-registry.js'), at('/src/pcb/modules/track-select.js'), at('/src/pcb/modules/board-shape-properties.js'),
         at('/src/shapes/polyline.js'), at('/src/shapes/circle.js'), at('/src/shapes/arc.js'), at('/src/shapes/text.js'),
-        at('/src/shapes/net.js'), at('/src/shapes/wire.js'),
+        at('/src/shapes/net.js'), at('/src/shapes/wire.js'), at('/src/pcb/modules/track-draw.js'),
+        at('/src/pcb/modules/via-tool.js'), at('/src/pcb/modules/pad-tool.js'), at('/src/pcb/modules/text-properties.js'),
     ]);
     const { pcbApp: pcb, schematicApp: schematic } = /** @type {any} */ (window).bootstrap;
     const panels = {};
@@ -67,10 +68,10 @@ export async function collectPropertyPanels() {
         setPcbSelection(pcb, entries);
         pcb._showPcbMultiSelectionProperties(entries);
     });
-    pcbPanel('new track', () => pcb._showTrackDrawProperties());
-    pcbPanel('new via', () => pcb._showViaToolProperties());
-    pcbPanel('new pad', () => pcb._showPadEditor(null));
-    pcbPanel('new text', () => pcb._showTextToolProperties());
+    pcbPanel('new track', () => trackDraw.showTrackDrawProperties(pcb));
+    pcbPanel('new via', () => viaTool.showViaToolProperties(pcb));
+    pcbPanel('new pad', () => padProps.showPadToolProperties(pcb));
+    pcbPanel('new text', () => textProps.showTextToolProperties(pcb));
     for (const layer of ['top-silk', 'top-copper', 'hole']) {
         for (const kind of ['line', 'rect', 'circle']) {
             pcbPanel(`new ${kind} on ${layer}`, () => { pcb.activeLayer = layer; shapeProps.showBoardShapeToolProperties(pcb, kind); });

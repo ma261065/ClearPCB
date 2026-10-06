@@ -178,13 +178,14 @@ class TestViewport {
         this.svg = { addEventListener() {}, style: {} };
     }
     updateTheme() {}
+    hideCrosshair() {}
 }
 /** A real PCB editor with a headless viewport and the canvas wiring it does not need. */
 function attachedEditor(pcbDocument, markDirty) {
     return pcbEditorFixture({ pcbDocument, viewport: null, canvasContainer: {},
         _createViewport: () => new TestViewport(),
         _bindMouseEvents() {}, _createLayerGroups() {}, _applyLayerPrefsToRender() {}, _updateViewportStatus() {},
-        _updateCursorForTool() {}, _markDirty: markDirty });
+        _markDirty: markDirty });
 }
 for (const controlsFirst of [true, false]) {
     const controls = new Map(['pcbGridSize', 'pcbGridStyle', 'pcbUnits', 'pcbShowGrid', 'pcbSnapToGrid']

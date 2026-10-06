@@ -21,7 +21,7 @@ export function setupCallbacks(app) {
 
     // Hover + status updates are coalesced to one animation frame so a burst
     // of mousemove events performs at most one hit-test / DOM update per frame
-    // (matches the PCB editor's _scheduleHoverUpdate pattern).
+    // (matches the PCB hover scheduler pattern).
     let pendingMove = null;
     let moveRaf = 0;
     let pendingView = null;

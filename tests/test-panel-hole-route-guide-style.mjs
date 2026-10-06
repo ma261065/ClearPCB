@@ -39,7 +39,7 @@ globalThis.clearTimeout = id => timers.delete(id);
 const { renderPanelPreview, resetPanelPreview } = await import('../src/pcb/modules/panelization-ui.js');
 const { renderBoardShape } = await import('../src/pcb/modules/board-shapes.js');
 const { rectangleBoardOutline } = await import('../src/shared/pcb/board-outline.js');
-const { startTrackDraw, updateTrackDraw, cancelTrackDraw, reconcileRatsnest } =
+const { startTrackDraw, updateTrackDraw, cancelTrackDraw, reconcileRatsnest, setTrackToolNet } =
     await import('../src/pcb/modules/track-draw.js');
 const { Pad } = await import('../src/shapes/pad.js');
 
@@ -56,7 +56,7 @@ for (const theme of ['light', 'dark']) {
             .map(id => [id, root.appendChild(node())]));
         const app = {
             tracks: [], vias: [], pads: [], placements: new Map(), netlist: [],
-            _shapeElements: new Map(), _trackToolNet: 'GND',
+            _shapeElements: new Map(),
             boardShapes: [rectangleBoardOutline(30, 20)],
             panelization: { rows: 2, columns: 3, railTop: 6, railBottom: 6, railLeft: 6, railRight: 6,
                 horizontalPositioningHoles: true, verticalPositioningHoles: true },
@@ -64,6 +64,7 @@ for (const theme of ['light', 'dark']) {
                 addContent: child => root.appendChild(child), setCrosshair() {}, hideCrosshair() {} },
             _layerGroups: layers, existingLayerGroups: () => layers, getLayerGroup(id) { return layers.get(id); },
         };
+        setTrackToolNet(app, 'GND');
         const source = JSON.stringify(app.boardShapes);
         const layout = renderPanelPreview(app);
         const preview = root.children.find(child => child.classList.contains('pcb-panel-preview'));

@@ -5,7 +5,7 @@ import { getTextEditBoxWorldCorners, setTextEditElementProvider } from '../src/c
 import { clearPcbSelection, setPcbSelection, togglePcbSelection }
     from '../src/pcb/modules/selection-registry.js';
 import '../src/pcb/modules/component-selection.js';
-import '../src/pcb/modules/ref-text-selection.js';
+import { tryEditReferenceAt } from '../src/pcb/modules/ref-text-selection.js';
 import { activeTextInlineEdit } from '../src/pcb/modules/text-inline-edit.js';
 import { setPcbInteraction } from '../src/pcb/modules/pcb-interactions.js';
 
@@ -75,7 +75,7 @@ const { default: PCBApp } = await import('../src/ui/PCBApp.js');
 const { idleState } = await import('../src/schematic/modules/draw-states.js');
 const { PCB_LAYERS } = await import('../src/pcb/modules/layers.js');
 const topSilk = PCB_LAYERS.find(layer => layer.id === 'top-silk');
-const startReferenceEdit = PCBApp.prototype._tryEditReferenceAt;
+const startReferenceEdit = function startReferenceEdit(worldPos) { return tryEditReferenceAt(this, worldPos); };
 const component = { id: 'component-1', reference: 'R1', invalidate() {},
     definition: { name: 'Part' }, symbol: { pins: [{ number: '1' }] },
     refText: { text: 'R1', invalidate() {} } };
@@ -105,18 +105,35 @@ Object.defineProperty(window, 'app', {
 let dirty = false;
 const referenceRenders = [], referenceOverlays = [], referencePanels = [];
 let referenceRatsnestUpdates = 0, referenceBoardUpdates = 0;
+const inlineRefElement = {
+    getAttribute(name) {
+        return ({
+            'data-ref-bx': '-1', 'data-ref-by': '-1', 'data-ref-bw': '2', 'data-ref-bh': '2',
+            'data-mx-center': '0', 'data-ref-cy': '0', 'data-ref-anchor-y': '0',
+            transform: '',
+        })[name] ?? null;
+    },
+};
+const referencePlacement = reference => ({
+    reference, side: 'top', x: 10, y: 20, refVisible: true,
+    elements: [{ querySelector: () => inlineRefElement }],
+});
 const editor = {
     project: componentApi,
-    placements: new Map([[component.id, { reference: 'R1', side: 'top', x: 10, y: 20 }]]),
+    placements: new Map([[component.id, referencePlacement('R1')]]),
     history: new CommandHistory({ onChanged() { dirty = true; } }),
     texts: new Map(),
     _hitTestRefText() { return component.id; },
     _startTextInlineEdit(text, point, options) { this.edit = { text, options }; },
+    startTextInlineEdit(text, point, options) { this._startTextInlineEdit(text, point, options); },
     _rerenderRef(id) { referenceRenders.push(this.placements.get(id)?.reference); },
+    rerenderRef(id) { this._rerenderRef(id); },
     _drawRefOverlay(id) { referenceOverlays.push(this.placements.get(id)?.reference); },
     _showRefProperties(id) { referencePanels.push(this.placements.get(id)?.reference); },
+    showRefProperties(id) { this._showRefProperties(id); },
     updateRatsnest() { referenceRatsnestUpdates++; },
     _board3d: { refresh() { referenceBoardUpdates++; } },
+    refreshComponent3D() { this._board3d?.refresh?.(); },
 };
 assert.equal(startReferenceEdit.call(editor, { x: 10, y: 20 }), true);
 editor.edit.text.content = 'R7';
@@ -157,7 +174,7 @@ assert.equal(editor.history.undoStack.length, 1, 'One rename creates one PCB und
 assert.equal(editor.history.getUndoDescription(), 'Rename R1 to R7');
 assert.equal(dirty, true, 'PCB history marks the combined document dirty');
 
-editor.placements.set(component.id, { reference: 'R7', side: 'top', x: 10, y: 20 });
+editor.placements.set(component.id, referencePlacement('R7'));
 editor.history.undo();
 assert.equal(component.reference, 'R1');
 assert.equal(component.refText.text, 'R1');

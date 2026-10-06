@@ -43,7 +43,7 @@ for (let handledAt = 0; handledAt < PHASES.length; handledAt++) {
 for (const locked of [false, true]) {
     const pcbDocument = new PcbDocument();
     const svg = element();
-    const placement = { x: 10, y: 20, locked };
+    const placement = { x: 10, y: 20, locked, bounds: { x: -1, y: -1, width: 2, height: 2 }, padOffsets: [], pads: new Map() };
     const app = Object.assign(Object.create(PCBApp.prototype), {
         pcbDocument, viewport: { svg, scale: 10 }, _layerGroups: new Map(), _clearancesVisible: false,
         placements: new Map([['U1', placement]]),
@@ -55,9 +55,9 @@ for (const locked of [false, true]) {
     }
     const selected = [];
     Object.assign(app, {
-        _hitTestRefText: () => null, _hitTestComponent: () => 'U1',
-        _selectComponent: id => selected.push(id), _selectBoardOutline: noop, selectText: noop, _selectRefText: noop,
-        showComponentProperties: noop, _hoverComponent: noop, _hideNetTooltip: noop,
+        _hitTestRefText: () => null,
+        _selectComponent: id => selected.push(id), _selectBoardOutline: noop, selectText: noop, _drawRefOverlay: noop,
+        showComponentProperties: noop,
         _netsForComponent: () => new Set(['N1']), selectFill: noop,
     });
     app._pressNewTarget(press(), { x: 10, y: 20 });

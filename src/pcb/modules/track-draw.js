@@ -54,6 +54,8 @@ import { showAlert } from '../../shared/ui/modal.js';
 import { areDragOverlaysDeferred, isPictureCopperRefreshPending } from './refresh-state.js';
 import { getPcbInteraction, setPcbInteraction } from './pcb-interactions.js';
 import { peekDrcPresentation, refreshSelectedDrcMarker, setDrcRatlines, storedDrcRatlines } from './drc-state.js';
+import { commitDesignValue, renderDesignSettings } from './design-settings.js';
+import { isLayerLocked } from './layers.js';
 import { invalidateDrcRefresh } from './drc-refresh.js';
 import {
     clearAxisGlow,
@@ -69,7 +71,27 @@ const NS = 'http://www.w3.org/2000/svg';
 const PREVIEW_CLASS = 'pcb-track-preview';
 
 const netGuideSources = new WeakMap();
+const trackToolLayers = new WeakMap();
+const trackToolNets = new WeakMap();
 const ratlinePointKey = ({ x, y }) => `${Math.round(x * 10000)},${Math.round(y * 10000)}`;
+
+/** @typedef {ReturnType<import('../../core/PcbDesignSettings.js').PcbDesignSettings['getRoutingParams']>} RoutingParams */
+
+export function getTrackToolLayer(app) {
+    return trackToolLayers.get(app);
+}
+
+export function setTrackToolLayer(app, layer) {
+    trackToolLayers.set(app, layer);
+}
+
+export function getTrackToolNet(app) {
+    return trackToolNets.get(app);
+}
+
+export function setTrackToolNet(app, net) {
+    trackToolNets.set(app, net);
+}
 
 /**
  * Screen-pixel pull radius for the collinear (straight-line) snap applied
@@ -241,7 +263,7 @@ export function resolveTrackSnap(app, worldPos, options = {}) {
     const lastPt = options.lastPt || null;
     const net = options.net || '';
 
-    const layer = options.layer || getTrackDraw(app)?.currentLayer || app._trackToolLayer || 'top-copper';
+    const layer = options.layer || getTrackDraw(app)?.currentLayer || getTrackToolLayer(app) || 'top-copper';
     const nearPad = findNearbyPad(app, worldPos, padTol, layer, options.excludePad);
     if (nearPad) {
         return { x: nearPad.x, y: nearPad.y, snapType: 'pad', pad: nearPad };
@@ -437,12 +459,12 @@ function shapeCopperContains(contact, point) {
 /** @returns {TrackSnap & {contactNets: string[], copperContact: boolean, via?: any, copperShapes?: any[]}} */
 export function resolveTrackDrawSnap(app, worldPos, options = {}) {
     const snap = resolveTrackSnap(app, worldPos, options);
-    const layer = getTrackDraw(app)?.currentLayer || app._trackToolLayer || 'top-copper';
+    const layer = getTrackDraw(app)?.currentLayer || getTrackToolLayer(app) || 'top-copper';
     if (!TOGGLE_LAYERS.includes(layer)) return { ...snap, contactNets: [], copperContact: false };
     const sourceNet = snap.pad?.net || snap.trackNode?.track.net || '';
     // A pour of another net is re-poured with clearance around the new track,
     // so it is not copper the track connects to (matching collectNodeConnections).
-    const drawNet = String(options.net || sourceNet || app._trackToolNet || '').trim();
+    const drawNet = String(options.net || sourceNet || getTrackToolNet(app) || '').trim();
     const foreignFill = (shape) => shape?.type === 'fill' && !!drawNet
         && !!String(shape.net || '').trim() && String(shape.net).trim() !== drawNet;
     const shapes = (app.boardShapes || []).filter((shape) => shape.layer === layer && shape.visible !== false
@@ -513,6 +535,72 @@ export function getTrackDraw(app) {
     return getPcbInteraction(app, '_trackDraw');
 }
 
+/** Show Track draw defaults and live draw settings in Properties. */
+export function showTrackDrawProperties(app) {
+    app.setPcbStatus();
+    const ctx = getTrackDraw(app);
+    let widthError = '';
+    const currentWidth = () => {
+        const p = /** @type {Partial<RoutingParams>} */ (app.getRoutingParams?.() || {});
+        return ctx?.width || (Number.isFinite(p.trackWidth) && p.trackWidth > 0 ? p.trackWidth : 0.2);
+    };
+    const currentLayer = () => ctx?.currentLayer || (getTrackToolLayer(app) === 'bottom-copper' ? 'bottom-copper' : 'top-copper');
+    const currentNet = () => ctx?.net ?? String(getTrackToolNet(app) || '');
+    const refresh = () => app.refreshPropertyPanel(describe());
+    const setNet = next => {
+        setTrackToolNet(app, next);
+        if (ctx) {
+            ctx.net = next;
+            const last = ctx.points[ctx.points.length - 1];
+            updateTrackDraw(app, ctx.snap ? { x: ctx.snap.x, y: ctx.snap.y } : last);
+        }
+        refresh();
+    };
+    const setLayer = value => {
+        const next = value === 'bottom-copper' ? 'bottom-copper' : 'top-copper';
+        if (isLayerLocked(next)) {
+            refresh();
+            return;
+        }
+        setTrackToolLayer(app, next);
+        if (ctx) ctx.currentLayer = next;
+        app.setPcbStatus();
+        refresh();
+    };
+    const setWidth = value => {
+        const hadError = !!widthError;
+        const result = commitDesignValue(app, 'trackWidth', value, 'mm');
+        widthError = result.message;
+        if (result.message) refresh();
+        if (!result.ok) return;
+        const next = app.designSettings.values.trackWidth;
+        renderDesignSettings(app);
+        if (ctx) {
+            ctx.width = next;
+            const last = ctx.points[ctx.points.length - 1];
+            updateTrackDraw(app, ctx.snap ? { x: ctx.snap.x, y: ctx.snap.y } : last);
+        }
+        if (hadError) refresh();
+    };
+    /** @returns {import('../../shared/ui/property-fields.js').PropertyPanel} */
+    const describe = () => ({
+        title: 'New Track',
+        fields: [
+            { key: 'layer', id: 'pcbPropTrackToolLayer', type: 'select', label: 'Layer', value: currentLayer(),
+                options: [
+                    { value: 'top-copper', label: 'Top Copper', disabled: isLayerLocked('top-copper') },
+                    { value: 'bottom-copper', label: 'Bottom Copper', disabled: isLayerLocked('bottom-copper') },
+                ], commit: setLayer },
+            { key: 'net', id: 'pcbPropTrackToolNet', type: 'net', label: 'Net', value: currentNet(),
+                nets: app.netNames(), commit: setNet },
+            { key: 'lineWidth', id: 'pcbPropTrackToolWidth', type: 'number', label: 'Width (mm)',
+                value: currentWidth(), min: 0.05, step: 0.05, numberFormat: 'precise',
+                error: widthError, preview: setWidth, commit: setWidth },
+        ],
+    });
+    app.openPropertyPanel(describe());
+}
+
 /**
  * Begin a new track. Resolves snap at the click point and seeds the
  * draw context with the first anchor. If the click landed on a pad,
@@ -528,7 +616,7 @@ export function startTrackDraw(app, worldPos) {
     // Inherit the net at draw start from the pad or track node we begin on,
     // so the live net-guide line works for the whole draw (an unassigned
     // track would have nothing to guide toward).
-    let net = startPad?.net || String(app._trackToolNet || '').trim();
+    let net = startPad?.net || String(getTrackToolNet(app) || '').trim();
     let startTrack = null;
     if (snap.snapType === 'track-node' && snap.trackNode) {
         startTrack = snap.trackNode.track;
@@ -536,7 +624,7 @@ export function startTrackDraw(app, worldPos) {
     }
     if (trackContactConflict(net, snap.contactNets)) return null;
     if (!net) net = snap.contactNets[0] || '';
-    const layer = TOGGLE_LAYERS.includes(app._trackToolLayer) ? app._trackToolLayer : 'top-copper';
+    const layer = TOGGLE_LAYERS.includes(getTrackToolLayer(app)) ? getTrackToolLayer(app) : 'top-copper';
     const width = _getTrackWidth(app);
     const routeOpts = _renderOptsFromApp(app);
 
@@ -575,7 +663,7 @@ export function startTrackDraw(app, worldPos) {
     setPcbInteraction(app, '_trackDraw', ctx);
     app.viewport?.setCrosshair({ x: snap.x, y: snap.y });
     _renderPreview(app, ctx, ctx.points[0]);
-    app._showTrackDrawProperties?.();
+    if (app.openPropertyPanel) showTrackDrawProperties(app);
     return ctx;
 }
 
@@ -744,7 +832,7 @@ export function finishTrackDraw(app) {
 
     _teardownDraw(app);
     // Track tool is still selected — restore its draw settings.
-    app._showTrackDrawProperties?.();
+    if (app.openPropertyPanel) showTrackDrawProperties(app);
     return true;
 }
 
@@ -753,7 +841,7 @@ export function finishTrackDraw(app) {
  */
 export function cancelTrackDraw(app) {
     _teardownDraw(app);
-    app._showTrackDrawProperties?.();
+    if (app.openPropertyPanel) showTrackDrawProperties(app);
 }
 
 /**

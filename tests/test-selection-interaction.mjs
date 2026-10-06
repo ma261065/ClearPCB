@@ -79,7 +79,7 @@ function expect(name, condition) {
         _shapeElements: new Map(),
         viewport: { scale: 1 },
         syncClipboardButtons() {}, setPcbStatus() {},
-        _selectComponent() {}, _selectBoardOutline() {}, selectText() {}, _selectRefText() {}, selectFill() {},
+        _selectComponent() {}, _selectBoardOutline() {}, selectText() {}, _drawRefOverlay() {}, selectFill() {},
         clearProperties() {}, _showPcbMultiSelectionProperties() {},
         getLayerGroup() { return null; },
     };
@@ -131,7 +131,7 @@ function expect(name, condition) {
         placements: new Map(), tracks: [], vias: [], boardShapes: [locked], texts: new Map(),
         _shapeElements: new Map(), viewport: { scale: 1 },
         syncClipboardButtons() {}, setPcbStatus() {},
-        _selectComponent() {}, _selectBoardOutline() {}, selectText() {}, _selectRefText() {}, selectFill() {},
+        _selectComponent() {}, _selectBoardOutline() {}, selectText() {}, _drawRefOverlay() {}, selectFill() {},
         clearProperties() {}, getLayerGroup() { return null; },
     };
     expect('Locked object remains directly selectable',
@@ -159,7 +159,7 @@ function expect(name, condition) {
         placements: new Map(), tracks: [], vias: [top], boardShapes: [below], texts: new Map(),
         _shapeElements: new Map(), viewport: { scale: 1 },
         syncClipboardButtons() {}, setPcbStatus() {},
-        _selectComponent() {}, _selectBoardOutline() {}, selectText() {}, _selectRefText() {}, selectFill() {},
+        _selectComponent() {}, _selectBoardOutline() {}, selectText() {}, _drawRefOverlay() {}, selectFill() {},
         clearProperties() {}, getLayerGroup() { return null; },
     };
     for (const shiftDrag of [false, true]) {

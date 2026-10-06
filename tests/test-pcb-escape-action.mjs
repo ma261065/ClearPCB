@@ -29,7 +29,6 @@ function fixture() {
         viewport: { svg: { style: {} }, hideCrosshair() { events.push('hide-crosshair'); } },
         _clearCursorCrosshair() { events.push('clear-crosshair'); },
         clearProperties() { events.push('clear-properties'); },
-        _updateCursorForTool() { events.push('cursor'); },
         _syncPcbHomeToolHighlight() { events.push('highlight'); },
         setPcbStatus() { events.push('status'); },
         setActiveRibbonTab(tab) { events.push(tab); },
@@ -63,7 +62,7 @@ for (const key of propertyKeys) {
     events.length = 0;
     assert.equal(escape(), true);
     assert.equal(app.currentTool, 'select', 'A later Escape leaves the tool');
-    assert.deepEqual(events, ['clear-properties', 'cursor', 'highlight', 'status', 'pcb-home']);
+    assert.deepEqual(events, ['clear-properties', 'clear-crosshair', 'highlight', 'status', 'pcb-home']);
 }
 
 {
@@ -142,7 +141,7 @@ function drawingFixture(tool) {
         hideCrosshair: Viewport.prototype.hideCrosshair,
         _positionCrosshair: Viewport.prototype._positionCrosshair,
     });
-    for (const name of ['_updateCursorForTool', '_clearCursorCrosshair', '_clearViaRing', '_clearPadPreview',
+    for (const name of ['_clearCursorCrosshair', '_clearViaRing', '_clearPadPreview',
         '_cancelDrawingMode', '_cancelTrackDraw', '_cancelFillDraw', '_cancelShapeDraw']) {
         app[name] = PCBApp.prototype[name];
     }

@@ -1,8 +1,10 @@
 import assert from 'node:assert/strict';
-import { getPcbSelectionHits, hitTestPcbSelection, syncPcbSelection }
+import { getPcbSelectionHits, hitTestPcbSelection, registerPcbPlacementHitTest, syncPcbSelection }
     from '../src/pcb/modules/selection-registry.js';
 import { createComponentSelectionAdapter } from '../src/pcb/modules/component-selection.js';
 import { createRefTextSelectionAdapter } from '../src/pcb/modules/ref-text-selection.js';
+
+registerPcbPlacementHitTest('component', (app, hitPoint, all) => app.readComponentHit(hitPoint, all));
 
 const point = { x: 0, y: 0 };
 let scans = 0;
@@ -12,7 +14,7 @@ const app = {
         x: 0, y: 0, refVisible: false, bounds: { x: -1, y: -1, width: 2, height: 2 },
     }])),
     viewport: { scale: 10 },
-    _hitTestComponent(_point, all) { scans++; return all ? (winner ? [winner] : []) : winner; },
+    readComponentHit(_point, all) { scans++; return all ? (winner ? [winner] : []) : winner; },
 };
 syncPcbSelection(app);
 const hits = () => getPcbSelectionHits(app, point, null, { sync: false }).map((hit) => hit.object);
@@ -38,16 +40,16 @@ winner = null;
 assert.equal(adapter.hitTest(point), false);
 assert.equal(scans, 6, 'Direct adapter calls must not retain a previous query result');
 
-app._hitTestComponent = () => { throw new Error('hit-test failure'); };
+app.readComponentHit = () => { throw new Error('hit-test failure'); };
 assert.throws(hits, /hit-test failure/);
-app._hitTestComponent = () => { scans++; return ['component-42']; };
+app.readComponentHit = () => { scans++; return ['component-42']; };
 assert.equal(adapter.hitTest(point), true);
 assert.deepEqual(hits(), ['component-42']);
 assert.equal(scans, 8, 'A failed query must release its cache');
 
 const nestedPoint = { x: 0.1, y: 0.1 };
 let nesting = false;
-app._hitTestComponent = () => {
+app.readComponentHit = () => {
     scans++;
     if (nesting) return ['component-7'];
     nesting = true;
@@ -62,7 +64,7 @@ app._hitTestComponent = () => {
 assert.deepEqual(hits(), ['component-42']);
 assert.equal(scans, 10, 'Nested queries must restore the outer query cache');
 
-const otherApp = { ...app, _pcbSelection: undefined, _hitTestComponent: () => ['component-9'] };
+const otherApp = { ...app, _pcbSelection: undefined, readComponentHit: () => ['component-9'] };
 assert.equal(hitTestPcbSelection(otherApp, point, 'component'), 'component-9');
 assert.deepEqual(hits(), ['component-42']);
 console.log('PASS: one component scan per selection query, fresh hits/misses, direct calls, errors, nesting, and app isolation');
@@ -74,7 +76,7 @@ const referenceApp = {
         x: 0, y: 0, refVisible: true,
     }])),
     viewport: { scale: 10 },
-    _hitTestComponent() { componentScans++; return ['component-42']; },
+    readComponentHit() { componentScans++; return ['component-42']; },
     _hitTestRefText() { referenceScans++; return referenceWinner; },
 };
 syncPcbSelection(referenceApp);

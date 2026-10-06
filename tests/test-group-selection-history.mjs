@@ -8,7 +8,8 @@ import { getGroupDrag } from '../src/pcb/modules/box-select.js';
 import { setPcbInteraction } from '../src/pcb/modules/pcb-interactions.js';
 import { getFillDraw } from '../src/pcb/modules/copper-fill-draw.js';
 import { getShapeDraw } from '../src/pcb/modules/board-shapes.js';
-import { getTrackDraw } from '../src/pcb/modules/track-draw.js';
+import { getTrackDraw, setTrackToolLayer } from '../src/pcb/modules/track-draw.js';
+import { setTextToolDefaults } from '../src/pcb/modules/text-properties.js';
 
 function element() {
     return {
@@ -288,21 +289,20 @@ console.log('PASS: drawing cancellation takes two Escapes with or without an exi
 const setStatus = PCBApp.prototype.setPcbStatus;
 app.status = { modeStatus: { textContent: '' } };
 app.activeLayer = 'hole';
-for (const [tool, settings, expected] of [
-    ['text', { _textDefaults: { layer: 'top-silk' } }, 'Text | Top Silk'],
-    ['text', { _textDefaults: { layer: 'bottom-silk' } }, 'Text | Bottom Silk'],
-    ['fill', { _fillToolLayer: 'bottom-copper' }, 'Fill | Bottom Copper'],
-    ['fill', { _fillDraw: { layer: 'top-copper' } }, 'Fill | Top Copper'],
-    ['track', { _trackToolLayer: 'top-copper' }, 'Track | Top Copper'],
-    ['track', { _trackDraw: { currentLayer: 'bottom-copper' } }, 'Track | Bottom Copper'],
-    ['circle', {}, 'Circle | Hole'],
-    ['select', {}, 'Select | Hole'],
+for (const [tool, setup, expected] of [
+    ['text', app => setTextToolDefaults(app, { size: 1.0, rotation: 0, layer: 'top-silk', strokeWidth: 0.15, border: false }), 'Text | Top Silk'],
+    ['text', app => setTextToolDefaults(app, { size: 1.0, rotation: 0, layer: 'bottom-silk', strokeWidth: 0.15, border: false }), 'Text | Bottom Silk'],
+    ['fill', app => { app._fillToolLayer = 'bottom-copper'; }, 'Fill | Bottom Copper'],
+    ['fill', app => setPcbInteraction(app, '_fillDraw', { layer: 'top-copper' }), 'Fill | Top Copper'],
+    ['track', app => setTrackToolLayer(app, 'top-copper'), 'Track | Top Copper'],
+    ['track', app => setPcbInteraction(app, '_trackDraw', { currentLayer: 'bottom-copper' }), 'Track | Bottom Copper'],
+    ['circle', () => {}, 'Circle | Hole'],
+    ['select', () => {}, 'Select | Hole'],
 ]) {
-    Object.assign(app, settings, { currentTool: tool });
-    if (settings._fillDraw) setPcbInteraction(app, '_fillDraw', settings._fillDraw);
-    else setPcbInteraction(app, '_fillDraw', null);
-    if (settings._trackDraw) setPcbInteraction(app, '_trackDraw', settings._trackDraw);
-    else setPcbInteraction(app, '_trackDraw', null);
+    Object.assign(app, { currentTool: tool, _fillToolLayer: undefined });
+    setPcbInteraction(app, '_fillDraw', null);
+    setPcbInteraction(app, '_trackDraw', null);
+    setup(app);
     setStatus.call(app);
     assert.equal(app.status.modeStatus.textContent, expected);
 }

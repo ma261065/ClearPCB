@@ -50,7 +50,7 @@ function fixture(saved = true) {
         _clearancesVisible: true, _padHaloGroups: new Map([['part', padHalo]]),
         _layerGroups: new Map([['clearance-overlay', overlay]]),
         viewport: { svg: { style: {} }, snapToGrid: false, gridVisible: true, hideCrosshair() {} },
-        getLayerGroup: id => id === 'clearance-overlay' ? overlay : null, _hoverComponent() {}, _hideNetTooltip() {},
+        getLayerGroup: id => id === 'clearance-overlay' ? overlay : null,
         _netsForComponent: () => new Set(['GND']),
         updateRatsnest: options => ratsnestUpdates.push(options),
         screenToWorld: event => ({ x: event.clientX, y: event.clientY }),

@@ -105,7 +105,7 @@ for (const [tool, method] of Object.entries(expected)) {
         startPan(x, y) { calls.push(['pan', x, y]); this.isPanning = true; },
         endPan() { calls.push(['endPan']); this.isPanning = false; },
     });
-    app._updateCursorForTool = () => calls.push(['cursor']);
+    app._clearCursorCrosshair = () => calls.push(['cursor']);
     app.placements = new Map([['part', { x: 0, y: 0 }]]);
     app.refreshClearanceHalos = () => calls.push(['endDrag']);
     app.updateRatsnest = noop;

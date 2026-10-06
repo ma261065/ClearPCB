@@ -139,8 +139,9 @@ evaluation-order cycle fails.
   `property-editors.js` (Properties bindings), `refresh-state.js` (pour/picture
   refresh status and refresh suspensions), `board-shape-state.js` (board-shape
   node/segment focus, hover and tool defaults), `pcb-text-render.js` (free-text
-  SVG elements and hover), `board-outline-resize.js` (board-outline drawn/selected
-  state), and `pcb-interactions.js` (in-progress interaction slots).
+  SVG elements and hover), `component-selection.js` (component hover outline),
+  `pcb-hover.js` (coalesced select-tool hover frame state), `board-outline-resize.js`
+  (board-outline drawn/selected state), and `pcb-interactions.js` (in-progress interaction slots).
 - In-progress interaction slots (`_drag`, `_trackDraw`, …) are listed once in
   `pcb-interactions.js` with their owner module and stored in its import-free
   WeakMap. Only the owner writes its slot with `setPcbInteraction`; other code
@@ -190,7 +191,8 @@ PCB editor:
   read-only `isBoardOutlineDrawn()` service used by page/test readiness checks.
 - `pcb/modules/ref-text-geometry.js` — a reference designator's box, hit test and
   inline-edit corners, and the footprint-local ↔ board transforms (pure functions of
-  the placement); `ref-text-selection.js` — its selection adapter.
+  the placement); `ref-text-selection.js` — its selection adapter, direct selection
+  and inline-edit entry points.
 - Properties panels by object: `track-select.js` (tracks, segments, nodes, vias),
   `pad-properties.js` (pads and the Pad tool), `text-properties.js` (free text, the
   Text tool, and the stroke-text field binder shared with reference designators),
@@ -202,12 +204,19 @@ PCB editor:
   Each describes its panel as data (`shared/ui/property-fields.js`) and shows it
   through the editor services in `pcb-editor-api.js` (`openPropertyPanel`,
   `refreshPropertyPanel`, `netNames`, `setPropertiesTitle`, `showPropertiesTab`,
-  `layerLabel`); `PCBApp` hosts the rendering and keeps a one-line forwarding
-  method for each panel, passing tool state (pad and text defaults, inline-edit
-  state) explicitly. The Track and Via tool panels live in `PCBApp`.
+  `layerLabel`); `PCBApp` hosts the rendering while owner modules keep their
+  tool defaults/previews in per-editor WeakMaps. Track defaults and the New Track
+  panel live in `track-draw.js`; Via defaults and preview rings live in
+  `via-tool.js`; Pad and Text defaults live with their Properties modules.
 - `pcb/modules/pcb-text-render.js` — free-text SVG element state, render/remove,
   refresh, hit-testing and hover state in per-editor WeakMaps; `pcb-text.js`
   remains the glyph geometry/color helper.
+- `pcb/modules/component-selection.js` — component hit-testing, hover outline state,
+  3D context-menu entry point and movement/rotation selection adapter.
+- `pcb/modules/copper-fill-selection.js` — copper-fill selection adapter and legacy
+  outline hit-testing for right-click and select-tool press paths.
+- `pcb/modules/pcb-hover.js` — select-tool hover scheduling, pointer coalescing and
+  cursor/overlap feedback state.
 - `pcb/modules/text-inline-edit.js` — in-place editing of free text (hidden input,
   stroke-font caret overlay, commit and cancel); `selectText` and
   `showTextProperties` are editor services.

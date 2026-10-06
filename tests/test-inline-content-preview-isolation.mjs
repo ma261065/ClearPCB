@@ -80,7 +80,8 @@ function fixture(layer, extraTexts = 0, isNew = false) {
         propertiesItems: () => properties, setPropertiesTitle() {}, layerLabel: id => id,
         clearProperties() {}, setActiveRibbonTab() {}, _refreshBoardShapeClearance() {},
         _insertInlineTextSymbol: () => false,
-        _cancelTrackDraw() {}, _cancelFillDraw() {}, _cancelShapeDraw() {}, _ensureViewport() {}, markSectionClean() {},
+        _cancelTrackDraw() {}, _cancelFillDraw() {}, _cancelShapeDraw() {}, _clearCursorCrosshair() {},
+        _ensureViewport() {}, markSectionClean() {},
         renderText(value) { renderText(this, value); },
     };
     attachPropertyPanelHarness(app, { controls: fields });

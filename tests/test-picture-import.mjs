@@ -20,7 +20,7 @@ const { boardShapeClearanceOutlines } = await import('../src/pcb/modules/copper-
 const { exportGerbers } = await import('../src/pcb/modules/gerber.js');
 const { collectCopperArtwork } = await import('../src/pcb/modules/copper-artwork.js');
 const { copperShapesTouch } = await import('../src/pcb/modules/track-contact-geometry.js');
-const { resolveTrackDrawSnap } = await import('../src/pcb/modules/track-draw.js');
+const { resolveTrackDrawSnap, setTrackToolLayer } = await import('../src/pcb/modules/track-draw.js');
 const gerberRegions = file => [...file.matchAll(/G36\*\n([\s\S]*?)G37\*/g)].map(match =>
     [...match[1].matchAll(/X(-?\d+)Y(-?\d+)D0[12]\*/g)].map(point =>
         ({ x: Number(point[1]) / 1e6, y: -Number(point[2]) / 1e6 })));
@@ -56,7 +56,8 @@ for (const layer of ['top-silk', 'bottom-silk', 'top-copper', 'bottom-copper']) 
     assert.equal(copperShapesTouch(image, { ...circle, x: -1 }), true);
     assert.equal(copperShapesTouch(image, { ...circle, x: -3 }), false, 'Contact does not extend outside the frame');
     const snapApp = { boardShapes: shapes, tracks: [], vias: [], placements: new Map(),
-        _trackToolLayer: layer, viewport: { scale: 100, snapToGrid: false } };
+        viewport: { scale: 100, snapToGrid: false } };
+    setTrackToolLayer(snapApp, layer);
     assert.equal(resolveTrackDrawSnap(snapApp, { x: 0, y: 0 }).copperContact, layer.endsWith('copper'),
         'Transparent pixels are logical copper only on copper layers');
     assert.equal(resolveTrackDrawSnap(snapApp, { x: -1, y: 0 }).copperContact, layer.endsWith('copper'));

@@ -1,8 +1,17 @@
-import { isPcbDrawing } from './pcb-interactions.js';
+import { getPcbInteraction, isPcbDrawing } from './pcb-interactions.js';
 import { cancelShapeDraw, getShapeDraw } from './board-shapes.js';
+import { showBoardShapeToolProperties } from './board-shape-properties.js';
 import { showFillToolProperties } from './copper-fill-edit.js';
 import { getFillDraw, cancelFillDraw } from './copper-fill-draw.js';
+import { showPadToolProperties } from './pad-tool.js';
+import { clearPadPreview } from './pad-tool.js';
+import { showTextToolProperties } from './text-properties.js';
+import { showTrackDrawProperties } from './track-draw.js';
+import { clearViaRing, showViaToolProperties } from './via-tool.js';
 import { activeTextInlineEdit, endTextInlineEdit } from './text-inline-edit.js';
+import { hoverComponent } from './component-selection.js';
+import { selectRefText } from './ref-text-selection.js';
+import { setToolCursor } from '../../shared/ui/cursor.js';
 
 export const PCB_SHAPE_TOOLS = new Set(['line', 'circle', 'arc', 'rect', 'polygon']);
 export const PCB_CROSSHAIR_TOOLS = new Set(['track', 'via', 'pad', 'text', 'fill', ...PCB_SHAPE_TOOLS]);
@@ -11,10 +20,33 @@ export function normalizePcbTool(tool) {
     return tool === 'select' || PCB_CROSSHAIR_TOOLS.has(tool) ? tool : 'select';
 }
 
+export function updateCursorForTool(app) {
+    if (!app.viewport?.svg) return;
+    if (getPcbInteraction(app, '_pasteDrop')) {
+        app.viewport.svg.style.cursor = 'crosshair';
+        clearViaRing(app);
+        clearPadPreview(app);
+        return;
+    }
+    const t = app.currentTool;
+    if (PCB_CROSSHAIR_TOOLS.has(t)) {
+        setToolCursor(app, t, app.viewport.svg);
+        if (t !== 'via') clearViaRing(app);
+        if (t !== 'pad') clearPadPreview(app);
+        return;
+    }
+    app.viewport.svg.style.cursor =
+        t === 'pan' ? 'grab' :
+        'default';
+    if (t !== 'via') clearViaRing(app);
+    if (t !== 'pad') clearPadPreview(app);
+    app._clearCursorCrosshair();
+}
+
 /** @param {import('../../ui/PCBApp.js').default} app */
 export function resetPcbTool(app) {
     app.currentTool = 'select';
-    app._updateCursorForTool?.();
+    updateCursorForTool(app);
     app._syncPcbHomeToolHighlight?.();
     app.setPcbStatus?.();
 }
@@ -31,18 +63,18 @@ export function selectPcbTool(app, tool) {
     if (getShapeDraw(app) && getShapeDraw(app).kind !== next) cancelShapeDraw(app);
     app.currentTool = next;
     if (next !== 'select') {
-        app._hoverComponent?.(null);
-        app._selectRefText?.(null);
+        hoverComponent(app, null);
+        selectRefText(app, null);
     }
     app._syncPcbHomeToolHighlight?.();
-    app._updateCursorForTool?.();
+    updateCursorForTool(app);
     app.setPcbStatus?.();
     if (next === 'fill') showFillToolProperties(app);
-    else if (next === 'via') app._showViaToolProperties?.();
-    else if (next === 'pad') app._showPadToolProperties?.();
-    else if (next === 'track') app._showTrackDrawProperties?.();
-    else if (next === 'text') app._showTextToolProperties?.();
-    else if (PCB_SHAPE_TOOLS.has(next)) app._showBoardShapeToolProperties?.(next);
+    else if (next === 'via') showViaToolProperties(app);
+    else if (next === 'pad') showPadToolProperties(app);
+    else if (next === 'track') showTrackDrawProperties(app);
+    else if (next === 'text') showTextToolProperties(app);
+    else if (PCB_SHAPE_TOOLS.has(next)) showBoardShapeToolProperties(app, next);
 }
 
 /** @param {import('../../ui/PCBApp.js').default} app */

@@ -185,9 +185,8 @@ assert.equal(movingText.x, textStart + 5, 'Unlocked selection members still move
 cancelPictureCopperRefresh(app);
 
 const { CopperFill } = await import('../src/shapes/copper-fill.js');
-const { createCopperFillSelectionAdapter } = await import('../src/pcb/modules/copper-fill-selection.js');
+const { createCopperFillSelectionAdapter, hitTestFill } = await import('../src/pcb/modules/copper-fill-selection.js');
 const { hitTestPcbSelection } = await import('../src/pcb/modules/selection-registry.js');
-const hitFill = PCBApp.prototype._hitTestFill;
 const visibleFill = new CopperFill({ outline: points, layer: 'top-copper' });
 const fillApp = {
     boardShapes: [visibleFill], copperFills: [visibleFill], viewport: { scale: 10 },
@@ -197,7 +196,7 @@ const previousVisibility = topLayer.visible;
 try {
     topLayer.visible = false;
     assert.equal(createCopperFillSelectionAdapter(fillApp, visibleFill, visibleFill.id).visible, true);
-    assert.equal(hitFill.call(fillApp, points[0]), visibleFill, 'Legacy click hits the visible fill');
+    assert.equal(hitTestFill(fillApp, points[0]), visibleFill, 'Click hits the visible fill');
     assert.equal(hitTestPcbSelection(fillApp, points[0], 'fill'), visibleFill,
         'Shared selection hits the visible fill with copper hidden');
     setPcbSelection(fillApp, [{ kind: 'fill', object: visibleFill }]);
@@ -211,7 +210,7 @@ try {
         const previous = target[property];
         try {
             target[property] = blocked;
-            assert.equal(hitFill.call(fillApp, points[0]), null);
+            assert.equal(hitTestFill(fillApp, points[0]), null);
             const locked = property === 'locked';
             assert.equal(hitTestPcbSelection(fillApp, points[0], 'fill'), locked ? visibleFill : null,
                 locked ? 'Shared selection can select a locked fill for its unlock affordance'

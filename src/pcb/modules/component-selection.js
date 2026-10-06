@@ -1,14 +1,19 @@
-import { getPcbSelection, registerPcbSelectionAdapter, getComponentSelectionHits } from './selection-registry.js';
+import { getPcbSelection, registerPcbPlacementHitTest, registerPcbSelectionAdapter, getComponentSelectionHits } from './selection-registry.js';
 import { lockPositionOutsideOutline } from './selection-anchors.js';
 import { beginRotationHandleDrag, endRotationHandleDrag, rotationHandleAnchor, pointerRotation } from './rotation-handle.js';
 import { previewPlacementPose, restorePlacementPosePreview, finishPlacementPreview, MovePlacementCommand, RotatePlacementCommand } from './track-commands.js';
-import { setHoverHighlight } from './track-select.js';
+import { worldToPlacementLocal } from './ref-text-geometry.js';
+import { dismissTrackContextMenu, setHoverHighlight } from './track-select.js';
 import { setDragOverlaysDeferred } from './refresh-state.js';
 import { areClearancesVisible, getPadHaloGroup } from './clearance-overlay.js';
 import { getPcbInteraction, setPcbInteraction } from './pcb-interactions.js';
 import { isEditorActive } from './pcb-editor-api.js';
+import { showContextMenu } from '../../shared/ui/context-menu.js';
+import { hasAny3DModel, openComponent3DFromData, buildComponent3DTitle } from '../../components/model3d-source.js';
+import { hideNetTooltip } from './net-tooltip.js';
 
 const componentDragFrames = new WeakMap();
+const hoveredComponents = new WeakMap();
 
 function showFootprintCrosshair(app, placement) {
     if (!placement || !app.viewport?.setCrosshair) return;
@@ -23,8 +28,8 @@ export function beginComponentDrag(app, componentId, worldPos) {
     const placement = app.placements.get(componentId);
     if (!placement || placement.locked) return false;
     setHoverHighlight(app, null);
-    app._hoverComponent(null);
-    app._hideNetTooltip();
+    hoverComponent(app, null);
+    hideNetTooltip(app);
     const drag = {
         compId: componentId,
         startWorld: worldPos,
@@ -120,6 +125,146 @@ export function endComponentDrag(app, commit = true) {
     }
 }
 
+/**
+ * Hit-test: find which component contains a world position.
+ * Tests against the footprint's courtyard/outline bounds (the same box
+ * drawn as the selection highlight). Falls back to the pad bounding-box
+ * extent for footprints without stored bounds. Returns the component ID
+ * or null. Iterates in insertion order and keeps the last (topmost)
+ * match so overlapping components resolve to the one drawn on top.
+ * @param {import('../../ui/PCBApp.js').default} app
+ * @param {{x: number, y: number}} worldPos
+ * @param {boolean} [all=false] Return every hit in top-to-bottom order for overlap selection.
+ * @returns {string|string[]|null}
+ */
+export function hitTestComponent(app, worldPos, all = false) {
+    let hit = null;
+    const hits = all ? [] : null;
+    for (const [compId, pl] of app.placements) {
+        const b = pl.bounds;
+        if (b) {
+            // `bounds` is in footprint-LOCAL coordinates; the rendered
+            // halo/LOD rects apply the full placement transform
+            // (translate → rotate → mirror). Map the cursor into the same
+            // local frame by inverting that transform, then test the
+            // axis-aligned local bounds rect — otherwise a rotated or
+            // mirrored footprint's hit box wouldn't match its halo.
+            const local = worldToPlacementLocal(worldPos, pl);
+            if (
+                local.x >= b.x && local.x <= b.x + b.width
+                && local.y >= b.y && local.y <= b.y + b.height
+            ) {
+                hit = compId;
+                hits?.push(compId);
+            }
+            continue;
+        }
+        // Fallback: no courtyard/outline — use the union of pad bounding
+        // boxes plus a small margin so the body between pads is clickable.
+        const MARGIN = 0.5; // mm
+        let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+        for (const off of (pl.padOffsets || [])) {
+            const pos = pl.pads.get(off.padId);
+            if (!pos) continue;
+            const w = (off.width || 1.2) / 2;
+            const h = (off.height || 1.2) / 2;
+            if (pos.x - w < minX) minX = pos.x - w;
+            if (pos.y - h < minY) minY = pos.y - h;
+            if (pos.x + w > maxX) maxX = pos.x + w;
+            if (pos.y + h > maxY) maxY = pos.y + h;
+        }
+        if (
+            minX !== Infinity
+            && worldPos.x >= minX - MARGIN && worldPos.x <= maxX + MARGIN
+            && worldPos.y >= minY - MARGIN && worldPos.y <= maxY + MARGIN
+        ) {
+            hit = compId;
+            hits?.push(compId);
+        }
+    }
+    return hits ? hits.reverse() : hit;
+}
+
+/**
+ * Hover highlight for a component under the select-tool cursor: a faint
+ * dashed outline over the footprint's bounds, matching the selection box
+ * but lighter. Skipped for the currently selected component (its solid
+ * highlight already shows). Pass null to clear. The rect is appended to
+ * the footprint's first layer group so it inherits the placement
+ * transform (bounds are in footprint-local coords).
+ * @param {import('../../ui/PCBApp.js').default} app
+ * @param {string|null} compId
+ */
+export function hoverComponent(app, compId) {
+    if (compId === getPcbSelection(app, 'component')[0]) compId = null;
+    const previous = hoveredComponents.get(app) || null;
+    if (previous === compId) return;
+    if (previous) {
+        const oldPl = app.placements.get(previous);
+        oldPl?.elements?.[0]?.querySelector('.pcb-hover-highlight')?.remove();
+    }
+    if (compId) hoveredComponents.set(app, compId);
+    else hoveredComponents.delete(app);
+    if (!compId) return;
+    const pl = app.placements.get(compId);
+    const b = pl?.bounds;
+    if (!pl?.elements?.length || !b) { hoveredComponents.delete(app); return; }
+    const NS = 'http://www.w3.org/2000/svg';
+    const hl = document.createElementNS(NS, 'rect');
+    hl.setAttribute('class', 'pcb-hover-highlight');
+    hl.setAttribute('x', String(b.x));
+    hl.setAttribute('y', String(b.y));
+    hl.setAttribute('width', String(b.width));
+    hl.setAttribute('height', String(b.height));
+    hl.setAttribute('fill', 'rgba(51,153,255,0.07)');
+    hl.setAttribute('stroke', '#3399ff');
+    hl.setAttribute('stroke-width', '0.1');
+    hl.setAttribute('stroke-dasharray', '0.5 0.35');
+    hl.setAttribute('pointer-events', 'none');
+    pl.elements[0].appendChild(hl);
+}
+
+export function getHoveredComponent(app) {
+    return hoveredComponents.get(app) || null;
+}
+
+/**
+ * Show a small "Show 3D" context menu for a placed footprint that carries a
+ * 3D OBJ model, at the given screen position. Takes the component id (not a
+ * placement object) so the action resolves the *live* placement at click
+ * time — mirroring the Properties button — and never acts on a placement
+ * that was orphaned by an autosave/schematic re-sync between right-click
+ * and selecting the menu item.
+ * @param {import('../../ui/PCBApp.js').default} app
+ * @param {string} compId
+ * @param {number} clientX
+ * @param {number} clientY
+ */
+export function showComponent3DMenu(app, compId, clientX, clientY) {
+    if (!hasAny3DModel(app.placements.get(compId))) return;
+    dismissTrackContextMenu();
+    showContextMenu('pcbTrackContextMenu',
+        [{ text: '🧊 Show 3D', onClick: () => openComponent3DPopout(app, compId) }], clientX, clientY);
+}
+
+/**
+ * Open the interactive 3D model pop-out for a placement (or compId).
+ * @param {import('../../ui/PCBApp.js').default} app
+ * @param {string|object} placementOrId
+ */
+export function openComponent3DPopout(app, placementOrId) {
+    const pl = typeof placementOrId === 'string'
+        ? app.placements.get(placementOrId)
+        : placementOrId;
+    if (!hasAny3DModel(pl)) return;
+    const title = buildComponent3DTitle(pl);
+    openComponent3DFromData({ data: pl, title })
+        .then((ok) => {
+            if (!ok) console.warn('No renderable 3D model found for component');
+        })
+        .catch(err => console.error('Failed to open 3D pop-out:', err));
+}
+
 function outlineForPlacement(placement) {
     const bounds = placement?.bounds;
     if (!bounds) return [{ x: placement?.x || 0, y: placement?.y || 0 }];
@@ -203,8 +348,8 @@ export function createComponentSelectionAdapter(app, componentId, id) {
                 rotation: placement.rotation || 0, nets: app._netsForComponent?.(componentId),
             };
             beginRotationHandleDrag(app);
-            app._hoverComponent?.(null);
-            app._hideNetTooltip?.();
+            hoverComponent(app, null);
+            hideNetTooltip(app);
             return true;
         },
         updateAnchorDrag(worldPos) {
@@ -245,3 +390,4 @@ export function createComponentSelectionAdapter(app, componentId, id) {
 }
 
 registerPcbSelectionAdapter('component', createComponentSelectionAdapter);
+registerPcbPlacementHitTest('component', hitTestComponent);

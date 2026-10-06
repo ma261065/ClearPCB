@@ -11,7 +11,7 @@ globalThis.document = {
     }),
 };
 const { collectCopper, runDRC } = await import('../src/pcb/modules/drc.js');
-const { reconcileRatsnest, collectBondedCopper, resolveTrackDrawSnap, nearestPointOnNet } =
+const { reconcileRatsnest, collectBondedCopper, resolveTrackDrawSnap, nearestPointOnNet, setTrackToolLayer } =
     await import('../src/pcb/modules/track-draw.js');
 const { boardShapeClearanceOutlines } = await import('../src/pcb/modules/copper-fill-geom.js');
 const { captureBoardShapeState } = await import('../src/pcb/modules/board-shapes.js');
@@ -26,9 +26,11 @@ const rectangle = (halfSize) => [
 ];
 function board(extra = {}) {
     const ratlines = { children: [], appendChild(line) { line.parent = this; this.children.push(line); } };
-    return { tracks: [], vias: [], pads: [], boardShapes: [], copperFills: [], placements: new Map(),
+    const app = { tracks: [], vias: [], pads: [], boardShapes: [], copperFills: [], placements: new Map(),
         texts: new Map(), netlist: [], _shapeElements: new Map(), viewport: { scale: 100, gridVisible: false },
-        _trackToolLayer: 'top-copper', getLayerGroup: id => id === 'ratlines' ? ratlines : null, ...extra };
+        getLayerGroup: id => id === 'ratlines' ? ratlines : null, ...extra };
+    setTrackToolLayer(app, 'top-copper');
+    return app;
 }
 const shapes = [
     { kind: 'line', points: [{ x: -2, y: 0 }, { x: 2, y: 0 }] },

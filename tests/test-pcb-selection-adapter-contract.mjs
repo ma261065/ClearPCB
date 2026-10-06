@@ -97,7 +97,7 @@ function boardFixture() {
         else app[name] = pcbDocument[name];
     }
     app.copperFills = pcbDocument.boardShapes.filter(shape => shape.type === 'fill');
-    for (const name of ['_hitTestComponent', '_worldToPlacementLocal', '_placementLocalToWorld',
+    for (const name of ['_worldToPlacementLocal', '_placementLocalToWorld',
         '_hitTestRefText', '_refCenterWorld']) app[name] = PCBApp.prototype[name];
     return app;
 }

@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { getTrackDraw } from '../src/pcb/modules/track-draw.js';
+import { getTrackDraw, setTrackToolLayer, setTrackToolNet } from '../src/pcb/modules/track-draw.js';
 import { setPcbInteraction } from '../src/pcb/modules/pcb-interactions.js';
 
 const element = () => ({ setAttribute() {}, appendChild() {}, addEventListener() {},
@@ -16,13 +16,17 @@ const shape = (x, net, extra = {}) => ({ id: `shape-${x}`, kind: 'rect', layer: 
     points: [{ x: x - 2, y: -2 }, { x: x + 2, y: -2 }, { x: x + 2, y: 2 }, { x: x - 2, y: 2 }],
     ...extra });
 const via = (x, net) => ({ id: `via-${x}`, x, y: 0, diameter: 1, drill: 0.3, net });
-const board = () => ({ tracks: [], vias: [], boardShapes: [], placements: new Map(), netlist: [],
-    _trackToolLayer: 'top-copper', getLayerGroup: () => null,
-    viewport: { scale: 100, gridVisible: false, setCrosshair() {}, hideCrosshair() {} },
-    _commitTracks(tracks, _vias, destinationShapes = []) {
-        this.tracks.push(...tracks);
-        for (const destination of destinationShapes) destination.net = tracks[0]?.net || '';
-    } });
+const board = () => {
+    const app = { tracks: [], vias: [], boardShapes: [], placements: new Map(), netlist: [],
+        getLayerGroup: () => null,
+        viewport: { scale: 100, gridVisible: false, setCrosshair() {}, hideCrosshair() {} },
+        _commitTracks(tracks, _vias, destinationShapes = []) {
+            this.tracks.push(...tracks);
+            for (const destination of destinationShapes) destination.net = tracks[0]?.net || '';
+        } };
+    setTrackToolLayer(app, 'top-copper');
+    return app;
+};
 
 for (const startKind of ['shape', 'via']) {
     for (const endKind of ['shape', 'via']) {
@@ -42,7 +46,7 @@ for (const startKind of ['shape', 'via']) {
 }
 
 const unassignedDestination = board();
-unassignedDestination._trackToolNet = 'SIGNAL';
+setTrackToolNet(unassignedDestination, 'SIGNAL');
 const destinationShape = shape(20, '');
 unassignedDestination.boardShapes.push(destinationShape);
 startTrackDraw(unassignedDestination, { x: 0, y: 0 });
@@ -81,7 +85,7 @@ viaApp.vias.push(via(0, 'GND'));
 assert.equal(resolveTrackDrawSnap(viaApp, { x: 0.3, y: 0 }).snapType, 'via',
     'vias are hard snap targets before drawing starts');
 assert.equal(resolveTrackDrawSnap(viaApp, { x: 0.3, y: 0 }).x, 0);
-viaApp._trackToolLayer = 'bottom-copper';
+setTrackToolLayer(viaApp, 'bottom-copper');
 assert.deepEqual(resolveTrackDrawSnap(viaApp, { x: 0.3, y: 0 }).contactNets, ['GND']);
 
 const standalonePad = (x, net, layers = 'both') => ({
@@ -89,7 +93,7 @@ const standalonePad = (x, net, layers = 'both') => ({
 });
 const standaloneApp = board();
 standaloneApp.pads = [standalonePad(0, 'PAD_NET'), standalonePad(20, 'PAD_NET')];
-standaloneApp._trackToolNet = 'STALE_TOOL_NET';
+setTrackToolNet(standaloneApp, 'STALE_TOOL_NET');
 const standaloneContext = startTrackDraw(standaloneApp, { x: 0.4, y: 0 });
 assert.equal(standaloneContext.snap.snapType, 'pad');
 assert.deepEqual(standaloneContext.points[0], { x: 0, y: 0 });
@@ -124,7 +128,7 @@ assert.deepEqual([standaloneApp.tracks[0].net, selectedStandalonePad.net, otherS
     ['PAD_NET', 'PAD_NET', 'PAD_NET'], 'mixed Track and Pad Net change undoes atomically');
 
 const componentPadApp = board();
-componentPadApp._trackToolNet = 'STALE_TOOL_NET';
+setTrackToolNet(componentPadApp, 'STALE_TOOL_NET');
 componentPadApp.placements = new Map([
     ['U1', { pads: new Map([['1', { x: 0, y: 0, number: '1' }]]) }],
     ['U2', { pads: new Map([['1', { x: 20, y: 0, number: '1' }]]) }],
@@ -157,7 +161,7 @@ assert.equal(startTrackDraw(overlap, { x: 0, y: 0 }), null);
 assert.equal(getTrackDraw(overlap), null);
 
 const explicit = board();
-explicit._trackToolNet = 'VCC';
+setTrackToolNet(explicit, 'VCC');
 explicit.vias.push(via(0, 'GND'));
 assert.equal(startTrackDraw(explicit, { x: 0, y: 0 }), null);
 

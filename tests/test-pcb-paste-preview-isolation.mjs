@@ -96,7 +96,7 @@ function fixture(deferred = false) {
         refreshFills() { if (!areDragOverlaysDeferred(this) && !isFillRefreshSuspended(this)) derived++; },
         updateCopperCuts() { derived++; }, refreshClearanceHalos() { derived++; },
         _clearancesVisible: true, getRoutingParams: () => ({ clearance: 0.25 }),
-        _board3d: { refresh() { derived++; } }, syncClipboardButtons() {}, _updateCursorForTool() {},
+        _board3d: { refresh() { derived++; } }, syncClipboardButtons() {}, _clearCursorCrosshair() {},
         clearProperties() {}, propertiesItems: () => null, setPropertiesTitle() {}, setPcbStatus() {},
         _cancelDrawingMode() {}, _ensureViewport() {}, markSectionClean() {}, _refreshPcbSelectionHighlights() {},
         _showPcbMultiSelectionProperties() {}, showTextProperties() {},

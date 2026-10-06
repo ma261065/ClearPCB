@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { installFakeDom } from './helpers/fake-dom.mjs';
 import { formatNumberInputValue } from '../src/core/number-inputs.js';
+import { getPadToolDefaults, setPadToolDefaults } from '../src/pcb/modules/pad-tool.js';
 
 installFakeDom();
 
@@ -347,19 +348,19 @@ for (const commit of [false, true]) {
 }
 {
     const { app, input } = fixture();
-    app._padDefaults = { shape: 'rectangle', size: 2, ratio: 2, drill: 1, rotation: 0, layers: 'both', net: '' };
+    setPadToolDefaults(app, { shape: 'rectangle', size: 2, ratio: 2, drill: 1, rotation: 0, layers: 'both', net: '' });
     app._showPadEditor(null);
     input('Size').emit('input', 0.5);
-    assert.equal(app._padDefaults.size, 0.5);
-    assert.equal(app._padDefaults.drill, 0.5);
+    assert.equal(getPadToolDefaults(app).size, 0.5);
+    assert.equal(getPadToolDefaults(app).drill, 0.5);
     input('Rotation').emit('change', -450.25);
-    assert.equal(app._padDefaults.rotation, 269.75);
+    assert.equal(getPadToolDefaults(app).rotation, 269.75);
     assert.equal(getPadPropertyPreview(app), undefined);
     assert.equal(app.history.canUndo(), false, 'Placement defaults remain outside document history');
     const stale = input('Ratio');
     app.clearProperties();
     stale.emit('change', 4);
-    assert.equal(app._padDefaults.ratio, 2, 'Detached default controls cannot alter the next tool');
+    assert.equal(getPadToolDefaults(app).ratio, 2, 'Detached default controls cannot alter the next tool');
     cases++;
 }
 for (const count of [1, 4]) for (const value of ['', '-', 'Infinity', '0.01', '3']) {

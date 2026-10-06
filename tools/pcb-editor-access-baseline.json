@@ -42,8 +42,6 @@
     "_padHaloGroups"
   ],
   "src/pcb/modules/component-selection.js": [
-    "_hideNetTooltip",
-    "_hoverComponent",
     "_netsForComponent",
     "_updatePcbCulling"
   ],
@@ -69,7 +67,6 @@
     "_boxSelectActive",
     "_boxSelectArm",
     "_clearCursorCrosshair",
-    "_selectRefText",
     "_showComponentPopup",
     "_showSaveToast",
     "_trackEdit"
@@ -98,15 +95,7 @@
   ],
   "src/pcb/modules/mouse.js": [
     "_endPasteDrop",
-    "_hitTestComponent",
-    "_hitTestFill",
-    "_scheduleHoverUpdate",
-    "_showComponent3DMenu",
-    "_tryEditReferenceAt",
-    "_updateCursorCrosshair",
-    "_updateCursorForTool",
-    "_updatePadPreview",
-    "_updateViaPreview"
+    "_updateCursorCrosshair"
   ],
   "src/pcb/modules/path-edit.js": [
     "_trackEdit"
@@ -127,8 +116,7 @@
   "src/pcb/modules/pcb-paste.js": [
     "_cancelPosePreviews",
     "_deferredShapeCopperCuts",
-    "_syncHistoryButtons",
-    "_updateCursorForTool"
+    "_syncHistoryButtons"
   ],
   "src/pcb/modules/picture-import.js": [
     "_beginPasteDrop"
@@ -168,7 +156,6 @@
   "src/pcb/modules/selection-interaction.js": [
     "_lastPointerWorld",
     "_selectComponent",
-    "_selectRefText",
     "_showFillProperties",
     "_showPadProperties",
     "_showPcbMultiSelectionProperties",
@@ -188,15 +175,8 @@
   "src/pcb/modules/tool-lifecycle.js": [
     "_cancelFillDraw",
     "_cancelTrackDraw",
-    "_hoverComponent",
-    "_selectRefText",
-    "_showBoardShapeToolProperties",
-    "_showPadToolProperties",
-    "_showTextToolProperties",
-    "_showTrackDrawProperties",
-    "_showViaToolProperties",
-    "_syncPcbHomeToolHighlight",
-    "_updateCursorForTool"
+    "_clearCursorCrosshair",
+    "_syncPcbHomeToolHighlight"
   ],
   "src/pcb/modules/track-commands.js": [
     "_drawRefOverlay",
@@ -214,10 +194,7 @@
   "src/pcb/modules/track-draw.js": [
     "_commitTracks",
     "_netGuideLine",
-    "_showTrackDrawProperties",
-    "_trackSnapMarker",
-    "_trackToolLayer",
-    "_trackToolNet"
+    "_trackSnapMarker"
   ],
   "src/pcb/modules/track-select.js": [
     "_hoveredTrackOrVia",

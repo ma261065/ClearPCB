@@ -30,6 +30,10 @@ Release records one `RotatePlacementCommand`, seeding automatic placements from
 the original pose. Escape, undo during a gesture and protected drops restore
 the original pose and track bonds without saving the preview. Locking through
 the properties panel cancels the active gesture before recording the lock.
+`pcb/modules/component-selection.js` also owns component body hit-testing,
+component hover outline state in per-editor WeakMaps and the component 3D
+context-menu entry point. PCB input modules import those owner APIs directly
+rather than reaching through `PCBApp` private methods.
 
 ## Free Text
 
@@ -41,6 +45,8 @@ and stroke width to four decimals only at the save boundary. The geometry helper
 layer colours. Editor presentation state lives in `pcb/modules/pcb-text-render.js`:
 it keeps each editor's SVG elements and hover target in WeakMaps, and exports
 render/remove and hit-test functions for commands, paste/load and mouse paths.
+The Text tool's editable placement defaults live in `pcb/modules/text-properties.js`
+as per-editor WeakMap state; the module opens the New Text panel directly.
 Re-rendering an existing text stays the editor service `refreshText(id)`, which
 modules call (and tests stub) rather than the render function.
 
@@ -279,6 +285,10 @@ Both reference-drag paths re-evaluate magnetic snapping on every pointer event,
 but skip SVG transforms and selection/tether overlay rebuilding when the resulting
 local offsets are exactly unchanged. Distinct free positions still render
 immediately; there is no rounding, movement threshold or new scheduler.
+`pcb/modules/ref-text-selection.js` owns direct reference selection and the
+double-click inline-reference edit entry point. Geometry remains in
+`ref-text-geometry.js`; editor callers use the selection module's exported
+functions instead of private `PCBApp` seams.
 
 Reference property commits restore the pre-preview style only in memory before
 constructing `SetRefStyleCommand`, so automatic placements retain their original

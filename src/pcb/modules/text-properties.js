@@ -33,9 +33,24 @@ const numberParse = (min, normalize = value => value) => text => {
     if (!Number.isFinite(value)) return null;
     return normalize(min === undefined ? value : Math.max(min, value));
 };
+const textToolDefaults = new WeakMap();
+
+export function getTextToolDefaults(app) {
+    let defaults = textToolDefaults.get(app);
+    if (!defaults) {
+        defaults = { size: 1.0, rotation: 0, layer: 'top-silk', strokeWidth: 0.15, border: false };
+        textToolDefaults.set(app, defaults);
+    }
+    return defaults;
+}
+
+export function setTextToolDefaults(app, defaults) {
+    textToolDefaults.set(app, defaults);
+}
 
 /** Show Text drawing defaults in Properties. */
-export function showTextToolProperties(app, defaults) {
+export function showTextToolProperties(app) {
+    const defaults = getTextToolDefaults(app);
     const hold = pictureRefreshHold(app);
     const refresh = () => app.refreshPropertyPanel?.(describe());
     const number = (key, id, label, property, extra = {}) => {

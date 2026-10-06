@@ -1,10 +1,14 @@
-import { registerPcbSelectionAdapter, getRefTextSelectionHit } from './selection-registry.js';
+import { getPcbSelection, registerPcbSelectionAdapter, getRefTextSelectionHit, setPcbSelection } from './selection-registry.js';
 import { lockPositionOutsideOutline } from './selection-anchors.js';
 import { isLayerVisible, isLayerLocked } from './layers.js';
 import { getPropertyEditor } from './property-editors.js';
-import { MoveRefTextCommand, renderPlacementPose } from './track-commands.js';
-import { worldToPlacementLocal } from './ref-text-geometry.js';
+import { MoveRefTextCommand, renderPlacementPose, placementTransform } from './track-commands.js';
+import { hitTestRefText, refBox, worldToPlacementLocal } from './ref-text-geometry.js';
 import { getPcbInteraction, setPcbInteraction } from './pcb-interactions.js';
+import { hitTestText } from './pcb-text-render.js';
+import { REF_DEFAULT_SIZE, REF_DEFAULT_STROKE } from '../../shared/pcb/footprint.js';
+import { measureText as measureStrokeText } from '../../shared/pcb/stroke-font.js';
+import { showAlert } from '../../shared/ui/modal.js';
 
 export function isRefTextLocked(placement) {
     return !!placement && (!!placement.locked
@@ -74,6 +78,106 @@ export function endRefDrag(app, commit = true) {
         renderPlacementPose(app, compId);
         app._drawRefOverlay(compId, false);
     }
+}
+
+export function hitTestReferenceText(app, worldPos) {
+    return hitTestRefText(app.placements, worldPos, refBox);
+}
+
+export function tryEditReferenceAt(app, worldPos) {
+    if (hitTestText(app, worldPos)) return false;
+    const compId = hitTestReferenceText(app, worldPos);
+    const pl = app.placements.get(compId);
+    const component = app.project?.getComponentInfo(compId);
+    const layer = pl?.side === 'bottom' ? 'bottom-silk' : 'top-silk';
+    if (!pl || pl.locked || !component || component.locked || isLayerLocked(layer) || !isLayerVisible(layer)) return false;
+    const original = component.reference;
+    const text = {
+        content: original,
+        size: pl.refSize || REF_DEFAULT_SIZE,
+        strokeWidth: pl.refStrokeWidth || REF_DEFAULT_STROKE,
+        layer,
+    };
+    const baseX = () => refBox(pl).cx - measureStrokeText(text.content, text.size) / 2;
+    const render = () => {
+        pl.reference = text.content;
+        app.rerenderRef(compId);
+        app._drawRefOverlay(compId, false);
+    };
+    app.startTextInlineEdit(text, worldPos, {
+        componentId: compId,
+        select: () => {
+            selectRefText(app, compId);
+            app.showRefProperties(compId);
+        },
+        prepare: () => {
+            text.size = pl.refSize || REF_DEFAULT_SIZE;
+            text.strokeWidth = pl.refStrokeWidth || REF_DEFAULT_STROKE;
+        },
+        transform: () => `${placementTransform(pl)} ${pl._refEl.getAttribute('transform') || ''}`
+            + ` translate(${baseX()},${pl._refEl.getAttribute('data-ref-anchor-y')})`,
+        localX: point => {
+            const svg = app.viewport.svg;
+            const cursor = svg.createSVGPoint();
+            cursor.x = point.x;
+            cursor.y = point.y;
+            const local = cursor.matrixTransform(pl._refEl.getCTM().inverse().multiply(svg.getCTM()));
+            return local.x - baseX();
+        },
+        render,
+        validate: value => {
+            const issue = app.project.validateComponentReference(compId, value);
+            if (issue) {
+                showAlert(issue.message, { title: issue.title });
+                return false;
+            }
+            return true;
+        },
+        finish: (value, commit) => {
+            const reference = value.trim();
+            if (commit && reference !== original) {
+                const command = app.project.createReferenceRenameCommand(compId, reference);
+                const apply = redo => {
+                    if (redo) command.execute();
+                    else command.undo();
+                    const current = app.project.getComponentInfo(compId);
+                    const placement = app.placements.get(compId);
+                    if (placement && current) {
+                        placement.reference = current.reference;
+                        app.rerenderRef(compId);
+                        app._drawRefOverlay(compId, false);
+                        app.showRefProperties(compId);
+                    }
+                    app.netlist = app.project.getNetlist();
+                    app.updateRatsnest();
+                    app.refreshComponent3D();
+                };
+                app.history.execute({
+                    description: `Rename ${original} to ${reference}`,
+                    execute: () => apply(true),
+                    undo: () => apply(false),
+                });
+            } else {
+                text.content = original;
+                render();
+                app.showRefProperties(compId);
+            }
+        },
+    });
+    return true;
+}
+
+/** Select/deselect a component's reference text. Pass null to clear. */
+export function selectRefText(app, compId) {
+    const prev = getPcbSelection(app, 'reftext')[0] || null;
+    const next = compId || null;
+    if (prev === next) {
+        if (next) app._drawRefOverlay(next, false);
+        return;
+    }
+    setPcbSelection(app, next ? [{ kind: 'reftext', object: next }] : []);
+    app.syncClipboardButtons?.();
+    app._drawRefOverlay(next, false);
 }
 
 function outlineForRefText(app, componentId) {

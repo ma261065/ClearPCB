@@ -29,7 +29,7 @@ import { hitTestPcbSelectionAnchor } from './selection-anchors.js';
 import { activeTextInlineEdit, startTextInlineEdit, endTextInlineEdit } from './text-inline-edit.js';
 import { hitTestText } from './pcb-text-render.js';
 import { toggleDebugTooltipPin, updateDebugTooltip } from './debug-tooltip.js';
-import { PCB_CROSSHAIR_TOOLS } from './tool-lifecycle.js';
+import { PCB_CROSSHAIR_TOOLS, updateCursorForTool } from './tool-lifecycle.js';
 import { dispatchPcbPointerMove, releasePcbPointerGestures } from './pcb-interaction-routing.js';
 import {
     getTrackDraw, resolveTrackDrawSnap, showTrackSnapMarker, clearTrackSnapMarker, addTrackWaypoint, finishTrackDraw,
@@ -38,8 +38,14 @@ import { getFillDraw, finishFillDraw } from './copper-fill-draw.js';
 import { settleFillGeometryPreview, showFillContextMenu } from './copper-fill-edit.js';
 import { hitTestTrack, hitTestLockedTrack, showTrackContextMenu } from './track-select.js';
 import { showLockedLayerBubble } from './layers.js';
+import { updatePadPreview } from './pad-tool.js';
+import { updateViaPreview } from './via-tool.js';
 import { isUnmodifiedPrimaryDoublePress } from '../../shared/ui/inline-edit-activation.js';
 import { hasAny3DModel } from '../../components/model3d-source.js';
+import { hitTestComponent, showComponent3DMenu } from './component-selection.js';
+import { hitTestFill } from './copper-fill-selection.js';
+import { scheduleHoverUpdate } from './pcb-hover.js';
+import { tryEditReferenceAt } from './ref-text-selection.js';
 
 /** PCBApp method handling a primary-button press for each tool. */
 export const PCB_TOOL_PRESS_HANDLERS = Object.freeze({
@@ -193,7 +199,7 @@ function onMouseDown(app, e) {
             startTextInlineEdit(app, textHit, worldPos);
             return;
         }
-        if (app._tryEditReferenceAt(worldPos)) {
+        if (tryEditReferenceAt(app, worldPos)) {
             e.preventDefault();
             return;
         }
@@ -223,9 +229,9 @@ function onMouseDown(app, e) {
 /** Keep the via, pad or crosshair cursor of the active tool under the pointer. */
 function updateToolCursor(app, worldPos) {
     if (app.currentTool === 'via') {
-        app._updateViaPreview(worldPos);
+        updateViaPreview(app, worldPos);
     } else if (app.currentTool === 'pad') {
-        app._updatePadPreview(worldPos);
+        updatePadPreview(app, worldPos);
     } else if (PCB_CROSSHAIR_TOOLS.has(app.currentTool)) {
         app._updateCursorCrosshair(worldPos);
     }
@@ -244,7 +250,7 @@ function onMouseMove(app, e) {
         // A pending or active marquee owns the move. Otherwise hover hit-testing, which is
         // O(N) over every pad, track and text, is coalesced to one pass per animation frame
         // so the highlight keeps up with the cursor on complex boards.
-        if (!maybeStartBoxSelect(app, e, app.screenToWorld(e))) app._scheduleHoverUpdate(e);
+        if (!maybeStartBoxSelect(app, e, app.screenToWorld(e))) scheduleHoverUpdate(app, e);
     } else if (app.currentTool === 'track') {
         const snap = resolveTrackDrawSnap(app, app.screenToWorld(e), {});
         app._updateCursorCrosshair({ x: snap.x, y: snap.y });
@@ -305,7 +311,7 @@ function editOrExplainAt(app, e) {
         startTextInlineEdit(app, textHit, worldPos);
         return;
     }
-    if (app.currentTool === 'select' && app._tryEditReferenceAt(worldPos)) {
+    if (app.currentTool === 'select' && tryEditReferenceAt(app, worldPos)) {
         e.preventDefault();
         return;
     }
@@ -329,7 +335,7 @@ function onMouseUp(app, e) {
     if (app.viewport.isPanning) {
         app.viewport.endPan();
         // Restore the tool's own cursor (endPan resets it to grab/default).
-        app._updateCursorForTool?.();
+        updateCursorForTool(app);
     }
     // Right/middle releases only end a pan: an armed or active anchor drag stays.
     if (e.button === 0) releasePcbPointerGestures(app, app.screenToWorld(e));
@@ -386,16 +392,16 @@ function onContextMenu(app, e) {
         showBoardShapeContextMenu(app, shape, e.clientX, e.clientY, worldPos);
         return;
     }
-    const fill = app._hitTestFill(worldPos);
+    const fill = hitTestFill(app, worldPos);
     if (fill) {
         endPan();
         showFillContextMenu(app, fill, e.clientX, e.clientY, worldPos);
         return;
     }
-    const compId = app._hitTestComponent(worldPos);
+    const compId = /** @type {string|null} */ (hitTestComponent(app, worldPos));
     const placement = compId ? app.placements.get(compId) : null;
     if (compId && hasAny3DModel(placement)) {
         endPan();
-        app._showComponent3DMenu(compId, e.clientX, e.clientY);
+        showComponent3DMenu(app, compId, e.clientX, e.clientY);
     }
 }

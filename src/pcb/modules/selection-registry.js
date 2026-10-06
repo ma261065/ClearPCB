@@ -13,6 +13,7 @@ import { getPcbInteraction } from './pcb-interactions.js';
 
 const keyFor = (kind, object) => `${kind}:${kind === 'component' || kind === 'reftext' ? object : object.id}`;
 const adapterFactories = new Map();
+const placementHitReaders = new Map();
 const hitQueries = new WeakMap();
 /** @type {Set<string|symbol>} */
 const groupGeometryMembers = new Set([
@@ -20,17 +21,26 @@ const groupGeometryMembers = new Set([
     'getLockPosition', 'invalidate', 'render',
 ]);
 
-function placementSelectionHit(app, point, method, all = false) {
+function placementSelectionHit(app, point, method, readHit, all = false) {
     const query = hitQueries.get(app);
-    const read = () => all ? new Set(app[method]?.(point, true) || []) : app[method]?.(point) ?? null;
+    const read = () => {
+        const hit = readHit
+            ? readHit(app, point, all)
+            : app[method]?.(point, all);
+        return all ? new Set(hit || []) : hit ?? null;
+    };
     const key = `${method}:${all}`;
     if (!query || query.x !== point.x || query.y !== point.y) return read();
     if (!query.results.has(key)) query.results.set(key, read());
     return query.results.get(key);
 }
 
+export function registerPcbPlacementHitTest(kind, readHit) {
+    placementHitReaders.set(kind, readHit);
+}
+
 export function getComponentSelectionHits(app, point) {
-    return placementSelectionHit(app, point, '_hitTestComponent', true);
+    return placementSelectionHit(app, point, 'component', placementHitReaders.get('component'), true);
 }
 
 export function getRefTextSelectionHit(app, point) {

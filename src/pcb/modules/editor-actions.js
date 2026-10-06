@@ -14,7 +14,7 @@ import { isEditorActive } from './pcb-editor-api.js';
 import { flushSettledChanges } from '../../shared/ui/settled-input.js';
 import { cancelPcbPaste, isPcbPasteActive } from './pcb-paste.js';
 import { endComponentDrag, getComponentDrag } from './component-selection.js';
-import { endRefDrag, getRefDrag } from './ref-text-selection.js';
+import { endRefDrag, getRefDrag, selectRefText } from './ref-text-selection.js';
 
 /**
  * Delete the current refinement or selection, retaining drawing/paste ownership
@@ -147,7 +147,7 @@ export function runPcbEscapeAction(app) {
         return true;
     }
     if (getPcbSelection(app, 'reftext').length) {
-        app._selectRefText(null);
+        selectRefText(app, null);
         app.clearProperties?.();
         app.setActiveRibbonTab?.('pcb-home');
         return true;

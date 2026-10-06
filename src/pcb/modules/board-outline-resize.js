@@ -44,6 +44,45 @@ export function setBoardOutlineSelected(app, selected) {
 }
 
 /**
+ * Test if a world point is near the board outline edge.
+ */
+export function hitTestBoardOutline(app, pos) {
+    if (getBoardOutline(app)) return false;
+    if (!isBoardOutlineDrawn(app)) return false;
+    // The board outline lives on the 'board-outline' layer; don't allow
+    // selecting/hovering it while that layer is locked or hidden.
+    if (isLayerLocked('board-outline') || !isLayerVisible('board-outline')) return false;
+    const { width: w, height: h } = boardDimensions(app);
+    // In SVG coords (Y-down), board goes from (0, -h) to (w, 0)
+    const x1 = 0, y1 = -h;
+    const x2 = w, y2 = 0;
+    const tol = 1.5; // mm hit tolerance
+
+    // Near any edge?
+    const nearLeft = Math.abs(pos.x - x1) < tol && pos.y >= y1 - tol && pos.y <= y2 + tol;
+    const nearRight = Math.abs(pos.x - x2) < tol && pos.y >= y1 - tol && pos.y <= y2 + tol;
+    const nearTop = Math.abs(pos.y - y1) < tol && pos.x >= x1 - tol && pos.x <= x2 + tol;
+    const nearBottom = Math.abs(pos.y - y2) < tol && pos.x >= x1 - tol && pos.x <= x2 + tol;
+    return nearLeft || nearRight || nearTop || nearBottom;
+}
+
+/**
+ * Set board outline hover state.
+ */
+export function hoverBoardOutline(app, hovered) {
+    const outline = app.getLayerGroup('board-outline').querySelector('.pcb-board-outline');
+    if (!outline) return;
+    if (isBoardOutlineSelected(app)) return; // don't override selection highlight
+    if (hovered) {
+        outline.setAttribute('stroke', '#ffe066');
+        outline.setAttribute('stroke-width', '0.35');
+    } else {
+        outline.setAttribute('stroke', '#f1c40f');
+        outline.setAttribute('stroke-width', '0.2');
+    }
+}
+
+/**
  * Draw (or redraw) the board outline on the board-outline layer.
  */
 export function drawBoardOutline(app) {

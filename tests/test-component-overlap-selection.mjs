@@ -5,7 +5,8 @@ import { CommandHistory } from '../src/core/CommandHistory.js';
 import { ProjectDocument } from '../src/core/ProjectDocument.js';
 import { createRect } from '../src/shapes/polyline.js';
 import { getSelectionInteraction } from '../src/pcb/modules/selection-interaction.js';
-import { getComponentDrag } from '../src/pcb/modules/component-selection.js';
+import { getComponentDrag, hitTestComponent } from '../src/pcb/modules/component-selection.js';
+import { hoverComponentCandidate, hoverOverlapHitCount, scheduleHoverUpdate, setHoverOverlapHitCount } from '../src/pcb/modules/pcb-hover.js';
 
 const frames = new Map();
 let frameId = 0;
@@ -59,18 +60,17 @@ function pcbFixture(withShape = false) {
         _shapeElements: new Map(), _active: true, currentTool: 'select', activeLayer: 'top-copper',
         viewport: { scale: 10, svg: { style: {} }, snapToGrid: false, hideCrosshair() {} },
         status: { modeStatus: {}, tipStatus: { hidden: true, textContent: '' } },
-        getLayerGroup: () => null, _selectComponent() {}, _selectBoardOutline() {},
-        selectText() {}, _selectRefText() {}, selectFill() {}, clearProperties() {},
-        _showPcbMultiSelectionProperties() {}, _hoverComponent(id) { this.hoveredComponent = id; },
-        _hideNetTooltip() {}, updateRatsnest() {}, _netsForComponent: () => new Set(),
+        getLayerGroup: id => id === 'board-outline' ? { querySelector: () => null } : null,
+        _selectComponent() {}, _selectBoardOutline() {},
+        selectText() {}, selectFill() {}, clearProperties() {},
+        _showPcbMultiSelectionProperties() {}, _drawRefOverlay() {},
+        updateRatsnest() {}, _netsForComponent: () => new Set(),
         _markDirty() {}, _updatePcbCulling() {}, refreshClearanceHalos() {},
-        _hitTestBoardOutline: () => false, _hoverBoardOutline() {},
-        _hitTestPad: () => null, _updateNetTooltip() {},
+        updateCursorForTool() {},
         _hitTestRefText: () => null,
         screenToWorld: event => ({ x: event.clientX, y: event.clientY }),
     };
-    for (const name of ['_hitTestComponent', '_worldToPlacementLocal',
-        'snapToGrid', 'setPcbStatus', '_scheduleHoverUpdate']) {
+    for (const name of ['_worldToPlacementLocal', 'snapToGrid', 'setPcbStatus']) {
         app[name] = PCBApp.prototype[name];
     }
     syncPcbSelection(app);
@@ -86,8 +86,8 @@ function cyclePcb(app, additive = false) {
 for (const withShape of [false, true]) {
     const app = pcbFixture(withShape);
     const expected = withShape ? [app.boardShapes[0], 'top', 'below'] : ['top', 'below'];
-    assert.equal(app._hitTestComponent(point), 'top', 'Legacy single-hit callers retain topmost ordering');
-    assert.deepEqual(app._hitTestComponent(point, true), ['top', 'below']);
+    assert.equal(hitTestComponent(app, point), 'top', 'Single-hit callers retain topmost ordering');
+    assert.deepEqual(hitTestComponent(app, point, true), ['top', 'below']);
     assert.deepEqual(getPcbSelectionHits(app, point).map(hit => hit.object), expected);
     for (const target of [...expected, expected[0]]) {
         cyclePcb(app);
@@ -174,18 +174,18 @@ for (const withShape of [false, true]) for (const shiftDrag of [false, true]) {
 {
     const app = pcbFixture();
     setPcbSelection(app, [{ kind: 'component', object: 'below' }]);
-    app._scheduleHoverUpdate({ clientX: 0, clientY: 0 });
+    scheduleHoverUpdate(app, { clientX: 0, clientY: 0 });
     flushFrames();
-    assert.equal(app._overlapHitCount, 2);
+    assert.equal(hoverOverlapHitCount(app), 2);
     assert.match(app.status.tipStatus.textContent, /Shift\+Click/);
     assert.equal(app.status.tipStatus.hidden, false);
-    assert.equal(app.hoveredComponent, 'below', 'Hover follows the component that will be dragged');
+    assert.equal(hoverComponentCandidate(app), 'below', 'Hover follows the component that will be dragged');
     assert.equal(app.viewport.svg.style.cursor, 'move');
-    app._scheduleHoverUpdate({ clientX: 100, clientY: 0 });
+    scheduleHoverUpdate(app, { clientX: 100, clientY: 0 });
     flushFrames();
-    assert.equal(app._overlapHitCount, 1);
+    assert.equal(hoverOverlapHitCount(app), 1);
     assert.equal(app.status.tipStatus.hidden, true, 'PCB tip disappears away from overlaps');
-    app._overlapHitCount = 2;
+    setHoverOverlapHitCount(app, 2);
     app.currentTool = 'pan';
     app.setPcbStatus();
     assert.equal(app.status.tipStatus.hidden, true, 'PCB overlap tip is select-tool-only');

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { setComputedFill } from '../src/pcb/modules/computed-fill-cache.js';
 import { getVertexDrag } from '../src/pcb/modules/track-drag.js';
-import { getTrackDraw } from '../src/pcb/modules/track-draw.js';
+import { getTrackDraw, setTrackToolNet } from '../src/pcb/modules/track-draw.js';
 import { storedDrcRatlines } from '../src/pcb/modules/drc-state.js';
 
 function element() {
@@ -31,11 +31,13 @@ const { pictureShape } = await import('../src/shared/pcb/picture-raster.js');
 const board = () => {
     const ratLayer = element(), svg = element();
     svg.appendChild(ratLayer);
-    return {
+    const app = {
         tracks: [], vias: [], pads: [], boardShapes: [], placements: new Map(), netlist: [], ratLayer,
-        _trackToolNet: 'GND', getLayerGroup(id) { return id === 'ratlines' ? ratLayer : null; },
+        getLayerGroup(id) { return id === 'ratlines' ? ratLayer : null; },
         viewport: { svg, scale: 100, gridVisible: false, setCrosshair() {}, hideCrosshair() {} },
     };
+    setTrackToolNet(app, 'GND');
+    return app;
 };
 const endpoints = line => ['x1', 'y1', 'x2', 'y2'].map(key => Number(line.getAttribute(key)));
 const edgeKey = (net, [x1, y1, x2, y2]) => `${net}:${[[x1, y1], [x2, y2]].map(point => point.join(',')).sort().join('|')}`;

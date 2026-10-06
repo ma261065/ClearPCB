@@ -5,7 +5,7 @@ import { Track } from '../src/shapes/track.js';
 import { Pad } from '../src/shapes/pad.js';
 import { Via } from '../src/shapes/via.js';
 import { sampleArcEdge } from '../src/shapes/arc-edge.js';
-import { getTrackDraw } from '../src/pcb/modules/track-draw.js';
+import { getTrackDraw, setTrackToolNet } from '../src/pcb/modules/track-draw.js';
 
 const element = () => ({
     style: {}, dataset: {}, setAttribute() {}, appendChild() {}, remove() {}, focus() {},
@@ -218,7 +218,7 @@ for (const merge of [false, true]) {
     app.tracks.push(track([{ x: 10, y: -5 }, { x: 10, y: 5 }], 'B'));
     const drawn = track([{ x: 0, y: 0 }, { x: 10, y: 0 }]);
     assert.equal(buildDrawnTrackCommands(app, [drawn]), false, 'direct segment destination is guarded at command boundary');
-    app._trackToolNet = 'A';
+    setTrackToolNet(app, 'A');
     startTrackDraw(app, { x: 0, y: 0 });
     addTrackWaypoint(app, { x: 10, y: 0 });
     assert.equal(getTrackDraw(app).points.length, 1, 'incompatible segment click is rejected before accepting a waypoint');

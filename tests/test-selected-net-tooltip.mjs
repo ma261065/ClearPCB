@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { PcbDocument } from '../src/core/PcbDocument.js';
+import { getNetTooltipElement, updateNetTooltip } from '../src/pcb/modules/net-tooltip.js';
 
 const appended = [];
 globalThis.document = {
@@ -40,16 +41,14 @@ try {
     const app = Object.create(PCBApp.prototype);
     app.pcbDocument = new PcbDocument();
     app.netlist = [];
-    app._netTooltip = null;
-    app._netTooltipTimer = 0;
     app.setPcbStatus = () => {};
 
     setPcbSelection(app, [{ kind: 'via', object: via }]);
-    app._updateNetTooltip({ clientX: 20, clientY: 30 }, { type: 'via', via });
+    updateNetTooltip(app, { clientX: 20, clientY: 30 }, { type: 'via', via });
 
     assert.equal(appended.length, 1, 'selected-object hover creates the net tooltip');
-    assert.equal(app._netTooltip.textContent, 'N1');
-    assert.equal(app._netTooltip.style.display, 'block');
+    assert.equal(getNetTooltipElement(app).textContent, 'N1');
+    assert.equal(getNetTooltipElement(app).style.display, 'block');
     console.log('PASS: selected PCB objects still show their net tooltip on hover');
 } finally {
     globalThis.setTimeout = nativeSetTimeout;

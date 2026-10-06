@@ -5,6 +5,7 @@ import { endTextDrag, getTextDrag } from '../src/pcb/modules/pcb-text-selection.
 import { getBoardShapeDrag } from '../src/pcb/modules/board-shapes.js';
 import { setPcbInteraction } from '../src/pcb/modules/pcb-interactions.js';
 import { getDrcPresentation } from '../src/pcb/modules/drc-state.js';
+import { getNetTooltipElement, updateNetTooltip } from '../src/pcb/modules/net-tooltip.js';
 
 globalThis.window = { addEventListener() {} };
 const element = () => ({
@@ -89,10 +90,12 @@ for (const shape of [{ ...circle, layer: 'top-silk' }, { ...circle, copperMode: 
     const overlay = element();
     const halo = element();
     overlay.appendChild(halo);
-    let tooltipHides = 0;
     const app = { viewport: {}, _active: true, _clearancesVisible: true,
-        _layerGroups: new Map([['clearance-overlay', overlay]]), existingLayerGroups() { return this._layerGroups; },
-        _hideNetTooltip() { tooltipHides++; } };
+        _layerGroups: new Map([['clearance-overlay', overlay]]), existingLayerGroups() { return this._layerGroups; } };
+    const nativeSetTimeout = globalThis.setTimeout;
+    globalThis.setTimeout = callback => { callback(); return 1; };
+    updateNetTooltip(app, { clientX: 0, clientY: 0 }, { type: 'via', via: { net: 'N1' } });
+    globalThis.setTimeout = nativeSetTimeout;
     PCBApp.prototype._bindViewportPanHooks.call(app);
     app.viewport.onPanStart();
     assert.notEqual(overlay.style.display, 'none', 'Panning keeps clearance visible throughout the gesture');
@@ -100,7 +103,7 @@ for (const shape of [{ ...circle, layer: 'top-silk' }, { ...circle, copperMode: 
     assert.notEqual(overlay.style.display, 'none', 'Clearance stays visible after pan release');
     assert.deepEqual(overlay.children, [halo], 'Panning retains existing clearance geometry');
     assert.equal(halo.removals || 0, 0, 'Panning never detaches clearance lines');
-    assert.equal(tooltipHides, 1, 'Panning still dismisses the net tooltip');
+    assert.equal(getNetTooltipElement(app).style.display, 'none', 'Panning still dismisses the net tooltip');
 }
 // The real clearance methods, run against this test's editor. Outline computations are
 // counted through the _computeClearanceOutlines seam to check the halo cache.

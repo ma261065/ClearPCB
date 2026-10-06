@@ -4,6 +4,7 @@ import { rotationHandleAnchor, pointerRotation, rotatedImagePoints, ROTATION_CUR
 import { attachPropertyPanelHarness } from './helpers/property-panel-controls.mjs';
 import { getSelectionInteraction } from '../src/pcb/modules/selection-interaction.js';
 import { isRotationHandleDragActive } from '../src/pcb/modules/rotation-handle.js';
+import { setTextToolDefaults, showTextToolProperties } from '../src/pcb/modules/text-properties.js';
 
 const bounds = { minX: -4, minY: -2, maxX: 4, maxY: 2 };
 for (const scale of [0.1, 1, 20]) {
@@ -215,14 +216,14 @@ try {
         return items.innerHTML;
     };
     const panelApp = { propertiesItems: () => panelItems, setPropertiesTitle() {}, layerLabel: PCBApp.prototype.layerLabel,
-        _textDefaults: { size: 1, rotation: 37.6, layer: 'top-silk', strokeWidth: 0.15, border: false },
         pcbDocument: { texts: new Map([['t', { id: 't', content: 'T', x: 0, y: 0, size: 1, rotation: 12.34567,
             layer: 'top-silk', strokeWidth: 0.15 }]]) },
         _insertInlineTextSymbol: () => false };
+    setTextToolDefaults(panelApp, { size: 1, rotation: 37.6, layer: 'top-silk', strokeWidth: 0.15, border: false });
     const panelControls = new Map();
     attachPropertyPanelHarness(panelApp, { controls: panelControls });
     let panelItems;
-    PCBApp.prototype._showTextToolProperties.call(panelApp);
+    showTextToolProperties(panelApp);
     const textToolRot = panelControls.get('pcbPropTextToolRot');
     PCBApp.prototype.showTextProperties.call(panelApp, { id: 't' });
     const textRot = panelControls.get('pcbPropTextRot');

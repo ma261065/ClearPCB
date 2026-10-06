@@ -16,6 +16,7 @@ import { removeTextElement } from './pcb-text-render.js';
 import { isCopperPathShape, trackFromBoardShape } from '../../shared/pcb/copper-path-tracks.js';
 import { cloneShapeGeometry, translateShapeGeometry, applyShapeGeometry, renderBoardShape,
     removeBoardShapeElement } from './board-shapes.js';
+import { updateCursorForTool } from './tool-lifecycle.js';
 import { showBoardShapeProperties } from './board-shape-properties.js';
 import { renderTrack, renderVia, removeTrackElements, removeViaElements } from './track-render.js';
 import { renderPad, removePadElements } from './pad.js';
@@ -300,7 +301,7 @@ function release(app, state) {
     Object.assign(app, state.flags);
     // Pours owed before the paste, or requested during it, remain owed.
     setFillRefreshPending(app, state.fillPending || pendingFill);
-    app._updateCursorForTool?.();
+    updateCursorForTool(app);
     app.syncClipboardButtons?.();
     app._syncHistoryButtons?.();
 }

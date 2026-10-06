@@ -25,6 +25,7 @@ import { hitTestPcbSelectionAnchor, renderPcbSelectionAnchors } from './selectio
 import { isRotationHandleDragActive, ROTATION_CURSOR } from './rotation-handle.js';
 import { getPcbInteraction, setPcbInteraction } from './pcb-interactions.js';
 import { selectBoardOutline } from './board-outline-resize.js';
+import { selectRefText } from './ref-text-selection.js';
 
 const SUPPORTED_KINDS = new Set(['component', 'shape', 'track', 'via', 'pad', 'fill', 'text', 'reftext']);
 
@@ -49,7 +50,7 @@ export function clearSelectionInteractionUi(app) {
     app._selectComponent?.(null);
     selectBoardOutline(app, false);
     app.selectText?.(null);
-    app._selectRefText?.(null);
+    selectRefText(app, null);
     app.selectFill?.(null);
     selectBoardShape(app, null);
 }
@@ -62,7 +63,7 @@ function showSingleProperties(app, entry) {
         app.selectText?.(entry.object);
         app.showTextProperties?.(entry.object);
     } else if (entry.kind === 'reftext') {
-        app._selectRefText?.(entry.object);
+        selectRefText(app, entry.object);
         app._showRefProperties?.(entry.object);
     } else if (entry.kind === 'shape') showBoardShapeProperties(app, entry.object);
     else if (entry.kind === 'track') showTrackSelectionProperties(app, entry.object);

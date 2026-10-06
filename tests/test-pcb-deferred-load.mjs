@@ -287,7 +287,7 @@ for (const withComponents of [false, true]) {
         activate: PCBApp.prototype.activate, preload: PCBApp.prototype.preload,
         _syncFromSchematic: PCBApp.prototype._syncFromSchematic,
         _renderPersistentObjects: PCBApp.prototype._renderPersistentObjects,
-        initialize() {}, _updateCursorForTool() {}, _updateViewportStatus() {},
+        initialize() {}, _updateViewportStatus() {},
         _retainRibbonHeight: record('ribbon-height'),
         viewport: viewportStub({ _onResize: record('viewport-resize') }),
         setPcbStatus() {}, setStatus() {}, _fitToPlacedContent() {},
@@ -349,7 +349,7 @@ for (const pcb of [
         components = withComponents ? [{ id: 'U1' }] : [];
         Object.assign(app, {
             initialize() {}, _ensureViewport() {}, _retainRibbonHeight() {},
-            _updateCursorForTool() {}, _syncPcbHomeToolHighlight() {}, _updateViewportStatus() {},
+            _syncPcbHomeToolHighlight() {}, _updateViewportStatus() {},
             setPcbStatus() {}, setStatus() {}, _clearPCBContent() {},
             getLayerGroup: layerGroups(),
             _placeFootprints: record('footprints'), _fitToPlacedContent() {},

@@ -90,7 +90,7 @@ function fixture(active) {
         },
         updateCopperCuts() {}, _clearFillGroups() {},
         _refreshBoardShapeClearance() {}, setPcbStatus() {}, syncClipboardButtons() {},
-        _updateCursorForTool() {}, _syncPcbHomeToolHighlight() {},
+        _syncPcbHomeToolHighlight() {},
         refreshClearanceHalos() {}, refreshFills() {},
     });
     initializeBoardOutlineState(app, false);

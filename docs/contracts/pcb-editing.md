@@ -89,6 +89,9 @@ an active box selection, continuing the current selection, then selecting a new
 target. Component presses use `beginComponentDrag`, the same start as the selection
 adapter, so locked placements never enter drag state
 (`test-pcb-select-press`).
+Select-tool hover coalescing and overlap/cursor feedback live in
+`pcb/modules/pcb-hover.js`; `mouse.js` calls that scheduler directly, while
+component and text hover drawing remains with each entity's owner module.
 
 Layer visibility and lock changes are handled in `pcb/modules/layer-changes.js`,
 called through the editor's thin `_on…Changed` seams. The module cancels
@@ -526,8 +529,14 @@ tool's panel (`showFillToolProperties`; the defaults live in `copper-fill-draw.j
 sets the Layer, Net and Corner Radius of a new pour. A pour being drawn follows a
 layer or radius change live; starting a pour brings the panel back after a finished
 pour showed its own Properties (`test-fill-tool-properties`).
+The Pad tool's defaults and cursor preview live in `pad-properties.js`, sharing
+the selected-pad field binding without storing default pads on `PCBApp`.
 
 The Design ribbon and New Track/Via property editors share the same commit path.
+`track-draw.js` owns Track tool layer/net defaults and the New Track panel;
+`via-tool.js` owns the Via tool net default, diameter/drill panel and preview
+ring state. These tool defaults are per-editor WeakMap state rather than
+`PCBApp` fields.
 Valid edits mark the PCB dirty and retain the geometry refresh requests;
 unit/router preferences are also saved project edits. Temporarily blank or invalid
 dimensions retain the last valid model value and show native field validation.

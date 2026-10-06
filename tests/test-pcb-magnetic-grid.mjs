@@ -12,6 +12,7 @@ import { setPcbInteraction } from '../src/pcb/modules/pcb-interactions.js';
 import { updateComponentDrag, handleComponentDrag } from '../src/pcb/modules/component-selection.js';
 import { updateTextDrag } from '../src/pcb/modules/pcb-text-selection.js';
 import { updateRefTextDrag, handleRefDrag } from '../src/pcb/modules/ref-text-selection.js';
+import { snapPadPlacement } from '../src/pcb/modules/pad-tool.js';
 
 globalThis.window = { addEventListener() {} };
 globalThis.document = {
@@ -47,7 +48,7 @@ function fixture(viewport) {
     for (const key of ['_boardWidth', '_boardHeight', '_boardRadius']) {
         Object.defineProperty(app, key, Object.getOwnPropertyDescriptor(PCBApp.prototype, key));
     }
-    for (const method of ['snapToGrid', '_snapPadPlacement', '_worldToPlacementLocal',
+    for (const method of ['snapToGrid', '_worldToPlacementLocal',
         '_beginPasteDrop', '_updatePasteDrop', '_cancelPasteDrop']) {
         app[method] = PCBApp.prototype[method];
     }
@@ -69,7 +70,7 @@ function check(point, expected, options = {}) {
     PCBApp.prototype._updateCursorCrosshair.call(app, point);
     assert.deepEqual(crosshair, app.snapToGrid(point),
         'Text placement crosshair uses the same snap policy as the new text origin');
-    assert.deepEqual(app._snapPadPlacement(point), expected, 'Standalone pad placement');
+    assert.deepEqual(snapPadPlacement(app, point), expected, 'Standalone pad placement');
     updateTextDrag(app, point);
     const displayed = app.texts.get(text.id);
     assert.deepEqual({ x: displayed.x, y: displayed.y }, expected, 'Text drag');

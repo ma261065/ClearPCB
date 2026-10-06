@@ -12,6 +12,7 @@ const element = () => ({
     addEventListener: noop, removeEventListener: noop, querySelector: () => null, querySelectorAll: () => [],
 });
 globalThis.window = { addEventListener: noop, removeEventListener: noop, devicePixelRatio: 1 };
+globalThis.requestAnimationFrame = () => 1;
 globalThis.document = {
     body: element(), documentElement: { getAttribute: () => 'dark' },
     createElement: element, createElementNS: element,
@@ -34,7 +35,7 @@ const count = () => { handled++; };
 const app = Object.assign(Object.create(PCBApp.prototype), {
     _active: true, currentTool: 'select', viewport,
     _screenToWorld: () => world, _updateDebugTooltip: noop,
-    _scheduleHoverUpdate: count, _scheduleDragUpdate: count, _handleTextDrag: count,
+    _scheduleDragUpdate: count, _handleTextDrag: count,
     _handleRefDrag: count, _handleFillDrag: count, _updateCursorCrosshair: noop,
 });
 app._bindMouseEvents();
@@ -68,7 +69,7 @@ for (const [name, state] of Object.entries(scenarios)) {
         for (let i = 0; i < iterations; i++) move(event);
         samples.push(Number(process.hrtime.bigint() - start) / iterations);
     }
-    if (!state.panning && handled !== iterations) {
+    if (!state.panning && name !== 'idle hover (full chain)' && handled !== iterations) {
         throw new Error(`${name}: expected ${iterations} handler calls, got ${handled}.`);
     }
     samples.sort((a, b) => a - b);
