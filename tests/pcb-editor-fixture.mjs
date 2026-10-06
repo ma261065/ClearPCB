@@ -59,6 +59,7 @@ export function pcbEditorFixture(overrides = {}) {
             if (!layerGroups.has(id)) layerGroups.set(id, fakeSvgGroup());
             return layerGroups.get(id);
         },
+        existingLayerGroups() { return layerGroups; },
         screenToWorld(event) { return { x: event.clientX, y: event.clientY }; },
         snapToGrid(point) { return { x: point.x, y: point.y }; },
         // A real editor always has its layer-group map (existingLayerGroups()).

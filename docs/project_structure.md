@@ -141,7 +141,9 @@ evaluation-order cycle fails.
   `property-editors.js` (Properties bindings), `refresh-state.js` (pour/picture
   refresh status and refresh suspensions), `board-shape-state.js` (board-shape
   node/segment focus, hover and tool defaults), `pcb-text-render.js` (free-text
-  SVG elements and hover), `component-selection.js` (component hover outline),
+  SVG elements and hover), `cursor-state.js` (last pointer/crosshair positions),
+  `refresh-state.js` (derived-refresh flags, suspensions, and shared 3D/2D
+  board-view panel state), `component-selection.js` (component hover outline),
   `pcb-hover.js` (coalesced select-tool hover frame state), `board-outline-resize.js`
   (board-outline drawn/selected state), and `pcb-interactions.js` (in-progress interaction slots).
 - In-progress interaction slots (`_drag`, `_trackDraw`, …) are listed once in

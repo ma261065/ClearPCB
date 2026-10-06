@@ -13,6 +13,7 @@ import {
     resolveTerminalCopperContact, resolveTrackContactGeometry, copperRegionShape, copperContactsTouch,
     prepareCopperRegionContact, installCopperRegionContact,
 } from '../src/pcb/modules/track-contact-geometry.js';
+import { setBoardViewPanel } from '../src/pcb/modules/refresh-state.js';
 
 class Element {
     constructor() { this.children = []; this.attributes = new Map(); this.style = {}; this.dataset = {}; }
@@ -59,8 +60,8 @@ function fixture(model = new PcbDocument()) {
                 while (group.firstChild) group.firstChild.remove();
             }
         },
-        _board3d: { refresh() {} },
     };
+    setBoardViewPanel(app, { refresh() {} });
     for (const key of ['tracks', 'vias', 'pads', 'boardShapes', 'copperFills']) {
         Object.defineProperty(app, key, { get: () => app.pcbDocument[key] });
     }

@@ -8,7 +8,7 @@ import { Track } from '../src/shapes/track.js';
 import { PcbDocument } from '../src/core/PcbDocument.js';
 import { createPcbText, serializePcbText, TEXT_LAYERS } from '../src/core/pcb-text.js';
 import { setPcbInteraction } from '../src/pcb/modules/pcb-interactions.js';
-globalThis.window = { addEventListener() {} };
+globalThis.window = { addEventListener() {}, document: { createElement() {}, body: {} } };
 const { exportGerbers, buildZip } = await import('../src/pcb/modules/gerber.js');
 const { prepareFabricationSnapshot, prepareSnapshotFills, hasFabricationContent } = await import('../src/pcb/modules/fabrication-snapshot.js');
 const { setDragOverlaysDeferred, setFillRefreshScheduled, setFillRefreshSuspended } = await import('../src/pcb/modules/refresh-state.js');
@@ -206,29 +206,33 @@ for (const name of ['app', 'bootstrap']) Object.defineProperty(window, name, {
     get() { assert.fail('Export naming must not consult global project owners'); },
 });
 const ownedProject = { fileManager: { fileName: 'owned.rev2.cpcb' } };
-assert.equal(PCBApp.prototype._exportBaseName.call({ project: ownedProject }), 'owned.rev2');
-assert.equal(PCBApp.prototype._exportBaseName.call({}), 'untitled');
-const { projectBaseName } = await import('../src/pcb/modules/pcb-export.js');
+const { projectBaseName, savePcbBlob } = await import('../src/pcb/modules/pcb-export.js');
+assert.equal(projectBaseName({ project: ownedProject }, 'untitled'), 'owned.rev2');
+assert.equal(projectBaseName({}, 'untitled'), 'untitled');
 for (const [fileName, expected] of [['owned.rev2.cpcb', 'owned.rev2'], ['board', 'board']]) {
     assert.equal(projectBaseName({ project: { fileManager: { fileName } } }), expected);
 }
 assert.equal(projectBaseName({}), 'pcb', 'PDF keeps its existing unnamed-project fallback');
 assert.equal(projectBaseName({ project: { fileManager: { fileName: '.cpcb' } } }), 'pcb');
-assert.equal(PCBApp.prototype._exportBaseName.call({
+assert.equal(projectBaseName({
     project: { fileManager: { fileName: '.cpcb' } },
-}), 'untitled');
+}, 'untitled'), 'untitled');
 
 const csvNames = [];
 const csvApp = {
-    project: ownedProject, _exportBaseName: PCBApp.prototype._exportBaseName,
+    project: ownedProject,
     placements: new Map([['U1', { reference: 'U1', value: 'Part', footprint: 'Package' }]]),
-    async _saveBlob(blob, name) { assert.ok(blob instanceof Blob); csvNames.push(name); return true; },
     setStatus() {},
+};
+window.showSaveFilePicker = async ({ suggestedName }) => {
+    csvNames.push(suggestedName);
+    return { createWritable: async () => ({ write(blob) { assert.ok(blob instanceof Blob); }, close() {} }) };
 };
 PCBApp.prototype.exportBOM.call(csvApp);
 PCBApp.prototype.exportPickAndPlace.call(csvApp);
 await Promise.resolve();
 assert.deepEqual(csvNames, ['owned.rev2-bom.csv', 'owned.rev2-pick-and-place.csv']);
+delete window.showSaveFilePicker;
 
 // The real export methods, observed through browser APIs the test supplies: the save
 // picker on `window`, the Gerber progress element, and the worker that builds the ZIP.
@@ -312,7 +316,7 @@ assert.ok(progressLabels.every(entry => entry === null), 'Cancellation never sho
 window.showSaveFilePicker = async () => {
     throw new Error('Picker failed');
 };
-await assert.rejects(exportApp._saveBlob(async () => new Blob(), 'board.zip'), /Picker failed/);
+await assert.rejects(savePcbBlob(async () => new Blob(), 'board.zip'), /Picker failed/);
 delete window.showSaveFilePicker;
 
 const downloadEvents = [];
@@ -322,10 +326,10 @@ const downloadWindow = { document: {
         return { click() { downloadEvents.push('download'); }, remove() { downloadEvents.push('remove'); } };
     },
 } };
-assert.equal(await exportApp._saveBlob(async () => {
+assert.equal(await savePcbBlob(async () => {
     downloadEvents.push('prepare');
     return new Blob(['zip']);
 }, 'board.zip', { win: downloadWindow }), true);
 assert.deepEqual(downloadEvents, ['prepare', 'append', 'download', 'remove']);
-assert.equal(await exportApp._saveBlob(new Blob(['existing caller']), 'board.zip', { win: downloadWindow }), true);
+assert.equal(await savePcbBlob(new Blob(['existing caller']), 'board.zip', { win: downloadWindow }), true);
 console.log('PASS fresh detached fabrication snapshot, asynchronous isolation and artwork-only export');

@@ -13,6 +13,8 @@ import { updateComponentDrag, handleComponentDrag } from '../src/pcb/modules/com
 import { updateTextDrag } from '../src/pcb/modules/pcb-text-selection.js';
 import { updateRefTextDrag, handleRefDrag } from '../src/pcb/modules/ref-text-selection.js';
 import { snapPadPlacement } from '../src/pcb/modules/pad-tool.js';
+import { updateCursorCrosshair } from '../src/pcb/modules/cursor-state.js';
+import { beginPcbPaste, cancelPcbPaste, updatePcbPaste } from '../src/pcb/modules/pcb-paste.js';
 
 globalThis.window = { addEventListener() {} };
 globalThis.document = {
@@ -34,9 +36,9 @@ function fixture(viewport) {
     pcbDocument.texts.set(text.id, text);
     const placement = { x: 0, y: 0, pads: new Map(), refDx: 0, refDy: 0 };
     const app = {
-        viewport, pcbDocument, placements: new Map([['part', placement]]),
+        _active: true, viewport, pcbDocument, placements: new Map([['part', placement]]),
         tracks: [], getLayerGroup: () => ({ querySelector: () => null, querySelectorAll: () => [], appendChild() {} }),
-        refreshText() {}, updateRatsnest() {}, _drawRefOverlay() {},
+        refreshText() {}, updateRatsnest() {}, _drawRefOverlay() {}, syncClipboardButtons() {}, clearProperties() {},
         screenToWorld: event => ({ x: event.clientX, y: event.clientY }),
     };
     initializeBoardOutlineState(app, true);
@@ -48,8 +50,7 @@ function fixture(viewport) {
     for (const key of ['_boardWidth', '_boardHeight', '_boardRadius']) {
         Object.defineProperty(app, key, Object.getOwnPropertyDescriptor(PCBApp.prototype, key));
     }
-    for (const method of ['snapToGrid', '_worldToPlacementLocal',
-        '_beginPasteDrop', '_updatePasteDrop', '_cancelPasteDrop']) {
+    for (const method of ['snapToGrid', '_worldToPlacementLocal']) {
         app[method] = PCBApp.prototype[method];
     }
     return { app, text, placement };
@@ -67,7 +68,7 @@ function check(point, expected, options = {}) {
     const { app, text, placement } = fixture(viewport);
     assert.deepEqual(app.snapToGrid(point), expected, 'PCB text/shape/fill/paste placement helper');
     app.currentTool = 'text';
-    PCBApp.prototype._updateCursorCrosshair.call(app, point);
+    updateCursorCrosshair(app, point);
     assert.deepEqual(crosshair, app.snapToGrid(point),
         'Text placement crosshair uses the same snap policy as the new text origin');
     assert.deepEqual(snapPadPlacement(app, point), expected, 'Standalone pad placement');
@@ -86,11 +87,11 @@ function check(point, expected, options = {}) {
     handleRefDrag(app, { clientX: point.x, clientY: point.y, shiftKey: viewport.shiftHeld });
     assert.deepEqual({ x: placement.refDx, y: placement.refDy }, expected, 'Legacy reference pointer drag');
     const pastedText = { ...text, id: 'pasted', layer: 'top-silk' };
-    app._beginPasteDrop({ texts: [pastedText] });
-    app._updatePasteDrop(point);
+    beginPcbPaste(app, { texts: [pastedText] });
+    updatePcbPaste(app, point);
     assert.deepEqual({ x: pastedText.x, y: pastedText.y }, expected, 'Floating pasted text/bundle');
     assert.deepEqual({ x: text.x, y: text.y }, { x: 0, y: 0 }, 'Floating paste never moves the authored source');
-    app._cancelPasteDrop();
+    cancelPcbPaste(app);
     setPcbSelection(app, [{ kind: 'text', object: text }]);
     beginGroupDrag(app, { x: 0, y: 0 });
     updateGroupDrag(app, point);

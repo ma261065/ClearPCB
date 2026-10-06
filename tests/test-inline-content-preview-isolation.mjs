@@ -75,7 +75,7 @@ function fixture(layer, extraTexts = 0, isNew = false) {
         _active: true, pcbDocument, history: new CommandHistory(), currentTool: 'select',
         placements: new Map(), tracks: [], vias: [], pads: [], boardShapes: [],
         _shapeElements: new Map(),
-        viewport: { svg: new Element('svg'), addInteractionOverlay: group => overlay.appendChild(group) },
+        viewport: { svg: new Element('svg'), addInteractionOverlay: group => overlay.appendChild(group), hideCrosshair() {} },
         getLayerGroup: id => groups.get(id) || null,
         propertiesItems: () => properties, setPropertiesTitle() {}, layerLabel: id => id,
         clearProperties() {}, setActiveRibbonTab() {}, _refreshBoardShapeClearance() {},

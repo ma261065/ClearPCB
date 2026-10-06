@@ -71,6 +71,7 @@ import {
     setPcbSelection,
 } from './selection-registry.js';
 import { lockPositionOutsideOutline, renderPcbSelectionAnchors } from './selection-anchors.js';
+import { getLastPointerWorld, updateVertexDragCrosshair } from './cursor-state.js';
 import { formatNumberInputValue } from '../../core/number-inputs.js';
 import { resolveTrackEdgePaths, resolveTrackSegments } from '../../shared/pcb/board-geometry.js';
 import { arcEdgePathD, arcFromBulge } from '../../shapes/arc-edge.js';
@@ -148,7 +149,7 @@ export function createTrackSelectionAdapter(app, track, id) {
     const updateDrag = (worldPos) => {
         if (!isDraggingTrack(app, track)) return;
         updateVertexDrag(app, worldPos);
-        app._updateVertexDragCrosshair?.();
+        updateVertexDragCrosshair(app);
     };
     const finishNodeMove = (commit, options = {}) => {
         if (!isDraggingTrack(app, track)) return;
@@ -1302,7 +1303,7 @@ function _showTrackProperties(app, track) {
         ? 'This track uses both copper layers. Only a track that is a single line or loop on one layer can use a removal mode.'
         : 'This track branches. Only a track that is a single line or loop can use a removal mode.';
     const lockEntries = [{ kind: 'track', object: track }];
-    const netSeedEdgeId = hitTestTrackEdge(app, track, app._lastPointerWorld || {})?.edgeId
+    const netSeedEdgeId = hitTestTrackEdge(app, track, getLastPointerWorld(app) || {})?.edgeId
         || track.edges.keys().next().value;
     const applyNet = value => {
         if (!binding.prepare()) return;

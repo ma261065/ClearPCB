@@ -6,6 +6,7 @@ import { formatNumberInput } from '../src/core/number-inputs.js';
 import { installFakeDom } from './helpers/fake-dom.mjs';
 import { showTrackDrawProperties } from '../src/pcb/modules/track-draw.js';
 import { showViaToolProperties } from '../src/pcb/modules/via-tool.js';
+import { setBoardViewPanel } from '../src/pcb/modules/refresh-state.js';
 
 assert.equal(typeof document, 'undefined');
 const model = new PcbDesignSettings();
@@ -61,7 +62,7 @@ function fixture(prepareModel = () => {}) {
     app.refreshFills = () => { changes.fills++; };
     app.showClearances = () => { changes.halos++; };
     app._clearancesVisible = true;
-    app._board3d = { refresh() { changes.board3d++; } };
+    setBoardViewPanel(app, { refresh() { changes.board3d++; } });
     bindPcbControls(app);
     const elements = new Map([...ids, 'pcbRouteUnits', 'pcbRouterMode'].map(id => [id, document.getElementById(id)]));
     assert.equal(app.designSettings, project.pcbDocument.designSettings);

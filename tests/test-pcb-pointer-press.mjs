@@ -34,12 +34,12 @@ function fixture(tool) {
     const svg = { ...element(), addEventListener(type, listener) { listeners.set(type, listener); } };
     const viewport = {
         svg, scale: 10, shiftHeld: false,
-        onInteractionStart: noop, hideCrosshair: noop, startPan: (x, y) => calls.push(['pan', x, y]),
+        onInteractionStart: noop, hideCrosshair: () => calls.push(['cursor']), startPan: (x, y) => calls.push(['pan', x, y]),
     };
     const app = Object.assign(Object.create(PCBApp.prototype), {
-        _active: true, currentTool: tool, viewport,
+        _active: true, currentTool: tool, viewport, history: { execute() {} },
+        pcbDocument: { tracks: [], vias: [], pads: [], boardShapes: [], texts: new Map() },
         screenToWorld: () => world,
-        _endPasteDrop: () => calls.push(['endPasteDrop']),
     });
     for (const name of PRESS_METHODS) app[name] = (...args) => calls.push([name, ...args]);
     app._bindMouseEvents();
@@ -79,9 +79,15 @@ for (const [tool, method] of Object.entries(expected)) {
 
 {
     const { app, calls, press } = fixture('track');
-    setPcbInteraction(app, '_pasteDrop', {});
+    setPcbInteraction(app, '_pasteDrop', {
+        model: app.pcbDocument,
+        payload: { tracks: [], vias: [], pads: [], shapes: [], texts: [], fills: [] },
+        tracks: [], terminals: [], shapes: [], fills: [], selection: [], flags: {},
+        suspensions: { overlays: false, fill: false, boardView: false }, fillPending: false,
+    });
     press(0);
-    assert.deepEqual(calls, [['endPasteDrop']], 'A floating paste consumes the press before any tool');
+    assert.deepEqual(calls, [], 'A floating paste consumes the press before any tool');
+    assert.equal(getPcbPaste(app), null);
 }
 {
     const { calls, press } = fixture('measure');
@@ -132,7 +138,7 @@ for (const [tool, method] of Object.entries(expected)) {
     release(2, 10);
     assert.deepEqual(calls, [], 'Right releases leave drags running');
     release(0, 10);
-    assert.deepEqual(calls, [['endDrag']], 'A primary release finishes the active drag');
+    assert.deepEqual(calls, [['cursor'], ['endDrag']], 'A primary release finishes the active drag');
     assert.equal(viewport.isPanning, false);
 }
 

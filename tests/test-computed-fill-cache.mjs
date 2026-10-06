@@ -7,7 +7,7 @@ import { loadClipper } from '../src/pcb/modules/copper-fill-geom.js';
 import { runDRC } from '../src/pcb/modules/drc.js';
 import { collectCopperArtwork } from '../src/pcb/modules/copper-artwork.js';
 import { prepareFabricationSnapshot } from '../src/pcb/modules/fabrication-snapshot.js';
-import { fillRefreshError, isFillRefreshPending, setDragOverlaysDeferred, setFillRefreshPending, setFillRefreshSuspended } from '../src/pcb/modules/refresh-state.js';
+import { fillRefreshError, isFillRefreshPending, setBoardViewPanel, setDragOverlaysDeferred, setFillRefreshPending, setFillRefreshSuspended } from '../src/pcb/modules/refresh-state.js';
 import { getDrcPresentation } from '../src/pcb/modules/drc-state.js';
 
 globalThis.window = { addEventListener() {} };
@@ -31,8 +31,8 @@ globalThis.requestAnimationFrame = () => { checks++; return checks; };
 const app = { placements: new Map(), tracks: [], vias: [], pads: [], texts: new Map(), netlist: [],
     boardShapes: model.boardShapes, copperFills: [fill], _boardWidth: 10, _boardHeight: 10, _boardRadius: 0,
     getRoutingParams: () => ({ clearance: 0.2 }), getLayerGroup: () => null,
-    _clearFillGroups() {}, _fillContext() { return buildFillContext(this); },
-    _board3d: { refresh() { previews++; } } };
+    _clearFillGroups() {}, _fillContext() { return buildFillContext(this); } };
+setBoardViewPanel(app, { refresh() { previews++; } });
 getDrcPresentation(app).shouldRun = () => true;
 assert.equal(getComputedFill(fill), null);
 assert.equal('_computed' in fill, false, 'Authored fill entities have no derived result field');

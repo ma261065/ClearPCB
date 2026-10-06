@@ -41,6 +41,7 @@ import {
     updateShapeDrawPreview,
 } from './board-shapes.js';
 import { getBoardShapeNodeFocus, getBoardShapeSegmentFocus, getShapeDefaults } from './board-shape-state.js';
+import { getLastCrosshairWorld } from './cursor-state.js';
 
 // ── Properties panel ─────────────────────────────────────────────────────────
 
@@ -78,7 +79,7 @@ export function showBoardShapeToolProperties(app, kind) {
     const defaults = getShapeDefaults(app);
     const currentLayer = getShapeDraw(app)?.layer || resolveShapeDrawLayer(app, app.activeLayer);
     if (!getShapeDraw(app) && currentLayer) app.activeLayer = currentLayer;
-    const redraw = () => updateShapeDrawPreview(app, app._lastCrosshairWorld || getShapeDraw(app)?.points.at(-1));
+    const redraw = () => updateShapeDrawPreview(app, getLastCrosshairWorld(app) || getShapeDraw(app)?.points.at(-1));
     const refresh = () => app.refreshPropertyPanel?.(describe());
     const describe = () => {
         const layer = getShapeDraw(app)?.layer || resolveShapeDrawLayer(app, app.activeLayer);

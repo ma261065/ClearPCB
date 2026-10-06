@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { installFakeDom } from './helpers/fake-dom.mjs';
+import { setBoardViewPanel } from '../src/pcb/modules/refresh-state.js';
 
 installFakeDom();
 let allocations = 0;
@@ -103,7 +104,7 @@ function fixture(kind, object) {
     app.refreshFills = app._recomputeFillsNow = app._refreshFillProperties = () => { work++; };
     app.updateCopperCuts = app.updateRatsnest = app.refreshClearanceHalos = () => { work++; };
     app._refreshBoardShapeClearance = () => { work++; };
-    app._board3d = { refresh() { work++; } };
+    setBoardViewPanel(app, { refresh() { work++; } });
     return { app, model, object, cachedFill, work: () => work,
         capabilities: app._pcbMultiPropertyCapabilities({ kind, object }) };
 }

@@ -3,6 +3,7 @@ import { CommandHistory } from '../src/core/CommandHistory.js';
 import { PcbDocument } from '../src/core/PcbDocument.js';
 import { rasterizePicture, pictureShape } from '../src/shared/pcb/picture-raster.js';
 import { pointInPolygon } from '../src/core/geometry.js';
+import { setBoardViewPanel } from '../src/pcb/modules/refresh-state.js';
 
 globalThis.window = { addEventListener() {} };
 globalThis.document = { getElementById() { return null; }, createElementNS() {
@@ -80,7 +81,8 @@ for (const layer of ['top-silk', 'bottom-silk', 'top-copper', 'bottom-copper']) 
     pcbDocument.boardShapes.push(original);
     const app = { pcbDocument, boardShapes: pcbDocument.boardShapes, placements: new Map(), tracks: [], vias: [], texts: new Map(),
         _shapeElements: new Map(), getLayerGroup() { return null; }, viewport: { scale: 10 },
-        refreshFills() { fills++; }, _board3d: { refresh() { views++; } } };
+        refreshFills() { fills++; } };
+    setBoardViewPanel(app, { refresh() { views++; } });
     setPcbSelection(app, [{ kind: 'shape', object: original }]);
     const history = new CommandHistory();
     history.execute(new AddBoardShapeCommand(app, image));

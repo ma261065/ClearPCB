@@ -37,7 +37,7 @@ export async function prepareFabricationSnapshot(app, { computeFills = true } = 
         params, netlist: structuredClone(app.netlist || []),
         panelization,
         placements, ...geometry, tracks, fills,
-        boardX: app._boardX || 0, boardY: app._boardY || 0,
+        boardX: 0, boardY: 0,
         boardWidth: board.width, boardHeight: board.height, boardRadius: board.radius,
     };
     if (computeFills) await prepareSnapshotFills(snapshot);

@@ -12,6 +12,7 @@ import { activeTextInlineEdit, endTextInlineEdit } from './text-inline-edit.js';
 import { hoverComponent } from './component-selection.js';
 import { selectRefText } from './ref-text-selection.js';
 import { setToolCursor } from '../../shared/ui/cursor.js';
+import { clearCursorCrosshair } from './cursor-state.js';
 
 export const PCB_SHAPE_TOOLS = new Set(['line', 'circle', 'arc', 'rect', 'polygon']);
 export const PCB_CROSSHAIR_TOOLS = new Set(['track', 'via', 'pad', 'text', 'fill', ...PCB_SHAPE_TOOLS]);
@@ -40,7 +41,7 @@ export function updateCursorForTool(app) {
         'default';
     if (t !== 'via') clearViaRing(app);
     if (t !== 'pad') clearPadPreview(app);
-    app._clearCursorCrosshair();
+    clearCursorCrosshair(app);
 }
 
 /** @param {import('../../ui/PCBApp.js').default} app */

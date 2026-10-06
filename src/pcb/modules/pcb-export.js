@@ -51,6 +51,54 @@ export function projectBaseName(app, fallback = 'pcb') {
     return fname.replace(/\.[^./\\]+$/, '') || fallback;
 }
 
+/**
+ * Save a Blob to disk. Uses the File System Access API when available
+ * (proper Save As dialog), falling back to an anchor download. Returns true
+ * if a file was saved, false if the user cancelled the picker.
+ * @param {Blob | (() => Promise<Blob>)} blob
+ * @param {string} suggestedName
+ * @param {{description?: string, accept?: Record<string,string[]>, win?: Window|null}} [opts]
+ * @returns {Promise<boolean>}
+ */
+export async function savePcbBlob(blob, suggestedName, opts = {}) {
+    // Run the save in the window that owns the user gesture. When a viewer
+    // is torn off into a pop-up, the click happens there — using the opener
+    // window's picker/anchor would have no user activation and silently fail.
+    const targetWin = /** @type {any} */ (opts.win && !opts.win.closed ? opts.win : window);
+    const targetDoc = targetWin.document || document;
+    if (typeof targetWin.showSaveFilePicker === 'function') {
+        try {
+            const handle = await targetWin.showSaveFilePicker({
+                suggestedName,
+                types: opts.accept ? [{
+                    description: opts.description || '',
+                    accept: opts.accept,
+                }] : undefined,
+            });
+            const data = typeof blob === 'function' ? await blob() : blob;
+            const writable = await handle.createWritable();
+            await writable.write(data);
+            await writable.close();
+            return true;
+        } catch (err) {
+            // User cancelled — not an error.
+            if (err && (err.name === 'AbortError' || err.code === 20)) return false;
+            throw err;
+        }
+    }
+    // Fallback: anchor download (Firefox / older browsers).
+    const data = typeof blob === 'function' ? await blob() : blob;
+    const url = URL.createObjectURL(data);
+    const a = targetDoc.createElement('a');
+    a.href = url;
+    a.download = suggestedName;
+    (targetDoc.body || targetDoc.documentElement).appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+    return true;
+}
+
 /** Artwork layer ids (z-ordered, bottom to top). Excludes ratlines/overlays. */
 const ARTWORK_LAYER_IDS = [
     'board-outline',

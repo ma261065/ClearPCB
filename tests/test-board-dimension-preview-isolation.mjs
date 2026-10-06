@@ -12,7 +12,7 @@ import { prepareFabricationSnapshot } from '../src/pcb/modules/fabrication-snaps
 import { loadPcb } from '../src/pcb/modules/project-state.js';
 import { PCB_LAYERS } from '../src/pcb/modules/layers.js';
 import { getPropertyEditor } from '../src/pcb/modules/property-editors.js';
-import { areDragOverlaysDeferred, isBoardViewRefreshSuspended, setBoardViewRefreshSuspended, setDragOverlaysDeferred } from '../src/pcb/modules/refresh-state.js';
+import { areDragOverlaysDeferred, isBoardViewRefreshSuspended, setBoardViewPanel, setBoardViewRefreshSuspended, setDragOverlaysDeferred } from '../src/pcb/modules/refresh-state.js';
 import { bindSettledChange, flushSettledChanges } from '../src/shared/ui/settled-input.js';
 import { getBoardOutlineResize } from '../src/pcb/modules/board-outline-resize.js';
 
@@ -68,11 +68,11 @@ function fixture(existing = true, deferred = false) {
             hideCrosshair() {} },
         getLayerGroup(id) { if (id === 'board-outline') draws++; return id === 'board-outline' ? group : null; },
         refreshFills() { assert.equal(areDragOverlaysDeferred(this), deferred); pours++; },
-        _board3d: { refresh() { refresh3d++; } },
         propertiesItems: () => null,
         _cancelDrawingMode() {}, _ensureViewport() {}, markSectionClean() {},
         _refreshPcbSelectionHighlights() {},
     };
+    setBoardViewPanel(app, { refresh() { refresh3d++; } });
     setDragOverlaysDeferred(app, deferred);
     setBoardViewRefreshSuspended(app, deferred);
     for (const key of ['boardShapes', 'tracks', 'vias', 'pads', 'texts', '_shapeIdCounter',

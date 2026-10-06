@@ -33,7 +33,8 @@ import { openPanelizeDialog, renderPanelPreview } from '../pcb/modules/panelizat
 import { generateGerberArchive, showGerberProgress } from '../pcb/modules/gerber-export.js';
 import { generateBOM, generatePickAndPlace } from '../pcb/modules/assembly.js';
 import { openBoard3DViewer } from '../pcb/modules/board3d.js';
-import { savePcbPdf, printPcb, projectBaseName } from '../pcb/modules/pcb-export.js';import { tracksFromAutorouterResult } from '../pcb/modules/autorouter-adapter.js';
+import { savePcbPdf, printPcb, projectBaseName, savePcbBlob } from '../pcb/modules/pcb-export.js';
+import { tracksFromAutorouterResult } from '../pcb/modules/autorouter-adapter.js';
 import { renderTrack, renderVia, removeTrackElements, removeViaElements } from '../pcb/modules/track-render.js';
 import { getTrackDraw, getTrackToolLayer, startTrackDraw, refreshTrackDrawPreview, addTrackWaypoint, cancelTrackDraw, resolveTrackSnap, clearTrackSnapMarker, reconcileRatsnest } from '../pcb/modules/track-draw.js';
 import { hitTestTrack, selectTrackOrVia, clearTrackSelection, setHoverHighlight, refreshTrackSelectionHalo, getSelectedTrack, getSelectedVia, dismissTrackContextMenu, trackIsSelectable } from '../pcb/modules/track-select.js';
@@ -111,10 +112,11 @@ import {
     addFillWaypoint,
     cancelFillDraw,
 } from '../pcb/modules/copper-fill-draw.js';
-import { preparePcbPaste, beginPcbPaste, updatePcbPaste, endPcbPaste, cancelPcbPaste, getPcbPastePreview, isPcbPasteActive } from '../pcb/modules/pcb-paste.js';
+import { preparePcbPaste, beginPcbPaste, cancelPcbPaste, getPcbPastePreview, isPcbPasteActive } from '../pcb/modules/pcb-paste.js';
+import { getLastCrosshairWorld, updateCursorCrosshair, updateVertexDragCrosshair } from '../pcb/modules/cursor-state.js';
 import { getBoardOutline, boardBoundary } from '../shared/pcb/board-outline.js';
 import { getPropertyEditor, setPropertyEditor } from '../pcb/modules/property-editors.js';
-import { areDragOverlaysDeferred, isFillRefreshPending, onRefreshSuspended, setDragOverlaysDeferred } from '../pcb/modules/refresh-state.js';
+import { areDragOverlaysDeferred, getBoardViewPanel, getLastBoard2DSide, isFillRefreshPending, onRefreshSuspended, refreshBoardViewPanel, setDragOverlaysDeferred, setLastBoard2DSide } from '../pcb/modules/refresh-state.js';
 import {
     drawBoardOutline,
     getBoardDimensionPreview,
@@ -305,11 +307,6 @@ export default class PCBApp {
          * box-select module: { comps:Set, tracks:Set, vias:Set }.
          * @type {{comps:Set, tracks:Set, vias:Set}|null}
          */
-        /** Pending marquee arm (before the drag threshold), or null */
-        this._boxSelectArm = null;
-        /** True while a marquee is actively being dragged */
-        this._boxSelectActive = false;
-
         /** Currently selected text object, or null. */
         /** Overlay <g> for the ref-text selection box and drag tether. */
         this._refOverlay = null;
@@ -346,8 +343,6 @@ export default class PCBApp {
         this._componentPopup = null;
         /** Lazily created owner of routing session and temporary presentation. */
         this._autorouter = null;
-        /** Shared 3D/2D board viewer panel (board3d.js), or null. @type {any} */
-        this._board3d = null;
         /** Clearance-halo overlay state (clearance-overlay.js). */
         this._clearancesVisible = false;
         /** Pad halo groups keyed by component id (clearance-overlay.js). @type {Map<string, SVGGElement>|null} */
@@ -619,29 +614,6 @@ export default class PCBApp {
         return deleted;
     }
 
-    /**
-     * Start cursor-glued drop mode for freshly pasted entities. The pasted
-     * objects move as one bundle with the cursor until the next left click.
-     */
-    _beginPasteDrop(payload, options) {
-        return beginPcbPaste(this, payload, options);
-    }
-
-    /** Live-update the pasted bundle position while in paste-drop mode. */
-    _updatePasteDrop(worldPos) {
-        updatePcbPaste(this, worldPos);
-    }
-
-    /** Finish paste-drop mode and keep the pasted entities at their current position. */
-    _endPasteDrop() {
-        endPcbPaste(this);
-    }
-
-    /** Cancel paste-drop mode and remove the freshly pasted entities. */
-    _cancelPasteDrop() {
-        cancelPcbPaste(this);
-    }
-
     /** Stage the current PCB clipboard payload at the cursor without authoring it. */
     pasteSelection() {
         if (!this._hasPcbClipboardData()) {
@@ -649,7 +621,7 @@ export default class PCBApp {
             return false;
         }
         const pasted = preparePcbPaste(this, this._pcbClipboard);
-        const started = this._beginPasteDrop(pasted);
+        const started = beginPcbPaste(this, pasted);
         this.syncClipboardButtons();
         return started;
     }
@@ -718,8 +690,8 @@ export default class PCBApp {
                     updateViaPreview(this, getViaPreviewWorld(this));
                 } else if (this.currentTool === 'pad' && getPadPreviewWorld(this)) {
                     updatePadPreview(this, getPadPreviewWorld(this));
-                } else if (this._lastCrosshairWorld) {
-                    this._updateCursorCrosshair(this._lastCrosshairWorld);
+                } else if (getLastCrosshairWorld(this)) {
+                    updateCursorCrosshair(this, getLastCrosshairWorld(this));
                 }
             }
             this._updatePcbCulling();
@@ -937,7 +909,7 @@ export default class PCBApp {
                 setHoverHighlight(this, null);
                 hideNetTooltip(this);
                 setVertexDragDownScreen(this, { x: e.clientX, y: e.clientY });
-                this._updateVertexDragCrosshair();
+                updateVertexDragCrosshair(this);
                 svg.style.cursor = 'grabbing';
                 return true;
             }
@@ -1001,7 +973,7 @@ export default class PCBApp {
                 if (startVertexDrag(this, trackHit.track, worldPos, { allowMidpointInsert: false })) {
                     hideNetTooltip(this);
                     setVertexDragDownScreen(this, { x: e.clientX, y: e.clientY });
-                    this._updateVertexDragCrosshair();
+                    updateVertexDragCrosshair(this);
                     svg.style.cursor = 'grabbing';
                 }
             }
@@ -1230,39 +1202,6 @@ export default class PCBApp {
         if (this.viewport.svg) {
             this.viewport.svg.classList.toggle('pcb-zoom-low', this.viewport.zoom < 2);
         }
-    }
-
-    /**
-     * Show/update the drawing crosshair at the snapped cursor position.
-     * Delegates the actual H+V lines to the shared Viewport crosshair so
-     * schematic and PCB behave identically (and clear of the rulers).
-     */
-    _updateCursorCrosshair(worldPos) {
-        if (!this.viewport) return;
-        const snap = this.currentTool === 'text'
-            ? this.snapToGrid(worldPos) : resolveTrackSnap(this, worldPos, {});
-        this._lastCrosshairWorld = { x: worldPos.x, y: worldPos.y };
-        this.viewport.setCrosshair({ x: snap.x, y: snap.y });
-    }
-
-    _clearCursorCrosshair() {
-        this.viewport?.hideCrosshair();
-        this._lastCrosshairWorld = null;
-    }
-
-    /**
-     * Show/update the drawing crosshair at the position of the node being
-     * dragged (single-node and plus-in-circle insertion drags). The node's
-     * position has already been resolved by updateVertexDrag (grid / pad /
-     * axis snap), so the crosshair lands exactly where the node will drop.
-     * No-op for segment drags (two moving nodes, no single point).
-     */
-    _updateVertexDragCrosshair() {
-        const drag = getVertexDrag(this);
-        if (!drag || drag.mode !== 'node' || !this.viewport) return;
-        const nd = drag.nodes?.[0];
-        const n = nd && drag.track?.nodes?.get(nd.nodeId);
-        if (n) this.viewport.setCrosshair({ x: n.x, y: n.y });
     }
 
     _clearViaRing() {
@@ -1927,7 +1866,7 @@ export default class PCBApp {
             this.refreshClearanceHalos();
             this.updateRatsnest();
             this.setStatus('No components in schematic');
-            this._board3d?.refresh?.();
+            refreshBoardViewPanel(this);
             return;
         }
 
@@ -1961,7 +1900,7 @@ export default class PCBApp {
 
         // A schematic-driven rebuild (e.g. a component added or deleted) does
         // not pass through the PCB history, so refresh any open 3D view here.
-        this._board3d?.refresh?.();
+        refreshBoardViewPanel(this);
     }
 
     /**
@@ -2693,7 +2632,7 @@ export default class PCBApp {
     }
 
     refreshComponent3D() {
-        this._board3d?.refresh?.();
+        refreshBoardViewPanel(this);
     }
 
     /**
@@ -3315,10 +3254,10 @@ export default class PCBApp {
             return;
         }
         this._exportGerberPending = true;
-        const suggestedName = `${this._exportBaseName()}-gerber.zip`;
+        const suggestedName = `${projectBaseName(this, 'untitled')}-gerber.zip`;
         try {
             let fileCount = 0;
-            const saved = await this._saveBlob(async () => {
+            const saved = await savePcbBlob(async () => {
                 const result = await generateGerberArchive(this);
                 fileCount = result.fileCount;
                 showGerberProgress('Saving ZIP', 100);
@@ -3354,8 +3293,8 @@ export default class PCBApp {
             this.setStatus(`BOM export failed: ${err?.message || err}`);
             return;
         }
-        const suggestedName = `${this._exportBaseName()}-bom.csv`;
-        this._saveBlob(blob, suggestedName, {
+        const suggestedName = `${projectBaseName(this, 'untitled')}-bom.csv`;
+        savePcbBlob(blob, suggestedName, {
             description: 'CSV file',
             accept: { 'text/csv': ['.csv'] },
         }).then(saved => {
@@ -3383,8 +3322,8 @@ export default class PCBApp {
             this.setStatus(`Pick-and-place export failed: ${err?.message || err}`);
             return;
         }
-        const suggestedName = `${this._exportBaseName()}-pick-and-place.csv`;
-        this._saveBlob(blob, suggestedName, {
+        const suggestedName = `${projectBaseName(this, 'untitled')}-pick-and-place.csv`;
+        savePcbBlob(blob, suggestedName, {
             description: 'CSV file',
             accept: { 'text/csv': ['.csv'] },
         }).then(saved => {
@@ -3396,21 +3335,13 @@ export default class PCBApp {
     }
 
     /**
-     * Derive a default export filename base from the project name.
-     * @returns {string}
-     */
-    _exportBaseName() {
-        return projectBaseName(this, 'untitled');
-    }
-
-    /**
      * Toggle the interactive 3D board visualiser. The toolbar 3D View button
      * opens/shows it when hidden and hides it when visible; the button stays
      * highlighted while the panel is active. The 3D and 2D views share one
      * panel, so opening 3D simply re-aims the shared panel.
      */
     open3DView() {
-        const p = this._board3d;
+        const p = getBoardViewPanel(this);
         if (p && !p.closed) {
             if (!p.hidden && p.view === '3d') { p.hide?.(); return; }
             if (p.hidden) p.show?.();
@@ -3421,12 +3352,12 @@ export default class PCBApp {
     }
 
     currentBoardView() {
-        const p = this._board3d;
+        const p = getBoardViewPanel(this);
         return p && !p.closed && !p.hidden ? p.view : null;
     }
 
     last2DSide() {
-        return this._last2DSide || 'top';
+        return getLastBoard2DSide(this);
     }
 
     /**
@@ -3437,8 +3368,8 @@ export default class PCBApp {
      * @param {'top'|'bottom'} [side]
      */
     open2DView(side = 'top') {
-        this._last2DSide = side;
-        const p = this._board3d;
+        setLastBoard2DSide(this, side);
+        const p = getBoardViewPanel(this);
         if (p && !p.closed) {
             if (!p.hidden && p.view === side) { p.hide?.(); return; }
             if (p.hidden) p.show?.();
@@ -3446,63 +3377,6 @@ export default class PCBApp {
             return;
         }
         openBoard3DViewer(this, { view: side });
-    }
-
-    /**
-     * Reflect the shared render panel's state on the toolbar 3D and 2D View
-     * buttons. Only one is highlighted at a time (or neither, when hidden).
-     */
-    _update3DButtonState() {
-        this.refreshPcbRibbon?.();
-    }
-
-    /**
-     * Save a Blob to disk. Uses the File System Access API when
-     * available (proper Save As dialog), falling back to an anchor
-     * download. Returns true if a file was saved, false if the user
-     * cancelled the picker.
-    * @param {Blob | (() => Promise<Blob>)} blob
-     * @param {string} suggestedName
-     * @param {{description?: string, accept?: Record<string,string[]>, win?: Window|null}} [opts]
-     * @returns {Promise<boolean>}
-     */
-    async _saveBlob(blob, suggestedName, opts = {}) {
-        // Run the save in the window that owns the user gesture. When a viewer
-        // is torn off into a pop-up, the click happens there — using the opener
-        // window's picker/anchor would have no user activation and silently fail.
-        const targetWin = /** @type {any} */ (opts.win && !opts.win.closed ? opts.win : window);
-        const targetDoc = targetWin.document || document;
-        if (typeof targetWin.showSaveFilePicker === 'function') {
-            try {
-                const handle = await targetWin.showSaveFilePicker({
-                    suggestedName,
-                    types: opts.accept ? [{
-                        description: opts.description || '',
-                        accept: opts.accept,
-                    }] : undefined,
-                });
-                const data = typeof blob === 'function' ? await blob() : blob;
-                const writable = await handle.createWritable();
-                await writable.write(data);
-                await writable.close();
-                return true;
-            } catch (err) {
-                // User cancelled — not an error.
-                if (err && (err.name === 'AbortError' || err.code === 20)) return false;
-                throw err;
-            }
-        }
-        // Fallback: anchor download (Firefox / older browsers).
-        const data = typeof blob === 'function' ? await blob() : blob;
-        const url = URL.createObjectURL(data);
-        const a = targetDoc.createElement('a');
-        a.href = url;
-        a.download = suggestedName;
-        (targetDoc.body || targetDoc.documentElement).appendChild(a);
-        a.click();
-        a.remove();
-        URL.revokeObjectURL(url);
-        return true;
     }
 
     /**

@@ -88,6 +88,23 @@ const VIA_HALO_CLASS = 'pcb-box-via-sel';
 const PAD_HALO_CLASS = 'pcb-box-pad-sel';
 const COMP_HALO_CLASS = 'pcb-box-comp-sel';
 
+const boxSelectState = new WeakMap();
+
+function stateFor(app) {
+    let state = boxSelectState.get(app);
+    if (!state) {
+        state = {
+            arm: null,
+            active: false,
+            pendingWorld: null,
+            frame: undefined,
+            highlightFrame: undefined,
+        };
+        boxSelectState.set(app, state);
+    }
+    return state;
+}
+
 /** The active group (multi-selection) drag, or null. */
 export function getGroupDrag(app) {
     return getPcbInteraction(app, '_groupDrag');
@@ -190,18 +207,23 @@ export function hasBoxSelection(app) {
  * @param {{x:number,y:number}} world  - world coords at mousedown
  */
 export function armBoxSelect(app, screen, world) {
-    app._boxSelectArm = { screen, world };
+    stateFor(app).arm = { screen, world };
     app._refreshPcbSelectionHighlights = () => refreshBoxSelectionHighlights(app);
 }
 
 /** Discard a pending (not-yet-started) box-select arm. */
 export function disarmBoxSelect(app) {
-    app._boxSelectArm = null;
+    stateFor(app).arm = null;
+}
+
+/** True while a potential marquee is armed but not yet active. */
+export function isBoxSelectArmed(app) {
+    return !!stateFor(app).arm;
 }
 
 /** True while a marquee is actively being dragged. */
 export function isBoxSelecting(app) {
-    return !!app._boxSelectActive;
+    return !!stateFor(app).active;
 }
 
 /**
@@ -214,11 +236,12 @@ export function isBoxSelecting(app) {
  * @returns {boolean}
  */
 export function maybeStartBoxSelect(app, e, worldPos) {
-    if (app._boxSelectActive) {
+    const state = stateFor(app);
+    if (state.active) {
         _scheduleMarqueeUpdate(app, worldPos);
         return true;
     }
-    const arm = app._boxSelectArm;
+    const arm = state.arm;
     if (!arm) return false;
     const ddx = e.clientX - arm.screen.x;
     const ddy = e.clientY - arm.screen.y;
@@ -226,7 +249,7 @@ export function maybeStartBoxSelect(app, e, worldPos) {
 
     // Threshold crossed — begin the marquee. Clear any prior single
     // selection so the new box selection is the only highlighted thing.
-    app._boxSelectActive = true;
+    state.active = true;
     app.drag = { start: { x: arm.world.x, y: arm.world.y } };
     clearBoxSelection(app);
     createBoxSelectElement(app);
@@ -236,24 +259,26 @@ export function maybeStartBoxSelect(app, e, worldPos) {
 
 /** Coalesce expensive marquee containment work to one update per frame. */
 function _scheduleMarqueeUpdate(app, worldPos) {
-    app._boxSelectPendingWorld = worldPos;
-    if (app._boxSelectFrame !== undefined) return;
-    app._boxSelectFrame = requestAnimationFrame(() => {
-        app._boxSelectFrame = undefined;
-        const pending = app._boxSelectPendingWorld;
-        app._boxSelectPendingWorld = null;
-        if (pending && app._boxSelectActive) _updateMarquee(app, pending);
+    const state = stateFor(app);
+    state.pendingWorld = worldPos;
+    if (state.frame !== undefined) return;
+    state.frame = requestAnimationFrame(() => {
+        state.frame = undefined;
+        const pending = state.pendingWorld;
+        state.pendingWorld = null;
+        if (pending && state.active) _updateMarquee(app, pending);
     });
 }
 
 function _flushMarqueeUpdate(app) {
-    if (app._boxSelectFrame !== undefined) {
-        cancelAnimationFrame(app._boxSelectFrame);
-        app._boxSelectFrame = undefined;
+    const state = stateFor(app);
+    if (state.frame !== undefined) {
+        cancelAnimationFrame(state.frame);
+        state.frame = undefined;
     }
-    const pending = app._boxSelectPendingWorld;
-    app._boxSelectPendingWorld = null;
-    if (pending && app._boxSelectActive) _updateMarquee(app, pending);
+    const pending = state.pendingWorld;
+    state.pendingWorld = null;
+    if (pending && state.active) _updateMarquee(app, pending);
 }
 
 /** Update the marquee rect + recompute the enclosed set + redraw halos. */
@@ -266,14 +291,15 @@ function _updateMarquee(app, worldPos) {
 
 /** Finish the marquee: keep the selection, remove the rubber-band rect. */
 export function finishBoxSelect(app) {
-    if (!app._boxSelectActive) {
-        app._boxSelectArm = null;
+    const state = stateFor(app);
+    if (!state.active) {
+        state.arm = null;
         return false;
     }
     _flushMarqueeUpdate(app);
     removeBoxSelectElement(app);
-    app._boxSelectActive = false;
-    app._boxSelectArm = null;
+    state.active = false;
+    state.arm = null;
     app.drag = null;
     return hasBoxSelection(app);
 }
@@ -287,9 +313,10 @@ export function refreshBoxSelectionHighlights(app) {
 
 /** Schedule one selection-overlay rebuild for the current animation frame. */
 export function scheduleBoxSelectionHighlights(app) {
-    if (app._boxHighlightFrame !== undefined) return;
-    app._boxHighlightFrame = requestAnimationFrame(() => {
-        app._boxHighlightFrame = undefined;
+    const state = stateFor(app);
+    if (state.highlightFrame !== undefined) return;
+    state.highlightFrame = requestAnimationFrame(() => {
+        state.highlightFrame = undefined;
         refreshBoxSelectionHighlights(app);
     });
 }

@@ -27,7 +27,8 @@ ClearPCB is vanilla JavaScript ES modules with no build step: the browser loads
 3. **Each piece of state has one owner.** A module keeps the state it owns in a
    module-level `WeakMap` keyed by the editor and exposes functions to read and
    change it (`fillToolDefaults(app)` / `setFillToolDefaults(app, …)` in
-   `copper-fill-draw.js`). Other modules call those functions; they do not reach
+   `copper-fill-draw.js`, `getBoardViewPanel(app)` in `refresh-state.js`,
+   `getLastCrosshairWorld(app)` in `cursor-state.js`). Other modules call those functions; they do not reach
    into `app._something`. What the editor itself provides, modules reach through
    its public services (`pcb/modules/pcb-editor-api.js`,
    `schematic/modules/schematic-editor-api.js`). Two ratchets count the private

@@ -59,7 +59,7 @@ function fixture() {
         ribbon, history: new CommandHistory(), currentTool: 'select', activeLayer: 'top-copper', _active: true,
         placements: new Map([['hovered', { bounds: { x: 0, y: 0, width: 1, height: 1 },
             elements: [{ appendChild() {}, querySelector: () => ({ remove() {} }) }] }]]),
-        viewport: { gridSize: 1, getGridOptions: () => [{ value: 1 }], svg: { style: {} } },
+        viewport: { gridSize: 1, getGridOptions: () => [{ value: 1 }], svg: { style: {} }, hideCrosshair() {} },
         getLayerGroup: () => null,
         refreshText() {},
         selectText() {},

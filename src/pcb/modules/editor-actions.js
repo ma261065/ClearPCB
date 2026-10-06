@@ -1,6 +1,7 @@
 import { cancelPcbPosePreviews, cancelPcbPropertyPreview, hasPcbInteractionInProgress } from './edit-lifecycle.js';
 import { finishSelectionInteraction, clearSelectionInteractionUi, setSelectionInteraction, showPcbSelectionProperties } from './selection-interaction.js';
-import { beginGroupDrag, updateGroupDrag, endGroupDrag, cancelGroupDrag, clearBoxSelection, getGroupDrag, hasBoxSelection, deleteBoxSelection } from './box-select.js';
+import { beginGroupDrag, updateGroupDrag, endGroupDrag, cancelGroupDrag, clearBoxSelection, getGroupDrag, hasBoxSelection, deleteBoxSelection, isBoxSelectArmed, isBoxSelecting } from './box-select.js';
+import { clearCursorCrosshair } from './cursor-state.js';
 import { getBoardDimensionPreview, endBoardOutlineResize, finishBoardDimensionPreview, getBoardOutlineResize } from './board-outline-resize.js';
 import { getBoardShapeDrag, getBoardShapeRotationPreview, finishBoardShapeRotationPreview, endBoardShapeDrag, deleteFocusedBoardShape } from './board-shapes.js';
 import { cancelVertexDrag, cancelViaDrag, getVertexDrag, getViaDrag, setSegmentClickEdgeId } from './track-drag.js';
@@ -53,8 +54,8 @@ export function runPcbDeleteAction(app) {
 export function runPcbNudgeAction(app, key) {
     if (!isEditorActive(app) || app.currentTool !== 'select'
         || isPcbDrawing(app)
-        || hasPcbInteractionInProgress(app) || app._boxSelectArm
-        || app._boxSelectActive || app.viewport.isPanning) return false;
+        || hasPcbInteractionInProgress(app) || isBoxSelectArmed(app)
+        || isBoxSelecting(app) || app.viewport.isPanning) return false;
     const selected = getPcbSelectionEntries(app);
     // Locked members stay put (the group drag skips them); one movable member is enough.
     if (!selected.some(entry => !entry.locked) || selected.some(entry => entry.visible === false
@@ -87,17 +88,17 @@ export function runPcbEscapeAction(app) {
         return true;
     }
     if (finishSelectionInteraction(app, false)) {
-        app._clearCursorCrosshair();
+        clearCursorCrosshair(app);
         return true;
     }
     if (getComponentDrag(app)) {
         endComponentDrag(app, false);
-        app._clearCursorCrosshair();
+        clearCursorCrosshair(app);
         return true;
     }
     if (getRefDrag(app)) {
         endRefDrag(app, false);
-        app._clearCursorCrosshair();
+        clearCursorCrosshair(app);
         return true;
     }
     if (getGroupDrag(app)) {
@@ -191,7 +192,7 @@ export function runPcbHistoryAction(app, action) {
         if (getViaDrag(app)) cancelViaDrag(app);
         if (getBoardShapeDrag(app)) {
             endBoardShapeDrag(app, false);
-            app._clearCursorCrosshair();
+            clearCursorCrosshair(app);
         }
     } else if (getBoardShapeRotationPreview(app)) {
         if (!finishSelectionInteraction(app, false)) finishBoardShapeRotationPreview(app);

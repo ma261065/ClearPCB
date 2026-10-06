@@ -16,7 +16,7 @@
  */
 
 import { isEditorActive } from './pcb-editor-api.js';
-import { isPcbPasteActive } from './pcb-paste.js';
+import { endPcbPaste, isPcbPasteActive } from './pcb-paste.js';
 import { placeFloatingSelectionInteraction } from './selection-interaction.js';
 import { beginBoardOutlineResize, hitTestBoardOutlineHandle } from './board-outline-resize.js';
 import { getPcbSelection } from './selection-registry.js';
@@ -46,6 +46,7 @@ import { hitTestComponent, showComponent3DMenu } from './component-selection.js'
 import { hitTestFill } from './copper-fill-selection.js';
 import { scheduleHoverUpdate } from './pcb-hover.js';
 import { tryEditReferenceAt } from './ref-text-selection.js';
+import { updateCursorCrosshair } from './cursor-state.js';
 
 /** PCBApp method handling a primary-button press for each tool. */
 export const PCB_TOOL_PRESS_HANDLERS = Object.freeze({
@@ -144,7 +145,7 @@ function onMouseDown(app, e) {
     // left-click drops them at their current position.
     if (isPcbPasteActive(app) && e.button === 0) {
         e.preventDefault();
-        app._endPasteDrop();
+        endPcbPaste(app);
         return;
     }
     // Midpoint and context-menu split/conversion previews drop on the next click.
@@ -237,7 +238,7 @@ function updateToolCursor(app, worldPos) {
     } else if (app.currentTool === 'pad') {
         updatePadPreview(app, worldPos);
     } else if (PCB_CROSSHAIR_TOOLS.has(app.currentTool)) {
-        app._updateCursorCrosshair(worldPos);
+        updateCursorCrosshair(app, worldPos);
     }
 }
 
@@ -257,7 +258,7 @@ function onMouseMove(app, e) {
         if (!maybeStartBoxSelect(app, e, app.screenToWorld(e))) scheduleHoverUpdate(app, e);
     } else if (app.currentTool === 'track') {
         const snap = resolveTrackDrawSnap(app, app.screenToWorld(e), {});
-        app._updateCursorCrosshair({ x: snap.x, y: snap.y });
+        updateCursorCrosshair(app, { x: snap.x, y: snap.y });
         // Pre-draw hover uses the same hard copper targets as the
         // active route so the first press cannot change its snap.
         if (snap.snapType === 'pad' || snap.snapType === 'via'

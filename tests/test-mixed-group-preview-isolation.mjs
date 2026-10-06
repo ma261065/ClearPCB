@@ -19,7 +19,7 @@ import { setPcbSelection, getPcbSelectionEntries, syncPcbSelection } from '../sr
 import { prepareFabricationSnapshot } from '../src/pcb/modules/fabrication-snapshot.js';
 import { loadPcb } from '../src/pcb/modules/project-state.js';
 import { PCB_LAYERS, PCB_COPPER_FILLS } from '../src/pcb/modules/layers.js';
-import { areDragOverlaysDeferred, isBoardViewRefreshSuspended, setBoardViewRefreshSuspended, setDragOverlaysDeferred } from '../src/pcb/modules/refresh-state.js';
+import { areDragOverlaysDeferred, isBoardViewRefreshSuspended, setBoardViewPanel, setBoardViewRefreshSuspended, setDragOverlaysDeferred } from '../src/pcb/modules/refresh-state.js';
 import { getSelectionInteraction } from '../src/pcb/modules/selection-interaction.js';
 import { getGroupDrag } from '../src/pcb/modules/box-select.js';
 import { setPcbInteraction } from '../src/pcb/modules/pcb-interactions.js';
@@ -102,7 +102,7 @@ function fixture(deferred = false, component = false) {
         netlist: [], history: new CommandHistory(), _active: true, _layerGroups: groups, existingLayerGroups() { return this._layerGroups; }, _shapeElements: new Map(), 
         viewport: { scale: 10, gridVisible: false, svg: new Element('svg'), setCrosshair() {}, hideCrosshair() {} },
         getLayerGroup: id => groups.get(id) || null, refreshText() {}, refreshFills() { fills++; },
-        updateRatsnest() { ratsnest++; }, _board3d: { refresh() { board++; } },
+        updateRatsnest() { ratsnest++; },
         refreshClearanceHalos() {}, _netsForComponent: () => new Set(),
         _cancelPosePreviews: PCBApp.prototype._cancelPosePreviews, isSectionEditing: PCBApp.prototype.isSectionEditing,
         _cancelDrawingMode: () => false, _ensureViewport() {}, markSectionClean() {}, setActiveRibbonTab() {}, setPcbStatus() {},
@@ -117,6 +117,7 @@ function fixture(deferred = false, component = false) {
         _onCopperFillLockChanged: PCBApp.prototype._onCopperFillLockChanged,
         _onCopperFillVisibilityChanged: PCBApp.prototype._onCopperFillVisibilityChanged,
     });
+    setBoardViewPanel(app, { refresh() { board++; } });
     project.registerView('pcb', app);
     for (const item of model.tracks) renderTrack(item, app.getLayerGroup);
     renderVia(via, app.getLayerGroup); renderPad(pad, app.getLayerGroup);

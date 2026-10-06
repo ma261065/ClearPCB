@@ -15,7 +15,7 @@ import { finishSelectionInteraction } from '../src/pcb/modules/selection-interac
 import { prepareFabricationSnapshot } from '../src/pcb/modules/fabrication-snapshot.js';
 import { loadPcb } from '../src/pcb/modules/project-state.js';
 import { PCB_LAYERS } from '../src/pcb/modules/layers.js';
-import { areDragOverlaysDeferred, isBoardViewRefreshSuspended, setBoardViewRefreshSuspended, setDragOverlaysDeferred } from '../src/pcb/modules/refresh-state.js';
+import { areDragOverlaysDeferred, isBoardViewRefreshSuspended, setBoardViewPanel, setBoardViewRefreshSuspended, setDragOverlaysDeferred } from '../src/pcb/modules/refresh-state.js';
 import { getViaDrag } from '../src/pcb/modules/track-drag.js';
 import { getVertexDrag } from '../src/pcb/modules/track-drag.js';
 
@@ -102,7 +102,7 @@ function fixture(mode, deferred = false, unrelatedCount = 1) {
         viewport: { scale: 100, svg: new Element('svg'), shiftHeld: true, setCrosshair() {}, hideCrosshair() {} },
         propertiesItems: () => ({ innerHTML: '' }), refreshPropertyPanel() {}, getLayerGroup: id => groups.get(id) || null,
         setActiveRibbonTab() {}, setPcbStatus() {}, refreshFills() { fills++; },
-        refreshClearanceHalos() { clearances++; }, _board3d: { refresh() { boardRefreshes++; } },
+        refreshClearanceHalos() { clearances++; },
         _cancelDrawingMode() {}, _ensureViewport() {}, markSectionClean() {},
         _refreshPcbSelectionHighlights() {},
         alert(message) { this.lastAlert = message; },
@@ -129,6 +129,7 @@ function fixture(mode, deferred = false, unrelatedCount = 1) {
             assert.equal(actual[i].getAttribute('stroke-width'), String(runs[i].width));
         }
     };
+    setBoardViewPanel(app, { refresh() { boardRefreshes++; } });
     return { app, project, model, track, edgeId, nodeId, unrelated, groups, adapter, initial, start,
         artwork, assertArtwork, work: () => [allocations, fills, clearances, boardRefreshes], fills: () => fills };
 }

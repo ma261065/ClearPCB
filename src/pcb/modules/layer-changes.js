@@ -1,5 +1,5 @@
 import { isViaVisible, saveLayerPrefs, refreshPcbLayerOptions } from './layers.js';
-import { isPcbPasteActive, isPcbPasteEditable } from './pcb-paste.js';
+import { cancelPcbPaste, isPcbPasteActive, isPcbPasteEditable } from './pcb-paste.js';
 import { getPropertyEditor, eachPropertyEditorOnLayer } from './property-editors.js';
 import { endBoardOutlineResize, isBoardOutlineSelected, selectBoardOutline } from './board-outline-resize.js';
 import { getPcbSelection, getPcbSelectionEntries } from './selection-registry.js';
@@ -51,7 +51,7 @@ function cancelStrandedGestures(app, layerId, affectsGroup) {
 
 /** Show or hide a layer's render group (and the copper side's companion groups). */
 export function onLayerVisibilityChanged(app, layerId, visible) {
-    if (isPcbPasteActive(app) && !visible && !isPcbPasteEditable(app)) app._cancelPasteDrop();
+    if (isPcbPasteActive(app) && !visible && !isPcbPasteEditable(app)) cancelPcbPaste(app);
     if (!visible) {
         if (layerId === 'board-outline') getPropertyEditor(app, 'boardDimension')?.dispose();
         cancelStrandedGestures(app, layerId, entry => entry.visible === false);
@@ -114,7 +114,7 @@ export function onLayerVisibilityChanged(app, layerId, visible) {
 
 /** Lock or unlock a layer: cancel edits on it and refresh the lock-dependent UI. */
 export function onLayerLockChanged(app, layerId, locked) {
-    if (isPcbPasteActive(app) && locked && !isPcbPasteEditable(app)) app._cancelPasteDrop();
+    if (isPcbPasteActive(app) && locked && !isPcbPasteEditable(app)) cancelPcbPaste(app);
     if (locked) {
         if (layerId === 'board-outline') getPropertyEditor(app, 'boardDimension')?.cancel();
         cancelStrandedGestures(app, layerId, entry => entry.locked);
@@ -161,7 +161,7 @@ const groupDragsPourOn = (app, copperLayerId) => getGroupDrag(app)?.fills.some((
 
 /** Show or hide the copper pour on one side; purely a view state. */
 export function onCopperFillVisibilityChanged(app, copperLayerId, visible) {
-    if (isPcbPasteActive(app) && !visible && !isPcbPasteEditable(app)) app._cancelPasteDrop();
+    if (isPcbPasteActive(app) && !visible && !isPcbPasteEditable(app)) cancelPcbPaste(app);
     if (!visible && groupDragsPourOn(app, copperLayerId)) app._cancelPosePreviews();
     const g = app.existingLayerGroups().get(fillGroupId(copperLayerId));
     if (g) g.style.display = visible ? '' : 'none';
@@ -174,7 +174,7 @@ export function onCopperFillVisibilityChanged(app, copperLayerId, visible) {
  * selectable only for its unlock affordance.
  */
 export function onCopperFillLockChanged(app, copperLayerId, locked) {
-    if (isPcbPasteActive(app) && locked && !isPcbPasteEditable(app)) app._cancelPasteDrop();
+    if (isPcbPasteActive(app) && locked && !isPcbPasteEditable(app)) cancelPcbPaste(app);
     if (locked && groupDragsPourOn(app, copperLayerId)) app._cancelPosePreviews();
     const g = app.existingLayerGroups().get(fillGroupId(copperLayerId));
     if (g) g.style.opacity = locked ? '0.4' : '';

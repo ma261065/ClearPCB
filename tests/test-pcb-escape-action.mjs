@@ -9,6 +9,7 @@ import { getPropertyEditor, setPropertyEditor } from '../src/pcb/modules/propert
 import { getSelectionInteraction } from '../src/pcb/modules/selection-interaction.js';
 import { getTrackDraw } from '../src/pcb/modules/track-draw.js';
 import { getPcbInteraction, setPcbInteraction } from '../src/pcb/modules/pcb-interactions.js';
+import { getLastCrosshairWorld } from '../src/pcb/modules/cursor-state.js';
 
 globalThis.window = { addEventListener() {} };
 globalThis.document = { getElementById: () => null, querySelector: () => null };
@@ -62,7 +63,7 @@ for (const key of propertyKeys) {
     events.length = 0;
     assert.equal(escape(), true);
     assert.equal(app.currentTool, 'select', 'A later Escape leaves the tool');
-    assert.deepEqual(events, ['clear-properties', 'clear-crosshair', 'highlight', 'status', 'pcb-home']);
+    assert.deepEqual(events, ['clear-properties', 'hide-crosshair', 'highlight', 'status', 'pcb-home']);
 }
 
 {
@@ -103,7 +104,7 @@ for (const kind of ['component', 'shape', 'track', 'via', 'pad', 'fill', 'text',
         assert.equal(app.currentTool, 'via', 'Cancelling the gesture does not also exit the tool');
         assert.deepEqual(events, [
             ...(['anchor', 'floating-anchor'].includes(mode) ? ['end-anchor'] : mode === 'move-adapter' ? ['end-move'] : []),
-            'clear-crosshair',
+            'hide-crosshair',
         ]);
     }
 }
@@ -174,7 +175,7 @@ for (const tool of ['track', 'fill', 'line', 'rect', 'polygon', 'circle', 'arc']
         assert.equal(escape(), true);
         assert.equal(app.currentTool, 'select');
         assert.equal(app.viewport.crosshairContainer.style.display, 'none', 'Second Escape hides the crosshair');
-        assert.equal(app._lastCrosshairWorld, null);
+        assert.equal(getLastCrosshairWorld(app), null);
     }
 }
 for (const finish of [cancelTrackDraw, finishTrackDraw, popTrackWaypoint]) {

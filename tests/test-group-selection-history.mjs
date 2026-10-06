@@ -35,7 +35,7 @@ globalThis.document = { createElementNS: element, createElement: element, body: 
 globalThis.localStorage = { getItem: () => null, setItem() {}, removeItem() {} };
 const { default: PCBApp } = await import('../src/ui/PCBApp.js');
 const { CommandHistory } = await import('../src/core/CommandHistory.js');
-const { beginGroupDrag, updateGroupDrag, endGroupDrag, refreshBoxSelectionHighlights } =
+const { armBoxSelect, beginGroupDrag, finishBoxSelect, updateGroupDrag, endGroupDrag, refreshBoxSelectionHighlights } =
     await import('../src/pcb/modules/box-select.js');
 const { getTextPosePreviewTexts } = await import('../src/pcb/modules/text-commands.js');
 const { registerPcbSelectionAdapter, setPcbSelection, getPcbSelection, getPcbSelectionEntries, clearPcbSelection } =
@@ -55,7 +55,7 @@ for (const text of texts) pcbDocument.texts.set(text.id, text);
 const app = {
     placements: new Map(), tracks: [], vias: [], boardShapes: [],
     pcbDocument, get texts() { return getTextPosePreviewTexts(this) || pcbDocument.texts; },
-    viewport: { scale: 8, snapToGrid: false },
+    viewport: { scale: 8, snapToGrid: false, contentLayer: element() },
     _layerGroups: new Map([['selection-overlay', overlay]]),
     getLayerGroup(id) { return this._layerGroups.get(id); },
     _markDirty() {}, _syncHistoryButtons() {}, refreshText() {},
@@ -183,13 +183,13 @@ for (const event of [
 }
 for (const state of ['_pcbSelectionInteraction', '_groupDrag', '_vertexDrag', '_viaDrag', '_shapeDrag',
     '_boardOutlineResize', '_rotationHandleDrag', '_pasteDrop', '_textEdit', '_drag',
-    '_textDrag', '_refDrag', '_boxSelectArm', '_boxSelectActive']) {
-    if (state === '_boxSelectArm' || state === '_boxSelectActive') app[state] = {};
+    '_textDrag', '_refDrag', '_boxSelectArm']) {
+    if (state === '_boxSelectArm') armBoxSelect(app, { x: 0, y: 0 }, { x: 0, y: 0 });
     else setPcbInteraction(app, state, {});
     assert.equal(handleKeyDown.call(app, { key: 'ArrowLeft' }), false, `${state}: arrows leave active gestures alone`);
     assert.equal(runPcbNudgeAction(app, 'ArrowLeft'), false, `${state}: direct action uses the same guard`);
     assert.deepEqual(texts.map(text => [text.x, text.y]), beforeUnsnapped);
-    if (state === '_boxSelectArm' || state === '_boxSelectActive') app[state] = null;
+    if (state === '_boxSelectArm') finishBoxSelect(app);
     else setPcbInteraction(app, state, null);
 }
 const selectedEntry = getPcbSelectionEntries(app)[0];

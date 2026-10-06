@@ -9,6 +9,7 @@ import { getSelectionInteraction } from '../src/pcb/modules/selection-interactio
 import { getRefDrag } from '../src/pcb/modules/ref-text-selection.js';
 import { handleRefDrag } from '../src/pcb/modules/ref-text-selection.js';
 import { setPcbInteraction } from '../src/pcb/modules/pcb-interactions.js';
+import { setBoardViewPanel } from '../src/pcb/modules/refresh-state.js';
 
 globalThis.window = { addEventListener() {} };
 const { default: PCBApp } = await import('../src/ui/PCBApp.js');
@@ -39,9 +40,10 @@ function fixture({ saved = true, rotation = 37, side = 'bottom', mirror = true }
             gridVisible: true, scale: 4, gridSize: 10, hideCrosshair() {} },
         getLayerGroup: () => null,
         _drawRefOverlay: (id, withTether) => overlays.push({ id, withTether, ...offsets() }),
-        _markDirty: () => dirty++, _board3d: { refresh: () => boardRefreshes++ },
+        _markDirty: () => dirty++,
         screenToWorld: event => ({ x: event.clientX, y: event.clientY }),
     };
+    setBoardViewPanel(app, { refresh: () => boardRefreshes++ });
     for (const method of [        '_worldToPlacementLocal', '_placementLocalToWorld', 'snapToGrid', 'handleKeyDown', '_clearCursorCrosshair']) {
         app[method] = PCBApp.prototype[method];
     }

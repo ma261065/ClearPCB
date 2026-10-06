@@ -4,6 +4,7 @@ import { getPcbSelectionEntries } from './selection-registry.js';
 import { isRotationHandleDragActive, ROTATION_CURSOR } from './rotation-handle.js';
 import { createLockIcon, lockIconMetrics, LOCK_GAP } from '../../core/ui-helpers.js';
 import { boundsOutline, lockPositionOutsideOutline } from '../../core/lock-position.js';
+import { getLastPointerWorld } from './cursor-state.js';
 
 export { lockPositionOutsideOutline };
 
@@ -53,8 +54,9 @@ export function renderPcbSelectionAnchors(app) {
         if (adapter.locked) {
             const bounds = adapter.getBounds?.();
             if (!bounds) continue;
-            const position = adapter.getLockPosition?.(app._lastPointerWorld, scale)
-                || lockPositionOutsideOutline(boundsOutline(bounds), app._lastPointerWorld, scale)
+            const pointerWorld = getLastPointerWorld(app);
+            const position = adapter.getLockPosition?.(pointerWorld, scale)
+                || lockPositionOutsideOutline(boundsOutline(bounds), pointerWorld, scale)
                 || {
                     x: bounds.minX - LOCK_GAP - lockSize,
                     y: bounds.minY - LOCK_GAP - lockSize * 0.6,

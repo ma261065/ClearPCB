@@ -39,7 +39,7 @@ const trackNodes = page => page.evaluate(() => [...window.bootstrap.pcbApp.track
 /** Total vertex count of the meshes in the open 3D scene (runs in the page). */
 const sceneVertices = () => {
     let vertices = 0;
-    window.bootstrap.pcbApp._board3d?.scene?.scene?.traverse(object => {
+    window.__clearpcbBoardViewPanel?.()?.scene?.scene?.traverse(object => {
         if (object.isMesh && object.geometry?.attributes?.position) vertices += object.geometry.attributes.position.count;
     });
     return vertices;
@@ -81,20 +81,24 @@ export const scenarios = [
             await openPcb(page, url);
             await drawTrack(page, [20, -20], [50, -20]);
             await page.locator('#pcb3dView').click();
+            await page.evaluate(async () => {
+                const { getBoardViewPanel } = await import('/src/pcb/modules/refresh-state.js');
+                window.__clearpcbBoardViewPanel = () => getBoardViewPanel(window.bootstrap.pcbApp);
+            });
             await page.waitForFunction(() => {
                 let meshes = 0;
-                window.bootstrap.pcbApp._board3d?.scene?.scene?.traverse(object => { if (object.isMesh) meshes++; });
+                window.__clearpcbBoardViewPanel?.()?.scene?.scene?.traverse(object => { if (object.isMesh) meshes++; });
                 return meshes >= 4;
             }, null, { timeout: 30000 });
-            assert.ok(await page.evaluate(() => window.bootstrap.pcbApp._board3d.scene.scene.background?.isTexture),
+            assert.ok(await page.evaluate(() => window.__clearpcbBoardViewPanel().scene.scene.background?.isTexture),
                 'The 3D scene paints the shared gradient background texture');
             const withTrack = await page.evaluate(sceneVertices);
             await page.keyboard.press('Control+z');
             await page.waitForFunction(`(${sceneVertices})() < ${withTrack}`, null, { timeout: 30000 });
             await page.keyboard.press('Control+y');
             await page.waitForFunction(`(${sceneVertices})() === ${withTrack}`, null, { timeout: 30000 });
-            await page.evaluate(() => window.bootstrap.pcbApp._board3d.close());
-            assert.equal(await page.evaluate(() => window.bootstrap.pcbApp._board3d), null, 'Closing releases the viewer');
+            await page.evaluate(() => window.__clearpcbBoardViewPanel().close());
+            assert.equal(await page.evaluate(() => window.__clearpcbBoardViewPanel()), null, 'Closing releases the viewer');
             assert.equal(await page.locator('.cpcb3d-cv').count(), 0, 'Closing removes the viewer canvas');
             // A committed edit after closing must not touch the disposed viewer.
             await page.keyboard.press('Control+z');

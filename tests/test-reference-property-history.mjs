@@ -7,6 +7,7 @@ import { setPcbSelection } from '../src/pcb/modules/selection-registry.js';
 import { PCB_LAYERS } from '../src/pcb/modules/layers.js';
 import { getPropertyEditor } from '../src/pcb/modules/property-editors.js';
 import { attachPropertyPanelHarness } from './helpers/property-panel-controls.mjs';
+import { setBoardViewPanel } from '../src/pcb/modules/refresh-state.js';
 
 globalThis.window = { addEventListener() {} };
 const { default: PCBApp } = await import('../src/ui/PCBApp.js');
@@ -27,8 +28,9 @@ function fixture(saved, selected = false) {
         _bindStrokeTextProps: PCBApp.prototype._bindStrokeTextProps,
         _rerenderRef: () => renders.push(capturePlacementOverride(placement)),
         _drawRefOverlay: (id, tether) => overlays.push({ id, tether, pose: capturePlacementOverride(placement) }),
-        _markDirty: () => dirty++, _board3d: { refresh: () => boardRefreshes++ },
+        _markDirty: () => dirty++,
     };
+    setBoardViewPanel(app, { refresh: () => boardRefreshes++ });
     attachPropertyPanelHarness(app, { controls: inputs });
     if (selected) setPcbSelection(app, [{ kind: 'reftext', object: 'part' }]);
     overlays.length = 0;

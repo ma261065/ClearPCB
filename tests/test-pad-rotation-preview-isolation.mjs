@@ -59,7 +59,7 @@ function fixture(shape = 'rectangle', layers = 'both') {
     let fills = 0;
     const app = {
         project, pcbDocument: model, placements: new Map(), netlist: [], history: new CommandHistory(), _active: true,
-        viewport: { scale: 100, svg: new Element('svg') },
+        viewport: { scale: 100, svg: new Element('svg'), hideCrosshair() {} },
         getLayerGroup: id => groups.get(id) || null,
         refreshClearanceHalos() {}, refreshFills() { fills++; },
         _cancelPosePreviews: PCBApp.prototype._cancelPosePreviews,

@@ -26,6 +26,7 @@ import { isRotationHandleDragActive, ROTATION_CURSOR } from './rotation-handle.j
 import { getPcbInteraction, setPcbInteraction } from './pcb-interactions.js';
 import { selectBoardOutline } from './board-outline-resize.js';
 import { selectRefText } from './ref-text-selection.js';
+import { setLastPointerWorld } from './cursor-state.js';
 
 const SUPPORTED_KINDS = new Set(['component', 'shape', 'track', 'via', 'pad', 'fill', 'text', 'reftext']);
 
@@ -125,7 +126,7 @@ export function beginPcbAnchorInteraction(app, adapter, anchor, worldPos, floati
 }
 
 export function beginSelectionInteraction(app, worldPos, additive, cycle = false) {
-    app._lastPointerWorld = worldPos;
+    setLastPointerWorld(app, worldPos);
     const selected = getPcbSelectionEntries(app);
     if (cycle || additive) {
         const entry = hitTestPcbSelectionEntry(app, worldPos, SUPPORTED_KINDS);

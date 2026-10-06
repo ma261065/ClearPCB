@@ -82,7 +82,8 @@ import { boardShapeFilledRemovalOutlines, resolveBoardShapeGeometry } from '../.
 import { pcbTextPolylines } from './pcb-text.js';
 import { loadClipper, isClipperReady, getClipper } from './copper-fill-geom.js';
 import { createViewerBackgroundTexture, VIEWER_BACKGROUND } from './viewer-background.js';
-import { areDragOverlaysDeferred, isBoardViewRefreshSuspended, isFillRefreshPending, isFillRefreshScheduled, isFillRefreshSuspended, refreshStatus } from './refresh-state.js';
+import { areDragOverlaysDeferred, clearBoardViewPanel, getBoardViewPanel, isBoardViewRefreshSuspended, isFillRefreshPending, isFillRefreshScheduled, isFillRefreshSuspended, refreshStatus, setBoardViewPanel, setLastBoard2DSide } from './refresh-state.js';
+import { projectBaseName, savePcbBlob } from './pcb-export.js';
 
 export function board2DDataFromApp(app) {
     return {
@@ -94,8 +95,8 @@ export function board2DDataFromApp(app) {
         boardShapes: (app.boardShapes || []).filter(shape => shape?.type !== 'fill'),
         fills: app.copperFills,
         texts: [...(app.texts?.values?.() || [])],
-        boardX: app._boardX || 0,
-        boardY: app._boardY || 0,
+        boardX: 0,
+        boardY: 0,
         boardWidth: boardDimensions(app).width,
         boardHeight: boardDimensions(app).height,
         boardRadius: boardDimensions(app).radius,
@@ -3360,10 +3361,11 @@ export async function openBoard3DViewer(app, opts = {}) {
     const initialView = opts.view || '3d';
     // Single instance: re-opening shows a hidden panel, focuses a popped-out
     // window, or is otherwise a no-op.
-    if (app._board3d && !app._board3d.closed) {
-        if (app._board3d.hidden) app._board3d.show?.();
-        else if (app._board3d.mode === 'popped') app._board3d.popWin?.focus();
-        app._board3d.setView?.(initialView);
+    const existingPanel = getBoardViewPanel(app);
+    if (existingPanel && !existingPanel.closed) {
+        if (existingPanel.hidden) existingPanel.show?.();
+        else if (existingPanel.mode === 'popped') existingPanel.popWin?.focus();
+        existingPanel.setView?.(initialView);
         return;
     }
 
@@ -3457,8 +3459,8 @@ export async function openBoard3DViewer(app, opts = {}) {
 
     /** @type {any} */
     const panel = { mode: 'docked', popWin: null, closed: false, hidden: false, scene: null, view: initialView };
-    app._board3d = panel;
-    app._update3DButtonState?.();
+    setBoardViewPanel(app, panel);
+    app.refreshPcbRibbon();
 
     // ── Split-divider drag ───────────────────────────────────────────────
     // Resizes only the overlay panel; the PCB editor underneath is unaffected.
@@ -3692,7 +3694,7 @@ export async function openBoard3DViewer(app, opts = {}) {
         if (panel.mode === 'popped' && panel.popWin && !panel.popWin.closed) {
             try { panel.popWin.document.title = popTitle(); } catch { /* ignore */ }
         }
-        app._update3DButtonState?.();
+        app.refreshPcbRibbon();
     };
     panel.setView = applyView;
 
@@ -3927,8 +3929,8 @@ export async function openBoard3DViewer(app, opts = {}) {
 
     // ── 2D Top/Bottom side buttons (only visible while a flat 2D view shows).
     // Two side-by-side buttons; the active one is highlighted (see applyView).
-    dom.btn2dTop?.addEventListener('click', () => { app._last2DSide = 'top'; applyView('top'); });
-    dom.btn2dBottom?.addEventListener('click', () => { app._last2DSide = 'bottom'; applyView('bottom'); });
+    dom.btn2dTop?.addEventListener('click', () => { setLastBoard2DSide(app, 'top'); applyView('top'); });
+    dom.btn2dBottom?.addEventListener('click', () => { setLastBoard2DSide(app, 'bottom'); applyView('bottom'); });
 
     // The 2D canvas is a plain board preview; suppress the browser context menu
     // so right-drag panning never pops up the default menu.
@@ -3941,8 +3943,8 @@ export async function openBoard3DViewer(app, opts = {}) {
         const done = (blob) => {
             if (!blob) return;
             const side = panel.view === 'bottom' ? 'bottom' : 'top';
-            const base = app._exportBaseName?.() || 'board';
-            app._saveBlob?.(blob, `${base}-${side}.png`, {
+            const base = projectBaseName(app, 'board');
+            savePcbBlob(blob, `${base}-${side}.png`, {
                 description: 'PNG image',
                 accept: { 'image/png': ['.png'] },
                 win: panel.mode === 'popped' ? panel.popWin : window,
@@ -3956,8 +3958,8 @@ export async function openBoard3DViewer(app, opts = {}) {
     dom.btn3dSave?.addEventListener('click', () => {
         scene?.captureBlob((blob) => {
             if (!blob) return;
-            const base = app._exportBaseName?.() || 'board';
-            app._saveBlob?.(blob, `${base}-3d.png`, {
+            const base = projectBaseName(app, 'board');
+            savePcbBlob(blob, `${base}-3d.png`, {
                 description: 'PNG image',
                 accept: { 'image/png': ['.png'] },
                 win: panel.mode === 'popped' ? panel.popWin : window,
@@ -4115,8 +4117,8 @@ export async function openBoard3DViewer(app, opts = {}) {
         }
         host.remove();
         splitter.remove();
-        if (app._board3d === panel) app._board3d = null;
-        app._update3DButtonState?.();
+        clearBoardViewPanel(app, panel);
+        app.refreshPcbRibbon();
     };
     panel.popOut = popOut;
     panel.dock = dock;
@@ -4132,7 +4134,7 @@ export async function openBoard3DViewer(app, opts = {}) {
         if (panel.closed || panel.hidden) return;
         if (panel.mode === 'popped') dock();
         panel.hidden = true;
-        app._update3DButtonState?.();
+        app.refreshPcbRibbon();
         // Slide the overlay out to the right; the editor underneath is untouched.
         slideOut(() => {
             host.style.display = 'none';
@@ -4141,7 +4143,7 @@ export async function openBoard3DViewer(app, opts = {}) {
     const showPanel = () => {
         if (panel.closed || !panel.hidden) return;
         panel.hidden = false;
-        app._update3DButtonState?.();
+        app.refreshPcbRibbon();
         slideIn(() => {
             scene?.resize();
             if (panel.view === 'top' || panel.view === 'bottom') board2d?.resize();

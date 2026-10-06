@@ -10,6 +10,8 @@ import { getSelectedTrack, getSelectedVia, clearTrackSelection, selectTrackOrVia
 import { scheduleComponentDragUpdate, endComponentDrag } from './component-selection.js';
 import { handleTextDrag, endTextDrag } from './pcb-text-selection.js';
 import { handleRefDrag, endRefDrag } from './ref-text-selection.js';
+import { clearCursorCrosshair, updateCursorCrosshair, updateVertexDragCrosshair } from './cursor-state.js';
+import { updatePcbPaste } from './pcb-paste.js';
 
 /** A release handler's outcome: the release is fully handled, so stop. */
 const RELEASE_CONSUMED = 'consumed';
@@ -39,7 +41,7 @@ const HANDLERS = {
         },
     },
     _pasteDrop: {
-        move: (app, e) => { app._updatePasteDrop(app.screenToWorld(e)); },
+        move: (app, e) => { updatePcbPaste(app, app.screenToWorld(e)); },
     },
     _pcbSelectionInteraction: {
         move: (app, e) => {
@@ -49,7 +51,7 @@ const HANDLERS = {
         // Finishing may also leave a midpoint anchor floating (still active) for the next click.
         release: (app, worldPos) => {
             if (!finishSelectionInteraction(app, true, worldPos)) return;
-            app._clearCursorCrosshair();
+            clearCursorCrosshair(app);
             app.viewport.svg.style.cursor = 'default';
             return WRAPPER_FINISHED;
         },
@@ -78,12 +80,12 @@ const HANDLERS = {
             const worldPos = app.screenToWorld(e);
             const draggingVertex = getBoardShapeDrag(app)?.mode === 'vertex';
             handleBoardShapeDrag(app, worldPos);
-            if (draggingVertex) app._updateCursorCrosshair(worldPos);
+            if (draggingVertex) updateCursorCrosshair(app, worldPos);
             refreshBoxSelectionHighlights(app);
         },
         release: app => {
             endBoardShapeDrag(app, true);
-            app._clearCursorCrosshair();
+            clearCursorCrosshair(app);
             refreshBoxSelectionHighlights(app);
             app.viewport.svg.style.cursor = 'default';
         },
@@ -102,7 +104,7 @@ const HANDLERS = {
             const drag = getVertexDrag(app);
             if (down && drag && Math.hypot(e.clientX - down.x, e.clientY - down.y) > 3) drag.userDragged = true;
             updateVertexDrag(app, app.screenToWorld(e));
-            app._updateVertexDragCrosshair();
+            updateVertexDragCrosshair(app);
         },
         // A segment press released without dragging refines the selection to that segment.
         release: app => {
@@ -145,20 +147,20 @@ const HANDLERS = {
         move: (app, e) => {
             updateTrackDraw(app, app.screenToWorld(e));
             const snap = getTrackDraw(app)?.snap;
-            if (snap) app._updateCursorCrosshair({ x: snap.x, y: snap.y });
+            if (snap) updateCursorCrosshair(app, { x: snap.x, y: snap.y });
         },
     },
     _fillDraw: {
         move: (app, e) => {
             updateFillDraw(app, app.screenToWorld(e));
             const snap = getFillDraw(app)?.snap;
-            if (snap) app._updateCursorCrosshair({ x: snap.x, y: snap.y });
+            if (snap) updateCursorCrosshair(app, { x: snap.x, y: snap.y });
         },
     },
     _shapeDraw: {
         move: (app, e) => {
             updateShapeDrawPreview(app, app.screenToWorld(e));
-            app._updateCursorCrosshair(app.screenToWorld(e));
+            updateCursorCrosshair(app, app.screenToWorld(e));
         },
     },
 };

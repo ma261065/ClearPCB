@@ -20,7 +20,7 @@ import { schedulePictureCopperRefresh, cancelPictureCopperRefresh } from '../src
 import { EditTextCommand } from '../src/pcb/modules/text-commands.js';
 import { loadPcb } from '../src/pcb/modules/project-state.js';
 import { getDrcPresentation } from '../src/pcb/modules/drc-state.js';
-import { fillRefreshError, isFillRefreshPending, setDragOverlaysDeferred, setPictureCopperRefreshPending } from '../src/pcb/modules/refresh-state.js';
+import { fillRefreshError, isFillRefreshPending, setBoardViewPanel, setDragOverlaysDeferred, setPictureCopperRefreshPending } from '../src/pcb/modules/refresh-state.js';
 
 class Element {
     constructor() { this.children = []; this.attributes = new Map(); this.style = {}; this.dataset = {}; }
@@ -80,7 +80,7 @@ function fixture() {
         counts.drc++;
         drcStates.push([isFillRefreshPending(app), fillRefreshError(app)]);
     };
-    app._board3d = { refresh() { counts.views++; } };
+    setBoardViewPanel(app, { refresh() { counts.views++; } });
     app._recomputeFillsNow = () => { counts.sync++; return PCBApp.prototype._recomputeFillsNow.call(app); };
     app.setStatus = message => { app.lastStatus = message; };
     app._cancelDrawingMode = () => {};

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { PcbDocument } from '../src/core/PcbDocument.js';
-import { areDragOverlaysDeferred, isBoardViewRefreshSuspended } from '../src/pcb/modules/refresh-state.js';
+import { areDragOverlaysDeferred, isBoardViewRefreshSuspended, setBoardViewPanel } from '../src/pcb/modules/refresh-state.js';
 import { getBoardShapeNodeFocus, getBoardShapeSegmentFocus, setBoardShapeNodeFocus, setBoardShapeSegmentFocus } from '../src/pcb/modules/board-shape-state.js';
 import { flushSettledChanges } from '../src/shared/ui/settled-input.js';
 import { getSelectionInteraction } from '../src/pcb/modules/selection-interaction.js';
@@ -144,8 +144,8 @@ for (const commit of [true, false]) {
         getLayerGroup() { return null; }, viewport: { scale: 100, shiftHeld: true },
         refreshClearanceHalos() { refreshes.clearance++; },
         refreshFills() { refreshes.fills++; },
-        _board3d: { refresh() { refreshes.board++; } },
         history: { execute(command) { commands.push(command); command.execute(); } } };
+    setBoardViewPanel(app, { refresh() { refreshes.board++; } });
     selectTrackOrVia(app, { type: 'track', track });
     const adapter = createTrackSelectionAdapter(app, track, track.id);
     assert.ok(adapter.beginAnchorDrag('bulge:e0', { x: 5, y: 1.25 }));

@@ -8,7 +8,7 @@
  * snapshot reads the suspensions inside the Gerber worker.
  */
 
-/** @type {WeakMap<object, {fillPending: boolean, fillScheduled: boolean, fillError: any, pictureCopperPending: boolean, overlaysDeferred: boolean, fillSuspended: boolean, boardViewSuspended: boolean}>} */
+/** @type {WeakMap<object, {fillPending: boolean, fillScheduled: boolean, fillError: any, pictureCopperPending: boolean, overlaysDeferred: boolean, fillSuspended: boolean, boardViewSuspended: boolean, boardViewPanel?: any, last2DSide?: string}>} */
 const states = new WeakMap();
 const stateFor = app => {
     let state = states.get(app);
@@ -83,5 +83,15 @@ export function setFillRefreshSuspended(app, suspended) {
 export const isBoardViewRefreshSuspended = app => states.get(app)?.boardViewSuspended ?? false;
 export const setBoardViewRefreshSuspended = (app, suspended) => { stateFor(app).boardViewSuspended = !!suspended; };
 
+export const getBoardViewPanel = app => stateFor(app).boardViewPanel;
+export const setBoardViewPanel = (app, panel) => { stateFor(app).boardViewPanel = panel; };
+export function clearBoardViewPanel(app, panel) {
+    const state = stateFor(app);
+    if (state.boardViewPanel === panel) state.boardViewPanel = null;
+}
+export const refreshBoardViewPanel = app => { getBoardViewPanel(app)?.refresh?.(); };
+export const setLastBoard2DSide = (app, side) => { stateFor(app).last2DSide = side; };
+export const getLastBoard2DSide = app => stateFor(app).last2DSide || 'top';
+
 /** Ask an open 3D/2D board viewer to resync after a committed edit (no-op when none is open). */
-export const refreshBoardView = app => { app?._board3d?.refresh?.(); };
+export const refreshBoardView = app => { refreshBoardViewPanel(app); };

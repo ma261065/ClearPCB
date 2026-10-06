@@ -3,7 +3,6 @@
     "_markDirty"
   ],
   "src/pcb/modules/board-shape-properties.js": [
-    "_lastCrosshairWorld",
     "_refreshPcbSelectionHighlights",
     "_showPcbMultiSelectionProperties"
   ],
@@ -16,21 +15,7 @@
     "_shapeIdCounter",
     "_snapActive"
   ],
-  "src/pcb/modules/board3d.js": [
-    "_board3d",
-    "_boardX",
-    "_boardY",
-    "_exportBaseName",
-    "_last2DSide",
-    "_saveBlob",
-    "_update3DButtonState"
-  ],
   "src/pcb/modules/box-select.js": [
-    "_boxHighlightFrame",
-    "_boxSelectActive",
-    "_boxSelectArm",
-    "_boxSelectFrame",
-    "_boxSelectPendingWorld",
     "_netsForComponent",
     "_refreshPcbSelectionHighlights",
     "_rerenderFills"
@@ -64,16 +49,9 @@
     "_showFillProperties"
   ],
   "src/pcb/modules/editor-actions.js": [
-    "_boxSelectActive",
-    "_boxSelectArm",
-    "_clearCursorCrosshair",
     "_showComponentPopup",
     "_showSaveToast",
     "_trackEdit"
-  ],
-  "src/pcb/modules/fabrication-snapshot.js": [
-    "_boardX",
-    "_boardY"
   ],
   "src/pcb/modules/fill-refresh.js": [
     "_clearFillGroups",
@@ -81,7 +59,6 @@
     "_recomputeFillsNow"
   ],
   "src/pcb/modules/layer-changes.js": [
-    "_cancelPasteDrop",
     "_cancelPosePreviews",
     "_refreshPcbSelectionHighlights"
   ],
@@ -93,10 +70,6 @@
     "_onLayerVisibilityChanged",
     "_onOverlayVisibilityChanged"
   ],
-  "src/pcb/modules/mouse.js": [
-    "_endPasteDrop",
-    "_updateCursorCrosshair"
-  ],
   "src/pcb/modules/path-edit.js": [
     "_trackEdit"
   ],
@@ -107,19 +80,10 @@
     "_uncullAllPlacements",
     "_updatePcbCulling"
   ],
-  "src/pcb/modules/pcb-interaction-routing.js": [
-    "_clearCursorCrosshair",
-    "_updateCursorCrosshair",
-    "_updatePasteDrop",
-    "_updateVertexDragCrosshair"
-  ],
   "src/pcb/modules/pcb-paste.js": [
     "_cancelPosePreviews",
     "_deferredShapeCopperCuts",
     "_syncHistoryButtons"
-  ],
-  "src/pcb/modules/picture-import.js": [
-    "_beginPasteDrop"
   ],
   "src/pcb/modules/picture-refresh.js": [
     "_deferredShapeCopperCuts",
@@ -144,17 +108,10 @@
     "_refCenterWorld",
     "_refreshRefHighlight"
   ],
-  "src/pcb/modules/refresh-state.js": [
-    "_board3d"
-  ],
   "src/pcb/modules/removal-hatch.js": [
     "_ensureSvgDefs"
   ],
-  "src/pcb/modules/selection-anchors.js": [
-    "_lastPointerWorld"
-  ],
   "src/pcb/modules/selection-interaction.js": [
-    "_lastPointerWorld",
     "_selectComponent",
     "_showFillProperties",
     "_showPadProperties",
@@ -175,7 +132,6 @@
   "src/pcb/modules/tool-lifecycle.js": [
     "_cancelFillDraw",
     "_cancelTrackDraw",
-    "_clearCursorCrosshair",
     "_syncPcbHomeToolHighlight"
   ],
   "src/pcb/modules/track-commands.js": [
@@ -198,9 +154,7 @@
   ],
   "src/pcb/modules/track-select.js": [
     "_hoveredTrackOrVia",
-    "_lastPointerWorld",
-    "_trackEdit",
-    "_updateVertexDragCrosshair"
+    "_trackEdit"
   ],
   "src/shared/pcb/board-outline.js": [
     "_boardHeight",

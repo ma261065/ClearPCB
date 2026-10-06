@@ -1,6 +1,6 @@
 import { ModalManager } from '../../core/ModalManager.js';
 import { isLayerLocked, isLayerVisible } from './layers.js';
-import { preparePcbPaste } from './pcb-paste.js';
+import { beginPcbPaste, preparePcbPaste } from './pcb-paste.js';
 import { rasterizePicture, pictureShape, drawPicture, MAX_PICTURE_REGIONS, MAX_PICTURE_VERTICES, MAX_PICTURE_CIRCLES, MAX_TRACE_RESOLUTION } from '../../shared/pcb/picture-raster.js';
 
 export function showPictureImport(app) {
@@ -377,7 +377,7 @@ export function showPictureImport(app) {
         document.getElementById('pcbToolSelect')?.click();
         const payload = preparePcbPaste(app, { shapes: [imported] });
         close();
-        app._beginPasteDrop(payload, { select: true });
+        beginPcbPaste(app, payload, { select: true });
         app.setStatus?.('Click to place image');
     });
     dialog.querySelector('[data-cancel]').addEventListener('click', close);

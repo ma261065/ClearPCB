@@ -3,8 +3,8 @@ import assert from 'node:assert/strict';
 import { PcbDocument } from '../src/core/PcbDocument.js';
 import { ProjectDocument } from '../src/core/ProjectDocument.js';
 import { Component } from '../src/components/Component.js';
-import { areDragOverlaysDeferred, setDragOverlaysDeferred } from '../src/pcb/modules/refresh-state.js';
-import { getPcbPaste } from '../src/pcb/modules/pcb-paste.js';
+import { areDragOverlaysDeferred, setBoardViewPanel, setDragOverlaysDeferred } from '../src/pcb/modules/refresh-state.js';
+import { beginPcbPaste, cancelPcbPaste, getPcbPaste, updatePcbPaste } from '../src/pcb/modules/pcb-paste.js';
 
 globalThis.window = { addEventListener() {} };
 globalThis.document = {
@@ -183,15 +183,15 @@ for (const commit of [false, true]) {
     assert.deepEqual(track.getBounds(), before);
     const pasted = new Track({ id: 'pasted-track' });
     pasted.applyState(track.captureState());
-    PCBApp.prototype._beginPasteDrop.call(app, { tracks: [pasted] });
+    beginPcbPaste(app, { tracks: [pasted] });
     getPcbPaste(app).anchorWorld = { x: 0, y: 0 };
     for (const point of [{ x: -3, y: -2 }, { x: -6, y: -4 }]) {
-        PCBApp.prototype._updatePasteDrop.call(app, point);
+        updatePcbPaste(app, point);
         assert.deepEqual(pasted.getBounds(), pasted._calculateBounds());
         assert.equal(pasted.getBounds().minX, point.x - 0.1);
         assert.deepEqual(track.getBounds(), before);
     }
-    PCBApp.prototype._cancelPasteDrop.call(app);
+    cancelPcbPaste(app);
 }
 
 {
@@ -574,7 +574,7 @@ for (const previousDeferral of [false, true]) {
     app._markDirty = () => stages.push('dirty');
     app.updateRatsnest = () => stages.push('ratsnest');
     app.refreshFills = () => stages.push('fills');
-    app._board3d = { refresh() { stages.push('3d'); } };
+    setBoardViewPanel(app, { refresh() { stages.push('3d'); } });
     const verify = () => {
         const pose = app.placementState.overrides.get(component.id);
         const radians = pose.rotation * Math.PI / 180;

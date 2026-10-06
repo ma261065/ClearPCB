@@ -3,6 +3,7 @@ import { readFileSync, readdirSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { setPcbInteraction } from '../src/pcb/modules/pcb-interactions.js';
+import { PcbDocument } from '../src/core/PcbDocument.js';
 
 const noop = () => {};
 const element = () => ({
@@ -21,6 +22,8 @@ globalThis.localStorage = { getItem: () => null, setItem: noop, removeItem: noop
 
 const { PCB_INTERACTIONS, hasPcbGesture, isPcbDrawing, blocksPcbExport } = await import('../src/pcb/modules/pcb-interactions.js');
 const { dispatchPcbPointerMove, cancelPcbPointerGestures, releasePcbPointerGestures, createPointerMoveDispatch, createPointerGestureFinishers, PCB_RELEASE_OUTCOMES, PCB_INTERACTION_ROUTES } = await import('../src/pcb/modules/pcb-interaction-routing.js');
+const { beginPcbPaste, getPcbPaste } = await import('../src/pcb/modules/pcb-paste.js');
+const { armBoxSelect, isBoxSelectArmed } = await import('../src/pcb/modules/box-select.js');
 const { importSpecifiers } = await import('../tools/check-imports.mjs');
 
 const root = fileURLToPath(new URL('../', import.meta.url));
@@ -119,13 +122,15 @@ assert.equal(dispatchPcbPointerMove({ viewport: { svg: { style: {} }, scale: 1 }
     'Idle moves fall through to the active tool');
 // The real table: paste outranks a component drag, and interactions without a move handler fall through.
 {
-    const calls = [];
-    const app = { viewport: { svg: { style: {} }, scale: 1 }, screenToWorld: () => ({ x: 0, y: 0 }),
-        _updatePasteDrop: () => calls.push('paste') };
-    setPcbInteraction(app, '_pasteDrop', {});
+    const app = { _active: true, pcbDocument: new PcbDocument(), _shapeElements: new Map(),
+        viewport: { svg: { style: {} }, scale: 1, setCrosshair() {}, hideCrosshair() {} },
+        screenToWorld: () => ({ x: 1, y: 1 }), snapToGrid: point => point,
+        getLayerGroup: () => ({ querySelectorAll: () => [], appendChild() {} }), syncClipboardButtons() {} };
+    beginPcbPaste(app, { shapes: [{ id: 'paste-shape', kind: 'line', layer: 'top-silk',
+        points: [{ x: 0, y: 0 }, { x: 1, y: 0 }] }] });
     setPcbInteraction(app, '_drag', {});
     assert.equal(dispatchPcbPointerMove(app, event), true);
-    assert.deepEqual(calls, ['paste'], '_pasteDrop+_drag routes to paste');
+    assert.equal(getPcbPaste(app)?.dx, 0.5, '_pasteDrop+_drag routes to paste');
     const idle = { viewport: { svg: { style: {} }, scale: 1 } };
     setPcbInteraction(idle, '_textEdit', {});
     setPcbInteraction(idle, '_rotationHandleDrag', true);
@@ -200,10 +205,11 @@ assert.deepEqual(PCB_INTERACTION_ROUTES.release, ['_boardOutlineResize', '_pcbSe
 }
 {
     const app = {
-        viewport: { svg: { style: {} } }, _boxSelectArm: { screen: {}, world: {} },
+        viewport: { svg: { style: {} } },
     };
+    armBoxSelect(app, {}, {});
     releasePcbPointerGestures(app, { x: 1, y: 2 });
-    assert.equal(app._boxSelectArm, null, 'An armed marquee that never started is disarmed');
+    assert.equal(isBoxSelectArmed(app), false, 'An armed marquee that never started is disarmed');
 }
 
 // 6. The data table stays importable from worker-loaded export code.

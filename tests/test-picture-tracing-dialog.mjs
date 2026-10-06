@@ -94,12 +94,12 @@ globalThis.document = { body: element(), documentElement: { clientWidth: 1000, c
 globalThis.createImageBitmap = async () => ({ width: 1302, height: 527, close() {} });
 const { showPictureImport } = await import('../src/pcb/modules/picture-import.js');
 const { PcbDocument } = await import('../src/core/PcbDocument.js');
+const { getPcbPaste } = await import('../src/pcb/modules/pcb-paste.js');
 const pcbDocument = new PcbDocument();
-let placed = null;
-const app = { viewport: { scale: 10, offset: { x: 0, y: 0 }, container: element() },
+const app = { _active: true, viewport: { scale: 10, offset: { x: 0, y: 0 }, container: element(), currentMouseWorld: { x: 0, y: 0 }, setCrosshair() {} },
     pcbDocument, boardShapes: pcbDocument.boardShapes, placements: new Map(), tracks: [], vias: [], texts: new Map(), _shapeElements: new Map(),
     _shapeIdCounter: 1, history: new CommandHistory(), getLayerGroup() { return null; },
-    _beginPasteDrop(result) { placed = result; },
+    snapToGrid: point => point, syncClipboardButtons() {}, clearProperties() {},
 };
 showPictureImport(app);
 const fullPreview = createdCanvases.find(preview => preview.className === 'picture-full-preview');
@@ -241,6 +241,7 @@ assert.equal(fullPreview.hidden, true, 'Closing the importer dismisses the popup
 assert.equal(fullPreview.popoverOpen, false);
 assert.equal(resizeListeners.size, 0, 'Closing removes popup resize listeners');
 assert.equal(dialog.closed, true);
+const placed = getPcbPaste(app).payload;
 assert.equal(placed.shapes.length, 1);
 assert.ok(placed.shapes[0].artwork.contours.length > 0);
 assert.equal(placed.shapes[0].artwork.width, 1302);

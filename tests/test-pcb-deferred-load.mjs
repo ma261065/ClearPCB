@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { PcbDocument } from '../src/core/PcbDocument.js';
 import { PANEL_DEFAULTS } from '../src/core/pcb-panelization.js';
+import { setBoardViewPanel } from '../src/pcb/modules/refresh-state.js';
 
 // Real renderers run against this minimal SVG DOM. Each layer group reports what
 // lands in it, so render order is observed where the editor's DOM receives it.
@@ -262,7 +263,7 @@ for (const active of [true, false]) {
 }
 
 calls.length = 0;
-hidden._board3d = { refresh: record('3d') };
+setBoardViewPanel(hidden, { refresh: record('3d') });
 hidden.netlist = [{ net: 'GND' }];
 load(hidden, null, { tracks: [], vias: [], texts: [], boardShapes: [], shapeIdCounter: 1 });
 assert.equal(textMap.size, 0, 'New clears authoritative text even in the hidden editor');
@@ -294,8 +295,8 @@ for (const withComponents of [false, true]) {
         _clearPCBContent() { this.placements.clear(); calls.push('clear'); },
         _placeFootprints: record('footprints'), updateRatsnest: record('ratsnest'),
         _showBoardDimensionsDialog: record('dimensions-dialog'),
-        _board3d: { refresh: record('3d') },
     });
+    setBoardViewPanel(app, { refresh: record('3d') });
     Object.defineProperty(app, 'copperFills', { get: () => app.boardShapes.filter(shape => shape.type === 'fill') });
     load(app, data, PcbDocument.prepare(data));
     calls.length = 0;

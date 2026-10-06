@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { layoutReferenceText, referenceAnchor, resolveReferenceText } from '../src/shared/pcb/reference-text.js';
 import { applyRefGeometry } from '../src/shared/pcb/footprint.js';
 import { PcbPlacementState } from '../src/core/PcbPlacementState.js';
+import { setBoardViewPanel } from '../src/pcb/modules/refresh-state.js';
 
 const element = () => ({ attributes: {}, children: [],
     setAttribute(name, value) { this.attributes[name] = value; },
@@ -159,7 +160,7 @@ console.log('PASS placement commands persist into project state through execute/
     editor._refreshPcbSelectionHighlights = () => stages.push('highlights');
     editor.showComponentProperties = () => stages.push('properties');
     editor._drawRefOverlay = () => stages.push('overlay');
-    editor._board3d = { refresh() { stages.push('3d'); } };
+    setBoardViewPanel(editor, { refresh() { stages.push('3d'); } });
     editor._rerenderRef = id => {
         stages.push('glyphs');
         const placement = editor.placements.get(id);

@@ -10,6 +10,7 @@ import { getPcbSelectionEntries, setPcbSelection } from '../src/pcb/modules/sele
 import { renderPcbSelectionAnchors, hitTestPcbSelectionAnchor } from '../src/pcb/modules/selection-anchors.js';
 import { beginSelectionInteraction, updateSelectionInteraction, finishSelectionInteraction } from '../src/pcb/modules/selection-interaction.js';
 import { ROTATION_CURSOR } from '../src/pcb/modules/rotation-handle.js';
+import { setBoardViewPanel } from '../src/pcb/modules/refresh-state.js';
 import { attachPropertyPanelHarness } from './helpers/property-panel-controls.mjs';
 import { getSelectionInteraction } from '../src/pcb/modules/selection-interaction.js';
 import { isRotationHandleDragActive } from '../src/pcb/modules/rotation-handle.js';
@@ -101,8 +102,9 @@ function fixture(saved = true, side = 'top', mirror = false) {
         getLayerGroup: id => id === 'selection-overlay' ? overlay : id === 'top-copper' ? copper : null,
         propertiesItems: () => items, setPropertiesTitle() {},
         _netsForComponent: () => new Set(['N1']), updateRatsnest: PCBApp.prototype.updateRatsnest, refreshClearanceHalos() {},
-        _markDirty: () => dirty++, refreshFills: () => fills++, _board3d: { refresh: () => views3d++ },
+        _markDirty: () => dirty++, refreshFills: () => fills++,
     };
+    setBoardViewPanel(app, { refresh: () => views3d++ });
     attachPropertyPanelHarness(app, { controls: ids });
     for (const method of ['showComponentProperties', '_syncComponentRotationInput', 'handleKeyDown', '_clearCursorCrosshair']) {
         app[method] = PCBApp.prototype[method];

@@ -5,6 +5,7 @@ import { PcbDocument } from '../src/core/PcbDocument.js';
 import { CommandHistory } from '../src/core/CommandHistory.js';
 import { MoveRefTextCommand, RotateRefTextCommand, SetRefStyleCommand } from '../src/pcb/modules/track-commands.js';
 import { applyRefGeometry } from '../src/shared/pcb/footprint.js';
+import { setBoardViewPanel } from '../src/pcb/modules/refresh-state.js';
 
 class Element {
     attributes = new Map();
@@ -46,10 +47,10 @@ for (const side of ['top', 'bottom']) for (const mirror of [false, true]) {
         refreshClearanceHalos() { assert.fail('Reference presentation must not refresh physical clearance'); },
         viewport: { svg: { style: {} }, snapToGrid: false, gridVisible: true },
         _markDirty: () => dirty++, _drawRefOverlay: () => overlays++,
-        _board3d: { refresh: () => boardRefreshes++ },
         _refBox: () => ({}), _refreshRefHighlight: () => highlights++,
         history: new CommandHistory(),
     };
+    setBoardViewPanel(app, { refresh: () => boardRefreshes++ });
     setPcbInteraction(app, '_textEdit', { options: { componentId: 'part' }, updateCaret: () => caretUpdates++ });
     for (const method of ['_worldToPlacementLocal',
         'snapToGrid', '_rerenderRef']) app[method] = PCBApp.prototype[method];
