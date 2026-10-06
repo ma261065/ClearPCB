@@ -29,7 +29,7 @@ function fixture() {
         viewport: { scale: 10, svg: { style: {} }, snapToGrid: false },
         currentTool: 'select', _active: true,
         existingLayerGroups() { return this._layerGroups; },
-        getLayerGroup: () => null, _drawRefOverlay() {}, _ensureViewport() {},
+        getLayerGroup: () => null, drawRefOverlay() {}, _ensureViewport() {},
         _refreshRefHighlight() {}, markSectionClean() {},
     };
     for (const name of ['_worldToPlacementLocal', 'snapToGrid', '_cancelPosePreviews', '_cancelDrawingMode',

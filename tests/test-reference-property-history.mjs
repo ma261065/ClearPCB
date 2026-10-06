@@ -10,12 +10,26 @@ import { attachPropertyPanelHarness } from './helpers/property-panel-controls.mj
 import { setBoardViewPanel } from '../src/pcb/modules/refresh-state.js';
 
 globalThis.window = { addEventListener() {} };
+globalThis.document = { documentElement: { getAttribute: () => 'dark' }, createElementNS: (_namespace, tagName) => ({
+    tagName, attributes: new Map(), children: [],
+    setAttribute(name, value) { this.attributes.set(name, String(value)); },
+    getAttribute(name) { return this.attributes.get(name) ?? null; },
+    appendChild(child) { this.children.push(child); },
+    removeChild(child) { this.children = this.children.filter(item => item !== child); },
+    get firstChild() { return this.children[0] || null; },
+}) };
 const { default: PCBApp } = await import('../src/ui/PCBApp.js');
 
 function fixture(saved, selected = false) {
     const placement = { x: Math.PI, y: -Math.E, rotation: 37.1234567, side: 'bottom', mirror: true,
         reference: 'R12', refDx: 1.234567, refDy: -2.345678,
-        refSize: 1.234567, refStrokeWidth: 0.1234567, refRot: 23.456789 };
+        refSize: 1.234567, refStrokeWidth: 0.1234567, refRot: 23.456789,
+        bounds: { x: -2, y: -1, width: 4, height: 2 },
+        _refEl: { isConnected: true, attributes: new Map([
+            ['data-ref-anchor-y', '0'], ['data-ref-cy', '0'],
+        ]), setAttribute(name, value) { this.attributes.set(name, String(value)); },
+        getAttribute(name) { return this.attributes.get(name) ?? null; } },
+        _refBox: { bx: -1, by: -1, bw: 2, bh: 2, cx: 0, cy: 0 } };
     const inputs = new Map();
     const pcbDocument = new PcbDocument();
     if (saved) pcbDocument.placementState.record('part', placement);
@@ -24,17 +38,26 @@ function fixture(saved, selected = false) {
     const app = {
         pcbDocument, placementState: pcbDocument.placementState, placements: new Map([['part', placement]]),
         history: new CommandHistory(),
+        viewport: { addContent(node) {
+            const append = node.appendChild.bind(node);
+            node.appendChild = child => {
+                if (child.getAttribute?.('class') === 'pcb-ref-component-outline') {
+                    overlays.push({ id: 'part', tether: false, pose: capturePlacementOverride(placement) });
+                }
+                return append(child);
+            };
+        } },
         setPropertiesTitle() {}, layerLabel: layer => layer,
         _bindStrokeTextProps: PCBApp.prototype._bindStrokeTextProps,
-        _rerenderRef: () => renders.push(capturePlacementOverride(placement)),
-        _drawRefOverlay: (id, tether) => overlays.push({ id, tether, pose: capturePlacementOverride(placement) }),
-        _markDirty: () => dirty++,
+        rerenderRef: () => renders.push(capturePlacementOverride(placement)),
+        drawRefOverlay: (id, tether) => overlays.push({ id, tether, pose: capturePlacementOverride(placement) }),
+        markDirty: () => dirty++,
     };
     setBoardViewPanel(app, { refresh: () => boardRefreshes++ });
     attachPropertyPanelHarness(app, { controls: inputs });
     if (selected) setPcbSelection(app, [{ kind: 'reftext', object: 'part' }]);
     overlays.length = 0;
-    PCBApp.prototype._showRefProperties.call(app, 'part');
+    PCBApp.prototype.showRefProperties.call(app, 'part');
     assert.equal(inputs.get('pcbPropRefRot').field.step, 1,
         'Reference rotation spinner uses one-degree increments');
     assert.equal(PCBApp.prototype._pcbMultiPropertyCapabilities.call(app,
@@ -133,11 +156,11 @@ for (const saved of [false, true]) for (const selected of [false, true]) {
     assert.equal(f.placement.refRot, 345);
 }
 
-globalThis.document = { getElementById: () => null, querySelector: () => null };
+Object.assign(globalThis.document, { getElementById: () => null, querySelector: () => null });
 for (const value of ['', '-', 'Infinity', '3']) for (const handoff of ['change', 'commit', 'field', 'move', 'rotate']) {
     const f = fixture(true), { app, placement, inputs } = f;
     const before = capturePlacementOverride(placement), valid = value === '3';
-    app.viewport = { svg: { style: {} } };
+    app.viewport = { svg: { style: {} }, addContent() {} };
     inputs.get('pcbPropRefSize').fire('input', 3);
     inputs.get('pcbPropRefSize').fire('input', value);
     assert.equal(PCBApp.prototype.isSectionEditing.call(app), true);

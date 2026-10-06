@@ -38,7 +38,7 @@ function fixture(viewport) {
     const app = {
         _active: true, viewport, pcbDocument, placements: new Map([['part', placement]]),
         tracks: [], getLayerGroup: () => ({ querySelector: () => null, querySelectorAll: () => [], appendChild() {} }),
-        refreshText() {}, updateRatsnest() {}, _drawRefOverlay() {}, syncClipboardButtons() {}, clearProperties() {},
+        refreshText() {}, updateRatsnest() {}, drawRefOverlay() {}, syncClipboardButtons() {}, clearProperties() {},
         screenToWorld: event => ({ x: event.clientX, y: event.clientY }),
     };
     initializeBoardOutlineState(app, true);

@@ -211,7 +211,7 @@ pcbProject.schematicDocument.components.push(resistor);
 pcbProject.pcbDocument.placementState.record(resistor.id, { x: 23, y: -17 });
 const board = {
     placements: new Map(),
-    _buildLodPlaceholder() {}, _rerenderRef() {}, getLayerGroup: () => new Element(),
+    _buildLodPlaceholder() {}, rerenderRef() {}, getLayerGroup: () => new Element(),
     _renderFootprint(geometry, placement) { renderedFootprints.set(placement.reference, geometry); return new Map(); },
 };
 for (const packageId of ['default', '0603', '0805']) {

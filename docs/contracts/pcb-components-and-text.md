@@ -335,8 +335,12 @@ width reuse existing glyph nodes, including rotation-only property edits and the
 commit following a matching live preview. Changed layout inputs rebuild immediately;
 replacement groups build independently. The cached inputs are invalidated before
 DOM mutation so failed updates cannot masquerade as reusable geometry.
-`_rerenderRef()` invalidates the local reference-box cache only when glyph geometry
-changes, but always refreshes pose, highlight and inline-edit caret presentation.
+`rerenderRef()` in `pcb/modules/ref-text-selection.js` invalidates the local
+reference-box cache only when glyph geometry changes, but always refreshes pose,
+highlight and inline-edit caret presentation. Reference-text interactions and history
+commands reach it, and the selection overlay (`drawRefOverlay`), through the editor's
+presentation services `rerenderRef(id)` and `drawRefOverlay(id, withTether)`, as text
+uses `refreshText(id)`; the drawing itself lives in `ref-text-selection.js`.
 This reuse state is not authored model data and does not affect Canvas, 3D or Gerber
 geometry generation.
 

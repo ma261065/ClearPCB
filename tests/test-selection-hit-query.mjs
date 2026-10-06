@@ -71,13 +71,14 @@ console.log('PASS: one component scan per selection query, fresh hits/misses, di
 
 let referenceScans = 0, componentScans = 0;
 let referenceWinner = 'component-150';
+registerPcbPlacementHitTest('reftext', app => app.readReferenceHit());
 const referenceApp = {
     placements: new Map(Array.from({ length: 200 }, (_, index) => [`component-${index}`, {
         x: 0, y: 0, refVisible: true,
     }])),
     viewport: { scale: 10 },
     readComponentHit() { componentScans++; return ['component-42']; },
-    _hitTestRefText() { referenceScans++; return referenceWinner; },
+    readReferenceHit() { referenceScans++; return referenceWinner; },
 };
 syncPcbSelection(referenceApp);
 const referenceHits = () => getPcbSelectionHits(referenceApp, point, null, { sync: false })
@@ -103,9 +104,9 @@ assert.equal(referenceAdapter.hitTest(point), true);
 referenceWinner = null;
 assert.equal(referenceAdapter.hitTest(point), false);
 assert.equal(referenceScans, 7, 'Direct reference calls must not reuse an expired query');
-referenceApp._hitTestRefText = () => { throw new Error('reference failure'); };
+referenceApp.readReferenceHit = () => { throw new Error('reference failure'); };
 assert.throws(referenceHits, /reference failure/);
-referenceApp._hitTestRefText = () => { referenceScans++; return 'component-3'; };
+referenceApp.readReferenceHit = () => { referenceScans++; return 'component-3'; };
 assert.equal(referenceAdapter.hitTest(point), true);
 assert.deepEqual(referenceHits(), ['reftext:component-3', 'component:component-42']);
 assert.equal(referenceScans, 9);

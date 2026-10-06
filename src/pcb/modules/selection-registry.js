@@ -15,6 +15,7 @@ const keyFor = (kind, object) => `${kind}:${kind === 'component' || kind === 're
 const adapterFactories = new Map();
 const placementHitReaders = new Map();
 const hitQueries = new WeakMap();
+let referenceOverlayRefresher = null;
 /** @type {Set<string|symbol>} */
 const groupGeometryMembers = new Set([
     'object', 'getBounds', 'getHitBounds', 'hitTest', 'getPosition', 'getAnchors', 'getEditPath',
@@ -39,12 +40,16 @@ export function registerPcbPlacementHitTest(kind, readHit) {
     placementHitReaders.set(kind, readHit);
 }
 
+export function registerPcbReferenceOverlayRefresh(refresh) {
+    referenceOverlayRefresher = refresh;
+}
+
 export function getComponentSelectionHits(app, point) {
     return placementSelectionHit(app, point, 'component', placementHitReaders.get('component'), true);
 }
 
 export function getRefTextSelectionHit(app, point) {
-    return placementSelectionHit(app, point, '_hitTestRefText');
+    return placementSelectionHit(app, point, '_hitTestRefText', placementHitReaders.get('reftext'));
 }
 
 function querySelectionHits(app, point) {
@@ -224,7 +229,7 @@ export function getPcbSelectionEntries(app) {
 
 export function refreshPcbReferenceOverlay(app) {
     const componentId = getPcbSelection(app, 'reftext')[0] || null;
-    if (componentId || app._refOverlay) app._drawRefOverlay?.(componentId, false);
+    referenceOverlayRefresher?.(app, componentId);
 }
 
 /** Hit test an adapter kind through the shared selection ordering rules. */

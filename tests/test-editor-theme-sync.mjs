@@ -43,11 +43,17 @@ const schematic = {
 };
 bindThemeToggle(schematic);
 const highlights = [];
+const refElement = {
+    isConnected: true,
+    attributes: new Map(),
+    setAttribute(name, value) { if (name === 'stroke') highlights.push('part'); this.attributes.set(name, value); },
+    getAttribute(name) { return this.attributes.get(name) ?? null; },
+};
 const pcb = pcbEditorFixture({
     themeToggle: buttons.get('pcbThemeToggle'),
-    viewport: { updateTheme() { pcbUpdates++; } },
-    placements: new Map([['part', {}]]),
-    _refreshRefHighlight(id) { highlights.push(id); },
+    viewport: { updateTheme() { pcbUpdates++; }, addContent() {} },
+    placements: new Map([['part', { side: 'top', _refEl: refElement,
+        _refBox: { bx: -1, by: -1, bw: 2, bh: 2, cx: 0, cy: 0 } }]]),
 });
 setPcbSelection(pcb, [{ kind: 'reftext', object: 'part' }]);
 highlights.length = 0;

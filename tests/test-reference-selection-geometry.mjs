@@ -1,13 +1,12 @@
 import assert from 'node:assert/strict';
 import { layoutReferenceText, referenceAnchor, resolveReferenceText } from '../src/shared/pcb/reference-text.js';
 import { placementPose } from '../src/shared/pcb/board-geometry.js';
-import { createRefTextSelectionAdapter } from '../src/pcb/modules/ref-text-selection.js';
+import { createRefTextSelectionAdapter, hitTestReferenceText } from '../src/pcb/modules/ref-text-selection.js';
 import { lockPositionOutsideOutline } from '../src/pcb/modules/selection-anchors.js';
 import { PCB_LAYERS } from '../src/pcb/modules/layers.js';
 import { getPcbSelectionHits } from '../src/pcb/modules/selection-registry.js';
 
 globalThis.window = { addEventListener() {} };
-const { default: PCBApp } = await import('../src/ui/PCBApp.js');
 const near = (actual, expected) => assert.ok(Math.abs(actual - expected) < 1e-10,
     `Expected ${actual} to equal ${expected}`);
 const nearPoint = (actual, expected) => { near(actual.x, expected.x); near(actual.y, expected.y); };
@@ -20,15 +19,15 @@ for (const side of ['top', 'bottom']) for (const mirror of [false, true]) {
         const anchor = referenceAnchor(placement.outline);
         const box = layoutReferenceText(placement.reference, anchor.cx, anchor.baseY,
             placement.refSize, placement.refStrokeWidth).box;
+        // refBox() resolves the layout box through placement._refBox: count those reads.
         let boxReads = 0;
-        const app = { placements: new Map([['part', placement]]), _refBox: () => { boxReads++; return box; } };
-        for (const name of ['_hitTestRefText', '_worldToPlacementLocal', '_placementLocalToWorld', '_refCenterWorld']) {
-            app[name] = PCBApp.prototype[name];
-        }
+        Object.defineProperty(placement, '_refBox', { configurable: true, get() { boxReads++; return box; }, set() {} });
+        placement._refEl = { isConnected: true };
+        const app = { placements: new Map([['part', placement]]) };
         const adapter = createRefTextSelectionAdapter(app, 'part', 'reftext:part');
         const rendered = resolveReferenceText(placement);
         for (const point of rendered.polylines.flat()) {
-            assert.equal(app._hitTestRefText(point), 'part',
+            assert.equal(hitTestReferenceText(app, point), 'part',
                 `Rendered glyphs must be hittable: side=${side}, mirror=${mirror}, rotation=${rotation}, refRot=${refRot}`);
             assert.equal(adapter.hitTest(point), true);
         }
@@ -74,7 +73,7 @@ for (const side of ['top', 'bottom']) for (const mirror of [false, true]) {
             silk.visible = false;
             assert.equal(adapter.visible, false, 'Hidden silk must exclude reference adapters from shared selection');
             boxReads = 0;
-            assert.equal(app._hitTestRefText(point), null, 'Legacy picking must ignore hidden silk references');
+            assert.equal(hitTestReferenceText(app, point), null, 'Legacy picking must ignore hidden silk references');
             assert.equal(boxReads, 0, 'Hidden references must be skipped before resolving their layout boxes');
             assert.deepEqual(getPcbSelectionHits(app, point, ['reftext']), [],
                 'Shared picking must not let an invisible label intercept clicks');
@@ -98,15 +97,15 @@ for (const side of ['top', 'bottom']) for (const mirror of [false, true]) {
             ['front', { x: 0, y: 0, side: 'top' }],
             ['back', { x: 0, y: 0, side: 'bottom' }],
         ]),
-        _refBox: () => ({ bx: -2, by: -1, bw: 4, bh: 2, cx: 0, cy: 0 }),
-        _hitTestRefText: PCBApp.prototype._hitTestRefText,
-        _worldToPlacementLocal: PCBApp.prototype._worldToPlacementLocal,
-        _placementLocalToWorld: PCBApp.prototype._placementLocalToWorld,
     };
+    for (const placement of app.placements.values()) {
+        placement._refBox = { bx: -2, by: -1, bw: 4, bh: 2, cx: 0, cy: 0 };
+        placement._refEl = { isConnected: true };
+    }
     try {
-        assert.equal(app._hitTestRefText({ x: 0, y: 0 }), 'back', 'Visible overlapping labels retain topmost ordering');
+        assert.equal(hitTestReferenceText(app, { x: 0, y: 0 }), 'back', 'Visible overlapping labels retain topmost ordering');
         bottomSilk.visible = false;
-        assert.equal(app._hitTestRefText({ x: 0, y: 0 }), 'front', 'A hidden topmost reference must not obscure a visible hit');
+        assert.equal(hitTestReferenceText(app, { x: 0, y: 0 }), 'front', 'A hidden topmost reference must not obscure a visible hit');
         assert.deepEqual(getPcbSelectionHits(app, { x: 0, y: 0 }, ['reftext']).map(entry => entry.object), ['front']);
     } finally { bottomSilk.visible = originalVisibility; }
 }

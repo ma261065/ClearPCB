@@ -82,26 +82,16 @@
     "_shapeElements",
     "_stale"
   ],
-  "src/pcb/modules/ref-text-selection.js": [
-    "_drawRefOverlay",
-    "_placementLocalToWorld",
-    "_refBox",
-    "_refCenterWorld",
-    "_refreshRefHighlight"
-  ],
   "src/pcb/modules/removal-hatch.js": [
     "_ensureSvgDefs"
   ],
   "src/pcb/modules/selection-interaction.js": [
     "_selectComponent",
     "_showPadProperties",
-    "_showPcbMultiSelectionProperties",
-    "_showRefProperties"
+    "_showPcbMultiSelectionProperties"
   ],
   "src/pcb/modules/selection-registry.js": [
-    "_drawRefOverlay",
-    "_pcbSelection",
-    "_refOverlay"
+    "_pcbSelection"
   ],
   "src/pcb/modules/shape-commands.js": [
     "_pendingShapeClearances"
@@ -114,12 +104,9 @@
     "_syncPcbHomeToolHighlight"
   ],
   "src/pcb/modules/track-commands.js": [
-    "_drawRefOverlay",
     "_markDirty",
     "_refreshPcbSelectionHighlights",
     "_renderRoutedCopper",
-    "_rerenderRef",
-    "_showRefProperties",
     "_syncComponentRotationInput"
   ],
   "src/pcb/modules/track-drag.js": [

@@ -184,7 +184,7 @@ const app = {
         if (!groups.has(id)) groups.set(id, element());
         return groups.get(id);
     },
-    _buildLodPlaceholder() {}, _rerenderRef() {}, _renderFootprint: PCBApp.prototype._renderFootprint,
+    _buildLodPlaceholder() {}, rerenderRef() {}, _renderFootprint: PCBApp.prototype._renderFootprint,
 };
 const expectedPlacements = new Map([...resolved.placements].map(([id, placement]) =>
     [id, captureResolvedPlacement(placement)]));

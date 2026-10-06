@@ -64,7 +64,7 @@ function pcbFixture(withShape = false) {
         getLayerGroup: id => id === 'board-outline' ? { querySelector: () => null } : null,
         _selectComponent() {}, _selectBoardOutline() {},
         selectText() {}, selectFill() {}, clearProperties() {},
-        _showPcbMultiSelectionProperties() {}, _drawRefOverlay() {},
+        _showPcbMultiSelectionProperties() {}, drawRefOverlay() {},
         updateRatsnest() {}, _netsForComponent: () => new Set(),
         _markDirty() {}, _updatePcbCulling() {}, refreshClearanceHalos() {},
         updateCursorForTool() {},

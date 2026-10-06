@@ -105,7 +105,8 @@ class Element {
     querySelector(selector) { return this.querySelectorAll(selector)[0] || null; }
 }
 globalThis.window = { addEventListener() {} };
-globalThis.document = { createElementNS: (_, tag) => new Element(tag), getElementById: () => null };
+globalThis.document = { createElementNS: (_, tag) => new Element(tag), getElementById: () => null,
+    documentElement: { getAttribute: () => 'dark' } };
 const { default: PCBApp } = await import('../src/ui/PCBApp.js');
 const { placementTransform } = await import('../src/pcb/modules/track-commands.js');
 const { project, state, tracks } = fixture({ side: 'top' });
@@ -120,7 +121,7 @@ const app = {
     },
     updateRatsnest: () => refreshes++, _refreshRefHighlight() {},
 };
-for (const method of ['_placeFootprints', '_renderFootprint', '_buildLodPlaceholder', '_refBox', '_rerenderRef', '_applyPlacementOverrides']) {
+for (const method of ['_placeFootprints', '_renderFootprint', '_buildLodPlaceholder', 'rerenderRef', '_applyPlacementOverrides']) {
     app[method] = PCBApp.prototype[method];
 }
 const initial = project.resolvePcbLayout();

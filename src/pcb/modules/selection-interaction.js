@@ -66,7 +66,7 @@ function showSingleProperties(app, entry) {
         app.showTextProperties?.(entry.object);
     } else if (entry.kind === 'reftext') {
         selectRefText(app, entry.object);
-        app._showRefProperties?.(entry.object);
+        app.showRefProperties?.(entry.object);
     } else if (entry.kind === 'shape') showBoardShapeProperties(app, entry.object);
     else if (entry.kind === 'track') showTrackSelectionProperties(app, entry.object);
     else if (entry.kind === 'via') showViaProperties(app, entry.object);

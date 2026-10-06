@@ -3,9 +3,10 @@ import { beginRefTextDrag, endRefDrag, updateRefTextDrag } from '../src/pcb/modu
 import { setPcbInteraction } from '../src/pcb/modules/pcb-interactions.js';
 import { PcbDocument } from '../src/core/PcbDocument.js';
 import { CommandHistory } from '../src/core/CommandHistory.js';
-import { MoveRefTextCommand, RotateRefTextCommand, SetRefStyleCommand } from '../src/pcb/modules/track-commands.js';
+import { MoveRefTextCommand, RotateRefTextCommand, SetRefStyleCommand } from '../src/pcb/modules/ref-text-selection.js';
 import { applyRefGeometry } from '../src/shared/pcb/footprint.js';
 import { setBoardViewPanel } from '../src/pcb/modules/refresh-state.js';
+import { refBox } from '../src/pcb/modules/ref-text-geometry.js';
 
 class Element {
     attributes = new Map();
@@ -17,14 +18,24 @@ class Element {
     appendChild(child) { this.children.push(child); }
     removeChild(child) { this.children.splice(this.children.indexOf(child), 1); }
     get firstChild() { return this.children[0] || null; }
+    querySelector(selector) {
+        return selector === '[data-fp-ref]' ? this.children.find(child => child.hasAttribute?.('data-fp-ref')) || null : null;
+    }
     querySelectorAll() { return this.children; }
 }
-globalThis.document = { createElementNS: () => new Element() };
+globalThis.document = { createElementNS: () => new Element(), documentElement: { getAttribute: () => 'dark' } };
 globalThis.window = { addEventListener() {} };
 const { default: PCBApp } = await import('../src/ui/PCBApp.js');
 
 for (const side of ['top', 'bottom']) for (const mirror of [false, true]) {
     const reference = new Element(), padNumber = new Element(), group = new Element();
+    let dirty = 0, overlays = 0, boardRefreshes = 0, highlights = 0, caretUpdates = 0;
+    reference.isConnected = true;
+    const setReferenceAttribute = reference.setAttribute.bind(reference);
+    reference.setAttribute = (name, value) => {
+        if (name === 'stroke') highlights++;
+        setReferenceAttribute(name, value);
+    };
     reference.setAttribute('data-fp-ref', '');
     padNumber.setAttribute('data-mx-center', '2');
     group.appendChild(reference);
@@ -33,27 +44,25 @@ for (const side of ['top', 'bottom']) for (const mirror of [false, true]) {
     const placement = { x: 10, y: -20, rotation: 37, side, mirror,
         refDx: 1.234567, refDy: -2.345678, refRot: 23.456789,
         refSize: 1.2, refStrokeWidth: 0.15, reference: 'R12', elements: [group],
-        _refEl: reference, lodEl: new Element() };
+        _refEl: reference, lodEl: new Element(), bounds: { x: -2, y: -1, width: 4, height: 2 } };
     Object.defineProperty(placement, 'padOffsets', {
         get() { assert.fail('Reference presentation must not recalculate physical pads'); },
     });
     const pcbDocument = new PcbDocument();
     pcbDocument.placementState.record('part', placement);
-    let dirty = 0, overlays = 0, boardRefreshes = 0, highlights = 0, caretUpdates = 0;
     const app = {
         pcbDocument, placementState: pcbDocument.placementState,
         placements: new Map([['part', placement]]),
         get tracks() { assert.fail('Reference presentation must not scan track bonds'); },
         refreshClearanceHalos() { assert.fail('Reference presentation must not refresh physical clearance'); },
         viewport: { svg: { style: {} }, snapToGrid: false, gridVisible: true },
-        _markDirty: () => dirty++, _drawRefOverlay: () => overlays++,
-        _refBox: () => ({}), _refreshRefHighlight: () => highlights++,
+        markDirty: () => dirty++, drawRefOverlay: () => overlays++,
         history: new CommandHistory(),
     };
     setBoardViewPanel(app, { refresh: () => boardRefreshes++ });
     setPcbInteraction(app, '_textEdit', { options: { componentId: 'part' }, updateCaret: () => caretUpdates++ });
     for (const method of ['_worldToPlacementLocal',
-        'snapToGrid', '_rerenderRef']) app[method] = PCBApp.prototype[method];
+        'snapToGrid', 'rerenderRef']) app[method] = PCBApp.prototype[method];
     const verifyTransform = () => {
         const parts = [];
         if (placement.refDx || placement.refDy) parts.push(`translate(${placement.refDx}, ${placement.refDy})`);
@@ -81,6 +90,7 @@ for (const side of ['top', 'bottom']) for (const mirror of [false, true]) {
     app.history.execute(new RotateRefTextCommand(app, 'part', placement.refRot, 90));
     verifyTransform();
     const oldGlyphs = [...reference.children];
+    const oldBox = refBox(placement);
     app.history.execute(new SetRefStyleCommand(app, 'part',
         { refSize: placement.refSize, refStrokeWidth: placement.refStrokeWidth },
         { refSize: 2.345678, refStrokeWidth: 0.234567 }));
@@ -88,7 +98,9 @@ for (const side of ['top', 'bottom']) for (const mirror of [false, true]) {
     assert.equal(reference.getAttribute('stroke-width'), '0.234567');
     assert.equal(reference.getAttribute('data-ref-size'), '2.345678');
     assert.ok(reference.children.length > 0 && reference.children.every(child => !oldGlyphs.includes(child)));
-    assert.equal(placement._refBox, null);
+    assert.notEqual(placement._refBox, oldBox, 'Style edits replace the stale reference layout box');
+    assert.ok(placement._refBox.bw > oldBox.bw && placement._refBox.bh > oldBox.bh,
+        'The refreshed reference layout box reflects the larger size and stroke width');
     assert.equal(highlights, 1);
     assert.equal(caretUpdates, 1);
     for (let index = 0; index < 3; index++) { app.history.undo(); verifyTransform(); }

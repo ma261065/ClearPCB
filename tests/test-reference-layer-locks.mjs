@@ -26,7 +26,7 @@ function element() {
 
 globalThis.window = { addEventListener() {} };
 globalThis.document = { getElementById: () => null, querySelector: () => null,
-    querySelectorAll: () => [], createElementNS: element };
+    querySelectorAll: () => [], createElementNS: element, documentElement: { getAttribute: () => 'dark' } };
 globalThis.requestAnimationFrame = callback => { callback(); return 1; };
 const { default: PCBApp } = await import('../src/ui/PCBApp.js');
 
@@ -35,7 +35,11 @@ for (const side of ['top', 'bottom']) {
     const other = PCB_LAYERS.find(item => item.id === `${side === 'top' ? 'bottom' : 'top'}-silk`);
     const previous = layer.locked, otherPrevious = other.locked;
     const placement = { x: 0, y: 0, side, refDx: 0, refDy: 0, refRot: 0, refSize: 1.2,
-        refStrokeWidth: 0.15, reference: 'R1', elements: [] };
+        refStrokeWidth: 0.15, reference: 'R1', elements: [],
+        _refEl: { isConnected: true, setAttribute() {}, getAttribute: name => ({
+            'data-ref-anchor-y': '0', 'data-ref-cy': '0',
+        })[name] ?? null },
+        _refBox: { bx: -1, by: -1, bw: 2, bh: 2, cx: 0, cy: 0 } };
     const pcbDocument = new PcbDocument();
     pcbDocument.placementState.record('part', placement);
     const controls = new Map();
@@ -43,16 +47,15 @@ for (const side of ['top', 'bottom']) {
     const app = {
         pcbDocument, placementState: pcbDocument.placementState,
         placements: new Map([['part', placement]]), history: new CommandHistory(),
-        viewport: { scale: 10, svg: { style: {} }, snapToGrid: false },
+        viewport: { scale: 10, svg: { style: {} }, snapToGrid: false, addContent() {} },
         tracks: [], vias: [], boardShapes: [], texts: new Map(), _layerGroups: new Map(), existingLayerGroups() { return this._layerGroups; },
-        getLayerGroup: () => null, _drawRefOverlay() {}, _refreshRefHighlight() {},
-        _refBox: () => ({ bx: -1, by: -1, bw: 2, bh: 2, cx: 0, cy: 0 }),
+        getLayerGroup: () => null, drawRefOverlay() {}, markDirty() {},
         setPropertiesTitle: () => propertyShows++,
         layerLabel: PCBApp.prototype.layerLabel, screenToWorld: event => ({ x: event.clientX, y: event.clientY }),
     };
     attachPropertyPanelHarness(app, { controls });
-    for (const name of ['rotateRefText', '_hitTestRefText', '_worldToPlacementLocal', '_placementLocalToWorld',
-        'snapToGrid', '_showRefProperties', '_bindStrokeTextProps', '_pcbMultiPropertyCapabilities',
+    for (const name of ['rotateRefText', '_worldToPlacementLocal',
+        'snapToGrid', 'showRefProperties', '_bindStrokeTextProps', '_pcbMultiPropertyCapabilities',
         '_onLayerLockChanged', '_endTextInlineEdit']) app[name] = PCBApp.prototype[name];
     const adapter = createRefTextSelectionAdapter(app, 'part', 'reftext:part');
     const original = capturePlacementOverride(placement);

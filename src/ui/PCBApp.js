@@ -8,9 +8,9 @@ import { Viewport } from '../core/Viewport.js';
 import { snapToViewportGrid } from '../core/grid-snap.js';
 import { PcbDocument } from '../core/PcbDocument.js';
 import { loadAndApplyTheme } from '../shared/ui/theme.js';
-import { renderFootprint, applyRefGeometry, REF_DEFAULT_SIZE, REF_DEFAULT_STROKE } from '../shared/pcb/footprint.js';
+import { renderFootprint, REF_DEFAULT_SIZE, REF_DEFAULT_STROKE } from '../shared/pcb/footprint.js';
 import { updateGridDropdown, restoreGridSettings, serializeGridSettings } from '../shared/ui/viewport.js';
-import { applyTextConnectionGuide, setInlineTextInputActive } from '../shared/ui/inline-text-overlay.js';
+import { setInlineTextInputActive } from '../shared/ui/inline-text-overlay.js';
 import { PCB_LAYERS, PCB_OVERLAYS, PCB_COPPER_FILLS, pcbLayerName, isLayerLocked, isViaLocked, isLayerVisible, isViaVisible, isCopperFillLocked, isCopperFillVisible } from '../pcb/modules/layers.js';
 import { exportDSN, importSES } from '../pcb/modules/dsn.js';
 import { disposeDrcRefresh, invalidateDrcRefresh } from '../pcb/modules/drc-refresh.js';
@@ -52,10 +52,8 @@ import {
     commitCollinearCleanup,
     buildDrawnTrackCommands,
 } from '../pcb/modules/track-drag.js';
-import { AddTrackCommand, AddViaCommand, RemoveTrackCommand, ReplaceRoutesCommand, CompoundCommand, MovePlacementCommand, RotatePlacementCommand, SetPlacementLockedCommand, FlipPlacementCommand, SetPlacementSideCommand, SetPlacementRefVisibleCommand, MoveRefTextCommand, RotateRefTextCommand, SetRefStyleCommand, previewPlacementPose, finishPlacementPreview, getPlacementPreviewTracks, getViaPropertyPreview, getTrackPropertyPreview, canonicalTrack, renderPlacementPose, renderPlacementSide, applyPlacementRefVisible, placementTransform, isPlacementMirrored } from '../pcb/modules/track-commands.js';
-import { textColorForLayer } from '../pcb/modules/pcb-text.js';
+import { AddTrackCommand, AddViaCommand, RemoveTrackCommand, ReplaceRoutesCommand, CompoundCommand, MovePlacementCommand, RotatePlacementCommand, SetPlacementLockedCommand, FlipPlacementCommand, SetPlacementSideCommand, SetPlacementRefVisibleCommand, previewPlacementPose, finishPlacementPreview, getPlacementPreviewTracks, getViaPropertyPreview, getTrackPropertyPreview, canonicalTrack, renderPlacementPose, renderPlacementSide, applyPlacementRefVisible, placementTransform, isPlacementMirrored } from '../pcb/modules/track-commands.js';
 import { createPcbText, serializePcbText } from '../core/pcb-text.js';
-import { connectBoxOutlines } from '../core/geometry.js';
 import { AddTextCommand, RemoveTextCommand, MoveTextCommand, EditTextCommand, getTextPosePreviewTexts, previewTextPose, finishTextPosePreview } from '../pcb/modules/text-commands.js';
 import { shapeDrawClick, cancelShapeDraw, hitTestBoardShape, selectBoardShape, startBoardShapeDrag, resolveShapeDrawLayer, renderBoardShape, hitTestBoardShapeVertex } from '../pcb/modules/board-shapes.js';
 import { showBoardShapeProperties } from '../pcb/modules/board-shape-properties.js';
@@ -83,7 +81,7 @@ import {
     selectionInteractionCursor,
 } from '../pcb/modules/selection-interaction.js';
 import { getPcbSelection, isPcbSelected, setPcbSelection, syncPcbSelection } from '../pcb/modules/selection-registry.js';
-import { hitTestRefText, placementLocalToWorld, refBox, refCenterWorld, refEditBoxWorldCorners, worldToPlacementLocal } from '../pcb/modules/ref-text-geometry.js';
+import { worldToPlacementLocal } from '../pcb/modules/ref-text-geometry.js';
 import { CommandHistory } from '../core/CommandHistory.js';
 import { Track } from '../shapes/track.js';
 import { Via } from '../shapes/via.js';
@@ -103,7 +101,7 @@ import { startFillEditAt, updateFillEdit, endFillEdit, deleteFocusedFillPart, sh
 import { beginComponentDrag, endComponentDrag, hitTestComponent, hoverComponent, openComponent3DPopout, scheduleComponentDragUpdate, updateComponentDrag } from '../pcb/modules/component-selection.js';
 import { beginTextDrag, endTextDrag, getTextDrag, updateTextDrag } from '../pcb/modules/pcb-text-selection.js';
 import { clearTextElements, hitTestText, refreshText as refreshPcbText, renderText } from '../pcb/modules/pcb-text-render.js';
-import { beginRefTextDrag, endRefDrag, getRefDrag, isRefTextLocked, selectRefText, tryEditReferenceAt, updateRefTextDrag } from '../pcb/modules/ref-text-selection.js';
+import { beginRefTextDrag, drawRefOverlay, endRefDrag, hitTestReferenceText, isRefTextLocked, refreshRefHighlight, rerenderRef, RotateRefTextCommand, selectRefText, SetRefStyleCommand, tryEditReferenceAt, updateRefTextDrag } from '../pcb/modules/ref-text-selection.js';
 import { cancelHoverUpdate, hoverOverlapHitCount } from '../pcb/modules/pcb-hover.js';
 import {
     getFillDraw,
@@ -307,8 +305,6 @@ export default class PCBApp {
          * @type {{comps:Set, tracks:Set, vias:Set}|null}
          */
         /** Currently selected text object, or null. */
-        /** Overlay <g> for the ref-text selection box and drag tether. */
-        this._refOverlay = null;
         /** In-memory PCB clipboard payload. */
         this._pcbClipboard = null;
         /** SVG <path> elements keyed by shape id for quick remove/replace. */
@@ -1010,13 +1006,13 @@ export default class PCBApp {
         // Reference-designator text hit-test. The label sits on the
         // silkscreen above/around the body and can be dragged/rotated
         // independently of the component, so test it before the body.
-        const refHit = this._hitTestRefText(worldPos);
+        const refHit = hitTestReferenceText(this, worldPos);
         if (refHit) {
             this._selectComponent(null);
             selectBoardOutline(this, false);
             selectRefText(this, refHit);
             const dragging = beginRefTextDrag(this, refHit, worldPos);
-            this._showRefProperties(refHit);
+            this.showRefProperties(refHit);
             svg.style.cursor = dragging ? 'grabbing' : 'default';
             return;
         }
@@ -1724,8 +1720,8 @@ export default class PCBApp {
             setSide: (id, side) => this._setPlacementSide(id, /** @type {'top'|'bottom'} */ (side)),
             flip: (id, axis) => this.flipComponent(id, /** @type {'H'|'V'} */ (axis)),
             open3D: id => openComponent3DPopout(this, id),
-            renderReference: id => this._rerenderRef(id),
-            drawReferenceOverlay: (id, tether) => this._drawRefOverlay(id, tether),
+            renderReference: id => this.rerenderRef(id),
+            drawReferenceOverlay: (id, tether) => this.drawRefOverlay(id, tether),
             setReferenceStyle: (id, before, after) => this.history.execute(new SetRefStyleCommand(this, id, before, after)),
         }));
     }
@@ -1793,7 +1789,7 @@ export default class PCBApp {
     _bindThemeToggle() {
         window.addEventListener('clearpcb-theme-changed', () => {
             this.viewport?.updateTheme?.();
-            for (const compId of getPcbSelection(this, 'reftext')) this._refreshRefHighlight(compId);
+            for (const compId of getPcbSelection(this, 'reftext')) refreshRefHighlight(this, compId);
             this.refreshPcbRibbon?.();
         });
     }
@@ -1963,9 +1959,7 @@ export default class PCBApp {
         }
         // Drop any reference-text selection/overlay tied to the old placements.
         endRefDrag(this, false);
-        if (this._refOverlay) {
-            while (this._refOverlay.firstChild) this._refOverlay.removeChild(this._refOverlay.firstChild);
-        }
+        drawRefOverlay(this, null, false);
         this._footprintGroup = null;
         this._ratsnestGroup = null;
         this.placements.clear();
@@ -2009,7 +2003,7 @@ export default class PCBApp {
             if (pl.mirror || pl.side === 'bottom' || pl.rotation || pl.refDx || pl.refDy || pl.refRot) {
                 renderPlacementPose(this, compId);
             }
-            if (pl.refSize !== REF_DEFAULT_SIZE || pl.refStrokeWidth !== REF_DEFAULT_STROKE) this._rerenderRef(compId);
+            if (pl.refSize !== REF_DEFAULT_SIZE || pl.refStrokeWidth !== REF_DEFAULT_STROKE) this.rerenderRef(compId);
         }
     }
 
@@ -2421,128 +2415,6 @@ export default class PCBApp {
     // mirroring the schematic editor. The label text itself comes from the
     // schematic; reference edits update that source through its property command.
 
-    /** See refBox in pcb/modules/ref-text-geometry.js. */
-    _refBox(pl) {
-        return refBox(pl);
-    }
-
-    /**
-     * Regenerate a reference designator's glyph geometry after its size or
-     * line width changed, refresh the cached layout box, and re-apply the
-     * SVG pose so the new geometry picks up the current offset/rotation
-     * and mirror state.
-     * @param {string} compId
-     */
-    _rerenderRef(compId) {
-        const pl = this.placements.get(compId);
-        if (!pl) return;
-        this._refBox(pl); // resolve & cache pl._refEl
-        const el = pl._refEl;
-        if (!el) return;
-        const cxRef = parseFloat(el.getAttribute('data-mx-center'));
-        const baseY = parseFloat(el.getAttribute('data-ref-anchor-y'));
-        if (!Number.isFinite(cxRef) || !Number.isFinite(baseY)) return;
-        if (applyRefGeometry(el, pl.reference, cxRef, baseY,
-            pl.refSize || REF_DEFAULT_SIZE, pl.refStrokeWidth || REF_DEFAULT_STROKE)) {
-            pl._refBox = null;
-        }
-        renderPlacementPose(this, compId);
-        this._refreshRefHighlight(compId);
-        if (activeTextInlineEdit(this)?.options?.componentId === compId) activeTextInlineEdit(this).updateCaret?.();
-    }
-
-    _refreshRefHighlight(compId) {
-        const pl = this.placements.get(compId);
-        if (!pl || !this._refBox(pl)) return;
-        const active = isPcbSelected(this, 'reftext', compId)
-            || activeTextInlineEdit(this)?.options?.componentId === compId;
-        const isLight = document.documentElement.getAttribute('data-theme') === 'light';
-        pl._refEl.setAttribute('stroke', active ? (isLight ? '#000000' : '#ffffff')
-            : textColorForLayer(pl.side === 'bottom' ? 'bottom-silk' : 'top-silk'));
-    }
-
-    /** See placementLocalToWorld in pcb/modules/ref-text-geometry.js. */
-    _placementLocalToWorld(pl, lx, ly) {
-        return placementLocalToWorld(pl, lx, ly);
-    }
-
-    /** See refCenterWorld in pcb/modules/ref-text-geometry.js. */
-    _refCenterWorld(pl, box) {
-        return refCenterWorld(pl, box);
-    }
-
-    /** See refEditBoxWorldCorners in pcb/modules/ref-text-geometry.js. */
-    _refEditBoxWorldCorners(pl, box) {
-        return refEditBoxWorldCorners(pl, box);
-    }
-
-    /** See hitTestRefText in pcb/modules/ref-text-geometry.js. */
-    _hitTestRefText(worldPos) {
-        return hitTestRefText(this.placements, worldPos, pl => this._refBox(pl));
-    }
-
-    /** Lazily create the world-space overlay group for the ref selection/tether. */
-    _ensureRefOverlay() {
-        if (!this._refOverlay || !this._refOverlay.isConnected) {
-            const g = document.createElementNS('http://www.w3.org/2000/svg', 'g');
-            g.setAttribute('class', 'pcb-ref-overlay');
-            g.setAttribute('pointer-events', 'none');
-            this.viewport.addContent(g);
-            this._refOverlay = g;
-        }
-        return this._refOverlay;
-    }
-
-    /**
-    * Draw (or clear) the component outline associated with a reference and
-    * optionally its dotted connection line. Passing a null/invalid compId
-    * clears the overlay.
-     * @param {string|null} compId
-     * @param {boolean} withTether
-     */
-    _drawRefOverlay(compId, withTether) {
-        const g = this._ensureRefOverlay();
-        while (g.firstChild) g.removeChild(g.firstChild);
-        if (!compId) return;
-        const pl = this.placements.get(compId);
-        if (!pl) return;
-        const box = this._refBox(pl);
-        if (!box) return;
-        this._refreshRefHighlight(compId);
-        const NS = 'http://www.w3.org/2000/svg';
-        if (pl.bounds) {
-            const outline = document.createElementNS(NS, 'rect');
-            outline.setAttribute('class', 'pcb-ref-component-outline');
-            outline.setAttribute('x', String(pl.bounds.x));
-            outline.setAttribute('y', String(pl.bounds.y));
-            outline.setAttribute('width', String(pl.bounds.width));
-            outline.setAttribute('height', String(pl.bounds.height));
-            outline.setAttribute('transform', placementTransform(pl));
-            outline.setAttribute('fill', 'none');
-            outline.setAttribute('stroke', '#3399ff');
-            outline.setAttribute('stroke-width', '1.2');
-            outline.setAttribute('vector-effect', 'non-scaling-stroke');
-            outline.setAttribute('pointer-events', 'none');
-            g.appendChild(outline);
-        }
-        if (withTether || isPcbSelected(this, 'reftext', compId) || getRefDrag(this)?.compId === compId
-            || activeTextInlineEdit(this)?.options?.componentId === compId) {
-            const bounds = pl.bounds;
-            if (!bounds || bounds.width <= 0 || bounds.height <= 0) return;
-            const textBox = this._refEditBoxWorldCorners(pl, box);
-            if (!textBox) return;
-            const componentBox = [
-                [bounds.x, bounds.y], [bounds.x + bounds.width, bounds.y],
-                [bounds.x + bounds.width, bounds.y + bounds.height], [bounds.x, bounds.y + bounds.height],
-            ].map(([x, y]) => this._placementLocalToWorld(pl, x, y));
-            const connection = connectBoxOutlines(componentBox, textBox);
-            if (!connection) return;
-            const line = document.createElementNS(NS, 'line');
-            applyTextConnectionGuide(line, connection, '#3399ff');
-            g.appendChild(line);
-        }
-    }
-
     /** Rotate the selected reference designator by 90° (through history). */
     rotateRefText(compId) {
         getPropertyEditor(this, 'component')?.commit();
@@ -2551,8 +2423,8 @@ export default class PCBApp {
         const cur = ((pl.refRot || 0) % 360 + 360) % 360;
         const next = (cur + 90) % 360;
         this.history.execute(new RotateRefTextCommand(this, compId, cur, next));
-        this._drawRefOverlay(compId, false);
-        if (isPcbSelected(this, 'reftext', compId)) this._showRefProperties(compId);
+        this.drawRefOverlay(compId, false);
+        if (isPcbSelected(this, 'reftext', compId)) this.showRefProperties(compId);
     }
 
     /** The layer panel's name for a layer, so every menu and label matches the panel. */
@@ -2610,16 +2482,22 @@ export default class PCBApp {
      * read-only — only Size, Rotation and Line W can be edited.
      * @param {string} compId
      */
-    _showRefProperties(compId) {
+    showRefProperties(compId) {
         return PCBApp.prototype._getComponentProperties.call(this).showReference(compId);
     }
 
-    showRefProperties(compId) {
-        return this._showRefProperties(compId);
+    rerenderRef(compId) {
+        return rerenderRef(this, compId);
     }
 
-    rerenderRef(compId) {
-        return this._rerenderRef(compId);
+    /**
+     * Presentation service for reference-text interactions and history commands, like
+     * rerenderRef: draw the selection overlay for `compId` (null clears it).
+     * @param {string|null} compId
+     * @param {boolean} withTether
+     */
+    drawRefOverlay(compId, withTether) {
+        drawRefOverlay(this, compId, withTether);
     }
 
     refreshComponent3D() {

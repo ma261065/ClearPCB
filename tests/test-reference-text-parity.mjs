@@ -7,7 +7,7 @@ import { setBoardViewPanel } from '../src/pcb/modules/refresh-state.js';
 const element = () => ({ attributes: {}, children: [],
     setAttribute(name, value) { this.attributes[name] = value; },
     appendChild(child) { this.children.push(child); } });
-globalThis.document = { createElementNS: element };
+globalThis.document = { createElementNS: element, documentElement: { getAttribute: () => 'dark' } };
 assert.deepEqual(referenceAnchor(null), { cx: 0, baseY: -2.8 });
 assert.deepEqual(referenceAnchor({ x: 2, y: -4, width: 6 }), { cx: 5, baseY: -4.8 });
 for (const outline of [null, { x: 2, y: -4, width: 6 }]) {
@@ -113,7 +113,8 @@ assert.equal(constructed._placementOverrides, owner.pcbDocument.placementState.o
     'PCB construction aliases the project-owned map');
 assert.notEqual(new PCBApp()._placementOverrides, constructed._placementOverrides,
     'Standalone editors retain an independent placement model');
-const moved = { x: 1, y: 2, rotation: 37, refDx: 3, refDy: -2, refRot: 90, refVisible: false };
+const moved = { x: 1, y: 2, rotation: 37, refDx: 3, refDy: -2, refRot: 90, refVisible: false,
+    bounds: { x: 0, y: 0, width: 4, height: 3 } };
 let dirtyNotifications = 0;
 const editor = {
     project: owner,
@@ -136,11 +137,14 @@ assert.equal(dirtyNotifications, 3, 'The editor still marks each execute/undo/re
 console.log('PASS placement commands persist into project state through execute/undo/redo');
 
 {
-    const { SetPlacementLockedCommand, SetPlacementRefVisibleCommand, MoveRefTextCommand,
-        RotateRefTextCommand, SetRefStyleCommand, applyPlacementPose } = await import('../src/pcb/modules/track-commands.js');
+    const { SetPlacementLockedCommand, SetPlacementRefVisibleCommand, applyPlacementPose } = await import('../src/pcb/modules/track-commands.js');
+    const { MoveRefTextCommand, RotateRefTextCommand, SetRefStyleCommand } = await import('../src/pcb/modules/ref-text-selection.js');
     const { setPcbSelection } = await import('../src/pcb/modules/selection-registry.js');
     const stages = [];
-    const refAttributes = new Map([['data-mx-center', '0'], ['data-ref-cy', '0']]);
+    const refAttributes = new Map([
+        ['data-mx-center', '0'], ['data-ref-cy', '0'], ['data-ref-anchor-y', '0'],
+        ['data-ref-bx', '-1'], ['data-ref-by', '-1'], ['data-ref-bw', '2'], ['data-ref-bh', '2'],
+    ]);
     const ref = {
         style: {},
         hasAttribute: name => name === 'data-fp-ref',
@@ -153,15 +157,23 @@ console.log('PASS placement commands persist into project state through execute/
         querySelector() { return ref; },
         querySelectorAll() { return [ref]; },
     }];
-    editor.viewport = { svg: { style: {} } };
+    editor.viewport = { svg: { style: {} }, addContent(node) {
+        const append = node.appendChild;
+        node.appendChild = function (child) {
+            if (child.attributes?.class === 'pcb-ref-component-outline') stages.push('overlay');
+            return append.call(this, child);
+        };
+    } };
     editor.getLayerGroup = () => null;
     editor._recordPlacementOverride = () => assert.fail('Metadata adapters must not persist generated artwork back into the model');
-    editor._markDirty = () => { dirtyNotifications++; stages.push('dirty'); };
+    const markDirty = () => { dirtyNotifications++; stages.push('dirty'); };
+    editor._markDirty = markDirty;
+    editor.markDirty = markDirty;
     editor._refreshPcbSelectionHighlights = () => stages.push('highlights');
     editor.showComponentProperties = () => stages.push('properties');
-    editor._drawRefOverlay = () => stages.push('overlay');
+    editor.drawRefOverlay = () => stages.push('overlay');
     setBoardViewPanel(editor, { refresh() { stages.push('3d'); } });
-    editor._rerenderRef = id => {
+    editor.rerenderRef = id => {
         stages.push('glyphs');
         const placement = editor.placements.get(id);
         if (placement) {

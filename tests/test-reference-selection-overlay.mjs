@@ -5,51 +5,100 @@ import { getTextEditBoxWorldCorners, setTextEditElementProvider } from '../src/c
 import { clearPcbSelection, setPcbSelection, togglePcbSelection }
     from '../src/pcb/modules/selection-registry.js';
 import '../src/pcb/modules/component-selection.js';
-import { tryEditReferenceAt } from '../src/pcb/modules/ref-text-selection.js';
+import { drawRefOverlay, refreshRefHighlight, tryEditReferenceAt } from '../src/pcb/modules/ref-text-selection.js';
 import { activeTextInlineEdit } from '../src/pcb/modules/text-inline-edit.js';
 import { setPcbInteraction } from '../src/pcb/modules/pcb-interactions.js';
 
-const placement = { x: 10, y: 20, refDx: 0, refDy: 0 };
-const overlay = { children: [] };
+const near = (actual, expected) => assert.ok(Math.abs(Number(actual) - expected) < 1e-9,
+    `Expected ${actual} to equal ${expected}`);
+
+const svgElement = (tagName = 'g') => ({
+    tagName, children: [], attributes: new Map(), style: {}, isConnected: false,
+    setAttribute(key, value) { this.attributes.set(key, String(value)); },
+    getAttribute(key) { return this.attributes.get(key) ?? null; },
+    appendChild(child) { child.isConnected = true; this.children.push(child); child.parentNode = this; },
+    removeChild(child) { this.children.splice(this.children.indexOf(child), 1); child.isConnected = false; },
+    get firstChild() { return this.children[0] || null; },
+});
+globalThis.document = { createElementNS: (_namespace, tagName) => svgElement(tagName), documentElement: { getAttribute: () => 'dark' } };
+const refEl = () => ({ isConnected: true, attributes: { 'data-ref-anchor-y': '0', 'data-ref-cy': '0' },
+    setAttribute(name, value) { this.attributes[name] = value; },
+    getAttribute(name) { return this.attributes[name] ?? null; } });
+const placement = { x: 10, y: 20, refDx: 0, refDy: 0, side: 'top',
+    bounds: { x: 0, y: 0, width: 10, height: 8 }, _refEl: refEl(),
+    _refBox: { bx: -1, by: -1, bw: 2, bh: 2, cx: 0, cy: 0 } };
+const placement2 = { x: 30, y: 40, refDx: 2, refDy: 3, side: 'top',
+    bounds: { x: 20, y: 0, width: 10, height: 8 }, _refEl: refEl(),
+    _refBox: { bx: -1, by: -1, bw: 2, bh: 2, cx: 0, cy: 0 } };
+const overlayHost = svgElement();
 const app = {
-    placements: new Map([['U1', placement], ['U2', { x: 30, y: 40, refDx: 2, refDy: 3 }]]),
-    viewport: { scale: 10 },
-    _refOverlay: null,
-    _drawRefOverlay(componentId, withTether) {
-        this._refOverlay = overlay;
-        overlay.children = [];
-        const current = this.placements.get(componentId);
-        if (current) overlay.children.push({ componentId, x: current.x + current.refDx,
-            y: current.y + current.refDy, withTether });
-    },
+    placements: new Map([['U1', placement], ['U2', placement2]]),
+    viewport: { scale: 10, addContent: node => overlayHost.appendChild(node) },
+    // The editor's presentation seam (PCBApp.drawRefOverlay), drawing the real overlay.
+    drawRefOverlay(compId, withTether) { drawRefOverlay(this, compId, withTether); },
 };
 const select = (kind, object) => setPcbSelection(app, [{ kind, object }]);
+const overlayChildren = () => overlayHost.children[0]?.children || [];
+const componentOutline = () => overlayChildren().find(child =>
+    child.getAttribute?.('class') === 'pcb-ref-component-outline');
+const guideLine = () => overlayChildren().find(child => child.tagName === 'line');
+function assertOverlayFor(componentId, expected) {
+    const outline = componentOutline();
+    assert.ok(outline, `${componentId}: overlay includes the component outline`);
+    assert.equal(outline.getAttribute('transform'), expected.transform);
+    assert.equal(outline.getAttribute('x'), String(expected.bounds.x));
+    assert.equal(outline.getAttribute('y'), String(expected.bounds.y));
+    assert.equal(outline.getAttribute('width'), String(expected.bounds.width));
+    assert.equal(outline.getAttribute('height'), String(expected.bounds.height));
+    const guide = guideLine();
+    assert.ok(guide, `${componentId}: overlay includes the reference tether`);
+    near(Number(guide.getAttribute('x1')), expected.guide.x1);
+    near(Number(guide.getAttribute('y1')), expected.guide.y1);
+    near(Number(guide.getAttribute('x2')), expected.guide.x2);
+    near(Number(guide.getAttribute('y2')), expected.guide.y2);
+}
 
 select('component', 'U1');
-assert.equal(app._refOverlay, null, 'Component selection must not create a reference overlay');
+assert.equal(overlayHost.children.length, 0, 'Component selection must not create a reference overlay');
 select('reftext', 'U1');
 placement.refDx = 5;
 placement.refDy = -3;
-app._drawRefOverlay('U1', false);
-assert.deepEqual(overlay.children, [{ componentId: 'U1', x: 15, y: 17, withTether: false }]);
+drawRefOverlay(app, 'U1', false);
+assertOverlayFor('U1', {
+    transform: 'translate(10, 20)',
+    bounds: placement.bounds,
+    guide: { x1: 15, y1: 17.9, x2: 15, y2: 20 },
+});
 select('component', 'U1');
-assert.deepEqual(overlay.children, [], 'Selecting the component must remove its old reference box');
+assert.deepEqual(overlayChildren(), [], 'Selecting the component must remove its old reference box');
 placement.x += 10;
 placement.y += 5;
-assert.deepEqual(overlay.children, [], 'No stale reference box should remain during component movement');
+assert.deepEqual(overlayChildren(), [], 'No stale reference box should remain during component movement');
 
 select('reftext', 'U1');
-assert.deepEqual(overlay.children, [{ componentId: 'U1', x: 25, y: 22, withTether: false }]);
+assertOverlayFor('U1', {
+    transform: 'translate(20, 25)',
+    bounds: placement.bounds,
+    guide: { x1: 25, y1: 22.9, x2: 25, y2: 25 },
+});
 select('reftext', 'U2');
-assert.deepEqual(overlay.children, [{ componentId: 'U2', x: 32, y: 43, withTether: false }]);
+assertOverlayFor('U2', {
+    transform: 'translate(30, 40)',
+    bounds: placement2.bounds,
+    guide: { x1: 32.135, y1: 42.89402989130435, x2: 50, y2: 43.75815217391305 },
+});
 togglePcbSelection(app, 'reftext', 'U2');
-assert.deepEqual(overlay.children, [], 'Ctrl deselection must clear the reference overlay');
+assert.deepEqual(overlayChildren(), [], 'Ctrl deselection must clear the reference overlay');
 
 select('reftext', 'U1');
 togglePcbSelection(app, 'component', 'U2');
-assert.equal(overlay.children[0]?.componentId, 'U1', 'An additively selected reference keeps its overlay');
+assertOverlayFor('U1', {
+    transform: 'translate(20, 25)',
+    bounds: placement.bounds,
+    guide: { x1: 25, y1: 22.9, x2: 25, y2: 25 },
+});
 clearPcbSelection(app);
-assert.deepEqual(overlay.children, [], 'Clearing multi-selection must clear the reference overlay');
+assert.deepEqual(overlayChildren(), [], 'Clearing multi-selection must clear the reference overlay');
 console.log('PASS: moved reference box clears on component selection, retargets across references, and respects additive selection');
 
 globalThis.window = { addEventListener() {} };
@@ -126,11 +175,9 @@ const editor = {
     _hitTestRefText() { return component.id; },
     _startTextInlineEdit(text, point, options) { this.edit = { text, options }; },
     startTextInlineEdit(text, point, options) { this._startTextInlineEdit(text, point, options); },
-    _rerenderRef(id) { referenceRenders.push(this.placements.get(id)?.reference); },
-    rerenderRef(id) { this._rerenderRef(id); },
-    _drawRefOverlay(id) { referenceOverlays.push(this.placements.get(id)?.reference); },
-    _showRefProperties(id) { referencePanels.push(this.placements.get(id)?.reference); },
-    showRefProperties(id) { this._showRefProperties(id); },
+    rerenderRef(id) { referenceRenders.push(this.placements.get(id)?.reference); },
+    drawRefOverlay(id) { referenceOverlays.push(this.placements.get(id)?.reference); },
+    showRefProperties(id) { referencePanels.push(this.placements.get(id)?.reference); },
     updateRatsnest() { referenceRatsnestUpdates++; },
     _board3d: { refresh() { referenceBoardUpdates++; } },
     refreshComponent3D() { this._board3d?.refresh?.(); },
@@ -278,8 +325,6 @@ const guideLayer = { children: [], appendChild(child) {
 document.createElementNS = () => ({ attributes: {},
     setAttribute(name, value) { this.attributes[name] = String(value); },
     remove() { guideLayer.children = guideLayer.children.filter(child => child !== this); } });
-const near = (actual, expected) => assert.ok(Math.abs(Number(actual) - expected) < 1e-9,
-    `Expected ${actual} to equal ${expected}`);
 for (const rotation of [0, 37, 90]) for (const mirrored of [false, true]) {
     const local = { minX: mirrored ? -5 : -3, maxX: mirrored ? 3 : 5, minY: -2, maxY: 2 };
     const parent = { x: 20, y: 30, rotation, _getLocalBounds: () => local };
@@ -418,55 +463,50 @@ assert.notEqual(Number(netGuide.attributes.x1), netLabel.x,
 console.log('PASS: net-label guide clips to the shared edit-box boundary');
 
 const { textColorForLayer } = await import('../src/pcb/modules/pcb-text.js');
-const refreshRefHighlight = PCBApp.prototype._refreshRefHighlight;
 let theme = 'dark';
 document.documentElement = { getAttribute() { return theme; } };
-const refElement = { attributes: {}, setAttribute(name, value) { this.attributes[name] = value; } };
-const highlightPlacement = { side: 'top', _refEl: refElement,
-    refDx: 0, refDy: -5, refStrokeWidth: 0.15,
-    bounds: { x: -2, y: -1, width: 4, height: 2 } };
+const refElement = { attributes: { 'data-ref-anchor-y': '-5', 'data-ref-cy': '-1.5' },
+    setAttribute(name, value) { this.attributes[name] = value; },
+    getAttribute(name) { return this.attributes[name] ?? null; } };
+const highlightPlacement = { x: 0, y: 0, side: 'top', reference: 'R1', _refEl: refElement,
+    _refBox: { bx: -1, by: -2, bw: 2, bh: 1, cx: 0, cy: -1.5 },
+    refDx: 0, refDy: -30, refSize: 1.2, refStrokeWidth: 0.15,
+    bounds: { x: 20, y: 0, width: 4, height: 2 } };
+refElement.isConnected = true;
 const highlightApp = { placements: new Map([['ref', highlightPlacement]]),
-    _refBox: placement => placement
-        ? { bx: -1, by: -2, bw: 2, bh: 1, cx: 0, cy: -1.5 }
-        : null,
-    _refEditBoxWorldCorners: () => [
-        { x: -1, y: -6 }, { x: 1, y: -6 },
-        { x: 1, y: -4 }, { x: -1, y: -4 },
-    ],
-    _placementLocalToWorld(placement, x, y) { return { x, y }; },
-    _drawRefOverlay() {},
-    _refreshRefHighlight: refreshRefHighlight };
+    viewport: { addContent(node) { node.isConnected = true; this.overlay = node; } } };
+document.createElementNS = (namespace, tagName) => ({ tagName, attributes: {}, children: [],
+    setAttribute(name, value) { this.attributes[name] = String(value); },
+    getAttribute(name) { return this.attributes[name] ?? null; },
+    appendChild(child) { this.children.push(child); },
+    removeChild(child) { this.children = this.children.filter(item => item !== child); },
+    get firstChild() { return this.children[0] || null; },
+});
 setPcbSelection(highlightApp, [{ kind: 'reftext', object: 'ref' }]);
 assert.equal(refElement.attributes.stroke, '#ffffff', 'Selected reference matches silk text in dark theme');
 theme = 'light';
-highlightApp._refreshRefHighlight('ref');
+refreshRefHighlight(highlightApp, 'ref');
 assert.equal(refElement.attributes.stroke, '#000000', 'Selected reference matches silk text in light theme');
 clearPcbSelection(highlightApp);
 assert.equal(refElement.attributes.stroke, textColorForLayer('top-silk'), 'Deselecting restores the silk color');
 highlightPlacement.side = 'bottom';
-highlightApp._refreshRefHighlight('ref');
+refreshRefHighlight(highlightApp, 'ref');
 assert.equal(refElement.attributes.stroke, textColorForLayer('bottom-silk'));
 
-const referenceOverlay = { children: [], get firstChild() { return this.children[0] || null; },
-    appendChild(child) { this.children.push(child); },
-    removeChild(child) { this.children = this.children.filter(item => item !== child); } };
-document.createElementNS = (namespace, tagName) => ({ tagName, attributes: {},
-    setAttribute(name, value) { this.attributes[name] = String(value); } });
-highlightApp._ensureRefOverlay = () => referenceOverlay;
-const drawRefOverlay = PCBApp.prototype._drawRefOverlay;
-drawRefOverlay.call(highlightApp, 'ref', false);
+drawRefOverlay(highlightApp, 'ref', false);
+const referenceOverlay = highlightApp.viewport.overlay;
 assert.equal(referenceOverlay.children.length, 1, 'Reference selection retains only the associated component outline');
 assert.equal(referenceOverlay.children[0].attributes.class, 'pcb-ref-component-outline');
 assert.equal(referenceOverlay.children[0].attributes.fill, 'none');
 assert.equal(referenceOverlay.children.some(child => child.tagName === 'polygon'), false, 'No reference selection box is drawn');
-drawRefOverlay.call(highlightApp, 'ref', true);
+drawRefOverlay(highlightApp, 'ref', true);
 const pcbGuide = referenceOverlay.children.find(child => child.tagName === 'line');
 assert.ok(pcbGuide, 'PCB reference overlay includes its connection guide while dragging');
-near(pcbGuide.attributes.x1, 0);
-near(pcbGuide.attributes.y1, -4);
-near(pcbGuide.attributes.x2, 0);
-near(pcbGuide.attributes.y2, -1);
-drawRefOverlay.call(highlightApp, null, false);
+near(pcbGuide.attributes.x1, -0.821576763485478);
+near(pcbGuide.attributes.y1, -33.8);
+near(pcbGuide.attributes.x2, -21.391424619640386);
+near(pcbGuide.attributes.y2, 0);
+drawRefOverlay(highlightApp, null, false);
 assert.equal(referenceOverlay.children.length, 0);
 console.log('PASS: PCB references use silk selection colors, restore on deselection, and draw no reference box');
 

@@ -10,14 +10,22 @@ import { getRefDrag } from '../src/pcb/modules/ref-text-selection.js';
 import { handleRefDrag } from '../src/pcb/modules/ref-text-selection.js';
 import { setPcbInteraction } from '../src/pcb/modules/pcb-interactions.js';
 import { setBoardViewPanel } from '../src/pcb/modules/refresh-state.js';
+import { placementLocalToWorld } from '../src/pcb/modules/ref-text-geometry.js';
+import { installFakeDom } from './helpers/fake-dom.mjs';
 
-globalThis.window = { addEventListener() {} };
+installFakeDom();
 const { default: PCBApp } = await import('../src/ui/PCBApp.js');
 
 function fixture({ saved = true, rotation = 37, side = 'bottom', mirror = true } = {}) {
     const pcbDocument = new PcbDocument();
     const placement = { x: Math.PI, y: -Math.E, rotation, side, mirror,
         refDx: 1.234567, refDy: -2.345678, refRot: 23.456789,
+        reference: 'R1', bounds: { x: -2, y: -1, width: 4, height: 2 },
+        _refEl: { isConnected: true, attributes: new Map([
+            ['data-ref-anchor-y', '0'], ['data-ref-cy', '0'],
+        ]), setAttribute(name, value) { this.attributes.set(name, String(value)); },
+        getAttribute(name) { return this.attributes.get(name) ?? null; } },
+        _refBox: { bx: -1, by: -1, bw: 2, bh: 2, cx: 0, cy: 0 },
         padOffsets: [{ padId: '1', dx: 2, dy: 1, number: '1' }], pads: new Map() };
     updatePlacementPadPositions(placement);
     const pad = placement.pads.get('1');
@@ -37,14 +45,23 @@ function fixture({ saved = true, rotation = 37, side = 'bottom', mirror = true }
         placements: new Map([['part', placement]]), _layerGroups: new Map(),
         _active: true, currentTool: 'select', history: new CommandHistory(),
         viewport: { svg: { style: { cursor: 'grabbing' } }, snapToGrid: false,
-            gridVisible: true, scale: 4, gridSize: 10, hideCrosshair() {} },
+            gridVisible: true, scale: 4, gridSize: 10, hideCrosshair() {},
+            addContent(node) {
+                const append = node.appendChild;
+                node.appendChild = function (child) {
+                    if (child.getAttribute?.('class') === 'pcb-ref-component-outline') {
+                        overlays.push({ id: 'part', withTether: false, ...offsets() });
+                    }
+                    return append.call(this, child);
+                };
+            } },
         getLayerGroup: () => null,
-        _drawRefOverlay: (id, withTether) => overlays.push({ id, withTether, ...offsets() }),
-        _markDirty: () => dirty++,
+        drawRefOverlay: (id, withTether) => overlays.push({ id, withTether, ...offsets() }),
+        markDirty: () => dirty++,
         screenToWorld: event => ({ x: event.clientX, y: event.clientY }),
     };
     setBoardViewPanel(app, { refresh: () => boardRefreshes++ });
-    for (const method of [        '_worldToPlacementLocal', '_placementLocalToWorld', 'snapToGrid', 'handleKeyDown', '_clearCursorCrosshair']) {
+    for (const method of ['_worldToPlacementLocal', 'snapToGrid', 'handleKeyDown', '_clearCursorCrosshair']) {
         app[method] = PCBApp.prototype[method];
     }
     app.screenToWorld = event => ({ x: event.clientX, y: event.clientY });
@@ -146,7 +163,7 @@ for (const legacy of [false, true]) for (const side of ['top', 'bottom']) {
         });
         f.begin(false);
         const moveTo = (x, y, shift = false) => {
-            const point = f.app._placementLocalToWorld(f.placement,
+            const point = placementLocalToWorld(f.placement,
                 x - original.pose.refDx, y - original.pose.refDy);
             if (legacy) handleRefDrag(f.app, { clientX: point.x, clientY: point.y, shiftKey: shift });
             else {

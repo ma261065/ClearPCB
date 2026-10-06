@@ -36,9 +36,6 @@ import {
     SetPlacementSideCommand as ModelSetPlacementSideCommand,
     SetPlacementLockedCommand as ModelSetPlacementLockedCommand,
     SetPlacementRefVisibleCommand as ModelSetPlacementRefVisibleCommand,
-    MoveRefTextCommand as ModelMoveRefTextCommand,
-    RotateRefTextCommand as ModelRotateRefTextCommand,
-    SetRefStyleCommand as ModelSetRefStyleCommand,
 } from '../../core/pcb-placement-commands.js';
 import {
     AddTrackCommand as ModelAddTrackCommand,
@@ -709,9 +706,7 @@ export class SetPlacementLockedCommand extends ModelSetPlacementLockedCommand {
             }
             this.app.showComponentProperties?.(this.compId);
         }
-        if (getPcbSelection(this.app, 'reftext').includes(this.compId)) {
-            this.app._showRefProperties?.(this.compId);
-        }
+        if (getPcbSelection(this.app, 'reftext').includes(this.compId)) this.app.showRefProperties?.(this.compId);
         return saved;
     }
 }
@@ -767,74 +762,6 @@ export class SetPlacementRefVisibleCommand extends ModelSetPlacementRefVisibleCo
     }
 }
 
-/**
- * Move a placement's reference designator relative to its footprint. The
- * offset (`refDx`, `refDy`) is stored in the footprint's authored-local frame
- * — the same frame as the pad offsets — so it survives rotation, mirroring and
- * side changes of the parent placement.
- */
-export class MoveRefTextCommand extends ModelMoveRefTextCommand {
-    constructor(app, compId, fromDx, fromDy, toDx, toDy) {
-        super(app.placementState, compId, fromDx, fromDy, toDx, toDy, app.placements?.get(compId));
-        this.app = app;
-    }
-    _apply(s) {
-        const saved = super._apply(s);
-        const pl = this.app.placements?.get(this.compId);
-        if (pl) { pl.refDx = saved.refDx; pl.refDy = saved.refDy; }
-        renderPlacementPose(this.app, this.compId);
-        this.app._markDirty?.();
-        this.app._drawRefOverlay?.(this.compId, false);
-        refreshBoardView(this.app);
-        return saved;
-    }
-}
-
-/**
- * Rotate a placement's reference designator about its own centre to an
- * absolute angle (degrees), independent of the footprint's rotation.
- */
-export class RotateRefTextCommand extends ModelRotateRefTextCommand {
-    constructor(app, compId, fromDeg, toDeg) {
-        super(app.placementState, compId, fromDeg, toDeg, app.placements?.get(compId));
-        this.app = app;
-    }
-    _apply(deg) {
-        const saved = super._apply(deg);
-        const pl = this.app.placements?.get(this.compId);
-        if (pl) pl.refRot = saved.refRot;
-        renderPlacementPose(this.app, this.compId);
-        this.app._markDirty?.();
-        this.app._drawRefOverlay?.(this.compId, false);
-        refreshBoardView(this.app);
-        return saved;
-    }
-}
-
-/**
- * Project canonical reference styling before regenerating glyph geometry
- * and refreshing any open 3D view.
- */
-export class SetRefStyleCommand extends ModelSetRefStyleCommand {
-    constructor(app, compId, before, after) {
-        super(app.placementState, compId, before, after, app.placements?.get(compId));
-        this.app = app;
-    }
-    _apply(state) {
-        const saved = super._apply(state);
-        const pl = this.app.placements?.get(this.compId);
-        if (pl) {
-            if (state.refSize !== undefined) pl.refSize = saved.refSize;
-            if (state.refStrokeWidth !== undefined) pl.refStrokeWidth = saved.refStrokeWidth;
-            if (state.refRot !== undefined) pl.refRot = saved.refRot;
-        }
-        this.app._rerenderRef?.(this.compId);
-        this.app._markDirty?.();
-        this.app._drawRefOverlay?.(this.compId, false);
-        refreshBoardView(this.app);
-        return saved;
-    }
-}
 const FP_LAYER_FLIP = {
     'top-copper': 'bottom-copper', 'bottom-copper': 'top-copper',
     'top-pad-numbers': 'bottom-pad-numbers', 'bottom-pad-numbers': 'top-pad-numbers',

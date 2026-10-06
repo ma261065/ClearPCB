@@ -6,7 +6,7 @@
 import { REF_DEFAULT_SIZE } from '../../shared/pcb/footprint.js';
 import { measureText as measureStrokeText } from '../../shared/pcb/stroke-font.js';
 import { isLayerVisible } from './layers.js';
-import { isPlacementMirrored } from './track-commands.js';
+import { isPlacementMirrored } from '../../shared/pcb/board-geometry.js';
 
 /** Hit-test margin around a reference box, in mm (matches the drawn selection box). */
 export const REF_BOX_PAD = 0.6;

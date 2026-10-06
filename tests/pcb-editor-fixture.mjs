@@ -65,7 +65,7 @@ export function pcbEditorFixture(overrides = {}) {
         // A real editor always has its layer-group map (existingLayerGroups()).
         _layerGroups: layerGroups,
         setPcbStatus: quiet,
-        _drawRefOverlay: quiet,
+        drawRefOverlay: quiet,
         _refreshPcbSelectionHighlights: quiet,
         ...overrides,
     };

@@ -6,6 +6,8 @@ import { CommandHistory } from '../src/core/CommandHistory.js';
 import { capturePlacementOverride } from '../src/core/PcbPlacementState.js';
 import * as modelCommands from '../src/core/pcb-placement-commands.js';
 import * as editorCommands from '../src/pcb/modules/track-commands.js';
+import * as refEditorCommands from '../src/pcb/modules/ref-text-selection.js';
+import { installFakeDom } from './helpers/fake-dom.mjs';
 
 assert.equal(typeof document, 'undefined');
 assert.equal(typeof window, 'undefined');
@@ -74,9 +76,10 @@ for (const saved of [false, true]) for (const mode of ['headless', 'stale-seed',
     const app = {
         project, pcbDocument: project.pcbDocument, placementState: state,
         placements: new Map([['part', stale]]), tracks: project.pcbDocument.tracks,
-        getLayerGroup: () => null, _markDirty: () => dirty++,
+        getLayerGroup: () => null, _markDirty: () => dirty++, markDirty: () => dirty++,
     };
-    const api = mode === 'editor' ? editorCommands : modelCommands;
+    const api = mode === 'editor' && test.name in refEditorCommands ? refEditorCommands
+        : mode === 'editor' ? editorCommands : modelCommands;
     const owner = mode === 'editor' ? app : test.physical ? project : state;
     const command = new api[test.name](owner, 'part', ...test.args(baseline),
         mode === 'stale-seed' ? stale : undefined);
@@ -91,6 +94,11 @@ for (const saved of [false, true]) for (const mode of ['headless', 'stale-seed',
         state.autoSlots.get('part').x = baseline.x;
     }
     app.placements = placements;
+    const usesRefEditorCommand = mode === 'editor' && test.name in refEditorCommands;
+    if (usesRefEditorCommand) {
+        installFakeDom();
+        app.viewport = { addContent() {} };
+    }
     const history = new CommandHistory();
     history.execute(command);
     const expected = { ...baseline, ...test.patch(baseline) };
@@ -114,6 +122,12 @@ for (const saved of [false, true]) for (const mode of ['headless', 'stale-seed',
         assert.equal(history.redo(), true);
         assert.deepEqual(state.overrides.get('part'), expected);
         assert.deepEqual(track.captureState(), graphAfter);
+    }
+    if (usesRefEditorCommand) {
+        delete globalThis.document;
+        delete globalThis.window;
+        delete globalThis.requestAnimationFrame;
+        delete globalThis.cancelAnimationFrame;
     }
     assert.deepEqual(state.autoSlots, slotsBefore);
     assert.equal(state.overrides.has('other'), false);

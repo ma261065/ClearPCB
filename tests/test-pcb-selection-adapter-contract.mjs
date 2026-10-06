@@ -89,7 +89,7 @@ function boardFixture() {
         placements: new Map([['R12', placement]]),
         viewport: { scale: 10, svg: { style: {} }, setCrosshair() {}, hideCrosshair() {} },
         getLayerGroup: () => element(), _shapeElements: new Map(), _layerGroups: new Map(),
-        _refBox: () => refBox, refreshText() {}, _drawRefOverlay() {}, _refreshPcbSelectionHighlights() {},
+        _refBox: () => refBox, refreshText() {}, drawRefOverlay() {}, _refreshPcbSelectionHighlights() {},
     };
     for (const name of ['texts', 'tracks', 'vias', 'pads', 'boardShapes']) {
         const descriptor = Object.getOwnPropertyDescriptor(PCBApp.prototype, name);

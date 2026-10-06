@@ -1,14 +1,26 @@
-import { getPcbSelection, registerPcbSelectionAdapter, getRefTextSelectionHit, setPcbSelection } from './selection-registry.js';
+import { getPcbSelection, isPcbSelected, registerPcbPlacementHitTest, registerPcbReferenceOverlayRefresh, registerPcbSelectionAdapter, getRefTextSelectionHit, setPcbSelection } from './selection-registry.js';
 import { lockPositionOutsideOutline } from './selection-anchors.js';
 import { isLayerVisible, isLayerLocked } from './layers.js';
 import { getPropertyEditor } from './property-editors.js';
-import { MoveRefTextCommand, renderPlacementPose, placementTransform } from './track-commands.js';
-import { hitTestRefText, refBox, worldToPlacementLocal } from './ref-text-geometry.js';
+import { renderPlacementPose, placementTransform } from './track-commands.js';
+import { hitTestRefText, placementLocalToWorld, refBox, refCenterWorld, refEditBoxWorldCorners, worldToPlacementLocal } from './ref-text-geometry.js';
 import { getPcbInteraction, setPcbInteraction } from './pcb-interactions.js';
 import { hitTestText } from './pcb-text-render.js';
-import { REF_DEFAULT_SIZE, REF_DEFAULT_STROKE } from '../../shared/pcb/footprint.js';
+import { applyRefGeometry, REF_DEFAULT_SIZE, REF_DEFAULT_STROKE } from '../../shared/pcb/footprint.js';
 import { measureText as measureStrokeText } from '../../shared/pcb/stroke-font.js';
 import { showAlert } from '../../shared/ui/modal.js';
+import { applyTextConnectionGuide } from '../../shared/ui/inline-text-overlay.js';
+import { connectBoxOutlines } from '../../core/geometry.js';
+import { textColorForLayer } from './pcb-text.js';
+import { activeTextInlineEdit } from './text-inline-edit.js';
+import { refreshBoardView } from './refresh-state.js';
+import {
+    MoveRefTextCommand as ModelMoveRefTextCommand,
+    RotateRefTextCommand as ModelRotateRefTextCommand,
+    SetRefStyleCommand as ModelSetRefStyleCommand,
+} from '../../core/pcb-placement-commands.js';
+
+const refOverlays = new WeakMap();
 
 export function isRefTextLocked(placement) {
     return !!placement && (!!placement.locked
@@ -17,6 +29,97 @@ export function isRefTextLocked(placement) {
 
 export function getRefDrag(app) {
     return getPcbInteraction(app, '_refDrag');
+}
+
+export function hasRefOverlay(app) {
+    return refOverlays.has(app);
+}
+
+function ensureRefOverlay(app) {
+    let overlay = refOverlays.get(app);
+    if (!overlay || !overlay.isConnected) {
+        overlay = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+        overlay.setAttribute('class', 'pcb-ref-overlay');
+        overlay.setAttribute('pointer-events', 'none');
+        app.viewport.addContent(overlay);
+        refOverlays.set(app, overlay);
+    }
+    return overlay;
+}
+
+export function refreshRefHighlight(app, compId) {
+    const pl = app.placements.get(compId);
+    if (!pl || !refBox(pl)) return;
+    const active = isPcbSelected(app, 'reftext', compId)
+        || activeTextInlineEdit(app)?.options?.componentId === compId;
+    const isLight = document.documentElement.getAttribute('data-theme') === 'light';
+    pl._refEl.setAttribute('stroke', active ? (isLight ? '#000000' : '#ffffff')
+        : textColorForLayer(pl.side === 'bottom' ? 'bottom-silk' : 'top-silk'));
+}
+
+export function drawRefOverlay(app, compId, withTether) {
+    if (!compId) {
+        const existing = refOverlays.get(app);
+        if (existing) while (existing.firstChild) existing.removeChild(existing.firstChild);
+        return;
+    }
+    const g = ensureRefOverlay(app);
+    while (g.firstChild) g.removeChild(g.firstChild);
+    const pl = app.placements.get(compId);
+    if (!pl) return;
+    const box = refBox(pl);
+    if (!box) return;
+    refreshRefHighlight(app, compId);
+    const NS = 'http://www.w3.org/2000/svg';
+    if (pl.bounds) {
+        const outline = document.createElementNS(NS, 'rect');
+        outline.setAttribute('class', 'pcb-ref-component-outline');
+        outline.setAttribute('x', String(pl.bounds.x));
+        outline.setAttribute('y', String(pl.bounds.y));
+        outline.setAttribute('width', String(pl.bounds.width));
+        outline.setAttribute('height', String(pl.bounds.height));
+        outline.setAttribute('transform', placementTransform(pl));
+        outline.setAttribute('fill', 'none');
+        outline.setAttribute('stroke', '#3399ff');
+        outline.setAttribute('stroke-width', '1.2');
+        outline.setAttribute('vector-effect', 'non-scaling-stroke');
+        outline.setAttribute('pointer-events', 'none');
+        g.appendChild(outline);
+    }
+    if (withTether || isPcbSelected(app, 'reftext', compId) || getRefDrag(app)?.compId === compId
+        || activeTextInlineEdit(app)?.options?.componentId === compId) {
+        const bounds = pl.bounds;
+        if (!bounds || bounds.width <= 0 || bounds.height <= 0) return;
+        const textBox = refEditBoxWorldCorners(pl, box);
+        if (!textBox) return;
+        const componentBox = [
+            [bounds.x, bounds.y], [bounds.x + bounds.width, bounds.y],
+            [bounds.x + bounds.width, bounds.y + bounds.height], [bounds.x, bounds.y + bounds.height],
+        ].map(([x, y]) => placementLocalToWorld(pl, x, y));
+        const connection = connectBoxOutlines(componentBox, textBox);
+        if (!connection) return;
+        const line = document.createElementNS(NS, 'line');
+        applyTextConnectionGuide(line, connection, '#3399ff');
+        g.appendChild(line);
+    }
+}
+
+export function rerenderRef(app, compId) {
+    const pl = app.placements.get(compId);
+    if (!pl) return;
+    refBox(pl);
+    const el = pl._refEl;
+    if (!el) return;
+    const cxRef = parseFloat(el.getAttribute('data-mx-center'));
+    const baseY = parseFloat(el.getAttribute('data-ref-anchor-y'));
+    if (!Number.isFinite(cxRef) || !Number.isFinite(baseY)) return;
+    if (applyRefGeometry(el, pl.reference, cxRef, baseY,
+        pl.refSize || REF_DEFAULT_SIZE, pl.refStrokeWidth || REF_DEFAULT_STROKE)) {
+        pl._refBox = null;
+    }
+    renderPlacementPose(app, compId);
+    refreshRefHighlight(app, compId);
+    if (activeTextInlineEdit(app)?.options?.componentId === compId) activeTextInlineEdit(app).updateCaret?.();
 }
 
 export function beginRefTextDrag(app, componentId, worldPos) {
@@ -29,7 +132,7 @@ export function beginRefTextDrag(app, componentId, worldPos) {
         startDx: placement.refDx || 0,
         startDy: placement.refDy || 0,
     });
-    app._drawRefOverlay(componentId, true);
+    app.drawRefOverlay(componentId, true);
     return true;
 }
 
@@ -49,7 +152,7 @@ export function updateRefTextDrag(app, worldPos) {
     placement.refDx = snap.x;
     placement.refDy = snap.y;
     renderPlacementPose(app, drag.compId);
-    app._drawRefOverlay(drag.compId, true);
+    app.drawRefOverlay(drag.compId, true);
 }
 
 export function handleRefDrag(app, e) {
@@ -65,9 +168,9 @@ export function endRefDrag(app, commit = true) {
     setPcbInteraction(app, '_refDrag', null);
     const placement = app.placements.get(compId);
     app.viewport.svg.style.cursor = 'default';
-    if (!placement) { app._drawRefOverlay(null, false); return; }
+    if (!placement) { app.drawRefOverlay(null, false); return; }
     if ((placement.refDx || 0) === startDx && (placement.refDy || 0) === startDy) {
-        app._drawRefOverlay(compId, false);
+        app.drawRefOverlay(compId, false);
         return;
     }
     if (commit && !isRefTextLocked(placement)) {
@@ -76,13 +179,73 @@ export function endRefDrag(app, commit = true) {
         placement.refDx = startDx;
         placement.refDy = startDy;
         renderPlacementPose(app, compId);
-        app._drawRefOverlay(compId, false);
+        app.drawRefOverlay(compId, false);
+    }
+}
+
+export class MoveRefTextCommand extends ModelMoveRefTextCommand {
+    constructor(app, compId, fromDx, fromDy, toDx, toDy) {
+        super(app.placementState, compId, fromDx, fromDy, toDx, toDy, app.placements?.get(compId));
+        this.app = app;
+    }
+    _apply(s) {
+        const saved = super._apply(s);
+        const pl = this.app.placements?.get(this.compId);
+        if (pl) { pl.refDx = saved.refDx; pl.refDy = saved.refDy; }
+        renderPlacementPose(this.app, this.compId);
+        this.app.markDirty?.();
+        this.app.drawRefOverlay?.(this.compId, false);
+        refreshBoardView(this.app);
+        return saved;
+    }
+}
+
+export class RotateRefTextCommand extends ModelRotateRefTextCommand {
+    constructor(app, compId, fromDeg, toDeg) {
+        super(app.placementState, compId, fromDeg, toDeg, app.placements?.get(compId));
+        this.app = app;
+    }
+    _apply(deg) {
+        const saved = super._apply(deg);
+        const pl = this.app.placements?.get(this.compId);
+        if (pl) pl.refRot = saved.refRot;
+        renderPlacementPose(this.app, this.compId);
+        this.app.markDirty?.();
+        this.app.drawRefOverlay?.(this.compId, false);
+        refreshBoardView(this.app);
+        return saved;
+    }
+}
+
+export class SetRefStyleCommand extends ModelSetRefStyleCommand {
+    constructor(app, compId, before, after) {
+        super(app.placementState, compId, before, after, app.placements?.get(compId));
+        this.app = app;
+    }
+    _apply(state) {
+        const saved = super._apply(state);
+        const pl = this.app.placements?.get(this.compId);
+        if (pl) {
+            if (state.refSize !== undefined) pl.refSize = saved.refSize;
+            if (state.refStrokeWidth !== undefined) pl.refStrokeWidth = saved.refStrokeWidth;
+            if (state.refRot !== undefined) pl.refRot = saved.refRot;
+        }
+        this.app.rerenderRef?.(this.compId);
+        this.app.markDirty?.();
+        this.app.drawRefOverlay?.(this.compId, false);
+        refreshBoardView(this.app);
+        return saved;
     }
 }
 
 export function hitTestReferenceText(app, worldPos) {
     return hitTestRefText(app.placements, worldPos, refBox);
 }
+
+registerPcbPlacementHitTest('reftext', hitTestReferenceText);
+registerPcbReferenceOverlayRefresh((app, componentId) => {
+    if (componentId || hasRefOverlay(app)) app.drawRefOverlay?.(componentId, false);
+});
 
 export function tryEditReferenceAt(app, worldPos) {
     if (hitTestText(app, worldPos)) return false;
@@ -102,7 +265,7 @@ export function tryEditReferenceAt(app, worldPos) {
     const render = () => {
         pl.reference = text.content;
         app.rerenderRef(compId);
-        app._drawRefOverlay(compId, false);
+        app.drawRefOverlay(compId, false);
     };
     app.startTextInlineEdit(text, worldPos, {
         componentId: compId,
@@ -145,7 +308,7 @@ export function tryEditReferenceAt(app, worldPos) {
                     if (placement && current) {
                         placement.reference = current.reference;
                         app.rerenderRef(compId);
-                        app._drawRefOverlay(compId, false);
+                        app.drawRefOverlay(compId, false);
                         app.showRefProperties(compId);
                     }
                     app.netlist = app.project.getNetlist();
@@ -172,17 +335,17 @@ export function selectRefText(app, compId) {
     const prev = getPcbSelection(app, 'reftext')[0] || null;
     const next = compId || null;
     if (prev === next) {
-        if (next) app._drawRefOverlay(next, false);
+        if (next) app.drawRefOverlay(next, false);
         return;
     }
     setPcbSelection(app, next ? [{ kind: 'reftext', object: next }] : []);
     app.syncClipboardButtons?.();
-    app._drawRefOverlay(next, false);
+    app.drawRefOverlay(next, false);
 }
 
 function outlineForRefText(app, componentId) {
     const placement = app.placements?.get(componentId);
-    const box = app._refBox?.(placement);
+    const box = refBox(placement);
     if (!placement || !box) return [];
     const rotation = (placement.refRot || 0) * Math.PI / 180;
     const cos = Math.cos(rotation);
@@ -199,7 +362,7 @@ function outlineForRefText(app, componentId) {
         const offsetY = y - box.cy;
         let localX = box.cx + offsetX * cos - offsetY * sin;
         if (placement.mirror) localX = 2 * box.cx - localX;
-        return app._placementLocalToWorld(
+        return placementLocalToWorld(
             placement,
             localX + dx,
             box.cy + offsetX * sin + offsetY * cos + dy,
@@ -240,15 +403,15 @@ export function createRefTextSelectionAdapter(app, componentId, id) {
         hitTest(point) { return getRefTextSelectionHit(app, point) === componentId; },
         getPosition() {
             const placement = app.placements?.get(componentId);
-            const box = app._refBox?.(placement);
-            return placement && box ? app._refCenterWorld(placement, box) : { x: 0, y: 0 };
+            const box = refBox(placement);
+            return placement && box ? refCenterWorld(placement, box) : { x: 0, y: 0 };
         },
         beginMove(worldPos) { return beginRefTextDrag(app, componentId, worldPos); },
         updateMove(worldPos) { updateRefTextDrag(app, worldPos); },
         endMove(commit) { endRefDrag(app, commit); },
         invalidate() {
-            app._refreshRefHighlight?.(componentId);
-            app._drawRefOverlay?.(componentId, false);
+            refreshRefHighlight(app, componentId);
+            app.drawRefOverlay?.(componentId, false);
         },
         render() { this.invalidate(); },
     };

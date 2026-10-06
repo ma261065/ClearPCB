@@ -227,6 +227,10 @@ PCB editor:
   rendering and in-place refresh live in `copper-fill-edit.js`; Via defaults and
   preview rings live in `via-tool.js`; Pad and Text defaults live with their
   Properties modules.
+- `pcb/modules/ref-text-selection.js` — reference-designator selection, hit-test
+  adapter, drag gestures, overlay group, highlight refresh, glyph rerendering and
+  reference-specific command adapters. Reference boxes remain pure geometry in
+  `ref-text-geometry.js`.
 - `pcb/modules/pcb-text-render.js` — free-text SVG element state, render/remove,
   refresh, hit-testing and hover state in per-editor WeakMaps; `pcb-text.js`
   remains the glyph geometry/color helper.
