@@ -50,12 +50,27 @@ export async function viewCentre(page, editor = 'schematic') {
     }, editor);
 }
 
+/**
+ * Wait until an editor's canvas has stopped moving on screen. Switching editors slides
+ * them sideways with a CSS transition and the ribbon re-measures once fonts load; on a
+ * busy machine either can start late, so two equal samples are not enough on their own.
+ * A sample counts only after real animation frames, with fonts loaded and no CSS
+ * transition running, and it covers where the canvas is on the page as well as the view.
+ */
 export async function viewportSettled(page, editor = 'pcb') {
     let previous = '';
-    for (let attempt = 0; attempt < 50; attempt++) {
-        const current = JSON.stringify(await screenPoint(page, editor, 0, 0))
-            + JSON.stringify(await screenPoint(page, editor, 10, -10));
-        if (current === previous) return;
+    for (let attempt = 0; attempt < 100; attempt++) {
+        const current = await page.evaluate(async editor => {
+            await document.fonts.ready;
+            await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+            if (document.getAnimations().some(animation => animation instanceof CSSTransition
+                && animation.playState === 'running')) return '';
+            const viewport = (editor === 'schematic' ? window.bootstrap.schematicApp : window.bootstrap.pcbApp).viewport;
+            const rect = viewport.svg.getBoundingClientRect();
+            const box = viewport.viewBox;
+            return JSON.stringify([rect.left, rect.top, rect.width, rect.height, box.x, box.y, box.width, box.height]);
+        }, editor);
+        if (current && current === previous) return;
         previous = current;
         await page.waitForTimeout(100);
     }

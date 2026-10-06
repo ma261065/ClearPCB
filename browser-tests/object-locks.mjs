@@ -1,18 +1,10 @@
 import assert from 'node:assert/strict';
-import { openPcb } from './helpers/editor-helpers.mjs';
+import { openPcb, viewportSettled } from './helpers/editor-helpers.mjs';
 
 // Individual object locks through the real UI: the Properties "Locked" checkbox,
 // the read-only panel, the selection lock icon and its unlock menu, and save + reopen.
 
-async function settle(page) {
-    let previous = '';
-    for (let attempt = 0; attempt < 50; attempt++) {
-        const current = JSON.stringify(await screenPoint(page, 0, 0)) + JSON.stringify(await screenPoint(page, 10, -10));
-        if (current === previous) return;
-        previous = current;
-        await page.waitForTimeout(100);
-    }
-}
+const settle = page => viewportSettled(page, 'pcb');
 
 function screenPoint(page, x, y) {
     return page.evaluate(([x, y]) => {

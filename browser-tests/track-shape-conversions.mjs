@@ -1,19 +1,11 @@
 import assert from 'node:assert/strict';
-import { openPcb } from './helpers/editor-helpers.mjs';
+import { openPcb, viewportSettled } from './helpers/editor-helpers.mjs';
 
 // Track <-> board-shape conversions driven only through the real Properties panel,
 // the way a user does them, then checked through undo/redo and save + reopen.
 
 /** Wait until the PCB view stops moving (opening zooms to fit with an animation). */
-async function settle(page) {
-    let previous = '';
-    for (let attempt = 0; attempt < 50; attempt++) {
-        const current = JSON.stringify(await screenPoint(page, 0, 0)) + JSON.stringify(await screenPoint(page, 10, -10));
-        if (current === previous) return;
-        previous = current;
-        await page.waitForTimeout(100);
-    }
-}
+const settle = page => viewportSettled(page, 'pcb');
 
 function screenPoint(page, x, y) {
     return page.evaluate(([x, y]) => {
