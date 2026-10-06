@@ -314,8 +314,8 @@ It checks the import directions between editors (`tools/check-imports.mjs`) and
 both editors' remaining private-member accesses (`tools/check-pcb-editor-access.mjs`,
 `tools/check-schematic-editor-access.mjs`), runs every `tests/test-*.mjs` in its own
 process, then routes `test-board.json` and checks the result
-(`tools/check-clearance-full.mjs`). Routing must complete at least 65 of the 76
-connections with no clearance violations; differing track and via counts are
+(`tools/check-clearance-full.mjs`). Routing must complete at least 74 of the 76
+connections (what the router achieves today) with no clearance violations; differing track and via counts are
 reported as soft warnings for review. See `tools/regression.mjs` for the exact hard
 and soft checks. The run takes a few minutes, most of it routing.
 

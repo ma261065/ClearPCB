@@ -8,7 +8,7 @@ const root = fileURLToPath(new URL('../', import.meta.url));
 const fixture = mkdtempSync(join(root, '.regression-runner-'));
 const bytes = 2 * 1024 * 1024;
 
-function runGate({ suiteExit = 0, clearanceExit = 0, importsExit = 0, accessExit = 0, schematicAccessExit = 0, summary = 'Routed 65/76 connections, 239 tracks, 174 vias', violations = 0 } = {}) {
+function runGate({ suiteExit = 0, clearanceExit = 0, importsExit = 0, accessExit = 0, schematicAccessExit = 0, summary = 'Routed 74/76 connections, 288 tracks, 214 vias', violations = 0 } = {}) {
     writeFileSync(join(fixture, 'tools', 'check-imports.mjs'), `
         console.log('Import boundaries: stub');
         process.exitCode = ${importsExit};
@@ -63,7 +63,8 @@ try {
     assert.match(failed.stdout, /PASS  check-clearance-full exits cleanly/);
     assert.match(failed.stdout, /REGRESSION GATE: FAIL\s*$/);
 
-    for (const options of [{ clearanceExit: 3 }, { summary: 'unparseable' }, { violations: 1 }]) {
+    for (const options of [{ clearanceExit: 3 }, { summary: 'unparseable' }, { violations: 1 },
+        { summary: 'Routed 73/76 connections, 288 tracks, 214 vias' }]) {
         const result = runGate(options);
         assert.ifError(result.error);
         assert.equal(result.status, 1, 'Clearance failures must remain hard failures');
@@ -91,7 +92,7 @@ try {
     assert.match(schematicAccess.stdout, /FAIL  schematic editor access matches tools\/schematic-editor-access-baseline\.json/);
     assert.match(schematicAccess.stdout, /REGRESSION GATE: FAIL\s*$/);
 
-    const warning = runGate({ summary: 'Routed 65/76 connections, 238 tracks, 173 vias' });
+    const warning = runGate({ summary: 'Routed 74/76 connections, 287 tracks, 213 vias' });
     assert.ifError(warning.error);
     assert.equal(warning.status, 0);
     assert.match(warning.stdout, /soft warnings: 2/);

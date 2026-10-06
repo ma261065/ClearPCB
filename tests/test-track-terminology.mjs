@@ -74,8 +74,8 @@ for (const [summary, violations, expectedExit] of [
     assert.equal(calls, 5, 'The three boundary checks, the regression suite and the clearance check each run once');
     assert.equal(gateProcess.exitCode, expectedExit, 'Terminology must not bypass gate failures');
     if (expectedExit === 0) {
-        assert.ok(output.includes('WARN  tracks == 239 (got 288)'), 'Keep the original count threshold');
-        assert.ok(output.includes('WARN  vias == 174 (got 214)'));
+        assert.ok(output.includes('OK    tracks == 288 (got 288)'), 'The count thresholds match the committed board');
+        assert.ok(output.includes('OK    vias == 214 (got 214)'));
     }
 }
 assert.match(read('src/pcb/modules/dsn.js'), /Imported \$\{tracks.length\} track segments/);

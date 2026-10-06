@@ -34,14 +34,19 @@ import { dirname, join } from 'path';
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const repoRoot = join(__dirname, '..');
 
-// Baseline locked after commit `fced078` (numeric A* keys).
-// Mean elapsed ~110s on a typical dev machine; timing is informational only.
+// Baseline: the committed test-board.json, routed by the maze router. The first
+// baseline (65 routed, 239 tracks, 174 vias; fced078) predates the board's commit
+// (1743893) and was never reproduced on it: every commit since routes it to exactly
+// 74/76 with 288 tracks and 214 vias, on Windows and on the Linux CI runner alike.
+// Routing fewer connections is a hard failure; update these numbers deliberately
+// (and say why in the commit) when a router change improves them.
+// Elapsed ~100-150s; timing is machine-dependent and informational only.
 const BASELINE = {
     board: 'test-board.json',
-    routed: 65,
+    routed: 74,
     total: 76,
-    tracks: 239,
-    vias: 174,
+    tracks: 288,
+    vias: 214,
     violations: 0,
 };
 
@@ -128,7 +133,7 @@ console.log('\n--- [3/3] full clearance check on test-board.json ---');
             `vias == ${BASELINE.vias} (got ${vias})`);
 
         console.log(`INFO  elapsed ${(r.dt / 1000).toFixed(1)}s ` +
-            `(baseline ~110s; timing is machine-dependent and informational)`);
+            `(typically 100-150s; timing is machine-dependent and informational)`);
     }
 }
 
