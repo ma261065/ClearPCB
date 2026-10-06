@@ -296,9 +296,19 @@ export function startTextInlineEdit(app, text, worldPos, opts = {}) {
         }, 0);
     });
 
+    // Take the keyboard now, so keys typed straight after the double-click reach the text
+    // even on a busy machine. The next tick places the caret at the click and refocuses if
+    // the press's default action moved focus; keys that arrive first keep their caret.
+    let typedFirst = false;
+    const noteTyping = () => { typedFirst = true; };
+    input.addEventListener('keydown', noteTyping);
+    input.addEventListener('input', noteTyping);
+    if (isEditorActive(app)) input.focus();
+
     setTimeout(() => {
         if (!isEditorActive(app) || activeTextInlineEdit(app)?.input !== input) return;
         input.focus();
+        if (typedFirst) { updateCaret(); return; }
         // Place caret at the character nearest the click, if known.
         let idx = input.value.length;
         if (worldPos) {

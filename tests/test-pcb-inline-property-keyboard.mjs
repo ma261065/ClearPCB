@@ -71,7 +71,13 @@ try {
     const activeEdit = activeTextInlineEdit(app);
     const hiddenInput = activeEdit.input;
     const key = (value, modifiers = {}) => {
-        if (!listeners.get('keydown')) startEdit();
+        if (!listeners.get('keydown')) {
+            // Restarting the edit gives the text the keyboard; the key under test is pressed
+            // in the field that had focus.
+            const focused = document.activeElement;
+            startEdit();
+            focused?.focus();
+        }
         const event = { key: value, ...modifiers, prevented: false, stopped: false,
             preventDefault() { this.prevented = true; }, stopPropagation() { this.stopped = true; } };
         listeners.get('keydown')(event);

@@ -51,6 +51,44 @@ async function startEditing(page, url) {
 const undoDepth = page => page.evaluate(() => window.bootstrap.pcbApp.history.undoStack.length);
 
 export const scenarios = [{
+    name: 'typing-straight-after-double-click-reaches-the-text',
+    async run(page, url) {
+        await openPcb(page, url);
+        await page.evaluate(async () => {
+            const app = window.bootstrap.pcbApp;
+            const { AddTextCommand } = await import('/src/pcb/modules/text-commands.js');
+            const { createPcbText } = await import('/src/core/pcb-text.js');
+            app.history.execute(new AddTextCommand(app, createPcbText({
+                id: 'probe', content: 'ABC', x: 20, y: -20, size: 3, layer: 'top-silk',
+            })));
+        });
+        const centre = await textPoint(page, 'centre');
+        const at = await screenPoint(page, 'pcb', centre.x, centre.y);
+        // A busy machine runs zero-delay timers late: hold them until the typing is done.
+        await page.evaluate(() => {
+            const realSetTimeout = window.setTimeout, held = [];
+            window.setTimeout = /** @type {any} */ ((callback, delay, ...args) => {
+                if (delay) return realSetTimeout(callback, delay, ...args);
+                held.push(() => callback(...args));
+                return 0;
+            });
+            window.__releaseTimers = () => { window.setTimeout = realSetTimeout; held.splice(0).forEach(run => run()); };
+        });
+        await page.mouse.dblclick(at.x, at.y);
+        await page.waitForFunction(async () => !!(await import('/src/pcb/modules/text-inline-edit.js'))
+            .activeTextInlineEdit(window.bootstrap.pcbApp));
+        await page.keyboard.type('XY');
+        let state = await editState(page);
+        assert.equal(state.focused, true, 'the text has the keyboard as soon as editing starts');
+        assert.equal(state.shown, 'ABCXY', 'keys typed straight away reach the text');
+        await page.evaluate(() => window.__releaseTimers());
+        state = await editState(page);
+        assert.equal(state.caret, 5, 'placing the caret at the click does not move it once typing has begun');
+        await page.keyboard.type('Z');
+        await page.keyboard.press('Enter');
+        await page.waitForFunction(() => window.bootstrap.pcbApp.pcbDocument.texts.get('probe').content === 'ABCXYZ');
+    },
+}, {
     name: 'rotating-text-while-editing-keeps-the-typing-and-caret',
     async run(page, url) {
         await openPcb(page, url);
