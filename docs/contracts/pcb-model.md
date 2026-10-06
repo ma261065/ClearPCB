@@ -295,7 +295,11 @@ Clearing restores the existing 100 x 80 mm, zero-radius defaults without replaci
 the dimension object. `serializeBoardDimensions()` rounds only the saved copy to
 four decimals. `boardBoundary()` also accepts the neutral model directly.
 Outline drawing, viewport fitting and property-panel presentation remain in the
-editor; constructing a view does not reset loaded dimensions.
+editor. `pcb/modules/board-outline-resize.js` owns the editor-side drawn and
+selected flags in a WeakMap, exports the draw/select/sync helpers used by load,
+commands and layer changes, and exposes the read-only `isBoardOutlineDrawn()`
+service for page/test readiness. Constructing a view does not reset loaded
+dimensions.
 
 Panel settings live in `PcbDocument.panelization`. Defaults and validation are
 data-only helpers in `core/pcb-panelization.js`; the existing geometry module

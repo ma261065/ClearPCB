@@ -2,17 +2,100 @@ import { isLayerLocked, isLayerVisible, setPcbLayerLocked } from './layers.js';
 import { showBoardShapeProperties } from './board-shape-properties.js';
 import { SetBoardOutlineCommand } from './track-commands.js';
 import { snapToViewportGrid } from '../../core/grid-snap.js';
-import { getBoardOutline, rectangleBoardOutline, boardDimensions } from '../../shared/pcb/board-outline.js';
-import { removeBoardShapeElement } from './board-shapes.js';
+import { getBoardOutline, rectangleBoardOutline, boardBoundary, boardDimensions } from '../../shared/pcb/board-outline.js';
+import { removeBoardShapeElement, renderBoardShape, selectBoardShape } from './board-shapes.js';
 import { getPropertyEditor, releasePropertyEditor, setPropertyEditor } from './property-editors.js';
 import { areDragOverlaysDeferred, isBoardViewRefreshSuspended, setBoardViewRefreshSuspended, setDragOverlaysDeferred, refreshBoardView } from './refresh-state.js';
 import { getPcbInteraction, setPcbInteraction } from './pcb-interactions.js';
+import { renderPanelPreview } from './panelization-ui.js';
 
 const dimensionPreviews = new WeakMap();
+const boardOutlineStates = new WeakMap();
+
+function state(app) {
+    let next = boardOutlineStates.get(app);
+    if (!next) {
+        // The editor initialises this in its constructor; anything else starts undrawn.
+        next = { drawn: false, selected: false };
+        boardOutlineStates.set(app, next);
+    }
+    return next;
+}
+
+export function initializeBoardOutlineState(app, drawn = !!getBoardOutline(app)) {
+    boardOutlineStates.set(app, { drawn: !!drawn, selected: false });
+}
+
+export function isBoardOutlineDrawn(app) {
+    return !!state(app).drawn;
+}
+
+export function setBoardOutlineDrawn(app, drawn) {
+    state(app).drawn = !!drawn;
+}
 
 /** Whether the board outline is selected. */
 export function isBoardOutlineSelected(app) {
-    return !!app._boardOutlineSelected;
+    return !!state(app).selected;
+}
+
+export function setBoardOutlineSelected(app, selected) {
+    state(app).selected = !!selected;
+}
+
+/**
+ * Draw (or redraw) the board outline on the board-outline layer.
+ */
+export function drawBoardOutline(app) {
+    const layer = app.getLayerGroup('board-outline');
+    const old = layer.querySelector('.pcb-board-outline');
+    if (old) old.remove();
+    const shape = getBoardOutline(app);
+    if (!shape) {
+        setBoardOutlineDrawn(app, false);
+        return;
+    }
+    renderBoardShape(app, shape, { liveDrag: !!getBoardDimensionPreview(app) || areDragOverlaysDeferred(app) });
+    const wasDrawn = isBoardOutlineDrawn(app);
+    setBoardOutlineDrawn(app, true);
+    renderPanelPreview(app);
+    if (!wasDrawn && app.viewport && !getBoardDimensionPreview(app)) {
+        const bounds = boardBoundary(app);
+        app.viewport.fitToBounds(bounds.x, bounds.y, bounds.x + bounds.w, bounds.y + bounds.h, 5);
+    }
+}
+
+/**
+ * Set board outline selection state.
+ */
+export function selectBoardOutline(app, selected) {
+    const shape = getBoardOutline(app);
+    if (shape && selected) {
+        selectBoardShape(app, shape);
+        return;
+    }
+    if (!selected) endBoardOutlineResize(app, false);
+    if (!selected) getPropertyEditor(app, 'boardDimension')?.dispose();
+    setBoardOutlineSelected(app, selected);
+    renderBoardOutlineHandles(app);
+    // Without an outline shape nothing is drawn to restyle (drawBoardOutline removes the element).
+    if (!shape) return;
+    const outline = app.getLayerGroup('board-outline').querySelector('.pcb-board-outline');
+    if (!outline) return;
+    if (selected) {
+        outline.setAttribute('stroke', '#ffffff');
+        outline.setAttribute('stroke-width', '0.4');
+        outline.setAttribute('stroke-dasharray', '1.5,0.8');
+    } else {
+        outline.setAttribute('stroke', '#f1c40f');
+        outline.setAttribute('stroke-width', '0.2');
+        outline.removeAttribute('stroke-dasharray');
+    }
+}
+
+export function syncBoardOutlineInputs(app) {
+    const editor = getPropertyEditor(app, 'boardDimension');
+    if (typeof editor?.sync === 'function') editor.sync();
 }
 
 export function getBoardDimensionPreview(app) {
@@ -21,7 +104,8 @@ export function getBoardDimensionPreview(app) {
 
 /** Properties for the board outline: the outline shape's panel, or board size fields before one exists. */
 export function showBoardOutlineProperties(app) {
-    getPropertyEditor(app, 'boardDimension')?.dispose();
+    const editor = getPropertyEditor(app, 'boardDimension');
+    if (typeof editor?.dispose === 'function') editor.dispose();
     const outline = getBoardOutline(app);
     if (outline) {
         showBoardShapeProperties(app, outline);
@@ -78,7 +162,7 @@ export function previewBoardDimensions(app, dimensions) {
             boardShapes: original ? model.boardShapes.map(shape => shape === original ? outline : shape)
                 : [...model.boardShapes, outline],
             previousSuspend: !!isBoardViewRefreshSuspended(app), previousDefer: !!areDragOverlaysDeferred(app),
-            wasDrawn: app._boardOutlineDrawn,
+            wasDrawn: isBoardOutlineDrawn(app),
         };
         dimensionPreviews.set(app, preview);
         setBoardViewRefreshSuspended(app, true);
@@ -92,7 +176,7 @@ export function previewBoardDimensions(app, dimensions) {
         point.y = index < 2 ? -height : 0;
     }
     try {
-        app._drawBoardOutline();
+        drawBoardOutline(app);
         renderBoardOutlineHandles(app);
     } catch (error) {
         finishBoardDimensionPreview(app);
@@ -105,7 +189,7 @@ export function finishBoardDimensionPreview(app, commit = false) {
     const preview = dimensionPreviews.get(app);
     if (!preview) return;
     dimensionPreviews.delete(app);
-    app._boardOutlineDrawn = preview.wasDrawn;
+    setBoardOutlineDrawn(app, preview.wasDrawn);
     let committed = false;
     try {
         if (commit && !isLayerLocked('board-outline') && isLayerVisible('board-outline')) {
@@ -123,7 +207,7 @@ export function finishBoardDimensionPreview(app, commit = false) {
         try {
             if (!committed) {
                 removeBoardShapeElement(app, preview.outline.id, { preserveInteraction: true });
-                app._drawBoardOutline();
+                drawBoardOutline(app);
             }
         } finally {
             setBoardViewRefreshSuspended(app, preview.previousSuspend);
@@ -184,7 +268,7 @@ export function bindBoardDimensionProperties(app, refresh = () => {}) {
 }
 
 export function boardOutlineHandles(app) {
-    if (!app._boardOutlineSelected || !app._boardOutlineDrawn
+    if (!isBoardOutlineSelected(app) || !isBoardOutlineDrawn(app)
         || isLayerLocked('board-outline') || !isLayerVisible('board-outline')) return [];
     const { width, height } = boardDimensions(app);
     return [
@@ -276,8 +360,8 @@ export function endBoardOutlineResize(app, commit = true) {
         finishBoardDimensionPreview(app, commit);
     } finally {
         setBoardViewRefreshSuspended(app, drag.previousSuspend);
-        app._syncBoardOutlineInputs?.();
-        app._showBoardOutlineProperties?.();
+        syncBoardOutlineInputs(app);
+        showBoardOutlineProperties(app);
         if (!isBoardViewRefreshSuspended(app)) refreshBoardView(app);
     }
 }
@@ -400,12 +484,12 @@ export function showBoardDimensionsDialog(app) {
         };
         if (circle || before.width !== after.width || before.height !== after.height || before.radius !== after.radius) {
             app.history.execute(new SetBoardOutlineCommand(app, before, after));
-        } else if (!app._boardOutlineDrawn) {
+        } else if (!isBoardOutlineDrawn(app)) {
             // Dimensions unchanged from defaults, so no command runs — but
             // the outline still needs its first draw, and the document must
             // be flagged dirty so the autosave captures the new board.
             app.pcbDocument.ensureBoardOutline();
-            app._drawBoardOutline();
+            drawBoardOutline(app);
             app._markDirty();
         }
         closeBoardDimensionsDialog(app);

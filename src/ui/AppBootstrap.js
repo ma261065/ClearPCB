@@ -85,7 +85,7 @@ export class AppBootstrap {
             && !pcb?.boardShapes?.length
             && !pcb?.texts?.size
             && !pcb?._placementOverrides?.size
-            && !pcb?._boardOutlineDrawn;
+            && !pcb?.isBoardOutlineDrawn();
         return schematicBlank && pcbBlank;
     }
 

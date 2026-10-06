@@ -65,8 +65,8 @@ function pcbFixture(withShape = false) {
         _hideNetTooltip() {}, updateRatsnest() {}, _netsForComponent: () => new Set(),
         _markDirty() {}, _updatePcbCulling() {}, refreshClearanceHalos() {},
         _hitTestBoardOutline: () => false, _hoverBoardOutline() {},
-        _hitTestPad: () => null, _updateNetTooltip() {}, _hitTestText: () => null,
-        _hitTestRefText: () => null, _setTextHover() {},
+        _hitTestPad: () => null, _updateNetTooltip() {},
+        _hitTestRefText: () => null,
         screenToWorld: event => ({ x: event.clientX, y: event.clientY }),
     };
     for (const name of ['_hitTestComponent', '_worldToPlacementLocal',

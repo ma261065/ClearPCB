@@ -76,7 +76,7 @@ function fixture(mode, deferred = false, unrelatedCount = 1) {
     const group = new Element();
     const app = {
         pcbDocument: model, project, placements: new Map(), netlist: [], history: new CommandHistory(),
-        _active: true, _shapeElements: new Map(), _textElements: new Map(),
+        _active: true, _shapeElements: new Map(), 
         _layerGroups: new Map(), existingLayerGroups() { return this._layerGroups; }, viewport: { scale: 100, shiftHeld: true, svg: new Element(), setCrosshair() {}, hideCrosshair() {} },
         getLayerGroup: id => id === 'selection-overlay' ? null : group,
         refreshFills() { fills++; }, _refreshBoardShapeClearance() {},

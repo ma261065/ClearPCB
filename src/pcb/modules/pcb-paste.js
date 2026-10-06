@@ -12,6 +12,7 @@ import { AddTextCommand } from '../../core/pcb-text-commands.js';
 import { AddFillCommand } from '../../core/pcb-fill-commands.js';
 import { batchDerivedUpdates } from '../../core/DerivedUpdates.js';
 import { createPcbText } from './pcb-text.js';
+import { removeTextElement } from './pcb-text-render.js';
 import { isCopperPathShape, trackFromBoardShape } from '../../shared/pcb/copper-path-tracks.js';
 import { cloneShapeGeometry, translateShapeGeometry, applyShapeGeometry, renderBoardShape,
     removeBoardShapeElement } from './board-shapes.js';
@@ -114,7 +115,7 @@ function removeArtwork(app, payload) {
         if (current) renderBoardShape(app, current, { liveDrag: true, skipCopperUpdate: true });
     }
     for (const text of payload.texts) {
-        app._removeTextElement(text.id);
+        removeTextElement(app, text.id);
         const current = app.pcbDocument.texts.get(text.id);
         if (current && current !== text) app.refreshText(text.id);
         else {

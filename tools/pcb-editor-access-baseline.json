@@ -1,11 +1,6 @@
 {
   "src/pcb/modules/board-outline-resize.js": [
-    "_boardOutlineDrawn",
-    "_boardOutlineSelected",
-    "_drawBoardOutline",
-    "_markDirty",
-    "_showBoardOutlineProperties",
-    "_syncBoardOutlineInputs"
+    "_markDirty"
   ],
   "src/pcb/modules/board-shape-properties.js": [
     "_lastCrosshairWorld",
@@ -91,8 +86,7 @@
   "src/pcb/modules/layer-changes.js": [
     "_cancelPasteDrop",
     "_cancelPosePreviews",
-    "_refreshPcbSelectionHighlights",
-    "_selectBoardOutline"
+    "_refreshPcbSelectionHighlights"
   ],
   "src/pcb/modules/layers.js": [
     "_lockedBubbleTimer",
@@ -106,7 +100,6 @@
     "_endPasteDrop",
     "_hitTestComponent",
     "_hitTestFill",
-    "_hitTestText",
     "_scheduleHoverUpdate",
     "_showComponent3DMenu",
     "_tryEditReferenceAt",
@@ -134,7 +127,6 @@
   "src/pcb/modules/pcb-paste.js": [
     "_cancelPosePreviews",
     "_deferredShapeCopperCuts",
-    "_removeTextElement",
     "_syncHistoryButtons",
     "_updateCursorForTool"
   ],
@@ -148,21 +140,14 @@
   ],
   "src/pcb/modules/project-state.js": [
     "_applyPlacementOverrides",
-    "_boardOutlineDrawn",
     "_cancelAutoRoute",
     "_cancelDrawingMode",
     "_cancelPosePreviews",
     "_clearFillGroups",
-    "_closeBoardDimensionsDialog",
-    "_drawBoardOutline",
     "_ensureViewport",
     "_isDirty",
-    "_removeTextElement",
-    "_renderText",
-    "_selectBoardOutline",
     "_shapeElements",
-    "_stale",
-    "_textElements"
+    "_stale"
   ],
   "src/pcb/modules/ref-text-selection.js": [
     "_drawRefOverlay",
@@ -182,7 +167,6 @@
   ],
   "src/pcb/modules/selection-interaction.js": [
     "_lastPointerWorld",
-    "_selectBoardOutline",
     "_selectComponent",
     "_selectRefText",
     "_showFillProperties",
@@ -199,8 +183,6 @@
     "_pendingShapeClearances"
   ],
   "src/pcb/modules/text-commands.js": [
-    "_removeTextElement",
-    "_renderText",
     "_showPcbMultiSelectionProperties"
   ],
   "src/pcb/modules/tool-lifecycle.js": [
@@ -217,14 +199,12 @@
     "_updateCursorForTool"
   ],
   "src/pcb/modules/track-commands.js": [
-    "_drawBoardOutline",
     "_drawRefOverlay",
     "_markDirty",
     "_refreshPcbSelectionHighlights",
     "_renderRoutedCopper",
     "_rerenderRef",
     "_showRefProperties",
-    "_syncBoardOutlineInputs",
     "_syncComponentRotationInput"
   ],
   "src/pcb/modules/track-drag.js": [

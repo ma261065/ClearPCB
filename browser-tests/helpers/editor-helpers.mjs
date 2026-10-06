@@ -10,7 +10,7 @@ export async function openPcb(page, url) {
         await ok.first().waitFor();
         await ok.first().click();
     }
-    await page.waitForFunction(() => window.bootstrap.pcbApp._boardOutlineDrawn);
+    await page.waitForFunction(() => window.bootstrap.pcbApp.isBoardOutlineDrawn());
     await viewportSettled(page, 'pcb');
 }
 
@@ -167,7 +167,7 @@ export async function saveAndReopen(page, editor) {
         && !window.bootstrap.project.fileManager.loading);
     await page.locator(`.mode-tab[data-mode="${editor === 'pcb' ? 'pcb' : 'schematic'}"]`).click();
     if (editor === 'pcb') {
-        await page.waitForFunction(() => window.bootstrap.pcbApp._active && window.bootstrap.pcbApp._boardOutlineDrawn);
+        await page.waitForFunction(() => window.bootstrap.pcbApp._active && window.bootstrap.pcbApp.isBoardOutlineDrawn());
         await viewportSettled(page, 'pcb');
     } else {
         await page.waitForFunction(() => window.bootstrap.schematicApp.viewport?.svg);

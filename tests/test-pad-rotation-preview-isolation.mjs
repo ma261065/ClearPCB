@@ -65,7 +65,7 @@ function fixture(shape = 'rectangle', layers = 'both') {
         _cancelPosePreviews: PCBApp.prototype._cancelPosePreviews,
         isSectionEditing: PCBApp.prototype.isSectionEditing,
         _cancelDrawingMode() {}, _clearCursorCrosshair() {}, markSectionClean() {}, _ensureViewport() {},
-        _textElements: new Map(), _shapeElements: new Map(),
+        _shapeElements: new Map(),
     };
     for (const key of ['tracks', 'vias', 'pads', 'boardShapes', 'texts']) {
         Object.defineProperty(app, key, Object.getOwnPropertyDescriptor(PCBApp.prototype, key));

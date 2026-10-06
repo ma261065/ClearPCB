@@ -6,7 +6,8 @@ import { setComputedFill, getComputedFill } from '../src/pcb/modules/computed-fi
 import { getBoardOutline, rectangleBoardOutline, boardBoundary } from '../src/shared/pcb/board-outline.js';
 import { getBoardDimensionPreview, previewBoardDimensions, finishBoardDimensionPreview,
     bindBoardDimensionProperties, beginBoardOutlineResize, updateBoardOutlineResize,
-    endBoardOutlineResize, boardOutlineHandles, boardDimensionsDialog } from '../src/pcb/modules/board-outline-resize.js';
+    endBoardOutlineResize, boardOutlineHandles, boardDimensionsDialog, drawBoardOutline,
+    initializeBoardOutlineState, setBoardOutlineSelected } from '../src/pcb/modules/board-outline-resize.js';
 import { prepareFabricationSnapshot } from '../src/pcb/modules/fabrication-snapshot.js';
 import { loadPcb } from '../src/pcb/modules/project-state.js';
 import { PCB_LAYERS } from '../src/pcb/modules/layers.js';
@@ -62,15 +63,13 @@ function fixture(existing = true, deferred = false) {
     let draws = 0, pours = 0, fits = 0, refresh3d = 0;
     const app = {
         project, pcbDocument: model, history: new CommandHistory(), placements: new Map(), netlist: [],
-        _active: true, _shapeElements: new Map(), _textElements: new Map(), _layerGroups: new Map(), existingLayerGroups() { return this._layerGroups; },
-        _boardOutlineSelected: true, _boardOutlineDrawn: existing,
+        _active: true, _shapeElements: new Map(), _layerGroups: new Map(), existingLayerGroups() { return this._layerGroups; },
         viewport: { scale: 100, snapToGrid: false, svg: new Element(), fitToBounds() { fits++; },
             hideCrosshair() {} },
-        getLayerGroup: id => id === 'board-outline' ? group : null,
-        _drawBoardOutline() { draws++; PCBApp.prototype._drawBoardOutline.call(this); },
+        getLayerGroup(id) { if (id === 'board-outline') draws++; return id === 'board-outline' ? group : null; },
         refreshFills() { assert.equal(areDragOverlaysDeferred(this), deferred); pours++; },
         _board3d: { refresh() { refresh3d++; } },
-        _showBoardOutlineProperties() {}, propertiesItems: () => null,
+        propertiesItems: () => null,
         _cancelDrawingMode() {}, _ensureViewport() {}, markSectionClean() {},
         _refreshPcbSelectionHighlights() {},
     };
@@ -80,12 +79,14 @@ function fixture(existing = true, deferred = false) {
         '_boardWidth', '_boardHeight', '_boardRadius']) {
         Object.defineProperty(app, key, Object.getOwnPropertyDescriptor(PCBApp.prototype, key));
     }
-    for (const key of ['_cancelPosePreviews', '_syncBoardOutlineInputs', 'isSectionEditing',
-        '_onLayerLockChanged', '_onLayerVisibilityChanged', 'clearProperties', 'setPropertiesTitle', '_selectBoardOutline']) {
+    for (const key of ['_cancelPosePreviews', 'isSectionEditing',
+        '_onLayerLockChanged', '_onLayerVisibilityChanged', 'clearProperties', 'setPropertiesTitle']) {
         app[key] = PCBApp.prototype[key];
     }
+    initializeBoardOutlineState(app, existing);
+    setBoardOutlineSelected(app, true);
     project.registerView('pcb', app);
-    app._drawBoardOutline();
+    drawBoardOutline(app);
     const inputs = new Map(Object.entries(fields).map(([key, id]) => [id, new Input(model.board[key].toFixed(2))]));
     currentInputs = inputs;
     const bind = () => {
@@ -270,10 +271,10 @@ console.log(`PASS ${cases} generic dimension isolation cases: numeric/resize, se
 
 for (const numeric of [false, true]) {
     const { app, model, inputs, bind } = fixture();
-    const before = model.captureGeometry(), draw = app._drawBoardOutline;
-    app._drawBoardOutline = function () {
+    const before = model.captureGeometry(), getLayerGroup = app.getLayerGroup;
+    app.getLayerGroup = function (id) {
         if (getBoardDimensionPreview(this)) throw new Error('Preview renderer failed');
-        draw.call(this);
+        return getLayerGroup.call(this, id);
     };
     if (numeric) {
         bind(); inputs.get(fields.width).value = '55';
@@ -402,7 +403,6 @@ for (const mode of ['rectangle', 'default-rectangle', 'circle', 'same-size-circl
     document.body = new Element();
     let dirty = 0;
     app._markDirty = () => { dirty++; };
-    app._closeBoardDimensionsDialog = PCBApp.prototype._closeBoardDimensionsDialog;
     PCBApp.prototype._showBoardDimensionsDialog.call(app);
     assert.ok(overlay.innerHTML.includes('Tip: Edit the board outline after creation for more complex shapes'));
     const shape = controls.get('#boardDlgShape');

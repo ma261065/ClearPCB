@@ -24,6 +24,7 @@ import {
 import { hitTestPcbSelectionAnchor, renderPcbSelectionAnchors } from './selection-anchors.js';
 import { isRotationHandleDragActive, ROTATION_CURSOR } from './rotation-handle.js';
 import { getPcbInteraction, setPcbInteraction } from './pcb-interactions.js';
+import { selectBoardOutline } from './board-outline-resize.js';
 
 const SUPPORTED_KINDS = new Set(['component', 'shape', 'track', 'via', 'pad', 'fill', 'text', 'reftext']);
 
@@ -46,7 +47,7 @@ export function selectionInteractionCursor(app) {
 export function clearSelectionInteractionUi(app) {
     clearTrackSelection(app);
     app._selectComponent?.(null);
-    app._selectBoardOutline?.(false);
+    selectBoardOutline(app, false);
     app.selectText?.(null);
     app._selectRefText?.(null);
     app.selectFill?.(null);

@@ -138,8 +138,9 @@ evaluation-order cycle fails.
   a WeakMap keyed by the editor, rather than as `app._x` fields:
   `property-editors.js` (Properties bindings), `refresh-state.js` (pour/picture
   refresh status and refresh suspensions), `board-shape-state.js` (board-shape
-  node/segment focus, hover and tool defaults), and `pcb-interactions.js`
-  (in-progress interaction slots).
+  node/segment focus, hover and tool defaults), `pcb-text-render.js` (free-text
+  SVG elements and hover), `board-outline-resize.js` (board-outline drawn/selected
+  state), and `pcb-interactions.js` (in-progress interaction slots).
 - In-progress interaction slots (`_drag`, `_trackDraw`, …) are listed once in
   `pcb-interactions.js` with their owner module and stored in its import-free
   WeakMap. Only the owner writes its slot with `setPcbInteraction`; other code
@@ -184,6 +185,9 @@ PCB editor:
   Track conversion and the shared path-edit/profile machinery also used by copper
   fills; `board-shape-properties.js` — board-shape Properties and shared geometry
   preview transactions.
+- `pcb/modules/board-outline-resize.js` — board-outline draw/selection state,
+  board-size previews and resize gestures, the Board Dimensions dialog and the
+  read-only `isBoardOutlineDrawn()` service used by page/test readiness checks.
 - `pcb/modules/ref-text-geometry.js` — a reference designator's box, hit test and
   inline-edit corners, and the footprint-local ↔ board transforms (pure functions of
   the placement); `ref-text-selection.js` — its selection adapter.
@@ -201,6 +205,9 @@ PCB editor:
   `layerLabel`); `PCBApp` hosts the rendering and keeps a one-line forwarding
   method for each panel, passing tool state (pad and text defaults, inline-edit
   state) explicitly. The Track and Via tool panels live in `PCBApp`.
+- `pcb/modules/pcb-text-render.js` — free-text SVG element state, render/remove,
+  refresh, hit-testing and hover state in per-editor WeakMaps; `pcb-text.js`
+  remains the glyph geometry/color helper.
 - `pcb/modules/text-inline-edit.js` — in-place editing of free text (hidden input,
   stroke-font caret overlay, commit and cancel); `selectText` and
   `showTextProperties` are editor services.

@@ -1,7 +1,7 @@
 import { isViaVisible, saveLayerPrefs, refreshPcbLayerOptions } from './layers.js';
 import { isPcbPasteActive, isPcbPasteEditable } from './pcb-paste.js';
 import { getPropertyEditor, eachPropertyEditorOnLayer } from './property-editors.js';
-import { endBoardOutlineResize, isBoardOutlineSelected } from './board-outline-resize.js';
+import { endBoardOutlineResize, isBoardOutlineSelected, selectBoardOutline } from './board-outline-resize.js';
 import { getPcbSelection, getPcbSelectionEntries } from './selection-registry.js';
 import { finishSelectionInteraction, getSelectionInteraction, showPcbSelectionProperties } from './selection-interaction.js';
 import { getGroupDrag, deselectHiddenPcbSelection } from './box-select.js';
@@ -103,7 +103,7 @@ export function onLayerVisibilityChanged(app, layerId, visible) {
             app.clearProperties();
         }
         if (isBoardOutlineSelected(app) && layerId === 'board-outline') {
-            app._selectBoardOutline(false);
+            selectBoardOutline(app, false);
         }
         if (deselectHiddenPcbSelection(app)) showPcbSelectionProperties(app);
         setHoverHighlight(app, null);

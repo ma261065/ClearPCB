@@ -36,9 +36,13 @@ the properties panel cancels the active gesture before recording the lock.
 Free-standing text creation, defaults/layer rules and full-precision snapshots
 live in `core/pcb-text.js`. Undo and clipboard use these snapshots without file
 rounding; `PcbDocument.serializeEntities()` rounds text position, size, rotation
-and stroke width to four decimals only at the save boundary. The rendering
-module `pcb/modules/pcb-text.js` re-exports the data helpers and owns glyph
-geometry, hit-testing, SVG and layer-color responsibilities.
+and stroke width to four decimals only at the save boundary. The geometry helper
+`pcb/modules/pcb-text.js` re-exports the data helpers and owns glyph geometry and
+layer colours. Editor presentation state lives in `pcb/modules/pcb-text-render.js`:
+it keeps each editor's SVG elements and hover target in WeakMaps, and exports
+render/remove and hit-test functions for commands, paste/load and mouse paths.
+Re-rendering an existing text stays the editor service `refreshText(id)`, which
+modules call (and tests stub) rather than the render function.
 
 `core/pcb-text-commands.js` owns add/remove/move/edit text mutations, undo state
 and descriptions, operating directly on `PcbDocument` without an editor or DOM.

@@ -8,6 +8,7 @@ import { measureText } from '../src/shared/pcb/stroke-font.js';
 import { loadPcb } from '../src/pcb/modules/project-state.js';
 import { attachPropertyPanelHarness } from './helpers/property-panel-controls.mjs';
 import { activeTextInlineEdit } from '../src/pcb/modules/text-inline-edit.js';
+import { getTextElement, renderText } from '../src/pcb/modules/pcb-text-render.js';
 
 class Element {
     constructor(tag = 'g') {
@@ -63,25 +64,32 @@ function fixture(layer, extraTexts = 0, isNew = false) {
     const groups = new Map(TEXT_LAYERS.map(id => [id, new Element()]));
     const overlay = new Element();
     let renders = 0;
+    for (const group of groups.values()) {
+        const append = group.appendChild;
+        group.appendChild = function (child) {
+            renders++;
+            return append.call(this, child);
+        };
+    }
     const app = {
         _active: true, pcbDocument, history: new CommandHistory(), currentTool: 'select',
         placements: new Map(), tracks: [], vias: [], pads: [], boardShapes: [],
-        _textElements: new Map(), _shapeElements: new Map(),
+        _shapeElements: new Map(),
         viewport: { svg: new Element('svg'), addInteractionOverlay: group => overlay.appendChild(group) },
         getLayerGroup: id => groups.get(id) || null,
         propertiesItems: () => properties, setPropertiesTitle() {}, layerLabel: id => id,
         clearProperties() {}, setActiveRibbonTab() {}, _refreshBoardShapeClearance() {},
         _insertInlineTextSymbol: () => false,
         _cancelTrackDraw() {}, _cancelFillDraw() {}, _cancelShapeDraw() {}, _ensureViewport() {}, markSectionClean() {},
-        _renderText(value) { renders++; PCBApp.prototype._renderText.call(this, value); },
+        renderText(value) { renderText(this, value); },
     };
     attachPropertyPanelHarness(app, { controls: fields });
     Object.defineProperty(app, 'texts', Object.getOwnPropertyDescriptor(PCBApp.prototype, 'texts'));
-    for (const name of ['_startTextInlineEdit', '_endTextInlineEdit', 'refreshText', '_removeTextElement', 'selectText',
+    for (const name of ['_startTextInlineEdit', '_endTextInlineEdit', 'refreshText', 'selectText',
         'showTextProperties', '_bindStrokeTextProps', '_cancelPosePreviews', '_cancelDrawingMode']) app[name] = PCBApp.prototype[name];
     if (isNew) app.history.execute(new AddTextCommand(app, text));
-    else app._renderText(text);
-    app._renderText(other);
+    else app.renderText(text);
+    app.renderText(other);
     return { app, text, other, overlay, renders: () => renders, mapCopies: () => mapCopies,
         contentReads: () => contentReads, resetReads: () => { contentReads = 0; } };
 }
@@ -90,7 +98,7 @@ for (const layer of TEXT_LAYERS) for (const finish of ['commit', 'cancel', 'deac
     const f = fixture(layer), { app, text, other, overlay } = f;
     const original = { ...text };
     const geometry = app.pcbDocument.captureGeometry(), serialized = app.pcbDocument.serialize();
-    const otherSvg = app._textElements.get(other.id);
+    const otherSvg = getTextElement(app, other.id);
     try {
         app._startTextInlineEdit(text);
         const state = activeTextInlineEdit(app), draft = state.text, map = app.texts;
@@ -118,7 +126,7 @@ for (const layer of TEXT_LAYERS) for (const finish of ['commit', 'cancel', 'deac
         assert.deepEqual(text, original);
         assert.deepEqual(app.pcbDocument.captureGeometry(), geometry);
         assert.deepEqual(app.pcbDocument.serialize(), serialized);
-        assert.equal(app._textElements.get(other.id), otherSvg);
+        assert.equal(getTextElement(app, other.id), otherSvg);
         assert.equal(app.history.canUndo(), false);
 
         fields.get('pcbPropTextSize').fire('input', 2.5);
@@ -146,7 +154,8 @@ for (const layer of TEXT_LAYERS) for (const finish of ['commit', 'cancel', 'deac
             app._active = false;
             loadPcb(app, null);
             assert.equal(app.pcbDocument.texts.size, 0);
-            assert.equal(app._textElements.size, 0);
+            assert.equal(getTextElement(app, text.id), null);
+            assert.equal(getTextElement(app, other.id), null);
         } else {
             if (finish === 'failure') {
                 app.history.execute = () => { throw new Error('Injected content failure'); };

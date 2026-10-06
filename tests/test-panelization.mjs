@@ -103,7 +103,8 @@ const app = Object.assign(Object.create(null, {
     _boardWidth: 20, _boardHeight: 10, _boardRadius: 0,
     getRoutingParams: () => ({ clearance: 0.2, trackWidth: 0.25, viaDiameter: 0.6, viaDrill: 0.3 }),
     _getRouterMode: () => 'pathfinder',
-    _renderText() {}, _removeTextElement() {}, refreshText() {},
+    getLayerGroup: () => null,
+    refreshText() {},
 });
 app.designSettings.update({ ...app.getRoutingParams(), router: 'pathfinder' });
 const originalOutline = structuredClone(app.boardShapes);

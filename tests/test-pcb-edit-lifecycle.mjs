@@ -25,7 +25,7 @@ function fixture() {
     const app = {
         pcbDocument, placements: new Map([['part', placement]]), history: new CommandHistory(),
         tracks: [], vias: [], pads: [], boardShapes: [], texts: new Map(), netlist: [],
-        _layerGroups: new Map(), _shapeElements: new Map(), _textElements: new Map(),
+        _layerGroups: new Map(), _shapeElements: new Map(), 
         viewport: { scale: 10, svg: { style: {} }, snapToGrid: false },
         currentTool: 'select', _active: true,
         getLayerGroup: () => null, _drawRefOverlay() {}, _ensureViewport() {},

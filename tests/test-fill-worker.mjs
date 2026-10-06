@@ -84,7 +84,7 @@ function fixture() {
     app._recomputeFillsNow = () => { counts.sync++; return PCBApp.prototype._recomputeFillsNow.call(app); };
     app.setStatus = message => { app.lastStatus = message; };
     app._cancelDrawingMode = () => {};
-    app._renderText = app.refreshText = app.selectText = () => {};
+    app.refreshText = app.selectText = () => {};
     app.history = new CommandHistory({ onChanged: () => invalidateFillRefresh(app) });
     const fill = new CopperFill({ id: 'top', kind: 'rect', net: 'GND',
         outline: rectangle(1.123456789, -39, 45, 37), cornerRadius: 0.312345678 });
@@ -390,7 +390,6 @@ for (const content of [null, 'reload']) {
         const data = content ? f.model.serialize() : null;
         scheduleFillRefresh(f.app); flush();
         const worker = workers.at(-1), job = worker.jobs[0];
-        f.app._textElements = new Map();
         f.app._shapeElements = new Map();
         for (const method of ['_ensureViewport',
             '_closeBoardDimensionsDialog', '_selectBoardOutline', 'syncClipboardButtons',

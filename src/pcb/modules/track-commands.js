@@ -18,6 +18,7 @@ import { getPcbSelection, togglePcbSelection } from './selection-registry.js';
 import { batchDerivedUpdates, deferDerivedUpdate } from '../../core/DerivedUpdates.js';
 import { isPlacementMirrored } from '../../shared/pcb/board-geometry.js';
 import { storedDrcRatlines } from './drc-state.js';
+import { drawBoardOutline, syncBoardOutlineInputs } from './board-outline-resize.js';
 export { isPlacementMirrored } from '../../shared/pcb/board-geometry.js';
 import {
     updatePlacementPadPositions,
@@ -933,8 +934,8 @@ export class SetBoardOutlineCommand extends ModelSetBoardOutlineCommand {
     }
     _apply(s) {
         super._apply(s);
-        this.app._drawBoardOutline?.();
-        this.app._syncBoardOutlineInputs?.();
+        drawBoardOutline(this.app);
+        syncBoardOutlineInputs(this.app);
         this.app.refreshFills?.();
     }
 }

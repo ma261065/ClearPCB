@@ -6,18 +6,39 @@ globalThis.window = { addEventListener() {} };
 const inputs = new Map([
     ['pcbPropBoardW', { value: '100' }], ['pcbPropBoardH', { value: '80' }],
 ]);
-globalThis.document = { getElementById: id => inputs.get(id) || null };
+globalThis.document = {
+    createElementNS: () => ({
+        attributes: new Map(), children: [], style: {}, dataset: {},
+        setAttribute(name, value) { this.attributes.set(name, String(value)); },
+        getAttribute(name) { return this.attributes.get(name) ?? null; },
+        removeAttribute(name) { this.attributes.delete(name); },
+        appendChild(child) { child.parentNode = this; this.children.push(child); return child; },
+        remove() { this.parentNode?.removeChild?.(this); },
+        querySelector() { return null; },
+        querySelectorAll() { return []; },
+    }),
+    getElementById: id => inputs.get(id) || null,
+};
 const { default: PCBApp } = await import('../src/ui/PCBApp.js');
-const dimensionPrototype = Object.create(null, Object.fromEntries(['_boardWidth', '_boardHeight', '_boardRadius']
+const dimensionPrototype = Object.create(null, Object.fromEntries(['boardShapes', '_boardWidth', '_boardHeight', '_boardRadius']
     .map(key => [key, Object.getOwnPropertyDescriptor(PCBApp.prototype, key)])));
-const { boardOutlineHandles, renderBoardOutlineHandles, beginBoardOutlineResize, updateBoardOutlineResize, endBoardOutlineResize } =
+const {
+    boardOutlineHandles,
+    drawBoardOutline,
+    initializeBoardOutlineState,
+    isBoardOutlineDrawn,
+    renderBoardOutlineHandles,
+    beginBoardOutlineResize,
+    updateBoardOutlineResize,
+    endBoardOutlineResize,
+    setBoardOutlineSelected,
+    syncBoardOutlineInputs,
+} =
     await import('../src/pcb/modules/board-outline-resize.js');
 const { PCB_LAYERS } = await import('../src/pcb/modules/layers.js');
 const { prepareFabricationSnapshot } = await import('../src/pcb/modules/fabrication-snapshot.js');
 const { setPropertyEditor } = await import('../src/pcb/modules/property-editors.js');
 const commands = [];
-// The real methods, run against this test's minimal editors.
-const syncInputs = PCBApp.prototype._syncBoardOutlineInputs;
 {
     const { boardBoundary } = await import('../src/shared/pcb/board-outline.js');
     const fit = PCBApp.prototype.fitToContent;
@@ -33,7 +54,7 @@ const syncInputs = PCBApp.prototype._syncBoardOutlineInputs;
         let unculled = 0;
         const board = {
             boardShapes: [{ id: 'board-outline', layer: 'board-outline', ...geometry }],
-            _boardOutlineDrawn: true, _boardWidth: 100, _boardHeight: 80,
+            _boardWidth: 100, _boardHeight: 80,
             _ensureViewport() {}, _uncullAllPlacements() { unculled++; },
             viewport: { fitToBounds(...bounds) { calls.push(bounds); } },
             _layerGroups: new Map([
@@ -60,7 +81,7 @@ const syncInputs = PCBApp.prototype._syncBoardOutlineInputs;
         assert.deepEqual(calls.at(-1), expectedFit,
             'Off-board artwork must not affect board framing');
     }
-    const legacy = { _boardOutlineDrawn: true, _boardWidth: 40, _boardHeight: 30, boardShapes: [],
+    const legacy = { _boardWidth: 40, _boardHeight: 30, boardShapes: [],
         _ensureViewport() {}, _uncullAllPlacements() {}, _layerGroups: new Map([['selection-overlay', helper]]),
         viewport: { fitToBounds(...bounds) { assert.deepEqual(bounds, [-10, -30, 40, 10, 0, 'bottom-left']); } } };
     fit.call(legacy);
@@ -68,21 +89,23 @@ const syncInputs = PCBApp.prototype._syncBoardOutlineInputs;
 let redraws = 0;
 let fills = 0;
 const fillDimensions = [];
+const outlineRenderGroup = { querySelector: () => null, querySelectorAll: () => [], appendChild() { redraws++; } };
+const overlayRenderGroup = { querySelector: () => null, querySelectorAll: () => [], appendChild() {} };
 const app = Object.assign(Object.create(dimensionPrototype), {
     pcbDocument: new PcbDocument(),
     _shapeElements: new Map(),
-    _boardOutlineSelected: true, _boardOutlineDrawn: true,
     _boardWidth: 100, _boardHeight: 80, _boardRadius: 3,
     viewport: { scale: 10, snapToGrid: true, gridVisible: true, gridSize: 1 },
-    _drawBoardOutline() { redraws++; },
+    getLayerGroup(id) { return id === 'board-outline' ? outlineRenderGroup : overlayRenderGroup; },
     refreshFills() {
         fills++;
         fillDimensions.push([this._boardWidth, this._boardHeight, this._boardRadius]);
     },
-    _syncBoardOutlineInputs: syncInputs,
     history: { execute(command) { commands.push(command); command.execute(); } },
 });
-setPropertyEditor(app, 'boardDimension', { commit() {}, cancel() {}, sync() {
+initializeBoardOutlineState(app, true);
+setBoardOutlineSelected(app, true);
+setPropertyEditor(app, 'boardDimension', { commit() {}, cancel() {}, dispose() {}, sync() {
     inputs.get('pcbPropBoardW').value = Number(app._boardWidth).toFixed(2);
     inputs.get('pcbPropBoardH').value = Number(app._boardHeight).toFixed(2);
 } });
@@ -144,19 +167,20 @@ layer.locked = true;
 assert.deepEqual(boardOutlineHandles(app), []);
 assert.equal(beginBoardOutlineResize(app, { x: 110, y: -95 }), false);
 layer.locked = false;
-app._boardOutlineSelected = false;
+setBoardOutlineSelected(app, false);
 assert.deepEqual(boardOutlineHandles(app), []);
 const makeElement = () => ({
     attributes: new Map(), children: [], style: {}, parent: null,
     setAttribute(name, value) { this.attributes.set(name, value); },
     appendChild(child) { child.parent = this; this.children.push(child); },
     remove() { this.parent.children = this.parent.children.filter(child => child !== this); },
+    querySelector() { return null; },
     querySelectorAll() { return [...this.children]; },
 });
 globalThis.document = { createElementNS: makeElement, getElementById: id => inputs.get(id) || null };
 const overlay = makeElement();
 app.getLayerGroup = () => overlay;
-app._boardOutlineSelected = true;
+setBoardOutlineSelected(app, true);
 for (const scale of [10, 20]) {
     app.viewport.scale = scale;
     renderBoardOutlineHandles(app);
@@ -172,10 +196,10 @@ assert.equal(overlay.children.length, 0);
 assert.equal(beginBoardOutlineResize(app, { x: 110, y: -95 }), false);
 layer.visible = true;
 renderBoardOutlineHandles(app);
-app._boardOutlineSelected = false;
+setBoardOutlineSelected(app, false);
 renderBoardOutlineHandles(app);
 assert.equal(overlay.children.length, 0);
-app._boardOutlineSelected = true;
+setBoardOutlineSelected(app, true);
 assert.ok(beginBoardOutlineResize(app, { x: 110, y: -95 }));
 updateBoardOutlineResize(app, { x: 120, y: -100 });
 layer.locked = true;
@@ -214,17 +238,17 @@ console.log('PASS board resize handles, snapping, minimum dimensions, undo/redo,
         const fitCalls = [], stages = [];
         const view = Object.assign(Object.create(dimensionPrototype), {
             pcbDocument, boardShapes: pcbDocument.boardShapes, _shapeElements: new Map(),
-            _boardOutlineDrawn: !!geometry,
             viewport: { fitToBounds(...args) { fitCalls.push(args); } },
-            getLayerGroup(id) { return id === 'board-outline' ? outlineLayer : null; },
-            _drawBoardOutline() {
+            getLayerGroup(id) {
+                if (id !== 'board-outline') return null;
                 assert.ok(getBoardOutline(pcbDocument), 'The model has adopted the outline before the command invokes rendering');
-                stages.push('draw');
-                PCBApp.prototype._drawBoardOutline.call(this);
+                if (stages.at(-1) !== 'draw') stages.push('draw');
+                return outlineLayer;
             },
-            _syncBoardOutlineInputs() { stages.push('inputs'); syncInputs.call(this); },
             refreshFills() { stages.push('fills'); },
         });
+        initializeBoardOutlineState(view, !!geometry);
+        setPropertyEditor(view, 'boardDimension', { sync() { stages.push('inputs'); } });
         const command = new SetBoardOutlineCommand(view, originalDimensions, { width: 40, height: 30, radius: 2 });
         command.execute();
         const outline = getBoardOutline(pcbDocument);
@@ -249,23 +273,24 @@ console.log('PASS board resize handles, snapping, minimum dimensions, undo/redo,
     const fitCalls = [];
     const view = Object.assign(Object.create(dimensionPrototype), {
         pcbDocument, boardShapes: pcbDocument.boardShapes, _shapeElements: new Map(),
-        _boardOutlineDrawn: false, viewport: { fitToBounds(...args) { fitCalls.push(args); } },
+        viewport: { fitToBounds(...args) { fitCalls.push(args); } },
         getLayerGroup(id) { return id === 'board-outline' ? outlineLayer : null; },
     });
-    PCBApp.prototype._drawBoardOutline.call(view);
+    initializeBoardOutlineState(view, false);
+    drawBoardOutline(view);
     assert.equal(getBoardOutline(pcbDocument), null, 'Drawing an empty model must not create authored geometry');
     assert.equal(outlineLayer.children.length, 0);
-    assert.equal(view._boardOutlineDrawn, false);
+    assert.equal(isBoardOutlineDrawn(view), false);
     assert.equal(fitCalls.length, 0);
     const outline = pcbDocument.ensureBoardOutline();
     assert.deepEqual(outline, rectangleBoardOutline(47.123456, 29.234567));
     pcbDocument.ensureBoardOutline = () => assert.fail('Rendering must not invoke model initialization');
-    PCBApp.prototype._drawBoardOutline.call(view);
+    drawBoardOutline(view);
     const bounds = boardBoundary(pcbDocument);
     assert.deepEqual(fitCalls, [[bounds.x, bounds.y, bounds.x + bounds.w, bounds.y + bounds.h, 5]]);
     const saved = pcbDocument.serialize();
     Object.freeze(pcbDocument.board);
-    PCBApp.prototype._drawBoardOutline.call(view);
+    drawBoardOutline(view);
     assert.deepEqual(pcbDocument.serialize(), saved, 'Dedicated redraw does not write model geometry or dimensions');
     assert.equal(pcbDocument.boardShapes.length, 1);
     assert.equal(outlineLayer.children.length, 1);

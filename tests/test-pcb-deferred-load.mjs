@@ -57,6 +57,8 @@ globalThis.HTMLElement = class {};
 
 const { loadPcb, preparePcb, serializePcb } = await import('../src/pcb/modules/project-state.js');
 const { getBoardOutline } = await import('../src/shared/pcb/board-outline.js');
+const { initializeBoardOutlineState, isBoardOutlineDrawn } = await import('../src/pcb/modules/board-outline-resize.js');
+const { renderText } = await import('../src/pcb/modules/pcb-text-render.js');
 const { Track } = await import('../src/shapes/track.js');
 const { Via } = await import('../src/shapes/via.js');
 const { Pad } = await import('../src/shapes/pad.js');
@@ -73,7 +75,7 @@ const events = () => calls.filter((call, index) => call !== calls[index - 1]);
 // Which entity an append into each group represents (the fixture keeps them on distinct layers).
 const GROUP_EVENTS = {
     'bottom-copper': 'track', vias: 'via', 'top-copper': 'pad',
-    'top-silk': 'shape', hole: 'shape', 'board-outline': 'outline-shape',
+    'top-silk': 'shape', 'top-document': 'text', hole: 'shape', 'board-outline': 'outline',
 };
 function layerGroups() {
     const groups = new Map();
@@ -97,6 +99,7 @@ const viewportStub = (extra = {}) => ({
     setUnits(units) { this.units = units; }, setGridStyle(style) { this.gridStyle = style; },
     setGridVisible(visible) { this.gridVisible = visible; },
     setGridSize(size) { this.gridSize = size; calls.push('grid'); },
+    fitToBounds() {},
     getGridOptions: () => [{ value: 0.5, label: '0.5 mm' }, { value: 1, label: '1 mm' }],
     ...extra,
 });
@@ -109,7 +112,7 @@ const authored = new PcbDocument();
 authored.tracks.push(new Track({ net: 'N', layer: 'bottom-copper', points: [{ x: 2, y: -2 }, { x: 8, y: -2 }] }));
 authored.vias.push(new Via({ x: 8, y: -2 }));
 authored.pads.push(new Pad({ x: 12, y: -4, layers: 'top-copper' }));
-authored.texts.set('text', createPcbText({ id: 'text', content: 'T', x: 3, y: -6 }));
+authored.texts.set('text', createPcbText({ id: 'text', content: 'T', x: 3, y: -6, layer: 'top-document' }));
 authored.boardShapes.push(pictureArt, boardHole,
     new CopperFill({ id: 'fill_1', layer: 'top-copper', outline: [{ x: 1, y: -1 }, { x: 10, y: -1 }, { x: 10, y: -10 }] }));
 const data = {
@@ -122,34 +125,35 @@ const prepared = PcbDocument.prepare(data);
 const makeApp = active => {
     const pcbDocument = new PcbDocument();
     const placementState = pcbDocument.placementState;
-    return {
-    pcbDocument, designSettings: pcbDocument.designSettings,
-    // renderPanelPreview(app) reads this as its default argument at the moment it renders.
-    get panelization() {
-        previews.push({ app: this, settings: pcbDocument.serializePanelization() });
-        return pcbDocument.panelization;
-    },
-    set panelization(value) { pcbDocument.loadPanelization(value); },
-    _active: active, _stale: false, tracks: pcbDocument.tracks, vias: pcbDocument.vias, pads: pcbDocument.pads,
-    boardShapes: pcbDocument.boardShapes, texts: pcbDocument.texts,
-    get _shapeIdCounter() { return pcbDocument.shapeIdCounter; },
-    set _shapeIdCounter(value) { pcbDocument.shapeIdCounter = value; },
-    get _boardWidth() { return pcbDocument.board.width; },
-    set _boardWidth(value) { pcbDocument.board.width = value; },
-    get _boardHeight() { return pcbDocument.board.height; },
-    set _boardHeight(value) { pcbDocument.board.height = value; },
-    get _boardRadius() { return pcbDocument.board.radius; },
-    set _boardRadius(value) { pcbDocument.board.radius = value; },
-    placements: new Map([['U1', {}]]), _shapeElements: new Map(), _textElements: new Map(),
-    placementState, _placementOverrides: placementState.overrides, history: { clear() {} },
-    viewport: viewportStub(),
-    _ensureViewport: record('viewport'), getLayerGroup: layerGroups(), getRoutingParams: () => ({}),
-    _drawBoardOutline() { this._boardOutlineDrawn = true; calls.push('outline'); },
-    _applyPlacementOverrides: record('placements'),
-    _renderText: record('text'), refreshClearanceHalos: record('clearance'), refreshFills: record('fills'),
-    updateCopperCuts() { this.cutRefreshes = (this.cutRefreshes || 0) + 1; },
-    markSectionClean() { this._isDirty = false; },
+    const app = {
+        pcbDocument, designSettings: pcbDocument.designSettings,
+        // renderPanelPreview(app) reads this as its default argument at the moment it renders.
+        get panelization() {
+            previews.push({ app: this, settings: pcbDocument.serializePanelization() });
+            return pcbDocument.panelization;
+        },
+        set panelization(value) { pcbDocument.loadPanelization(value); },
+        _active: active, _stale: false, tracks: pcbDocument.tracks, vias: pcbDocument.vias, pads: pcbDocument.pads,
+        boardShapes: pcbDocument.boardShapes, texts: pcbDocument.texts,
+        get _shapeIdCounter() { return pcbDocument.shapeIdCounter; },
+        set _shapeIdCounter(value) { pcbDocument.shapeIdCounter = value; },
+        get _boardWidth() { return pcbDocument.board.width; },
+        set _boardWidth(value) { pcbDocument.board.width = value; },
+        get _boardHeight() { return pcbDocument.board.height; },
+        set _boardHeight(value) { pcbDocument.board.height = value; },
+        get _boardRadius() { return pcbDocument.board.radius; },
+        set _boardRadius(value) { pcbDocument.board.radius = value; },
+        placements: new Map([['U1', {}]]), _shapeElements: new Map(),
+        placementState, _placementOverrides: placementState.overrides, history: { clear() {} },
+        viewport: viewportStub(),
+        _ensureViewport: record('viewport'), getLayerGroup: layerGroups(), getRoutingParams: () => ({}),
+        _applyPlacementOverrides: record('placements'),
+        refreshClearanceHalos: record('clearance'), refreshFills: record('fills'),
+        updateCopperCuts() { this.cutRefreshes = (this.cutRefreshes || 0) + 1; },
+        markSectionClean() { this._isDirty = false; },
     };
+    initializeBoardOutlineState(app, false);
+    return app;
 };
 // Design settings presentation saves the adopted values as defaults. Its storage errors are
 // caught and logged, so snapshots are recorded here and checked once loading returns.
@@ -173,20 +177,20 @@ const hidden = makeApp(false);
 let cancelledComponentPreview = false;
 hidden._cancelPosePreviews = () => { cancelledComponentPreview = true; };
 const textMap = hidden.pcbDocument.texts;
-const oldText = { id: 'old-text' };
+const oldText = createPcbText({ id: 'old-text', content: 'Old', x: 0, y: 0, layer: 'top-document' });
 hidden.texts.set(oldText.id, oldText);
-hidden._textElements.set(oldText.id, {});
-hidden._removeTextElement = id => {
-    assert.equal(hidden.pcbDocument.texts.get(id), oldText, 'Old text SVG is removed before the model is cleared');
-    hidden._textElements.delete(id);
-};
+const oldTextLayer = hidden.getLayerGroup('top-document');
+renderText(hidden, oldText);
+assert.equal(oldTextLayer.children.length, 1);
+calls.length = 0;
 load(hidden, data, prepared);
+assert.equal(oldTextLayer.children.length, 0, 'Old text SVG is removed before the model is cleared');
 assert.equal(cancelledComponentPreview, true, 'Loading ends component projections before replacing their model');
 assert.equal(hidden.texts, textMap, 'Loading preserves the project-owned text map');
 assert.equal(textMap.has(oldText.id), false);
 assert.deepEqual(events(), ['viewport', 'grid'], 'hidden load does not render objects or compute derived copper');
 assert.equal(hidden._stale, true);
-assert.equal(hidden._boardOutlineDrawn, true, 'saved dimensions remain available before rendering');
+assert.equal(isBoardOutlineDrawn(hidden), true, 'saved dimensions remain available before rendering');
 assert.deepEqual([hidden._boardWidth, hidden._boardHeight, hidden._boardRadius], [43, 27, 2]);
 assert.deepEqual(hidden.boardShapes, prepared.boardShapes);
 assert.deepEqual(hidden.tracks, prepared.tracks);
@@ -222,23 +226,35 @@ for (const active of [true, false]) {
     paneApp.viewport = null;
     const panelization = { ...PANEL_DEFAULTS, rows: 3, noteCreated: true };
     const stages = [];
-    for (const name of ['_drawBoardOutline', '_renderText', 'refreshFills']) {
-        const original = paneApp[name];
-        paneApp[name] = function (...args) {
-            assert.equal(this.pcbDocument.panelization, null, 'Panel settings stay absent while artwork/pours are restored');
-            stages.push(name);
-            return original.apply(this, args);
-        };
-    }
+    const stage = name => {
+        if (name === 'refreshFills' || stages.at(-1) !== name) stages.push(name);
+    };
+    const getLayerGroup = paneApp.getLayerGroup;
+    paneApp.getLayerGroup = function (id) {
+        assert.equal(this.pcbDocument.panelization, null, 'Panel settings stay absent while artwork is restored');
+        if (active && id === 'board-outline') stage('drawBoardOutline');
+        if (active && id === 'top-document') stage('renderText');
+        return getLayerGroup.call(this, id);
+    };
+    const refreshFills = paneApp.refreshFills;
+    paneApp.refreshFills = function (...args) {
+        assert.equal(this.pcbDocument.panelization, null, 'Panel settings stay absent while pours are restored');
+        stage('refreshFills');
+        return refreshFills.apply(this, args);
+    };
     const count = previews.length;
     load(paneApp, { ...data, panelization }, { ...PcbDocument.prepare(data), panelization });
     assert.deepEqual(paneApp.pcbDocument.panelization, panelization);
     assert.notEqual(paneApp.pcbDocument.panelization, panelization, 'Loaded settings do not alias their prepared snapshot');
     // The ratsnest reconcile refreshes pours first, then loading refreshes them once more.
-    assert.deepEqual(stages, active ? ['_drawBoardOutline', '_renderText', 'refreshFills', 'refreshFills'] : []);
-    assert.equal(previews.length, count + (active ? 1 : 0));
-    if (active) assert.deepEqual(previews.at(-1), { app: paneApp, settings: panelization },
-        'The final preview sees restored model settings');
+    assert.deepEqual(stages, active ? ['drawBoardOutline', 'renderText', 'refreshFills', 'refreshFills'] : []);
+    assert.equal(previews.length, count + (active ? 2 : 0));
+    if (active) {
+        assert.deepEqual(previews.at(-2), { app: paneApp, settings: null },
+            'Artwork restoration sees no panel settings yet');
+        assert.deepEqual(previews.at(-1), { app: paneApp, settings: panelization },
+            'The final preview sees restored model settings');
+    }
     load(paneApp, null, { tracks: [], vias: [], pads: [], texts: [], boardShapes: [], shapeIdCounter: 1 });
     assert.equal(paneApp.pcbDocument.panelization, null, 'New removes saved panelization in active and hidden editors');
     assert.deepEqual(paneApp.designSettings.values, data.design, 'New retains last-used design settings');
@@ -252,7 +268,7 @@ load(hidden, null, { tracks: [], vias: [], texts: [], boardShapes: [], shapeIdCo
 assert.equal(textMap.size, 0, 'New clears authoritative text even in the hidden editor');
 assert.equal(hidden.texts, textMap);
 assert.deepEqual(calls, ['viewport', '3d']);
-assert.equal(hidden._boardOutlineDrawn, false);
+assert.equal(isBoardOutlineDrawn(hidden), false);
 assert.deepEqual(hidden.boardShapes, []);
 assert.equal(hidden._placementOverrides.size, 0);
 assert.equal(hidden.placements.size, 0);
@@ -329,13 +345,13 @@ for (const pcb of [
         const outline = getBoardOutline(pcbDocument);
         const app = new PCBApp({ pcbDocument, schematicDocument: {},
             synchronizePcbLayout: () => ({ placements: new Map(components.map(component => [component.id, component])), netlist: [] }) });
-        assert.equal(app._boardOutlineDrawn, !!outline, 'Editor attachment recognizes an existing model outline');
+        assert.equal(app.isBoardOutlineDrawn(), !!outline, 'Editor attachment recognizes an existing model outline');
         components = withComponents ? [{ id: 'U1' }] : [];
         Object.assign(app, {
             initialize() {}, _ensureViewport() {}, _retainRibbonHeight() {},
             _updateCursorForTool() {}, _syncPcbHomeToolHighlight() {}, _updateViewportStatus() {},
             setPcbStatus() {}, setStatus() {}, _clearPCBContent() {},
-            getLayerGroup: layerGroups(), _drawBoardOutline: record('outline'),
+            getLayerGroup: layerGroups(),
             _placeFootprints: record('footprints'), _fitToPlacedContent() {},
             refreshClearanceHalos() {}, updateRatsnest() {}, updateCopperCuts() {},
             _showBoardDimensionsDialog: record('dimensions-dialog'),

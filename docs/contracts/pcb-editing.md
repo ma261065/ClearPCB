@@ -27,7 +27,10 @@ clear a newer owner; others read it with `getPropertyEditor`. Panel bindings
 declare `affectsLayer(layerId)`, so hiding or locking a layer releases affected
 panel editors through one ordered `eachPropertyEditorOnLayer`. The board-size
 binding has no `affectsLayer`; `layer-changes.js` disposes it when the
-board-outline layer is hidden and cancels it when that layer is locked. Group
+board-outline layer is hidden and cancels it when that layer is locked.
+Board-outline resize/draw/selection state is owned by
+`board-outline-resize.js`, so loading, outline commands and layer changes call
+that module's exported helpers instead of editor-private methods. Group
 commits and activity checks name the kinds they cover. The
 module has no imports because the fabrication-snapshot guard, which the Gerber
 worker loads, queries it.

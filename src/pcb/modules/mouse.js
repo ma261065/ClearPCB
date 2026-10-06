@@ -27,6 +27,7 @@ import {
 import { hasBoxSelection, pointInBoxSelection, maybeStartBoxSelect } from './box-select.js';
 import { hitTestPcbSelectionAnchor } from './selection-anchors.js';
 import { activeTextInlineEdit, startTextInlineEdit, endTextInlineEdit } from './text-inline-edit.js';
+import { hitTestText } from './pcb-text-render.js';
 import { toggleDebugTooltipPin, updateDebugTooltip } from './debug-tooltip.js';
 import { PCB_CROSSHAIR_TOOLS } from './tool-lifecycle.js';
 import { dispatchPcbPointerMove, releasePcbPointerGestures } from './pcb-interaction-routing.js';
@@ -185,7 +186,7 @@ function onMouseDown(app, e) {
         if (endTextInlineEdit(app, true) === false) return;
     }
     if (worldPos && isUnmodifiedPrimaryDoublePress(e)) {
-        const textHit = app._hitTestText(worldPos);
+        const textHit = hitTestText(app, worldPos);
         if (textHit) {
             e.preventDefault();
             app.selectText(textHit);
@@ -297,7 +298,7 @@ function onDoubleClick(app, e) {
  */
 function editOrExplainAt(app, e) {
     const worldPos = app.screenToWorld(e);
-    const textHit = app._hitTestText(worldPos);
+    const textHit = hitTestText(app, worldPos);
     if (textHit) {
         e.preventDefault();
         app.selectText(textHit);

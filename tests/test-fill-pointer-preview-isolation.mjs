@@ -84,7 +84,7 @@ function fixture(mode, deferred) {
         },
         _cancelPosePreviews: PCBApp.prototype._cancelPosePreviews,
         _cancelDrawingMode() {}, _ensureViewport() {}, markSectionClean() {},
-        _textElements: new Map(), _shapeElements: new Map(),
+        _shapeElements: new Map(),
         _clearFillGroups() { for (const child of [...layer.children]) child.remove(); },
     };
     setDragOverlaysDeferred(app, deferred);

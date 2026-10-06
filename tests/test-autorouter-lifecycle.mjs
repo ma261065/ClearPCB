@@ -9,8 +9,21 @@ import { setPropertyEditor } from '../src/pcb/modules/property-editors.js';
 import { getTrackDraw } from '../src/pcb/modules/track-draw.js';
 import { setPcbInteraction } from '../src/pcb/modules/pcb-interactions.js';
 
+function svgElement() {
+    return {
+        attributes: new Map(), children: [], style: {}, dataset: {}, parentNode: null,
+        setAttribute(name, value) { this.attributes.set(name, String(value)); },
+        getAttribute(name) { return this.attributes.get(name) ?? null; },
+        removeAttribute(name) { this.attributes.delete(name); },
+        appendChild(child) { child.parentNode?.removeChild?.(child); child.parentNode = this; this.children.push(child); return child; },
+        removeChild(child) { this.children = this.children.filter(item => item !== child); child.parentNode = null; return child; },
+        remove() { this.parentNode?.removeChild?.(this); },
+        querySelector() { return null; },
+        querySelectorAll() { return []; },
+    };
+}
 globalThis.window = { addEventListener() {} };
-globalThis.document = { getElementById: () => null, querySelector: () => null };
+globalThis.document = { createElementNS: () => svgElement(), getElementById: () => null, querySelector: () => null };
 const { default: PCBApp } = await import('../src/ui/PCBApp.js');
 const workers = [], intervals = new Map();
 let nextId = 0;
@@ -36,18 +49,22 @@ const routed = {
 function fixture() {
     const app = Object.assign(Object.create(PCBApp.prototype), {
         pcbDocument: new PcbDocument(), placements: new Map([['part', { pads: new Map() }]]),
-        netlist: [{ net: 'ORIGINAL', pins: [] }], _active: true, currentTool: 'select', status: {},
+        netlist: [{ net: 'ORIGINAL', pins: [] }], _active: true, currentTool: 'select', status: { modeStatus: null },
         _layerGroups: new Map(),
-        _textElements: new Map(), _shapeElements: new Map(),
-        getLayerGroup: () => null,
+        _shapeElements: new Map(),
+        getLayerGroup(id) {
+            if (!this._layerGroups.has(id)) {
+                this._layerGroups.set(id, svgElement());
+            }
+            return this._layerGroups.get(id);
+        },
         getRoutingParams: () => ({ trackWidth: 0.23456789, clearance: 0.1, viaDiameter: 0.6, viaDrill: 0.3 }),
         _getRouterMode: () => 'maze',
         _buildRouteInput: () => ({ connections: [{ net: 'ORIGINAL', pads: [] }] }),
         setStatus(message) { this.lastStatus = message; },
         refreshClearanceHalos() {},
         refreshFills: () => false, _ensureViewport() {}, updateCopperCuts() {},
-        _selectBoardOutline() {},
-        _closeBoardDimensionsDialog() {}, _clearFillGroups() {},
+        _clearFillGroups() {},
     });
     app.history = new CommandHistory({ onChanged: () => app._markDirty() });
     const track = new Track({ net: 'ORIGINAL', points: [{ x: Math.PI, y: 8 }, { x: 9, y: Math.E }] });

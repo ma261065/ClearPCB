@@ -63,7 +63,7 @@ globalThis.window = { addEventListener() {}, requestAnimationFrame(fn) { frames.
 globalThis.requestAnimationFrame = () => 1;
 globalThis.cancelAnimationFrame = () => {};
 globalThis.localStorage = { setItem() {} };
-globalThis.document = { createElementNS: (_, tag) => new Element(tag), createElement: tag => new Element(tag),
+globalThis.document = { documentElement: { getAttribute: () => 'dark' }, createElementNS: (_, tag) => new Element(tag), createElement: tag => new Element(tag),
     getElementById: () => null, querySelector: () => null, querySelectorAll: () => [], addEventListener() {},
     removeEventListener() {}, body: new Element('body') };
 const { default: PCBApp } = await import('../src/ui/PCBApp.js');
@@ -99,7 +99,7 @@ function fixture(deferred = false, component = false) {
         Object.defineProperty(app, key, Object.getOwnPropertyDescriptor(PCBApp.prototype, key));
     }
     Object.assign(app, { project, pcbDocument: model, placements, placementState: model.placementState,
-        netlist: [], history: new CommandHistory(), _active: true, _layerGroups: groups, existingLayerGroups() { return this._layerGroups; }, _shapeElements: new Map(), _textElements: new Map(),
+        netlist: [], history: new CommandHistory(), _active: true, _layerGroups: groups, existingLayerGroups() { return this._layerGroups; }, _shapeElements: new Map(), 
         viewport: { scale: 10, gridVisible: false, svg: new Element('svg'), setCrosshair() {}, hideCrosshair() {} },
         getLayerGroup: id => groups.get(id) || null, refreshText() {}, refreshFills() { fills++; },
         updateRatsnest() { ratsnest++; }, _board3d: { refresh() { board++; } },
@@ -110,7 +110,7 @@ function fixture(deferred = false, component = false) {
         setPropertiesTitle: PCBApp.prototype.setPropertiesTitle,
         openPropertyPanel(panel, owner = null) { this.setPropertiesTitle(panel.title, owner); this._propertyPanel = panel; return true; },
         refreshPropertyPanel(panel) { this._propertyPanel = panel; },
-        selectText() {}, _removeTextElement() {}, _renderText() {},
+        selectText() {},
         clearProperties: PCBApp.prototype.clearProperties,
         _onLayerLockChanged: PCBApp.prototype._onLayerLockChanged,
         _onLayerVisibilityChanged: PCBApp.prototype._onLayerVisibilityChanged,

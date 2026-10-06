@@ -23,6 +23,8 @@
  *   Rebuild the per-side copper-removal clip paths.
  * @property {(id: string) => void} refreshText
  *   Re-render one free text in place.
+ * @property {() => boolean} isBoardOutlineDrawn
+ *   Whether the board outline is ready for page and browser-test readiness checks.
  * @property {(fill: object|null) => void} selectFill
  *   Select (or clear) the focused copper pour.
  * @property {() => void} clearProperties
@@ -80,7 +82,7 @@ export const isEditorActive = app => app._active !== false;
 /** Service names, checked against PCBApp by test-pcb-editor-api. */
 export const PCB_EDITOR_SERVICES = Object.freeze([
     'getLayerGroup', 'existingLayerGroups', 'getRoutingParams', 'refreshFills', 'refreshClearanceHalos', 'updateRatsnest',
-    'updateCopperCuts', 'refreshText', 'selectFill', 'clearProperties',
+    'updateCopperCuts', 'refreshText', 'isBoardOutlineDrawn', 'selectFill', 'clearProperties',
     'setStatus', 'setPcbStatus', 'syncClipboardButtons', 'propertiesItems', 'setPropertiesTitle', 'showPropertiesTab',
     'openPropertyPanel', 'refreshPropertyPanel', 'netNames', 'layerLabel', 'fitToContent', 'setActiveRibbonTab',
     'selectText', 'showTextProperties', 'selectAll', 'rotateComponent', 'flipComponent', 'rotateRefText',

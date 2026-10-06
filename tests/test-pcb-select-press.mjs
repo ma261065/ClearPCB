@@ -55,7 +55,7 @@ for (const locked of [false, true]) {
     }
     const selected = [];
     Object.assign(app, {
-        _hitTestText: () => null, _hitTestRefText: () => null, _hitTestComponent: () => 'U1',
+        _hitTestRefText: () => null, _hitTestComponent: () => 'U1',
         _selectComponent: id => selected.push(id), _selectBoardOutline: noop, selectText: noop, _selectRefText: noop,
         showComponentProperties: noop, _hoverComponent: noop, _hideNetTooltip: noop,
         _netsForComponent: () => new Set(['N1']), selectFill: noop,

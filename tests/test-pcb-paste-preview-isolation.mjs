@@ -18,6 +18,7 @@ import { loadPcb } from '../src/pcb/modules/project-state.js';
 import { PCB_LAYERS } from '../src/pcb/modules/layers.js';
 import { areDragOverlaysDeferred, isBoardViewRefreshSuspended, isFillRefreshSuspended, setBoardViewRefreshSuspended, setDragOverlaysDeferred, setFillRefreshPending, setFillRefreshSuspended } from '../src/pcb/modules/refresh-state.js';
 import { getPcbPaste } from '../src/pcb/modules/pcb-paste.js';
+import { getTextElement, renderText } from '../src/pcb/modules/pcb-text-render.js';
 
 let allocations = 0;
 class Element {
@@ -88,7 +89,7 @@ function fixture(deferred = false) {
         'selection-overlay', 'clearance-overlay'].map(id => [id, new Element()]));
     let derived = 0, crosshairs = 0;
     const app = { project, pcbDocument: model, history: new CommandHistory(), placements, netlist: [], _active: true,
-        _layerGroups: groups, existingLayerGroups: () => groups, _shapeElements: new Map(), _textElements: new Map(),
+        _layerGroups: groups, existingLayerGroups: () => groups, _shapeElements: new Map(),
         viewport: { scale: 10, gridVisible: false, svg: new Element('svg'), currentMouseWorld: { x: 10.123456789, y: -12.345678912 },
             setCrosshair() { crosshairs++; }, hideCrosshair() {} },
         getLayerGroup: id => groups.get(id) || null,
@@ -107,13 +108,13 @@ function fixture(deferred = false) {
         Object.defineProperty(app, key, Object.getOwnPropertyDescriptor(PCBApp.prototype, key));
     }
     for (const method of ['_hasPcbClipboardData', 'pasteSelection', '_beginPasteDrop', '_updatePasteDrop', '_endPasteDrop',
-        '_cancelPasteDrop', '_cancelPosePreviews', 'snapToGrid', '_renderText', 'refreshText', '_removeTextElement',
+        '_cancelPasteDrop', '_cancelPosePreviews', 'snapToGrid', 'refreshText',
         'isSectionEditing', '_onLayerVisibilityChanged', '_onLayerLockChanged',
         '_refreshBoardShapeClearance', '_computeClearanceOutlines']) app[method] = PCBApp.prototype[method];
     project.registerView('pcb', app);
     renderTrack(track, app.getLayerGroup); renderVia(via, app.getLayerGroup); renderPad(pad, app.getLayerGroup);
     [rect, circle, arc, image].forEach(shape => renderBoardShape(app, shape));
-    renderCopperFill(fill, app.getLayerGroup); renderCopperFill(circleFill, app.getLayerGroup); app._renderText(text);
+    renderCopperFill(fill, app.getLayerGroup); renderCopperFill(circleFill, app.getLayerGroup); renderText(app, text);
     const clipboard = { tracks: [track.toJSON()], vias: [via.toJSON()], pads: [pad.toJSON()],
         shapes: [rect, circle, arc, image].map(shape => structuredClone(shape)),
         texts: [{ ...text }], fills: [fill.captureState(), circleFill.captureState()] };
@@ -224,7 +225,7 @@ for (const imageOnly of [false, true]) for (const deferred of [false, true]) for
         assert.equal(isBoardViewRefreshSuspended(app), deferred);
         if (finish !== 'commit' && finish !== 'load' && finish !== 'document') {
             for (const shape of payload.shapes) assert.equal(app._shapeElements.has(shape.id), false);
-            for (const text of payload.texts) assert.equal(app._textElements.has(text.id), false);
+            for (const text of payload.texts) assert.equal(getTextElement(app, text.id), null);
             for (const fill of payload.fills) for (const group of groups.values()) {
                 assert.equal(group.querySelectorAll(`[data-fill-id="${fill.id}"]`).length, 0);
             }

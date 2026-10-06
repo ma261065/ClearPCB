@@ -57,7 +57,7 @@ const app = {
     viewport: { scale: 8, snapToGrid: false },
     _layerGroups: new Map([['selection-overlay', overlay]]),
     getLayerGroup(id) { return this._layerGroups.get(id); },
-    _markDirty() {}, _syncHistoryButtons() {}, refreshText() {}, _removeTextElement() {}, _renderText() {},
+    _markDirty() {}, _syncHistoryButtons() {}, refreshText() {},
 };
 app.history = new CommandHistory({ onChanged: () => PCBApp.prototype._onHistoryChanged.call(app) });
 setPcbSelection(app, texts.map(object => ({ kind: 'text', object })));

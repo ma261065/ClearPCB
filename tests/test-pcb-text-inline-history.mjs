@@ -9,9 +9,22 @@ import { cancelPictureCopperRefresh } from '../src/pcb/modules/picture-refresh.j
 import { setPcbSelection, getPcbSelection } from '../src/pcb/modules/selection-registry.js';
 import { activeTextInlineEdit } from '../src/pcb/modules/text-inline-edit.js';
 import { setPcbInteraction } from '../src/pcb/modules/pcb-interactions.js';
+import { getTextElement, renderText } from '../src/pcb/modules/pcb-text-render.js';
 
 globalThis.window = { addEventListener() {} };
-globalThis.document = { getElementById: () => null };
+const svgElement = () => ({
+    attributes: new Map(), children: [], dataset: {}, style: {},
+    setAttribute(name, value) { this.attributes.set(name, String(value)); },
+    getAttribute(name) { return this.attributes.get(name) ?? null; },
+    appendChild(child) { this.children.push(child); child.parentNode = this; return child; },
+    removeChild(child) { this.children = this.children.filter(item => item !== child); child.parentNode = null; },
+    querySelector: () => null, querySelectorAll: () => [],
+});
+globalThis.document = {
+    documentElement: { getAttribute: () => 'dark' },
+    createElementNS: svgElement,
+    getElementById: () => null,
+};
 const { default: PCBApp } = await import('../src/ui/PCBApp.js');
 
 function fixture({ isNew = false, content = 'Original' } = {}) {
@@ -21,18 +34,27 @@ function fixture({ isNew = false, content = 'Original' } = {}) {
     const pcbDocument = new PcbDocument();
     const renders = [], removals = [], clearances = [], historyChanges = [];
     let destroyed = 0, inputRemoved = 0, cleared = 0, exited = 0;
+    // The text's own layer records what the real renderer draws and removes there.
+    const textLayer = {
+        ...svgElement(),
+        appendChild(child) { this.children.push(child); child.parentNode = this; renders.push({ ...app.texts.get(text.id) }); },
+        removeChild(child) { this.children = this.children.filter(item => item !== child); child.parentNode = null; removals.push(text.id); },
+    };
+    const otherLayer = svgElement();
     const app = {
         pcbDocument, history: new CommandHistory({ onChanged: change => historyChanges.push(change) }),
-        _renderText: current => renders.push({ ...current }),
-        refreshText(id) { const current = this.texts.get(id); if (current) this._renderText(current); },
-        _removeTextElement: id => removals.push(id),
+        getLayerGroup: id => id === text.layer ? textLayer : otherLayer,
+        refreshText(id) { const current = this.texts.get(id); if (current) renders.push({ ...current }); },
         _refreshBoardShapeClearance: current => clearances.push({ ...current }),
         clearProperties: () => cleared++, setActiveRibbonTab: tab => { if (tab === 'pcb-home') exited++; },
         selectText: PCBApp.prototype.selectText,
     };
     Object.defineProperty(app, 'texts', Object.getOwnPropertyDescriptor(PCBApp.prototype, 'texts'));
     if (isNew) app.history.execute(new AddTextCommand(app, text));
-    else app.texts.set(text.id, text);
+    else {
+        app.texts.set(text.id, text);
+        renderText(app, text);
+    }
     setPcbSelection(app, [{ kind: 'text', object: text }]);
     const state = {
         text: beginTextContentPreview(app, text.id), originalContent: text.content, isNewPlacement: isNew, options: {},
@@ -41,6 +63,7 @@ function fixture({ isNew = false, content = 'Original' } = {}) {
     };
     setPcbInteraction(app, '_textEdit', state);
     renders.length = 0;
+    removals.length = 0;
     const preview = value => {
         state.text.content = value;
         state.input.value = value;
@@ -57,7 +80,8 @@ function fixture({ isNew = false, content = 'Original' } = {}) {
         assert.equal(exited, 1);
         assert.deepEqual(getPcbSelection(app), []);
     };
-    return { app, text, original, renders, removals, clearances, historyChanges, preview, finish, verifyTeardown };
+    const drawn = () => getTextElement(app, text.id);
+    return { app, text, original, renders, removals, drawn, textLayer, clearances, historyChanges, preview, finish, verifyTeardown };
 }
 
 for (const isNew of [false, true]) {

@@ -2,6 +2,7 @@ import { renderTrack, renderVia, removeTrackElements, removeViaElements } from '
 import { reconcileRatsnest } from './track-draw.js';
 import { clearTrackSelection, getSelectedTrack } from './track-select.js';
 import { cancelShapeDraw, endBoardShapeDrag, getBoardShapeDrag, removeBoardShapeElement, renderBoardShape } from './board-shapes.js';
+import { clearTextElements, renderText } from './pcb-text-render.js';
 import { getBoardOutline } from '../../shared/pcb/board-outline.js';
 import { renderPad, removePadElements } from './pad.js';
 import { serializeGridSettings, restoreGridSettings } from '../../shared/ui/viewport.js';
@@ -15,6 +16,7 @@ import { setHoveredBoardShape } from './board-shape-state.js';
 import { refreshBoardView } from './refresh-state.js';
 import { isEditorActive } from './pcb-editor-api.js';
 import { clearDrcResults, resetDrc } from './drc-state.js';
+import { closeBoardDimensionsDialog, drawBoardOutline, selectBoardOutline, setBoardOutlineDrawn } from './board-outline-resize.js';
 
 /** @param {any} app */
 export function serializePcb(app) {
@@ -40,7 +42,7 @@ export function loadPcb(app, data, prepared = preparePcb(data)) {
     app._cancelPosePreviews?.();
     disposePcbPropertyEditors(app);
     app._cancelDrawingMode?.();
-    app._closeBoardDimensionsDialog?.();
+    closeBoardDimensionsDialog(app);
     // Deselection can redraw old objects, so do it before removing their SVG.
     resetPcbSelection(app);
     clearPcbSelectionAnchors(app);
@@ -49,7 +51,7 @@ export function loadPcb(app, data, prepared = preparePcb(data)) {
     for (const t of app.tracks) removeTrackElements(t);
     for (const v of app.vias) removeViaElements(v);
     for (const pad of app.pads) removePadElements(pad);
-    for (const id of app._textElements.keys()) app._removeTextElement(id);
+    clearTextElements(app);
     for (const id of app._shapeElements.keys()) removeBoardShapeElement(app, id);
     app.pcbDocument.clear();
     resetDrc(app);
@@ -68,10 +70,10 @@ export function loadPcb(app, data, prepared = preparePcb(data)) {
     // Reset the board outline to "undrawn" so a document without board
     // dimensions (a brand-new board) prompts for them on activation, and a
     // loaded document gets a clean slate before its outline is restored.
-    app._selectBoardOutline?.(false);
+    selectBoardOutline(app, false);
     app.getLayerGroup('board-outline')
         ?.querySelector('.pcb-board-outline')?.remove();
-    app._boardOutlineDrawn = false;
+    setBoardOutlineDrawn(app, false);
 
     if (!data) {
         app.placements.clear();
@@ -89,8 +91,8 @@ export function loadPcb(app, data, prepared = preparePcb(data)) {
     // Restore the saved board outline so it survives save/reopen and
     // autosave-recovery (the dimensions are part of the document).
     if (getBoardOutline(prepared) || (data.board && data.board.width > 0 && data.board.height > 0)) {
-        if (render) app._drawBoardOutline();
-        else app._boardOutlineDrawn = true;
+        if (render) drawBoardOutline(app);
+        else setBoardOutlineDrawn(app, true);
     }
 
     if (data.placements && typeof data.placements === 'object') {
@@ -116,7 +118,7 @@ export function loadPcb(app, data, prepared = preparePcb(data)) {
     }
     if (render) app.updateCopperCuts?.();
     for (const text of app.texts.values()) {
-        if (render) app._renderText(text);
+        if (render) renderText(app, text);
     }
     // Re-evaluate ratlines once the model is in place.
     if (render) {

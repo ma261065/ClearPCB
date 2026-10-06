@@ -66,7 +66,7 @@ function fixture(kind, deferred = false) {
         refreshClearanceHalos() {}, refreshFills() { fills++; },
         _cancelPosePreviews: PCBApp.prototype._cancelPosePreviews,
         _cancelDrawingMode() {}, markSectionClean() {}, _ensureViewport() {},
-        _textElements: new Map(), _shapeElements: new Map(),
+        _shapeElements: new Map(),
         alert(message) { this.lastAlert = message; },
     };
     setDragOverlaysDeferred(app, deferred);

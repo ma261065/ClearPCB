@@ -134,7 +134,7 @@ export const scenarios = [
             await recover.click();
             await page.waitForFunction(() => window.bootstrap?.pcbApp?.tracks?.length === 1);
             assert.equal(await page.evaluate(() => window.bootstrap.pcbApp.tracks[0].width), 0.5, 'The reopened track keeps its width');
-            assert.equal(await page.evaluate(() => window.bootstrap.pcbApp._boardOutlineDrawn), true, 'The board outline is restored');
+            assert.equal(await page.evaluate(() => window.bootstrap.pcbApp.isBoardOutlineDrawn()), true, 'The board outline is restored');
         },
     },
 ];

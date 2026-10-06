@@ -31,6 +31,7 @@ globalThis.cancelAnimationFrame = () => {};
 {
     const { pcbEditorFixture } = await import('./pcb-editor-fixture.mjs');
     const { renderBoardShape } = await import('../src/pcb/modules/board-shapes.js');
+    const { initializeBoardOutlineState, setBoardOutlineDrawn } = await import('../src/pcb/modules/board-outline-resize.js');
     // renderBoardShape registers every rendered element here, so renders are counted
     // at the editor's own element registry rather than by stubbing the renderer.
     const renders = new Map(), shapeOf = new Map();
@@ -47,9 +48,10 @@ globalThis.cancelAnimationFrame = () => {};
             if (!groups.has(id)) groups.set(id, svgElement());
             return groups.get(id);
         },
-        _shapeElements: new RenderRegistry(), _textElements: new Map(), _boardOutlineDrawn: true,
+        _shapeElements: new RenderRegistry(), 
         updateCopperCuts() {}, refreshFills() {}, getRoutingParams: () => ({}),
     });
+    initializeBoardOutlineState(board, true);
     const outline = { id: 'board-outline', kind: 'rect', layer: 'board-outline', lineWidth: 0.1,
         points: [{ x: 0, y: 0 }, { x: 20, y: 0 }, { x: 20, y: -10 }, { x: 0, y: -10 }] };
     const artwork = { id: 'artwork', kind: 'circle', layer: 'top-silk', x: 5, y: -5, radius: 1, lineWidth: 0.2 };
@@ -64,7 +66,7 @@ globalThis.cancelAnimationFrame = () => {};
             'A rebuild must not orphan the outline rendered before the other shapes');
         assert.equal(live(outline.id)[0], board._shapeElements.get(outline.id), 'The visible outline remains registered');
     }
-    board._boardOutlineDrawn = false;
+    setBoardOutlineDrawn(board, false);
     renders.clear();
     board._renderPersistentObjects();
     assert.equal(renders.get(outline.id), 1, 'An outline not drawn by the dedicated path still renders');

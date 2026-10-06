@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { Viewport } from '../src/core/Viewport.js';
 import { snapToViewportGrid } from '../src/core/grid-snap.js';
-import { beginBoardOutlineResize, updateBoardOutlineResize } from '../src/pcb/modules/board-outline-resize.js';
+import { beginBoardOutlineResize, initializeBoardOutlineState, setBoardOutlineSelected, updateBoardOutlineResize } from '../src/pcb/modules/board-outline-resize.js';
 import { beginGroupDrag, updateGroupDrag, cancelGroupDrag } from '../src/pcb/modules/box-select.js';
 import { setPcbSelection } from '../src/pcb/modules/selection-registry.js';
 import { finishPlacementPreview } from '../src/pcb/modules/track-commands.js';
@@ -14,21 +14,32 @@ import { updateTextDrag } from '../src/pcb/modules/pcb-text-selection.js';
 import { updateRefTextDrag, handleRefDrag } from '../src/pcb/modules/ref-text-selection.js';
 
 globalThis.window = { addEventListener() {} };
-globalThis.document = { getElementById: () => null };
+globalThis.document = {
+    documentElement: { getAttribute: () => 'dark' },
+    createElementNS: () => ({
+        attributes: new Map(), children: [], dataset: {}, style: {},
+        setAttribute(name, value) { this.attributes.set(name, String(value)); },
+        getAttribute(name) { return this.attributes.get(name) ?? null; },
+        appendChild(child) { this.children.push(child); child.parentNode = this; },
+        remove() { this.parentNode?.removeChild?.(this); },
+    }),
+    getElementById: () => null,
+};
 const { default: PCBApp } = await import('../src/ui/PCBApp.js');
 
 function fixture(viewport) {
-    const text = { id: 'text', x: 0, y: 0, size: 1, strokeWidth: 0.1 };
+    const text = { id: 'text', content: 'T', x: 0, y: 0, size: 1, strokeWidth: 0.1, layer: 'top-silk' };
     const pcbDocument = new PcbDocument();
     pcbDocument.texts.set(text.id, text);
     const placement = { x: 0, y: 0, pads: new Map(), refDx: 0, refDy: 0 };
     const app = {
         viewport, pcbDocument, placements: new Map([['part', placement]]),
-        tracks: [], getLayerGroup: () => null,
-        refreshText() {}, _removeTextElement() {}, updateRatsnest() {}, _drawRefOverlay() {}, _drawBoardOutline() {},
+        tracks: [], getLayerGroup: () => ({ querySelector: () => null, querySelectorAll: () => [], appendChild() {} }),
+        refreshText() {}, updateRatsnest() {}, _drawRefOverlay() {},
         screenToWorld: event => ({ x: event.clientX, y: event.clientY }),
-        _boardOutlineSelected: true, _boardOutlineDrawn: true,
     };
+    initializeBoardOutlineState(app, true);
+    setBoardOutlineSelected(app, true);
     setPcbInteraction(app, '_textDrag', { textId: text.id, startWorld: { x: 0, y: 0 }, startPos: { x: 0, y: 0 } });
     setPcbInteraction(app, '_drag', { compId: 'part', startWorld: { x: 0, y: 0 }, startPos: { x: 0, y: 0 }, nets: new Set() });
     setPcbInteraction(app, '_refDrag', { compId: 'part', startWorld: { x: 0, y: 0 }, startDx: 0, startDy: 0 });

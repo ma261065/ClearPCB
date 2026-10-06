@@ -16,6 +16,7 @@ import { areDragOverlaysDeferred, setDragOverlaysDeferred } from '../src/pcb/mod
 import { getSelectionInteraction } from '../src/pcb/modules/selection-interaction.js';
 import { getGroupDrag } from '../src/pcb/modules/box-select.js';
 import { setPcbInteraction } from '../src/pcb/modules/pcb-interactions.js';
+import { getTextElement, renderText } from '../src/pcb/modules/pcb-text-render.js';
 
 class Element {
     constructor() { this.attributes = new Map(); this.children = []; this.dataset = {}; }
@@ -53,21 +54,28 @@ function fixture(mixed) {
     for (const text of texts) project.pcbDocument.texts.set(text.id, text);
     const groups = new Map(['top-silk', 'bottom-copper', 'bottom-document', 'top-copper'].map(id => [id, new Element()]));
     let renders = 0;
+    for (const group of groups.values()) {
+        const append = group.appendChild;
+        group.appendChild = function (child) {
+            if (texts.slice(0, 2).some(text => text.id === child.dataset?.textId)) renders++;
+            return append.call(this, child);
+        };
+    }
     const app = {
         project, pcbDocument: project.pcbDocument, placementState: project.pcbDocument.placementState,
         placements, history: new CommandHistory(), vias: [], pads: [], boardShapes: [],
         viewport: { svg: { style: {} }, scale: 10, snapToGrid: true, gridVisible: true, gridSize: 1 },
-        _textElements: new Map(), _shapeElements: new Map(),
+        _shapeElements: new Map(),
         getLayerGroup: id => groups.get(id) || null,
         _refreshBoardShapeClearance() {}, _ensureViewport() {}, markSectionClean() {}, _cancelDrawingMode() {},
         _cancelPosePreviews: PCBApp.prototype._cancelPosePreviews,
-        refreshText: PCBApp.prototype.refreshText, _removeTextElement: PCBApp.prototype._removeTextElement,
-        _renderText(text) { renders++; PCBApp.prototype._renderText.call(this, text); },
+        refreshText: PCBApp.prototype.refreshText,
+        renderText(text) { renderText(this, text); },
     };
     for (const key of ['texts', 'tracks']) Object.defineProperty(app, key, Object.getOwnPropertyDescriptor(PCBApp.prototype, key));
     setPcbSelection(app, [...texts.slice(0, 2).map(object => ({ kind: 'text', object })),
         ...(mixed ? [{ kind: 'component', object: 'part' }] : [])]);
-    for (const text of texts) app._renderText(text);
+    for (const text of texts) app.renderText(text);
     renders = 0;
     return { app, track, texts, groups, renders: () => renders };
 }
@@ -79,7 +87,7 @@ for (const mixed of [false, true]) for (const deferred of [false, true]) {
         const pose = capturePlacementOverride(app.placements.get('part'));
         const graph = track.captureState(), bounds = track.getBounds();
         let geometry = app.pcbDocument.captureGeometry(), serialized = app.pcbDocument.serialize();
-        const otherSvg = app._textElements.get(texts[2].id);
+        const otherSvg = getTextElement(app, texts[2].id);
         const redo = { execute() {}, undo() {} };
         app.history.execute(redo);
         app.history.undo();
@@ -117,7 +125,7 @@ for (const mixed of [false, true]) for (const deferred of [false, true]) {
             assert.deepEqual(app.pcbDocument.serialize(), serialized);
             assert.deepEqual(track.captureState(), graph);
             assert.equal(track._bounds, bounds);
-            assert.equal(app._textElements.get(texts[2].id), otherSvg);
+            assert.equal(getTextElement(app, texts[2].id), otherSvg);
             for (const text of texts) assert.equal(groups.get(text.layer).children.length, 1);
             if (finish === 'commit') {
                 app.viewport.snapToGrid = false;
@@ -142,7 +150,9 @@ for (const mixed of [false, true]) for (const deferred of [false, true]) {
                 app._active = false;
                 loadPcb(app, null);
                 assert.equal(app.pcbDocument.texts.size, 0);
-                assert.equal(app._textElements.size, 0);
+                assert.equal(getTextElement(app, texts[0].id), null);
+                assert.equal(getTextElement(app, texts[1].id), null);
+                assert.equal(getTextElement(app, texts[2].id), null);
                 assert.equal(app.placements.size, 0);
             } else {
                 if (finish === 'missing-text' || finish === 'missing-part') {
@@ -164,7 +174,7 @@ for (const mixed of [false, true]) for (const deferred of [false, true]) {
                 assert.deepEqual(capturePlacementOverride(app.placements.get('part')), pose);
                 assert.equal(app.history.canUndo(), false);
                 assert.equal(app.history.redoStack[0], redo);
-                if (finish === 'missing-text') assert.equal(app._textElements.has(texts[1].id), false);
+                if (finish === 'missing-text') assert.equal(getTextElement(app, texts[1].id), null);
             }
             assert.equal(getTextPosePreviewTexts(app), undefined);
             assert.equal(getPlacementPreviewTracks(app), undefined);

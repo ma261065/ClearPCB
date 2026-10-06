@@ -12,6 +12,7 @@ import {
 import { getPcbSelectionEntries, isPcbSelected } from './selection-registry.js';
 import { schedulePictureCopperRefresh } from './picture-refresh.js';
 import { deferDerivedUpdate } from '../../core/DerivedUpdates.js';
+import { removeTextElement, renderText } from './pcb-text-render.js';
 
 const textPosePreviews = new WeakMap();
 const TEXT_STYLE_FIELDS = ['layer', 'size', 'rotation', 'strokeWidth', 'x', 'y'];
@@ -95,7 +96,7 @@ export function finishTextPropertyPreview(app, commit) {
         const text = app.pcbDocument.texts.get(id);
         if (!text) {
             textPosePreviews.delete(app);
-            app._removeTextElement(id);
+            removeTextElement(app, id);
         } else {
             const copy = preview.copies.get(id);
             const changed = TEXT_STYLE_FIELDS.some(key => copy[key] !== text[key]);
@@ -122,7 +123,7 @@ export function finishTextPosePreview(app, commit) {
         if (preview && !committed) {
             for (const [id, copy] of preview.copies) {
                 const text = app.pcbDocument.texts.get(id);
-                if (!text) app._removeTextElement(id);
+                if (!text) removeTextElement(app, id);
                 else if (commit || ['x', 'y', 'rotation'].some(key => text[key] !== copy[key])) {
                     app.refreshText(id);
                 }
@@ -148,10 +149,10 @@ export class AddTextCommand extends ModelAddTextCommand {
     execute() {
         super.execute();
         schedulePictureCopperRefresh(this.app, this.text);
-        this.app._renderText(this.text);
+        renderText(this.app, this.text);
     }
     undo() {
-        this.app._removeTextElement(this.text.id);
+        removeTextElement(this.app, this.text.id);
         super.undo();
         schedulePictureCopperRefresh(this.app, this.text);
         if (isPcbSelected(this.app, 'text', this.text)) {
@@ -168,7 +169,7 @@ export class RemoveTextCommand extends ModelRemoveTextCommand {
     }
     execute() {
         const text = this.document.texts.get(this.snapshot.id);
-        this.app._removeTextElement(this.snapshot.id);
+        removeTextElement(this.app, this.snapshot.id);
         super.execute();
         schedulePictureCopperRefresh(this.app, this.snapshot);
         if (text && isPcbSelected(this.app, 'text', text)) {
@@ -179,7 +180,7 @@ export class RemoveTextCommand extends ModelRemoveTextCommand {
         super.undo();
         const text = this.document.texts.get(this.snapshot.id);
         schedulePictureCopperRefresh(this.app, text);
-        this.app._renderText(text);
+        renderText(this.app, text);
     }
 }
 

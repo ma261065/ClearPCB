@@ -171,7 +171,7 @@ function fixture() {
     test.bootstrap.schematicApp = { shapes: [], components: [] };
     test.bootstrap.pcbApp = {
         tracks: [], vias: [], boardShapes: [], texts: new Map(),
-        _placementOverrides: new Map(), _boardOutlineDrawn: false,
+        _placementOverrides: new Map(), isBoardOutlineDrawn: () => false,
     };
     assert.equal(test.bootstrap._isProjectBlank(), true);
     test.bootstrap.pcbApp.tracks.push({});

@@ -13,7 +13,7 @@ import { renderFootprint, applyRefGeometry, REF_DEFAULT_SIZE, REF_DEFAULT_STROKE
 import { updateGridDropdown, restoreGridSettings, serializeGridSettings } from '../shared/ui/viewport.js';
 import { setToolCursor } from '../shared/ui/cursor.js';
 import { applyTextConnectionGuide, setInlineTextInputActive } from '../shared/ui/inline-text-overlay.js';
-import { PCB_LAYERS, PCB_OVERLAYS, PCB_COPPER_FILLS, pcbLayerName, isLayerLocked, isViaLocked, isLayerVisible, isViaVisible, pcbLayerHoverColor, pcbLayerSelectionColor, isCopperFillLocked, isCopperFillVisible } from '../pcb/modules/layers.js';
+import { PCB_LAYERS, PCB_OVERLAYS, PCB_COPPER_FILLS, pcbLayerName, isLayerLocked, isViaLocked, isLayerVisible, isViaVisible, isCopperFillLocked, isCopperFillVisible } from '../pcb/modules/layers.js';
 import { exportDSN, importSES } from '../pcb/modules/dsn.js';
 import { disposeDrcRefresh, invalidateDrcRefresh } from '../pcb/modules/drc-refresh.js';
 import {
@@ -21,7 +21,6 @@ import {
     drcShouldRun,
     initDrc,
     peekDrcPresentation,
-    refreshSelectedDrcMarker,
     scheduleDrc,
     setDrcRatlines,
 } from '../pcb/modules/drc-state.js';
@@ -57,7 +56,7 @@ import {
     buildDrawnTrackCommands,
 } from '../pcb/modules/track-drag.js';
 import { AddTrackCommand, AddViaCommand, RemoveTrackCommand, ReplaceRoutesCommand, CompoundCommand, MovePlacementCommand, RotatePlacementCommand, SetPlacementLockedCommand, FlipPlacementCommand, SetPlacementSideCommand, SetPlacementRefVisibleCommand, MoveRefTextCommand, RotateRefTextCommand, SetRefStyleCommand, previewPlacementPose, finishPlacementPreview, getPlacementPreviewTracks, getViaPropertyPreview, getTrackPropertyPreview, canonicalTrack, renderPlacementPose, renderPlacementSide, applyPlacementRefVisible, placementTransform, isPlacementMirrored } from '../pcb/modules/track-commands.js';
-import { renderPcbText, pcbTextHitTest, textColorForLayer } from '../pcb/modules/pcb-text.js';
+import { textColorForLayer } from '../pcb/modules/pcb-text.js';
 import { createPcbText, serializePcbText } from '../core/pcb-text.js';
 import { showAlert } from '../shared/ui/modal.js';
 import { connectBoxOutlines } from '../core/geometry.js';
@@ -112,6 +111,7 @@ import '../pcb/modules/copper-fill-selection.js';
 import { startFillEditAt, updateFillEdit, endFillEdit, deleteFocusedFillPart, showFillProperties, showFillToolProperties } from '../pcb/modules/copper-fill-edit.js';
 import { beginComponentDrag, endComponentDrag, scheduleComponentDragUpdate, updateComponentDrag } from '../pcb/modules/component-selection.js';
 import { beginTextDrag, endTextDrag, getTextDrag, updateTextDrag } from '../pcb/modules/pcb-text-selection.js';
+import { clearTextElements, hitTestText, refreshText as refreshPcbText, renderText, setTextHover } from '../pcb/modules/pcb-text-render.js';
 import { beginRefTextDrag, endRefDrag, getRefDrag, isRefTextLocked, updateRefTextDrag } from '../pcb/modules/ref-text-selection.js';
 import {
     getFillDraw,
@@ -123,7 +123,17 @@ import { preparePcbPaste, beginPcbPaste, updatePcbPaste, endPcbPaste, cancelPcbP
 import { getBoardOutline, boardBoundary } from '../shared/pcb/board-outline.js';
 import { getPropertyEditor, setPropertyEditor } from '../pcb/modules/property-editors.js';
 import { areDragOverlaysDeferred, isFillRefreshPending, onRefreshSuspended, setDragOverlaysDeferred } from '../pcb/modules/refresh-state.js';
-import { endBoardOutlineResize, renderBoardOutlineHandles, getBoardDimensionPreview, showBoardOutlineProperties, showBoardDimensionsDialog, closeBoardDimensionsDialog } from '../pcb/modules/board-outline-resize.js';
+import {
+    drawBoardOutline,
+    getBoardDimensionPreview,
+    initializeBoardOutlineState,
+    isBoardOutlineDrawn as boardOutlineDrawn,
+    isBoardOutlineSelected,
+    renderBoardOutlineHandles,
+    selectBoardOutline,
+    showBoardDimensionsDialog,
+    showBoardOutlineProperties,
+} from '../pcb/modules/board-outline-resize.js';
 import { getBoardShapeNodeFocus, getBoardShapeSegmentFocus } from '../pcb/modules/board-shape-state.js';
 import { showTextToolProperties, showTextProperties, bindStrokeTextProps } from '../pcb/modules/text-properties.js';
 import { showPadEditor } from '../pcb/modules/pad-properties.js';
@@ -293,10 +303,7 @@ export default class PCBApp {
         this._syncTimer = null;
         /** True after the first sync (governs fitToBounds) */
         this._hasContent = false;
-        /** Whether a board outline exists, including before its first render. */
-        this._boardOutlineDrawn = !!getBoardOutline(this);
-        /** Whether the board outline is currently selected */
-        this._boardOutlineSelected = false;
+        initializeBoardOutlineState(this, !!getBoardOutline(this));
         /** UI element refs (set by controls.js) */
         this.ui = null;
 
@@ -313,8 +320,6 @@ export default class PCBApp {
         /** True while a marquee is actively being dragged */
         this._boxSelectActive = false;
 
-        /** SVG <g> elements keyed by text id for quick remove/replace. */
-        this._textElements = new Map();
         /** Currently selected text object, or null. */
         /** Overlay <g> for the ref-text selection box and drag tether. */
         this._refOverlay = null;
@@ -424,7 +429,7 @@ export default class PCBApp {
         // (re)drawn by _renderPersistentObjects whenever the layer DOM is
         // built or rebuilt. If no dimensions exist yet this is a brand-new
         // board, so prompt the user for them.
-        if (!this._boardOutlineDrawn) {
+        if (!boardOutlineDrawn(this)) {
             this._showBoardDimensionsDialog();
         }
     }
@@ -1001,7 +1006,7 @@ export default class PCBApp {
         if (trackHit) {
             this._hoverComponent(null);
             this._selectComponent(null);
-            this._selectBoardOutline(false);
+            selectBoardOutline(this, false);
             selectTrackOrVia(this, trackHit);
             // Fresh whole-track selection — not a segment-refine click.
             setSegmentClickEdgeId(this, null);
@@ -1029,7 +1034,7 @@ export default class PCBApp {
         const shapeHit = hitTestBoardShape(this, worldPos);
         if (shapeHit) {
             this._selectComponent(null);
-            this._selectBoardOutline(false);
+            selectBoardOutline(this, false);
             this.selectText(null);
             this._selectRefText(null);
             this.selectFill(null);
@@ -1042,10 +1047,10 @@ export default class PCBApp {
             return;
         }
         selectBoardShape(this, null);
-        const textHit = this._hitTestText(worldPos);
+        const textHit = hitTestText(this, worldPos);
         if (textHit) {
             this._selectComponent(null);
-            this._selectBoardOutline(false);
+            selectBoardOutline(this, false);
             this.selectText(textHit);
             this.showTextProperties(textHit);
             beginTextDrag(this, textHit, worldPos);
@@ -1060,7 +1065,7 @@ export default class PCBApp {
         const refHit = this._hitTestRefText(worldPos);
         if (refHit) {
             this._selectComponent(null);
-            this._selectBoardOutline(false);
+            selectBoardOutline(this, false);
             this._selectRefText(refHit);
             const dragging = beginRefTextDrag(this, refHit, worldPos);
             this._showRefProperties(refHit);
@@ -1072,23 +1077,23 @@ export default class PCBApp {
         const hit = this._hitTestComponent(worldPos);
         if (hit) {
             this._selectComponent(hit);
-            this._selectBoardOutline(false);
+            selectBoardOutline(this, false);
             this.showComponentProperties(hit);
             if (beginComponentDrag(this, hit, worldPos)) svg.style.cursor = 'grabbing';
         } else if (this._hitTestBoardOutline(worldPos)) {
             this._selectComponent(null);
             this.selectFill(null);
-            this._selectBoardOutline(true);
+            selectBoardOutline(this, true);
             this._showBoardOutlineProperties();
         } else if (this._hitTestFill(worldPos)) {
             const fillHit = this._hitTestFill(worldPos);
             this._selectComponent(null);
-            this._selectBoardOutline(false);
+            selectBoardOutline(this, false);
             this.selectFill(fillHit);
             this._showFillProperties(fillHit);
         } else {
             this._selectComponent(null);
-            this._selectBoardOutline(false);
+            selectBoardOutline(this, false);
             this.selectFill(null);
             this.clearProperties();
             // Empty canvas: arm a box-select. The marquee only
@@ -1506,7 +1511,7 @@ export default class PCBApp {
     /** @param {'new'|'open'|'import'} reason */
     onDocumentReplaced(reason) {
         this.setActiveRibbonTab?.('pcb-home');
-        if (reason === 'new' && this._active && !this._boardOutlineDrawn) {
+        if (reason === 'new' && this._active && !boardOutlineDrawn(this)) {
             this._showBoardDimensionsDialog();
         }
     }
@@ -1792,36 +1797,14 @@ export default class PCBApp {
 
     // ── Board Outline ─────────────────────────────────────────────
 
-    /** Close the Board Dimensions dialog, if open; a seam tests and project-state.js call. */
-    _closeBoardDimensionsDialog() {
-        closeBoardDimensionsDialog(this);
-    }
-
     /** Ask for the board size on first entry (board-outline-resize.js); a seam tests stub. */
     _showBoardDimensionsDialog() {
         showBoardDimensionsDialog(this);
     }
 
-    /**
-     * Draw (or redraw) the board outline on the board-outline layer.
-     */
-    _drawBoardOutline() {
-        const layer = this.getLayerGroup('board-outline');
-        const old = layer.querySelector('.pcb-board-outline');
-        if (old) old.remove();
-        const shape = getBoardOutline(this);
-        if (!shape) {
-            this._boardOutlineDrawn = false;
-            return;
-        }
-        renderBoardShape(this, shape, { liveDrag: !!getBoardDimensionPreview(this) || areDragOverlaysDeferred(this) });
-        const wasDrawn = this._boardOutlineDrawn;
-        this._boardOutlineDrawn = true;
-        renderPanelPreview(this);
-        if (!wasDrawn && this.viewport && !getBoardDimensionPreview(this)) {
-            const bounds = boardBoundary(this);
-            this.viewport.fitToBounds(bounds.x, bounds.y, bounds.x + bounds.w, bounds.y + bounds.h, 5);
-        }
+    /** Read-only board outline state used by browser helpers and page readiness checks. */
+    isBoardOutlineDrawn() {
+        return boardOutlineDrawn(this);
     }
 
     // ── Properties Panel ──────────────────────────────────────────
@@ -1831,7 +1814,7 @@ export default class PCBApp {
      */
     _hitTestBoardOutline(pos) {
         if (getBoardOutline(this)) return false;
-        if (!this._boardOutlineDrawn) return false;
+        if (!boardOutlineDrawn(this)) return false;
         // The board outline lives on the 'board-outline' layer; don't allow
         // selecting/hovering it while that layer is locked or hidden.
         if (isLayerLocked('board-outline') || !isLayerVisible('board-outline')) return false;
@@ -1855,39 +1838,13 @@ export default class PCBApp {
     _hoverBoardOutline(hovered) {
         const outline = this.getLayerGroup('board-outline').querySelector('.pcb-board-outline');
         if (!outline) return;
-        if (this._boardOutlineSelected) return; // don't override selection highlight
+        if (isBoardOutlineSelected(this)) return; // don't override selection highlight
         if (hovered) {
             outline.setAttribute('stroke', '#ffe066');
             outline.setAttribute('stroke-width', '0.35');
         } else {
             outline.setAttribute('stroke', '#f1c40f');
             outline.setAttribute('stroke-width', '0.2');
-        }
-    }
-
-    /**
-     * Set board outline selection state.
-     */
-    _selectBoardOutline(selected) {
-        const shape = getBoardOutline(this);
-        if (shape && selected) {
-            selectBoardShape(this, shape);
-            return;
-        }
-        if (!selected) endBoardOutlineResize(this, false);
-        if (!selected) getPropertyEditor(this, 'boardDimension')?.dispose();
-        this._boardOutlineSelected = selected;
-        renderBoardOutlineHandles(this);
-        const outline = this.getLayerGroup('board-outline').querySelector('.pcb-board-outline');
-        if (!outline) return;
-        if (selected) {
-            outline.setAttribute('stroke', '#ffffff');
-            outline.setAttribute('stroke-width', '0.4');
-            outline.setAttribute('stroke-dasharray', '1.5,0.8');
-        } else {
-            outline.setAttribute('stroke', '#f1c40f');
-            outline.setAttribute('stroke-width', '0.2');
-            outline.removeAttribute('stroke-dasharray');
         }
     }
 
@@ -2112,10 +2069,6 @@ export default class PCBApp {
         showBoardShapeToolProperties(this, kind);
     }
 
-    _syncBoardOutlineInputs() {
-        getPropertyEditor(this, 'boardDimension')?.sync();
-    }
-
     /**
      * Show board outline properties and switch to Properties tab.
      */
@@ -2322,7 +2275,7 @@ export default class PCBApp {
         // Keep free-standing board shapes above freshly placed footprint
         // artwork after a schematic-driven rebuild.
         for (const s of this.boardShapes) {
-            if (s.type === 'fill' || (this._boardOutlineDrawn && s.layer === 'board-outline')) continue;
+            if (s.type === 'fill' || (boardOutlineDrawn(this) && s.layer === 'board-outline')) continue;
             renderBoardShape(this, s, { skipCopperUpdate: true });
         }
         this.updateCopperCuts?.();
@@ -2359,14 +2312,14 @@ export default class PCBApp {
 
         // Board outline. Its model (width/height/radius) survives the rebuild
         // but its SVG is wiped by _clearPCBContent, so redraw it here.
-        if (this._boardOutlineDrawn) {
-            this._drawBoardOutline();
+        if (boardOutlineDrawn(this)) {
+            drawBoardOutline(this);
         }
 
         // Free-standing texts.
-        this._textElements.clear();
+        clearTextElements(this);
         for (const t of this.texts.values()) {
-            this._renderText(t);
+            renderText(this, t);
         }
 
         // Tracks and vias.
@@ -2387,7 +2340,7 @@ export default class PCBApp {
         // Free-standing board shapes; CopperFill entries render separately.
         for (const s of this.boardShapes) {
             if (!renderShapes || s.type === 'fill'
-                || (this._boardOutlineDrawn && s.layer === 'board-outline')) continue;
+                || (boardOutlineDrawn(this) && s.layer === 'board-outline')) continue;
             renderBoardShape(this, s, { skipCopperUpdate: true });
         }
         if (renderShapes) this.updateCopperCuts?.();
@@ -2816,8 +2769,8 @@ export default class PCBApp {
             // Net-name tooltip for the hovered copper object.
             this._updateNetTooltip(ev, hovered);
             // Hover highlight for text annotations.
-            const textHover = this._hitTestText(worldPos);
-            this._setTextHover(textHover);
+            const textHover = hitTestText(this, worldPos);
+            setTextHover(this, textHover);
             // Hover highlight for free-standing board shapes.
             setBoardShapeHover(this, shapeHover);
             const overlapHitCount = selectionHits.length;
@@ -3166,74 +3119,9 @@ export default class PCBApp {
         return this.viewport?.getSnappedPosition?.(point) || { x: point.x, y: point.y };
     }
 
-    /**
-     * Render `text` into its layer group, replacing any prior element
-     * with the same id. Stores the new element in _textElements.
-     */
-    _renderText(text) {
-        this._removeTextElement(text.id);
-        const layerG = this.getLayerGroup(text.layer);
-        if (!layerG) return;
-        const isSel = isPcbSelected(this, 'text', text);
-        const isHover = !isSel && this._hoveredText?.id === text.id;
-        // While inline-editing, render the text in white so it doesn't
-        // disappear against same-coloured tracks/pads on the layer.
-        const isEditing = activeTextInlineEdit(this)?.text?.id === text.id;
-        const isLight = document.documentElement.getAttribute('data-theme') === 'light';
-        const selColor = pcbLayerSelectionColor(text.layer);
-        const hoverColor = pcbLayerHoverColor(text.layer);
-        const editColor = isLight ? '#000000' : '#ffffff';
-        const strokeOverride = isEditing ? editColor
-            : isSel ? selColor
-            : isHover ? hoverColor
-            : undefined;
-        const el = renderPcbText(text, strokeOverride);
-        layerG.appendChild(el);
-        this._textElements.set(text.id, el);
-        this._refreshBoardShapeClearance(text);
-        if (isSel) renderPcbSelectionAnchors(this);
-        // If this text is being inline-edited, keep the editing
-        // box/caret transform in sync with any property changes
-        // (rotation, size, layer mirror) that just re-rendered it.
-        if (isEditing) activeTextInlineEdit(this)?.updateCaret?.();
-    }
-
-    /** Remove the SVG element for a text id (model untouched). */
-    _removeTextElement(id) {
-        const el = this._textElements.get(id);
-        if (el?.parentNode) el.parentNode.removeChild(el);
-        this._textElements.delete(id);
-    }
-
-    /** Set/clear hover highlight for text annotations. */
-    _setTextHover(text) {
-        const prev = this._hoveredText || null;
-        const next = text || null;
-        if (prev === next || (prev && next && prev.id === next.id)) return;
-        this._hoveredText = next;
-        if (prev && (!next || prev.id !== next.id)) this.refreshText(prev.id);
-        if (next) this.refreshText(next.id);
-    }
-
     /** Re-render an existing text in place (e.g. after a property change). */
     refreshText(id) {
-        const t = this.texts.get(id);
-        if (!t) return;
-        this._renderText(t);
-        refreshSelectedDrcMarker(this);
-    }
-
-    /**
-     * Hit-test the given world point against every text. Returns the
-     * topmost (last-added) hit, or null.
-     */
-    _hitTestText(worldPos) {
-        let hit = null;
-        for (const t of this.texts.values()) {
-            if (boardShapeLocked(t) || !isLayerVisible(t.layer)) continue;
-            if (pcbTextHitTest(t, worldPos.x, worldPos.y)) hit = t;
-        }
-        return hit;
+        refreshPcbText(this, id);
     }
 
     /** Select/deselect a text. Pass null to clear. */
@@ -3258,7 +3146,7 @@ export default class PCBApp {
     // schematic; reference edits update that source through its property command.
 
     _tryEditReferenceAt(worldPos) {
-        if (this._hitTestText(worldPos)) return false;
+        if (hitTestText(this, worldPos)) return false;
         const compId = this._hitTestRefText(worldPos);
         const pl = this.placements.get(compId);
         const component = this.project?.getComponentInfo(compId);

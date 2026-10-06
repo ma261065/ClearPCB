@@ -13,6 +13,7 @@ import { getSelectionInteraction } from '../src/pcb/modules/selection-interactio
 import { getTextDrag } from '../src/pcb/modules/pcb-text-selection.js';
 import { isRotationHandleDragActive } from '../src/pcb/modules/rotation-handle.js';
 import { setPcbInteraction } from '../src/pcb/modules/pcb-interactions.js';
+import { getTextElement, renderText } from '../src/pcb/modules/pcb-text-render.js';
 
 class Element {
     constructor() { this.attributes = new Map(); this.children = []; this.dataset = {}; }
@@ -39,15 +40,14 @@ function fixture(layer) {
         pcbDocument, history: new CommandHistory({ onChanged: () => changes++ }),
         viewport: { svg: { style: {} }, scale: 10, snapToGrid: false, setCrosshair() {}, hideCrosshair() {} },
         placements: new Map(), tracks: [], vias: [], pads: [], boardShapes: [],
-        getLayerGroup: id => id === layer ? group : null, _textElements: new Map(), _shapeElements: new Map(),
+        getLayerGroup: id => id === layer ? group : null, _shapeElements: new Map(),
         _refreshBoardShapeClearance() {}, _cancelDrawingMode() {}, _ensureViewport() {}, markSectionClean() {},
     };
     Object.defineProperty(app, 'texts', Object.getOwnPropertyDescriptor(PCBApp.prototype, 'texts'));
-    for (const name of ['snapToGrid', '_renderText',
-        'refreshText', '_removeTextElement', '_cancelPosePreviews']) app[name] = PCBApp.prototype[name];
+    for (const name of ['snapToGrid', 'refreshText', '_cancelPosePreviews']) app[name] = PCBApp.prototype[name];
     setPcbSelection(app, [{ kind: 'text', object: text }]);
-    app._renderText(text);
-    app._renderText(unrelated);
+    renderText(app, text);
+    renderText(app, unrelated);
     return { app, text, unrelated, group, changes: () => changes,
         adapter: createPcbTextSelectionAdapter(app, text, `text:${text.id}`) };
 }
@@ -59,8 +59,8 @@ for (const layer of TEXT_LAYERS) for (const gesture of ['move', 'rotate']) {
         const canonicalMap = app.pcbDocument.texts;
         const geometry = app.pcbDocument.captureGeometry();
         const serialized = app.pcbDocument.serialize();
-        const originalSvg = app._textElements.get(text.id).getAttribute('transform');
-        const otherSvg = app._textElements.get(unrelated.id);
+        const originalSvg = getTextElement(app, text.id).getAttribute('transform');
+        const otherSvg = getTextElement(app, unrelated.id);
         const redo = { execute() {}, undo() {} };
         app.history.execute(redo);
         app.history.undo();
@@ -101,9 +101,9 @@ for (const layer of TEXT_LAYERS) for (const gesture of ['move', 'rotate']) {
             assert.deepEqual(app.pcbDocument.captureGeometry(), geometry);
             assert.deepEqual(app.pcbDocument.serialize(), serialized);
             assert.equal(f.changes(), changes);
-            assert.equal(app._textElements.get(unrelated.id), otherSvg);
+            assert.equal(getTextElement(app, unrelated.id), otherSvg);
             const final = { ...projected };
-            const previewSvg = app._textElements.get(text.id).getAttribute('transform');
+            const previewSvg = getTextElement(app, text.id).getAttribute('transform');
             assert.notEqual(previewSvg, originalSvg);
             if (finish === 'load') {
                 app._active = false;
@@ -131,12 +131,12 @@ for (const layer of TEXT_LAYERS) for (const gesture of ['move', 'rotate']) {
             assert.ok(!isRotationHandleDragActive(app));
             if (finish === 'commit') {
                 assert.deepEqual(text, final);
-                assert.equal(app._textElements.get(text.id).getAttribute('transform'), previewSvg);
+                assert.equal(getTextElement(app, text.id).getAttribute('transform'), previewSvg);
                 assert.equal(app.history.undoStack.length, 1);
                 assert.equal(app.history.canRedo(), false);
                 app.history.undo();
                 assert.deepEqual(text, original);
-                assert.equal(app._textElements.get(text.id).getAttribute('transform'), originalSvg);
+                assert.equal(getTextElement(app, text.id).getAttribute('transform'), originalSvg);
                 app.history.redo();
                 assert.deepEqual(text, final);
             } else if (finish !== 'load') {
@@ -145,10 +145,10 @@ for (const layer of TEXT_LAYERS) for (const gesture of ['move', 'rotate']) {
                 assert.equal(app.history.redoStack[0], redo);
                 if (finish === 'missing') {
                     assert.equal(canonicalMap.has(text.id), false);
-                    assert.equal(app._textElements.has(text.id), false);
+                    assert.equal(getTextElement(app, text.id), null);
                 } else {
                     assert.deepEqual(app.pcbDocument.serialize(), serialized);
-                    assert.equal(app._textElements.get(text.id).getAttribute('transform'), originalSvg);
+                    assert.equal(getTextElement(app, text.id).getAttribute('transform'), originalSvg);
                 }
             }
         } finally { cancelPictureCopperRefresh(app); }

@@ -188,7 +188,6 @@ for (const finish of ['commit', 'cancel', 'no-op']) {
     app._active = false;
     app._ensureViewport = () => {};
     app.markSectionClean = () => {};
-    app._textElements = new Map();
     app._shapeElements = new Map();
     beginGroupDrag(app, { x: 0, y: 0 });
     updateGroupDrag(app, { x: 3, y: 4 }, { snap: false });

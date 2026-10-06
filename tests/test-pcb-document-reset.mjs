@@ -47,7 +47,7 @@ globalThis.document = {
 };
 globalThis.localStorage = { getItem() { return null; }, setItem() {}, removeItem() {} };
 const { default: PCBApp } = await import('../src/ui/PCBApp.js');
-const { boardDimensionsDialog } = await import('../src/pcb/modules/board-outline-resize.js');
+const { boardDimensionsDialog, initializeBoardOutlineState, isBoardOutlineDrawn } = await import('../src/pcb/modules/board-outline-resize.js');
 const { default: SchematicApp } = await import('../src/ui/SchematicApp.js');
 const { ProjectDocument } = await import('../src/core/ProjectDocument.js');
 const { newFile } = await import('../src/schematic/modules/files.js');
@@ -65,7 +65,7 @@ function fixture(active) {
         pcbDocument: project.pcbDocument,
         _active: active, currentTool: 'select', activeLayer: 'top-silk',
         tracks: [], vias: [], pads: [], boardShapes: [], texts: new Map(), placements: new Map(),
-        _shapeElements: new Map(), _textElements: new Map(),
+        _shapeElements: new Map(),
         placementState: project.pcbDocument.placementState, _placementOverrides: project.pcbDocument.placementState.overrides,
         designSettings: project.pcbDocument.designSettings,
         history: new CommandHistory(), netlist: [],
@@ -79,7 +79,7 @@ function fixture(active) {
         _showBoardDimensionsDialog() {
             assert.equal(this.boardShapes.length, 0, 'Prompt follows removal of the old shapes');
             assert.equal(getPcbSelectionEntries(this).length, 0, 'Prompt follows selection disposal');
-            assert.equal(this._boardOutlineDrawn, false);
+            assert.equal(isBoardOutlineDrawn(this), false);
             assert.deepEqual([this._boardWidth, this._boardHeight, this._boardRadius], [100, 80, 0]);
             lifecycle.push('dimensions');
         },
@@ -93,6 +93,7 @@ function fixture(active) {
         _updateCursorForTool() {}, _syncPcbHomeToolHighlight() {},
         refreshClearanceHalos() {}, refreshFills() {},
     });
+    initializeBoardOutlineState(app, false);
     const host = {
         document: project.schematicDocument,
         project, fileManager: project.fileManager, selection: { clearSelection() {} },
@@ -250,9 +251,9 @@ delete globalThis.bootstrap;
     assert.equal(first.parentNode, null, 'Replacing the document disposes its old dialog');
     assert.equal(document.body.children.length, 1);
     first.querySelector('#boardDlgOk').dispatchEvent({ type: 'click' });
-    assert.equal(app._boardOutlineDrawn, false, 'A stale dialog cannot change the replacement document');
+    assert.equal(isBoardOutlineDrawn(app), false, 'A stale dialog cannot change the replacement document');
     second.querySelector('#boardDlgOk').dispatchEvent({ type: 'click' });
-    assert.equal(app._boardOutlineDrawn, true, 'Accepting defaults creates the new board outline');
+    assert.equal(isBoardOutlineDrawn(app), true, 'Accepting defaults creates the new board outline');
     assert.equal(app.pcbDocument.boardShapes.filter(shape => shape.layer === 'board-outline').length, 1,
         'Default setup explicitly authors one model outline');
     assert.equal(project.isDirty, true, 'The newly created outline is eligible for saving');
