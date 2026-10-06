@@ -64,12 +64,15 @@ assertRecovery(names);
 const fixtureUrl = new URL('../EasyEDAScmTest.json', import.meta.url);
 if (existsSync(fixtureUrl)) {
     const source = readFileSync(fixtureUrl, 'utf8');
-    globalThis.document = {
-        createElement() {
-            return { click() { void this.onchange({ target: { files: [{ text: async () => source }] } }); } };
-        },
-    };
-    await importEasyEDA(app);
+    const createElement = document.createElement;
+    document.createElement = () => ({
+        click() { void this.onchange({ target: { files: [{ text: async () => source }] } }); },
+    });
+    try {
+        await importEasyEDA(app);
+    } finally {
+        document.createElement = createElement;
+    }
     assert.equal(alerts.length, 1, 'Import succeeds without another alert');
     assert.equal(project.schematicDocument.components.length, 42);
     assert.equal(manager.fileName, 'imported.cpcb');
