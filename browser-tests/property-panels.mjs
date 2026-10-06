@@ -164,9 +164,10 @@ export const scenarios = [
                 const open = app.openPropertyPanel.bind(app);
                 app.openPropertyPanel = (...args) => { window.__panelsOpened++; return open(...args); };
             });
-            await page.waitForTimeout(400);
             await clickAt(page, 38, -30);
-            assert.equal(await title(page), 'Copper Fill');
+            await page.waitForFunction(() => document.querySelector('#pcbPropsContent .ribbon-group-title')?.textContent === 'Copper Fill',
+                null, { timeout: 5000 }).catch(() => {});
+            assert.equal(await title(page), 'Copper Fill', 'clicking the pour edge selects it');
             const start = await screenPoint(page, 38, -30), end = await screenPoint(page, 44, -30);
             await page.evaluate(() => { window.__panelsOpened = 0; });
             await page.mouse.move(start.x, start.y);

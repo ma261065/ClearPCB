@@ -5,12 +5,17 @@ export async function openPcb(page, url) {
     await page.waitForFunction(() => window.bootstrap?.pcbApp && window.bootstrap?.schematicApp);
     if (await page.locator('#startupSplash').isVisible()) await page.locator('#startupContinue').click();
     await page.locator('.mode-tab[data-mode="pcb"]').click();
+    // A new board asks for its size once the editor activates (a frame or two after the tab
+    // switch on a slow machine); a restored board is drawn without asking.
+    await page.waitForFunction(() => window.bootstrap.pcbApp.isBoardOutlineDrawn()
+        || !!document.querySelector('.app-modal-overlay'));
     const ok = page.locator('.app-modal-overlay button', { hasText: 'OK' });
-    if (await ok.count()) {
-        await ok.first().waitFor();
-        await ok.first().click();
-    }
+    if (await ok.count()) await ok.first().click();
     await page.waitForFunction(() => window.bootstrap.pcbApp.isBoardOutlineDrawn());
+    // The outline can be drawn by the hidden preload before the editor is active, and an
+    // inactive editor ignores the pointer.
+    await page.waitForFunction(() => import('/src/pcb/modules/pcb-editor-api.js')
+        .then(api => api.isEditorActive(window.bootstrap.pcbApp)));
     await viewportSettled(page, 'pcb');
 }
 
