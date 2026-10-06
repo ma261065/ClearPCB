@@ -107,7 +107,10 @@ overwriting pending input, including undo/redo. Layer-side compensation uses the
 displayed content width. A pose gesture on the edited text (its rotation handle)
 ends with `finishTextPosePreview`, which keeps the content projection and re-syncs
 the pose from the model, so the typed text stays displayed whether the rotation
-commits or is cancelled.
+commits or is cancelled. The press on that rotation handle does not take focus
+from the hidden text input (`mouse.js` prevents its default), so the caret and
+selection stay where they were; refocusing the input during the held drag would
+let the browser extend its selection to the end.
 Completion (`finishTextContentPreview`) removes the projection before a content
 edit or deletion command;
 there is no temporary authored-content rollback. Cancel restores presentation

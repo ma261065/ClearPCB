@@ -172,6 +172,10 @@ function onMouseDown(app, e) {
         : null;
     const rotatingEditedText = selectedTextAnchor?.anchor?.symbol === 'rotate'
         && selectedTextAnchor.adapter?.object?.id === textEdit?.text?.id;
+    // Rotating the text being edited keeps the edit, so keep focus in its input. Letting
+    // the press blur it would refocus it while the button is held, and the drag would then
+    // extend the input's selection and move the caret to the end.
+    if (rotatingEditedText && e.button === 0) e.preventDefault();
     // Switch the ribbon back to Home on a canvas click — but not while drawing a track
     // or using another Properties-tab tool (its spinners must stay visible), not while
     // inline-editing text (the Properties tab hosts its size/rotation spinners), not when
