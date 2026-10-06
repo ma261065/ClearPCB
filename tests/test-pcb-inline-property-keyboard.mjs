@@ -45,6 +45,10 @@ globalThis.document = {
     removeEventListener: name => listeners.delete(name),
 };
 globalThis.window = { addEventListener() {} };
+// Node has Event but not InputEvent, which rerouted typing dispatches like real typing.
+globalThis.InputEvent = class InputEvent extends Event {
+    constructor(type, init = {}) { super(type, init); this.inputType = init.inputType ?? ''; this.data = init.data ?? null; }
+};
 const { default: PCBApp } = await import('../src/ui/PCBApp.js');
 const container = new Element('g');
 const completions = [];
@@ -100,18 +104,31 @@ try {
     }
     assert.deepEqual(completions, [true, false, true, false, true, false, true, false],
         'Enter/Escape retain inline commit/cancel behavior from properties');
+    {
+        const field = new Element('input');
+        field.id = 'pcbPropTextSize';
+        field.type = 'number';
+        properties.appendChild(field);
+        field.focus();
+        const event = key('x');
+        assert.equal(event.prevented, true, 'A letter a number field cannot hold resumes label typing');
+        assert.equal(document.activeElement, activeTextInlineEdit(app).input, 'and moves typing back to the label');
+        assert.equal(text.content, 'R12x');
+        field.remove();
+    }
     hiddenInput.focus();
     assert.equal(key('7').prevented, false, 'Hidden input still receives its own native keystrokes');
     const button = new Element('button');
     properties.appendChild(button);
     button.focus();
     assert.equal(key('7').prevented, true, 'Non-numeric property controls can still resume label typing');
-    assert.equal(text.content, 'R127');
+    assert.equal(text.content, 'R12x7');
 } finally {
     activeTextInlineEdit(app)?.overlay.destroy();
     activeTextInlineEdit(app)?.input.remove();
     setPcbInteraction(app, '_textEdit', null);
     delete globalThis.document;
     delete globalThis.window;
+    delete globalThis.InputEvent;
 }
 console.log('PASS numeric property keyboard ownership during PCB reference and text inline editing');

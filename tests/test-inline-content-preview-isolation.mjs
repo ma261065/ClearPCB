@@ -163,7 +163,8 @@ for (const layer of TEXT_LAYERS) for (const finish of ['commit', 'cancel', 'deac
                 assert.throws(() => app._endTextInlineEdit(true), /Injected content failure/);
             } else if (finish === 'deactivate') PCBApp.prototype.deactivate.call(app);
             else app._endTextInlineEdit(finish === 'commit');
-            if (finish === 'commit') {
+            // Leaving the editor commits the typing, like clicking elsewhere on the board.
+            if (finish === 'commit' || finish === 'deactivate') {
                 assert.equal(text.content, '  New content 99  ');
                 assert.equal(app.history.undoStack.length, historySize + 1);
                 app.history.undo();

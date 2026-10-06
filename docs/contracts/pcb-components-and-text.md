@@ -113,7 +113,13 @@ selection stay where they were; refocusing the input during the held drag would
 let the browser extend its selection to the end.
 Completion (`finishTextContentPreview`) removes the projection before a content
 edit or deletion command;
-there is no temporary authored-content rollback. Cancel restores presentation
+there is no temporary authored-content rollback. Enter commits, and so does
+leaving the edit by clicking elsewhere on the board, choosing another tool or
+ribbon tab, or switching to the schematic (`cancelPcbDrawingMode`); only Escape
+cancels, and a plain blur keeps editing. Typing `(c)`, `(r)` or `(tm)` inserts
+the symbol through the browser's `insertText` command, so Ctrl+Z straight after
+restores the literal text; Ctrl+Z while typing never steps the editor history.
+Cancel restores presentation
 from the current model, preserving independently committed property changes.
 Blank-content deletion and cancelled new-placement cleanup use
 RemoveTextCommand rather than deleting the canonical text map in the editor.
@@ -302,7 +308,9 @@ Reference rotation spinners use one-degree increments in both single-reference
 and multi-selection properties.
 During inline label editing, focused numeric properties retain their native
 typing, selection, clipboard and navigation keys; Enter/Escape still finish the
-inline edit. Rotation fields normalize their displayed angle on commit, not
+inline edit. A character a number field cannot hold (a letter, a space) goes to
+the label instead and moves typing back to it, so the user can keep typing after
+changing a property. Rotation fields normalize their displayed angle on commit, not
 while a signed value is being typed.
 
 Inline reference-name commits likewise let the project-owned rename command

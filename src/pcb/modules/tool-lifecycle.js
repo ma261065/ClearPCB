@@ -80,7 +80,9 @@ export function selectPcbTool(app, tool) {
 /** @param {import('../../ui/PCBApp.js').default} app */
 export function cancelPcbDrawingMode(app) {
     if (!PCB_CROSSHAIR_TOOLS.has(app.currentTool) && !isPcbDrawing(app) && !activeTextInlineEdit(app)) return false;
-    if (activeTextInlineEdit(app)) endTextInlineEdit(app, false);
+    // Leaving an inline text edit (another tool, a ribbon tab, the other editor) keeps what
+    // was typed, as clicking elsewhere on the board does; only Escape discards it.
+    if (activeTextInlineEdit(app)) endTextInlineEdit(app, true);
     app._cancelTrackDraw();
     app._cancelFillDraw();
     cancelShapeDraw(app);

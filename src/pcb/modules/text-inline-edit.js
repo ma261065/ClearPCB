@@ -14,7 +14,8 @@ import { getPcbInteraction, setPcbInteraction } from './pcb-interactions.js';
 /*
  * In-place editing of free PCB text: a hidden input captures keystrokes, IME and
  * clipboard while an SVG overlay draws the box and caret at the stroke font's real
- * glyph positions. Enter or blur commits, Escape cancels. The edit state is the
+ * glyph positions. Enter, a click elsewhere on the board, another tool or the other
+ * editor commits; Escape cancels; a blur alone keeps editing. The edit state is the
  * editor's `_textEdit` interaction (see pcb-interactions.js). Key handlers finish
  * the edit through endTextInlineEdit().
  */
@@ -44,9 +45,9 @@ export function activeTextInlineEdit(app) {
 }
 
 /**
- * Begin in-place editing of a PCB text annotation. Overlays an HTML
- * <input> positioned over the text via a <foreignObject>. Commits on
- * Enter or blur, cancels on Escape.
+ * Begin in-place editing of a PCB text annotation. A hidden input takes the
+ * keystrokes and an SVG overlay draws the box and caret. Commits on Enter,
+ * cancels on Escape (see the module comment for the other ways it ends).
  * @param {object} text
  * @param {{x:number,y:number}} [worldPos] - if given, the caret is
  *   placed at the character nearest this click point; otherwise it
@@ -138,10 +139,10 @@ export function startTextInlineEdit(app, text, worldPos, opts = {}) {
     keepVisible();
     activeTextInlineEdit(app).updateCaret = updateCaret;
 
-    const live = () => {
+    const live = (/** @type {Event} */ event) => {
         // Inline autoreplace for common typographic symbols. Matches
-        // only at the caret so the user can still type literal "(c)"
-        // by undoing (Ctrl+Z) after the substitution.
+        // only at the caret, only while typing, and goes through the
+        // browser's editing command so Ctrl+Z restores a literal "(c)".
         const AUTOREPLACE = [
             ['(c)',  '\u00A9'],
             ['(C)',  '\u00A9'],
@@ -151,14 +152,17 @@ export function startTextInlineEdit(app, text, worldPos, opts = {}) {
             ['(TM)', '\u2122'],
         ];
         const caret = input.selectionStart ?? input.value.length;
-        for (const [from, to] of AUTOREPLACE) {
+        const typing = /** @type {InputEvent} */ (event)?.inputType === 'insertText';
+        for (const [from, to] of typing ? AUTOREPLACE : []) {
             if (caret >= from.length &&
                 input.value.slice(caret - from.length, caret) === from) {
-                const before = input.value.slice(0, caret - from.length);
-                const after = input.value.slice(caret);
-                input.value = before + to + after;
-                const pos = before.length + to.length;
-                try { input.setSelectionRange(pos, pos); } catch { /* */ }
+                const start = caret - from.length;
+                try { input.setSelectionRange(start, caret); } catch { /* */ }
+                // insertText fires its own input event (not 'insertText' typing, so no loop).
+                if (!document.execCommand('insertText', false, to)) {
+                    input.value = input.value.slice(0, start) + to + input.value.slice(caret);
+                    try { input.setSelectionRange(start + to.length, start + to.length); } catch { /* */ }
+                }
                 break;
             }
         }
@@ -186,8 +190,11 @@ export function startTextInlineEdit(app, text, worldPos, opts = {}) {
         if (!(propsPanel && active && propsPanel.contains(active))) return;
         // Determine if this is a text-editing key we should reroute.
         const k = ev.key;
+        // A number field keeps its own keys (digits, signs, separators, arrows, editing
+        // keys); characters it cannot hold go back to the text, so typing resumes there.
+        const textCharacter = k.length === 1 && !ev.ctrlKey && !ev.metaKey && !/[0-9.,+\-]/.test(k);
         if (active.tagName === 'INPUT' && /** @type {HTMLInputElement} */ (active).type === 'number'
-            && k !== 'Enter' && k !== 'Escape') return;
+            && k !== 'Enter' && k !== 'Escape' && !textCharacter) return;
         const editingKey =
             k === 'ArrowLeft' || k === 'ArrowRight' ||
             k === 'Home' || k === 'End' ||
@@ -207,7 +214,7 @@ export function startTextInlineEdit(app, text, worldPos, opts = {}) {
             input.value = v.slice(0, sel) + k + v.slice(end);
             const pos = sel + 1;
             try { input.setSelectionRange(pos, pos); } catch { /* */ }
-            input.dispatchEvent(new Event('input', { bubbles: true }));
+            input.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText', data: k }));
         } else if (k === 'Backspace') {
             const v = input.value;
             if (sel !== end) {
