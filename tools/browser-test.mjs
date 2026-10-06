@@ -13,6 +13,9 @@
 //
 // Usage: node tools/browser-test.mjs [scenario-name-filter] [--shard=i/n]
 //   HEADED=1 shows the browser; CPU_THROTTLE=4 slows the page down like a CI runner.
+//   The page runs offline: requests to anywhere but the local server are refused, so
+//   scenarios never depend on (or load) the KiCad library proxy, GitLab or LCSC.
+//   ALLOW_NETWORK=1 lets them through.
 //   --shard=i/n runs every n-th matching scenario starting at the i-th (1-based), so n
 //   parallel jobs together run each scenario exactly once (CI runs four).
 
@@ -62,9 +65,15 @@ const { server, url } = await startServer(0);
 // Software WebGL so the 3D viewer renders on GPU-less CI runners.
 const browser = await chromium.launch({ headless: !process.env.HEADED, args: ['--enable-unsafe-swiftshader', '--use-angle=swiftshader'] });
 const failed = [];
+const serverOrigin = url;
+const isExternal = target => /^https?:/.test(target.href) && target.origin !== new URL(serverOrigin).origin;
+let blockedRequests = 0;
 try {
     for (const scenario of scenarios) {
         const context = await browser.newContext({ viewport: { width: 1400, height: 900 } });
+        if (!process.env.ALLOW_NETWORK) {
+            await context.route(isExternal, route => { blockedRequests++; return route.abort('internetdisconnected'); });
+        }
         const page = await context.newPage();
         // CPU_THROTTLE=4 slows the page like a shared CI runner, to reproduce timing failures locally.
         if (process.env.CPU_THROTTLE) {
@@ -92,5 +101,6 @@ try {
     await browser.close();
     server.close();
 }
+if (blockedRequests) console.log(`\n${blockedRequests} external request(s) refused (the page runs offline; ALLOW_NETWORK=1 allows them).`);
 console.log(`\n${scenarios.length - failed.length}/${scenarios.length} browser scenarios passed.`);
 process.exitCode = failed.length ? 1 : 0;

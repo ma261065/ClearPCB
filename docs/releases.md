@@ -41,7 +41,9 @@ are not checked: `assets/vendor/fflate.module.d.ts` declares the fflate API in u
 Its **Browser tests** jobs install Playwright 1.55.0 with Chromium and run
 `node tools/browser-test.mjs --shard=i/4`: four jobs run in parallel, each taking
 every fourth scenario, so together they run every scenario once. Each scenario in `browser-tests/` gets a fresh
-browser context against `tools/serve.mjs`. They drive the real app with real
+browser context against `tools/serve.mjs`, offline: requests to any other host
+(the KiCad library proxy, GitLab, LCSC) are refused, so the scenarios cannot depend
+on external services. They drive the real app with real
 pointer input: switching modes, drawing and undoing tracks, the WebGL 3D view,
 Properties panel edits and their shared control order, track/shape conversions,
 schematic selection and cancellation, and reopening a board through autosave

@@ -190,7 +190,9 @@ in `pcb-editor-api.js` (or `schematic-editor-api.js`). See State Ownership in
   `schematic-object-workflows.mjs` walk each object type through place, select,
   edit, move, lock, undo and save/reopen. Run a subset with
   `node tools/browser-test.mjs <name filter>`; `HEADED=1` shows the browser and
-  `CPU_THROTTLE=4` slows the page like a CI runner. CI runs them on Linux, where
+  `CPU_THROTTLE=4` slows the page like a CI runner. Pages run offline (only the
+  local server answers; `ALLOW_NETWORK=1` lifts that), so a scenario must not need
+  the KiCad library or other remote data. CI runs them on Linux, where
   fonts (and so text sizes and the canvas height) differ from Windows and macOS:
   click relative to where the model says an object is, not at offsets from the
   view centre, and check what got selected before editing it.
