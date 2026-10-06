@@ -85,7 +85,7 @@ export function cancelPcbDrawingMode(app) {
     // was typed, as clicking elsewhere on the board does; only Escape discards it.
     if (activeTextInlineEdit(app)) endTextInlineEdit(app, true);
     app._cancelTrackDraw();
-    app._cancelFillDraw();
+    cancelFillDraw(app);
     cancelShapeDraw(app);
     resetPcbTool(app);
     return true;

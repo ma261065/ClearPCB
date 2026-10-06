@@ -17,8 +17,7 @@
   ],
   "src/pcb/modules/box-select.js": [
     "_netsForComponent",
-    "_refreshPcbSelectionHighlights",
-    "_rerenderFills"
+    "_refreshPcbSelectionHighlights"
   ],
   "src/pcb/modules/clearance-overlay.js": [
     "_boardShapeClearanceCache",
@@ -36,27 +35,10 @@
   "src/pcb/modules/copper-cuts.js": [
     "_ensureSvgDefs"
   ],
-  "src/pcb/modules/copper-fill-commands.js": [
-    "_recomputeFillsNow",
-    "_refreshFillProperties"
-  ],
-  "src/pcb/modules/copper-fill-draw.js": [
-    "_fillToolLayer",
-    "_showFillProperties"
-  ],
-  "src/pcb/modules/copper-fill-edit.js": [
-    "_refreshFillProperties",
-    "_showFillProperties"
-  ],
   "src/pcb/modules/editor-actions.js": [
     "_showComponentPopup",
     "_showSaveToast",
     "_trackEdit"
-  ],
-  "src/pcb/modules/fill-refresh.js": [
-    "_clearFillGroups",
-    "_fillRefreshDisposed",
-    "_recomputeFillsNow"
   ],
   "src/pcb/modules/layer-changes.js": [
     "_cancelPosePreviews",
@@ -95,7 +77,6 @@
     "_cancelAutoRoute",
     "_cancelDrawingMode",
     "_cancelPosePreviews",
-    "_clearFillGroups",
     "_ensureViewport",
     "_isDirty",
     "_shapeElements",
@@ -113,7 +94,6 @@
   ],
   "src/pcb/modules/selection-interaction.js": [
     "_selectComponent",
-    "_showFillProperties",
     "_showPadProperties",
     "_showPcbMultiSelectionProperties",
     "_showRefProperties"
@@ -130,7 +110,6 @@
     "_showPcbMultiSelectionProperties"
   ],
   "src/pcb/modules/tool-lifecycle.js": [
-    "_cancelFillDraw",
     "_cancelTrackDraw",
     "_syncPcbHomeToolHighlight"
   ],

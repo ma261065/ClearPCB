@@ -9,7 +9,7 @@ import { CopperFill } from '../src/shapes/copper-fill.js';
 import { buildFillContext } from '../src/pcb/modules/fill-context.js';
 import { captureFillInputs, computeFillBatch } from '../src/pcb/modules/fill-worker-geometry.js';
 import { createFillWorker } from '../src/pcb/modules/fill-worker-client.js';
-import { scheduleFillRefresh, invalidateFillRefresh, disposeFillRefresh, adoptFillResults } from '../src/pcb/modules/fill-refresh.js';
+import { scheduleFillRefresh, recomputeFillsNow, invalidateFillRefresh, disposeFillRefresh, adoptFillResults } from '../src/pcb/modules/fill-refresh.js';
 import { disposeDrcRefresh } from '../src/pcb/modules/drc-refresh.js';
 import { prepareCopperRegionContact, installCopperRegionContact, copperRegionShape,
     resolveTrackContactGeometry, copperContactsTouch } from '../src/pcb/modules/track-contact-geometry.js';
@@ -72,7 +72,12 @@ function fixture() {
     const counts = { clear: 0, drc: 0, views: 0, rats: 0, sync: 0 }, drcStates = [];
     const ratlines = { get children() { counts.rats++; return []; }, appendChild() {} };
     app.getLayerGroup = id => id === 'ratlines' ? ratlines : app._layerGroups.get(id) || null;
-    app._clearFillGroups = () => { counts.clear++; PCBApp.prototype._clearFillGroups.call(app); };
+    app._layerGroups = app._layerGroups || new Map();
+    const originalTopClone = app._layerGroups.get('top-fill').cloneNode.bind(app._layerGroups.get('top-fill'));
+    app._layerGroups.get('top-fill').cloneNode = function (...args) {
+        counts.clear++;
+        return originalTopClone(...args);
+    };
     const drc = getDrcPresentation(app);
     drc.shouldRun = () => true;
     drc.updateStatus = (_result, pending) => {
@@ -81,7 +86,13 @@ function fixture() {
         drcStates.push([isFillRefreshPending(app), fillRefreshError(app)]);
     };
     setBoardViewPanel(app, { refresh() { counts.views++; } });
-    app._recomputeFillsNow = () => { counts.sync++; return PCBApp.prototype._recomputeFillsNow.call(app); };
+    const getRoutingParams = PCBApp.prototype.getRoutingParams;
+    // recomputeFillsNow is module-internal, so count synchronous pours where they read the
+    // routing parameters. A renamed function makes the count 0, failing loudly, never passing.
+    app.getRoutingParams = function () {
+        if (new Error().stack.includes('recomputeFillsNow')) counts.sync++;
+        return getRoutingParams.call(this);
+    };
     app.setStatus = message => { app.lastStatus = message; };
     app._cancelDrawingMode = () => {};
     app.refreshText = app.selectText = () => {};
@@ -118,7 +129,7 @@ function fixture() {
     const { app, counts } = fixture(), coldFrames = [];
     globalThis.requestAnimationFrame = callback => { coldFrames.push(callback); return coldFrames.length; };
     try {
-        assert.equal(app._recomputeFillsNow(), undefined);
+        assert.equal(recomputeFillsNow(app), undefined);
         assert.equal(isFillRefreshPending(app), true);
         invalidateFillRefresh(app);
         await loadClipper();
@@ -261,9 +272,10 @@ const tick = async () => { await Promise.resolve(); await Promise.resolve(); };
 const flush = () => { const pending = frames.splice(0); for (const frame of pending) frame(); };
 const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
 const paths = app => [...app._layerGroups.values()].flatMap(group => group.querySelectorAll('.pcb-fill-copper'));
+const workerJobs = () => workers.reduce((sum, worker) => sum + worker.jobs.length, 0);
 function settled() {
     const f = fixture();
-    assert.equal(f.app._recomputeFillsNow(), true);
+    assert.equal(recomputeFillsNow(f.app), true);
     f.old = f.model.copperFills.map(getComputedFill);
     f.artwork = paths(f.app);
     disposeDrcRefresh(f.app);
@@ -272,10 +284,10 @@ function settled() {
     for (const key of Object.keys(f.counts)) f.counts[key] = 0;
     return f;
 }
-function unchanged(f) {
+function unchanged(f, counts = { clear: 0, drc: 0, views: 0, rats: 0, sync: 0 }) {
     f.model.copperFills.forEach((fill, index) => assert.equal(getComputedFill(fill), f.old[index]));
     assert.deepEqual(paths(f.app), f.artwork);
-    assert.deepEqual(f.counts, { clear: 0, drc: 0, views: 0, rats: 0, sync: 0 });
+    assert.deepEqual(f.counts, counts);
 }
 
 {
@@ -338,7 +350,7 @@ for (const mode of ['preview', 'preview-roundtrip', 'picture', 'sync', 'history'
         if (mode.startsWith('preview')) setDragOverlaysDeferred(f.app, true);
         if (mode === 'preview-roundtrip') setDragOverlaysDeferred(f.app, false);
         if (mode === 'picture') setPictureCopperRefreshPending(f.app, true);
-        if (mode === 'sync') f.app._recomputeFillsNow();
+        if (mode === 'sync') recomputeFillsNow(f.app);
         if (mode === 'history') f.app.history.execute(new EditTextCommand(f.app, 'text', { size: 3.123456789 }));
         if (mode === 'replacement') f.app.pcbDocument = new PcbDocument();
         if (mode === 'clear') f.model.clear();
@@ -409,11 +421,11 @@ for (const content of [null, 'reload']) {
     const f = settled();
     try {
         scheduleFillRefresh(f.app);
-        f.app._recomputeFillsNow();
+        recomputeFillsNow(f.app);
         invalidateFillRefresh(f.app); // The command's history notification follows its synchronous refresh.
         flush();
         await wait(70); flush();
-        assert.equal(f.counts.sync, 1);
+        assert.equal(f.counts.sync, 1, 'A synchronous refresh satisfies queued debt without a redundant worker pass');
         assert.equal(f.counts.clear, 1, 'A synchronous refresh satisfies queued debt without a redundant worker pass');
     } finally { disposeFillRefresh(f.app); }
 }
@@ -427,6 +439,7 @@ for (const mode of ['error', 'messageerror', 'partial', 'malformed', 'contacts',
         if (mode === 'constructor') globalThis.Worker = class { constructor() { throw new Error('Worker unavailable'); } };
         if (mode === 'capture') f.fill.captureCopperGeometry = () => { throw new Error('Capture failed'); };
         scheduleFillRefresh(f.app); flush();
+        const workersAfterDispatch = workers.length, jobsAfterDispatch = workerJobs();
         const worker = workers.at(-1);
         if (mode === 'error') worker.onerror({ message: 'Worker crashed' });
         if (mode === 'messageerror') worker.onmessageerror();
@@ -446,24 +459,27 @@ for (const mode of ['error', 'messageerror', 'partial', 'malformed', 'contacts',
         }
         await tick();
         assert.equal(errors.length, mode === 'fallback-failure' ? 2 : 1, `${mode}: each failure is explicitly reported`);
+        assert.deepEqual([workers.length, workerJobs()], [workersAfterDispatch, jobsAfterDispatch],
+            `${mode}: current failed worker falls back synchronously`);
         if (['render', 'capture', 'fallback-failure'].includes(mode)) {
             if (mode === 'fallback-failure') {
-                assert.equal(f.counts.sync, 1);
+                assert.equal(f.counts.sync, 1, `${mode}: current failed worker falls back synchronously`);
                 f.counts.sync = 0;
             }
-            unchanged(f);
+            unchanged(f, mode === 'render' ? { clear: 1, drc: 0, views: 0, rats: 0, sync: 0 } : undefined);
             assert.equal(isFillRefreshPending(f.app), true);
             assert.ok(fillRefreshError(f.app));
             const drc = runDRC(f.app);
             assert.equal(drc.ok, false);
             assert.equal(drc.violations.filter(item => item.rule === 'fill' && /refresh failed/.test(item.message)).length,
                 f.model.copperFills.length, 'DRC never certifies retained settled pours after refresh failure');
+            const previousClear = f.counts.clear;
             f.fill.getOutline = outline;
             f.fill.captureCopperGeometry = capture;
             scheduleFillRefresh(f.app); flush();
             if (mode !== 'fallback-failure') workers.at(-1).finish();
             await tick();
-            assert.equal(f.counts.clear, 1, 'A later valid refresh recovers without replacing authored objects');
+            assert.equal(f.counts.clear, previousClear + 1, 'A later valid refresh recovers without replacing authored objects');
             assert.equal(isFillRefreshPending(f.app), false);
             assert.equal(fillRefreshError(f.app), null);
             assert.equal(runDRC(f.app).violations.some(item => item.rule === 'fill'), false);
@@ -472,17 +488,22 @@ for (const mode of ['error', 'messageerror', 'partial', 'malformed', 'contacts',
             assert.equal(f.counts.clear, 1);
             assert.equal(f.counts.drc, 1);
             scheduleFillRefresh(f.app); flush();
+            assert.deepEqual([workers.length, workerJobs()], [workersAfterDispatch, jobsAfterDispatch],
+                'Failed transport is not retried on every refresh');
             assert.equal(f.counts.sync, 2, 'Failed transport is not retried on every refresh');
+            assert.equal(f.counts.clear, 2, 'Failed transport is not retried on every refresh');
         }
     } finally { globalThis.Worker = FakeWorker; console.error = log; disposeFillRefresh(f.app); }
 }
 
 {
-    const f = settled(), clear = f.app._clearFillGroups, log = console.error, errors = [];
+    const f = settled(), log = console.error, errors = [];
     console.error = (...args) => errors.push(args);
     try {
         scheduleFillRefresh(f.app); flush();
-        f.app._clearFillGroups = () => { clear(); throw new Error('SVG handoff failed'); };
+        const topGroup = f.app._layerGroups.get('top-fill');
+        const first = topGroup.firstChild;
+        first.remove = () => { throw new Error('SVG handoff failed'); };
         const rejected = workers.at(-1).finish(); await tick();
         assert.equal(errors.length, 1);
         assert.deepEqual(paths(f.app), f.artwork, 'Failed DOM handoff restores original nodes and their hole clips');
@@ -497,7 +518,7 @@ for (const mode of ['error', 'messageerror', 'partial', 'malformed', 'contacts',
             resolveTrackContactGeometry(copperRegionShape(rejected.results[0][0]));
             assert.equal(snapshots, 1, 'Failed handoff does not install prepared contacts for unadopted regions');
         } finally { globalThis.structuredClone = clone; }
-        f.app._clearFillGroups = clear;
+        first.remove = Element.prototype.remove.bind(first);
         scheduleFillRefresh(f.app); flush();
         workers.at(-1).finish(); await tick();
         assert.equal(isFillRefreshPending(f.app), false);

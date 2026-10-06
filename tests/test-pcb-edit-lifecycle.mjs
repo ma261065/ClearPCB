@@ -28,6 +28,7 @@ function fixture() {
         _layerGroups: new Map(), _shapeElements: new Map(), 
         viewport: { scale: 10, svg: { style: {} }, snapToGrid: false },
         currentTool: 'select', _active: true,
+        existingLayerGroups() { return this._layerGroups; },
         getLayerGroup: () => null, _drawRefOverlay() {}, _ensureViewport() {},
         _refreshRefHighlight() {}, markSectionClean() {},
     };

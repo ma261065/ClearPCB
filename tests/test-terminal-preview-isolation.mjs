@@ -37,6 +37,14 @@ class Element {
     get firstChild() { return this.children[0] || null; }
     removeChild(child) { this.children.splice(this.children.indexOf(child), 1); child.parentNode = null; }
     remove() { this.parentNode?.removeChild(this); }
+    querySelectorAll(selector) {
+        const matches = child => selector.startsWith('.')
+            && (child.getAttribute?.('class') || '').split(' ').includes(selector.slice(1));
+        return this.children.flatMap(child => [
+            ...(matches(child) ? [child] : []),
+            ...(child.querySelectorAll?.(selector) || []),
+        ]);
+    }
 }
 globalThis.document = { createElementNS: (_, tag) => new Element(tag), getElementById() { return null; } };
 globalThis.window = { addEventListener() {} };
@@ -63,6 +71,7 @@ function fixture(kind, deferred = false) {
         viewport: { scale: 100, shiftHeld: true, gridVisible: false,
             setCrosshair() {}, hideCrosshair() {}, svg: new Element('svg') },
         getLayerGroup: id => groups.get(id) || null,
+        existingLayerGroups: () => groups,
         refreshClearanceHalos() {}, refreshFills() { fills++; },
         _cancelPosePreviews: PCBApp.prototype._cancelPosePreviews,
         _cancelDrawingMode() {}, markSectionClean() {}, _ensureViewport() {},

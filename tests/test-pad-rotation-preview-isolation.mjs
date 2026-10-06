@@ -37,6 +37,14 @@ class Element {
     get firstChild() { return this.children[0] || null; }
     removeChild(child) { this.children.splice(this.children.indexOf(child), 1); child.parentNode = null; }
     remove() { this.parentNode?.removeChild(this); }
+    querySelectorAll(selector) {
+        const matches = child => selector.startsWith('.')
+            && (child.getAttribute?.('class') || '').split(' ').includes(selector.slice(1));
+        return this.children.flatMap(child => [
+            ...(matches(child) ? [child] : []),
+            ...(child.querySelectorAll?.(selector) || []),
+        ]);
+    }
 }
 const input = { value: '' };
 globalThis.document = {
@@ -61,6 +69,7 @@ function fixture(shape = 'rectangle', layers = 'both') {
         project, pcbDocument: model, placements: new Map(), netlist: [], history: new CommandHistory(), _active: true,
         viewport: { scale: 100, svg: new Element('svg'), hideCrosshair() {} },
         getLayerGroup: id => groups.get(id) || null,
+        existingLayerGroups: () => groups,
         refreshClearanceHalos() {}, refreshFills() { fills++; },
         _cancelPosePreviews: PCBApp.prototype._cancelPosePreviews,
         isSectionEditing: PCBApp.prototype.isSectionEditing,

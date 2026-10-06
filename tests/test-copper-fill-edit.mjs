@@ -58,7 +58,8 @@ let crosshair = null;
 const app = { viewport: { scale: 10, shiftHeld: true,
     setCrosshair(point) { crosshair = { ...point }; }, hideCrosshair() { crosshair = null; } }, placements: new Map(),
     tracks: [], vias: [], texts: new Map(), boardShapes: [],
-    getLayerGroup() { return null; }, _refreshFillProperties() {},
+    get copperFills() { return this.pcbDocument.copperFills; },
+    getLayerGroup() { return null; }, existingLayerGroups() { return this._layerGroups; }, _layerGroups: new Map(),
     history: { execute(command) { commands.push(command); command.execute(); } } };
 app.pcbDocument = new PcbDocument();
 Object.defineProperty(app, 'boardShapes', {

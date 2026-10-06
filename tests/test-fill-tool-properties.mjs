@@ -12,15 +12,14 @@ const { startFillDraw, addFillWaypoint, updateFillDraw, finishFillDraw, fillTool
 
 const overlay = document.createElementNS('http://www.w3.org/2000/svg', 'g');
 const panels = [];
-const shown = [];
 const app = pcbEditorFixture({
     getLayerGroup: id => (id === 'selection-overlay' ? overlay : null),
+    getRoutingParams: () => ({ clearance: 0.2 }),
     openPropertyPanel(panel) { panels.push(panel); return true; },
     refreshPropertyPanel(panel) { panels.push(panel); },
     netNames: () => ['GND', 'VCC'],
     // Pour geometry is not under test here.
-    refreshFills() {}, _recomputeFillsNow() {}, selectFill() {},
-    _showFillProperties(fill) { shown.push(fill); },
+    refreshFills() {}, selectFill() {},
 });
 const panel = () => panels.at(-1);
 const field = key => panel().fields.find(item => item.key === key);
@@ -60,7 +59,8 @@ finishFillDraw(app);
 const [fill] = app.pcbDocument.copperFills;
 assert.ok(fill, 'finishing commits the pour');
 assert.deepEqual([fill.layer, fill.net, fill.cornerRadius], ['bottom-copper', 'GND', 2], 'the new pour takes the tool settings');
-assert.deepEqual(shown, [fill], 'and its own Properties replace the tool panel');
+assert.equal(panel().title, 'Copper Fill', 'and its own Properties replace the tool panel');
+assert.equal(panel().fields.find(item => item.key === 'net').value, 'GND');
 assert.equal(app.history.undoStack.length, 1, 'one undo step');
 assert.equal(getFillDraw(app), null);
 assert.deepEqual(fillToolDefaults(app), { layer: 'bottom-copper', net: 'GND', cornerRadius: 2 }, 'the next pour starts from them too');

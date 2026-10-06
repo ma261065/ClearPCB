@@ -9,7 +9,10 @@ applies authored state to a `CopperFill`. Undo snapshots deeply copy outline
 points, per-node radii and per-segment curvature. These commands do not calculate
 pours or update connectivity. The `pcb/modules/copper-fill-commands.js` adapters
 retain synchronous pour refresh and selection/property refresh after accepted
-fill commands.
+fill commands by calling the fill owner modules directly. `copper-fill-edit.js`
+owns selected-pour Properties rendering and refresh, while `fill-refresh.js`
+owns computed-pour scheduling, terminal disposal, cached rerenders and clearing
+the rendered fill layers.
 
 `commitFillEdit` in `pcb/modules/copper-fill-edit.js` remains the small
 command-preparation helper for fill-specific callers. Interactive fill editing,
@@ -67,7 +70,9 @@ full-precision model inputs; image artwork is represented by its physical frame,
 matching the existing pour engine. The service allows one active job and one
 replaceable pending job. Generations, document/fill identities and lifecycle
 cancellation reject stale results; preview deferral retains settled holes.
-`fill-refresh.js` stages complete SVG results off-DOM before handing them over.
+`fill-refresh.js` stages complete SVG results off-DOM before handing them over,
+owns the terminal disposed state after `PCBApp.dispose()`, and reuses cached
+results for selection-only rerenders.
 Direct command recomputation remains synchronous; missing Worker support and
 reported transport failures use the synchronous fallback. Deactivation/load
 cancel live work, while terminal disposal prevents restarting the service.

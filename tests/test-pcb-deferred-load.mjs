@@ -80,7 +80,7 @@ const GROUP_EVENTS = {
 };
 function layerGroups() {
     const groups = new Map();
-    return id => {
+    const get = id => {
         // The ratsnest reconcile draws into this group; asking for it is the observable step.
         if (id === 'ratlines') calls.push('ratsnest');
         if (!groups.has(id)) {
@@ -94,6 +94,8 @@ function layerGroups() {
         }
         return groups.get(id);
     };
+    get.groups = groups;
+    return get;
 }
 const viewportStub = (extra = {}) => ({
     units: 'mm', gridSize: 1, gridStyle: 'lines', gridVisible: true, snapToGrid: true,
@@ -126,6 +128,7 @@ const prepared = PcbDocument.prepare(data);
 const makeApp = active => {
     const pcbDocument = new PcbDocument();
     const placementState = pcbDocument.placementState;
+    const getLayerGroup = layerGroups();
     const app = {
         pcbDocument, designSettings: pcbDocument.designSettings,
         // renderPanelPreview(app) reads this as its default argument at the moment it renders.
@@ -147,7 +150,7 @@ const makeApp = active => {
         placements: new Map([['U1', {}]]), _shapeElements: new Map(),
         placementState, _placementOverrides: placementState.overrides, history: { clear() {} },
         viewport: viewportStub(),
-        _ensureViewport: record('viewport'), getLayerGroup: layerGroups(), getRoutingParams: () => ({}),
+        _ensureViewport: record('viewport'), getLayerGroup, existingLayerGroups: () => getLayerGroup.groups, getRoutingParams: () => ({}),
         _applyPlacementOverrides: record('placements'),
         refreshClearanceHalos: record('clearance'), refreshFills: record('fills'),
         updateCopperCuts() { this.cutRefreshes = (this.cutRefreshes || 0) + 1; },

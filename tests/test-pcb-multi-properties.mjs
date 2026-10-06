@@ -40,6 +40,7 @@ app.placementState = app.pcbDocument.placementState;
 app._placementOverrides = app.placementState.overrides;
 app.boardShapes = [];
 app.netlist = [];
+app._layerGroups = new Map();
 app.propertiesItems = () => items;
 app.setPropertiesTitle = () => {};
 app.setActiveRibbonTab = () => {};

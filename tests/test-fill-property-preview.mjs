@@ -12,17 +12,20 @@ const { setPcbSelection } = await import('../src/pcb/modules/selection-registry.
 const { getPropertyEditor } = await import('../src/pcb/modules/property-editors.js');
 const { disposePcbPropertyEditors, hasPcbEditInProgress } = await import('../src/pcb/modules/edit-lifecycle.js');
 const { createCopperFillSelectionAdapter } = await import('../src/pcb/modules/copper-fill-selection.js');
+const { getComputedFill } = await import('../src/pcb/modules/computed-fill-cache.js');
+const { loadClipper } = await import('../src/pcb/modules/copper-fill-geom.js');
+await loadClipper();
 
 const groups = new Map(['top-fill', 'bottom-fill', 'selection-overlay']
     .map(id => [id, document.createElementNS('http://www.w3.org/2000/svg', 'g')]));
+for (const group of groups.values()) group.cloneNode = () => document.createElementNS('http://www.w3.org/2000/svg', 'g');
 const panels = [];
-let refreshes = 0;
 const app = pcbEditorFixture({
     getLayerGroup: id => groups.get(id) || null,
     openPropertyPanel(panel) { panels.push(panel); return true; },
     refreshPropertyPanel(panel) { panels.push(panel); },
     netNames: () => [],
-    refreshFills() { refreshes++; }, _recomputeFillsNow() { refreshes++; },
+    getRoutingParams: () => ({ clearance: 0.2 }),
 });
 const fill = new CopperFill({ layer: 'top-copper', outline: [{ x: 0, y: 0 }, { x: 20, y: 0 }, { x: 20, y: 10 }, { x: 0, y: 10 }] });
 app.pcbDocument.boardShapes.push(fill);
@@ -34,9 +37,8 @@ showFillProperties(app, fill);
 const before = fill.captureState();
 assert.equal(outlinePoints(), 4, 'a square-cornered outline before the edit');
 
-refreshes = 0;
 for (const radius of [1, 2, 3]) field('cornerRadius').preview(radius);
-assert.equal(refreshes, 0, 'spinner steps do not recompute the pour');
+assert.equal(getComputedFill(fill), null, 'spinner steps do not recompute the pour');
 assert.deepEqual(fill.captureState(), before, 'the pour itself is unchanged during the run');
 assert.equal(areDragOverlaysDeferred(app), true, 'its copper waits for the run to settle');
 assert.ok(outlinePoints() > 4, 'the dashed outline already shows the rounded corners');
@@ -48,7 +50,7 @@ assert.equal(fill.cornerRadius, 3, 'the settled run commits');
 assert.equal(app.history.undoStack.length, 1, 'as one undo step');
 assert.equal(areDragOverlaysDeferred(app), false);
 assert.equal(getPropertyEditor(app, 'fill').active, false);
-assert.ok(refreshes > 0, 'and the pour is recomputed once it settles');
+assert.notEqual(getComputedFill(fill), null, 'and the pour is recomputed once it settles');
 
 field('cornerRadius').preview(5);
 assert.equal(field('cornerRadius').cancel(), true, 'Escape cancels the live outline');

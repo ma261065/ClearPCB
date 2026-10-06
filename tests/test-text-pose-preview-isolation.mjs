@@ -21,6 +21,14 @@ class Element {
     getAttribute(key) { return this.attributes.get(key) ?? null; }
     appendChild(child) { this.children.push(child); child.parentNode = this; }
     removeChild(child) { this.children.splice(this.children.indexOf(child), 1); child.parentNode = null; }
+    querySelectorAll(selector) {
+        const matches = child => selector.startsWith('.')
+            && (child.getAttribute?.('class') || '').split(' ').includes(selector.slice(1));
+        return this.children.flatMap(child => [
+            ...(matches(child) ? [child] : []),
+            ...(child.querySelectorAll?.(selector) || []),
+        ]);
+    }
 }
 globalThis.window = { addEventListener() {} };
 globalThis.document = { createElementNS: () => new Element(), getElementById: () => null,
@@ -41,6 +49,7 @@ function fixture(layer) {
         viewport: { svg: { style: {} }, scale: 10, snapToGrid: false, setCrosshair() {}, hideCrosshair() {} },
         placements: new Map(), tracks: [], vias: [], pads: [], boardShapes: [],
         getLayerGroup: id => id === layer ? group : null, _shapeElements: new Map(),
+        existingLayerGroups: () => new Map([[layer, group]]),
         _refreshBoardShapeClearance() {}, _cancelDrawingMode() {}, _ensureViewport() {}, markSectionClean() {},
     };
     Object.defineProperty(app, 'texts', Object.getOwnPropertyDescriptor(PCBApp.prototype, 'texts'));

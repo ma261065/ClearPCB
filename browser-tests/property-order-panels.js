@@ -8,7 +8,7 @@ export async function collectPropertyPanels() {
     const at = path => import(new URL(path, location.origin).href);
     const [{ Track }, { Via }, { Pad }, { CopperFill }, { createPcbText }, trackCommands, { AddPadCommand }, { AddFillCommand },
         { AddTextCommand }, { AddBoardShapeCommand }, { setPcbSelection }, trackSelect, shapeProps, { createRect, createLine },
-        { Circle }, { Arc }, { Text }, { Net }, { Wire }, trackDraw, viaTool, padProps, textProps] = await Promise.all([
+        { Circle }, { Arc }, { Text }, { Net }, { Wire }, trackDraw, viaTool, padProps, textProps, fillProps] = await Promise.all([
         at('/src/shapes/track.js'), at('/src/shapes/via.js'), at('/src/shapes/pad.js'), at('/src/shapes/copper-fill.js'),
         at('/src/core/pcb-text.js'), at('/src/pcb/modules/track-commands.js'), at('/src/pcb/modules/pad-commands.js'),
         at('/src/pcb/modules/copper-fill-commands.js'), at('/src/pcb/modules/text-commands.js'), at('/src/pcb/modules/shape-commands.js'),
@@ -16,6 +16,7 @@ export async function collectPropertyPanels() {
         at('/src/shapes/polyline.js'), at('/src/shapes/circle.js'), at('/src/shapes/arc.js'), at('/src/shapes/text.js'),
         at('/src/shapes/net.js'), at('/src/shapes/wire.js'), at('/src/pcb/modules/track-draw.js'),
         at('/src/pcb/modules/via-tool.js'), at('/src/pcb/modules/pad-tool.js'), at('/src/pcb/modules/text-properties.js'),
+        at('/src/pcb/modules/copper-fill-edit.js'),
     ]);
     const { pcbApp: pcb, schematicApp: schematic } = /** @type {any} */ (window).bootstrap;
     const panels = {};
@@ -56,7 +57,7 @@ export async function collectPropertyPanels() {
     pcbPanel('closed track loop', () => { select('track', loop); trackSelect.showTrackSelectionProperties(pcb, loop); });
     pcbPanel('via', () => { select('via', via); trackSelect.showViaProperties(pcb, via); });
     pcbPanel('pad', () => { select('pad', pad); pcb._showPadProperties(pad); });
-    pcbPanel('copper pour', () => { select('fill', fill); pcb._showFillProperties(fill); });
+    pcbPanel('copper pour', () => { select('fill', fill); fillProps.showFillProperties(pcb, fill); });
     pcbPanel('text', () => { select('text', text); pcb.showTextProperties(text); });
     for (const [name, object] of Object.entries(shapes)) {
         pcbPanel(name, () => { select('shape', object); shapeProps.showBoardShapeProperties(pcb, object); });

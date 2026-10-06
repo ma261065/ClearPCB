@@ -31,6 +31,14 @@ class Element {
     focus() { document.activeElement = this; }
     blur() { document.activeElement = null; }
     setSelectionRange(start, end) { this.selectionStart = start; this.selectionEnd = end; }
+    querySelectorAll(selector) {
+        const matches = child => selector.startsWith('.')
+            && (child.getAttribute?.('class') || '').split(' ').includes(selector.slice(1));
+        return this.children.flatMap(child => [
+            ...(matches(child) ? [child] : []),
+            ...(child.querySelectorAll?.(selector) || []),
+        ]);
+    }
 }
 let fields = new Map();
 const documentListeners = new Map();
@@ -77,6 +85,7 @@ function fixture(layer, extraTexts = 0, isNew = false) {
         _shapeElements: new Map(),
         viewport: { svg: new Element('svg'), addInteractionOverlay: group => overlay.appendChild(group), hideCrosshair() {} },
         getLayerGroup: id => groups.get(id) || null,
+        existingLayerGroups: () => groups,
         propertiesItems: () => properties, setPropertiesTitle() {}, layerLabel: id => id,
         clearProperties() {}, setActiveRibbonTab() {}, _refreshBoardShapeClearance() {},
         _insertInlineTextSymbol: () => false,

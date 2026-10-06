@@ -4,6 +4,7 @@ import { PcbDocument } from '../src/core/PcbDocument.js';
 import { isFillRefreshScheduled, isPictureCopperRefreshPending, setDragOverlaysDeferred } from '../src/pcb/modules/refresh-state.js';
 import { getDrcPresentation, scheduleDrc } from '../src/pcb/modules/drc-state.js';
 import { runDrcNow } from '../src/pcb/modules/drc-refresh.js';
+import { recomputeFillsNow } from '../src/pcb/modules/fill-refresh.js';
 
 globalThis.window = { addEventListener() {} };
 globalThis.document = {
@@ -22,6 +23,7 @@ const { AddFillCommand, RemoveFillCommand, ModifyFillCommand } = await import('.
 const { captureBoardShapeState } = await import('../src/pcb/modules/board-shapes.js');
 const { pictureRefreshHold } = await import('../src/pcb/modules/picture-refresh.js');
 const { runDRC } = await import('../src/pcb/modules/drc.js');
+const { setPcbSelection } = await import('../src/pcb/modules/selection-registry.js');
 await loadClipper();
 
 const original = {
@@ -49,6 +51,24 @@ function fixture(withFill = true) {
     const shape = { id: 'rotated', kind: 'rect', layer: 'top-copper', net: 'SIGNAL',
         copperMode: 'add', filled: true, lineWidth: 0.2, points: rectangle(-4, -1, 4, 1) };
     const reports = [];
+    let fillRefreshes = 0, countedThisRefresh = false;
+    const makeFillGroup = (count = false) => ({
+        children: [],
+        get firstChild() {
+            if (count) {
+                if (!countedThisRefresh) fillRefreshes++;
+                countedThisRefresh = false;
+            }
+            return null;
+        },
+        cloneNode() { return makeFillGroup(); },
+        querySelectorAll() { return []; },
+        querySelector() { return null; },
+        appendChild(child) { this.children.push(child); },
+        insertBefore(child) { this.children.push(child); },
+        remove() {},
+    });
+    const topFillGroup = makeFillGroup(true), bottomFillGroup = makeFillGroup();
     const app = Object.assign(Object.create(PCBApp.prototype), {
         pcbDocument: new PcbDocument(),
         _boardWidth: 40, _boardHeight: 40, _boardRadius: 0,
@@ -57,8 +77,20 @@ function fixture(withFill = true) {
         boardShapes: [{ id: 'board-outline', kind: 'rect', layer: 'board-outline',
             points: rectangle(-20, -20, 20, 20) }, shape, ...(withFill ? [new CopperFill({ net: 'GND', layer: 'top-copper',
             outline: rectangle(-10, -10, 10, 10) })] : [])], _shapeElements: new Map(),
-        getRoutingParams: () => ({ clearance: 0.2 }),
-        getLayerGroup: () => null, _clearFillGroups() {}, updateCopperCuts() {},
+        // Every pour builds its fill context, which reads the routing parameters: count each one.
+        // A renamed function makes the count 0, so the assertions fail loudly rather than pass.
+        getRoutingParams: () => {
+            if (new Error().stack.includes('buildFillContext')) {
+                fillRefreshes++;
+                countedThisRefresh = true;
+            }
+            return { clearance: 0.2 };
+        },
+        getLayerGroup: id => id === 'top-fill' ? topFillGroup : id === 'bottom-fill' ? bottomFillGroup : null,
+        _layerGroups: new Map([['top-fill', topFillGroup], ['bottom-fill', bottomFillGroup]]),
+        existingLayerGroups() { return this._layerGroups; },
+        status: {},
+        updateCopperCuts() {},
         _refreshBoardShapeClearance() {},
     });
     const drc = getDrcPresentation(app);
@@ -69,7 +101,8 @@ function fixture(withFill = true) {
     shape.points = shape.points.map(({ x, y }) => ({ x: -y, y: x }));
     const after = captureBoardShapeState(shape);
     shape.points = before.geom.points.map(point => ({ ...point }));
-    return { app, reports, drc, command: new ModifyBoardShapeCommand(app, shape, before, after) };
+    return { app, reports, drc, fillRefreshes: () => fillRefreshes,
+        command: new ModifyBoardShapeCommand(app, shape, before, after) };
 }
 
 try {
@@ -82,7 +115,7 @@ try {
     globalThis.clearTimeout = timer => timers.delete(timer);
 
     const { app, reports, command } = fixture();
-    app._recomputeFillsNow();
+    recomputeFillsNow(app);
     flushFrames();
     assert.equal(reports.length, 1);
     assert.equal(reports[0].ok, true, 'initial pour clears the unrotated shape');
@@ -154,50 +187,49 @@ try {
     assert.equal(gated.reports.length, 1, 'Reopening allows subsequent refresh requests');
 
     for (const operation of ['add', 'remove', 'modify']) {
-        const { app: edited } = fixture();
+        const { app: edited, fillRefreshes } = fixture();
         edited.vias.push({ id: 'other-ground', x: -8, y: 8, diameter: 1, drill: 0.3, net: 'GND' });
         const ratlines = { children: [], appendChild(line) {
             this.children.push(line);
             line.remove = () => this.children.splice(this.children.indexOf(line), 1);
         } };
-        edited.getLayerGroup = layer => layer === 'ratlines' ? ratlines : null;
+        const getLayerGroup = edited.getLayerGroup;
+        edited.getLayerGroup = layer => layer === 'ratlines' ? ratlines : getLayerGroup(layer);
         const fill = edited.copperFills[0], before = fill.captureState();
         if (operation === 'add') edited.boardShapes.splice(edited.boardShapes.indexOf(fill), 1);
         const edit = operation === 'add' ? new AddFillCommand(edited, fill)
             : operation === 'remove' ? new RemoveFillCommand(edited, fill)
             : new ModifyFillCommand(edited, fill, before, { ...before, net: 'POWER' });
-        let recomputes = 0;
-        const recompute = edited._recomputeFillsNow.bind(edited);
-        edited._recomputeFillsNow = () => { recomputes++; return recompute(); };
         for (const action of ['execute', 'undo', 'execute']) {
-            const previous = recomputes;
+            const previous = fillRefreshes();
             edit[action]();
             if (edited.copperFills.length) assert.ok(getComputedFill(fill).length, 'Fill edits remain synchronous');
             const expected = edited.copperFills.some(pour => pour.net === 'GND') ? 0 : 1;
             assert.equal(ratlines.children.length, expected, 'Connectivity immediately follows fill add/remove/net changes');
             scheduleDrc(edited);
             flushFrames();
-            assert.equal(recomputes, previous + 1, `${operation}/${action} must not schedule a second pour`);
+            assert.equal(fillRefreshes(), previous + 1, `${operation}/${action} must not schedule a second pour`);
             assert.equal(ratlines.children.length, expected, 'Last-fill removal and undo/redo retain correct ratlines');
         }
     }
-    const { app: deferredFillApp } = fixture();
+    const { app: deferredFillApp, fillRefreshes: deferredFillRefreshes } = fixture();
     const deferredFill = deferredFillApp.copperFills[0];
     const beforeFill = deferredFill.captureState();
     const fillProperties = [];
-    let deferredRecomputes = 0;
-    deferredFillApp._recomputeFillsNow = () => { deferredRecomputes++; return true; };
-    deferredFillApp._refreshFillProperties = fill => fillProperties.push(fill.net);
+    deferredFillApp.openPropertyPanel = panel => { fillProperties.push(panel.fields.find(item => item.key === 'net').value); return true; };
+    deferredFillApp.refreshPropertyPanel = panel => { fillProperties.push(panel.fields.find(item => item.key === 'net').value); };
+    setPcbSelection(deferredFillApp, [{ kind: 'fill', object: deferredFill }]);
     setDragOverlaysDeferred(deferredFillApp, true);
     const fillEdit = new ModifyFillCommand(deferredFillApp, deferredFill, beforeFill, { ...beforeFill, net: 'POWER' });
     fillEdit.execute();
     fillEdit.undo();
     fillEdit.execute();
-    assert.equal(deferredRecomputes, 0, 'Authored fill history preserves drag-time pour deferral');
+    assert.equal(getComputedFill(deferredFill), null, 'Authored fill history preserves drag-time pour deferral');
     assert.deepEqual(fillProperties, ['POWER', 'GND', 'POWER'], 'Properties observe each applied model state');
     setDragOverlaysDeferred(deferredFillApp, false);
+    const previousDeferredRefreshes = deferredFillRefreshes();
     fillEdit.undo();
-    assert.equal(deferredRecomputes, 1, 'Settled history still recomputes pours synchronously once');
+    assert.equal(deferredFillRefreshes(), previousDeferredRefreshes + 1, 'Settled history still recomputes pours synchronously once');
     assert.deepEqual(fillProperties, ['POWER', 'GND', 'POWER', 'GND']);
 } finally {
     for (const [name, value] of Object.entries(original)) {

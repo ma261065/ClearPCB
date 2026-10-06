@@ -29,6 +29,7 @@ class Element {
         child.parentNode = this;
     }
     get firstChild() { return this.children[0] || null; }
+    cloneNode() { return new Element(); }
     remove() {
         if (!this.parentNode) return;
         this.parentNode.children.splice(this.parentNode.children.indexOf(this), 1);
@@ -65,27 +66,17 @@ function fixture(mode, deferred) {
     const layer = new Element();
     const poured = [{ outer: fill.getOutline(), holes: [] }];
     setComputedFill(fill, poured);
-    let recomputes = 0;
     const app = {
         pcbDocument: model, boardShapes: model.boardShapes, tracks: [], vias: [], pads: [], texts: model.texts,
         placements: new Map(), history: new CommandHistory(),
         viewport: { scale: 100, shiftHeld: true, svg: { style: {} }, setCrosshair() {}, hideCrosshair() {} },
         getLayerGroup: id => id === 'top-fill' ? layer : null,
-        _refreshFillProperties() {}, _showFillProperties() {},
         get copperFills() { return model.copperFills; },
-        _rerenderFills: PCBApp.prototype._rerenderFills,
-        _recomputeFillsNow() {
-            recomputes++;
-            for (const item of model.copperFills) {
-                setComputedFill(item, [{ outer: item.getOutline(), holes: [] }]);
-                renderCopperFill(item, app.getLayerGroup);
-            }
-            return true;
-        },
+        existingLayerGroups() { return this._layerGroups; },
+        _layerGroups: new Map([['top-fill', layer]]),
         _cancelPosePreviews: PCBApp.prototype._cancelPosePreviews,
         _cancelDrawingMode() {}, _ensureViewport() {}, markSectionClean() {},
         _shapeElements: new Map(),
-        _clearFillGroups() { for (const child of [...layer.children]) child.remove(); },
     };
     setDragOverlaysDeferred(app, deferred);
     const adapter = createCopperFillSelectionAdapter(app, fill, `fill:${fill.id}`);
@@ -99,7 +90,7 @@ function fixture(mode, deferred) {
     const target = mode === 'radius' ? { x: 10, y: 5 }
         : mode === 'center' ? { x: 6, y: 6 }
             : mode === 'vertex' ? { x: -1, y: -1 } : { x: 5, y: -2 };
-    return { app, model, fill, layer, poured, adapter, anchor, start, target, recomputes: () => recomputes };
+    return { app, model, fill, layer, poured, adapter, anchor, start, target };
 }
 
 let cases = 0;
@@ -176,7 +167,7 @@ for (const mode of ['move', 'segment', 'vertex', 'midpoint', 'bulge', 'center', 
             if (finish !== 'load') {
                 assert.equal(getComputedFill(fill), poured);
                 assert.equal(app.history.redoStack[0], redo);
-                assert.equal(f.recomputes(), 0, 'Discarding a preview does not recompute a settled pour');
+                assert.equal(getComputedFill(fill), poured, 'Discarding a preview keeps the settled pour cache');
             }
         }
         assert.equal(getBoardShapeDrag(app), null);

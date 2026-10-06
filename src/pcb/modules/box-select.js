@@ -65,6 +65,7 @@ import { pcbTextBounds, pcbTextHitTest } from './pcb-text.js';
 import { clearPcbSelectionAnchors, renderPcbSelectionAnchors } from './selection-anchors.js';
 import { commitPropertyEditors } from './property-editors.js';
 import { areDragOverlaysDeferred, isBoardViewRefreshSuspended, setBoardViewRefreshSuspended, setDragOverlaysDeferred, refreshBoardView } from './refresh-state.js';
+import { rerenderFills } from './fill-refresh.js';
 import {
     clearPcbSelection,
     getComponentSelectionHits,
@@ -425,7 +426,7 @@ function _applyHighlights(app) {
     for (const text of getPcbSelection(app, 'text')) app.refreshText?.(text.id);
     // Selection highlight only — re-render pours from cached geometry rather
     // than triggering a full Clipper recompute.
-    if (getPcbSelection(app, 'fill').length) app._rerenderFills?.();
+    if (getPcbSelection(app, 'fill').length) rerenderFills(app);
     refreshPcbReferenceOverlay(app);
     renderPcbSelectionAnchors(app);
 }

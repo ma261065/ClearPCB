@@ -25,6 +25,14 @@ class Element {
     appendChild(child) { child.parentNode?.removeChild(child); this.children.push(child); child.parentNode = this; }
     removeChild(child) { this.children.splice(this.children.indexOf(child), 1); child.parentNode = null; }
     remove() { this.parentNode?.removeChild(this); }
+    querySelectorAll(selector) {
+        const matches = child => selector.startsWith('.')
+            && (child.getAttribute?.('class') || '').split(' ').includes(selector.slice(1));
+        return this.children.flatMap(child => [
+            ...(matches(child) ? [child] : []),
+            ...(child.querySelectorAll?.(selector) || []),
+        ]);
+    }
 }
 const frames = new Map();
 let nextFrame = 0;
@@ -67,6 +75,7 @@ function fixture(mixed) {
         viewport: { svg: { style: {} }, scale: 10, snapToGrid: true, gridVisible: true, gridSize: 1 },
         _shapeElements: new Map(),
         getLayerGroup: id => groups.get(id) || null,
+        existingLayerGroups: () => groups,
         _refreshBoardShapeClearance() {}, _ensureViewport() {}, markSectionClean() {}, _cancelDrawingMode() {},
         _cancelPosePreviews: PCBApp.prototype._cancelPosePreviews,
         refreshText: PCBApp.prototype.refreshText,

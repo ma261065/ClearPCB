@@ -27,6 +27,7 @@ import { getPcbInteraction, setPcbInteraction } from './pcb-interactions.js';
 import { selectBoardOutline } from './board-outline-resize.js';
 import { selectRefText } from './ref-text-selection.js';
 import { setLastPointerWorld } from './cursor-state.js';
+import { showFillProperties } from './copper-fill-edit.js';
 
 const SUPPORTED_KINDS = new Set(['component', 'shape', 'track', 'via', 'pad', 'fill', 'text', 'reftext']);
 
@@ -72,7 +73,7 @@ function showSingleProperties(app, entry) {
     else if (entry.kind === 'pad') app._showPadProperties?.(entry.object);
     else if (entry.kind === 'fill') {
         app.selectFill?.(entry.object);
-        app._showFillProperties?.(entry.object);
+        showFillProperties(app, entry.object);
     }
 }
 

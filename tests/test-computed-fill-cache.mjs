@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { CopperFill } from '../src/shapes/copper-fill.js';
 import { PcbDocument } from '../src/core/PcbDocument.js';
 import { getComputedFill, setComputedFill } from '../src/pcb/modules/computed-fill-cache.js';
-import { buildFillContext } from '../src/pcb/modules/fill-context.js';
+import { recomputeFillsNow } from '../src/pcb/modules/fill-refresh.js';
 import { loadClipper } from '../src/pcb/modules/copper-fill-geom.js';
 import { runDRC } from '../src/pcb/modules/drc.js';
 import { collectCopperArtwork } from '../src/pcb/modules/copper-artwork.js';
@@ -12,7 +12,6 @@ import { getDrcPresentation } from '../src/pcb/modules/drc-state.js';
 
 globalThis.window = { addEventListener() {} };
 globalThis.document = { getElementById: () => null };
-const { default: PCBApp } = await import('../src/ui/PCBApp.js');
 const { Board2D } = await import('../src/pcb/modules/board2d.js');
 const { buildFillMesh } = await import('../src/pcb/modules/board3d.js');
 await loadClipper();
@@ -31,13 +30,14 @@ globalThis.requestAnimationFrame = () => { checks++; return checks; };
 const app = { placements: new Map(), tracks: [], vias: [], pads: [], texts: new Map(), netlist: [],
     boardShapes: model.boardShapes, copperFills: [fill], _boardWidth: 10, _boardHeight: 10, _boardRadius: 0,
     getRoutingParams: () => ({ clearance: 0.2 }), getLayerGroup: () => null,
-    _clearFillGroups() {}, _fillContext() { return buildFillContext(this); } };
+    existingLayerGroups() { return this._layerGroups; },
+    _layerGroups: new Map() };
 setBoardViewPanel(app, { refresh() { previews++; } });
 getDrcPresentation(app).shouldRun = () => true;
 assert.equal(getComputedFill(fill), null);
 assert.equal('_computed' in fill, false, 'Authored fill entities have no derived result field');
 assert.ok(runDRC(app).violations.some(item => item.rule === 'fill'));
-assert.equal(PCBApp.prototype._recomputeFillsNow.call(app), true);
+assert.equal(recomputeFillsNow(app), true);
 const result = getComputedFill(fill);
 assert.ok(result.length);
 assert.equal(checks, 1);
@@ -50,7 +50,7 @@ assert.equal(fill.outline[0].x, 1.123456, 'Recomputation does not round live geo
 const suspensionSetters = { _deferDragOverlays: setDragOverlaysDeferred, _suspendFillRefresh: setFillRefreshSuspended };
 for (const flag of ['_deferDragOverlays', '_suspendFillRefresh']) {
     suspensionSetters[flag](app, true);
-    assert.equal(PCBApp.prototype._recomputeFillsNow.call(app), undefined);
+    assert.equal(recomputeFillsNow(app), undefined);
     assert.equal(getComputedFill(fill), result, 'Deferred edits retain the prior result until refresh');
     suspensionSetters[flag](app, false);
 }
@@ -117,7 +117,7 @@ const errors = [];
 const logError = console.error;
 try {
     console.error = (...args) => errors.push(args);
-    PCBApp.prototype._recomputeFillsNow.call(app);
+    recomputeFillsNow(app);
 } finally {
     console.error = logError;
 }

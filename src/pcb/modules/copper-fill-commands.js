@@ -13,10 +13,12 @@ import {
 import { isPcbSelected } from './selection-registry.js';
 import { renderPcbSelectionAnchors } from './selection-anchors.js';
 import { areDragOverlaysDeferred } from './refresh-state.js';
+import { recomputeFillsNow } from './fill-refresh.js';
+import { refreshFillProperties } from './copper-fill-edit.js';
 
 function refresh(app) {
     // Empty or deferred pours still need connectivity, without requesting another pour.
-    if (app._recomputeFillsNow?.() !== true) app.updateRatsnest?.({ skipFillRefresh: true });
+    if (recomputeFillsNow(app) !== true) app.updateRatsnest?.({ skipFillRefresh: true });
 }
 
 /** Add a CopperFill to the canonical app.boardShapes collection. */
@@ -67,7 +69,7 @@ export class ModifyFillCommand extends ModelModifyFillCommand {
         if (!areDragOverlaysDeferred(this.app)) {
             refresh(this.app);
         }
-        this.app._refreshFillProperties?.(this.fill);
+        refreshFillProperties(this.app, this.fill);
         renderPcbSelectionAnchors(this.app);
     }
 }

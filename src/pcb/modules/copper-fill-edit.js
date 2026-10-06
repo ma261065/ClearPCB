@@ -65,8 +65,8 @@ export function fillEditProfile() {
         renderHandles(app) { renderPcbSelectionAnchors(app); },
         renderSegmentSelection(app) { renderPcbSelectionAnchors(app); },
         remove(app, fill) { removeCopperFillElements(fill, id => app.getLayerGroup(id)); },
-        showProperties(app, fill) { app._showFillProperties?.(fill); },
-        refreshProperties(app, fill) { app._refreshFillProperties?.(fill); },
+        showProperties(app, fill) { showFillProperties(app, fill); },
+        refreshProperties(app, fill) { refreshFillProperties(app, fill); },
         syncProperties(app, fill) { syncFillPanel(app, fill); },
         propertyPreviewPrepare() {},
         propertyPreviewRender(app, changed) {
@@ -89,7 +89,7 @@ export function fillEditProfile() {
         valid(_app, fill) { return validFill(fill); },
         afterCommit(app, original) {
             if (this.collection(app).includes(original)) {
-                app._refreshFillProperties?.(original);
+                refreshFillProperties(app, original);
                 renderPcbSelectionAnchors(app);
             }
         },
@@ -254,7 +254,7 @@ export function showFillContextMenu(app, fill, clientX, clientY, point) {
         }),
         deleteObject: () => app.history.execute(new RemoveFillCommand(app, fill)), label: 'copper fill',
     });
-    app._showFillProperties?.(fill);
+    showFillProperties(app, fill);
     renderPcbSelectionAnchors(app);
     return showPathContextMenu('pcbBoardShapeContextMenu', items, clientX, clientY);
 }
@@ -274,6 +274,10 @@ const openFillPanels = new WeakMap();
 export function syncFillPanel(app, fill) {
     const panel = openFillPanels.get(app);
     if (fill && panel && panel.id === fill.id) panel.refresh();
+}
+
+export function refreshFillProperties(app, fill) {
+    if (fill && isPcbSelected(app, 'fill', fill)) showFillProperties(app, fill);
 }
 
 /** Properties for a copper pour: Locked, Layer, Net, then its outline geometry. */

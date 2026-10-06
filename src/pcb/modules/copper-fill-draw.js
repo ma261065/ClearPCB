@@ -24,6 +24,7 @@ import { closedShapeOutline } from '../../shapes/closed-outline.js';
 import { AddFillCommand } from './copper-fill-commands.js';
 import { setPcbSelection } from './selection-registry.js';
 import { getPcbInteraction, setPcbInteraction } from './pcb-interactions.js';
+import { showFillProperties } from './copper-fill-edit.js';
 
 const NS = 'http://www.w3.org/2000/svg';
 const PREVIEW_CLASS = 'pcb-fill-preview';
@@ -31,12 +32,13 @@ const PREVIEW_CLASS = 'pcb-fill-preview';
 /** Close-snap radius (world mm) for landing back on the first vertex. */
 const CLOSE_TOL = 0.6;
 
-function copperLayer(app) {
-    return app._fillToolLayer === 'bottom-copper' ? 'bottom-copper' : 'top-copper';
-}
-
 /** The Fill tool's net and corner radius for new pours, per editor. */
 const toolDefaults = new WeakMap();
+
+export function fillToolLayer(app) {
+    const state = toolDefaults.get(app);
+    return state && state.layer === 'bottom-copper' ? 'bottom-copper' : 'top-copper';
+}
 
 /**
  * What a new pour gets (the Fill tool's Properties).
@@ -44,7 +46,7 @@ const toolDefaults = new WeakMap();
  */
 export function fillToolDefaults(app) {
     const { net = '', cornerRadius = 0 } = toolDefaults.get(app) || {};
-    return { layer: copperLayer(app), net, cornerRadius };
+    return { layer: fillToolLayer(app), net, cornerRadius };
 }
 
 /**
@@ -56,11 +58,11 @@ export function setFillToolDefaults(app, changes = {}) {
     const { layer, net, cornerRadius } = changes;
     const current = fillToolDefaults(app);
     toolDefaults.set(app, {
+        layer: layer === 'top-copper' || layer === 'bottom-copper' ? layer : current.layer,
         net: net === undefined ? current.net : String(net),
         cornerRadius: cornerRadius === undefined ? current.cornerRadius : Math.max(0, Number(cornerRadius) || 0),
     });
     if (layer === 'top-copper' || layer === 'bottom-copper') {
-        app._fillToolLayer = layer;
         const draw = getFillDraw(app);
         if (draw) draw.layer = layer;
     }
@@ -85,7 +87,7 @@ export function startFillDraw(app, world) {
     const p = snap(app, world);
     setPcbInteraction(app, '_fillDraw', {
         points: [{ x: p.x, y: p.y }],
-        layer: copperLayer(app),
+        layer: fillToolLayer(app),
         snap: { x: p.x, y: p.y },
     });
     renderPreview(app);
@@ -139,7 +141,7 @@ export function finishFillDraw(app) {
     // Select the new fill so the user can assign a net immediately.
     setPcbSelection(app, [{ kind: 'fill', object: fill }]);
     app.selectFill?.(fill);
-    app._showFillProperties?.(fill);
+    showFillProperties(app, fill);
 }
 
 /** Abort the in-progress region without committing. */

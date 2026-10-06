@@ -11,8 +11,10 @@ import { areDragOverlaysDeferred, isFillRefreshPending, isFillRefreshSuspended, 
 import { isEditorActive } from './pcb-editor-api.js';
 import { buildFillContext } from './fill-context.js';
 import { scheduleDrc } from './drc-state.js';
+import { invalidateDrcRefresh } from './drc-refresh.js';
 
 const states = new WeakMap();
+const disposedApps = new WeakSet();
 function stateFor(app) {
     let state = states.get(app);
     if (!state) {
@@ -41,7 +43,7 @@ function clearRetry(state) {
 function retryWhenSettled(app, state) {
     state.owed = true;
     setFillRefreshPending(app, true);
-    if (state.retry !== null || !isEditorActive(app) || app._fillRefreshDisposed) return;
+    if (state.retry !== null || !isEditorActive(app) || disposedApps.has(app)) return;
     state.retry = setTimeout(() => {
         state.retry = null;
         if (states.get(app) !== state || !isFillRefreshPending(app)) return;
@@ -61,8 +63,9 @@ export function invalidateFillRefresh(app) {
 }
 
 /** Cancel callbacks and terminate the worker; activation may create a fresh service. */
-export function disposeFillRefresh(app) {
+export function disposeFillRefresh(app, options = {}) {
     const state = states.get(app);
+    if (options.terminal) disposedApps.add(app);
     if (!state) return;
     if (state.owed || state.frame !== null) setFillRefreshPending(app, true);
     state.worker?.dispose();
@@ -108,7 +111,7 @@ export function adoptFillResults(app, fills, results, contacts) {
         throw error;
     }
     try {
-        app._clearFillGroups();
+        clearFillGroups(app);
         for (const [id, group] of groups) {
             const source = staged.get(id);
             while (source?.firstChild) group.appendChild(source.firstChild);
@@ -136,6 +139,7 @@ export function adoptFillResults(app, fills, results, contacts) {
  * @returns {true|undefined}
  */
 export function recomputeFillsNow(app) {
+    invalidateDrcRefresh(app);
     const state = cancelScheduled(app);
     if (areDragOverlaysDeferred(app) || isFillRefreshSuspended(app)) {
         retryWhenSettled(app, state);
@@ -143,13 +147,13 @@ export function recomputeFillsNow(app) {
     }
     const fills = fillsFor(app);
     setFillRefreshPending(app, false);
-    if (!fills.length) { app._clearFillGroups(); return; }
+    if (!fills.length) { clearFillGroups(app); return; }
     if (!isClipperReady()) {
         state.owed = true;
         setFillRefreshPending(app, true);
         const revision = state.revision, model = app.pcbDocument || app;
         loadClipper().then(() => {
-            if (current(app, state, revision, model, fills)) app._recomputeFillsNow();
+            if (current(app, state, revision, model, fills)) recomputeFillsNow(app);
         }).catch(error => {
             if (!current(app, state, revision, model, fills)) return;
             reportFailure(app, 'Failed to load copper-fill geometry:', error);
@@ -177,7 +181,7 @@ export function recomputeFillsNow(app) {
 
 /** True when this request owns the eventual connectivity reconciliation. */
 export function scheduleFillRefresh(app) {
-    if (app._fillRefreshDisposed) return false;
+    if (disposedApps.has(app)) return false;
     const state = stateFor(app);
     state.revision++;
     state.worker?.invalidate();
@@ -189,7 +193,7 @@ export function scheduleFillRefresh(app) {
     if (!fillsFor(app).length) {
         state.owed = false;
         setFillRefreshPending(app, false);
-        app._clearFillGroups();
+        clearFillGroups(app);
         return false;
     }
     state.owed = true;
@@ -204,9 +208,9 @@ export function scheduleFillRefresh(app) {
         setFillRefreshScheduled(app, false);
         clearRetry(state);
         if (!isEditorActive(app) || deferred(app)) { retryWhenSettled(app, state); return; }
-        if (typeof Worker !== 'function' || state.failed) { app._recomputeFillsNow(); return; }
+        if (typeof Worker !== 'function' || state.failed) { recomputeFillsNow(app); return; }
         const fills = [...fillsFor(app)];
-        if (!fills.length) { state.owed = false; setFillRefreshPending(app, false); app._clearFillGroups(); return; }
+        if (!fills.length) { state.owed = false; setFillRefreshPending(app, false); clearFillGroups(app); return; }
         const revision = state.revision, model = app.pcbDocument || app;
         let inputs;
         try { inputs = captureFillInputs(app); }
@@ -244,11 +248,29 @@ export function scheduleFillRefresh(app) {
             state.worker = null;
             if (current(app, state, revision, model, fills)) {
                 if (deferred(app) || !isEditorActive(app)) retryWhenSettled(app, state);
-                else app._recomputeFillsNow();
+                else recomputeFillsNow(app);
             }
         });
     };
     if (typeof requestAnimationFrame === 'function') requestAnimationFrame(run);
     else setTimeout(run, 0);
     return typeof Worker === 'function' && !state.failed || isClipperReady();
+}
+
+export function rerenderFills(app) {
+    if (areDragOverlaysDeferred(app)) return;
+    if (!app.copperFills || app.copperFills.length === 0) return;
+    for (const fill of app.copperFills) {
+        renderCopperFill(fill, (id) => app.getLayerGroup(id), {
+            selected: isPcbSelected(app, 'fill', fill),
+        });
+    }
+}
+
+export function clearFillGroups(app) {
+    const groups = app.existingLayerGroups();
+    for (const gid of ['top-fill', 'bottom-fill']) {
+        const g = groups.get(gid);
+        if (g) while (g.firstChild) g.firstChild.remove();
+    }
 }

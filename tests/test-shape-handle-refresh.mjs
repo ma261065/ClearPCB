@@ -51,14 +51,18 @@ try {
             const overlay = { removeChild(child) { child.parentNode = null; } };
             const halo = { parentNode: overlay };
             const expectedHaloParent = shape.kind === 'image' ? null : overlay;
+            const topFill = { get firstChild() { fills++; return null; } };
+            const bottomFill = { get firstChild() { return null; } };
+            const fillGroups = new Map([['top-fill', topFill], ['bottom-fill', bottomFill]]);
             const app = {
                 boardShapes: [shape], tracks: [], vias: [], placements: new Map(), texts: new Map(), copperFills: [],
                 history: new CommandHistory(), _shapeElements: new Map(),
                 _boardShapeClearanceCache: new Map([[shape.id, { elements: [halo] }]]),
                 viewport: { scale: 10, snapToGrid: false, setCrosshair() {}, hideCrosshair() {} },
-                getLayerGroup() { return null; }, snapToGrid(point) { return point; }, _snapActive() { return false; },
+                getLayerGroup() { return null; },
+                existingLayerGroups() { return fillGroups; },
+                snapToGrid(point) { return point; }, _snapActive() { return false; },
                 refreshFills() { return scheduleFillRefresh(this); },
-                _clearFillGroups() { fills++; },
                 _refreshBoardShapeClearance() { if (!isPictureCopperRefreshPending(this)) halos++; },
                 refreshClearanceHalos() { halos++; },
                 updateRatsnest(options) { reconcileRatsnest(this, options); },

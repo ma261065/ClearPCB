@@ -139,7 +139,9 @@ evaluation-order cycle fails.
 - State shared by PCB modules lives in its owning module behind functions, usually
   a WeakMap keyed by the editor, rather than as `app._x` fields:
   `property-editors.js` (Properties bindings), `refresh-state.js` (pour/picture
-  refresh status and refresh suspensions), `board-shape-state.js` (board-shape
+  refresh status and refresh suspensions), `fill-refresh.js` (computed-pour
+  scheduling, terminal disposal, cached rerenders and fill-layer clearing),
+  `board-shape-state.js` (board-shape
   node/segment focus, hover and tool defaults), `pcb-text-render.js` (free-text
   SVG elements and hover), `cursor-state.js` (last pointer/crosshair positions),
   `refresh-state.js` (derived-refresh flags, suspensions, and shared 3D/2D
@@ -220,8 +222,11 @@ PCB editor:
   `refreshPropertyPanel`, `netNames`, `setPropertiesTitle`, `showPropertiesTab`,
   `layerLabel`); `PCBApp` hosts the rendering while owner modules keep their
   tool defaults/previews in per-editor WeakMaps. Track defaults and the New Track
-  panel live in `track-draw.js`; Via defaults and preview rings live in
-  `via-tool.js`; Pad and Text defaults live with their Properties modules.
+  panel live in `track-draw.js`; the Fill tool layer/net/radius defaults and
+  drawing session live in `copper-fill-draw.js`, while selected-fill Properties
+  rendering and in-place refresh live in `copper-fill-edit.js`; Via defaults and
+  preview rings live in `via-tool.js`; Pad and Text defaults live with their
+  Properties modules.
 - `pcb/modules/pcb-text-render.js` — free-text SVG element state, render/remove,
   refresh, hit-testing and hover state in per-editor WeakMaps; `pcb-text.js`
   remains the glyph geometry/color helper.

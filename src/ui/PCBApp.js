@@ -63,8 +63,7 @@ import { renderPcbSelectionAnchors } from '../pcb/modules/selection-anchors.js';
 import { boardShapeLocked, createPcbHistory, isPcbObjectLayerLocked, isPcbObjectLocked, lockedRoutedCopper, showUnlockMenu } from '../pcb/modules/object-locks.js';
 import { renderPropertyActions, renderPropertyFields } from '../shared/ui/property-fields.js';
 import { refreshAxisGlow } from '../pcb/modules/axis-glow.js';
-import { buildFillContext } from '../pcb/modules/fill-context.js';
-import { scheduleFillRefresh, recomputeFillsNow, invalidateFillRefresh, disposeFillRefresh } from '../pcb/modules/fill-refresh.js';
+import { scheduleFillRefresh, invalidateFillRefresh, disposeFillRefresh } from '../pcb/modules/fill-refresh.js';
 import {
     armBoxSelect,
     refreshBoxSelectionHighlights,
@@ -110,13 +109,13 @@ import {
     getFillDraw,
     startFillDraw,
     addFillWaypoint,
-    cancelFillDraw,
+    fillToolDefaults,
 } from '../pcb/modules/copper-fill-draw.js';
 import { preparePcbPaste, beginPcbPaste, cancelPcbPaste, getPcbPastePreview, isPcbPasteActive } from '../pcb/modules/pcb-paste.js';
 import { getLastCrosshairWorld, updateCursorCrosshair, updateVertexDragCrosshair } from '../pcb/modules/cursor-state.js';
 import { getBoardOutline, boardBoundary } from '../shared/pcb/board-outline.js';
 import { getPropertyEditor, setPropertyEditor } from '../pcb/modules/property-editors.js';
-import { areDragOverlaysDeferred, getBoardViewPanel, getLastBoard2DSide, isFillRefreshPending, onRefreshSuspended, refreshBoardViewPanel, setDragOverlaysDeferred, setLastBoard2DSide } from '../pcb/modules/refresh-state.js';
+import { getBoardViewPanel, getLastBoard2DSide, isFillRefreshPending, onRefreshSuspended, refreshBoardViewPanel, setDragOverlaysDeferred, setLastBoard2DSide } from '../pcb/modules/refresh-state.js';
 import {
     drawBoardOutline,
     getBoardDimensionPreview,
@@ -318,8 +317,6 @@ export default class PCBApp {
         /** Currently selected board shape, or null. */
         /** Selected-track node/edge edit state (track-select.js), or null. */
         this._trackEdit = null;
-        /** Fill tool layer for new pours (copper-fill-draw.js owns the Fill tool defaults). @type {'top-copper'|'bottom-copper'|undefined} */
-        this._fillToolLayer = undefined;
         /** Home-tab tool highlight sync, installed by bindPcbControls(). */
         this._syncPcbHomeToolHighlight = null;
 
@@ -426,8 +423,7 @@ export default class PCBApp {
 
     dispose() {
         this._autorouter?.dispose();
-        this._fillRefreshDisposed = true;
-        disposeFillRefresh(this);
+        disposeFillRefresh(this, { terminal: true });
         disposeDrc(this);
     }
 
@@ -437,7 +433,7 @@ export default class PCBApp {
         const shapeTool = ['line', 'circle', 'rect', 'polygon', 'arc'].includes(rawTool);
         const toolLabel = rawTool.replace(/-/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
         const layer = rawTool === 'text' ? getTextToolDefaults(this)?.layer || 'top-silk'
-            : rawTool === 'fill' ? getFillDraw(this)?.layer || this._fillToolLayer || 'top-copper'
+            : rawTool === 'fill' ? getFillDraw(this)?.layer || fillToolDefaults(this).layer
             : rawTool === 'track' ? getTrackDraw(this)?.currentLayer || getTrackToolLayer(this) || 'top-copper'
             : shapeTool ? getShapeDraw(this)?.layer || resolveShapeDrawLayer(this, this.activeLayer)
             : this.activeLayer;
@@ -1042,7 +1038,7 @@ export default class PCBApp {
             this._selectComponent(null);
             selectBoardOutline(this, false);
             this.selectFill(fillHit);
-            this._showFillProperties(fillHit);
+            showFillProperties(this, fillHit);
         } else {
             this._selectComponent(null);
             selectBoardOutline(this, false);
@@ -1078,7 +1074,7 @@ export default class PCBApp {
      */
     _pressFillTool(e) {
         const worldPos = this.screenToWorld(e);
-        if (!getFillDraw(this) && isLayerLocked(this._fillToolLayer || 'top-copper')) return;
+        if (!getFillDraw(this) && isLayerLocked(fillToolDefaults(this).layer)) return;
         if (getFillDraw(this)) {
             addFillWaypoint(this, worldPos);
         } else {
@@ -1222,11 +1218,6 @@ export default class PCBApp {
         // Also drop the pre-draw hover snap marker (shown while hovering a
         // bondable target before the first click).
         clearTrackSnapMarker(this);
-    }
-
-    /** Public hook used by controls.setTool to abort an in-flight fill draw. */
-    _cancelFillDraw() {
-        if (getFillDraw(this)) cancelFillDraw(this);
     }
 
     /** Public hook used by controls.setTool to abort an in-flight shape draw. */
@@ -2960,40 +2951,12 @@ export default class PCBApp {
      * geometry, so reuse the cached fill results instead of re-running
      * Clipper across every pour.
      */
-    _rerenderFills() {
-        if (areDragOverlaysDeferred(this)) return;
-        if (!this.copperFills || this.copperFills.length === 0) return;
-        for (const fill of this.copperFills) {
-            renderCopperFill(fill, (id) => this.getLayerGroup(id), {
-                selected: isPcbSelected(this, 'fill', fill),
-            });
-        }
-    }
-
-    /** Remove all rendered pour geometry from both fill layer groups. */
-    _clearFillGroups() {
-        for (const gid of ['top-fill', 'bottom-fill']) {
-            const g = this._layerGroups.get(gid);
-            if (g) while (g.firstChild) g.firstChild.remove();
-        }
-    }
-
     /**
      * Recompute the poured geometry for every fill and re-render. Ensures
      * the clipper engine is loaded first (async, once); until it is, the
      * recompute is deferred.
      * @returns {true|undefined} True when fills were computed and downstream refreshes requested.
      */
-    _recomputeFillsNow() {
-        invalidateDrcRefresh(this);
-        return recomputeFillsNow(this);
-    }
-
-    /** Build the obstacle/parameter context for the fill geometry engine. */
-    _fillContext() {
-        return buildFillContext(this);
-    }
-
     /** Resolve a pad's net from the netlist (componentId + pad number). */
     _padNetLookup(componentId, number) {
         if (!Array.isArray(this.netlist)) return '';
@@ -3087,18 +3050,6 @@ export default class PCBApp {
      * nets are cleared) and its copper layer. Both commit through a single
      * ModifyFillCommand for clean undo/redo.
      */
-    _showFillProperties(fill) {
-        showFillProperties(this, fill);
-    }
-
-    /**
-     * Re-sync the pour Properties panel after a programmatic change (e.g. a
-     * ModifyFillCommand undo/redo). Simply re-renders if this pour is shown.
-     */
-    _refreshFillProperties(fill) {
-        if (fill && isPcbSelected(this, 'fill', fill)) this._showFillProperties(fill);
-    }
-
     /**
      * Render routing result onto copper layers and hide routed ratlines.
      *

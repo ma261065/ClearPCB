@@ -54,7 +54,9 @@ function fixture(saved) {
         project, pcbDocument: project.pcbDocument, placementState: state, placements,
         get tracks() { return getPlacementPreviewTracks(this) || this.pcbDocument.tracks; },
         vias: [], pads: [], boardShapes: [], texts: new Map(), history: new CommandHistory(),
+        _layerGroups: new Map(),
         viewport: { scale: 10, gridVisible: false, snapToGrid: false, svg: { style: {} } },
+        existingLayerGroups() { return this._layerGroups; },
         getLayerGroup(id) {
             if (id !== 'top-copper') return null;
             trackRenders++;

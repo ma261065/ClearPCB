@@ -17,6 +17,7 @@ import { refreshBoardView } from './refresh-state.js';
 import { isEditorActive } from './pcb-editor-api.js';
 import { clearDrcResults, resetDrc } from './drc-state.js';
 import { closeBoardDimensionsDialog, drawBoardOutline, selectBoardOutline, setBoardOutlineDrawn } from './board-outline-resize.js';
+import { clearFillGroups } from './fill-refresh.js';
 
 /** @param {any} app */
 export function serializePcb(app) {
@@ -60,7 +61,7 @@ export function loadPcb(app, data, prepared = preparePcb(data)) {
     if (getBoardShapeDrag(app)) endBoardShapeDrag(app, false);
     app.updateCopperCuts?.();
     // Copper pours live in boardShapes; clear their SVG state.
-    app._clearFillGroups?.();
+    clearFillGroups(app);
     app.history.clear?.();
 
     // A new/opened document invalidates any current DRC results, so close

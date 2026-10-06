@@ -1,15 +1,43 @@
 import assert from 'node:assert/strict';
-import { getComputedFill, setComputedFill } from '../src/pcb/modules/computed-fill-cache.js';
-import { areDragOverlaysDeferred, isFillRefreshPending, isFillRefreshSuspended, setDragOverlaysDeferred, setFillRefreshPending, setFillRefreshSuspended, setPictureCopperRefreshPending } from '../src/pcb/modules/refresh-state.js';
+import { getComputedFill } from '../src/pcb/modules/computed-fill-cache.js';
+import { isFillRefreshPending, setDragOverlaysDeferred, setFillRefreshPending, setFillRefreshSuspended, setPictureCopperRefreshPending } from '../src/pcb/modules/refresh-state.js';
 
 globalThis.window = { addEventListener() {} };
-globalThis.document = { createElementNS: () => ({ setAttribute() {}, appendChild() {},
-    classList: { add() {} }, dataset: {} }) };
+function element() {
+    return {
+        children: [], attributes: new Map(), classList: { add() {} }, dataset: {},
+        setAttribute(key, value) { this.attributes.set(key, String(value)); },
+        getAttribute(key) { return this.attributes.get(key) ?? null; },
+        appendChild(child) { child.remove?.(); this.children.push(child); child.parentNode = this; },
+        insertBefore(child, before) {
+            child.remove?.();
+            const index = this.children.indexOf(before);
+            this.children.splice(index < 0 ? this.children.length : index, 0, child);
+            child.parentNode = this;
+        },
+        remove() {
+            if (!this.parentNode) return;
+            this.parentNode.children.splice(this.parentNode.children.indexOf(this), 1);
+            this.parentNode = null;
+        },
+        get firstChild() { return this.children[0] || null; },
+        cloneNode() { return element(); },
+        querySelectorAll(selector) {
+            const matches = child => selector.startsWith('.')
+                && (child.getAttribute?.('class') || '').split(' ').includes(selector.slice(1));
+            return this.children.flatMap(child => [
+                ...(matches(child) ? [child] : []),
+                ...(child.querySelectorAll?.(selector) || []),
+            ]);
+        },
+        querySelector(selector) { return this.querySelectorAll(selector)[0] || null; },
+    };
+}
+globalThis.document = { createElementNS: () => element() };
 const { scheduleFillRefresh } = await import('../src/pcb/modules/fill-refresh.js');
 const { reconcileRatsnest } = await import('../src/pcb/modules/track-draw.js');
-const { loadClipper, computeFillPolygons } = await import('../src/pcb/modules/copper-fill-geom.js');
+const { loadClipper } = await import('../src/pcb/modules/copper-fill-geom.js');
 const { CopperFill } = await import('../src/shapes/copper-fill.js');
-const { buildFillContext } = await import('../src/pcb/modules/fill-context.js');
 const { batchDerivedUpdates } = await import('../src/core/DerivedUpdates.js');
 const originalRaf = globalThis.requestAnimationFrame;
 const frames = [];
@@ -24,28 +52,20 @@ function board() {
     const counts = { rebuilds: 0, pours: 0, halos: 0, clears: 0, lines: 0 };
     const ratLayer = { get children() { counts.rebuilds++; return []; },
         appendChild() { counts.lines++; } };
+    const topFill = element(), bottomFill = element();
+    topFill.cloneNode = () => { counts.pours++; return element(); };
+    const fillGroups = new Map([['top-fill', topFill], ['bottom-fill', bottomFill]]);
     const app = {
         counts, tracks: [], vias: [], boardShapes: [], placements: new Map(), netlist: [], texts: new Map(),
         copperFills: [new CopperFill({ net: 'GND', outline: [
             { x: -5, y: -5 }, { x: 5, y: -5 }, { x: 5, y: 5 }, { x: -5, y: 5 },
         ] })],
-        getLayerGroup: () => ratLayer,
+        getLayerGroup: id => id === 'ratlines' ? ratLayer : fillGroups.get(id),
+        existingLayerGroups() { return this._layerGroups; },
+        _layerGroups: fillGroups,
         getRoutingParams: () => ({ clearance: 0.2 }),
         refreshClearanceHalos() { counts.halos++; },
-        _clearFillGroups() { counts.clears++; },
         refreshFills() { return scheduleFillRefresh(this); },
-        _recomputeFillsNow() {
-            if (areDragOverlaysDeferred(this) || isFillRefreshSuspended(this)) {
-                setFillRefreshPending(this, true);
-                return;
-            }
-            if (!this.copperFills.length) { this._clearFillGroups(); return; }
-            setFillRefreshPending(this, false);
-            counts.pours++;
-            const context = buildFillContext(this);
-            for (const fill of this.copperFills) setComputedFill(fill, computeFillPolygons(fill, context));
-            reconcileRatsnest(this, { skipFillRefresh: true });
-        },
     };
     return app;
 }
