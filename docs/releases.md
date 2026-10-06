@@ -38,14 +38,15 @@ job. If a baseline is ever needed again, record it with
 (installed locally as in the [README](../README.md#testing)). Vendored modules
 are not checked: `assets/vendor/fflate.module.d.ts` declares the fflate API in use.
 
-Its **Browser tests** job installs Playwright 1.55.0 with Chromium and runs
-`node tools/browser-test.mjs`. Each scenario in `browser-tests/` gets a fresh
+Its **Browser tests** jobs install Playwright 1.55.0 with Chromium and run
+`node tools/browser-test.mjs --shard=i/4`: four jobs run in parallel, each taking
+every fourth scenario, so together they run every scenario once. Each scenario in `browser-tests/` gets a fresh
 browser context against `tools/serve.mjs`. They drive the real app with real
 pointer input: switching modes, drawing and undoing tracks, the WebGL 3D view,
 Properties panel edits and their shared control order, track/shape conversions,
 schematic selection and cancellation, and reopening a board through autosave
 recovery. Any uncaught page error fails the scenario; failure screenshots are
-uploaded as the `browser-test-failures` artifact.
+uploaded as the `browser-test-failures-<shard>` artifact.
 
 **Publish Stable Release** independently runs the same gate against the checked-out
 release tag before packaging, uploading the downloadable ZIP, or deploying.
@@ -196,8 +197,8 @@ Make the CI jobs merge-blocking (repository admin, on github.com):
    request before merging** (one approval for `release_*` if reviewers exist).
 4. Enable **Require status checks to pass**, tick **Require branches to be up to
    date before merging**, and add the checks `Regression gate`, `Type check` and
-   `Browser tests` (source: GitHub Actions).
-5. Save, then open a test pull request to confirm the three checks are listed as
+   `Browser tests (1/4)` to `Browser tests (4/4)` (source: GitHub Actions).
+5. Save, then open a test pull request to confirm the six checks are listed as
    required.
 
 ## New Release Line

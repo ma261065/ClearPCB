@@ -335,8 +335,8 @@ object before it runs. A new command class must declare `lockTargets()`;
 - `node tools/test.mjs [filter…]` — only the regression tests, optionally filtered.
 - `node tools/typecheck.mjs` — `checkJs` type check; the baseline is empty, so any error
   fails.
-- `node tools/browser-test.mjs [filter]` — real-browser scenarios (headless Chromium;
-  `HEADED=1` shows the browser). `node tools/serve.mjs [port]` serves the app without
+- `node tools/browser-test.mjs [filter] [--shard=i/n]` — real-browser scenarios (headless
+  Chromium; `HEADED=1` shows the browser; CI runs four shards in parallel). `node tools/serve.mjs [port]` serves the app without
   dependencies.
 - TypeScript 5.9.3 and Playwright 1.55.0 are not vendored: install them into the
   git-ignored `node_modules` as CI does (see [README](../README.md#testing)), or set

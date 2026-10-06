@@ -11,8 +11,10 @@
 //   npx playwright install chromium
 // or point PLAYWRIGHT at a Playwright package installed elsewhere.
 //
-// Usage: node tools/browser-test.mjs [scenario-name-filter]   (HEADED=1 shows the browser;
-// CPU_THROTTLE=4 slows the page down like a CI runner)
+// Usage: node tools/browser-test.mjs [scenario-name-filter] [--shard=i/n]
+//   HEADED=1 shows the browser; CPU_THROTTLE=4 slows the page down like a CI runner.
+//   --shard=i/n runs every n-th matching scenario starting at the i-th (1-based), so n
+//   parallel jobs together run each scenario exactly once (CI runs four).
 
 import { readdirSync } from 'node:fs';
 import { createRequire } from 'node:module';
@@ -36,16 +38,25 @@ async function loadPlaywright() {
 
 const playwright = await loadPlaywright();
 const chromium = playwright.chromium ?? playwright.default?.chromium;
-const filter = process.argv[2] || '';
+const args = process.argv.slice(2);
+const filter = args.find(arg => !arg.startsWith('--')) || '';
+const shardArg = args.find(arg => arg.startsWith('--shard='));
+const [shardIndex, shardCount] = shardArg ? shardArg.slice('--shard='.length).split('/').map(Number) : [1, 1];
+if (!Number.isInteger(shardIndex) || !Number.isInteger(shardCount) || shardIndex < 1 || shardIndex > shardCount) {
+    throw new Error(`Invalid ${shardArg}: use --shard=i/n with 1 <= i <= n.`);
+}
 const scenarioDir = new URL('../browser-tests/', import.meta.url);
-const scenarios = [];
+const matching = [];
 for (const file of readdirSync(scenarioDir).filter(name => name.endsWith('.mjs')).sort()) {
     const module = await import(new URL(file, scenarioDir).href);
     for (const scenario of module.scenarios || []) {
-        if (!filter || scenario.name.includes(filter)) scenarios.push({ ...scenario, file });
+        if (!filter || scenario.name.includes(filter)) matching.push({ ...scenario, file });
     }
 }
-if (!scenarios.length) throw new Error('No matching browser scenarios.');
+if (!matching.length) throw new Error('No matching browser scenarios.');
+// Round-robin keeps neighbouring (often similar-length) scenarios on different shards.
+const scenarios = matching.filter((_, index) => index % shardCount === shardIndex - 1);
+if (shardCount > 1) console.log(`Shard ${shardIndex}/${shardCount}: ${scenarios.length} of ${matching.length} scenarios.`);
 
 const { server, url } = await startServer(0);
 // Software WebGL so the 3D viewer renders on GPU-less CI runners.
