@@ -98,8 +98,12 @@ input updates caret/selection geometry without rebuilding glyph SVG.
 Property edits made during inline typing use independent model commands. Their
 style/pose changes synchronize into the same content projection without
 overwriting pending input, including undo/redo. Layer-side compensation uses the
-displayed content width.
-Completion removes the projection before a content edit or deletion command;
+displayed content width. A pose gesture on the edited text (its rotation handle)
+ends with `finishTextPosePreview`, which keeps the content projection and re-syncs
+the pose from the model, so the typed text stays displayed whether the rotation
+commits or is cancelled.
+Completion (`finishTextContentPreview`) removes the projection before a content
+edit or deletion command;
 there is no temporary authored-content rollback. Cancel restores presentation
 from the current model, preserving independently committed property changes.
 Blank-content deletion and cancelled new-placement cleanup use

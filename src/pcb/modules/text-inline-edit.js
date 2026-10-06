@@ -3,7 +3,7 @@ import { isLayerVisible } from './layers.js';
 import { boardShapeLocked } from './object-locks.js';
 import { invalidateDrcRefresh } from './drc-refresh.js';
 import { pcbTextEditBox } from './pcb-text.js';
-import { AddTextCommand, RemoveTextCommand, EditTextCommand, finishTextPosePreview, beginTextContentPreview } from './text-commands.js';
+import { AddTextCommand, RemoveTextCommand, EditTextCommand, finishTextContentPreview, beginTextContentPreview } from './text-commands.js';
 import { invalidateFillRefresh } from './fill-refresh.js';
 import { isPcbSelected } from './selection-registry.js';
 import { measureText as measureStrokeText, stringToPolylines } from '../../shared/pcb/stroke-font.js';
@@ -354,7 +354,7 @@ export function endTextInlineEdit(app, commit) {
     const blank = effective.trim() === '';
     const wasSelected = isPcbSelected(app, 'text', text);
     try {
-        finishTextPosePreview(app, () => {
+        finishTextContentPreview(app, () => {
             if (blank) {
                 const remove = new RemoveTextCommand(app, text.id);
                 const last = app.history.undoStack.at(-1);

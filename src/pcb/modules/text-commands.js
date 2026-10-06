@@ -109,8 +109,39 @@ export function finishTextPropertyPreview(app, commit) {
     }
 }
 
-/** Switch back to canonical text before executing a model command or restoring artwork. */
+/**
+ * End a pose gesture (drag, rotation, group move) and switch back to canonical text
+ * before executing its model command or restoring artwork. Inline typing on the same
+ * text outlives the gesture: its content projection is kept and re-synced, so the
+ * typed text stays on screen until the inline edit itself finishes.
+ */
 export function finishTextPosePreview(app, commit) {
+    const preview = textPosePreviews.get(app);
+    const contentId = preview?.contentId;
+    if (contentId != null && preview.copies.size === 1 && preview.copies.has(contentId)) {
+        finishPoseKeepingContent(app, contentId, commit);
+        return;
+    }
+    finishTextContentPreview(app, commit);
+}
+
+function finishPoseKeepingContent(app, id, commit) {
+    try {
+        if (commit) commit();
+    } finally {
+        if (!app.pcbDocument.texts.get(id)) {
+            textPosePreviews.delete(app);
+            removeTextElement(app, id);
+        } else {
+            // The command (or a cancel) leaves authored pose current; the copy keeps the typing.
+            syncTextContentPreview(app, id);
+            app.refreshText(id);
+        }
+    }
+}
+
+/** End every text preview, inline content included, before executing its model command. */
+export function finishTextContentPreview(app, commit) {
     const preview = textPosePreviews.get(app);
     textPosePreviews.delete(app);
     let committed = false;

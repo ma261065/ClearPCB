@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { PcbDocument } from '../src/core/PcbDocument.js';
 import { CommandHistory } from '../src/core/CommandHistory.js';
 import { createPcbText, serializePcbText } from '../src/core/pcb-text.js';
-import { AddTextCommand, EditTextCommand, RemoveTextCommand, beginTextContentPreview, getTextPosePreviewTexts } from '../src/pcb/modules/text-commands.js';
+import { AddTextCommand, EditTextCommand, RemoveTextCommand, beginTextContentPreview, finishTextPosePreview, getTextPosePreviewTexts, previewTextPose } from '../src/pcb/modules/text-commands.js';
 import { RemoveTextCommand as ModelRemoveTextCommand } from '../src/core/pcb-text-commands.js';
 import { CompoundCommand } from '../src/pcb/modules/track-commands.js';
 import { cancelPictureCopperRefresh } from '../src/pcb/modules/picture-refresh.js';
@@ -258,6 +258,33 @@ for (const withStyle of [false, true]) {
     }
 }
 
+// A pose gesture on the text being edited (its rotation handle) keeps the typed content
+// on screen whether it commits or is cancelled; the inline edit then commits as usual.
+for (const commitRotation of [true, false]) {
+    const f = fixture();
+    try {
+        f.preview('Typed');
+        previewTextPose(f.app, f.text.id, { rotation: 90 });
+        assert.equal(f.app.texts.get(f.text.id).rotation, 90);
+        f.renders.length = 0;
+        finishTextPosePreview(f.app, commitRotation
+            ? () => f.app.history.execute(new EditTextCommand(f.app, f.text.id, { rotation: 90 }))
+            : undefined);
+        const shown = f.app.texts.get(f.text.id);
+        assert.equal(shown.content, 'Typed', 'Ending the rotation keeps the typed content displayed');
+        assert.equal(shown.rotation, commitRotation ? 90 : f.original.rotation, 'The display follows the authored pose');
+        assert.equal(f.text.content, f.original.content, 'The typing is still not authored');
+        assert.ok(f.renders.length > 0 && f.renders.every(text => text.content === 'Typed'),
+            'Re-rendering after the rotation never shows the old content');
+        assert.notEqual(activeTextInlineEdit(f.app), null, 'The inline edit continues');
+        f.finish(true);
+        assert.equal(f.text.content, 'Typed');
+        assert.equal(f.text.rotation, commitRotation ? 90 : f.original.rotation);
+        assert.equal(f.app.history.undoStack.length, commitRotation ? 2 : 1);
+        f.verifyTeardown();
+    } finally { cancelPictureCopperRefresh(f.app); }
+}
+
 delete globalThis.document;
 delete globalThis.window;
-console.log('PASS standalone text inline handoff, cancellation, deletion, new-placement cleanup and precise history');
+console.log('PASS standalone text inline handoff, cancellation, deletion, new-placement cleanup, rotation during typing and precise history');
