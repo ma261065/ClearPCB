@@ -84,7 +84,7 @@ function fixture() {
     const test = fixture();
     test.bootstrap.pcbApp = { deactivate() { test.events.push('deactivate'); } };
     test.bootstrap.schematicApp = {
-        _retainRibbonHeight() {
+        retainRibbonHeight() {
             assert.equal(test.tabs[0].classes.get('active'), true);
             test.events.push('schematic-height');
         },

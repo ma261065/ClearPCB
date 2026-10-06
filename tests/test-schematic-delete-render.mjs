@@ -82,7 +82,7 @@ const {
     commandAddShapeInternal, commandRemoveShapeInternal, commandDeleteShapesInternal,
     commandRestoreShapesInternal,
 } = await import('../src/schematic/modules/shape-management.js');
-const { renderShapes } = await import('../src/schematic/modules/schematic-view.js');
+const { getShapeSegmentSelectionElement, renderShapes } = await import('../src/schematic/modules/schematic-view.js');
 const { runSchematicDeleteAction } = await import('../src/schematic/modules/editor-actions.js');
 const { deleteWire, deleteWireSegment, deleteSchematicShapeNode, splitAnchorAndDrag, setSchematicShapeSegmentType,
     decomposeShapeCorners } = await import('../src/schematic/modules/context-menu.js');
@@ -264,13 +264,13 @@ for (const key of ['Delete', 'Backspace']) {
         const app = fixture(rectangle);
         setShapeSegmentFocus(app, { shapeId: rectangle.id, edgeId: 'e0' });
         app.renderShapes(true);
-        const overlay = app._shapeSegmentSelectionElement;
+        const overlay = getShapeSegmentSelectionElement(app);
         assert.equal(overlay.parentNode, app.viewport.contentLayer);
         const dispose = bindKeyboardShortcuts(app);
         try {
             listeners.get('keydown')({ key, target: { tagName: 'DIV' }, preventDefault() {}, stopPropagation() {} });
             assert.equal(overlay.parentNode, null, 'Delete removes the refined-edge SVG before another pointer event');
-            assert.equal(app._shapeSegmentSelectionElement, null);
+            assert.equal(getShapeSegmentSelectionElement(app), null);
             assert.equal(getShapeSegmentFocus(app), null);
             assert.equal(viewOf(rectangle).element.parentNode, null, 'The old rectangle artwork is removed immediately');
             assert.equal(app.shapes.length, 1);
@@ -363,7 +363,7 @@ for (const action of [
     const app = fixture(line);
     setShapeSegmentFocus(app, { shapeId: line.id, edgeId: 'e0' });
     app.renderShapes(true);
-    const overlay = app._shapeSegmentSelectionElement;
+    const overlay = getShapeSegmentSelectionElement(app);
     action(app, line);
     assert.equal(app.shapes.length, 0);
     assert.equal(overlay.parentNode, null);

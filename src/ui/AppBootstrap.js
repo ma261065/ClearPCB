@@ -268,7 +268,7 @@ export class AppBootstrap {
                 this.pcbApp?.activate();
             } else {
                 this.pcbApp?.deactivate();
-                this.schematicApp?._retainRibbonHeight?.();
+                this.schematicApp?.retainRibbonHeight?.();
             }
         } finally {
             if (needsPcbRender) {
@@ -324,7 +324,7 @@ export class AppBootstrap {
                     { title: 'Unsaved Changes', okText: 'Yes', cancelText: 'No', defaultCancel: true })) return;
             try {
                 const repaired = repairDuplicateIds(data);
-                await app._loadDocument(repaired.data);
+                await this.project.load(repaired.data);
                 await app.fileManager.adoptOpen({ handle: fileHandle, fileName: fileHandle.name });
                 this._hideStartupSplash();
                 this.switchMode('schematic');

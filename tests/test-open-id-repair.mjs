@@ -1,8 +1,10 @@
 import assert from 'node:assert/strict';
 import { duplicateIdRepairMessage, repairDuplicateIds } from '../src/core/project-format.js';
+import { installFakeDom } from './helpers/fake-dom.mjs';
 
 globalThis.window = { addEventListener() {} };
 globalThis.localStorage = { getItem() { return null; } };
+installFakeDom();
 const { loadOpenedProject } = await import('../src/schematic/modules/files.js');
 
 assert.equal(duplicateIdRepairMessage({ tracks: 0, shapes: 0 }), null);
@@ -19,14 +21,18 @@ const project = (pcb) => ({ type: 'clearpcb-project', version: '1.0', schematic:
 function fixture(data) {
     const events = [];
     const app = {
-        async _loadDocument(loaded) { events.push(['load', loaded]); },
+        project: {
+            async load(loaded) { events.push(['load', loaded]); },
+            notifyDocumentReplaced() { events.push(['replaced']); },
+        },
         fileManager: {
             dirty: null,
             async adoptOpen() { this.dirty = false; events.push(['adopt']); },
             setDirty(value) { this.dirty = value; events.push(['dirty', value]); },
             clearAutoSave() {},
         },
-        fitToContent() {}, _updateTitle() {}, _notifyDocumentReplaced() { events.push(['replaced']); },
+        ui: {},
+        fitToContent() {},
         async alert(message, options) { events.push(['alert', message, options.title]); },
     };
     return { app, events, run: () => loadOpenedProject(app, { success: true, data, fileName: 'board.cpcb' }) };

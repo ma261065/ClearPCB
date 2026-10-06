@@ -17,7 +17,7 @@ const {
 } = await import('../src/schematic/modules/schematic-interaction-routing.js');
 const { canRunSchematicSelectionAction, runSchematicDeleteAction } = await import('../src/schematic/modules/editor-actions.js');
 const { captureMoveDragStates } = await import('../src/schematic/modules/drag.js');
-const { resolveState } = await import('../src/schematic/modules/draw-states.js');
+const { resolveState, setOverlapCyclePress } = await import('../src/schematic/modules/draw-states.js');
 const { importSpecifiers } = await import('../tools/check-imports.mjs');
 const { createRect } = await import('../src/shapes/polyline.js');
 const { Wire } = await import('../src/shapes/wire.js');
@@ -50,10 +50,11 @@ for (const [mode, state] of [['anchor', 'anchorDrag'], ['segment', 'segmentDrag'
 }
 
 // Every guard derives from the table: snapshots, selection actions, drawing.
-const stateOf = { drag: 'moveDrag', isDrawing: 'drawing', pastingClipboard: 'placing', placingComponent: 'placing', _overlapCyclePress: 'overlapCycle' };
+const stateOf = { drag: 'moveDrag', isDrawing: 'drawing', pastingClipboard: 'placing', placingComponent: 'placing', overlapCyclePress: 'overlapCycle' };
 for (const entry of SCHEMATIC_INTERACTIONS) {
     const app = Object.create(SchematicApp.prototype);
-    app[entry.key] = entry.key === 'drag' ? { mode: 'move' } : {};
+    if (entry.key === 'overlapCyclePress') setOverlapCyclePress(app, {});
+    else app[entry.key] = entry.key === 'drag' ? { mode: 'move' } : {};
     app.interactionState = stateOf[entry.key] || 'idle';
     assert.equal(app.isSectionEditing(), entry.blocksSnapshot, `${entry.key}: save guard`);
     assert.equal(blocksSchematicSnapshot(app), entry.blocksSnapshot);

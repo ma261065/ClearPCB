@@ -19,7 +19,8 @@ globalThis.document = {
 const { default: SchematicApp } = await import('../src/ui/SchematicApp.js');
 const { bindKeyboardShortcuts } = await import('../src/schematic/modules/keyboard.js');
 const { runSchematicEscapeAction, runSchematicHistoryAction } = await import('../src/schematic/modules/editor-actions.js');
-const { onToolSelected } = await import('../src/schematic/modules/tool.js');
+const { getToolGhost, onToolSelected } = await import('../src/schematic/modules/tool.js');
+const { getOverlapCyclePress, setOverlapCyclePress } = await import('../src/schematic/modules/draw-states.js');
 
 function button() {
     const events = new Map();
@@ -92,12 +93,12 @@ for (const source of ['keyboard', 'ribbon']) for (const action of ['undo', 'redo
 for (const action of ['undo', 'redo']) for (const state of ['moveDrag', 'boxSelect', 'overlapCycle']) {
     const { app, invoke } = fixture();
     app.interactionState = state;
-    app._overlapCyclePress = {};
+    setOverlapCyclePress(app, {});
     if (state !== 'overlapCycle') app.drag = { mode: 'move', shapes: [] };
     invoke('keyboard', action);
     assert.equal(app.interactionState, 'idle');
     assert.equal(app.drag ?? null, null);
-    if (state === 'overlapCycle') assert.equal(app._overlapCyclePress, null);
+    if (state === 'overlapCycle') assert.equal(getOverlapCyclePress(app), null);
 }
 
 for (const tool of ['select', 'circle']) for (const mode of ['anchorDrag', 'segmentDrag', 'pending']) {
@@ -176,7 +177,7 @@ for (const tool of ['wire', 'line', 'rect', 'circle', 'arc', 'polygon', 'text', 
         app.updateShapePanelOptions = () => {};
         app.updateToolOptions = () => {};
         app.setActiveRibbonTab = tab => { app.activeTab = tab; };
-        app._setActiveToolButton = toolId => { app.activeButton = toolId; };
+        app.refreshRibbon = () => { app.activeButton = app.currentTool; };
         app.selectTool(tool);
         assert.equal(app.activeTab, 'properties');
         assert.equal(app.currentTool, tool);
@@ -195,7 +196,7 @@ for (const tool of ['wire', 'line', 'rect', 'circle', 'arc', 'polygon', 'text', 
         assert.equal(app.viewport.svg.style.cursor, 'default');
         assert.equal(app.isDrawing, false);
         assert.equal(app.previewElement ?? null, null);
-        assert.equal(app._toolGhost ?? null, null);
+        assert.equal(getToolGhost(app), null);
     }
 }
 {

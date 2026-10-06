@@ -28,6 +28,7 @@ const flushFrames = () => {
 
 const { default: PCBApp } = await import('../src/ui/PCBApp.js');
 const { default: SchematicApp } = await import('../src/ui/SchematicApp.js');
+const { getOverlapHitCount, setOverlapHitCount } = await import('../src/schematic/modules/callbacks.js');
 const { beginSelectionInteraction, finishSelectionInteraction, updateSelectionInteraction }
     = await import('../src/pcb/modules/selection-interaction.js');
 const { getPcbSelectionHits, getPcbSelectionEntries, setPcbSelection, syncPcbSelection }
@@ -237,13 +238,13 @@ for (const withShape of [false, true]) {
     const app = schematicFixture();
     app.viewport.onMouseMove(point, point);
     flushFrames();
-    assert.equal(app._overlapHitCount, 2);
+    assert.equal(getOverlapHitCount(app), 2);
     assert.equal(schematicTip.hidden, false);
     assert.match(schematicTip.textContent, /Shift\+Click/);
     app.viewport.onMouseMove({ x: 100, y: 0 }, { x: 100, y: 0 });
     flushFrames();
     assert.equal(schematicTip.hidden, true, 'Schematic overlap tip disappears at a single component');
-    app._overlapHitCount = 2;
+    setOverlapHitCount(app, 2);
     app.currentTool = 'pan';
     app.updateShapeSelectionTip();
     assert.equal(schematicTip.hidden, true);

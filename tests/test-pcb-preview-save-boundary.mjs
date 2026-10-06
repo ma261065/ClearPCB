@@ -9,8 +9,10 @@ import { createComponentSelectionAdapter } from '../src/pcb/modules/component-se
 import { setPcbInteraction } from '../src/pcb/modules/pcb-interactions.js';
 import { prepareFabricationSnapshot } from '../src/pcb/modules/fabrication-snapshot.js';
 import { saveFile, saveFileAs } from '../src/schematic/modules/files.js';
+import { installFakeDom } from './helpers/fake-dom.mjs';
 
 globalThis.window = { addEventListener() {} };
+installFakeDom();
 const { default: PCBApp } = await import('../src/ui/PCBApp.js');
 const originals = Object.fromEntries(['setInterval', 'clearInterval', 'requestIdleCallback',
     'cancelIdleCallback', 'localStorage'].map(key => [key, globalThis[key]]));
@@ -109,13 +111,13 @@ try {
         let writes = 0, successes = 0;
         const alerts = [];
         const host = {
-            project: f.project, _serializeDocument: () => f.project.serialize(),
+            project: f.project,
             fileManager: {
                 async save() { writes++; return { success: true, clean: false }; },
                 async saveAs() { writes++; return { success: true, clean: false }; },
             },
             alert: (message, options) => alerts.push({ message, options }),
-            _updateTitle() {}, _showSaveToast: () => successes++,
+            ui: {},
         };
         f.begin();
         for (const save of [saveFile, saveFileAs]) {

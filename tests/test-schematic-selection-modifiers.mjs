@@ -4,7 +4,7 @@ import { SelectionManager } from '../src/core/SelectionManager.js';
 globalThis.window = { addEventListener() {} };
 globalThis.HTMLElement = class {};
 globalThis.document = { getElementById() { return null; }, querySelector() { return null; } };
-const { idleState, overlapCycleState, STATE_TABLE } = await import('../src/schematic/modules/draw-states.js');
+const { getOverlapCyclePress, idleState, overlapCycleState, STATE_TABLE } = await import('../src/schematic/modules/draw-states.js');
 const { runSchematicEscapeAction } = await import('../src/schematic/modules/editor-actions.js');
 const shape = (id, hit = true) => ({ id, visible: true, selected: false,
     hitTest: () => hit, hitTestAnchor: () => 'anchor', invalidate() {} });
@@ -39,7 +39,7 @@ assert.deepEqual(ids(), ['below', 'unrelated']);
 idleState.mousedown(app, event({ shiftKey: true }), positions);
 runSchematicEscapeAction(app);
 assert.equal(app.interactionState, 'idle');
-assert.equal(app._overlapCyclePress, null);
+assert.equal(getOverlapCyclePress(app), null);
 assert.deepEqual(ids(), ['below', 'unrelated']);
 
 idleState.mousedown(app, event({ shiftKey: true }), positions);
@@ -62,7 +62,7 @@ try {
         ...positions, screenPos: { x: 15, y: 10 },
     });
     assert.equal(moves, 1);
-    assert.equal(app._overlapCyclePress, null);
+    assert.equal(getOverlapCyclePress(app), null);
     assert.deepEqual(ids(), ['below', 'unrelated'], 'Dragging must not cycle');
 } finally {
     idleState.mousedown = originalDown;

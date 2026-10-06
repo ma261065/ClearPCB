@@ -2,6 +2,46 @@ import { bindRibbonHeight } from '../../shared/ui/ribbon-height.js';
 import { renderRibbon } from '../../shared/ui/ribbon.js';
 import { createSchematicRibbonDescription } from './ribbon-description.js';
 
+const ribbonState = new WeakMap();
+
+function stateFor(app) {
+    let state = ribbonState.get(app);
+    if (!state) {
+        state = {
+            activateRibbonTab: null,
+            retainRibbonHeight: null,
+            cleanupRibbonEsc: null,
+            showSaveToast: null,
+        };
+        ribbonState.set(app, state);
+    }
+    return state;
+}
+
+export function activateRibbonTab(app, tabId) {
+    const state = ribbonState.get(app);
+    if (state && state.activateRibbonTab) state.activateRibbonTab(tabId);
+}
+
+export function retainRibbonHeight(app) {
+    const state = ribbonState.get(app);
+    if (state && state.retainRibbonHeight) state.retainRibbonHeight();
+}
+
+export function cleanupRibbonEsc(app) {
+    const state = ribbonState.get(app);
+    if (state && state.cleanupRibbonEsc) state.cleanupRibbonEsc();
+}
+
+export function showSaveToast(app, text = 'Saved') {
+    const state = ribbonState.get(app);
+    if (state && state.showSaveToast) state.showSaveToast(text);
+}
+
+export function setSaveToastHandler(app, handler) {
+    stateFor(app).showSaveToast = handler;
+}
+
 /**
  * Binds all ribbon tab buttons, tool buttons, file commands, edit commands,
  * and event listeners; sets up the save toast, active tab tracking, and
@@ -15,13 +55,13 @@ export function bindRibbon(app) {
     const ribbon = renderRibbon(ribbonEl, createSchematicRibbonDescription(app));
     app.ui.propertiesPanel = ribbon.controls.get('propertiesPanel') || app.ui.propertiesPanel;
     const retainRibbonHeight = bindRibbonHeight(ribbonEl);
-    app._retainRibbonHeight = retainRibbonHeight;
+    const state = stateFor(app);
+    state.retainRibbonHeight = retainRibbonHeight;
     app.refreshRibbon = () => {
         ribbon.refresh();
         retainRibbonHeight();
     };
-    app._setActiveToolButton = () => app.refreshRibbon?.();
-    app._activateRibbonTab = (tabId) => {
+    state.activateRibbonTab = (tabId) => {
         retainRibbonHeight();
         app.activeRibbonTab = tabId;
         ribbon.activateTab(tabId);
@@ -31,7 +71,7 @@ export function bindRibbon(app) {
         if (e.target instanceof HTMLSelectElement) e.target.blur();
     });
 
-    app._showSaveToast = (text = 'Saved') => {
+    state.showSaveToast = (text = 'Saved') => {
         const anchor = document.getElementById('docTitle');
         if (!anchor) return;
         const rect = anchor.getBoundingClientRect();
@@ -55,14 +95,14 @@ export function bindRibbon(app) {
         if (e.key === 'Escape') app.setActiveRibbonTab('home');
     };
     document.addEventListener('keydown', ribbonEscHandler);
-    app._cleanupRibbonEsc = () => document.removeEventListener('keydown', ribbonEscHandler);
+    state.cleanupRibbonEsc = () => document.removeEventListener('keydown', ribbonEscHandler);
 
-    app._activateRibbonTab('home');
+    activateRibbonTab(app, 'home');
     updateRibbonState(app, app.selection.getSelection());
 
     app.eventBus.on('selectionChanged', (shapes) => {
         updateRibbonState(app, shapes);
-        app._activateRibbonTab(shapes.length > 0 ? 'properties' : 'home');
+        activateRibbonTab(app, shapes.length > 0 ? 'properties' : 'home');
     });
 
     app.eventBus.on('toolChanged', () => {

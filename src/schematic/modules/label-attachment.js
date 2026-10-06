@@ -13,6 +13,16 @@ import { applyTextConnectionGuide } from '../../shared/ui/inline-text-overlay.js
 
 const WIRE_ATTACHED_LABEL_FONT_SIZE = 1.4;
 const DEFAULT_WIRE_LABEL_OFFSET = 1.0;
+const labelGuides = new WeakMap();
+
+export function getLabelGuideElement(app) {
+    return labelGuides.get(app) || null;
+}
+
+function setLabelGuideElement(app, guide) {
+    if (guide) labelGuides.set(app, guide);
+    else labelGuides.delete(app);
+}
 
 function getShapeCenter(shape) {
     if (!shape?.getBounds) return { x: shape?.x || 0, y: shape?.y || 0 };
@@ -226,15 +236,16 @@ export function updateLabelGuide(app) {
         }
     }
     if (!anchor) {
-        app._labelGuide?.remove();
-        app._labelGuide = null;
+        const guide = getLabelGuideElement(app);
+        if (guide) guide.remove();
+        setLabelGuideElement(app, null);
         return;
     }
-    let guide = app._labelGuide;
+    let guide = getLabelGuideElement(app);
     if (!guide) {
         guide = document.createElementNS('http://www.w3.org/2000/svg', 'line');
         guide.setAttribute('class', 'label-connection-guide');
-        app._labelGuide = guide;
+        setLabelGuideElement(app, guide);
     }
     applyTextConnectionGuide(guide, { start: anchor, end: endpoint }, 'var(--sch-selection, #3399ff)');
     app.viewport.contentLayer.appendChild(guide);

@@ -16,19 +16,19 @@
  * event and routes to the current state's handler.
  */
 
-import { updateStickyWires, updateSnapHighlight, resolveWireSnapPosition, computeAnchorCollinearSnap, computeSegmentDragSnap, computeStickyWireSnaps, applyOffGridNeighborSnap, buildCollinearChain, bridgeCollinearPinEndpoints, SNAP_SCREEN_PX, COLLINEAR_EPSILON, VERTEX_EPSILON, PIN_SNAP_TOL } from './wire.js';
+import { updateStickyWires, updateSnapHighlight, resolveWireSnapPosition, computeAnchorCollinearSnap, computeSegmentDragSnap, computeStickyWireSnaps, applyOffGridNeighborSnap, buildCollinearChain, bridgeCollinearPinEndpoints, getWireJunctionData, hasWireJunctionDot, SNAP_SCREEN_PX, COLLINEAR_EPSILON, VERTEX_EPSILON, PIN_SNAP_TOL } from './wire.js';
 import { renderGuideLines } from '../../shapes/axis-glow.js';
 import { cancelDragGesture, clearDragState, commitMoveDrag, commitSegmentDrag, resolveAnchorDragOnMouseUp, revertSegmentDragIfNoMove, commitShapeJoin, captureMoveDragStates } from './drag.js';
 import { detectTJunction, showAnchorContextMenu, showSegmentContextMenu, showLabelContextMenu, showComponentContextMenu } from './context-menu.js';
 import { hasAny3DModel } from '../../components/model3d-source.js';
-import { updateToolGhost } from './tool.js';
+import { updateToolGhost } from './tool-ghost.js';
 import { ModifyShapeCommand } from './commands.js';
 import { collapseRedundantWirePoints } from './wire.js';
 import { Text } from '../../shapes/text.js';
 import { attachLabelToTarget, detachLabel, refreshLabelAttachmentOffset, getLabelDropHotspot } from './label-attachment.js';
 import { findJoinTarget, isJoinable } from '../../shapes/shape-join.js';
 import { tryBeginPolylineSegmentDrag, updatePolylineSegmentDrag } from './polyline-segment-drag.js';
-import { refreshComponentPose } from './schematic-view.js';
+import { refreshComponentPose, removeShapeSegmentSelectionElement } from './schematic-view.js';
 import { snapShapePoint, snapShapeBulge, renderShapeAlignment, shapeContinuationConstraints } from './shape-snap.js';
 import { refinePathSegment } from '../../shapes/path-interaction.js';
 import { DRAWING_SHAPES } from '../../shapes/shape-drawing.js';
@@ -37,7 +37,7 @@ import { shapeDrawingClick } from './drawing.js';
 import { findInlineEditableHit, isUnmodifiedPrimaryDoublePress } from '../../shared/ui/inline-edit-activation.js';
 import { createBoxSelectElement, getBoxSelectBounds, updateBoxSelectElement } from '../../shared/ui/box-selection.js';
 import { confirmPaste, updatePastePreview } from './clipboard.js';
-import { placeComponent, updateComponentPreview } from './components.js';
+import { findComponentAt, isComponentCodeTooltipPinned, pinComponentCodeTooltip, placeComponent, updateComponentPreview } from './components.js';
 import { addWireWaypoint, finishWireDrawing, startWireDrawing, updateWireDrawing } from './wire.js';
 import { addLinePoint, addPolygonPoint, finishDrawing, finishLine, finishPolygon, startDrawing, updateDrawing } from './drawing.js';
 import { applyShapeState, captureShapeState } from './selection.js';
@@ -48,6 +48,90 @@ import { isSchematicLocked } from '../../shapes/lock-owner.js';
 const DRAWING_TOOLS = new Set(['line', 'rect', 'circle', 'polygon']);
 const CLICK_TO_END_TOOLS = new Set(['rect', 'circle', 'arc']);
 const DRAG_THRESHOLD_PX = 3;
+const drawStates = new WeakMap();
+
+function stateFor(app) {
+    let state = drawStates.get(app);
+    if (!state) {
+        state = {
+            drawSnapResult: null,
+            overlapCyclePress: null,
+            pendingShapeSegmentToggle: null,
+            propagateNonSelectedWiresScratch: [],
+            segmentDragGuidesScratch: [],
+            moveDragSnappedTarget: { x: 0, y: 0 },
+        };
+        drawStates.set(app, state);
+    }
+    return state;
+}
+
+export function setDrawSnapResult(app, result) {
+    stateFor(app).drawSnapResult = result;
+}
+
+export function takeDrawSnapResult(app) {
+    const state = stateFor(app);
+    const result = state.drawSnapResult;
+    state.drawSnapResult = null;
+    return result;
+}
+
+export function clearOverlapCyclePress(app) {
+    stateFor(app).overlapCyclePress = null;
+}
+
+export function getOverlapCyclePress(app) {
+    return stateFor(app).overlapCyclePress;
+}
+
+export function hasOverlapCyclePress(app) {
+    return !!stateFor(app).overlapCyclePress;
+}
+
+export function setOverlapCyclePress(app, press) {
+    stateFor(app).overlapCyclePress = press;
+}
+
+export function cancelOverlapCyclePress(app) {
+    if (app.interactionState !== 'overlapCycle') return false;
+    clearOverlapCyclePress(app);
+    app.interactionState = 'idle';
+    app.skipClickSelection = true;
+    return true;
+}
+
+export function clearPendingShapeSegmentToggle(app) {
+    stateFor(app).pendingShapeSegmentToggle = null;
+}
+
+export function hasPendingShapeSegmentToggle(app) {
+    return !!stateFor(app).pendingShapeSegmentToggle;
+}
+
+export function getPendingShapeSegmentToggle(app) {
+    return stateFor(app).pendingShapeSegmentToggle;
+}
+
+export function setPendingShapeSegmentToggle(app, toggle) {
+    stateFor(app).pendingShapeSegmentToggle = toggle;
+}
+
+function getPropagateNonSelectedWiresScratch(app) {
+    const scratch = stateFor(app).propagateNonSelectedWiresScratch;
+    scratch.length = 0;
+    return scratch;
+}
+
+function getSegmentDragGuidesScratch(app) {
+    const scratch = stateFor(app).segmentDragGuidesScratch;
+    scratch.length = 0;
+    return scratch;
+}
+
+function getMoveDragSnappedTarget(app) {
+    return stateFor(app).moveDragSnappedTarget;
+}
 
 // ─── State transition ──────────────────────────────────────────────
 
@@ -306,21 +390,21 @@ function resolveDraggingComponentSnap(app, comp, snappedTarget, lastSnapped) {
 
 function handleComponentTooltipContextMenu(app, worldPos, screenPos) {
     if (app.showComponentDebugTooltip === false) return;
-    const hitComponent = app._findComponentAt?.(worldPos);
-    if (hitComponent) app._pinComponentCodeTooltip?.(hitComponent, screenPos);
+    const hitComponent = findComponentAt(app, worldPos);
+    if (hitComponent) pinComponentCodeTooltip(app, hitComponent, screenPos);
     else app.updateComponentCodeTooltip?.(null, null, { forceHide: true });
 }
 
 function handleComponentTooltipMouseMove(app, worldPos, screenPos) {
     const canShow = app.showComponentDebugTooltip !== false
         && !app.drag && !app.viewport.isPanning
-        && !app.placingComponent && !app._componentCodeTooltipPinned;
+        && !app.placingComponent && !isComponentCodeTooltipPinned(app);
     if (canShow) {
-        const hit = app._findComponentAt?.(worldPos);
+        const hit = findComponentAt(app, worldPos);
         app.updateComponentCodeTooltip?.(hit, screenPos);
         return;
     }
-    if (!app._componentCodeTooltipPinned) {
+    if (!isComponentCodeTooltipPinned(app)) {
         app.updateComponentCodeTooltip?.(null, screenPos);
     }
 }
@@ -759,7 +843,7 @@ function handleSelectContextMenu(app, worldPos, clientX, clientY) {
  * caller falls through to the debug-tooltip behaviour.
  */
 function handleComponentContextMenu(app, worldPos, clientX, clientY) {
-    const comp = app._findComponentAt?.(worldPos);
+    const comp = findComponentAt(app, worldPos);
     if (!hasAny3DModel(comp?.definition)) return false;
     showComponentContextMenu(app, comp, clientX, clientY);
     return true;
@@ -769,7 +853,7 @@ function resolveLabelAttachTarget(app, probePos, excludeShape = null) {
     // Also exclude the label's current parent so the snap dot doesn't show for it
     const excludeParent = excludeShape?.parentComponent || null;
 
-    const hitComponent = app._findComponentAt?.(probePos);
+    const hitComponent = findComponentAt(app, probePos);
     if (hitComponent && hitComponent !== excludeShape && hitComponent !== excludeParent) {
         return {
             target: hitComponent,
@@ -897,8 +981,7 @@ function propagateMovedWireJunctions(app, selection, dx, dy) {
 
     const selectedSet = getReusableSet(app, '_propagateSelectedSetScratch');
     for (const shape of selection) selectedSet.add(shape);
-    const nonSelectedWires = app._propagateNonSelectedWiresScratch || (app._propagateNonSelectedWiresScratch = []);
-    nonSelectedWires.length = 0;
+    const nonSelectedWires = getPropagateNonSelectedWiresScratch(app);
     for (const shape of app.shapes) {
         if (shape.type !== 'wire' || selectedSet.has(shape)) continue;
         nonSelectedWires.push(shape);
@@ -981,8 +1064,7 @@ function getDragTJunctionWireSet(app) {
 }
 
 function collectWireSegmentDragGuides(app, wire, dragEdgeId, snappedTarget, baseGuides) {
-    const allGuides = app._segmentDragGuidesScratch || (app._segmentDragGuidesScratch = []);
-    allGuides.length = 0;
+    const allGuides = getSegmentDragGuidesScratch(app);
     if (baseGuides && baseGuides.length > 0) allGuides.push(...baseGuides);
     if (!app.drag.tjLinks) return allGuides;
     const edge = wire.edges.get(dragEdgeId);
@@ -1045,10 +1127,10 @@ function applyWireSegmentLabelMovement(wire, dx, dy) {
  */
 export const overlapCycleState = {
     mousemove(app, event, positions) {
-        const press = app._overlapCyclePress;
+        const press = getOverlapCyclePress(app);
         if (!press || Math.hypot(positions.screenPos.x - press.positions.screenPos.x,
             positions.screenPos.y - press.positions.screenPos.y) <= DRAG_THRESHOLD_PX) return;
-        app._overlapCyclePress = null;
+        clearOverlapCyclePress(app);
         app.interactionState = 'idle';
         app.skipClickSelection = false;
         idleState.mousedown(app, { button: 0, shiftKey: false, ctrlKey: false, metaKey: false,
@@ -1058,12 +1140,12 @@ export const overlapCycleState = {
     mouseup(app, event, positions) {
         if (event.button !== 0) return;
         overlapCycleState.mousemove(app, event, positions);
-        const press = app._overlapCyclePress;
+        const press = getOverlapCyclePress(app);
         if (!press) {
             STATE_TABLE[app.interactionState]?.mouseup?.(app, event, positions);
             return;
         }
-        app._overlapCyclePress = null;
+        clearOverlapCyclePress(app);
         app.interactionState = 'idle';
         const hits = app.selection.hitTest(press.positions.worldPos, true);
         const selected = app.selection.getSelection();
@@ -1102,8 +1184,10 @@ export const idleState = {
         if (app.pendingAnchorDrag && !app.drag) app.pendingAnchorDrag = null;
 
         if (event.shiftKey) {
-            app._overlapCyclePress = { positions: { screenPos, worldPos, snapped },
-                additive: isAdditiveSelectionModifier(event) };
+            setOverlapCyclePress(app, {
+                positions: { screenPos, worldPos, snapped },
+                additive: isAdditiveSelectionModifier(event)
+            });
             app.interactionState = 'overlapCycle';
             app.skipClickSelection = true;
             event.preventDefault();
@@ -1164,9 +1248,6 @@ export const idleState = {
                 : null;
             if (!wasSelected) {
                 app.selection.select(hitShape, false);
-                app._shapeSegmentClickCandidate = hitSegmentEdgeId
-                    ? { shapeId: hitShape.id, edgeId: hitSegmentEdgeId }
-                    : null;
                 app.renderShapes();
                 // The "+" insertion handles only appear once the shape is
                 // selected. If this selecting click happened to land on one,
@@ -1194,13 +1275,13 @@ export const idleState = {
                 ? { ...getShapeSegmentFocus(app) }
                 : null;
             setShapeNodeFocus(app, null);
-            app._pendingShapeSegmentToggle = wasSelected && hitShape.type === 'polyline'
+            setPendingShapeSegmentToggle(app, wasSelected && hitShape.type === 'polyline'
                 ? {
                     shape: hitShape,
                     edgeId: hitSegmentEdgeId,
                     hadSegment: selectedShapeSegment?.edgeId === hitSegmentEdgeId,
                 }
-                : null;
+                : null);
 
             if (selectedShapeSegment && tryBeginPolylineSegmentDrag(app, hitShape, worldPos, true,
                 segmentTolerance)) {
@@ -1265,8 +1346,8 @@ export const idleState = {
     },
 
     click(app, event, { worldPos }) {
-        const pendingSegmentToggle = app._pendingShapeSegmentToggle;
-        app._pendingShapeSegmentToggle = null;
+        const pendingSegmentToggle = getPendingShapeSegmentToggle(app);
+        clearPendingShapeSegmentToggle(app);
         if (app.viewport.isPanning) return;
         if (app.skipClickSelection) { app.skipClickSelection = false; return; }
         if (app.didDrag) { app.didDrag = false; return; }
@@ -1274,14 +1355,10 @@ export const idleState = {
         if (pendingSegmentToggle
             && app.selection.getSelection().length === 1
             && app.selection.getSelection()[0] === pendingSegmentToggle.shape) {
-            app._shapeSegmentSelectionElement?.remove();
-            app._shapeSegmentSelectionElement = null;
+            removeShapeSegmentSelectionElement(app);
             const edgeId = refinePathSegment(pendingSegmentToggle.edgeId, true);
             setShapeSegmentFocus(app, edgeId == null ? null : { shapeId: pendingSegmentToggle.shape.id, edgeId });
             setShapeNodeFocus(app, null);
-            app._shapeSegmentClickCandidate = pendingSegmentToggle.edgeId
-                ? { shapeId: pendingSegmentToggle.shape.id, edgeId: pendingSegmentToggle.edgeId }
-                : null;
             app.renderShapes(true);
             app.updateShapeSelectionTip?.();
             app.updatePropertiesPanel?.(app.selection.getSelection());
@@ -1369,7 +1446,7 @@ export const toolActiveState = {
 
         if (tool === 'noconnect' || tool === 'net') {
             const { resolved, pos } = resolvePinSnapPlacement(app, worldPos);
-            app._drawSnapResult = resolved;
+            setDrawSnapResult(app, resolved);
             if (!app.isDrawing) { startDrawing(app, pos); }
             else { finishDrawing(app, pos); }
             updateToolGhost(app, pos);
@@ -1466,15 +1543,16 @@ export const drawingState = {
         if (tool === 'wire') {
             if (!app.drawCurrent) return;
             let waypointPos = { x: app.drawCurrent.x, y: app.drawCurrent.y };
-            if (app._wireJunctionDot && app._wireJunctionData) {
-                waypointPos = { x: app._wireJunctionData.x, y: app._wireJunctionData.y };
+            const junctionData = getWireJunctionData(app);
+            if (hasWireJunctionDot(app) && junctionData) {
+                waypointPos = { x: junctionData.x, y: junctionData.y };
                 app.drawCurrent = { ...waypointPos };
             }
             if (app.drawCorner) {
                 addWireWaypoint(app, { x: app.drawCorner.x, y: app.drawCorner.y, snapPin: null });
             }
             addWireWaypoint(app, { ...waypointPos, snapPin: app.lastSnappedData?.snapPin || null });
-            if (app.wirePoints.length >= 2 && (app.lastSnappedData?.snapPin || app._wireJunctionDot)) {
+            if (app.wirePoints.length >= 2 && (app.lastSnappedData?.snapPin || hasWireJunctionDot(app))) {
                 finishWireDrawing(app, app.lastSnappedData);
                 app.interactionState = 'toolActive';
             }
@@ -1489,7 +1567,7 @@ export const drawingState = {
 
         if (tool === 'noconnect' || tool === 'net') {
             const { resolved, pos } = resolvePinSnapPlacement(app, worldPos);
-            app._drawSnapResult = resolved;
+            setDrawSnapResult(app, resolved);
             finishDrawing(app, pos);
             updateToolGhost(app, pos);
             // Stay in toolActive — these are click-to-place
@@ -1635,7 +1713,7 @@ export const moveDragState = {
         const targetPos = { x: app.drag.objectStartPos.x + mouseDelta.x, y: app.drag.objectStartPos.y + mouseDelta.y };
         const sel = selNow;
         const movingCompIds = collectMovingComponentIds(sel);
-        const snappedTarget = app._moveDragSnappedTarget || (app._moveDragSnappedTarget = { x: 0, y: 0 });
+        const snappedTarget = getMoveDragSnappedTarget(app);
         const stickyGuides = resolveMoveDragTarget(app, targetPos, sel, movingCompIds, snappedTarget);
 
         // Net drag highlight should follow projected snapped shape position,

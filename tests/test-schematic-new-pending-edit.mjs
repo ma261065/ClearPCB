@@ -33,7 +33,7 @@ function fixture() {
             setTitleBlockData() {}, getSnappedPosition: point => point,
         },
         showCrosshair() {}, hideCrosshair() {}, updateCrosshair() {},
-        updateSelectableItems() {}, _updateUndoRedoButtons() {}, _updateTitle() {},
+        updateSelectableItems() {}, _updateUndoRedoButtons() {}, ui: {},
         renderShapes() {}, removeBoxSelectElement() {}, setToolCursor() {}, updateShapePanelOptions() {},
         invalidate() {}, setActiveRibbonTab() {}, confirm: async () => true,
         alert: message => alerts.push(message),

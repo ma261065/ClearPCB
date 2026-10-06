@@ -21,10 +21,20 @@ const {
     tryBeginPolylineSegmentDrag,
     updatePolylineSegmentDrag,
 } = await import('../src/schematic/modules/polyline-segment-drag.js');
-const { clearShapeSegmentSelection, renderShapeSegmentSelection } = await import('../src/schematic/modules/schematic-view.js');
+const {
+    clearShapeSegmentSelection,
+    getShapeSegmentSelectionElement,
+    renderShapeSegmentSelection,
+    setShapeSegmentSelectionElement,
+} = await import('../src/schematic/modules/schematic-view.js');
 const { updateShapeAnchors } = await import('../src/schematic/render/shape-renderer.js');
 const { ensureView, viewOf } = await import('../src/schematic/render/shape-view-state.js');
-const { idleState, anchorDragState } = await import('../src/schematic/modules/draw-states.js');
+const {
+    getPendingShapeSegmentToggle,
+    idleState,
+    anchorDragState,
+    setPendingShapeSegmentToggle,
+} = await import('../src/schematic/modules/draw-states.js');
 const { updatePropertiesPanel } = await import('../src/schematic/modules/properties.js');
 const { Circle } = await import('../src/shapes/circle.js');
 const { Arc } = await import('../src/shapes/arc.js');
@@ -767,13 +777,13 @@ for (const [name, shape] of cases) {
     let propertiesSelection = null;
     app.setActiveRibbonTab = tab => { activeTab = tab; };
     app.updatePropertiesPanel = selection => { propertiesSelection = selection; };
-    app._pendingShapeSegmentToggle = { shape, edgeId, hadSegment: false, segmentCandidateMatches: false };
+    setPendingShapeSegmentToggle(app, { shape, edgeId, hadSegment: false, segmentCandidateMatches: false });
     idleState.click(app, { preventDefault() {} }, { worldPos: { x: 3, y: 0 } });
     expect('second shape click refines a segment without an earlier matching edge click',
         getShapeSegmentFocus(app)?.edgeId === edgeId);
     expect('segment refinement activates Properties without returning Home', activeTab === 'properties');
     expect('segment Properties keeps the selected shape', propertiesSelection?.[0] === shape);
-    app._pendingShapeSegmentToggle = { shape, edgeId, hadSegment: true };
+    setPendingShapeSegmentToggle(app, { shape, edgeId, hadSegment: true });
     idleState.click(app, { preventDefault() {} }, { worldPos: { x: 3, y: 0 } });
     expect('clicking the refined segment again retains PCB-style segment Properties',
         getShapeSegmentFocus(app)?.edgeId === edgeId && getShapeNodeFocus(app) === null && activeTab === 'properties');
@@ -814,7 +824,7 @@ for (const position of [0, 3]) {
                     (position === 0 ? getShapeNodeFocus(app)?.nodeId === 'n0' : getShapeSegmentFocus(app)?.edgeId === 'e0')
                     && activeTab === 'properties' && updates === press + 1);
                 expect('release clears pending segment selection and preserves geometry',
-                    app._pendingShapeSegmentToggle == null && app.pendingAnchorDrag == null
+                    getPendingShapeSegmentToggle(app) == null && app.pendingAnchorDrag == null
                     && JSON.stringify(shape.captureState()) === JSON.stringify(before));
                 if (nativeClick) {
                     svgListeners.get('click')(event);
@@ -914,14 +924,13 @@ for (const midpoint of [false, true]) {
 
 {
     let removed = 0;
-    const app = {
-        _shapeSegmentSelectionElement: { remove() { removed++; } },
-    };
+    const app = {};
+    setShapeSegmentSelectionElement(app, { remove() { removed++; } });
     setShapeSegmentFocus(app, { shapeId: 'shape', edgeId: 'edge' });
     clearShapeSegmentSelection(app);
     expect('schematic shape deselection clears refined segment state', getShapeSegmentFocus(app) === null);
     expect('schematic shape deselection removes refined segment highlight',
-        app._shapeSegmentSelectionElement === null && removed === 1);
+        getShapeSegmentSelectionElement(app) === null && removed === 1);
 }
 
 {
@@ -936,7 +945,7 @@ for (const midpoint of [false, true]) {
     setShapeSegmentFocus(app, { shapeId: shape.id, edgeId });
     const verifyTrim = (start, end) => {
         renderShapeSegmentSelection(app);
-        const attrs = app._shapeSegmentSelectionElement?.attributes;
+        const attrs = getShapeSegmentSelectionElement(app)?.attributes;
         const length = Math.hypot(second.x - first.x, second.y - first.y);
         const dx = (second.x - first.x) / length;
         const dy = (second.y - first.y) / length;
@@ -952,7 +961,7 @@ for (const midpoint of [false, true]) {
     shape.setNodeCornerRadius(edge.from, 100);
     shape.setNodeCornerRadius(edge.to, 100);
     renderShapeSegmentSelection(app);
-    expect('fully rounded edge leaves no selection dot', app._shapeSegmentSelectionElement === null);
+    expect('fully rounded edge leaves no selection dot', getShapeSegmentSelectionElement(app) === null);
     shape.setEdgeAttr(edgeId, 'width', shape.lineWidth + 1);
     shape.setNodeCornerRadius(edge.from, 3);
     shape.setNodeCornerRadius(edge.to, 0);
@@ -974,7 +983,7 @@ for (const midpoint of [false, true]) {
     app.viewport.contentLayer = { appendChild() {} };
     setShapeSegmentFocus(app, { shapeId: shape.id, edgeId: firstId });
     renderShapeSegmentSelection(app);
-    expect('explicit arc selection stays curved', app._shapeSegmentSelectionElement?.attributes.d?.includes('A'));
+    expect('explicit arc selection stays curved', getShapeSegmentSelectionElement(app)?.attributes.d?.includes('A'));
 }
 
 {
@@ -996,7 +1005,7 @@ for (const midpoint of [false, true]) {
         children.splice(0, children.length, handles);
         app.viewport.scale = scale;
         renderShapeSegmentSelection(app);
-        const highlight = app._shapeSegmentSelectionElement;
+        const highlight = getShapeSegmentSelectionElement(app);
         expect(`segment highlight follows rendered edge width at zoom ${scale}`,
             Number(highlight.attributes['stroke-width']) === Math.max(0.6, 1 / scale)
             && highlight.attributes['vector-effect'] === undefined);

@@ -15,7 +15,7 @@ export function bindThemeToggle(app) {
         app.refreshRibbon?.();
     });
 
-    app._loadTheme();
+    loadTheme(app);
 }
 
 /**

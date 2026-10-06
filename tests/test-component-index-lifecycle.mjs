@@ -276,7 +276,7 @@ assert.equal(ModalManager.top(), null);
                 renderShapes() {}, cancelDrawing() {}, hideCrosshair() {},
                 updateShapePanelOptions() {}, updatePropertiesPanel() {},
                 setToolCursor(tool) { this.viewport.svg.style.cursor = tool === 'select' ? 'default' : 'crosshair'; },
-                _setActiveToolButton(tool) { this.activeButton = tool; },
+                refreshRibbon() { this.activeButton = this.currentTool; },
                 selectTool(tool) { changes.push(tool); onToolSelected(this, tool); },
                 cancelComponentPlacement() { cancelled++; this.placingComponent = null; },
             };

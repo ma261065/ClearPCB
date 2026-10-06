@@ -269,7 +269,7 @@ assert.equal(startedEdit, editableReference,
     'Double-click must use the clicked SVG text when geometric hit testing is stale');
 console.log('PASS: schematic reference text keeps double-click inline editing over its component');
 
-const { updateLabelGuide } = await import('../src/schematic/modules/label-attachment.js');
+const { getLabelGuideElement, updateLabelGuide } = await import('../src/schematic/modules/label-attachment.js');
 setTextEditElementProvider(shape => shape?.element || null);
 const guideLayer = { children: [], appendChild(child) {
     child.remove();
@@ -298,7 +298,7 @@ for (const rotation of [0, 37, 90]) for (const mirrored of [false, true]) {
     let selected = [reference];
     const guideApp = { selection: { getSelection: () => selected }, viewport: { contentLayer: guideLayer } };
     updateLabelGuide(guideApp);
-    const firstGuide = guideApp._labelGuide;
+    const firstGuide = getLabelGuideElement(guideApp);
     const componentBox = [
         toWorld(local.minX - 0.5, local.minY - 0.5), toWorld(local.maxX + 0.5, local.minY - 0.5),
         toWorld(local.maxX + 0.5, local.maxY + 0.5), toWorld(local.minX - 0.5, local.maxY + 0.5),
@@ -320,7 +320,7 @@ for (const rotation of [0, 37, 90]) for (const mirrored of [false, true]) {
 
     center = toWorld((local.minX + local.maxX) / 2, 10);
     updateLabelGuide(guideApp);
-    assert.equal(guideApp._labelGuide, firstGuide, 'Dragging reuses the single guide');
+    assert.equal(getLabelGuideElement(guideApp), firstGuide, 'Dragging reuses the single guide');
     const movedTextBox = getTextEditBoxWorldCorners(reference);
     const movedConnection = connectBoxOutlines(componentBox, movedTextBox);
     near(firstGuide.attributes.x1, movedConnection.end.x);
@@ -331,12 +331,12 @@ for (const rotation of [0, 37, 90]) for (const mirrored of [false, true]) {
 
     center = toWorld((local.minX + local.maxX) / 2, 0);
     updateLabelGuide(guideApp);
-    assert.equal(guideApp._labelGuide, null, 'Reference inside the outline needs no connection');
+    assert.equal(getLabelGuideElement(guideApp), null, 'Reference inside the outline needs no connection');
     center = toWorld(12, 0);
     selected = [];
     guideApp.textEdit = { shape: reference };
     updateLabelGuide(guideApp);
-    assert.ok(guideApp._labelGuide, 'Inline editing uses the same renderer');
+    assert.ok(getLabelGuideElement(guideApp), 'Inline editing uses the same renderer');
     guideApp.textEdit = null;
     updateLabelGuide(guideApp);
     assert.equal(guideLayer.children.length, 0, 'Deselecting clears the guide');
@@ -353,12 +353,13 @@ for (const rotation of [0, 37, 90]) for (const mirrored of [false, true]) {
     selected = [value];
     updateLabelGuide(guideApp);
     const valueConnection = connectBoxOutlines(componentBox, getTextEditBoxWorldCorners(value));
-    near(guideApp._labelGuide.attributes.x2, valueConnection.start.x);
-    near(guideApp._labelGuide.attributes.y2, valueConnection.start.y);
-    near(guideApp._labelGuide.attributes.x1, valueConnection.end.x);
-    near(guideApp._labelGuide.attributes.y1, valueConnection.end.y);
-    assert.ok(Math.hypot(Number(guideApp._labelGuide.attributes.x2) - parent.x,
-        Number(guideApp._labelGuide.attributes.y2) - parent.y) > 1, 'The value guide starts on the outline, not the centre');
+    const valueGuide = getLabelGuideElement(guideApp);
+    near(valueGuide.attributes.x2, valueConnection.start.x);
+    near(valueGuide.attributes.y2, valueConnection.start.y);
+    near(valueGuide.attributes.x1, valueConnection.end.x);
+    near(valueGuide.attributes.y1, valueConnection.end.y);
+    assert.ok(Math.hypot(Number(valueGuide.attributes.x2) - parent.x,
+        Number(valueGuide.attributes.y2) - parent.y) > 1, 'The value guide starts on the outline, not the centre');
     valueCenter = toWorld(12, 0);
     selected = [];
     updateLabelGuide(guideApp);
@@ -378,13 +379,14 @@ const renderApp = { shapes: [renderReference], components: [],
     viewport: { scale: 10, contentLayer: guideLayer } };
 renderedX = 15;
 updateLabelGuide(renderApp);
-near(renderApp._labelGuide.attributes.x1, 13.2);
+near(getLabelGuideElement(renderApp).attributes.x1, 13.2);
 assert.equal(guideLayer.children.length, 1, 'Post-render hook draws exactly one guide using current text geometry');
 for (const textAnchor of ['start', 'middle', 'end']) for (const rotation of [0, 37, 90, 270]) {
     Object.assign(renderReference, { text: 'R123', fontSize: 2, textAnchor, rotation, y: 8 });
     updateLabelGuide(renderApp);
-    assert.ok(Math.hypot(Number(renderApp._labelGuide.attributes.x1) - renderedX,
-        Number(renderApp._labelGuide.attributes.y1) - 8) > 0.1,
+    const renderGuide = getLabelGuideElement(renderApp);
+    assert.ok(Math.hypot(Number(renderGuide.attributes.x1) - renderedX,
+        Number(renderGuide.attributes.y1) - 8) > 0.1,
         'Reference guide must stop at the text outline, not its baseline');
     assert.equal(guideLayer.children.length, 1, 'Baseline alignment changes keep a single guide');
 }
@@ -406,11 +408,12 @@ const netGuideApp = {
 updateLabelGuide(netGuideApp);
 const netTextBox = getTextEditBoxWorldCorners(netLabel);
 const netConnection = connectPointToBoxOutline({ x: 0, y: 0 }, netTextBox);
-near(netGuideApp._labelGuide.attributes.x1, netConnection.end.x);
-near(netGuideApp._labelGuide.attributes.y1, netConnection.end.y);
-near(netGuideApp._labelGuide.attributes.x2, 0);
-near(netGuideApp._labelGuide.attributes.y2, 0);
-assert.notEqual(Number(netGuideApp._labelGuide.attributes.x1), netLabel.x,
+const netGuide = getLabelGuideElement(netGuideApp);
+near(netGuide.attributes.x1, netConnection.end.x);
+near(netGuide.attributes.y1, netConnection.end.y);
+near(netGuide.attributes.x2, 0);
+near(netGuide.attributes.y2, 0);
+assert.notEqual(Number(netGuide.attributes.x1), netLabel.x,
     'Net-label guide must stop at the visible edit box, not the text anchor');
 console.log('PASS: net-label guide clips to the shared edit-box boundary');
 
@@ -553,8 +556,7 @@ Object.assign(loadingEditor, {
     document: loadedModel, selection: { clearSelection() {} },
     viewport: { scale: 1, addContent: element => attached.push(element),
         addComponentContent: element => attached.push(element) },
-    _clearAllShapes() { this.shapes = []; },
-    _clearAllComponents() { this.components = []; },
+    history: { clear() {} },
     updateSelectableItems() {}, renderShapes() {},
 });
 await loadDocument(loadingEditor, loadInput, prepared);

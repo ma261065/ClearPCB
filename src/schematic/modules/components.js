@@ -3,6 +3,121 @@ import { AddComponentCommand, TransformComponentCommand } from './commands.js';
 import { needsValueDialog, showValueDialog } from './value-dialog.js';
 import { componentPreviewElement } from './schematic-view.js';
 
+const componentState = new WeakMap();
+
+function stateFor(app) {
+    let state = componentState.get(app);
+    if (!state) {
+        state = {
+            previewHidden: false,
+            codeTooltip: null,
+            codeTooltipActiveId: null,
+            codeTooltipPinned: false,
+            codeTooltipPosition: null,
+        };
+        componentState.set(app, state);
+    }
+    return state;
+}
+
+export function initializeComponentCodeTooltip(app) {
+    const state = stateFor(app);
+    const tooltip = document.createElement('div');
+    tooltip.className = 'component-code-tooltip';
+    tooltip.innerHTML = `
+            <div class="component-code-tooltip-title">Component code</div>
+            <button class="component-code-tooltip-close" title="Close">×</button>
+            <textarea class="component-code-tooltip-text" readonly></textarea>
+        `;
+    document.body.appendChild(tooltip);
+    state.codeTooltip = tooltip;
+    tooltip.addEventListener('click', (e) => {
+        if (e.target instanceof Element && e.target.classList.contains('component-code-tooltip-close')) {
+            updateComponentCodeTooltip(app, null, null, { forceHide: true });
+        }
+    });
+}
+
+/**
+ * Returns the topmost component at a world coordinate, or null.
+ * @param {object} app
+ * @param {{x:number,y:number}} point
+ * @returns {object|null}
+ */
+export function findComponentAt(app, point) {
+    for (let i = app.components.length - 1; i >= 0; i--) {
+        const comp = app.components[i];
+        if (!comp?.visible) continue;
+        if (comp.hitTest(point, 0.5)) {
+            return comp;
+        }
+    }
+    return null;
+}
+
+export function isComponentCodeTooltipPinned(app) {
+    return stateFor(app).codeTooltipPinned;
+}
+
+export function updateComponentCodeTooltip(app, component, screenPos, options = {}) {
+    const state = stateFor(app);
+    const tooltip = state.codeTooltip;
+    if (!tooltip) return;
+
+    if (!app.showComponentDebugTooltip && !options.forceHide) {
+        tooltip.style.display = 'none';
+        state.codeTooltipActiveId = null;
+        state.codeTooltipPinned = false;
+        state.codeTooltipPosition = null;
+        return;
+    }
+
+    const easyedaRaw = component?.definition?.symbol?._easyedaRawShapes;
+    const kicadRaw = component?.definition?._kicadRaw || component?.definition?.symbol?._kicadRaw;
+    const hasEasyeda = Array.isArray(easyedaRaw) && easyedaRaw.length > 0;
+    const hasKicad = typeof kicadRaw === 'string' && kicadRaw.trim().length > 0;
+    if (options.forceHide || !component || (!hasEasyeda && !hasKicad)) {
+        tooltip.style.display = 'none';
+        state.codeTooltipActiveId = null;
+        state.codeTooltipPinned = false;
+        state.codeTooltipPosition = null;
+        return;
+    }
+
+    const textEl = /** @type {HTMLTextAreaElement|null} */ (tooltip.querySelector('.component-code-tooltip-text'));
+    if (textEl && state.codeTooltipActiveId !== component.id) {
+        textEl.value = hasEasyeda ? easyedaRaw.join('\n') : kicadRaw;
+        state.codeTooltipActiveId = component.id;
+    }
+
+    const pad = 12;
+    const position = state.codeTooltipPinned && state.codeTooltipPosition
+        ? state.codeTooltipPosition
+        : screenPos;
+    const maxX = window.innerWidth - tooltip.offsetWidth - pad;
+    const maxY = window.innerHeight - tooltip.offsetHeight - pad;
+    const left = Math.min(position.x + pad, Math.max(pad, maxX));
+    const top = Math.min(position.y + pad, Math.max(pad, maxY));
+
+    tooltip.style.left = `${left}px`;
+    tooltip.style.top = `${top}px`;
+    tooltip.style.display = 'block';
+}
+
+/**
+ * Pins the component tooltip at a fixed position.
+ * @param {object} app
+ * @param {Object} component - The component to pin the tooltip for.
+ * @param {Object} screenPos - The screen position {x, y} to pin at.
+ */
+export function pinComponentCodeTooltip(app, component, screenPos) {
+    if (!component || !screenPos) return;
+    const state = stateFor(app);
+    state.codeTooltipPinned = true;
+    state.codeTooltipPosition = { ...screenPos };
+    updateComponentCodeTooltip(app, component, screenPos);
+}
+
 /**
  * Rebuilds the selection manager's list of selectable items by merging
  * `app.components` and `app.shapes`.
@@ -62,7 +177,7 @@ export function onComponentDefinitionSelected(app, definition) {
     app.currentTool = 'component';
     app.interactionState = 'placing';
 
-    app._setActiveToolButton?.('component');
+    app.refreshRibbon?.();
     app.updateShapePanelOptions(app.selection.getSelection(), 'component');
 
     createComponentPreview(app, definition);
@@ -98,7 +213,7 @@ export function createComponentPreview(app, definition) {
 
     // Hide until mouse enters the canvas so it doesn't flash at 0,0
     app.componentPreview.style.display = 'none';
-    app._componentPreviewHidden = true;
+    stateFor(app).previewHidden = true;
 
     app.viewport.componentLayer.appendChild(app.componentPreview);
 }
@@ -113,9 +228,9 @@ export function updateComponentPreview(app, worldPos) {
     if (!app.componentPreview || !app.placingComponent) return;
 
     // Show preview on first mouse move over canvas (hidden initially to avoid flash at 0,0)
-    if (app._componentPreviewHidden) {
+    if (stateFor(app).previewHidden) {
         app.componentPreview.style.display = '';
-        app._componentPreviewHidden = false;
+        stateFor(app).previewHidden = false;
     }
 
     if (app.componentRotation === undefined) app.componentRotation = 0;
@@ -274,7 +389,7 @@ export function cancelComponentPlacement(app) {
         app.currentTool = 'select';
         app.interactionState = 'idle';
         app.viewport.svg.style.cursor = 'default';
-        app._setActiveToolButton?.('select');
+        app.refreshRibbon?.();
         app.updateShapePanelOptions(app.selection.getSelection(), 'select');
     }
 }

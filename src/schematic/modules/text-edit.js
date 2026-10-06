@@ -199,7 +199,6 @@ export function handleTextEditKey(app, e) {
     const caret = state.caretIndex ?? text.length;
 
     if (e.key === 'Escape') {
-        app._suppressNextEscape = true;
         endTextEdit(app, false);
         e.preventDefault();
         e.stopPropagation();

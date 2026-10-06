@@ -47,20 +47,11 @@ export function clearDragState(app) {
 
 /*
  * Cancel handlers for the pointer gestures in schematic-interactions.js
- * (_overlapCyclePress, drag, pendingAnchorDrag). Each restores the authored entities
+ * (overlapCyclePress, drag, pendingAnchorDrag). Each restores the authored entities
  * its gesture edited in place and returns false when it had nothing to cancel.
  * schematic-interaction-routing.js runs them in the table's priority order. They are
  * function declarations so modules in an import cycle with this one can use them.
  */
-
-/** Cancel an overlap-cycle press before it resolves. */
-export function cancelOverlapCyclePress(app) {
-    if (app.interactionState !== 'overlapCycle') return false;
-    app._overlapCyclePress = null;
-    app.interactionState = 'idle';
-    app.skipClickSelection = true;
-    return true;
-}
 
 /** Cancel an anchor, segment or move drag or a box selection, restoring what it moved. */
 export function cancelDragGesture(app) {

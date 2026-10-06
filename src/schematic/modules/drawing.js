@@ -4,6 +4,7 @@ import { normalizeNetOrientation, normalizeNetStyle } from '../../shapes/net.js'
 import { validateNetNameAtPoint } from './net-validation.js';
 import { clearAxisGlow, pathAlignmentSegments, renderAxisGlow, squareAlignmentSegments } from '../../shapes/axis-glow.js';
 import { controlArcGeometry } from '../../shapes/arc-edit.js';
+import { takeDrawSnapResult } from './draw-states.js';
 
 /**
  * Allocate the lowest unused default net name in the current document.
@@ -310,8 +311,7 @@ export function createShapeFromDrawing(app) {
         }
 
         case 'noconnect': {
-            const snap = app._drawSnapResult;
-            app._drawSnapResult = null;
+            const snap = takeDrawSnapResult(app);
             const nc = new NoConnect({
                 x: start.x,
                 y: start.y

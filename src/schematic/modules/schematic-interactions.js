@@ -1,9 +1,11 @@
 /**
- * Every in-progress schematic interaction stored on the editor, in cancellation
+ * Every in-progress schematic interaction, in cancellation
  * priority — the counterpart of pcb/modules/pcb-interactions.js, with the same
- * categories. The fields stay on the editor; this table is the one list of them.
+ * categories. Most slots stay on the editor; owner modules expose predicates for
+ * WeakMap-owned slots. This table is the one list of them.
  * Their cancel handlers are in schematic-interaction-routing.js, keyed by the same
- * fields. No imports, so any module can use the predicates.
+ * fields. `overlapCyclePress` is owned by draw-states.js; this registry observes
+ * its public interaction state so it stays import-light and load-order safe.
  *
  * category
  *   'gesture'  Pointer, inline or placement edit that must finish before another
@@ -19,7 +21,7 @@
  */
 export const SCHEMATIC_INTERACTIONS = Object.freeze([
     { key: 'textEdit', category: 'gesture', blocksSnapshot: true },
-    { key: '_overlapCyclePress', category: 'gesture', blocksSnapshot: false },
+    { key: 'overlapCyclePress', category: 'gesture', blocksSnapshot: false, isActive: app => app.interactionState === 'overlapCycle' },
     { key: 'drag', category: 'gesture', blocksSnapshot: true },
     { key: 'pendingAnchorDrag', category: 'gesture', blocksSnapshot: true },
     { key: 'isDrawing', category: 'drawing', blocksSnapshot: true },
@@ -33,8 +35,15 @@ const GESTURE_KEYS = keysWhere(entry => entry.category === 'gesture');
 const DRAWING_KEYS = keysWhere(entry => entry.category === 'drawing');
 const SNAPSHOT_BLOCKING_KEYS = keysWhere(entry => entry.blocksSnapshot);
 
+export function schematicInteractionActive(app, key) {
+    const entry = SCHEMATIC_INTERACTIONS.find(item => item.key === key);
+    return entry.isActive ? entry.isActive(app) : app[key];
+}
+
 const anyActive = (app, keys) => {
-    for (const key of keys) if (app[key]) return true;
+    for (const key of keys) {
+        if (schematicInteractionActive(app, key)) return true;
+    }
     return false;
 };
 
@@ -52,6 +61,8 @@ export const blocksSchematicSnapshot = app => anyActive(app, SNAPSHOT_BLOCKING_K
 
 /** The active interaction with the highest cancellation priority, or null. */
 export function activeSchematicInteraction(app) {
-    for (const key of ALL_KEYS) if (app[key]) return key;
+    for (const key of ALL_KEYS) {
+        if (schematicInteractionActive(app, key)) return key;
+    }
     return null;
 }

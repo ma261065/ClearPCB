@@ -1,6 +1,6 @@
 import { resetWireLabelCounter, resetNetNameCounter } from '../../shapes/index.js';
 import { createNetText } from './shape-management.js';
-import { mountDocument, prepareDocumentView } from './schematic-view.js';
+import { discardComponentView, discardShapeView, mountDocument, prepareDocumentView } from './schematic-view.js';
 import { attachLabelToTarget } from './label-attachment.js';
 import { importEasyEDASchematic } from '../../easyeda/schematic-importer.js';
 import { deserializeComponent } from '../../core/SchematicDocument.js';
@@ -8,6 +8,8 @@ import { serializeGridSettings, restoreGridSettings } from '../../shared/ui/view
 import { cancelSchematicInteractions } from './schematic-interaction-routing.js';
 import { cancelSchematicPropertyPreview } from './properties.js';
 import { duplicateIdRepairMessage, repairDuplicateIds } from '../../core/project-format.js';
+import { showSaveToast } from './ribbon.js';
+import { updateUndoRedoButtons } from './ui-utils.js';
 
 function canReplaceDocument(app) {
     if (!app.fileManager.saving && !app.fileManager.loading) return true;
@@ -23,6 +25,10 @@ function canReplaceDocument(app) {
  */
 export function serializeDocument(app) {
     return app.document.serialize(serializeViewSettings(app.viewport));
+}
+
+export function serializeProjectDocument(app) {
+    return app.project ? app.project.serialize() : app.serializeSection();
 }
 
 /** Capture view preferences without accessing authored content or creating a viewport. */
@@ -55,8 +61,8 @@ export async function loadDocument(app, data, prepared = prepareDocument(app, da
     data = prepared.data || data;
     app.selection.clearSelection();
     if (app.textEdit?.shape) app.endTextEdit(false);
-    app._clearAllShapes();
-    app._clearAllComponents();
+    clearAllShapes(app);
+    clearAllComponents(app);
     app.document.load(data, prepared);
 
     // Unified project format (v2.0)
@@ -123,6 +129,42 @@ export async function loadDocument(app, data, prepared = prepareDocument(app, da
 
     // NB: the PCB section is restored by ProjectDocument after this
     // schematic section loads, so neither view reaches into the other.
+}
+
+export async function loadProjectDocument(app, data) {
+    if (app.project) {
+        await app.project.load(data);
+    } else {
+        await app.loadSection(data);
+    }
+}
+
+/** @param {object} app @param {'new'|'open'|'import'} reason */
+export function notifyDocumentReplaced(app, reason) {
+    if (app.project) app.project.notifyDocumentReplaced(reason);
+    else app.onDocumentReplaced();
+}
+
+export function clearAllShapes(app) {
+    for (const shape of app.shapes) discardShapeView(app, shape);
+    app.shapes = [];
+    app.updateSelectableItems();
+    app.history.clear();
+    updateUndoRedoButtons(app);
+}
+
+export function clearAllComponents(app) {
+    for (const comp of app.components) {
+        // Remove field texts from shapes array and DOM
+        for (const ft of comp.getFieldTexts()) {
+            const idx = app.shapes.indexOf(ft);
+            if (idx !== -1) app.shapes.splice(idx, 1);
+            discardShapeView(app, ft);
+        }
+        discardComponentView(app, comp);
+    }
+    app.components = [];
+    app.updateSelectableItems();
 }
 
 /**
@@ -194,7 +236,7 @@ export async function checkAutoSave(app) {
                     { title: 'Recover Autosave', okText: 'Yes', cancelText: 'No - Delete Autosave', showClose: true, escapeResult: null },
                 );
                 if (recoveryChoice === true) {
-                    await app._loadDocument(saved.data);
+                    await loadProjectDocument(app, saved.data);
                     app.fileManager.setDirty(true);
                     console.log('Recovered auto-saved content');
                 } else if (recoveryChoice === false) {
@@ -247,8 +289,8 @@ export function clearDocument(app) {
     cancelSchematicInteractions(app);
     if (app.isSectionEditing?.()) throw new Error('Finish the current edit before creating a new document.');
     app.selection.clearSelection();
-    app._clearAllShapes();
-    app._clearAllComponents();
+    clearAllShapes(app);
+    clearAllComponents(app);
     resetWireLabelCounter();
     resetNetNameCounter();
     app.viewport.resetView();
@@ -279,9 +321,9 @@ export async function newFile(app) {
             clearDocument(app);
             app.fileManager.newDocument(serializeDocument(app));
         }
-        app._updateTitle();
+        updateTitle(app);
         app.invalidate?.();
-        app._notifyDocumentReplaced?.('new');
+        notifyDocumentReplaced(app, 'new');
         console.log('New document created');
     } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
@@ -302,8 +344,8 @@ export async function saveFile(app) {
         // Clear per-view dirty flags (e.g. the PCB's) too, otherwise they
         // keep re-triggering autosave and the unsaved warning after a save.
         if (result.clean) app.project?.markAllSectionsClean?.();
-        app._updateTitle();
-        app._showSaveToast?.('Saved');
+        updateTitle(app);
+        showSaveToast(app, 'Saved');
         console.log('Saved:', result.fileName);
     } else if (result.errorName === 'NotAllowedError' || result.errorName === 'SecurityError') {
         const retry = await app.confirm(
@@ -328,8 +370,8 @@ export async function saveFileAs(app) {
     if (result.success) {
         // Saving writes the WHOLE document, so every section is now clean.
         if (result.clean) app.project?.markAllSectionsClean?.();
-        app._updateTitle();
-        app._showSaveToast?.('Saved');
+        updateTitle(app);
+        showSaveToast(app, 'Saved');
         console.log('Saved as:', result.fileName);
     } else if (!result.cancelled) {
         app.alert('Failed to save: ' + (result.error || 'Unknown error'), { title: 'Save Failed' });
@@ -341,7 +383,7 @@ export async function saveFileAs(app) {
 async function writeDocument(app, saveAs) {
     let data;
     try {
-        data = app._serializeDocument();
+        data = serializeProjectDocument(app);
     } catch (error) {
         console.error('Save snapshot failed:', error);
         return { success: false, error: error instanceof Error ? error.message : String(error) };
@@ -357,12 +399,12 @@ async function writeDocument(app, saveAs) {
  */
 export async function loadOpenedProject(app, result) {
     const repaired = repairDuplicateIds(result.data);
-    await app._loadDocument(repaired.data);
+    await loadProjectDocument(app, repaired.data);
     await app.fileManager.adoptOpen(result);
     app.fitToContent?.();
-    app._updateTitle();
+    updateTitle(app);
     app.fileManager.clearAutoSave(result.fileName);
-    app._notifyDocumentReplaced?.('open');
+    notifyDocumentReplaced(app, 'open');
     const message = duplicateIdRepairMessage(repaired);
     if (message) {
         app.fileManager.setDirty(true);
@@ -451,14 +493,14 @@ export async function importEasyEDA(app) {
         console.log('Importing EasyEDA schematic…');
         const doc = importEasyEDASchematic(data, app.componentLibrary);
 
-        await app._loadDocument(doc);
+        await loadProjectDocument(app, doc);
         app.fitToContent?.();
         app.fileManager.fileHandle = null;
         app.fileManager.setFilePath(null);
         app.fileManager.setFileName('imported.cpcb');
         app.fileManager.setDirty(true);
-        app._updateTitle();
-        app._notifyDocumentReplaced?.('import');
+        updateTitle(app);
+        notifyDocumentReplaced(app, 'import');
         console.log('EasyEDA import complete');
     } catch (err) {
         app.alert('Import failed: ' + err.message, { title: 'Import Failed' });

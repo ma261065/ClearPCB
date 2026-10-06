@@ -31,8 +31,39 @@ import { attachLabelToTarget, getLabelDropHotspot } from './label-attachment.js'
 import { VERTEX_EPSILON } from './wire-constants.js';
 import { componentPinElement } from '../render/component-renderer.js';
 import { createPreview, getEffectiveStrokeWidth } from './drawing.js';
-import { addShapeInternal } from './shape-management.js';
+import { addShapeInternal, removeShapeInternal } from './shape-management.js';
 export { renderGuideLines } from '../../shapes/axis-glow.js';
+
+const wireEditorState = new WeakMap();
+
+function stateFor(app) {
+    let state = wireEditorState.get(app);
+    if (!state) {
+        state = {
+            axisLock: null,
+            junctionData: null,
+            junctionDot: null,
+        };
+        wireEditorState.set(app, state);
+    }
+    return state;
+}
+
+export function getWireJunctionData(app) {
+    return stateFor(app).junctionData;
+}
+
+export function hasWireJunctionDot(app) {
+    return !!stateFor(app).junctionDot;
+}
+
+function setWireAxisLock(app, axis) {
+    stateFor(app).axisLock = axis;
+}
+
+function getWireAxisLock(app) {
+    return stateFor(app).axisLock;
+}
 
 // --- Constants ---
 
@@ -276,15 +307,15 @@ export function getDrawingSnappedPosition(app, worldPos) {
     let axis;
     if (inChoiceZone) {
         // Inside the zone: unlock axis so user can re-pick direction
-        app._wireAxisLock = null;
+        setWireAxisLock(app, null);
         axis = rawDx >= rawDy ? 'horizontal' : 'vertical';
-    } else if (app._wireAxisLock) {
+    } else if (getWireAxisLock(app)) {
         // Outside the zone with a lock: keep the locked axis
-        axis = app._wireAxisLock;
+        axis = getWireAxisLock(app);
     } else {
         // Exiting the zone for the first time: lock direction
         axis = rawDx >= rawDy ? 'horizontal' : 'vertical';
-        app._wireAxisLock = axis;
+        setWireAxisLock(app, axis);
     }
 
     // If departing a pin (first segment), prefer the pin axis when the
@@ -405,7 +436,7 @@ export function startWireDrawing(app, snappedData) {
     app.wirePoints = [startPoint];
     app.wireSnapPin = snapPin;
     app.wireStartPin = snapPin;
-    app._wireAxisLock = null;
+    setWireAxisLock(app, null);
     app.isDrawing = true;
     app.interactionState = 'drawing';
     createPreview(app);
@@ -501,7 +532,7 @@ export function addWireWaypoint(app, waypointData) {
     _lockDrawAdjustLast(last);
 
     app.wirePoints.push(point);
-    app._wireAxisLock = null;   // Reset axis lock for new segment
+    setWireAxisLock(app, null);   // Reset axis lock for new segment
 
     // Remove redundant collinear midpoint: if the last 3 points are on a
     // straight line, the middle one is unnecessary.
@@ -701,7 +732,7 @@ export function finishWireDrawing(app, worldPos) {
  */
 export function cancelWireDrawing(app) {
     app.wirePoints = [];
-    app._wireAxisLock = null;
+    setWireAxisLock(app, null);
     updateSnapHighlight(app, null);
     app.wireSnapPin = null;
     app.wireStartPin = null;
@@ -902,7 +933,8 @@ function _hidePinDot(app) {
  */
 function _showWireJunctionDot(app, pos) {
     _hideWireJunctionDot(app);
-    app._wireJunctionData = { x: pos.x, y: pos.y, type: pos.type };
+    const state = stateFor(app);
+    state.junctionData = { x: pos.x, y: pos.y, type: pos.type };
     const dot = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
     // Keep the snap dot clearly visible over anchor handles at low zoom,
     // but let it scale up naturally when zoomed in.
@@ -917,18 +949,19 @@ function _showWireJunctionDot(app, pos) {
     dot.classList.add('wire-junction-highlight');
     // Attach to root SVG so the highlight always paints above content/component layers.
     app.viewport.svg.appendChild(dot);
-    app._wireJunctionDot = dot;
+    state.junctionDot = dot;
 }
 
 /**
  * Low-level: remove the temporary wire junction dot.
  */
 function _hideWireJunctionDot(app) {
-    if (app._wireJunctionDot) {
-        app._wireJunctionDot.remove();
-        app._wireJunctionDot = null;
+    const state = stateFor(app);
+    if (state.junctionDot) {
+        state.junctionDot.remove();
+        state.junctionDot = null;
     }
-    app._wireJunctionData = null;
+    state.junctionData = null;
 }
 
 /**
@@ -1910,7 +1943,7 @@ function _removeMerged(app, removed, affected, changed, keeper, keeperPreSegs, r
     _mergeNetNames(keeper, removed, keeperWasChanged, removedWasChanged);
 
     // Remove the absorbed wire first (this frees its wireLabel from the tracking set)
-    app._removeShapeInternal(removed, { preserveWireLabelRef: true });
+    removeShapeInternal(app, removed, { preserveWireLabelRef: true });
     affected.delete(removed);
     changed.delete(removed);
     if (!changed.has(keeper)) changed.add(keeper);
@@ -1988,7 +2021,7 @@ export function reconcileWires(app, changedWires, skipSet = null) {
     for (const w of affected) {
         if (!app.shapes.includes(w)) continue;
         w.cleanGraph();
-        if (w.edges.size === 0) app._removeShapeInternal(w, { preserveWireLabelRef: true });
+        if (w.edges.size === 0) removeShapeInternal(app, w, { preserveWireLabelRef: true });
     }
 
     // ── Pass 3: Split disconnected components ──
@@ -2021,7 +2054,7 @@ export function reconcileWires(app, changedWires, skipSet = null) {
             if (!keepSet.has(nid)) w.removeNode(nid);
         }
         w.invalidate();
-        if (w.edges.size === 0) { app._removeShapeInternal(w, { preserveWireLabelRef: true }); continue; }
+        if (w.edges.size === 0) { removeShapeInternal(app, w, { preserveWireLabelRef: true }); continue; }
 
         // ── Split label rules ──
         applySplitLabelRules(w, newFragments, preSplitLabel, preSplitVisible, preSplitLabelPosition, app);
@@ -2614,4 +2647,3 @@ export function computeStickyWireSnaps(app, movingCompIds, proposedDx, proposedD
 
     return computeMovingSegmentSnaps(threshold, edges);
 }
-

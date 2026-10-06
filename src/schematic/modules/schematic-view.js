@@ -195,6 +195,22 @@ export function isCulled(entity) {
  * @type {WeakMap<object, number>}
  */
 const lastPassScale = new WeakMap();
+const shapeSegmentSelectionElements = new WeakMap();
+
+export function getShapeSegmentSelectionElement(app) {
+    return shapeSegmentSelectionElements.get(app) || null;
+}
+
+export function removeShapeSegmentSelectionElement(app) {
+    const element = shapeSegmentSelectionElements.get(app);
+    if (element) element.remove();
+    shapeSegmentSelectionElements.delete(app);
+}
+
+export function setShapeSegmentSelectionElement(app, element) {
+    if (element) shapeSegmentSelectionElements.set(app, element);
+    else shapeSegmentSelectionElements.delete(app);
+}
 
 export function renderShapes(app, force = false) {
     syncAttachedLabels(app);
@@ -266,8 +282,7 @@ export function renderShapes(app, force = false) {
 
 /** Render the refined edge of a selected schematic polyline above the shape. */
 export function renderShapeSegmentSelection(app) {
-    app._shapeSegmentSelectionElement?.remove?.();
-    app._shapeSegmentSelectionElement = null;
+    removeShapeSegmentSelectionElement(app);
     const selected = getShapeSegmentFocus(app);
     const shape = selected ? app.shapes.find((candidate) => candidate.id === selected.shapeId) : null;
     if (!shape || !selectionView(app).isSelected(shape) || shape.type !== 'polyline') return;
@@ -296,14 +311,13 @@ export function renderShapeSegmentSelection(app) {
     const anchorsGroup = viewOf(shape)?.anchorsGroup;
     const handles = anchorsGroup?.parentNode === overlay ? anchorsGroup : null;
     appendSegmentSelection(overlay, element, '#e94560', width, handles);
-    app._shapeSegmentSelectionElement = element;
+    setShapeSegmentSelectionElement(app, element);
 }
 
 /** Clear refined schematic segment state and its independent SVG overlay. */
 export function clearShapeSegmentSelection(app) {
     setShapeSegmentFocus(app, null);
-    app._shapeSegmentSelectionElement?.remove?.();
-    app._shapeSegmentSelectionElement = null;
+    removeShapeSegmentSelectionElement(app);
 }
 
 /**

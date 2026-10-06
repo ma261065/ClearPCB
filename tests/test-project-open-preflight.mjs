@@ -28,7 +28,7 @@ Object.assign(app, {
         removeContent() {},
     },
     updateSelectableItems() {}, _updateUndoRedoButtons() {}, renderShapes() {},
-    _updateTitle() {}, fitToContent() {}, _notifyDocumentReplaced() {},
+    ui: {}, fitToContent() {},
     alert: message => alerts.push(message), confirm: async () => true,
     commandAddShape(shape) { this.shapes.push(shape); },
     commandRemoveShape(shape) { this.shapes.splice(this.shapes.indexOf(shape), 1); },

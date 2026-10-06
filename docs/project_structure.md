@@ -155,6 +155,16 @@ evaluation-order cycle fails.
   `PCB_TOOL_PRESS_HANDLERS`; releases go to `releasePcbPointerGestures`.
 - PCB modules call the editor through `pcb-editor-api.js` services; the access
   ratchet lists the private members they still use.
+- Schematic modules follow the same pattern. `schematic-interactions.js` owns the
+  overlap-cycle press slot in an import-free WeakMap; `draw-states.js` owns its
+  pending segment-toggle and drag scratch buffers; `drawing.js` owns one-shot
+  draw snap data; `wire.js` owns wire axis-lock and junction highlight state;
+  `components.js` owns component placement-preview visibility plus the component
+  code tooltip; `mouse.js` owns right-button pan tracking; `ribbon.js` owns the
+  tab activator, height retainer, Escape cleanup and save-toast handler; `tool-ghost.js`
+  owns placement ghosts; `label-attachment.js` owns the label guide; and
+  `schematic-view.js` owns the refined segment-selection overlay. Other modules
+  call exported intent APIs instead of reading `app._…`.
 - `pcb-interactions.js`, `property-editors.js`, `refresh-state.js` and
   `board-shape-state.js` have no imports, because worker-loaded export and DRC
   code (or low-level selection plumbing) reads them.
@@ -250,11 +260,13 @@ Schematic editor:
 - `schematic/modules/editor-actions.js` — Undo, Redo, Delete and Escape entry points,
   like `pcb/modules/editor-actions.js`.
 - `schematic/modules/schematic-interactions.js` — the one list of in-progress
-  interactions, with PCB's categories; `schematic-interaction-routing.js` — their
-  cancel handlers (counterparts of `pcb-interactions.js` and `pcb-interaction-routing.js`).
+  interactions, with PCB's categories, and the WeakMap-owned overlap-cycle press
+  slot; `schematic-interaction-routing.js` — their cancel handlers (counterparts
+  of `pcb-interactions.js` and `pcb-interaction-routing.js`).
 - `schematic/modules/schematic-view.js` — entity SVG lifecycle, culling and level of
   detail; `schematic/render/` — shape and component renderers and their view state.
-- `schematic/modules/draw-states.js` — the pointer interaction state machine;
+- `schematic/modules/draw-states.js` — the pointer interaction state machine, pending
+  segment-toggle state and reusable drag scratch buffers;
   `mouse.js`, `keyboard.js`, `ribbon.js`, `context-menu.js` — the input bindings
   that drive it and the editor actions.
 - `schematic/modules/drawing.js`, `wire.js`, `components.js`, `clipboard.js`,
@@ -266,7 +278,8 @@ Schematic editor:
   add/remove/delete/restore work behind the command view hooks.
 - `schematic/modules/properties.js` — the Properties panel (described as data);
   `property-host.js` — where it is rendered; `files.js` — Open, Save
-  and document loading; `tool.js` — tool selection and persisted tool options.
+  and document loading; `tool.js` — tool selection and persisted tool options;
+  `tool-ghost.js` — single-click placement ghosts.
 
 Derived PCB work:
 

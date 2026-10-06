@@ -3,6 +3,7 @@ import { FileManager, parseProjectJSON, readProjectFile } from '../src/core/File
 import { ProjectDocument } from '../src/core/ProjectDocument.js';
 import { validateProject, validateEditableProject, defaultPcbStackup } from '../src/core/project-format.js';
 import { zipSync, strToU8 } from '../assets/vendor/fflate.module.js';
+import { installFakeDom } from './helpers/fake-dom.mjs';
 
 const project = () => ({ type: 'clearpcb-project', version: '1.0', schematic: { shapes: [], components: [] } });
 const design = () => ({ trackWidth: 0.2, clearance: 0.2, viaDiameter: 0.6, viaDrill: 0.3,
@@ -17,6 +18,7 @@ manager.fileHandle = oldHandle;
 manager.setFileName(oldHandle.name);
 manager.setDirty(true);
 globalThis.window = { showSaveFilePicker: async () => ({ name: 'new.cpcb' }) };
+installFakeDom();
 manager.hasFileSystemAccess = () => true;
 manager.saveToHandle = async () => ({ success: false, error: 'Disk full' });
 assert.equal((await manager.saveAs(project())).success, false);
@@ -260,11 +262,20 @@ assert.equal(owner.fileManager.loading, false);
 assert.deepEqual(loadingStates, [true, false, true, false]);
 window.addEventListener = () => {};
 const { createComponentFromData, newFile, openFile, openRecentFile, importEasyEDA, saveFile } = await import('../src/schematic/modules/files.js');
+const { setSaveToastHandler } = await import('../src/schematic/modules/ribbon.js');
 const retryEvents = [];
 let allowRetry = false;
 let serializations = 0;
+const retryTitle = {
+    set textContent(value) { retryEvents.push('title'); this.value = value; },
+    get textContent() { return this.value || ''; },
+    title: '',
+};
 const retryApp = {
-    _serializeDocument() { serializations++; return project(); },
+    project: {
+        serialize() { serializations++; return project(); },
+        markAllSectionsClean() { retryEvents.push('clean'); },
+    },
     fileManager: {
         save: async () => ({ success: false, error: 'Write blocked', errorName: 'NotAllowedError' }),
         saveAs: async data => {
@@ -279,10 +290,12 @@ const retryApp = {
         return allowRetry;
     },
     alert() { throw new Error('Permission failure should offer recovery instead of a generic alert'); },
-    _updateTitle() { retryEvents.push('title'); },
-    _showSaveToast() { retryEvents.push('toast'); },
-    project: { markAllSectionsClean() { retryEvents.push('clean'); } },
+    ui: { docTitle: retryTitle },
 };
+retryApp.fileManager.fileName = 'copy.cpcb';
+retryApp.fileManager.filePath = 'copy.cpcb';
+retryApp.fileManager.autoSaveSize = 0;
+setSaveToastHandler(retryApp, () => { retryEvents.push('toast'); });
 assert.equal((await saveFile(retryApp)).success, false);
 assert.deepEqual(retryEvents, [], 'Cancelling recovery does not save or mark any view clean');
 allowRetry = true;

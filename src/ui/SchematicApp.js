@@ -18,10 +18,10 @@ import { warmKiCadIndex } from '../components/KiCadFetcher.js';
 import { bindMouseEvents } from '../schematic/modules/mouse.js';
 import { bindKeyboardShortcuts } from '../schematic/modules/keyboard.js';
 import { bindPropertiesPanel, applyCommonProperty, updatePropertiesPanel, hasSchematicPropertyPreview } from '../schematic/modules/properties.js';
-import { bindRibbon, updateShapePanelOptions } from '../schematic/modules/ribbon.js';
+import { bindRibbon, updateShapePanelOptions, activateRibbonTab, retainRibbonHeight as retainSchematicRibbonHeight, showSaveToast as showRibbonSaveToast } from '../schematic/modules/ribbon.js';
 import { setToolCursor } from '../shared/ui/cursor.js';
 import { updateGridDropdown, fitToContent } from '../shared/ui/viewport.js';
-import { bindThemeToggle, toggleTheme, loadTheme } from '../schematic/modules/theme.js';
+import { bindThemeToggle, toggleTheme } from '../schematic/modules/theme.js';
 import { captureShapeState, applyShapeState } from '../schematic/modules/selection.js';
 import { createSchematicHistory, showUnlockMenu } from '../schematic/modules/locks.js';
 import { runSchematicDeleteAction } from '../schematic/modules/editor-actions.js';
@@ -35,6 +35,7 @@ import * as ExportTools from '../shared/ui/export.js';
 import { onToolSelected, onOptionsChanged, loadToolOptions } from '../schematic/modules/tool.js';
 import { adaptShortcutsInDOM } from '../schematic/modules/platform-keys.js';
 import { setupCallbacks } from '../schematic/modules/callbacks.js';
+import { getOverlapHitCount } from '../schematic/modules/callbacks.js';
 import { updateUndoRedoButtons, flashAutoSaveIndicator } from '../schematic/modules/ui-utils.js';
 import { needsValueDialog, showValueDialog } from '../schematic/modules/value-dialog.js';
 import { showAlert, showConfirm, showPrompt } from '../shared/ui/modal.js';
@@ -51,13 +52,10 @@ import {
     commandRemoveShapeInternal,
     commandDeleteShapesInternal,
     commandRestoreShapesInternal,
-    removeShapeInternal,
 } from '../schematic/modules/shape-management.js';
 import {
     renderShapes,
     clearShapeSegmentSelection,
-    discardShapeView,
-    discardComponentView,
     refreshSelectionVisual,
 } from '../schematic/modules/schematic-view.js';
 import { getShapeNodeFocus, getShapeSegmentFocus, setShapeNodeFocus } from '../schematic/modules/shape-focus.js';
@@ -114,12 +112,12 @@ export default class SchematicApp {
         this.eventBus = globalEventBus;
         this.history = createSchematicHistory(this, {
             onChanged: () => this._onHistoryChanged(),
-            onRefused: error => this._showSaveToast?.(error.message),
+            onRefused: error => showRibbonSaveToast(this, error.message),
         });
         // fileManager already created above
         this.fileManager.onDirtyChanged = () => this._onDirtyChanged();
-        this.fileManager.onFileNameChanged = () => this._updateTitle();
-        this.fileManager.onAutoSaveChanged = () => this._updateTitle();
+        this.fileManager.onFileNameChanged = () => FileTools.updateTitle(this);
+        this.fileManager.onAutoSaveChanged = () => FileTools.updateTitle(this);
         this.fileManager.onAutoSaveSuccess = flashAutoSaveIndicator;
         this.fileManager.onAutoSaveError = () => this.onAutoSaveError();
 
@@ -130,10 +128,6 @@ export default class SchematicApp {
             invalidateEntity: (entity) => refreshSelectionVisual(this, entity),
         });
         /** Number of selectable objects under the pointer (overlap cycling tip). */
-        this._overlapHitCount = 0;
-        /** Ribbon tab switcher and height keeper, installed by bindRibbon(). */
-        this._activateRibbonTab = null;
-        this._retainRibbonHeight = null;
         this.updateSelectableItems();
 
         // ── Tool / drawing state ─────────────────────────────────────
@@ -158,8 +152,6 @@ export default class SchematicApp {
         this.didDrag = false;              // true once an actual drag occurred
         this.pendingAnchorDrag = null;     // deferred anchor drag (before threshold is met)
         this.skipClickSelection = false;
-        this._rightClickStart = null;      // screen pos for right-click drag detection
-
         // ── Box selection ──────────────────────────────────────────────
         this.boxSelectElement = null;
 
@@ -202,26 +194,10 @@ export default class SchematicApp {
         }));
 
         // Component code tooltip (copyable)
-        this._componentCodeTooltip = document.createElement('div');
-        this._componentCodeTooltip.className = 'component-code-tooltip';
-        this._componentCodeTooltip.innerHTML = `
-            <div class="component-code-tooltip-title">Component code</div>
-            <button class="component-code-tooltip-close" title="Close">×</button>
-            <textarea class="component-code-tooltip-text" readonly></textarea>
-        `;
-        document.body.appendChild(this._componentCodeTooltip);
-        this._componentCodeTooltipActiveId = null;
-        this._componentCodeTooltipPinned = false;
-        this._componentCodeTooltipPosition = null;
+        ComponentTools.initializeComponentCodeTooltip(this);
         this.showComponentDebugTooltip = false;
-        this._showSaveToast = null;
         /** @type {(() => void)|null} Refreshes renderer-owned schematic ribbon state. */
         this.refreshRibbon = null;
-        this._componentCodeTooltip.addEventListener('click', (e) => {
-            if (e.target instanceof Element && e.target.classList.contains('component-code-tooltip-close')) {
-                this.updateComponentCodeTooltip(null, null, { forceHide: true });
-            }
-        });
 
         // Help panel now lives in ribbon
 
@@ -250,14 +226,14 @@ export default class SchematicApp {
 
         // Initial view
         this.viewport.resetView();
-        this._updateTitle();
+        FileTools.updateTitle(this);
 
         // Start auto-save. When a project owns this view the project
         // drives autosave (it aggregates dirty state across both editors);
         // only fall back to a private timer in standalone setups.
         if (!this.project) {
             this.fileManager.startAutoSave(
-                () => this._serializeDocument(),
+                () => FileTools.serializeProjectDocument(this),
                 () => false,
             );
         }
@@ -280,7 +256,7 @@ export default class SchematicApp {
         if (this._pendingAutoLoad) {
             // Use the same logic as loadDocument
             import('../schematic/modules/files.js').then(async FileTools => {
-                await FileTools.loadDocument(this, this._pendingAutoLoad);
+                await FileTools.loadProjectDocument(this, this._pendingAutoLoad);
                 this._pendingAutoLoad = null;
             }).catch(err => {
                 console.error('Failed to auto-load document:', err);
@@ -378,7 +354,7 @@ export default class SchematicApp {
                 const recovered = repairDuplicateIds(saved.data);
                 const repairMessage = duplicateIdRepairMessage(recovered);
                 if (this._initComplete) {
-                    await this._loadDocument(recovered.data);
+                    await FileTools.loadProjectDocument(this, recovered.data);
                 } else {
                     this.shapes = [];
                     this.components = [];
@@ -501,10 +477,6 @@ export default class SchematicApp {
      * Internal remove - used by commands, no history entry
      * Does NOT destroy the shape so it can be re-added on undo
      */
-    _removeShapeInternal(shape, options = undefined) {
-        removeShapeInternal(this, shape, options);
-    }
-
     /**
      * Command boundary: add one shape with command-safe wire-label handling.
      */
@@ -669,7 +641,7 @@ export default class SchematicApp {
             && selected.length === 1
             && selected[0]?.type === 'text'
             && selected[0]?.fieldKey === 'reference';
-        const showOverlapTip = this.currentTool === 'select' && this._overlapHitCount > 1;
+        const showOverlapTip = this.currentTool === 'select' && getOverlapHitCount(this) > 1;
         const show = this.currentTool === 'select'
             && selected.length === 1
             && selected[0]?.type === 'polyline'
@@ -726,7 +698,11 @@ export default class SchematicApp {
      * @param {string} tabId - `home`, `properties`, …
      */
     setActiveRibbonTab(tabId) {
-        this._activateRibbonTab?.(tabId);
+        activateRibbonTab(this, tabId);
+    }
+
+    retainRibbonHeight() {
+        retainSchematicRibbonHeight(this);
     }
 
     // ==================== Mouse Events ====================
@@ -764,81 +740,13 @@ export default class SchematicApp {
     }
 
     /**
-     * Returns the topmost component at a world coordinate, or null.
-     * @param {Object} point - The world coordinate {x, y} to test.
-     * @returns {Object|null} The component at the point, or null.
-     */
-    _findComponentAt(point) {
-        for (let i = this.components.length - 1; i >= 0; i--) {
-            const comp = this.components[i];
-            if (!comp?.visible) continue;
-            if (comp.hitTest(point, 0.5)) {
-                return comp;
-            }
-        }
-        return null;
-    }
-
-    /**
      * Shows, updates, or hides the component debug tooltip.
      * @param {Object|null} component - The component to display info for, or null to hide.
      * @param {Object|null} screenPos - The screen position {x, y} for the tooltip.
      * @param {Object} [options={}] - Options (e.g., { forceHide: true }).
      */
     updateComponentCodeTooltip(component, screenPos, options = {}) {
-        const tooltip = this._componentCodeTooltip;
-        if (!tooltip) return;
-
-        if (!this.showComponentDebugTooltip && !options.forceHide) {
-            tooltip.style.display = 'none';
-            this._componentCodeTooltipActiveId = null;
-            this._componentCodeTooltipPinned = false;
-            this._componentCodeTooltipPosition = null;
-            return;
-        }
-
-        const easyedaRaw = component?.definition?.symbol?._easyedaRawShapes;
-        const kicadRaw = component?.definition?._kicadRaw || component?.definition?.symbol?._kicadRaw;
-        const hasEasyeda = Array.isArray(easyedaRaw) && easyedaRaw.length > 0;
-        const hasKicad = typeof kicadRaw === 'string' && kicadRaw.trim().length > 0;
-        if (options.forceHide || !component || (!hasEasyeda && !hasKicad)) {
-            tooltip.style.display = 'none';
-            this._componentCodeTooltipActiveId = null;
-            this._componentCodeTooltipPinned = false;
-            this._componentCodeTooltipPosition = null;
-            return;
-        }
-
-        const textEl = /** @type {HTMLTextAreaElement|null} */ (tooltip.querySelector('.component-code-tooltip-text'));
-        if (textEl && this._componentCodeTooltipActiveId !== component.id) {
-            textEl.value = hasEasyeda ? easyedaRaw.join('\n') : kicadRaw;
-            this._componentCodeTooltipActiveId = component.id;
-        }
-
-        const pad = 12;
-        const position = this._componentCodeTooltipPinned && this._componentCodeTooltipPosition
-            ? this._componentCodeTooltipPosition
-            : screenPos;
-        const maxX = window.innerWidth - tooltip.offsetWidth - pad;
-        const maxY = window.innerHeight - tooltip.offsetHeight - pad;
-        const left = Math.min(position.x + pad, Math.max(pad, maxX));
-        const top = Math.min(position.y + pad, Math.max(pad, maxY));
-
-        tooltip.style.left = `${left}px`;
-        tooltip.style.top = `${top}px`;
-        tooltip.style.display = 'block';
-    }
-
-    /**
-     * Pins the component tooltip at a fixed position.
-     * @param {Object} component - The component to pin the tooltip for.
-     * @param {Object} screenPos - The screen position {x, y} to pin at.
-     */
-    _pinComponentCodeTooltip(component, screenPos) {
-        if (!component || !screenPos) return;
-        this._componentCodeTooltipPinned = true;
-        this._componentCodeTooltipPosition = { ...screenPos };
-        this.updateComponentCodeTooltip(component, screenPos);
+        ComponentTools.updateComponentCodeTooltip(this, component, screenPos, options);
     }
 
     /**
@@ -893,9 +801,7 @@ export default class SchematicApp {
         }
 
         console.log(`Cleared component caches (${removed} entries)`);
-        if (typeof this._showSaveToast === 'function') {
-            this._showSaveToast('Cache cleared');
-        }
+        showRibbonSaveToast(this, 'Cache cleared');
     }
 
     async clearComponentCaches() {
@@ -930,10 +836,6 @@ export default class SchematicApp {
     /**
      * Loads the saved theme from storage on startup.
      */
-    _loadTheme() {
-        loadTheme(this);
-    }
-    
     /**
      * Updates grid size dropdown options for current units.
      */
@@ -1015,30 +917,6 @@ export default class SchematicApp {
      * section alone in standalone setups.
      * @returns {Object} The serialized document data.
      */
-    _serializeDocument() {
-        return this.project ? this.project.serialize() : this.serializeSection();
-    }
-
-    /**
-     * Loads a whole project document from serialized data, restoring every
-     * registered section via the project owner when present.
-     * @param {Object} data - The serialized document data.
-     * @returns {Promise<void>}
-     */
-    async _loadDocument(data) {
-        if (this.project) {
-            await this.project.load(data);
-        } else {
-            await this.loadSection(data);
-        }
-    }
-
-    /** @param {'new'|'open'|'import'} reason */
-    _notifyDocumentReplaced(reason) {
-        if (this.project) this.project.notifyDocumentReplaced(reason);
-        else this.onDocumentReplaced();
-    }
-
     // ── ProjectDocument view interface ────────────────────────────────
 
     isSectionEditing() {
@@ -1050,7 +928,7 @@ export default class SchematicApp {
     }
 
     onProjectChanged() {
-        this._updateTitle();
+        FileTools.updateTitle(this);
     }
 
     _onHistoryChanged() {
@@ -1059,7 +937,7 @@ export default class SchematicApp {
     }
 
     _onDirtyChanged() {
-        this._updateTitle();
+        FileTools.updateTitle(this);
         this.project?.notifySchematicChanged();
     }
 
@@ -1138,38 +1016,6 @@ export default class SchematicApp {
     /**
      * Removes all shapes, clears undo history.
      */
-    _clearAllShapes() {
-        for (const shape of this.shapes) discardShapeView(this, shape);
-        this.shapes = [];
-        this.updateSelectableItems();
-        this.history.clear();
-        this._updateUndoRedoButtons();
-    }
-    
-    /**
-     * Removes all components and their field texts.
-     */
-    _clearAllComponents() {
-        for (const comp of this.components) {
-            // Remove field texts from shapes array and DOM
-            for (const ft of comp.getFieldTexts()) {
-                const idx = this.shapes.indexOf(ft);
-                if (idx !== -1) this.shapes.splice(idx, 1);
-                discardShapeView(this, ft);
-            }
-            discardComponentView(this, comp);
-        }
-        this.components = [];
-        this.updateSelectableItems();
-    }
-    
-    /**
-     * Updates document title with filename and dirty indicator.
-     */
-    _updateTitle() {
-        FileTools.updateTitle(this);
-    }
-    
     /**
      * Enables or disables undo/redo buttons.
      */
@@ -1261,6 +1107,6 @@ export default class SchematicApp {
     }
 
     showSaveToast(text = 'Saved') {
-        this._showSaveToast?.(text);
+        showRibbonSaveToast(this, text);
     }
 }

@@ -3,12 +3,13 @@ import { installFakeDom } from './helpers/fake-dom.mjs';
 
 globalThis.window = { addEventListener() {} };
 globalThis.localStorage = { getItem() { return null; } };
+installFakeDom();
 const { default: SchematicApp } = await import('../src/ui/SchematicApp.js');
 const { default: PCBApp } = await import('../src/ui/PCBApp.js');
 const { ProjectDocument } = await import('../src/core/ProjectDocument.js');
 const { PcbDocument } = await import('../src/core/PcbDocument.js');
 const { SchematicDocument } = await import('../src/core/SchematicDocument.js');
-const { newFile, openFile, openRecentFile } = await import('../src/schematic/modules/files.js');
+const { newFile, openFile, openRecentFile, updateTitle } = await import('../src/schematic/modules/files.js');
 
 function fixture(outcome = 'success') {
     const tabs = { schematic: 'file', pcb: 'pcb-file' }, events = [];
@@ -47,17 +48,18 @@ function fixture(outcome = 'success') {
             },
             clearAutoSave() {}, newDocument() { events.push('new'); },
         },
-        _loadDocument: SchematicApp.prototype._loadDocument,
         clearSection: SchematicApp.prototype.clearSection,
         serializeSection: SchematicApp.prototype.serializeSection,
         getViewSettings: SchematicApp.prototype.getViewSettings,
         shapes: [], components: [],
-        _notifyDocumentReplaced: SchematicApp.prototype._notifyDocumentReplaced,
         onDocumentReplaced: SchematicApp.prototype.onDocumentReplaced,
         setActiveRibbonTab(tab) { tabs.schematic = tab; events.push('schematic-home'); },
         confirm: async () => false, alert() { events.push('alert'); },
-        fitToContent() {}, _updateTitle() {},
-        selection: { clearSelection() {} }, _clearAllShapes() {}, _clearAllComponents() {},
+        ui: {},
+        fitToContent() {},
+        selection: { clearSelection() {} },
+        history: { clear() {} },
+        updateSelectableItems() {},
         viewport: { resetView() {}, setTitleBlockData() {} },
     };
     app.project.fileManager = app.fileManager;
@@ -135,7 +137,6 @@ for (const outcome of ['success', 'declined', 'busy', 'reset-error']) {
     const host = {
         project, fileManager: project.fileManager, ui: { docTitle: {} },
         onProjectChanged: SchematicApp.prototype.onProjectChanged,
-        _updateTitle: SchematicApp.prototype._updateTitle,
     };
     const pcb = Object.assign(Object.create(PCBApp.prototype), {
         pcbDocument: project.pcbDocument,
@@ -155,7 +156,7 @@ for (const outcome of ['success', 'declined', 'busy', 'reset-error']) {
         assert.equal(pcbTitle.textContent, '\u2022owned.cpcb');
         assert.equal(document.title, 'ClearPCB (\u2022owned.cpcb)');
         project.markAllSectionsClean();
-        host._updateTitle();
+        updateTitle(host);
         assert.equal(host.ui.docTitle.textContent, 'owned.cpcb');
         assert.equal(pcbTitle.textContent, 'owned.cpcb');
     }

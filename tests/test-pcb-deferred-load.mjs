@@ -490,9 +490,13 @@ assert.equal(placed.get('owned').reference, 'U1', 'Model synchronization works w
 assert.equal(pcb._stale, false);
 syncs = 0;
 const schematic = Object.assign(Object.create(SchematicApp.prototype), {
-    project, document: project.schematicDocument,
+    project, document: project.schematicDocument, fileManager: project.fileManager,
+    ui: { docTitle: {
+        set textContent(value) { notifications.push('title'); this.value = value; },
+        get textContent() { return this.value || ''; },
+        title: '',
+    } },
     _updateUndoRedoButtons: () => notifications.push('history'),
-    _updateTitle: () => notifications.push('title'),
 });
 schematic.history = new CommandHistory({ onChanged: () => schematic._onHistoryChanged() });
 project.fileManager.onDirtyChanged = () => schematic._onDirtyChanged();

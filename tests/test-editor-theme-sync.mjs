@@ -40,7 +40,6 @@ const schematic = {
         _getLocalBounds() { symbols++; return { minX: 0, minY: 0, maxX: 1, maxY: 1 }; },
     }],
     _toggleTheme() { toggleTheme(this); },
-    _loadTheme() { loadTheme(this); },
 };
 bindThemeToggle(schematic);
 const highlights = [];

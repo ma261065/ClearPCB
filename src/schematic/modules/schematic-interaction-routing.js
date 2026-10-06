@@ -1,5 +1,6 @@
-import { SCHEMATIC_INTERACTIONS } from './schematic-interactions.js';
-import { cancelDragGesture, cancelOverlapCyclePress, cancelPendingAnchorDrag } from './drag.js';
+import { SCHEMATIC_INTERACTIONS, schematicInteractionActive } from './schematic-interactions.js';
+import { cancelDragGesture, cancelPendingAnchorDrag } from './drag.js';
+import { cancelOverlapCyclePress } from './draw-states.js';
 import { cancelWireDrawing } from './wire.js';
 
 /**
@@ -11,7 +12,7 @@ import { cancelWireDrawing } from './wire.js';
  */
 const HANDLERS = {
     textEdit: app => { app.endTextEdit(false); },
-    _overlapCyclePress: cancelOverlapCyclePress,
+    overlapCyclePress: cancelOverlapCyclePress,
     drag: cancelDragGesture,
     pendingAnchorDrag: cancelPendingAnchorDrag,
     isDrawing: app => {
@@ -26,7 +27,7 @@ const ORDER = Object.freeze(SCHEMATIC_INTERACTIONS.map(entry => entry.key));
 
 /** Pointer gestures: Undo/Redo cancels these and then still steps history. */
 export const SCHEMATIC_POINTER_GESTURES = Object.freeze(ORDER.filter(key =>
-    ['_overlapCyclePress', 'drag', 'pendingAnchorDrag'].includes(key)));
+    ['overlapCyclePress', 'drag', 'pendingAnchorDrag'].includes(key)));
 
 /** Gestures Undo/Redo only cancels: inline text, paste and component placement. */
 export const SCHEMATIC_MODAL_GESTURES = Object.freeze(SCHEMATIC_INTERACTIONS
@@ -44,7 +45,7 @@ export const SCHEMATIC_CANCEL_ROUTES = Object.freeze(ORDER.filter(key => HANDLER
  */
 export function cancelSchematicInteraction(app, keys = ORDER) {
     for (const key of ORDER) {
-        if (!keys.includes(key) || !app[key]) continue;
+        if (!keys.includes(key) || !schematicInteractionActive(app, key)) continue;
         if (HANDLERS[key](app) !== false) return key;
     }
     return null;
@@ -59,7 +60,7 @@ export function cancelSchematicInteraction(app, keys = ORDER) {
 export function cancelSchematicInteractions(app, keep = []) {
     const cancelled = [];
     for (const key of ORDER) {
-        if (keep.includes(key) || !app[key]) continue;
+        if (keep.includes(key) || !schematicInteractionActive(app, key)) continue;
         if (HANDLERS[key](app) !== false) cancelled.push(key);
     }
     return cancelled;

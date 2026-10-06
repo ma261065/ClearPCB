@@ -4,6 +4,16 @@ import { onComponentDefinitionSelected } from './components.js';
 import { onComponentPickerClosed } from './tool.js';
 import { updatePastePreview } from './clipboard.js';
 
+const overlapHitCounts = new WeakMap();
+
+export function getOverlapHitCount(app) {
+    return overlapHitCounts.get(app) || 0;
+}
+
+export function setOverlapHitCount(app, count) {
+    overlapHitCounts.set(app, count);
+}
+
 /**
  * Wires up EventBus listeners (component picker) and viewport callbacks
  * (`onMouseMove`, `onViewChanged`, `onViewportCull`) for status bar updates,
@@ -48,8 +58,8 @@ export function setupCallbacks(app) {
             // under the cursor "wins" even if another is drawn on top).
             const allHits = app.selection.hitTest(world, true);
             const overlapHitCount = allHits.length;
-            if (overlapHitCount !== app._overlapHitCount) {
-                app._overlapHitCount = overlapHitCount;
+            if (overlapHitCount !== getOverlapHitCount(app)) {
+                setOverlapHitCount(app, overlapHitCount);
                 app.updateShapeSelectionTip?.();
             }
             const hit = allHits.find((shape) => app.selection.isSelected(shape)) || allHits[0] || null;
