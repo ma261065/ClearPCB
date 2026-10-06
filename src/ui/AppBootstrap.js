@@ -28,6 +28,12 @@ export class AppBootstrap {
         this.startupOpen = document.getElementById('startupOpen');
         this.startupContinue = document.getElementById('startupContinue');
         this._pcbPreloadHandle = null;
+        /**
+         * Startup in progress: set when initialize() starts, and settles once startup has
+         * finished, including the decision to show the startup splash.
+         * @type {Promise<void>|null}
+         */
+        this.ready = null;
 
         /** The neutral owner of the single project document. */
         this.project = new this._services.ProjectDocument();
@@ -348,5 +354,6 @@ document.addEventListener('DOMContentLoaded', async () => {
     const bootstrap = new AppBootstrap();
     // Console inspection only; application code receives its dependencies explicitly.
     /** @type {any} */ (window).bootstrap = bootstrap;
-    await bootstrap.initialize();
+    bootstrap.ready = bootstrap.initialize();
+    await bootstrap.ready;
 });

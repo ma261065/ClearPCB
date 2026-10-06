@@ -1,8 +1,16 @@
 import assert from 'node:assert/strict';
 
+// The startup splash is shown or skipped only after autosave recovery and the recent-file
+// list load, which can take seconds on a busy machine; until then a visibility check
+// would miss a splash that is about to cover the editor.
+async function startupFinished(page) {
+    await page.waitForFunction(() => window.bootstrap?.ready);
+    await page.evaluate(() => window.bootstrap.ready);
+}
+
 export async function openPcb(page, url) {
     await page.goto(`${url}index.html`);
-    await page.waitForFunction(() => window.bootstrap?.pcbApp && window.bootstrap?.schematicApp);
+    await startupFinished(page);
     if (await page.locator('#startupSplash').isVisible()) await page.locator('#startupContinue').click();
     await page.locator('.mode-tab[data-mode="pcb"]').click();
     // A new board asks for its size once the editor activates (a frame or two after the tab
@@ -21,7 +29,7 @@ export async function openPcb(page, url) {
 
 export async function openSchematic(page, url) {
     await page.goto(`${url}index.html`);
-    await page.waitForFunction(() => window.bootstrap?.pcbApp && window.bootstrap?.schematicApp);
+    await startupFinished(page);
     if (await page.locator('#startupSplash').isVisible()) await page.locator('#startupContinue').click();
     await page.locator('.mode-tab[data-mode="schematic"]').click();
     await page.waitForFunction(() => window.bootstrap.schematicApp.viewport?.svg);
