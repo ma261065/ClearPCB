@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { openPcb } from './helpers/editor-helpers.mjs';
+import { SETTLE_MS } from '../../src/shared/ui/settled-input.js';
 
 // Properties number fields commit once a run of spinner clicks settles: one undo
 // step, with the live preview showing each step meanwhile. Pressing Undo during a run
@@ -50,6 +51,34 @@ async function stepUp(page, selector, times) {
     }
 }
 
+/**
+ * Step a field up as one run and read the state before it settles. A machine too
+ * loaded to click within the settle window splits the run (correctly committing
+ * part of it), so such a burst is waited out and retried rather than judged.
+ */
+async function stepUpOneRun(page, selector, times) {
+    for (let attempt = 0; attempt < 3; attempt++) {
+        const start = await state(page);
+        await page.evaluate(selector => {
+            const field = document.querySelector(selector);
+            window.__spinnerChanges = [];
+            if (field.dataset.spinnerStamped) return;
+            field.dataset.spinnerStamped = 'true';
+            field.addEventListener('change', () => window.__spinnerChanges.push(performance.now()));
+        }, selector);
+        await stepUp(page, selector, times);
+        const during = await state(page);
+        const oneRun = await page.evaluate(({ times, settleMs }) => {
+            const stamps = [...window.__spinnerChanges, performance.now()];
+            return stamps.length === times + 1
+                && stamps.every((stamp, index) => !index || stamp - stamps[index - 1] < settleMs);
+        }, { times, settleMs: SETTLE_MS });
+        if (oneRun) return { start, during };
+        await page.waitForTimeout(SETTLE_MS + 300);
+    }
+    throw new Error(`spinner clicks never landed within ${SETTLE_MS} ms of each other`);
+}
+
 export const scenarios = [
     {
         name: 'spinner-runs-commit-once-settled',
@@ -59,10 +88,8 @@ export const scenarios = [
             await clickAt(page, 25, -20);
             const field = '#pcbPropShapeLineWidth';
             await page.locator(field).waitFor();
-            const start = await state(page);
 
-            await stepUp(page, field, 3);
-            const during = await state(page);
+            const { start, during } = await stepUpOneRun(page, field, 3);
             assert.equal(during.undo, start.undo, 'no undo step while the run is settling');
             const shown = Number(await page.locator(field).inputValue());
             assert.ok(shown > start.width, 'the field shows the stepped value');
