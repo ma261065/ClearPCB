@@ -640,6 +640,9 @@ function _collectConnectedNet(app, seed) {
         for (const via of app.vias || []) if (via.net === netName) vias.add(via);
         for (const pad of app.pads || []) if (pad.net === netName) standalonePads.add(pad);
         for (const shape of app.boardShapes || []) {
+            // Pours share the board-shape collection but draw themselves (copper-fill-render.js);
+            // drawn as a board shape, a pour would leave a stray ring when it moved.
+            if (shape.type === 'fill') continue;
             if (shape.net === netName
                 && (shape.layer === 'top-copper' || shape.layer === 'bottom-copper')
                 && normalizeShapeCopperMode(shape.copperMode) === 'add') shapes.add(shape);
