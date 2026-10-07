@@ -116,6 +116,16 @@ function _endVertexDragOverlayDeferral(app, drag) {
     else if (drag.preview) refreshTrackClearance(app, drag.original);
 }
 
+/**
+ * Nets whose ratlines a live drag can change. Ratlines join copper of one net only, and
+ * copper without a net draws none, so a move need only redo the nets of the copper it
+ * moves; the drop and cancel redo every net.
+ * @param {Iterable<{net?: string}>} copper
+ */
+function dragRatsnestNets(copper) {
+    return new Set([...copper].map(item => item?.net || '').filter(Boolean));
+}
+
 function prepareTrackPointer(app, track) {
     track = canonicalTrack(app, track);
     commitPropertyEditors(app, ['track', 'via', 'pad', 'fill']);
@@ -131,6 +141,7 @@ function beginTrackPointer(app, track, details) {
         .map(([id]) => track.getEdgeLayer(id)));
     if (!isEditorActive(app) || [...layers].some(layer => isLayerLocked(layer) || !isLayerVisible(layer))) return null;
     const drag = { ...details, original: track, track, layers, lastDx: 0, lastDy: 0,
+        ratsnestNets: dragRatsnestNets([track]),
         previousDeferDragOverlays: _beginVertexDragOverlayDeferral(app),
         previousSuspendBoardViewRefresh: !!isBoardViewRefreshSuspended(app) };
     setPcbInteraction(app, '_vertexDrag', drag);
@@ -1213,7 +1224,7 @@ export function updateVertexDrag(app, worldPos) {
         renderTrack(drag.track, (id) => app.getLayerGroup(id), _opts(app));
         refreshTrackClearance(app, drag.track);
         refreshTrackSelectionHalo(app);
-        reconcileRatsnest(app);
+        reconcileRatsnest(app, { nets: drag.ratsnestNets });
         return;
     }
 
@@ -1262,7 +1273,7 @@ export function updateVertexDrag(app, worldPos) {
         refreshTrackClearance(app, drag.track);
         renderTrackAxisGlowTop(app);
         refreshTrackSelectionHalo(app);
-        reconcileRatsnest(app);
+        reconcileRatsnest(app, { nets: drag.ratsnestNets });
         clearNetGuideLine(app);
         return;
     }
@@ -1369,7 +1380,7 @@ export function updateVertexDrag(app, worldPos) {
     renderTrackAxisGlowTop(app);
     // Keep the selection halo glued to the new geometry.
     refreshTrackSelectionHalo(app);
-    reconcileRatsnest(app);
+    reconcileRatsnest(app, { nets: drag.ratsnestNets });
 
     updateNetGuideLine(app, drag.track.net, { x: n.x, y: n.y }, drag.guideExclude?.ratlinePointKeys);
 }
@@ -1854,6 +1865,7 @@ function startTerminalDrag(app, via, worldPos, kind) {
         grabX: worldPos.x,
         grabY: worldPos.y,
         attached,
+        ratsnestNets: dragRatsnestNets([via, ...attached.map(item => item.track)]),
         previousDeferDragOverlays: !!areDragOverlaysDeferred(app),
     });
     setDragOverlaysDeferred(app, true);
@@ -2032,7 +2044,7 @@ export function updateViaDrag(app, worldPos) {
     if (drag.kind === 'via') refreshViaClearance(app, drag.via);
     renderTrackAxisGlowTop(app);
     refreshTrackSelectionHalo(app);
-    reconcileRatsnest(app);
+    reconcileRatsnest(app, { nets: drag.ratsnestNets });
 }
 
 /**

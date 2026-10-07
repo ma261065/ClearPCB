@@ -12,7 +12,7 @@ import { openPcb, screenPoint, viewportSettled, waitForPage } from './helpers/ed
 
 /** Budgets in milliseconds of main-thread time at normal speed. */
 const BUDGET = {
-    load: 2000, hoverMove: 200, dragMove: 300, panelRebuild: 100,
+    load: 2000, hoverMove: 200, dragMove: 75, panelRebuild: 100,
     pourRefresh: 1000, picturePreview: 1500, picturePlace: 2000,
 };
 // CPU_THROTTLE (tools/browser-test.mjs) slows the page by that factor, and the budgets with it.
@@ -132,25 +132,39 @@ export const scenarios = [
             }));
             check('hover move', hover / hoverMoves, BUDGET.hoverMove);
 
-            // Dragging a via across the board, with its tracks and ratsnest following.
-            const via = await page.evaluate(() => { const v = window.bootstrap.pcbApp.vias[45]; return { x: v.x, y: v.y }; });
-            const start = await screenPoint(page, 'pcb', via.x, via.y);
-            await page.mouse.move(start.x, start.y);
-            await page.mouse.down();
+            // Dragging a via, then a track, across the board with their ratlines following.
+            // Only the moves are measured: each drag is cancelled, so the board is unchanged.
             const dragMoves = 15;
-            const drag = await fastest(3, run => mainThreadMs(async () => {
-                for (let index = 1; index <= dragMoves; index++) {
-                    const step = run * dragMoves + index;
-                    await page.mouse.move(start.x + step * 3, start.y + step * 1.5);
-                }
-            }));
-            // Only the moves are measured: cancel, so the board is unchanged and no drop is judged.
-            await page.keyboard.press('Escape');
-            await page.mouse.up();
-            check('drag move', drag / dragMoves, BUDGET.dragMove);
-            assert.deepEqual(await page.evaluate(() => { const v = window.bootstrap.pcbApp.vias[45]; return { x: v.x, y: v.y }; }), via,
-                'the cancelled drag leaves the via where it was');
-            await fillsSettled(page);
+            const measureDrag = async (name, grab, model, kind) => {
+                const before = await page.evaluate(model);
+                const start = await screenPoint(page, 'pcb', grab.x, grab.y);
+                await page.mouse.move(start.x, start.y);
+                await page.mouse.down();
+                const drag = await fastest(3, run => mainThreadMs(async () => {
+                    for (let index = 1; index <= dragMoves; index++) {
+                        const step = run * dragMoves + index;
+                        await page.mouse.move(start.x + step * 3, start.y + step * 1.5);
+                    }
+                }));
+                assert.ok(await waitForPage(page, kind => import('/src/pcb/modules/track-drag.js').then(drags => {
+                    const app = window.bootstrap.pcbApp;
+                    return !!(kind === 'via' ? drags.getViaDrag(app) : drags.getVertexDrag(app))?.preview;
+                }), kind, { timeout: 5000 }), `${name}: the press started a ${kind} drag that moved copper`);
+                await page.keyboard.press('Escape');
+                await page.mouse.up();
+                check(name, drag / dragMoves, BUDGET.dragMove);
+                assert.deepEqual(await page.evaluate(model), before, `${name}: the cancelled drag leaves the board as it was`);
+                await fillsSettled(page);
+            };
+            const via = await page.evaluate(() => { const v = window.bootstrap.pcbApp.vias[45]; return { x: v.x, y: v.y }; });
+            await measureDrag('via drag move', via,
+                () => { const v = window.bootstrap.pcbApp.vias[45]; return { x: v.x, y: v.y }; }, 'via');
+            const trackGrab = await page.evaluate(() => {
+                const [a, b] = [...window.bootstrap.pcbApp.tracks[100].nodes.values()];
+                return { x: a.x + (b.x - a.x) * 0.3, y: a.y + (b.y - a.y) * 0.3 };
+            });
+            await measureDrag('track drag move', trackGrab,
+                () => JSON.stringify([...window.bootstrap.pcbApp.tracks[100].nodes.values()]), 'track');
 
             // Rebuilding the Properties panel as the selection changes kind (median of 40).
             const rebuild = await page.evaluate(async () => {

@@ -536,6 +536,13 @@ ring for coincident vias while refreshing only affected centres. Cancellation
 and rejected drops restore canonical halos, including under nested deferral.
 Terminal previews are removed before command-driven overlay refreshes so a
 drop cannot leave duplicate preview/committed track outlines.
+Like component, board-shape and group drags, each move of a track, via or
+standalone pad redraws only the ratlines of the nets it moves: the dragged
+track's net, or the via's or pad's net plus those of the tracks attached to it.
+Ratlines join copper of one net only, and copper without a net draws none, so
+other nets cannot change; the drop and cancellation redo every net.
+`test-drag-ratsnest-nets` checks each kind of drag against a full rebuild after
+every move.
 
 ### Tracks and Vias
 
