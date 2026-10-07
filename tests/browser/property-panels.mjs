@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { openPcb } from './helpers/editor-helpers.mjs';
+import { openPcb, stepSpinnerOneRun } from './helpers/editor-helpers.mjs';
 
 // Properties panels are descriptions rendered by shared/ui/property-fields.js. These
 // scenarios drive real panels: rows, mixed/locked states, live preview and settled commit.
@@ -17,14 +17,6 @@ async function clickAt(page, x, y) {
     const point = await screenPoint(page, x, y);
     await page.mouse.move(point.x, point.y);
     await page.mouse.click(point.x, point.y);
-}
-
-async function stepUp(page, selector, times) {
-    const box = await page.locator(selector).boundingBox();
-    for (let index = 0; index < times; index++) {
-        await page.mouse.click(box.x + box.width - 6, box.y + box.height / 4);
-        await page.waitForTimeout(60);
-    }
 }
 
 const rows = page => page.locator('#pcbPropsItems > .prop-row').evaluateAll(list => list.map(row => row.dataset.prop));
@@ -52,11 +44,10 @@ export const scenarios = [
             await clickAt(page, 20, -20);
             assert.equal(await title(page), 'Pad');
             assert.deepEqual(await rows(page), ['locked', 'padShape', 'layer', 'net', 'size', 'drill']);
-            const start = await pads(page);
             const size = Number(await page.locator('#pcbPropPadSize').inputValue());
 
-            await stepUp(page, '#pcbPropPadSize', 3);
-            assert.equal((await pads(page)).undo, start.undo, 'no undo step while the run settles');
+            const { start, during } = await stepSpinnerOneRun(page, '#pcbPropPadSize', 3, () => pads(page));
+            assert.equal(during.undo, start.undo, 'no undo step while the run settles');
             assert.equal(await page.locator('#pcbPropPadSize').evaluate(input => input === document.activeElement), true,
                 'the stepped field keeps focus through the live preview');
             await page.waitForTimeout(700);
@@ -152,10 +143,8 @@ export const scenarios = [
                     copper: group.querySelectorAll('.pcb-fill-copper').length };
             });
             await page.waitForTimeout(500);
-            const start = await pour();
-            assert.equal(start.outline, 4);
-            await stepUp(page, '#pcbPropFillCornerRadius', 4);
-            const during = await pour();
+            assert.equal((await pour()).outline, 4);
+            const { start, during } = await stepSpinnerOneRun(page, '#pcbPropFillCornerRadius', 4, pour);
             assert.equal(during.radius, start.radius, 'the pour itself waits for the run to settle');
             assert.ok(during.outline > 4, 'its dashed outline already shows the rounded corners');
             assert.equal(during.copper, 0, 'and its copper waits too');
@@ -171,9 +160,7 @@ export const scenarios = [
                 const overlay = window.bootstrap.pcbApp.getLayerGroup('selection-overlay');
                 return overlay.querySelector('[data-selection-id] path')?.getAttribute('d') || '';
             });
-            const pathBefore = await selectedPath();
-            await stepUp(page, '#pcbPropFillDiameter', 3);
-            const pathDuring = await selectedPath();
+            const { start: pathBefore, during: pathDuring } = await stepSpinnerOneRun(page, '#pcbPropFillDiameter', 3, selectedPath);
             assert.notEqual(pathDuring, pathBefore, 'the selected path follows the live circle outline');
             await page.waitForTimeout(1200);
             assert.equal(await selectedPath(), pathDuring, 'and stays with the committed pour');
