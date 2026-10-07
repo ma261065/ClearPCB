@@ -18,7 +18,7 @@ import { runPcbDeleteAction } from '../src/pcb/modules/editor-actions.js';
 import { setPcbSelection, getPcbSelectionEntries, syncPcbSelection } from '../src/pcb/modules/selection-registry.js';
 import { prepareFabricationSnapshot } from '../src/pcb/modules/fabrication-snapshot.js';
 import { loadPcb } from '../src/pcb/modules/project-state.js';
-import { PCB_LAYERS, PCB_COPPER_FILLS } from '../src/pcb/modules/layers.js';
+import { PCB_LAYERS, PCB_COPPER_FILLS, notifyLayerVisibilityChanged, notifyLayerLockChanged, notifyCopperFillVisibilityChanged, notifyCopperFillLockChanged } from '../src/pcb/modules/layers.js';
 import { areDragOverlaysDeferred, isBoardViewRefreshSuspended, setBoardViewPanel, setBoardViewRefreshSuspended, setDragOverlaysDeferred } from '../src/pcb/modules/refresh-state.js';
 import { getSelectionInteraction } from '../src/pcb/modules/selection-interaction.js';
 import { getGroupDrag } from '../src/pcb/modules/box-select.js';
@@ -120,12 +120,7 @@ function fixture(deferred = false, component = false) {
         openPropertyPanel(panel, owner = null) { this.setPropertiesTitle(panel.title, owner); this._propertyPanel = panel; return true; },
         refreshPropertyPanel(panel) { this._propertyPanel = panel; },
         selectText() {},
-        clearProperties: PCBApp.prototype.clearProperties,
-        _onLayerLockChanged: PCBApp.prototype._onLayerLockChanged,
-        _onLayerVisibilityChanged: PCBApp.prototype._onLayerVisibilityChanged,
-        _onCopperFillLockChanged: PCBApp.prototype._onCopperFillLockChanged,
-        _onCopperFillVisibilityChanged: PCBApp.prototype._onCopperFillVisibilityChanged,
-    });
+        clearProperties: PCBApp.prototype.clearProperties,    });
     setBoardViewPanel(app, { refresh() { board++; } });
     project.registerView('pcb', app);
     for (const item of model.tracks) renderTrack(item, app.getLayerGroup);
@@ -214,8 +209,8 @@ for (const component of [false, true]) for (const deferred of [false, true]) for
             const previous = layer[field]; layer[field] = finish === 'lock';
             try {
                 setPcbInteraction(app, '_pcbSelectionInteraction', { mode: 'move' });
-                if (finish === 'lock') app._onLayerLockChanged(layer.id, true);
-                else app._onLayerVisibilityChanged(layer.id, false);
+                if (finish === 'lock') notifyLayerLockChanged(app, layer.id, true);
+                else notifyLayerVisibilityChanged(app, layer.id, false);
             } finally { layer[field] = previous; }
         } else if (finish === 'deactivate' || finish === 'shared') {
             if (finish === 'shared') setPcbInteraction(app, '_pcbSelectionInteraction', { mode: 'move' });
@@ -335,8 +330,8 @@ for (const field of ['locked', 'visible']) {
     const layer = PCB_COPPER_FILLS.find(item => item.id === 'top-copper'), previous = layer[field];
     layer[field] = field === 'locked';
     try {
-        if (field === 'locked') app._onCopperFillLockChanged('top-copper', true);
-        else app._onCopperFillVisibilityChanged('top-copper', false);
+        if (field === 'locked') notifyCopperFillLockChanged(app, 'top-copper', true);
+        else notifyCopperFillVisibilityChanged(app, 'top-copper', false);
     } finally { layer[field] = previous; }
     assert.equal(getGroupDrag(app), null);
     assert.deepEqual(model.serialize(), before);

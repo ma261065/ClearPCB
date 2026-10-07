@@ -1,4 +1,4 @@
-import { isViaVisible, saveLayerPrefs, refreshPcbLayerOptions } from './layers.js';
+import { isViaVisible, saveLayerPrefs, refreshPcbLayerOptions, registerLayerChangeHandlers } from './layers.js';
 import { cancelPcbPaste, isPcbPasteActive, isPcbPasteEditable } from './pcb-paste.js';
 import { getPropertyEditor, eachPropertyEditorOnLayer } from './property-editors.js';
 import { endBoardOutlineResize, isBoardOutlineSelected, selectBoardOutline } from './board-outline-resize.js';
@@ -195,3 +195,11 @@ export function onOverlayVisibilityChanged(app, overlayId, visible) {
     }
     saveLayerPrefs();
 }
+
+registerLayerChangeHandlers({
+    onLayerVisibilityChanged,
+    onLayerLockChanged,
+    onCopperFillVisibilityChanged,
+    onCopperFillLockChanged,
+    onOverlayVisibilityChanged,
+});

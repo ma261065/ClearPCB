@@ -11,7 +11,7 @@ import { createViaSelectionAdapter, showViaProperties, setHoverHighlight } from 
 import { setPcbSelection, syncPcbSelection, getPcbSelection } from '../src/pcb/modules/selection-registry.js';
 import { prepareFabricationSnapshot } from '../src/pcb/modules/fabrication-snapshot.js';
 import { loadPcb } from '../src/pcb/modules/project-state.js';
-import { PCB_LAYERS } from '../src/pcb/modules/layers.js';
+import { PCB_LAYERS, notifyLayerVisibilityChanged, notifyLayerLockChanged } from '../src/pcb/modules/layers.js';
 import { getPropertyEditor } from '../src/pcb/modules/property-editors.js';
 import { renderPropertyFields } from '../src/shared/ui/property-fields.js';
 import { flushSettledChanges } from '../src/shared/ui/settled-input.js';
@@ -120,7 +120,7 @@ function fixture(count = 1, unrelatedCount = 1) {
         Object.defineProperty(app, key, Object.getOwnPropertyDescriptor(PCBApp.prototype, key));
     }
     for (const key of ['setPropertiesTitle', 'clearProperties', '_cancelPosePreviews', 'isSectionEditing',
-        'deactivate', '_onLayerLockChanged', '_onLayerVisibilityChanged']) app[key] = PCBApp.prototype[key];
+        'deactivate']) app[key] = PCBApp.prototype[key];
     Object.assign(app, {
         project, pcbDocument: model, placements: new Map(), netlist: [], history: new CommandHistory(),
         _active: true, _layerGroups: groups, existingLayerGroups: () => groups, _shapeElements: new Map(),
@@ -246,8 +246,8 @@ for (const count of [1, 4]) for (const [name, key, value] of [
             } else if (finish === 'lock' || finish === 'hide') {
                 const layer = PCB_LAYERS.find(layer => layer.id === 'vias');
                 try {
-                    if (finish === 'lock') { layer.locked = true; app._onLayerLockChanged('vias', true); }
-                    else { layer.visible = false; app._onLayerVisibilityChanged('vias', false); }
+                    if (finish === 'lock') { layer.locked = true; notifyLayerLockChanged(app, 'vias', true); }
+                    else { layer.visible = false; notifyLayerVisibilityChanged(app, 'vias', false); }
                     input.emit('input', value + 1);
                 } finally { layer.locked = false; layer.visible = true; }
             } else {

@@ -15,7 +15,7 @@ import { renderCopperFill } from '../src/pcb/modules/copper-fill-render.js';
 import { getPcbSelectionEntries, setPcbSelection } from '../src/pcb/modules/selection-registry.js';
 import { prepareFabricationSnapshot } from '../src/pcb/modules/fabrication-snapshot.js';
 import { loadPcb } from '../src/pcb/modules/project-state.js';
-import { PCB_LAYERS } from '../src/pcb/modules/layers.js';
+import { PCB_LAYERS, notifyLayerVisibilityChanged, notifyLayerLockChanged } from '../src/pcb/modules/layers.js';
 import { areDragOverlaysDeferred, isBoardViewRefreshSuspended, isFillRefreshSuspended, setBoardViewPanel, setBoardViewRefreshSuspended, setDragOverlaysDeferred, setFillRefreshPending, setFillRefreshSuspended } from '../src/pcb/modules/refresh-state.js';
 import { getPcbPaste } from '../src/pcb/modules/pcb-paste.js';
 import { getTextElement, renderText } from '../src/pcb/modules/pcb-text-render.js';
@@ -113,7 +113,7 @@ function fixture(deferred = false) {
     }
     for (const method of ['_hasPcbClipboardData', 'pasteSelection',
         '_cancelPosePreviews', 'snapToGrid', 'refreshText',
-        'isSectionEditing', '_onLayerVisibilityChanged', '_onLayerLockChanged']) app[method] = PCBApp.prototype[method];
+        'isSectionEditing']) app[method] = PCBApp.prototype[method];
     project.registerView('pcb', app);
     renderTrack(track, app.getLayerGroup); renderVia(via, app.getLayerGroup); renderPad(pad, app.getLayerGroup);
     [rect, circle, arc, image].forEach(shape => renderBoardShape(app, shape));
@@ -208,8 +208,8 @@ for (const imageOnly of [false, true]) for (const deferred of [false, true]) for
                 assert.throws(() => endPcbPaste(app), /document is no longer available/);
             } else if (finish === 'load') loadPcb(app, null);
             else if (finish === 'deactivate') PCBApp.prototype.deactivate.call(app);
-            else if (finish === 'lock') { layer.locked = true; app._onLayerLockChanged(layer.id, true); }
-            else if (finish === 'hide') { layer.visible = false; app._onLayerVisibilityChanged(layer.id, false); }
+            else if (finish === 'lock') { layer.locked = true; notifyLayerLockChanged(app, layer.id, true); }
+            else if (finish === 'hide') { layer.visible = false; notifyLayerVisibilityChanged(app, layer.id, false); }
             else {
                 Object.freeze(model.board); Object.freeze(track.nodes);
                 cancelPcbPaste(app);

@@ -9,7 +9,7 @@ import { setPcbSelection, getPcbSelection, syncPcbSelection } from '../src/pcb/m
 import { prepareFabricationSnapshot } from '../src/pcb/modules/fabrication-snapshot.js';
 import { loadPcb } from '../src/pcb/modules/project-state.js';
 import { cancelPictureCopperRefresh } from '../src/pcb/modules/picture-refresh.js';
-import { PCB_LAYERS } from '../src/pcb/modules/layers.js';
+import { PCB_LAYERS, notifyLayerLockChanged } from '../src/pcb/modules/layers.js';
 import { areDragOverlaysDeferred, isPictureCopperRefreshPending, setDragOverlaysDeferred } from '../src/pcb/modules/refresh-state.js';
 import { setBoardShapeNodeFocus } from '../src/pcb/modules/board-shape-state.js';
 import { getBoardShapeDrag } from '../src/pcb/modules/board-shapes.js';
@@ -88,7 +88,7 @@ function fixture(mode, deferred = false, unrelatedCount = 1) {
     for (const key of ['boardShapes', 'tracks', 'vias', 'pads', 'texts']) {
         Object.defineProperty(app, key, Object.getOwnPropertyDescriptor(PCBApp.prototype, key));
     }
-    for (const key of ['_cancelPosePreviews', 'isSectionEditing', '_onLayerLockChanged', '_onLayerVisibilityChanged', 'clearProperties']) {
+    for (const key of ['_cancelPosePreviews', 'isSectionEditing', 'clearProperties']) {
         app[key] = PCBApp.prototype[key];
     }
     project.registerView('pcb', app);
@@ -174,7 +174,7 @@ for (const mode of ['move', 'segment', 'vertex', 'midpoint', 'bulge', 'outline',
                 else if (finish === 'lock') {
                     const layer = PCB_LAYERS.find(layer => layer.id === shape.layer);
                     layer.locked = true;
-                    try { app._onLayerLockChanged(layer.id, true); } finally { layer.locked = false; }
+                    try { notifyLayerLockChanged(app, layer.id, true); } finally { layer.locked = false; }
                 } else {
                     if (shape.points) { shape.points.forEach(Object.freeze); Object.freeze(shape.points); }
                     Object.freeze(shape);

@@ -16,13 +16,6 @@
     "_cancelPosePreviews",
     "_refreshPcbSelectionHighlights"
   ],
-  "src/pcb/modules/layers.js": [
-    "_onCopperFillLockChanged",
-    "_onCopperFillVisibilityChanged",
-    "_onLayerLockChanged",
-    "_onLayerVisibilityChanged",
-    "_onOverlayVisibilityChanged"
-  ],
   "src/pcb/modules/pcb-editor-api.js": [
     "_active"
   ],

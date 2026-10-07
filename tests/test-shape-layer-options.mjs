@@ -5,7 +5,7 @@ installFakeDom();
 
 const { default: PCBApp } = await import('../src/ui/PCBApp.js');
 const { PcbDocument } = await import('../src/core/PcbDocument.js');
-const { PCB_LAYERS, isViaVisible, isViaLocked } = await import('../src/pcb/modules/layers.js');
+const { PCB_LAYERS, isViaVisible, isViaLocked, notifyLayerLockChanged } = await import('../src/pcb/modules/layers.js');
 const { resolveShapeDrawLayer } =
     await import('../src/pcb/modules/board-shapes.js');
 const { showBoardShapeToolProperties, showBoardShapeProperties } = await import('../src/pcb/modules/board-shape-properties.js');
@@ -174,7 +174,7 @@ try {
     const formBefore = items.innerHTML;
     for (const locked of [true, true, false, false, true]) {
         holeLayer.locked = locked;
-        app._onLayerLockChanged('hole', locked);
+        notifyLayerLockChanged(app, 'hole', locked);
         assert.equal(option.disabled, locked, 'Layer-panel notifications immediately update open options');
         assert.equal(option.textContent, `Hole${locked ? ' \u{1F512}\uFE0E' : ''}`, 'Monochrome lock symbols never accumulate');
         assert.equal(option.selected, true, 'Lock changes preserve the displayed assignment');

@@ -6,8 +6,10 @@ import { PcbDocument } from '../src/core/PcbDocument.js';
 import { defaultPcbStackup } from '../src/core/project-format.js';
 
 globalThis.window = { addEventListener() {} };
+globalThis.requestAnimationFrame = callback => { callback(); return 1; };
 globalThis.document = {
     getElementById() { return { addEventListener() {} }; },
+    querySelectorAll() { return []; },
     createElement(tag) { return { tag, children: [], appendChild(child) { this.children.push(child); } }; },
 };
 

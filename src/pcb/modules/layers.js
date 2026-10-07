@@ -8,6 +8,45 @@
 
 /** @typedef {{id: string, name: string, color: string, visible: boolean, locked: boolean}} LayerDef */
 const lockedBubbleTimers = new WeakMap();
+let layerChangeHandlers = {};
+
+export function registerLayerChangeHandlers(handlers) {
+    layerChangeHandlers = handlers;
+}
+
+export function notifyLayerVisibilityChanged(app, layerId, visible) {
+    layerChangeHandlers.onLayerVisibilityChanged?.(app, layerId, visible);
+}
+
+export function notifyLayerLockChanged(app, layerId, locked) {
+    layerChangeHandlers.onLayerLockChanged?.(app, layerId, locked);
+}
+
+export function notifyCopperFillVisibilityChanged(app, layerId, visible) {
+    layerChangeHandlers.onCopperFillVisibilityChanged?.(app, layerId, visible);
+}
+
+export function notifyCopperFillLockChanged(app, layerId, locked) {
+    layerChangeHandlers.onCopperFillLockChanged?.(app, layerId, locked);
+}
+
+export function notifyOverlayVisibilityChanged(app, overlayId, visible) {
+    layerChangeHandlers.onOverlayVisibilityChanged?.(app, overlayId, visible);
+}
+
+export function applyLayerPrefsToRender(app) {
+    for (const l of PCB_LAYERS) {
+        notifyLayerVisibilityChanged(app, l.id, l.visible);
+        notifyLayerLockChanged(app, l.id, l.locked);
+    }
+    for (const f of PCB_COPPER_FILLS) {
+        notifyCopperFillVisibilityChanged(app, f.id, f.visible);
+        notifyCopperFillLockChanged(app, f.id, f.locked);
+    }
+    for (const ov of PCB_OVERLAYS) {
+        notifyOverlayVisibilityChanged(app, ov.id, ov.visible);
+    }
+}
 
 /** All PCB layers with their display colors. */
 export const PCB_LAYERS = /** @type {LayerDef[]} */ ([
@@ -112,7 +151,7 @@ export function setPcbLayerLocked(app, layerId, locked) {
         return;
     }
     layer.locked = !!locked;
-    app._onLayerLockChanged?.(layerId, layer.locked);
+    notifyLayerLockChanged(app, layerId, layer.locked);
 }
 
 /** Unlock a PCB layer through its panel control so all UI state stays in sync. */
@@ -132,7 +171,7 @@ export function setPcbCopperFillLocked(app, layerId, locked) {
         return;
     }
     fill.locked = !!locked;
-    app._onCopperFillLockChanged?.(layerId, fill.locked);
+    notifyCopperFillLockChanged(app, layerId, fill.locked);
 }
 
 /** Unlock a copper-fill layer through its panel control. */
@@ -400,7 +439,7 @@ export function buildLayerPanel(app) {
         layersMasterEye.innerHTML = allLayersVisible ? EYE_OPEN_SVG : EYE_CLOSED_SVG;
         for (const layer of panelLayers) {
             layer.visible = allLayersVisible;
-            app._onLayerVisibilityChanged?.(layer.id, allLayersVisible);
+            notifyLayerVisibilityChanged(app, layer.id, allLayersVisible);
         }
         // Update only LAYER row eyes (not overlay rows or the other master).
         for (const row of panel.querySelectorAll('.pcb-layer-row.section-layers')) {
@@ -426,7 +465,7 @@ export function buildLayerPanel(app) {
         syncMasterLock();
         for (const layer of panelLayers) {
             layer.locked = allLayersLocked;
-            app._onLayerLockChanged?.(layer.id, allLayersLocked);
+            notifyLayerLockChanged(app, layer.id, allLayersLocked);
         }
         // Update only LAYER row lock buttons.
         for (const row of panel.querySelectorAll('.pcb-layer-row.section-layers')) {
@@ -468,7 +507,7 @@ export function buildLayerPanel(app) {
             lockBtn.classList.toggle('active', layer.locked);
             lockBtn.innerHTML = layer.locked ? LOCK_CLOSED_SVG : LOCK_OPEN_SVG;
             lockBtn.title = layer.locked ? 'Unlock layer' : 'Lock layer';
-            app._onLayerLockChanged?.(layer.id, layer.locked);
+            notifyLayerLockChanged(app, layer.id, layer.locked);
             // Keep the master lock in sync with the per-row states.
             allLayersLocked = panelLayers.every(l => l.locked);
             syncMasterLock();
@@ -485,7 +524,7 @@ export function buildLayerPanel(app) {
             layer.visible = !layer.visible;
             visBtn.classList.toggle('active', layer.visible);
             visBtn.innerHTML = layer.visible ? EYE_OPEN_SVG : EYE_CLOSED_SVG;
-            app._onLayerVisibilityChanged?.(layer.id, layer.visible);
+            notifyLayerVisibilityChanged(app, layer.id, layer.visible);
             allLayersVisible = panelLayers.every(layer => layer.visible);
             layersMasterEye.classList.toggle('active', allLayersVisible);
             layersMasterEye.innerHTML = allLayersVisible ? EYE_OPEN_SVG : EYE_CLOSED_SVG;
@@ -512,7 +551,7 @@ export function buildLayerPanel(app) {
             cfMasterEye.innerHTML = allFillsVisible ? EYE_OPEN_SVG : EYE_CLOSED_SVG;
             for (const f of PCB_COPPER_FILLS) {
                 f.visible = allFillsVisible;
-                app._onCopperFillVisibilityChanged?.(f.id, allFillsVisible);
+                notifyCopperFillVisibilityChanged(app, f.id, allFillsVisible);
             }
             for (const row of panel.querySelectorAll('.pcb-layer-row.section-copperfill')) {
                 const visBtn = row.querySelector('.vis-btn');
@@ -537,7 +576,7 @@ export function buildLayerPanel(app) {
             syncCfMasterLock();
             for (const f of PCB_COPPER_FILLS) {
                 f.locked = allFillsLocked;
-                app._onCopperFillLockChanged?.(f.id, allFillsLocked);
+                notifyCopperFillLockChanged(app, f.id, allFillsLocked);
             }
             for (const row of panel.querySelectorAll('.pcb-layer-row.section-copperfill')) {
                 const lockBtn = /** @type {HTMLButtonElement|null} */ (row.querySelector('.lock-btn'));
@@ -575,7 +614,7 @@ export function buildLayerPanel(app) {
                 lockBtn.classList.toggle('active', f.locked);
                 lockBtn.innerHTML = f.locked ? LOCK_CLOSED_SVG : LOCK_OPEN_SVG;
                 lockBtn.title = f.locked ? 'Unlock copper fill' : 'Lock copper fill';
-                app._onCopperFillLockChanged?.(f.id, f.locked);
+                notifyCopperFillLockChanged(app, f.id, f.locked);
                 allFillsLocked = PCB_COPPER_FILLS.every(x => x.locked);
                 syncCfMasterLock();
             });
@@ -591,7 +630,7 @@ export function buildLayerPanel(app) {
                 f.visible = !f.visible;
                 visBtn.classList.toggle('active', f.visible);
                 visBtn.innerHTML = f.visible ? EYE_OPEN_SVG : EYE_CLOSED_SVG;
-                app._onCopperFillVisibilityChanged?.(f.id, f.visible);
+                notifyCopperFillVisibilityChanged(app, f.id, f.visible);
                 allFillsVisible = PCB_COPPER_FILLS.every(x => x.visible);
                 cfMasterEye.classList.toggle('active', allFillsVisible);
                 cfMasterEye.innerHTML = allFillsVisible ? EYE_OPEN_SVG : EYE_CLOSED_SVG;
@@ -618,7 +657,7 @@ export function buildLayerPanel(app) {
             overlaysMasterEye.innerHTML = allOverlaysVisible ? EYE_OPEN_SVG : EYE_CLOSED_SVG;
             for (const ov of PCB_OVERLAYS) {
                 ov.visible = allOverlaysVisible;
-                app._onOverlayVisibilityChanged?.(ov.id, allOverlaysVisible);
+                notifyOverlayVisibilityChanged(app, ov.id, allOverlaysVisible);
             }
             for (const row of panel.querySelectorAll('.pcb-layer-row.section-overlays')) {
                 const visBtn = row.querySelector('.vis-btn');
@@ -656,7 +695,7 @@ export function buildLayerPanel(app) {
                 ov.visible = !ov.visible;
                 visBtn.classList.toggle('active', ov.visible);
                 visBtn.innerHTML = ov.visible ? EYE_OPEN_SVG : EYE_CLOSED_SVG;
-                app._onOverlayVisibilityChanged?.(ov.id, ov.visible);
+                notifyOverlayVisibilityChanged(app, ov.id, ov.visible);
                 allOverlaysVisible = PCB_OVERLAYS.every(overlay => overlay.visible);
                 overlaysMasterEye.classList.toggle('active', allOverlaysVisible);
                 overlaysMasterEye.innerHTML = allOverlaysVisible ? EYE_OPEN_SVG : EYE_CLOSED_SVG;

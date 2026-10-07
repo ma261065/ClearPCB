@@ -17,6 +17,7 @@ import { getHoveredBoardShape } from '../src/pcb/modules/board-shape-state.js';
 import { getSelectionInteraction } from '../src/pcb/modules/selection-interaction.js';
 import { isRotationHandleDragActive } from '../src/pcb/modules/rotation-handle.js';
 import { setPcbInteraction } from '../src/pcb/modules/pcb-interactions.js';
+import { notifyLayerVisibilityChanged, notifyLayerLockChanged } from '../src/pcb/modules/layers.js';
 
 let allocations = 0;
 class Element {
@@ -70,7 +71,7 @@ function fixture(layer = 'top-copper', unrelatedCount = 1) {
     for (const key of ['tracks', 'vias', 'pads', 'boardShapes', 'texts']) {
         Object.defineProperty(app, key, Object.getOwnPropertyDescriptor(PCBApp.prototype, key));
     }
-    for (const key of ['_cancelPosePreviews', 'isSectionEditing', '_onLayerVisibilityChanged', '_onLayerLockChanged',
+    for (const key of ['_cancelPosePreviews', 'isSectionEditing',
         'setPropertiesTitle', 'clearProperties']) app[key] = PCBApp.prototype[key];
     project.registerView('pcb', app);
     const adapter = createBoardShapeSelectionAdapter(app, shape, `shape:${shape.id}`);
@@ -185,8 +186,8 @@ for (const layer of ['top-silk', 'bottom-silk', 'top-copper', 'bottom-copper']) 
                     model.boardShapes.splice(0, 1);
                     assert.throws(() => finishSelectionInteraction(app, true), /Cannot rotate a missing board shape/);
                 } else if (finish === 'panel') app.setPropertiesTitle('Replacement');
-                else if (finish === 'hidden') app._onLayerVisibilityChanged(layer, false);
-                else if (finish === 'locked') app._onLayerLockChanged(layer, true);
+                else if (finish === 'hidden') notifyLayerVisibilityChanged(app, layer, false);
+                else if (finish === 'locked') notifyLayerLockChanged(app, layer, true);
                 else if (finish === 'deselect') selectBoardShape(app, null);
                 else {
                     for (const point of shape.points) Object.freeze(point);

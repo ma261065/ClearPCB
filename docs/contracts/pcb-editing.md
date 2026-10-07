@@ -93,8 +93,9 @@ Select-tool hover coalescing and overlap/cursor feedback live in
 `pcb/modules/pcb-hover.js`; `mouse.js` calls that scheduler directly, while
 component and text hover drawing remains with each entity's owner module.
 
-Layer visibility and lock changes are handled in `pcb/modules/layer-changes.js`,
-called through the editor's thin `_on…Changed` seams. The module cancels
+Layer visibility and lock changes are handled in `pcb/modules/layer-changes.js`, which
+registers handlers with `pcb/modules/layers.js`; the layer panel and render-pref
+replay call those handlers directly instead of editor `_on…Changed` seams. The module cancels
 gestures and property editors stranded by the change, updates render-group
 visibility or opacity, prunes hidden selections and hover state, keeps the
 clearance overlay aligned with visible copper layers, refreshes the Properties

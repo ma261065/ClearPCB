@@ -11,7 +11,7 @@ import { loadAndApplyTheme } from '../shared/ui/theme.js';
 import { renderFootprint, REF_DEFAULT_SIZE, REF_DEFAULT_STROKE } from '../shared/pcb/footprint.js';
 import { updateGridDropdown, restoreGridSettings, serializeGridSettings } from '../shared/ui/viewport.js';
 import { setInlineTextInputActive } from '../shared/ui/inline-text-overlay.js';
-import { PCB_LAYERS, PCB_OVERLAYS, PCB_COPPER_FILLS, pcbLayerName, isLayerLocked, isViaLocked, isLayerVisible, isViaVisible, isCopperFillLocked, isCopperFillVisible } from '../pcb/modules/layers.js';
+import { PCB_LAYERS, pcbLayerName, isLayerLocked, isViaLocked, isLayerVisible, isViaVisible, isCopperFillLocked, isCopperFillVisible, applyLayerPrefsToRender } from '../pcb/modules/layers.js';
 import { exportDSN, importSES } from '../pcb/modules/dsn.js';
 import { disposeDrcRefresh, invalidateDrcRefresh } from '../pcb/modules/drc-refresh.js';
 import {
@@ -94,7 +94,7 @@ import { renderCopperFill } from '../pcb/modules/copper-fill-render.js';
 import { updateCopperCuts, clearCopperCuts, hasCopperCuts } from '../pcb/modules/copper-cuts.js';
 import { initDebugTooltip } from '../pcb/modules/debug-tooltip.js';
 import { bindPcbMouseEvents, noteTrackPress } from '../pcb/modules/mouse.js';
-import { onLayerVisibilityChanged, onLayerLockChanged, onCopperFillVisibilityChanged, onCopperFillLockChanged, onOverlayVisibilityChanged } from '../pcb/modules/layer-changes.js';
+import '../pcb/modules/layer-changes.js';
 import { RemoveFillCommand, ModifyFillCommand } from '../pcb/modules/copper-fill-commands.js';
 import { hitTestFill } from '../pcb/modules/copper-fill-selection.js';
 import { startFillEditAt, updateFillEdit, endFillEdit, deleteFocusedFillPart, showFillProperties, showFillToolProperties } from '../pcb/modules/copper-fill-edit.js';
@@ -719,7 +719,7 @@ export default class PCBApp {
 
         // Push any restored eye/lock state (from a prior session) into the
         // freshly-created render groups so the artwork matches the panel.
-        this._applyLayerPrefsToRender();
+        applyLayerPrefsToRender(this);
 
         restoreGridSettings(this, this.pcbDocument.settings || {});
 
@@ -1395,23 +1395,6 @@ export default class PCBApp {
         }
     }
 
-    /**
-     * Sync the SVG render groups to the current (possibly session-restored)
-     * layer-panel state. Run once after the groups are created.
-     */
-    _applyLayerPrefsToRender() {
-        for (const l of PCB_LAYERS) {
-            this._onLayerVisibilityChanged(l.id, l.visible);
-            this._onLayerLockChanged(l.id, l.locked);
-        }
-        for (const f of PCB_COPPER_FILLS) {
-            this._onCopperFillVisibilityChanged(f.id, f.visible);
-            this._onCopperFillLockChanged(f.id, f.locked);
-        }
-        for (const ov of PCB_OVERLAYS) {
-            this._onOverlayVisibilityChanged(ov.id, ov.visible);
-        }
-    }
 
     /**
      * Get the SVG group for a layer, creating it if needed.
@@ -1439,33 +1422,8 @@ export default class PCBApp {
         return g;
     }
 
-    /**
-     * Called by the layer panel when visibility is toggled.
-     * @param {string} layerId
-     * @param {boolean} visible
-     */
-    _onLayerVisibilityChanged(layerId, visible) {
-        onLayerVisibilityChanged(this, layerId, visible);
-    }
 
-    /**
-     * Called by the layer panel when a layer's lock is toggled.
-     * @param {string} layerId
-     * @param {boolean} locked
-     */
-    _onLayerLockChanged(layerId, locked) {
-        onLayerLockChanged(this, layerId, locked);
-    }
 
-    /**
-     * Overlay visibility callback (clearance halos, etc.). Wired from
-     * `buildLayerPanel` via the Overlays section in the layer dropdown.
-     * @param {string} overlayId
-     * @param {boolean} visible
-     */
-    _onOverlayVisibilityChanged(overlayId, visible) {
-        onOverlayVisibilityChanged(this, overlayId, visible);
-    }
 
     fitToContent() {
         this._ensureViewport();
@@ -2552,25 +2510,7 @@ export default class PCBApp {
         return '';
     }
 
-    /**
-     * Layer-panel callback: show/hide the copper pour on one side. Visibility
-     * is purely a view state (toggles the fill layer-group's display).
-     * @param {string} copperLayerId - 'top-copper' | 'bottom-copper'
-     * @param {boolean} visible
-     */
-    _onCopperFillVisibilityChanged(copperLayerId, visible) {
-        onCopperFillVisibilityChanged(this, copperLayerId, visible);
-    }
 
-    /**
-     * Layer-panel callback: lock/unlock the copper pour on one side. A locked
-     * pour is dimmed and remains selectable only for its unlock affordance.
-     * @param {string} copperLayerId - 'top-copper' | 'bottom-copper'
-     * @param {boolean} locked
-     */
-    _onCopperFillLockChanged(copperLayerId, locked) {
-        onCopperFillLockChanged(this, copperLayerId, locked);
-    }
 
     /** Select (or clear) the active pour and refresh its highlight. */
     selectFill(fill) {

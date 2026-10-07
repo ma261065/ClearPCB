@@ -223,8 +223,6 @@ try {
     topLayer.visible = previousVisibility;
 }
 console.log('PASS visible fill selection and dragging are independent of copper visibility');
-
-const onVisibility = PCBApp.prototype._onLayerVisibilityChanged;
 fillApp._layerGroups = new Map();
 
 fillApp.existingLayerGroups = function () { return this._layerGroups; };
@@ -232,13 +230,13 @@ let selectionRefreshes = 0;
 fillApp._refreshPcbSelectionHighlights = () => { selectionRefreshes++; };
 fillApp.selectFill = () => { throw new Error('Copper visibility must not clear a visible fill'); };
 fillApp.clearProperties = () => { throw new Error('Visible fill properties must remain available'); };
-onVisibility.call(fillApp, 'top-copper', false);
+layers.notifyLayerVisibilityChanged(fillApp, 'top-copper', false);
 assert.equal(selectionRefreshes, 1, 'Hiding an outline layer removes its selection lock overlay');
 assert.deepEqual(getPcbSelection(fillApp, 'fill'), [visibleFill]);
-onVisibility.call(fillApp, 'top-copper', true);
-onVisibility.call(fillApp, 'bottom-copper', false);
-onVisibility.call(fillApp, 'bottom-copper', true);
-onVisibility.call(fillApp, 'top-silk', true);
+layers.notifyLayerVisibilityChanged(fillApp, 'top-copper', true);
+layers.notifyLayerVisibilityChanged(fillApp, 'bottom-copper', false);
+layers.notifyLayerVisibilityChanged(fillApp, 'bottom-copper', true);
+layers.notifyLayerVisibilityChanged(fillApp, 'top-silk', true);
 assert.equal(selectionRefreshes, 5, 'Every layer eye change refreshes selection affordances');
 {
     const copperShape = { kind: 'polygon', id: 'hidden-copper-shape', layer: 'top-copper', points };
@@ -260,7 +258,7 @@ assert.equal(selectionRefreshes, 5, 'Every layer eye change refreshes selection 
     const previous = topLayer.visible;
     try {
         topLayer.visible = false;
-        onVisibility.call(layerApp, 'top-copper', false);
+        layers.notifyLayerVisibilityChanged(layerApp, 'top-copper', false);
     } finally {
         topLayer.visible = previous;
     }
@@ -269,14 +267,10 @@ assert.equal(selectionRefreshes, 5, 'Every layer eye change refreshes selection 
     assert.deepEqual(shownProperties, new Set([silkShape, keptVia]), 'Properties follow the remaining selection');
 }
 console.log('PASS hiding a layer deselects only the objects it hides');
-
-const onFillVisibility = PCBApp.prototype._onCopperFillVisibilityChanged;
 fillApp._cancelPosePreviews = function () { setPcbInteraction(this, '_groupDrag', null); };
-onFillVisibility.call(fillApp, 'top-copper', false);
+layers.notifyCopperFillVisibilityChanged(fillApp, 'top-copper', false);
 assert.equal(getGroupDrag(fillApp), null, 'Hiding a pour discards an active mixed-group preview');
 assert.equal(selectionRefreshes, 6, 'Hiding copper-fill outlines removes their selection lock overlay');
-
-const onLock = PCBApp.prototype._onCopperFillLockChanged;
 const bottomFill = { ...fill, id: 'bottom-pour', layer: 'bottom-copper' };
 const secondTopFill = { ...fill, id: 'second-top-pour' };
 app.boardShapes.push(bottomFill, secondTopFill);
@@ -287,7 +281,7 @@ setPcbSelection(app, [
     { kind: 'fill', object: bottomFill }, { kind: 'fill', object: fill },
     { kind: 'fill', object: secondTopFill }, { kind: 'text', object: movingText },
 ]);
-onLock.call(app, 'top-copper', true);
+layers.notifyCopperFillLockChanged(app, 'top-copper', true);
 assert.deepEqual(getPcbSelection(app, 'fill'), [bottomFill, fill, secondTopFill],
     'Lock preserves selected pours so their unlock affordance remains available');
 assert.deepEqual(getPcbSelection(app, 'text'), [movingText], 'Lock preserves unrelated selection');

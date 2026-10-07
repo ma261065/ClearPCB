@@ -14,7 +14,7 @@ import { syncPcbSelection, getPcbSelection, clearPcbSelection } from '../src/pcb
 import { finishSelectionInteraction } from '../src/pcb/modules/selection-interaction.js';
 import { prepareFabricationSnapshot } from '../src/pcb/modules/fabrication-snapshot.js';
 import { loadPcb } from '../src/pcb/modules/project-state.js';
-import { PCB_LAYERS } from '../src/pcb/modules/layers.js';
+import { PCB_LAYERS, notifyLayerVisibilityChanged, notifyLayerLockChanged } from '../src/pcb/modules/layers.js';
 import { areDragOverlaysDeferred, isBoardViewRefreshSuspended, setBoardViewPanel, setBoardViewRefreshSuspended, setDragOverlaysDeferred } from '../src/pcb/modules/refresh-state.js';
 import { getViaDrag } from '../src/pcb/modules/track-drag.js';
 import { getVertexDrag } from '../src/pcb/modules/track-drag.js';
@@ -96,7 +96,7 @@ function fixture(mode, deferred = false, unrelatedCount = 1) {
         Object.defineProperty(app, key, Object.getOwnPropertyDescriptor(PCBApp.prototype, key));
     }
     for (const key of ['setPropertiesTitle', 'clearProperties', '_cancelPosePreviews', 'isSectionEditing',
-        'deactivate', '_onLayerLockChanged', '_onLayerVisibilityChanged']) app[key] = PCBApp.prototype[key];
+        'deactivate']) app[key] = PCBApp.prototype[key];
     Object.assign(app, {
         project, pcbDocument: model, placements: new Map(), netlist: [], history: new CommandHistory(),
         _active: true, _layerGroups: groups, existingLayerGroups() { return this._layerGroups; }, _shapeElements: new Map(),
@@ -319,8 +319,8 @@ for (const mode of ['whole', 'segment', 'bridge', 'node', 'midpoint', 'split', '
             } else if (finish === 'lock' || finish === 'hide') {
                 const layer = PCB_LAYERS.find(layer => layer.id === 'top-copper');
                 try {
-                    if (finish === 'lock') { layer.locked = true; app._onLayerLockChanged(layer.id, true); }
-                    else { layer.visible = false; app._onLayerVisibilityChanged(layer.id, false); }
+                    if (finish === 'lock') { layer.locked = true; notifyLayerLockChanged(app, layer.id, true); }
+                    else { layer.visible = false; notifyLayerVisibilityChanged(app, layer.id, false); }
                 } finally { layer.locked = false; layer.visible = true; }
             } else cancelVertexDrag(app);
             assert.deepEqual(track.captureState(), before);

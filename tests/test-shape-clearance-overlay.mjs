@@ -13,6 +13,7 @@ import {
     showClearances as showClearanceOverlay,
 } from '../src/pcb/modules/clearance-overlay.js';
 import { isShapeClearancePending, pictureRefreshState } from '../src/pcb/modules/picture-refresh.js';
+import { notifyOverlayVisibilityChanged } from '../src/pcb/modules/layers.js';
 
 globalThis.window = { addEventListener() {} };
 const element = () => ({
@@ -133,7 +134,6 @@ for (const shape of [{ ...circle, layer: 'top-silk' }, { ...circle, copperMode: 
 // The real clearance methods, run against this test's editor.
 const showClearances = PCBApp.prototype.showClearances;
 const refreshVia = PCBApp.prototype._refreshViaClearance;
-const toggle = PCBApp.prototype._onOverlayVisibilityChanged;
 const groups = new Map(['top-copper', 'bottom-copper', 'hole', 'vias', 'clearance-overlay'].map(id => [id, element()]));
 const pcbDocument = new PcbDocument();
 pcbDocument.boardShapes.push(circle, rectangle, hole, line, arc);
@@ -153,16 +153,16 @@ for (const copperMode of ['remove-copper', 'remove-solder-mask', 'remove-copper-
 setPictureCopperRefreshPending(app, false);
 const overlay = groups.get('clearance-overlay');
 const ids = () => new Set(overlay.children.map(child => child.attributes.get('data-shape-id')));
-toggle.call(app, 'clearance', true);
+notifyOverlayVisibilityChanged(app, 'clearance', true);
 assert.deepEqual(ids(), new Set(['circle', 'rect', 'hole', 'line', 'arc']));
 assert.equal(overlay.children.find(child => child.attributes.get('data-shape-id') === 'circle').dataset.net, 'GND');
-toggle.call(app, 'clearance', false);
+notifyOverlayVisibilityChanged(app, 'clearance', false);
 assert.equal(overlay.children.length, 0, 'Eye off removes shape halos');
 groups.get('hole').style.display = 'none';
 groups.get('bottom-copper').style.display = 'none';
-toggle.call(app, 'clearance', true);
+notifyOverlayVisibilityChanged(app, 'clearance', true);
 assert.deepEqual(ids(), new Set(['circle', 'line', 'arc']), 'Copper halos survive hidden hole layer; hidden copper shapes are omitted');
-toggle.call(app, 'clearance', true);
+notifyOverlayVisibilityChanged(app, 'clearance', true);
 assert.equal(overlay.children.filter(child => child.attributes.get('data-shape-id') === 'circle').length, 1,
     'Refreshing replaces old shape halos');
 console.log('PASS shape clearance geometry, segment widths, hollow contours, eye toggling, net tags, and layer visibility');
@@ -231,7 +231,7 @@ assert.equal(outlineCalls, callsBeforeHide + 1, 'Halo catches up once the deboun
 assert.notEqual(getBoardShapeClearance(app, image.id), cacheBeforeHide, 'Halo catches up once the debounce expires');
 assert.ok(overlay.children.some(child => child.attributes.get('data-shape-id') === 'image'),
     'Updated image halo becomes visible after the debounce');
-toggle.call(app, 'clearance', false);
+notifyOverlayVisibilityChanged(app, 'clearance', false);
 renderBoardShape(app, image, { liveDrag: true });
 assert.equal(outlineCalls, callsBeforeHide + 1, 'Hidden clearance does no geometry work');
 assert.equal(overlay.children.length, 0, 'Hidden clearance does no geometry work');

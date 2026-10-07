@@ -11,7 +11,7 @@ import { getBoardDimensionPreview, previewBoardDimensions, finishBoardDimensionP
 import { prepareFabricationSnapshot } from '../src/pcb/modules/fabrication-snapshot.js';
 import { loadPcb } from '../src/pcb/modules/project-state.js';
 import { getBoardShapeElement } from '../src/pcb/modules/board-shapes.js';
-import { PCB_LAYERS } from '../src/pcb/modules/layers.js';
+import { PCB_LAYERS, notifyLayerVisibilityChanged, notifyLayerLockChanged } from '../src/pcb/modules/layers.js';
 import { getPropertyEditor } from '../src/pcb/modules/property-editors.js';
 import { areDragOverlaysDeferred, isBoardViewRefreshSuspended, setBoardViewPanel, setBoardViewRefreshSuspended, setDragOverlaysDeferred } from '../src/pcb/modules/refresh-state.js';
 import { bindSettledChange, flushSettledChanges } from '../src/shared/ui/settled-input.js';
@@ -80,7 +80,7 @@ function fixture(existing = true, deferred = false) {
         Object.defineProperty(app, key, Object.getOwnPropertyDescriptor(PCBApp.prototype, key));
     }
     for (const key of ['_cancelPosePreviews', 'isSectionEditing',
-        '_onLayerLockChanged', '_onLayerVisibilityChanged', 'clearProperties', 'setPropertiesTitle']) {
+        'clearProperties', 'setPropertiesTitle']) {
         app[key] = PCBApp.prototype[key];
     }
     initializeBoardOutlineState(app, existing);
@@ -198,8 +198,8 @@ for (const mode of ['width', 'height', 'both', 'property-width', 'property-heigh
                     assert.throws(() => complete(true), /no longer available/);
                 } else if (finish === 'load') loadPcb(app, null);
                 else if (finish === 'deactivate') PCBApp.prototype.deactivate.call(app);
-                else if (finish === 'lock') { layer.locked = true; app._onLayerLockChanged(layer.id, true); }
-                else if (finish === 'hide') { layer.visible = false; app._onLayerVisibilityChanged(layer.id, false); }
+                else if (finish === 'lock') { layer.locked = true; notifyLayerLockChanged(app, layer.id, true); }
+                else if (finish === 'hide') { layer.visible = false; notifyLayerVisibilityChanged(app, layer.id, false); }
                 else {
                     if (canonical) { canonical.points.forEach(Object.freeze); Object.freeze(canonical.points); Object.freeze(canonical); }
                     Object.freeze(model.board);

@@ -25,7 +25,7 @@ globalThis.document = {
         };
     },
 };
-const { PCB_LAYERS } = await import('../src/pcb/modules/layers.js');
+const { PCB_LAYERS, notifyLayerLockChanged } = await import('../src/pcb/modules/layers.js');
 const { resolveShapeDrawLayer, shapeDrawClick, cancelShapeDraw } =
     await import('../src/pcb/modules/board-shapes.js');
 const { showBoardShapeToolProperties } = await import('../src/pcb/modules/board-shape-properties.js');
@@ -47,9 +47,7 @@ const app = {
     refreshPropertyPanel(panel) { syncPanel(panel); },
     setActiveRibbonTab() {},
     status: { modeStatus: { textContent: '' } },
-    setPcbStatus: PCBApp.prototype.setPcbStatus,
-    _onLayerLockChanged: PCBApp.prototype._onLayerLockChanged,
-};
+    setPcbStatus: PCBApp.prototype.setPcbStatus,};
 const locks = PCB_LAYERS.map(layer => layer.locked);
 try {
     for (const layer of PCB_LAYERS) layer.locked = false;
@@ -66,7 +64,7 @@ try {
         shapeDrawClick(app, kind, { x: 1, y: -1 });
         assert.equal(getShapeDraw(app).layer, 'bottom-copper', 'The preview uses the displayed default');
         const draw = getShapeDraw(app);
-        app._onLayerLockChanged('top-copper', true);
+        notifyLayerLockChanged(app, 'top-copper', true);
         assert.equal(getShapeDraw(app), draw, 'Updating lock indicators does not replace an unfinished shape');
         cancelShapeDraw(app);
     }
@@ -77,14 +75,14 @@ try {
     app.activeLayer = 'top-copper';
     showBoardShapeToolProperties(app, 'rect');
     bottom.locked = true;
-    app._onLayerLockChanged('bottom-copper', true);
+    notifyLayerLockChanged(app, 'bottom-copper', true);
     assert.equal(select.value, 'top-silk', 'Locking the current default selects the next valid layer');
     assert.equal(app.activeLayer, 'top-silk');
 
     const validLayers = ['top-copper', 'bottom-copper', 'top-silk', 'bottom-silk',
         'top-document', 'bottom-document', 'hole'];
     for (const layer of PCB_LAYERS) layer.locked = validLayers.includes(layer.id);
-    app._onLayerLockChanged('top-silk', true);
+    notifyLayerLockChanged(app, 'top-silk', true);
     assert.equal(resolveShapeDrawLayer(app, app.activeLayer), null,
         'Unlocked mask, paste, outline and Via display layers are not drawing fallbacks');
     assert.equal(select.value, '');
@@ -105,7 +103,7 @@ try {
     app.currentTool = 'rect';
     const hole = PCB_LAYERS.find(layer => layer.id === 'hole');
     hole.locked = false;
-    app._onLayerLockChanged('hole', false);
+    notifyLayerLockChanged(app, 'hole', false);
     assert.equal(select.value, 'hole', 'Unlocking one valid layer recovers the existing dropdown immediately');
     assert.equal(select.disabled, false);
     assert.equal(app.activeLayer, 'hole');
@@ -122,7 +120,7 @@ try {
     app.currentTool = 'select';
     const previousForm = html;
     hole.locked = true;
-    app._onLayerLockChanged('hole', true);
+    notifyLayerLockChanged(app, 'hole', true);
     assert.equal(html, previousForm, 'Inactive drawing controls are not rebuilt as a new shape tool');
 } finally {
     PCB_LAYERS.forEach((layer, index) => { layer.locked = locks[index]; });

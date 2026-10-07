@@ -55,7 +55,7 @@ const { createPadSelectionAdapter } = await import('../src/pcb/modules/pad-selec
 const { setPcbSelection, syncPcbSelection, getPcbSelection } = await import('../src/pcb/modules/selection-registry.js');
 const { prepareFabricationSnapshot } = await import('../src/pcb/modules/fabrication-snapshot.js');
 const { loadPcb } = await import('../src/pcb/modules/project-state.js');
-const { PCB_LAYERS } = await import('../src/pcb/modules/layers.js');
+const { PCB_LAYERS, notifyLayerVisibilityChanged, notifyLayerLockChanged } = await import('../src/pcb/modules/layers.js');
 const { cancelPictureCopperRefresh } = await import('../src/pcb/modules/picture-refresh.js');
 const { getPropertyEditor } = await import('../src/pcb/modules/property-editors.js');
 const { flushSettledChanges } = await import('../src/shared/ui/settled-input.js');
@@ -79,7 +79,7 @@ function fixture(count = 1, layers = 'both', unrelatedCount = 1) {
     }
     for (const key of ['_showPadEditor', 'openPropertyPanel', 'refreshPropertyPanel', 'showPropertiesTab', 'netNames',
         'setPropertiesTitle', 'clearProperties', '_cancelPosePreviews', 'isSectionEditing', 'deactivate',
-        '_onLayerLockChanged', '_onLayerVisibilityChanged']) app[key] = PCBApp.prototype[key];
+        ]) app[key] = PCBApp.prototype[key];
     Object.assign(app, {
         project, pcbDocument: model, placements: new Map(), netlist: [], history: new CommandHistory(),
         _active: true, _layerGroups: new Map(), existingLayerGroups() { return this._layerGroups; }, _shapeElements: new Map(),
@@ -189,10 +189,10 @@ for (const count of [1, 4]) for (const layers of ['top-copper', 'bottom-copper',
                     try {
                         if (finish === 'lock') {
                             layer.locked = true;
-                            app._onLayerLockChanged(layer.id, true);
+                            notifyLayerLockChanged(app, layer.id, true);
                         } else {
                             layer.visible = false;
-                            app._onLayerVisibilityChanged(layer.id, false);
+                            notifyLayerVisibilityChanged(app, layer.id, false);
                         }
                         input.emit('input', value + 1);
                     } finally { layer.locked = false; layer.visible = true; }

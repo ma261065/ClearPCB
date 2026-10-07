@@ -158,7 +158,7 @@ evaluation-order cycle fails.
   copper connection discovery), `track-commit.js` (drawn-track command assembly),
   `save-toast.js` (PCB save
   toast presentation), `svg-defs.js` (editor-owned SVG `<defs>` cache) and
-  `layers.js` (layer-panel lock bubble timer), and
+  `layers.js` (layer-panel lock bubble timer and registered layer-change hooks), and
   `pcb-interactions.js` (in-progress interaction slots).
 - In-progress interaction slots (`_drag`, `_trackDraw`, …) are listed once in
   `pcb-interactions.js` with their owner module and stored in its import-free
@@ -276,8 +276,8 @@ PCB editor:
   and unpinned by a stationary right-click.
 - `pcb/modules/layer-changes.js` — what hiding, showing, locking or unlocking a layer,
   pour or overlay does to the editor (cancels stranded gestures and edits, updates the
-  render groups, prunes the selection); the layer panel calls it through the editor's
-  `_on…Changed` methods.
+  render groups, prunes the selection); it registers handlers with `layers.js`, and
+  the layer panel calls those handlers directly.
 - `pcb/modules/object-locks.js` — individual object locks alongside layer locks: the
   combined lock predicates every edit path uses, the undoable lock command, the lock
   icon's unlock menu and the Properties "Locked" row.

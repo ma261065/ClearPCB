@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { PcbDocument } from '../src/core/PcbDocument.js';
 import { CommandHistory } from '../src/core/CommandHistory.js';
 import { createPcbText, TEXT_LAYERS } from '../src/core/pcb-text.js';
-import { PCB_LAYERS } from '../src/pcb/modules/layers.js';
+import { PCB_LAYERS, notifyLayerLockChanged } from '../src/pcb/modules/layers.js';
 import { createPcbTextSelectionAdapter, handleTextDrag } from '../src/pcb/modules/pcb-text-selection.js';
 import { setPcbSelection } from '../src/pcb/modules/selection-registry.js';
 import { cancelPictureCopperRefresh } from '../src/pcb/modules/picture-refresh.js';
@@ -50,7 +50,7 @@ for (const layerId of TEXT_LAYERS) {
     Object.defineProperty(app, 'texts', Object.getOwnPropertyDescriptor(PCBApp.prototype, 'texts'));
     for (const name of [
         'snapToGrid', 'selectText', 'showTextProperties', '_bindStrokeTextProps',
-        '_pcbMultiPropertyCapabilities', '_onLayerLockChanged', '_startTextInlineEdit',
+        '_pcbMultiPropertyCapabilities', '_startTextInlineEdit',
         '_endTextInlineEdit', '_deleteSelectedText']) app[name] = PCBApp.prototype[name];
     const adapter = createPcbTextSelectionAdapter(app, text, `text:${text.id}`);
     try {
@@ -102,7 +102,7 @@ for (const layerId of TEXT_LAYERS) {
         adapter.updateMove({ x: 1, y: 2 });
         setPcbInteraction(app, '_pcbSelectionInteraction', { mode: 'move-adapter', entry: adapter });
         layer.locked = true;
-        app._onLayerLockChanged(layerId, true);
+        notifyLayerLockChanged(app, layerId, true);
         assert.equal(getTextDrag(app), null);
         assert.equal(getSelectionInteraction(app), null);
         assert.deepEqual(text, original);
@@ -118,7 +118,7 @@ for (const layerId of TEXT_LAYERS) {
             assert.equal(adapter.object.rotation, rotationPreview, 'Locked rotation stops following the pointer');
             if (notify) {
                 setPcbInteraction(app, '_pcbSelectionInteraction', { mode: 'anchor', adapter });
-                app._onLayerLockChanged(layerId, true);
+                notifyLayerLockChanged(app, layerId, true);
                 assert.equal(getSelectionInteraction(app), null);
             } else adapter.endAnchorDrag(true);
             assert.deepEqual(text, original);
@@ -129,7 +129,7 @@ for (const layerId of TEXT_LAYERS) {
         const contentPreview = beginTextContentPreview(app, text.id);
         contentPreview.content = 'Preview';
         setPcbInteraction(app, '_textEdit', { text: contentPreview, originalContent: original.content, input: { value: 'Preview' }, options: {} });
-        app._onLayerLockChanged(layerId, true);
+        notifyLayerLockChanged(app, layerId, true);
         assert.equal(activeTextInlineEdit(app), null, 'Locking cancels a standalone inline preview too');
         assert.deepEqual(text, original);
         assert.equal(cleared, 1);

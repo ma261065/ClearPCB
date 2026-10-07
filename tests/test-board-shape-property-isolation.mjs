@@ -10,7 +10,7 @@ import { setPcbSelection } from '../src/pcb/modules/selection-registry.js';
 import { cancelPictureCopperRefresh } from '../src/pcb/modules/picture-refresh.js';
 import { loadPcb } from '../src/pcb/modules/project-state.js';
 import { prepareFabricationSnapshot } from '../src/pcb/modules/fabrication-snapshot.js';
-import { PCB_LAYERS } from '../src/pcb/modules/layers.js';
+import { PCB_LAYERS, notifyLayerLockChanged } from '../src/pcb/modules/layers.js';
 import { beginPcbAnchorInteraction, updateSelectionInteraction, finishSelectionInteraction } from '../src/pcb/modules/selection-interaction.js';
 import { getPropertyEditor } from '../src/pcb/modules/property-editors.js';
 import { areDragOverlaysDeferred } from '../src/pcb/modules/refresh-state.js';
@@ -222,7 +222,7 @@ function fixture(kind, count = 1, unrelatedCount = 1, shapeLayer = 'top-copper')
         Object.defineProperty(app, key, Object.getOwnPropertyDescriptor(PCBApp.prototype, key));
     }
     for (const key of ['_cancelPosePreviews', 'isSectionEditing', 'setPropertiesTitle', 'clearProperties',
-        '_onLayerLockChanged', '_onLayerVisibilityChanged']) app[key] = PCBApp.prototype[key];
+        ]) app[key] = PCBApp.prototype[key];
     project.registerView('pcb', app);
     const adapters = shapes.map(shape => createBoardShapeSelectionAdapter(app, shape, shape.id));
     setPcbSelection(app, shapes.map(object => ({ kind: 'shape', object })));
@@ -400,7 +400,7 @@ for (const [kind, id, value] of cases) for (const count of ['lineWidth', 'corner
                 else if (finish === 'lock') {
                     const layer = PCB_LAYERS.find(layer => layer.id === 'top-copper');
                     layer.locked = true;
-                    try { app._onLayerLockChanged(layer.id, true); } finally { layer.locked = false; }
+                    try { notifyLayerLockChanged(app, layer.id, true); } finally { layer.locked = false; }
                 } else if (finish === 'missing') {
                     model.boardShapes.splice(model.boardShapes.indexOf(shapes.at(-1)), 1);
                     assert.throws(() => { input.fire('change'); flushSettledChanges(); }, /missing board shape/);

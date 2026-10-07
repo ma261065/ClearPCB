@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { PcbDocument } from '../src/core/PcbDocument.js';
 import { CommandHistory } from '../src/core/CommandHistory.js';
 import { capturePlacementOverride } from '../src/core/PcbPlacementState.js';
-import { PCB_LAYERS } from '../src/pcb/modules/layers.js';
+import { PCB_LAYERS, notifyLayerLockChanged } from '../src/pcb/modules/layers.js';
 import { beginRefTextDrag, createRefTextSelectionAdapter, handleRefDrag } from '../src/pcb/modules/ref-text-selection.js';
 import { beginSelectionInteraction } from '../src/pcb/modules/selection-interaction.js';
 import { getPcbSelection, setPcbSelection } from '../src/pcb/modules/selection-registry.js';
@@ -56,7 +56,7 @@ for (const side of ['top', 'bottom']) {
     attachPropertyPanelHarness(app, { controls });
     for (const name of ['rotateRefText', '_worldToPlacementLocal',
         'snapToGrid', 'showRefProperties', '_bindStrokeTextProps', '_pcbMultiPropertyCapabilities',
-        '_onLayerLockChanged', '_endTextInlineEdit']) app[name] = PCBApp.prototype[name];
+        '_endTextInlineEdit']) app[name] = PCBApp.prototype[name];
     const adapter = createRefTextSelectionAdapter(app, 'part', 'reftext:part');
     const original = capturePlacementOverride(placement);
     try {
@@ -121,7 +121,7 @@ for (const side of ['top', 'bottom']) {
         adapter.updateMove({ x: 2, y: 3 });
         setPcbInteraction(app, '_pcbSelectionInteraction', { mode: 'move-adapter', entry: adapter });
         layer.locked = true;
-        app._onLayerLockChanged(layer.id, true);
+        notifyLayerLockChanged(app, layer.id, true);
         assert.equal(getRefDrag(app), null, 'The layer-panel callback cancels an active reference preview');
         assert.equal(getSelectionInteraction(app), null);
         assert.deepEqual(capturePlacementOverride(placement), original);
@@ -135,9 +135,9 @@ for (const side of ['top', 'bottom']) {
                 placement.reference = value;
             } },
         });
-        app._onLayerLockChanged(other.id, true);
+        notifyLayerLockChanged(app, other.id, true);
         assert.ok(activeTextInlineEdit(app), 'Locking the opposite side does not interrupt inline reference editing');
-        app._onLayerLockChanged(layer.id, true);
+        notifyLayerLockChanged(app, layer.id, true);
         assert.equal(activeTextInlineEdit(app), null);
         assert.equal(inlineCommit, false, 'Locking the reference layer cancels its active inline preview');
         assert.equal(placement.reference, 'R1');
