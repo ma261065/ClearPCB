@@ -20,8 +20,9 @@ globalThis.document = {
     getElementById: id => inputs.get(id) || null,
 };
 const { default: PCBApp } = await import('../src/ui/PCBApp.js');
-const dimensionPrototype = Object.create(null, Object.fromEntries(['boardShapes', '_boardWidth', '_boardHeight', '_boardRadius']
+const dimensionPrototype = Object.create(null, Object.fromEntries(['boardShapes']
     .map(key => [key, Object.getOwnPropertyDescriptor(PCBApp.prototype, key)])));
+const { boardDimensions } = await import('../src/shared/pcb/board-outline.js');
 const {
     boardOutlineHandles,
     drawBoardOutline,
@@ -55,7 +56,7 @@ const commands = [];
         let unculled = 0;
         const board = {
             boardShapes: [{ id: 'board-outline', layer: 'board-outline', ...geometry }],
-            _boardWidth: 100, _boardHeight: 80,
+            board: { width: 100, height: 80, radius: 0 },
             _ensureViewport() {}, _uncullAllPlacements() { unculled++; },
             viewport: { fitToBounds(...bounds) { calls.push(bounds); } },
             _layerGroups: new Map([
@@ -82,7 +83,7 @@ const commands = [];
         assert.deepEqual(calls.at(-1), expectedFit,
             'Off-board artwork must not affect board framing');
     }
-    const legacy = { _boardWidth: 40, _boardHeight: 30, boardShapes: [],
+    const legacy = { board: { width: 40, height: 30, radius: 0 }, boardShapes: [],
         _ensureViewport() {}, _uncullAllPlacements() {}, _layerGroups: new Map([['selection-overlay', helper]]),
         viewport: { fitToBounds(...bounds) { assert.deepEqual(bounds, [-10, -30, 40, 10, 0, 'bottom-left']); } } };
     fit.call(legacy);
@@ -92,28 +93,30 @@ let fills = 0;
 const fillDimensions = [];
 const outlineRenderGroup = { querySelector: () => null, querySelectorAll: () => [], appendChild() { redraws++; } };
 const overlayRenderGroup = { querySelector: () => null, querySelectorAll: () => [], appendChild() {} };
+const pcbDocument = new PcbDocument();
+Object.assign(pcbDocument.board, { width: 100, height: 80, radius: 3 });
 const app = Object.assign(Object.create(dimensionPrototype), {
-    pcbDocument: new PcbDocument(),
+    pcbDocument,
     _shapeElements: new Map(),
-    _boardWidth: 100, _boardHeight: 80, _boardRadius: 3,
     viewport: { scale: 10, snapToGrid: true, gridVisible: true, gridSize: 1 },
     getLayerGroup(id) { return id === 'board-outline' ? outlineRenderGroup : overlayRenderGroup; },
     refreshFills() {
         fills++;
-        fillDimensions.push([this._boardWidth, this._boardHeight, this._boardRadius]);
+        const { width, height, radius } = boardDimensions(this);
+        fillDimensions.push([width, height, radius]);
     },
     history: { execute(command) { commands.push(command); command.execute(); } },
 });
 initializeBoardOutlineState(app, true);
 setBoardOutlineSelected(app, true);
 setPropertyEditor(app, 'boardDimension', { commit() {}, cancel() {}, dispose() {}, sync() {
-    inputs.get('pcbPropBoardW').value = Number(app._boardWidth).toFixed(2);
-    inputs.get('pcbPropBoardH').value = Number(app._boardHeight).toFixed(2);
+    inputs.get('pcbPropBoardW').value = Number(boardDimensions(app).width).toFixed(2);
+    inputs.get('pcbPropBoardH').value = Number(boardDimensions(app).height).toFixed(2);
 } });
 assert.equal(boardOutlineHandles(app).length, 3);
 assert.ok(beginBoardOutlineResize(app, { x: 100, y: -80 }));
 updateBoardOutlineResize(app, { x: 110.2, y: -85.2 });
-assert.deepEqual([app._boardWidth, app._boardHeight, app._boardRadius], [110, 85, 3]);
+assert.deepEqual(Object.values(boardDimensions(app)), [110, 85, 3]);
 assert.deepEqual(app.pcbDocument.board, { width: 100, height: 80, radius: 3 },
     'Live resize preserves the project model until committing');
 await assert.rejects(prepareFabricationSnapshot(app, { computeFills: false }),
@@ -132,31 +135,31 @@ assert.equal(isBoardViewRefreshSuspended(app), false);
 commands[0].undo();
 assert.equal(fills, 2, 'Undo refreshes pours once');
 assert.deepEqual(fillDimensions.at(-1), [100, 80, 3], 'Undo refresh uses the restored dimensions');
-assert.deepEqual([app._boardWidth, app._boardHeight], [100, 80]);
+assert.deepEqual([boardDimensions(app).width, boardDimensions(app).height], [100, 80]);
 assert.deepEqual(app.pcbDocument.serializeBoardDimensions(), { width: 100, height: 80, radius: 3 });
 assert.deepEqual([...inputs.values()].map(input => input.value), ['100.00', '80.00'], 'Undo updates the dimension spinners');
 commands[0].execute();
 assert.equal(fills, 3, 'Redo refreshes pours once');
 assert.deepEqual(fillDimensions.at(-1), [110, 85, 3], 'Redo refresh uses the reapplied dimensions');
-assert.deepEqual([app._boardWidth, app._boardHeight], [110, 85]);
+assert.deepEqual([boardDimensions(app).width, boardDimensions(app).height], [110, 85]);
 assert.deepEqual([...inputs.values()].map(input => input.value), ['110.00', '85.00'], 'Redo updates the dimension spinners');
 assert.ok(beginBoardOutlineResize(app, { x: 110, y: -42.5 }));
 updateBoardOutlineResize(app, { x: -10, y: -60 });
-assert.deepEqual([app._boardWidth, app._boardHeight], [5, 85]);
+assert.deepEqual([boardDimensions(app).width, boardDimensions(app).height], [5, 85]);
 assert.deepEqual([...inputs.values()].map(input => input.value), ['5.00', '85.00'], 'Spinners reflect minimum size and the unchanged axis');
 endBoardOutlineResize(app, false);
-assert.deepEqual([app._boardWidth, app._boardHeight], [110, 85]);
+assert.deepEqual([boardDimensions(app).width, boardDimensions(app).height], [110, 85]);
 assert.equal(fills, 3, 'Cancelled preview does not trigger another pour rebuild');
 assert.equal(commands.length, 1);
 assert.ok(beginBoardOutlineResize(app, { x: 55, y: -85 }));
 updateBoardOutlineResize(app, { x: 90, y: -95 });
-assert.deepEqual([app._boardWidth, app._boardHeight], [110, 95]);
+assert.deepEqual([boardDimensions(app).width, boardDimensions(app).height], [110, 95]);
 endBoardOutlineResize(app);
 app.viewport.snapToGrid = false;
 assert.ok(beginBoardOutlineResize(app, { x: 110, y: -95 }));
 updateBoardOutlineResize(app, { x: 110.12345, y: -95.98765 });
 assert.deepEqual([...inputs.values()].map(input => input.value), ['110.12', '95.99'], 'Unsnapped dimensions display two decimal places');
-assert.deepEqual([app._boardWidth, app._boardHeight], [110.12345, 95.98765], 'Display formatting preserves geometry precision');
+assert.deepEqual([boardDimensions(app).width, boardDimensions(app).height], [110.12345, 95.98765], 'Display formatting preserves geometry precision');
 assert.deepEqual(app.pcbDocument.serializeBoardDimensions(), { width: 110, height: 95, radius: 3 },
     'Serialization excludes the live resize');
 endBoardOutlineResize(app, false);
@@ -206,7 +209,7 @@ updateBoardOutlineResize(app, { x: 120, y: -100 });
 layer.locked = true;
 updateBoardOutlineResize(app, { x: 125, y: -105 });
 assert.equal(getBoardOutlineResize(app), null);
-assert.deepEqual([app._boardWidth, app._boardHeight], [110, 95], 'Locking during a drag restores original dimensions');
+assert.deepEqual([boardDimensions(app).width, boardDimensions(app).height], [110, 95], 'Locking during a drag restores original dimensions');
 layer.locked = false;
 console.log('PASS board resize handles, snapping, minimum dimensions, undo/redo, cancellation, and locks');
 

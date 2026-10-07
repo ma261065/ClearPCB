@@ -2,14 +2,14 @@ import { isLayerLocked, isLayerVisible, setPcbLayerLocked } from './layers.js';
 import { showBoardShapeProperties } from './board-shape-properties.js';
 import { SetBoardOutlineCommand } from './track-commands.js';
 import { snapToViewportGrid } from '../../core/grid-snap.js';
-import { getBoardOutline, rectangleBoardOutline, boardBoundary, boardDimensions } from '../../shared/pcb/board-outline.js';
+import { clearBoardDimensionPreview, getBoardDimensionPreview, getBoardOutline, rectangleBoardOutline,
+    boardBoundary, boardDimensions, setBoardDimensionPreview } from '../../shared/pcb/board-outline.js';
 import { removeBoardShapeElement, renderBoardShape, selectBoardShape } from './board-shapes.js';
 import { getPropertyEditor, releasePropertyEditor, setPropertyEditor } from './property-editors.js';
 import { areDragOverlaysDeferred, isBoardViewRefreshSuspended, setBoardViewRefreshSuspended, setDragOverlaysDeferred, refreshBoardView } from './refresh-state.js';
 import { getPcbInteraction, setPcbInteraction } from './pcb-interactions.js';
 import { renderPanelPreview } from './panelization-ui.js';
 
-const dimensionPreviews = new WeakMap();
 const boardOutlineStates = new WeakMap();
 
 function state(app) {
@@ -137,9 +137,7 @@ export function syncBoardOutlineInputs(app) {
     if (typeof editor?.sync === 'function') editor.sync();
 }
 
-export function getBoardDimensionPreview(app) {
-    return dimensionPreviews.get(app);
-}
+export { getBoardDimensionPreview } from '../../shared/pcb/board-outline.js';
 
 /** Properties for the board outline: the outline shape's panel, or board size fields before one exists. */
 export function showBoardOutlineProperties(app) {
@@ -191,7 +189,7 @@ export function previewBoardDimensions(app, dimensions) {
     }
     const current = getBoardDimensionPreview(app)?.board || app.pcbDocument.board;
     if (['width', 'height', 'radius'].every(key => dimensions[key] === current[key])) return false;
-    let preview = dimensionPreviews.get(app);
+    let preview = getBoardDimensionPreview(app);
     if (!preview) {
         const model = app.pcbDocument, original = getBoardOutline(model);
         const outline = rectangleBoardOutline(current.width, current.height, current.radius);
@@ -203,7 +201,7 @@ export function previewBoardDimensions(app, dimensions) {
             previousSuspend: !!isBoardViewRefreshSuspended(app), previousDefer: !!areDragOverlaysDeferred(app),
             wasDrawn: isBoardOutlineDrawn(app),
         };
-        dimensionPreviews.set(app, preview);
+        setBoardDimensionPreview(app, preview);
         setBoardViewRefreshSuspended(app, true);
         setDragOverlaysDeferred(app, true);
     }
@@ -225,9 +223,8 @@ export function previewBoardDimensions(app, dimensions) {
 }
 
 export function finishBoardDimensionPreview(app, commit = false) {
-    const preview = dimensionPreviews.get(app);
+    const preview = clearBoardDimensionPreview(app);
     if (!preview) return;
-    dimensionPreviews.delete(app);
     setBoardOutlineDrawn(app, preview.wasDrawn);
     let committed = false;
     try {

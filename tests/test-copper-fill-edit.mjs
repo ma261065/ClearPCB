@@ -171,7 +171,7 @@ for (const region of [rounded, circle, new CopperFill({ outline, segmentBulges: 
         computeFillPolygons({ layer: region.layer, net: region.net, outline: region.getOutline() }, context, clipper),
         'Pour uses sampled curves rather than the control polygon');
     const snapshot = await prepareFabricationSnapshot({ ...app, boardShapes: [region], copperFills: [region],
-        netlist: [], _boardWidth: 20, _boardHeight: 20, getRoutingParams: () => ({ clearance: 0.1 }) });
+        netlist: [], board: { width: 20, height: 20, radius: 0 }, getRoutingParams: () => ({ clearance: 0.1 }) });
     assert.deepEqual(snapshot.fills[0].outline, region.getOutline());
     assert.ok(snapshot.fills[0]._computed.length > 0);
 }

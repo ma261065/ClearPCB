@@ -95,7 +95,7 @@ for (const side of ['top', 'bottom']) for (const mirror of [false, true]) for (c
         placements: new Map([['part', placement]]), tracks: [], vias: [], pads: [], texts: new Map(),
         boardShapes: [fill], copperFills: [fill],
         netlist: [{ net: 'GND', pins: [{ componentId: 'part', pinNumber: '1' }] }],
-        _boardWidth: 30, _boardHeight: 30, _boardRadius: 0, getRoutingParams: () => ({ clearance: 0.2 }),
+        board: { width: 30, height: 30, radius: 0 }, getRoutingParams: () => ({ clearance: 0.2 }),
     };
     const expected = await prepareFabricationSnapshot(app, { computeFills: false });
     expected.placements = new Map([['part', expectedPlacement]]);

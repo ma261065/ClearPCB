@@ -155,7 +155,7 @@ function fixture() {
     }));
     const saved = model.serialize(), geometry = model.captureGeometry();
     const identities = [...model.tracks, ...model.vias, ...model.pads, ...model.boardShapes, ...model.texts.values()];
-    const projected = ['tracks', 'vias', 'pads', 'boardShapes', 'texts', 'copperFills', '_boardWidth', '_boardHeight', '_boardRadius'];
+    const projected = ['tracks', 'vias', 'pads', 'boardShapes', 'texts', 'copperFills', 'board'];
     for (const key of projected) Object.defineProperty(app, key, {
         configurable: true, get() { throw new Error(`Editor projection read: ${key}`); },
     });

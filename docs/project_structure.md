@@ -146,8 +146,9 @@ evaluation-order cycle fails.
   SVG elements and hover), `cursor-state.js` (last pointer/crosshair positions),
   `refresh-state.js` (derived-refresh flags, suspensions, and shared 3D/2D
   board-view panel state), `component-selection.js` (component hover outline),
-  `pcb-hover.js` (coalesced select-tool hover frame state), `board-outline-resize.js`
-  (board-outline drawn/selected state), `clearance-overlay.js` (clearance
+  `pcb-hover.js` (coalesced select-tool hover frame state),
+  `shared/pcb/board-outline.js` (detached board-dimension preview state),
+  `board-outline-resize.js` (board-outline drawn/selected state), `clearance-overlay.js` (clearance
   visibility and halo caches), `picture-refresh.js` (pending/deferred
   shape-clearance refresh state), `track-select.js` (selected track node/segment
   edit and hover-highlight state), `board-shapes.js` (rendered board-shape SVG
@@ -209,9 +210,12 @@ PCB editor:
   conversion and the shared path-edit/profile machinery also used by copper fills;
   `board-shape-properties.js` — board-shape Properties and shared geometry
   preview transactions.
-- `pcb/modules/board-outline-resize.js` — board-outline draw/selection state,
-  board-size previews and resize gestures, the Board Dimensions dialog and the
-  read-only `isBoardOutlineDrawn()` service used by page/test readiness checks.
+- `shared/pcb/board-outline.js` — board-outline geometry, canonical/projected
+  board dimensions and the board-dimension preview store shared by render/export
+  helpers; `pcb/modules/board-outline-resize.js` — board-outline draw/selection
+  state, board-size preview transactions and resize gestures, the Board
+  Dimensions dialog and the read-only `isBoardOutlineDrawn()` service used by
+  page/test readiness checks.
 - `pcb/modules/ref-text-geometry.js` — a reference designator's box, hit test and
   inline-edit corners, and the footprint-local ↔ board transforms (pure functions of
   the placement); `ref-text-selection.js` — its selection adapter, direct selection

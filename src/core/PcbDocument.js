@@ -23,6 +23,7 @@ export class PcbDocument {
     constructor() {
         this.placementState = new PcbPlacementState();
         this.designSettings = new PcbDesignSettings();
+        /** @type {{width: number, height: number, radius: number}} */
         this.board = { ...DEFAULT_BOARD_DIMENSIONS };
         /** @type {object|undefined} Loaded viewport preferences; a live view supplies current values. */
         this.settings = undefined;

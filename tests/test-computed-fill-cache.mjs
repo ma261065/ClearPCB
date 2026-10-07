@@ -28,7 +28,7 @@ let checks = 0, previews = 0;
 const originalRequestAnimationFrame = globalThis.requestAnimationFrame;
 globalThis.requestAnimationFrame = () => { checks++; return checks; };
 const app = { placements: new Map(), tracks: [], vias: [], pads: [], texts: new Map(), netlist: [],
-    boardShapes: model.boardShapes, copperFills: [fill], _boardWidth: 10, _boardHeight: 10, _boardRadius: 0,
+    boardShapes: model.boardShapes, copperFills: [fill], board: { width: 10, height: 10, radius: 0 },
     getRoutingParams: () => ({ clearance: 0.2 }), getLayerGroup: () => null,
     existingLayerGroups() { return this._layerGroups; },
     _layerGroups: new Map() };

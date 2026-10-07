@@ -16,7 +16,7 @@ const { generateGerberArchive } = await import('../src/pcb/modules/gerber-export
 const outline = [{ x: 1, y: -1 }, { x: 19, y: -1 }, { x: 19, y: -19 }, { x: 1, y: -19 }];
 const fill = new CopperFill({ net: 'GND', outline });
 const app = { placements: new Map(), tracks: [], vias: [], texts: new Map(), netlist: [],
-    boardShapes: [fill], copperFills: [fill], _boardWidth: 20, _boardHeight: 20, _boardRadius: 0,
+    boardShapes: [fill], copperFills: [fill], board: { width: 20, height: 20, radius: 0 },
     getRoutingParams: () => ({ clearance: 0.2 }) };
 setFillRefreshScheduled(app, true);
 assert.equal(hasFabricationContent(app), true);
@@ -108,7 +108,7 @@ for (const layer of TEXT_LAYERS) for (const border of [false, true]) {
         size: 1.23456789, rotation: 37.12345678, strokeWidth: 0.12345678, layer, border });
     const authored = serializePcbText(text);
     const textApp = { placements: new Map(), tracks: [], vias: [], pads: [], texts: new Map([[text.id, text]]),
-        boardShapes: [], copperFills: [], _boardWidth: 20, _boardHeight: 20, _boardRadius: 0,
+        boardShapes: [], copperFills: [], board: { width: 20, height: 20, radius: 0 },
         getRoutingParams: () => ({ clearance: 0.2 }) };
     const clean = await prepareFabricationSnapshot(textApp, { computeFills: false });
     const expectedGerbers = exportGerbers(clean);

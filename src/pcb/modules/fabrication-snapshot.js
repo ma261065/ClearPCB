@@ -49,7 +49,7 @@ export async function prepareSnapshotFills(snapshot, onProgress = (done, total) 
     if (!fills.length) return;
     const context = buildFillContext({ ...snapshot, texts: new Map(snapshot.texts.map(text => [text.id, text])),
         copperFills: fills, getRoutingParams: () => params,
-        _boardWidth: snapshot.boardWidth, _boardHeight: snapshot.boardHeight, _boardRadius: snapshot.boardRadius });
+        board: { width: snapshot.boardWidth, height: snapshot.boardHeight, radius: snapshot.boardRadius } });
     const clipper = await loadClipper();
     const results = computeFillPolygonsInOrder(fills, context, clipper, onProgress);
     fills.forEach((fill, index) => { fill._computed = results[index]; });

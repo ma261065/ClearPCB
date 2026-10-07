@@ -105,7 +105,7 @@ const image = { ...base, kind: 'image', artwork, points: rectangleFramePoints(ba
 for (const key of ['x', 'y', 'width', 'height', 'rotation']) delete image[key];
 const snapshot = await prepareFabricationSnapshot({
     placements: new Map(), tracks: [], vias: [], pads: [], texts: new Map(), copperFills: [],
-    boardShapes: [image], _boardWidth: 100, _boardHeight: 80,
+    boardShapes: [image], board: { width: 100, height: 80, radius: 0 },
 }, { computeFills: false });
 assert.deepEqual(snapshot.boardShapes[0].points, image.points, 'Fabrication snapshots retain exact live geometry');
 assert.deepEqual(snapshot.boardShapes[0].artwork, artwork);

@@ -74,7 +74,7 @@ let captures = 0;
 source.captureCopperGeometry = () => { captures++; return capture(); };
 const app = {
     placements: new Map(), tracks: [source], vias: [], pads: [], texts: new Map(), boardShapes: [], copperFills: [],
-    _boardWidth: 20, _boardHeight: 20, _boardRadius: 0, getRoutingParams: () => ({ clearance: 0.2 }),
+    board: { width: 20, height: 20, radius: 0 }, getRoutingParams: () => ({ clearance: 0.2 }),
 };
 const fabrication = await prepareFabricationSnapshot(app, { computeFills: false });
 assert.equal(captures, 1, 'The export adapter delegates graph capture to the model once');

@@ -71,7 +71,7 @@ function fixture(withFill = true) {
     const topFillGroup = makeFillGroup(true), bottomFillGroup = makeFillGroup();
     const app = Object.assign(Object.create(PCBApp.prototype), {
         pcbDocument: new PcbDocument(),
-        _boardWidth: 40, _boardHeight: 40, _boardRadius: 0,
+        board: { width: 40, height: 40, radius: 0 },
         placements: new Map(), texts: new Map(), tracks: [], pads: [], netlist: [],
         vias: [{ id: 'ground', x: 8, y: 8, diameter: 1, drill: 0.3, net: 'GND' }],
         boardShapes: [{ id: 'board-outline', kind: 'rect', layer: 'board-outline',

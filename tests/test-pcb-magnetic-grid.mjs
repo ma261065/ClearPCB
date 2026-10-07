@@ -15,6 +15,7 @@ import { updateRefTextDrag, handleRefDrag } from '../src/pcb/modules/ref-text-se
 import { snapPadPlacement } from '../src/pcb/modules/pad-tool.js';
 import { updateCursorCrosshair } from '../src/pcb/modules/cursor-state.js';
 import { beginPcbPaste, cancelPcbPaste, updatePcbPaste } from '../src/pcb/modules/pcb-paste.js';
+import { boardDimensions } from '../src/shared/pcb/board-outline.js';
 
 globalThis.window = { addEventListener() {} };
 globalThis.document = {
@@ -47,9 +48,6 @@ function fixture(viewport) {
     setPcbInteraction(app, '_drag', { compId: 'part', startWorld: { x: 0, y: 0 }, startPos: { x: 0, y: 0 }, nets: new Set() });
     setPcbInteraction(app, '_refDrag', { compId: 'part', startWorld: { x: 0, y: 0 }, startDx: 0, startDy: 0 });
     Object.defineProperty(app, 'texts', Object.getOwnPropertyDescriptor(PCBApp.prototype, 'texts'));
-    for (const key of ['_boardWidth', '_boardHeight', '_boardRadius']) {
-        Object.defineProperty(app, key, Object.getOwnPropertyDescriptor(PCBApp.prototype, key));
-    }
     for (const method of ['snapToGrid', '_worldToPlacementLocal']) {
         app[method] = PCBApp.prototype[method];
     }
@@ -103,8 +101,8 @@ function check(point, expected, options = {}) {
     // Keep threshold deltas exact rather than introducing cancellation error at (100, -80).
     getBoardOutlineResize(app).start = { x: 0, y: 0 };
     updateBoardOutlineResize(app, point);
-    assert.equal(app._boardWidth, 100 + expected.x, 'Outline resize X');
-    assert.equal(app._boardHeight, 80 - expected.y, 'Outline resize Y');
+    assert.equal(boardDimensions(app).width, 100 + expected.x, 'Outline resize X');
+    assert.equal(boardDimensions(app).height, 80 - expected.y, 'Outline resize Y');
 }
 
 for (const [point, expected] of [

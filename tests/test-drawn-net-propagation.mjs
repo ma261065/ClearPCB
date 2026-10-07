@@ -23,14 +23,17 @@ const { pointInCopperRegion } = await import('../src/pcb/modules/track-contact-g
 
 function fixture() {
     const commands = [];
+    const pcbDocument = new PcbDocument();
+    Object.assign(pcbDocument.board, { width: 0, height: 0, radius: 0 });
     return Object.assign(Object.create(copperPrototype), {
-        pcbDocument: new PcbDocument(),
-        tracks: [], vias: [], pads: [], boardShapes: [], copperFills: [], netlist: [
+        pcbDocument,
+        tracks: [], vias: [], pads: [], boardShapes: [], copperFills: [], texts: new Map(), netlist: [
             { net: 'SIGNAL', pins: [{ componentId: 'U1', pinNumber: '1' }] },
         ],
         placements: new Map([['U1', { pads: new Map([['1', { x: 20, y: 0, number: '1' }]]) }]]),
         _commitTracks: PCBApp.prototype._commitTracks,
         getLayerGroup() { return null; },
+        existingLayerGroups: () => new Map(),
         _shapeElements: new Map(),
         alert(message) { this.lastAlert = message; },
         viewport: { scale: 100, gridVisible: false, setCrosshair() {}, hideCrosshair() {} },

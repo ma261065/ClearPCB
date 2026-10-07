@@ -135,7 +135,7 @@ assert.deepEqual(savedPrecise.segmentBulges, { 1: 0.2346 });
 assert.deepEqual(CopperFill.fromJSON(savedPrecise).toJSON(), savedPrecise,
     'Full-precision live geometry saves as a stable four-decimal frame');
 const snapshot = await prepareFabricationSnapshot({ placements: new Map(), tracks: [], vias: [], texts: new Map(),
-    boardShapes: [precise], copperFills: [precise], _boardWidth: 100, _boardHeight: 80 }, { computeFills: false });
+    boardShapes: [precise], copperFills: [precise], board: { width: 100, height: 80 , radius: 0 }}, { computeFills: false });
 assert.deepEqual(snapshot.fills[0].outline, geometry, 'Fabrication keeps full-precision derived geometry');
 assert.notEqual(snapshot.fills[0].outline, precise.outline);
 snapshot.fills[0].outline[0].x += 5;

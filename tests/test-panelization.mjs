@@ -100,7 +100,7 @@ const app = Object.assign(Object.create(null, {
     placementState, placements: new Map(), _placementOverrides: placementState.overrides,
     tracks: pcbDocument.tracks, vias: pcbDocument.vias, pads: pcbDocument.pads, texts: pcbDocument.texts,
     copperFills: [], boardShapes: pcbDocument.boardShapes,
-    _boardWidth: 20, _boardHeight: 10, _boardRadius: 0,
+    board: { width: 20, height: 10, radius: 0 },
     getRoutingParams: () => ({ clearance: 0.2, trackWidth: 0.25, viaDiameter: 0.6, viaDrill: 0.3 }),
     _getRouterMode: () => 'pathfinder',
     getLayerGroup: () => null,

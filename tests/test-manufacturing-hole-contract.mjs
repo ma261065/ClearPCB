@@ -49,7 +49,7 @@ assert.ok(Math.abs(restored.getPcbFootprint('part').padOffsets[2].slotAngle
     - footprint.padOffsets[2].slotAngle) < 0.000051, 'Save/load retains slot angle at existing shape-string precision');
 
 const board = placements => ({ placements, tracks: [], vias: [], pads: [], texts: new Map(),
-    boardShapes: [], copperFills: [], _boardWidth: 40, _boardHeight: 40, _boardRadius: 0,
+    boardShapes: [], copperFills: [], board: { width: 40, height: 40, radius: 0 },
     getRoutingParams: () => ({ clearance: 0.2 }) });
 const drillCommand = drill => `X${drill.x.toFixed(3)}Y${(-drill.y).toFixed(3)}`
     + (drill.slot ? `G85X${drill.slot.x2.toFixed(3)}Y${(-drill.slot.y2).toFixed(3)}` : '');

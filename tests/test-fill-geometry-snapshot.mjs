@@ -62,7 +62,7 @@ for (const layer of ['top-copper', 'bottom-copper']) for (const options of cases
     fill.captureCopperGeometry = () => { captures++; return capture(); };
     const app = {
         placements: new Map(), tracks: [], vias: [], pads: [], texts: new Map(), netlist: [],
-        boardShapes: [fill], copperFills: [fill], _boardWidth: 30, _boardHeight: 30, _boardRadius: 0,
+        boardShapes: [fill], copperFills: [fill], board: { width: 30, height: 30, radius: 0 },
         getRoutingParams: () => ({ clearance: 0.2 }),
     };
     const pending = prepareFabricationSnapshot(app, { computeFills: false });

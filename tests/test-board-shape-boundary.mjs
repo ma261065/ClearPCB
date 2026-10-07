@@ -545,9 +545,6 @@ console.log('PASS centreline editing, symmetric hit tests, unchanged circles, mi
         getLayerGroup() { assertDimensions(); return null; }, snapToGrid(point) { return point; },
         viewport: { scale: 100, snapToGrid: false, setCrosshair() {}, hideCrosshair() {} },
         history: new CommandHistory() };
-    for (const key of ['_boardWidth', '_boardHeight', '_boardRadius']) {
-        Object.defineProperty(app, key, { set() { assert.fail('Preview must use model synchronization, not editor aliases'); } });
-    }
     const before = model.serialize();
     Object.freeze(model.board);
     renderBoardShape(app, outline);

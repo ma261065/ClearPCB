@@ -3,7 +3,7 @@ import { ProjectDocument } from '../src/core/ProjectDocument.js';
 import { CommandHistory } from '../src/core/CommandHistory.js';
 import { CopperFill } from '../src/shapes/copper-fill.js';
 import { setComputedFill, getComputedFill } from '../src/pcb/modules/computed-fill-cache.js';
-import { getBoardOutline, rectangleBoardOutline, boardBoundary } from '../src/shared/pcb/board-outline.js';
+import { getBoardOutline, rectangleBoardOutline, boardBoundary, boardDimensions } from '../src/shared/pcb/board-outline.js';
 import { getBoardDimensionPreview, previewBoardDimensions, finishBoardDimensionPreview,
     bindBoardDimensionProperties, beginBoardOutlineResize, updateBoardOutlineResize,
     endBoardOutlineResize, boardOutlineHandles, boardDimensionsDialog, drawBoardOutline,
@@ -76,8 +76,7 @@ function fixture(existing = true, deferred = false) {
     setBoardViewPanel(app, { refresh() { refresh3d++; } });
     setDragOverlaysDeferred(app, deferred);
     setBoardViewRefreshSuspended(app, deferred);
-    for (const key of ['boardShapes', 'tracks', 'vias', 'pads', 'texts',
-        '_boardWidth', '_boardHeight', '_boardRadius']) {
+    for (const key of ['boardShapes', 'tracks', 'vias', 'pads', 'texts']) {
         Object.defineProperty(app, key, Object.getOwnPropertyDescriptor(PCBApp.prototype, key));
     }
     for (const key of ['_cancelPosePreviews', 'isSectionEditing',
@@ -485,7 +484,7 @@ console.log('PASS Escape/undo/redo cancellation, large-board stationary pickup a
     const start = boardOutlineHandles(app).find(handle => handle.id === 'width');
     beginBoardOutlineResize(app, start);
     updateBoardOutlineResize(app, { x: start.x + 1, y: start.y });
-    assert.equal(app._boardHeight, 3, 'An untouched pre-existing small dimension is preserved');
+    assert.equal(boardDimensions(app).height, 3, 'An untouched pre-existing small dimension is preserved');
     endBoardOutlineResize(app);
     assert.deepEqual(model.board, { width: 21, height: 3, radius: 0 });
 }

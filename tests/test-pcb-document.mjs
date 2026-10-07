@@ -9,7 +9,7 @@ import { Pad } from '../src/shapes/pad.js';
 import { createPcbText, serializePcbText, TEXT_LAYERS } from '../src/core/pcb-text.js';
 import { loadBoardShapeData, serializeBoardShapes } from '../src/core/pcb-board-shapes.js';
 import { CopperFill } from '../src/shapes/copper-fill.js';
-import { boardBoundary, rectangleBoardOutline } from '../src/shared/pcb/board-outline.js';
+import { boardBoundary, boardDimensions, rectangleBoardOutline } from '../src/shared/pcb/board-outline.js';
 import { PANEL_DEFAULTS, panelSettings } from '../src/core/pcb-panelization.js';
 import { buildPanelLayout } from '../src/pcb/modules/panelization.js';
 
@@ -357,7 +357,7 @@ assert.equal(app.panelization, model.panelization);
 assert.throws(() => { app.panelization = { rows: 0 }; }, /whole numbers/);
 assert.deepEqual(model.panelization, expectedPanel);
 assert.deepEqual(model.board, preciseDimensions, 'Constructing an editor must not reset loaded dimensions');
-assert.deepEqual([app._boardWidth, app._boardHeight, app._boardRadius],
+assert.deepEqual(Object.values(boardDimensions(app)),
     [preciseDimensions.width, preciseDimensions.height, preciseDimensions.radius]);
 assert.equal(app.pcbDocument, model);
 assert.equal(app.tracks[0], track, 'Constructing a view must not clear an already-loaded model');

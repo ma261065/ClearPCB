@@ -11,9 +11,7 @@ export function captureFillInputs(app) {
         texts: model.texts, boardShapes: model.boardShapes, copperFills: model.copperFills,
         placements: app.placements, netlist: app.netlist,
         getRoutingParams: () => model.designSettings?.getRoutingParams() || app.getRoutingParams?.() || {},
-        _boardWidth: model.board?.width ?? boardDimensions(app).width,
-        _boardHeight: model.board?.height ?? boardDimensions(app).height,
-        _boardRadius: model.board?.radius ?? boardDimensions(app).radius,
+        board: model.board || boardDimensions(app),
     });
     return {
         tracks: context.tracks.map(track => track.captureCopperGeometry()),

@@ -83,10 +83,5 @@
   ],
   "src/pcb/modules/track-draw.js": [
     "_commitTracks"
-  ],
-  "src/shared/pcb/board-outline.js": [
-    "_boardHeight",
-    "_boardRadius",
-    "_boardWidth"
   ]
 }

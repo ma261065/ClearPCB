@@ -279,13 +279,13 @@ through the dedicated path remains eligible for normal shape rendering.
 
 ## Board, Panel and Design Settings
 
-Saved board dimensions live in `PcbDocument.board`. The editor's `_boardWidth`,
-`_boardHeight` and `_boardRadius` expose the detached dimension projection during
-generic numeric/resize previews and canonical dimensions otherwise. The lazy
-projection in `board-outline-resize.js` holds reusable board/outline copies;
-rendering and property fields follow it without changing authored dimensions,
-outline geometry, serialization or settled-fill caches. Acceptance clears the
-projection before the existing board command. Cancellation, panel replacement,
+Saved board dimensions live in `PcbDocument.board`. Shared board-outline helpers
+own the detached dimension projection during generic numeric/resize previews and
+expose projected or canonical dimensions through `boardDimensions(app)`. The lazy
+projection holds reusable board/outline copies; rendering and property fields
+follow it without changing authored dimensions, outline geometry, serialization
+or settled-fill caches. Acceptance clears the projection before the existing
+board command. Cancellation, panel replacement,
 locks/hiding, loading/deactivation, replaced targets and failures clean up
 artwork without authored rollback. Repeated values and stationary pickup skip
 redraw/projection work. The dimensions dialog remains command-only. Loading

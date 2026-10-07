@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { PcbDocument } from '../src/core/PcbDocument.js';
 import { PANEL_DEFAULTS } from '../src/core/pcb-panelization.js';
 import { setBoardViewPanel } from '../src/pcb/modules/refresh-state.js';
+import { boardDimensions } from '../src/shared/pcb/board-outline.js';
 
 // Real renderers run against this minimal SVG DOM. Each layer group reports what
 // lands in it, so render order is observed where the editor's DOM receives it.
@@ -141,12 +142,6 @@ const makeApp = active => {
         boardShapes: pcbDocument.boardShapes, texts: pcbDocument.texts,
         get shapeIdCounter() { return pcbDocument.shapeIdCounter; },
         set shapeIdCounter(value) { pcbDocument.shapeIdCounter = value; },
-        get _boardWidth() { return pcbDocument.board.width; },
-        set _boardWidth(value) { pcbDocument.board.width = value; },
-        get _boardHeight() { return pcbDocument.board.height; },
-        set _boardHeight(value) { pcbDocument.board.height = value; },
-        get _boardRadius() { return pcbDocument.board.radius; },
-        set _boardRadius(value) { pcbDocument.board.radius = value; },
         placements: new Map([['U1', {}]]), _shapeElements: new Map(),
         placementState, _placementOverrides: placementState.overrides, history: { clear() {} },
         viewport: viewportStub(),
@@ -195,7 +190,7 @@ assert.equal(textMap.has(oldText.id), false);
 assert.deepEqual(events(), ['viewport', 'grid'], 'hidden load does not render objects or compute derived copper');
 assert.equal(hidden._stale, true);
 assert.equal(isBoardOutlineDrawn(hidden), true, 'saved dimensions remain available before rendering');
-assert.deepEqual([hidden._boardWidth, hidden._boardHeight, hidden._boardRadius], [43, 27, 2]);
+assert.deepEqual(Object.values(boardDimensions(hidden)), [43, 27, 2]);
 assert.deepEqual(hidden.boardShapes, prepared.boardShapes);
 assert.deepEqual(hidden.tracks, prepared.tracks);
 assert.deepEqual(hidden.vias, prepared.vias);

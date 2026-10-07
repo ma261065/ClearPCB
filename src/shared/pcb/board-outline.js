@@ -1,13 +1,35 @@
 import { shapeOutline } from './board-shape-geometry.js';
 import { validClosedShape } from '../../shapes/closed-outline.js';
 
+const dimensionPreviews = new WeakMap();
+
+export function getBoardDimensionPreview(app) {
+    return dimensionPreviews.get(app);
+}
+
+export function setBoardDimensionPreview(app, preview) {
+    dimensionPreviews.set(app, preview);
+}
+
+export function clearBoardDimensionPreview(app) {
+    const preview = dimensionPreviews.get(app);
+    dimensionPreviews.delete(app);
+    return preview;
+}
+
 /**
  * The editor's rectangular board dimensions (mm), exactly as stored; undefined until set.
  * @param {any} app
  * @returns {{width: number, height: number, radius: number}}
  */
 export function boardDimensions(app) {
-    return { width: app._boardWidth, height: app._boardHeight, radius: app._boardRadius };
+    const preview = getBoardDimensionPreview(app);
+    const board = preview ? preview.board : app.pcbDocument ? app.pcbDocument.board : app.board || app;
+    return {
+        width: board.width !== undefined ? board.width : app.boardWidth,
+        height: board.height !== undefined ? board.height : app.boardHeight,
+        radius: board.radius !== undefined ? board.radius : app.boardRadius,
+    };
 }
 
 export function getBoardOutline(app) {
@@ -26,10 +48,11 @@ export function validBoardOutline(shape) {
 
 export function boardBoundary(app) {
     const shape = getBoardOutline(app);
-    if (!shape) return { x: 0, y: -(app._boardHeight || app.boardHeight || app.board?.height || 80),
-        w: app._boardWidth || app.boardWidth || app.board?.width || 100,
-        h: app._boardHeight || app.boardHeight || app.board?.height || 80,
-        r: app._boardRadius || app.boardRadius || app.board?.radius || 0, points: null };
+    const { width, height, radius } = boardDimensions(app);
+    if (!shape) return { x: 0, y: -(height || 80),
+        w: width || 100,
+        h: height || 80,
+        r: radius || 0, points: null };
     const points = shapeOutline(shape);
     const minX = Math.min(...points.map(point => point.x)), maxX = Math.max(...points.map(point => point.x));
     const minY = Math.min(...points.map(point => point.y)), maxY = Math.max(...points.map(point => point.y));

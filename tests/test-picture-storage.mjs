@@ -71,7 +71,7 @@ const { prepareFabricationSnapshot } = await import('../src/pcb/modules/fabricat
 const { exportGerbers } = await import('../src/pcb/modules/gerber.js');
 const exportImage = { ...pictureShape(artworks[2], { widthMm: 5, layer: 'top-copper', center: { x: 5, y: -5 } }), id: 'export-image' };
 const exportApp = { placements: new Map(), tracks: [], vias: [], texts: new Map(), copperFills: [],
-    boardShapes: [exportImage], _boardWidth: 10, _boardHeight: 10, _boardY: 0 };
+    boardShapes: [exportImage], board: { width: 10, height: 10, radius: 0 }, _boardY: 0 };
 const snapshot = await prepareFabricationSnapshot(exportApp);
 assert.deepEqual(snapshot.boardShapes[0].artwork, exportImage.artwork, 'manufacturing snapshot uses decoded geometry');
 assert.notEqual(snapshot.boardShapes[0].artwork, exportImage.artwork, 'manufacturing geometry remains detached');

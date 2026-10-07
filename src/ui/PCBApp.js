@@ -210,12 +210,6 @@ export default class PCBApp {
     set texts(value) { this.pcbDocument.texts = value; }
     get boardShapes() { return getGroupPreview(this)?.boardShapes || getPcbPastePreview(this)?.boardShapes || getBoardDimensionPreview(this)?.boardShapes || getBoardShapePointerPreview(this)?.boardShapes || getBoardShapeRotationPreview(this)?.boardShapes || getBoardShapePropertyPreview(this)?.boardShapes || this.pcbDocument.boardShapes; }
     set boardShapes(value) { this.pcbDocument.boardShapes = value; }
-    get _boardWidth() { return getBoardDimensionPreview(this)?.board.width ?? this.pcbDocument.board.width; }
-    set _boardWidth(value) { this.pcbDocument.board.width = value; }
-    get _boardHeight() { return getBoardDimensionPreview(this)?.board.height ?? this.pcbDocument.board.height; }
-    set _boardHeight(value) { this.pcbDocument.board.height = value; }
-    get _boardRadius() { return getBoardDimensionPreview(this)?.board.radius ?? this.pcbDocument.board.radius; }
-    set _boardRadius(value) { this.pcbDocument.board.radius = value; }
     get panelization() { return this.pcbDocument.panelization; }
     set panelization(value) { this.pcbDocument.loadPanelization(value); }
 

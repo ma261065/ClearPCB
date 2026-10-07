@@ -53,6 +53,7 @@ const { ProjectDocument } = await import('../src/core/ProjectDocument.js');
 const { newFile } = await import('../src/schematic/modules/files.js');
 const { loadPcb } = await import('../src/pcb/modules/project-state.js');
 const { renderBoardShape, shapeDrawClick, updateShapeDrawPreview } = await import('../src/pcb/modules/board-shapes.js');
+const { boardDimensions } = await import('../src/shared/pcb/board-outline.js');
 const { setPcbSelection, getPcbSelectionEntries, clearPcbSelection } = await import('../src/pcb/modules/selection-registry.js');
 const { renderPcbSelectionAnchors } = await import('../src/pcb/modules/selection-anchors.js');
 const { CommandHistory } = await import('../src/core/CommandHistory.js');
@@ -80,7 +81,7 @@ function fixture(active) {
             assert.equal(this.boardShapes.length, 0, 'Prompt follows removal of the old shapes');
             assert.equal(getPcbSelectionEntries(this).length, 0, 'Prompt follows selection disposal');
             assert.equal(isBoardOutlineDrawn(this), false);
-            assert.deepEqual([this._boardWidth, this._boardHeight, this._boardRadius], [100, 80, 0]);
+            assert.deepEqual(Object.values(boardDimensions(this)), [100, 80, 0]);
             lifecycle.push('dimensions');
         },
         _ensureViewport() {},
@@ -126,7 +127,7 @@ function fixture(active) {
     assert.ok(outline, 'Legacy dimensions generate a model-owned outline that survives entity adoption');
     assert.equal(app.boardShapes.length, 1);
     assert.equal(outline.cornerRadius, 2);
-    assert.deepEqual([app._boardWidth, app._boardHeight], [43, 27]);
+    assert.deepEqual([boardDimensions(app).width, boardDimensions(app).height], [43, 27]);
     assert.equal(app.getLayerGroup('board-outline').querySelectorAll('.pcb-board-outline').length, 1,
         'Legacy outline rendering is not duplicated');
 }
@@ -270,9 +271,9 @@ delete globalThis.bootstrap;
     project.notifyDocumentReplaced('open');
     assert.equal(pending.parentNode, null, 'Open disposes an unfinished New-board dialog');
     assert.equal(boardDimensionsDialog(app), null);
-    assert.deepEqual([app._boardWidth, app._boardHeight], [45, 22]);
+    assert.deepEqual([boardDimensions(app).width, boardDimensions(app).height], [45, 22]);
     pending.querySelector('#boardDlgOk').dispatchEvent({ type: 'click' });
-    assert.deepEqual([app._boardWidth, app._boardHeight], [45, 22], 'Stale setup cannot overwrite loaded dimensions');
+    assert.deepEqual([boardDimensions(app).width, boardDimensions(app).height], [45, 22], 'Stale setup cannot overwrite loaded dimensions');
     document.createElement = createElement;
 }
 

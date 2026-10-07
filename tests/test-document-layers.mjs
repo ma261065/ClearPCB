@@ -67,7 +67,7 @@ for (const build of [buildSilkMesh, buildTextMesh]) {
 }
 const surfaceFaces = shapes => {
     const board = { ...app, boardShapes: shapes, pads: [], copperFills: [], texts: new Map(),
-        _boardWidth: 50, _boardHeight: 40 };
+        board: { width: 50, height: 40 , radius: 0 }};
     const surfaces = buildBoardSurfaceInputs(board, boardSurfaceFrame(board), createSilkArtworkMeshCache());
     return Object.fromEntries(Object.entries(surfaces).map(([key, surface]) =>
         [key, surface.parts.reduce((count, part) => count + part.mesh.faces.length, 0)]));

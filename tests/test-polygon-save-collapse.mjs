@@ -130,7 +130,7 @@ assert.deepEqual(raw.points, points);
 assert.deepEqual(raw.segmentWidths, widths);
 const snapshot = await prepareFabricationSnapshot({
     placements: new Map(), tracks: [], vias: [], pads: [], texts: new Map(),
-    copperFills: [fill], boardShapes: [shape, fill], _boardWidth: 20, _boardHeight: 20,
+    copperFills: [fill], boardShapes: [shape, fill], board: { width: 20, height: 20, radius: 0 },
 }, { computeFills: false });
 assert.deepEqual(snapshot.boardShapes[0].points, points);
 assert.deepEqual(snapshot.boardShapes[0].segmentBulges, shape.segmentBulges);

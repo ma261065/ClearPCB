@@ -25,7 +25,7 @@ function fixture(panel = false, explicitOutline = false) {
         pcbDocument: model, placements: new Map(), tracks: model.tracks, vias: model.vias,
         pads: model.pads, texts: model.texts, boardShapes: model.boardShapes, copperFills: [fill], netlist: [],
     };
-    for (const field of ['getRoutingParams', '_boardWidth', '_boardHeight', '_boardRadius', 'panelization']) {
+    for (const field of ['getRoutingParams', 'board', 'panelization']) {
         Object.defineProperty(app, field, { get() { throw new Error(`Editor projection read: ${field}`); } });
     }
     return { app, model };
@@ -37,7 +37,7 @@ for (const panel of [false, true]) for (const explicitOutline of [false, true]) 
         placements: app.placements, tracks: app.tracks, vias: app.vias, pads: app.pads, texts: app.texts,
         boardShapes: app.boardShapes, copperFills: app.copperFills, netlist: [],
         getRoutingParams: () => ({ ...routing }), panelization: beforePanel,
-        _boardWidth: beforeBoard.width, _boardHeight: beforeBoard.height, _boardRadius: beforeBoard.radius,
+        board: { width: beforeBoard.width, height: beforeBoard.height, radius: beforeBoard.radius },
     };
     const pending = prepareFabricationSnapshot(app, { computeFills: false });
     model.designSettings.update({ clearance: 0.9 });
