@@ -196,8 +196,8 @@ in `pcb-editor-api.js` (or `schematic-editor-api.js`). See State Ownership in
   `node tools/browser-test.mjs <name filter>`; `HEADED=1` shows the browser and
   `CPU_THROTTLE=4` slows the page like a CI runner. `speed-checks.mjs` loads a large
   board and checks main-thread time for hover and drag moves, Properties panel
-  rebuilds, pour refresh and picture import against budgets at the top of the file;
-  raise a budget only with the reason in the commit. Pages run offline (only the
+  rebuilds, pour refresh and picture import against budgets at the top of the file
+  (scaled by `CPU_THROTTLE`); raise a budget only with the reason in the commit. Pages run offline (only the
   local server answers; `ALLOW_NETWORK=1` lifts that), so a scenario must not need
   the KiCad library or other remote data. CI runs them on Linux, where
   fonts (and so text sizes and the canvas height) differ from Windows and macOS:
