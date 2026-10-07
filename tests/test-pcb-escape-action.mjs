@@ -10,6 +10,7 @@ import { getSelectionInteraction } from '../src/pcb/modules/selection-interactio
 import { getTrackDraw } from '../src/pcb/modules/track-draw.js';
 import { getPcbInteraction, setPcbInteraction } from '../src/pcb/modules/pcb-interactions.js';
 import { getLastCrosshairWorld } from '../src/pcb/modules/cursor-state.js';
+import { isEditorActive, setEditorActive } from '../src/pcb/modules/pcb-editor-api.js';
 
 globalThis.window = { addEventListener() {} };
 globalThis.document = { getElementById: () => null, querySelector: () => null };
@@ -23,7 +24,7 @@ function fixture() {
     history.execute({ execute() {}, undo() {} });
     history.undo();
     const app = {
-        _active: true, currentTool: 'via', history,
+        currentTool: 'via', history,
         placements: new Map(), tracks: [], vias: [], pads: [], boardShapes: [], copperFills: [], texts: new Map(),
         _layerGroups: new Map(), getLayerGroup: () => null,
         refreshText() {},
@@ -129,7 +130,7 @@ for (const target of [{ tagName: 'INPUT' }, { tagName: 'TEXTAREA' }, { tagName: 
 }
 {
     const { app, events, escape } = fixture();
-    app._active = false;
+    setEditorActive(app, false);
     assert.equal(escape(), false);
     assert.deepEqual(events, []);
 }

@@ -82,7 +82,7 @@ function fixture(count = 1, layers = 'both', unrelatedCount = 1) {
         ]) app[key] = PCBApp.prototype[key];
     Object.assign(app, {
         project, pcbDocument: model, placements: new Map(), netlist: [], history: new CommandHistory(),
-        _active: true, _layerGroups: new Map(), existingLayerGroups() { return this._layerGroups; }, _shapeElements: new Map(),
+        _layerGroups: new Map(), existingLayerGroups() { return this._layerGroups; }, _shapeElements: new Map(),
         viewport: { scale: 100, svg: document.createElementNS('http://www.w3.org/2000/svg', 'svg'), shiftHeld: true, setCrosshair() {}, hideCrosshair() {} },
         propertiesItems: () => items, getLayerGroup: id => groups.get(id) || null,
         setActiveRibbonTab() {}, setPcbStatus() {}, refreshFills() {}, refreshClearanceHalos() {},

@@ -37,7 +37,7 @@ for (const layerId of TEXT_LAYERS) {
     const controls = new Map();
     let propertyShows = 0, cleared = 0;
     const app = {
-        _active: true, pcbDocument, history: new CommandHistory(),
+        pcbDocument, history: new CommandHistory(),
         viewport: { svg: { style: {} }, scale: 10, snapToGrid: false, setCrosshair() {}, hideCrosshair() {} },
         placements: new Map(), tracks: [], vias: [], boardShapes: [], _layerGroups: new Map(), existingLayerGroups() { return this._layerGroups; },
         getLayerGroup: () => null, refreshText() {},

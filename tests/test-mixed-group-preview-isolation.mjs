@@ -23,6 +23,7 @@ import { areDragOverlaysDeferred, isBoardViewRefreshSuspended, setBoardViewPanel
 import { getSelectionInteraction } from '../src/pcb/modules/selection-interaction.js';
 import { getGroupDrag } from '../src/pcb/modules/box-select.js';
 import { setPcbInteraction } from '../src/pcb/modules/pcb-interactions.js';
+import { isEditorActive, setEditorActive } from '../src/pcb/modules/pcb-editor-api.js';
 
 let allocations = 0;
 const trackRenders = new Map();
@@ -106,7 +107,7 @@ function fixture(deferred = false, component = false) {
         Object.defineProperty(app, key, Object.getOwnPropertyDescriptor(PCBApp.prototype, key));
     }
     Object.assign(app, { project, pcbDocument: model, placements, placementState: model.placementState,
-        netlist: [], history: new CommandHistory(), _active: true, _layerGroups: groups, existingLayerGroups() { return this._layerGroups; }, _shapeElements: new Map(), 
+        netlist: [], history: new CommandHistory(), _layerGroups: groups, existingLayerGroups() { return this._layerGroups; }, _shapeElements: new Map(),
         copperFills: model.copperFills,
         viewport: { scale: 10, gridVisible: false, svg: new Element('svg'), setCrosshair() {}, hideCrosshair() {},
             getVisibleBounds: () => ({ minX: -100, minY: -100, maxX: 100, maxY: 100 }) },
@@ -281,7 +282,7 @@ for (const dispatch of [deleteBoxSelection, runPcbDeleteAction,
     app => PCBApp.prototype.handleKeyDown.call(app, { key: 'Delete' }),
     app => PCBApp.prototype.handleKeyDown.call(app, { key: 'Backspace' })]) {
     const f = fixture(), { app, model } = f, before = model.serialize();
-    app._active = true;
+    setEditorActive(app, true);
     beginGroupDrag(app, { x: 0, y: 0 });
     updateGroupDrag(app, { x: 2, y: 3 }, { snap: false });
     assert.equal(dispatch(app), true);

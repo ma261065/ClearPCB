@@ -8,6 +8,7 @@ import { getPcbPaste } from '../src/pcb/modules/pcb-paste.js';
 import { getComponentDrag } from '../src/pcb/modules/component-selection.js';
 import { getGroupDrag } from '../src/pcb/modules/box-select.js';
 import { setPcbInteraction } from '../src/pcb/modules/pcb-interactions.js';
+import { isEditorActive, setEditorActive } from '../src/pcb/modules/pcb-editor-api.js';
 
 const elements = new Map();
 globalThis.window = { addEventListener() {}, setTimeout(callback) { callback(); } };
@@ -46,7 +47,7 @@ function fixture() {
     history.undo();
     events.length = 0;
     const app = {
-        _active: true, currentTool: 'select', history,
+        currentTool: 'select', history,
         placements: new Map(), tracks: [], vias: [], pads: [], boardShapes: [], texts: new Map(),
         getLayerGroup: () => null, _layerGroups: new Map(),
         viewport: { gridSize: 1, getGridOptions: () => [{ value: 1, label: '1 mm' }],
@@ -167,7 +168,7 @@ delete window.bootstrap;
 
 for (const source of ['keyboard', 'ribbon']) {
     const f = fixture();
-    f.app._active = false;
+    setEditorActive(f.app, false);
     f.invoke(source, 'undo');
     f.invoke(source, 'redo');
     assert.equal(f.value(), 1, 'Inactive-editor history actions cannot mutate its document');

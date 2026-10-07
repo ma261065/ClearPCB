@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { getPcbPaste } from '../src/pcb/modules/pcb-paste.js';
 import { getComponentDrag } from '../src/pcb/modules/component-selection.js';
 import { setPcbInteraction } from '../src/pcb/modules/pcb-interactions.js';
+import { isEditorActive, setEditorActive } from '../src/pcb/modules/pcb-editor-api.js';
 
 const noop = () => {};
 const element = () => ({
@@ -37,7 +38,7 @@ function fixture(tool) {
         onInteractionStart: noop, hideCrosshair: () => calls.push(['cursor']), startPan: (x, y) => calls.push(['pan', x, y]),
     };
     const app = Object.assign(Object.create(PCBApp.prototype), {
-        _active: true, currentTool: tool, viewport, history: { execute() {} },
+        currentTool: tool, viewport, history: { execute() {} },
         pcbDocument: { tracks: [], vias: [], pads: [], boardShapes: [], texts: new Map() },
         screenToWorld: () => world,
     });
@@ -96,7 +97,7 @@ for (const [tool, method] of Object.entries(expected)) {
 }
 {
     const { app, calls, press } = fixture('select');
-    app._active = false;
+    setEditorActive(app, false);
     press(0);
     assert.deepEqual(calls, [], 'Inactive editors ignore presses');
 }

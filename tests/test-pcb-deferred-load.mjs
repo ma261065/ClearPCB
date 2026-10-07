@@ -3,6 +3,7 @@ import { PcbDocument } from '../src/core/PcbDocument.js';
 import { PANEL_DEFAULTS } from '../src/core/pcb-panelization.js';
 import { setBoardViewPanel } from '../src/pcb/modules/refresh-state.js';
 import { boardDimensions } from '../src/shared/pcb/board-outline.js';
+import { isEditorActive, setEditorActive } from '../src/pcb/modules/pcb-editor-api.js';
 
 // Real renderers run against this minimal SVG DOM. Each layer group reports what
 // lands in it, so render order is observed where the editor's DOM receives it.
@@ -138,7 +139,7 @@ const makeApp = active => {
             return pcbDocument.panelization;
         },
         set panelization(value) { pcbDocument.loadPanelization(value); },
-        _active: active, _stale: false, tracks: pcbDocument.tracks, vias: pcbDocument.vias, pads: pcbDocument.pads,
+        _stale: false, tracks: pcbDocument.tracks, vias: pcbDocument.vias, pads: pcbDocument.pads,
         boardShapes: pcbDocument.boardShapes, texts: pcbDocument.texts,
         get shapeIdCounter() { return pcbDocument.shapeIdCounter; },
         set shapeIdCounter(value) { pcbDocument.shapeIdCounter = value; },
@@ -151,6 +152,7 @@ const makeApp = active => {
         updateCopperCuts() { this.cutRefreshes = (this.cutRefreshes || 0) + 1; },
         markSectionClean() { this._isDirty = false; },
     };
+    setEditorActive(app, active);
     initializeBoardOutlineState(app, false);
     return app;
 };
@@ -305,7 +307,7 @@ for (const withComponents of [false, true]) {
     assert.equal(app.preload(), true, 'hidden stale PCB can render before first activation');
     assert.equal(app.cutRefreshes, beforePreloadCuts + 1,
         `Preloading clips once after the shape batch (components=${withComponents})`);
-    assert.equal(app._active, false, 'preloading does not activate the PCB editor');
+    assert.equal(isEditorActive(app), false, 'preloading does not activate the PCB editor');
     assert.equal(app._stale, false);
     if (withComponents) assert.ok(calls.indexOf('footprints') < calls.indexOf('shape'),
         'Free-standing artwork renders after footprint artwork');
@@ -359,7 +361,7 @@ for (const pcb of [
         calls.length = 0;
         if (preload) {
             assert.equal(app.preload(), true);
-            assert.equal(app._active, false);
+            assert.equal(isEditorActive(app), false);
         }
         app.activate();
         assert.equal(calls.filter(call => call === 'outline').length, outline ? 1 : 0,
@@ -468,7 +470,7 @@ const project = new ProjectDocument();
 let syncs = 0, placed = new Map();
 const pcb = Object.assign(Object.create(PCBApp.prototype), {
     pcbDocument: project.pcbDocument,
-    project: null, _active: true, _stale: true, boardShapes: [],
+    project: null, _stale: true, boardShapes: [],
     _ensureViewport() { syncs++; }, _clearPCBContent() {}, _renderPersistentObjects() {},
     _placeFootprints(items) { placed = items; }, getLayerGroup: () => null,
     refreshClearanceHalos() {}, updateRatsnest() {}, _fitToPlacedContent() {}, setStatus() {},
@@ -514,12 +516,12 @@ try {
     };
     globalThis.clearTimeout = id => timers.delete(id);
     const flush = () => { const work = [...timers.values()]; timers.clear(); work.forEach(callback => callback()); };
-    pcb._active = false;
+    setEditorActive(pcb, false);
     pcb._stale = false;
     schematic.history.execute({ execute() {}, undo() {} });
     assert.equal(pcb._stale, true);
     assert.equal(timers.size, 0);
-    pcb._active = true;
+    setEditorActive(pcb, true);
     schematic.history.undo();
     schematic.history.redo();
     project.fileManager.setDirty(true);
@@ -533,11 +535,11 @@ try {
     assert.equal(pcb._stale, false);
     project.fileManager.setDirty(false);
     assert.equal(notifications.at(-1), 'title', 'Dirty resets still update the editor title');
-    pcb._active = false;
+    setEditorActive(pcb, false);
     flush();
     assert.equal(syncs, 1, 'A queued rebuild must not render after the PCB is hidden');
     assert.equal(pcb._stale, true);
-    pcb._active = true;
+    setEditorActive(pcb, true);
     pcb._syncFromSchematic();
     assert.equal(syncs, 2);
     assert.equal(pcb._stale, false);

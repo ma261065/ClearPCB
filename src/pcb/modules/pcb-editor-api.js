@@ -72,12 +72,23 @@
  *   Snap a world point to the PCB viewport grid.
  */
 
+const editorActive = new WeakMap();
+
+/**
+ * Set whether the PCB editor is the active (visible) tab.
+ * @param {any} app
+ * @param {boolean} active
+ */
+export function setEditorActive(app, active) {
+    editorActive.set(app, !!active);
+}
+
 /**
  * Whether the PCB editor is the active (visible) tab. Editors and fixtures that
  * never set the flag count as active; only an explicitly deactivated editor is not.
  * @param {any} app
  */
-export const isEditorActive = app => app._active !== false;
+export const isEditorActive = app => editorActive.get(app) !== false;
 
 /** Service names, checked against PCBApp by test-pcb-editor-api. */
 export const PCB_EDITOR_SERVICES = Object.freeze([

@@ -9,6 +9,7 @@ import { DeleteComponentsCommand } from '../src/schematic/modules/commands.js';
 import { capturePlacementOverride } from '../src/core/PcbPlacementState.js';
 import * as placementCommands from '../src/pcb/modules/track-commands.js';
 import { ensureComponentView } from '../src/schematic/render/shape-view-state.js';
+import { isEditorActive, setEditorActive } from '../src/pcb/modules/pcb-editor-api.js';
 
 globalThis.window = { addEventListener() {} };
 const { default: PCBApp } = await import('../src/ui/PCBApp.js');
@@ -83,7 +84,7 @@ for (const [name, args] of [
     const baseline = bonded.captureState();
     const pcb = {
         project, pcbDocument: project.pcbDocument, tracks: project.pcbDocument.tracks,
-        _active: false, placements: new Map(), _layerGroups: new Map(), existingLayerGroups() { return this._layerGroups; }, boardShapes: [],
+        placements: new Map(), _layerGroups: new Map(), existingLayerGroups() { return this._layerGroups; }, boardShapes: [],
         history: new CommandHistory(), _ensureViewport() {}, _renderPersistentObjects() {},
         _placeFootprints(placements) { this.placements = placements; },
         getLayerGroup: () => null, refreshClearanceHalos() {}, updateRatsnest() {},
@@ -101,7 +102,7 @@ for (const [name, args] of [
     const schematic = schematicView(project);
     const schematicHistory = new CommandHistory({ onChanged: () => project.notifySchematicChanged() });
     schematicHistory.execute(new DeleteComponentsCommand(schematic, [part]));
-    pcb._active = true;
+    setEditorActive(pcb, true);
     pcb._syncFromSchematic();
     assert.equal(pcb.placements.size, 0);
     for (let cycle = 0; cycle < 2; cycle++) {

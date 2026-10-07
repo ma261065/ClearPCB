@@ -58,7 +58,7 @@ function pcbFixture(withShape = false) {
         project, pcbDocument: project.pcbDocument, history: new CommandHistory(),
         placements: new Map([['below', placement()], ['top', placement()], ['other', placement(100)]]),
         tracks: [], vias: [], pads: [], boardShapes: withShape ? [boardShape()] : [], texts: new Map(),
-        _shapeElements: new Map(), _active: true, currentTool: 'select', activeLayer: 'top-copper',
+        _shapeElements: new Map(), currentTool: 'select', activeLayer: 'top-copper',
         viewport: { scale: 10, svg: { style: {} }, snapToGrid: false, hideCrosshair() {},
             getVisibleBounds: () => ({ minX: -100, minY: -100, maxX: 150, maxY: 100 }) },
         status: { modeStatus: {}, tipStatus: { hidden: true, textContent: '' } },

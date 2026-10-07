@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { openPcb } from './helpers/editor-helpers.mjs';
+import { openPcb, waitForPage } from './helpers/editor-helpers.mjs';
 
 /** Screen position of a PCB world point. */
 function screenPoint(page, x, y) {
@@ -50,11 +50,14 @@ export const scenarios = [
         name: 'app-loads-and-switches-modes',
         async run(page, url) {
             await openPcb(page, url);
-            assert.equal(await page.evaluate(() => window.bootstrap.pcbApp._active), true);
+            assert.equal(await page.evaluate(() => import('/src/pcb/modules/pcb-editor-api.js')
+                .then(api => api.isEditorActive(window.bootstrap.pcbApp))), true);
             await page.locator('.mode-tab[data-mode="schematic"]').click();
-            await page.waitForFunction(() => window.bootstrap.pcbApp._active === false);
+            await waitForPage(page, () => import('/src/pcb/modules/pcb-editor-api.js')
+                .then(api => !api.isEditorActive(window.bootstrap.pcbApp)));
             await page.locator('.mode-tab[data-mode="pcb"]').click();
-            await page.waitForFunction(() => window.bootstrap.pcbApp._active === true);
+            await waitForPage(page, () => import('/src/pcb/modules/pcb-editor-api.js')
+                .then(api => api.isEditorActive(window.bootstrap.pcbApp)));
         },
     },
     {

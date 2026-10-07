@@ -64,7 +64,7 @@ function fixture(existing = true, deferred = false) {
     let draws = 0, pours = 0, fits = 0, refresh3d = 0;
     const app = {
         project, pcbDocument: model, history: new CommandHistory(), placements: new Map(), netlist: [],
-        _active: true, _shapeElements: new Map(), _layerGroups: new Map(), existingLayerGroups() { return this._layerGroups; },
+        _shapeElements: new Map(), _layerGroups: new Map(), existingLayerGroups() { return this._layerGroups; },
         viewport: { scale: 100, snapToGrid: false, svg: new Element(), fitToBounds() { fits++; },
             hideCrosshair() {} },
         getLayerGroup(id) { if (id === 'board-outline') draws++; return id === 'board-outline' ? group : null; },

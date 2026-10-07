@@ -83,7 +83,7 @@ const textData = (id, extra = {}) => ({ id, content: 'Label', x: 1, y: 1, size: 
 
 /** The real editor prototype and its guarded undo history, with presentation quiet. */
 function fixture() {
-    return pcbEditorFixture({ _active: true, _shapeElements: new Map(), refreshText() {},
+    return pcbEditorFixture({ _shapeElements: new Map(), refreshText() {},
         clearProperties() {}, setActiveRibbonTab() {}, syncClipboardButtons() {} });
 }
 

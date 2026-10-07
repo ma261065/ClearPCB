@@ -122,7 +122,7 @@ assert.equal(dispatchPcbPointerMove({ viewport: { svg: { style: {} }, scale: 1 }
     'Idle moves fall through to the active tool');
 // The real table: paste outranks a component drag, and interactions without a move handler fall through.
 {
-    const app = { _active: true, pcbDocument: new PcbDocument(), _shapeElements: new Map(),
+    const app = { pcbDocument: new PcbDocument(), _shapeElements: new Map(),
         viewport: { svg: { style: {} }, scale: 1, setCrosshair() {}, hideCrosshair() {} },
         screenToWorld: () => ({ x: 1, y: 1 }), snapToGrid: point => point,
         getLayerGroup: () => ({ querySelectorAll: () => [], appendChild() {} }), syncClipboardButtons() {} };

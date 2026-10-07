@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { isEditorActive, setEditorActive } from '../src/pcb/modules/pcb-editor-api.js';
 
 const quietElement = () => ({ style: {}, setAttribute() {}, appendChild() {}, classList: { add() {}, remove() {} } });
 globalThis.window = { addEventListener() {}, dispatchEvent() {} };
@@ -55,12 +56,12 @@ function fixture() {
             constructor(project) {
                 assert.ok(project instanceof services.ProjectDocument, 'PCB receives its model owner at construction');
                 this.project = project;
+                setEditorActive(this, false);
             }
-            _active = false;
             _stale = true;
             initialize() { events.push('pcb-ready'); }
             activate() { events.push('activate'); }
-            deactivate() { events.push('deactivate'); }
+            deactivate() { setEditorActive(this, false); events.push('deactivate'); }
             preload() { this._stale = false; events.push('preload'); }
         },
         SchematicApp: class {
@@ -99,11 +100,12 @@ function fixture() {
     const modes = [];
     let pcbKeys = 0;
     test.tabs[0].classList.toggle('active', true);
-    test.bootstrap.pcbApp = { _active: false, handleKeyDown() { pcbKeys++; return true; } };
+    test.bootstrap.pcbApp = { handleKeyDown() { pcbKeys++; return true; } };
+    setEditorActive(test.bootstrap.pcbApp, false);
     test.bootstrap.switchMode = mode => {
         modes.push(mode);
         test.tabs.forEach(tab => tab.classList.toggle('active', tab.dataset.mode === mode));
-        test.bootstrap.pcbApp._active = mode === 'pcb';
+        setEditorActive(test.bootstrap.pcbApp, mode === 'pcb');
     };
     test.bindKeyboard();
     const event = overrides => ({ key: 'Tab', ctrlKey: true, defaultPrevented: false, stopped: false,
@@ -227,7 +229,7 @@ function fixture() {
 
 for (const [label, interrupt] of [
     ['the PCB was rendered meanwhile', bootstrap => { bootstrap.pcbApp._stale = false; }],
-    ['the PCB became active meanwhile', bootstrap => { bootstrap.pcbApp._active = true; }],
+    ['the PCB became active meanwhile', bootstrap => { setEditorActive(bootstrap.pcbApp, true); }],
     ['a file operation started meanwhile', bootstrap => { bootstrap.project.fileManager.loading = true; }],
 ]) {
     const test = fixture();

@@ -2,6 +2,7 @@
 
 import SchematicApp from './SchematicApp.js';
 import PCBApp from './PCBApp.js';
+import { isEditorActive } from '../pcb/modules/pcb-editor-api.js';
 import { ProjectDocument } from '../core/ProjectDocument.js';
 import { readProjectFile } from '../core/FileManager.js';
 import { duplicateIdRepairMessage, repairDuplicateIds } from '../core/project-format.js';
@@ -159,11 +160,11 @@ export class AppBootstrap {
                 e.preventDefault();
                 e.stopImmediatePropagation();
                 const active = this.modeTabs.find(tab => tab.classList.contains('active'));
-                const isPcb = active ? active.dataset.mode === 'pcb' : this.pcbApp?._active;
+                const isPcb = active ? active.dataset.mode === 'pcb' : !!(this.pcbApp && isEditorActive(this.pcbApp));
                 this.switchMode(isPcb ? 'schematic' : 'pcb');
                 return;
             }
-            if (this.pcbApp?._active && typeof this.pcbApp.handleKeyDown === 'function') {
+            if (this.pcbApp && isEditorActive(this.pcbApp) && typeof this.pcbApp.handleKeyDown === 'function') {
                 if (this.pcbApp.handleKeyDown(e)) {
                     e.preventDefault();
                     e.stopImmediatePropagation();
@@ -213,14 +214,14 @@ export class AppBootstrap {
     }
 
     _schedulePcbPreload() {
-        if (!this.pcbApp?._stale || this.pcbApp._active) return;
+        if (!this.pcbApp?._stale || isEditorActive(this.pcbApp)) return;
         this._cancelPcbPreload();
         const render = () => {
             this._pcbPreloadHandle = null;
             // The spinner was shown in prepare(); clear it on every exit, including
             // when the PCB was rendered or a load started in the meantime.
             try {
-                if (this.project.fileManager.loading || this.pcbApp?._active || !this.pcbApp?._stale) return;
+                if (this.project.fileManager.loading || this.pcbApp && isEditorActive(this.pcbApp) || !this.pcbApp?._stale) return;
                 this.pcbApp.preload?.();
             } finally {
                 this._setTabsLoading(false, 'pcb');

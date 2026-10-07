@@ -14,6 +14,7 @@ import { getTextDrag } from '../src/pcb/modules/pcb-text-selection.js';
 import { isRotationHandleDragActive } from '../src/pcb/modules/rotation-handle.js';
 import { setPcbInteraction } from '../src/pcb/modules/pcb-interactions.js';
 import { getTextElement, renderText } from '../src/pcb/modules/pcb-text-render.js';
+import { isEditorActive, setEditorActive } from '../src/pcb/modules/pcb-editor-api.js';
 
 class Element {
     constructor() { this.attributes = new Map(); this.children = []; this.dataset = {}; }
@@ -115,7 +116,7 @@ for (const layer of TEXT_LAYERS) for (const gesture of ['move', 'rotate']) {
             const previewSvg = getTextElement(app, text.id).getAttribute('transform');
             assert.notEqual(previewSvg, originalSvg);
             if (finish === 'load') {
-                app._active = false;
+                setEditorActive(app, false);
                 loadPcb(app, null);
                 assert.equal(canonicalMap.size, 0);
                 assert.equal(group.children.length, 0);

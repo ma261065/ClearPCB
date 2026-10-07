@@ -11,6 +11,7 @@ import { getSelectionInteraction, setSelectionInteraction } from '../src/pcb/mod
 import { renderTrack, hasTrackElements } from '../src/pcb/modules/track-render.js';
 import { loadPcb } from '../src/pcb/modules/project-state.js';
 import { areDragOverlaysDeferred, setDragOverlaysDeferred } from '../src/pcb/modules/refresh-state.js';
+import { isEditorActive, setEditorActive } from '../src/pcb/modules/pcb-editor-api.js';
 
 class Element {
     constructor(tag) { this.tag = tag; this.attributes = new Map(); this.dataset = {}; this.children = []; }
@@ -188,7 +189,7 @@ for (const finish of ['commit', 'cancel', 'no-op']) {
 
 {
     const { app } = fixture(false);
-    app._active = false;
+    setEditorActive(app, false);
     app._ensureViewport = () => {};
     app.markSectionClean = () => {};
     app._shapeElements = new Map();

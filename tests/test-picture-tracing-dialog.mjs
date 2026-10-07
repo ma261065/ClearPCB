@@ -96,7 +96,7 @@ const { showPictureImport } = await import('../src/pcb/modules/picture-import.js
 const { PcbDocument } = await import('../src/core/PcbDocument.js');
 const { getPcbPaste } = await import('../src/pcb/modules/pcb-paste.js');
 const pcbDocument = new PcbDocument();
-const app = { _active: true, viewport: { scale: 10, offset: { x: 0, y: 0 }, container: element(), currentMouseWorld: { x: 0, y: 0 }, setCrosshair() {} },
+const app = { viewport: { scale: 10, offset: { x: 0, y: 0 }, container: element(), currentMouseWorld: { x: 0, y: 0 }, setCrosshair() {} },
     pcbDocument, boardShapes: pcbDocument.boardShapes, placements: new Map(), tracks: [], vias: [], texts: new Map(), _shapeElements: new Map(),
     history: new CommandHistory(), getLayerGroup() { return null; },
     snapToGrid: point => point, syncClipboardButtons() {}, clearProperties() {},

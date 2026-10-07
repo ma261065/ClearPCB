@@ -66,7 +66,7 @@ function fixture(shape = 'rectangle', layers = 'both') {
         .map(layer => [layer, new Element('g')]));
     let fills = 0;
     const app = {
-        project, pcbDocument: model, placements: new Map(), netlist: [], history: new CommandHistory(), _active: true,
+        project, pcbDocument: model, placements: new Map(), netlist: [], history: new CommandHistory(),
         viewport: { scale: 100, svg: new Element('svg'), hideCrosshair() {} },
         getLayerGroup: id => groups.get(id) || null,
         existingLayerGroups: () => groups,

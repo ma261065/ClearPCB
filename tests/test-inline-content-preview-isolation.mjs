@@ -9,6 +9,7 @@ import { loadPcb } from '../src/pcb/modules/project-state.js';
 import { attachPropertyPanelHarness } from './helpers/property-panel-controls.mjs';
 import { activeTextInlineEdit } from '../src/pcb/modules/text-inline-edit.js';
 import { getTextElement, renderText } from '../src/pcb/modules/pcb-text-render.js';
+import { isEditorActive, setEditorActive } from '../src/pcb/modules/pcb-editor-api.js';
 
 class Element {
     constructor(tag = 'g') {
@@ -80,7 +81,7 @@ function fixture(layer, extraTexts = 0, isNew = false) {
         };
     }
     const app = {
-        _active: true, pcbDocument, history: new CommandHistory(), currentTool: 'select',
+        pcbDocument, history: new CommandHistory(), currentTool: 'select',
         placements: new Map(), tracks: [], vias: [], pads: [], boardShapes: [],
         _shapeElements: new Map(),
         viewport: { svg: new Element('svg'), addInteractionOverlay: group => overlay.appendChild(group), hideCrosshair() {} },
@@ -161,7 +162,7 @@ for (const layer of TEXT_LAYERS) for (const finish of ['commit', 'cancel', 'deac
         const styled = { ...text };
         const historySize = app.history.undoStack.length;
         if (finish === 'load') {
-            app._active = false;
+            setEditorActive(app, false);
             loadPcb(app, null);
             assert.equal(app.pcbDocument.texts.size, 0);
             assert.equal(getTextElement(app, text.id), null);

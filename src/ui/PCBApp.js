@@ -7,6 +7,7 @@ import { bindPcbControls } from '../pcb/modules/controls.js';
 import { Viewport } from '../core/Viewport.js';
 import { snapToViewportGrid } from '../core/grid-snap.js';
 import { PcbDocument } from '../core/PcbDocument.js';
+import { isEditorActive, setEditorActive } from '../pcb/modules/pcb-editor-api.js';
 import { loadAndApplyTheme } from '../shared/ui/theme.js';
 import { renderFootprint, REF_DEFAULT_SIZE, REF_DEFAULT_STROKE } from '../shared/pcb/footprint.js';
 import { updateGridDropdown, restoreGridSettings, serializeGridSettings } from '../shared/ui/viewport.js';
@@ -230,7 +231,7 @@ export default class PCBApp {
         };
 
         this._initialized = false;
-        this._active = false;
+        setEditorActive(this, false);
         this.viewport = null;
         this.syncPcbViewToggles = null;
         this.currentTool = 'select';
@@ -335,21 +336,30 @@ export default class PCBApp {
     }
 
     preload() {
-        if (this._active || !this._stale) return false;
+        if (isEditorActive(this) || !this._stale) return false;
         this.initialize();
         this._ensureViewport();
-        this._active = true;
+        setEditorActive(this, true);
         try {
             this._syncFromSchematic();
         } finally {
-            this._active = false;
+            setEditorActive(this, false);
         }
         return !this._stale;
     }
 
+    /**
+     * Whether this is the active editor. For the schematic editor's keyboard, which stands
+     * aside while the PCB is active and may not import PCB modules (pcb-editor-api.js).
+     * @returns {boolean}
+     */
+    isActive() {
+        return isEditorActive(this);
+    }
+
     activate() {
         this.initialize();
-        this._active = true;
+        setEditorActive(this, true);
         setInlineTextInputActive(activeTextInlineEdit(this)?.input, true);
 
         (this.retainPcbRibbonHeight || this['_retainRibbonHeight'])?.();
@@ -386,7 +396,7 @@ export default class PCBApp {
         setInlineTextInputActive(activeTextInlineEdit(this)?.input, false);
         this._cancelPosePreviews();
         this._cancelDrawingMode();
-        this._active = false;
+        setEditorActive(this, false);
         peekDrcPresentation(this)?.deactivate();
         disposeFillRefresh(this);
         disposeDrcRefresh(this);
@@ -614,7 +624,7 @@ export default class PCBApp {
         this.viewport = this._createViewport(this.canvasContainer);
 
         this.viewport.onMouseMove = (worldPos, snappedPos) => {
-            if (!this._active) return;
+            if (!isEditorActive(this)) return;
             if (this.status.cursorPos) {
                 this.status.cursorPos.textContent = `${worldPos.x.toFixed(2)}, ${(-worldPos.y).toFixed(2)} mm`;
             }
@@ -629,7 +639,7 @@ export default class PCBApp {
             viewRaf = 0;
             const view = pendingView;
             pendingView = null;
-            if (!view || !this._active) return;
+            if (!view || !isEditorActive(this)) return;
 
             // Selection halo node handles are sized in screen pixels, so they
             // must be redrawn when the zoom scale changes to stay constant on
@@ -671,7 +681,7 @@ export default class PCBApp {
         };
 
         this.viewport.onViewChanged = (view) => {
-            if (!this._active) return;
+            if (!isEditorActive(this)) return;
             // A track context menu is anchored to a screen position but refers
             // to a board location; any zoom or pan (wheel, +/- keys, arrow-key
             // pan, buttons, drag) makes it stale, so dismiss it on view change.
@@ -695,7 +705,7 @@ export default class PCBApp {
 
         // Throttled footprint culling during an active pan (Viewport rAF).
         this.viewport.onViewportCull = () => {
-            if (!this._active) return;
+            if (!isEditorActive(this)) return;
             updatePcbCulling(this);
             // Keep the copper-removal clip rectangle following the viewport
             // during a live pan (viewBox moves without firing onViewChanged).
@@ -1230,7 +1240,7 @@ export default class PCBApp {
     /** @param {'new'|'open'|'import'} reason */
     onDocumentReplaced(reason) {
         this.setActiveRibbonTab?.('pcb-home');
-        if (reason === 'new' && this._active && !boardOutlineDrawn(this)) {
+        if (reason === 'new' && isEditorActive(this) && !boardOutlineDrawn(this)) {
             this._showBoardDimensionsDialog();
         }
     }
@@ -1559,7 +1569,7 @@ export default class PCBApp {
     _getComponentProperties() {
         return getPropertyEditor(this, 'component') ?? setPropertyEditor(this, 'component', new ComponentProperties({
             getPlacement: id => this.placements.get(id),
-            isActive: () => this._active !== false,
+            isActive: () => isEditorActive(this),
             isSelected: (kind, id) => isPcbSelected(this, kind, id),
             openPanel: (panel, owner) => this.openPropertyPanel(panel, owner),
             refreshPanel: panel => this.refreshPropertyPanel(panel),
@@ -1658,7 +1668,7 @@ export default class PCBApp {
     onSchematicChanged() {
         this._cancelAutoRoute?.('Routing cancelled because the schematic changed.');
         this._stale = true;
-        if (!this._active) return;
+        if (!isEditorActive(this)) return;
 
         // Debounce: rebuild after 300 ms of inactivity
         clearTimeout(this._syncTimer);
@@ -1669,7 +1679,7 @@ export default class PCBApp {
      * Rebuild the PCB content from the current schematic state.
      */
     _syncFromSchematic() {
-        if (this._active === false) {
+        if (!isEditorActive(this)) {
             this._stale = true;
             clearTimeout(this._syncTimer);
             return;
@@ -2231,7 +2241,7 @@ export default class PCBApp {
     _getAutorouter() {
         if (!this._autorouter) this._autorouter = new AutorouterSession({
             readBoard: () => ({
-                active: this._active !== false,
+                active: isEditorActive(this),
                 editing: hasPcbEditInProgress(this) || isPcbDrawing(this),
                 model: this.pcbDocument, placements: this.placements, netlist: this.netlist,
                 undo: this.history.undoStack, redo: this.history.redoStack,

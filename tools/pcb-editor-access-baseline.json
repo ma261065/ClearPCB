@@ -16,9 +16,6 @@
     "_cancelPosePreviews",
     "_refreshPcbSelectionHighlights"
   ],
-  "src/pcb/modules/pcb-editor-api.js": [
-    "_active"
-  ],
   "src/pcb/modules/pcb-paste.js": [
     "_cancelPosePreviews"
   ],

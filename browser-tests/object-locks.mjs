@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { openPcb, viewportSettled } from './helpers/editor-helpers.mjs';
+import { openPcb, viewportSettled, waitForPage } from './helpers/editor-helpers.mjs';
 
 // Individual object locks through the real UI: the Properties "Locked" checkbox,
 // the read-only panel, the selection lock icon and its unlock menu, and save + reopen.
@@ -98,7 +98,8 @@ export const scenarios = [
             await recover.click();
             await page.waitForFunction(() => window.bootstrap?.pcbApp && !window.bootstrap.project.fileManager.loading);
             await page.locator('.mode-tab[data-mode="pcb"]').click();
-            await page.waitForFunction(() => window.bootstrap.pcbApp._active);
+            await waitForPage(page, () => import('/src/pcb/modules/pcb-editor-api.js')
+                .then(api => api.isEditorActive(window.bootstrap.pcbApp)));
             assert.equal((await shape(page)).locked, true, 'the lock survives save and reopen');
 
             // Bulk selection takes locked objects, edits reach only the unlocked ones, and the

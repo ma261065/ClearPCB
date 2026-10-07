@@ -8,6 +8,7 @@ import { getPcbSelection, setPcbSelection } from '../src/pcb/modules/selection-r
 import { setPropertyEditor } from '../src/pcb/modules/property-editors.js';
 import { getTrackDraw } from '../src/pcb/modules/track-draw.js';
 import { setPcbInteraction } from '../src/pcb/modules/pcb-interactions.js';
+import { isEditorActive, setEditorActive } from '../src/pcb/modules/pcb-editor-api.js';
 
 function svgElement() {
     return {
@@ -49,7 +50,7 @@ const routed = {
 function fixture() {
     const app = Object.assign(Object.create(PCBApp.prototype), {
         pcbDocument: new PcbDocument(), placements: new Map([['part', { pads: new Map() }]]),
-        netlist: [{ net: 'ORIGINAL', pins: [] }], _active: true, currentTool: 'select', status: { modeStatus: null },
+        netlist: [{ net: 'ORIGINAL', pins: [] }], currentTool: 'select', status: { modeStatus: null },
         _layerGroups: new Map(),
         _shapeElements: new Map(),
         getLayerGroup(id) {
@@ -125,7 +126,7 @@ for (const operation of ['command', 'document', 'clear-document', 'deactivate', 
     if (operation === 'drawing') setPcbInteraction(app, '_trackDraw', {});
     if (operation === 'rules') app.getRoutingParams = () => ({ trackWidth: 0.9, clearance: 0.1, viaDiameter: 0.6, viaDrill: 0.3 });
     if (operation === 'schematic') {
-        app._active = false;
+        setEditorActive(app, false);
         app.onSchematicChanged();
     }
     const expected = app.pcbDocument.captureGeometry();

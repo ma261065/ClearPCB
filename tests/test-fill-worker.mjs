@@ -21,6 +21,7 @@ import { EditTextCommand } from '../src/pcb/modules/text-commands.js';
 import { loadPcb } from '../src/pcb/modules/project-state.js';
 import { getDrcPresentation } from '../src/pcb/modules/drc-state.js';
 import { fillRefreshError, isFillRefreshPending, setBoardViewPanel, setDragOverlaysDeferred, setPictureCopperRefreshPending } from '../src/pcb/modules/refresh-state.js';
+import { isEditorActive, setEditorActive } from '../src/pcb/modules/pcb-editor-api.js';
 
 class Element {
     constructor() { this.children = []; this.attributes = new Map(); this.style = {}; this.dataset = {}; }
@@ -66,7 +67,7 @@ function fixture() {
     app.designSettings = model.designSettings;
     app.placements = new Map();
     app.netlist = [];
-    app._active = true;
+    setEditorActive(app, true);
     app._layerGroups = new Map(['top-fill', 'bottom-fill'].map(id => [id, new Element()]));
     for (const [id, group] of app._layerGroups) group.setAttribute('data-copper-cut', `${id}-cut`);
     const counts = { clear: 0, drc: 0, views: 0, rats: 0, sync: 0 }, drcStates = [];
@@ -406,7 +407,7 @@ for (const content of [null, 'reload']) {
         for (const method of ['_ensureViewport',
             '_closeBoardDimensionsDialog', '_selectBoardOutline', 'syncClipboardButtons',
             'updateCopperCuts', 'markSectionClean']) f.app[method] = () => {};
-        f.app._active = false;
+        setEditorActive(f.app, false);
         loadPcb(f.app, data);
         const counts = { ...f.counts }, saved = f.model.serialize();
         assert.equal(worker.terminated, true, 'Actual project loading terminates prior worker ownership');

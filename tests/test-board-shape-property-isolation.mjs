@@ -118,7 +118,7 @@ function fixture(kind, count = 1, unrelatedCount = 1, shapeLayer = 'top-copper')
     let pours = 0;
     const app = {
         project, pcbDocument: model, history: new CommandHistory(), placements: new Map(), netlist: [],
-        _active: true, _shapeElements: new Map(), _layerGroups: new Map(), existingLayerGroups() { return this._layerGroups; },
+        _shapeElements: new Map(), _layerGroups: new Map(), existingLayerGroups() { return this._layerGroups; },
         viewport: { scale: 100, svg: new Element(), setCrosshair() {}, hideCrosshair() {} },
         getLayerGroup: id => id === 'selection-overlay' ? null : group,
         propertiesItems: () => items, setActiveRibbonTab() {}, _refreshPcbSelectionHighlights() {},

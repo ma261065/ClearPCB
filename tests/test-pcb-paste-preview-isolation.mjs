@@ -20,6 +20,7 @@ import { areDragOverlaysDeferred, isBoardViewRefreshSuspended, isFillRefreshSusp
 import { getPcbPaste } from '../src/pcb/modules/pcb-paste.js';
 import { getTextElement, renderText } from '../src/pcb/modules/pcb-text-render.js';
 import { clearanceOverlayState } from '../src/pcb/modules/clearance-overlay.js';
+import { isEditorActive, setEditorActive } from '../src/pcb/modules/pcb-editor-api.js';
 
 let allocations = 0;
 class Element {
@@ -90,7 +91,7 @@ function fixture(deferred = false) {
     const groups = new Map(['top-copper', 'bottom-copper', 'top-fill', 'bottom-fill', 'top-silk', 'hole',
         'selection-overlay', 'clearance-overlay'].map(id => [id, new Element()]));
     let derived = 0, crosshairs = 0;
-    const app = { project, pcbDocument: model, history: new CommandHistory(), placements, netlist: [], _active: true,
+    const app = { project, pcbDocument: model, history: new CommandHistory(), placements, netlist: [],
         _layerGroups: groups, existingLayerGroups: () => groups, _shapeElements: new Map(),
         viewport: { scale: 10, gridVisible: false, svg: new Element('svg'), currentMouseWorld: { x: 10.123456789, y: -12.345678912 },
             setCrosshair() { crosshairs++; }, hideCrosshair() {} },
@@ -374,7 +375,7 @@ console.log('PASS 1000-shape stationary reuse, canonical copper-cut cache seedin
     assert.equal(app.history.undoStack.length, 1, 'An unmoved fresh paste is still an insertion, not a no-op');
     app.history.undo();
     assert.deepEqual(model.captureGeometry(), before);
-    app._active = false;
+    setEditorActive(app, false);
     assert.throws(() => app.pasteSelection(), /inactive/);
     assert.equal(getPcbPaste(app), null);
     assert.deepEqual(model.captureGeometry(), before);

@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { setEditorActive } from '../src/pcb/modules/pcb-editor-api.js';
 import { getShapeDraw } from '../src/pcb/modules/board-shapes.js';
 
 function element(tag) {
@@ -64,7 +65,7 @@ function fixture(active) {
     const project = new ProjectDocument();
     const app = Object.assign(Object.create(PCBApp.prototype), {
         pcbDocument: project.pcbDocument,
-        _active: active, currentTool: 'select', activeLayer: 'top-silk',
+        currentTool: 'select', activeLayer: 'top-silk',
         tracks: [], vias: [], pads: [], boardShapes: [], texts: new Map(), placements: new Map(),
         _shapeElements: new Map(),
         placementState: project.pcbDocument.placementState, _placementOverrides: project.pcbDocument.placementState.overrides,
@@ -95,6 +96,7 @@ function fixture(active) {
         refreshPcbRibbon() {},
         refreshClearanceHalos() {}, refreshFills() {},
     });
+    setEditorActive(app, active);
     initializeBoardOutlineState(app, false);
     const host = {
         document: project.schematicDocument,

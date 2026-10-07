@@ -17,6 +17,7 @@ import { getSelectionInteraction } from '../src/pcb/modules/selection-interactio
 import { getGroupDrag } from '../src/pcb/modules/box-select.js';
 import { setPcbInteraction } from '../src/pcb/modules/pcb-interactions.js';
 import { getTextElement, renderText } from '../src/pcb/modules/pcb-text-render.js';
+import { isEditorActive, setEditorActive } from '../src/pcb/modules/pcb-editor-api.js';
 
 class Element {
     constructor() { this.attributes = new Map(); this.children = []; this.dataset = {}; }
@@ -157,7 +158,7 @@ for (const mixed of [false, true]) for (const deferred of [false, true]) {
                     assert.deepEqual(texts, committed);
                 }
             } else if (finish === 'load') {
-                app._active = false;
+                setEditorActive(app, false);
                 loadPcb(app, null);
                 assert.equal(app.pcbDocument.texts.size, 0);
                 assert.equal(getTextElement(app, texts[0].id), null);

@@ -46,10 +46,10 @@ suspension first notifies `onRefreshSuspended` subscribers; `PCBApp.js`
 subscribes to invalidate in-flight pour and DRC work on its instances.
 `refreshBoardView(app)` is the one place that asks an open 3D/2D board viewer
 to resync after a committed edit; callers check `isBoardViewRefreshSuspended`
-first where a gesture may hold it. `isEditorActive(app)` in `pcb-editor-api.js`
-and `boardDimensions(app)` in `shared/pcb/board-outline.js` likewise give
-modules the editor's active flag and board size without reading its private
-fields.
+first where a gesture may hold it. `isEditorActive(app)` and
+`setEditorActive(app, active)` in `pcb-editor-api.js` own the editor-active
+flag in a WeakMap, and `boardDimensions(app)` in `shared/pcb/board-outline.js`
+gives modules the board size without reading private fields.
 Predicates that test several flags read `refreshStatus(app)` once. The module
 is import-free because `drc.js` (DRC worker) and the fabrication snapshot
 (Gerber worker) read it; detached DRC snapshots pass the editor's pour status

@@ -53,7 +53,7 @@ const { default: PCBApp } = await import('../src/ui/PCBApp.js');
 const container = new Element('g');
 const completions = [];
 const app = {
-    _active: true,
+
     viewport: { svg: {}, addInteractionOverlay: group => container.appendChild(group) },
     getLayerGroup: () => container,
     selectText() {},

@@ -23,6 +23,7 @@ import { setComputedFill, getComputedFill } from '../src/pcb/modules/computed-fi
 import { resolveTrackSegments } from '../src/shared/pcb/board-geometry.js';
 import { setDragOverlaysDeferred, setFillRefreshError, setFillRefreshPending, setFillRefreshScheduled, setFillRefreshSuspended, setPictureCopperRefreshPending } from '../src/pcb/modules/refresh-state.js';
 import { setPcbInteraction } from '../src/pcb/modules/pcb-interactions.js';
+import { isEditorActive, setEditorActive } from '../src/pcb/modules/pcb-editor-api.js';
 
 class Element {
     constructor() { this.children = []; this.attributes = new Map(); this.dataset = {}; this.style = {}; }
@@ -53,7 +54,7 @@ function fixture() {
     const app = Object.create(PCBApp.prototype), model = new PcbDocument(), layer = new Element();
     const counts = { accepted: 0, pending: 0, lists: 0, markers: 0, cleared: 0, connectors: 0 };
     Object.assign(app, {
-        pcbDocument: model, placements: new Map(), netlist: [], _active: true,
+        pcbDocument: model, placements: new Map(), netlist: [],
         getRoutingParams: () => ({ clearance: 0.2 }),
         getLayerGroup: id => id === 'ratlines' ? layer : null,
         setStatus(message) { app.lastStatus = message; },
@@ -380,7 +381,7 @@ try {
             assert.equal(counts.accepted, before + 1);
         }
         if (action === 'deactivate') {
-            app._active = true;
+            setEditorActive(app, true);
             scheduleDrc(app);
         }
         if (action === 'deactivate' || action === 'cancel') {
@@ -443,7 +444,7 @@ try {
             if (mode === 'post') {
                 app.deactivate();
                 globalThis.Worker = FakeWorker;
-                app._active = true;
+                setEditorActive(app, true);
                 scheduleDrc(app); flush();
                 workers.at(-1).finish(); await tick();
                 assert.equal(counts.accepted, 2, 'A new activation lifecycle retries the native transport');

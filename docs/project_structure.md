@@ -148,6 +148,7 @@ evaluation-order cycle fails.
   board-view panel state), `component-selection.js` (component hover outline,
   footprint culling/LOD and component-net lookup),
   `pcb-hover.js` (coalesced select-tool hover frame state),
+  `pcb-editor-api.js` (active-editor flag plus public editor services),
   `shared/pcb/board-outline.js` (detached board-dimension preview state),
   `board-outline-resize.js` (board-outline drawn/selected state), `clearance-overlay.js` (clearance
   visibility and halo caches), `picture-refresh.js` (pending/deferred

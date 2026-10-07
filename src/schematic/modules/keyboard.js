@@ -139,7 +139,7 @@ export function bindKeyboardShortcuts(app) {
         // (e.g. 'V' switching to the select tool) while the user is
         // in PCB mode.
         const pcbApp = /** @type {any} */ (globalThis).bootstrap?.pcbApp;
-        if (pcbApp?._active) return;
+        if (pcbApp?.isActive()) return;
 
         const topModal = ModalManager.top();
         if (topModal && topModal.id !== 'text-edit' && topModal.id !== 'componentPicker') {

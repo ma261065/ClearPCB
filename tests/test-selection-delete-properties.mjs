@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { setEditorActive } from '../src/pcb/modules/pcb-editor-api.js';
 import { PcbDocument } from '../src/core/PcbDocument.js';
 import { CommandHistory } from '../src/core/CommandHistory.js';
 import { Track } from '../src/shapes/track.js';
@@ -52,7 +53,7 @@ for (const layer of ['hole', 'top-copper', 'top-silk']) {
         const pcbDocument = new PcbDocument();
         pcbDocument.boardShapes.push(...shapes);
         const app = {
-            _active: true,
+
             pcbDocument, boardShapes: pcbDocument.boardShapes, placements: new Map(), tracks: [], vias: [], texts: new Map(),
             _shapeElements: new Map(), getLayerGroup() { return null; },
             history: new CommandHistory(),
@@ -95,7 +96,7 @@ function fixture() {
     const model = new PcbDocument();
     const events = [];
     const app = {
-        _active: true, shapeIdCounter: 1, pcbDocument: model, placements: model.placements,
+        shapeIdCounter: 1, pcbDocument: model, placements: model.placements,
         tracks: model.tracks, vias: model.vias, pads: model.pads, texts: model.texts, boardShapes: model.boardShapes,
         history: new CommandHistory(), _shapeElements: new Map(), getLayerGroup() { return null; },
         clearProperties() { events.push('properties'); }, setActiveRibbonTab(tab) { events.push(tab); },
@@ -111,7 +112,7 @@ function fixture() {
 for (const dispatch of dispatches.slice(1)) {
     for (const guard of ['_active', '_trackDraw', '_fillDraw', '_shapeDraw', '_pasteDrop']) {
         const { app, shape, events } = fixture();
-        if (guard === '_active') app[guard] = false;
+        if (guard === '_active') setEditorActive(app, false);
         else if (guard === '_pasteDrop') setPcbInteraction(app, guard, {
             model: app,
             payload: { tracks: [], vias: [], pads: [], shapes: [], texts: [], fills: [] },

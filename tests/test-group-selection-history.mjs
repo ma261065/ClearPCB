@@ -11,6 +11,7 @@ import { getShapeDraw } from '../src/pcb/modules/board-shapes.js';
 import { getTrackDraw, setTrackToolLayer } from '../src/pcb/modules/track-draw.js';
 import { setTextToolDefaults } from '../src/pcb/modules/text-properties.js';
 import { setFillToolDefaults } from '../src/pcb/modules/copper-fill-draw.js';
+import { isEditorActive, setEditorActive } from '../src/pcb/modules/pcb-editor-api.js';
 
 function element() {
     return {
@@ -93,7 +94,7 @@ console.log('PASS: group move, undo, redo, and deselection replace selection ove
 
 // The real keyboard handler, run against this test's editor.
 const handleKeyDown = PCBApp.prototype.handleKeyDown;
-app._active = true;
+setEditorActive(app, true);
 app.currentTool = 'select';
 app.viewport.snapToGrid = true;
 app.viewport.gridSize = 0.25;
@@ -225,10 +226,10 @@ app.viewport.isPanning = false;
 app.currentTool = 'track';
 assert.equal(handleKeyDown.call(app, { key: 'ArrowRight' }), false, 'Drawing tools do not nudge selection');
 app.currentTool = 'select';
-app._active = false;
+setEditorActive(app, false);
 assert.equal(handleKeyDown.call(app, { key: 'ArrowRight' }), false, 'Inactive editors do not nudge');
 assert.equal(runPcbNudgeAction(app, 'ArrowRight'), false);
-app._active = true;
+setEditorActive(app, true);
 for (const key of ['_trackDraw', '_fillDraw', '_shapeDraw']) {
     setPcbInteraction(app, key, {});
     assert.equal(runPcbNudgeAction(app, 'ArrowRight'), false, 'Direct actions also respect unfinished drawing');
@@ -287,7 +288,7 @@ console.log('PASS: component deletion warnings survive selection clearing');
 for (const tool of ['line', 'rect', 'polygon', 'circle', 'arc', 'track', 'fill']) {
     for (const selected of [false, true]) {
         setPcbSelection(app, selected ? [{ kind: 'text', object: texts[0] }] : []);
-        app._active = true;
+        setEditorActive(app, true);
         app.currentTool = tool;
         const drawingKey = tool === 'track' ? '_trackDraw' : tool === 'fill' ? '_fillDraw' : '_shapeDraw';
         setPcbInteraction(app, drawingKey, { kind: tool });

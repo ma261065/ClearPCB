@@ -8,6 +8,7 @@ import { createComponentSelectionAdapter, getComponentDrag, handleComponentDrag,
 import { getSelectionInteraction, setSelectionInteraction } from '../src/pcb/modules/selection-interaction.js';
 import { areDragOverlaysDeferred } from '../src/pcb/modules/refresh-state.js';
 import { clearanceOverlayState } from '../src/pcb/modules/clearance-overlay.js';
+import { isEditorActive, setEditorActive } from '../src/pcb/modules/pcb-editor-api.js';
 
 const frames = new Map();
 let frameId = 0;
@@ -48,7 +49,7 @@ function fixture(saved = true) {
         get tracks() { return Object.getOwnPropertyDescriptor(PCBApp.prototype, 'tracks').get.call(this); },
         placements: new Map([['part', placement]]), history: new CommandHistory(),
         netlist: [{ net: 'GND', pins: [{ componentId: 'part' }] }],
-        _active: true, currentTool: 'select',
+        currentTool: 'select',
         _layerGroups: new Map([['clearance-overlay', overlay]]),
         viewport: { svg: { style: {} }, snapToGrid: false, gridVisible: true, hideCrosshair() {} },
         getLayerGroup: id => id === 'clearance-overlay' ? overlay : null,
@@ -244,7 +245,7 @@ for (const shared of [true, false]) {
     assert.deepEqual(f.snapshot(), original, 'Leaving the PCB tab discards component movement previews');
     assert.equal(f.app.tracks, f.app.pcbDocument.tracks);
     assert.equal(getComponentDrag(f.app), null);
-    assert.equal(f.app._active, false);
+    assert.equal(isEditorActive(f.app), false);
 }
 
 delete globalThis.window;

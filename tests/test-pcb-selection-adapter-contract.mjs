@@ -85,7 +85,7 @@ function boardFixture() {
         refStrokeWidth: 0.15, refVisible: true, padOffsets: [], pads: new Map(), elements: [] };
 
     const app = {
-        pcbDocument, history: new CommandHistory(), _active: true, currentTool: 'select',
+        pcbDocument, history: new CommandHistory(), currentTool: 'select',
         placements: new Map([['R12', placement]]),
         viewport: { scale: 10, svg: { style: {} }, setCrosshair() {}, hideCrosshair() {},
             getVisibleBounds: () => ({ minX: -100, minY: -100, maxX: 100, maxY: 100 }) },

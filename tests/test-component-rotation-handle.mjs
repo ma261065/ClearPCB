@@ -101,7 +101,7 @@ function fixture(saved = true, side = 'top', mirror = false) {
         placements: new Map([['part', placement]]), history: new CommandHistory(),
         netlist: [{ net: 'N1', pins: [{ componentId: 'part' }] }],
         viewport: { scale: 10, svg: element('svg'), hideCrosshair() {},
-            getVisibleBounds: () => ({ minX: -100, minY: -100, maxX: 100, maxY: 100 }) }, _active: true, currentTool: 'select',
+            getVisibleBounds: () => ({ minX: -100, minY: -100, maxX: 100, maxY: 100 }) }, currentTool: 'select',
         getLayerGroup: id => id === 'selection-overlay' ? overlay : id === 'top-copper' ? copper : null,
         propertiesItems: () => items, setPropertiesTitle() {},
         updateRatsnest: PCBApp.prototype.updateRatsnest, refreshClearanceHalos() {},

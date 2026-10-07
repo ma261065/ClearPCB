@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { openPcb, viewportSettled } from './helpers/editor-helpers.mjs';
+import { openPcb, viewportSettled, waitForPage } from './helpers/editor-helpers.mjs';
 
 // Track <-> board-shape conversions driven only through the real Properties panel,
 // the way a user does them, then checked through undo/redo and save + reopen.
@@ -76,7 +76,8 @@ async function saveAndReopen(page) {
     assert.equal(await page.locator('.app-modal-overlay', { hasText: 'Repaired' }).count(), 0,
         'the recovered project needed no id repair');
     await page.locator('.mode-tab[data-mode="pcb"]').click();
-    await page.waitForFunction(() => window.bootstrap.pcbApp._active);
+    await waitForPage(page, () => import('/src/pcb/modules/pcb-editor-api.js')
+        .then(api => api.isEditorActive(window.bootstrap.pcbApp)));
     await settle(page);
 }
 

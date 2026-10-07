@@ -116,7 +116,7 @@ for (const shape of [{ ...circle, layer: 'top-silk' }, { ...circle, copperMode: 
     const overlay = element();
     const halo = element();
     overlay.appendChild(halo);
-    const app = { viewport: {}, _active: true,
+    const app = { viewport: {},
         _layerGroups: new Map([['clearance-overlay', overlay]]), existingLayerGroups() { return this._layerGroups; } };
     const nativeSetTimeout = globalThis.setTimeout;
     globalThis.setTimeout = callback => { callback(); return 1; };

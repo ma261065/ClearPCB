@@ -37,7 +37,7 @@ function fixture(viewport) {
     pcbDocument.texts.set(text.id, text);
     const placement = { x: 0, y: 0, pads: new Map(), refDx: 0, refDy: 0 };
     const app = {
-        _active: true, viewport, pcbDocument, placements: new Map([['part', placement]]),
+        viewport, pcbDocument, placements: new Map([['part', placement]]),
         tracks: [], getLayerGroup: () => ({ querySelector: () => null, querySelectorAll: () => [], appendChild() {} }),
         refreshText() {}, updateRatsnest() {}, drawRefOverlay() {}, syncClipboardButtons() {}, clearProperties() {},
         screenToWorld: event => ({ x: event.clientX, y: event.clientY }),

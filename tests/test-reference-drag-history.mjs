@@ -43,7 +43,7 @@ function fixture({ saved = true, rotation = 37, side = 'bottom', mirror = true }
     const app = {
         pcbDocument, placementState: pcbDocument.placementState, tracks: pcbDocument.tracks,
         placements: new Map([['part', placement]]), _layerGroups: new Map(),
-        _active: true, currentTool: 'select', history: new CommandHistory(),
+        currentTool: 'select', history: new CommandHistory(),
         viewport: { svg: { style: { cursor: 'grabbing' } }, snapToGrid: false,
             gridVisible: true, scale: 4, gridSize: 10, hideCrosshair() {},
             addContent(node) {

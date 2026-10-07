@@ -67,7 +67,7 @@ document.getElementById = id => id === 'pcbDrcList' ? list : id === 'pcbDrcSlide
 document.querySelector = () => null;
 let clearedProperties = 0;
 Object.assign(app, {
-    _active: true, currentTool: 'select', placements: new Map(), boardShapes: [],
+    currentTool: 'select', placements: new Map(), boardShapes: [],
     _pcbSelection: new SelectionManager(), viewport: { isPanning: false },
     getLayerGroup: () => null,
     _selectComponent() {}, selectText() {}, drawRefOverlay() {}, selectFill() {},

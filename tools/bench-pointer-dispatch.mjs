@@ -33,7 +33,7 @@ const world = { x: 1, y: 2 };
 let handled = 0;
 const count = () => { handled++; };
 const app = Object.assign(Object.create(PCBApp.prototype), {
-    _active: true, currentTool: 'select', viewport,
+    currentTool: 'select', viewport,
     _screenToWorld: () => world, _updateDebugTooltip: noop,
     _scheduleDragUpdate: count, _handleTextDrag: count,
     _handleRefDrag: count, _handleFillDrag: count, _updateCursorCrosshair: noop,
