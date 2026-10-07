@@ -65,7 +65,6 @@ function fixture(saved) {
             trackRenders++;
             return copper;
         },
-        _cancelPosePreviews: PCBApp.prototype._cancelPosePreviews, _cancelDrawingMode: () => false,
     };
     setPcbSelection(app, [{ kind: 'component', object: 'a' }, { kind: 'component', object: 'b' }]);
     for (const track of app.tracks) renderTrack(track, id => app.getLayerGroup(id));
@@ -190,7 +189,7 @@ for (const finish of ['commit', 'cancel', 'no-op']) {
 {
     const { app } = fixture(false);
     setEditorActive(app, false);
-    app._ensureViewport = () => {};
+    app.ensureViewport = () => {};
     app.markSectionClean = () => {};
     app._shapeElements = new Map();
     beginGroupDrag(app, { x: 0, y: 0 });

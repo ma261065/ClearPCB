@@ -122,7 +122,7 @@ const editor = {
     placements: new Map([['part', moved]]),
     viewport: { scale: 10, getVisibleBounds: () => ({ minX: -100, minY: -100, maxX: 100, maxY: 100 }) },
     _recordPlacementOverride: PCBApp.prototype._recordPlacementOverride,
-    _markDirty() { dirtyNotifications++; },
+    markDirty() { dirtyNotifications++; },
 };
 const history = new CommandHistory();
 history.execute(new MovePlacementCommand(editor, 'part', 1, 2, 10, 20));
@@ -169,9 +169,8 @@ console.log('PASS placement commands persist into project state through execute/
     editor.getLayerGroup = () => null;
     editor._recordPlacementOverride = () => assert.fail('Metadata adapters must not persist generated artwork back into the model');
     const markDirty = () => { dirtyNotifications++; stages.push('dirty'); };
-    editor._markDirty = markDirty;
     editor.markDirty = markDirty;
-    editor._refreshPcbSelectionHighlights = () => stages.push('highlights');
+    editor.refreshSelectionHighlights = () => stages.push('highlights');
     editor.showComponentProperties = () => stages.push('properties');
     editor.drawRefOverlay = () => stages.push('overlay');
     setBoardViewPanel(editor, { refresh() { stages.push('3d'); } });

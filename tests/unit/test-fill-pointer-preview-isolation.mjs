@@ -74,8 +74,7 @@ function fixture(mode, deferred) {
         get copperFills() { return model.copperFills; },
         existingLayerGroups() { return this._layerGroups; },
         _layerGroups: new Map([['top-fill', layer]]),
-        _cancelPosePreviews: PCBApp.prototype._cancelPosePreviews,
-        _cancelDrawingMode() {}, _ensureViewport() {}, markSectionClean() {},
+        ensureViewport() {}, markSectionClean() {},
         _shapeElements: new Map(),
     };
     setDragOverlaysDeferred(app, deferred);

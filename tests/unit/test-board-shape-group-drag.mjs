@@ -77,6 +77,8 @@ function expect(name, actual, expected) {
         refreshText() { redraws++; },
     };
     setPcbSelection(app, [{ kind: 'text', object: text }]);
+    // Count drag redraws only; selecting already redrew the text once.
+    redraws = 0;
     beginGroupDrag(app, { x: 0, y: 0 });
     updateGroupDrag(app, { x: 0.1, y: 0.2 });
     expect('group drag skips movement inside the starting grid magnet', redraws, 0);

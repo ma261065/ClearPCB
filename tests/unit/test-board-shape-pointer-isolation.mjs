@@ -81,14 +81,14 @@ function fixture(mode, deferred = false, unrelatedCount = 1) {
         _layerGroups: new Map(), existingLayerGroups() { return this._layerGroups; }, viewport: { scale: 100, shiftHeld: true, svg: new Element(), setCrosshair() {}, hideCrosshair() {} },
         getLayerGroup: id => id === 'selection-overlay' ? null : group,
         refreshFills() { fills++; }, _refreshBoardShapeClearance() {},
-        propertiesItems: () => null, _cancelDrawingMode() {}, _ensureViewport() {}, markSectionClean() {},
-        _refreshPcbSelectionHighlights() {},
+        propertiesItems: () => null, ensureViewport() {}, markSectionClean() {},
+        refreshSelectionHighlights() {},
     };
     setDragOverlaysDeferred(app, deferred);
     for (const key of ['boardShapes', 'tracks', 'vias', 'pads', 'texts']) {
         Object.defineProperty(app, key, Object.getOwnPropertyDescriptor(PCBApp.prototype, key));
     }
-    for (const key of ['_cancelPosePreviews', 'isSectionEditing', 'clearProperties']) {
+    for (const key of ['isSectionEditing', 'clearProperties']) {
         app[key] = PCBApp.prototype[key];
     }
     project.registerView('pcb', app);

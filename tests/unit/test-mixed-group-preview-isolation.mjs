@@ -24,6 +24,7 @@ import { getSelectionInteraction } from '../../src/pcb/modules/selection-interac
 import { getGroupDrag } from '../../src/pcb/modules/box-select.js';
 import { setPcbInteraction } from '../../src/pcb/modules/pcb-interactions.js';
 import { isEditorActive, setEditorActive } from '../../src/pcb/modules/pcb-editor-api.js';
+import { cancelPcbPosePreviews } from '../../src/pcb/modules/edit-lifecycle.js';
 
 let allocations = 0;
 const trackRenders = new Map();
@@ -114,8 +115,8 @@ function fixture(deferred = false, component = false) {
         getLayerGroup: id => groups.get(id) || null, refreshText() {}, refreshFills() { fills++; },
         updateRatsnest() { ratsnest++; },
         refreshClearanceHalos() {},
-        _cancelPosePreviews: PCBApp.prototype._cancelPosePreviews, isSectionEditing: PCBApp.prototype.isSectionEditing,
-        _cancelDrawingMode: () => false, _ensureViewport() {}, markSectionClean() {}, setActiveRibbonTab() {}, setPcbStatus() {},
+        isSectionEditing: PCBApp.prototype.isSectionEditing,
+        ensureViewport() {}, markSectionClean() {}, setActiveRibbonTab() {}, setPcbStatus() {},
         propertiesItems: () => ({ innerHTML: '' }),
         setPropertiesTitle: PCBApp.prototype.setPropertiesTitle,
         openPropertyPanel(panel, owner = null) { this.setPropertiesTitle(panel.title, owner); this._propertyPanel = panel; return true; },
@@ -215,7 +216,7 @@ for (const component of [false, true]) for (const deferred of [false, true]) for
             } finally { layer[field] = previous; }
         } else if (finish === 'deactivate' || finish === 'shared') {
             if (finish === 'shared') setPcbInteraction(app, '_pcbSelectionInteraction', { mode: 'move' });
-            app._cancelPosePreviews();
+            cancelPcbPosePreviews(app);
         } else if (finish === 'load') {
             const graph = track.captureState(), padState = pad.captureState(), fillState = fill.captureState();
             loadPcb(app, null);

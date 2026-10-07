@@ -59,7 +59,7 @@ function fixture(prepareModel = () => {}) {
     prepareModel(project.pcbDocument);
     const app = new PCBApp(project);
     const changes = { dirty: 0, fills: 0, halos: 0, board3d: 0 };
-    app._markDirty = () => { changes.dirty++; };
+    app.markDirty = () => { changes.dirty++; };
     app.refreshFills = () => { changes.fills++; };
     app.showClearances = () => { changes.halos++; };
     clearanceOverlayState(app).clearancesVisible = true;

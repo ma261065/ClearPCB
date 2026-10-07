@@ -222,8 +222,6 @@ for (const finish of ['commit', 'cancel', 'panel-change', 'deactivate', 'failure
             if (finish === 'cancel') getPropertyEditor(app, 'text').cancel();
             else if (finish === 'panel-change') PCBApp.prototype.setPropertiesTitle.call(app, 'Component');
             else if (finish === 'deactivate') {
-                app._cancelPosePreviews = PCBApp.prototype._cancelPosePreviews;
-                app._cancelDrawingMode = () => {};
                 PCBApp.prototype.deactivate.call(app);
             } else {
                 app.history.execute = () => { throw new Error('Injected property failure'); };

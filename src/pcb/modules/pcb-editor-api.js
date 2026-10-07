@@ -70,6 +70,23 @@
  *   Convert a pointer event to world coordinates using the viewport's cached SVG rect.
  * @property {(point: {x: number, y: number}) => {x: number, y: number}} snapToGrid
  *   Snap a world point to the PCB viewport grid.
+ * @property {() => void} ensureViewport
+ *   Create the canvas viewport on first use (loading may render before the tab is shown).
+ * @property {() => void} markDirty
+ *   Flag a PCB edit: cancels a running route, notifies the project and refreshes
+ *   the panel preview, clearance halos and DRC.
+ * @property {(message?: string|null) => void} cancelAutoRoute
+ *   Stop a running autoroute, optionally saying why in the status bar.
+ * @property {() => void} applyPlacementOverrides
+ *   Restore saved placement overrides onto the rendered footprints.
+ * @property {(compId: string|null) => void} selectComponent
+ *   Select (or clear) one placed component.
+ * @property {(pad: object) => void} showPadProperties
+ *   Show a standalone pad's Properties panel.
+ * @property {(entries: Array<{kind: string, object: any}>) => void} showMultiSelectionProperties
+ *   Show the editable intersection of properties for a multi-selection.
+ * @property {() => void} refreshSelectionHighlights
+ *   Redraw the selection halos and lock overlays after an externally driven edit.
  */
 
 const editorActive = new WeakMap();
@@ -90,6 +107,24 @@ export function setEditorActive(app, active) {
  */
 export const isEditorActive = app => editorActive.get(app) !== false;
 
+const editorStale = new WeakMap();
+
+/**
+ * Set whether the PCB must be rebuilt from the schematic before it is next shown.
+ * @param {any} app
+ * @param {boolean} stale
+ */
+export function setEditorStale(app, stale) {
+    editorStale.set(app, !!stale);
+}
+
+/**
+ * Whether the PCB must be rebuilt from the schematic before it is next shown.
+ * Editors and fixtures that never set the flag are up to date.
+ * @param {any} app
+ */
+export const isEditorStale = app => editorStale.get(app) === true;
+
 /** Service names, checked against PCBApp by test-pcb-editor-api. */
 export const PCB_EDITOR_SERVICES = Object.freeze([
     'getLayerGroup', 'existingLayerGroups', 'getRoutingParams', 'refreshFills', 'refreshClearanceHalos', 'updateRatsnest',
@@ -97,5 +132,7 @@ export const PCB_EDITOR_SERVICES = Object.freeze([
     'setStatus', 'setPcbStatus', 'syncClipboardButtons', 'propertiesItems', 'setPropertiesTitle', 'showPropertiesTab',
     'openPropertyPanel', 'refreshPropertyPanel', 'netNames', 'layerLabel', 'fitToContent', 'setActiveRibbonTab',
     'selectText', 'showTextProperties', 'selectAll', 'rotateComponent', 'flipComponent', 'rotateRefText',
-    'showComponentProperties', 'screenToWorld', 'snapToGrid',
+    'showComponentProperties', 'screenToWorld', 'snapToGrid', 'ensureViewport', 'markDirty', 'cancelAutoRoute',
+    'applyPlacementOverrides', 'selectComponent', 'showPadProperties', 'showMultiSelectionProperties',
+    'refreshSelectionHighlights',
 ]);

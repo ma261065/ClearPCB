@@ -90,7 +90,7 @@ function boardFixture() {
         viewport: { scale: 10, svg: { style: {} }, setCrosshair() {}, hideCrosshair() {},
             getVisibleBounds: () => ({ minX: -100, minY: -100, maxX: 100, maxY: 100 }) },
         getLayerGroup: () => element(), _shapeElements: new Map(), _layerGroups: new Map(),
-        _refBox: () => refBox, refreshText() {}, drawRefOverlay() {}, _refreshPcbSelectionHighlights() {},
+        _refBox: () => refBox, refreshText() {}, drawRefOverlay() {}, refreshSelectionHighlights() {},
     };
     for (const name of ['texts', 'tracks', 'vias', 'pads', 'boardShapes']) {
         const descriptor = Object.getOwnPropertyDescriptor(PCBApp.prototype, name);

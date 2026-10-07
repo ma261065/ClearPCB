@@ -149,7 +149,7 @@ for (const outcome of ['success', 'declined', 'busy', 'reset-error']) {
     project.fileManager.onDirtyChanged = () => assert.fail('PCB edits must not trigger schematic dirty/stale listeners');
     const revision = project.fileManager.revision;
     for (let edit = 1; edit <= 2; edit++) {
-        pcb._markDirty();
+        pcb.markDirty();
         assert.equal(project.fileManager.revision, revision + edit);
         assert.equal(project.fileManager.isDirty, false);
         assert.equal(project.isDirty, true);

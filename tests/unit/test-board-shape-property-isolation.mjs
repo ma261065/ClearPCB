@@ -121,7 +121,7 @@ function fixture(kind, count = 1, unrelatedCount = 1, shapeLayer = 'top-copper')
         _shapeElements: new Map(), _layerGroups: new Map(), existingLayerGroups() { return this._layerGroups; },
         viewport: { scale: 100, svg: new Element(), setCrosshair() {}, hideCrosshair() {} },
         getLayerGroup: id => id === 'selection-overlay' ? null : group,
-        propertiesItems: () => items, setActiveRibbonTab() {}, _refreshPcbSelectionHighlights() {},
+        propertiesItems: () => items, setActiveRibbonTab() {}, refreshSelectionHighlights() {},
         syncPropertyPanel(panel, reuse = true) {
             const token = this._propertyPanelToken || 1;
             const oldFields = new Map(fields);
@@ -216,12 +216,12 @@ function fixture(kind, count = 1, unrelatedCount = 1, shapeLayer = 'top-copper')
         },
         refreshPropertyPanel(panel) { return this.syncPropertyPanel(panel); },
         refreshFills() { pours++; }, _refreshBoardShapeClearance() {},
-        _cancelDrawingMode() {}, _ensureViewport() {}, markSectionClean() {},
+        ensureViewport() {}, markSectionClean() {},
     };
     for (const key of ['boardShapes', 'tracks', 'vias', 'pads', 'texts']) {
         Object.defineProperty(app, key, Object.getOwnPropertyDescriptor(PCBApp.prototype, key));
     }
-    for (const key of ['_cancelPosePreviews', 'isSectionEditing', 'setPropertiesTitle', 'clearProperties',
+    for (const key of ['isSectionEditing', 'setPropertiesTitle', 'clearProperties',
         ]) app[key] = PCBApp.prototype[key];
     project.registerView('pcb', app);
     const adapters = shapes.map(shape => createBoardShapeSelectionAdapter(app, shape, shape.id));

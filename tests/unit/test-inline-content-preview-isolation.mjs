@@ -91,13 +91,13 @@ function fixture(layer, extraTexts = 0, isNew = false) {
         clearProperties() {}, setActiveRibbonTab() {}, _refreshBoardShapeClearance() {},
         _insertInlineTextSymbol: () => false,
         _cancelTrackDraw() {}, _cancelFillDraw() {}, _cancelShapeDraw() {}, _clearCursorCrosshair() {},
-        _ensureViewport() {}, markSectionClean() {},
+        ensureViewport() {}, markSectionClean() {},
         renderText(value) { renderText(this, value); },
     };
     attachPropertyPanelHarness(app, { controls: fields });
     Object.defineProperty(app, 'texts', Object.getOwnPropertyDescriptor(PCBApp.prototype, 'texts'));
     for (const name of ['_startTextInlineEdit', '_endTextInlineEdit', 'refreshText', 'selectText',
-        'showTextProperties', '_bindStrokeTextProps', '_cancelPosePreviews', '_cancelDrawingMode']) app[name] = PCBApp.prototype[name];
+        'showTextProperties', '_bindStrokeTextProps']) app[name] = PCBApp.prototype[name];
     if (isNew) app.history.execute(new AddTextCommand(app, text));
     else app.renderText(text);
     app.renderText(other);

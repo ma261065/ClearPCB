@@ -66,7 +66,7 @@ export function pcbEditorFixture(overrides = {}) {
         _layerGroups: layerGroups,
         setPcbStatus: quiet,
         drawRefOverlay: quiet,
-        _refreshPcbSelectionHighlights: quiet,
+        refreshSelectionHighlights: quiet,
         ...overrides,
     };
     // Own data properties shadow prototype accessors (some model getters have no setter).

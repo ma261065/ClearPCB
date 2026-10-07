@@ -76,7 +76,7 @@ for (const saved of [false, true]) for (const mode of ['headless', 'stale-seed',
     const app = {
         project, pcbDocument: project.pcbDocument, placementState: state,
         placements: new Map([['part', stale]]), tracks: project.pcbDocument.tracks,
-        getLayerGroup: () => null, _markDirty: () => dirty++, markDirty: () => dirty++,
+        getLayerGroup: () => null, markDirty: () => dirty++,
     };
     const api = mode === 'editor' && test.name in refEditorCommands ? refEditorCommands
         : mode === 'editor' ? editorCommands : modelCommands;

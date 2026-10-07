@@ -1,10 +1,10 @@
 #!/usr/bin/env node
-// Ratchets PCB code's use of the PCB editor's private (`app._x`) members down.
+// Keeps PCB code off the PCB editor's private (`app._x`) members.
 //
-// Modules should use the public services in src/pcb/modules/pcb-editor-api.js.
-// tools/pcb-editor-access-baseline.json lists the private members each module still
-// uses. A module using a private member not listed for it fails, and so does a listed
-// member it no longer uses, so the baseline only shrinks. Scans src/pcb and the shared
+// Modules call owning modules' exports or the public services in
+// src/pcb/modules/pcb-editor-api.js. tools/pcb-editor-access-baseline.json lists any
+// private members a module may use; it is empty. A module using a private member not
+// listed for it fails, and so does a listed member it no longer uses. Scans src/pcb and the shared
 // PCB code in src/shared/pcb. Modules always name the editor `app`; dynamic `app[key]`
 // access is not tracked.
 //
@@ -112,6 +112,6 @@ export function runEditorAccessCheck({ label, roots, facade, baselinePath, hint 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
     runEditorAccessCheck({
         label: 'PCB', roots: scanRoots, facade: join(root, 'src', 'ui', 'PCBApp.js'), baselinePath,
-        hint: 'Use or add a public service in src/pcb/modules/pcb-editor-api.js instead.',
+        hint: 'Call the owning module\'s export, or use or add a public service in src/pcb/modules/pcb-editor-api.js.',
     });
 }

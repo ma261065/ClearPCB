@@ -34,12 +34,12 @@ const app = {
     },
     refreshText() {},
 };
-for (const name of ['showTextProperties', '_showPcbMultiSelectionProperties', 'openPropertyPanel', 'refreshPropertyPanel',
+for (const name of ['showTextProperties', 'showMultiSelectionProperties', 'openPropertyPanel', 'refreshPropertyPanel',
     '_pcbMultiPropertyCapabilities', '_bindStrokeTextProps', 'layerLabel']) app[name] = PCBApp.prototype[name];
 const show = texts => {
     setPcbSelection(app, texts.map(object => ({ kind: 'text', object })));
     if (texts.length === 1) app.showTextProperties(texts[0]);
-    else app._showPcbMultiSelectionProperties(getPcbSelectionEntries(app));
+    else app.showMultiSelectionProperties(getPcbSelectionEntries(app));
 };
 const verifySingle = (layer, disabled) => {
     assert.equal(titles.at(-1), 'Text');

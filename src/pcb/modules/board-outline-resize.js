@@ -526,7 +526,7 @@ export function showBoardDimensionsDialog(app) {
             // be flagged dirty so the autosave captures the new board.
             app.pcbDocument.ensureBoardOutline();
             drawBoardOutline(app);
-            app._markDirty();
+            app.markDirty();
         }
         closeBoardDimensionsDialog(app);
     };

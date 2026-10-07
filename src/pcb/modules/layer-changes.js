@@ -5,6 +5,7 @@ import { endBoardOutlineResize, isBoardOutlineSelected, selectBoardOutline } fro
 import { getPcbSelection, getPcbSelectionEntries } from './selection-registry.js';
 import { finishSelectionInteraction, getSelectionInteraction, showPcbSelectionProperties } from './selection-interaction.js';
 import { getGroupDrag, deselectHiddenPcbSelection } from './box-select.js';
+import { cancelPcbPosePreviews } from './edit-lifecycle.js';
 import {
     endBoardShapeDrag, getBoardShapeDrag, getBoardShapeRotationPreview, finishBoardShapeRotationPreview, selectBoardShape,
 } from './board-shapes.js';
@@ -37,7 +38,7 @@ const silkLayerOf = placement => (placement.side === 'bottom' ? 'bottom-silk' : 
  */
 function cancelStrandedGestures(app, layerId, affectsGroup) {
     if (layerId === 'board-outline') endBoardOutlineResize(app, false);
-    if (getGroupDrag(app) && getPcbSelectionEntries(app).some(affectsGroup)) app._cancelPosePreviews();
+    if (getGroupDrag(app) && getPcbSelectionEntries(app).some(affectsGroup)) cancelPcbPosePreviews(app);
     if (getBoardShapeDrag(app)?.original.layer === layerId) {
         if (!finishSelectionInteraction(app, false)) endBoardShapeDrag(app, false);
     }
@@ -108,7 +109,7 @@ export function onLayerVisibilityChanged(app, layerId, visible) {
         if (deselectHiddenPcbSelection(app)) showPcbSelectionProperties(app);
         setHoverHighlight(app, null);
     }
-    app._refreshPcbSelectionHighlights?.();
+    app.refreshSelectionHighlights?.();
     saveLayerPrefs();
 }
 
@@ -149,7 +150,7 @@ export function onLayerLockChanged(app, layerId, locked) {
     refreshBoardShapeToolLayer(app);
     const checkbox = /** @type {HTMLInputElement|null} */ (document.getElementById('pcbPropOutlineLocked'));
     if (checkbox) checkbox.checked = locked;
-    app._refreshPcbSelectionHighlights?.();
+    app.refreshSelectionHighlights?.();
     if (getPcbSelectionEntries(app).some(entry => pcbObjectLayers(app, entry.kind, entry.object).includes(layerId))) {
         showPcbSelectionProperties(app);
     }
@@ -162,10 +163,10 @@ const groupDragsPourOn = (app, copperLayerId) => getGroupDrag(app)?.fills.some((
 /** Show or hide the copper pour on one side; purely a view state. */
 export function onCopperFillVisibilityChanged(app, copperLayerId, visible) {
     if (isPcbPasteActive(app) && !visible && !isPcbPasteEditable(app)) cancelPcbPaste(app);
-    if (!visible && groupDragsPourOn(app, copperLayerId)) app._cancelPosePreviews();
+    if (!visible && groupDragsPourOn(app, copperLayerId)) cancelPcbPosePreviews(app);
     const g = app.existingLayerGroups().get(fillGroupId(copperLayerId));
     if (g) g.style.display = visible ? '' : 'none';
-    app._refreshPcbSelectionHighlights?.();
+    app.refreshSelectionHighlights?.();
     saveLayerPrefs();
 }
 
@@ -175,10 +176,10 @@ export function onCopperFillVisibilityChanged(app, copperLayerId, visible) {
  */
 export function onCopperFillLockChanged(app, copperLayerId, locked) {
     if (isPcbPasteActive(app) && locked && !isPcbPasteEditable(app)) cancelPcbPaste(app);
-    if (locked && groupDragsPourOn(app, copperLayerId)) app._cancelPosePreviews();
+    if (locked && groupDragsPourOn(app, copperLayerId)) cancelPcbPosePreviews(app);
     const g = app.existingLayerGroups().get(fillGroupId(copperLayerId));
     if (g) g.style.opacity = locked ? '0.4' : '';
-    app._refreshPcbSelectionHighlights?.();
+    app.refreshSelectionHighlights?.();
     if (getPcbSelection(app, 'fill').some(fill => fill.layer === copperLayerId)) showPcbSelectionProperties(app);
     saveLayerPrefs();
 }

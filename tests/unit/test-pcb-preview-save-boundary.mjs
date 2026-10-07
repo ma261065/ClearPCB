@@ -48,7 +48,7 @@ function fixture() {
         get tracks() { return Object.getOwnPropertyDescriptor(PCBApp.prototype, 'tracks').get.call(this); },
         placements: new Map([['part', placement]]), history: new CommandHistory(),
         isSectionEditing: PCBApp.prototype.isSectionEditing,
-        getLayerGroup: () => null, _markDirty: () => project.fileManager.touch(),
+        getLayerGroup: () => null, markDirty: () => project.fileManager.touch(),
     };
     project.registerView('pcb', app);
     const adapter = createComponentSelectionAdapter(app, 'part', 'component:part');

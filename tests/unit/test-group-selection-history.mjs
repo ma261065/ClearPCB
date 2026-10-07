@@ -64,7 +64,7 @@ const app = {
         hideCrosshair() {} },
     _layerGroups: new Map([['selection-overlay', overlay]]),
     getLayerGroup(id) { return this._layerGroups.get(id); },
-    _markDirty() {}, syncPcbHistoryButtons() {}, refreshText() {},
+    markDirty() {}, syncPcbHistoryButtons() {}, refreshText() {},
 };
 app.history = new CommandHistory({ onChanged: () => PCBApp.prototype._onHistoryChanged.call(app) });
 setPcbSelection(app, texts.map(object => ({ kind: 'text', object })));
@@ -100,7 +100,7 @@ app.viewport.snapToGrid = true;
 app.viewport.gridSize = 0.25;
 setPcbSelection(app, texts.map(object => ({ kind: 'text', object })));
 let propertyRefreshes = 0;
-app._showPcbMultiSelectionProperties = selected => {
+app.showMultiSelectionProperties = selected => {
     assert.equal(getGroupDrag(app), null, 'Properties refresh follows gesture completion');
     assert.deepEqual(selected.map(entry => entry.object), texts);
     propertyRefreshes++;

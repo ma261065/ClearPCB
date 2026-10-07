@@ -168,7 +168,7 @@ function refreshTextLayerProperties(app) {
     const selected = getPcbSelectionEntries(app);
     if (!selected.some(entry => entry.kind === 'text')) return;
     if (selected.length === 1) app.showTextProperties?.(selected[0].object);
-    else app._showPcbMultiSelectionProperties?.(selected);
+    else app.showMultiSelectionProperties?.(selected);
 }
 
 /** Add a text to app.texts and render it. */

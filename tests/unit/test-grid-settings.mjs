@@ -187,7 +187,7 @@ function attachedEditor(pcbDocument, markDirty) {
     return pcbEditorFixture({ pcbDocument, viewport: null, canvasContainer: {},
         _createViewport: () => new TestViewport(),
         _bindMouseEvents() {}, _createLayerGroups() {}, _applyLayerPrefsToRender() {}, _updateViewportStatus() {},
-        _markDirty: markDirty });
+        markDirty });
 }
 for (const controlsFirst of [true, false]) {
     const controls = new Map(['pcbGridSize', 'pcbGridStyle', 'pcbUnits', 'pcbShowGrid', 'pcbSnapToGrid']
@@ -200,7 +200,7 @@ for (const controlsFirst of [true, false]) {
     let dirty = 0;
     const attached = attachedEditor(pcbDocument, () => { dirty++; });
     if (controlsFirst) bindPcbControls(attached);
-    attached._ensureViewport();
+    attached.ensureViewport();
     assert.deepEqual(serializeGridSettings(attached.viewport), { ...settings, gridSize: 0.127 },
         'The first viewport restores preferences and normalizes a custom grid to the nearest preset');
     if (!controlsFirst) {
@@ -224,7 +224,7 @@ for (const controlsFirst of [true, false]) {
     assert.equal(attached.ui.snapToGrid.disabled, true);
     const count = creations;
     attached.viewport.gridSize = 0.254;
-    attached._ensureViewport();
+    attached.ensureViewport();
     assert.equal(creations, count);
     assert.equal(attached.viewport.gridSize, 0.254, 'Repeated ensure calls do not overwrite subsequent live edits');
     assert.deepEqual(pcbDocument.settings, settings, 'Restoring controls does not mutate the loaded preference snapshot');
@@ -249,7 +249,7 @@ for (const [id, property, value, field] of [
     const attached = attachedEditor(pcbDocument, () => { dirty++; });
     bindPcbControls(attached);
     if (!attached.ui) {
-        const ensure = () => { attached._ensureViewport(); return attached.viewport; };
+        const ensure = () => { attached.ensureViewport(); return attached.viewport; };
         controls.get('pcbGridSize').addEventListener('change', e => { ensure().setGridSize(parseFloat(e.target.value)); dirty++; });
         controls.get('pcbGridStyle').addEventListener('change', e => { ensure().setGridStyle(e.target.value); dirty++; });
         controls.get('pcbUnits').addEventListener('change', e => { ensure().setUnits(e.target.value); dirty++; });

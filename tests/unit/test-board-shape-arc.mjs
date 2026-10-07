@@ -616,7 +616,7 @@ for (const layer of ['hole', 'top-copper', 'bottom-copper']) {
             openPropertyPanel(panel) { propertyRebuilds++; renderPanel(panel); return true; },
             refreshPropertyPanel(panel) { propertyRebuilds++; renderPanel(panel); },
             refreshFills() { fillRefreshes++; },
-            _refreshPcbSelectionHighlights() { selectionRefreshes++; },
+            refreshSelectionHighlights() { selectionRefreshes++; },
             history: { execute(command) { commands.push(command); command.execute(); } },
         });
         const displayedCircle = () => boardShapeEditor.getBoardShapePropertyPreview(diameterApp)?.copies[0] || editableCircle;

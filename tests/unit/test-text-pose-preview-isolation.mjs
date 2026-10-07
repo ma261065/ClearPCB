@@ -51,10 +51,10 @@ function fixture(layer) {
         placements: new Map(), tracks: [], vias: [], pads: [], boardShapes: [],
         getLayerGroup: id => id === layer ? group : null, _shapeElements: new Map(),
         existingLayerGroups: () => new Map([[layer, group]]),
-        _refreshBoardShapeClearance() {}, _cancelDrawingMode() {}, _ensureViewport() {}, markSectionClean() {},
+        _refreshBoardShapeClearance() {}, ensureViewport() {}, markSectionClean() {},
     };
     Object.defineProperty(app, 'texts', Object.getOwnPropertyDescriptor(PCBApp.prototype, 'texts'));
-    for (const name of ['snapToGrid', 'refreshText', '_cancelPosePreviews']) app[name] = PCBApp.prototype[name];
+    for (const name of ['snapToGrid', 'refreshText']) app[name] = PCBApp.prototype[name];
     setPcbSelection(app, [{ kind: 'text', object: text }]);
     renderText(app, text);
     renderText(app, unrelated);

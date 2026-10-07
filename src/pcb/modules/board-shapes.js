@@ -475,7 +475,7 @@ function replaceTrackWithBoardShape(app, track, { filled, net, layer = null, pla
     ]));
     setPcbSelection(app, [{ kind: 'shape', object: shape }]);
     showBoardShapeProperties(app, shape);
-    app._refreshPcbSelectionHighlights?.();
+    app.refreshSelectionHighlights?.();
     return true;
 }
 
@@ -506,7 +506,7 @@ export function selectReplacementTracks(app, tracks) {
     selectBoardShape(app, null);
     setPcbSelection(app, tracks.map(track => ({ kind: 'track', object: track })));
     showPcbSelectionProperties(app);
-    app._refreshPcbSelectionHighlights?.();
+    app.refreshSelectionHighlights?.();
 }
 
 // â”€â”€ Geometry â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
@@ -683,7 +683,7 @@ function redrawBoardShapePropertyPreview(app, targets, { liveDrag = false, editP
         },
         refreshSelection: () => {
             profile.renderSegmentSelection(app);
-            if (app._refreshPcbSelectionHighlights) app._refreshPcbSelectionHighlights();
+            if (app.refreshSelectionHighlights) app.refreshSelectionHighlights();
             else renderPcbSelectionAnchors(app);
         },
         refreshDerived() {},
@@ -1836,7 +1836,7 @@ export function deleteFocusedBoardShape(app) {
     else deleteBoardShapeSegment(app, shape, segment);
     setBoardShapeNodeFocus(app, null);
     setBoardShapeSegmentFocus(app, null);
-    app._refreshPcbSelectionHighlights?.();
+    app.refreshSelectionHighlights?.();
     return true;
 }
 
@@ -1901,7 +1901,7 @@ export function showBoardShapeContextMenu(app, shape, clientX, clientY, worldPos
     renderBoardShape(app, shape);
     renderBoardShapeHandles(app, shape);
     renderBoardShapeSegmentSelection(app);
-    return showPathContextMenu('pcbBoardShapeContextMenu', items, clientX, clientY, () => app._refreshPcbSelectionHighlights?.());
+    return showPathContextMenu('pcbBoardShapeContextMenu', items, clientX, clientY, () => app.refreshSelectionHighlights?.());
 }
 
 // â”€â”€ Draw lifecycle â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
@@ -2078,7 +2078,7 @@ export function finishShapeDraw(app) {
         const track = trackFromBoardShape(shape, shape.net);
         app.history.execute(new AddTrackCommand(app, track));
         setPcbSelection(app, [{ kind: 'track', object: track }]);
-        app._refreshPcbSelectionHighlights?.();
+        app.refreshSelectionHighlights?.();
         return;
     }
     app.history.execute(new AddBoardShapeCommand(app, shape));

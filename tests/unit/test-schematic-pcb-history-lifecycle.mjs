@@ -85,7 +85,7 @@ for (const [name, args] of [
     const pcb = {
         project, pcbDocument: project.pcbDocument, tracks: project.pcbDocument.tracks,
         placements: new Map(), _layerGroups: new Map(), existingLayerGroups() { return this._layerGroups; }, boardShapes: [],
-        history: new CommandHistory(), _ensureViewport() {}, _renderPersistentObjects() {},
+        history: new CommandHistory(), ensureViewport() {}, _renderPersistentObjects() {},
         _placeFootprints(placements) { this.placements = placements; },
         getLayerGroup: () => null, refreshClearanceHalos() {}, updateRatsnest() {},
         setStatus() {}, _hasContent: true,

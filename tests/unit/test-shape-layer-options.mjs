@@ -154,7 +154,7 @@ try {
                 assert.deepEqual(layerOption('pcbPropShapeLayer', 'top-silk'),
                     { disabled: false, selected: true, label: 'Top Silk' });
             }
-            app._showPcbMultiSelectionProperties([shape, second].map(object => ({ kind: 'shape', object })));
+            app.showMultiSelectionProperties([shape, second].map(object => ({ kind: 'shape', object })));
             assert.equal(renderedLayerOption('pcbPropIntersection_layer', 'hole').disabled, locked);
             assert.equal(renderedLayerOption('pcbPropIntersection_layer', 'hole').label, `Hole${locked ? ' \u{1F512}\uFE0E' : ''}`);
         }
@@ -177,7 +177,7 @@ try {
     globalThis.localStorage = { setItem() {} };
     app._layerGroups = new Map();
     app._hoveredTrackOrVia = null;
-    app._refreshPcbSelectionHighlights = () => {};
+    app.refreshSelectionHighlights = () => {};
     const formBefore = items.innerHTML;
     for (const locked of [true, true, false, false, true]) {
         holeLayer.locked = locked;
@@ -193,7 +193,7 @@ try {
         { ...legacy, id: 'second', layer: 'top-document' },
     ];
     app.history = { execute() { assert.fail('A locked destination must not enter history'); } };
-    app._showPcbMultiSelectionProperties(mixedShapes.map(object => ({ kind: 'shape', object })));
+    app.showMultiSelectionProperties(mixedShapes.map(object => ({ kind: 'shape', object })));
     const multiLayer = document.getElementById('pcbPropIntersection_layer');
     multiLayer.value = 'hole';
     fire(multiLayer, 'change');

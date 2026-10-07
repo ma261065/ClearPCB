@@ -78,7 +78,7 @@ function fixture(count = 1, layers = 'both', unrelatedCount = 1) {
         Object.defineProperty(app, key, Object.getOwnPropertyDescriptor(PCBApp.prototype, key));
     }
     for (const key of ['_showPadEditor', 'openPropertyPanel', 'refreshPropertyPanel', 'showPropertiesTab', 'netNames',
-        'setPropertiesTitle', 'clearProperties', '_cancelPosePreviews', 'isSectionEditing', 'deactivate',
+        'setPropertiesTitle', 'clearProperties', 'isSectionEditing', 'deactivate',
         ]) app[key] = PCBApp.prototype[key];
     Object.assign(app, {
         project, pcbDocument: model, placements: new Map(), netlist: [], history: new CommandHistory(),
@@ -86,8 +86,8 @@ function fixture(count = 1, layers = 'both', unrelatedCount = 1) {
         viewport: { scale: 100, svg: document.createElementNS('http://www.w3.org/2000/svg', 'svg'), shiftHeld: true, setCrosshair() {}, hideCrosshair() {} },
         propertiesItems: () => items, getLayerGroup: id => groups.get(id) || null,
         setActiveRibbonTab() {}, setPcbStatus() {}, refreshFills() {}, refreshClearanceHalos() {},
-        _cancelDrawingMode() {}, _ensureViewport() {}, markSectionClean() {},
-        _refreshPcbSelectionHighlights() {},
+        ensureViewport() {}, markSectionClean() {},
+        refreshSelectionHighlights() {},
     });
     project.registerView('pcb', app);
     setPcbSelection(app, pads.map(object => ({ kind: 'pad', object })));

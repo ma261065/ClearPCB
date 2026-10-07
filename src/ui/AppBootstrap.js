@@ -2,7 +2,7 @@
 
 import SchematicApp from './SchematicApp.js';
 import PCBApp from './PCBApp.js';
-import { isEditorActive } from '../pcb/modules/pcb-editor-api.js';
+import { isEditorActive, isEditorStale } from '../pcb/modules/pcb-editor-api.js';
 import { ProjectDocument } from '../core/ProjectDocument.js';
 import { readProjectFile } from '../core/FileManager.js';
 import { duplicateIdRepairMessage, repairDuplicateIds } from '../core/project-format.js';
@@ -214,14 +214,14 @@ export class AppBootstrap {
     }
 
     _schedulePcbPreload() {
-        if (!this.pcbApp?._stale || isEditorActive(this.pcbApp)) return;
+        if (!isEditorStale(this.pcbApp) || isEditorActive(this.pcbApp)) return;
         this._cancelPcbPreload();
         const render = () => {
             this._pcbPreloadHandle = null;
             // The spinner was shown in prepare(); clear it on every exit, including
             // when the PCB was rendered or a load started in the meantime.
             try {
-                if (this.project.fileManager.loading || this.pcbApp && isEditorActive(this.pcbApp) || !this.pcbApp?._stale) return;
+                if (this.project.fileManager.loading || this.pcbApp && isEditorActive(this.pcbApp) || !isEditorStale(this.pcbApp)) return;
                 this.pcbApp.preload?.();
             } finally {
                 this._setTabsLoading(false, 'pcb');
@@ -263,7 +263,7 @@ export class AppBootstrap {
         this.schematicApp?.viewport?.invalidateLayoutCache?.();
         this.pcbApp?.viewport?.invalidateLayoutCache?.();
 
-        const needsPcbRender = isPcb && this.pcbApp?._stale;
+        const needsPcbRender = isPcb && isEditorStale(this.pcbApp);
         if (needsPcbRender) {
             this._switchingMode = true;
             this._setTabsLoading(true, 'pcb');

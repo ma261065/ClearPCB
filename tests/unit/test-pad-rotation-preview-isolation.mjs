@@ -15,6 +15,7 @@ import { cancelPictureCopperRefresh } from '../../src/pcb/modules/picture-refres
 import { getSelectionInteraction } from '../../src/pcb/modules/selection-interaction.js';
 import { isRotationHandleDragActive } from '../../src/pcb/modules/rotation-handle.js';
 import { setPcbInteraction } from '../../src/pcb/modules/pcb-interactions.js';
+import { cancelPcbPosePreviews } from '../../src/pcb/modules/edit-lifecycle.js';
 
 let allocations = 0;
 class Element {
@@ -71,9 +72,8 @@ function fixture(shape = 'rectangle', layers = 'both') {
         getLayerGroup: id => groups.get(id) || null,
         existingLayerGroups: () => groups,
         refreshClearanceHalos() {}, refreshFills() { fills++; },
-        _cancelPosePreviews: PCBApp.prototype._cancelPosePreviews,
         isSectionEditing: PCBApp.prototype.isSectionEditing,
-        _cancelDrawingMode() {}, _clearCursorCrosshair() {}, markSectionClean() {}, _ensureViewport() {},
+        _clearCursorCrosshair() {}, markSectionClean() {}, ensureViewport() {},
         _shapeElements: new Map(),
     };
     for (const key of ['tracks', 'vias', 'pads', 'boardShapes', 'texts']) {
@@ -231,7 +231,7 @@ for (const changed of [false, true]) {
     const before = model.captureGeometry(), count = artwork().length;
     adapter.beginAnchorDrag('rotate', start);
     if (changed) adapter.updateAnchorDrag(pointFor(90));
-    app._cancelPosePreviews();
+    cancelPcbPosePreviews(app);
     assert.equal(app.isSectionEditing(), false, 'Lifecycle also cleans orphaned rotation gestures');
     assert.equal(getPadRotationPreview(app), undefined);
     assert.equal(Number(input.value), model.pads[0].rotation);

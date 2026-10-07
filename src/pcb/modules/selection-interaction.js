@@ -49,7 +49,7 @@ export function selectionInteractionCursor(app) {
 
 export function clearSelectionInteractionUi(app) {
     clearTrackSelection(app);
-    app._selectComponent?.(null);
+    app.selectComponent?.(null);
     selectBoardOutline(app, false);
     app.selectText?.(null);
     selectRefText(app, null);
@@ -59,7 +59,7 @@ export function clearSelectionInteractionUi(app) {
 
 function showSingleProperties(app, entry) {
     if (entry.kind === 'component') {
-        app._selectComponent?.(entry.object);
+        app.selectComponent?.(entry.object);
         app.showComponentProperties?.(entry.object);
     } else if (entry.kind === 'text') {
         app.selectText?.(entry.object);
@@ -70,7 +70,7 @@ function showSingleProperties(app, entry) {
     } else if (entry.kind === 'shape') showBoardShapeProperties(app, entry.object);
     else if (entry.kind === 'track') showTrackSelectionProperties(app, entry.object);
     else if (entry.kind === 'via') showViaProperties(app, entry.object);
-    else if (entry.kind === 'pad') app._showPadProperties?.(entry.object);
+    else if (entry.kind === 'pad') app.showPadProperties?.(entry.object);
     else if (entry.kind === 'fill') {
         app.selectFill?.(entry.object);
         showFillProperties(app, entry.object);
@@ -94,15 +94,15 @@ export function showPcbSelectionProperties(app) {
     // shared capability panel, which applies edits to the unlocked members only.
     const anyLocked = selected.some(entry => entry.locked);
     if (anyLocked) {
-        app._showPcbMultiSelectionProperties?.(selected);
+        app.showMultiSelectionProperties?.(selected);
     } else if (kinds.size === 1 && selected[0].kind === 'shape') {
         showBoardShapeProperties(app, selected[0].object);
     } else if (kinds.size === 1 && selected[0].kind === 'via') {
         showViaProperties(app, selected[0].object);
     } else if (kinds.size === 1 && selected[0].kind === 'pad') {
-        app._showPadProperties?.(selected[0].object);
+        app.showPadProperties?.(selected[0].object);
     } else {
-        app._showPcbMultiSelectionProperties?.(selected);
+        app.showMultiSelectionProperties?.(selected);
     }
 }
 

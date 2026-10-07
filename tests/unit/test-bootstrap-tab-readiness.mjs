@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { isEditorActive, setEditorActive } from '../../src/pcb/modules/pcb-editor-api.js';
+import { isEditorActive, setEditorActive, setEditorStale } from '../../src/pcb/modules/pcb-editor-api.js';
 
 const quietElement = () => ({ style: {}, setAttribute() {}, appendChild() {}, classList: { add() {}, remove() {} } });
 globalThis.window = { addEventListener() {}, dispatchEvent() {} };
@@ -57,12 +57,12 @@ function fixture() {
                 assert.ok(project instanceof services.ProjectDocument, 'PCB receives its model owner at construction');
                 this.project = project;
                 setEditorActive(this, false);
+                setEditorStale(this, true);
             }
-            _stale = true;
             initialize() { events.push('pcb-ready'); }
             activate() { events.push('activate'); }
             deactivate() { setEditorActive(this, false); events.push('deactivate'); }
-            preload() { this._stale = false; events.push('preload'); }
+            preload() { setEditorStale(this, false); events.push('preload'); }
         },
         SchematicApp: class {
             constructor() { events.push('schematic-ready'); }
@@ -200,7 +200,8 @@ function fixture() {
 
 {
     const test = fixture();
-    test.bootstrap.pcbApp = { _stale: true, activate() { this._stale = false; test.events.push('activate'); } };
+    test.bootstrap.pcbApp = { activate() { setEditorStale(this, false); test.events.push('activate'); } };
+    setEditorStale(test.bootstrap.pcbApp, true);
     const switching = test.bootstrap.switchMode('pcb');
     assert.equal(test.tabs[1].classes.get('loading'), true, 'PCB spinner appears before deferred rendering');
     assert.equal(test.events.includes('activate'), false, 'PCB rendering waits until the spinner can paint');
@@ -228,7 +229,7 @@ function fixture() {
 }
 
 for (const [label, interrupt] of [
-    ['the PCB was rendered meanwhile', bootstrap => { bootstrap.pcbApp._stale = false; }],
+    ['the PCB was rendered meanwhile', bootstrap => { setEditorStale(bootstrap.pcbApp, false); }],
     ['the PCB became active meanwhile', bootstrap => { setEditorActive(bootstrap.pcbApp, true); }],
     ['a file operation started meanwhile', bootstrap => { bootstrap.project.fileManager.loading = true; }],
 ]) {

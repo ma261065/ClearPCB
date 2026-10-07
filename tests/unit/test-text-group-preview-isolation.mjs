@@ -78,8 +78,7 @@ function fixture(mixed) {
         _shapeElements: new Map(),
         getLayerGroup: id => groups.get(id) || null,
         existingLayerGroups: () => groups,
-        _refreshBoardShapeClearance() {}, _ensureViewport() {}, markSectionClean() {}, _cancelDrawingMode() {},
-        _cancelPosePreviews: PCBApp.prototype._cancelPosePreviews,
+        _refreshBoardShapeClearance() {}, ensureViewport() {}, markSectionClean() {},
         refreshText: PCBApp.prototype.refreshText,
         renderText(text) { renderText(this, text); },
     };

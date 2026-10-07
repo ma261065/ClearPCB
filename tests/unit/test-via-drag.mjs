@@ -572,7 +572,7 @@ for (const previousDeferral of [false, true]) {
     app.placements.set(component.id, placement);
     app._recordPlacementOverride = () => assert.fail('Physical adapters must not re-record generated placements');
     app.refreshClearanceHalos = () => stages.push('clearance');
-    app._markDirty = () => stages.push('dirty');
+    app.markDirty = () => stages.push('dirty');
     app.updateRatsnest = () => stages.push('ratsnest');
     app.refreshFills = () => stages.push('fills');
     setBoardViewPanel(app, { refresh() { stages.push('3d'); } });
@@ -693,7 +693,7 @@ for (const previousDeferral of [false, true]) {
     app.placements.set('component', placement);
     app._recordPlacementOverride = () => assert.fail('Side adapters must not re-record generated placement data');
     let dirty = 0;
-    app._markDirty = () => { dirty++; };
+    app.markDirty = () => { dirty++; };
     applyPlacementPose(app, 'component');
     const before = app.tracks.map(track => track.captureState());
     const command = new SetPlacementSideCommand(app, 'component', 'bottom');

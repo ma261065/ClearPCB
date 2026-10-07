@@ -95,7 +95,6 @@ function fixture() {
         return getRoutingParams.call(this);
     };
     app.setStatus = message => { app.lastStatus = message; };
-    app._cancelDrawingMode = () => {};
     app.refreshText = app.selectText = () => {};
     app.history = new CommandHistory({ onChanged: () => invalidateFillRefresh(app) });
     const fill = new CopperFill({ id: 'top', kind: 'rect', net: 'GND',
@@ -404,7 +403,7 @@ for (const content of [null, 'reload']) {
         scheduleFillRefresh(f.app); flush();
         const worker = workers.at(-1), job = worker.jobs[0];
         f.app._shapeElements = new Map();
-        for (const method of ['_ensureViewport',
+        for (const method of ['ensureViewport',
             '_closeBoardDimensionsDialog', '_selectBoardOutline', 'syncClipboardButtons',
             'updateCopperCuts', 'markSectionClean']) f.app[method] = () => {};
         setEditorActive(f.app, false);

@@ -119,7 +119,7 @@ function netPanel(app, entries) {
     const items = resetPanel();
     app.propertiesItems = () => items;
     app.setPropertiesTitle = () => {};
-    app._showPcbMultiSelectionProperties(entries);
+    app.showMultiSelectionProperties(entries);
     return value => {
         const input = document.getElementById('pcbPropMultiNet');
         input.value = value;

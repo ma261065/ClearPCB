@@ -101,8 +101,8 @@ function fixture(deferred = false) {
         getRoutingParams: () => ({ clearance: 0.25 }),
         syncClipboardButtons() {}, _clearCursorCrosshair() {},
         clearProperties() {}, propertiesItems: () => null, setPropertiesTitle() {}, setPcbStatus() {},
-        _cancelDrawingMode() {}, _ensureViewport() {}, markSectionClean() {}, _refreshPcbSelectionHighlights() {},
-        _showPcbMultiSelectionProperties() {}, showTextProperties() {},
+        ensureViewport() {}, markSectionClean() {}, refreshSelectionHighlights() {},
+        showMultiSelectionProperties() {}, showTextProperties() {},
     };
     setBoardViewPanel(app, { refresh() { derived++; } });
     setDragOverlaysDeferred(app, deferred);
@@ -113,7 +113,7 @@ function fixture(deferred = false) {
         Object.defineProperty(app, key, Object.getOwnPropertyDescriptor(PCBApp.prototype, key));
     }
     for (const method of ['_hasPcbClipboardData', 'pasteSelection',
-        '_cancelPosePreviews', 'snapToGrid', 'refreshText',
+        'snapToGrid', 'refreshText',
         'isSectionEditing']) app[method] = PCBApp.prototype[method];
     project.registerView('pcb', app);
     renderTrack(track, app.getLayerGroup); renderVia(via, app.getLayerGroup); renderPad(pad, app.getLayerGroup);

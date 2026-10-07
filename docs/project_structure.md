@@ -124,15 +124,13 @@ crosshair, `alert`/`confirm`, the cancel helpers, inline text editing, tool
 selection and the command view hooks), rather than its `_`-prefixed members.
 Services are also the seams tests stub. A service both editors offer has one name
 in both (`fitToContent`, `setActiveRibbonTab`, `copySelection`).
-`node tools/check-pcb-editor-access.mjs` ratchets the remaining private
-accesses per module in `src/pcb` and `src/shared/pcb` against
-`tools/pcb-editor-access-baseline.json` in the same way; promote a member to a
-service instead of adding a new private access.
-`node tools/check-schematic-editor-access.mjs` applies the same ratchet to the
-schematic layer (`src/schematic`) against
-`tools/schematic-editor-access-baseline.json`; use a public `SchematicApp` method or a
-module export instead of adding a private access. Both run as hard checks in the
-regression gate. `test-schematic-module-load-order` loads each
+`node tools/check-pcb-editor-access.mjs` checks `src/pcb` and `src/shared/pcb` for
+private editor accesses against `tools/pcb-editor-access-baseline.json`, and
+`node tools/check-schematic-editor-access.mjs` checks the schematic layer
+(`src/schematic`) against `tools/schematic-editor-access-baseline.json`. Both
+baselines are empty, so any `app._x` use fails: call the owning module's export
+(for example `cancelPcbPosePreviews` in `edit-lifecycle.js`) or a public editor
+service instead. Both run as hard checks in the regression gate. `test-schematic-module-load-order` loads each
 schematic module first in a fresh process, so a direct import that creates an
 evaluation-order cycle fails.
 
@@ -150,7 +148,7 @@ evaluation-order cycle fails.
   board-view panel state), `component-selection.js` (component hover outline,
   footprint culling/LOD and component-net lookup),
   `pcb-hover.js` (coalesced select-tool hover frame state),
-  `pcb-editor-api.js` (active-editor flag plus public editor services),
+  `pcb-editor-api.js` (the active and stale editor flags plus public editor services),
   `selection-registry.js` (the PCB SelectionManager per editor),
   `shared/pcb/board-outline.js` (detached board-dimension preview state),
   `board-outline-resize.js` (board-outline drawn/selected state), `clearance-overlay.js` (clearance
@@ -175,8 +173,10 @@ evaluation-order cycle fails.
 - `pcb/modules/mouse.js` binds the PCB canvas's mouse events (like the schematic's
   `mouse.js`). Presses go to one `_press…Tool` method per tool through its
   `PCB_TOOL_PRESS_HANDLERS`; releases go to `releasePcbPointerGestures`.
-- PCB modules call the editor through `pcb-editor-api.js` services; the access
-  ratchet lists the private members they still use.
+- PCB modules call an owning module's functions directly, and reach what the
+  editor itself hosts (its viewport, dirty state, autorouter session, component
+  selection and Properties panels) only through `pcb-editor-api.js` services,
+  never its private members.
 - Schematic modules follow the same pattern. `schematic-interactions.js` owns the
   overlap-cycle press slot in an import-free WeakMap; `draw-states.js` owns its
   pending segment-toggle and drag scratch buffers; `drawing.js` owns one-shot

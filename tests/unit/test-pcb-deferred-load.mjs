@@ -3,7 +3,8 @@ import { PcbDocument } from '../../src/core/PcbDocument.js';
 import { PANEL_DEFAULTS } from '../../src/core/pcb-panelization.js';
 import { setBoardViewPanel } from '../../src/pcb/modules/refresh-state.js';
 import { boardDimensions } from '../../src/shared/pcb/board-outline.js';
-import { isEditorActive, setEditorActive } from '../../src/pcb/modules/pcb-editor-api.js';
+import { isEditorActive, isEditorStale, setEditorActive, setEditorStale } from '../../src/pcb/modules/pcb-editor-api.js';
+import { setPropertyEditor } from '../../src/pcb/modules/property-editors.js';
 
 // Real renderers run against this minimal SVG DOM. Each layer group reports what
 // lands in it, so render order is observed where the editor's DOM receives it.
@@ -139,18 +140,18 @@ const makeApp = active => {
             return pcbDocument.panelization;
         },
         set panelization(value) { pcbDocument.loadPanelization(value); },
-        _stale: false, tracks: pcbDocument.tracks, vias: pcbDocument.vias, pads: pcbDocument.pads,
+        tracks: pcbDocument.tracks, vias: pcbDocument.vias, pads: pcbDocument.pads,
         boardShapes: pcbDocument.boardShapes, texts: pcbDocument.texts,
         get shapeIdCounter() { return pcbDocument.shapeIdCounter; },
         set shapeIdCounter(value) { pcbDocument.shapeIdCounter = value; },
         placements: new Map([['U1', {}]]), _shapeElements: new Map(),
         placementState, _placementOverrides: placementState.overrides, history: { clear() {} },
         viewport: viewportStub(),
-        _ensureViewport: record('viewport'), getLayerGroup, existingLayerGroups: () => getLayerGroup.groups, getRoutingParams: () => ({}),
-        _applyPlacementOverrides: record('placements'),
+        ensureViewport: record('viewport'), getLayerGroup, existingLayerGroups: () => getLayerGroup.groups, getRoutingParams: () => ({}),
+        applyPlacementOverrides: record('placements'),
         refreshClearanceHalos: record('clearance'), refreshFills: record('fills'),
         updateCopperCuts() { this.cutRefreshes = (this.cutRefreshes || 0) + 1; },
-        markSectionClean() { this._isDirty = false; },
+        _isDirty: true, markSectionClean() { this._isDirty = false; },
     };
     setEditorActive(app, active);
     initializeBoardOutlineState(app, false);
@@ -175,11 +176,14 @@ const load = (app, loaded, ...rest) => {
 };
 
 const hidden = makeApp(false);
-let cancelledComponentPreview = false;
-hidden._cancelPosePreviews = () => { cancelledComponentPreview = true; };
 const textMap = hidden.pcbDocument.texts;
 const oldText = createPcbText({ id: 'old-text', content: 'Old', x: 0, y: 0, layer: 'top-document' });
 hidden.texts.set(oldText.id, oldText);
+let cancelledComponentPreview = false;
+setPropertyEditor(hidden, 'component', {
+    cancel() { cancelledComponentPreview = textMap.has(oldText.id); },
+    dispose() {},
+});
 const oldTextLayer = hidden.getLayerGroup('top-document');
 renderText(hidden, oldText);
 assert.equal(oldTextLayer.children.length, 1);
@@ -190,7 +194,7 @@ assert.equal(cancelledComponentPreview, true, 'Loading ends component projection
 assert.equal(hidden.texts, textMap, 'Loading preserves the project-owned text map');
 assert.equal(textMap.has(oldText.id), false);
 assert.deepEqual(events(), ['viewport', 'grid'], 'hidden load does not render objects or compute derived copper');
-assert.equal(hidden._stale, true);
+assert.equal(isEditorStale(hidden), true);
 assert.equal(isBoardOutlineDrawn(hidden), true, 'saved dimensions remain available before rendering');
 assert.deepEqual(Object.values(boardDimensions(hidden)), [43, 27, 2]);
 assert.deepEqual(hidden.boardShapes, prepared.boardShapes);
@@ -302,13 +306,13 @@ for (const withComponents of [false, true]) {
     calls.length = 0;
     app._syncFromSchematic();
     assert.deepEqual(calls, [], 'a queued sync must not render a hidden board');
-    assert.equal(app._stale, true);
+    assert.equal(isEditorStale(app), true);
     const beforePreloadCuts = app.cutRefreshes;
     assert.equal(app.preload(), true, 'hidden stale PCB can render before first activation');
     assert.equal(app.cutRefreshes, beforePreloadCuts + 1,
         `Preloading clips once after the shape batch (components=${withComponents})`);
     assert.equal(isEditorActive(app), false, 'preloading does not activate the PCB editor');
-    assert.equal(app._stale, false);
+    assert.equal(isEditorStale(app), false);
     if (withComponents) assert.ok(calls.indexOf('footprints') < calls.indexOf('shape'),
         'Free-standing artwork renders after footprint artwork');
     assert.equal(calls.filter(call => call === '3d').length, 1,
@@ -322,7 +326,7 @@ for (const withComponents of [false, true]) {
         assert.equal(calls.filter(call => call === name).length, 0, `${name} is already rendered before activation (components=${withComponents})`);
     }
     assert.equal(calls.includes('dimensions-dialog'), false, 'restored board dimensions do not prompt again');
-    assert.equal(app._stale, false);
+    assert.equal(isEditorStale(app), false);
     calls.length = 0;
     app.activate();
     assert.deepEqual(calls.slice(0, 3), ['ribbon-height', 'viewport', 'viewport-resize'],
@@ -349,7 +353,7 @@ for (const pcb of [
         assert.equal(app.isBoardOutlineDrawn(), !!outline, 'Editor attachment recognizes an existing model outline');
         components = withComponents ? [{ id: 'U1' }] : [];
         Object.assign(app, {
-            initialize() {}, _ensureViewport() {}, _retainRibbonHeight() {},
+            initialize() {}, ensureViewport() {}, _retainRibbonHeight() {},
             refreshPcbRibbon() {}, _updateViewportStatus() {},
             setPcbStatus() {}, setStatus() {}, _clearPCBContent() {},
             getLayerGroup: layerGroups(),
@@ -470,13 +474,14 @@ const project = new ProjectDocument();
 let syncs = 0, placed = new Map();
 const pcb = Object.assign(Object.create(PCBApp.prototype), {
     pcbDocument: project.pcbDocument,
-    project: null, _stale: true, boardShapes: [],
-    _ensureViewport() { syncs++; }, _clearPCBContent() {}, _renderPersistentObjects() {},
+    project: null, boardShapes: [],
+    ensureViewport() { syncs++; }, _clearPCBContent() {}, _renderPersistentObjects() {},
     _placeFootprints(items) { placed = items; }, getLayerGroup: () => null,
     refreshClearanceHalos() {}, updateRatsnest() {}, _fitToPlacedContent() {}, setStatus() {},
 });
+setEditorStale(pcb, true);
 pcb._syncFromSchematic();
-assert.equal(pcb._stale, true, 'Missing project must not acknowledge a pending sync');
+assert.equal(isEditorStale(pcb), true, 'Missing project must not acknowledge a pending sync');
 assert.equal(syncs, 0);
 const notifications = [];
 project.schematicDocument.components = [{ id: 'owned', reference: 'U1', definition: { name: 'Part' } }];
@@ -490,7 +495,7 @@ Object.defineProperty(project, 'schematic', {
 });
 pcb._syncFromSchematic();
 assert.equal(placed.get('owned').reference, 'U1', 'Model synchronization works without a schematic view');
-assert.equal(pcb._stale, false);
+assert.equal(isEditorStale(pcb), false);
 syncs = 0;
 const schematic = Object.assign(Object.create(SchematicApp.prototype), {
     project, document: project.schematicDocument, fileManager: project.fileManager,
@@ -517,9 +522,9 @@ try {
     globalThis.clearTimeout = id => timers.delete(id);
     const flush = () => { const work = [...timers.values()]; timers.clear(); work.forEach(callback => callback()); };
     setEditorActive(pcb, false);
-    pcb._stale = false;
+    setEditorStale(pcb, false);
     schematic.history.execute({ execute() {}, undo() {} });
-    assert.equal(pcb._stale, true);
+    assert.equal(isEditorStale(pcb), true);
     assert.equal(timers.size, 0);
     setEditorActive(pcb, true);
     schematic.history.undo();
@@ -532,22 +537,22 @@ try {
     assert.equal(syncs, 1);
     assert.equal(placed.get('owned').reference, 'U2', 'Sync consumes the latest project model data');
     assert.equal(pcb.netlist[0].net, 'OWNED');
-    assert.equal(pcb._stale, false);
+    assert.equal(isEditorStale(pcb), false);
     project.fileManager.setDirty(false);
     assert.equal(notifications.at(-1), 'title', 'Dirty resets still update the editor title');
     setEditorActive(pcb, false);
     flush();
     assert.equal(syncs, 1, 'A queued rebuild must not render after the PCB is hidden');
-    assert.equal(pcb._stale, true);
+    assert.equal(isEditorStale(pcb), true);
     setEditorActive(pcb, true);
     pcb._syncFromSchematic();
     assert.equal(syncs, 2);
-    assert.equal(pcb._stale, false);
+    assert.equal(isEditorStale(pcb), false);
     const revision = project.fileManager.revision;
     pcb.onDocumentChanged();
     assert.equal(project.fileManager.revision, revision + 1);
     assert.equal(project.fileManager.isDirty, false, 'PCB-only edits do not raise schematic dirty events');
-    assert.equal(pcb._stale, false);
+    assert.equal(isEditorStale(pcb), false);
     assert.equal(timers.size, 0, 'PCB-only edits must not schedule a schematic-driven rebuild');
     new ProjectDocument().notifySchematicChanged();
     assert.equal(timers.size, 0, 'Other projects cannot notify this PCB');

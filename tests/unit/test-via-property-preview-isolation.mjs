@@ -119,7 +119,7 @@ function fixture(count = 1, unrelatedCount = 1) {
     for (const key of ['pads', 'vias', 'tracks', 'boardShapes', 'texts']) {
         Object.defineProperty(app, key, Object.getOwnPropertyDescriptor(PCBApp.prototype, key));
     }
-    for (const key of ['setPropertiesTitle', 'clearProperties', '_cancelPosePreviews', 'isSectionEditing',
+    for (const key of ['setPropertiesTitle', 'clearProperties', 'isSectionEditing',
         'deactivate']) app[key] = PCBApp.prototype[key];
     Object.assign(app, {
         project, pcbDocument: model, placements: new Map(), netlist: [], history: new CommandHistory(),
@@ -133,8 +133,8 @@ function fixture(count = 1, unrelatedCount = 1) {
         },
         setActiveRibbonTab() {}, setPcbStatus() {}, refreshFills() { fills++; },
         refreshClearanceHalos() { clearances++; },
-        _cancelDrawingMode() {}, _ensureViewport() {}, markSectionClean() {},
-        _refreshPcbSelectionHighlights() {},
+        ensureViewport() {}, markSectionClean() {},
+        refreshSelectionHighlights() {},
     });
     project.registerView('pcb', app);
     setPcbSelection(app, vias.map(object => ({ kind: 'via', object })));

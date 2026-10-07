@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { CommandHistory } from '../../src/core/CommandHistory.js';
 import { bindPcbControls } from '../../src/pcb/modules/controls.js';
-import { PCB_SHAPE_TOOLS, normalizePcbTool, preparePcbRibbonTransition, selectPcbTool } from '../../src/pcb/modules/tool-lifecycle.js';
+import { PCB_SHAPE_TOOLS, normalizePcbTool, preparePcbRibbonTransition, selectPcbTool, cancelPcbDrawingMode } from '../../src/pcb/modules/tool-lifecycle.js';
 import { getTrackDraw, showTrackSnapMarker } from '../../src/pcb/modules/track-draw.js';
 import { getFillDraw } from '../../src/pcb/modules/copper-fill-draw.js';
 import { getShapeDraw } from '../../src/pcb/modules/board-shapes.js';
@@ -65,7 +65,6 @@ function fixture() {
         refreshText() {},
         selectText() {},
         clearProperties() {},
-        _cancelDrawingMode: PCBApp.prototype._cancelDrawingMode,
         _cancelTrackDraw() { events.push('cancel-track'); setPcbInteraction(this, '_trackDraw', null); },
         _cancelFillDraw() { events.push('cancel-fill'); setPcbInteraction(this, '_fillDraw', null); },
         _cancelShapeDraw() { events.push('cancel-shape'); setPcbInteraction(this, '_shapeDraw', null); },
@@ -198,7 +197,7 @@ for (const boundary of ['tool', 'ribbon', 'cancel']) {
     assert.throws(() => {
         if (boundary === 'tool') f.clickTool('pad');
         else if (boundary === 'ribbon') preparePcbRibbonTransition(f.app, 'pcb-home', 'pcb-design', true);
-        else f.app._cancelDrawingMode();
+        else cancelPcbDrawingMode(f.app);
     }, error => error === failure);
     assert.equal(f.app.currentTool, 'track', 'Do not adopt the new tool after failed cleanup');
     assert.equal(f.tabs[0].classList.contains('active'), true, 'Do not navigate after failed cleanup');
@@ -206,7 +205,7 @@ for (const boundary of ['tool', 'ribbon', 'cancel']) {
 }
 {
     const f = fixture();
-    assert.equal(f.app._cancelDrawingMode(), false);
+    assert.equal(cancelPcbDrawingMode(f.app), false);
     assert.deepEqual(f.events, [], 'Idle cancellation does no UI work');
     assert.equal(normalizePcbTool('unsupported'), 'select');
     selectPcbTool(f.app, 'unsupported');

@@ -56,7 +56,7 @@ function fixture(saved = true) {
         updateRatsnest: options => ratsnestUpdates.push(options),
         screenToWorld: event => ({ x: event.clientX, y: event.clientY }),
         screenToWorld: event => ({ x: event.clientX, y: event.clientY }),
-        _markDirty: () => dirty++,
+        markDirty: () => dirty++,
         refreshClearanceHalos() {
             clearanceRefreshes++;
             padHalo.style.display = '';
@@ -237,8 +237,6 @@ for (const legacy of [false, true]) {
 for (const shared of [true, false]) {
     const f = fixture();
     const original = f.snapshot();
-    f.app._cancelPosePreviews = PCBApp.prototype._cancelPosePreviews;
-    f.app._cancelDrawingMode = () => false;
     f.begin(shared);
     f.adapter.updateMove({ x: 4, y: 5 });
     PCBApp.prototype.deactivate.call(f.app);

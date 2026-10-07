@@ -69,7 +69,7 @@ Object.assign(app, {
     currentTool: 'select', placements: new Map(), boardShapes: [],
     viewport: { isPanning: false },
     getLayerGroup: () => null,
-    _selectComponent() {}, selectText() {}, drawRefOverlay() {}, selectFill() {},
+    selectComponent() {}, selectText() {}, drawRefOverlay() {}, selectFill() {},
     clearProperties() { clearedProperties++; },
     setPcbStatus() {},
     refreshText() {}, _updateDRCStatus() {},

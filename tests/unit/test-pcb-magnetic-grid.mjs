@@ -84,6 +84,8 @@ function check(point, expected, options = {}) {
     assert.deepEqual({ x: placement.refDx, y: placement.refDy }, expected, 'Reference adapter drag');
     handleRefDrag(app, { clientX: point.x, clientY: point.y, shiftKey: viewport.shiftHeld });
     assert.deepEqual({ x: placement.refDx, y: placement.refDy }, expected, 'Legacy reference pointer drag');
+    // The seeded drags above are snap probes, not gestures; starting a paste ends any real one.
+    for (const slot of ['_textDrag', '_drag', '_refDrag']) setPcbInteraction(app, slot, null);
     const pastedText = { ...text, id: 'pasted', layer: 'top-silk' };
     beginPcbPaste(app, { texts: [pastedText] });
     updatePcbPaste(app, point);

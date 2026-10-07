@@ -121,7 +121,7 @@ const app = {
     },
     updateRatsnest: () => refreshes++, _refreshRefHighlight() {},
 };
-for (const method of ['_placeFootprints', '_renderFootprint', '_buildLodPlaceholder', 'rerenderRef', '_applyPlacementOverrides']) {
+for (const method of ['_placeFootprints', '_renderFootprint', '_buildLodPlaceholder', 'rerenderRef', 'applyPlacementOverrides']) {
     app[method] = PCBApp.prototype[method];
 }
 const initial = project.resolvePcbLayout();
@@ -142,7 +142,7 @@ for (const side of ['bottom', 'top']) {
     for (const key of ['pads', 'padOffsets', 'pasteOffsets']) Object.defineProperty(previous, key, {
         get() { assert.fail('Saved restoration cannot use stale rendered footprint geometry'); },
     });
-    app._applyPlacementOverrides();
+    app.applyPlacementOverrides();
     const expected = project.restorePcbPlacementOverrides(['part']).get('part');
     const restored = app.placements.get('part');
     assert.deepEqual(captureResolvedPlacement(restored), captureResolvedPlacement(expected));
@@ -164,7 +164,7 @@ assert.equal(refreshes, 2);
 const retained = [...app.placements.get('part').elements];
 const resolve = state.resolve;
 state.resolve = () => { throw new Error('Invalid restored layout'); };
-assert.throws(() => app._applyPlacementOverrides(), /Invalid restored layout/);
+assert.throws(() => app.applyPlacementOverrides(), /Invalid restored layout/);
 assert.ok(retained.every(element => element.parentNode), 'Resolution failures preserve the existing presentation');
 state.resolve = resolve;
 console.log('PASS headless saved placement restoration, scoped bonds, current footprint geometry and isolated SVG projection');

@@ -73,8 +73,7 @@ function fixture(kind, deferred = false) {
         getLayerGroup: id => groups.get(id) || null,
         existingLayerGroups: () => groups,
         refreshClearanceHalos() {}, refreshFills() { fills++; },
-        _cancelPosePreviews: PCBApp.prototype._cancelPosePreviews,
-        _cancelDrawingMode() {}, markSectionClean() {}, _ensureViewport() {},
+        markSectionClean() {}, ensureViewport() {},
         _shapeElements: new Map(),
         alert(message) { this.lastAlert = message; },
     };

@@ -24,6 +24,7 @@ import { resolveTrackSegments } from '../../src/shared/pcb/board-geometry.js';
 import { setDragOverlaysDeferred, setFillRefreshError, setFillRefreshPending, setFillRefreshScheduled, setFillRefreshSuspended, setPictureCopperRefreshPending } from '../../src/pcb/modules/refresh-state.js';
 import { setPcbInteraction } from '../../src/pcb/modules/pcb-interactions.js';
 import { isEditorActive, setEditorActive } from '../../src/pcb/modules/pcb-editor-api.js';
+import { cancelPcbPosePreviews } from '../../src/pcb/modules/edit-lifecycle.js';
 
 class Element {
     constructor() { this.children = []; this.attributes = new Map(); this.dataset = {}; this.style = {}; }
@@ -58,7 +59,7 @@ function fixture() {
         getRoutingParams: () => ({ clearance: 0.2 }),
         getLayerGroup: id => id === 'ratlines' ? layer : null,
         setStatus(message) { app.lastStatus = message; },
-        _cancelDrawingMode() {}, _closeBoardDimensionsDialog() {},
+        _closeBoardDimensionsDialog() {},
     });
     const drc = getDrcPresentation(app);
     Object.assign(drc, {
@@ -367,7 +368,7 @@ try {
         if (action === 'fill-replacement') model.boardShapes[0] = new CopperFill({ id: fill.id, outline: fill.outline });
         if (action === 'document') app.pcbDocument = new PcbDocument();
         if (action === 'deactivate') app.deactivate();
-        if (action === 'cancel') app._cancelPosePreviews();
+        if (action === 'cancel') cancelPcbPosePreviews(app);
         if (action === 'clear') { resetDrc(app); model.clear(); flush(); }
         if (action === 'dispose') app.dispose();
         if (action === 'sync') runDrcNow(app);

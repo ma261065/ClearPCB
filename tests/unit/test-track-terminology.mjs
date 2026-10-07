@@ -23,7 +23,7 @@ globalThis.FileReader = class { readAsText(text) { this.result = text; this.onlo
 const { pcbEditorFixture } = await import('./pcb-editor-fixture.mjs');
 let displayed, rendered;
 const editor = pcbEditorFixture({
-    setStatus: message => { displayed = message; }, _cancelAutoRoute() {},
+    setStatus: message => { displayed = message; }, cancelAutoRoute() {},
     _renderRouteResult: result => { rendered = result; },
 });
 const quietLog = console.log;

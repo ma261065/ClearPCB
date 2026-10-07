@@ -313,7 +313,7 @@ export function showBoardShapeProperties(app, shape) {
     const hasOutline = initialTargets.some(target => target.layer === 'board-outline');
     if (initialTargets.some(target => target.kind === 'image')) {
         if (initialTargets.length === 1) showImageProperties(app, shape);
-        else app._showPcbMultiSelectionProperties?.(
+        else app.showMultiSelectionProperties?.(
             initialTargets.map((object) => ({ kind: 'shape', object })),
         );
         return;
@@ -386,7 +386,7 @@ export function showBoardShapeProperties(app, shape) {
             selectReplacementTracks(app, tracks);
             return true;
         }
-        app._refreshPcbSelectionHighlights?.();
+        app.refreshSelectionHighlights?.();
         return false;
     };
     const finishPreview = preview => {

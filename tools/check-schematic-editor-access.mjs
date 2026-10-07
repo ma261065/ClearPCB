@@ -1,8 +1,8 @@
 #!/usr/bin/env node
-// Ratchets schematic code's use of the schematic editor's private (`app._x`) members down,
-// with the same rules as tools/check-pcb-editor-access.mjs. Scans the schematic layer
-// (src/schematic); tools/schematic-editor-access-baseline.json lists
-// the private SchematicApp members each module still uses.
+// Keeps schematic code off the schematic editor's private (`app._x`) members, with the
+// same rules as tools/check-pcb-editor-access.mjs. Scans the schematic layer
+// (src/schematic); tools/schematic-editor-access-baseline.json lists any private
+// SchematicApp members a module may use; it is empty.
 //
 // Usage:
 //   node tools/check-schematic-editor-access.mjs            check against the baseline

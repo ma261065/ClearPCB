@@ -64,10 +64,10 @@ function fixture() {
         _buildRouteInput: () => ({ connections: [{ net: 'ORIGINAL', pads: [] }] }),
         setStatus(message) { this.lastStatus = message; },
         refreshClearanceHalos() {},
-        refreshFills: () => false, _ensureViewport() {}, updateCopperCuts() {},
+        refreshFills: () => false, ensureViewport() {}, updateCopperCuts() {},
         _clearFillGroups() {},
     });
-    app.history = new CommandHistory({ onChanged: () => app._markDirty() });
+    app.history = new CommandHistory({ onChanged: () => app.markDirty() });
     const track = new Track({ net: 'ORIGINAL', points: [{ x: Math.PI, y: 8 }, { x: 9, y: Math.E }] });
     const via = new Via({ x: Math.PI, y: 8, diameter: 0.6123456789, drill: 0.3 });
     app.pcbDocument.tracks.push(track);

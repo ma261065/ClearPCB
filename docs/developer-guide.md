@@ -174,7 +174,7 @@ schematic ribbon description.
 
 Put it in the module that owns the behaviour, in a `WeakMap` keyed by the editor,
 with exported functions to read and change it. Do not add an `app._field` that
-other modules read: the access ratchets fail on new private accesses. If many
+other modules read: the access checks fail on any private access. If many
 modules need an editor capability, add a public method on the editor and list it
 in `pcb-editor-api.js` (or `schematic-editor-api.js`). See State Ownership in
 [project_structure.md](project_structure.md#state-ownership).

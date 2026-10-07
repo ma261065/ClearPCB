@@ -106,7 +106,7 @@ const { default: PCBApp } = await import('../../src/ui/PCBApp.js');
     const { project, tracks } = fixture({ side: 'bottom', rotation: 37.123456789 });
     let persistentRenders = 0, footprintRenders = 0;
     const app = {
-        project, boardShapes: [], _hasContent: true, _ensureViewport() {},
+        project, boardShapes: [], _hasContent: true, ensureViewport() {},
         _clearPCBContent() {
             assert.equal(tracks[1].padConnections.size, 0, 'Bond updates precede even clearing the old presentation');
         },

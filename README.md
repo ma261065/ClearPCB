@@ -194,7 +194,7 @@ owning the other.
 - **Editor services** — Modules reach what the editor owns through its public
   services (`pcb/modules/pcb-editor-api.js`, `schematic/modules/schematic-editor-api.js`)
   rather than its `_`-prefixed members. The regression gate enforces the import
-  directions between editors and ratchets the remaining private accesses down.
+  directions between editors and fails on any use of an editor's private members.
 
 ## Importing PCB pictures
 

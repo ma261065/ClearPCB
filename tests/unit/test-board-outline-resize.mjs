@@ -57,7 +57,7 @@ const commands = [];
         const board = {
             boardShapes: [{ id: 'board-outline', layer: 'board-outline', ...geometry }],
             board: { width: 100, height: 80, radius: 0 },
-            _ensureViewport() {}, _uncullAllPlacements() { unculled++; },
+            ensureViewport() {}, _uncullAllPlacements() { unculled++; },
             viewport: { fitToBounds(...bounds) { calls.push(bounds); } },
             _layerGroups: new Map([
                 ['selection-overlay', helper], ['clearance', helper], ['ratlines', helper], ['drc-overlay', helper],
@@ -84,7 +84,7 @@ const commands = [];
             'Off-board artwork must not affect board framing');
     }
     const legacy = { board: { width: 40, height: 30, radius: 0 }, boardShapes: [],
-        _ensureViewport() {}, _uncullAllPlacements() {}, _layerGroups: new Map([['selection-overlay', helper]]),
+        ensureViewport() {}, _uncullAllPlacements() {}, _layerGroups: new Map([['selection-overlay', helper]]),
         viewport: { fitToBounds(...bounds) { assert.deepEqual(bounds, [-10, -30, 40, 10, 0, 'bottom-left']); } } };
     fit.call(legacy);
 }

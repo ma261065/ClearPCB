@@ -25,7 +25,7 @@ Cloudflare zone, repository secrets, local testing, and security limitations.
 **Regression Checks** runs on pushes and pull requests targeting `dev` and
 `release_*`, and can be started manually. Its **Regression gate** job runs
 `node tools/regression.mjs` on Node 22: the import-boundary check, both editors'
-private-access ratchets, every root regression test, and the autorouter clearance
+private-access checks, every unit regression test, and the autorouter clearance
 baseline. Any test failure or hard baseline failure fails the job. Track/via-count
 differences remain visible soft warnings, not evidence that routing quality is
 unchanged.

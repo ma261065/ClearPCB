@@ -24,6 +24,8 @@ const app = {
 };
 const begin = () => {
     setPcbSelection(app, [{ kind: 'text', object: text }]);
+    // Count drag redraws only; selecting redraws the text through its adapter.
+    redraws = 0;
     beginGroupDrag(app, { x: 0, y: 0 });
 };
 const flush = () => {

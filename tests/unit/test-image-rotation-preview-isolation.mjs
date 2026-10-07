@@ -18,6 +18,7 @@ import { getSelectionInteraction } from '../../src/pcb/modules/selection-interac
 import { isRotationHandleDragActive } from '../../src/pcb/modules/rotation-handle.js';
 import { setPcbInteraction } from '../../src/pcb/modules/pcb-interactions.js';
 import { notifyLayerVisibilityChanged, notifyLayerLockChanged } from '../../src/pcb/modules/layers.js';
+import { cancelPcbPosePreviews } from '../../src/pcb/modules/edit-lifecycle.js';
 
 let allocations = 0;
 class Element {
@@ -64,14 +65,14 @@ function fixture(layer = 'top-copper', unrelatedCount = 1) {
         getLayerGroup: id => groups.get(id) || null, _layerGroups: groups, existingLayerGroups() { return this._layerGroups; },
         _shapeElements: new Map(),
         refreshFills() { fills++; }, _refreshBoardShapeClearance() { clearances++; },
-        _cancelDrawingMode() {}, _clearCursorCrosshair() {}, markSectionClean() {}, _ensureViewport() {},
-        _refreshPcbSelectionHighlights() {},
+        _clearCursorCrosshair() {}, markSectionClean() {}, ensureViewport() {},
+        refreshSelectionHighlights() {},
         propertiesItems: () => null,
     };
     for (const key of ['tracks', 'vias', 'pads', 'boardShapes', 'texts']) {
         Object.defineProperty(app, key, Object.getOwnPropertyDescriptor(PCBApp.prototype, key));
     }
-    for (const key of ['_cancelPosePreviews', 'isSectionEditing',
+    for (const key of ['isSectionEditing',
         'setPropertiesTitle', 'clearProperties']) app[key] = PCBApp.prototype[key];
     project.registerView('pcb', app);
     const adapter = createBoardShapeSelectionAdapter(app, shape, `shape:${shape.id}`);
@@ -239,7 +240,7 @@ for (const changed of [false, true]) {
         assert.equal(projected.length, 5001);
         assert.equal(projected[5000], collection[5000]);
     }
-    app._cancelPosePreviews();
+    cancelPcbPosePreviews(app);
     assert.equal(app.boardShapes, collection);
     assert.deepEqual(captureBoardShapeState(shape), before);
     assert.equal(app.isSectionEditing(), false);

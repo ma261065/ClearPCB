@@ -227,7 +227,7 @@ fillApp._layerGroups = new Map();
 
 fillApp.existingLayerGroups = function () { return this._layerGroups; };
 let selectionRefreshes = 0;
-fillApp._refreshPcbSelectionHighlights = () => { selectionRefreshes++; };
+fillApp.refreshSelectionHighlights = () => { selectionRefreshes++; };
 fillApp.selectFill = () => { throw new Error('Copper visibility must not clear a visible fill'); };
 fillApp.clearProperties = () => { throw new Error('Visible fill properties must remain available'); };
 layers.notifyLayerVisibilityChanged(fillApp, 'top-copper', false);
@@ -249,7 +249,7 @@ assert.equal(selectionRefreshes, 5, 'Every layer eye change refreshes selection 
         viewport: { scale: 10, getVisibleBounds: () => ({ minX: -100, minY: -100, maxX: 100, maxY: 100 }) },
         getLayerGroup() { return null; }, refreshText() {}, syncClipboardButtons() {},
         clearProperties() {},
-        _showPcbMultiSelectionProperties(selected) { shownProperties = new Set(selected.map(entry => entry.object)); },
+        showMultiSelectionProperties(selected) { shownProperties = new Set(selected.map(entry => entry.object)); },
         get texts() { return this.pcbDocument.texts; },
     };
     setPcbSelection(layerApp, [
@@ -267,7 +267,6 @@ assert.equal(selectionRefreshes, 5, 'Every layer eye change refreshes selection 
     assert.deepEqual(shownProperties, new Set([silkShape, keptVia]), 'Properties follow the remaining selection');
 }
 console.log('PASS hiding a layer deselects only the objects it hides');
-fillApp._cancelPosePreviews = function () { setPcbInteraction(this, '_groupDrag', null); };
 layers.notifyCopperFillVisibilityChanged(fillApp, 'top-copper', false);
 assert.equal(getGroupDrag(fillApp), null, 'Hiding a pour discards an active mixed-group preview');
 assert.equal(selectionRefreshes, 6, 'Hiding copper-fill outlines removes their selection lock overlay');

@@ -210,7 +210,6 @@ export function hasBoxSelection(app) {
  */
 export function armBoxSelect(app, screen, world) {
     stateFor(app).arm = { screen, world };
-    app._refreshPcbSelectionHighlights = () => refreshBoxSelectionHighlights(app);
 }
 
 /** Discard a pending (not-yet-started) box-select arm. */
@@ -308,7 +307,6 @@ export function finishBoxSelect(app) {
 
 /** Redraw the current marquee selection after an externally-driven edit. */
 export function refreshBoxSelectionHighlights(app) {
-    app._refreshPcbSelectionHighlights = () => refreshBoxSelectionHighlights(app);
     refreshTrackSelectionHalo(app);
     _applyHighlights(app);
 }

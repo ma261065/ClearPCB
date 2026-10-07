@@ -105,11 +105,11 @@ function fixture(saved = true, side = 'top', mirror = false) {
         getLayerGroup: id => id === 'selection-overlay' ? overlay : id === 'top-copper' ? copper : null,
         propertiesItems: () => items, setPropertiesTitle() {},
         updateRatsnest: PCBApp.prototype.updateRatsnest, refreshClearanceHalos() {},
-        _markDirty: () => dirty++, refreshFills: () => fills++,
+        markDirty: () => dirty++, refreshFills: () => fills++,
     };
     setBoardViewPanel(app, { refresh: () => views3d++ });
     attachPropertyPanelHarness(app, { controls: ids });
-    for (const method of ['showComponentProperties', '_syncComponentRotationInput', 'handleKeyDown', '_clearCursorCrosshair']) {
+    for (const method of ['showComponentProperties', 'handleKeyDown', '_clearCursorCrosshair']) {
         app[method] = PCBApp.prototype[method];
     }
     setPcbSelection(app, [{ kind: 'component', object: 'part' }]);
@@ -323,8 +323,6 @@ for (const saved of [false, true]) {
 {
     const f = fixture();
     const original = f.track.captureState();
-    f.app._cancelPosePreviews = PCBApp.prototype._cancelPosePreviews;
-    f.app._cancelDrawingMode = () => false;
     beginSelectionInteraction(f.app, f.anchor(), false);
     updateSelectionInteraction(f.app, f.pointFor(90));
     assert.deepEqual(f.track.captureState(), original, 'Rotation never edits authored copper');

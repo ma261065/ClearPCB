@@ -19,6 +19,7 @@ import { areDragOverlaysDeferred, isBoardViewRefreshSuspended, setBoardViewPanel
 import { getViaDrag } from '../../src/pcb/modules/track-drag.js';
 import { getVertexDrag } from '../../src/pcb/modules/track-drag.js';
 import { showNetGuideLine, showTrackSnapMarker } from '../../src/pcb/modules/track-draw.js';
+import { cancelPcbPosePreviews } from '../../src/pcb/modules/edit-lifecycle.js';
 
 let allocations = 0;
 globalThis.requestAnimationFrame = () => 1;
@@ -95,7 +96,7 @@ function fixture(mode, deferred = false, unrelatedCount = 1) {
     for (const key of ['pads', 'vias', 'tracks', 'boardShapes', 'texts']) {
         Object.defineProperty(app, key, Object.getOwnPropertyDescriptor(PCBApp.prototype, key));
     }
-    for (const key of ['setPropertiesTitle', 'clearProperties', '_cancelPosePreviews', 'isSectionEditing',
+    for (const key of ['setPropertiesTitle', 'clearProperties', 'isSectionEditing',
         'deactivate']) app[key] = PCBApp.prototype[key];
     Object.assign(app, {
         project, pcbDocument: model, placements: new Map(), netlist: [], history: new CommandHistory(),
@@ -104,8 +105,8 @@ function fixture(mode, deferred = false, unrelatedCount = 1) {
         propertiesItems: () => ({ innerHTML: '' }), refreshPropertyPanel() {}, getLayerGroup: id => groups.get(id) || null,
         setActiveRibbonTab() {}, setPcbStatus() {}, refreshFills() { fills++; },
         refreshClearanceHalos() { clearances++; },
-        _cancelDrawingMode() {}, _ensureViewport() {}, markSectionClean() {},
-        _refreshPcbSelectionHighlights() {},
+        ensureViewport() {}, markSectionClean() {},
+        refreshSelectionHighlights() {},
         alert(message) { this.lastAlert = message; },
     });
     project.registerView('pcb', app);
@@ -309,7 +310,7 @@ for (const mode of ['whole', 'segment', 'bridge', 'node', 'midpoint', 'split', '
                 finishVertexDrag(app);
             } else if (finish === 'deactivate') app.deactivate();
             else if (finish === 'shared') {
-                if (!finishSelectionInteraction(app, false)) app._cancelPosePreviews();
+                if (!finishSelectionInteraction(app, false)) cancelPcbPosePreviews(app);
             } else if (finish === 'failure') {
                 app.history.execute = () => { throw new Error('Rejected track gesture'); };
                 assert.throws(() => finishVertexDrag(app), /Rejected track gesture/);

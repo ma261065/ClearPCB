@@ -11,10 +11,11 @@ import { resetPcbSelection, syncPcbSelection } from './selection-registry.js';
 import { clearPcbSelectionAnchors } from './selection-anchors.js';
 import { refreshDesignSettings } from './design-settings.js';
 import { PcbDocument } from '../../core/PcbDocument.js';
-import { disposePcbPropertyEditors } from './edit-lifecycle.js';
+import { cancelPcbPosePreviews, disposePcbPropertyEditors } from './edit-lifecycle.js';
+import { cancelPcbDrawingMode } from './tool-lifecycle.js';
 import { setHoveredBoardShape } from './board-shape-state.js';
 import { refreshBoardView } from './refresh-state.js';
-import { isEditorActive } from './pcb-editor-api.js';
+import { isEditorActive, setEditorStale } from './pcb-editor-api.js';
 import { clearDrcResults, resetDrc } from './drc-state.js';
 import { closeBoardDimensionsDialog, drawBoardOutline, selectBoardOutline, setBoardOutlineDrawn } from './board-outline-resize.js';
 import { clearFillGroups } from './fill-refresh.js';
@@ -30,19 +31,19 @@ export function preparePcb(data) {
 
 /** @param {any} app */
 export function loadPcb(app, data, prepared = preparePcb(data)) {
-    app._cancelAutoRoute?.();
+    app.cancelAutoRoute?.();
     if (prepared.data) data = prepared.data;
     resetPanelPreview(app);
     app.panelization = null;
     const render = isEditorActive(app);
-    if (!render) app._stale = true;
+    if (!render) setEditorStale(app, true);
     // Need a viewport in place before we can render into layer
     // groups (autosave-recovery may call this before the user has
     // ever activated the PCB tab).
-    app._ensureViewport();
-    app._cancelPosePreviews?.();
+    app.ensureViewport();
+    cancelPcbPosePreviews(app);
     disposePcbPropertyEditors(app);
-    app._cancelDrawingMode?.();
+    cancelPcbDrawingMode(app);
     closeBoardDimensionsDialog(app);
     // Deselection can redraw old objects, so do it before removing their SVG.
     resetPcbSelection(app);
@@ -97,7 +98,7 @@ export function loadPcb(app, data, prepared = preparePcb(data)) {
     }
 
     if (data.placements && typeof data.placements === 'object') {
-        if (render && app.placements.size) app._applyPlacementOverrides();
+        if (render && app.placements.size) app.applyPlacementOverrides();
     }
 
     for (const track of app.tracks) {
@@ -134,5 +135,5 @@ export function loadPcb(app, data, prepared = preparePcb(data)) {
     app.panelization = prepared.panelization;
     syncPcbSelection(app);
     if (render) renderPanelPreview(app);
-    app._isDirty = false;
+    app.markSectionClean();
 }

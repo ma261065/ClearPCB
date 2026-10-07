@@ -8,6 +8,7 @@ import { PROPERTY_EDITOR_KINDS, getPropertyEditor, setPropertyEditor } from '../
 import { getSelectionInteraction } from '../../src/pcb/modules/selection-interaction.js';
 import { getRefDrag } from '../../src/pcb/modules/ref-text-selection.js';
 import { setPcbInteraction } from '../../src/pcb/modules/pcb-interactions.js';
+import { cancelPcbPosePreviews } from '../../src/pcb/modules/edit-lifecycle.js';
 
 globalThis.window = { addEventListener() {} };
 globalThis.document = { querySelector: () => null, getElementById: () => null };
@@ -29,10 +30,10 @@ function fixture() {
         viewport: { scale: 10, svg: { style: {} }, snapToGrid: false },
         currentTool: 'select',
         existingLayerGroups() { return this._layerGroups; },
-        getLayerGroup: () => null, drawRefOverlay() {}, _ensureViewport() {},
+        getLayerGroup: () => null, drawRefOverlay() {}, ensureViewport() {},
         _refreshRefHighlight() {}, markSectionClean() {},
     };
-    for (const name of ['_worldToPlacementLocal', 'snapToGrid', '_cancelPosePreviews', '_cancelDrawingMode',
+    for (const name of ['_worldToPlacementLocal', 'snapToGrid',
         'setPropertiesTitle', 'isSectionEditing', 'deactivate']) app[name] = PCBApp.prototype[name];
     app.history.execute({ execute() {}, undo() {} });
     app.history.undo();
@@ -51,7 +52,7 @@ for (const boundary of ['cancel', 'deactivate', 'replace']) {
         assert.equal(app.isSectionEditing(), true);
         if (boundary === 'replace') loadPcb(app, null);
         else if (boundary === 'deactivate') app.deactivate();
-        else app._cancelPosePreviews();
+        else cancelPcbPosePreviews(app);
         assert.equal(getRefDrag(app), null, `${boundary}: end the reference drag`);
         assert.equal(getSelectionInteraction(app) ?? null, null, `${boundary}: release the selection gesture`);
         assert.deepEqual(capturePlacementOverride(placement), original, `${boundary}: discard the displayed preview`);
@@ -94,7 +95,7 @@ for (const key of PROPERTY_EDITOR_KINDS) {
         if (boundary === 'replace') loadPcb(app, null);
         else if (boundary === 'panel') app.setPropertiesTitle('Next');
         else if (boundary === 'deactivate') app.deactivate();
-        else app._cancelPosePreviews();
+        else cancelPcbPosePreviews(app);
         assert.equal(cancelled, 1, `${key}/${boundary}: cancel the old edit once`);
         assert.equal(app.isSectionEditing(), false);
         const shouldDispose = ['panel', 'replace'].includes(boundary) || key === 'boardDimension';
@@ -114,7 +115,7 @@ for (const boundary of ['cancel', 'panel', 'replace']) {
     assert.throws(() => {
         if (boundary === 'replace') loadPcb(app, null);
         else if (boundary === 'panel') app.setPropertiesTitle('Next');
-        else app._cancelPosePreviews();
+        else cancelPcbPosePreviews(app);
     }, error => error === failure);
     assert.equal(getPropertyEditor(app, 'pad'), binding, 'Failed cleanup retains the unresolved editor');
     assert.equal(app.isSectionEditing(), true, 'Failed cleanup must not permit a success-shaped snapshot');

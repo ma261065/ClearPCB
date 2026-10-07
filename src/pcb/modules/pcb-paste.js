@@ -29,6 +29,7 @@ import { trackIsSelectable } from './track-select.js';
 import { showPcbSelectionProperties } from './selection-interaction.js';
 import { areDragOverlaysDeferred, isBoardViewRefreshSuspended, isFillRefreshPending, isFillRefreshSuspended, setBoardViewRefreshSuspended, setDragOverlaysDeferred, setFillRefreshPending, setFillRefreshSuspended, refreshBoardView } from './refresh-state.js';
 import { isEditorActive } from './pcb-editor-api.js';
+import { cancelPcbPosePreviews } from './edit-lifecycle.js';
 import { forgetBoardShapeClearance, getBoardShapeClearance } from './clearance-overlay.js';
 import { areShapeCopperCutsDeferred, setShapeCopperCutsDeferred } from './picture-refresh.js';
 import { getPcbInteraction, setPcbInteraction } from './pcb-interactions.js';
@@ -208,7 +209,7 @@ class PastePcbCommand {
 
 export function beginPcbPaste(app, source, { select = false } = {}) {
     if (!isEditorActive(app)) throw new Error('Cannot start a paste while the PCB editor is inactive.');
-    app._cancelPosePreviews?.();
+    cancelPcbPosePreviews(app);
     cancelPcbPaste(app);
     const payload = Object.fromEntries(kinds.map(kind => [kind, [...(source[kind] || [])]]));
     if (!kinds.some(kind => payload[kind].length)) throw new Error('PCB paste requires at least one entity.');

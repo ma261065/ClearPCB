@@ -4,7 +4,7 @@ import { createPropertyPreview } from '../../src/shapes/property-preview.js';
 import { getPcbSelection, setPcbSelection } from '../../src/pcb/modules/selection-registry.js';
 import { Viewport } from '../../src/core/Viewport.js';
 import { cancelTrackDraw, finishTrackDraw, popTrackWaypoint } from '../../src/pcb/modules/track-draw.js';
-import { selectPcbTool, preparePcbRibbonTransition } from '../../src/pcb/modules/tool-lifecycle.js';
+import { selectPcbTool, preparePcbRibbonTransition, cancelPcbDrawingMode } from '../../src/pcb/modules/tool-lifecycle.js';
 import { getPropertyEditor, setPropertyEditor } from '../../src/pcb/modules/property-editors.js';
 import { getSelectionInteraction } from '../../src/pcb/modules/selection-interaction.js';
 import { getTrackDraw } from '../../src/pcb/modules/track-draw.js';
@@ -146,7 +146,7 @@ function drawingFixture(tool) {
         _positionCrosshair: Viewport.prototype._positionCrosshair,
     });
     for (const name of ['_clearCursorCrosshair', '_clearViaRing', '_clearPadPreview',
-        '_cancelDrawingMode', '_cancelTrackDraw', '_cancelFillDraw', '_cancelShapeDraw']) {
+        '_cancelTrackDraw', '_cancelFillDraw', '_cancelShapeDraw']) {
         app[name] = PCBApp.prototype[name];
     }
     const preview = { removed: false, remove() { this.removed = true; } };
@@ -200,7 +200,7 @@ for (const finish of [cancelTrackDraw, finishTrackDraw, popTrackWaypoint]) {
 for (const leave of [
     app => selectPcbTool(app, 'select'),
     app => preparePcbRibbonTransition(app, 'pcb-properties', 'pcb-home', true),
-    app => app._cancelDrawingMode(),
+    app => cancelPcbDrawingMode(app),
 ]) {
     const { app } = drawingFixture('track');
     leave(app);

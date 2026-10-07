@@ -8,6 +8,7 @@ import { PCB_LAYERS } from '../../src/pcb/modules/layers.js';
 import { getPropertyEditor } from '../../src/pcb/modules/property-editors.js';
 import { attachPropertyPanelHarness } from './helpers/property-panel-controls.mjs';
 import { setBoardViewPanel } from '../../src/pcb/modules/refresh-state.js';
+import { cancelPcbPosePreviews } from '../../src/pcb/modules/edit-lifecycle.js';
 
 globalThis.window = { addEventListener() {} };
 globalThis.document = { documentElement: { getAttribute: () => 'dark' }, createElementNS: (_namespace, tagName) => ({
@@ -192,12 +193,10 @@ for (const finish of ['cancel', 'escape', 'panel', 'deactivate', 'failure', 'rep
     placement.x += 2;
     placement.refDx += 2;
     try {
-        if (finish === 'cancel') PCBApp.prototype._cancelPosePreviews.call(app);
+        if (finish === 'cancel') cancelPcbPosePreviews(app);
         else if (finish === 'escape') input.fire('keydown', input.value, { key: 'Escape' });
         else if (finish === 'panel') PCBApp.prototype.setPropertiesTitle.call(app, 'Other');
         else if (finish === 'deactivate') {
-            app._cancelPosePreviews = PCBApp.prototype._cancelPosePreviews;
-            app._cancelDrawingMode = () => {};
             PCBApp.prototype.deactivate.call(app);
         } else if (finish === 'failure') {
             app.history.execute = () => { throw new Error('Reference commit failed'); };

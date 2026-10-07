@@ -14,10 +14,11 @@ import {
 } from './track-render.js';
 import { reconcileRatsnest } from './track-draw.js';
 import { clearTrackSelection, refreshTrackSelectionHalo } from './track-select.js';
-import { getPcbSelection, togglePcbSelection } from './selection-registry.js';
+import { getPcbSelection, syncPcbSelection, togglePcbSelection } from './selection-registry.js';
+import { showPcbSelectionProperties } from './selection-interaction.js';
 import { batchDerivedUpdates, deferDerivedUpdate } from '../../core/DerivedUpdates.js';
 import { isPlacementMirrored } from '../../shared/pcb/board-geometry.js';
-import { storedDrcRatlines } from './drc-state.js';
+import { scheduleDrc, setDrcRatlines, storedDrcRatlines } from './drc-state.js';
 import { drawBoardOutline, syncBoardOutlineInputs } from './board-outline-resize.js';
 export { isPlacementMirrored } from '../../shared/pcb/board-geometry.js';
 import {
@@ -433,7 +434,7 @@ export function renderPlacementPose(app, compId) {
             }
         }
     }
-    app._syncComponentRotationInput?.(compId);
+    getPropertyEditor(app, 'component')?.syncRotationInput(compId);
 }
 
 /** Add a freshly-built Track to app.tracks and render it. Optionally
@@ -482,8 +483,64 @@ export class ReplaceRoutesCommand extends ModelReplaceRoutesCommand {
         for (const track of this.document.tracks) removeTrackElements(track);
         for (const via of this.document.vias) removeViaElements(via);
         super._apply(state);
-        this.app._renderRoutedCopper(state === this.after ? this.afterFailed : this.beforeFailed);
+        renderRoutedCopper(this.app, state === this.after ? this.afterFailed : this.beforeFailed);
     }
+}
+
+/**
+ * Redraw routed copper after routes are replaced or cleared: tracks and vias, the
+ * failed-connection ratlines, selection, DRC and clearance halos.
+ * @param {any} app
+ * @param {Array<{net: string, x1: number, y1: number, x2: number, y2: number}>} [failedRatlines]
+ */
+export function renderRoutedCopper(app, failedRatlines = []) {
+    const params = app.getRoutingParams();
+    for (const id of ['top-copper', 'bottom-copper', 'vias']) {
+        app.getLayerGroup(id)?.querySelectorAll('.pcb-routed-track, .pcb-routed-via, .pcb-route-anim')
+            .forEach(el => el.remove());
+    }
+    const getGroup = (id) => app.getLayerGroup(id);
+    for (const t of app.pcbDocument.tracks) renderTrack(t, getGroup, {
+        viaDiameter: params.viaDiameter,
+        viaDrill: params.viaDrill,
+    });
+    for (const v of app.pcbDocument.vias) renderVia(v, getGroup);
+
+    // Reconcile final ratsnest: hide all original ratlines, then draw
+    // per-connection ratlines for each failed connection.
+    const ratLayer = app.getLayerGroup('ratlines');
+    ratLayer?.querySelectorAll('.ratsnest-failed').forEach(el => el.remove());
+    for (const el of [...(ratLayer?.children || [])]) {
+        /** @type {HTMLElement} */ (el).style.display = 'none';
+    }
+
+    const NS2 = 'http://www.w3.org/2000/svg';
+    if (ratLayer) {
+        for (const fc of failedRatlines) {
+            const line = document.createElementNS(NS2, 'line');
+            line.setAttribute('x1', String(fc.x1));
+            line.setAttribute('y1', String(fc.y1));
+            line.setAttribute('x2', String(fc.x2));
+            line.setAttribute('y2', String(fc.y2));
+            line.setAttribute('stroke', '#4488ff');
+            line.setAttribute('stroke-width', '1');
+            line.setAttribute('vector-effect', 'non-scaling-stroke');
+            line.setAttribute('pointer-events', 'none');
+            line.setAttribute('class', 'ratsnest-line ratsnest-failed');
+            line.dataset.net = fc.net;
+            ratLayer.appendChild(line);
+        }
+    }
+
+    setDrcRatlines(app, failedRatlines.map(line => ({ ...line })));
+    reconcileRatsnest(app);
+    syncPcbSelection(app);
+    app.refreshSelectionHighlights();
+    showPcbSelectionProperties(app);
+    app.setPcbStatus?.();
+
+    app.refreshClearanceHalos();
+    scheduleDrc(app);
 }
 
 /** Remove an existing Track from app.tracks and its SVG. */
@@ -652,11 +709,11 @@ function presentPlacementPose(app, compId, result) {
         renderTrack(track, id => app.getLayerGroup(id), _opts(app, track));
     }
     refreshEditedTrackClearance(app);
-    app._markDirty?.();
+    app.markDirty?.();
     app.updateRatsnest?.();
     app.refreshFills?.();
     refreshBoardView(app);
-    app._refreshPcbSelectionHighlights?.();
+    app.refreshSelectionHighlights?.();
 }
 
 export class MovePlacementCommand extends ModelMovePlacementCommand {
@@ -698,8 +755,8 @@ export class SetPlacementLockedCommand extends ModelSetPlacementLockedCommand {
         const saved = super._apply(locked);
         const pl = this.app.placements?.get(this.compId);
         if (pl) pl.locked = saved.locked;
-        this.app._markDirty?.();
-        this.app._refreshPcbSelectionHighlights?.();
+        this.app.markDirty?.();
+        this.app.refreshSelectionHighlights?.();
         if (getPcbSelection(this.app, 'component').includes(this.compId)) {
             if (this.app.viewport?.svg) {
                 this.app.viewport.svg.style.cursor = locked ? 'default' : 'grab';
@@ -756,7 +813,7 @@ export class SetPlacementRefVisibleCommand extends ModelSetPlacementRefVisibleCo
     _apply(v) {
         const saved = super._apply(v);
         applyPlacementRefVisible(this.app, this.compId, saved.refVisible);
-        this.app._markDirty?.();
+        this.app.markDirty?.();
         refreshBoardView(this.app);
         return saved;
     }

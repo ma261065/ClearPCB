@@ -70,8 +70,8 @@ function fixture(existing = true, deferred = false) {
         getLayerGroup(id) { if (id === 'board-outline') draws++; return id === 'board-outline' ? group : null; },
         refreshFills() { assert.equal(areDragOverlaysDeferred(this), deferred); pours++; },
         propertiesItems: () => null,
-        _cancelDrawingMode() {}, _ensureViewport() {}, markSectionClean() {},
-        _refreshPcbSelectionHighlights() {},
+        ensureViewport() {}, markSectionClean() {},
+        refreshSelectionHighlights() {},
     };
     setBoardViewPanel(app, { refresh() { refresh3d++; } });
     setDragOverlaysDeferred(app, deferred);
@@ -79,7 +79,7 @@ function fixture(existing = true, deferred = false) {
     for (const key of ['boardShapes', 'tracks', 'vias', 'pads', 'texts']) {
         Object.defineProperty(app, key, Object.getOwnPropertyDescriptor(PCBApp.prototype, key));
     }
-    for (const key of ['_cancelPosePreviews', 'isSectionEditing',
+    for (const key of ['isSectionEditing',
         'clearProperties', 'setPropertiesTitle']) {
         app[key] = PCBApp.prototype[key];
     }
@@ -402,7 +402,7 @@ for (const mode of ['rectangle', 'default-rectangle', 'circle', 'same-size-circl
     document.createElement = () => overlay;
     document.body = new Element();
     let dirty = 0;
-    app._markDirty = () => { dirty++; };
+    app.markDirty = () => { dirty++; };
     PCBApp.prototype._showBoardDimensionsDialog.call(app);
     assert.ok(overlay.innerHTML.includes('Tip: Edit the board outline after creation for more complex shapes'));
     const shape = controls.get('#boardDlgShape');

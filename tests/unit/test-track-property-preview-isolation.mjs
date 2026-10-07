@@ -20,6 +20,7 @@ import { flushSettledChanges } from '../../src/shared/ui/settled-input.js';
 import { getSelectionInteraction } from '../../src/pcb/modules/selection-interaction.js';
 import { getVertexDrag } from '../../src/pcb/modules/track-drag.js';
 import { setPcbInteraction } from '../../src/pcb/modules/pcb-interactions.js';
+import { cancelPcbPosePreviews } from '../../src/pcb/modules/edit-lifecycle.js';
 
 let allocations = 0, inputs = new Map();
 globalThis.requestAnimationFrame = () => 1;
@@ -117,7 +118,7 @@ function fixture(scope = 'whole', unrelatedCount = 1) {
     for (const key of ['pads', 'vias', 'tracks', 'boardShapes', 'texts']) {
         Object.defineProperty(app, key, Object.getOwnPropertyDescriptor(PCBApp.prototype, key));
     }
-    for (const key of ['setPropertiesTitle', 'clearProperties', '_cancelPosePreviews', 'isSectionEditing',
+    for (const key of ['setPropertiesTitle', 'clearProperties', 'isSectionEditing',
         'deactivate']) app[key] = PCBApp.prototype[key];
     Object.assign(app, {
         project, pcbDocument: model, placements: new Map(), netlist: [], history: new CommandHistory(),
@@ -131,8 +132,8 @@ function fixture(scope = 'whole', unrelatedCount = 1) {
         },
         setActiveRibbonTab() {}, setPcbStatus() {}, refreshFills() { fills++; },
         refreshClearanceHalos() { clearances++; },
-        _cancelDrawingMode() {}, _ensureViewport() {}, markSectionClean() {},
-        _refreshPcbSelectionHighlights() {},
+        ensureViewport() {}, markSectionClean() {},
+        refreshSelectionHighlights() {},
     });
     project.registerView('pcb', app);
     for (const object of [track, unrelated[0]].filter(Boolean)) renderTrack(object, app.getLayerGroup);
@@ -269,7 +270,7 @@ for (const [scope, field, value] of [
                 else { layer.visible = false; notifyLayerVisibilityChanged(app, layer.id, false); }
                 input.emit('input', value + 1);
             } finally { layer.locked = false; layer.visible = true; }
-        } else if (finish === 'shared') app._cancelPosePreviews();
+        } else if (finish === 'shared') cancelPcbPosePreviews(app);
         else {
             input.emit('keydown', input.value, { key: 'Escape' });
             input.emit('change');

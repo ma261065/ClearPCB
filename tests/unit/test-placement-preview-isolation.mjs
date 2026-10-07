@@ -41,7 +41,7 @@ function fixture() {
             if (!groups.has(id)) groups.set(id, new Element('g'));
             return groups.get(id);
         },
-        _markDirty: () => dirty++,
+        markDirty: () => dirty++,
     };
     for (const track of app.tracks) renderTrack(track, id => app.getLayerGroup(id));
     const lines = () => [...groups.values()].flatMap(group => group.children)

@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { setEditorActive } from '../../src/pcb/modules/pcb-editor-api.js';
+import { setEditorActive, setEditorStale } from '../../src/pcb/modules/pcb-editor-api.js';
 import { getShapeDraw } from '../../src/pcb/modules/board-shapes.js';
 
 function element(tag) {
@@ -76,7 +76,7 @@ function fixture(active) {
         ui: { gridSize: element('select') },
         initialize() {}, _retainRibbonHeight() {},
         _updateViewportStatus() {}, syncPcbViewToggles() {},
-        _syncFromSchematic() { this._stale = false; },
+        _syncFromSchematic() { setEditorStale(this, false); },
         setActiveRibbonTab(tab) { lifecycle.push(tab); },
         _showBoardDimensionsDialog() {
             assert.equal(this.boardShapes.length, 0, 'Prompt follows removal of the old shapes');
@@ -85,7 +85,7 @@ function fixture(active) {
             assert.deepEqual(Object.values(boardDimensions(this)), [100, 80, 0]);
             lifecycle.push('dimensions');
         },
-        _ensureViewport() {},
+        ensureViewport() {},
         getLayerGroup(id) {
             if (!layers.has(id)) layers.set(id, element('g'));
             return layers.get(id);

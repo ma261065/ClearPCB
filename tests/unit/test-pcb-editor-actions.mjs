@@ -55,7 +55,6 @@ function fixture() {
         status: { docTitle },
         _clearCursorCrosshair() { events.push('cursor'); },
         _cancelPasteDrop() { events.push('cancel-paste'); setPcbInteraction(this, '_pasteDrop', null); },
-        _cancelPosePreviews: PCBApp.prototype._cancelPosePreviews,
         handleKeyDown: PCBApp.prototype.handleKeyDown,
     };
     bindPcbControls(app);
