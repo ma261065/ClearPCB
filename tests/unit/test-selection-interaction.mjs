@@ -1,0 +1,426 @@
+/** Headless regression tests for shared PCB selection interaction state. */
+import { getBoardShapeSegmentFocus, setBoardShapeSegmentFocus } from '../../src/pcb/modules/board-shape-state.js';
+import { getSelectionInteraction } from '../../src/pcb/modules/selection-interaction.js';
+import { getVertexDrag } from '../../src/pcb/modules/track-drag.js';
+import { setPcbInteraction } from '../../src/pcb/modules/pcb-interactions.js';
+
+globalThis.window = { addEventListener() {} };
+globalThis.document = { getElementById() { return null; }, querySelector() { return null; },
+    createElementNS() { return { setAttribute() {}, getAttribute() { return null; }, appendChild() {}, remove() {} }; } };
+globalThis.requestAnimationFrame = (callback) => { callback(); return 1; };
+
+const {
+    finishSelectionInteraction,
+    beginSelectionInteraction,
+    placeFloatingSelectionInteraction,
+    updateSelectionInteraction,
+    showPcbSelectionProperties,
+} = await import('../../src/pcb/modules/selection-interaction.js');
+const { createTrackSelectionAdapter, getTrackEdit } = await import('../../src/pcb/modules/track-select.js');
+const {
+    clearPcbSelection,
+    hitTestPcbSelectionEntry,
+    getPcbSelectionManager,
+    registerPcbSelectionAdapter,
+    setPcbSelection,
+} = await import('../../src/pcb/modules/selection-registry.js');
+const { Track } = await import('../../src/shapes/track.js');
+
+let failures = 0;
+
+function expect(name, condition) {
+    if (condition) {
+        console.log(`PASS: ${name}`);
+        return;
+    }
+    failures++;
+    console.error(`FAIL: ${name}`);
+}
+
+{
+    registerPcbSelectionAdapter('shape', (_app, object, id) => ({
+        id, kind: 'shape', object, visible: true,
+        getBounds() { return { minX: 0, minY: 0, maxX: 10, maxY: 10 }; },
+        hitTest() { return true; },
+        invalidate() {},
+    }));
+    registerPcbSelectionAdapter('via', (_app, object, id) => ({
+        id, kind: 'via', object, visible: true,
+        getBounds() { return { minX: 0, minY: 0, maxX: 10, maxY: 10 }; },
+        hitTest() { return true; },
+        invalidate() {},
+    }));
+    const hole = { id: 'hole-shape', layer: 'hole' };
+    const via = { id: 'overlapping-via' };
+    const app = {
+        placements: new Map(), tracks: [], vias: [via], boardShapes: [hole], texts: new Map(),
+        viewport: { scale: 1 },
+    };
+    const hit = hitTestPcbSelectionEntry(app, { x: 5, y: 5 }, ['shape', 'via']);
+    expect('hole shape owns clicks across its filled hit area', hit?.object === hole);
+}
+
+{
+    const top = { id: 'top-object' };
+    const below = { id: 'below-object' };
+    const unrelated = { id: 'unrelated-object' };
+    let moves = 0;
+    const factory = (_app, object, id) => ({
+        id, kind: 'shape', object, visible: true,
+        getBounds() { return { minX: 0, minY: 0, maxX: 10, maxY: 10 }; },
+        hitTest() { return object !== unrelated; },
+        beginMove() { return true; },
+        updateMove() { moves++; },
+        endMove() {},
+        invalidate() {},
+    });
+    registerPcbSelectionAdapter('shape', factory);
+    const app = {
+        placements: new Map(), tracks: [], vias: [], boardShapes: [below, top, unrelated], texts: new Map(),
+        _shapeElements: new Map(),
+        viewport: { scale: 1 },
+        syncClipboardButtons() {}, setPcbStatus() {},
+        _selectComponent() {}, _selectBoardOutline() {}, selectText() {}, drawRefOverlay() {}, selectFill() {},
+        clearProperties() {}, _showPcbMultiSelectionProperties() {},
+        getLayerGroup() { return null; },
+    };
+    setPcbSelection(app, [{ kind: 'shape', object: top }]);
+    expect('Ctrl-click consumes an overlapping PCB selection',
+        beginSelectionInteraction(app, { x: 5, y: 5 }, true));
+    expect('Ctrl-click removes a selected PCB object', getPcbSelectionManager(app).count === 0);
+    beginSelectionInteraction(app, { x: 5, y: 5 }, true);
+    expect('Ctrl-click adds an unselected PCB object', getPcbSelectionManager(app).getSelection()[0]?.object === top);
+    beginSelectionInteraction(app, { x: 5, y: 5 }, false, true);
+    expect('Shift press leaves selection unchanged', getPcbSelectionManager(app).getSelection()[0]?.object === top);
+    finishSelectionInteraction(app, true);
+    expect('Shift-click cycles to the next overlapping PCB object',
+        getPcbSelectionManager(app).getSelection()[0]?.object === below);
+    beginSelectionInteraction(app, { x: 5, y: 5 }, false, true);
+    finishSelectionInteraction(app, true);
+    expect('Shift-click wraps the overlap stack', getPcbSelectionManager(app).getSelection()[0]?.object === top);
+    beginSelectionInteraction(app, { x: 5, y: 5 }, false, true);
+    finishSelectionInteraction(app, false);
+    expect('Escape cancels pending overlap cycling', getPcbSelectionManager(app).getSelection()[0]?.object === top);
+    beginSelectionInteraction(app, { x: 5, y: 5 }, false, true);
+    updateSelectionInteraction(app, { x: 9, y: 5 });
+    expect('Shift-drag promotes normal movement without cycling', moves === 1
+        && getPcbSelectionManager(app).getSelection()[0]?.object === top);
+    finishSelectionInteraction(app, true);
+    beginSelectionInteraction(app, { x: 5, y: 5 }, false, true);
+    finishSelectionInteraction(app, true, { x: 9, y: 5 });
+    expect('A distant release without mousemove becomes a drag, not a cycle', moves === 2
+        && getPcbSelectionManager(app).getSelection()[0]?.object === top);
+    setPcbSelection(app, [{ kind: 'shape', object: top }, { kind: 'shape', object: unrelated }]);
+    beginSelectionInteraction(app, { x: 5, y: 5 }, true, true);
+    finishSelectionInteraction(app, true);
+    const selectedObjects = getPcbSelectionManager(app).getSelection().map((item) => item.object);
+    expect('Ctrl+Shift cycling preserves unrelated selected objects', selectedObjects.includes(below)
+        && selectedObjects.includes(unrelated) && !selectedObjects.includes(top));
+}
+
+{
+    const locked = { id: 'locked-shape' };
+    let beganMove = false;
+    registerPcbSelectionAdapter('shape', (_app, object, id) => ({
+        id, kind: 'shape', object, visible: true, locked: true,
+        getBounds: () => ({ minX: 0, minY: 0, maxX: 10, maxY: 10 }),
+        hitTest: () => true,
+        beginMove() { beganMove = true; return true; },
+        invalidate() {},
+    }));
+    const app = {
+        placements: new Map(), tracks: [], vias: [], boardShapes: [locked], texts: new Map(),
+        _shapeElements: new Map(), viewport: { scale: 1 },
+        syncClipboardButtons() {}, setPcbStatus() {},
+        _selectComponent() {}, _selectBoardOutline() {}, selectText() {}, drawRefOverlay() {}, selectFill() {},
+        clearProperties() {}, getLayerGroup() { return null; },
+    };
+    expect('Locked object remains directly selectable',
+        beginSelectionInteraction(app, { x: 5, y: 5 }, false));
+    expect('Locked object does not begin movement', !beganMove && !getSelectionInteraction(app));
+}
+
+{
+    const top = { id: 'priority-via' };
+    const below = { id: 'underlying-shape' };
+    const moved = [];
+    let belowVisible = true;
+    const factory = kind => (_app, object, id) => ({
+        id, kind, object,
+        get visible() { return object !== below || belowVisible; },
+        getBounds() { return { minX: 0, minY: 0, maxX: 20, maxY: 10 }; },
+        hitTest(point) { return object === top || point.x <= 10; },
+        beginMove() { return true; },
+        updateMove() { moved.push(object); },
+        endMove() {}, invalidate() {},
+    });
+    registerPcbSelectionAdapter('shape', factory('shape'));
+    registerPcbSelectionAdapter('via', factory('via'));
+    const app = {
+        placements: new Map(), tracks: [], vias: [top], boardShapes: [below], texts: new Map(),
+        _shapeElements: new Map(), viewport: { scale: 1 },
+        syncClipboardButtons() {}, setPcbStatus() {},
+        _selectComponent() {}, _selectBoardOutline() {}, selectText() {}, drawRefOverlay() {}, selectFill() {},
+        clearProperties() {}, getLayerGroup() { return null; },
+    };
+    for (const shiftDrag of [false, true]) {
+        setPcbSelection(app, [{ kind: 'via', object: top }]);
+        beginSelectionInteraction(app, { x: 5, y: 5 }, false, true);
+        finishSelectionInteraction(app, true);
+        expect('Shift-click reaches an object beneath a higher-priority kind',
+            getPcbSelectionManager(app).getSelection()[0]?.object === below);
+        beginSelectionInteraction(app, { x: 5, y: 5 }, false, shiftDrag);
+        updateSelectionInteraction(app, { x: 9, y: 5 });
+        finishSelectionInteraction(app, true);
+        expect(`${shiftDrag ? 'Shift-drag' : 'Normal drag'} moves the cycled underlying object`,
+            moved.at(-1) === below && getPcbSelectionManager(app).getSelection()[0]?.object === below);
+    }
+    beginSelectionInteraction(app, { x: 15, y: 5 }, false);
+    expect('Clicking outside the selected object still selects the object hit',
+        getPcbSelectionManager(app).getSelection()[0]?.object === top);
+    finishSelectionInteraction(app, true);
+    setPcbSelection(app, [{ kind: 'shape', object: below }]);
+    belowVisible = false;
+    beginSelectionInteraction(app, { x: 5, y: 5 }, false);
+    expect('A hidden selected object cannot claim the drag',
+        getPcbSelectionManager(app).getSelection()[0]?.object === top);
+    finishSelectionInteraction(app, true);
+}
+
+{
+    let removed = 0;
+    const shape = { id: 'shape-segment' };
+    registerPcbSelectionAdapter('shape', (_app, object, id) => ({
+        id, kind: 'shape', object, visible: true,
+        getBounds() { return { minX: 0, minY: 0, maxX: 1, maxY: 1 }; },
+        hitTest() { return false; },
+        invalidate() {},
+    }));
+    const app = {
+        placements: new Map(), tracks: [], vias: [], boardShapes: [shape], texts: new Map(),
+        viewport: { scale: 1 },
+        getLayerGroup() {
+            return { querySelectorAll() { return [{ remove() { removed++; } }]; } };
+        },
+        setPcbStatus() {},
+    };
+    setPcbSelection(app, [{ kind: 'shape', object: shape }]);
+    setBoardShapeSegmentFocus(app, { shapeId: shape.id, segment: 0 });
+    clearPcbSelection(app);
+    expect('PCB shape deselection clears refined segment state', getBoardShapeSegmentFocus(app) === null);
+    expect('PCB shape deselection removes refined segment highlight', removed === 1);
+}
+
+{
+    const endCalls = [];
+    let updates = 0;
+    const app = {
+        viewport: { scale: 1 },
+    };
+    setPcbInteraction(app, '_pcbSelectionInteraction', {
+            mode: 'anchor',
+            startWorld: { x: 0, y: 0 },
+            moved: false,
+            adapter: {
+                updateAnchorDrag() { updates++; },
+                endAnchorDrag(_commit, options) {
+                    endCalls.push(options);
+                },
+            },
+    });
+
+    expect('anchor update is consumed', updateSelectionInteraction(app, { x: 4, y: 0 }));
+    expect('anchor movement crosses the shared threshold', getSelectionInteraction(app).moved);
+    expect('adapter receives held-drag update', updates === 1);
+    expect('release is consumed', finishSelectionInteraction(app, true));
+    expect('release finishes the interaction', getSelectionInteraction(app) == null);
+    expect('release reaches the adapter once', endCalls.length === 1 && endCalls[0].moved);
+    expect('movement after release is ignored', !updateSelectionInteraction(app, { x: 8, y: 0 }) && updates === 1);
+    expect('ordinary anchor release leaves nothing to drop', !placeFloatingSelectionInteraction(app));
+}
+
+{
+    let endOptions = null;
+    const app = {
+        viewport: { scale: 10 },
+    };
+    setPcbInteraction(app, '_pcbSelectionInteraction', {
+            mode: 'move-adapter',
+            startWorld: { x: 0, y: 0 },
+            moved: false,
+            entry: {
+                updateMove() {},
+                endMove(_commit, options) { endOptions = options; },
+            },
+    });
+    updateSelectionInteraction(app, { x: 1, y: 0 });
+    finishSelectionInteraction(app, true);
+    expect('PCB move adapter receives movement threshold result', endOptions?.moved === true);
+}
+
+{
+    const endCalls = [];
+    const app = {
+        viewport: { scale: 1 },
+    };
+    setPcbInteraction(app, '_pcbSelectionInteraction', {
+            mode: 'floating-anchor',
+            adapter: { endAnchorDrag(commit) { endCalls.push(commit); } },
+    });
+
+    finishSelectionInteraction(app, false);
+    expect('Escape cancels a floating interaction', endCalls[0] === false && getSelectionInteraction(app) == null);
+}
+
+for (const kind of ['shape', 'track', 'fill']) for (const anchorId of [0, 'mid:0']) {
+    let ended = 0;
+    const app = {
+        viewport: { scale: 1 },
+    };
+    setPcbInteraction(app, '_pcbSelectionInteraction', {
+            mode: 'anchor',
+            startWorld: { x: 0, y: 0 },
+            moved: false,
+            anchorId,
+            adapter: { kind, endAnchorDrag() { ended++; } },
+    });
+
+    finishSelectionInteraction(app, true);
+    if (anchorId === 'mid:0') {
+        expect(`${kind} midpoint click sticks to the cursor`, ended === 0 && getSelectionInteraction(app)?.mode === 'floating-anchor');
+        expect(`${kind} midpoint follows the released pointer`, updateSelectionInteraction(app, { x: 5, y: 4 }));
+        expect(`${kind} midpoint drops on the next click`, placeFloatingSelectionInteraction(app) && ended === 1);
+    } else {
+        expect(`${kind} existing node click ends without floating`, ended === 1 && getSelectionInteraction(app) == null);
+        expect(`${kind} existing node cannot follow the released pointer`, !updateSelectionInteraction(app, { x: 5, y: 4 }));
+    }
+}
+
+{
+    let committed = false;
+    const fillAdapter = {
+        endAnchorDrag(commit, options) {
+            committed = commit;
+        },
+    };
+    const app = {
+        viewport: { scale: 1 },
+    };
+    setPcbInteraction(app, '_pcbSelectionInteraction', {
+            mode: 'anchor',
+            startWorld: { x: 0, y: 0 },
+            moved: true,
+            adapter: fillAdapter,
+    });
+
+    finishSelectionInteraction(app, true);
+    expect('a dragged fill anchor commits on mouse-up', committed && getSelectionInteraction(app) == null);
+}
+
+{
+    const track = new Track({ points: [{ x: 0, y: 0 }, { x: 10, y: 0 }] });
+    const edgeId = track.edges.keys().next().value;
+    const app = {
+        tracks: [track],
+        vias: [],
+        placements: new Map(),
+        boardShapes: [],
+        texts: new Map(),
+        viewport: {
+            scale: 10,
+            setCrosshair() {},
+            hideCrosshair() {},
+        },
+        _layerGroups: new Map(),
+        getLayerGroup() { return null; },
+        propertiesItems() { return null; },
+    };
+    const adapter = createTrackSelectionAdapter(app, track, `track:${track.id}`);
+    const segmentPoint = { x: 2.5, y: 0 };
+
+    expect('first Track click starts the segment interaction',
+        adapter.beginMove(segmentPoint, { alreadySelected: false }));
+    adapter.endMove(true);
+    expect('first Track click retains whole-track selection', !getTrackEdit(app));
+
+    expect('second Track click starts the segment interaction',
+        adapter.beginMove(segmentPoint, { alreadySelected: true }));
+    adapter.endMove(true);
+    expect('second Track click refines to the clicked segment', getTrackEdit(app)?.edgeId === edgeId);
+
+    let panel = null;
+    app.openPropertyPanel = next => { panel = next; return true; };
+    app.refreshPropertyPanel = next => { panel = next; };
+    const nodeId = track.nodes.keys().next().value;
+    const node = track.nodes.get(nodeId);
+    expect('clicking a Track node starts an anchor interaction', beginSelectionInteraction(app, node, false));
+    finishSelectionInteraction(app, true);
+    expect('click-release focuses the Track node', getTrackEdit(app)?.nodeId === nodeId);
+    expect('focused Track node does not float', getSelectionInteraction(app) == null && getVertexDrag(app) == null);
+    showPcbSelectionProperties(app);
+    const fieldIds = () => new Set((panel?.fields || []).map(field => field.id));
+    expect('property refresh preserves Track node focus', getTrackEdit(app)?.nodeId === nodeId && panel?.title === 'Track Node');
+    expect('Track node properties include corner radius', fieldIds().has('pcbPropTrackCornerRadius'));
+    expect('Track node properties display coordinates', fieldIds().has('pcbPropTrackNodeX')
+        && fieldIds().has('pcbPropTrackNodeY'));
+    finishSelectionInteraction(app, false);
+    expect('cancelling the pickup preserves existing Track node focus', getTrackEdit(app)?.nodeId === nodeId
+        && getVertexDrag(app) == null && panel?.title === 'Track Node');
+}
+
+{
+    const { pathMoveInteraction, pathContextActions, snapPathPoint, snapPathTranslation } =
+        await import('../../src/pcb/modules/path-edit.js');
+    let focused = null;
+    let moving = null;
+    const interaction = pathMoveInteraction({ segmentAt: () => 2, selectedSegment: () => focused,
+        selectSegment: segment => { focused = segment; },
+        begin: (point, segment) => { moving = segment; return true; }, update() {}, end() {} });
+    interaction.beginMove({ x: 0, y: 0 }, { alreadySelected: false });
+    interaction.endMove(true);
+    expect('shared first click selects the parent', moving === null && focused === null);
+    interaction.beginMove({ x: 0, y: 0 }, { alreadySelected: true });
+    interaction.endMove(true);
+    expect('shared second click selects the segment', focused === 2);
+    interaction.beginMove({ x: 0, y: 0 }, { alreadySelected: true, selectedSegment: 2 });
+    interaction.endMove(true, { moved: true });
+    expect('shared segment drag targets the selected segment', moving === 2 && focused === 2);
+    interaction.beginMove({ x: 0, y: 0 }, { alreadySelected: true, selectedSegment: 2 });
+    interaction.endMove(true);
+    expect('repeated segment click retains refinement', focused === 2);
+    const action = () => {};
+    expect('shared node menu has Split and Delete node', pathContextActions({ node: true, split: action, deleteNode: action })
+        .map(item => item.text).join(',') === 'Split,Delete node');
+    expect('shared segment menu has conversion and targeted deletion', pathContextActions({ segment: true, curved: false,
+        convert: action, deleteSegment: action }).map(item => item.text).join(',') === 'Convert to Arc Segment,Delete segment');
+    const app = { placements: new Map(), viewport: { scale: 100, gridSize: 1, gridVisible: true },
+        snapToGrid: point => ({ x: Math.round(point.x), y: Math.round(point.y) }) };
+    const free = snapPathPoint(app, { x: 2.3, y: 4.4 });
+    expect('shared point snap is free outside the grid magnet band', free.x === 2.3 && free.y === 4.4);
+    const grid = snapPathPoint(app, { x: 2.03, y: 4.4 });
+    expect('shared point snap attracts only the nearby grid axis', grid.x === 2 && grid.y === 4.4);
+    const horizontal = snapPathPoint(app, { x: 2.3, y: 0.03 }, [{ x: 0, y: 0 }]);
+    expect('shared point snap leaves the unaligned axis free', horizontal.x === 2.3 && horizontal.y === 0);
+    const diagonal = snapPathPoint(app, { x: 2, y: 2.03 }, [{ x: 0, y: 0 }]);
+    expect('shared point snap aligns to 45 degrees', Math.abs(diagonal.x - diagonal.y) < 1e-9);
+    app.placements.set('R1', { pads: new Map([['1', { x: 10.02, y: 3.04 }]]) });
+    const delta = snapPathTranslation(app, [{ x: 0, y: 0 }, { x: 8, y: 0 }], { x: 2, y: 3 }, [], [], true);
+    expect('Track translation snaps any moving endpoint to a pad', Math.abs(delta.x - 2.02) < 1e-9
+        && Math.abs(delta.y - 3.04) < 1e-9);
+    const shapeDelta = snapPathTranslation(app, [{ x: 0, y: 0 }, { x: 8, y: 0 }], { x: 2, y: 3 });
+    expect('shape translation ignores pads', shapeDelta.x === 2 && shapeDelta.y === 3);
+    app.viewport.shiftHeld = true;
+    const override = snapPathPoint(app, { x: 10.03, y: 3.03 }, [{ x: 10, y: 3 }], true);
+    expect('Shift disables pad, grid and axis magnets', override.x === 10.03 && override.y === 3.03);
+    const freeDelta = snapPathTranslation(app, [{ x: 0, y: 0 }], { x: 10.03, y: 3.03 });
+    expect('Shift disables translation magnets', freeDelta.x === 10.03 && freeDelta.y === 3.03);
+    app.viewport.shiftHeld = false;
+    app.viewport.getEffectiveGridSize = () => 5;
+    const adaptive = snapPathPoint(app, { x: 3.03, y: 4.97 });
+    expect('grid magnets follow displayed grid spacing', adaptive.x === 3.03 && adaptive.y === 5);
+    app.viewport.gridVisible = false;
+    const hidden = snapPathPoint(app, { x: 3.03, y: 4.97 });
+    expect('hidden grid has no magnets', hidden.x === 3.03 && hidden.y === 4.97);
+}
+
+if (failures) process.exitCode = 1;

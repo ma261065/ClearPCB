@@ -63,7 +63,7 @@ measurement), so schematic previews and drags edit the authored entities and
 restore them on cancel: anchor and segment drags from their before-states, a move
 drag from a snapshot of the moved selection, its field and label texts and every
 wire taken at its first movement. The cost is that each gesture must restore
-everything it touched; `browser-tests/schematic-cancel-isolation.mjs` cancels every
+everything it touched; `tests/browser/schematic-cancel-isolation.mjs` cancels every
 gesture by Escape, tool switch and Undo and checks the model and history are
 unchanged, the counterpart of the PCB preview-isolation tests. Snapshots cannot
 see a half-finished edit because `ProjectDocument` refuses to snapshot while
@@ -102,7 +102,7 @@ marquee) but not moved, edited or deleted:
   never rotate or mirror with it. Clicking the icon opens a menu to unlock that
   object (`locks.js`), undoable.
 
-`test-schematic-lock-placement` and `browser-tests/schematic-locks.mjs` cover these.
+`test-schematic-lock-placement` and `tests/browser/schematic-locks.mjs` cover these.
 
 The same lock gate as the PCB editor (`core/edit-guard.js`) refuses any new schematic
 command whose `lockTargets()` include a locked object. A refused drag commit restores

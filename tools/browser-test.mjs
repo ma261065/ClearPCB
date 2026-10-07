@@ -3,7 +3,7 @@
 //
 // Covers what the Node regression tests cannot: real pointer input, the WebGL 3D
 // viewer, the rendered Properties panel, and save/reopen through autosave recovery.
-// Scenarios live in browser-tests/*.mjs and export `scenarios: Array<{name, run}>`.
+// Scenarios live in tests/browser/*.mjs and export `scenarios: Array<{name, run}>`.
 //
 // Playwright is not vendored. Install the pinned version into the repo's git-ignored
 // node_modules, as CI does (see .github/workflows/regression.yml):
@@ -48,7 +48,7 @@ const [shardIndex, shardCount] = shardArg ? shardArg.slice('--shard='.length).sp
 if (!Number.isInteger(shardIndex) || !Number.isInteger(shardCount) || shardIndex < 1 || shardIndex > shardCount) {
     throw new Error(`Invalid ${shardArg}: use --shard=i/n with 1 <= i <= n.`);
 }
-const scenarioDir = new URL('../browser-tests/', import.meta.url);
+const scenarioDir = new URL('../tests/browser/', import.meta.url);
 const matching = [];
 for (const file of readdirSync(scenarioDir).filter(name => name.endsWith('.mjs')).sort()) {
     const module = await import(new URL(file, scenarioDir).href);

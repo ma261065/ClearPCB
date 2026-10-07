@@ -136,7 +136,7 @@ history), or both. Properties panels put a Locked field first
 object lock and stays enabled under a layer lock, while the panel's other fields
 are described disabled.
 The board outline keeps its existing layer-lock checkbox
-(`test-pcb-object-locks`, `browser-tests/object-locks.mjs`).
+(`test-pcb-object-locks`, `tests/browser/object-locks.mjs`).
 
 The editor checks above give feedback; the **lock gate** guarantees the rule.
 Every model command declares what it changes with `lockTargets()`

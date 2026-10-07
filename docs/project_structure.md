@@ -62,8 +62,10 @@ clearpcb/
 │       └── schematic.css
 ├── workers/
 │   └── cors-proxy.js
-├── tests/                      # Isolated headless regression scripts (test-*.mjs)
-├── browser-tests/              # Playwright scenarios run by tools/browser-test.mjs
+├── tests/
+│   ├── unit/                   # Isolated headless regression scripts (test-*.mjs),
+│   │                           # pcb-editor-fixture.mjs and helpers/ (fake DOM, …)
+│   └── browser/                # Playwright scenarios run by tools/browser-test.mjs
 ├── tools/                      # Regression gate and checks (regression, test, typecheck,
 │                               # check-imports, check-*-editor-access, check-clearance-*),
 │                               # browser-test, serve, benchmarks, release packaging,
@@ -377,7 +379,7 @@ object before it runs. A new command class must declare `lockTargets()`;
 ## Checks
 
 - `node tools/regression.mjs` — the gate CI runs: import boundaries, both editors'
-  private-access ratchets, every `tests/test-*.mjs` in its own process, and the
+  private-access ratchets, every `tests/unit/test-*.mjs` in its own process, and the
   autorouter baseline on `test-board.json`.
 - `node tools/test.mjs [filter…]` — only the regression tests, optionally filtered.
 - `node tools/typecheck.mjs` — `checkJs` type check; the baseline is empty, so any error
@@ -391,12 +393,12 @@ object before it runs. A new command class must declare `lockTargets()`;
 - `node tools/bench-pointer-dispatch.mjs` — PCB pointer-move routing cost.
 - `node tools/bench-pcb-hit-test.mjs [scale]` — PCB selection sync and pointer hit
   query cost on a large synthetic board.
-- Tests call real functions; editor methods run on `tests/pcb-editor-fixture.mjs` or
+- Tests call real functions; editor methods run on `tests/unit/pcb-editor-fixture.mjs` or
   via `PCBApp.prototype.method.call(fixture)`. `test-source-text-ratchet` fails any test that
   evaluates sliced source text; add a small seam when a collaborator must be observed.
 - The PCB fixture uses the editor's real undo history (`createPcbHistory`, with the lock
   gate). New tests build their DOM with `installFakeDom()` from
-  `tests/helpers/fake-dom.mjs`; `test-fixture-ratchet` counts the tests that still
+  `tests/unit/helpers/fake-dom.mjs`; `test-fixture-ratchet` counts the tests that still
   hand-roll a `globalThis.document` stub, and that number may only go down.
 - `test-property-panels-logic-only` keeps Properties panels as descriptions: panel
   modules use no DOM, and only `shared/ui/property-fields.js` and the editors' hosts

@@ -52,7 +52,7 @@ document, `clearSelection({ notify: false })` and `notifyChanged()` batch a
 change into one notification, and `invalidateHitCache()` discards cached hits.
 `test-selection-state-seam` checks the API, the hook ordering and hit
 priority, and fails on any entity flag use or private access outside the
-manager. `browser-tests/schematic-smoke.mjs` checks in a real browser that
+manager. `tests/browser/schematic-smoke.mjs` checks in a real browser that
 exactly the selected shapes draw anchor handles through anchor drag
 commit/cancel, wire start, delete, undo and redo. The schematic keeps passing
 its entities to `SelectionManager` directly: they already provide the adapter
@@ -251,10 +251,10 @@ and reference text, which is why only PCB uses a selection registry.
 - `core/DerivedUpdates.js` batches derived callbacks; `core/spatial-pairs.js`
   supplies the DRC broad phase.
 
-`node tools/test.mjs` runs every `tests/test-*.mjs` in an isolated process.
+`node tools/test.mjs` runs every `tests/unit/test-*.mjs` in an isolated process.
 `node tools/regression.mjs` also checks import boundaries, editor service-access
 baselines and the autorouter clearance baseline. `node tools/typecheck.mjs`
 summarises `checkJs` errors and locates TypeScript from `TSC` or the repo's
 git-ignored `node_modules`. `node tools/browser-test.mjs` runs
-`browser-tests/*.mjs` with Playwright from `PLAYWRIGHT` or the same git-ignored
+`tests/browser/*.mjs` with Playwright from `PLAYWRIGHT` or the same git-ignored
 `node_modules`.

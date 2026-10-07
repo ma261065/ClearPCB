@@ -118,7 +118,7 @@ like `showViaProperties` or `showFillToolProperties` (`copper-fill-edit.js`, a
 small panel for a tool's defaults). Return a description; open it with
 `app.openPropertyPanel` (PCB) or the schematic host. Live previews follow the
 preview-then-commit-once pattern above. Drive it in a unit test with the fake DOM
-(`tests/test-picture-properties.mjs` is a compact example).
+(`tests/unit/test-picture-properties.mjs` is a compact example).
 
 ### Add a ribbon button or control
 
@@ -181,14 +181,14 @@ in `pcb-editor-api.js` (or `schematic-editor-api.js`). See State Ownership in
 
 ## Tests
 
-- **Unit and regression tests** are `tests/test-*.mjs`, plain Node scripts using
+- **Unit and regression tests** are `tests/unit/test-*.mjs`, plain Node scripts using
   `node:assert`. They call real functions: PCB editor code runs on
-  `tests/pcb-editor-fixture.mjs` (real undo history and lock gate), and DOM code on
-  `installFakeDom()` from `tests/helpers/fake-dom.mjs`. Run one with
+  `tests/unit/pcb-editor-fixture.mjs` (real undo history and lock gate), and DOM code on
+  `installFakeDom()` from `tests/unit/helpers/fake-dom.mjs`. Run one with
   `node tools/test.mjs <name>`.
-- **Browser scenarios** are `browser-tests/*.mjs`, each exporting
+- **Browser scenarios** are `tests/browser/*.mjs`, each exporting
   `scenarios: [{ name, run(page, url) }]`, driven by Playwright in headless
-  Chromium. Use the helpers in `browser-tests/helpers/editor-helpers.mjs`
+  Chromium. Use the helpers in `tests/browser/helpers/editor-helpers.mjs`
   (`openPcb`, `clickWorld`, `dragWorld`, `stepSpinner`, `undoPcb`,
   `saveAndReopen`, …); `pcb-object-workflows.mjs` and
   `schematic-object-workflows.mjs` walk each object type through place, select,

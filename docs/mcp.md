@@ -64,8 +64,8 @@ location.reload();
 Run the browser-side protocol checks with:
 
 ```powershell
-node tests\test-json-patch.mjs
-node tests\test-mcp-bridge.mjs
+node tests\unit\test-json-patch.mjs
+node tests\unit\test-mcp-bridge.mjs
 ```
 
 Run `npm run check` in `mcp-worker` to type-check the Worker.

@@ -91,6 +91,6 @@ by the shared modules.
 
 ## Tests
 
-[`tests/test-shape-join.mjs`](../tests/test-shape-join.mjs) validates the geometry, bulge
+[`tests/unit/test-shape-join.mjs`](../tests/unit/test-shape-join.mjs) validates the geometry, bulge
 serialisation round-trip, clone, join (incl. loop closing), the bulge handle,
-and `cleanGraph` arc preservation headlessly: `node tests/test-shape-join.mjs`.
+and `cleanGraph` arc preservation headlessly: `node tests/unit/test-shape-join.mjs`.

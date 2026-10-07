@@ -563,7 +563,7 @@ drop cannot leave duplicate preview/committed track outlines.
   branched or two-layer tracks those layers and modes are disabled with a tooltip.
   Panel edits first drop any in-progress pickup of the same track (a midpoint
   "+" click), so they always act on the real track. The browser scenarios in
-  `browser-tests/track-shape-conversions.mjs` drive these conversions through
+  `tests/browser/track-shape-conversions.mjs` drive these conversions through
   the real Properties panel, then undo, redo, save and reopen.
 - `PCBApp.vias` — array of standalone `Via` objects. **All** vias are
   represented here, including those sitting at a Track's layer-change

@@ -109,8 +109,9 @@ clearpcb/
 ├── assets/               # Icons, version.json and vendored libraries (vendor/)
 ├── workers/              # CORS proxy worker
 ├── mcp-worker/           # Cloudflare Worker relay for the hosted MCP endpoint
-├── tests/                # Headless regression scripts (test-*.mjs)
-├── browser-tests/        # Playwright scenarios
+├── tests/
+│   ├── unit/             # Headless regression scripts (test-*.mjs) and their helpers
+│   └── browser/          # Playwright scenarios
 ├── tools/                # Regression gate, checks, benchmarks, release packaging
 └── docs/                 # Architecture, module contracts, file format, release process
 ```
@@ -312,7 +313,7 @@ node tools/regression.mjs
 
 It checks the import directions between editors (`tools/check-imports.mjs`) and
 both editors' remaining private-member accesses (`tools/check-pcb-editor-access.mjs`,
-`tools/check-schematic-editor-access.mjs`), runs every `tests/test-*.mjs` in its own
+`tools/check-schematic-editor-access.mjs`), runs every `tests/unit/test-*.mjs` in its own
 process, then routes `test-board.json` and checks the result
 (`tools/check-clearance-full.mjs`). Routing must complete at least 74 of the 76
 connections (what the router achieves today) with no clearance violations; differing track and via counts are

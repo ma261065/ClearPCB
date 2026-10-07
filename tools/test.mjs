@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
-const tests = fileURLToPath(new URL('../tests/', import.meta.url));
+const tests = fileURLToPath(new URL('../tests/unit/', import.meta.url));
 const requested = process.argv.slice(2);
 const files = readdirSync(tests).filter((name) => /^test-.*\.mjs$/.test(name))
     .filter((name) => !requested.length || requested.some((pattern) => name.includes(pattern))).sort();
