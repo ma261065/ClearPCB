@@ -598,7 +598,7 @@ export function setHoverHighlight(app, hit) {
                     : hit.type === 'shape'
                         ? { type: 'shape', shape: hit.shape }
                     : { type: 'pad', componentId: hit.componentId, pinNumber: hit.pinNumber };
-        const net = _collectConnectedNet(app, seed);
+        const net = collectHoveredNet(app, seed);
         for (const track of net.tracks) {
             if (track !== selectedTrack) _drawTrackHalo(app, track, HOVER_CLASS, HALO_OPACITY_HOVER);
         }
@@ -616,8 +616,15 @@ export function setHoverHighlight(app, hit) {
     }
 }
 
-/** Walk the connected copper graph starting from a pad, track, or via. */
-function _collectConnectedNet(app, seed) {
+/**
+ * The copper a hover over `seed` highlights: everything on its net, plus copper joined
+ * to it through shared track nodes, vias at track nodes and pad connections. Tracks are
+ * indexed by node position and pad once per walk, so a hover costs linear time on large
+ * boards; the walk visits tracks in board order, as a scan would.
+ * @param {any} app
+ * @param {any} seed
+ */
+export function collectHoveredNet(app, seed) {
     const tracks = new Set();
     const vias = new Set();
     const pads = new Set();
@@ -625,6 +632,21 @@ function _collectConnectedNet(app, seed) {
     const shapes = new Set();
     const viaByPos = new Map();
     for (const via of app.vias || []) viaByPos.set(_posKey(via.x, via.y), via);
+    /** @type {Map<string, any[]>} */
+    const tracksByPos = new Map();
+    /** @type {Map<string, any[]>} */
+    const tracksByPad = new Map();
+    const index = (map, key, track) => {
+        const list = map.get(key);
+        if (!list) map.set(key, [track]);
+        else if (list[list.length - 1] !== track) list.push(track);
+    };
+    for (const track of app.tracks || []) {
+        for (const node of track.nodes.values()) index(tracksByPos, _posKey(node.x, node.y), track);
+        for (const connection of track.padConnections?.values?.() || []) {
+            index(tracksByPad, `${connection.componentId}|${connection.pinNumber}`, track);
+        }
+    }
 
     const netName = seed.type === 'track'
         ? seed.track.net || ''
@@ -674,17 +696,10 @@ function _collectConnectedNet(app, seed) {
     while (queue.length) {
         const item = queue.shift();
         if (item.kind === 'pad') {
-            const [componentId, pinNumber] = item.key.split('|');
-            for (const track of app.tracks || []) {
+            for (const track of tracksByPad.get(item.key) || []) {
                 if (tracks.has(track)) continue;
-                for (const connection of track.padConnections?.values?.() || []) {
-                    if (String(connection.componentId) === componentId
-                        && String(connection.pinNumber) === pinNumber) {
-                        tracks.add(track);
-                        queue.push({ kind: 'track', track });
-                        break;
-                    }
-                }
+                tracks.add(track);
+                queue.push({ kind: 'track', track });
             }
         } else if (item.kind === 'track') {
             for (const connection of item.track.padConnections?.values?.() || []) {
@@ -695,22 +710,17 @@ function _collectConnectedNet(app, seed) {
                 const key = _posKey(node.x, node.y);
                 const via = viaByPos.get(key);
                 if (via && !vias.has(via)) { vias.add(via); queue.push({ kind: 'via', via }); }
-                for (const otherTrack of app.tracks || []) {
+                for (const otherTrack of tracksByPos.get(key) || []) {
                     if (otherTrack === item.track || tracks.has(otherTrack)) continue;
-                    if ([...otherTrack.nodes.values()].some((otherNode) => _posKey(otherNode.x, otherNode.y) === key)) {
-                        tracks.add(otherTrack);
-                        queue.push({ kind: 'track', track: otherTrack });
-                    }
+                    tracks.add(otherTrack);
+                    queue.push({ kind: 'track', track: otherTrack });
                 }
             }
         } else if (item.kind === 'via') {
-            const key = _posKey(item.via.x, item.via.y);
-            for (const track of app.tracks || []) {
+            for (const track of tracksByPos.get(_posKey(item.via.x, item.via.y)) || []) {
                 if (tracks.has(track)) continue;
-                if ([...track.nodes.values()].some((node) => _posKey(node.x, node.y) === key)) {
-                    tracks.add(track);
-                    queue.push({ kind: 'track', track });
-                }
+                tracks.add(track);
+                queue.push({ kind: 'track', track });
             }
         }
     }
