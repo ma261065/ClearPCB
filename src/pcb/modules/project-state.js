@@ -1,7 +1,7 @@
 import { renderTrack, renderVia, removeTrackElements, removeViaElements } from './track-render.js';
 import { reconcileRatsnest } from './track-draw.js';
 import { clearTrackSelection, getSelectedTrack } from './track-select.js';
-import { cancelShapeDraw, endBoardShapeDrag, getBoardShapeDrag, removeBoardShapeElement, renderBoardShape } from './board-shapes.js';
+import { cancelShapeDraw, clearBoardShapeElements, endBoardShapeDrag, getBoardShapeDrag, renderBoardShape } from './board-shapes.js';
 import { clearTextElements, renderText } from './pcb-text-render.js';
 import { getBoardOutline } from '../../shared/pcb/board-outline.js';
 import { renderPad, removePadElements } from './pad.js';
@@ -53,7 +53,7 @@ export function loadPcb(app, data, prepared = preparePcb(data)) {
     for (const v of app.vias) removeViaElements(v);
     for (const pad of app.pads) removePadElements(pad);
     clearTextElements(app);
-    for (const id of app._shapeElements.keys()) removeBoardShapeElement(app, id);
+    clearBoardShapeElements(app);
     app.pcbDocument.clear();
     resetDrc(app);
     setHoveredBoardShape(app, null);

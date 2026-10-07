@@ -10,7 +10,7 @@ import { setComputedFill, getComputedFill } from '../src/pcb/modules/computed-fi
 import { beginPcbPaste, cancelPcbPaste, endPcbPaste, preparePcbPaste, updatePcbPaste } from '../src/pcb/modules/pcb-paste.js';
 import { renderTrack, renderVia } from '../src/pcb/modules/track-render.js';
 import { renderPad } from '../src/pcb/modules/pad.js';
-import { renderBoardShape } from '../src/pcb/modules/board-shapes.js';
+import { getBoardShapeElement, hasBoardShapeElement, renderBoardShape } from '../src/pcb/modules/board-shapes.js';
 import { renderCopperFill } from '../src/pcb/modules/copper-fill-render.js';
 import { getPcbSelectionEntries, setPcbSelection } from '../src/pcb/modules/selection-registry.js';
 import { prepareFabricationSnapshot } from '../src/pcb/modules/fabrication-snapshot.js';
@@ -107,7 +107,7 @@ function fixture(deferred = false) {
     setFillRefreshSuspended(app, deferred);
     setBoardViewRefreshSuspended(app, deferred);
     clearanceOverlayState(app).clearancesVisible = true;
-    for (const key of ['tracks', 'vias', 'pads', 'boardShapes', 'texts', '_shapeIdCounter']) {
+    for (const key of ['tracks', 'vias', 'pads', 'boardShapes', 'texts']) {
         Object.defineProperty(app, key, Object.getOwnPropertyDescriptor(PCBApp.prototype, key));
     }
     for (const method of ['_hasPcbClipboardData', 'pasteSelection',
@@ -226,7 +226,7 @@ for (const imageOnly of [false, true]) for (const deferred of [false, true]) for
         assert.equal(isFillRefreshSuspended(app), deferred);
         assert.equal(isBoardViewRefreshSuspended(app), deferred);
         if (finish !== 'commit' && finish !== 'load' && finish !== 'document') {
-            for (const shape of payload.shapes) assert.equal(app._shapeElements.has(shape.id), false);
+            for (const shape of payload.shapes) assert.equal(hasBoardShapeElement(app, shape.id), false);
             for (const text of payload.texts) assert.equal(getTextElement(app, text.id), null);
             for (const fill of payload.fills) for (const group of groups.values()) {
                 assert.equal(group.querySelectorAll(`[data-fill-id="${fill.id}"]`).length, 0);
@@ -303,7 +303,7 @@ console.log('PASS single-kind/repeated paste, keyboard discard, invalid and miss
     const before = model.captureGeometry();
     assert.throws(() => endPcbPaste(app), /fresh, unique/);
     assert.deepEqual(model.captureGeometry(), before, 'An intervening authored object is never removed');
-    assert.ok(app._shapeElements.get(collision.id)?.parentNode, 'Collision cleanup restores canonical artwork');
+    assert.ok(getBoardShapeElement(app, collision.id)?.parentNode, 'Collision cleanup restores canonical artwork');
 }
 {
     const { app, model } = fixture(), before = model.captureGeometry(), counter = model.shapeIdCounter;

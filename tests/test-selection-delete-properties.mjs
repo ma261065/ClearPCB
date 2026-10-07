@@ -95,7 +95,7 @@ function fixture() {
     const model = new PcbDocument();
     const events = [];
     const app = {
-        _active: true, _shapeIdCounter: 1, pcbDocument: model, placements: model.placements,
+        _active: true, shapeIdCounter: 1, pcbDocument: model, placements: model.placements,
         tracks: model.tracks, vias: model.vias, pads: model.pads, texts: model.texts, boardShapes: model.boardShapes,
         history: new CommandHistory(), _shapeElements: new Map(), getLayerGroup() { return null; },
         clearProperties() { events.push('properties'); }, setActiveRibbonTab(tab) { events.push(tab); },

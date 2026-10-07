@@ -46,7 +46,7 @@ const saved = serializeBoardShapes({ boardShapes: [first, second] });
 assert.equal(saved[0].artwork.encoding, 'deflate-tuples-v1');
 assert.deepEqual(saved[1].artwork, { encoding: 'reference-v1', index: 0 });
 const load = data => {
-    const app = { boardShapes: [], _shapeIdCounter: 1 };
+    const app = { boardShapes: [], shapeIdCounter: 1 };
     loadBoardShapes(app, JSON.parse(JSON.stringify(data)), { strict: true, render: false });
     return app;
 };

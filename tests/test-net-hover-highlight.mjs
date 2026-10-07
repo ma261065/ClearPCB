@@ -40,7 +40,7 @@ globalThis.document = {
 };
 
 const { setHoverHighlight } = await import('../src/pcb/modules/track-select.js');
-const { shapeHoverColor, shapeSelectionColor } = await import('../src/pcb/modules/board-shapes.js');
+const { getBoardShapeElement, shapeHoverColor, shapeSelectionColor } = await import('../src/pcb/modules/board-shapes.js');
 const { setPcbSelection } = await import('../src/pcb/modules/selection-registry.js');
 const groups = new Map([
     ['vias', element('g')],
@@ -94,7 +94,7 @@ assert.equal(groups.get('top-copper').querySelectorAll('.pcb-track-hover').lengt
     'numeric component pin identifiers still receive the net highlight');
 assert.deepEqual([...getNetHoveredShapeIds(app)], ['shape-a'],
     'net-bearing copper shapes are included in net hover');
-assert.equal(app._shapeElements.get('shape-a').getAttribute('stroke'), shapeHoverColor(copperShape),
+assert.equal(getBoardShapeElement(app, 'shape-a').getAttribute('stroke'), shapeHoverColor(copperShape),
     'same-net copper shapes render with their hover color');
 
 setHoverHighlight(app, null);

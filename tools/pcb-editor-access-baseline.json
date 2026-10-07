@@ -7,10 +7,7 @@
     "_showPcbMultiSelectionProperties"
   ],
   "src/pcb/modules/board-shapes.js": [
-    "_refreshPcbSelectionHighlights",
-    "_shapeElements",
-    "_shapeIdCounter",
-    "_snapActive"
+    "_refreshPcbSelectionHighlights"
   ],
   "src/pcb/modules/box-select.js": [
     "_netsForComponent",
@@ -59,7 +56,6 @@
     "_cancelPosePreviews",
     "_ensureViewport",
     "_isDirty",
-    "_shapeElements",
     "_stale"
   ],
   "src/pcb/modules/removal-hatch.js": [

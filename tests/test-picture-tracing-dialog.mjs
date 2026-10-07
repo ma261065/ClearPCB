@@ -98,7 +98,7 @@ const { getPcbPaste } = await import('../src/pcb/modules/pcb-paste.js');
 const pcbDocument = new PcbDocument();
 const app = { _active: true, viewport: { scale: 10, offset: { x: 0, y: 0 }, container: element(), currentMouseWorld: { x: 0, y: 0 }, setCrosshair() {} },
     pcbDocument, boardShapes: pcbDocument.boardShapes, placements: new Map(), tracks: [], vias: [], texts: new Map(), _shapeElements: new Map(),
-    _shapeIdCounter: 1, history: new CommandHistory(), getLayerGroup() { return null; },
+    history: new CommandHistory(), getLayerGroup() { return null; },
     snapToGrid: point => point, syncClipboardButtons() {}, clearProperties() {},
 };
 showPictureImport(app);
@@ -248,5 +248,5 @@ assert.equal(placed.shapes[0].artwork.width, 1302);
 assert.equal(placed.shapes[0].artwork.rectangles, undefined);
 assert.equal(app.history.undoStack.length, 0, 'Import stages fresh artwork; acceptance owns the history entry');
 assert.equal(app.boardShapes.length, 0);
-assert.equal(app._shapeIdCounter, 1, 'Floating import does not advance authored IDs');
+assert.equal(pcbDocument.shapeIdCounter, 1, 'Floating import does not advance authored IDs');
 console.log('PASS tracing dialog controls, real contour preview, loading/error states, stale-result protection and detached import handoff');

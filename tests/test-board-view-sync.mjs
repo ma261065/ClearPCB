@@ -30,25 +30,22 @@ globalThis.requestAnimationFrame = () => 0;
 globalThis.cancelAnimationFrame = () => {};
 {
     const { pcbEditorFixture } = await import('./pcb-editor-fixture.mjs');
-    const { renderBoardShape } = await import('../src/pcb/modules/board-shapes.js');
+    const { getBoardShapeElement, renderBoardShape } = await import('../src/pcb/modules/board-shapes.js');
     const { initializeBoardOutlineState, setBoardOutlineDrawn } = await import('../src/pcb/modules/board-outline-resize.js');
-    // renderBoardShape registers every rendered element here, so renders are counted
-    // at the editor's own element registry rather than by stubbing the renderer.
-    const renders = new Map(), shapeOf = new Map();
-    class RenderRegistry extends Map {
-        set(id, element) {
-            renders.set(id, (renders.get(id) || 0) + 1);
-            shapeOf.set(element, id);
-            return super.set(id, element);
-        }
-    }
+    const renders = new Map();
     const groups = new Map();
     const board = pcbEditorFixture({
         getLayerGroup(id) {
-            if (!groups.has(id)) groups.set(id, svgElement());
+            if (!groups.has(id)) {
+                const group = svgElement(), appendChild = group.appendChild;
+                group.appendChild = function (child) {
+                    renders.set(id, (renders.get(id) || 0) + 1);
+                    return appendChild.call(this, child);
+                };
+                groups.set(id, group);
+            }
             return groups.get(id);
         },
-        _shapeElements: new RenderRegistry(), 
         updateCopperCuts() {}, refreshFills() {}, getRoutingParams: () => ({}),
     });
     initializeBoardOutlineState(board, true);
@@ -56,27 +53,28 @@ globalThis.cancelAnimationFrame = () => {};
         points: [{ x: 0, y: 0 }, { x: 20, y: 0 }, { x: 20, y: -10 }, { x: 0, y: -10 }] };
     const artwork = { id: 'artwork', kind: 'circle', layer: 'top-silk', x: 5, y: -5, radius: 1, lineWidth: 0.2 };
     board.boardShapes.push(outline, artwork);
-    const live = id => [...groups.values()].flatMap(group => group.children).filter(element => shapeOf.get(element) === id);
+    // Every element in the outline's layer: an orphaned earlier render of the outline counts too.
+    const live = () => groups.get('board-outline')?.children || [];
     for (const renderShapes of [true, false, true]) {
         renders.clear();
         board._renderPersistentObjects({ renderShapes });
-        assert.equal(renders.get(outline.id), 1, 'Each rebuild renders the outline only once');
-        assert.equal(renders.get(artwork.id) || 0, renderShapes ? 1 : 0);
-        assert.equal(live(outline.id).length, 1,
+        assert.equal(renders.get('board-outline'), 1, 'Each rebuild renders the outline only once');
+        assert.equal(renders.get('top-silk') || 0, renderShapes ? 1 : 0);
+        assert.equal(live().length, 1,
             'A rebuild must not orphan the outline rendered before the other shapes');
-        assert.equal(live(outline.id)[0], board._shapeElements.get(outline.id), 'The visible outline remains registered');
+        assert.equal(live()[0], getBoardShapeElement(board, outline.id), 'The visible outline remains registered');
     }
     setBoardOutlineDrawn(board, false);
     renders.clear();
     board._renderPersistentObjects();
-    assert.equal(renders.get(outline.id), 1, 'An outline not drawn by the dedicated path still renders');
-    const rectanglePath = live(outline.id)[0].getAttribute('d');
+    assert.equal(renders.get('board-outline'), 1, 'An outline not drawn by the dedicated path still renders');
+    const rectanglePath = live()[0].getAttribute('d');
     outline.kind = 'polygon';
     outline.points.splice(1, 0, { x: 10, y: 2 });
     renderBoardShape(board, outline);
-    assert.equal(live(outline.id).length + live(artwork.id).length, 2,
+    assert.equal(live().length + live(artwork.id).length, 2,
         'Editing replaces the outline without leaving its old geometry behind');
-    assert.notEqual(live(outline.id)[0].getAttribute('d'), rectanglePath);
+    assert.notEqual(live()[0].getAttribute('d'), rectanglePath);
 }
 
 let sourceRevision = 0;

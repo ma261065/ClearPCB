@@ -16,7 +16,7 @@ const element = (localName = 'g') => ({
     },
 });
 globalThis.document = { createElementNS: (_, tag) => element(tag), getElementById: () => null };
-const { renderBoardShape } = await import('../src/pcb/modules/board-shapes.js');
+const { getBoardShapeElement, renderBoardShape } = await import('../src/pcb/modules/board-shapes.js');
 const { exportGerbers } = await import('../src/pcb/modules/gerber.js');
 const contoursOf = path => [...path.matchAll(/M\s+([^Z]+)Z/g)].map(match => {
     const values = match[1].replaceAll('L', '').trim().split(/\s+/).map(Number);
@@ -85,11 +85,11 @@ for (const shape of shapes) {
             const target = { ...shape, layer,
                 points: shape.points.map(point => ({ x: point.x + 24, y: point.y - 13 })) };
             setHoveredBoardShape(app, state === 'hovered' ? target : null);
-            const previous = app._shapeElements.get(target.id);
+            const previous = getBoardShapeElement(app, target.id);
             renderBoardShape(app, target);
             assert.equal(group.children.length, 1, 'redraw/layer changes do not leave stale clip definitions');
             if (previous) assert.equal(previous.parentNode, null, 'whole old subtree is removed');
-            const root = app._shapeElements.get(target.id);
+            const root = getBoardShapeElement(app, target.id);
             const rendered = layer === 'hole' ? checkInsideBorder(root, boardShapeRemovalPathD(target)) : root;
             if (layer !== 'hole') assert.equal(rendered.getAttribute('clip-path'), undefined, 'native strokes unchanged');
             if (layer === 'hole' && state !== 'normal') {

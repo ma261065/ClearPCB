@@ -59,7 +59,7 @@ function appFor(track) {
         pcbDocument,
         tracks: pcbDocument.tracks,
         boardShapes: pcbDocument.boardShapes,
-        _shapeIdCounter: 1,
+        shapeIdCounter: 1,
         _shapeElements: new Map(),
         getLayerGroup() { return null; },
         history: { execute(command) { command.execute(); } },
@@ -259,7 +259,7 @@ const triangle = [{ x: 0, y: 0 }, { x: 5, y: 0 }, { x: 0, y: 5 }];
     const first = trackFromBoardShape(source), second = trackFromBoardShape({ ...source, points: [{ x: 0, y: 2 }, { x: 4, y: 2 }] });
     const sharedApp = appFor(first);
     sharedApp.tracks.push(second);
-    sharedApp._shapeIdCounter = 93;
+    sharedApp.shapeIdCounter = 93;
     moveTrackToBoardLayer(sharedApp, first, 'top-silk');
     moveTrackToBoardLayer(sharedApp, second, 'top-silk');
     const ids = sharedApp.boardShapes.map(shape => shape.id);

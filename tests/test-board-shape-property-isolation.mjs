@@ -4,7 +4,7 @@ import { CommandHistory } from '../src/core/CommandHistory.js';
 import { bulgeRatio } from '../src/core/geometry.js';
 import { getBoardShapePropertyPreview, getBoardShapeRotationPreview, createBoardShapeSelectionAdapter,
     renderBoardShape, startBoardShapeDrag, handleBoardShapeDrag, endBoardShapeDrag,
-    deleteBoardShapeVertex, captureBoardShapeState } from '../src/pcb/modules/board-shapes.js';
+    deleteBoardShapeVertex, captureBoardShapeState, hasBoardShapeElement } from '../src/pcb/modules/board-shapes.js';
 import { showBoardShapeProperties } from '../src/pcb/modules/board-shape-properties.js';
 import { setPcbSelection } from '../src/pcb/modules/selection-registry.js';
 import { cancelPictureCopperRefresh } from '../src/pcb/modules/picture-refresh.js';
@@ -211,7 +211,7 @@ function fixture(kind, count = 1, unrelatedCount = 1, shapeLayer = 'top-copper')
         refreshFills() { pours++; }, _refreshBoardShapeClearance() {},
         _cancelDrawingMode() {}, _ensureViewport() {}, markSectionClean() {},
     };
-    for (const key of ['boardShapes', 'tracks', 'vias', 'pads', 'texts', '_shapeIdCounter']) {
+    for (const key of ['boardShapes', 'tracks', 'vias', 'pads', 'texts']) {
         Object.defineProperty(app, key, Object.getOwnPropertyDescriptor(PCBApp.prototype, key));
     }
     for (const key of ['_cancelPosePreviews', 'isSectionEditing', 'setPropertiesTitle', 'clearProperties',
@@ -535,7 +535,7 @@ for (const [field, layer, mode] of [['pcbPropShapeLayer', 'top-copper', null], [
     model.boardShapes.splice(0, 1);
     input.value = '0.8';
     assert.throws(() => input.fire('input'), /missing board shape/);
-    assert.equal(app._shapeElements.has(shapes[0].id), false);
+    assert.equal(hasBoardShapeElement(app, shapes[0].id), false);
     assert.equal(getBoardShapePropertyPreview(app), undefined);
     assert.equal(areDragOverlaysDeferred(app), false);
 }

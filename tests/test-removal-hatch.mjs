@@ -42,7 +42,7 @@ globalThis.HTMLElement = class HTMLElement {};
 globalThis.localStorage = { getItem: () => null, setItem: noop, removeItem: noop };
 
 const { removalHatchFill, stripRemovalHatches } = await import('../src/pcb/modules/removal-hatch.js');
-const { renderBoardShape } = await import('../src/pcb/modules/board-shapes.js');
+const { getBoardShapeElement, renderBoardShape } = await import('../src/pcb/modules/board-shapes.js');
 const { default: PCBApp } = await import('../src/ui/PCBApp.js');
 
 const patternsIn = defs => defs.children.filter(child => child.tagName === 'pattern');
@@ -91,12 +91,12 @@ console.log('PASS removal hatch patterns: one per mode, reused, in board units, 
     renderBoardShape(app, { ...circle, id: 'mask', copperMode: 'remove-solder-mask' });
     renderBoardShape(app, { ...circle, id: 'ring', copperMode: 'remove-copper-mask', filled: false });
     renderBoardShape(app, { ...circle, id: 'pad', copperMode: 'add' });
-    assert.equal(app._shapeElements.get('cut').getAttribute('fill'), 'url(#pcb-removal-hatch-remove-copper)');
-    assert.equal(app._shapeElements.get('mask').getAttribute('fill'), 'url(#pcb-removal-hatch-remove-solder-mask)');
-    assert.equal(app._shapeElements.get('ring').getAttribute('fill'), 'url(#pcb-removal-hatch-remove-copper-mask)',
+    assert.equal(getBoardShapeElement(app, 'cut').getAttribute('fill'), 'url(#pcb-removal-hatch-remove-copper)');
+    assert.equal(getBoardShapeElement(app, 'mask').getAttribute('fill'), 'url(#pcb-removal-hatch-remove-solder-mask)');
+    assert.equal(getBoardShapeElement(app, 'ring').getAttribute('fill'), 'url(#pcb-removal-hatch-remove-copper-mask)',
         'An outlined removal shape is hatched across its removal band');
-    assert.doesNotMatch(app._shapeElements.get('pad').getAttribute('fill'), /^url\(/);
-    assert.ok(groups.get('top-copper-knockout').children.includes(app._shapeElements.get('cut')),
+    assert.doesNotMatch(getBoardShapeElement(app, 'pad').getAttribute('fill'), /^url\(/);
+    assert.ok(groups.get('top-copper-knockout').children.includes(getBoardShapeElement(app, 'cut')),
         'Copper removal draws in the knockout layer');
 }
 console.log('PASS removal shapes are filled with their hatch');

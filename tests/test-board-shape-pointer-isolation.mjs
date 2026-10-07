@@ -3,7 +3,8 @@ import { ProjectDocument } from '../src/core/ProjectDocument.js';
 import { CommandHistory } from '../src/core/CommandHistory.js';
 import { shapePathD, boardShapeBounds } from '../src/shared/pcb/board-shape-geometry.js';
 import { createBoardShapeSelectionAdapter, renderBoardShape, startBoardShapeDrag, handleBoardShapeDrag,
-    endBoardShapeDrag, openBoardShape, setBoardShapeSegmentType, selectBoardShape, deleteFocusedBoardShape } from '../src/pcb/modules/board-shapes.js';
+    endBoardShapeDrag, getBoardShapeElement, hasBoardShapeElement, openBoardShape, setBoardShapeSegmentType,
+    selectBoardShape, deleteFocusedBoardShape } from '../src/pcb/modules/board-shapes.js';
 import { setPcbSelection, getPcbSelection, syncPcbSelection } from '../src/pcb/modules/selection-registry.js';
 import { prepareFabricationSnapshot } from '../src/pcb/modules/fabrication-snapshot.js';
 import { loadPcb } from '../src/pcb/modules/project-state.js';
@@ -84,7 +85,7 @@ function fixture(mode, deferred = false, unrelatedCount = 1) {
         _refreshPcbSelectionHighlights() {},
     };
     setDragOverlaysDeferred(app, deferred);
-    for (const key of ['boardShapes', 'tracks', 'vias', 'pads', 'texts', '_shapeIdCounter']) {
+    for (const key of ['boardShapes', 'tracks', 'vias', 'pads', 'texts']) {
         Object.defineProperty(app, key, Object.getOwnPropertyDescriptor(PCBApp.prototype, key));
     }
     for (const key of ['_cancelPosePreviews', 'isSectionEditing', '_onLayerLockChanged', '_onLayerVisibilityChanged', 'clearProperties']) {
@@ -107,7 +108,7 @@ for (const mode of ['move', 'segment', 'vertex', 'midpoint', 'bulge', 'outline',
         const { app, model, project, shape, adapter, begin, target, group, unrelated, fills } = fixture(mode, deferred);
         const before = model.captureGeometry(), serialized = model.serialize(), points = shape.points;
         const metadata = [shape.nodeCornerRadii, shape.segmentWidths, shape.segmentBulges, shape.artwork];
-        const board = { ...model.board }, otherElement = app._shapeElements.get(unrelated[0].id);
+        const board = { ...model.board }, otherElement = getBoardShapeElement(app, unrelated[0].id);
         const counter = model.shapeIdCounter;
         try {
             assert.equal(begin(), true, mode);
@@ -192,7 +193,7 @@ for (const mode of ['move', 'segment', 'vertex', 'midpoint', 'bulge', 'outline',
             assert.equal(areDragOverlaysDeferred(app), deferred);
             assert.equal(app.boardShapes, model.boardShapes);
             assert.equal(rebuilt.object, shape);
-            if (finish !== 'load') assert.equal(app._shapeElements.get(unrelated[0].id), otherElement);
+            if (finish !== 'load') assert.equal(getBoardShapeElement(app, unrelated[0].id), otherElement);
             cases++;
         } finally { cancelPictureCopperRefresh(app); }
     }
@@ -227,7 +228,7 @@ for (const invalid of [{ x: NaN, y: 0 }, { x: 0, y: Infinity }, null]) {
     model.boardShapes.splice(model.boardShapes.indexOf(shape), 1);
     assert.throws(() => handleBoardShapeDrag(app, target), /missing board shape/);
     assert.equal(getBoardShapeDrag(app), null);
-    assert.equal(app._shapeElements.has(shape.id), false);
+    assert.equal(hasBoardShapeElement(app, shape.id), false);
     assert.equal(getPcbSelection(app).length, 0);
 }
 console.log('PASS stationary pickup on 1001 shapes, invalid coordinates and missing-target cleanup');

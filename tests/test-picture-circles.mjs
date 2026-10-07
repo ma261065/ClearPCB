@@ -35,7 +35,7 @@ shape.id = 'pshape_1';
 for (const invert of [false, true]) for (const flipHorizontal of [false, true]) for (const flipVertical of [false, true]) {
     shape.artwork = { ...artwork, invert, flipHorizontal, flipVertical };
     const saved = serializeBoardShapes({ boardShapes: [shape] });
-    const loaded = { boardShapes: [], _shapeIdCounter: 1 };
+    const loaded = { boardShapes: [], shapeIdCounter: 1 };
     loadBoardShapes(loaded, saved, { strict: true, render: false });
     assert.deepEqual(serializeBoardShapes(loaded), saved);
     assert.deepEqual(loaded.boardShapes[0].artwork.circles, artwork.circles);

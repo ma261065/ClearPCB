@@ -367,8 +367,8 @@ assert.equal(app.texts.get(text.id), text, 'Constructing the editor preserves pr
 assert.equal(app.texts, model.texts);
 assert.equal(app.boardShapes[0], rectangle, 'Constructing a view must not clear preloaded board shapes');
 assert.equal(app.boardShapes, model.boardShapes);
-assert.equal(app._shapeIdCounter, model.shapeIdCounter);
-app._shapeIdCounter++;
+assert.equal(app.pcbDocument.shapeIdCounter, model.shapeIdCounter);
+app.pcbDocument.shapeIdCounter++;
 assert.equal(model.shapeIdCounter, 45, 'Editor ID allocation updates the model counter');
 assert.equal(app.placementState, model.placementState);
 assert.equal(app.designSettings, model.designSettings);

@@ -40,7 +40,7 @@ const model = new PcbDocument();
 const app = {
     pcbDocument: model, boardShapes: model.boardShapes, tracks: model.tracks,
     vias: model.vias, pads: model.pads, texts: model.texts, placements: new Map(),
-    history: new CommandHistory(), _shapeElements: new Map(), _shapeIdCounter: 1,
+    history: new CommandHistory(), _shapeElements: new Map(), shapeIdCounter: 1,
     _layerGroups: new Map(), existingLayerGroups() { return this._layerGroups; }, _hoveredTrackOrVia: null,
     viewport: { scale: 100 }, snapToGrid: point => point, getLayerGroup: () => null,
     openPropertyPanel(panel) { syncPanel(panel); return true; },

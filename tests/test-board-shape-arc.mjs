@@ -340,7 +340,7 @@ for (const layer of ['hole', 'top-copper', 'top-mask']) {
 const app = {
     boardShapes: [],
     activeLayer: 'top-silk',
-    _shapeIdCounter: 1,
+    shapeIdCounter: 1,
     snapToGrid: (point) => ({ x: Math.round(point.x), y: Math.round(point.y) }),
     getLayerGroup: () => ({ appendChild() {}, insertBefore() {} }),
     history: { execute(command) { app.boardShapes.push(command.shape); } },

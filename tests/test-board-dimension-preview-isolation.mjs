@@ -10,6 +10,7 @@ import { getBoardDimensionPreview, previewBoardDimensions, finishBoardDimensionP
     initializeBoardOutlineState, setBoardOutlineSelected } from '../src/pcb/modules/board-outline-resize.js';
 import { prepareFabricationSnapshot } from '../src/pcb/modules/fabrication-snapshot.js';
 import { loadPcb } from '../src/pcb/modules/project-state.js';
+import { getBoardShapeElement } from '../src/pcb/modules/board-shapes.js';
 import { PCB_LAYERS } from '../src/pcb/modules/layers.js';
 import { getPropertyEditor } from '../src/pcb/modules/property-editors.js';
 import { areDragOverlaysDeferred, isBoardViewRefreshSuspended, setBoardViewPanel, setBoardViewRefreshSuspended, setDragOverlaysDeferred } from '../src/pcb/modules/refresh-state.js';
@@ -75,7 +76,7 @@ function fixture(existing = true, deferred = false) {
     setBoardViewPanel(app, { refresh() { refresh3d++; } });
     setDragOverlaysDeferred(app, deferred);
     setBoardViewRefreshSuspended(app, deferred);
-    for (const key of ['boardShapes', 'tracks', 'vias', 'pads', 'texts', '_shapeIdCounter',
+    for (const key of ['boardShapes', 'tracks', 'vias', 'pads', 'texts',
         '_boardWidth', '_boardHeight', '_boardRadius']) {
         Object.defineProperty(app, key, Object.getOwnPropertyDescriptor(PCBApp.prototype, key));
     }
@@ -160,7 +161,7 @@ for (const mode of ['width', 'height', 'both', 'property-width', 'property-heigh
         assert.equal(pours(), 0);
         assert.equal(fits(), 0, 'Live preview never fits the viewport');
         assert.equal(group.children.length, 1, 'Exactly one outline SVG');
-        assert.equal(app._shapeElements.get(shape.id), group.children[0]);
+        assert.equal(getBoardShapeElement(app, shape.id), group.children[0]);
         assert.equal(boardBoundary(app).w, expected.width);
         assert.equal(boardBoundary(app).h, expected.height);
         assert.equal(app.isSectionEditing(), true);

@@ -104,8 +104,53 @@ import { refreshSelectedDrcMarker } from './drc-state.js';
 const NS = 'http://www.w3.org/2000/svg';
 const HOLE_BORDER_WIDTH = 0.05;
 const REMOVAL_OUTLINE_WIDTH_PX = 1;
+const shapeElementsByApp = new WeakMap();
 const boardShapeRotationPreviews = new WeakMap();
 const boardShapePropertyPreviews = new WeakMap();
+
+function shapeElements(app) {
+    let elements = shapeElementsByApp.get(app);
+    if (!elements) shapeElementsByApp.set(app, elements = new Map());
+    return elements;
+}
+
+function boardShapeIdDocument(app) {
+    return app.pcbDocument || app;
+}
+
+function nextBoardShapeId(app) {
+    return `pshape_${boardShapeIdDocument(app).shapeIdCounter++}`;
+}
+
+function peekBoardShapeId(app) {
+    return `pshape_${boardShapeIdDocument(app).shapeIdCounter}`;
+}
+
+function setBoardShapeIdCounter(app, value) {
+    boardShapeIdDocument(app).shapeIdCounter = value;
+}
+
+function snapActive(app) {
+    let snap = !!app.viewport?.snapToGrid;
+    if (app.viewport?.shiftHeld && app.viewport?.gridVisible) snap = !snap;
+    return snap;
+}
+
+export function getBoardShapeElement(app, id) {
+    return shapeElements(app).get(id);
+}
+
+export function hasBoardShapeElement(app, id) {
+    return shapeElements(app).has(id);
+}
+
+export function boardShapeElementCount(app) {
+    return shapeElements(app).size;
+}
+
+export function clearBoardShapeElements(app) {
+    for (const id of [...shapeElements(app).keys()]) removeBoardShapeElement(app, id);
+}
 
 function boardShapeEditProfile() {
     return {
@@ -406,7 +451,7 @@ function replaceTrackWithBoardShape(app, track, { filled, net, layer = null, pla
     // counter, and split or pasted tracks share a source), so only keep it while free.
     const sourceId = track.sourceBoardShape?.id;
     const id = sourceId && !app.boardShapes.some((shape) => shape.id === sourceId)
-        ? sourceId : `pshape_${app._shapeIdCounter++}`;
+        ? sourceId : nextBoardShapeId(app);
     const shape = {
         id,
         kind,
@@ -518,7 +563,7 @@ function findBoardLineJoinTarget(app, shape, handle, worldPos) {
 function mergeBoardLines(app, first, firstEndpoint, second, secondEndpoint) {
     return {
         ...joinPaths(first, firstEndpoint, second, secondEndpoint),
-        id: `pshape_${app._shapeIdCounter++}`,
+        id: nextBoardShapeId(app),
         net: '',
     };
 }
@@ -837,7 +882,7 @@ export function renderBoardShape(app, shape, opts = {}) {
     const root = st.isHoleLayer ? insideStrokeGroup(el) : el;
     root.setAttribute('data-board-shape-layer', shape.layer || '');
     app.getLayerGroup(st.targetLayer)?.appendChild(root);
-    app._shapeElements.set(shape.id, root);
+    shapeElements(app).set(shape.id, root);
     if (!opts.interactionOnly) refreshBoardShapeClearance(app, shape);
     if (isPictureCopperRefreshPending(app)) {
         if (!opts.skipCopperUpdate && (shapeAffectsCopperCuts(shape) || (!opts.liveDrag && hasCopperCuts(app)))) deferShapeCopperCuts(app);
@@ -873,9 +918,9 @@ export function shapeAffectsCopperCuts(shape) {
 }
 
 export function removeBoardShapeElement(app, id, opts = {}) {
-    const el = app._shapeElements.get(id);
+    const el = shapeElements(app).get(id);
     if (el?.parentNode) el.parentNode.removeChild(el);
-    app._shapeElements.delete(id);
+    shapeElements(app).delete(id);
     if (!opts.preserveInteraction) {
         if (getHoveredBoardShape(app)?.id === id) setHoveredBoardShape(app, null);
         const clearance = getBoardShapeClearance(app, id);
@@ -1545,7 +1590,7 @@ export function handleBoardShapeDrag(app, worldPos) {
         return;
     }
     if (!d.preview && worldPos.x === d.startWorld.x && worldPos.y === d.startWorld.y) return;
-    const modifiers = `${!!app.viewport?.shiftHeld}:${!!app.viewport?.gridVisible}:${app.viewport?.gridSize}:${app.viewport?.scale}:${app.viewport?.snapToGrid}:${app._snapActive?.()}`;
+    const modifiers = `${!!app.viewport?.shiftHeld}:${!!app.viewport?.gridVisible}:${app.viewport?.gridSize}:${app.viewport?.scale}:${app.viewport?.snapToGrid}:${snapActive(app)}`;
     if (d.lastPoint?.x === worldPos.x && d.lastPoint?.y === worldPos.y && d.lastModifiers === modifiers) return;
     d.lastPoint = { ...worldPos };
     d.lastModifiers = modifiers;
@@ -1559,10 +1604,10 @@ export function handleBoardShapeDrag(app, worldPos) {
         const editingArcEndpoint = s.kind === 'arc' && (d.handle === 'start' || d.handle === 'end');
         let snap = editingSegmentBulge ? snapPathPoint(app, worldPos, []) : polylineDrag && typeof d.handle === 'number'
             ? polygonVertexSnap(app, d.vertexBefore || before, d.handle, worldPos, beforeKind !== 'line',
-                app._snapActive?.() ?? app.viewport?.snapToGrid !== false, s.segmentBulges || [])
+                snapActive(app) ?? app.viewport?.snapToGrid !== false, s.segmentBulges || [])
             : editingArcEndpoint
                 ? polygonVertexSnap(app, { points: [before.start, before.end] }, d.handle === 'start' ? 0 : 1,
-                    worldPos, false, app._snapActive?.() ?? app.viewport?.snapToGrid !== false)
+                    worldPos, false, snapActive(app) ?? app.viewport?.snapToGrid !== false)
             : beforeKind === 'rect' && typeof d.handle === 'number'
                 ? snapPathPoint(app, worldPos, [before.points[(d.handle + 2) % 4]])
             : snapPathPoint(app, worldPos, before.points || []);
@@ -1721,7 +1766,7 @@ export function openBoardShape(app, shape, vertexIndex = 0) {
     const split = splitPathAtNode(shape, start);
     if (!split) return false;
     const remainder = split.remainder;
-    if (remainder) remainder.id = `pshape_${app._shapeIdCounter}`;
+    if (remainder) remainder.id = peekBoardShapeId(app);
     selectBoardShape(app, shape);
     if (!startBoardShapeDrag(app, shape, split.moving.points[0], 0)) return false;
     const drag = getBoardShapeDrag(app);
@@ -1758,7 +1803,7 @@ export function deleteBoardShapeSegment(app, shape, segment) {
     const count = shape.kind === 'line' ? shape.points.length - 1 : shape.points?.length;
     if (!Number.isInteger(segment) || segment < 0 || segment >= count || boardShapeLocked(shape)) return false;
     const parts = deletePathSegment(shape, segment).map(part => {
-        part.id = `pshape_${app._shapeIdCounter++}`;
+        part.id = nextBoardShapeId(app);
         return part;
     });
     setPcbSelection(app, []);
@@ -2008,7 +2053,7 @@ export function finishShapeDraw(app) {
     const layer = d.layer || app.activeLayer;
     const alwaysFilled = isMaskLayer(layer);
     const base = {
-        id: `pshape_${app._shapeIdCounter++}`,
+        id: nextBoardShapeId(app),
         kind: d.kind,
         layer,
         lineWidth: normalizedBoardShapeLineWidth(
@@ -2097,9 +2142,9 @@ export function boardShapeCopperCuts(app, copperLayer) {
 // â”€â”€ Serialisation â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 export function loadBoardShapes(app, arr, { render = true, strict = false } = {}) {
-    const stage = { boardShapes: [], shapeIdCounter: app._shapeIdCounter };
+    const stage = { boardShapes: [], shapeIdCounter: boardShapeIdDocument(app).shapeIdCounter };
     loadBoardShapeData(stage, arr, { strict, lineWidth: getShapeDefaults(app)?.lineWidth ?? 0.2 });
-    app._shapeIdCounter = stage.shapeIdCounter;
+    setBoardShapeIdCounter(app, stage.shapeIdCounter);
     for (const shape of stage.boardShapes) {
         app.boardShapes.push(shape);
         if (shape.layer === 'board-outline') syncBoardOutlineDimensions(app);

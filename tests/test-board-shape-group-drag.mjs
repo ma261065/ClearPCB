@@ -407,7 +407,7 @@ function topologyApp(shapes) {
         pcbDocument,
         get boardShapes() { return getGroupPreview(this)?.boardShapes || getBoardShapePointerPreview(this)?.boardShapes || pcbDocument.boardShapes; },
         placements: new Map(), tracks: [], vias: [], texts: new Map(),
-        _shapeElements: new Map(), _shapeIdCounter: 1,
+        _shapeElements: new Map(), shapeIdCounter: 1,
         getLayerGroup() { return null; }, snapToGrid(point) { return point; },
         viewport: { scale: 100, snapToGrid: false, setCrosshair() {}, hideCrosshair() {} },
         history: { execute(command) { command.execute(); } },

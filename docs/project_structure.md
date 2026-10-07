@@ -150,7 +150,8 @@ evaluation-order cycle fails.
   (board-outline drawn/selected state), `clearance-overlay.js` (clearance
   visibility and halo caches), `picture-refresh.js` (pending/deferred
   shape-clearance refresh state), `track-select.js` (selected track node/segment
-  edit and hover-highlight state), `track-draw.js` (track snap and guide SVG
+  edit and hover-highlight state), `board-shapes.js` (rendered board-shape SVG
+  elements and document-backed shape ID allocation), `track-draw.js` (track snap and guide SVG
   affordances), `layers.js` (layer-panel lock bubble timer), and
   `pcb-interactions.js` (in-progress interaction slots).
 - In-progress interaction slots (`_drag`, `_trackDraw`, …) are listed once in
@@ -180,7 +181,7 @@ evaluation-order cycle fails.
   `board-shape-state.js` have no imports, because worker-loaded export and DRC
   code (or low-level selection plumbing) reads them.
 - Entity IDs come from `core/id-allocator.js`; board shapes use
-  `PcbDocument.shapeIdCounter`.
+  `PcbDocument.shapeIdCounter` through `board-shapes.js` allocation helpers.
 
 ## Owner Index
 
@@ -203,9 +204,10 @@ PCB editor:
   `keyboard.js` — the PCB keyboard shortcuts (like `schematic/modules/keyboard.js`),
   with each drawing tool handling its own keys (`handleTrackDrawKey`, …).
 - `pcb/modules/project-state.js` — PCB serialization, preparation and restoration.
-- `pcb/modules/board-shapes.js` — board-shape rendering, selection, interaction,
-  Track conversion and the shared path-edit/profile machinery also used by copper
-  fills; `board-shape-properties.js` — board-shape Properties and shared geometry
+- `pcb/modules/board-shapes.js` — board-shape rendering and its SVG element
+  registry, document-backed shape ID allocation, selection, interaction, Track
+  conversion and the shared path-edit/profile machinery also used by copper fills;
+  `board-shape-properties.js` — board-shape Properties and shared geometry
   preview transactions.
 - `pcb/modules/board-outline-resize.js` — board-outline draw/selection state,
   board-size previews and resize gestures, the Board Dimensions dialog and the

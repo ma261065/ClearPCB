@@ -25,7 +25,7 @@ const boardShape = (overrides = {}) => ({
 const save = shape => serializeBoardShapes({ boardShapes: [shape] })[0];
 const restore = record => {
     const pcbDocument = new PcbDocument();
-    const app = { pcbDocument, boardShapes: pcbDocument.boardShapes, _shapeIdCounter: 1 };
+    const app = { pcbDocument, boardShapes: pcbDocument.boardShapes, shapeIdCounter: 1 };
     loadBoardShapes(app, [record], { strict: true, render: false });
     return app.boardShapes[0];
 };

@@ -192,7 +192,7 @@ for (const kind of ['line', 'track']) {
         let title = '';
         const items = { innerHTML: '' };
         const app = { ...shapeModel(kind === 'track' ? [] : [object], kind === 'track' ? [object] : []),
-            placements: new Map(), texts: new Map(), _shapeElements: new Map(), _shapeIdCounter: 1,
+            placements: new Map(), texts: new Map(), _shapeElements: new Map(), shapeIdCounter: 1,
             getLayerGroup() { return null; }, snapToGrid(point) { return point; },
             propertiesItems() { return items; }, setPropertiesTitle(value) { title = value; },
             openPropertyPanel(panel) { title = panel.title; this._propertyPanel = panel; return true; },

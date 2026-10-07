@@ -4,7 +4,8 @@ import { CommandHistory } from '../src/core/CommandHistory.js';
 import { pictureShape } from '../src/shared/pcb/picture-raster.js';
 import { boardShapeBounds, boardShapeHitTest, boardShapeRemovalPathD } from '../src/shared/pcb/board-shape-geometry.js';
 import { createBoardShapeSelectionAdapter, getBoardShapeRotationPreview, renderBoardShape,
-    selectBoardShape, setBoardShapeHover, captureBoardShapeState, endBoardShapeDrag } from '../src/pcb/modules/board-shapes.js';
+    selectBoardShape, setBoardShapeHover, captureBoardShapeState, endBoardShapeDrag,
+    boardShapeElementCount, getBoardShapeElement, hasBoardShapeElement } from '../src/pcb/modules/board-shapes.js';
 import { RemoveBoardShapeCommand } from '../src/pcb/modules/shape-commands.js';
 import { rotatedImagePoints } from '../src/pcb/modules/rotation-handle.js';
 import { setPcbSelection, syncPcbSelection, getPcbSelection } from '../src/pcb/modules/selection-registry.js';
@@ -93,7 +94,7 @@ for (const layer of ['top-silk', 'bottom-silk', 'top-copper', 'bottom-copper']) 
         const { app, project, model, shape, unrelated, adapter, center, start, pointFor } = f;
         const before = model.captureGeometry(), serialized = model.serialize();
         const shapeState = captureBoardShapeState(shape);
-        const points = shape.points, artwork = shape.artwork, otherElement = app._shapeElements.get(unrelated[0].id);
+        const points = shape.points, artwork = shape.artwork, otherElement = getBoardShapeElement(app, unrelated[0].id);
         const redo = { execute() {}, undo() {} };
         app.history.redoStack.push(redo);
         try {
@@ -139,7 +140,7 @@ for (const layer of ['top-silk', 'bottom-silk', 'top-copper', 'bottom-copper']) 
             setBoardShapeHover(app, copy);
             assert.equal(getHoveredBoardShape(app), shape, 'Hover retains canonical identity while rendering the copy');
             renderBoardShape(app, shape, { liveDrag: true });
-            assert.equal(app._shapeElements.get(shape.id).getAttribute('d'), boardShapeRemovalPathD(copy),
+            assert.equal(getBoardShapeElement(app, shape.id).getAttribute('d'), boardShapeRemovalPathD(copy),
                 'Canonical render requests retain displayed geometry');
             assert.equal(f.fills(), 0);
             assert.throws(() => project.serialize(), /Finish the current edit before saving/);
@@ -210,10 +211,10 @@ for (const layer of ['top-silk', 'bottom-silk', 'top-copper', 'bottom-copper']) 
             assert.equal(app.isSectionEditing(), false);
             setBoardShapeHover(app, null);
             if (finish !== 'load') {
-                assert.equal(app._shapeElements.get(unrelated[0].id), otherElement);
-                assert.equal(app._shapeElements.size, finish === 'missing' ? 1 : 2);
-                if (finish !== 'missing') assert.equal(app._shapeElements.get(shape.id).getAttribute('d'), boardShapeRemovalPathD(shape));
-            } else assert.equal(app._shapeElements.size, 0);
+                assert.equal(getBoardShapeElement(app, unrelated[0].id), otherElement);
+                assert.equal(boardShapeElementCount(app), finish === 'missing' ? 1 : 2);
+                if (finish !== 'missing') assert.equal(getBoardShapeElement(app, shape.id).getAttribute('d'), boardShapeRemovalPathD(shape));
+            } else assert.equal(boardShapeElementCount(app), 0);
             const finishedAllocations = allocations;
             rebuilt.updateAnchorDrag(pointFor(240));
             rebuilt.endAnchorDrag(true);
@@ -290,7 +291,7 @@ for (const action of ['commit', 'cancel', 'update']) {
     else finishSelectionInteraction(app, false);
     assert.equal(getBoardShapeRotationPreview(app), undefined);
     assert.equal(getSelectionInteraction(app), null);
-    assert.equal(app._shapeElements.has(shape.id), false);
+    assert.equal(hasBoardShapeElement(app, shape.id), false);
     assert.equal(app.isSectionEditing(), false);
     cancelPictureCopperRefresh(app);
     cases++;

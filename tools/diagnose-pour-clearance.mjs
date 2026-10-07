@@ -20,7 +20,7 @@ const components = schematic.components.map((item) => {
     return { id: item.id, reference: item.ref || item.reference, definition, symbol: definition.symbol };
 });
 const app = {
-    placements: new Map(), boardShapes: [], _shapeIdCounter: 1,
+    placements: new Map(), boardShapes: [], shapeIdCounter: 1,
     tracks: (pcb.tracks || []).map(createShape), vias: (pcb.vias || []).map((item) => Via.fromJSON(item)),
     texts: new Map((pcb.texts || []).map((item) => [item.id, item])),
     netlist: extractNetlist({ components, shapes: (schematic.shapes || []).map(createShape) }),

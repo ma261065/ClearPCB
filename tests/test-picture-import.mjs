@@ -93,7 +93,7 @@ for (const layer of ['top-silk', 'bottom-silk', 'top-copper', 'bottom-copper']) 
     assert.equal(fills, 1);
     assert.equal(views, 1);
     const saved = serializeBoardShapes(app);
-    const restored = { boardShapes: [], _shapeIdCounter: 1 };
+    const restored = { boardShapes: [], shapeIdCounter: 1 };
     loadBoardShapes(restored, saved, { render: false });
     assert.deepEqual(serializeBoardShapes(restored), saved);
     history.undo();

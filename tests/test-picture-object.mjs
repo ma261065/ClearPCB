@@ -50,7 +50,7 @@ const saved = serializeBoardShapes({ boardShapes: [image] });
 assert.deepEqual(Object.fromEntries(['x', 'y', 'width', 'height', 'rotation'].map(key => [key, saved[0][key]])),
     { x: 2, y: 1, width: 8, height: 4, rotation: 0 });
 assert.equal(Object.hasOwn(saved[0], 'points'), false);
-const loaded = { boardShapes: [], _shapeIdCounter: 1 };
+const loaded = { boardShapes: [], shapeIdCounter: 1 };
 loadBoardShapes(loaded, saved, { render: false, strict: true });
 assert.deepEqual(serializeBoardShapes(loaded), saved);
 assert.equal(loaded.boardShapes.length, 1);
@@ -76,7 +76,7 @@ assert.deepEqual(Object.fromEntries(['x', 'y', 'width', 'height', 'rotation'].ma
 });
 assert.equal(Object.hasOwn(frame, 'reversed'), false);
 assert.deepEqual(image, beforeSave, 'Autosave does not mutate live image bounds or artwork');
-const transformedLoaded = { boardShapes: [], _shapeIdCounter: 1 };
+const transformedLoaded = { boardShapes: [], shapeIdCounter: 1 };
 loadBoardShapes(transformedLoaded, transformedSaved, { render: false, strict: true });
 assert.deepEqual(serializeBoardShapes(transformedLoaded), transformedSaved,
     'Rounded frame parameters round-trip unchanged');
@@ -105,7 +105,7 @@ const legacyRounded = [legacyRecord(frame, image.points.map(point => ({
     x: Math.round(point.x * 10000) / 10000,
     y: Math.round(point.y * 10000) / 10000,
 })))];
-const recovered = { boardShapes: [], _shapeIdCounter: 1 };
+const recovered = { boardShapes: [], shapeIdCounter: 1 };
 loadBoardShapes(recovered, legacyRounded, { render: false, strict: true });
 assert.doesNotThrow(() => validatePicturePoints(recovered.boardShapes[0].points),
     'Rounded legacy autosaves recover to exact rectangular bounds');
@@ -113,7 +113,7 @@ recovered.boardShapes[0].points.forEach((point, index) => assert.ok(
     Math.hypot(point.x - legacyRounded[0].points[index].x, point.y - legacyRounded[0].points[index].y) < 0.00015,
     'Legacy recovery stays within the bounded corner-rounding allowance'));
 const migrated = serializeBoardShapes(recovered);
-const reloadedLegacy = { boardShapes: [], _shapeIdCounter: 1 };
+const reloadedLegacy = { boardShapes: [], shapeIdCounter: 1 };
 loadBoardShapes(reloadedLegacy, migrated, { render: false, strict: true });
 assert.deepEqual(serializeBoardShapes(reloadedLegacy), migrated, 'Legacy records migrate once to stable frames');
 assert.throws(() => loadBoardShapes({ boardShapes: [] }, [{ ...frame, points: image.points }],
@@ -129,7 +129,7 @@ for (const layer of ['top-document', 'bottom-document']) {
     assert.equal(documentImage.layer, layer);
     assert.equal(documentImage.net, '', 'Document artwork is not assigned to a copper net');
     const documentSaved = serializeBoardShapes({ boardShapes: [documentImage] });
-    const documentLoaded = { boardShapes: [], _shapeIdCounter: 1 };
+    const documentLoaded = { boardShapes: [], shapeIdCounter: 1 };
     loadBoardShapes(documentLoaded, documentSaved, { render: false, strict: true });
     assert.deepEqual(serializeBoardShapes(documentLoaded), documentSaved);
 }

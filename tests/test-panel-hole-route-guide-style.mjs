@@ -37,7 +37,7 @@ globalThis.MutationObserver = class { observe() {} disconnect() {} };
 globalThis.setTimeout = callback => { timers.set(++timerId, callback); return timerId; };
 globalThis.clearTimeout = id => timers.delete(id);
 const { renderPanelPreview, resetPanelPreview } = await import('../src/pcb/modules/panelization-ui.js');
-const { renderBoardShape } = await import('../src/pcb/modules/board-shapes.js');
+const { getBoardShapeElement, renderBoardShape } = await import('../src/pcb/modules/board-shapes.js');
 const { rectangleBoardOutline } = await import('../src/shared/pcb/board-outline.js');
 const { startTrackDraw, updateTrackDraw, cancelTrackDraw, reconcileRatsnest, setTrackToolNet, getNetGuideLine } =
     await import('../src/pcb/modules/track-draw.js');
@@ -90,7 +90,7 @@ for (const theme of ['light', 'dark']) {
             const ordinary = { id: 'ordinary-hole', layer: 'hole', kind: 'circle',
                 x: hole.x, y: hole.y, radius: hole.diameter / 2, lineWidth: 0 };
             renderBoardShape(app, ordinary);
-            const ordinaryRoot = app._shapeElements.get(ordinary.id);
+            const ordinaryRoot = getBoardShapeElement(app, ordinary.id);
             const ordinaryElement = ordinaryRoot.children.at(-1);
             const borderRoot = preview.children.find(child => child.localName === 'g'
                 && child.children.at(-1)?.getAttribute('d') === ordinaryElement.getAttribute('d'));

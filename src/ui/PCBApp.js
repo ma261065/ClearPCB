@@ -210,8 +210,6 @@ export default class PCBApp {
     set texts(value) { this.pcbDocument.texts = value; }
     get boardShapes() { return getGroupPreview(this)?.boardShapes || getPcbPastePreview(this)?.boardShapes || getBoardDimensionPreview(this)?.boardShapes || getBoardShapePointerPreview(this)?.boardShapes || getBoardShapeRotationPreview(this)?.boardShapes || getBoardShapePropertyPreview(this)?.boardShapes || this.pcbDocument.boardShapes; }
     set boardShapes(value) { this.pcbDocument.boardShapes = value; }
-    get _shapeIdCounter() { return this.pcbDocument.shapeIdCounter; }
-    set _shapeIdCounter(value) { this.pcbDocument.shapeIdCounter = value; }
     get _boardWidth() { return getBoardDimensionPreview(this)?.board.width ?? this.pcbDocument.board.width; }
     set _boardWidth(value) { this.pcbDocument.board.width = value; }
     get _boardHeight() { return getBoardDimensionPreview(this)?.board.height ?? this.pcbDocument.board.height; }
@@ -307,9 +305,7 @@ export default class PCBApp {
         /** Currently selected text object, or null. */
         /** In-memory PCB clipboard payload. */
         this._pcbClipboard = null;
-        /** SVG <path> elements keyed by shape id for quick remove/replace. */
-        this._shapeElements = new Map();
-        // Board-shape hover, node/segment focus and tool defaults live in board-shape-state.js.
+        // Board-shape SVG elements, hover, node/segment focus and tool defaults live in the board-shape modules.
         /** Currently selected board shape, or null. */
         /** Home-tab tool highlight sync, installed by bindPcbControls(). */
         this._syncPcbHomeToolHighlight = null;
@@ -2356,18 +2352,6 @@ export default class PCBApp {
     }
 
     // ── Text annotations ─────────────────────────────────────────
-
-    /**
-     * Whether grid snap currently applies, honouring Shift-to-reverse the
-     * snap setting while the grid is visible — matching the schematic
-     * editor's `Viewport.getSnappedPosition`.
-     * @returns {boolean}
-     */
-    _snapActive() {
-        let snap = !!this.viewport?.snapToGrid;
-        if (this.viewport?.shiftHeld && this.viewport?.gridVisible) snap = !snap;
-        return snap;
-    }
 
     /** Attract nearby coordinates to displayed grid lines, leaving the rest free. */
     snapToGrid(p) {

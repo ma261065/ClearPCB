@@ -10,6 +10,7 @@ import { cancelPictureCopperRefresh } from '../src/pcb/modules/picture-refresh.j
 import { getTextPosePreviewTexts } from '../src/pcb/modules/text-commands.js';
 import { isRotationHandleDragActive } from '../src/pcb/modules/rotation-handle.js';
 import { clearanceOverlayState } from '../src/pcb/modules/clearance-overlay.js';
+import { getBoardShapeElement } from '../src/pcb/modules/board-shapes.js';
 
 const inputs = new Map();
 globalThis.document = {
@@ -180,7 +181,7 @@ for (const layer of ['top-silk', 'bottom-copper']) {
         assert.equal(adapter.beginAnchorDrag('rotate', start), true);
         adapter.updateAnchorDrag(pointFor(37));
         const retainedPoints = adapter.object.points;
-        const retainedElement = app._shapeElements.get(shape.id);
+        const retainedElement = getBoardShapeElement(app, shape.id);
         for (let index = 1; index < 100; index++) adapter.updateAnchorDrag(pointFor(37 + index / 1000));
         assert.equal(renders, 1, '100 image events resolving to one angle render once');
         assert.equal(inputWrites, 1);
@@ -188,7 +189,7 @@ for (const layer of ['top-silk', 'bottom-copper']) {
         assert.equal(input.value, '37');
         assert.equal(adapter.object.points, retainedPoints, 'Unchanged image angles retain geometry identity');
         assert.deepEqual(shape.points, initialPoints, 'Image rotation leaves authored points unchanged');
-        assert.equal(app._shapeElements.get(shape.id), retainedElement, 'Unchanged image angles retain the SVG node');
+        assert.equal(getBoardShapeElement(app, shape.id), retainedElement, 'Unchanged image angles retain the SVG node');
         assert.equal(app.history.canUndo(), false);
         for (let angle = 90; angle < 190; angle++) {
             adapter.updateAnchorDrag(pointFor(angle));

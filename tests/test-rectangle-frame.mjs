@@ -19,7 +19,7 @@ const project = shapes => ({
         boardShapes: shapes },
 });
 const load = records => {
-    const app = { boardShapes: [], _shapeIdCounter: 1 };
+    const app = { boardShapes: [], shapeIdCounter: 1 };
     loadBoardShapes(app, records, { render: false, strict: true });
     return app;
 };

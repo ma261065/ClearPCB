@@ -35,6 +35,7 @@ const {
     syncBoardOutlineInputs,
 } =
     await import('../src/pcb/modules/board-outline-resize.js');
+const { getBoardShapeElement } = await import('../src/pcb/modules/board-shapes.js');
 const { PCB_LAYERS } = await import('../src/pcb/modules/layers.js');
 const { prepareFabricationSnapshot } = await import('../src/pcb/modules/fabrication-snapshot.js');
 const { setPropertyEditor } = await import('../src/pcb/modules/property-editors.js');
@@ -265,7 +266,7 @@ console.log('PASS board resize handles, snapping, minimum dimensions, undo/redo,
         assert.equal(outlineLayer.children.length, 1, 'History replaces outline SVG without duplicating it');
         assert.deepEqual(stages, ['draw', 'inputs', 'fills', 'draw', 'inputs', 'fills', 'draw', 'inputs', 'fills']);
         assert.equal(fitCalls.length, geometry ? 0 : 1);
-        assert.equal(view._shapeElements.get(outline.id), outlineLayer.children[0]);
+        assert.equal(getBoardShapeElement(view, outline.id), outlineLayer.children[0]);
     }
     const pcbDocument = new PcbDocument();
     Object.assign(pcbDocument.board, { width: 47.123456, height: 29.234567, radius: 0 });
