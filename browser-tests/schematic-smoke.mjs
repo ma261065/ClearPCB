@@ -121,4 +121,22 @@ export const scenarios = [
             assert.deepEqual([state.shapes.length, state.count, state.hovered], [0, 0, null], 'redo deletes again');
         },
     },
+    {
+        name: 'opening-a-project-restores-its-title-block',
+        async run(page, url) {
+            await openSchematic(page, url);
+            const titleBlock = { title: 'From the file', rev: 'C', company: 'Saved Co', date: '01/02/2003',
+                drawnBy: 'Saved author', sheet: '2/3' };
+            const shown = await page.evaluate(async titleBlock => {
+                const { project, schematicApp } = window.bootstrap;
+                // The browser remembers another project's title block.
+                schematicApp.viewport.setTitleBlockData({ title: 'Previous project', date: '31/12/1999' });
+                const data = project.serialize();
+                data.schematic.settings = { ...data.schematic.settings, ps: null, td: titleBlock };
+                await project.load(data);
+                return { ...schematicApp.viewport.titleBlockData };
+            }, titleBlock);
+            assert.deepEqual(shown, titleBlock, 'a project without a paper size still opens with its own title block');
+        },
+    },
 ];

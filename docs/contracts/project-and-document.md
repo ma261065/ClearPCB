@@ -116,7 +116,9 @@ The schematic model assembles shapes, components and deduplicated embedded
 definitions. Its view-settings adapter captures grid, paper size/orientation and
 title-block settings, including detached title-block data. Current settings
 override the loaded fallback only for the saved snapshot; saving does not mutate
-either the fallback or live entities. Direct schematic serialization and combined
+either the fallback or live entities. Loading restores a file's title-block data
+whether or not it has a paper size, so a project never keeps another project's
+title block. Direct schematic serialization and combined
 project serialization use the same model codec.
 The registered schematic view implements `prepareSection()` using the model's
 preflight and adopts those prepared entities during loading. Missing component

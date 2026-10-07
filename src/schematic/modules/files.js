@@ -116,11 +116,11 @@ export async function loadDocument(app, data, prepared = prepareDocument(app, da
             const showTitleBlockInfo = settings.titleBlockInfo || false;
             app.viewport.setTitleBlockInfo(showTitleBlockInfo);
             localStorage.setItem('clearpcb_title_block_info', String(showTitleBlockInfo));
-            // Restore title block info data
-            if (settings.titleBlockData) {
-                app.viewport.setTitleBlockData(settings.titleBlockData);
-            }
             app.refreshRibbon?.();
+        }
+        // The title block's text belongs to the document, with or without a paper size.
+        if (settings.titleBlockData) {
+            app.viewport.setTitleBlockData(settings.titleBlockData);
         }
     }
 
