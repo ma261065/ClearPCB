@@ -1,7 +1,6 @@
 import assert from 'node:assert/strict';
-import { SelectionManager } from '../src/core/SelectionManager.js';
 import { PcbDocument } from '../src/core/PcbDocument.js';
-import { getPcbSelection } from '../src/pcb/modules/selection-registry.js';
+import { getPcbSelection, getPcbSelectionManager } from '../src/pcb/modules/selection-registry.js';
 import { getTrackEdit, setTrackEdit } from '../src/pcb/modules/track-select.js';
 import { isBoardOutlineSelected, setBoardOutlineSelected } from '../src/pcb/modules/board-outline-resize.js';
 
@@ -68,24 +67,25 @@ document.querySelector = () => null;
 let clearedProperties = 0;
 Object.assign(app, {
     currentTool: 'select', placements: new Map(), boardShapes: [],
-    _pcbSelection: new SelectionManager(), viewport: { isPanning: false },
+    viewport: { isPanning: false },
     getLayerGroup: () => null,
     _selectComponent() {}, selectText() {}, drawRefOverlay() {}, selectFill() {},
     clearProperties() { clearedProperties++; },
+    setPcbStatus() {},
     refreshText() {}, _updateDRCStatus() {},
 });
 const objects = [{ id: 'via:one', kind: 'via', object: { id: 'one', x: 5, y: 6 } },
     { id: 'via:two', kind: 'via', object: { id: 'two', x: 7, y: 8 } },
     { id: 'text:label', kind: 'text', object: { id: 'label', x: 9, y: 10 } }];
 for (const object of objects) object.invalidate = () => {};
-app._pcbSelection.setShapes(objects);
+getPcbSelectionManager(app).setShapes(objects);
 initDrc(app);
 assert.equal(panel.attributes.tabindex, '-1', 'panel padding can receive pointer focus');
 assert.equal(listeners.get('pointerdown').options.capture, true, 'deselection precedes row click handling');
 
 const before = objects.map(entry => ({ ...entry.object }));
 for (const ids of [['via:one'], objects.map(entry => entry.id)]) {
-    app._pcbSelection.selectMultiple(ids);
+    getPcbSelectionManager(app).selectMultiple(ids);
     setTrackEdit(app, {});
     setBoardOutlineSelected(app, true);
     drc.selectedId = 'a';
@@ -109,7 +109,7 @@ for (const ids of [['via:one'], objects.map(entry => entry.id)]) {
 }
 assert.equal(clearedProperties, 2, 'properties clear once per selection, not again on focus');
 
-app._pcbSelection.selectMultiple(['via:one']);
+getPcbSelectionManager(app).selectMultiple(['via:one']);
 assert.equal(app.handleKeyDown({ key: 'ArrowUp', target: { tagName: 'LI', closest: () => panel } }), false,
     'even a stale board selection cannot intercept a DRC navigation key');
 listeners.get('focusin').handler();

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { setPcbSelection, syncPcbSelection } from '../src/pcb/modules/selection-registry.js';
+import { getPcbSelectionManager, setPcbSelection, syncPcbSelection } from '../src/pcb/modules/selection-registry.js';
 import { updatePcbCulling } from '../src/pcb/modules/component-selection.js';
 
 globalThis.window = { addEventListener() {} };
@@ -27,8 +27,9 @@ function fixture(count = 3) {
         }])),
     };
     syncPcbSelection(app);
-    const getSelection = app._pcbSelection.getSelection.bind(app._pcbSelection);
-    app._pcbSelection.getSelection = () => { selectionReads++; return getSelection(); };
+    const manager = getPcbSelectionManager(app);
+    const getSelection = manager.getSelection.bind(manager);
+    manager.getSelection = () => { selectionReads++; return getSelection(); };
     return {
         app, get writes() { return writes; },
         select(...ids) { setPcbSelection(app, ids.map(object => ({ kind: 'component', object }))); },

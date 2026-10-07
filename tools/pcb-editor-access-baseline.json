@@ -33,9 +33,6 @@
     "_showPadProperties",
     "_showPcbMultiSelectionProperties"
   ],
-  "src/pcb/modules/selection-registry.js": [
-    "_pcbSelection"
-  ],
   "src/pcb/modules/text-commands.js": [
     "_showPcbMultiSelectionProperties"
   ],

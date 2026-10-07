@@ -31,7 +31,7 @@ globalThis.document = {
 globalThis.requestAnimationFrame = callback => { callback(); return 1; };
 
 const { default: PCBApp } = await import('../src/ui/PCBApp.js');
-const { syncPcbSelection, setPcbSelection } = await import('../src/pcb/modules/selection-registry.js');
+const { getPcbSelectionManager, syncPcbSelection, setPcbSelection } = await import('../src/pcb/modules/selection-registry.js');
 const { Track } = await import('../src/shapes/track.js');
 const { Via } = await import('../src/shapes/via.js');
 const { Pad } = await import('../src/shapes/pad.js');
@@ -105,7 +105,7 @@ function boardFixture() {
 
 const app = boardFixture();
 syncPcbSelection(app);
-const manager = app._pcbSelection;
+const manager = getPcbSelectionManager(app);
 const kinds = new Set(manager.shapes.map(adapter => adapter.kind));
 for (const kind of ['shape', 'fill', 'track', 'via', 'pad', 'text', 'component', 'reftext']) {
     assert.ok(kinds.has(kind), `fixture covers ${kind} adapters`);

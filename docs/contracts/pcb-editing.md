@@ -485,7 +485,7 @@ handoffs finish pending edits before canonical pickup; save/export guards remain
 Mixed-object group movement in `box-select.js` reuses detached copies of
 directly selected tracks, vias, pads, board shapes and fills alongside the
 component/text projections. `PCBApp` collection getters give the group
-projection precedence. Group-specific selection-registry forwarding resolves
+projection precedence. The selection manager itself lives in `selection-registry.js` per-editor WeakMap state, exposed through selection-registry helpers for diagnostics and tests. Group-specific selection-registry forwarding resolves
 displayed bounds, paths, hits and anchors without retargeting gesture methods
 away from canonical objects. Selected tracks also attached to a moving component
 are rendered once, not by both preview paths.

@@ -64,7 +64,7 @@ app.readComponentHit = () => {
 assert.deepEqual(hits(), ['component-42']);
 assert.equal(scans, 10, 'Nested queries must restore the outer query cache');
 
-const otherApp = { ...app, _pcbSelection: undefined, readComponentHit: () => ['component-9'] };
+const otherApp = { ...app, readComponentHit: () => ['component-9'] };
 assert.equal(hitTestPcbSelection(otherApp, point, 'component'), 'component-9');
 assert.deepEqual(hits(), ['component-42']);
 console.log('PASS: one component scan per selection query, fresh hits/misses, direct calls, errors, nesting, and app isolation');

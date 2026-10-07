@@ -114,7 +114,8 @@ export const scenarios = [
             await page.mouse.down();
             await page.mouse.move(end.x, end.y, { steps: 8 });
             await page.mouse.up();
-            assert.equal(await page.evaluate(() => window.bootstrap.pcbApp._pcbSelection?.getSelection().length), 2,
+            assert.equal(await page.evaluate(() => import('/src/pcb/modules/selection-registry.js')
+                .then(api => api.getPcbSelectionEntries(window.bootstrap.pcbApp).length)), 2,
                 'the marquee takes the locked line too');
             await page.locator('#pcbPropIntersection_lineWidth').fill('0.5');
             await page.locator('#pcbPropIntersection_lineWidth').press('Enter');

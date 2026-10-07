@@ -54,7 +54,7 @@ const kindAt = point => registry.getPcbSelectionHits(app, point).map(hit => hit.
 
 registry.syncPcbSelection(app);
 assert.equal(created, 5, 'first sync creates one adapter per entity');
-const manager = app._pcbSelection;
+const manager = registry.getPcbSelectionManager(app);
 const firstShapes = manager.shapes;
 for (let index = 0; index < 100; index++) {
     registry.syncPcbSelection(app);

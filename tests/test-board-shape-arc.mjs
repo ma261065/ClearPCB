@@ -6,6 +6,7 @@ import { renderPropertyFields, propertyField } from '../src/shared/ui/property-f
 import { getShapeDraw } from '../src/pcb/modules/board-shapes.js';
 import { setPcbInteraction } from '../src/pcb/modules/pcb-interactions.js';
 import { getBoardShapeDrag } from '../src/pcb/modules/board-shapes.js';
+import { setPcbSelection } from '../src/pcb/modules/selection-registry.js';
 
 const pcbShapeGeometry = await import('../src/shared/pcb/board-shape-geometry.js');
 const {
@@ -796,12 +797,15 @@ check('filled rounded rectangle keeps the same outline centerline',
     && Math.max(...filledRectOutline.map((point) => point.x)) === 10);
 let renderedFilledShape = null;
 const selectedFilledRect = { ...filledRoundedRect, copperMode: 'add' };
-renderBoardShape({
-    boardShapes: [selectedFilledRect],
-    _shapeElements: new Map(),
-    _pcbSelection: { isSelected() { return true; } },
-    getLayerGroup() { return { appendChild(element) { renderedFilledShape = element; } }; },
-}, selectedFilledRect, { skipCopperUpdate: true });
+{
+    const app = {
+        boardShapes: [selectedFilledRect],
+        _shapeElements: new Map(),
+        getLayerGroup() { return { appendChild(element) { renderedFilledShape = element; } }; },
+    };
+    setPcbSelection(app, [{ kind: 'shape', object: selectedFilledRect }]);
+    renderBoardShape(app, selectedFilledRect, { skipCopperUpdate: true });
+}
 check('selected filled shape changes its interior color',
     renderedFilledShape?.getAttribute('fill') === shapeSelectionColor(selectedFilledRect));
 check('filled shape interior matches outline opacity',
@@ -828,7 +832,6 @@ const holeCircle = { ...removalCircle, layer: 'hole' };
 renderBoardShape({
     boardShapes: [holeCircle],
     _shapeElements: new Map(),
-    _pcbSelection: { isSelected() { return false; } },
     getLayerGroup() { return { appendChild(element) { renderedHoleCircle = element.children.at(-1); } }; },
 }, holeCircle, { skipCopperUpdate: true });
 check('hole-layer circle display reaches the physical cutout edge',
@@ -841,7 +844,6 @@ const holeLine = { ...removalLine, layer: 'hole' };
 renderBoardShape({
     boardShapes: [holeLine],
     _shapeElements: new Map(),
-    _pcbSelection: { isSelected() { return false; } },
     getLayerGroup() { return { appendChild(element) { renderedHoleLine = element.children.at(-1); } }; },
 }, holeLine, { skipCopperUpdate: true });
 check('hole-layer line fills its slot with the canvas background like other cutouts',

@@ -5,6 +5,7 @@ installFakeDom();
 
 const { default: PCBApp } = await import('../src/ui/PCBApp.js');
 const { PcbDocument } = await import('../src/core/PcbDocument.js');
+const { setPcbSelection } = await import('../src/pcb/modules/selection-registry.js');
 const { PCB_LAYERS, isViaVisible, isViaLocked, notifyLayerLockChanged } = await import('../src/pcb/modules/layers.js');
 const { resolveShapeDrawLayer } =
     await import('../src/pcb/modules/board-shapes.js');
@@ -19,11 +20,17 @@ panel.appendChild(items);
 document.body.appendChild(panel);
 const fire = (control, type, extra = {}) => control.dispatchEvent({ type, ...extra });
 const app = Object.create(PCBApp.prototype);
+const layerGroups = new Map();
 app.pcbDocument = new PcbDocument();
 Object.assign(app, {
     activeLayer: 'top-silk',
     boardShapes: [], placements: new Map(), tracks: [], vias: [], pads: [], texts: new Map(),
     viewport: { scale: 1 },
+    _layerGroups: layerGroups,
+    getLayerGroup(id) {
+        if (!layerGroups.has(id)) layerGroups.set(id, document.createElementNS('http://www.w3.org/2000/svg', 'g'));
+        return layerGroups.get(id);
+    },
     propertiesItems: () => items,
     setPropertiesTitle() {},
     setActiveRibbonTab() {},
@@ -62,7 +69,7 @@ for (const kind of ['line', 'circle', 'rect', 'polygon', 'arc']) {
     const second = { ...shape, id: `${kind}-second`, layer: 'bottom-silk' };
     app.boardShapes = [shape, second];
     for (const selection of [[shape], [shape, second]]) {
-        app._pcbSelection.selected = new Set(selection.map(object => `shape:${object.id}`));
+        setPcbSelection(app, selection.map(object => ({ kind: 'shape', object })));
         showBoardShapeProperties(app, shape);
         assert.deepEqual(selectableLayers('pcbPropShapeLayer'), expectedShapeLayers,
             `${kind}: single and multi-shape properties exclude Via`);
@@ -87,7 +94,7 @@ assert.equal(resolveShapeDrawLayer(app, 'board-outline'), 'top-silk');
 
 const legacy = { id: 'legacy', kind: 'rect', layer: 'vias', points, lineWidth: 0.2 };
 app.boardShapes = [legacy];
-app._pcbSelection.selected = new Set([`shape:${legacy.id}`]);
+setPcbSelection(app, [{ kind: 'shape', object: legacy }]);
 showBoardShapeProperties(app, legacy);
 assert.deepEqual(selectableLayers('pcbPropShapeLayer'), expectedShapeLayers,
     'an existing invalid assignment does not make Via a selectable destination');
@@ -140,7 +147,7 @@ try {
             const second = { ...shape, id: `${kind}-second` };
             app.boardShapes = [shape, second];
             for (const selected of [[shape], [shape, second]]) {
-                app._pcbSelection.selected = new Set(selected.map(object => `shape:${object.id}`));
+                setPcbSelection(app, selected.map(object => ({ kind: 'shape', object })));
                 showBoardShapeProperties(app, shape);
                 assert.deepEqual(layerOption('pcbPropShapeLayer', 'hole'),
                     { disabled: locked, selected: false, label: `Hole${locked ? ' \u{1F512}\uFE0E' : ''}` });
@@ -154,7 +161,7 @@ try {
         const image = { ...legacy, id: 'image', kind: 'image', layer: 'top-silk',
             artwork: { width: 10, height: 8, rectangles: [] } };
         app.boardShapes = [image];
-        app._pcbSelection.selected = new Set([`shape:${image.id}`]);
+        setPcbSelection(app, [{ kind: 'shape', object: image }]);
         showBoardShapeProperties(app, image);
         assert.deepEqual(layerOption('pcbPropImageLayer', 'bottom-silk'),
             { disabled: locked, selected: false, label: `Bottom Silk${locked ? ' \u{1F512}\uFE0E' : ''}` });

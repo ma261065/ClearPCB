@@ -15,6 +15,7 @@ const keyFor = (kind, object) => `${kind}:${kind === 'component' || kind === 're
 const adapterFactories = new Map();
 const placementHitReaders = new Map();
 const hitQueries = new WeakMap();
+const selectionManagers = new WeakMap();
 let referenceOverlayRefresher = null;
 /** @type {Set<string|symbol>} */
 const groupGeometryMembers = new Set([
@@ -95,8 +96,9 @@ function pruneIdAdapters(app) {
 }
 
 function manager(app) {
-    if (!app._pcbSelection) {
-        app._pcbSelection = new SelectionManager({
+    let selection = selectionManagers.get(app);
+    if (!selection) {
+        selection = new SelectionManager({
             getScale: () => app.viewport?.scale || 1,
             onSelectionChanged: (selected) => {
                 const segment = getBoardShapeSegmentFocus(app);
@@ -119,8 +121,13 @@ function manager(app) {
                 refreshPcbReferenceOverlay(app);
             },
         });
+        selectionManagers.set(app, selection);
     }
-    return app._pcbSelection;
+    return selection;
+}
+
+export function getPcbSelectionManager(app) {
+    return manager(app);
 }
 
 function createAdapter(app, kind, object) {

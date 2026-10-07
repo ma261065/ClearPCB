@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { distanceToSegment, pointInPolygon } from '../src/core/geometry.js';
 import { boardShapeRemovalPathD, resolveBoardShapeGeometry } from '../src/shared/pcb/board-shape-geometry.js';
 import { setHoveredBoardShape } from '../src/pcb/modules/board-shape-state.js';
+import { setPcbSelection } from '../src/pcb/modules/selection-registry.js';
 
 globalThis.window = { addEventListener() {} };
 const element = (localName = 'g') => ({
@@ -79,11 +80,12 @@ for (const shape of shapes) {
     for (const state of ['normal', 'selected', 'hovered']) {
         const group = element(), app = {
             _shapeElements: new Map(), getLayerGroup: () => group,
-            _pcbSelection: { isSelected: () => state === 'selected' },
         };
         for (const layer of ['hole', 'top-copper', 'top-silk', 'hole']) {
             const target = { ...shape, layer,
                 points: shape.points.map(point => ({ x: point.x + 24, y: point.y - 13 })) };
+            app.boardShapes = [target];
+            setPcbSelection(app, state === 'selected' ? [{ kind: 'shape', object: target }] : []);
             setHoveredBoardShape(app, state === 'hovered' ? target : null);
             const previous = getBoardShapeElement(app, target.id);
             renderBoardShape(app, target);

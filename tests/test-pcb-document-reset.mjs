@@ -55,7 +55,7 @@ const { newFile } = await import('../src/schematic/modules/files.js');
 const { loadPcb } = await import('../src/pcb/modules/project-state.js');
 const { renderBoardShape, shapeDrawClick, updateShapeDrawPreview } = await import('../src/pcb/modules/board-shapes.js');
 const { boardDimensions } = await import('../src/shared/pcb/board-outline.js');
-const { setPcbSelection, getPcbSelectionEntries, clearPcbSelection } = await import('../src/pcb/modules/selection-registry.js');
+const { getPcbSelectionManager, setPcbSelection, getPcbSelectionEntries, clearPcbSelection } = await import('../src/pcb/modules/selection-registry.js');
 const { renderPcbSelectionAnchors } = await import('../src/pcb/modules/selection-anchors.js');
 const { CommandHistory } = await import('../src/core/CommandHistory.js');
 
@@ -152,7 +152,7 @@ for (const active of [true, false]) {
             setPcbSelection(app, shapes.map(object => ({ kind: 'shape', object })));
             renderPcbSelectionAnchors(app);
             assert.equal(overlay.querySelectorAll('.pcb-selection-anchors').length, shapes.length);
-            app._pcbSelection.setHovered(getPcbSelectionEntries(app)[0]);
+            getPcbSelectionManager(app).setHovered(getPcbSelectionEntries(app)[0]);
         }
         await project.newDocument();
         assert.deepEqual(lifecycle, active ? ['pcb-home', 'dimensions'] : ['pcb-home'],
@@ -162,10 +162,10 @@ for (const active of [true, false]) {
         assert.equal(overlay.querySelectorAll('.pcb-selection-anchors').length, 0,
             'File -> New must remove every selected shape outline and its handles');
         assert.equal(getPcbSelectionEntries(app).length, 0);
-        assert.equal(app._pcbSelection.hovered, null);
-        assert.equal(app._pcbSelection.shapes.length, 0);
+        assert.equal(getPcbSelectionManager(app).hovered, null);
+        assert.equal(getPcbSelectionManager(app).shapes.length, 0);
         clearPcbSelection(app);
-        app._pcbSelection.setHovered(null);
+        getPcbSelectionManager(app).setHovered(null);
         renderPcbSelectionAnchors(app);
         assert.equal(layer.children.length, 0, 'Later deselection/hover cannot resurrect an old rectangle');
         assert.equal(overlay.children.length, 0);
