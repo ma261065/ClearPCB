@@ -90,6 +90,9 @@ export function runSchematicHistoryAction(app, action) {
     const cancelledProperty = cancelSchematicPropertyPreview(app);
     cancelSchematicPointerInteraction(app);
     const changed = app.history[action]();
+    // Undo and redo change the document like any edit: mark it unsaved and advance its
+    // revision, so the unsaved-changes warning and autosave see the restored state.
+    if (changed) app.fileManager.setDirty(true);
     if (changed) app.renderShapes(true);
     if (changed || cancelledProperty) app.updatePropertiesPanel?.(app.selection.getSelection());
     return true;

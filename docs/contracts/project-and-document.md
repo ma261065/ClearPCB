@@ -23,6 +23,10 @@ Registered editors report changes through `onDocumentChanged()`. The project
 advances the revision and calls its UI host's `onProjectChanged()` to refresh
 aggregate title/dirty indicators. PCB edits keep their section dirty flag separate
 from `FileManager.isDirty`, avoiding schematic-to-PCB refresh notifications.
+Undo and redo are edits in both editors: they mark the document unsaved and advance
+its revision (the PCB through its history hook, the schematic in
+`runSchematicHistoryAction`), so an autosave taken between an undo and a redo is
+replaced rather than kept as the current revision.
 
 `AppBootstrap` stores its schematic instance directly; there is no `window.app`
 alias. Both editor constructors receive their project owner. PCB file commands

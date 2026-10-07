@@ -4,7 +4,7 @@ import { CommandHistory } from '../../src/core/CommandHistory.js';
 import { SelectionManager } from '../../src/core/SelectionManager.js';
 import { Circle } from '../../src/shapes/circle.js';
 import { Polyline } from '../../src/shapes/polyline.js';
-import { ModifyShapeCommand } from '../../src/schematic/modules/commands.js';
+import { ModifyShapeCommand, MoveShapesCommand } from '../../src/schematic/modules/commands.js';
 
 const listeners = new Map();
 const elements = new Map();
@@ -165,6 +165,26 @@ for (const action of ['undo', 'redo']) {
     app.interactionState = 'drawing';
     app.history[action] = () => { throw new Error('Drawing retains history ownership'); };
     assert.equal(runSchematicHistoryAction(app, action), false);
+}
+// Undo and redo are edits: a move's commands do not mark the document themselves, so an
+// autosave taken between an undo and a redo must not end up holding the final revision.
+for (const source of ['keyboard', 'ribbon']) {
+    const { app, project, shape, invoke } = fixture();
+    const files = project.fileManager;
+    app.history.execute(new MoveShapesCommand(app, [shape], 5, 0));
+    files.setDirty(false);
+    const saved = files.revision;
+    invoke(source, 'undo');
+    assert.equal(shape.x, 0);
+    assert.equal(files.isDirty, true, `${source} undo marks the document unsaved`);
+    assert.ok(files.revision > saved, `${source} undo advances the revision autosave tracks`);
+    const undone = files.revision;
+    invoke(source, 'redo');
+    assert.equal(shape.x, 5);
+    assert.ok(files.revision > undone, `${source} redo advances it again, so a snapshot of the undone state is replaced`);
+    const settled = files.revision;
+    invoke(source, 'redo');
+    assert.equal(files.revision, settled, `${source}: nothing to redo leaves the revision alone`);
 }
 for (const tool of ['wire', 'line', 'rect', 'circle', 'arc', 'polygon', 'text', 'net', 'noconnect']) {
     for (const started of [false, true]) {
