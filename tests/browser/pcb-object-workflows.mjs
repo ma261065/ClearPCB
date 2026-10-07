@@ -11,7 +11,7 @@ import {
     redoPcb,
     saveAndReopen,
     screenPoint,
-    stepSpinner,
+    stepSpinnerOneRun,
     undoPcb,
 } from './helpers/editor-helpers.mjs';
 
@@ -223,12 +223,11 @@ export const scenarios = [
                 () => selectedOverlay(page));
             await page.selectOption('#pcbPropFillKind', 'circle');
             await page.waitForFunction(() => window.bootstrap.pcbApp.copperFills[0].kind === 'circle');
-            const beforePath = await selectedOverlay(page);
-            const depth = await pcbUndoDepth(page);
-            await stepSpinner(page, '#pcbPropFillDiameter', 2);
-            assert.notEqual(await selectedOverlay(page), beforePath, 'the selected path follows the live circle diameter preview');
+            const { start, during } = await stepSpinnerOneRun(page, '#pcbPropFillDiameter', 2,
+                async () => ({ depth: await pcbUndoDepth(page), path: await selectedOverlay(page) }));
+            assert.notEqual(during.path, start.path, 'the selected path follows the live circle diameter preview');
             // The diameter run settles into its own undo step before the model is read.
-            await page.waitForFunction(depth => window.bootstrap.pcbApp.history.undoStack.length === depth + 1, depth);
+            await page.waitForFunction(depth => window.bootstrap.pcbApp.history.undoStack.length === depth + 1, start.depth);
             const before = await pcbSnapshot(page);
             const boundary = await page.evaluate(() => {
                 const fill = window.bootstrap.pcbApp.pcbDocument.copperFills[0];

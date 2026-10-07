@@ -1,6 +1,5 @@
 import assert from 'node:assert/strict';
-import { openPcb } from './helpers/editor-helpers.mjs';
-import { SETTLE_MS } from '../../src/shared/ui/settled-input.js';
+import { openPcb, stepSpinnerOneRun } from './helpers/editor-helpers.mjs';
 
 // Properties number fields commit once a run of spinner clicks settles: one undo
 // step, with the live preview showing each step meanwhile. Pressing Undo during a run
@@ -42,43 +41,6 @@ const state = page => page.evaluate(() => {
     return { width: shape.lineWidth, undo: app.history.undoStack.length, redo: app.history.redoStack.length };
 });
 
-/** Click the up arrow of a native number spinner. */
-async function stepUp(page, selector, times) {
-    const box = await page.locator(selector).boundingBox();
-    for (let index = 0; index < times; index++) {
-        await page.mouse.click(box.x + box.width - 6, box.y + box.height / 4);
-        await page.waitForTimeout(60);
-    }
-}
-
-/**
- * Step a field up as one run and read the state before it settles. A machine too
- * loaded to click within the settle window splits the run (correctly committing
- * part of it), so such a burst is waited out and retried rather than judged.
- */
-async function stepUpOneRun(page, selector, times) {
-    for (let attempt = 0; attempt < 3; attempt++) {
-        const start = await state(page);
-        await page.evaluate(selector => {
-            const field = document.querySelector(selector);
-            window.__spinnerChanges = [];
-            if (field.dataset.spinnerStamped) return;
-            field.dataset.spinnerStamped = 'true';
-            field.addEventListener('change', () => window.__spinnerChanges.push(performance.now()));
-        }, selector);
-        await stepUp(page, selector, times);
-        const during = await state(page);
-        const oneRun = await page.evaluate(({ times, settleMs }) => {
-            const stamps = [...window.__spinnerChanges, performance.now()];
-            return stamps.length === times + 1
-                && stamps.every((stamp, index) => !index || stamp - stamps[index - 1] < settleMs);
-        }, { times, settleMs: SETTLE_MS });
-        if (oneRun) return { start, during };
-        await page.waitForTimeout(SETTLE_MS + 300);
-    }
-    throw new Error(`spinner clicks never landed within ${SETTLE_MS} ms of each other`);
-}
-
 export const scenarios = [
     {
         name: 'spinner-runs-commit-once-settled',
@@ -89,7 +51,7 @@ export const scenarios = [
             const field = '#pcbPropShapeLineWidth';
             await page.locator(field).waitFor();
 
-            const { start, during } = await stepUpOneRun(page, field, 3);
+            const { start, during } = await stepSpinnerOneRun(page, field, 3, () => state(page));
             assert.equal(during.undo, start.undo, 'no undo step while the run is settling');
             const shown = Number(await page.locator(field).inputValue());
             assert.ok(shown > start.width, 'the field shows the stepped value');
@@ -98,13 +60,13 @@ export const scenarios = [
             assert.equal(settled.undo, start.undo + 1, 'the run commits as one undo step');
             assert.ok(Math.abs(settled.width - shown) < 1e-9, 'the committed width is the last step');
 
-            await stepUp(page, field, 2);
+            const { start: beforeRun } = await stepSpinnerOneRun(page, field, 2, () => state(page));
             await page.locator('[data-tab="pcb-home"]').click();
             await page.locator('#pcbUndoBtn').click();
             await page.waitForTimeout(100);
             const undone = await state(page);
-            assert.ok(Math.abs(undone.width - settled.width) < 1e-9, 'undo during a run undoes the whole run');
-            assert.equal(undone.undo, settled.undo, 'the flushed run was its own undo step');
+            assert.ok(Math.abs(undone.width - beforeRun.width) < 1e-9, 'undo during a run undoes the whole run');
+            assert.equal(undone.undo, beforeRun.undo, 'the flushed run was its own undo step');
             assert.equal(undone.redo, 1, 'and it can be redone');
             await page.waitForTimeout(600);
             assert.deepEqual(await state(page), undone, 'nothing commits after the flushed run');

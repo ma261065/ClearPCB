@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { SETTLE_MS } from '../../../src/shared/ui/settled-input.js';
 
 /**
  * Wait until `predicate`, run in the page, returns a truthy value. Unlike
@@ -167,6 +168,40 @@ export async function stepSpinner(page, selector, times = 1) {
     }
 }
 
+/**
+ * Step a spinner as one run and read the state before the run settles. A machine too
+ * loaded to click within the settle window splits the run (correctly committing part
+ * of it), so such a burst is waited out and retried rather than judged.
+ * @template T
+ * @param {import('playwright').Page} page
+ * @param {string} selector
+ * @param {number} times
+ * @param {() => Promise<T>} read
+ * @returns {Promise<{start: T, during: T}>}
+ */
+export async function stepSpinnerOneRun(page, selector, times, read) {
+    for (let attempt = 0; attempt < 3; attempt++) {
+        const start = await read();
+        await page.evaluate(selector => {
+            const field = /** @type {HTMLInputElement} */ (document.querySelector(selector));
+            /** @type {any} */ (window).__spinnerChanges = [];
+            if (field.dataset.spinnerStamped) return;
+            field.dataset.spinnerStamped = 'true';
+            field.addEventListener('change', () => /** @type {any} */ (window).__spinnerChanges.push(performance.now()));
+        }, selector);
+        await stepSpinner(page, selector, times);
+        const during = await read();
+        const oneRun = await page.evaluate(({ times, settleMs }) => {
+            const stamps = [.../** @type {any} */ (window).__spinnerChanges, performance.now()];
+            return stamps.length === times + 1
+                && stamps.every((stamp, index) => !index || stamp - stamps[index - 1] < settleMs);
+        }, { times, settleMs: SETTLE_MS });
+        if (oneRun) return { start, during };
+        await page.waitForTimeout(SETTLE_MS + 300);
+    }
+    throw new Error(`${selector}: spinner clicks never landed within ${SETTLE_MS} ms of each other`);
+}
+
 export const pcbSnapshot = page => page.evaluate(() => JSON.stringify(window.bootstrap.project.serialize().pcb));
 export const schematicSnapshot = page => page.evaluate(() => JSON.stringify(window.bootstrap.project.serialize().schematic));
 export const pcbUndoDepth = page => page.evaluate(() => window.bootstrap.pcbApp.history.undoStack.length);
@@ -245,16 +280,14 @@ export async function saveAndReopen(page, editor) {
 }
 
 export async function exercisePcbNumberField(page, selector, readValue, selectedVisual, { steps = 2, waitMs = 700 } = {}) {
-    const startValue = await readValue();
-    const startVisual = await selectedVisual();
-    const startUndo = await pcbUndoDepth(page);
-    await stepSpinner(page, selector, steps);
-    assert.equal(await readValue(), startValue, `${selector} does not mutate the model during the spinner run`);
-    assert.equal(await pcbUndoDepth(page), startUndo, `${selector} adds no undo step during the spinner run`);
-    assert.notEqual(await selectedVisual(), startVisual, `${selector} updates the visible selected outline during the spinner run`);
-    await page.waitForFunction(([startUndo]) => window.bootstrap.pcbApp.history.undoStack.length === startUndo + 1, [startUndo],
+    const read = async () => ({ value: await readValue(), undo: await pcbUndoDepth(page), visual: await selectedVisual() });
+    const { start, during } = await stepSpinnerOneRun(page, selector, steps, read);
+    assert.equal(during.value, start.value, `${selector} does not mutate the model during the spinner run`);
+    assert.equal(during.undo, start.undo, `${selector} adds no undo step during the spinner run`);
+    assert.notEqual(during.visual, start.visual, `${selector} updates the visible selected outline during the spinner run`);
+    await page.waitForFunction(([startUndo]) => window.bootstrap.pcbApp.history.undoStack.length === startUndo + 1, [start.undo],
         { timeout: waitMs + 1500 });
-    assert.notEqual(await readValue(), startValue, `${selector} commits after the spinner run settles`);
+    assert.notEqual(await readValue(), start.value, `${selector} commits after the spinner run settles`);
 }
 
 export async function exerciseSchematicNumberField(page, selector, readValue, selectedVisual, { steps = 2, waitMs = 700 } = {}) {
