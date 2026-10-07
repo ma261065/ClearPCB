@@ -144,6 +144,16 @@ export function finishFillDraw(app) {
     showFillProperties(app, fill);
 }
 
+/**
+ * Commit the cursor position as the final corner, then finish: a stationary right-click,
+ * as for a polygon (finishShapeDrawAtPoint) and a track.
+ */
+export function finishFillDrawAtPoint(app, world) {
+    if (!getFillDraw(app) || !world) return;
+    addFillWaypoint(app, world);
+    if (getFillDraw(app)) finishFillDraw(app);
+}
+
 /** Abort the in-progress region without committing. */
 export function cancelFillDraw(app) {
     if (!getFillDraw(app)) return;

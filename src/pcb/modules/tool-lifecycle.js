@@ -16,6 +16,8 @@ import { clearCursorCrosshair } from './cursor-state.js';
 
 export const PCB_SHAPE_TOOLS = new Set(['line', 'circle', 'arc', 'rect', 'polygon']);
 export const PCB_CROSSHAIR_TOOLS = new Set(['track', 'via', 'pad', 'text', 'fill', ...PCB_SHAPE_TOOLS]);
+/** Tools that show their own Properties panel (see selectPcbTool), so a canvas press keeps that tab open. */
+export const PCB_PROPERTIES_TOOLS = new Set(['track', 'via', 'pad', 'text', 'fill', ...PCB_SHAPE_TOOLS]);
 
 export function normalizePcbTool(tool) {
     return tool === 'select' || PCB_CROSSHAIR_TOOLS.has(tool) ? tool : 'select';

@@ -29,6 +29,7 @@ async function stepUp(page, selector, times) {
 
 const rows = page => page.locator('#pcbPropsItems > .prop-row').evaluateAll(list => list.map(row => row.dataset.prop));
 const title = page => page.locator('#pcbPropsContent .ribbon-group-title').textContent();
+const activeTab = page => page.locator('#ribbonPCB .ribbon-tab.active').getAttribute('data-tab');
 const pads = page => page.evaluate(() => {
     const app = window.bootstrap.pcbApp;
     return { sizes: app.pads.map(pad => pad.size), undo: app.history.undoStack.length };
@@ -94,7 +95,10 @@ export const scenarios = [
             await page.locator('#pcbPropFillToolNet').press('Enter');
             await page.locator('#pcbPropFillToolCornerRadius').fill('1.5');
             await page.locator('#pcbPropFillToolCornerRadius').press('Enter');
-            for (const [x, y] of [[10, -10], [30, -10], [30, -30], [10, -30]]) await clickAt(page, x, y);
+            for (const [x, y] of [[10, -10], [30, -10], [30, -30], [10, -30]]) {
+                await clickAt(page, x, y);
+                assert.equal(await activeTab(page), 'pcb-properties', `placing corner (${x}, ${y}) keeps the Properties tab`);
+            }
             await clickAt(page, 10, -10);
             const fill = await page.evaluate(() => {
                 const [item] = window.bootstrap.pcbApp.pcbDocument.copperFills;
@@ -106,6 +110,30 @@ export const scenarios = [
             assert.equal(await title(page), 'New Fill', 'starting the next pour shows the tool Properties again');
             assert.equal(await page.locator('#pcbPropFillToolCornerRadius').inputValue(), '1.50', 'the corner radius shows two decimals');
             await page.keyboard.press('Escape');
+        },
+    },
+    {
+        name: 'right-click finishes a fill at the cursor like a polygon',
+        async run(page, url) {
+            await openPcb(page, url);
+            const corners = [[10, -10], [30, -10], [30, -30]], cursor = [10, -30];
+            for (const tool of ['fill', 'polygon']) {
+                await page.evaluate(async tool => {
+                    const { selectPcbTool } = await import('/src/pcb/modules/tool-lifecycle.js');
+                    selectPcbTool(window.bootstrap.pcbApp, tool);
+                }, tool);
+                for (const [x, y] of corners) await clickAt(page, x, y);
+                const at = await screenPoint(page, ...cursor);
+                await page.mouse.move(at.x, at.y);
+                await page.mouse.click(at.x, at.y, { button: 'right' });
+                const outline = await page.evaluate(tool => {
+                    const app = window.bootstrap.pcbApp;
+                    const made = tool === 'fill' ? app.copperFills.at(-1)
+                        : app.boardShapes.filter(shape => shape.kind === 'polygon').at(-1);
+                    return (made?.outline || made?.points || []).map(({ x, y }) => [Math.round(x), Math.round(y)]);
+                }, tool);
+                assert.deepEqual(outline, [...corners, cursor], `${tool}: a right-click adds the cursor as the last corner`);
+            }
         },
     },
     {

@@ -29,12 +29,12 @@ import { hitTestPcbSelectionAnchor } from './selection-anchors.js';
 import { activeTextInlineEdit, startTextInlineEdit, endTextInlineEdit } from './text-inline-edit.js';
 import { hitTestText } from './pcb-text-render.js';
 import { toggleDebugTooltipPin, updateDebugTooltip } from './debug-tooltip.js';
-import { PCB_CROSSHAIR_TOOLS, updateCursorForTool } from './tool-lifecycle.js';
+import { PCB_CROSSHAIR_TOOLS, PCB_PROPERTIES_TOOLS, updateCursorForTool } from './tool-lifecycle.js';
 import { dispatchPcbPointerMove, releasePcbPointerGestures } from './pcb-interaction-routing.js';
 import {
     getTrackDraw, resolveTrackDrawSnap, showTrackSnapMarker, clearTrackSnapMarker, addTrackWaypoint, finishTrackDraw,
 } from './track-draw.js';
-import { getFillDraw, finishFillDraw } from './copper-fill-draw.js';
+import { getFillDraw, finishFillDraw, finishFillDrawAtPoint } from './copper-fill-draw.js';
 import { settleFillGeometryPreview, showFillContextMenu } from './copper-fill-edit.js';
 import { hitTestTrack, hitTestLockedTrack, showTrackContextMenu } from './track-select.js';
 import { showLockedLayerBubble } from './layers.js';
@@ -62,9 +62,6 @@ export const PCB_TOOL_PRESS_HANDLERS = Object.freeze({
     arc: '_pressShapeTool',
     text: '_pressTextTool',
 });
-
-/** Tools whose settings live on the Properties tab, so a press keeps that tab open. */
-const PROPERTIES_TOOLS = new Set(['track', 'via', 'line', 'circle', 'rect', 'polygon', 'arc']);
 
 /** Screen movement (px) below which a press and release count as a click, not a drag. */
 const CLICK_SLOP_PX = 4;
@@ -182,7 +179,7 @@ function onMouseDown(app, e) {
     // inline-editing text (the Properties tab hosts its size/rotation spinners), not when
     // pressing a selected anchor or group, and not on a right-button press (that starts a
     // pan; dragging the board must not switch tabs, e.g. closing the Design tab's live DRC).
-    if (!getTrackDraw(app) && !textEdit && !PROPERTIES_TOOLS.has(app.currentTool)
+    if (!getTrackDraw(app) && !textEdit && !PCB_PROPERTIES_TOOLS.has(app.currentTool)
         && !selectedBoardShapeAnchor && !selectedGroupHit
         && e.button !== 2 && !e.ctrlKey && !e.metaKey) {
         const activeTab = app.ribbon?.querySelector('.ribbon-tab.active');
@@ -355,7 +352,7 @@ function onMouseUp(app, e) {
         finishTrackAtSnap(app);
     }
     if (getFillDraw(app) && state.fillRight && !takeMoved(state, 'fillRight', e)) {
-        finishFillDraw(app);
+        finishFillDrawAtPoint(app, app.screenToWorld(e));
     }
     if (getShapeDraw(app) && state.shapeRight && !takeMoved(state, 'shapeRight', e)) {
         finishShapeDrawAtPoint(app, app.screenToWorld(e));

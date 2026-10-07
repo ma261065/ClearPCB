@@ -152,7 +152,10 @@ preview-then-commit-once pattern above. Drive it in a unit test with the fake DO
    selects the tool and whose `active` reads `normalizePcbTool(app.currentTool)`.
 2. Lifecycle: register the tool in `pcb/modules/tool-lifecycle.js`
    (`PCB_CROSSHAIR_TOOLS` for a crosshair; `selectPcbTool` opens its "New …"
-   Properties panel, like the Fill tool).
+   Properties panel, like the Fill tool, and a tool with such a panel also goes in
+   `PCB_PROPERTIES_TOOLS`, so presses on the canvas keep the Properties tab open).
+   Multi-click drawing finishes like the others: double-click or Enter with the
+   corners placed, a stationary right-click with the cursor as the last corner.
 3. Presses: add the tool's press handler to `PCB_TOOL_PRESS_HANDLERS`
    (`pcb/modules/mouse.js`); `test-pcb-pointer-press` checks the routing.
 4. In-progress state: a drawing session or drag is a slot in `PCB_INTERACTIONS`
