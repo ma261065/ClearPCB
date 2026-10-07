@@ -46,8 +46,9 @@ browser context against `tools/serve.mjs`, offline: requests to any other host
 on external services. They drive the real app with real
 pointer input: switching modes, drawing and undoing tracks, the WebGL 3D view,
 Properties panel edits and their shared control order, track/shape conversions,
-schematic selection and cancellation, and reopening a board through autosave
-recovery. Any uncaught page error fails the scenario; failure screenshots are
+schematic selection and cancellation, reopening a board through autosave
+recovery, and speed checks of pointer moves, panel rebuilds, pour refresh and
+picture import on a large board, which print their timings to the job log. Any uncaught page error fails the scenario; failure screenshots are
 uploaded as the `browser-test-failures-<shard>` artifact.
 
 **Publish Stable Release** independently runs the same gate against the checked-out
