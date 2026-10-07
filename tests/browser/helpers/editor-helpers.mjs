@@ -169,9 +169,11 @@ export async function stepSpinner(page, selector, times = 1) {
 }
 
 /**
- * Step a spinner as one run and read the state before the run settles. A machine too
- * loaded to click within the settle window splits the run (correctly committing part
- * of it), so such a burst is waited out and retried rather than judged.
+ * Step a PCB Properties spinner as one run and read the state before the run settles.
+ * A machine too loaded to click within the settle window splits the run (correctly
+ * committing part of it), so such a burst is waited out, its commits are undone, and it
+ * is retried rather than judged; every attempt, and any baseline the caller took
+ * before, starts from the same model.
  * @template T
  * @param {import('playwright').Page} page
  * @param {string} selector
@@ -181,6 +183,13 @@ export async function stepSpinner(page, selector, times = 1) {
  */
 export async function stepSpinnerOneRun(page, selector, times, read) {
     for (let attempt = 0; attempt < 5; attempt++) {
+        // Start on a quiet page: pour results adopted mid-burst (say, after undoing a split
+        // run) would hold the main thread between clicks.
+        await waitForPage(page, () => import('/src/pcb/modules/refresh-state.js').then(state => {
+            const app = window.bootstrap.pcbApp;
+            return !state.isFillRefreshPending(app) && !state.isPictureCopperRefreshPending(app);
+        }));
+        const depth = await pcbUndoDepth(page);
         const start = await read();
         await page.evaluate(selector => {
             const field = /** @type {HTMLInputElement} */ (document.querySelector(selector));
@@ -198,6 +207,10 @@ export async function stepSpinnerOneRun(page, selector, times, read) {
         }, { times, settleMs: SETTLE_MS });
         if (oneRun) return { start, during };
         await page.waitForTimeout(SETTLE_MS + 300);
+        await page.evaluate(depth => {
+            const history = window.bootstrap.pcbApp.history;
+            while (history.undoStack.length > depth) history.undo();
+        }, depth);
     }
     throw new Error(`${selector}: spinner clicks never landed within ${SETTLE_MS} ms of each other`);
 }
