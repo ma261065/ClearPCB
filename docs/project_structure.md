@@ -153,8 +153,10 @@ evaluation-order cycle fails.
   visibility and halo caches), `picture-refresh.js` (pending/deferred
   shape-clearance refresh state), `track-select.js` (selected track node/segment
   edit and hover-highlight state), `board-shapes.js` (rendered board-shape SVG
-  elements and document-backed shape ID allocation), `track-draw.js` (track snap and guide SVG
-  affordances), `layers.js` (layer-panel lock bubble timer), and
+  elements and document-backed shape ID allocation), `track-draw.js` (track snap, guide SVG
+  affordances and drawn-track commits), `track-connections.js` (track/via/pad/shape
+  copper connection discovery) and `track-commit.js` (drawn-track command assembly),
+  `layers.js` (layer-panel lock bubble timer), and
   `pcb-interactions.js` (in-progress interaction slots).
 - In-progress interaction slots (`_drag`, `_trackDraw`, …) are listed once in
   `pcb-interactions.js` with their owner module and stored in its import-free
@@ -354,7 +356,9 @@ come in two layers:
   refresh derived views such as the ratsnest, clearance halos and pours.
   `track-commands.js` also defines `CompoundCommand`, which groups several commands
   into one undo step. `AddTrackCommand` accepts optional `vias[]`, so a drawn track
-  and its layer-change vias are one step.
+  and its layer-change vias are one step. `track-commit.js` builds that drawn-track
+  compound command, using `track-connections.js` for physical copper contact and
+  Net adoption queries.
 
 Schematic commands are in `schematic/modules/commands.js`. Shapes implement
 `captureState()` / `applyState()` for serializable snapshots, used by the generic

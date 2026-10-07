@@ -33,15 +33,15 @@ import {
     clearTrackSnapMarker,
     updateNetGuideLine,
     clearNetGuideLine,
-    bondedExclusion,
     snapNodeToAxis,
     snapNodeToCollinear,
     applyAxisConstraint,
     _axisAlignment,
     COLLINEAR_SNAP_SCREEN_PX,
     COLLINEAR_GLOW_ANGLE_TOL,
-    collectNodeConnections,
 } from './track-draw.js';
+import { bondedExclusion, collectNodeConnections } from './track-connections.js';
+export { buildDrawnTrackCommands } from './track-commit.js';
 import { clearTrackEdit, createTrackSelectionAdapter, getTrackEdit, refreshTrackSelectionHalo } from './track-select.js';
 import { MoveVertexCommand, MoveViaCommand, CompoundCommand, ModifyTrackGraphCommand, RemoveTrackCommand, AddViaCommand, AddTrackCommand, ModifyTrackCommand, ModifyViaCommand, canonicalTrack, getPlacementPreviewTracks } from './track-commands.js';
 import { pointsCollinear, collinearSnap } from '../../core/geometry.js';
@@ -754,116 +754,6 @@ class AdoptDroppedCopperNetCommand {
     }
     undo() { this.command.undo(); }
 }
-
-/**
- * Build the history command(s) that commit freshly drawn tracks/vias,
- * fusing any drawn endpoint that lands on an existing track's node (same
- * net, same copper layer) into that existing track. Joined tracks become
- * one continuous polyline instead of two coincident Track objects (which
- * render with a doubled round end-cap at the join).
- *
- * Cross-layer coincidences are deliberately NOT fused here — those remain
- * distinct single-layer nodes bonded by a via (the via/transition model).
- *
- * @param {object} app
- * @param {object|object[]} newTracks freshly built (uncommitted) tracks
- * @param {object[]} [newVias] standalone vias produced alongside the draw
- * @param {object[]} [destinationShapes] Explicit destination copper contacts.
- * @returns {object|null|false} A command, null when empty, or false on a Net conflict.
- */
-export function buildDrawnTrackCommands(app, newTracks, newVias = [], destinationShapes = []) {
-    const drawn = Array.isArray(newTracks) ? newTracks.slice() : [newTracks];
-    const vias = newVias || [];
-    const drawnSet = new Set(drawn);
-    const bonded = collectNodeConnections({
-        ...app, tracks: [...(app.tracks || []), ...drawn], vias: [...(app.vias || []), ...vias],
-        pads: app.pads, boardShapes: app.boardShapes,
-    }, new Map(drawn.map(track => [track, new Set(track.nodes.keys())])));
-    const shapes = new Set([...bonded.shapes, ...destinationShapes]);
-    const nets = _bondedNets(bonded, shapes);
-    if (nets.size > 1) {
-        _showBondedNetConflict(app, nets);
-        return false;
-    }
-    const net = [...nets][0] || '';
-
-    const beforeStates = new Map();      // existing track -> pre-merge snapshot
-    const removedExisting = new Set();   // existing tracks emptied by absorb
-    const independentAdds = [];          // drawn tracks with no existing join
-    const ensureBefore = (t) => { if (!beforeStates.has(t)) beforeStates.set(t, t.captureState()); };
-    if (net) {
-        for (const track of bonded.tracks) {
-            if (track.net || drawnSet.has(track)) continue;
-            ensureBefore(track);
-            const nodes = bonded.trackNodes.get(track);
-            if (nodes.size < track.nodes.size) {
-                for (const component of track.connectedComponents()) {
-                    if (![...component].some(node => nodes.has(node))) independentAdds.push(track.extractSubgraph(component));
-                }
-                track.applyState(track.extractSubgraph(nodes).captureState());
-            }
-            track.net = net;
-        }
-        for (const track of drawn) track.net = net;
-        for (const via of vias) via.net = net;
-    }
-
-    for (const nt of drawn) {
-        // Endpoints (degree-1 nodes) of the drawn track, with their layer.
-        const conns = [];
-        for (const [nid] of nt.nodes) {
-            const inc = nt.incidentEdges(nid);
-            if (inc.length !== 1) continue;
-            const layer = nt.getEdgeLayer(inc[0].edgeId) || nt.layer;
-            const p = nt.nodes.get(nid);
-            const target = _findExistingMergeNode(app, p.x, p.y, nt.net, layer, drawnSet);
-            if (target) conns.push({ nodeId: nid, target });
-        }
-        if (conns.length === 0) { independentAdds.push(nt); continue; }
-
-        // Fuse the drawn track into the first existing track it touches.
-        const primary = conns[0].target.track;
-        ensureBefore(primary);
-        const remapNt = primary.absorb(nt);
-        if (!primary.net && nt.net) primary.net = nt.net;
-
-        for (const { nodeId, target } of conns) {
-            let targetNodeId = target.nodeId;
-            if (target.track !== primary) {
-                // Drawn track bridges two existing tracks: pull the second
-                // one into primary as well, then drop it.
-                ensureBefore(target.track);
-                const remapEx = primary.absorb(target.track);
-                if (!primary.net && target.track.net) primary.net = target.track.net;
-                removedExisting.add(target.track);
-                drawnSet.add(target.track);
-                targetNodeId = remapEx.get(target.nodeId) ?? targetNodeId;
-            }
-            const drawnNodeId = remapNt.get(nodeId);
-            if (drawnNodeId && targetNodeId) primary.mergeNodes(targetNodeId, drawnNodeId);
-        }
-        // Dissolve any now-redundant collinear waypoint at the join.
-        collapseCollinearTrackNodes(app, primary);
-    }
-
-    const cmds = [];
-    for (const [existing, before] of beforeStates) {
-        const after = existing.captureState();
-        existing.applyState(before);
-        if (removedExisting.has(existing)) {
-            cmds.push(new RemoveTrackCommand(app, existing));
-        } else {
-            cmds.push(new ModifyTrackGraphCommand(app, existing, before, after));
-        }
-    }
-    for (const nt of independentAdds) cmds.push(new AddTrackCommand(app, nt));
-    for (const v of vias) cmds.push(new AddViaCommand(app, v));
-    cmds.push(..._buildCopperNetCommands(app, bonded, net, shapes, false));
-
-    if (cmds.length === 0) return null;
-    return cmds.length === 1 ? cmds[0] : new CompoundCommand(cmds);
-}
-
 
 /** True if a standalone Via already sits at `(x, y)`. */
 function _hasViaAt(app, x, y) {

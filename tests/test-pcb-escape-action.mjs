@@ -24,7 +24,7 @@ function fixture() {
     history.undo();
     const app = {
         _active: true, currentTool: 'via', history,
-        placements: new Map(), tracks: [], vias: [], pads: [], boardShapes: [], texts: new Map(),
+        placements: new Map(), tracks: [], vias: [], pads: [], boardShapes: [], copperFills: [], texts: new Map(),
         _layerGroups: new Map(), getLayerGroup: () => null,
         refreshText() {},
         viewport: { svg: { style: {} }, hideCrosshair() { events.push('hide-crosshair'); } },
@@ -35,6 +35,8 @@ function fixture() {
         setActiveRibbonTab(tab) { events.push(tab); },
         handleKeyDown: PCBApp.prototype.handleKeyDown,
     };
+    app.pcbDocument = { tracks: app.tracks, vias: app.vias, pads: app.pads,
+        boardShapes: app.boardShapes, copperFills: app.copperFills };
     return { app, events, escape: target => app.handleKeyDown({ key: 'Escape', target }) };
 }
 
@@ -188,7 +190,7 @@ for (const finish of [cancelTrackDraw, finishTrackDraw, popTrackWaypoint]) {
     const { app } = drawingFixture('track');
     getTrackDraw(app).points.push({ x: 5, y: 2 });
     getTrackDraw(app).edgeLayers = ['top-copper'];
-    app._commitTracks = tracks => app.tracks.push(...tracks);
+    app.history = { execute(command) { command.execute(); } };
     finishTrackDraw(app);
     assert.equal(app.tracks.length, 1, 'Successful completion still commits the track');
     assert.equal(getTrackDraw(app), null);

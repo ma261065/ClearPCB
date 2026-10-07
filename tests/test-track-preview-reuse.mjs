@@ -5,7 +5,7 @@ import { setPcbInteraction } from '../src/pcb/modules/pcb-interactions.js';
 let allocations = 0;
 function element(tag) {
     return {
-        tag, attributes: new Map(), children: [], parentNode: null,
+        tag, attributes: new Map(), children: [], parentNode: null, dataset: {},
         setAttribute(name, value) { this.attributes.set(name, value); },
         getAttribute(name) { return this.attributes.get(name); },
         removeAttribute(name) { this.attributes.delete(name); },
@@ -32,8 +32,11 @@ const layers = new Map(['top-copper', 'bottom-copper', 'vias', 'hole'].map((name
 const context = () => ({ points: [{ x: 0, y: 0 }], edgeLayers: [], currentLayer: 'top-copper',
     width: 0.2, net: '', previewElements: [], snap: { x: 3, y: 1 } });
 const app = { getLayerGroup: (name) => layers.get(name),
+    tracks: [], vias: [], pads: [], boardShapes: [], copperFills: [],
     viewport: { scale: 100, hideCrosshair() {} }, getRoutingParams: () => ({ viaDiameter: 0.8, viaDrill: 0.4 }),
-    _commitTracks() {} };
+    history: { execute(command) { command.execute(); command.undo(); } } };
+app.pcbDocument = { tracks: app.tracks, vias: app.vias, pads: app.pads,
+    boardShapes: app.boardShapes, copperFills: app.copperFills };
 setPcbInteraction(app, '_trackDraw', context());
 refreshTrackDrawPreview(app);
 const ctx = getTrackDraw(app);

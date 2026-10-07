@@ -17,6 +17,7 @@ const { CopperFill } = await import('../src/shapes/copper-fill.js');
 const { startTrackDraw, addTrackWaypoint, cancelTrackDraw, toggleTrackLayer } =
     await import('../src/pcb/modules/track-draw.js');
 const { buildDrawnTrackCommands } = await import('../src/pcb/modules/track-drag.js');
+const { commitDrawnTracks } = await import('../src/pcb/modules/track-commit.js');
 const { computeFillPolygons, loadClipper } = await import('../src/pcb/modules/copper-fill-geom.js');
 const { buildFillContext } = await import('../src/pcb/modules/fill-context.js');
 const { pointInCopperRegion } = await import('../src/pcb/modules/track-contact-geometry.js');
@@ -31,7 +32,6 @@ function fixture() {
             { net: 'SIGNAL', pins: [{ componentId: 'U1', pinNumber: '1' }] },
         ],
         placements: new Map([['U1', { pads: new Map([['1', { x: 20, y: 0, number: '1' }]]) }]]),
-        _commitTracks: PCBApp.prototype._commitTracks,
         getLayerGroup() { return null; },
         existingLayerGroups: () => new Map(),
         _shapeElements: new Map(),
@@ -233,11 +233,11 @@ for (const reverse of [false, true]) {
     const source = new Via({ x: 0, y: 0 });
     const bottom = track(0, 0, -10, 0, 'bottom-copper');
     app.tracks.push(bottom);
-    app._commitTracks([track(0, 0, 20, 0)]);
+    commitDrawnTracks(app, [track(0, 0, 20, 0)]);
     assert.equal(bottom.net, '', 'opposite layers do not bond without a plated terminal');
     app.commands[0].undo();
     app.vias.push(source);
-    app._commitTracks([track(0, 0, 20, 0)]);
+    commitDrawnTracks(app, [track(0, 0, 20, 0)]);
     assert.equal(bottom.net, 'SIGNAL');
     assert.equal(source.net, 'SIGNAL');
 }
@@ -273,7 +273,7 @@ for (const reverse of [false, true]) {
     const connectedVia = new Via({ x: -4, y: 0 });
     app.boardShapes.push(fill);
     app.vias.push(holeVia, connectedVia);
-    app._commitTracks([track(0, 0, 20, 0)]);
+    commitDrawnTracks(app, [track(0, 0, 20, 0)]);
     assert.equal(fill.net, 'SIGNAL');
     assert.equal(connectedVia.net, 'SIGNAL');
     assert.equal(holeVia.net, '', 'a fill hole is not conductive');

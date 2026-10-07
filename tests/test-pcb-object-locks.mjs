@@ -235,7 +235,7 @@ function fixture() {
         .map(key => [key, Object.getOwnPropertyDescriptor(PCBApp.prototype, key)])));
     const app = Object.assign(Object.create(copper), {
         pcbDocument: new PcbDocument(), tracks: [], vias: [], pads: [], boardShapes: [], copperFills: [],
-        netlist: [], placements: new Map(), _commitTracks: PCBApp.prototype._commitTracks,
+        netlist: [], placements: new Map(),
         getLayerGroup() { return null; }, _shapeElements: new Map(), alert() {},
         viewport: { scale: 100, gridVisible: false, setCrosshair() {}, hideCrosshair() {} },
         history: { execute(command) { command.execute(); } },

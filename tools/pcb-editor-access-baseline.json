@@ -71,8 +71,5 @@
     "_refreshPcbSelectionHighlights",
     "_renderRoutedCopper",
     "_syncComponentRotationInput"
-  ],
-  "src/pcb/modules/track-draw.js": [
-    "_commitTracks"
   ]
 }

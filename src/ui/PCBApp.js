@@ -50,7 +50,6 @@ import {
     findSplittableTrackEdge,
     splitTrackObjectAtPoint,
     commitCollinearCleanup,
-    buildDrawnTrackCommands,
 } from '../pcb/modules/track-drag.js';
 import { AddTrackCommand, AddViaCommand, RemoveTrackCommand, ReplaceRoutesCommand, CompoundCommand, MovePlacementCommand, RotatePlacementCommand, SetPlacementLockedCommand, FlipPlacementCommand, SetPlacementSideCommand, SetPlacementRefVisibleCommand, previewPlacementPose, finishPlacementPreview, getPlacementPreviewTracks, getViaPropertyPreview, getTrackPropertyPreview, canonicalTrack, renderPlacementPose, renderPlacementSide, applyPlacementRefVisible, placementTransform } from '../pcb/modules/track-commands.js';
 import { createPcbText, serializePcbText } from '../core/pcb-text.js';
@@ -1236,26 +1235,6 @@ export default class PCBApp {
     }
     _commitTrack(track, vias = []) {
         this.history.execute(new AddTrackCommand(this, track, vias));
-    }
-
-    /**
-     * Commit one or more freshly drawn Track objects plus any
-     * layer-transition Vias as a single undo step. A draw that toggled
-     * copper layers mid-route produces several single-layer Tracks joined
-     * by vias; grouping them and connected-copper Net adoption keeps undo/redo atomic.
-     * @param {Track[]} tracks
-     * @param {Via[]} [vias]
-     * @param {object[]} [destinationShapes]
-     */
-    _commitTracks(tracks, vias = [], destinationShapes = []) {
-        const list = Array.isArray(tracks) ? tracks : [tracks];
-        // Fuse any drawn endpoint that lands on an existing same-net/
-        // same-layer track node into that track, so joined tracks render
-        // as one continuous polyline instead of two coincident objects.
-        const command = buildDrawnTrackCommands(this, list, vias, destinationShapes);
-        if (command === false) return false;
-        if (command) this.history.execute(command);
-        return true;
     }
 
     /**

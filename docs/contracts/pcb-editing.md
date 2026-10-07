@@ -534,6 +534,11 @@ the selected-pad field binding without storing default pads on `PCBApp`.
 
 The Design ribbon and New Track/Via property editors share the same commit path.
 `track-draw.js` owns Track tool layer/net defaults and the New Track panel;
+it finishes drawn tracks through `track-commit.js`, which builds the exact history
+command(s) for drawn track runs and layer-change vias. Shared physical copper
+connection discovery for drawn tracks, drags and ratlines lives in
+`track-connections.js`, so the draw owner commits without reaching back through
+`PCBApp` private members.
 `via-tool.js` owns the Via tool net default, diameter/drill panel and preview
 ring state. These tool defaults are per-editor WeakMap state rather than
 `PCBApp` fields.

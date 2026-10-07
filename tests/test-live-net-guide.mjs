@@ -32,9 +32,17 @@ const board = () => {
     const ratLayer = element(), svg = element();
     svg.appendChild(ratLayer);
     const app = {
-        tracks: [], vias: [], pads: [], boardShapes: [], placements: new Map(), netlist: [], ratLayer,
+        tracks: [], vias: [], pads: [], boardShapes: [], copperFills: [], placements: new Map(), netlist: [], ratLayer,
         getLayerGroup(id) { return id === 'ratlines' ? ratLayer : null; },
         viewport: { svg, scale: 100, gridVisible: false, setCrosshair() {}, hideCrosshair() {} },
+        history: { execute(command) { command.execute(); } },
+    };
+    app.pcbDocument = {
+        get tracks() { return app.tracks; },
+        get vias() { return app.vias; },
+        get pads() { return app.pads; },
+        get boardShapes() { return app.boardShapes; },
+        get copperFills() { return app.copperFills; },
     };
     setTrackToolNet(app, 'GND');
     return app;

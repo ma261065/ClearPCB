@@ -10,20 +10,20 @@ globalThis.document = { createElement: element, createElementNS: element, body: 
 globalThis.requestAnimationFrame = () => 0;
 const { startTrackDraw, updateTrackDraw, addTrackWaypoint, resolveTrackDrawSnap } = await import('../src/pcb/modules/track-draw.js');
 const { applyNetToCopperSelection } = await import('../src/pcb/modules/track-select.js');
+const { Via } = await import('../src/shapes/via.js');
 
 const shape = (x, net, extra = {}) => ({ id: `shape-${x}`, kind: 'rect', layer: 'top-copper',
     net, filled: true, copperMode: 'add', lineWidth: 0.2,
     points: [{ x: x - 2, y: -2 }, { x: x + 2, y: -2 }, { x: x + 2, y: 2 }, { x: x - 2, y: 2 }],
     ...extra });
-const via = (x, net) => ({ id: `via-${x}`, x, y: 0, diameter: 1, drill: 0.3, net });
+const via = (x, net) => new Via({ id: `via-${x}`, x, y: 0, diameter: 1, drill: 0.3, net });
 const board = () => {
-    const app = { tracks: [], vias: [], boardShapes: [], placements: new Map(), netlist: [],
+    const app = { tracks: [], vias: [], pads: [], boardShapes: [], copperFills: [], placements: new Map(), netlist: [],
         getLayerGroup: () => null,
         viewport: { scale: 100, gridVisible: false, setCrosshair() {}, hideCrosshair() {} },
-        _commitTracks(tracks, _vias, destinationShapes = []) {
-            this.tracks.push(...tracks);
-            for (const destination of destinationShapes) destination.net = tracks[0]?.net || '';
-        } };
+        history: { execute(command) { command.execute(); } } };
+    app.pcbDocument = { tracks: app.tracks, vias: app.vias, pads: app.pads,
+        boardShapes: app.boardShapes, copperFills: app.copperFills };
     setTrackToolLayer(app, 'top-copper');
     return app;
 };

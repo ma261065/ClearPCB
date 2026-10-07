@@ -34,7 +34,6 @@ function fixture() {
         getRoutingParams: () => ({ trackWidth: 0.4, clearance: 0.2, viaDiameter: 0.6, viaDrill: 0.3 }),
         viewport: { scale: 100, gridVisible: false, shiftHeld: true, setCrosshair() {}, hideCrosshair() {} },
         alert(message) { this.alerts.push(message); }, alerts: [],
-        _commitTracks: PCBApp.prototype._commitTracks,
     };
     for (const key of ['tracks', 'vias', 'pads', 'boardShapes', 'texts']) {
         Object.defineProperty(app, key, Object.getOwnPropertyDescriptor(PCBApp.prototype, key));
