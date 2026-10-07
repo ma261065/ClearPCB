@@ -50,7 +50,7 @@ export function updateCursorForTool(app) {
 export function resetPcbTool(app) {
     app.currentTool = 'select';
     updateCursorForTool(app);
-    app._syncPcbHomeToolHighlight?.();
+    app.refreshPcbRibbon?.();
     app.setPcbStatus?.();
 }
 
@@ -69,7 +69,7 @@ export function selectPcbTool(app, tool) {
         hoverComponent(app, null);
         selectRefText(app, null);
     }
-    app._syncPcbHomeToolHighlight?.();
+    app.refreshPcbRibbon?.();
     updateCursorForTool(app);
     app.setPcbStatus?.();
     if (next === 'fill') showFillToolProperties(app);

@@ -22,11 +22,18 @@ import { isRotationHandleDragActive } from '../src/pcb/modules/rotation-handle.j
 
 let allocations = 0;
 class Element {
-    constructor() { allocations++; this.children = []; this.attributes = new Map(); this.style = {}; this.dataset = {}; }
+    constructor(tag = 'g') { allocations++; this.localName = tag; this.children = []; this.attributes = new Map(); this.style = {}; this.dataset = {}; }
     setAttribute(key, value) { this.attributes.set(key, String(value)); }
     getAttribute(key) { return this.attributes.get(key) ?? null; }
     removeAttribute(key) { this.attributes.delete(key); }
+    hasAttribute(key) { return this.attributes.has(key); }
     appendChild(child) { child.remove(); this.children.push(child); child.parentNode = this; }
+    insertBefore(child, sibling) {
+        child.remove();
+        const index = this.children.indexOf(sibling);
+        this.children.splice(index < 0 ? this.children.length : index, 0, child);
+        child.parentNode = this;
+    }
     removeChild(child) { this.children.splice(this.children.indexOf(child), 1); child.parentNode = null; }
     remove() { this.parentNode?.removeChild(this); }
     querySelectorAll() { return []; }

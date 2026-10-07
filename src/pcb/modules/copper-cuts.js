@@ -3,6 +3,7 @@ import { setCopperFillClip } from './copper-fill-render.js';
 import { areDragOverlaysDeferred } from './refresh-state.js';
 import { isPcbPasteActive } from './pcb-paste.js';
 import { boardDimensions } from '../../shared/pcb/board-outline.js';
+import { ensureSvgDefs } from './svg-defs.js';
 
 /*
  * Copper cuts: the per-side SVG clip-paths that remove copper under copper-removal
@@ -51,7 +52,7 @@ export function hasCopperCuts(app) {
  * silently dropped, which made the copper "fill back in".
  */
 export function updateCopperCuts(app, { geometryChanged = true } = {}) {
-    const defs = app._ensureSvgDefs();
+    const defs = ensureSvgDefs(app);
     if (!defs) return;
     const state = cutState(app);
     state.defs = defs;

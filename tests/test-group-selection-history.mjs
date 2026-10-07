@@ -15,6 +15,7 @@ import { setFillToolDefaults } from '../src/pcb/modules/copper-fill-draw.js';
 function element() {
     return {
         attributes: {}, children: [], style: {}, parentNode: null, addEventListener() {},
+        classList: { add() {}, remove() {} },
         setAttribute(name, value) { this.attributes[name] = String(value); },
         appendChild(child) { child.parentNode = this; this.children.push(child); },
         remove() {
@@ -29,7 +30,8 @@ function element() {
     };
 }
 
-globalThis.window = { addEventListener() {} };
+globalThis.window = { addEventListener() {}, setTimeout(callback) { callback(); } };
+globalThis.requestAnimationFrame = callback => callback();
 globalThis.document = { createElementNS: element, createElement: element, body: element(),
     documentElement: { getAttribute: () => 'dark' }, getElementById: () => null,
     querySelector: () => null, querySelectorAll: () => [], addEventListener() {} };
@@ -57,10 +59,11 @@ const app = {
     placements: new Map(), tracks: [], vias: [], boardShapes: [],
     pcbDocument, get texts() { return getTextPosePreviewTexts(this) || pcbDocument.texts; },
     viewport: { scale: 8, snapToGrid: false, contentLayer: element(),
-        getVisibleBounds: () => ({ minX: -100, minY: -100, maxX: 100, maxY: 100 }) },
+        getVisibleBounds: () => ({ minX: -100, minY: -100, maxX: 100, maxY: 100 }),
+        hideCrosshair() {} },
     _layerGroups: new Map([['selection-overlay', overlay]]),
     getLayerGroup(id) { return this._layerGroups.get(id); },
-    _markDirty() {}, _syncHistoryButtons() {}, refreshText() {},
+    _markDirty() {}, syncPcbHistoryButtons() {}, refreshText() {},
 };
 app.history = new CommandHistory({ onChanged: () => PCBApp.prototype._onHistoryChanged.call(app) });
 setPcbSelection(app, texts.map(object => ({ kind: 'text', object })));
@@ -242,8 +245,18 @@ assert.equal(handleKeyDown.call(app, { key: 'ArrowLeft' }), false, 'Empty select
 console.log('PASS: PCB arrow-key group movement, grid steps, undo/redo, and input guards');
 
 const warnings = [];
-app._showComponentPopup = (componentId, message) => warnings.push({ componentId, message });
-app.placements.set('component-1', {});
+app.viewport.worldToScreen = point => ({ x: point.x, y: point.y });
+app.viewport.svg = { style: {}, getBoundingClientRect: () => ({ left: 0, top: 0 }) };
+const appendChild = document.body.appendChild;
+document.body.appendChild = (popup) => {
+    // The popup is anchored at its component's centre: identify the component from where it lands.
+    const left = parseFloat(popup.style.left), top = parseFloat(popup.style.top);
+    const componentId = [...app.placements].find(([, pl]) => pl.x === left && pl.y === top)?.[0] ?? null;
+    warnings.push({ componentId, message: popup.textContent });
+    return appendChild.call(document.body, popup);
+};
+app.placements.set('component-1', { x: 7, y: 11 });
+app.placements.set('component-2', { x: 23, y: 5 });
 for (const key of ['Delete', 'Backspace']) {
     for (const kind of ['component', 'reftext']) {
         for (const mixed of [false, true]) {
@@ -268,6 +281,7 @@ assert.deepEqual(warnings, [], 'Ordinary deletion does not show a component warn
 assert.equal(handleKeyDown.call(app, { key: 'Delete' }), false, 'Empty selection remains unhandled');
 pcbDocument.texts.set(texts[0].id, texts[0]);
 app.placements.delete('component-1');
+app.placements.delete('component-2');
 console.log('PASS: component deletion warnings survive selection clearing');
 
 for (const tool of ['line', 'rect', 'polygon', 'circle', 'arc', 'track', 'fill']) {

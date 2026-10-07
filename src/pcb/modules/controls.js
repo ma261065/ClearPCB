@@ -21,7 +21,6 @@ export function bindPcbControls(app) {
             app.retainPcbRibbonHeight?.();
         };
         app.activatePcbRibbonTab = (tabId, userInitiated = false) => ribbon.activateTab(tabId, userInitiated);
-        app._syncPcbHomeToolHighlight = () => app.refreshPcbRibbon?.();
         app.syncPcbViewToggles = () => app.refreshPcbRibbon?.();
         app.ui = {
             ...(app.ui || {}),

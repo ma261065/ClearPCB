@@ -249,7 +249,7 @@ export function beginPcbPaste(app, source, { select = false } = {}) {
     setFillRefreshSuspended(app, true);
     setDragOverlaysDeferred(app, true);
     try {
-        app._syncHistoryButtons?.();
+        app.syncPcbHistoryButtons?.();
         if (select) setPcbSelection(app, payload.shapes.map(object => ({ kind: 'shape', object })));
         updatePcbPaste(app, app.viewport?.currentMouseWorld || { x: 0, y: 0 });
     } catch (error) {
@@ -304,7 +304,7 @@ function release(app, state) {
     setFillRefreshPending(app, state.fillPending || pendingFill);
     updateCursorForTool(app);
     app.syncClipboardButtons?.();
-    app._syncHistoryButtons?.();
+    app.syncPcbHistoryButtons?.();
 }
 
 function resumePendingFill(app) {

@@ -23,9 +23,10 @@ import { clearanceOverlayState } from '../src/pcb/modules/clearance-overlay.js';
 
 let allocations = 0;
 class Element {
-    constructor(tag = 'g') { allocations++; this.tag = tag; this.children = []; this.attributes = new Map(); this.dataset = {}; this.style = {}; }
+    constructor(tag = 'g') { allocations++; this.tag = tag; this.localName = tag; this.children = []; this.attributes = new Map(); this.dataset = {}; this.style = {}; }
     setAttribute(key, value) { this.attributes.set(key, String(value)); }
     getAttribute(key) { return this.attributes.get(key) ?? null; }
+    hasAttribute(key) { return this.attributes.has(key); }
     removeAttribute(key) { this.attributes.delete(key); }
     get classList() { return { contains: name => (this.getAttribute('class') || '').split(' ').includes(name), add() {} }; }
     appendChild(child) { child.remove(); this.children.push(child); child.parentNode = this; }
@@ -340,7 +341,10 @@ console.log('PASS toolbar undo/redo, cut discard, ID collision ownership and par
     app._pcbClipboard = { shapes: [{ id: 'cut', kind: 'circle', layer: 'top-copper', x: 10, y: 10,
         radius: 2, lineWidth: 0.2, copperMode: 'remove-copper' }] };
     const defs = new Element('defs');
-    app._ensureSvgDefs = () => defs;
+    defs.setAttribute('data-pcb-defs', '');
+    const svg = new Element('svg');
+    svg.appendChild(defs);
+    app.viewport.svg = svg;
     app.pasteSelection();
     PCBApp.prototype.updateCopperCuts.call(app);
     assert.equal(copperCutState(app).geometry.top.count, 0, 'Cold cut-cache initialization excludes detached pasted cutters');

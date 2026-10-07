@@ -7,7 +7,7 @@ import { renderCopperFill } from '../src/pcb/modules/copper-fill-render.js';
 import { setPcbSelection } from '../src/pcb/modules/selection-registry.js';
 
 class Element {
-    constructor(tag = 'g') { this.tag = tag; this.attributes = new Map(); this.children = []; this.style = {}; this.dataset = {}; }
+    constructor(tag = 'g') { this.tag = tag; this.localName = tag; this.attributes = new Map(); this.children = []; this.style = {}; this.dataset = {}; }
     setAttribute(name, value) { this.attributes.set(name, String(value)); }
     getAttribute(name) { return this.attributes.get(name) ?? null; }
     removeAttribute(name) { this.attributes.delete(name); }
@@ -59,14 +59,17 @@ try {
                 points: [{ x: 5, y: 5 }, { x: 9, y: 5 }, { x: 9, y: 9 }, { x: 5, y: 9 }] };
             pcbDocument.boardShapes.push(shape);
             const defs = new Element('defs');
+            defs.setAttribute('data-pcb-defs', '');
             const groups = new Map(['top-copper', 'bottom-copper', 'top-fill', 'bottom-fill', 'hole']
                 .map(id => [id, new Element()]));
+            const svg = new Element('svg');
+            svg.appendChild(defs);
             const app = {
                 pcbDocument, get boardShapes() { return Object.getOwnPropertyDescriptor(PCBApp.prototype, 'boardShapes').get.call(this); },
                 placements: new Map(), texts: new Map(),
                 tracks: [], vias: [], pads: [], _shapeElements: new Map(), _layerGroups: groups, existingLayerGroups: () => groups,
-                history: new CommandHistory(), _ensureSvgDefs: () => defs, getLayerGroup: id => groups.get(id),
-                viewport: { scale: 10, gridVisible: false, svg: new Element('svg'),
+                history: new CommandHistory(), getLayerGroup: id => groups.get(id),
+                viewport: { scale: 10, gridVisible: false, svg,
                     setCrosshair() {}, hideCrosshair() {},
                     getVisibleBounds: () => ({ minX: 0, minY: 0, maxX: 40, maxY: 40 }) },
                 updateCopperCuts: PCBApp.prototype.updateCopperCuts,
@@ -139,14 +142,17 @@ try {
             pcbDocument.boardShapes.push(shape);
             const before = pcbDocument.serialize();
             const defs = new Element('defs');
+            defs.setAttribute('data-pcb-defs', '');
+            const svg = new Element('svg');
+            svg.appendChild(defs);
             const groups = new Map([`${side}-copper`, `${side}-fill`, `${side}-copper-knockout`]
                 .map(id => [id, new Element()]));
             const app = {
                 pcbDocument, get boardShapes() { return getBoardShapeRotationPreview(this)?.boardShapes || pcbDocument.boardShapes; },
                 history: new CommandHistory(), _shapeElements: new Map(), _layerGroups: groups, existingLayerGroups: () => groups,
-                _ensureSvgDefs: () => defs, getLayerGroup: id => groups.get(id),
+                getLayerGroup: id => groups.get(id),
                 updateCopperCuts: PCBApp.prototype.updateCopperCuts,
-                viewport: { scale: 10, getVisibleBounds: () => ({ minX: 0, minY: 0, maxX: 40, maxY: 40 }) },
+                viewport: { scale: 10, svg, getVisibleBounds: () => ({ minX: 0, minY: 0, maxX: 40, maxY: 40 }) },
             };
             const fill = new CopperFill({ layer: `${side}-copper`, outline: [
                 { x: 0, y: 0 }, { x: 40, y: 0 }, { x: 40, y: 40 }, { x: 0, y: 40 },

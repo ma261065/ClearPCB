@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 class El {
     constructor(tagName) {
         this.tagName = tagName;
+        this.localName = tagName;
         this.attributes = new Map();
         this.children = [];
         this.parentNode = null;
@@ -14,8 +15,17 @@ class El {
     }
     setAttribute(name, value) { this.attributes.set(name, String(value)); }
     getAttribute(name) { return this.attributes.has(name) ? this.attributes.get(name) : null; }
+    hasAttribute(name) { return this.attributes.has(name); }
     removeAttribute(name) { this.attributes.delete(name); }
     appendChild(child) { child.parentNode?.removeChild(child); child.parentNode = this; this.children.push(child); return child; }
+    insertBefore(child, before) {
+        child.parentNode?.removeChild(child);
+        child.parentNode = this;
+        const index = this.children.indexOf(before);
+        if (index < 0) this.children.push(child);
+        else this.children.splice(index, 0, child);
+        return child;
+    }
     removeChild(child) { this.children = this.children.filter(c => c !== child); child.parentNode = null; return child; }
     remove() { this.parentNode?.removeChild(this); }
     addEventListener() {}
@@ -46,11 +56,17 @@ const { getBoardShapeElement, renderBoardShape } = await import('../src/pcb/modu
 const { default: PCBApp } = await import('../src/ui/PCBApp.js');
 
 const patternsIn = defs => defs.children.filter(child => child.tagName === 'pattern');
+const appWithDefs = (defs, scale = 4) => {
+    defs.setAttribute('data-pcb-defs', '');
+    const svg = new El('svg');
+    svg.appendChild(defs);
+    return { viewport: { scale, svg } };
+};
 
 // One pattern per removal mode, in the editor's defs, sized in board millimetres.
 {
     const defs = new El('defs');
-    const app = { viewport: { scale: 4 }, _ensureSvgDefs: () => defs };
+    const app = appWithDefs(defs);
     assert.equal(removalHatchFill(app, 'remove-copper'), 'url(#pcb-removal-hatch-remove-copper)');
     const [pattern] = patternsIn(defs);
     assert.equal(pattern.getAttribute('patternUnits'), 'userSpaceOnUse');
@@ -69,10 +85,12 @@ const patternsIn = defs => defs.children.filter(child => child.tagName === 'patt
 
     // Replaced defs get their own pattern; another editor on the same defs reuses it.
     const nextDefs = new El('defs');
-    app._ensureSvgDefs = () => nextDefs;
+    nextDefs.setAttribute('data-pcb-defs', '');
+    app.viewport.svg.children = [nextDefs];
+    nextDefs.parentNode = app.viewport.svg;
     removalHatchFill(app, 'remove-copper');
     assert.equal(patternsIn(nextDefs).length, 1, 'A new <defs> gets the pattern again');
-    const sibling = { viewport: { scale: 2 }, _ensureSvgDefs: () => nextDefs };
+    const sibling = appWithDefs(nextDefs, 2);
     removalHatchFill(sibling, 'remove-copper');
     assert.equal(patternsIn(nextDefs).length, 1, 'An existing pattern is not duplicated');
 }
@@ -83,7 +101,7 @@ console.log('PASS removal hatch patterns: one per mode, reused, in board units, 
     const defs = new El('defs');
     const groups = new Map();
     const app = {
-        viewport: { scale: 1 }, _ensureSvgDefs: () => defs, _shapeElements: new Map(),
+        ...appWithDefs(defs, 1), _shapeElements: new Map(),
         getLayerGroup(id) { if (!groups.has(id)) groups.set(id, new El('g')); return groups.get(id); },
     };
     const circle = { kind: 'circle', x: 0, y: 0, radius: 2, layer: 'top-copper', filled: true, lineWidth: 0.2 };

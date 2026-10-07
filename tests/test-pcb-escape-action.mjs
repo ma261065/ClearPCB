@@ -30,7 +30,7 @@ function fixture() {
         viewport: { svg: { style: {} }, hideCrosshair() { events.push('hide-crosshair'); } },
         _clearCursorCrosshair() { events.push('clear-crosshair'); },
         clearProperties() { events.push('clear-properties'); },
-        _syncPcbHomeToolHighlight() { events.push('highlight'); },
+        refreshPcbRibbon() { events.push('highlight'); },
         setPcbStatus() { events.push('status'); },
         setActiveRibbonTab(tab) { events.push(tab); },
         handleKeyDown: PCBApp.prototype.handleKeyDown,

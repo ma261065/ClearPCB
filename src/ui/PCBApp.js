@@ -25,6 +25,7 @@ import {
 import { cancelPcbPosePreviews, disposePcbPropertyEditors, hasPcbEditInProgress } from '../pcb/modules/edit-lifecycle.js';
 import { isPcbDrawing } from '../pcb/modules/pcb-interactions.js';
 import { handlePcbKeyDown } from '../pcb/modules/keyboard.js';
+import { showSaveToast } from '../pcb/modules/save-toast.js';
 import { PCB_CROSSHAIR_TOOLS, cancelPcbDrawingMode, updateCursorForTool } from '../pcb/modules/tool-lifecycle.js';
 import { buildCopperObstacles } from '../pcb/modules/copper-obstacles.js';
 import { buildRouteInput } from '../pcb/modules/route-input.js';
@@ -97,7 +98,7 @@ import { onLayerVisibilityChanged, onLayerLockChanged, onCopperFillVisibilityCha
 import { RemoveFillCommand, ModifyFillCommand } from '../pcb/modules/copper-fill-commands.js';
 import { hitTestFill } from '../pcb/modules/copper-fill-selection.js';
 import { startFillEditAt, updateFillEdit, endFillEdit, deleteFocusedFillPart, showFillProperties, showFillToolProperties } from '../pcb/modules/copper-fill-edit.js';
-import { beginComponentDrag, endComponentDrag, hitTestComponent, hoverComponent, openComponent3DPopout, scheduleComponentDragUpdate, updateComponentDrag, updatePcbCulling } from '../pcb/modules/component-selection.js';
+import { beginComponentDrag, endComponentDrag, hitTestComponent, hoverComponent, openComponent3DPopout, scheduleComponentDragUpdate, showComponentPopup, updateComponentDrag, updatePcbCulling } from '../pcb/modules/component-selection.js';
 import { beginTextDrag, endTextDrag, getTextDrag, updateTextDrag } from '../pcb/modules/pcb-text-selection.js';
 import { clearTextElements, hitTestText, refreshText as refreshPcbText, renderText } from '../pcb/modules/pcb-text-render.js';
 import { beginRefTextDrag, drawRefOverlay, endRefDrag, hitTestReferenceText, isRefTextLocked, refreshRefHighlight, rerenderRef, RotateRefTextCommand, selectRefText, SetRefStyleCommand, tryEditReferenceAt, updateRefTextDrag } from '../pcb/modules/ref-text-selection.js';
@@ -293,8 +294,6 @@ export default class PCBApp {
         this._pcbClipboard = null;
         // Board-shape SVG elements, hover, node/segment focus and tool defaults live in the board-shape modules.
         /** Currently selected board shape, or null. */
-        /** Home-tab tool highlight sync, installed by bindPcbControls(). */
-        this._syncPcbHomeToolHighlight = null;
 
         /**
          * Undo/redo for PCB-side edits (tracks, vias, vertex drags,
@@ -310,7 +309,7 @@ export default class PCBApp {
             // the schematic\u2192PCB stale-sync listener that would
             // otherwise rebuild and wipe PCB-only edits.
             onChanged: () => this._onHistoryChanged(),
-            onRefused: error => this._showSaveToast(error.message),
+            onRefused: error => showSaveToast(this, error.message),
         });
         /** Transient message bubble shown over a component, or null. */
         this._componentPopup = null;
@@ -356,7 +355,7 @@ export default class PCBApp {
         (this.retainPcbRibbonHeight || this['_retainRibbonHeight'])?.();
         this._ensureViewport();
         updateCursorForTool(this);
-        this._syncPcbHomeToolHighlight?.();
+        this.refreshPcbRibbon?.();
         this.viewport?._onResize?.();
         peekDrcPresentation(this)?.activate();
         this._updateViewportStatus();
@@ -446,16 +445,11 @@ export default class PCBApp {
         }
         this.status.modeStatus.textContent = `${toolLabel} | ${layerLabel}`;
         this.syncClipboardButtons?.();
-        this._syncHistoryButtons?.();
-    }
-
-    /** Enable/disable PCB home-tab Undo/Redo buttons from history state. */
-    _syncHistoryButtons() {
-        this.refreshPcbRibbon?.();
+        this.syncPcbHistoryButtons?.();
     }
 
     syncPcbHistoryButtons() {
-        this._syncHistoryButtons();
+        this.refreshPcbRibbon?.();
     }
 
     /** Whether there is any pasteable payload on the PCB clipboard. */
@@ -561,7 +555,7 @@ export default class PCBApp {
         if (!payload) {
             const componentId = getPcbSelection(this, 'component')[0] || getPcbSelection(this, 'reftext')[0];
             if (componentId) {
-                this._showComponentPopup(componentId,
+                showComponentPopup(this, componentId,
                     "Components can't be copied from PCB. Copy them in the schematic editor.");
             }
             this.syncClipboardButtons();
@@ -603,7 +597,7 @@ export default class PCBApp {
     _onHistoryChanged() {
         invalidateFillRefresh(this);
         this._markDirty();
-        this._syncHistoryButtons?.();
+        this.syncPcbHistoryButtons?.();
         refreshBoxSelectionHighlights(this);
     }
 
@@ -1193,25 +1187,6 @@ export default class PCBApp {
         return cancelPcbDrawingMode(this);
     }
 
-    /** Get (or lazily create) the shared <defs> in the editor SVG. */
-    /**
-     * The editor's own top-level <defs> (copper-cut clip paths, removal hatches). Not the
-     * grid's: the viewport rebuilds the grid layer, <defs> included, on zoom.
-     */
-    _ensureSvgDefs() {
-        const svg = this.viewport?.svg;
-        if (!svg) return null;
-        if (this._svgDefs && this._svgDefs.isConnected) return this._svgDefs;
-        let defs = [...svg.children].find(child => child.localName === 'defs' && child.hasAttribute('data-pcb-defs'));
-        if (!defs) {
-            defs = document.createElementNS('http://www.w3.org/2000/svg', 'defs');
-            defs.setAttribute('data-pcb-defs', '');
-            svg.insertBefore(defs, svg.firstChild);
-        }
-        this._svgDefs = defs;
-        return defs;
-    }
-
     /** Rebuild the per-side copper-removal clip paths (see copper-cuts.js). */
     updateCopperCuts(options) {
         updateCopperCuts(this, options);
@@ -1335,33 +1310,6 @@ export default class PCBApp {
 
     markDirty() {
         this._markDirty();
-    }
-
-    /**
-     * Show a transient "Saved" toast anchored to the PCB status-bar filename.
-     * Mirrors the schematic editor's toast, but anchors to the PCB filename so
-     * it appears in the right place while the PCB view is active (the schematic
-     * docTitle is hidden then).
-     * @param {string} [text]
-     */
-    _showSaveToast(text = 'Saved') {
-        const anchor = this.status.docTitle || document.getElementById('pcbDocTitle');
-        if (!anchor) return;
-        const rect = anchor.getBoundingClientRect();
-        const existing = document.getElementById('ribbon-save-toast');
-        if (existing) existing.remove();
-        const toast = document.createElement('div');
-        toast.id = 'ribbon-save-toast';
-        toast.className = 'ribbon-save-toast';
-        toast.textContent = text;
-        toast.style.left = `${rect.left + rect.width / 2}px`;
-        toast.style.top = `${rect.top - 28}px`;
-        document.body.appendChild(toast);
-        requestAnimationFrame(() => toast.classList.add('show'));
-        window.setTimeout(() => {
-            toast.classList.remove('show');
-            window.setTimeout(() => toast.remove(), 200);
-        }, 900);
     }
 
     /**
@@ -2143,47 +2091,6 @@ export default class PCBApp {
         // Ensure the selected footprint shows full detail even when zoomed out
         // far enough that it would otherwise be collapsed to its LOD placeholder.
         updatePcbCulling(this);
-    }
-
-    /**
-     * Show a short-lived message bubble centred over a component, then fade
-     * it away. Used for actions that aren't allowed on the PCB (e.g. trying
-     * to delete a component, which must be done in the schematic editor).
-     * @param {string} compId
-     * @param {string} message
-     */
-    _showComponentPopup(compId, message) {
-        const pl = this.placements.get(compId);
-        if (!pl || !this.viewport) return;
-
-        // Centre of the footprint in world coords (bounds are in the
-        // footprint's local space, offset by the placement translate).
-        const b = pl.bounds;
-        const cx = pl.x + (b ? b.x + b.width / 2 : 0);
-        const cy = pl.y + (b ? b.y + b.height / 2 : 0);
-
-        const screen = this.viewport.worldToScreen({ x: cx, y: cy });
-        const svgRect = this.viewport.svg.getBoundingClientRect();
-
-        // Remove any existing popup so rapid presses don't stack.
-        this._componentPopup?.remove();
-
-        const popup = document.createElement('div');
-        popup.className = 'pcb-component-popup';
-        popup.textContent = message;
-        popup.style.left = `${svgRect.left + screen.x}px`;
-        popup.style.top = `${svgRect.top + screen.y}px`;
-        document.body.appendChild(popup);
-        this._componentPopup = popup;
-
-        requestAnimationFrame(() => popup.classList.add('show'));
-        window.setTimeout(() => {
-            popup.classList.remove('show');
-            window.setTimeout(() => {
-                popup.remove();
-                if (this._componentPopup === popup) this._componentPopup = null;
-            }, 250);
-        }, 1400);
     }
 
     _cancelPosePreviews() {

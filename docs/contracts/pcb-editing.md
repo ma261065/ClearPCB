@@ -539,6 +539,9 @@ command(s) for drawn track runs and layer-change vias. Shared physical copper
 connection discovery for drawn tracks, drags and ratlines lives in
 `track-connections.js`, so the draw owner commits without reaching back through
 `PCBApp` private members.
+The PCB save toast lives in `save-toast.js` and the top-level SVG definition cache in
+`svg-defs.js`; copper cut and removal-hatch callers use those owner APIs directly instead of private
+editor callbacks.
 `via-tool.js` owns the Via tool net default, diameter/drill panel and preview
 ring state. These tool defaults are per-editor WeakMap state rather than
 `PCBApp` fields.

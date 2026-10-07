@@ -155,7 +155,9 @@ evaluation-order cycle fails.
   edit and hover-highlight state), `board-shapes.js` (rendered board-shape SVG
   elements and document-backed shape ID allocation), `track-draw.js` (track snap, guide SVG
   affordances and drawn-track commits), `track-connections.js` (track/via/pad/shape
-  copper connection discovery) and `track-commit.js` (drawn-track command assembly),
+  copper connection discovery), `track-commit.js` (drawn-track command assembly),
+  `save-toast.js` (PCB save
+  toast presentation), `svg-defs.js` (editor-owned SVG `<defs>` cache) and
   `layers.js` (layer-panel lock bubble timer), and
   `pcb-interactions.js` (in-progress interaction slots).
 - In-progress interaction slots (`_drag`, `_trackDraw`, …) are listed once in

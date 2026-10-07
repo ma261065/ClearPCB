@@ -14,6 +14,7 @@ import { hideNetTooltip } from './net-tooltip.js';
 
 const componentDragFrames = new WeakMap();
 const hoveredComponents = new WeakMap();
+const componentPopups = new WeakMap();
 const PCB_LOD_PIXEL_THRESHOLD = 24;
 
 function showFootprintCrosshair(app, placement) {
@@ -23,6 +24,40 @@ function showFootprintCrosshair(app, placement) {
 
 export function getComponentDrag(app) {
     return getPcbInteraction(app, '_drag');
+}
+
+export function showComponentPopup(app, compId, message) {
+    const pl = app.placements.get(compId);
+    if (!pl || !app.viewport?.worldToScreen || !app.viewport?.svg) return;
+
+    // Approximate popup anchor at footprint centre (bounds are in the
+    // footprint's local space, offset by the placement translate).
+    const b = pl.bounds;
+    const cx = pl.x + (b ? b.x + b.width / 2 : 0);
+    const cy = pl.y + (b ? b.y + b.height / 2 : 0);
+
+    const screen = app.viewport.worldToScreen({ x: cx, y: cy });
+    const svgRect = app.viewport.svg.getBoundingClientRect();
+
+    // Remove any existing popup so rapid presses don't stack.
+    componentPopups.get(app)?.remove();
+
+    const popup = document.createElement('div');
+    popup.className = 'pcb-component-popup';
+    popup.textContent = message;
+    popup.style.left = `${svgRect.left + screen.x}px`;
+    popup.style.top = `${svgRect.top + screen.y}px`;
+    document.body.appendChild(popup);
+    componentPopups.set(app, popup);
+
+    requestAnimationFrame(() => popup.classList.add('show'));
+    window.setTimeout(() => {
+        popup.classList.remove('show');
+        window.setTimeout(() => {
+            popup.remove();
+            if (componentPopups.get(app) === popup) componentPopups.delete(app);
+        }, 250);
+    }, 1400);
 }
 
 export function beginComponentDrag(app, componentId, worldPos) {

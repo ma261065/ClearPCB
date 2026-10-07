@@ -86,7 +86,7 @@ function fixture() {
             events.push(`properties:${names[panel.title] || String(panel.title).replace(/^New /, '').toLowerCase()}`);
             return true;
         },
-        _syncPcbHomeToolHighlight() {
+        refreshPcbRibbon() {
             for (const button of Object.values(buttons)) button.classList.toggle('active', false);
             buttons.Select.classList.toggle('active', this.currentTool === 'select');
         },

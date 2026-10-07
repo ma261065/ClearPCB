@@ -1,4 +1,5 @@
 import { normalizeShapeCopperMode } from '../../shared/pcb/board-shape-geometry.js';
+import { ensureSvgDefs } from './svg-defs.js';
 
 /*
  * Copper-removal hatching: removal shapes are filled with an SVG hatch pattern coloured
@@ -52,7 +53,7 @@ export function removalHatchFill(app, copperMode) {
     const mode = normalizeShapeCopperMode(copperMode);
     const color = HATCH_COLORS[mode];
     if (!color) return 'none';
-    const defs = app._ensureSvgDefs?.();
+    const defs = ensureSvgDefs(app);
     if (!defs) return 'none';
     const id = `${HATCH_ID_PREFIX}${mode}`;
     let patterns = hatchPatterns.get(app);

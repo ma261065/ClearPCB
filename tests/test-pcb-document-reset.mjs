@@ -92,7 +92,7 @@ function fixture(active) {
         existingLayerGroups() { return layers; },
         updateCopperCuts() {},
         _refreshBoardShapeClearance() {}, setPcbStatus() {}, syncClipboardButtons() {},
-        _syncPcbHomeToolHighlight() {},
+        refreshPcbRibbon() {},
         refreshClearanceHalos() {}, refreshFills() {},
     });
     initializeBoardOutlineState(app, false);

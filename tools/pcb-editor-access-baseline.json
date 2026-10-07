@@ -12,16 +12,6 @@
   "src/pcb/modules/box-select.js": [
     "_refreshPcbSelectionHighlights"
   ],
-  "src/pcb/modules/controls.js": [
-    "_syncPcbHomeToolHighlight"
-  ],
-  "src/pcb/modules/copper-cuts.js": [
-    "_ensureSvgDefs"
-  ],
-  "src/pcb/modules/editor-actions.js": [
-    "_showComponentPopup",
-    "_showSaveToast"
-  ],
   "src/pcb/modules/layer-changes.js": [
     "_cancelPosePreviews",
     "_refreshPcbSelectionHighlights"
@@ -37,8 +27,7 @@
     "_active"
   ],
   "src/pcb/modules/pcb-paste.js": [
-    "_cancelPosePreviews",
-    "_syncHistoryButtons"
+    "_cancelPosePreviews"
   ],
   "src/pcb/modules/project-state.js": [
     "_applyPlacementOverrides",
@@ -48,9 +37,6 @@
     "_ensureViewport",
     "_isDirty",
     "_stale"
-  ],
-  "src/pcb/modules/removal-hatch.js": [
-    "_ensureSvgDefs"
   ],
   "src/pcb/modules/selection-interaction.js": [
     "_selectComponent",
@@ -62,9 +48,6 @@
   ],
   "src/pcb/modules/text-commands.js": [
     "_showPcbMultiSelectionProperties"
-  ],
-  "src/pcb/modules/tool-lifecycle.js": [
-    "_syncPcbHomeToolHighlight"
   ],
   "src/pcb/modules/track-commands.js": [
     "_markDirty",

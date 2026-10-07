@@ -14,8 +14,9 @@ import { getPropertyEditor } from './property-editors.js';
 import { isEditorActive } from './pcb-editor-api.js';
 import { flushSettledChanges } from '../../shared/ui/settled-input.js';
 import { cancelPcbPaste, isPcbPasteActive } from './pcb-paste.js';
-import { endComponentDrag, getComponentDrag } from './component-selection.js';
+import { endComponentDrag, getComponentDrag, showComponentPopup } from './component-selection.js';
 import { endRefDrag, getRefDrag, selectRefText } from './ref-text-selection.js';
+import { showSaveToast } from './save-toast.js';
 
 /**
  * Delete the current refinement or selection, retaining drawing/paste ownership
@@ -40,7 +41,7 @@ export function runPcbDeleteAction(app) {
     const componentId = getPcbSelection(app, 'component')[0] || getPcbSelection(app, 'reftext')[0];
     const deleted = deleteBoxSelection(app);
     if (componentId) {
-        app._showComponentPopup(componentId, 'Delete components from the schematic editor');
+        showComponentPopup(app, componentId, 'Delete components from the schematic editor');
         return true;
     }
     return deleted;
@@ -211,6 +212,6 @@ export async function savePcbProject(app, saveAs = false) {
     const project = app.project;
     if (!project) throw new Error('Cannot save PCB without its project.');
     const result = await (saveAs ? project.saveAs() : project.save());
-    if (result?.success) app._showSaveToast?.('Saved');
+    if (result?.success) showSaveToast(app, 'Saved');
     return result;
 }

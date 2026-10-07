@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict';
 import { installFakeDom } from './helpers/fake-dom.mjs';
 
-globalThis.window = { addEventListener() {} };
+globalThis.window = { addEventListener() {}, setTimeout(callback) { callback(); } };
+globalThis.requestAnimationFrame = callback => callback();
 globalThis.localStorage = { getItem() { return null; } };
 installFakeDom();
 const { default: SchematicApp } = await import('../src/ui/SchematicApp.js');
@@ -180,14 +181,19 @@ for (const outcome of ['success', 'declined', 'busy', 'reset-error']) {
     };
     const pcbControls = { project: null, currentTool: 'select', activeLayer: 'top-copper',
         history: { canUndo: () => false, canRedo: () => false },
+        status: { docTitle: { getBoundingClientRect: () => ({ left: 0, width: 10, top: 0 }) } },
         viewport: { gridVisible: true, snapToGrid: true, gridSize: 1.27, units: 'mm', gridStyle: 'lines',
             getGridOptions: () => [{ value: 1.27, label: '1.27 mm' }],
             setGridSize(value) { this.gridSize = value; }, setUnits(value) { this.units = value; },
             setGridStyle(value) { this.gridStyle = value; }, setGridVisible(value) { this.gridVisible = value; } },
         designSettings: { values: { trackWidth: 0.2, clearance: 0.1, viaDiameter: 0.3, viaDrill: 0.15, units: 'mm', router: 'maze' },
             hasAppliedSettings: true, update(values) { Object.assign(this.values, values); return true; } },
-        _showSaveToast() { calls.push('toast'); },
         savePdf() { calls.push('pdf'); }, print() { calls.push('print'); } };
+    const appendChild = document.body.appendChild.bind(document.body);
+    document.body.appendChild = element => {
+        if (element.className === 'ribbon-save-toast') calls.push('toast');
+        return appendChild(element);
+    };
     bindPcbControls(pcbControls);
     pcbControls.project = project;
     for (const id of ['New', 'Open', 'OpenRecent']) document.getElementById(`pcbRibbon${id}`).click();

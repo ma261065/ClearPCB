@@ -10,9 +10,11 @@ import { getGroupDrag } from '../src/pcb/modules/box-select.js';
 import { setPcbInteraction } from '../src/pcb/modules/pcb-interactions.js';
 
 const elements = new Map();
-globalThis.window = { addEventListener() {} };
+globalThis.window = { addEventListener() {}, setTimeout(callback) { callback(); } };
 globalThis.document = {
     getElementById: id => elements.get(id) || null,
+    createElement: () => ({ style: {}, classList: { add() {}, remove() {} }, remove() {} }),
+    body: { appendChild(element) { elements.get('events')?.push(element.textContent); } },
     querySelector: () => null, querySelectorAll: () => [], addEventListener() {},
 };
 globalThis.requestAnimationFrame = () => 1;
@@ -32,6 +34,8 @@ function fixture() {
     const buttons = Object.fromEntries(['UndoBtn', 'RedoBtn', 'RibbonSave', 'RibbonSaveAs']
         .map(name => [name, button(`pcb${name}`)]));
     const events = [];
+    elements.set('events', events);
+    const docTitle = { getBoundingClientRect: () => ({ left: 0, width: 10, top: 0 }) };
     let value = 0;
     const history = new CommandHistory();
     for (const next of [1, 2]) {
@@ -47,11 +51,11 @@ function fixture() {
         getLayerGroup: () => null, _layerGroups: new Map(),
         viewport: { gridSize: 1, getGridOptions: () => [{ value: 1, label: '1 mm' }],
             hideCrosshair() { events.push('crosshair'); } },
+        status: { docTitle },
         _clearCursorCrosshair() { events.push('cursor'); },
         _cancelPasteDrop() { events.push('cancel-paste'); setPcbInteraction(this, '_pasteDrop', null); },
         _cancelPosePreviews: PCBApp.prototype._cancelPosePreviews,
         handleKeyDown: PCBApp.prototype.handleKeyDown,
-        _showSaveToast(message) { events.push(message); },
     };
     bindPcbControls(app);
     bindPcbHistoryButtons(app, buttons.UndoBtn, buttons.RedoBtn);

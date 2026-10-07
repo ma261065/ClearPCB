@@ -8,7 +8,7 @@ import { boardDimensions } from '../src/shared/pcb/board-outline.js';
 // lands in it, so render order is observed where the editor's DOM receives it.
 function svgElement(tagName = 'g') {
     return {
-        tagName, attributes: new Map(), children: [], parentNode: null, style: {}, dataset: {}, textContent: '',
+        tagName, localName: tagName, attributes: new Map(), children: [], parentNode: null, style: {}, dataset: {}, textContent: '',
         classList: { add() {}, remove() {}, toggle() {}, contains: () => false },
         setAttribute(name, value) { this.attributes.set(name, String(value)); },
         getAttribute(name) { return this.attributes.get(name) ?? null; },
@@ -348,7 +348,7 @@ for (const pcb of [
         components = withComponents ? [{ id: 'U1' }] : [];
         Object.assign(app, {
             initialize() {}, _ensureViewport() {}, _retainRibbonHeight() {},
-            _syncPcbHomeToolHighlight() {}, _updateViewportStatus() {},
+            refreshPcbRibbon() {}, _updateViewportStatus() {},
             setPcbStatus() {}, setStatus() {}, _clearPCBContent() {},
             getLayerGroup: layerGroups(),
             _placeFootprints: record('footprints'), _fitToPlacedContent() {},
@@ -390,6 +390,9 @@ assert.deepEqual(restored.boardShapes[0].artwork, artwork);
 console.log('PASS: image geometry, board dimensions, and placements survive save before first activation');
 
 const clipDefs = svgElement('defs');
+clipDefs.setAttribute('data-pcb-defs', '');
+const clipSvg = svgElement('svg');
+clipSvg.appendChild(clipDefs);
 let geometryCalls = 0;
 const updateCuts = PCBApp.prototype.updateCopperCuts;
 let visibleBounds = { minX: 0, minY: 0, maxX: 30, maxY: 20 };
@@ -399,8 +402,7 @@ const cutShapes = [removal];
 const clipApp = {
     // Resolving one side's cut geometry reads the board shapes exactly once.
     get boardShapes() { geometryCalls++; return cutShapes; },
-    _ensureSvgDefs: () => clipDefs,
-    viewport: { getVisibleBounds: () => visibleBounds },
+    viewport: { svg: clipSvg, getVisibleBounds: () => visibleBounds },
     _layerGroups: new Map(['top-copper', 'bottom-copper', 'top-fill', 'bottom-fill'].map(id => [id, svgElement('g')])),
     existingLayerGroups() { return this._layerGroups; },
 };
