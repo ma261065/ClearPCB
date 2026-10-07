@@ -54,15 +54,16 @@ function fixture(saved) {
         project, pcbDocument: project.pcbDocument, placementState: state, placements,
         get tracks() { return getPlacementPreviewTracks(this) || this.pcbDocument.tracks; },
         vias: [], pads: [], boardShapes: [], texts: new Map(), history: new CommandHistory(),
+        netlist: [{ net: 'N', pins: [{ componentId: 'a' }, { componentId: 'b' }] }],
         _layerGroups: new Map(),
-        viewport: { scale: 10, gridVisible: false, snapToGrid: false, svg: { style: {} } },
+        viewport: { scale: 10, gridVisible: false, snapToGrid: false, svg: { style: {} },
+            getVisibleBounds: () => ({ minX: -100, minY: -100, maxX: 150, maxY: 150 }) },
         existingLayerGroups() { return this._layerGroups; },
         getLayerGroup(id) {
             if (id !== 'top-copper') return null;
             trackRenders++;
             return copper;
         },
-        _netsForComponent: () => new Set(['N']),
         _cancelPosePreviews: PCBApp.prototype._cancelPosePreviews, _cancelDrawingMode: () => false,
     };
     setPcbSelection(app, [{ kind: 'component', object: 'a' }, { kind: 'component', object: 'b' }]);

@@ -146,7 +146,7 @@ fill.applyState = () => {};
 fill.move = () => { pourMoves++; };
 const movingText = { id: 'moving-text', x: 0, y: 0 };
 app.texts.set(movingText.id, movingText);
-app.viewport = { scale: 1 };
+app.viewport = { scale: 1, getVisibleBounds: () => ({ minX: -100, minY: -100, maxX: 100, maxY: 100 }) };
 for (const [target, property, blocked] of [
     [topPour, 'locked', true], [topPour, 'visible', false],
     [topLayer, 'locked', true],
@@ -248,7 +248,8 @@ assert.equal(selectionRefreshes, 5, 'Every layer eye change refreshes selection 
     const layerApp = {
         placements: new Map(), pcbDocument: new PcbDocument(), tracks: [], vias: [keptVia], pads: [],
         boardShapes: [copperShape, silkShape], _layerGroups: new Map(), existingLayerGroups() { return this._layerGroups; }, _shapeElements: new Map(),
-        viewport: { scale: 10 }, getLayerGroup() { return null; }, refreshText() {}, syncClipboardButtons() {},
+        viewport: { scale: 10, getVisibleBounds: () => ({ minX: -100, minY: -100, maxX: 100, maxY: 100 }) },
+        getLayerGroup() { return null; }, refreshText() {}, syncClipboardButtons() {},
         clearProperties() {},
         _showPcbMultiSelectionProperties(selected) { shownProperties = new Set(selected.map(entry => entry.object)); },
         get texts() { return this.pcbDocument.texts; },

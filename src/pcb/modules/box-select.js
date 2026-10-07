@@ -80,6 +80,7 @@ import {
 import { isEditorActive } from './pcb-editor-api.js';
 import { getPcbInteraction, setPcbInteraction } from './pcb-interactions.js';
 import { setSelectionInteraction } from './selection-interaction.js';
+import { netsForComponent } from './component-selection.js';
 
 /** Pixel distance the pointer must travel before a marquee starts. */
 const START_THRESHOLD_PX = 3;
@@ -584,7 +585,7 @@ export function beginGroupDrag(app, worldPos) {
     }
     const ratsnestNets = new Set();
     for (const component of comps) {
-        for (const net of app._netsForComponent?.(component.id) || []) ratsnestNets.add(net);
+        for (const net of netsForComponent(app, component.id)) ratsnestNets.add(net);
     }
     for (const entry of vias) if (entry.via.net) ratsnestNets.add(entry.via.net);
     for (const entry of pads) if (entry.pad.net) ratsnestNets.add(entry.pad.net);

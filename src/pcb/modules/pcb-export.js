@@ -18,6 +18,7 @@ import { PCB_LAYERS } from './layers.js';
 import { stripRemovalHatches } from './removal-hatch.js';
 import { boardBoundary } from '../../shared/pcb/board-outline.js';
 import { ModalManager } from '../../core/ModalManager.js';
+import { uncullAllPlacements, updatePcbCulling } from './component-selection.js';
 
 const SVG_NS = 'http://www.w3.org/2000/svg';
 
@@ -198,12 +199,12 @@ export function clonePcbViewportForExport(app, opts) {
 
     const originalSvg = app.viewport.svg;
     let svgNode, b;
-    app._uncullAllPlacements?.();
+    uncullAllPlacements(app);
     try {
         svgNode = /** @type {SVGSVGElement} */ (originalSvg.cloneNode(true));
         b = getArtworkBoundsMm(app, layers || undefined);
     } finally {
-        app._updatePcbCulling?.();
+        updatePcbCulling(app);
     }
     const m = EXPORT_MARGIN_MM;
     const vbX = b.x - m;

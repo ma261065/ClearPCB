@@ -26,14 +26,17 @@ const refEl = () => ({ isConnected: true, attributes: { 'data-ref-anchor-y': '0'
     getAttribute(name) { return this.attributes[name] ?? null; } });
 const placement = { x: 10, y: 20, refDx: 0, refDy: 0, side: 'top',
     bounds: { x: 0, y: 0, width: 10, height: 8 }, _refEl: refEl(),
-    _refBox: { bx: -1, by: -1, bw: 2, bh: 2, cx: 0, cy: 0 } };
+    _refBox: { bx: -1, by: -1, bw: 2, bh: 2, cx: 0, cy: 0 },
+    elements: [{ classList: { toggle() {} } }] };
 const placement2 = { x: 30, y: 40, refDx: 2, refDy: 3, side: 'top',
     bounds: { x: 20, y: 0, width: 10, height: 8 }, _refEl: refEl(),
-    _refBox: { bx: -1, by: -1, bw: 2, bh: 2, cx: 0, cy: 0 } };
+    _refBox: { bx: -1, by: -1, bw: 2, bh: 2, cx: 0, cy: 0 },
+    elements: [{ classList: { toggle() {} } }] };
 const overlayHost = svgElement();
 const app = {
     placements: new Map([['U1', placement], ['U2', placement2]]),
-    viewport: { scale: 10, addContent: node => overlayHost.appendChild(node) },
+    viewport: { scale: 10, addContent: node => overlayHost.appendChild(node),
+        getVisibleBounds: () => ({ minX: -100, minY: -100, maxX: 100, maxY: 100 }) },
     // The editor's presentation seam (PCBApp.drawRefOverlay), drawing the real overlay.
     drawRefOverlay(compId, withTether) { drawRefOverlay(this, compId, withTether); },
 };

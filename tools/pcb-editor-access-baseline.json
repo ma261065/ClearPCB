@@ -10,12 +10,7 @@
     "_refreshPcbSelectionHighlights"
   ],
   "src/pcb/modules/box-select.js": [
-    "_netsForComponent",
     "_refreshPcbSelectionHighlights"
-  ],
-  "src/pcb/modules/component-selection.js": [
-    "_netsForComponent",
-    "_updatePcbCulling"
   ],
   "src/pcb/modules/controls.js": [
     "_syncPcbHomeToolHighlight"
@@ -40,10 +35,6 @@
   ],
   "src/pcb/modules/pcb-editor-api.js": [
     "_active"
-  ],
-  "src/pcb/modules/pcb-export.js": [
-    "_uncullAllPlacements",
-    "_updatePcbCulling"
   ],
   "src/pcb/modules/pcb-paste.js": [
     "_cancelPosePreviews",

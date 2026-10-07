@@ -20,6 +20,7 @@ let frameId = 0;
 function element(tag = 'g') {
     return {
         tag, children: [], attributes: new Map(), style: {}, dataset: {}, listeners: new Map(),
+        classList: { toggle() {} },
         setAttribute(name, value) { this.attributes.set(name, String(value)); },
         getAttribute(name) { return this.attributes.get(name); },
         hasAttribute(name) { return this.attributes.has(name); },
@@ -98,10 +99,12 @@ function fixture(saved = true, side = 'top', mirror = false) {
         get tracks() { return Object.getOwnPropertyDescriptor(PCBApp.prototype, 'tracks').get.call(this); },
         vias: [], texts: new Map(), boardShapes: [],
         placements: new Map([['part', placement]]), history: new CommandHistory(),
-        viewport: { scale: 10, svg: element('svg'), hideCrosshair() {} }, _active: true, currentTool: 'select',
+        netlist: [{ net: 'N1', pins: [{ componentId: 'part' }] }],
+        viewport: { scale: 10, svg: element('svg'), hideCrosshair() {},
+            getVisibleBounds: () => ({ minX: -100, minY: -100, maxX: 100, maxY: 100 }) }, _active: true, currentTool: 'select',
         getLayerGroup: id => id === 'selection-overlay' ? overlay : id === 'top-copper' ? copper : null,
         propertiesItems: () => items, setPropertiesTitle() {},
-        _netsForComponent: () => new Set(['N1']), updateRatsnest: PCBApp.prototype.updateRatsnest, refreshClearanceHalos() {},
+        updateRatsnest: PCBApp.prototype.updateRatsnest, refreshClearanceHalos() {},
         _markDirty: () => dirty++, refreshFills: () => fills++,
     };
     setBoardViewPanel(app, { refresh: () => views3d++ });

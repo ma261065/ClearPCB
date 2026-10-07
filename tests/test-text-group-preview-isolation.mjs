@@ -72,7 +72,8 @@ function fixture(mixed) {
     const app = {
         project, pcbDocument: project.pcbDocument, placementState: project.pcbDocument.placementState,
         placements, history: new CommandHistory(), vias: [], pads: [], boardShapes: [],
-        viewport: { svg: { style: {} }, scale: 10, snapToGrid: true, gridVisible: true, gridSize: 1 },
+        viewport: { svg: { style: {} }, scale: 10, snapToGrid: true, gridVisible: true, gridSize: 1,
+            getVisibleBounds: () => ({ minX: -100, minY: -100, maxX: 100, maxY: 100 }) },
         _shapeElements: new Map(),
         getLayerGroup: id => groups.get(id) || null,
         existingLayerGroups: () => groups,

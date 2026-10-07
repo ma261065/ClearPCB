@@ -1,9 +1,9 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { setPcbSelection, syncPcbSelection } from '../src/pcb/modules/selection-registry.js';
+import { updatePcbCulling } from '../src/pcb/modules/component-selection.js';
 
 globalThis.window = { addEventListener() {} };
-const { default: PCBApp } = await import('../src/ui/PCBApp.js');
 
 function fixture(count = 3) {
     let writes = 0, selectionReads = 0;
@@ -25,8 +25,6 @@ function fixture(count = 3) {
             bounds: { x: 0, y: 0, width: 1, height: 1 }, elements: [node(false), node(false)],
             lodEl: node(true), _culled: false, _lodFar: false,
         }])),
-        _placementWorldBounds: PCBApp.prototype._placementWorldBounds,
-        _syncLodTransform: PCBApp.prototype._syncLodTransform,
     };
     syncPcbSelection(app);
     const getSelection = app._pcbSelection.getSelection.bind(app._pcbSelection);
@@ -34,7 +32,7 @@ function fixture(count = 3) {
     return {
         app, get writes() { return writes; },
         select(...ids) { setPcbSelection(app, ids.map(object => ({ kind: 'component', object }))); },
-        cull() { selectionReads = 0; PCBApp.prototype._updatePcbCulling.call(app); return selectionReads; },
+        cull() { selectionReads = 0; updatePcbCulling(app); return selectionReads; },
         expect(id, detail, placeholder) {
             const placement = app.placements.get(id);
             for (const element of placement.elements) assert.equal(!element.classes.has('culled'), detail, `${id} detail`);

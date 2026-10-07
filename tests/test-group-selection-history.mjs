@@ -56,7 +56,8 @@ for (const text of texts) pcbDocument.texts.set(text.id, text);
 const app = {
     placements: new Map(), tracks: [], vias: [], boardShapes: [],
     pcbDocument, get texts() { return getTextPosePreviewTexts(this) || pcbDocument.texts; },
-    viewport: { scale: 8, snapToGrid: false, contentLayer: element() },
+    viewport: { scale: 8, snapToGrid: false, contentLayer: element(),
+        getVisibleBounds: () => ({ minX: -100, minY: -100, maxX: 100, maxY: 100 }) },
     _layerGroups: new Map([['selection-overlay', overlay]]),
     getLayerGroup(id) { return this._layerGroups.get(id); },
     _markDirty() {}, _syncHistoryButtons() {}, refreshText() {},

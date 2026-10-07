@@ -145,7 +145,8 @@ evaluation-order cycle fails.
   node/segment focus, hover and tool defaults), `pcb-text-render.js` (free-text
   SVG elements and hover), `cursor-state.js` (last pointer/crosshair positions),
   `refresh-state.js` (derived-refresh flags, suspensions, and shared 3D/2D
-  board-view panel state), `component-selection.js` (component hover outline),
+  board-view panel state), `component-selection.js` (component hover outline,
+  footprint culling/LOD and component-net lookup),
   `pcb-hover.js` (coalesced select-tool hover frame state),
   `shared/pcb/board-outline.js` (detached board-dimension preview state),
   `board-outline-resize.js` (board-outline drawn/selected state), `clearance-overlay.js` (clearance
@@ -246,7 +247,8 @@ PCB editor:
   refresh, hit-testing and hover state in per-editor WeakMaps; `pcb-text.js`
   remains the glyph geometry/color helper.
 - `pcb/modules/component-selection.js` — component hit-testing, hover outline state,
-  3D context-menu entry point and movement/rotation selection adapter.
+  footprint culling/LOD, component-net lookup, 3D context-menu entry point and
+  movement/rotation selection adapter.
 - `pcb/modules/copper-fill-selection.js` — copper-fill selection adapter and legacy
   outline hit-testing for right-click and select-tool press paths.
 - `pcb/modules/pcb-hover.js` — select-tool hover scheduling, pointer coalescing and

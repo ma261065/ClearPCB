@@ -46,7 +46,7 @@ for (const locked of [false, true]) {
     const placement = { x: 10, y: 20, locked, bounds: { x: -1, y: -1, width: 2, height: 2 }, padOffsets: [], pads: new Map() };
     const app = Object.assign(Object.create(PCBApp.prototype), {
         pcbDocument, viewport: { svg, scale: 10 }, _layerGroups: new Map(), _clearancesVisible: false,
-        placements: new Map([['U1', placement]]),
+        placements: new Map([['U1', placement]]), netlist: [{ net: 'N1', pins: [{ componentId: 'U1' }] }],
         getLayerGroup: () => null,
     });
     for (const name of ['tracks', 'vias', 'pads', 'boardShapes', 'texts']) {
@@ -58,7 +58,7 @@ for (const locked of [false, true]) {
         _hitTestRefText: () => null,
         _selectComponent: id => selected.push(id), _selectBoardOutline: noop, selectText: noop, drawRefOverlay: noop,
         showComponentProperties: noop,
-        _netsForComponent: () => new Set(['N1']), selectFill: noop,
+        selectFill: noop,
     });
     app._pressNewTarget(press(), { x: 10, y: 20 });
     assert.equal(selected.at(-1), 'U1', `${locked ? 'locked' : 'unlocked'} component is selected`);

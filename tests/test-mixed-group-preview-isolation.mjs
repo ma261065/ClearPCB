@@ -43,6 +43,13 @@ class Element {
         }
     }
     removeChild(child) { child.remove(); }
+    cloneNode(deep = false) {
+        const clone = new Element(this.tag);
+        clone.attributes = new Map(this.attributes);
+        clone.dataset = { ...this.dataset };
+        if (deep) for (const child of this.children) clone.appendChild(child.cloneNode(true));
+        return clone;
+    }
     insertBefore(child, before) {
         child.remove(); const index = this.children.indexOf(before);
         this.children.splice(index < 0 ? this.children.length : index, 0, child); child.parentNode = this;
@@ -100,10 +107,12 @@ function fixture(deferred = false, component = false) {
     }
     Object.assign(app, { project, pcbDocument: model, placements, placementState: model.placementState,
         netlist: [], history: new CommandHistory(), _active: true, _layerGroups: groups, existingLayerGroups() { return this._layerGroups; }, _shapeElements: new Map(), 
-        viewport: { scale: 10, gridVisible: false, svg: new Element('svg'), setCrosshair() {}, hideCrosshair() {} },
+        copperFills: model.copperFills,
+        viewport: { scale: 10, gridVisible: false, svg: new Element('svg'), setCrosshair() {}, hideCrosshair() {},
+            getVisibleBounds: () => ({ minX: -100, minY: -100, maxX: 100, maxY: 100 }) },
         getLayerGroup: id => groups.get(id) || null, refreshText() {}, refreshFills() { fills++; },
         updateRatsnest() { ratsnest++; },
-        refreshClearanceHalos() {}, _netsForComponent: () => new Set(),
+        refreshClearanceHalos() {},
         _cancelPosePreviews: PCBApp.prototype._cancelPosePreviews, isSectionEditing: PCBApp.prototype.isSectionEditing,
         _cancelDrawingMode: () => false, _ensureViewport() {}, markSectionClean() {}, setActiveRibbonTab() {}, setPcbStatus() {},
         propertiesItems: () => ({ innerHTML: '' }),

@@ -52,7 +52,7 @@ import {
     commitCollinearCleanup,
     buildDrawnTrackCommands,
 } from '../pcb/modules/track-drag.js';
-import { AddTrackCommand, AddViaCommand, RemoveTrackCommand, ReplaceRoutesCommand, CompoundCommand, MovePlacementCommand, RotatePlacementCommand, SetPlacementLockedCommand, FlipPlacementCommand, SetPlacementSideCommand, SetPlacementRefVisibleCommand, previewPlacementPose, finishPlacementPreview, getPlacementPreviewTracks, getViaPropertyPreview, getTrackPropertyPreview, canonicalTrack, renderPlacementPose, renderPlacementSide, applyPlacementRefVisible, placementTransform, isPlacementMirrored } from '../pcb/modules/track-commands.js';
+import { AddTrackCommand, AddViaCommand, RemoveTrackCommand, ReplaceRoutesCommand, CompoundCommand, MovePlacementCommand, RotatePlacementCommand, SetPlacementLockedCommand, FlipPlacementCommand, SetPlacementSideCommand, SetPlacementRefVisibleCommand, previewPlacementPose, finishPlacementPreview, getPlacementPreviewTracks, getViaPropertyPreview, getTrackPropertyPreview, canonicalTrack, renderPlacementPose, renderPlacementSide, applyPlacementRefVisible, placementTransform } from '../pcb/modules/track-commands.js';
 import { createPcbText, serializePcbText } from '../core/pcb-text.js';
 import { AddTextCommand, RemoveTextCommand, MoveTextCommand, EditTextCommand, getTextPosePreviewTexts, previewTextPose, finishTextPosePreview } from '../pcb/modules/text-commands.js';
 import { shapeDrawClick, cancelShapeDraw, hitTestBoardShape, selectBoardShape, startBoardShapeDrag, resolveShapeDrawLayer, renderBoardShape, hitTestBoardShapeVertex } from '../pcb/modules/board-shapes.js';
@@ -98,7 +98,7 @@ import { onLayerVisibilityChanged, onLayerLockChanged, onCopperFillVisibilityCha
 import { RemoveFillCommand, ModifyFillCommand } from '../pcb/modules/copper-fill-commands.js';
 import { hitTestFill } from '../pcb/modules/copper-fill-selection.js';
 import { startFillEditAt, updateFillEdit, endFillEdit, deleteFocusedFillPart, showFillProperties, showFillToolProperties } from '../pcb/modules/copper-fill-edit.js';
-import { beginComponentDrag, endComponentDrag, hitTestComponent, hoverComponent, openComponent3DPopout, scheduleComponentDragUpdate, updateComponentDrag } from '../pcb/modules/component-selection.js';
+import { beginComponentDrag, endComponentDrag, hitTestComponent, hoverComponent, openComponent3DPopout, scheduleComponentDragUpdate, updateComponentDrag, updatePcbCulling } from '../pcb/modules/component-selection.js';
 import { beginTextDrag, endTextDrag, getTextDrag, updateTextDrag } from '../pcb/modules/pcb-text-selection.js';
 import { clearTextElements, hitTestText, refreshText as refreshPcbText, renderText } from '../pcb/modules/pcb-text-render.js';
 import { beginRefTextDrag, drawRefOverlay, endRefDrag, hitTestReferenceText, isRefTextLocked, refreshRefHighlight, rerenderRef, RotateRefTextCommand, selectRefText, SetRefStyleCommand, tryEditReferenceAt, updateRefTextDrag } from '../pcb/modules/ref-text-selection.js';
@@ -136,13 +136,6 @@ import { multiPropertyCapabilities, showMultiSelectionProperties } from '../pcb/
 import { activeTextInlineEdit, startTextInlineEdit, endTextInlineEdit } from '../pcb/modules/text-inline-edit.js';
 import { showClearances, refreshClearanceHalos, refreshViaClearance } from '../pcb/modules/clearance-overlay.js';
 import { hideNetTooltip } from '../pcb/modules/net-tooltip.js';
-
-/**
- * On-screen size (CSS px) of a footprint's bounding box below which it is
- * drawn as a single level-of-detail placeholder rect instead of its full
- * pad/silk/text geometry. Keeps zoomed-out pan/zoom fast on large boards.
- */
-const PCB_LOD_PIXEL_THRESHOLD = 24;
 
 /**
  * Padding (mm) added around a reference designator's tight glyph bounding box
@@ -670,7 +663,7 @@ export default class PCBApp {
                     updateCursorCrosshair(this, getLastCrosshairWorld(this));
                 }
             }
-            this._updatePcbCulling();
+            updatePcbCulling(this);
             if (hasCopperCuts(this)) this.updateCopperCuts({ geometryChanged: false });
             if (peekDrcPresentation(this)?.selectedId) peekDrcPresentation(this).updateConnector();
         };
@@ -710,7 +703,7 @@ export default class PCBApp {
         // Throttled footprint culling during an active pan (Viewport rAF).
         this.viewport.onViewportCull = () => {
             if (!this._active) return;
-            this._updatePcbCulling();
+            updatePcbCulling(this);
             // Keep the copper-removal clip rectangle following the viewport
             // during a live pan (viewBox moves without firing onViewChanged).
             if (hasCopperCuts(this)) this.updateCopperCuts({ geometryChanged: false });
@@ -2014,115 +2007,6 @@ export default class PCBApp {
     }
 
     /**
-     * Hide/show footprints based on whether they intersect the viewport, and
-     * collapse on-screen footprints that are drawn very small to a single
-     * placeholder rect. This keeps each SVG viewBox change from repainting the
-     * tens of thousands of pad/silk/text nodes of a large board.
-     */
-    _updatePcbCulling() {
-        if (!this.viewport || !this.placements.size) return;
-        const vb = this.viewport.getVisibleBounds();
-        const w = vb.maxX - vb.minX;
-        const h = vb.maxY - vb.minY;
-        const margin = Math.max(w, h) * 0.5; // 50% overdraw so nothing pops in
-        const minX = vb.minX - margin, maxX = vb.maxX + margin;
-        const minY = vb.minY - margin, maxY = vb.maxY + margin;
-        const scale = this.viewport.scale;
-
-        for (const [compId, pl] of this.placements) {
-            const b = this._placementWorldBounds(pl);
-            if (!b) continue;
-            const inView = b.maxX >= minX && b.minX <= maxX &&
-                           b.maxY >= minY && b.minY <= maxY;
-            // Keep every selected footprint detailed so it stays editable.
-            const px = Math.max(b.maxX - b.minX, b.maxY - b.minY) * scale;
-            const far = inView && px < PCB_LOD_PIXEL_THRESHOLD
-                && !isPcbSelected(this, 'component', compId);
-
-            // Detail (real geometry) is visible only when in view AND not far.
-            const detailHidden = !inView || far;
-            if (detailHidden !== pl._culled) {
-                pl._culled = detailHidden;
-                for (const el of pl.elements) el.classList.toggle('culled', detailHidden);
-            }
-            // Placeholder is visible only when in view AND far.
-            const lodShown = inView && far;
-            if (lodShown === pl._lodFar) continue;
-            pl._lodFar = lodShown;
-            if (pl.lodEl) {
-                if (lodShown) this._syncLodTransform(pl);
-                pl.lodEl.classList.toggle('culled', !lodShown);
-            }
-        }
-    }
-
-    /**
-     * Keep a placement's LOD placeholder rect aligned with the footprint's
-     * current pose. Called when revealing it and whenever the footprint moves.
-     * @param {object} pl
-     */
-    _syncLodTransform(pl) {
-        if (!pl.lodEl) return;
-        pl.lodEl.setAttribute('transform', placementTransform(pl));
-    }
-
-    /**
-     * World-space AABB of a placement's footprint bounds (local courtyard/
-     * outline rotated by the placement rotation and translated to position).
-     * Cached and recomputed only when the placement's pose changes.
-     * @param {object} pl
-     * @returns {{minX:number,minY:number,maxX:number,maxY:number}|null}
-     */
-    _placementWorldBounds(pl) {
-        const b = pl.bounds;
-        if (!b) return null;
-        const rot = pl.rotation || 0;
-        const mx = isPlacementMirrored(pl) ? -1 : 1;
-        const sig = `${pl.x}|${pl.y}|${rot}|${mx}`;
-        if (pl._cullSig === sig && pl._cullBounds) return pl._cullBounds;
-        const rad = rot * Math.PI / 180;
-        const cos = Math.cos(rad), sin = Math.sin(rad);
-        const corners = [
-            [b.x, b.y],
-            [b.x + b.width, b.y],
-            [b.x, b.y + b.height],
-            [b.x + b.width, b.y + b.height],
-        ];
-        let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-        for (const [lx0, ly] of corners) {
-            const lx = lx0 * mx;
-            const wx = pl.x + lx * cos - ly * sin;
-            const wy = pl.y + lx * sin + ly * cos;
-            if (wx < minX) minX = wx;
-            if (wx > maxX) maxX = wx;
-            if (wy < minY) minY = wy;
-            if (wy > maxY) maxY = wy;
-        }
-        pl._cullBounds = { minX, minY, maxX, maxY };
-        pl._cullSig = sig;
-        return pl._cullBounds;
-    }
-
-    /**
-     * Force every footprint (and its placeholder) back to its detailed,
-     * non-culled state. Used before measuring all artwork for fit-to-content,
-     * since culled (display:none) groups report a zero bounding box. The next
-     * view-change re-applies culling automatically.
-     */
-    _uncullAllPlacements() {
-        for (const [, pl] of this.placements) {
-            if (pl._culled) {
-                pl._culled = false;
-                for (const el of pl.elements) el.classList.remove('culled');
-            }
-            if (pl._lodFar) {
-                pl._lodFar = false;
-                if (pl.lodEl) pl.lodEl.classList.add('culled');
-            }
-        }
-    }
-
-    /**
      * Rebuild the ratsnest lines from the current netlist and placements.
      */
     updateRatsnest(opts) {
@@ -2131,24 +2015,6 @@ export default class PCBApp {
         // `opts.nets` is supplied (live footprint drag) only those nets are
         // recomputed; every other net's ratlines are left untouched.
         reconcileRatsnest(this, opts);
-    }
-
-    /**
-     * The set of net names a placement's pads belong to (from the netlist).
-     * Used to scope the live ratsnest rebuild during a drag to just the nets
-     * that actually move with the component.
-     * @param {string} compId
-     * @returns {Set<string>}
-     */
-    _netsForComponent(compId) {
-        const nets = new Set();
-        for (const entry of (this.netlist || [])) {
-            if (!entry?.net) continue;
-            for (const pin of (entry.pins || [])) {
-                if (pin.componentId === compId) { nets.add(entry.net); break; }
-            }
-        }
-        return nets;
     }
 
     /**
@@ -2297,7 +2163,7 @@ export default class PCBApp {
         this.viewport.svg.style.cursor = pl.locked ? 'default' : 'grab';
         // Ensure the selected footprint shows full detail even when zoomed out
         // far enough that it would otherwise be collapsed to its LOD placeholder.
-        this._updatePcbCulling();
+        updatePcbCulling(this);
     }
 
     /**

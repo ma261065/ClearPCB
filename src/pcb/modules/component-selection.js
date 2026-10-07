@@ -1,7 +1,7 @@
-import { getPcbSelection, registerPcbPlacementHitTest, registerPcbSelectionAdapter, getComponentSelectionHits } from './selection-registry.js';
+import { getPcbSelection, isPcbSelected, registerPcbPlacementHitTest, registerPcbSelectionAdapter, getComponentSelectionHits } from './selection-registry.js';
 import { lockPositionOutsideOutline } from './selection-anchors.js';
 import { beginRotationHandleDrag, endRotationHandleDrag, rotationHandleAnchor, pointerRotation } from './rotation-handle.js';
-import { previewPlacementPose, restorePlacementPosePreview, finishPlacementPreview, MovePlacementCommand, RotatePlacementCommand } from './track-commands.js';
+import { previewPlacementPose, restorePlacementPosePreview, finishPlacementPreview, MovePlacementCommand, RotatePlacementCommand, placementTransform, isPlacementMirrored } from './track-commands.js';
 import { worldToPlacementLocal } from './ref-text-geometry.js';
 import { dismissTrackContextMenu, setHoverHighlight } from './track-select.js';
 import { setDragOverlaysDeferred } from './refresh-state.js';
@@ -14,6 +14,7 @@ import { hideNetTooltip } from './net-tooltip.js';
 
 const componentDragFrames = new WeakMap();
 const hoveredComponents = new WeakMap();
+const PCB_LOD_PIXEL_THRESHOLD = 24;
 
 function showFootprintCrosshair(app, placement) {
     if (!placement || !app.viewport?.setCrosshair) return;
@@ -34,7 +35,7 @@ export function beginComponentDrag(app, componentId, worldPos) {
         compId: componentId,
         startWorld: worldPos,
         startPos: { x: placement.x, y: placement.y },
-        nets: app._netsForComponent(componentId),
+        nets: netsForComponent(app, componentId),
     };
     setPcbInteraction(app, '_drag', drag);
     setDragOverlaysDeferred(app, true);
@@ -47,12 +48,141 @@ export function beginComponentDrag(app, componentId, worldPos) {
                 for (const element of overlay.querySelectorAll(`.debug-clearance[data-net="${CSS.escape(net)}"]`)) {
                     /** @type {SVGElement} */ (element).style.display = 'none';
                 }
+
             }
             overlay.style.willChange = 'transform';
         }
     }
     showFootprintCrosshair(app, placement);
     return true;
+}
+
+/**
+ * Hide/show footprints based on whether they intersect the viewport, and
+ * collapse on-screen footprints that are drawn very small to a single
+ * placeholder rect. This keeps each SVG viewBox change from repainting the
+ * tens of thousands of pad/silk/text nodes of a large board.
+ */
+export function updatePcbCulling(app) {
+    if (!app.viewport || !app.placements.size) return;
+    const vb = app.viewport.getVisibleBounds();
+    const w = vb.maxX - vb.minX;
+    const h = vb.maxY - vb.minY;
+    const margin = Math.max(w, h) * 0.5; // 50% overdraw so nothing pops in
+    const minX = vb.minX - margin, maxX = vb.maxX + margin;
+    const minY = vb.minY - margin, maxY = vb.maxY + margin;
+    const scale = app.viewport.scale;
+
+    for (const [compId, pl] of app.placements) {
+        const b = placementWorldBounds(pl);
+        if (!b) continue;
+        const inView = b.maxX >= minX && b.minX <= maxX &&
+                       b.maxY >= minY && b.minY <= maxY;
+        // Keep every selected footprint detailed so it stays editable.
+        const px = Math.max(b.maxX - b.minX, b.maxY - b.minY) * scale;
+        const far = inView && px < PCB_LOD_PIXEL_THRESHOLD
+            && !isPcbSelected(app, 'component', compId);
+
+        // Detail (real geometry) is visible only when in view AND not far.
+        const detailHidden = !inView || far;
+        if (detailHidden !== pl._culled) {
+            pl._culled = detailHidden;
+            for (const el of pl.elements) el.classList.toggle('culled', detailHidden);
+        }
+        // Placeholder is visible only when in view AND far.
+        const lodShown = inView && far;
+        if (lodShown === pl._lodFar) continue;
+        pl._lodFar = lodShown;
+        if (pl.lodEl) {
+            if (lodShown) syncLodTransform(pl);
+            pl.lodEl.classList.toggle('culled', !lodShown);
+        }
+    }
+}
+
+/**
+ * Force every footprint (and its placeholder) back to its detailed,
+ * non-culled state. Used before measuring all artwork for fit-to-content,
+ * since culled (display:none) groups report a zero bounding box. The next
+ * view-change re-applies culling automatically.
+ */
+export function uncullAllPlacements(app) {
+    for (const [, pl] of app.placements) {
+        if (pl._culled) {
+            pl._culled = false;
+            for (const el of pl.elements) el.classList.remove('culled');
+        }
+        if (pl._lodFar) {
+            pl._lodFar = false;
+            if (pl.lodEl) pl.lodEl.classList.add('culled');
+        }
+    }
+}
+
+/**
+ * The set of net names a placement's pads belong to (from the netlist).
+ * Used to scope the live ratsnest rebuild during a drag to just the nets
+ * that actually move with the component.
+ * @param {object} app
+ * @param {string} compId
+ * @returns {Set<string>}
+ */
+export function netsForComponent(app, compId) {
+    const nets = new Set();
+    for (const entry of (app.netlist || [])) {
+        if (!entry?.net) continue;
+        for (const pin of (entry.pins || [])) {
+            if (pin.componentId === compId) { nets.add(entry.net); break; }
+        }
+    }
+    return nets;
+}
+
+/**
+ * Keep a placement's LOD placeholder rect aligned with the footprint's
+ * current pose. Called when revealing it and whenever the footprint moves.
+ * @param {object} pl
+ */
+function syncLodTransform(pl) {
+    if (!pl.lodEl) return;
+    pl.lodEl.setAttribute('transform', placementTransform(pl));
+}
+
+/**
+ * World-space AABB of a placement's footprint bounds (local courtyard/
+ * outline rotated by the placement rotation and translated to position).
+ * Cached and recomputed only when the placement's pose changes.
+ * @param {object} pl
+ * @returns {{minX:number,minY:number,maxX:number,maxY:number}|null}
+ */
+function placementWorldBounds(pl) {
+    const b = pl.bounds;
+    if (!b) return null;
+    const rot = pl.rotation || 0;
+    const mx = isPlacementMirrored(pl) ? -1 : 1;
+    const sig = `${pl.x}|${pl.y}|${rot}|${mx}`;
+    if (pl._cullSig === sig && pl._cullBounds) return pl._cullBounds;
+    const rad = rot * Math.PI / 180;
+    const cos = Math.cos(rad), sin = Math.sin(rad);
+    const corners = [
+        [b.x, b.y],
+        [b.x + b.width, b.y],
+        [b.x, b.y + b.height],
+        [b.x + b.width, b.y + b.height],
+    ];
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    for (const [lx0, ly] of corners) {
+        const lx = lx0 * mx;
+        const wx = pl.x + lx * cos - ly * sin;
+        const wy = pl.y + lx * sin + ly * cos;
+        if (wx < minX) minX = wx;
+        if (wx > maxX) maxX = wx;
+        if (wy < minY) minY = wy;
+        if (wy > maxY) maxY = wy;
+    }
+    pl._cullBounds = { minX, minY, maxX, maxY };
+    pl._cullSig = sig;
+    return pl._cullBounds;
 }
 
 export function updateComponentDrag(app, worldPos) {
@@ -345,7 +475,7 @@ export function createComponentSelectionAdapter(app, componentId, id) {
             if (anchorId !== 'rotate' || !placement || placement.locked) return false;
             rotationDrag = {
                 center: { x: placement.x, y: placement.y }, start: { ...worldPos },
-                rotation: placement.rotation || 0, nets: app._netsForComponent?.(componentId),
+                rotation: placement.rotation || 0, nets: netsForComponent(app, componentId),
             };
             beginRotationHandleDrag(app);
             hoverComponent(app, null);
@@ -384,7 +514,7 @@ export function createComponentSelectionAdapter(app, componentId, id) {
                 app.updateRatsnest?.();
             }
         },
-        invalidate() { app._updatePcbCulling?.(); },
+        invalidate() { updatePcbCulling(app); },
         render() { this.invalidate(); },
     };
 }

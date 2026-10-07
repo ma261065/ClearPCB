@@ -120,6 +120,7 @@ const editor = {
     project: owner,
     placementState: owner.pcbDocument.placementState, _placementOverrides: owner.pcbDocument.placementState.overrides,
     placements: new Map([['part', moved]]),
+    viewport: { scale: 10, getVisibleBounds: () => ({ minX: -100, minY: -100, maxX: 100, maxY: 100 }) },
     _recordPlacementOverride: PCBApp.prototype._recordPlacementOverride,
     _markDirty() { dirtyNotifications++; },
 };
@@ -153,11 +154,12 @@ console.log('PASS placement commands persist into project state through execute/
         removeAttribute(name) { refAttributes.delete(name); },
     };
     moved.elements = [{
+        classList: { toggle() {} },
         setAttribute() { stages.push('pose'); },
         querySelector() { return ref; },
         querySelectorAll() { return [ref]; },
     }];
-    editor.viewport = { svg: { style: {} }, addContent(node) {
+    editor.viewport = { svg: { style: {} }, getVisibleBounds: () => ({ minX: -100, minY: -100, maxX: 100, maxY: 100 }), addContent(node) {
         const append = node.appendChild;
         node.appendChild = function (child) {
             if (child.attributes?.class === 'pcb-ref-component-outline') stages.push('overlay');
