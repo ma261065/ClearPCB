@@ -39,7 +39,7 @@ globalThis.clearTimeout = id => timers.delete(id);
 const { renderPanelPreview, resetPanelPreview } = await import('../src/pcb/modules/panelization-ui.js');
 const { renderBoardShape } = await import('../src/pcb/modules/board-shapes.js');
 const { rectangleBoardOutline } = await import('../src/shared/pcb/board-outline.js');
-const { startTrackDraw, updateTrackDraw, cancelTrackDraw, reconcileRatsnest, setTrackToolNet } =
+const { startTrackDraw, updateTrackDraw, cancelTrackDraw, reconcileRatsnest, setTrackToolNet, getNetGuideLine } =
     await import('../src/pcb/modules/track-draw.js');
 const { Pad } = await import('../src/shapes/pad.js');
 
@@ -129,7 +129,7 @@ for (const theme of ['light', 'dark']) {
         assert.ok(ratline, 'compare against an actually rendered real ratline');
         startTrackDraw(app, { x: 0, y: 0 });
         updateTrackDraw(app, { x: 8, y: 4 });
-        const guide = app._netGuideLine;
+        const guide = getNetGuideLine(app);
         assert.ok(guide);
         assert.equal(guide.getAttribute('x1'), '8');
         assert.equal(guide.getAttribute('x2'), '20', 'nearest same-net target unchanged');
@@ -145,7 +145,7 @@ for (const theme of ['light', 'dark']) {
         updateTrackDraw(app, { x: 9, y: 5 });
         assert.equal(guide.parentNode, null, 'moving tip replaces the guide');
         cancelTrackDraw(app);
-        assert.equal(app._netGuideLine, null, 'cancellation removes the guide');
+        assert.equal(getNetGuideLine(app), null, 'cancellation removes the guide');
     }
 }
 console.log('PASS panel tooling-hole cutouts and dashed live guides: both themes, 3 zooms, transforms, cleanup');

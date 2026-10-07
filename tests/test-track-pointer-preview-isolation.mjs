@@ -18,6 +18,7 @@ import { PCB_LAYERS } from '../src/pcb/modules/layers.js';
 import { areDragOverlaysDeferred, isBoardViewRefreshSuspended, setBoardViewPanel, setBoardViewRefreshSuspended, setDragOverlaysDeferred } from '../src/pcb/modules/refresh-state.js';
 import { getViaDrag } from '../src/pcb/modules/track-drag.js';
 import { getVertexDrag } from '../src/pcb/modules/track-drag.js';
+import { showNetGuideLine, showTrackSnapMarker } from '../src/pcb/modules/track-draw.js';
 
 let allocations = 0;
 globalThis.requestAnimationFrame = () => 1;
@@ -207,16 +208,13 @@ for (const finish of ['commit', 'failure', 'no-op', 'cancel']) {
     if (finish !== 'no-op') updateVertexDrag(app, { x: initial.x + 2, y: initial.y + 3 });
     let crosshairVisible = true;
     app.viewport.hideCrosshair = () => { crosshairVisible = false; };
-    const guide = new Element('line'), marker = new Element('circle');
-    groups.get('selection-overlay').appendChild(guide);
-    groups.get('selection-overlay').appendChild(marker);
-    app._netGuideLine = guide;
-    app._trackSnapMarker = marker;
+    showNetGuideLine(app, { x: 0, y: 0 }, { x: 1, y: 1 });
+    showTrackSnapMarker(app, { x: 2, y: 2 });
+    const guide = app.viewport.svg.children.find(child => child.classList.contains('net-guide-line'));
+    const marker = app.viewport.svg.children.find(child => child.classList.contains('track-snap-highlight'));
     const assertCleared = () => {
         assert.equal(crosshairVisible, false, 'Crosshair hides before drop validation or history work');
-        assert.equal(app._netGuideLine, null, 'Nearest-net guide clears before drop processing');
-        assert.equal(app._trackSnapMarker, null);
-        assert.equal(guide.parentNode, null);
+        assert.equal(guide.parentNode, null, 'Nearest-net guide clears before drop processing');
         assert.equal(marker.parentNode, null);
     };
     Object.defineProperty(app, '_active', { get() { assertCleared(); return true; } });

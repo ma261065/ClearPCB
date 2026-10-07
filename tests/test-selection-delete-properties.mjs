@@ -26,6 +26,7 @@ globalThis.document = {
 
 const { deleteBoxSelection } = await import('../src/pcb/modules/box-select.js');
 const { setPcbSelection, getPcbSelection } = await import('../src/pcb/modules/selection-registry.js');
+const { setTrackEdit } = await import('../src/pcb/modules/track-select.js');
 const { runPcbDeleteAction } = await import('../src/pcb/modules/editor-actions.js');
 const { default: PCBApp } = await import('../src/ui/PCBApp.js');
 
@@ -182,7 +183,7 @@ for (const dispatch of dispatches.slice(1)) {
         const { app, model, shape } = fixture();
         const track = new Track({ points: [{ x: 1.234567, y: 0 }, { x: 5, y: 0 }, { x: 10, y: 0 }] });
         model.tracks.push(track);
-        app._trackEdit = { track, edgeId: [...track.edges.keys()][0] };
+        setTrackEdit(app, { track, edgeId: [...track.edges.keys()][0] });
         setPcbSelection(app, [{ kind: 'track', object: track }, ...(mixed ? [{ kind: 'shape', object: shape }] : [])]);
         const before = track.captureState();
         assert.equal(dispatch(app), true);

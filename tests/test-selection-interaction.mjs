@@ -16,7 +16,7 @@ const {
     updateSelectionInteraction,
     showPcbSelectionProperties,
 } = await import('../src/pcb/modules/selection-interaction.js');
-const { createTrackSelectionAdapter } = await import('../src/pcb/modules/track-select.js');
+const { createTrackSelectionAdapter, getTrackEdit } = await import('../src/pcb/modules/track-select.js');
 const {
     clearPcbSelection,
     hitTestPcbSelectionEntry,
@@ -340,12 +340,12 @@ for (const kind of ['shape', 'track', 'fill']) for (const anchorId of [0, 'mid:0
     expect('first Track click starts the segment interaction',
         adapter.beginMove(segmentPoint, { alreadySelected: false }));
     adapter.endMove(true);
-    expect('first Track click retains whole-track selection', !app._trackEdit);
+    expect('first Track click retains whole-track selection', !getTrackEdit(app));
 
     expect('second Track click starts the segment interaction',
         adapter.beginMove(segmentPoint, { alreadySelected: true }));
     adapter.endMove(true);
-    expect('second Track click refines to the clicked segment', app._trackEdit?.edgeId === edgeId);
+    expect('second Track click refines to the clicked segment', getTrackEdit(app)?.edgeId === edgeId);
 
     let panel = null;
     app.openPropertyPanel = next => { panel = next; return true; };
@@ -354,16 +354,16 @@ for (const kind of ['shape', 'track', 'fill']) for (const anchorId of [0, 'mid:0
     const node = track.nodes.get(nodeId);
     expect('clicking a Track node starts an anchor interaction', beginSelectionInteraction(app, node, false));
     finishSelectionInteraction(app, true);
-    expect('click-release focuses the Track node', app._trackEdit?.nodeId === nodeId);
+    expect('click-release focuses the Track node', getTrackEdit(app)?.nodeId === nodeId);
     expect('focused Track node does not float', getSelectionInteraction(app) == null && getVertexDrag(app) == null);
     showPcbSelectionProperties(app);
     const fieldIds = () => new Set((panel?.fields || []).map(field => field.id));
-    expect('property refresh preserves Track node focus', app._trackEdit?.nodeId === nodeId && panel?.title === 'Track Node');
+    expect('property refresh preserves Track node focus', getTrackEdit(app)?.nodeId === nodeId && panel?.title === 'Track Node');
     expect('Track node properties include corner radius', fieldIds().has('pcbPropTrackCornerRadius'));
     expect('Track node properties display coordinates', fieldIds().has('pcbPropTrackNodeX')
         && fieldIds().has('pcbPropTrackNodeY'));
     finishSelectionInteraction(app, false);
-    expect('cancelling the pickup preserves existing Track node focus', app._trackEdit?.nodeId === nodeId
+    expect('cancelling the pickup preserves existing Track node focus', getTrackEdit(app)?.nodeId === nodeId
         && getVertexDrag(app) == null && panel?.title === 'Track Node');
 }
 

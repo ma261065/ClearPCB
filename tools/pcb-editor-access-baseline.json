@@ -28,8 +28,7 @@
   ],
   "src/pcb/modules/editor-actions.js": [
     "_showComponentPopup",
-    "_showSaveToast",
-    "_trackEdit"
+    "_showSaveToast"
   ],
   "src/pcb/modules/layer-changes.js": [
     "_cancelPosePreviews",
@@ -42,9 +41,6 @@
     "_onLayerLockChanged",
     "_onLayerVisibilityChanged",
     "_onOverlayVisibilityChanged"
-  ],
-  "src/pcb/modules/path-edit.js": [
-    "_trackEdit"
   ],
   "src/pcb/modules/pcb-editor-api.js": [
     "_active"
@@ -82,7 +78,6 @@
     "_showPcbMultiSelectionProperties"
   ],
   "src/pcb/modules/tool-lifecycle.js": [
-    "_cancelTrackDraw",
     "_syncPcbHomeToolHighlight"
   ],
   "src/pcb/modules/track-commands.js": [
@@ -91,17 +86,8 @@
     "_renderRoutedCopper",
     "_syncComponentRotationInput"
   ],
-  "src/pcb/modules/track-drag.js": [
-    "_trackEdit"
-  ],
   "src/pcb/modules/track-draw.js": [
-    "_commitTracks",
-    "_netGuideLine",
-    "_trackSnapMarker"
-  ],
-  "src/pcb/modules/track-select.js": [
-    "_hoveredTrackOrVia",
-    "_trackEdit"
+    "_commitTracks"
   ],
   "src/shared/pcb/board-outline.js": [
     "_boardHeight",

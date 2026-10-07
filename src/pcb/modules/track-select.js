@@ -86,6 +86,7 @@ const NS = 'http://www.w3.org/2000/svg';
 const HALO_CLASS = 'pcb-track-selection';
 const HOVER_CLASS = 'pcb-track-hover';
 const VIA_BATCH_HALO_CLASS = 'pcb-box-via-sel';
+const trackSelectStates = new WeakMap();
 
 /** Halo stroke colour — translucent white overlays the track so the
  *  underlying copper colour still reads through. Kept low-opacity so a
@@ -99,12 +100,30 @@ const HALO_OPACITY_HOVER = PCB_HOVER_HIGHLIGHT_OPACITY;
 const HIT_TOL_PX = 6;
 const COPPER_LAYERS = PCB_LAYERS.filter((layer) => layer.id === 'top-copper' || layer.id === 'bottom-copper');
 
+function trackSelectState(app) {
+    let state = trackSelectStates.get(app);
+    if (!state) trackSelectStates.set(app, state = { trackEdit: null, hoveredTrackOrVia: null });
+    return state;
+}
+
+export function getTrackEdit(app) {
+    return trackSelectState(app).trackEdit;
+}
+
+export function setTrackEdit(app, edit) {
+    trackSelectState(app).trackEdit = edit;
+}
+
+export function clearTrackEdit(app) {
+    setTrackEdit(app, null);
+}
+
 export function getSelectedTrack(app) {
     return getPcbSelection(app, 'track')[0] || null;
 }
 
 export function hasTrackEdit(app) {
-    return !!app._trackEdit;
+    return !!getTrackEdit(app);
 }
 
 export function getSelectedVia(app) {
@@ -161,7 +180,8 @@ export function createTrackSelectionAdapter(app, track, id) {
         }
         const drag = getVertexDrag(app);
         if (options.place && drag) {
-            const nodeId = app._trackEdit?.track === track ? app._trackEdit.nodeId : null;
+            const edit = getTrackEdit(app);
+            const nodeId = edit?.track === track ? edit.nodeId : null;
             finishVertexDrag(app);
             const selectedTrack = getSelectedTrack(app);
             if (selectedTrack) {
@@ -176,7 +196,7 @@ export function createTrackSelectionAdapter(app, track, id) {
         finishVertexDrag(app);
         if (getSelectedTrack(app) === track && clickedNodeId != null && track.nodes.has(clickedNodeId)) {
             selectTrackNode(app, track, clickedNodeId);
-        } else if (getSelectedTrack(app) === track && app._trackEdit?.nodeId != null) showTrackSelectionProperties(app, track);
+        } else if (getSelectedTrack(app) === track && getTrackEdit(app)?.nodeId != null) showTrackSelectionProperties(app, track);
         app.setPcbStatus?.();
     };
     return {
@@ -199,7 +219,8 @@ export function createTrackSelectionAdapter(app, track, id) {
         getBounds() { return current().getBounds(); },
         hitTest(point, tolerance) { return trackHitTest(current(), point, tolerance); },
         getEditPath() {
-            if (app._trackEdit?.track === track && app._trackEdit.nodeId != null
+            const edit = getTrackEdit(app);
+            if (edit?.track === track && edit.nodeId != null
                 && !isDraggingTrack(app, track)) return '';
             const display = current();
             return [...display.edges.entries()].flatMap(([edgeId, edge]) => {
@@ -216,8 +237,8 @@ export function createTrackSelectionAdapter(app, track, id) {
                 id: nodeId,
                 ...point,
                 fill: HALO_COLOR,
-                stroke: app._trackEdit?.track === track && app._trackEdit.nodeId === nodeId ? '#3399ff' : '#000000',
-                selected: app._trackEdit?.track === track && app._trackEdit.nodeId === nodeId,
+                stroke: getTrackEdit(app)?.track === track && getTrackEdit(app).nodeId === nodeId ? '#3399ff' : '#000000',
+                selected: getTrackEdit(app)?.track === track && getTrackEdit(app).nodeId === nodeId,
                 sizePx: 7,
                 strokeWidthPx: 1.25,
                 cursor: 'nwse-resize',
@@ -271,10 +292,10 @@ export function createTrackSelectionAdapter(app, track, id) {
         // requires a deliberate second click on the insertion handle.
         ...pathMoveInteraction({
             segmentAt: point => hitTestTrackEdge(app, current(), point)?.edgeId ?? null,
-            selectedSegment: () => app._trackEdit?.track === track ? app._trackEdit.edgeId : null,
+            selectedSegment: () => getTrackEdit(app)?.track === track ? getTrackEdit(app).edgeId : null,
             selectSegment: edgeId => selectTrackSegment(app, track, edgeId),
             begin: (point, edgeId) => {
-                if (edgeId != null) app._trackEdit = { track, edgeId };
+                if (edgeId != null) setTrackEdit(app, { track, edgeId });
                 return beginDrag(point, { whole: edgeId == null, edgeId, allowMidpointInsert: false });
             },
             update: updateDrag,
@@ -282,6 +303,7 @@ export function createTrackSelectionAdapter(app, track, id) {
         }),
         invalidate() { renderTrack(current(), (layerId) => app.getLayerGroup(layerId)); },
         render() { renderTrack(current(), (layerId) => app.getLayerGroup(layerId)); },
+        clearEdit() { clearTrackEdit(app); },
     };
 }
 
@@ -409,7 +431,7 @@ export function selectTrackOrVia(app, hit) {
     // Clear any hover halo for the now-selected item so the two highlights
     // don't stack.
     _removeHalos(app, HOVER_CLASS);
-    app._hoveredTrackOrVia = null;
+    trackSelectState(app).hoveredTrackOrVia = null;
     if (!hit) {
         app.clearProperties?.();
         app.syncClipboardButtons?.();
@@ -443,14 +465,14 @@ export function selectTrackSegment(app, track, edgeId) {
     track = canonicalTrack(app, track);
     clearTrackSelection(app);
     _removeHalos(app, HOVER_CLASS);
-    app._hoveredTrackOrVia = null;
+    trackSelectState(app).hoveredTrackOrVia = null;
     if (!track || !track.edges?.has(edgeId)) {
         // Edge vanished (e.g. merged away) — fall back to whole-track select.
         if (track) selectTrackOrVia(app, { type: 'track', track });
         return;
     }
     setPcbSelection(app, [{ kind: 'track', object: track }]);
-    app._trackEdit = { track, edgeId };
+    setTrackEdit(app, { track, edgeId });
     setTrackLabelsVisible(track, false);
     _drawSegmentHalo(app, track, edgeId);
     _showTrackSegmentProperties(app, track, edgeId);
@@ -462,7 +484,7 @@ export function selectTrackSegment(app, track, edgeId) {
 export function selectTrackNode(app, track, nodeId) {
     track = canonicalTrack(app, track);
     if (!track.nodes.has(nodeId)) return;
-    app._trackEdit = { track, nodeId };
+    setTrackEdit(app, { track, nodeId });
     _showTrackNodeProperties(app, track, nodeId);
     refreshTrackSelectionHalo(app);
     app.setPcbStatus?.();
@@ -470,7 +492,7 @@ export function selectTrackNode(app, track, nodeId) {
 
 export function showTrackSelectionProperties(app, track) {
     track = canonicalTrack(app, track);
-    const edit = app._trackEdit;
+    const edit = getTrackEdit(app);
     if (edit?.track === track && track.nodes.has(edit.nodeId)) {
         _showTrackNodeProperties(app, track, edit.nodeId);
     } else if (edit?.track === track && track.edges.has(edit.edgeId)) {
@@ -482,7 +504,7 @@ export function showTrackSelectionProperties(app, track) {
 export function clearTrackSelection(app) {
     getPropertyEditor(app, 'track')?.dispose();
     const prev = getSelectedTrack(app);
-    app._trackEdit = null;
+    clearTrackEdit(app);
     _removeHalos(app, HALO_CLASS);
     if (prev) {
         // Bring the net labels back. They were hidden via display toggling,
@@ -519,13 +541,14 @@ export function refreshTrackSelectionHalo(app) {
     if (getPcbSelection(app).length === 1) _removeHalos(app, VIA_BATCH_HALO_CLASS);
     const selectedTrack = getSelectedTrack(app);
     const selectedVia = getSelectedVia(app);
-    const selectedNode = canonicalTrack(app, selectedTrack) === app._trackEdit?.track
-        && selectedTrack?.nodes.has(app._trackEdit.nodeId);
-    if (app._trackEdit?.edgeId && canonicalTrack(app, selectedTrack) === app._trackEdit.track) {
-        _drawSegmentHalo(app, selectedTrack, app._trackEdit.edgeId);
+    const edit = getTrackEdit(app);
+    const selectedNode = canonicalTrack(app, selectedTrack) === edit?.track
+        && selectedTrack?.nodes.has(edit.nodeId);
+    if (edit?.edgeId && canonicalTrack(app, selectedTrack) === edit.track) {
+        _drawSegmentHalo(app, selectedTrack, edit.edgeId);
     } else if (selectedTrack && !selectedNode) _drawTrackHalo(app, selectedTrack, HALO_CLASS, HALO_OPACITY_SELECTED);
     else if (selectedVia) _drawViaHalo(app, selectedVia, HALO_CLASS, HALO_OPACITY_SELECTED);
-    if (selectedTrack && app._trackEdit?.track === canonicalTrack(app, selectedTrack)) {
+    if (selectedTrack && edit?.track === canonicalTrack(app, selectedTrack)) {
         getPropertyEditor(app, 'track')?.refresh?.();
     }
     renderPcbSelectionAnchors(app);
@@ -556,8 +579,9 @@ export function setHoverHighlight(app, hit) {
                     : hit.type === 'shape' ? `shape:${hit.shape.id}`
             : null)
         : null;
-    if (app._hoveredTrackOrVia === key) return;
-    app._hoveredTrackOrVia = key;
+    const state = trackSelectState(app);
+    if (state.hoveredTrackOrVia === key) return;
+    state.hoveredTrackOrVia = key;
     _removeHalos(app, HOVER_CLASS);
     if (!hit) {
         setBoardShapeNetHover(app, []);
@@ -822,15 +846,16 @@ export function deleteSelectedTrack(app) {
     // track survives as its remaining connected pieces). The focused edge is
     // explicit edit state, so verify its Track is still registry-selected.
     const selectedTrack = getSelectedTrack(app);
-    if (app._trackEdit && selectedTrack === app._trackEdit.track) {
-        const { track, edgeId, nodeId } = app._trackEdit;
+    const edit = getTrackEdit(app);
+    if (edit && selectedTrack === edit.track) {
+        const { track, edgeId, nodeId } = edit;
         if (nodeId != null) {
             if (getVertexDrag(app)) {
                 setSelectionInteraction(app, null);
                 cancelVertexDrag(app);
             }
             if (track.nodes.has(nodeId)) deleteTrackNode(app, track, nodeId);
-            app._trackEdit = null;
+            clearTrackEdit(app);
             if (app.tracks.includes(track)) showTrackSelectionProperties(app, track);
             else clearTrackSelection(app);
             app.setPcbStatus?.();
@@ -930,8 +955,9 @@ export function showTrackContextMenu(app, hit, clientX, clientY, worldPos) {
 
 function _drawTrackHalo(app, track, cls = HALO_CLASS, opacity = HALO_OPACITY_SELECTED) {
     if (!trackIsVisible(track)) return;
-    if (getPcbSelection(app).length === 1 && app._trackEdit?.track === canonicalTrack(app, track)
-        && track.nodes.has(app._trackEdit.nodeId)) return;
+    const edit = getTrackEdit(app);
+    if (getPcbSelection(app).length === 1 && edit?.track === canonicalTrack(app, track)
+        && track.nodes.has(edit.nodeId)) return;
     // Lay a translucent white overlay along each layer-run, at the same
     // width as the track itself, so it brightens the copper in place
     // instead of producing an outer glow that lags behind moves.

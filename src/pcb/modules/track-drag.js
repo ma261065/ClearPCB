@@ -42,7 +42,7 @@ import {
     COLLINEAR_GLOW_ANGLE_TOL,
     collectNodeConnections,
 } from './track-draw.js';
-import { refreshTrackSelectionHalo } from './track-select.js';
+import { clearTrackEdit, createTrackSelectionAdapter, getTrackEdit, refreshTrackSelectionHalo } from './track-select.js';
 import { MoveVertexCommand, MoveViaCommand, CompoundCommand, ModifyTrackGraphCommand, RemoveTrackCommand, AddViaCommand, AddTrackCommand, ModifyTrackCommand, ModifyViaCommand, canonicalTrack, getPlacementPreviewTracks } from './track-commands.js';
 import { pointsCollinear, collinearSnap } from '../../core/geometry.js';
 import { showAlert } from '../../shared/ui/modal.js';
@@ -63,7 +63,6 @@ import { captureBoardShapeState } from './board-shapes.js';
 import { ModifyBoardShapeCommand } from './shape-commands.js';
 import { ModifyFillCommand } from './copper-fill-commands.js';
 import { snapPathTranslation, snapPathPoint, beginPathSplit } from './path-edit.js';
-import { createTrackSelectionAdapter } from './track-select.js';
 import { closestPointOnArcEdge } from '../../shapes/arc-edge.js';
 import { commitPropertyEditors, getPropertyEditor } from './property-editors.js';
 import { areDragOverlaysDeferred, isBoardViewRefreshSuspended, setBoardViewRefreshSuspended, setDragOverlaysDeferred, refreshBoardView } from './refresh-state.js';
@@ -1889,7 +1888,7 @@ function endTrackPointer(app, drag, committed) {
         const present = (app.pcbDocument?.tracks || app.tracks).includes(drag.original);
         if (!present) {
             removeTrackElements(drag.original);
-            if (app._trackEdit?.track === drag.original) app._trackEdit = null;
+            if (getTrackEdit(app)?.track === drag.original) clearTrackEdit(app);
             syncPcbSelection(app);
             app.clearProperties?.();
         }

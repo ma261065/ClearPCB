@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { CommandHistory } from '../src/core/CommandHistory.js';
 import { bindPcbControls } from '../src/pcb/modules/controls.js';
 import { PCB_SHAPE_TOOLS, normalizePcbTool, preparePcbRibbonTransition, selectPcbTool } from '../src/pcb/modules/tool-lifecycle.js';
-import { getTrackDraw } from '../src/pcb/modules/track-draw.js';
+import { getTrackDraw, showTrackSnapMarker } from '../src/pcb/modules/track-draw.js';
 import { getFillDraw } from '../src/pcb/modules/copper-fill-draw.js';
 import { getShapeDraw } from '../src/pcb/modules/board-shapes.js';
 import { activeTextInlineEdit } from '../src/pcb/modules/text-inline-edit.js';
@@ -59,7 +59,8 @@ function fixture() {
         ribbon, history: new CommandHistory(), currentTool: 'select', activeLayer: 'top-copper', _active: true,
         placements: new Map([['hovered', { bounds: { x: 0, y: 0, width: 1, height: 1 },
             elements: [{ appendChild() {}, querySelector: () => ({ remove() {} }) }] }]]),
-        viewport: { gridSize: 1, getGridOptions: () => [{ value: 1 }], svg: { style: {} }, hideCrosshair() {}, addContent() {} },
+        viewport: { gridSize: 1, getGridOptions: () => [{ value: 1 }],
+            svg: { style: {}, appendChild() {} }, hideCrosshair() {}, addContent() {} },
         getLayerGroup: () => null,
         refreshText() {},
         selectText() {},
@@ -190,7 +191,10 @@ for (const boundary of ['tool', 'ribbon', 'cancel']) {
     const f = fixture();
     startDrawing(f.app, 'track');
     const failure = new Error('Fixture drawing cleanup failed');
-    f.app._cancelTrackDraw = () => { throw failure; };
+    const createElementNS = document.createElementNS;
+    document.createElementNS = () => ({ setAttribute() {}, classList: { add() {} }, remove() { throw failure; } });
+    showTrackSnapMarker(f.app, { x: 0, y: 0 });
+    document.createElementNS = createElementNS;
     assert.throws(() => {
         if (boundary === 'tool') f.clickTool('pad');
         else if (boundary === 'ribbon') preparePcbRibbonTransition(f.app, 'pcb-home', 'pcb-design', true);

@@ -14,7 +14,7 @@ export function beginPathSplit(app, adapter, anchorId, prepare) {
             if (adapter.kind === 'shape') {
                 setBoardShapeNodeFocus(app, null);
                 setBoardShapeSegmentFocus(app, null);
-            } else if (adapter.kind === 'track') app._trackEdit = null;
+            } else if (adapter.kind === 'track') adapter.clearEdit();
         }
         return started;
     };

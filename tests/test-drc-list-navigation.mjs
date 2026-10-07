@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { SelectionManager } from '../src/core/SelectionManager.js';
 import { PcbDocument } from '../src/core/PcbDocument.js';
 import { getPcbSelection } from '../src/pcb/modules/selection-registry.js';
+import { getTrackEdit, setTrackEdit } from '../src/pcb/modules/track-select.js';
 import { isBoardOutlineSelected, setBoardOutlineSelected } from '../src/pcb/modules/board-outline-resize.js';
 
 globalThis.window = { addEventListener() {} };
@@ -85,12 +86,12 @@ assert.equal(listeners.get('pointerdown').options.capture, true, 'deselection pr
 const before = objects.map(entry => ({ ...entry.object }));
 for (const ids of [['via:one'], objects.map(entry => entry.id)]) {
     app._pcbSelection.selectMultiple(ids);
-    app._trackEdit = {};
+    setTrackEdit(app, {});
     setBoardOutlineSelected(app, true);
     drc.selectedId = 'a';
     listeners.get('pointerdown').handler();
     assert.equal(getPcbSelection(app).length, 0, 'clicking anywhere in the panel clears single/multiple selection');
-    assert.equal(app._trackEdit, null, 'Track edit state is cleared');
+    assert.equal(getTrackEdit(app), null, 'Track edit state is cleared');
     assert.equal(isBoardOutlineSelected(app), false, 'board-outline selection is cleared');
     assert.equal(drc.selectedId, 'a', 'deselection preserves the selected DRC issue');
     assert.equal(document.activeElement, panel);

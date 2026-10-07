@@ -6,7 +6,7 @@ import { getFillDraw, cancelFillDraw } from './copper-fill-draw.js';
 import { showPadToolProperties } from './pad-tool.js';
 import { clearPadPreview } from './pad-tool.js';
 import { showTextToolProperties } from './text-properties.js';
-import { showTrackDrawProperties } from './track-draw.js';
+import { cancelTrackDrawing, showTrackDrawProperties } from './track-draw.js';
 import { clearViaRing, showViaToolProperties } from './via-tool.js';
 import { activeTextInlineEdit, endTextInlineEdit } from './text-inline-edit.js';
 import { hoverComponent } from './component-selection.js';
@@ -59,7 +59,7 @@ export function resetPcbTool(app) {
  */
 export function selectPcbTool(app, tool) {
     const next = normalizePcbTool(tool);
-    if (next !== 'track') app._cancelTrackDraw?.();
+    if (next !== 'track') cancelTrackDrawing(app);
     if (getFillDraw(app) && next !== 'fill') cancelFillDraw(app);
     if (getShapeDraw(app) && getShapeDraw(app).kind !== next) cancelShapeDraw(app);
     app.currentTool = next;
@@ -84,7 +84,7 @@ export function cancelPcbDrawingMode(app) {
     // Leaving an inline text edit (another tool, a ribbon tab, the other editor) keeps what
     // was typed, as clicking elsewhere on the board does; only Escape discards it.
     if (activeTextInlineEdit(app)) endTextInlineEdit(app, true);
-    app._cancelTrackDraw();
+    cancelTrackDrawing(app);
     cancelFillDraw(app);
     cancelShapeDraw(app);
     resetPcbTool(app);

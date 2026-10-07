@@ -66,6 +66,8 @@ import {
 } from './axis-glow.js';
 
 const NS = 'http://www.w3.org/2000/svg';
+const trackSnapMarkers = new WeakMap();
+const netGuideLines = new WeakMap();
 
 /** Preview polyline CSS class (cleaned up on finish/cancel). */
 const PREVIEW_CLASS = 'pcb-track-preview';
@@ -844,6 +846,12 @@ export function cancelTrackDraw(app) {
     if (app.openPropertyPanel) showTrackDrawProperties(app);
 }
 
+/** Abort in-flight track drawing and remove any pre-draw snap affordance. */
+export function cancelTrackDrawing(app) {
+    if (getTrackDraw(app)) _teardownDraw(app);
+    clearTrackSnapMarker(app);
+}
+
 /**
  * Remove the most recently committed waypoint (and its incoming edge).
  * If only the start anchor remains, the whole draw is cancelled.
@@ -1365,15 +1373,20 @@ export function showTrackSnapMarker(app, pos) {
     dot.classList.add('track-snap-highlight');
     // Attach to the root SVG so the marker always paints above the copper.
     app.viewport.svg.appendChild(dot);
-    app._trackSnapMarker = dot;
+    trackSnapMarkers.set(app, dot);
 }
 
 /** Remove the yellow snap target circle, if present. */
 export function clearTrackSnapMarker(app) {
-    if (app._trackSnapMarker) {
-        app._trackSnapMarker.remove();
-        app._trackSnapMarker = null;
+    const marker = trackSnapMarkers.get(app);
+    if (marker) {
+        marker.remove();
+        trackSnapMarkers.delete(app);
     }
+}
+
+export function hasTrackSnapMarker(app) {
+    return trackSnapMarkers.has(app);
 }
 
 /** Closest point on segment a→b to p, clamped to the segment. */
@@ -1647,7 +1660,7 @@ function refreshNetGuideLine(app) {
     }
     if (best && app.viewport?.svg) {
         showNetGuideLine(app, best.from, best.to);
-        app._netGuideLine.dataset.net = state.net;
+        netGuideLines.get(app).dataset.net = state.net;
         state.hiddenLine = best.line;
         state.visibility = best.line.style.visibility;
         best.line.style.visibility = 'hidden';
@@ -1706,7 +1719,7 @@ export function showNetGuideLine(app, from, to) {
     line.classList.add('net-guide-line');
     // Root SVG so the guide always paints above the copper.
     app.viewport.svg.appendChild(line);
-    app._netGuideLine = line;
+    netGuideLines.set(app, line);
 }
 
 /** Remove the net guide line, if present. */
@@ -1717,10 +1730,16 @@ export function clearNetGuideLine(app) {
         source.hiddenLine = null;
         netGuideSources.delete(app);
     }
-    if (app._netGuideLine) {
-        app._netGuideLine.remove();
-        app._netGuideLine = null;
+
+    const guide = netGuideLines.get(app);
+    if (guide) {
+        guide.remove();
+        netGuideLines.delete(app);
     }
+}
+
+export function getNetGuideLine(app) {
+    return netGuideLines.get(app) || null;
 }
 
 function _renderPreview(app, ctx, livePt) {

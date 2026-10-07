@@ -6,7 +6,7 @@ import { getBoardDimensionPreview, endBoardOutlineResize, finishBoardDimensionPr
 import { getBoardShapeDrag, getBoardShapeRotationPreview, finishBoardShapeRotationPreview, endBoardShapeDrag, deleteFocusedBoardShape } from './board-shapes.js';
 import { cancelVertexDrag, cancelViaDrag, getVertexDrag, getViaDrag, setSegmentClickEdgeId } from './track-drag.js';
 import { getPcbSelection, getPcbSelectionEntries } from './selection-registry.js';
-import { getSelectedTrack, getSelectedVia, clearTrackSelection, deleteSelectedTrack } from './track-select.js';
+import { getSelectedTrack, getSelectedVia, clearTrackSelection, deleteSelectedTrack, getTrackEdit } from './track-select.js';
 import { canEditFill, deleteFocusedFillPart } from './copper-fill-edit.js';
 import { resetPcbTool } from './tool-lifecycle.js';
 import { isPcbDrawing } from './pcb-interactions.js';
@@ -32,7 +32,8 @@ export function runPcbDeleteAction(app) {
     const focusedFill = getPcbSelection(app, 'fill')[0];
     if (focusedFill && canEditFill(focusedFill) && deleteFocusedFillPart(app, focusedFill)) return true;
     // Track refinement is narrower than whole-object selection deletion.
-    if (app._trackEdit && getPcbSelection(app).length === 1 && getSelectedTrack(app) === app._trackEdit.track) {
+    const trackEdit = getTrackEdit(app);
+    if (trackEdit && getPcbSelection(app).length === 1 && getSelectedTrack(app) === trackEdit.track) {
         deleteSelectedTrack(app);
         return true;
     }

@@ -36,8 +36,8 @@ import { openBoard3DViewer } from '../pcb/modules/board3d.js';
 import { savePcbPdf, printPcb, projectBaseName, savePcbBlob } from '../pcb/modules/pcb-export.js';
 import { tracksFromAutorouterResult } from '../pcb/modules/autorouter-adapter.js';
 import { renderTrack, renderVia, removeTrackElements, removeViaElements } from '../pcb/modules/track-render.js';
-import { getTrackDraw, getTrackToolLayer, startTrackDraw, refreshTrackDrawPreview, addTrackWaypoint, cancelTrackDraw, resolveTrackSnap, clearTrackSnapMarker, reconcileRatsnest } from '../pcb/modules/track-draw.js';
-import { hitTestTrack, selectTrackOrVia, clearTrackSelection, setHoverHighlight, refreshTrackSelectionHalo, getSelectedTrack, getSelectedVia, dismissTrackContextMenu, trackIsSelectable } from '../pcb/modules/track-select.js';
+import { getTrackDraw, getTrackToolLayer, startTrackDraw, refreshTrackDrawPreview, addTrackWaypoint, resolveTrackSnap, reconcileRatsnest } from '../pcb/modules/track-draw.js';
+import { hitTestTrack, selectTrackOrVia, clearTrackSelection, setHoverHighlight, refreshTrackSelectionHalo, getSelectedTrack, getSelectedVia, dismissTrackContextMenu, trackIsSelectable, getTrackEdit } from '../pcb/modules/track-select.js';
 import { getBoardShapeDrag, getBoardShapeRotationPreview, getBoardShapePointerPreview, getBoardShapePropertyPreview, getShapeDraw } from '../pcb/modules/board-shapes.js';
 import {
     startVertexDrag,
@@ -311,8 +311,6 @@ export default class PCBApp {
         this._shapeElements = new Map();
         // Board-shape hover, node/segment focus and tool defaults live in board-shape-state.js.
         /** Currently selected board shape, or null. */
-        /** Selected-track node/edge edit state (track-select.js), or null. */
-        this._trackEdit = null;
         /** Home-tab tool highlight sync, installed by bindPcbControls(). */
         this._syncPcbHomeToolHighlight = null;
 
@@ -440,7 +438,7 @@ export default class PCBApp {
                 && ['line', 'rect', 'polygon'].includes(selectedShape[0]?.kind)
                 && getBoardShapeSegmentFocus(this)?.shapeId !== selectedShape[0]?.id
                 && getBoardShapeNodeFocus(this)?.shapeId !== selectedShape[0]?.id)
-                || (selectedTrack.length === 1 && this._trackEdit?.track !== canonicalTrack(this, selectedTrack[0])));
+                || (selectedTrack.length === 1 && getTrackEdit(this)?.track !== canonicalTrack(this, selectedTrack[0])));
         const showHoleTip = rawTool === 'circle' && layer === 'hole';
         const showOverlapTip = rawTool === 'select' && hoverOverlapHitCount(this) > 1;
         const showTrackTip = rawTool === 'track';
@@ -1202,14 +1200,6 @@ export default class PCBApp {
 
     _clearViaPreview() {
         clearViaPreview(this);
-    }
-
-    /** Public hook used by controls.setTool to abort an in-flight track draw. */
-    _cancelTrackDraw() {
-        if (getTrackDraw(this)) cancelTrackDraw(this);
-        // Also drop the pre-draw hover snap marker (shown while hovering a
-        // bondable target before the first click).
-        clearTrackSnapMarker(this);
     }
 
     /** Public hook used by controls.setTool to abort an in-flight shape draw. */

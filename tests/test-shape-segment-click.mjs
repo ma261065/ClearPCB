@@ -47,7 +47,7 @@ const { createBoardShapeSelectionAdapter, getBoardShapeAnchors,
 const { showBoardShapeProperties } = await import('../src/pcb/modules/board-shape-properties.js');
 const { renderPcbSelectionAnchors } = await import('../src/pcb/modules/selection-anchors.js');
 const { Track } = await import('../src/shapes/track.js');
-const { selectTrackOrVia, selectTrackNode, drawTrackHalo, createTrackSelectionAdapter } = await import('../src/pcb/modules/track-select.js');
+const { selectTrackOrVia, selectTrackNode, drawTrackHalo, createTrackSelectionAdapter, getTrackEdit } = await import('../src/pcb/modules/track-select.js');
 const { cancelPictureCopperRefresh } = await import('../src/pcb/modules/picture-refresh.js');
 const { splitTrackNodeAndDrag } = await import('../src/pcb/modules/track-drag.js');
 const { getPcbSelection, setPcbSelection } = await import('../src/pcb/modules/selection-registry.js');
@@ -244,7 +244,7 @@ for (const kind of ['line', 'track']) {
             if (kind === 'track') {
                 assert.deepEqual(object.captureState(), before);
                 assert.deepEqual(getPcbSelection(app), [], 'Undo Split deselects the removed arc');
-                assert.equal(app._trackEdit, null, 'Undo Split clears removed track edit state');
+                assert.equal(getTrackEdit(app), null, 'Undo Split clears removed track edit state');
             }
             else assert.deepEqual(object.points, before.points);
             commands[0].execute();
@@ -264,7 +264,7 @@ for (const kind of ['line', 'polygon', 'rect', 'track']) {
         getLayerGroup() { return null; }, snapToGrid(point) { return point; },
         viewport: { scale: 100, setCrosshair() {}, hideCrosshair() {} },
         history: { execute(command) { command.execute(); } } };
-    const focusedNode = () => kind === 'track' ? app._trackEdit?.nodeId : getBoardShapeNodeFocus(app)?.index;
+    const focusedNode = () => kind === 'track' ? getTrackEdit(app)?.nodeId : getBoardShapeNodeFocus(app)?.index;
     const nodePosition = () => kind === 'track' ? object.nodes.get('n0') : object.points[0];
     if (kind === 'track') selectTrackOrVia(app, { type: 'track', track: object });
     else selectBoardShape(app, object);

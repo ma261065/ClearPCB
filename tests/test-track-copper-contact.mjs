@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { getTrackDraw, setTrackToolLayer, setTrackToolNet } from '../src/pcb/modules/track-draw.js';
+import { getTrackDraw, hasTrackSnapMarker, setTrackToolLayer, setTrackToolNet } from '../src/pcb/modules/track-draw.js';
 import { setPcbInteraction } from '../src/pcb/modules/pcb-interactions.js';
 
 const element = () => ({ setAttribute() {}, appendChild() {}, addEventListener() {},
@@ -153,7 +153,7 @@ viaHighlightApp.vias.push(via(10, 'GND'));
 startTrackDraw(viaHighlightApp, { x: 0, y: 0 });
 updateTrackDraw(viaHighlightApp, { x: 10.2, y: 0 });
 assert.equal(getTrackDraw(viaHighlightApp).snap.snapType, 'via');
-assert.ok(viaHighlightApp._trackSnapMarker, 'destination via receives the yellow snap highlight');
+assert.ok(hasTrackSnapMarker(viaHighlightApp), 'destination via receives the yellow snap highlight');
 
 const overlap = board();
 overlap.boardShapes.push(shape(0, 'GND'), shape(0, 'VCC'));

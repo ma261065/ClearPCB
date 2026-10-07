@@ -6,7 +6,7 @@ import { Via } from '../src/shapes/via.js';
 import { renderTrack, buildTrackLayerRuns } from '../src/pcb/modules/track-render.js';
 import { getTrackPropertyPreview, RemoveTrackCommand } from '../src/pcb/modules/track-commands.js';
 import { createTrackSelectionAdapter, selectTrackOrVia, selectTrackSegment, selectTrackNode,
-    showTrackSelectionProperties, setHoverHighlight } from '../src/pcb/modules/track-select.js';
+    showTrackSelectionProperties, setHoverHighlight, getTrackEdit } from '../src/pcb/modules/track-select.js';
 import { startVertexDrag, startMidpointInsertDrag, splitTrackNodeAndDrag, cancelVertexDrag,
     startViaDrag, cancelViaDrag } from '../src/pcb/modules/track-drag.js';
 import { syncPcbSelection, getPcbSelection } from '../src/pcb/modules/selection-registry.js';
@@ -212,7 +212,7 @@ for (const [scope, field, value] of [
         assert.equal(adapter.hitTest(point, 0), true);
     }
     if (field === 'Bulge') assert.notDeepEqual(adapter.getAnchors(), anchors);
-    if (scope !== 'whole') assert.equal(app._trackEdit.track, track);
+    if (scope !== 'whole') assert.equal(getTrackEdit(app).track, track);
     setHoverHighlight(app, { type: 'track', track });
     assert.equal(f.groups.get('top-copper').querySelectorAll('.pcb-track-hover').length, 0);
     const work = [allocations, f.fills(), f.clearances()];

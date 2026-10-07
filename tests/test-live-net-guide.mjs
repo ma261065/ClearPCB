@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { setComputedFill } from '../src/pcb/modules/computed-fill-cache.js';
 import { getVertexDrag } from '../src/pcb/modules/track-drag.js';
-import { getTrackDraw, setTrackToolNet } from '../src/pcb/modules/track-draw.js';
+import { getNetGuideLine, getTrackDraw, setTrackToolNet } from '../src/pcb/modules/track-draw.js';
 import { storedDrcRatlines } from '../src/pcb/modules/drc-state.js';
 
 function element() {
@@ -43,12 +43,12 @@ const endpoints = line => ['x1', 'y1', 'x2', 'y2'].map(key => Number(line.getAtt
 const edgeKey = (net, [x1, y1, x2, y2]) => `${net}:${[[x1, y1], [x2, y2]].map(point => point.join(',')).sort().join('|')}`;
 function assertCompleteGraph(app, layer) {
     const visible = layer.children.filter(line => line.style.visibility !== 'hidden');
-    if (app._netGuideLine) visible.push(app._netGuideLine);
+    if (getNetGuideLine(app)) visible.push(getNetGuideLine(app));
     assert.deepEqual(visible.map(line => edgeKey(line.dataset.net, endpoints(line))).sort(),
         storedDrcRatlines(app).map(line => edgeKey(line.net, [line.x1, line.y1, line.x2, line.y2])).sort(),
         'solid lines plus the dashed replacement represent every real ratline exactly once');
     assert.equal(layer.children.filter(line => line.style.visibility === 'hidden').length,
-        app._netGuideLine ? 1 : 0, 'only the exact dashed replacement is hidden');
+        getNetGuideLine(app) ? 1 : 0, 'only the exact dashed replacement is hidden');
 }
 const square = (min, max) => [
     { x: min, y: min }, { x: max, y: min }, { x: max, y: max }, { x: min, y: max },
@@ -120,15 +120,15 @@ try {
         app.tracks = [new Track({ points: [{ x: 0, y: 0 }, { x: 5, y: 0 }], net: 'GND' })];
         startTrackDraw(app, { x: 0, y: 0 });
         updateTrackDraw(app, { x: 8, y: 4 });
-        assert.ok(endpoints(app._netGuideLine).includes(20),
+        assert.ok(endpoints(getNetGuideLine(app)).includes(20),
             `guide exists with Ratlines ${visible ? 'visible' : 'hidden'} and excludes source-bonded Track`);
-        assert.ok(endpoints(app._netGuideLine).includes(8));
+        assert.ok(endpoints(getNetGuideLine(app)).includes(8));
         assertCompleteGraph(app, app.ratLayer);
         toggleTrackLayer(app);
         updateTrackDraw(app, { x: 8, y: 4 });
         assertCompleteGraph(app, app.ratLayer);
         cancelTrackDraw(app);
-        assert.equal(app._netGuideLine, null);
+        assert.equal(getNetGuideLine(app), null);
 
         const dragged = board();
         const track = new Track({ points: [{ x: 0, y: 0 }, { x: 5, y: 0 }], net: 'GND' });
@@ -136,7 +136,7 @@ try {
         dragged.pads = [new Pad({ x: 20, y: 0, net: 'GND' })];
         startVertexDrag(dragged, track, { x: 5, y: 0 });
         updateVertexDrag(dragged, { x: 8, y: 4 });
-        assert.ok(endpoints(dragged._netGuideLine).includes(20), 'endpoint drag uses the same guide policy');
+        assert.ok(endpoints(getNetGuideLine(dragged)).includes(20), 'endpoint drag uses the same guide policy');
         assertCompleteGraph(dragged, dragged.ratLayer);
         cancelVertexDrag(dragged);
     }
@@ -165,8 +165,8 @@ try {
         updateTrackDraw(app, { x: 8, y: 4 });
         assert.equal(getTrackDraw(app).ratlinePreview, preview, 'unchanged pointer positions reuse provisional graph input');
         assertCompleteGraph(app, layer);
-        assert.equal(app._netGuideLine.parent, app.viewport.svg, 'dashed guide is outside the toggleable ratline layer');
-        assert.equal(app._netGuideLine.getAttribute('stroke-dasharray'), '4 3');
+        assert.equal(getNetGuideLine(app).parent, app.viewport.svg, 'dashed guide is outside the toggleable ratline layer');
+        assert.equal(getNetGuideLine(app).getAttribute('stroke-dasharray'), '4 3');
         const records = structuredClone(storedDrcRatlines(app));
         reconcileRatsnest(app);
         assertCompleteGraph(app, layer);
@@ -174,7 +174,7 @@ try {
             records.map(line => JSON.stringify(line)).sort(), 'presentation styling never removes DRC connectivity records');
         layer.style.display = visible ? 'none' : '';
         updateTrackDraw(app, { x: 9, y: 4 });
-        assert.ok(app._netGuideLine, 'mid-gesture visibility toggling never hides the live guide');
+        assert.ok(getNetGuideLine(app), 'mid-gesture visibility toggling never hides the live guide');
         toggleTrackLayer(app);
         updateTrackDraw(app, { x: 9, y: 4 });
         assertCompleteGraph(app, layer);
@@ -189,7 +189,7 @@ try {
         updateTrackDraw(app, { x: 8, y: 4 });
         addTrackWaypoint(app, { x: 8, y: 4 });
         finishTrackDraw(app);
-        assert.equal(app._netGuideLine, null);
+        assert.equal(getNetGuideLine(app), null);
         assert.ok(layer.children.every(line => line.style.visibility !== 'hidden'), 'commit restores the rebuilt ratlines');
     }
     {
@@ -203,10 +203,10 @@ try {
         reconcileRatsnest(app);
         startVertexDrag(app, source, { x: 5, y: 0 });
         updateVertexDrag(app, { x: 8, y: 1 });
-        assert.ok(app._netGuideLine);
+        assert.ok(getNetGuideLine(app));
         assert.equal(layer.children.length, 1);
         assertCompleteGraph(app, layer);
-        assert.deepEqual(endpoints(app._netGuideLine), endpoints(layer.children[0]),
+        assert.deepEqual(endpoints(getNetGuideLine(app)), endpoints(layer.children[0]),
             'arc guide uses the exact node-to-node ratline, never an independently projected point on its curve');
         app.pads = [new Pad({ x: 10, y: 20, net: 'GND' }), new Pad({ x: 25, y: 20, net: 'GND' })];
         const graphs = new Set();
@@ -217,7 +217,7 @@ try {
         }
         assert.ok(graphs.size >= 3, 'coverage is checked across real multi-island MST rewiring, not a fixed two-object graph');
         cancelVertexDrag(app);
-        assert.equal(app._netGuideLine, null);
+        assert.equal(getNetGuideLine(app), null);
         assert.ok(layer.children.every(line => line.style.visibility !== 'hidden'));
     }
     const app = board();
@@ -226,7 +226,7 @@ try {
     app.pads = [new Pad({ x: 30, y: 15, net: 'GND' })];
     startTrackDraw(app, { x: 15, y: 15 });
     updateTrackDraw(app, { x: 22, y: 15 });
-    assert.ok(endpoints(app._netGuideLine).includes(30), 'guide does not return to the originating copper shape');
+    assert.ok(endpoints(getNetGuideLine(app)).includes(30), 'guide does not return to the originating copper shape');
     cancelTrackDraw(app);
 } finally {
     ratlines.visible = previous;

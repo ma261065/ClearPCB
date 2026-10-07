@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { getVertexDrag } from '../src/pcb/modules/track-drag.js';
-import { getTrackDraw } from '../src/pcb/modules/track-draw.js';
+import { getTrackDraw, hasTrackSnapMarker } from '../src/pcb/modules/track-draw.js';
 
 const element = () => ({ setAttribute() {}, appendChild() {}, remove() {}, classList: { add() {} } });
 globalThis.window = { addEventListener() {} };
@@ -46,10 +46,10 @@ for (const scale of [1, 10, 100, 1000]) {
     startTrackDraw(app, { x: -50, y: -20 });
     updateTrackDraw(app, outside);
     assert.notEqual(getTrackDraw(app).snap.snapType, 'pad');
-    assert.ok(!app._trackSnapMarker, 'no yellow marker before entering the Pad');
+    assert.equal(hasTrackSnapMarker(app), false, 'no yellow marker before entering the Pad');
     updateTrackDraw(app, inside);
     assert.equal(getTrackDraw(app).snap.snapType, 'pad');
-    assert.ok(app._trackSnapMarker);
+    assert.equal(hasTrackSnapMarker(app), true);
     cancelTrackDraw(app);
 
     const track = new Track({ points: [{ x: -50, y: -20 }, { x: -30, y: -10 }] });
@@ -58,15 +58,15 @@ for (const scale of [1, 10, 100, 1000]) {
     startVertexDrag(app, track, track.nodes.get(nodeId), { nodeId });
     updateVertexDrag(app, outside);
     assert.ok(!track.padConnections.has(nodeId), 'dragging does not bond outside the Pad');
-    assert.ok(!app._trackSnapMarker);
+    assert.equal(hasTrackSnapMarker(app), false);
     updateVertexDrag(app, inside);
     assert.deepEqual(getVertexDrag(app).track.nodes.get(nodeId), { x: 10, y: 10 });
     assert.deepEqual(getVertexDrag(app).track.padConnections.get(nodeId), { componentId: 'U1', pinNumber: '1:2' });
     assert.deepEqual(track.nodes.get(nodeId), { x: -30, y: -10 }, 'Canonical node is not snapped during preview');
-    assert.ok(app._trackSnapMarker);
+    assert.equal(hasTrackSnapMarker(app), true);
     updateVertexDrag(app, outside);
     assert.ok(!getVertexDrag(app).track.padConnections.has(nodeId), 'leaving the Pad releases the snap');
-    assert.ok(!app._trackSnapMarker);
+    assert.equal(hasTrackSnapMarker(app), false);
     cancelVertexDrag(app);
 }
 
