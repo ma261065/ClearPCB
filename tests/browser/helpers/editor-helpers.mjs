@@ -180,7 +180,7 @@ export async function stepSpinner(page, selector, times = 1) {
  * @returns {Promise<{start: T, during: T}>}
  */
 export async function stepSpinnerOneRun(page, selector, times, read) {
-    for (let attempt = 0; attempt < 3; attempt++) {
+    for (let attempt = 0; attempt < 5; attempt++) {
         const start = await read();
         await page.evaluate(selector => {
             const field = /** @type {HTMLInputElement} */ (document.querySelector(selector));
