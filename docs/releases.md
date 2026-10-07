@@ -38,7 +38,8 @@ job. If a baseline is ever needed again, record it with
 (installed locally as in the [README](../README.md#testing)). Vendored modules
 are not checked: `assets/vendor/fflate.module.d.ts` declares the fflate API in use.
 
-Its **Browser tests** jobs install Playwright 1.55.0 with Chromium and run
+Its **Browser tests** jobs install Playwright 1.55.0 with Chromium (each attempt
+bounded, up to three, so a stalled download cannot hold a job until it times out) and run
 `node tools/browser-test.mjs --shard=i/4`: four jobs run in parallel, each taking
 every fourth scenario, so together they run every scenario once. Each scenario in `tests/browser/` gets a fresh
 browser context against `tools/serve.mjs`, offline: requests to any other host

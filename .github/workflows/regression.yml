@@ -58,9 +58,15 @@ jobs:
         with:
           node-version: '22'
       - name: Install pinned Playwright and Chromium
+        # A stalled download once held two shards until the job timed out; each attempt
+        # is bounded and retried, so a stall costs minutes rather than the run.
         run: |
-          npm install --no-save --no-package-lock --ignore-scripts playwright@1.55.0
-          npx playwright install --with-deps chromium
+          for attempt in 1 2 3; do
+            timeout 240 npm install --no-save --no-package-lock --ignore-scripts playwright@1.55.0 \
+              && timeout 360 npx playwright install --with-deps chromium && exit 0
+            echo "Playwright install attempt $attempt failed or stalled."
+          done
+          exit 1
       - name: Run browser tests
         run: node tools/browser-test.mjs --shard=${{ matrix.shard }}/4
       - name: Upload failure screenshots
