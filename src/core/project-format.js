@@ -1,4 +1,4 @@
-import { normalizeProjectAliases, normalizePcbSection } from './project-field-aliases.js';
+import { compactNormalizedProject, normalizeProjectAliases, normalizePcbSection } from './project-field-aliases.js';
 import { getBuiltInPackageOptions } from '../components/BuiltInPackages.js';
 import { hasRectangleFrame, rectangleFramePoints } from '../shapes/rectangle-frame.js';
 
@@ -347,17 +347,46 @@ export function validatePcbStackup(pcb) {
     return layers;
 }
 
-export function assertSupportedPcb(pcb) {
-    const layers = validatePcbStackup(normalizePcbSection(pcb));
+function assertTwoCopperLayers(layers) {
     if (layers.length !== 2) {
         throw new Error('This project uses multiple copper layers. This editor currently supports only two-layer boards.');
     }
 }
 
+export function assertSupportedPcb(pcb) {
+    assertTwoCopperLayers(validatePcbStackup(normalizePcbSection(pcb)));
+}
+
 export function validateEditableProject(data) {
     const normalized = validateProject(data);
-    assertSupportedPcb(normalized.pcb);
+    // validateProject has checked the normalized section's stackup; only the layer count remains.
+    assertTwoCopperLayers(normalized.pcb ? normalized.pcb.stackup.copperLayers : defaultPcbStackup().copperLayers);
     return normalized;
+}
+
+/** A project the loader would reject, so storage refuses to write it. */
+export class ProjectIntegrityError extends Error {
+    /** @param {string} message */
+    constructor(message) {
+        super(message);
+        this.name = 'ProjectIntegrityError';
+    }
+}
+
+/**
+ * Validate a project for storage and return its compact stored form, copying it once.
+ * Storage writes only what the loader accepts, so a save or autosave never leaves a
+ * file or recovery snapshot that would not reopen.
+ * @throws {ProjectIntegrityError}
+ */
+export function storableProject(data) {
+    let normalized;
+    try {
+        normalized = validateEditableProject(data);
+    } catch (error) {
+        throw new ProjectIntegrityError(error instanceof Error ? error.message : String(error));
+    }
+    return compactNormalizedProject(normalized);
 }
 
 export function repairDuplicateTrackIds(data) {

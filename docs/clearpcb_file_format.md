@@ -1147,7 +1147,8 @@ The format is currently defined by serializers and loaders rather than a JSON
 Schema file. The authoritative implementation points are:
 
 - `src/core/ProjectDocument.js`: document assembly and section ownership.
-- `src/core/project-format.js`: format validation, stackup contract, editor capability gate.
+- `src/core/project-format.js`: format validation, stackup contract, editor capability gate,
+  and the storage check every save and autosave passes (`storableProject`).
 - `src/core/FileManager.js`: ZIP container and raw JSON reading.
 - `src/core/SchematicDocument.js`: schematic envelope, components, definitions,
   and shape serialization.

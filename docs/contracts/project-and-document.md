@@ -39,6 +39,17 @@ The fixed 4px blue dot uses a 250ms retriggerable visibility window and existing
 styling. Success-indicator failures are logged separately: they cannot turn a
 completed autosave into a storage-failure warning or cause it to be retried.
 `onAutoSaveChanged` remains the separate size/title update callback.
+
+Storage writes only what the loader accepts. Open and recovery validate a project
+with `validateEditableProject` (`project-format.js`); `FileManager` checks every
+Save, Save As and autosave with `storableProject`, the same validation, and writes
+the compact form it returns, so the check adds no copy. A project that fails is not
+written. Save and Save As report the `ProjectIntegrityError` through the save-failure
+alert before any permission prompt or file picker, so the file on disk is unchanged;
+autosave keeps the last good snapshot and the UI host says why, once per failure
+streak. Such a failure is an application bug, not a user error: the message carries
+the validator's location and snippet for the report. `test-project-write-integrity`
+covers these.
 Successful Open and Open Recent clean up only the opened file's recovery
 snapshot; Import preserves existing recovery entries. Unrelated project backups
 are never purged as a side effect of adopting another document.

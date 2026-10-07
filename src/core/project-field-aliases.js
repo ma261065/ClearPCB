@@ -234,9 +234,16 @@ export function normalizeProjectAliases(data) {
 }
 
 export function compactProjectAliases(data) {
-    const compact = normalizeProjectAliases(data);
-    if (!record(compact)) return compact;
-    transformSchematic(compact.schematic, 'short');
-    transformPcb(compact.pcb, 'short');
-    return compact;
+    return compactNormalizedProject(normalizeProjectAliases(data));
+}
+
+/**
+ * Compact, in place, a project already in the form {@link normalizeProjectAliases}
+ * returns. Saves a copy when the caller owns the normalized object.
+ */
+export function compactNormalizedProject(normalized) {
+    if (!record(normalized)) return normalized;
+    transformSchematic(normalized.schematic, 'short');
+    transformPcb(normalized.pcb, 'short');
+    return normalized;
 }

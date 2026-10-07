@@ -6,7 +6,7 @@ import { CommandHistory } from '../core/CommandHistory.js';
 import { SelectionManager } from '../core/SelectionManager.js';
 import { FileManager } from '../core/FileManager.js';
 import { SchematicDocument } from '../core/SchematicDocument.js';
-import { duplicateIdRepairMessage, repairDuplicateIds } from '../core/project-format.js';
+import { ProjectIntegrityError, duplicateIdRepairMessage, repairDuplicateIds } from '../core/project-format.js';
 import { storageManager } from '../core/StorageManager.js';
 import { ComponentPicker } from '../components/ComponentPicker.js';
 import { createShape } from '../shapes/index.js';
@@ -119,7 +119,7 @@ export default class SchematicApp {
         this.fileManager.onFileNameChanged = () => FileTools.updateTitle(this);
         this.fileManager.onAutoSaveChanged = () => FileTools.updateTitle(this);
         this.fileManager.onAutoSaveSuccess = flashAutoSaveIndicator;
-        this.fileManager.onAutoSaveError = () => this.onAutoSaveError();
+        this.fileManager.onAutoSaveError = error => this.onAutoSaveError(error);
 
         // Shape/selection state
         this.selection = new SelectionManager({
@@ -941,7 +941,13 @@ export default class SchematicApp {
         this.project?.notifySchematicChanged();
     }
 
-    onAutoSaveError() {
+    /** @param {unknown} [error] */
+    onAutoSaveError(error) {
+        if (error instanceof ProjectIntegrityError) {
+            return this.alert('Auto-save stopped: the project failed its integrity check, so the last good autosave is kept. '
+                + 'Your changes are still open, but saving is refused too, so your file on disk is not overwritten. '
+                + `Please report this problem.\n\n${error.message}`, { title: 'Auto-save Failed' });
+        }
         return this.alert('Auto-save failed: storage full or unavailable. Your changes are still open, but are not being backed up. Save your project to disk.',
             { title: 'Auto-save Failed' });
     }

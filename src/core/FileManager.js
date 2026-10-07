@@ -6,6 +6,7 @@
 
 import { zip, unzip, strToU8, strFromU8 } from '../../assets/vendor/fflate.module.js';
 import { compactProjectAliases } from './project-field-aliases.js';
+import { ProjectIntegrityError, storableProject } from './project-format.js';
 
 // ==================== Project (de)serialisation ====================
 // .cpcb documents are ZIP containers (DEFLATE per entry) holding the project
@@ -579,7 +580,8 @@ export class FileManager {
         const revision = this.revision;
         const oldFileName = this.fileName;
         try {
-            const snapshot = structuredClone(data);
+            // Check before any permission prompt or file picker; a failure leaves the file untouched.
+            const snapshot = storableProject(data);
             const result = await (saveAs ? this._saveAsCurrent(snapshot) : this._saveCurrent(snapshot));
             if (!result.success) return result;
             const clean = this.revision === revision;
@@ -590,6 +592,10 @@ export class FileManager {
             }
             return { ...result, clean };
         } catch (err) {
+            if (err instanceof ProjectIntegrityError) {
+                return { success: false,
+                    error: `The project failed its integrity check, so it was not saved and the file on disk is unchanged.\n${err.message}` };
+            }
             return { success: false, error: err instanceof Error ? err.message : String(err) };
         } finally {
             this.saving = false;
@@ -941,7 +947,8 @@ export class FileManager {
      */
     autoSaveToStorage(data, snapshot = { revision: this.revision, fileName: this.fileName }) {
         try {
-            data = compactProjectAliases(data);
+            // A project that would not reopen keeps the last good autosave instead.
+            data = storableProject(data);
             const key = this.autoSavePrefix + encodeURIComponent(snapshot.fileName || 'untitled');
             const json = JSON.stringify({
                 timestamp: Date.now(),
