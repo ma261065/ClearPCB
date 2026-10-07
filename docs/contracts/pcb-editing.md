@@ -170,7 +170,11 @@ a command class does not declare `lockTargets()`.
 
 `pcb/modules/editor-actions.js` is the common keyboard/ribbon entry point for
 Undo, Redo, Save and Save As. Keyboard focus guards and shortcut matching live
-in `pcb/modules/keyboard.js`; DOM bindings only dispatch actions. Drawing tools
+in `pcb/modules/keyboard.js`; DOM bindings only dispatch actions. The app's
+window-capture dispatcher gives keys to this handler only while the PCB editor is
+active, and the schematic's handler stands aside then (`pcbApp.isActive()`), so each
+editor's view keys (Home resets its view, +/- zoom it) act on the active editor alone
+(`schematic-shortcuts-stand-aside-while-the-pcb-is-active`). Drawing tools
 handle their own keys through `handleTrackDrawKey`, `handleFillDrawKey` and
 `handleShapeDrawKey` before the shared actions run. History requests use the
 keyboard policy: floating paste, dimension previews and group drags

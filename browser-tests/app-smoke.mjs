@@ -144,4 +144,34 @@ export const scenarios = [
             assert.equal(await page.evaluate(() => window.bootstrap.pcbApp.isBoardOutlineDrawn()), true, 'The board outline is restored');
         },
     },
+    {
+        name: 'schematic-shortcuts-stand-aside-while-the-pcb-is-active',
+        async run(page, url) {
+            await openPcb(page, url);
+            await page.evaluate(() => {
+                const schematic = window.bootstrap.schematicApp, pcb = window.bootstrap.pcbApp;
+                window.__schematicKeys = [];
+                window.__pcbResets = 0;
+                const fit = schematic.fitToContent.bind(schematic);
+                schematic.fitToContent = () => { window.__schematicKeys.push('fit'); return fit(); };
+                const reset = schematic.viewport.resetView.bind(schematic.viewport);
+                schematic.viewport.resetView = () => { window.__schematicKeys.push('reset'); return reset(); };
+                const pcbReset = pcb.viewport.resetView.bind(pcb.viewport);
+                pcb.viewport.resetView = () => { window.__pcbResets++; return pcbReset(); };
+            });
+            const press = async key => {
+                const before = await page.evaluate(() => window.__schematicKeys.length);
+                await page.keyboard.press(key);
+                return page.evaluate(start => window.__schematicKeys.slice(start), before);
+            };
+            assert.deepEqual(await press('f'), [], 'F does not fit the schematic while the PCB editor is active');
+            assert.deepEqual(await press('Home'), [], 'Home does not reset the schematic while the PCB editor is active');
+            assert.equal(await page.evaluate(() => window.__pcbResets), 1, 'Home resets the PCB view once');
+            await page.locator('.mode-tab[data-mode="schematic"]').click();
+            await waitForPage(page, () => !window.bootstrap.pcbApp.isActive());
+            assert.equal((await press('f'))[0], 'fit', 'and F fits the schematic again in the schematic');
+            assert.deepEqual(await press('Home'), ['reset'], 'and Home resets it once');
+            assert.equal(await page.evaluate(() => window.__pcbResets), 1, 'without touching the PCB view');
+        },
+    },
 ];

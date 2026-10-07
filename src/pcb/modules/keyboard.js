@@ -50,6 +50,10 @@ export function handlePcbKeyDown(app, e) {
             app.viewport?.zoomOut();
             return true;
         }
+        if (e.key === 'Home') {
+            app.viewport?.resetView();
+            return true;
+        }
     }
 
     // File save shortcuts (Ctrl+S / Ctrl+Alt+S). While PCB is active it owns

@@ -1714,19 +1714,8 @@ export class Viewport {
         window.addEventListener('resize', this.boundHandlers.resize);
         this.resizeObserver = new ResizeObserver(() => this._onResize());
         this.resizeObserver.observe(this.container);
-        
-        // Keyboard
-        this.boundHandlers.keydown = (e) => {
-            if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT' || e.target.tagName === 'TEXTAREA') return;
-            
-            switch (e.key) {
-                case 'Home':
-                    this.resetView();
-                    break;
-                // 'F' for fit-to-content handled in keyboard.js (needs app context)
-            }
-        };
-        window.addEventListener('keydown', this.boundHandlers.keydown);
+        // Keys (Home resets the view, F fits it) belong to each editor's keyboard handler, which
+        // acts only while that editor is active: a window listener here reset both editors' views.
     }
     
     /**
@@ -1740,7 +1729,6 @@ export class Viewport {
         if (this.boundHandlers.wheel) this.svg.removeEventListener('wheel', this.boundHandlers.wheel);
         if (this.boundHandlers.resize) window.removeEventListener('resize', this.boundHandlers.resize);
         this.resizeObserver?.disconnect();
-        if (this.boundHandlers.keydown) window.removeEventListener('keydown', this.boundHandlers.keydown);
         if (this.boundHandlers.browserZoom) window.removeEventListener('keydown', this.boundHandlers.browserZoom);
         if (this.boundHandlers.browserWheelZoom) window.removeEventListener('wheel', this.boundHandlers.browserWheelZoom);
         
