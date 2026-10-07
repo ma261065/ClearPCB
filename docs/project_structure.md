@@ -151,7 +151,8 @@ evaluation-order cycle fails.
   visibility and halo caches), `picture-refresh.js` (pending/deferred
   shape-clearance refresh state), `track-select.js` (selected track node/segment
   edit and hover-highlight state), `track-draw.js` (track snap and guide SVG
-  affordances), and `pcb-interactions.js` (in-progress interaction slots).
+  affordances), `layers.js` (layer-panel lock bubble timer), and
+  `pcb-interactions.js` (in-progress interaction slots).
 - In-progress interaction slots (`_drag`, `_trackDraw`, …) are listed once in
   `pcb-interactions.js` with their owner module and stored in its import-free
   WeakMap. Only the owner writes its slot with `setPcbInteraction`; other code

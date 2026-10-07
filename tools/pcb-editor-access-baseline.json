@@ -35,7 +35,6 @@
     "_refreshPcbSelectionHighlights"
   ],
   "src/pcb/modules/layers.js": [
-    "_lockedBubbleTimer",
     "_onCopperFillLockChanged",
     "_onCopperFillVisibilityChanged",
     "_onLayerLockChanged",

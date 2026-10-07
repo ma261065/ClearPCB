@@ -7,6 +7,7 @@
  */
 
 /** @typedef {{id: string, name: string, color: string, visible: boolean, locked: boolean}} LayerDef */
+const lockedBubbleTimers = new WeakMap();
 
 /** All PCB layers with their display colors. */
 export const PCB_LAYERS = /** @type {LayerDef[]} */ ([
@@ -734,9 +735,9 @@ export function showLockedLayerBubble(app, layerId, anchor) {
     void bubble.offsetWidth;
     bubble.classList.add('pcb-locked-bubble-show');
 
-    clearTimeout(app._lockedBubbleTimer);
-    app._lockedBubbleTimer = setTimeout(() => {
+    clearTimeout(lockedBubbleTimers.get(app));
+    lockedBubbleTimers.set(app, setTimeout(() => {
         bubble.classList.remove('pcb-locked-bubble-show');
         bubble.style.display = 'none';
-    }, 2400);
+    }, 2400));
 }
