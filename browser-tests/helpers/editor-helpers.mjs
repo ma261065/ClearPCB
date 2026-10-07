@@ -203,7 +203,24 @@ export async function saveAndReopen(page, editor) {
     await page.waitForFunction(([editor, expected]) => {
         const saved = localStorage.getItem('clearpcb_autosave_untitled.cpcb');
         return saved && JSON.stringify(JSON.parse(saved).data?.[editor]) === expected;
-    }, [editor, expected], { timeout: 30000 });
+    }, [editor, expected], { timeout: 30000 }).catch(async error => {
+        // This wait has timed out rarely under heavy local load; say why when it does.
+        const report = await page.evaluate(([editor, expected]) => {
+            const { project } = window.bootstrap, files = project.fileManager;
+            const saved = JSON.parse(localStorage.getItem('clearpcb_autosave_untitled.cpcb') || 'null');
+            const differences = (a, b, path = editor) => {
+                if (JSON.stringify(a) === JSON.stringify(b)) return [];
+                if (a && b && typeof a === 'object' && typeof b === 'object') {
+                    return [...new Set([...Object.keys(a), ...Object.keys(b)])].flatMap(key => differences(a[key], b[key], `${path}.${key}`));
+                }
+                return [`${path}: autosaved ${JSON.stringify(a)?.slice(0, 120)}, live ${JSON.stringify(b)?.slice(0, 120)}`];
+            };
+            return { revision: files.revision, lastAutoSave: files._lastAutoSave, dirty: project.isDirty,
+                canSerialize: project.canSerialize(), loading: files.loading,
+                differences: differences(saved?.data?.[editor], JSON.parse(expected)).slice(0, 10) };
+        }, [editor, expected]);
+        throw new Error(`Autosave never matched the ${editor} model: ${JSON.stringify(report, null, 1)}\n${error.message}`);
+    });
     await page.reload();
     const recover = page.locator('.app-modal-overlay button', { hasText: 'Yes' });
     try {
