@@ -4,6 +4,7 @@ import { pictureShape } from '../src/shared/pcb/picture-raster.js';
 import { isPictureCopperRefreshPending } from '../src/pcb/modules/refresh-state.js';
 import { flushSettledChanges } from '../src/shared/ui/settled-input.js';
 import { installFakeDom } from './helpers/fake-dom.mjs';
+import { clearanceOverlayState } from '../src/pcb/modules/clearance-overlay.js';
 
 installFakeDom();
 const { renderPropertyFields, propertyField } = await import('../src/shared/ui/property-fields.js');
@@ -196,10 +197,13 @@ const originalClearTimeout = globalThis.clearTimeout;
 const pendingCopper = new Map();
 let copperTimerId = 0;
 let imageClearanceRefreshes = 0;
-app._refreshBoardShapeClearance = shape => {
-    if (isPictureCopperRefreshPending(app) && app._pendingShapeClearances?.has(shape.id)) return;
-    imageClearanceRefreshes++;
-};
+const clearanceOverlay = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+const clearanceLayer = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+app.getLayerGroup = id => id === 'clearance-overlay' ? clearanceOverlay
+    : id === image.layer ? clearanceLayer : null;
+app.existingLayerGroups = () => new Map([['clearance-overlay', clearanceOverlay], [image.layer, clearanceLayer]]);
+app.getRoutingParams = () => { imageClearanceRefreshes++; return { clearance: 0.25 }; };
+clearanceOverlayState(app).clearancesVisible = true;
 app.updateRatsnest = options => {
     ratsnestRefreshes++;
 };
@@ -226,7 +230,7 @@ try {
         const dimension = Math.hypot(image.points[edge].x - image.points[0].x, image.points[edge].y - image.points[0].y);
         const historySize = app.history.undoStack.length;
         const halo = { parentNode: { removeChild(child) { child.parentNode = null; } } };
-        app._boardShapeClearanceCache = new Map([[image.id, { elements: [halo] }]]);
+        clearanceOverlayState(app).boardShapeClearanceCache = new Map([[image.id, { elements: [halo] }]]);
         for (const factor of [1.1, 1.2, 1.3]) {
             spinner.input(String(dimension * factor));
             const displayed = adapter.object;

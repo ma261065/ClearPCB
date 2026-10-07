@@ -7,9 +7,6 @@
     "_showPcbMultiSelectionProperties"
   ],
   "src/pcb/modules/board-shapes.js": [
-    "_deferredShapeCopperCuts",
-    "_pendingShapeClearances",
-    "_refreshBoardShapeClearance",
     "_refreshPcbSelectionHighlights",
     "_shapeElements",
     "_shapeIdCounter",
@@ -18,12 +15,6 @@
   "src/pcb/modules/box-select.js": [
     "_netsForComponent",
     "_refreshPcbSelectionHighlights"
-  ],
-  "src/pcb/modules/clearance-overlay.js": [
-    "_boardShapeClearanceCache",
-    "_clearancesVisible",
-    "_computeClearanceOutlines",
-    "_padHaloGroups"
   ],
   "src/pcb/modules/component-selection.js": [
     "_netsForComponent",
@@ -64,13 +55,7 @@
   ],
   "src/pcb/modules/pcb-paste.js": [
     "_cancelPosePreviews",
-    "_deferredShapeCopperCuts",
     "_syncHistoryButtons"
-  ],
-  "src/pcb/modules/picture-refresh.js": [
-    "_deferredShapeCopperCuts",
-    "_pendingShapeClearances",
-    "_refreshBoardShapeClearance"
   ],
   "src/pcb/modules/project-state.js": [
     "_applyPlacementOverrides",
@@ -93,9 +78,6 @@
   "src/pcb/modules/selection-registry.js": [
     "_pcbSelection"
   ],
-  "src/pcb/modules/shape-commands.js": [
-    "_pendingShapeClearances"
-  ],
   "src/pcb/modules/text-commands.js": [
     "_showPcbMultiSelectionProperties"
   ],
@@ -110,7 +92,6 @@
     "_syncComponentRotationInput"
   ],
   "src/pcb/modules/track-drag.js": [
-    "_refreshTrackClearance",
     "_trackEdit"
   ],
   "src/pcb/modules/track-draw.js": [

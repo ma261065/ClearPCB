@@ -1,23 +1,55 @@
 import { getPropertyEditor } from './property-editors.js';
 import { isPictureCopperRefreshPending, setPictureCopperRefreshPending, refreshBoardView } from './refresh-state.js';
-import { forgetBoardShapeClearance, getBoardShapeClearance } from './clearance-overlay.js';
+import { forgetBoardShapeClearance, getBoardShapeClearance, refreshBoardShapeClearance } from './clearance-overlay.js';
 import { getBoardShapeDrag } from './board-shapes.js';
 import { isRotationHandleDragActive } from './rotation-handle.js';
 import { refreshSelectedDrcMarker, scheduleDrc } from './drc-state.js';
 const pendingRefreshes = new WeakMap();
 const activeHolds = new WeakMap();
+const shapeClearanceRefreshes = new WeakMap();
+
+function shapeClearanceRefreshState(app) {
+    let state = shapeClearanceRefreshes.get(app);
+    if (!state) shapeClearanceRefreshes.set(app, state = {
+        pendingShapeClearances: null,
+        deferredShapeCopperCuts: false,
+    });
+    return state;
+}
+
+/** The shape-clearance debounce state, for tests. */
+export function pictureRefreshState(app) {
+    return shapeClearanceRefreshState(app);
+}
+
+export function isShapeClearancePending(app, shape) {
+    return shapeClearanceRefreshState(app).pendingShapeClearances?.has(shape?.id) || false;
+}
+
+export function deferShapeCopperCuts(app) {
+    shapeClearanceRefreshState(app).deferredShapeCopperCuts = true;
+}
+
+export function areShapeCopperCutsDeferred(app) {
+    return !!shapeClearanceRefreshState(app).deferredShapeCopperCuts;
+}
+
+export function setShapeCopperCutsDeferred(app, deferred) {
+    shapeClearanceRefreshState(app).deferredShapeCopperCuts = !!deferred;
+}
 
 export function shouldDeferShapeClearance(app, shape) {
-    return isPictureCopperRefreshPending(app) && app._pendingShapeClearances?.has(shape?.id)
+    return isPictureCopperRefreshPending(app) && isShapeClearancePending(app, shape)
         && (shape.kind === 'image' || typeof shape.content === 'string');
 }
 
 function refreshEditedClearances(app) {
-    const shapes = app._pendingShapeClearances;
-    app._pendingShapeClearances = null;
+    const state = shapeClearanceRefreshState(app);
+    const shapes = state.pendingShapeClearances;
+    state.pendingShapeClearances = null;
     for (const shape of shapes?.values() || []) {
         if (app.boardShapes?.includes(shape) || app.texts?.get(shape.id) === shape) {
-            app._refreshBoardShapeClearance?.(shape);
+            refreshBoardShapeClearance(app, shape);
         } else {
             const cached = getBoardShapeClearance(app, shape.id);
             for (const element of cached?.elements || []) element.parentNode?.removeChild(element);
@@ -27,8 +59,9 @@ function refreshEditedClearances(app) {
 }
 
 function flushCopperCuts(app) {
-    if (!app._deferredShapeCopperCuts) return;
-    app._deferredShapeCopperCuts = false;
+    const state = shapeClearanceRefreshState(app);
+    if (!state.deferredShapeCopperCuts) return;
+    state.deferredShapeCopperCuts = false;
     app.updateCopperCuts?.();
 }
 
@@ -73,8 +106,9 @@ export function schedulePictureCopperRefresh(app, shape = null) {
     pendingRefreshes.delete(app);
     setPictureCopperRefreshPending(app, true);
     if (shape) {
-        app._pendingShapeClearances ??= new Map();
-        app._pendingShapeClearances.set(shape.id, shape);
+        const state = shapeClearanceRefreshState(app);
+        state.pendingShapeClearances ??= new Map();
+        state.pendingShapeClearances.set(shape.id, shape);
     }
     if (shouldDeferShapeClearance(app, shape)) {
         const cached = getBoardShapeClearance(app, shape.id);

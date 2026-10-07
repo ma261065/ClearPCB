@@ -19,6 +19,7 @@ import { PCB_LAYERS } from '../src/pcb/modules/layers.js';
 import { areDragOverlaysDeferred, isBoardViewRefreshSuspended, isFillRefreshSuspended, setBoardViewPanel, setBoardViewRefreshSuspended, setDragOverlaysDeferred, setFillRefreshPending, setFillRefreshSuspended } from '../src/pcb/modules/refresh-state.js';
 import { getPcbPaste } from '../src/pcb/modules/pcb-paste.js';
 import { getTextElement, renderText } from '../src/pcb/modules/pcb-text-render.js';
+import { clearanceOverlayState } from '../src/pcb/modules/clearance-overlay.js';
 
 let allocations = 0;
 class Element {
@@ -95,7 +96,7 @@ function fixture(deferred = false) {
         getLayerGroup: id => groups.get(id) || null,
         refreshFills() { if (!areDragOverlaysDeferred(this) && !isFillRefreshSuspended(this)) derived++; },
         updateCopperCuts() { derived++; }, refreshClearanceHalos() { derived++; },
-        _clearancesVisible: true, getRoutingParams: () => ({ clearance: 0.25 }),
+        getRoutingParams: () => ({ clearance: 0.25 }),
         syncClipboardButtons() {}, _clearCursorCrosshair() {},
         clearProperties() {}, propertiesItems: () => null, setPropertiesTitle() {}, setPcbStatus() {},
         _cancelDrawingMode() {}, _ensureViewport() {}, markSectionClean() {}, _refreshPcbSelectionHighlights() {},
@@ -105,13 +106,13 @@ function fixture(deferred = false) {
     setDragOverlaysDeferred(app, deferred);
     setFillRefreshSuspended(app, deferred);
     setBoardViewRefreshSuspended(app, deferred);
+    clearanceOverlayState(app).clearancesVisible = true;
     for (const key of ['tracks', 'vias', 'pads', 'boardShapes', 'texts', '_shapeIdCounter']) {
         Object.defineProperty(app, key, Object.getOwnPropertyDescriptor(PCBApp.prototype, key));
     }
     for (const method of ['_hasPcbClipboardData', 'pasteSelection',
         '_cancelPosePreviews', 'snapToGrid', 'refreshText',
-        'isSectionEditing', '_onLayerVisibilityChanged', '_onLayerLockChanged',
-        '_refreshBoardShapeClearance', '_computeClearanceOutlines']) app[method] = PCBApp.prototype[method];
+        'isSectionEditing', '_onLayerVisibilityChanged', '_onLayerLockChanged']) app[method] = PCBApp.prototype[method];
     project.registerView('pcb', app);
     renderTrack(track, app.getLayerGroup); renderVia(via, app.getLayerGroup); renderPad(pad, app.getLayerGroup);
     [rect, circle, arc, image].forEach(shape => renderBoardShape(app, shape));
@@ -130,7 +131,7 @@ for (const imageOnly of [false, true]) for (const deferred of [false, true]) for
     const { app, model, track, fill, clipboard, image, work, groups } = fixture(deferred);
     const geometry = model.captureGeometry(), saved = model.serialize(), counter = model.shapeIdCounter;
     const shapeCount = model.boardShapes.length, derivedBefore = work()[1];
-    const clearances = [...app._boardShapeClearanceCache];
+    const clearances = [...clearanceOverlayState(app).boardShapeClearanceCache];
     const bounds = track.getBounds(), graph = track.nodes, computed = getComputedFill(fill);
     const sourcePad = app.placements.get('original-component').pads.get('1'), sourcePadBefore = { ...sourcePad };
     const previous = { execute() {}, undo() {}, description: 'Prior edit' };
@@ -156,8 +157,8 @@ for (const imageOnly of [false, true]) for (const deferred of [false, true]) for
     assert.equal(payload.tracks[0]?.getBounds(), stagedBounds, 'Unchanged pointers do not invalidate staged graph caches');
     assert.equal(payload.fills[0]?.outline, stagedOutline);
     assert.equal(work()[1], derivedBefore, 'Floating artwork does not refresh settled clearances, copper cuts, pours or 3D');
-    assert.deepEqual([...app._boardShapeClearanceCache.keys()], clearances.map(([key]) => key));
-    for (const [key, value] of clearances) assert.equal(app._boardShapeClearanceCache.get(key), value,
+    assert.deepEqual([...clearanceOverlayState(app).boardShapeClearanceCache.keys()], clearances.map(([key]) => key));
+    for (const [key, value] of clearances) assert.equal(clearanceOverlayState(app).boardShapeClearanceCache.get(key), value,
         'Real clearance cache entries remain canonical and unchanged');
     assert.equal(app.tracks, projection.tracks); assert.equal(app.texts, projection.texts);
     assert.deepEqual(model.serialize(), saved);

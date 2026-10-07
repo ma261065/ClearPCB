@@ -21,7 +21,7 @@ import { refreshBoardShapeProperties } from './board-shape-properties.js';
 import { renderPcbSelectionAnchors } from './selection-anchors.js';
 import { getPcbSelectionEntries, setPcbSelection } from './selection-registry.js';
 import { finishSelectionInteraction } from './selection-interaction.js';
-import { cancelPictureCopperRefresh, schedulePictureCopperRefresh } from './picture-refresh.js';
+import { cancelPictureCopperRefresh, isShapeClearancePending, schedulePictureCopperRefresh } from './picture-refresh.js';
 import { normalizeShapeCopperMode } from '../../shared/pcb/board-shape-geometry.js';
 import { getPropertyEditor } from './property-editors.js';
 import {
@@ -110,7 +110,7 @@ export class MoveBoardShapeCommand extends ModelMoveBoardShapeCommand {
         if (getBoardShapeDrag(this.app)?.original === this.shape) endBoardShapeDrag(this.app, false);
         const applied = super._apply(geometry);
         // Retain translated halos; only rebind clearance already invalidated by handle edits.
-        schedulePictureCopperRefresh(this.app, this.app._pendingShapeClearances?.has(this.shape.id) ? this.shape : undefined);
+        schedulePictureCopperRefresh(this.app, isShapeClearancePending(this.app, this.shape) ? this.shape : undefined);
         renderBoardShape(this.app, this.shape);
         refreshBoardShapeProperties(this.app, this.shape);
         renderBoardShapeSegmentSelection(this.app);

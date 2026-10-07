@@ -3,15 +3,51 @@ import { PcbDocument } from '../src/core/PcbDocument.js';
 import { CommandHistory } from '../src/core/CommandHistory.js';
 import { createPcbText } from '../src/core/pcb-text.js';
 import { measureText } from '../src/shared/pcb/stroke-font.js';
-import { cancelPictureCopperRefresh } from '../src/pcb/modules/picture-refresh.js';
+import { cancelPictureCopperRefresh, pictureRefreshState } from '../src/pcb/modules/picture-refresh.js';
 import { EditTextCommand, getTextPosePreviewTexts } from '../src/pcb/modules/text-commands.js';
 import { beginTextDrag, createPcbTextSelectionAdapter, endTextDrag, updateTextDrag } from '../src/pcb/modules/pcb-text-selection.js';
 import { getPropertyEditor } from '../src/pcb/modules/property-editors.js';
+import { clearanceOverlayState, getBoardShapeClearance } from '../src/pcb/modules/clearance-overlay.js';
 import { attachPropertyPanelHarness } from './helpers/property-panel-controls.mjs';
 
 globalThis.window = { addEventListener() {} };
-globalThis.document = { getElementById: () => null, querySelector: () => null };
+function svgElement() {
+    return {
+        children: [], parentNode: null, dataset: {}, attributes: new Map(), style: {},
+        setAttribute(name, value) { this.attributes.set(name, String(value)); },
+        getAttribute(name) { return this.attributes.get(name) ?? null; },
+        appendChild(child) { child.parentNode = this; this.children.push(child); },
+        removeChild(child) { this.children.splice(this.children.indexOf(child), 1); child.parentNode = null; },
+    };
+}
+globalThis.document = { getElementById: () => null, querySelector: () => null, createElementNS: () => svgElement() };
 const { default: PCBApp } = await import('../src/ui/PCBApp.js');
+
+function textClearanceSnapshot(app, text) {
+    const cached = getBoardShapeClearance(app, text.id);
+    const style = JSON.parse(cached.style);
+    return {
+        content: style[13],
+        x: cached.points[0].x,
+        y: cached.points[0].y,
+        size: style[14],
+        strokeWidth: style[15],
+        rotation: style[16],
+        layer: style[1],
+    };
+}
+
+function authoredTextSnapshot(text) {
+    return {
+        content: text.content,
+        x: text.x,
+        y: text.y,
+        size: text.size,
+        strokeWidth: text.strokeWidth,
+        rotation: text.rotation,
+        layer: text.layer,
+    };
+}
 
 function fixture(options = {}) {
     const text = createPcbText({ id: 'label', content: 'R12', x: Math.PI, y: -Math.E,
@@ -20,18 +56,22 @@ function fixture(options = {}) {
     const pcbDocument = new PcbDocument();
     pcbDocument.texts.set(text.id, text);
     const renders = [];
-    const clearances = [];
+    const clearanceOverlay = svgElement();
+    const textLayer = svgElement();
     const app = {
         pcbDocument, history: new CommandHistory(),
         setPropertiesTitle() {}, layerLabel: layer => layer, _insertInlineTextSymbol: () => false,
         _bindStrokeTextProps: PCBApp.prototype._bindStrokeTextProps,
         refreshText: () => renders.push({ ...app.texts.get(text.id) }),
-        _refreshBoardShapeClearance: current => clearances.push({ ...current }),
+        getLayerGroup: id => id === 'clearance-overlay' ? clearanceOverlay : id === text.layer ? textLayer : null,
+        existingLayerGroups: () => new Map([['clearance-overlay', clearanceOverlay], [text.layer, textLayer]]),
+        getRoutingParams: () => ({ clearance: 0.25 }),
     };
+    clearanceOverlayState(app).clearancesVisible = true;
     attachPropertyPanelHarness(app, { controls: inputs });
     Object.defineProperty(app, 'texts', Object.getOwnPropertyDescriptor(PCBApp.prototype, 'texts'));
     PCBApp.prototype.showTextProperties.call(app, text);
-    return { app, text, inputs, renders, clearances };
+    return { app, text, inputs, renders };
 }
 
 for (const [id, field, intermediate, final] of [
@@ -39,7 +79,7 @@ for (const [id, field, intermediate, final] of [
     ['pcbPropTextLW', 'strokeWidth', 0.2, 0.2345678],
     ['pcbPropTextRot', 'rotation', 60, 90],
 ]) {
-    const { app, text, inputs, renders, clearances } = fixture();
+    const { app, text, inputs, renders } = fixture();
     try {
         const original = { ...text };
         const input = inputs.get(id);
@@ -55,12 +95,12 @@ for (const [id, field, intermediate, final] of [
         assert.ok(renders.slice(beforeCommitRenders).every(state => state[field] === final),
             'Commit must not repaint the temporary rollback');
         cancelPictureCopperRefresh(app);
-        assert.equal(clearances.at(-1)[field], final);
+        assert.equal(textClearanceSnapshot(app, text)[field], final);
         app.history.undo();
         assert.deepEqual(text, original, 'Undo must restore the pre-preview state at full precision');
         assert.deepEqual(renders.at(-1), original, 'Undo refreshes presentation from the model');
         cancelPictureCopperRefresh(app);
-        assert.deepEqual(clearances.at(-1), original, 'Undo refreshes derived clearance');
+        assert.deepEqual(textClearanceSnapshot(app, text), authoredTextSnapshot(original), 'Undo refreshes derived clearance');
         app.history.redo();
         assert.equal(text[field], final);
         assert.equal(renders.at(-1)[field], final);
@@ -144,11 +184,12 @@ for (const finish of ['commit', 'cancel', 'panel-change', 'deactivate', 'failure
     let mapCopies = 0;
     let clearanceRequests = 0;
     app.pcbDocument.texts[Symbol.iterator] = function () { mapCopies++; return this.entries(); };
-    app._pendingShapeClearances = new Map();
-    app._pendingShapeClearances.set = function (id, value) {
+    const pending = new Map();
+    pending.set = function (id, value) {
         clearanceRequests++;
         return Map.prototype.set.call(this, id, value);
     };
+    pictureRefreshState(app).pendingShapeClearances = pending;
     const input = inputs.get('pcbPropTextSize');
     try {
         for (let index = 0; index < 100; index++) input.fire('input', 2);

@@ -1,11 +1,12 @@
 import assert from 'node:assert/strict';
 import { PcbDocument } from '../src/core/PcbDocument.js';
-import { pictureRefreshHold, cancelPictureCopperRefresh, schedulePictureCopperRefresh } from '../src/pcb/modules/picture-refresh.js';
+import { pictureRefreshHold, cancelPictureCopperRefresh, schedulePictureCopperRefresh, setShapeCopperCutsDeferred } from '../src/pcb/modules/picture-refresh.js';
 import { Pad } from '../src/shapes/pad.js';
 import { AddPadCommand, RemovePadCommand, ModifyPadCommand, MovePadCommand } from '../src/pcb/modules/pad-commands.js';
 import { isPictureCopperRefreshPending } from '../src/pcb/modules/refresh-state.js';
 import { getDrcPresentation } from '../src/pcb/modules/drc-state.js';
 import { installFakeDom } from './helpers/fake-dom.mjs';
+import { clearanceOverlayState } from '../src/pcb/modules/clearance-overlay.js';
 
 installFakeDom();
 const originalSetTimeout = globalThis.setTimeout;
@@ -30,7 +31,7 @@ const app = {
 getDrcPresentation(app).shouldRun = () => true;
 const shape = { id: 'image', kind: 'image' };
 const halo = { parentNode: { removeChild(element) { element.parentNode = null; } } };
-app._boardShapeClearanceCache = new Map([[shape.id, { elements: [halo] }]]);
+clearanceOverlayState(app).boardShapeClearanceCache.set(shape.id, { elements: [halo] });
 try {
     globalThis.setTimeout = (callback, delay) => {
         assert.equal(delay, 100);
@@ -111,13 +112,13 @@ try {
     }
     let cutRefreshes = 0;
     app.updateCopperCuts = () => { cutRefreshes++; };
-    app._deferredShapeCopperCuts = true;
+    setShapeCopperCutsDeferred(app, true);
     schedulePictureCopperRefresh(app);
     schedulePictureCopperRefresh(app);
     assert.equal(cutRefreshes, 0, 'Restarting the debounce does not flush copper cuts');
     flush();
     assert.equal(cutRefreshes, 1);
-    app._deferredShapeCopperCuts = true;
+    setShapeCopperCutsDeferred(app, true);
     schedulePictureCopperRefresh(app);
     cancelPictureCopperRefresh(app);
     assert.equal(cutRefreshes, 2, 'An immediate layer change flushes outstanding copper-cut work');

@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { CommandHistory } from '../src/core/CommandHistory.js';
 import { isPictureCopperRefreshPending } from '../src/pcb/modules/refresh-state.js';
 import { getBoardShapeDrag } from '../src/pcb/modules/board-shapes.js';
+import { clearanceOverlayState, getBoardShapeClearance } from '../src/pcb/modules/clearance-overlay.js';
 globalThis.window = { addEventListener() {} };
 globalThis.document = {
     getElementById() { return null; },
@@ -16,6 +17,9 @@ const { startBoardShapeDrag, handleBoardShapeDrag, endBoardShapeDrag, cloneShape
 const { pictureShape } = await import('../src/shared/pcb/picture-raster.js');
 const { scheduleFillRefresh } = await import('../src/pcb/modules/fill-refresh.js');
 const { reconcileRatsnest } = await import('../src/pcb/modules/track-draw.js');
+const { loadClipper, boardShapeClearanceOutlines } = await import('../src/pcb/modules/copper-fill-geom.js');
+// The real clearance refresh runs during the drag, as in the app, where the geometry engine is loaded.
+await loadClipper();
 // Copper paths are Tracks, so the board-shape fixtures are copper areas and cut-outs.
 const fixtures = [
     [{ kind: 'circle', x: 0, y: 0, radius: 2 }, 'radius', { x: 2, y: 0 }],
@@ -48,33 +52,49 @@ try {
             const original = cloneShapeGeometry(shape);
             let halos = 0;
             let fills = 0;
-            const overlay = { removeChild(child) { child.parentNode = null; } };
+            const overlay = { children: [], appendChild(child) { child.parentNode = this; this.children.push(child); },
+                removeChild(child) { child.parentNode = null; this.children = this.children.filter(element => element !== child); } };
+            const shapeLayer = { style: {}, get firstChild() { return null; }, appendChild() {}, insertBefore() {} };
             const halo = { parentNode: overlay };
-            const expectedHaloParent = shape.kind === 'image' ? null : overlay;
             const topFill = { get firstChild() { fills++; return null; } };
             const bottomFill = { get firstChild() { return null; } };
-            const fillGroups = new Map([['top-fill', topFill], ['bottom-fill', bottomFill]]);
+            const fillGroups = new Map([['top-fill', topFill], ['bottom-fill', bottomFill],
+                ['clearance-overlay', overlay], [shape.layer, shapeLayer]]);
             const app = {
                 boardShapes: [shape], tracks: [], vias: [], placements: new Map(), texts: new Map(), copperFills: [],
                 history: new CommandHistory(), _shapeElements: new Map(),
-                _boardShapeClearanceCache: new Map([[shape.id, { elements: [halo] }]]),
                 viewport: { scale: 10, snapToGrid: false, setCrosshair() {}, hideCrosshair() {} },
-                getLayerGroup() { return null; },
+                getLayerGroup(id) {
+                    if (id === 'clearance-overlay' && new Error().stack.includes('refreshBoardShapeClearance')
+                        && !isPictureCopperRefreshPending(this)) halos++;
+                    return fillGroups.get(id) || null;
+                },
                 existingLayerGroups() { return fillGroups; },
                 snapToGrid(point) { return point; }, _snapActive() { return false; },
                 refreshFills() { return scheduleFillRefresh(this); },
-                _refreshBoardShapeClearance() { if (!isPictureCopperRefreshPending(this)) halos++; },
+                getRoutingParams() { return { clearance: 0.25 }; },
                 refreshClearanceHalos() { halos++; },
                 updateRatsnest(options) { reconcileRatsnest(this, options); },
             };
+            clearanceOverlayState(app).clearancesVisible = true;
+            clearanceOverlayState(app).boardShapeClearanceCache.set(shape.id, { elements: [halo] });
+            const realOutlines = boardShapeClearanceOutlines(shape, 0.25).length;
+            const assertClearanceVisible = message => {
+                if (shape.kind === 'image') {
+                    assert.equal(halo.parentNode, null, message);
+                } else if (halo.parentNode !== overlay) {
+                    // Refreshed live: the shape shows exactly its real clearance (none for a cut-out).
+                    const elements = getBoardShapeClearance(app, shape.id).elements;
+                    assert.equal(elements.length, realOutlines, message);
+                    assert.ok(elements.every(element => element.parentNode === overlay), message);
+                }
+            };
             assert.equal(startBoardShapeDrag(app, shape, start, handle), true);
-            assert.equal(halo.parentNode, expectedHaloParent,
-                `${shape.kind}: handle press defers image clearance but retains ordinary shape clearance`);
+            assertClearanceVisible(`${shape.kind}: handle press defers image clearance but retains ordinary shape clearance`);
             for (const delta of [1, 2, 3]) {
                 handleBoardShapeDrag(app, { x: start.x + delta, y: start.y + delta });
                 flush();
-                assert.equal(halo.parentNode, expectedHaloParent,
-                    `${shape.kind}: clearance visibility is preserved throughout the drag`);
+                assertClearanceVisible(`${shape.kind}: clearance visibility is preserved throughout the drag`);
                 assert.equal(isPictureCopperRefreshPending(app), true);
                 assert.equal(timers.size, 0, 'No timer runs during a held handle drag');
                 assert.equal(halos, 0);

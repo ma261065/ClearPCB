@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { PcbDocument } from '../src/core/PcbDocument.js';
 import { pictureShape } from '../src/shared/pcb/picture-raster.js';
 import { getHoveredBoardShape } from '../src/pcb/modules/board-shape-state.js';
+import { clearanceOverlayState, getBoardShapeClearance } from '../src/pcb/modules/clearance-overlay.js';
 
 const element = () => ({
     children: [], parentNode: null, style: {}, attributes: new Map(),
@@ -24,13 +25,13 @@ const overlay = element();
 const pcbDocument = new PcbDocument();
 pcbDocument.boardShapes.push(image);
 const app = { pcbDocument, boardShapes: pcbDocument.boardShapes, placements: new Map(), tracks: [], vias: [], texts: new Map(),
-    _shapeElements: new Map(), _boardShapeClearanceCache: new Map(), viewport: { scale: 10 },
+    _shapeElements: new Map(), viewport: { scale: 10 },
     getLayerGroup(id) { return id === 'top-copper' ? layer : null; } };
 setPcbSelection(app, [{ kind: 'shape', object: image }]);
 setBoardShapeHover(app, image);
 const halo = element();
 overlay.appendChild(halo);
-app._boardShapeClearanceCache.set(image.id, { elements: [halo] });
+clearanceOverlayState(app).boardShapeClearanceCache.set(image.id, { elements: [halo] });
 renderBoardShape(app, image, { liveDrag: true });
 assert.equal(getHoveredBoardShape(app), image, 'Normal redraw preserves hover');
 assert.equal(overlay.children.length, 1, 'Normal redraw preserves the cached halo');
@@ -41,7 +42,7 @@ assert.equal(app.boardShapes.length, 0);
 assert.equal(app.boardShapes, pcbDocument.boardShapes, 'Deletion retains the canonical model array');
 assert.equal(layer.children.length, 0);
 assert.equal(overlay.children.length, 0);
-assert.equal(app._boardShapeClearanceCache.has(image.id), false);
+assert.equal(getBoardShapeClearance(app, image.id), undefined);
 assert.equal(getHoveredBoardShape(app), null);
 assert.equal(getPcbSelectionEntries(app).length, 0);
 setBoardShapeHover(app, null);

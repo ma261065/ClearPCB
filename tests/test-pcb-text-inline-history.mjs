@@ -10,6 +10,7 @@ import { setPcbSelection, getPcbSelection } from '../src/pcb/modules/selection-r
 import { activeTextInlineEdit } from '../src/pcb/modules/text-inline-edit.js';
 import { setPcbInteraction } from '../src/pcb/modules/pcb-interactions.js';
 import { getTextElement, renderText } from '../src/pcb/modules/pcb-text-render.js';
+import { clearanceOverlayState, getBoardShapeClearance } from '../src/pcb/modules/clearance-overlay.js';
 
 globalThis.window = { addEventListener() {} };
 const svgElement = () => ({
@@ -27,12 +28,38 @@ globalThis.document = {
 };
 const { default: PCBApp } = await import('../src/ui/PCBApp.js');
 
+function textClearanceSnapshot(app, text) {
+    const cached = getBoardShapeClearance(app, text.id);
+    const style = JSON.parse(cached.style);
+    return {
+        content: style[13],
+        x: cached.points[0].x,
+        y: cached.points[0].y,
+        size: style[14],
+        strokeWidth: style[15],
+        rotation: style[16],
+        layer: style[1],
+    };
+}
+
+function authoredTextSnapshot(text) {
+    return {
+        content: text.content,
+        x: text.x,
+        y: text.y,
+        size: text.size,
+        strokeWidth: text.strokeWidth,
+        rotation: text.rotation,
+        layer: text.layer,
+    };
+}
+
 function fixture({ isNew = false, content = 'Original' } = {}) {
     const text = createPcbText({ id: 'label', content: isNew ? '' : content,
         x: Math.PI, y: -Math.E, size: 1.234567, strokeWidth: 0.123456, rotation: 37.123456 });
     const original = { ...text };
     const pcbDocument = new PcbDocument();
-    const renders = [], removals = [], clearances = [], historyChanges = [];
+    const renders = [], removals = [], historyChanges = [];
     let destroyed = 0, inputRemoved = 0, cleared = 0, exited = 0;
     // The text's own layer records what the real renderer draws and removes there.
     const textLayer = {
@@ -41,14 +68,17 @@ function fixture({ isNew = false, content = 'Original' } = {}) {
         removeChild(child) { this.children = this.children.filter(item => item !== child); child.parentNode = null; removals.push(text.id); },
     };
     const otherLayer = svgElement();
+    const clearanceLayer = svgElement();
     const app = {
         pcbDocument, history: new CommandHistory({ onChanged: change => historyChanges.push(change) }),
-        getLayerGroup: id => id === text.layer ? textLayer : otherLayer,
+        getLayerGroup: id => id === 'clearance-overlay' ? clearanceLayer : id === text.layer ? textLayer : otherLayer,
+        existingLayerGroups: () => new Map([['clearance-overlay', clearanceLayer], [text.layer, textLayer]]),
+        getRoutingParams: () => ({ clearance: 0.25 }),
         refreshText(id) { const current = this.texts.get(id); if (current) renders.push({ ...current }); },
-        _refreshBoardShapeClearance: current => clearances.push({ ...current }),
         clearProperties: () => cleared++, setActiveRibbonTab: tab => { if (tab === 'pcb-home') exited++; },
         selectText: PCBApp.prototype.selectText,
     };
+    clearanceOverlayState(app).clearancesVisible = true;
     Object.defineProperty(app, 'texts', Object.getOwnPropertyDescriptor(PCBApp.prototype, 'texts'));
     if (isNew) app.history.execute(new AddTextCommand(app, text));
     else {
@@ -81,7 +111,7 @@ function fixture({ isNew = false, content = 'Original' } = {}) {
         assert.deepEqual(getPcbSelection(app), []);
     };
     const drawn = () => getTextElement(app, text.id);
-    return { app, text, original, renders, removals, drawn, textLayer, clearances, historyChanges, preview, finish, verifyTeardown };
+    return { app, text, original, renders, removals, drawn, textLayer, historyChanges, preview, finish, verifyTeardown };
 }
 
 for (const isNew of [false, true]) {
@@ -94,11 +124,11 @@ for (const isNew of [false, true]) {
         assert.equal(f.app.history.undoStack.length, isNew ? 2 : 1);
         f.verifyTeardown();
         cancelPictureCopperRefresh(f.app);
-        assert.equal(f.clearances.at(-1).content, '  Edited label  ');
+        assert.equal(textClearanceSnapshot(f.app, f.text).content, '  Edited label  ');
         f.app.history.undo();
         assert.deepEqual(f.text, f.original, 'Undo restores exact content and leaves precise geometry untouched');
         cancelPictureCopperRefresh(f.app);
-        assert.deepEqual(f.clearances.at(-1), f.original);
+        assert.deepEqual(textClearanceSnapshot(f.app, f.text), authoredTextSnapshot(f.original));
         f.app.history.redo();
         assert.equal(f.text.content, '  Edited label  ', 'Standalone text retains intentional whitespace');
     } finally { cancelPictureCopperRefresh(f.app); }

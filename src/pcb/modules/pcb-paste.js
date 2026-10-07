@@ -30,6 +30,7 @@ import { showPcbSelectionProperties } from './selection-interaction.js';
 import { areDragOverlaysDeferred, isBoardViewRefreshSuspended, isFillRefreshPending, isFillRefreshSuspended, setBoardViewRefreshSuspended, setDragOverlaysDeferred, setFillRefreshPending, setFillRefreshSuspended, refreshBoardView } from './refresh-state.js';
 import { isEditorActive } from './pcb-editor-api.js';
 import { forgetBoardShapeClearance, getBoardShapeClearance } from './clearance-overlay.js';
+import { areShapeCopperCutsDeferred, setShapeCopperCutsDeferred } from './picture-refresh.js';
 import { getPcbInteraction, setPcbInteraction } from './pcb-interactions.js';
 
 const kinds = ['tracks', 'vias', 'pads', 'shapes', 'texts', 'fills'];
@@ -238,7 +239,7 @@ export function beginPcbPaste(app, source, { select = false } = {}) {
             pads: [...model.pads, ...payload.pads], texts: new Map([...model.texts, ...payload.texts.map(text => [text.id, text])]),
             boardShapes: [...model.boardShapes, ...payload.shapes, ...payload.fills],
         },
-        flags: { _deferredShapeCopperCuts: app._deferredShapeCopperCuts },
+        flags: { deferredShapeCopperCuts: areShapeCopperCutsDeferred(app) },
         suspensions: { overlays: areDragOverlaysDeferred(app), fill: isFillRefreshSuspended(app),
             boardView: isBoardViewRefreshSuspended(app) },
         fillPending: isFillRefreshPending(app),
@@ -298,7 +299,7 @@ function release(app, state) {
     setDragOverlaysDeferred(app, state.suspensions.overlays);
     setFillRefreshSuspended(app, state.suspensions.fill);
     setBoardViewRefreshSuspended(app, state.suspensions.boardView);
-    Object.assign(app, state.flags);
+    setShapeCopperCutsDeferred(app, state.flags.deferredShapeCopperCuts);
     // Pours owed before the paste, or requested during it, remain owed.
     setFillRefreshPending(app, state.fillPending || pendingFill);
     updateCursorForTool(app);

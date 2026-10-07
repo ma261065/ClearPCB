@@ -7,6 +7,7 @@ import { updatePlacementPadPositions } from '../src/core/pcb-placement-geometry.
 import { createComponentSelectionAdapter, getComponentDrag, handleComponentDrag, scheduleComponentDragUpdate } from '../src/pcb/modules/component-selection.js';
 import { getSelectionInteraction, setSelectionInteraction } from '../src/pcb/modules/selection-interaction.js';
 import { areDragOverlaysDeferred } from '../src/pcb/modules/refresh-state.js';
+import { clearanceOverlayState } from '../src/pcb/modules/clearance-overlay.js';
 
 const frames = new Map();
 let frameId = 0;
@@ -47,7 +48,6 @@ function fixture(saved = true) {
         get tracks() { return Object.getOwnPropertyDescriptor(PCBApp.prototype, 'tracks').get.call(this); },
         placements: new Map([['part', placement]]), history: new CommandHistory(),
         _active: true, currentTool: 'select',
-        _clearancesVisible: true, _padHaloGroups: new Map([['part', padHalo]]),
         _layerGroups: new Map([['clearance-overlay', overlay]]),
         viewport: { svg: { style: {} }, snapToGrid: false, gridVisible: true, hideCrosshair() {} },
         getLayerGroup: id => id === 'clearance-overlay' ? overlay : null,
@@ -62,6 +62,10 @@ function fixture(saved = true) {
             trackHalo.style.display = '';
         },
     };
+    Object.assign(clearanceOverlayState(app), {
+        clearancesVisible: true,
+        padHaloGroups: new Map([['part', padHalo]]),
+    });
     for (const method of ['snapToGrid', 'snapToGrid', 'handleKeyDown', '_clearCursorCrosshair']) {
         app[method] = PCBApp.prototype[method];
     }

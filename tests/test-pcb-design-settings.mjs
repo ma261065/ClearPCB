@@ -7,6 +7,7 @@ import { installFakeDom } from './helpers/fake-dom.mjs';
 import { showTrackDrawProperties } from '../src/pcb/modules/track-draw.js';
 import { showViaToolProperties } from '../src/pcb/modules/via-tool.js';
 import { setBoardViewPanel } from '../src/pcb/modules/refresh-state.js';
+import { clearanceOverlayState } from '../src/pcb/modules/clearance-overlay.js';
 
 assert.equal(typeof document, 'undefined');
 const model = new PcbDesignSettings();
@@ -61,7 +62,7 @@ function fixture(prepareModel = () => {}) {
     app._markDirty = () => { changes.dirty++; };
     app.refreshFills = () => { changes.fills++; };
     app.showClearances = () => { changes.halos++; };
-    app._clearancesVisible = true;
+    clearanceOverlayState(app).clearancesVisible = true;
     setBoardViewPanel(app, { refresh() { changes.board3d++; } });
     bindPcbControls(app);
     const elements = new Map([...ids, 'pcbRouteUnits', 'pcbRouterMode'].map(id => [id, document.getElementById(id)]));

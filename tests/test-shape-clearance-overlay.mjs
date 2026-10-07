@@ -6,6 +6,13 @@ import { getBoardShapeDrag } from '../src/pcb/modules/board-shapes.js';
 import { setPcbInteraction } from '../src/pcb/modules/pcb-interactions.js';
 import { getDrcPresentation } from '../src/pcb/modules/drc-state.js';
 import { getNetTooltipElement, updateNetTooltip } from '../src/pcb/modules/net-tooltip.js';
+import {
+    clearanceOverlayState,
+    getBoardShapeClearance,
+    refreshBoardShapeClearance,
+    showClearances as showClearanceOverlay,
+} from '../src/pcb/modules/clearance-overlay.js';
+import { isShapeClearancePending, pictureRefreshState } from '../src/pcb/modules/picture-refresh.js';
 
 globalThis.window = { addEventListener() {} };
 const element = () => ({
@@ -45,6 +52,24 @@ const { default: PCBApp } = await import('../src/ui/PCBApp.js');
 const { boardShapeClearanceOutlines } = await import('../src/pcb/modules/copper-fill-geom.js');
 const { resolveBoardShapeGeometry, boardShapeRemovalPathD } = await import('../src/shared/pcb/board-shape-geometry.js');
 const { getBoardShapeAnchors, renderBoardShape } = await import('../src/pcb/modules/board-shapes.js');
+
+let outlineCalls = 0;
+let textOutlineCalls = 0;
+
+function wrapClearanceCounter(targetApp, countShape = () => outlineCalls++, countText = () => textOutlineCalls++) {
+    const cache = clearanceOverlayState(targetApp).boardShapeClearanceCache;
+    const set = cache.set.bind(cache);
+    cache.set = (id, value) => {
+        if (value?.elements?.length) {
+            const shape = targetApp.texts?.get(id) || targetApp.boardShapes?.find(item => item.id === id);
+            if (typeof shape?.content === 'string') countText();
+            else countShape();
+        }
+        return set(id, value);
+    };
+    return cache;
+}
+
 for (const filled of [false, true]) {
     const polygon = { id: 'acute', kind: 'polygon', layer: 'top-copper', lineWidth: 2, cornerRadius: 0, filled,
         points: [{ x: 0, y: 0 }, { x: 0, y: 20 }, { x: 10, y: 20 }] };
@@ -90,7 +115,7 @@ for (const shape of [{ ...circle, layer: 'top-silk' }, { ...circle, copperMode: 
     const overlay = element();
     const halo = element();
     overlay.appendChild(halo);
-    const app = { viewport: {}, _active: true, _clearancesVisible: true,
+    const app = { viewport: {}, _active: true,
         _layerGroups: new Map([['clearance-overlay', overlay]]), existingLayerGroups() { return this._layerGroups; } };
     const nativeSetTimeout = globalThis.setTimeout;
     globalThis.setTimeout = callback => { callback(); return 1; };
@@ -105,18 +130,9 @@ for (const shape of [{ ...circle, layer: 'top-silk' }, { ...circle, copperMode: 
     assert.equal(halo.removals || 0, 0, 'Panning never detaches clearance lines');
     assert.equal(getNetTooltipElement(app).style.display, 'none', 'Panning still dismisses the net tooltip');
 }
-// The real clearance methods, run against this test's editor. Outline computations are
-// counted through the _computeClearanceOutlines seam to check the halo cache.
+// The real clearance methods, run against this test's editor.
 const showClearances = PCBApp.prototype.showClearances;
 const refreshVia = PCBApp.prototype._refreshViaClearance;
-let outlineCalls = 0;
-let textOutlineCalls = 0;
-const refreshShape = PCBApp.prototype._refreshBoardShapeClearance;
-function computeClearanceOutlines(shape, clearance) {
-    if (typeof shape.content === 'string') textOutlineCalls++;
-    else outlineCalls++;
-    return PCBApp.prototype._computeClearanceOutlines.call(this, shape, clearance);
-}
 const toggle = PCBApp.prototype._onOverlayVisibilityChanged;
 const groups = new Map(['top-copper', 'bottom-copper', 'hole', 'vias', 'clearance-overlay'].map(id => [id, element()]));
 const pcbDocument = new PcbDocument();
@@ -126,8 +142,9 @@ const app = {
     placements: new Map(), boardShapes: pcbDocument.boardShapes,
     _layerGroups: groups, existingLayerGroups: () => groups, getLayerGroup(id) { return groups.get(id); },
     getRoutingParams() { return { clearance, trackWidth: 0.2 }; }, showClearances, _refreshViaClearance: refreshVia,
-    _refreshBoardShapeClearance: refreshShape, _computeClearanceOutlines: computeClearanceOutlines, _shapeElements: new Map(),
+    _shapeElements: new Map(),
 };
+wrapClearanceCounter(app);
 setPictureCopperRefreshPending(app, true);
 for (const copperMode of ['remove-copper', 'remove-solder-mask', 'remove-copper-mask', 'add']) {
     const shape = { ...circle, id: `pending-${copperMode}`, copperMode };
@@ -150,12 +167,14 @@ assert.equal(overlay.children.filter(child => child.attributes.get('data-shape-i
     'Refreshing replaces old shape halos');
 console.log('PASS shape clearance geometry, segment widths, hollow contours, eye toggling, net tags, and layer visibility');
 const circleHalo = overlay.children.find(child => child.attributes.get('data-shape-id') === 'circle');
+const circleCacheBeforeMove = getBoardShapeClearance(app, circle.id);
 const callsBeforeMove = outlineCalls;
 circle.x += 5;
 circle.y += 3;
 renderBoardShape(app, circle, { liveDrag: true });
 assert.equal(circleHalo.attributes.get('transform'), 'translate(5 3)');
 assert.equal(outlineCalls, callsBeforeMove, 'Translation reuses clearance geometry');
+assert.equal(getBoardShapeClearance(app, circle.id), circleCacheBeforeMove, 'Translation reuses clearance geometry');
 circle.x -= 5;
 circle.y -= 3;
 renderBoardShape(app, circle);
@@ -163,6 +182,7 @@ assert.equal(circleHalo.attributes.get('transform'), 'translate(0 0)', 'Cancel/u
 circle.radius = 3;
 renderBoardShape(app, circle, { liveDrag: true });
 assert.equal(outlineCalls, callsBeforeMove + 1, 'Resize recalculates only the edited shape');
+assert.notEqual(getBoardShapeClearance(app, circle.id), circleCacheBeforeMove, 'Resize recalculates only the edited shape');
 assert.ok(!overlay.children.includes(circleHalo));
 console.log('PASS live shape clearance translation, resize and cancellation');
 const { pictureShape } = await import('../src/shared/pcb/picture-raster.js');
@@ -171,22 +191,29 @@ const image = { ...pictureShape({ width: 3, height: 1, rectangles: [{ x: 0, y: 0
 app.boardShapes.push(image);
 renderBoardShape(app, image);
 const imageHalo = overlay.children.find(child => child.attributes.get('data-shape-id') === 'image');
+const imageCacheBeforeMove = getBoardShapeClearance(app, image.id);
 const callsBeforeImageMove = outlineCalls;
 image.points = image.points.map(point => ({ x: point.x + 7, y: point.y - 2 }));
 renderBoardShape(app, image, { liveDrag: true });
 assert.equal(imageHalo.attributes.get('transform'), 'translate(7 -2)');
 assert.equal(outlineCalls, callsBeforeImageMove, 'Unassigned image drags reuse the clearance outline');
+assert.equal(getBoardShapeClearance(app, image.id), imageCacheBeforeMove, 'Unassigned image drags reuse the clearance outline');
 showClearances.call(app, true);
 assert.equal(outlineCalls, callsBeforeImageMove, 'Global refresh reuses unchanged shape outlines');
+assert.equal(getBoardShapeClearance(app, image.id), imageCacheBeforeMove, 'Global refresh reuses unchanged shape outlines');
 assert.ok(overlay.children.includes(imageHalo), 'Global refresh reattaches cached halo elements');
 image.points = image.points.map(point => ({ x: point.x * 1.1, y: point.y * 1.1 }));
 showClearances.call(app, true);
+const imageCacheAfterResize = getBoardShapeClearance(app, image.id);
 assert.equal(outlineCalls, callsBeforeImageMove + 1, 'Only the resized image is recalculated');
+assert.notEqual(imageCacheAfterResize, imageCacheBeforeMove, 'Only the resized image is recalculated');
 showClearances.call(app, true);
 assert.equal(outlineCalls, callsBeforeImageMove + 1, 'Repeated reconciliation does not repeat image offset calculations');
+assert.equal(getBoardShapeClearance(app, image.id), imageCacheAfterResize, 'Repeated reconciliation does not repeat image offset calculations');
+const cacheBeforeHide = getBoardShapeClearance(app, image.id);
 const callsBeforeHide = outlineCalls;
 setPictureCopperRefreshPending(app, true);
-app._pendingShapeClearances = new Map([[image.id, image]]);
+pictureRefreshState(app).pendingShapeClearances = new Map([[image.id, image]]);
 const heldHalo = overlay.children.find(child => child.attributes.get('data-shape-id') === 'image');
 const heldPoints = heldHalo.attributes.get('points');
 const heldTransform = heldHalo.attributes.get('transform');
@@ -194,17 +221,20 @@ image.points = image.points.map(point => ({ x: -point.y, y: point.x }));
 renderBoardShape(app, image);
 showClearances.call(app, true);
 assert.equal(outlineCalls, callsBeforeHide, 'Other render paths cannot bypass the pending debounce');
+assert.equal(getBoardShapeClearance(app, image.id), cacheBeforeHide, 'Other render paths cannot bypass the pending debounce');
 assert.ok(!overlay.children.includes(heldHalo), 'Pending edits hide stale image halos');
 assert.equal(heldHalo.attributes.get('points'), heldPoints);
 assert.equal(heldHalo.attributes.get('transform'), heldTransform, 'Halo remains at its pre-edit orientation');
 setPictureCopperRefreshPending(app, false);
 showClearances.call(app, true);
 assert.equal(outlineCalls, callsBeforeHide + 1, 'Halo catches up once the debounce expires');
+assert.notEqual(getBoardShapeClearance(app, image.id), cacheBeforeHide, 'Halo catches up once the debounce expires');
 assert.ok(overlay.children.some(child => child.attributes.get('data-shape-id') === 'image'),
     'Updated image halo becomes visible after the debounce');
 toggle.call(app, 'clearance', false);
 renderBoardShape(app, image, { liveDrag: true });
 assert.equal(outlineCalls, callsBeforeHide + 1, 'Hidden clearance does no geometry work');
+assert.equal(overlay.children.length, 0, 'Hidden clearance does no geometry work');
 assert.equal(overlay.children.length, 0);
 console.log('PASS unassigned image clearance follows dragging without recomputing outlines');
 const text = { id: 'text-clearance', content: 'O', x: 3, y: 4, size: 5, strokeWidth: 0.2, rotation: 0, layer: 'top-copper' };
@@ -214,10 +244,10 @@ const textHalos = () => overlay.children.filter(child => child.attributes.get('d
 assert.ok(textHalos().length >= 2, 'Text clearance follows glyphs and preserves holes');
 const originalTextHalo = textHalos()[0];
 text.x += 2;
-refreshShape.call(app, text);
+refreshBoardShapeClearance(app, text);
 assert.equal(originalTextHalo.attributes.get('transform'), 'translate(2 0)');
 setPictureCopperRefreshPending(app, true);
-app._pendingShapeClearances = new Map([[text.id, text]]);
+pictureRefreshState(app).pendingShapeClearances = new Map([[text.id, text]]);
 text.rotation = 90;
 showClearances.call(app, true);
 assert.equal(textHalos().length, 0, 'Text clearance is hidden while the shared refresh is pending');
@@ -228,7 +258,7 @@ assert.ok(!overlay.children.includes(originalTextHalo), 'Rotation invalidates ca
 app.texts.delete(text.id);
 showClearances.call(app, true);
 assert.equal(textHalos().length, 0);
-assert.equal(app._boardShapeClearanceCache.has(text.id), false);
+assert.equal(getBoardShapeClearance(app, text.id), undefined);
 console.log('PASS text clearance rendering, translation cache, deferred rotation and deletion');
 const { schedulePictureCopperRefresh } = await import('../src/pcb/modules/picture-refresh.js');
 const { startBoardShapeDrag, handleBoardShapeDrag, endBoardShapeDrag } = await import('../src/pcb/modules/board-shapes.js');
@@ -238,18 +268,19 @@ let deferred;
 try {
     globalThis.setTimeout = callback => { deferred = callback; return 1; };
     globalThis.clearTimeout = () => { deferred = null; };
-    app._pendingShapeClearances = null;
+    pictureRefreshState(app).pendingShapeClearances = null;
     app.refreshFills = () => false;
     app.updateRatsnest = options => {
         assert.deepEqual(options, { skipFillRefresh: true }, 'No clearance flags are needed for connectivity');
     };
     app.texts.set(text.id, text);
-    app.refreshText = id => refreshShape.call(app, app.texts.get(id));
+    app.refreshText = id => refreshBoardShapeClearance(app, app.texts.get(id));
     app.viewport = { svg: { style: {} }, hideCrosshair() {} };
     const commands = [];
     app.history = { execute(command) { commands.push(command); command.execute(); } };
-    refreshShape.call(app, text);
+    refreshBoardShapeClearance(app, text);
     const cachedTextHalos = textHalos().map(child => ({ child, removals: child.removals || 0 }));
+    const textCacheBeforeDrop = getBoardShapeClearance(app, text.id);
     const calculationsBeforeDrop = textOutlineCalls;
     const startPos = { x: text.x, y: text.y };
     setPcbInteraction(app, '_textDrag', { textId: text.id, startPos, previousDeferDragOverlays: false });
@@ -259,6 +290,7 @@ try {
     app.refreshText(text.id);
     const assertTextHaloRetained = transform => {
         assert.equal(textOutlineCalls, calculationsBeforeDrop, 'Text movement never recalculates clearance geometry');
+        assert.equal(getBoardShapeClearance(app, text.id), textCacheBeforeDrop, 'Text movement never recalculates clearance geometry');
         for (const { child, removals } of cachedTextHalos) {
             assert.equal(child.parentNode, overlay, 'Moved text halo remains attached');
             assert.equal(child.removals || 0, removals, 'Moved text halo is never temporarily removed');
@@ -267,7 +299,7 @@ try {
     };
     endTextDrag(app);
     assert.equal(commands.length, 1);
-    assert.equal(app._pendingShapeClearances?.has(text.id) || false, false, 'Drop does not invalidate translated text clearance');
+    assert.equal(isShapeClearancePending(app, text), false, 'Drop does not invalidate translated text clearance');
     assertTextHaloRetained('translate(7 -2)');
     commands[0].undo();
     assertTextHaloRetained('translate(0 0)');
@@ -295,7 +327,7 @@ try {
                 ...(['rect', 'polygon'].includes(fixture.kind) ? { filled: true } : {}) };
             app.boardShapes.push(shape);
             renderBoardShape(app, shape);
-            const cached = app._boardShapeClearanceCache.get(shape.id);
+            const cached = getBoardShapeClearance(app, shape.id);
             assert.ok(cached.elements.length, `${shape.kind} has a visible halo`);
             const haloStates = cached.elements.map(child => ({ child, removals: child.removals || 0 }));
             const outlineCount = outlineCalls;
@@ -309,7 +341,7 @@ try {
             handleBoardShapeDrag(app, { x: 1007, y: 998 });
             const assertTranslatedHalo = transform => {
                 assert.equal(outlineCalls, outlineCount, `${shape.kind} translation does not recalculate clearance`);
-                assert.equal(app._boardShapeClearanceCache.get(shape.id), cached);
+                assert.equal(getBoardShapeClearance(app, shape.id), cached, `${shape.kind} translation does not recalculate clearance`);
                 for (const { child, removals } of haloStates) {
                     assert.equal(child.parentNode, overlay);
                     assert.equal(child.removals || 0, removals, `${shape.kind} never detaches its halo`);
@@ -344,9 +376,9 @@ try {
         app.boardShapes.push(shape);
         renderBoardShape(app, shape);
         const saved = structuredClone(shape);
-        const cached = app._boardShapeClearanceCache.get(shape.id);
+        const cached = getBoardShapeClearance(app, shape.id);
         const beforePoints = cached.elements.map(child => child.getAttribute('points'));
-        const stationary = [...app._boardShapeClearanceCache.get(circle.id).elements];
+        const stationary = [...getBoardShapeClearance(app, circle.id).elements];
         const handle = mode === 'vertex' ? 0 : mode === 'midpoint' ? 'mid:0' : mode === 'bulge' ? 'bulge:0' : null;
         const start = mode === 'segment' || mode === 'midpoint' ? { x: 35, y: 40 }
             : mode === 'bulge' ? getBoardShapeAnchors(shape).find(anchor => anchor.id === handle) : shape.points[0];
@@ -354,7 +386,7 @@ try {
         assert.ok(cached.elements.every(child => child.parentNode === overlay), `${mode}: pickup keeps clearance visible`);
         handleBoardShapeDrag(app, { x: start.x + 2, y: start.y + 3 });
         const preview = getBoardShapeDrag(app).shape;
-        const actual = () => app._boardShapeClearanceCache.get(shape.id).elements;
+        const actual = () => getBoardShapeClearance(app, shape.id).elements;
         const expected = boardShapeClearanceOutlines(preview, clearance)
             .map(contour => contour.map(point => `${point.x},${point.y}`).join(' '));
         assert.ok(actual().length && actual().every(child => child.parentNode === overlay), `${mode}: live clearance is visible`);
@@ -362,12 +394,12 @@ try {
         assert.notDeepEqual(expected, beforePoints, `${mode}: outline changes with the edit`);
         assert.deepEqual(shape, saved, 'clearance does not mutate the authored line');
         assert.ok(stationary.every(child => child.parentNode === overlay), 'unrelated outlines stay attached');
-        app._clearancesVisible = false;
+        clearanceOverlayState(app).clearancesVisible = false;
         while (overlay.firstChild) overlay.removeChild(overlay.firstChild);
         handleBoardShapeDrag(app, { x: start.x + 3, y: start.y + 4 });
         assert.equal(overlay.children.length, 0, 'editing cannot resurrect disabled clearance');
-        app._clearancesVisible = true;
-        refreshShape.call(app, getBoardShapeDrag(app).shape);
+        clearanceOverlayState(app).clearancesVisible = true;
+        refreshBoardShapeClearance(app, getBoardShapeDrag(app).shape);
         endBoardShapeDrag(app, commit);
         assert.ok(actual().length && actual().every(child => child.parentNode === overlay), 'drop/cancel retains clearance');
         if (!commit) assert.deepEqual(actual().map(child => child.getAttribute('points')), beforePoints);
@@ -386,16 +418,18 @@ try {
     overlay.appendChild(trackHalo);
     const untouched = overlay.children.filter(child => child.attributes.get('data-shape-id') !== image.id)
         .map(child => ({ child, removals: child.removals || 0 }));
+    const imageCacheBeforeEdit = getBoardShapeClearance(app, image.id);
     const beforeEdit = outlineCalls;
     schedulePictureCopperRefresh(app, image);
     image.points = image.points.map(point => ({ x: point.x * 1.1, y: point.y * 1.1 }));
-    refreshShape.call(app, circle);
+    refreshBoardShapeClearance(app, circle);
     for (const { child, removals } of untouched) {
         assert.equal(child.parentNode, overlay, 'Unrelated halos remain visible during editing');
         assert.equal(child.removals || 0, removals);
     }
     deferred();
     assert.equal(outlineCalls, beforeEdit + 1, 'Only the edited image clearance is calculated');
+    assert.notEqual(getBoardShapeClearance(app, image.id), imageCacheBeforeEdit, 'Only the edited image clearance is calculated');
     for (const { child, removals } of untouched) {
         assert.equal(child.parentNode, overlay, 'Unrelated halos remain attached after release');
         assert.equal(child.removals || 0, removals, 'Unrelated halo DOM was never removed');
@@ -414,16 +448,18 @@ for (const [kind, filled] of [['line', false], ['polygon', false], ['polygon', t
                 ? [{ x: 0, y: 0 }, { x: 10, y: 0 }]
                 : [{ x: 0, y: 0 }, { x: 10, y: 0 }, { x: 10, y: 10 }, { x: 0, y: 10 }] };
         const layers = new Map([layer, 'clearance-overlay'].map(id => [id, element()]));
-        const curveApp = { _clearancesVisible: true, _shapeElements: new Map(), _layerGroups: layers, existingLayerGroups: () => layers,
-            getLayerGroup: id => layers.get(id), getRoutingParams: () => ({ clearance }),
-            _refreshBoardShapeClearance: refreshShape, _computeClearanceOutlines: computeClearanceOutlines };
-        const haloPoints = () => curveApp._boardShapeClearanceCache.get(shape.id).elements
+        const curveApp = { _shapeElements: new Map(), _layerGroups: layers, existingLayerGroups: () => layers,
+            getLayerGroup: id => layers.get(id), getRoutingParams: () => ({ clearance }) };
+        clearanceOverlayState(curveApp).clearancesVisible = true;
+        wrapClearanceCounter(curveApp);
+        const haloPoints = () => getBoardShapeClearance(curveApp, shape.id).elements
             .map(child => child.getAttribute('points'));
         renderBoardShape(curveApp, shape);
         for (const bulge of [0.65, -0.45, undefined, 0.2]) {
             const previousPoints = haloPoints();
-            const previousElements = [...curveApp._boardShapeClearanceCache.get(shape.id).elements];
-            const before = outlineCalls;
+            const previousElements = [...getBoardShapeClearance(curveApp, shape.id).elements];
+            const before = getBoardShapeClearance(curveApp, shape.id);
+            const callsBeforeCurve = outlineCalls;
             if (bulge === undefined) delete shape.segmentBulges[0];
             else shape.segmentBulges[0] = bulge;
             const expected = boardShapeClearanceOutlines(shape, clearance)
@@ -431,17 +467,20 @@ for (const [kind, filled] of [['line', false], ['polygon', false], ['polygon', t
             assert.notDeepEqual(expected, previousPoints, 'Changing curvature changes physical clearance geometry');
             renderBoardShape(curveApp, shape, { liveDrag: true });
             assert.deepEqual(haloPoints(), expected, `${kind}/${layer}: clearance follows segment curvature changes`);
-            assert.equal(outlineCalls, before + 1, 'Curvature invalidates the cached outline exactly once');
+            assert.equal(outlineCalls, callsBeforeCurve + 1, 'Curvature invalidates the cached outline exactly once');
+            assert.notEqual(getBoardShapeClearance(curveApp, shape.id), before, 'Curvature invalidates the cached outline exactly once');
             assert.ok(previousElements.every(child => child.parentNode === null), 'Stale halo elements are removed');
+            const refreshed = getBoardShapeClearance(curveApp, shape.id);
             renderBoardShape(curveApp, shape);
-            assert.equal(outlineCalls, before + 1, 'Unchanged curvature retains the geometry cache');
+            assert.equal(outlineCalls, callsBeforeCurve + 1, 'Unchanged curvature retains the geometry cache');
+            assert.equal(getBoardShapeClearance(curveApp, shape.id), refreshed, 'Unchanged curvature retains the geometry cache');
         }
-        const cached = curveApp._boardShapeClearanceCache.get(shape.id);
+        const cached = getBoardShapeClearance(curveApp, shape.id);
         const beforeMove = outlineCalls;
         shape.points = shape.points.map(point => ({ x: point.x + 7, y: point.y - 2 }));
         renderBoardShape(curveApp, shape, { liveDrag: true });
         assert.equal(outlineCalls, beforeMove, 'Curved-shape translation still avoids clearance recalculation');
-        assert.equal(curveApp._boardShapeClearanceCache.get(shape.id), cached);
+        assert.equal(getBoardShapeClearance(curveApp, shape.id), cached, 'Curved-shape translation still avoids clearance recalculation');
         for (const child of cached.elements) {
             assert.equal(child.parentNode, layers.get('clearance-overlay'));
             assert.equal(child.getAttribute('transform'), 'translate(7 -2)');

@@ -8,17 +8,22 @@ import { isPcbPasteActive } from './pcb-paste.js';
  * The clearance overlay: a faint halo at the Clearance distance around every pad,
  * via, track, copper shape and copper text, drawn beneath the copper. Toggled from
  * the Design tab (showClearances); edits refresh only what changed (a dragged track,
- * a moved via or shape). The per-track and per-via halo caches are owned here, per
- * editor; the visibility flag, the board-shape halo cache and the pad halo groups
- * are still editor fields, read through the functions below by other modules.
+ * a moved via or shape). The per-editor overlay state is owned here.
  */
 
 const overlayStates = new WeakMap();
 
-/** Halo elements per track id, and shared via halos keyed by geometry. */
+/** Halo elements per track id, shared via halos keyed by geometry, and overlay view state. */
 function overlayState(app) {
     let state = overlayStates.get(app);
-    if (!state) overlayStates.set(app, state = { trackElements: new Map(), viaCache: new Map(), viaKeys: new Map() });
+    if (!state) overlayStates.set(app, state = {
+        trackElements: new Map(),
+        viaCache: new Map(),
+        viaKeys: new Map(),
+        clearancesVisible: false,
+        boardShapeClearanceCache: new Map(),
+        padHaloGroups: null,
+    });
     return state;
 }
 
@@ -29,22 +34,22 @@ export function clearanceOverlayState(app) {
 
 /** Whether the clearance overlay is showing. */
 export function areClearancesVisible(app) {
-    return !!app._clearancesVisible;
+    return !!overlayState(app).clearancesVisible;
 }
 
 /** Cached clearance halo of a board shape or copper text, if any. */
 export function getBoardShapeClearance(app, id) {
-    return app._boardShapeClearanceCache?.get(id);
+    return overlayState(app).boardShapeClearanceCache.get(id);
 }
 
 /** Forget a board shape's or text's cached halo (its element is the caller's to remove). */
 export function forgetBoardShapeClearance(app, id) {
-    app._boardShapeClearanceCache?.delete(id);
+    overlayState(app).boardShapeClearanceCache.delete(id);
 }
 
 /** The halo group that follows a component's pads during a move, if the overlay is on. */
 export function getPadHaloGroup(app, compId) {
-    return app._padHaloGroups?.get(compId);
+    return overlayState(app).padHaloGroups?.get(compId);
 }
 
 /**
@@ -67,28 +72,28 @@ export function showClearances(app, show, liveTrack = null) {
     const HALO_CLASS = 'debug-clearance';
     const OVERLAY_LAYER = 'clearance-overlay';
 
+    const state = overlayState(app);
     const overlay = app.getLayerGroup(OVERLAY_LAYER);
     if (liveTrack) {
-        for (const element of overlayState(app).trackElements.get(liveTrack.id) || []) element.remove();
-        overlayState(app).trackElements.delete(liveTrack.id);
+        for (const element of state.trackElements.get(liveTrack.id) || []) element.remove();
+        state.trackElements.delete(liveTrack.id);
     } else {
         while (overlay.firstChild) overlay.removeChild(overlay.firstChild);
-        overlayState(app).trackElements.clear();
-        overlayState(app).viaCache.clear();
-        overlayState(app).viaKeys.clear();
+        state.trackElements.clear();
+        state.viaCache.clear();
+        state.viaKeys.clear();
     }
 
-    if (show === undefined) show = !app._clearancesVisible;
-    app._boardShapeClearanceCache ??= new Map();
+    if (show === undefined) show = !state.clearancesVisible;
     if (!liveTrack) {
         const shapeIds = new Set([...(app.boardShapes || []), ...(app.texts?.values() || [])].map(shape => shape.id));
-        for (const id of app._boardShapeClearanceCache.keys()) {
-            if (!shapeIds.has(id)) app._boardShapeClearanceCache.delete(id);
+        for (const id of state.boardShapeClearanceCache.keys()) {
+            if (!shapeIds.has(id)) state.boardShapeClearanceCache.delete(id);
         }
     }
-    app._clearancesVisible = !!show;
-    if (!app._clearancesVisible) {
-        app._boardShapeClearanceCache.clear();
+    state.clearancesVisible = !!show;
+    if (!state.clearancesVisible) {
+        state.boardShapeClearanceCache.clear();
         return;
     }
 
@@ -156,7 +161,7 @@ export function showClearances(app, show, liveTrack = null) {
     // Halos for component pads — wrapped in a per-placement <g> with a
     // translate() transform so they follow the component during drag
     // (the drag handler updates the same transform).
-    if (!liveTrack) app._padHaloGroups = new Map();
+    if (!liveTrack) state.padHaloGroups = new Map();
     for (const [compId, pl] of liveTrack ? [] : app.placements) {
         const grp = document.createElementNS(NS, 'g');
         grp.setAttribute('class', 'halo-comp');
@@ -176,7 +181,7 @@ export function showClearances(app, show, liveTrack = null) {
             grp.appendChild(el);
         }
         overlay.appendChild(grp);
-        app._padHaloGroups.set(compId, grp);
+        state.padHaloGroups.set(compId, grp);
     }
 
     // Halos for routed tracks. Computed as the Minkowski-sum offset
@@ -421,8 +426,8 @@ export function showClearances(app, show, liveTrack = null) {
             if (tnet) el.dataset.net = tnet;
             if (track.id) {
                 el.dataset.trackId = track.id;
-                if (!overlayState(app).trackElements.has(track.id)) overlayState(app).trackElements.set(track.id, []);
-                overlayState(app).trackElements.get(track.id).push(el);
+                if (!state.trackElements.has(track.id)) state.trackElements.set(track.id, []);
+                state.trackElements.get(track.id).push(el);
             }
             overlay.appendChild(el);
         }
@@ -445,11 +450,11 @@ export function computeClearanceOutlines(app, shape, clearance) {
 
 export function refreshBoardShapeClearance(app, shape) {
     if (isPcbPasteActive(app)) return;
-    if (!app._clearancesVisible) return;
+    if (!areClearancesVisible(app)) return;
     const overlay = app.getLayerGroup('clearance-overlay');
     if (!overlay) return;
-    app._boardShapeClearanceCache ??= new Map();
-    const previous = app._boardShapeClearanceCache.get(shape.id);
+    const cache = overlayState(app).boardShapeClearanceCache;
+    const previous = cache.get(shape.id);
     if (shouldDeferShapeClearance(app, shape)) {
         for (const element of previous?.elements || []) {
             element.parentNode?.removeChild(element);
@@ -483,7 +488,7 @@ export function refreshBoardShapeClearance(app, shape) {
         if (element.parentNode === overlay) overlay.removeChild(element);
     }
     const elements = [];
-    if (visible) for (const outline of app._computeClearanceOutlines(shape, clearance)) {
+    if (visible) for (const outline of computeClearanceOutlines(app, shape, clearance)) {
         const element = document.createElementNS('http://www.w3.org/2000/svg', 'polygon');
         element.setAttribute('class', 'debug-clearance');
         element.setAttribute('fill', 'none');
@@ -497,16 +502,16 @@ export function refreshBoardShapeClearance(app, shape) {
         overlay.appendChild(element);
         elements.push(element);
     }
-    app._boardShapeClearanceCache.set(shape.id, { style, artwork: shape.artwork,
+    cache.set(shape.id, { style, artwork: shape.artwork,
         points: points.map(point => ({ x: point.x, y: point.y })), elements });
 }
 
 export function refreshClearanceHalos(app) {
-    if (app._clearancesVisible) showClearances(app, true);
+    if (areClearancesVisible(app)) showClearances(app, true);
 }
 
 export function refreshTrackClearance(app, track) {
-    if (app._clearancesVisible) showClearances(app, true, track);
+    if (areClearancesVisible(app)) showClearances(app, true, track);
 }
 
 /**
@@ -516,31 +521,32 @@ export function refreshTrackClearance(app, track) {
  * @param {any} [via] - a Via, or null for every via
  */
 export function refreshViaClearance(app, via = null) {
-    if (!app._clearancesVisible) return;
+    if (!areClearancesVisible(app)) return;
     const overlay = app.getLayerGroup('clearance-overlay');
     const layer = app.getLayerGroup('vias');
     if (!overlay) return;
+    const state = overlayState(app);
     const affected = new Set();
     if (via) {
-        const previous = overlayState(app).viaKeys.get(via.id);
+        const previous = state.viaKeys.get(via.id);
         if (previous != null) {
-            overlayState(app).viaCache.get(previous)?.sources.delete(via.id);
-            overlayState(app).viaKeys.delete(via.id);
+            state.viaCache.get(previous)?.sources.delete(via.id);
+            state.viaKeys.delete(via.id);
             affected.add(previous);
         }
     } else {
-        for (const entry of overlayState(app).viaCache.values()) entry.element?.remove();
-        overlayState(app).viaCache.clear();
-        overlayState(app).viaKeys.clear();
+        for (const entry of state.viaCache.values()) entry.element?.remove();
+        state.viaCache.clear();
+        state.viaKeys.clear();
     }
     const register = (id, cx, cy, r, net) => {
         if (!Number.isFinite(cx) || !Number.isFinite(cy) || !Number.isFinite(r)) return;
         const key = `${cx.toFixed(4)},${cy.toFixed(4)}`;
-        if (!overlayState(app).viaCache.has(key)) overlayState(app).viaCache.set(key, { sources: new Map() });
-        const sources = overlayState(app).viaCache.get(key).sources;
+        if (!state.viaCache.has(key)) state.viaCache.set(key, { sources: new Map() });
+        const sources = state.viaCache.get(key).sources;
         const previous = sources.get(id);
         if (!previous || r > previous.r) sources.set(id, { cx, cy, r, net: net || previous?.net });
-        overlayState(app).viaKeys.set(id, key);
+        state.viaKeys.set(id, key);
         affected.add(key);
     };
     if (layer && layer.style.display !== 'none') {
@@ -556,10 +562,10 @@ export function refreshViaClearance(app, via = null) {
     }
     const clearance = app.getRoutingParams().clearance;
     for (const key of affected) {
-        const entry = overlayState(app).viaCache.get(key);
+        const entry = state.viaCache.get(key);
         entry.element?.remove();
         if (!entry.sources.size) {
-            overlayState(app).viaCache.delete(key);
+            state.viaCache.delete(key);
             continue;
         }
         // Coincident vias share the largest ring; moving one must retain any others.

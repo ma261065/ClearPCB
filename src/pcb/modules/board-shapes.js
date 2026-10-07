@@ -66,7 +66,7 @@ import {
     canDrawPictureCircles,
     resizePicturePoints,
 } from '../../shared/pcb/picture-raster.js';
-import { cancelPictureCopperRefresh, schedulePictureCopperRefresh } from './picture-refresh.js';
+import { cancelPictureCopperRefresh, deferShapeCopperCuts, isShapeClearancePending, schedulePictureCopperRefresh } from './picture-refresh.js';
 import { beginRotationHandleDrag, endRotationHandleDrag, isRotationHandleDragActive, rotationHandleAnchor, pointerRotation, rotatedImagePoints } from './rotation-handle.js';
 import { BULGE_EPS, arcFromBulge } from '../../shapes/arc-edge.js';
 import { syncBoardOutlineDimensions } from '../../shared/pcb/board-outline.js';
@@ -96,7 +96,7 @@ import {
 } from '../../shared/pcb/board-shape-geometry.js';
 import { PROP_HIDDEN_LAYERS, showBoardShapeProperties, showBoardShapeToolProperties, syncBoardShapePanel, syncCircleDiameterProperty } from './board-shape-properties.js';
 import { isEditorActive } from './pcb-editor-api.js';
-import { forgetBoardShapeClearance, getBoardShapeClearance } from './clearance-overlay.js';
+import { forgetBoardShapeClearance, getBoardShapeClearance, refreshBoardShapeClearance } from './clearance-overlay.js';
 import { hasCopperCuts } from './copper-cuts.js';
 import { removalHatchFill } from './removal-hatch.js';
 import { refreshSelectedDrcMarker } from './drc-state.js';
@@ -146,7 +146,7 @@ function boardShapeEditProfile() {
         propertyPreviewCancel(app, originals, preview) {
             for (const original of originals) {
                 if (this.collection(app).includes(original)) {
-                    if (app._pendingShapeClearances?.has(original.id)) schedulePictureCopperRefresh(app, original);
+                    if (isShapeClearancePending(app, original)) schedulePictureCopperRefresh(app, original);
                     renderBoardShape(app, original, {
                         liveDrag: true, skipCopperUpdate: original.kind === 'image' && !original.layer.endsWith('copper'),
                     });
@@ -838,9 +838,9 @@ export function renderBoardShape(app, shape, opts = {}) {
     root.setAttribute('data-board-shape-layer', shape.layer || '');
     app.getLayerGroup(st.targetLayer)?.appendChild(root);
     app._shapeElements.set(shape.id, root);
-    if (!opts.interactionOnly) app._refreshBoardShapeClearance?.(shape);
+    if (!opts.interactionOnly) refreshBoardShapeClearance(app, shape);
     if (isPictureCopperRefreshPending(app)) {
-        if (!opts.skipCopperUpdate && (shapeAffectsCopperCuts(shape) || (!opts.liveDrag && hasCopperCuts(app)))) app._deferredShapeCopperCuts = true;
+        if (!opts.skipCopperUpdate && (shapeAffectsCopperCuts(shape) || (!opts.liveDrag && hasCopperCuts(app)))) deferShapeCopperCuts(app);
         return;
     }
     // Rebuilding the copper-cut clip-path re-rasterises the whole copper/fill
@@ -1695,7 +1695,7 @@ export function endBoardShapeDrag(app, commit) {
         if (!committed) {
             if (d.splitBeforeState) profile.setNodeFocus(app, null);
             if (present) {
-                if (profile.kind === 'shape') schedulePictureCopperRefresh(app, app._pendingShapeClearances?.has(original.id) ? original : undefined);
+                if (profile.kind === 'shape') schedulePictureCopperRefresh(app, isShapeClearancePending(app, original) ? original : undefined);
                 profile.render(app, original, { liveDrag: true });
                 profile.showProperties(app, original);
             } else {

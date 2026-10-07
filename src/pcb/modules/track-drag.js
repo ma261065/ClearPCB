@@ -68,7 +68,7 @@ import { closestPointOnArcEdge } from '../../shapes/arc-edge.js';
 import { commitPropertyEditors, getPropertyEditor } from './property-editors.js';
 import { areDragOverlaysDeferred, isBoardViewRefreshSuspended, setBoardViewRefreshSuspended, setDragOverlaysDeferred, refreshBoardView } from './refresh-state.js';
 import { isEditorActive } from './pcb-editor-api.js';
-import { refreshViaClearance } from './clearance-overlay.js';
+import { refreshTrackClearance, refreshViaClearance } from './clearance-overlay.js';
 import { getPcbInteraction, setPcbInteraction } from './pcb-interactions.js';
 import { getSelectionInteraction, setSelectionInteraction } from './selection-interaction.js';
 import { refreshSelectedDrcMarker } from './drc-state.js';
@@ -114,7 +114,7 @@ function _beginVertexDragOverlayDeferral(app) {
 function _endVertexDragOverlayDeferral(app, drag) {
     setDragOverlaysDeferred(app, drag.previousDeferDragOverlays);
     if (!areDragOverlaysDeferred(app)) app.refreshClearanceHalos?.();
-    else if (drag.preview) app._refreshTrackClearance?.(drag.original);
+    else if (drag.preview) refreshTrackClearance(app, drag.original);
 }
 
 function prepareTrackPointer(app, track) {
@@ -1298,7 +1298,7 @@ export function updateVertexDrag(app, worldPos) {
         const copy = beginTrackPointerPreview(app, drag);
         copy.setEdgeAttr(drag.edgeId, 'bulge', bulge);
         renderTrack(copy, layer => app.getLayerGroup(layer), _opts(app));
-        app._refreshTrackClearance?.(copy);
+        refreshTrackClearance(app, copy);
         refreshSelectedDrcMarker(app);
         refreshTrackSelectionHalo(app);
         const input = /** @type {HTMLInputElement|null} */ (document.getElementById('pcbPropTrackBulge'));
@@ -1322,7 +1322,7 @@ export function updateVertexDrag(app, worldPos) {
         drag.track.invalidate();
         app.viewport?.setCrosshair(points[drag.handle]);
         renderTrack(drag.track, (id) => app.getLayerGroup(id), _opts(app));
-        app._refreshTrackClearance?.(drag.track);
+        refreshTrackClearance(app, drag.track);
         refreshTrackSelectionHalo(app);
         reconcileRatsnest(app);
         return;
@@ -1370,7 +1370,7 @@ export function updateVertexDrag(app, worldPos) {
         if (anchor) app.viewport?.setCrosshair({ x: anchor.x, y: anchor.y });
         renderTrackAxisGlow(app, _incidentSegments(drag.track, drag.nodes));
         renderTrack(drag.track, (id) => app.getLayerGroup(id), _opts(app));
-        app._refreshTrackClearance?.(drag.track);
+        refreshTrackClearance(app, drag.track);
         renderTrackAxisGlowTop(app);
         refreshTrackSelectionHalo(app);
         reconcileRatsnest(app);
@@ -1476,7 +1476,7 @@ export function updateVertexDrag(app, worldPos) {
     drag.track.invalidate();
     renderTrackAxisGlow(app, _incidentSegments(drag.track, drag.nodes));
     renderTrack(drag.track, (id) => app.getLayerGroup(id), _opts(app));
-    app._refreshTrackClearance?.(drag.track);
+    refreshTrackClearance(app, drag.track);
     renderTrackAxisGlowTop(app);
     // Keep the selection halo glued to the new geometry.
     refreshTrackSelectionHalo(app);
@@ -2025,7 +2025,7 @@ function restoreTerminalArtwork(app, drag, committed) {
         if (!committed) app.refreshClearanceHalos?.();
     } else {
         if (drag.kind === 'via') refreshViaClearance(app, drag.original);
-        for (const track of drag.preview.copies.keys()) app._refreshTrackClearance?.(track);
+        for (const track of drag.preview.copies.keys()) refreshTrackClearance(app, track);
     }
 }
 
@@ -2137,7 +2137,7 @@ export function updateViaDrag(app, worldPos) {
     renderTrackAxisGlow(app, glowSegs);
     for (const t of touched) {
         renderTrack(t, (id) => app.getLayerGroup(id), _opts(app, t));
-        app._refreshTrackClearance?.(t);
+        refreshTrackClearance(app, t);
     }
     drag.render(drag.via, (id) => app.getLayerGroup(id));
     if (drag.kind === 'via') refreshViaClearance(app, drag.via);

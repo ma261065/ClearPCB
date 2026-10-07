@@ -9,6 +9,7 @@ import { padCopperPathD, padOutline } from '../src/pcb/modules/pad.js';
 import { cancelPictureCopperRefresh } from '../src/pcb/modules/picture-refresh.js';
 import { getTextPosePreviewTexts } from '../src/pcb/modules/text-commands.js';
 import { isRotationHandleDragActive } from '../src/pcb/modules/rotation-handle.js';
+import { clearanceOverlayState } from '../src/pcb/modules/clearance-overlay.js';
 
 const inputs = new Map();
 globalThis.document = {
@@ -53,10 +54,10 @@ for (const kind of ['text', 'pad']) {
         pads: pcbDocument.pads, history: new CommandHistory(),
         getLayerGroup: layer => layer === 'top-copper' ? copper : layer === 'selection-overlay' ? overlay : null,
         refreshText: () => renders++,
-        _boardShapeClearanceCache: new Map([[object.id, { elements: [{
-            parentNode: { removeChild: () => clearanceInvalidations++ },
-        }] }]]),
     };
+    clearanceOverlayState(app).boardShapeClearanceCache.set(object.id, { elements: [{
+            parentNode: { removeChild: () => clearanceInvalidations++ },
+    }] });
     const adapter = kind === 'text' ? createPcbTextSelectionAdapter(app, object, `text:${object.id}`)
         : createPadSelectionAdapter(app, object, `pad:${object.id}`);
     const pointFor = (rotation, initial = startingRotation) => {
@@ -152,17 +153,27 @@ for (const layer of ['top-silk', 'bottom-copper']) {
         set value(value) { this._value = value; inputWrites++; } };
     inputs.set('pcbPropImageRot', input);
     const group = {
-        children: [],
+        children: [], style: {},
         appendChild(child) { this.children.push(child); child.parentNode = this; renders++; },
+        removeChild(child) { this.children.splice(this.children.indexOf(child), 1); child.parentNode = null; },
+    };
+    const clearanceOverlay = {
+        children: [], style: {},
+        appendChild(child) { this.children.push(child); child.parentNode = this; },
         removeChild(child) { this.children.splice(this.children.indexOf(child), 1); child.parentNode = null; },
     };
     const pcbDocument = new PcbDocument();
     pcbDocument.boardShapes.push(shape);
     const app = {
         pcbDocument, boardShapes: pcbDocument.boardShapes, history: new CommandHistory(), _shapeElements: new Map(),
-        getLayerGroup: id => id === layer ? group : null,
-        _refreshBoardShapeClearance: () => clearanceRequests++,
+        getLayerGroup: id => id === layer ? group : id === 'clearance-overlay' ? clearanceOverlay : null,
+        existingLayerGroups: () => new Map([[layer, group], ['clearance-overlay', clearanceOverlay]]),
+        getRoutingParams: () => ({ clearance: 0.25 }),
     };
+    clearanceOverlayState(app).clearancesVisible = true;
+    const staleClearance = {};
+    staleClearance.parentNode = { removeChild: child => { clearanceRequests++; child.parentNode = null; } };
+    clearanceOverlayState(app).boardShapeClearanceCache.set(shape.id, { elements: [staleClearance] });
     const adapter = createBoardShapeSelectionAdapter(app, shape, `shape:${shape.id}`);
     const start = { x: center.x + 10, y: center.y };
     try {
@@ -173,7 +184,7 @@ for (const layer of ['top-silk', 'bottom-copper']) {
         for (let index = 1; index < 100; index++) adapter.updateAnchorDrag(pointFor(37 + index / 1000));
         assert.equal(renders, 1, '100 image events resolving to one angle render once');
         assert.equal(inputWrites, 1);
-        assert.equal(clearanceRequests, 1);
+        assert.equal(clearanceRequests, 1, 'Unchanged image rotations hide stale clearance once');
         assert.equal(input.value, '37');
         assert.equal(adapter.object.points, retainedPoints, 'Unchanged image angles retain geometry identity');
         assert.deepEqual(shape.points, initialPoints, 'Image rotation leaves authored points unchanged');
@@ -187,7 +198,7 @@ for (const layer of ['top-silk', 'bottom-copper']) {
         }
         assert.equal(renders, 101, 'Every distinct image angle renders immediately');
         assert.equal(inputWrites, 101);
-        assert.equal(clearanceRequests, 101);
+        assert.equal(clearanceRequests, 1, 'Pending image rotations do not repeatedly detach stale clearance');
         adapter.updateAnchorDrag(pointFor(189.49));
         assert.equal(renders, 101);
         adapter.updateAnchorDrag(pointFor(189.51));

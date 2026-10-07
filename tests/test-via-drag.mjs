@@ -5,6 +5,7 @@ import { ProjectDocument } from '../src/core/ProjectDocument.js';
 import { Component } from '../src/components/Component.js';
 import { areDragOverlaysDeferred, setBoardViewPanel, setDragOverlaysDeferred } from '../src/pcb/modules/refresh-state.js';
 import { beginPcbPaste, cancelPcbPaste, getPcbPaste, updatePcbPaste } from '../src/pcb/modules/pcb-paste.js';
+import { clearanceOverlayState } from '../src/pcb/modules/clearance-overlay.js';
 
 globalThis.window = { addEventListener() {} };
 globalThis.document = {
@@ -687,7 +688,7 @@ for (const previousDeferral of [false, true]) {
     placement.elements = [copperArtwork, silkArtwork];
     placement.lodEl = svg({});
     const halo = svg({});
-    app._padHaloGroups = new Map([['component', halo]]);
+    clearanceOverlayState(app).padHaloGroups = new Map([['component', halo]]);
     app.getLayerGroup = id => layers.get(id) || null;
     app.placements.set('component', placement);
     app._recordPlacementOverride = () => assert.fail('Side adapters must not re-record generated placement data');

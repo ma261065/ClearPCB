@@ -134,7 +134,7 @@ import { clearPadPreview, getPadPreviewWorld, getPadToolDefaults, snapPadPlaceme
 import { clearViaPreview, clearViaRing, getViaPreviewWorld, getViaToolNet, updateViaPreview } from '../pcb/modules/via-tool.js';
 import { multiPropertyCapabilities, showMultiSelectionProperties } from '../pcb/modules/multi-selection-properties.js';
 import { activeTextInlineEdit, startTextInlineEdit, endTextInlineEdit } from '../pcb/modules/text-inline-edit.js';
-import { showClearances, computeClearanceOutlines, refreshBoardShapeClearance, refreshClearanceHalos, refreshTrackClearance, refreshViaClearance } from '../pcb/modules/clearance-overlay.js';
+import { showClearances, refreshClearanceHalos, refreshViaClearance } from '../pcb/modules/clearance-overlay.js';
 import { hideNetTooltip } from '../pcb/modules/net-tooltip.js';
 
 /**
@@ -336,10 +336,6 @@ export default class PCBApp {
         this._componentPopup = null;
         /** Lazily created owner of routing session and temporary presentation. */
         this._autorouter = null;
-        /** Clearance-halo overlay state (clearance-overlay.js). */
-        this._clearancesVisible = false;
-        /** Pad halo groups keyed by component id (clearance-overlay.js). @type {Map<string, SVGGElement>|null} */
-        this._padHaloGroups = null;
         /** Document-change hook installed by ProjectDocument. @type {(() => void)|null} */
         this.onDocumentChanged = null;
         /** @type {object|null} Stored test board RouteInput for direct routing. */
@@ -2789,21 +2785,8 @@ export default class PCBApp {
      * after any operation that adds, removes, or relocates tracks/vias so the
      * halos stay in sync (rip-ups in particular leave orphaned halos otherwise).
      */
-    /** The halo cache's only geometry work: clearance outlines for a board shape or free text. */
-    _computeClearanceOutlines(shape, clearance) {
-        return computeClearanceOutlines(this, shape, clearance);
-    }
-
-    _refreshBoardShapeClearance(shape) {
-        return refreshBoardShapeClearance(this, shape);
-    }
-
     refreshClearanceHalos() {
         return refreshClearanceHalos(this);
-    }
-
-    _refreshTrackClearance(track) {
-        return refreshTrackClearance(this, track);
     }
 
     _refreshViaClearance(via) {

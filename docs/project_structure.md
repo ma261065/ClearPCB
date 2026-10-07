@@ -147,7 +147,10 @@ evaluation-order cycle fails.
   `refresh-state.js` (derived-refresh flags, suspensions, and shared 3D/2D
   board-view panel state), `component-selection.js` (component hover outline),
   `pcb-hover.js` (coalesced select-tool hover frame state), `board-outline-resize.js`
-  (board-outline drawn/selected state), and `pcb-interactions.js` (in-progress interaction slots).
+  (board-outline drawn/selected state), `clearance-overlay.js` (clearance
+  visibility and halo caches), `picture-refresh.js` (pending/deferred
+  shape-clearance refresh state), and `pcb-interactions.js` (in-progress
+  interaction slots).
 - In-progress interaction slots (`_drag`, `_trackDraw`, …) are listed once in
   `pcb-interactions.js` with their owner module and stored in its import-free
   WeakMap. Only the owner writes its slot with `setPcbInteraction`; other code
@@ -244,9 +247,9 @@ PCB editor:
   stroke-font caret overlay, commit and cancel); `selectText` and
   `showTextProperties` are editor services.
 - `pcb/modules/clearance-overlay.js` — the clearance halos (`showClearances`, and
-  incremental refresh for a dragged track, a moved via or a changed shape); other
-  modules read its state through `areClearancesVisible`, `getBoardShapeClearance`
-  and `getPadHaloGroup`.
+  incremental refresh for a dragged track, a moved via or a changed shape), plus
+  the visibility flag and halo caches; other modules read its state through
+  `areClearancesVisible`, `getBoardShapeClearance` and `getPadHaloGroup`.
 - `pcb/modules/copper-cuts.js` — the per-side clip paths that cut copper under
   copper-removal shapes and board holes (`updateCopperCuts`, an editor service); other
   modules ask `hasCopperCuts` whether any cut is active.
