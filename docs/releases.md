@@ -30,15 +30,11 @@ baseline. Any test failure or hard baseline failure fails the job. Track/via-cou
 differences remain visible soft warnings, not evidence that routing quality is
 unchanged.
 
-Its **Type check** job installs TypeScript 5.9.3 and runs `node tools/typecheck.mjs`,
-which writes per-file error counts to the job summary and compares them with the
-committed `tools/typecheck-baseline.json`, which is empty: any type error fails the
-job. It then runs the strict settings (`jsconfig.strict.json`, implicit `any` and null
-checks) against `tools/typecheck-strict-baseline.json`: a file's error count may only
-fall, a new file must be clean, and the folders listed as clean must stay at zero.
-Record baselines with `node tools/typecheck.mjs --write-baseline` using the same TypeScript version
-(installed locally as in the [README](../README.md#testing)). Vendored modules
-are not checked: `assets/vendor/fflate.module.d.ts` declares the fflate API in use.
+Its **Strict type check** job installs TypeScript 5.9.3 and runs `node tools/typecheck.mjs`,
+which checks `src/` with `jsconfig.json` and TypeScript's strict settings. Any
+TypeScript error fails the job. Use the same TypeScript version locally (installed as
+in the [README](../README.md#testing)). Vendored modules are not checked:
+`assets/vendor/fflate.module.d.ts` declares the fflate API in use.
 
 Its **Browser tests** jobs install Playwright 1.55.0 with Chromium (with short apt
 network timeouts and up to three bounded attempts, so a stalled package mirror cannot

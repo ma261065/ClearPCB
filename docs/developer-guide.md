@@ -224,19 +224,14 @@ in `pcb-editor-api.js` (or `schematic-editor-api.js`). See State Ownership in
 Run these before pushing (setup for TypeScript and Playwright is in the
 [README](../README.md#testing)):
 
-1. `node tools/typecheck.mjs`: the type check, in two passes. The everyday pass
-   (`jsconfig.json`) must have no errors. The strict pass (`jsconfig.strict.json`:
-   no implicit `any`, null checks) compares each file with
-   `tools/typecheck-strict-baseline.json`: a file may only lose errors, a new file
-   must have none, and the folders listed in `cleanFolders` must stay at zero. So
-   type new code fully: JSDoc on every parameter, null cases handled. A PCB module
-   types the editor as `PcbEditor` and plain board data as `PcbBoard`
+1. `node tools/typecheck.mjs`: TypeScript `checkJs` uses `jsconfig.json` with
+   `strict: true`; any error fails. Type new code fully: JSDoc on every parameter,
+   null cases handled, and callbacks typed to accept every value their caller may pass.
+   A PCB module types the editor as `PcbEditor` and plain board data as `PcbBoard`
    (`pcb-editor-api.js`); a schematic module types the editor as `SchematicEditor`
    (`schematic-editor-api.js`) and its objects as `SchematicShape`. Keep all of a
    declaration's tags in one JSDoc block: the type check reads only the block
    nearest the declaration, and `typecheck.mjs` fails on tags it would ignore.
-   After moving code between files, rewrite the baseline with `--write-baseline`,
-   check that the total did not rise, and say so in the commit message.
 2. `node tools/regression.mjs`: the gate. It checks the import directions, that no
    module or shared code uses an editor's private members, that every file, test and page a doc
    names exists (so rename or update the doc with the code), runs every unit test,
@@ -255,22 +250,9 @@ Files use LF line endings (`.gitattributes`).
 The structure is enforced rather than documented only: the gate fails on an import
 that crosses a layer, on a module that reaches an editor's private members, on an
 optional call to an editor method (`app.method?.()`), on a doc that names a file
-that no longer exists, and on a strict type error the baseline does not list. Most of
-the source type-checks under the strict settings: `cleanFolders` in
-`tools/typecheck-strict-baseline.json` lists the folders with none, and the file lists
-the remaining errors per file. Work that is known but not done, with a way in:
-
-- **Component library.** `ComponentPicker.js` and `KiCadFetcher.js` are small public
-  entry points; the work lives in `src/components/picker/` (search, result list,
-  online selection, symbol and footprint previews, UI state, placement hand-off) and
-  `src/components/kicad/` (network and cache, symbol index, fetch and parsing,
-  footprint index and parsing). Type each piece, then add `src/components` to
-  `cleanFolders`.
-- **Shared code.** `src/shared/pcb` (board and shape geometry, footprints, pictures) and
-  `src/shared/ui` (ribbon, viewport, modal, export) still have strict errors, as do
-  `AppBootstrap.js` and `mcp-session.js` in `src/ui`. These are small, independent
-  files: type one at a time, reusing the owners' types (`PcbBoard`, `BoardShape`,
-  `PropertyField`).
+that no longer exists, and on any strict type error. The source now type-checks under
+TypeScript's strict settings; keep new code fully typed and fix type errors as part of
+the change that introduces them. Work that is known but not done, with a way in:
 - **Loose types.** `SchematicShape` (`SchematicDocument.js`) and the PCB's `BoardShape`
   accept any field, so a misspelt shape field is not caught. Making them unions
   discriminated by a literal `type` lets the checker narrow on `shape.type`; do it
