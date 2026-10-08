@@ -187,7 +187,7 @@ export function showTrackViaNetConflict(app, trackNet, viaNet, kind = 'via') {
  * @param {Track} track
  * @param {string} edgeId
  * @param {Point} splitPoint
- * @returns {any[]|null} new Track objects, or null on failure.
+ * @returns {unknown[]|null} new Track objects, or null on failure.
  */
 export function splitTrackObjectAtPoint(track, edgeId, splitPoint) {
     const clone = track.clone();
@@ -222,7 +222,7 @@ export function splitTrackObjectAtPoint(track, edgeId, splitPoint) {
  *
  * @param {Track} track
  * @param {string} edgeId
- * @returns {any[]} replacement Track objects (possibly empty).
+ * @returns {unknown[]} replacement Track objects (possibly empty).
  */
 export function deleteTrackSegment(track, edgeId) {
     const clone = track.clone();
@@ -275,7 +275,7 @@ export function deleteTrackNode(app, track, nodeId) {
 }
 
 /**
- * Dissolve redundant collinear waypoints from a track: any degree-2 node
+ * Dissolve redundant collinear waypoints from a track: unknown degree-2 node
  * whose two incident edges share a copper layer and whose neighbours are
  * collinear through it is removed, joining the neighbours with a single
  * edge of that layer. Nodes anchored to a pad, or sitting on a via (a

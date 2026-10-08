@@ -30,12 +30,13 @@ import { showViaProperties } from './via-properties.js';
 /** @typedef {import('../../shapes/track.js').Track} Track */
 /** @typedef {import('../../shapes/via.js').Via} Via */
 /** @typedef {{x: number, y: number}} Point */
-/** @typedef {{track: Track, nodeId?: string|null, edgeId?: string|null}} TrackEdit */
+/** @typedef {{track: Track, nodeId: string, edgeId: string}} TrackEdit */
 /** @typedef {{type:'track', track: Track}|{type:'via', via: Via}} TrackViaHit */
 /** @typedef {{place?: boolean, moved?: boolean}} FinishMoveOptions */
 /** @typedef {{nodeId?: string|null, edgeId?: string|null, whole?: boolean, allowMidpointInsert?: boolean}} TrackDragOptions */
 
 const NS = 'http://www.w3.org/2000/svg';
+/** @type {WeakMap<PcbEditor, {trackEdit: TrackEdit|null}>} */
 const trackSelectStates = new WeakMap();
 
 /** Pixel tolerance for hit-testing tracks (converted to world units). */
@@ -56,7 +57,7 @@ export function getTrackEdit(app) {
 
 /**
  * @param {PcbEditor} app
- * @param {TrackEdit|null} edit
+ * @param {any} edit Dynamic edit setter accepts either node or edge edit records.
  */
 export function setTrackEdit(app, edit) {
     trackSelectState(app).trackEdit = edit;
@@ -160,7 +161,7 @@ export function createTrackSelectionAdapter(app, track, id) {
             finishVertexDrag(app);
             const selectedTrack = getSelectedTrack(app);
             if (selectedTrack) {
-                if (selectedTrack === track && track.nodes.has(nodeId)) selectTrackNode(app, track, nodeId);
+                if (selectedTrack === track && nodeId != null && track.nodes.has(nodeId)) selectTrackNode(app, track, nodeId);
                 else selectTrackOrVia(app, { type: 'track', track: selectedTrack });
             }
             app.setPcbStatus();
@@ -210,12 +211,13 @@ export function createTrackSelectionAdapter(app, track, id) {
             const display = current();
             const visibleEdges = [...display.edges.entries()].filter(([edgeId]) => isLayerVisible(display.getEdgeLayer(edgeId)));
             const visibleNodes = new Set(visibleEdges.flatMap(([, edge]) => [edge.from, edge.to]));
+            const edit = getTrackEdit(app);
             const nodes = [...display.nodes.entries()].filter(([nodeId]) => visibleNodes.has(nodeId)).map(([nodeId, point]) => ({
                 id: nodeId,
                 ...point,
                 fill: HALO_COLOR,
-                stroke: getTrackEdit(app)?.track === track && getTrackEdit(app).nodeId === nodeId ? '#3399ff' : '#000000',
-                selected: getTrackEdit(app)?.track === track && getTrackEdit(app).nodeId === nodeId,
+                stroke: edit?.track === track && edit.nodeId === nodeId ? '#3399ff' : '#000000',
+                selected: edit?.track === track && edit.nodeId === nodeId,
                 sizePx: 7,
                 strokeWidthPx: 1.25,
                 cursor: 'nwse-resize',
@@ -273,7 +275,10 @@ export function createTrackSelectionAdapter(app, track, id) {
         // requires a deliberate second click on the insertion handle.
         ...pathMoveInteraction({
             segmentAt: /** @param {Point} point */ point => hitTestTrackEdge(app, current(), point)?.edgeId ?? null,
-            selectedSegment: () => getTrackEdit(app)?.track === track ? getTrackEdit(app).edgeId : null,
+            selectedSegment: () => {
+                const edit = getTrackEdit(app);
+                return edit?.track === track ? edit.edgeId : null;
+            },
             selectSegment: /** @param {string} edgeId */ edgeId => selectTrackSegment(app, track, edgeId),
             /** @param {Point} point @param {string|null} edgeId */
             begin: (point, edgeId) => {
@@ -573,7 +578,7 @@ export function deleteTrackSegmentAt(app, track, edgeId) {
     track = canonicalTrack(app, track);
     getPropertyEditor(app, 'track')?.cancel();
     if (!track || !edgeId) return;
-    const parts = deleteTrackSegment(track, edgeId);
+    const parts = /** @type {Track[]} */ (deleteTrackSegment(track, edgeId));
     clearTrackSelection(app);
     const cmds = [new RemoveTrackCommand(app, track)];
     for (const part of parts) cmds.push(new AddTrackCommand(app, part));

@@ -29,7 +29,8 @@ import { isEditorActive } from './pcb-editor-api.js';
 /** @typedef {{shape: string, layers: string, net: string, size: number, ratio: number, drill: number, rotation: number}} PadDefaults */
 /** @typedef {{defaults: PadDefaults, refreshPreview: () => void}} PadTool */
 /** @typedef {{pads: Pad[], active: boolean, affectsLayer: (layerId: string) => boolean, commit: () => void, cancel: () => void, dispose: () => void}} PadPropertyBinding */
-/** @typedef {{pad: Pad, before: any, after: any}} PadPropertyChange */
+/** @typedef {ReturnType<Pad['captureState']>} PadState */
+/** @typedef {{pad: Pad, before: PadState, after: PadState}} PadPropertyChange */
 
 const SHAPES = [['round', 'Round'], ['stadium', 'Stadium'], ['square', 'Square'], ['rectangle', 'Rectangle'], ['oval', 'Oval']]
     .map(([value, label]) => ({ value, label }));
@@ -195,7 +196,7 @@ export function showPadEditor(app, pad, tool) {
         preview ??= beginPadPropertyPreview(app, pads);
         activeProperty = property;
         for (const target of preview.copies.values()) {
-            /** @type {Record<string, any>} */ (target)[property] = value;
+            /** @type {Record<string, any>} */ (/** @type {unknown} */ (target))[property] = value;
             if (property === 'size') target.drill = Math.min(target.drill, value);
             schedulePictureCopperRefresh(app, target);
         }

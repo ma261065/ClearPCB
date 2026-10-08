@@ -37,13 +37,25 @@ import { areShapeCopperCutsDeferred, setShapeCopperCutsDeferred } from './pictur
 import { getPcbInteraction, setPcbInteraction } from './pcb-interactions.js';
 /** @typedef {import('./pcb-editor-api.js').PcbEditor} PcbEditor */
 /** @typedef {import('../../core/PcbDocument.js').PcbDocument} PcbDocument */
-/** @typedef {{tracks:any[], vias:any[], pads:any[], shapes:any[], texts:any[], fills:any[], [kind:string]: any[]}} PcbPastePayload */
+/** @typedef {import('../../core/pcb-board-shapes.js').BoardShape} BoardShape */
+/** @typedef {import('../../core/pcb-board-shapes.js').BoardShapeGeometry} BoardShapeGeometry */
+/** @typedef {ReturnType<import('./pcb-text.js').createPcbText>} PcbText */
+/** @typedef {Track|Via|Pad|BoardShape|PcbText|CopperFill|any} PcbPasteItem */
+/** @typedef {{tracks:Track[], vias:Via[], pads:Pad[], shapes:any[], texts:any[], fills:CopperFill[], [kind:string]: PcbPasteItem[]}} PcbPastePayload Dynamic paste payloads include board shapes/text records recreated from clipboard JSON. */
+/** @typedef {Partial<Record<'tracks'|'vias'|'pads'|'shapes'|'texts'|'fills', any[]>>} PcbClipboardData Dynamic clipboard JSON is validated as objects are recreated. */
+/** @typedef {import('./selection-registry.js').PcbSelectionValue} PcbSelectionValue */
+/** @typedef {import('./drag-session.js').DragSession} DragSession */
+/** @typedef {{track: Track, nodes: Map<string, Point>}} PcbPasteTrackSnapshot */
+/** @typedef {{item: Via|Pad|PcbText, x: number, y: number}} PcbPasteTerminalSnapshot */
+/** @typedef {{shape: BoardShape, before: BoardShapeGeometry}} PcbPasteShapeSnapshot */
+/** @typedef {{fill: CopperFill, before: ReturnType<CopperFill['captureState']>}} PcbPasteFillSnapshot */
+/** @typedef {{model: PcbDocument, payload: PcbPastePayload, select: boolean, selection: PcbSelectionValue[], anchorWorld: Point, tracks: PcbPasteTrackSnapshot[], terminals: PcbPasteTerminalSnapshot[], shapes: PcbPasteShapeSnapshot[], fills: PcbPasteFillSnapshot[], preview: Partial<PcbDocument>, flags: {deferredShapeCopperCuts: boolean}, suspensions: {fill: boolean}, fillPending: boolean, session?: DragSession, dx?: number, dy?: number}} PcbPasteState */
 /** @typedef {{x:number,y:number}} Point */
 
-/** @type {Array<keyof PcbPastePayload>} */
+/** @type {Array<'tracks'|'vias'|'pads'|'shapes'|'texts'|'fills'>} */
 const kinds = ['tracks', 'vias', 'pads', 'shapes', 'texts', 'fills'];
 
-/** @param {PcbEditor} app @param {any} clipboard @returns {PcbPastePayload} */
+/** @param {PcbEditor} app @param {PcbClipboardData} clipboard @returns {PcbPastePayload} */
 export function preparePcbPaste(app, clipboard) {
     let shapeId = app.pcbDocument.shapeIdCounter;
     const used = new Set(app.pcbDocument.boardShapes.map(shape => shape.id));
@@ -52,22 +64,22 @@ export function preparePcbPaste(app, clipboard) {
         return `pshape_${shapeId++}`;
     };
     // Copper paths copied as board shapes (older clipboards) paste as Tracks.
-    const copperPaths = (clipboard.shapes || []).filter(isCopperPathShape);
+    const copperPaths = (clipboard.shapes || []).filter(shape => isCopperPathShape(/** @type {BoardShape} */ (/** @type {unknown} */ (shape))));
     const payload = /** @type {PcbPastePayload} */ ({
-        tracks: [...(clipboard.tracks || []).map(/** @param {any} data */ data => {
+        tracks: [...(clipboard.tracks || []).map(/** @param {Record<string, unknown>} data */ data => {
             const json = structuredClone(data);
             delete json.id; delete json.i;
             const track = createShape(json);
             if (!(track instanceof Track)) throw new Error('PCB clipboard contains an invalid track.');
             return track;
-        }), ...copperPaths.map(/** @param {any} shape */ shape => trackFromBoardShape(structuredClone(shape)))],
+        }), ...copperPaths.map(shape => trackFromBoardShape(structuredClone(/** @type {any} */ (shape))))],
         vias: (clipboard.vias || []).map(/** @param {any} data */ data => Via.fromJSON({ ...data, id: undefined })),
-        pads: (clipboard.pads || []).map(/** @param {any} data */ data => Pad.fromJSON({ ...data, id: undefined })),
-        shapes: (clipboard.shapes || []).filter(/** @param {any} shape */ shape => !copperPaths.includes(shape)).map(/** @param {any} item */ ({ artwork, ...shape }) => ({
+        pads: (clipboard.pads || []).map(/** @param {Record<string, unknown>} data */ data => Pad.fromJSON({ ...data, id: undefined })),
+        shapes: (clipboard.shapes || []).filter(shape => !copperPaths.includes(shape)).map(/** @param {Record<string, unknown>} item */ ({ artwork, ...shape }) => ({
             ...structuredClone(shape), ...(artwork ? { artwork } : {}), id: nextShapeId(),
         })),
-        texts: (clipboard.texts || []).map(/** @param {any} data */ data => createPcbText({ ...data, id: undefined })),
-        fills: (clipboard.fills || []).map(/** @param {any} data */ data => new CopperFill({ ...structuredClone(data), id: undefined })),
+        texts: (clipboard.texts || []).map(/** @param {Record<string, unknown>} data */ data => createPcbText({ ...data, id: undefined })),
+        fills: (clipboard.fills || []).map(/** @param {Record<string, unknown>} data */ data => new CopperFill({ ...structuredClone(data), id: undefined })),
     });
     // Pasted copies are new objects, so they start unlocked.
     for (const kind of kinds) for (const item of payload[kind]) item.locked = false;
@@ -95,9 +107,9 @@ export function isPcbPasteActive(app) {
     return !!getPcbPaste(app);
 }
 
-/** @param {PcbEditor} app @returns {any} */
+/** @param {PcbEditor} app @returns {PcbPasteState|null} */
 export function getPcbPaste(app) {
-    return getPcbInteraction(app, '_pasteDrop');
+    return /** @type {PcbPasteState|null} */ (getPcbInteraction(app, '_pasteDrop'));
 }
 
 /** @param {PcbEditor} app */
@@ -198,7 +210,7 @@ class PastePcbCommand {
     execute() {
         if (this.app.pcbDocument !== this.document) throw new Error('The paste document is no longer available.');
         assertFresh(this.document, this.payload);
-        /** @type {Array<any>} */
+        /** @type {Array<{execute(): void, undo(): void}>} */
         const applied = [];
         const counter = this.document.shapeIdCounter;
         try {
@@ -253,10 +265,10 @@ export function beginPcbPaste(app, source, { select = false } = {}) {
         throw new Error('PCB paste geometry requires finite positions.');
     }
     const model = app.pcbDocument;
-    /** @type {any} */
+    /** @type {PcbPasteState} */
     const state = {
         model, payload, select,
-        selection: getPcbSelectionEntries(app).map(/** @param {{kind:string, object:any}} entry */ entry => ({ kind: entry.kind, object: entry.object })),
+        selection: getPcbSelectionEntries(app).map(entry => ({ kind: entry.kind, object: entry.object })),
         anchorWorld: { x: points.reduce((sum, p) => sum + p.x, 0) / points.length,
             y: points.reduce((sum, p) => sum + p.y, 0) / points.length },
         tracks: payload.tracks.map(track => ({ track, nodes: new Map([...track.nodes].map(([id, p]) => [id, { x: p.x, y: p.y }])) })),
@@ -265,7 +277,7 @@ export function beginPcbPaste(app, source, { select = false } = {}) {
         fills: payload.fills.map(fill => ({ fill, before: fill.captureState() })),
         preview: {
             tracks: [...model.tracks, ...payload.tracks], vias: [...model.vias, ...payload.vias],
-            pads: [...model.pads, ...payload.pads], texts: new Map([...model.texts, ...payload.texts.map(text => /** @type {[string, any]} */ ([text.id, text]))]),
+            pads: [...model.pads, ...payload.pads], texts: new Map([...model.texts, ...payload.texts.map(text => /** @type {[string, PcbText]} */ ([text.id, text]))]),
             boardShapes: [...model.boardShapes, ...payload.shapes, ...payload.fills],
         },
         flags: { deferredShapeCopperCuts: areShapeCopperCutsDeferred(app) },
@@ -321,7 +333,7 @@ export function updatePcbPaste(app, world) {
     }
 }
 
-/** @param {PcbEditor} app @param {any} state */
+/** @param {PcbEditor} app @param {PcbPasteState} state */
 function release(app, state) {
     const pendingFill = isFillRefreshPending(app);
     setPcbInteraction(app, '_pasteDrop', null);

@@ -11,8 +11,8 @@ import earcut from '../../../assets/vendor/earcut.module.js';
 /** @typedef {{geometry:ContactGeometry, bounds:Bounds, region?:CopperRegion}} Contact */
 /** @typedef {{region:CopperRegion, indices:Uint32Array, bounds:Float64Array, triangleBounds:Float64Array}} PreparedCopperRegionContact */
 /** @typedef {{prepared:PreparedCopperRegionContact, contact:Contact, points?:Point[], triangles?:PreparedTriangle[]}} PreparedRegionEntry */
-/** @typedef {{items:any[], bounds:Bounds}} SpatialOrder */
-/** @typedef {Partial<import('../../core/pcb-board-shapes.js').BoardShape> & Record<string, any>} ContactBoardShape */
+/** @typedef {{items:any[], bounds:Bounds}} SpatialOrder Dynamic spatial index payloads are produced by generic spatial helpers. */
+/** @typedef {Partial<import('../../core/pcb-board-shapes.js').BoardShape> & Record<string, any>} ContactBoardShape Copper contact shapes carry dynamic geometry metadata from several producers. */
 
 /** @type {WeakMap<CopperRegion, ContactBoardShape>} */
 const regionShapes = new WeakMap();
@@ -229,7 +229,7 @@ const cache = new WeakMap();
 const geometryKeys = ['kind', 'x', 'y', 'radius', 'start', 'end', 'bulge', 'points',
     'lineWidth', 'segmentWidths', 'segmentBulges', 'filled', 'cornerRadius', 'nodeCornerRadii', 'copperMode', 'layer', 'copperSegment'];
 
-/** @param {any} current @param {any} saved @returns {boolean} */
+/** @param {any} current @param {any} saved @returns {boolean} Dynamic cached geometry inputs may be arrays or object snapshots. */
 function equalInput(current, saved) {
     if (Object.is(current, saved)) return true;
     if (!current || !saved || typeof current !== 'object' || typeof saved !== 'object') return false;
@@ -242,7 +242,7 @@ function equalInput(current, saved) {
         && keys.every((key) => Object.prototype.hasOwnProperty.call(saved, key) && equalInput(current[key], saved[key]));
 }
 
-/** @param {ContactBoardShape} shape @returns {Contact & {inputs?: Record<string, any>}} */
+/** @param {ContactBoardShape} shape @returns {Contact & {inputs?: Record<string, unknown>}} */
 export function resolveTrackContactGeometry(shape) {
     const prepared = preparedRegions.get(shape.region);
     if (prepared && regionShapes.get(shape.region) === shape) return prepared.contact;
@@ -271,7 +271,7 @@ function sameOutline(first, second) {
 }
 
 /** Reuse only exact physical inputs; the retained geometry owns its contour and bore. */
-/** @param {any} cluster @param {any} previous */
+/** @param {Record<string, any>} cluster @param {Record<string, any>|null|undefined} previous Dynamic terminal clusters come from copper-connectivity aggregation. */
 export function resolveTerminalCopperContact(cluster, previous) {
     const terminal = cluster.pad || cluster.via;
     const outline = /** @type {Point[]|undefined} */ (cluster.pad?.outline);

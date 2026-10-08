@@ -116,11 +116,11 @@ function prepareTrackPointer(app, track) {
 /**
  * @param {PcbEditor} app
  * @param {Track} track
- * @param {any} details
+ * @param {any} details Dynamic mode-specific drag details are normalized into VertexDrag.
  * @returns {VertexDrag|null}
  */
 function beginTrackPointer(app, track, details) {
-    const nodes = new Set(/** @type {any[]} */ (details.nodes).map(node => node.nodeId));
+    const nodes = new Set(/** @type {TrackDragNode[]} */ (details.nodes).map(node => node.nodeId));
     const layers = new Set([...track.edges].filter(([id, edge]) => details.mode === 'move'
         || (details.mode === 'bulge' ? id === details.edgeId : nodes.has(edge.from) || nodes.has(edge.to)))
         .map(([id]) => track.getEdgeLayer(id)));
@@ -169,7 +169,7 @@ export function getVertexDrag(app) {
  * The track a node/bulge drag is moving: `original` is the authored track and `preview`
  * the copy shown while dragging. Null when no track drag is active.
  * @param {PcbEditor} app
- * @returns {{original: any, preview: any}|null}
+ * @returns {{original: unknown, preview: unknown}|null}
  */
 export function draggedTrack(app) {
     const drag = getVertexDrag(app);
@@ -460,7 +460,7 @@ export function updateVertexDrag(app, worldPos) {
 
     if (drag.mode === 'rectangle') {
         const snap = snapPathPoint(app, worldPos, [], true);
-        const nodes = /** @type {any[]} */ (drag.nodes);
+        const nodes = /** @type {TrackDragNode[]} */ (drag.nodes);
         const corners = nodes.map(node => ({ x: node.startX, y: node.startY }));
         const opposite = corners[(drag.handle + 2) % 4];
         // A zero-width rectangle has no side axis left to resize along.
@@ -489,15 +489,15 @@ export function updateVertexDrag(app, worldPos) {
         const rawDx = worldPos.x - drag.grabX;
         const rawDy = worldPos.y - drag.grabY;
         if (!drag.translationPoints) {
-            const nodes = /** @type {any[]} */ (drag.nodes);
+            const nodes = /** @type {TrackDragNode[]} */ (drag.nodes);
             drag.translationPoints = nodes.map(node => ({ x: node.startX, y: node.startY }));
             const movedIds = new Set(nodes.map(node => node.nodeId));
             drag.constraints = drag.mode === 'segment' ? nodes.map((node, index) => ({
                 index,
                 neighbours: [
-                    .../** @type {any[]} */ (drag.track.incidentEdges(node.nodeId)).filter(edge => !movedIds.has(edge.otherNode))
+                    .../** @type {Array<{edgeId:string, otherNode:string}>} */ (drag.track.incidentEdges(node.nodeId)).filter(edge => !movedIds.has(edge.otherNode))
                         .map(edge => drag.track.nodes.get(edge.otherNode)),
-                    ...(/** @type {any[]} */ (drag.bridges).some(bridge => bridge.nodeId === node.nodeId)
+                    ...(/** @type {TrackDragBridge[]} */ (drag.bridges).some(bridge => bridge.nodeId === node.nodeId)
                         ? [{ x: node.startX, y: node.startY }] : []),
                 ],
             })) : [];
@@ -541,7 +541,7 @@ export function updateVertexDrag(app, worldPos) {
     // its directly-connected neighbours (snapping onto an adjacent node would
     // collapse that edge to zero length).
     const draggedId = nd.nodeId;
-    const neighborIds = drag.neighborIds ||= new Set(/** @type {any[]} */ (drag.track.incidentEdges(draggedId)).map(edge => edge.otherNode));
+    const neighborIds = drag.neighborIds ||= new Set(/** @type {Array<{edgeId:string, otherNode:string}>} */ (drag.track.incidentEdges(draggedId)).map(edge => edge.otherNode));
     const snap = resolveTrackSnap(app, worldPos, {
         layer: drag.track.getEdgeLayer(drag.track.incidentEdges(draggedId)[0]?.edgeId) || drag.track.layer,
         excludeNode: (track, nid) =>
@@ -903,9 +903,11 @@ export function finishVertexDrag(app) {
             throw new Error('Cannot finish a drag of a missing track, node or segment.');
         }
         const target = drag.snapTargetNode;
-        const originalTarget = target && canonicalTrack(app, target.track);
-        if (target && (!tracks.includes(originalTarget) || !originalTarget.nodes.has(target.nodeId))) {
-            throw new Error('Cannot finish a drag onto a missing track node.');
+        if (target) {
+            const originalTarget = canonicalTrack(app, target.track);
+            if (!tracks.includes(originalTarget) || !originalTarget.nodes.has(target.nodeId)) {
+                throw new Error('Cannot finish a drag onto a missing track node.');
+            }
         }
         if (drag.snapTargetVia && !(drag.snapTargetKind === 'pad' ? app.pads : app.vias)?.includes(drag.snapTargetVia)) {
             throw new Error('Cannot finish a drag onto a missing terminal.');

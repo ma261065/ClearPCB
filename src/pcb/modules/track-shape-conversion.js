@@ -13,8 +13,9 @@ import { showBoardShapeProperties } from './board-shape-properties.js';
 import { nextBoardShapeId, normalizeBoardPolylineKind, selectBoardShape } from './board-shapes.js';
 /** @typedef {import('./pcb-editor-api.js').PcbEditor} PcbEditor */
 /** @typedef {import('../../shapes/track.js').Track} Track */
-/** @typedef {{x: number, y: number, [key: string]: any}} Point */
+/** @typedef {{x: number, y: number, [key: string]: unknown}} Point */
 /** @typedef {import('../../core/pcb-board-shapes.js').BoardShape} BoardShape */
+/** @typedef {{execute(): void, undo(): void, description?: string}} CommandLike */
 
 /**
  * @param {Track} track
@@ -183,7 +184,7 @@ function replaceTrackWithBoardShape(app, track, { filled, net, layer = null, pla
  * copper path (see isCopperPathShape).
  * @param {PcbEditor} app
  * @param {BoardShape} shape
- * @returns {{command: any, track: import('../../shapes/track.js').Track|null}}
+ * @returns {{command: CommandLike, track: import('../../shapes/track.js').Track|null}}
  */
 export function addBoardShapeOrTrackCommand(app, shape) {
     if (!isCopperPathShape(shape)) return { command: new AddBoardShapeCommand(app, shape), track: null };
@@ -197,7 +198,7 @@ export function addBoardShapeOrTrackCommand(app, shape) {
  * @param {PcbEditor} app
  * @param {BoardShape} original
  * @param {BoardShape} edited
- * @returns {{commands: any[], track: import('../../shapes/track.js').Track}|null}
+ * @returns {{commands: CommandLike[], track: import('../../shapes/track.js').Track}|null}
  */
 export function copperPathReplacementCommands(app, original, edited) {
     if (!isCopperPathShape(edited)) return null;

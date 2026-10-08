@@ -23,6 +23,7 @@ import { peekDrcPresentation, refreshSelectedDrcMarker, setDrcRatlines, storedDr
 import { invalidateDrcRefresh } from './drc-refresh.js';
 import { getTrackDraw } from './track-draw.js';
 /** @typedef {import('./pcb-editor-api.js').PcbEditor} PcbEditor */
+/** @typedef {{failed?: boolean, net: string, x1: number, y1: number, x2: number, y2: number}} Ratline */
 /** @typedef {{x: number, y: number}} Point */
 
 const NS = 'http://www.w3.org/2000/svg';
@@ -48,7 +49,7 @@ function trackHasCurves(track) {
  * along every curve. A rounded corner's node lies off the copper, so curved
  * Tracks use their rendered centreline. Nodes still bond junctions.
  */
-/** @param {any} cluster @param {Map<Track, any>} pathsByTrack */
+/** @param {any} cluster Dynamic copper clusters can represent tracks, pads, vias, or shapes. @param {Map<Track, any>} pathsByTrack */
 function trackRatlineTargets(cluster, pathsByTrack) {
     const { track, edgeIds } = cluster;
     if (!edgeIds?.size || !trackHasCurves(track)) return cluster.points;
@@ -65,7 +66,7 @@ function trackRatlineTargets(cluster, pathsByTrack) {
 /**
  * Rebuild the ratsnest from net connectivity.
  *
- * The ratsnest is derived purely from net names: any pad, Track or Via
+ * The ratsnest is derived purely from net names: unknown pad, Track or Via
  * that carries a net name is a "terminal" on that net. Terminals are
  * grouped into clusters of physically-connected copper, then for every
  * net with two or more disconnected clusters a minimum-spanning-tree of
@@ -108,7 +109,7 @@ export function reconcileRatsnest(app, opts) {
 
     const ratLayer = app.getLayerGroup('ratlines');
     if (!ratLayer) return;
-    const ratlines = /** @type {any[]} */ (storedDrcRatlines(app)).filter(line => line.failed || (onlyNets && !onlyNets.has(line.net)));
+    const ratlines = /** @type {Ratline[]} */ (storedDrcRatlines(app)).filter(line => line.failed || (onlyNets && !onlyNets.has(line.net)));
     const publishRatlines = () => {
         setDrcRatlines(app, ratlines);
         refreshNetGuideLine(app);

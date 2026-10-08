@@ -7,8 +7,8 @@ import { dismissContextMenu, showContextMenu } from '../../shared/ui/context-men
 /** @typedef {{x: number, y: number}} Point */
 /** @typedef {import('../../shared/ui/context-menu.js').MenuItem} MenuItem */
 /** @typedef {import('../../shapes/path-snap.js').PathDragConstraint} PathDragConstraint */
-/** @typedef {{id: string, x: number, y: number, [key: string]: any}} PathAnchor */
-/** @typedef {{id: string, kind: string, locked?: boolean, getBounds: () => any, hitTest: (point: Point, tolerance?: number) => boolean, invalidate: () => void, beginAnchorDrag: (id: string|number|undefined, point: Point, options?: any) => boolean, updateAnchorDrag?: (point: Point) => void, endAnchorDrag?: (commit: boolean, options?: object) => void, getAnchors: () => PathAnchor[], clearEdit?: () => void}} PathAdapter */
+/** @typedef {{id: string, x: number, y: number, [key: string]: unknown}} PathAnchor */
+/** @typedef {{id: string, kind: string, object: any, locked?: boolean, getBounds: () => any, hitTest: (point: Point, tolerance?: number) => boolean, invalidate: () => void, beginAnchorDrag: (id: string|number|undefined, point: Point, options?: any) => boolean, updateAnchorDrag?: (point: Point) => void, endAnchorDrag?: (commit: boolean, options?: object) => void, getAnchors: () => PathAnchor[], clearEdit?: () => void}} PathAdapter Dynamic path adapters proxy different selectable model objects. */
 export { pathMoveInteraction } from '../../shapes/path-interaction.js';
 
 /**

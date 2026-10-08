@@ -5,7 +5,7 @@ import { getBoardShapeDrag } from './board-shape-drag.js';
 import { isRotationHandleDragActive } from './rotation-handle.js';
 import { refreshSelectedDrcMarker, scheduleDrc } from './drc-state.js';
 /** @typedef {import('./pcb-editor-api.js').PcbEditor} PcbEditor */
-/** @typedef {import('./clearance-overlay.js').ClearanceShape | {id: string, [key: string]: any}} ClearanceShape */
+/** @typedef {import('./clearance-overlay.js').ClearanceShape | {id: string, [key: string]: any}} ClearanceShape Clearance refresh accepts heterogeneous model instances with extra geometry fields. */
 /** @typedef {{pendingShapeClearances: Map<string, ClearanceShape>|null, deferredShapeCopperCuts: boolean}} ShapeClearanceRefreshState */
 /** @type {WeakMap<PcbEditor, number>} */
 const pendingRefreshes = new WeakMap();

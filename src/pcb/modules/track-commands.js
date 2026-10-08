@@ -64,7 +64,7 @@ import { getPadHaloGroup } from './clearance-overlay.js';
  * @typedef {import('../../core/ProjectDocument.js').ProjectDocument} ProjectDocument
  * @typedef {import('../../core/pcb-placement-geometry.js').Placement} Placement
  * @typedef {import('../../core/pcb-track-commands.js').TrackState} TrackState
- * @typedef {Partial<TrackState> & Record<string, any>} TrackPatch
+ * @typedef {Partial<TrackState> & Record<string, unknown>} TrackPatch
  * @typedef {import('../../core/pcb-via-commands.js').ViaState} ViaState
  * @typedef {{edgeId?: string|null, nodeId?: string|null}} TrackPropertyScope
  * @typedef {{original: Track, track: Track, before: TrackState, scope: TrackPropertyScope, tracks: Track[]}} TrackPropertyPreview
@@ -95,30 +95,32 @@ export function getTrackPropertyPreview(app) {
 /**
  * @param {PcbEditor} app
  * @param {Track} track
+ * @returns {Track}
  */
 export function canonicalTrack(app, track) {
     const trackDrag = draggedTrack(app);
-    if (trackDrag && trackDrag.preview === track) return trackDrag.original || track;
+    if (trackDrag && trackDrag.preview === track) return /** @type {Track} */ (/** @type {unknown} */ (trackDrag.original || track));
     const preview = trackPropertyPreviews.get(app);
     if (preview?.track === track) return preview.original;
-    return draggedVia(app)?.tracks?.originals.get(track)
-        || placementPreviews.get(app)?.originals.get(track) || track;
+    return /** @type {Track} */ (/** @type {unknown} */ (draggedVia(app)?.tracks?.originals.get(track)
+        || placementPreviews.get(app)?.originals.get(track) || track));
 }
 
 /**
  * @param {PcbEditor} app
  * @param {Track} track
+ * @returns {Track}
  */
 export function displayedTrack(app, track) {
     track = canonicalTrack(app, track);
     const placement = placementPreviews.get(app)?.copiesByOriginal.get(track);
     if (placement) return placement;
     const trackDrag = draggedTrack(app);
-    if (trackDrag && trackDrag.original === track) return trackDrag.preview;
-    const terminal = draggedVia(app)?.tracks?.copies.get(track);
+    if (trackDrag && trackDrag.original === track) return /** @type {Track} */ (/** @type {unknown} */ (trackDrag.preview));
+    const terminal = /** @type {Track|undefined} */ (draggedVia(app)?.tracks?.copies.get(track));
     if (terminal) return terminal;
     const preview = trackPropertyPreviews.get(app);
-    return preview?.original === track ? preview.track : track;
+    return preview?.original === track ? /** @type {Track} */ (/** @type {unknown} */ (preview.track)) : track;
 }
 
 /**
@@ -189,6 +191,7 @@ export function getViaPropertyPreview(app) {
 /**
  * @param {PcbEditor} app
  * @param {Via} via
+ * @returns {Via}
  */
 export function canonicalVia(app, via) {
     const viaDrag = draggedVia(app);
@@ -199,6 +202,7 @@ export function canonicalVia(app, via) {
 /**
  * @param {PcbEditor} app
  * @param {Via} via
+ * @returns {Via}
  */
 export function displayedVia(app, via) {
     via = canonicalVia(app, via);

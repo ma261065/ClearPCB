@@ -19,7 +19,7 @@
 import { noteEditSettled } from './refresh-state.js';
 /** @typedef {import('./pcb-editor-api.js').PcbEditor} PcbEditor */
 /** @typedef {{key: string, category: string, blocksExport: boolean, owner: string}} PcbInteractionEntry */
-/** @typedef {Record<string, any>} PcbInteractionSlotState */
+/** @typedef {Record<string, any>} PcbInteractionSlotState Dynamic owner-specific interaction slots cannot share one useful structural type. */
 
 /** @type {readonly Readonly<PcbInteractionEntry>[]} */
 export const PCB_INTERACTIONS = Object.freeze([
@@ -68,7 +68,7 @@ function assertInteractionKey(key) {
  * Return one interaction slot's value, or null when inactive.
  * @param {PcbEditor} app
  * @param {string} key
- * @returns {any}
+ * @returns {any} Dynamic owner-specific interaction slots are narrowed by owner modules.
  */
 export function getPcbInteraction(app, key) {
     assertInteractionKey(key);
@@ -79,7 +79,7 @@ export function getPcbInteraction(app, key) {
  * Set one interaction slot. Passing null/undefined/false clears the slot.
  * @param {PcbEditor} app
  * @param {string} key
- * @param {any} value
+ * @param {unknown} value
  */
 export function setPcbInteraction(app, key, value) {
     assertInteractionKey(key);

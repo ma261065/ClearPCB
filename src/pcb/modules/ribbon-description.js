@@ -12,15 +12,15 @@ import { peekDrcPresentation } from './drc-state.js';
 import { clearRoutes, loadTestBoard, runAutoRoute } from './autorouter-actions.js';
 import { exportBOM, exportDSN, exportGerber, exportPickAndPlace, importSES, openPanelize } from './fabrication-actions.js';
 /** @typedef {import('./pcb-editor-api.js').PcbEditor} PcbEditor */
-/** @typedef {Record<string, any>} RibbonNode */
+/** @typedef {Record<string, any>} RibbonNode Ribbon description nodes are declarative UI records with heterogeneous child/content shapes. */
 
-/** @param {string} tag @param {RibbonNode} [props] @param {any} [children] */
+/** @param {string} tag @param {RibbonNode} [props] @param {any} [children] Dynamic ribbon content accepts strings, nodes, and arrays. */
 const E = (tag, props = {}, children = undefined) => ({ kind: 'element', tag, ...props, children });
-/** @param {string} id @param {any} content @param {string|undefined} title @param {RibbonNode} [props] */
+/** @param {string} id @param {any} content Dynamic ribbon content accepts strings, nodes, and arrays. @param {string|undefined} title @param {RibbonNode} [props] */
 const B = (id, content, title, props = {}) => ({ kind: 'button', id, title, content, ...props });
 /** @param {string} text */
 const K = text => E('kbd', {}, text);
-/** @param {any} children */
+/** @param {any} children Dynamic ribbon content accepts strings, nodes, and arrays. */
 const H = children => ({ kind: 'helpRow', children: [E('span', {}, children)] });
 
 const MINIMUM_MM = { trackWidth: 0.05, clearance: 0.05, viaDiameter: 0.1, viaDrill: 0.05 };
@@ -158,7 +158,7 @@ export function createPcbRibbonDescription(app) {
     // A tool's ribbon button, from its entry in pcb-tools.js; placement tools carry block badges.
     /** @param {string} id */
     const toolButton = id => {
-        const { button, targets } = /** @type {Record<string, any>} */ (PCB_TOOLS)[id];
+        const { button, targets } = /** @type {import('./pcb-tools.js').PcbTool} */ (PCB_TOOLS[id]);
         return {
             kind: 'toolButton', id: button.id, content: button.content,
             title: targets ? blockTitle(button.title, id) : button.title, ...(targets ? { classes: blockBadge(id) } : {}),
@@ -167,7 +167,7 @@ export function createPcbRibbonDescription(app) {
     };
     /** @param {string} id */
     const presetButton = id => {
-        const { button, tool, layer } = /** @type {Record<string, any>} */ (PCB_TOOL_PRESETS)[id];
+        const { button, tool, layer } = /** @type {{button: import('./pcb-tools.js').PcbToolButton, tool: string, layer: string}} */ (PCB_TOOL_PRESETS[id]);
         return {
             kind: 'toolButton', id: button.id, content: button.content, title: blockTitle(button.title, id),
             classes: blockBadge(id), run: () => { app.activeLayer = layer; setTool(tool); },

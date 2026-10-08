@@ -15,7 +15,8 @@ import { buildBondedClusters, nodeTargetPairs, shapeCopperContains, _clusterCopp
 import { getTrackDraw, getTrackToolLayer, getTrackToolNet } from './track-draw.js';
 /** @typedef {import('./pcb-editor-api.js').PcbEditor} PcbEditor */
 /** @typedef {{x: number, y: number}} Point */
-/** @typedef {{padTolerance?: number, trackTolerance?: number, excludeTrack?: Track|null, excludePad?: any, layer?: string, excludeNode?: (track: Track, nodeId: string) => boolean, lastPt?: Point|null, net?: string, checkNodeContacts?: boolean}} TrackSnapOptions */
+/** @typedef {{x:number, y:number, componentId?:string, pinNumber?:string, number?:string, net:string, standalonePad?:object}} PadSnap */
+/** @typedef {{padTolerance?: number, trackTolerance?: number, excludeTrack?: Track|null, excludePad?: unknown, layer?: string, excludeNode?: (track: Track, nodeId: string) => boolean, lastPt?: Point|null, net?: string, checkNodeContacts?: boolean}} TrackSnapOptions */
 /**
  * @typedef {object} TrackSnap
  * @property {number} x
@@ -70,18 +71,18 @@ export const TRACK_SNAP_SCREEN_PX = 8;
  * @param {Point} worldPos
  * @param {number} [tolerance]
  * @param {string} [layer]
- * @param {any} [excludePad]
- * @returns {{x:number, y:number, componentId?:string, pinNumber?:string, number?:string, net:string, standalonePad?:object}|null}
+ * @param {unknown} [excludePad]
+ * @returns {PadSnap|null}
  */
 export function findNearbyPad(app, worldPos, tolerance = PAD_SNAP_TOL, layer = 'top-copper', excludePad = null) {
     if (!app) return null;
-    /** @type {any} */
+    /** @type {PadSnap|null} */
     let best = null;
     let bestD2 = Infinity;
     for (const [compId, pl] of app.placements || []) {
         if (!pl?.pads) continue;
         const pose = placementPose(pl);
-        /** @param {string|number} padId @param {any} pad @param {any} geometry @param {boolean} rotated */
+        /** @param {string|number} padId @param {{x:number,y:number,number?:string|number}} pad @param {{width?:number,height?:number,shape?:string}} geometry @param {boolean} rotated */
         const consider = (padId, pad, geometry, rotated) => {
             const dx = pad.x - worldPos.x;
             const dy = pad.y - worldPos.y;
@@ -111,6 +112,7 @@ export function findNearbyPad(app, worldPos, tolerance = PAD_SNAP_TOL, layer = '
         if (pl.padOffsets?.length) {
             for (const offset of pl.padOffsets) {
                 const padId = offset.padId ?? offset.number;
+                if (padId == null) continue;
                 const pad = pl.pads.get(padId) || pl.pads.get(String(padId));
                 if (pad) consider(padId, pad, offset, true);
             }
@@ -131,7 +133,7 @@ export function findNearbyPad(app, worldPos, tolerance = PAD_SNAP_TOL, layer = '
         }
     }
     if (!best) return null;
-    if (best.componentId) best.net = _padNet(app, best.componentId, best.number);
+    if (best.componentId && best.number != null) best.net = _padNet(app, best.componentId, best.number);
     return best;
 }
 
@@ -383,7 +385,7 @@ function pickAxis(lastPt, worldPos, diagBand = 0.3) {
  * @param {PcbEditor} app
  * @param {Point} worldPos
  * @param {TrackSnapOptions} [options]
- * @returns {TrackSnap & {contactNets: string[], copperContact: boolean, via?: any, copperShapes?: any[]}}
+ * @returns {TrackSnap & {contactNets: string[], copperContact: boolean, via?: Via, copperShapes?: any[]}}
  */
 export function resolveTrackDrawSnap(app, worldPos, options = {}) {
     const snap = resolveTrackSnap(app, worldPos, options);
@@ -393,7 +395,7 @@ export function resolveTrackDrawSnap(app, worldPos, options = {}) {
     // A pour of another net is re-poured with clearance around the new track,
     // so it is not copper the track connects to (matching collectNodeConnections).
     const drawNet = String(options.net || sourceNet || getTrackToolNet(app) || '').trim();
-    /** @param {any} shape */
+    /** @param {any} shape Dynamic copper shape/fill records share only the fields checked here. */
     const foreignFill = (shape) => shape?.type === 'fill' && !!drawNet
         && !!String(shape.net || '').trim() && String(shape.net).trim() !== drawNet;
     const boardShapes = /** @type {any[]} */ (app.boardShapes || []);

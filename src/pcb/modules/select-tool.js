@@ -32,6 +32,7 @@ import { startViaDrag } from './terminal-drag.js';
 import { clearTrackSelection, getSelectedTrack, getSelectedVia, hitTestTrack, selectTrackOrVia, getTrackEdit } from './track-select.js';
 import { setHoverHighlight } from './copper-halos.js';
 /** @typedef {import('./pcb-editor-api.js').PcbEditor} PcbEditor */
+/** @typedef {import('../../core/pcb-board-shapes.js').BoardShape} BoardShape */
 
 /**
  * @typedef {object} SelectPress
@@ -41,14 +42,14 @@ import { setHoverHighlight } from './copper-halos.js';
  * @property {any} selectedGroupHit - the box-selected group member under the pointer, if any
  */
 
-/** @typedef {(app: any, press: SelectPress) => boolean|void} SelectPressPhase */
+/** @typedef {(app: unknown, press: SelectPress) => boolean|void} SelectPressPhase */
 
 /**
  * A primary press with the select tool.
  * @param {PcbEditor} app
  * @param {MouseEvent} e
  * @param {{x: number, y: number}} worldPos
- * @param {any} selectedGroupHit
+ * @param {unknown} selectedGroupHit
  * @param {readonly SelectPressPhase[]} [phases]
  */
 export function pressSelectTool(app, e, worldPos, selectedGroupHit, phases = SELECT_PRESS_PHASES) {
@@ -139,7 +140,7 @@ function pressBoxSelection(app, press) {
         // marquee-selected shape edits only that shape, rather
         // than moving the entire marquee selection.
         const shapeWithHandle = getPcbSelection(app, 'shape').find(
-            (/** @type {any} */ shape) => hitTestBoardShapeVertex(app, shape, worldPos) != null,
+            (/** @type {BoardShape} */ shape) => hitTestBoardShapeVertex(app, shape, worldPos) != null,
         );
         if (shapeWithHandle && startBoardShapeDrag(app, shapeWithHandle, worldPos)) {
             selectBoardShape(app, shapeWithHandle);

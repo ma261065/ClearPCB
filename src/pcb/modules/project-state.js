@@ -29,12 +29,12 @@ export function serializePcb(app) {
     return app.pcbDocument.serialize(serializeGridSettings(app.viewport));
 }
 
-/** @param {any} data */
+/** @param {any} data Parsed PCB JSON is validated and normalized by PcbDocument.prepare. */
 export function preparePcb(data) {
     return PcbDocument.prepare(data);
 }
 
-/** @param {PcbEditor} app @param {any} data @param {PreparedPcb} [prepared] */
+/** @param {PcbEditor} app @param {any} data Parsed PCB JSON is validated and normalized by PcbDocument.prepare. @param {PreparedPcb} [prepared] */
 export function loadPcb(app, data, prepared = preparePcb(data)) {
     app.cancelAutoRoute();
     if (prepared.data) data = prepared.data;

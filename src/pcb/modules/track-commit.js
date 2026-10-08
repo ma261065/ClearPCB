@@ -15,7 +15,7 @@ import { NODE_MERGE_EPS } from './track-drop.js';
 
 
 /**
- * Dissolve redundant collinear waypoints from a track: any degree-2 node
+ * Dissolve redundant collinear waypoints from a track: unknown degree-2 node
  * whose two incident edges share a copper layer and whose neighbours are
  * collinear through it is removed, joining the neighbours with a single
  * edge of that layer. Nodes anchored to a pad, or sitting on a via (a

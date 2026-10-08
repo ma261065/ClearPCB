@@ -19,6 +19,8 @@ import { collapseCollinearTrackNodes, showTrackViaNetConflict } from './track-ed
 /** @typedef {ReturnType<import('../../core/PcbDesignSettings.js').PcbDesignSettings['getRoutingParams']>} RoutingParams */
 /** @typedef {{track: Track, nodeId: string}} TrackNodeRef */
 /** @typedef {import('./track-drag.js').VertexDrag} VertexDrag */
+/** @typedef {import('./track-connections.js').BondedCopper} BondedCopper */
+/** @typedef {{execute(): void, undo(): void, description?: string}} CommandLike */
 
 /** World-space tolerance for treating two dropped nodes as coincident. */
 export const NODE_MERGE_EPS = 1e-3;
@@ -91,21 +93,22 @@ function _findExistingMergeNode(app, x, y, net, layer, exclude) {
     return null;
 }
 
-/** @param {any} bonded @param {any[]} [shapes] */
+/** @param {BondedCopper} bonded @param {Iterable<any>} [shapes] Dynamic shape list may contain board shapes and copper fills. */
 function _bondedNets(bonded, shapes = bonded.shapes) {
     return new Set([...bonded.tracks, ...bonded.vias, ...shapes].map(object => object.net || '')
         .concat([...bonded.padNets]).filter(Boolean));
 }
 
-/** @param {PcbEditor} app @param {any} bonded @param {string} net @param {any[]} [shapes] @param {boolean} [includeTracks] */
+/** @param {PcbEditor} app @param {BondedCopper} bonded @param {string} net @param {Iterable<any>} [shapes] Dynamic shape list may contain board shapes and copper fills. @param {boolean} [includeTracks] */
 function _buildCopperNetCommands(app, bonded, net, shapes = bonded.shapes, includeTracks = true) {
-    /** @type {any[]} */
+    /** @type {CommandLike[]} */
     const commands = [];
     if (!net) return commands;
     if (includeTracks) {
         for (const track of bonded.tracks) {
             if (track.net) continue;
             const nodes = bonded.trackNodes.get(track);
+            if (!nodes) continue;
             if (nodes.size === track.nodes.size) {
                 commands.push(new ModifyTrackCommand(app, track, { net: track.net }, { net }));
             } else {
@@ -144,7 +147,7 @@ function _buildCopperNetCommands(app, bonded, net, shapes = bonded.shapes, inclu
 
 /** Capture Net edits after the move/merge so snapshots reference the final topology. */
 class AdoptDroppedCopperNetCommand {
-    /** @param {PcbEditor} app @param {any} bonded @param {string} net */
+    /** @param {PcbEditor} app @param {BondedCopper} bonded @param {string} net */
     constructor(app, bonded, net) {
         this.app = app;
         this.bonded = bonded;
@@ -483,7 +486,7 @@ export function trackPointerCommands(app, view, drag) {
         return JSON.stringify(after) === JSON.stringify(drag.before) ? []
             : [new ModifyTrackGraphCommand(app, drag.original, drag.before, after)];
     }
-    const moved = /** @type {any[]} */ (drag.nodes).some(nd => {
+    const moved = /** @type {Array<{nodeId:string,startX:number,startY:number}>} */ (drag.nodes).some(nd => {
         const n = drag.track.nodes.get(nd.nodeId);
         return n && (Math.abs(n.x - nd.startX) > 1e-6 || Math.abs(n.y - nd.startY) > 1e-6);
     });
@@ -518,7 +521,7 @@ export function trackPointerCommands(app, view, drag) {
         const net = [...nets][0];
         if (net) netCommand = new AdoptDroppedCopperNetCommand(app, bonded, net);
     }
-    /** @param {any[]} commands */
+    /** @param {CommandLike[]} commands */
     const withNet = commands => netCommand && commands.length ? [...commands, netCommand] : commands;
     if (drag.topology) {
         if (drag.mode !== 'move') collapseCollinearTrackNodes(app, drag.track);
@@ -554,7 +557,7 @@ export function trackPointerCommands(app, view, drag) {
         if (merged) return withNet(merged);
     }
 
-    /** @type {any[]} */
+    /** @type {Array<{nodeId:string, fromX:number, fromY:number, toX:number, toY:number}>} */
     const moves = [];
     for (const nd of drag.nodes) {
         const n = drag.track.nodes.get(nd.nodeId);

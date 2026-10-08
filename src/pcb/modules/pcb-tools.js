@@ -38,19 +38,23 @@ import { getViaPreviewWorld, pressViaTool, showViaToolProperties, updateViaPrevi
  * @typedef {object} PcbTool
  * @property {string} id
  * @property {PcbToolButton} button
- * @property {(app: any, e: MouseEvent, worldPos: WorldPoint, groupHit: any) => void} press - a primary press
- * @property {(app: any) => import('./layers.js').PlacementLayer[]} [targets] - the layer-panel rows it places on
- * @property {(app: any) => string} [layer] - the layer the status bar names
- * @property {(app: any) => boolean} [drawing] - a draw of this tool is under way, so a press continues it
- * @property {(app: any, e: MouseEvent) => void} [hover] - pointer movement outside an interaction
- * @property {(app: any, worldPos: WorldPoint) => void} [follow] - keep its cursor preview under the pointer
- * @property {(app: any) => WorldPoint|null} [followPoint] - where `follow` last drew
- * @property {(app: any) => void} [showProperties] - show its Properties panel
- * @property {(app: any) => string} [tip] - the status-bar tip while the tool is active ('' for none)
+ * @property {(app: PcbEditor, e: MouseEvent, worldPos: WorldPoint, groupHit: unknown) => void} press - a primary press
+ * @property {(app: PcbEditor) => import('./layers.js').PlacementLayer[]} [targets] - the layer-panel rows it places on
+ * @property {(app: PcbEditor) => string} [layer] - the layer the status bar names
+ * @property {(app: PcbEditor) => boolean} [drawing] - a draw of this tool is under way, so a press continues it
+ * @property {(app: PcbEditor, e: MouseEvent) => void} [hover] - pointer movement outside an interaction
+ * @property {(app: PcbEditor, worldPos: WorldPoint) => void} [follow] - keep its cursor preview under the pointer
+ * @property {(app: PcbEditor) => WorldPoint|null} [followPoint] - where `follow` last drew
+ * @property {(app: PcbEditor) => void} [showProperties] - show its Properties panel
+ * @property {(app: PcbEditor) => string} [tip] - the status-bar tip while the tool is active ('' for none)
  */
 
-/** @param {(app: any) => string} layer */
-const onLayer = layer => (/** @type {any} */ app) => [{ id: layer(app) }];
+/** @param {(app: PcbEditor) => string} layer */
+const onLayer = layer => {
+    /** @param {PcbEditor} app */
+    const targets = app => [{ id: layer(app) }];
+    return targets;
+};
 
 /**
  * @param {'line'|'circle'|'arc'|'rect'|'polygon'} kind
@@ -143,7 +147,7 @@ export const PCB_TOOLS = Object.freeze(Object.fromEntries(/** @type {PcbTool[]} 
  * Ribbon buttons that pick a tool with a preset layer: Hole is the Circle tool on the
  * Hole layer.
  * @type {Readonly<Record<string, Readonly<{tool: string, layer: string, button: PcbToolButton,
- *   targets: (app: any) => import('./layers.js').PlacementLayer[]}>>>}
+ *   targets: (app: PcbEditor) => import('./layers.js').PlacementLayer[]}>>>}
  */
 export const PCB_TOOL_PRESETS = Object.freeze({
     hole: Object.freeze({
@@ -214,7 +218,7 @@ export function showPcbToolProperties(app, tool = app.currentTool) {
  * @param {PcbEditor} app
  * @param {MouseEvent} e
  * @param {WorldPoint|null} worldPos - the press position when already resolved
- * @param {any} [groupHit] - the box-selected group member under the pointer
+ * @param {unknown} [groupHit] - the box-selected group member under the pointer
  * @param {Readonly<Record<string, Readonly<PcbTool>>>} [tools]
  */
 export function pressPcbTool(app, e, worldPos, groupHit = null, tools = PCB_TOOLS) {

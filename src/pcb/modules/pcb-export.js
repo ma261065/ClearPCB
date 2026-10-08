@@ -67,7 +67,7 @@ export async function savePcbBlob(blob, suggestedName, opts = {}) {
     // Run the save in the window that owns the user gesture. When a viewer
     // is torn off into a pop-up, the click happens there — using the opener
     // window's picker/anchor would have no user activation and silently fail.
-    const targetWin = /** @type {any} */ (opts.win && !opts.win.closed ? opts.win : window);
+    const targetWin = /** @type {Window & {showSaveFilePicker?: (options: object) => Promise<{createWritable: () => Promise<{write: (blob: Blob) => Promise<void>, close: () => Promise<void>}>}>}} */ (opts.win && !opts.win.closed ? opts.win : window);
     const targetDoc = targetWin.document || document;
     if (typeof targetWin.showSaveFilePicker === 'function') {
         try {
@@ -420,13 +420,13 @@ export async function savePcbPdf(app) {
         const jsPDF = await loadVectorPdfLibs(app);
         const { svgNode, widthMm, heightMm } = clonePcbViewportForExport(app, opts);
 
-        const w = /** @type {any} */ (window);
+        const w = /** @type {Window & {jspdf?: {jsPDF?: unknown}, jsPDF?: unknown, svg2pdf?: {svg2pdf?: unknown, default?: unknown}}} */ (window);
         const svg2pdf = w.svg2pdf?.svg2pdf || w.svg2pdf?.default || w.svg2pdf;
         if (typeof svg2pdf !== 'function') {
             throw new Error('svg2pdf is not available');
         }
 
-        const JsPdfCtor = /** @type {any} */ (jsPDF);
+        const JsPdfCtor = /** @type {new (options: object) => {setProperties?: (properties: object) => void, addImage: (...args: unknown[]) => void, addPage: (format?: unknown, orientation?: unknown) => void, save: (name: string) => void, output: (type: string) => Blob}} */ (jsPDF);
         let pdf;
         /** @type {{x: number, y: number, width: number, height: number}} */
         let draw;

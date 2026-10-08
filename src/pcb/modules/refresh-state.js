@@ -10,7 +10,8 @@
  * functions here take `object` rather than the editor type.
  */
 
-/** @type {WeakMap<object, {fillPending: boolean, fillScheduled: boolean, fillError: any, pictureCopperPending: boolean, overlaysDeferred: boolean, fillSuspended: boolean, boardViewSuspended: boolean, boardViewPanel?: any, last2DSide?: 'top'|'bottom'}>} */
+/** @typedef {{refresh?: () => void, closed?: boolean, hidden?: boolean, show?: () => void, hide?: () => void, view?: unknown, mode?: string, popWin?: Window|null, setView?: (mode: string) => void}} BoardViewPanel */
+/** @type {WeakMap<object, {fillPending: boolean, fillScheduled: boolean, fillError: unknown, pictureCopperPending: boolean, overlaysDeferred: boolean, fillSuspended: boolean, boardViewSuspended: boolean, boardViewPanel?: BoardViewPanel|null, last2DSide?: 'top'|'bottom'}>} */
 const states = new WeakMap();
 /** @param {object} app */
 const stateFor = app => {
@@ -80,7 +81,7 @@ export const setFillRefreshScheduled = (app, scheduled) => setFlag(app, 'fillSch
 export const fillRefreshError = app => states.get(app)?.fillError ?? null;
 /**
  * @param {object} app
- * @param {any} error
+ * @param {unknown} error
  */
 export function setFillRefreshError(app, error) {
     const state = stateFor(app);
@@ -102,7 +103,7 @@ const IDLE = Object.freeze({ fillPending: false, fillScheduled: false, fillError
 /**
  * Read-only view of every status in one lookup, for predicates that test several.
  * @param {object} app
- * @returns {Readonly<{fillPending: boolean, fillScheduled: boolean, fillError: any, pictureCopperPending: boolean,
+ * @returns {Readonly<{fillPending: boolean, fillScheduled: boolean, fillError: unknown, pictureCopperPending: boolean,
  *   overlaysDeferred: boolean, fillSuspended: boolean, boardViewSuspended: boolean}>}
  */
 export const refreshStatus = app => states.get(app) ?? IDLE;
@@ -152,9 +153,9 @@ export const setBoardViewRefreshSuspended = (app, suspended) => { stateFor(app).
 
 /** @param {object} app */
 export const getBoardViewPanel = app => stateFor(app).boardViewPanel;
-/** @param {object} app @param {any} panel */
+/** @param {object} app @param {BoardViewPanel|null|undefined} panel */
 export const setBoardViewPanel = (app, panel) => { stateFor(app).boardViewPanel = panel; };
-/** @param {object} app @param {any} panel */
+/** @param {object} app @param {BoardViewPanel|null|undefined} panel */
 export function clearBoardViewPanel(app, panel) {
     const state = stateFor(app);
     if (state.boardViewPanel === panel) state.boardViewPanel = null;

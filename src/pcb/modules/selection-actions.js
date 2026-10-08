@@ -21,7 +21,7 @@ export function selectAllPcbObjects(app) {
     const selected = [];
     /**
      * @param {PcbSelectionKind} kind
-     * @param {any} object
+     * @param {unknown} object
      */
     const add = (kind, object) => {
         if (!isPcbObjectLayerLocked(app, kind, object)) selected.push({ kind, object });

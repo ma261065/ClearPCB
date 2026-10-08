@@ -9,7 +9,7 @@
  * owner's back. No imports, so worker-loaded export code can query it.
  */
 /** @typedef {import('./pcb-editor-api.js').PcbEditor} PcbEditor */
-/** @typedef {{active: boolean, commit: () => void, cancel: () => void, dispose: () => void, affectsLayer?: (layerId: string) => boolean, [key: string]: any}} PropertyEditorBinding */
+/** @typedef {{active: boolean, commit: () => void, cancel: () => void, dispose: () => void, affectsLayer?: (layerId: string) => boolean, sync?: () => void, refresh?: () => void, committing?: boolean, syncRotationInput?: (componentId: string) => void, track?: import('../../shapes/track.js').Track}} PropertyEditorBinding */
 
 /** Panel editors, in the order lifecycle cancellation and disposal visit them. */
 export const PANEL_EDITOR_KINDS = Object.freeze(['text', 'component', 'pad', 'via', 'track', 'boardShape', 'fill']);
@@ -28,7 +28,7 @@ const checkKind = kind => {
 /**
  * @param {PcbEditor} app
  * @param {string} kind
- * @returns {PropertyEditorBinding|null} The binding in `kind`'s slot, or null.
+ * @returns {any} Dynamic property editor binding; owner modules narrow by slot kind.
  */
 export function getPropertyEditor(app, kind) {
     return editors.get(app)?.[kind] ?? null;

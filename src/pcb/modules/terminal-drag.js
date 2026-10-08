@@ -32,8 +32,8 @@ import { findSplittableTrackEdge, showTrackViaNetConflict } from './track-edits.
  * @typedef {{tracks: Track[], copies: Map<Track, Track>, originals: Map<Track, Track>, pads?: Pad[], vias?: Via[]}} TerminalDragPreview
  * @typedef {{track: Track, nodeId?: string, edgeId?: string, px: number, py: number}} TerminalTrackTarget
  * @typedef {{layers: string[], startX: number, startY: number, grabX: number, grabY: number, attached: TerminalAttachedNode[], session: DragSession, preview?: TerminalDragPreview, snapTargetTrack?: TerminalTrackTarget|null}} TerminalDragCommon
- * @typedef {TerminalDragCommon & {via: Via, original: Via, kind: 'via', render: (item: Via, layerGroup: (id: string) => any) => void, remove: (item: Via) => void}} ViaDrag
- * @typedef {TerminalDragCommon & {via: Pad, original: Pad, kind: 'pad', render: (item: Pad, layerGroup: (id: string) => any) => void, remove: (item: Pad) => void}} PadDrag
+ * @typedef {TerminalDragCommon & {via: Via, original: Via, kind: 'via', render: (item: Via, layerGroup: (id: string) => SVGGElement) => void, remove: (item: Via) => void}} ViaDrag
+ * @typedef {TerminalDragCommon & {via: Pad, original: Pad, kind: 'pad', render: (item: Pad, layerGroup: (id: string) => SVGGElement) => void, remove: (item: Pad) => void}} PadDrag
  * @typedef {ViaDrag|PadDrag} TerminalDrag
  */
 
@@ -109,7 +109,7 @@ function startTerminalDrag(app, via, worldPos, kind) {
     for (const t of app.tracks || []) {
         for (const [nid, n] of t.nodes) {
             if (Math.abs(n.x - via.x) < EPS && Math.abs(n.y - via.y) < EPS) {
-                if (!/** @type {any[]} */ (t.incidentEdges(nid)).some((edge) => layers.includes(t.getEdgeLayer(edge.edgeId)))) continue;
+                if (!/** @type {Array<{edgeId:string, otherNode:string}>} */ (t.incidentEdges(nid)).some((edge) => layers.includes(t.getEdgeLayer(edge.edgeId)))) continue;
                 attached.push({ track: t, nodeId: nid, startX: n.x, startY: n.y });
             }
         }
@@ -126,7 +126,7 @@ function startTerminalDrag(app, via, worldPos, kind) {
         grabX: worldPos.x,
         grabY: worldPos.y,
         attached,
-        session: beginDragSession(app, { nets: copperNets([via, ...attached.map((/** @param {any} item */ item) => item.track)]) }),
+        session: beginDragSession(app, { nets: copperNets([via, ...attached.map((/** @param {TerminalAttachedNode} item */ item) => item.track)]) }),
     });
     app.viewport?.setCrosshair({ x: via.x, y: via.y });
     return true;
@@ -149,10 +149,10 @@ function beginTerminalPreview(app, drag) {
     const collection = drag.kind === 'pad' ? 'pads' : 'vias';
     const preview = {
         tracks: app.pcbDocument.tracks.map((/** @param {Track} track */ track) => copies.get(track) || track),
-        [collection]: app.pcbDocument[collection].map((/** @param {any} item */ item) => item === drag.original ? copy : item),
+        [collection]: app.pcbDocument[collection].map((/** @param {Via|Pad} item */ item) => item === drag.original ? copy : item),
         copies, originals,
     };
-    drag.attached = /** @type {any[]} */ (drag.attached).map((item) => ({
+    drag.attached = /** @type {TerminalAttachedNode[]} */ (drag.attached).map((item) => ({
         ...item, originalTrack: item.track, track: copies.get(item.track),
     }));
     drag.preview = preview;
@@ -214,8 +214,8 @@ export function updateViaDrag(app, worldPos) {
     // tolerance) would override the finer grid snap and feel sticky.
     /** @param {Track} track @param {string} nodeId */
     const excludeNode = (track, nodeId) =>
-        /** @type {any[]} */ (drag.attached).some((a) => a.track === track && a.nodeId === nodeId)
-        || !track.incidentEdges(nodeId).some((/** @param {any} edge */ edge) => drag.layers.includes(track.getEdgeLayer(edge.edgeId)));
+        /** @type {TerminalAttachedNode[]} */ (drag.attached).some((a) => a.track === track && a.nodeId === nodeId)
+        || !track.incidentEdges(nodeId).some((/** @param {{edgeId:string, otherNode:string}} edge */ edge) => drag.layers.includes(track.getEdgeLayer(edge.edgeId)));
     const snap = resolveTrackSnap(app, targetPos, {
         excludeNode,
         excludePad: drag.kind === 'pad' ? drag.via : null,
@@ -225,7 +225,7 @@ export function updateViaDrag(app, worldPos) {
         Object.assign(snap, app.viewport?.getSnappedPosition?.(targetPos) || targetPos);
     }
     let pos = { x: snap.x, y: snap.y };
-    const attachedTracks = new Set(/** @type {any[]} */ (drag.attached).map(item => item.track));
+    const attachedTracks = new Set(/** @type {TerminalAttachedNode[]} */ (drag.attached).map(item => item.track));
     const trackTarget = app.viewport?.shiftHeld || snap.snapType === 'pad'
         ? null
         : snap.snapType === 'track-node'
@@ -234,7 +234,7 @@ export function updateViaDrag(app, worldPos) {
             : findSplittableTrackEdge(app, targetPos, 6, { excludeTracks: attachedTracks, layers: drag.layers });
     if (trackTarget) pos = { x: trackTarget.px, y: trackTarget.py };
     drag.snapTargetTrack = trackTarget
-        ? { ...trackTarget, track: canonicalTrack(app, trackTarget.track) }
+        ? { ...trackTarget, track: canonicalTrack(app, /** @type {Track} */ (trackTarget.track)) }
         : null;
 
     // Yellow target circle when locked onto a hard copper target.
@@ -252,8 +252,8 @@ export function updateViaDrag(app, worldPos) {
         const threshold = COLLINEAR_SNAP_SCREEN_PX / (app.viewport?.scale || 1);
         /** @param {Track} track @param {string} nid */
         const isAttached = (track, nid) =>
-            /** @type {any[]} */ (drag.attached).some(a => a.track === track && a.nodeId === nid);
-        /** @param {any} a */
+            /** @type {TerminalAttachedNode[]} */ (drag.attached).some(a => a.track === track && a.nodeId === nid);
+        /** @param {TerminalAttachedNode} a */
         const neighboursOf = (a) => {
             const nbs = [];
             for (const { otherNode } of a.track.incidentEdges(a.nodeId)) {
@@ -279,7 +279,7 @@ export function updateViaDrag(app, worldPos) {
         // 2. Fall back to H/V/45° against any attached node's neighbour.
         if (!snapped) {
             const allNeighbours = [];
-            for (const a of /** @type {any[]} */ (drag.attached)) allNeighbours.push(...neighboursOf(a));
+            for (const a of /** @type {TerminalAttachedNode[]} */ (drag.attached)) allNeighbours.push(...neighboursOf(a));
             snapped = snapNodeToAxis(rawPos, allNeighbours, threshold, gridPos);
         }
         if (snapped) pos = { x: snapped.x, y: snapped.y };
@@ -292,7 +292,7 @@ export function updateViaDrag(app, worldPos) {
     drag.via.y = pos.y;
     // Drag attached track nodes in lock-step.
     const touched = new Set();
-    for (const a of /** @type {any[]} */ (drag.attached)) {
+    for (const a of /** @type {TerminalAttachedNode[]} */ (drag.attached)) {
         const n = a.track.nodes.get(a.nodeId);
         if (!n) continue;
         n.x = pos.x;
@@ -303,12 +303,12 @@ export function updateViaDrag(app, worldPos) {
     // Build the axis glow from every attached track's incident segments, then
     // render: glow halos UNDER the copper, centerlines ON TOP (two-pass).
     const byTrack = new Map();
-    for (const a of /** @type {any[]} */ (drag.attached)) {
+    for (const a of /** @type {TerminalAttachedNode[]} */ (drag.attached)) {
         if (!byTrack.has(a.track)) byTrack.set(a.track, []);
         byTrack.get(a.track).push({ nodeId: a.nodeId });
     }
     const glowSegs = [];
-    for (const [track, nodes] of /** @type {Map<Track, any[]>} */ (byTrack)) glowSegs.push(...incidentSegments(track, nodes));
+    for (const [track, nodes] of /** @type {Map<Track, TerminalAttachedNode[]>} */ (byTrack)) glowSegs.push(...incidentSegments(track, nodes));
     renderTrackAxisGlow(app, glowSegs);
     /** @param {string} id */
     const layerGroup = (id) => app.getLayerGroup(id);
@@ -356,18 +356,19 @@ export function finishViaDrag(app) {
         if (!terminalExists) {
             throw new Error(`Cannot move a missing ${drag.kind}.`);
         }
-        for (const { originalTrack, nodeId } of /** @type {any[]} */ (drag.attached)) {
-            if (!app.pcbDocument.tracks.includes(originalTrack) || !originalTrack.nodes.has(nodeId)) {
+        for (const { originalTrack, nodeId } of /** @type {TerminalAttachedNode[]} */ (drag.attached)) {
+            const sourceTrack = /** @type {Track} */ (originalTrack);
+            if (!app.pcbDocument.tracks.includes(sourceTrack) || !sourceTrack.nodes.has(nodeId)) {
                 throw new Error('Cannot move a missing attached track node.');
             }
         }
         const toX = drag.via.x, toY = drag.via.y;
-        /** @type {any[]} */
+        /** @type {Array<{execute(): void, undo(): void}>} */
         const cmds = [];
         if (drag.kind === 'pad') cmds.push(new MovePadCommand(app, drag.original, { x: drag.startX, y: drag.startY }, { x: toX, y: toY }));
         else cmds.push(new MoveViaCommand(app, drag.original, drag.startX, drag.startY, toX, toY));
-        for (const a of /** @type {any[]} */ (drag.attached)) {
-            cmds.push(new MoveVertexCommand(app, a.originalTrack, a.nodeId, a.startX, a.startY, toX, toY));
+        for (const a of /** @type {TerminalAttachedNode[]} */ (drag.attached)) {
+            cmds.push(new MoveVertexCommand(app, /** @type {Track} */ (a.originalTrack), a.nodeId, a.startX, a.startY, toX, toY));
         }
         if (drag.snapTargetTrack) {
             const { track, edgeId, nodeId } = drag.snapTargetTrack;

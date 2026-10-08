@@ -43,15 +43,15 @@ import { clearNetGuideLine, ratlinePointKey, reconcileRatsnest, updateNetGuideLi
  * @property {string} currentLayer
  * @property {number} width
  * @property {string} net
- * @property {{componentId?: string, pinNumber?: string, standalonePad?: any, id?: string}|null} startPad
- * @property {{componentId?: string, pinNumber?: string, standalonePad?: any, id?: string}|null} endPad
+ * @property {{componentId?: string, pinNumber?: string, standalonePad?: unknown, id?: string}|null} startPad
+ * @property {{componentId?: string, pinNumber?: string, standalonePad?: unknown, id?: string}|null} endPad
  * @property {string|null} axisLock
  * @property {SVGElement[]} previewElements
  * @property {Map<string, SVGElement>} [previewCache]
  * @property {object|null} snap
  * @property {number} [viaDiameter]
  * @property {number} [viaDrill]
- * @property {any[]} [endCopperShapes] copper shapes the finished end lands on
+ * @property {unknown[]} [endCopperShapes] copper shapes the finished end lands on
  * @property {any} [guideExclude] bonded copper the live net guide must not point back at
  * @property {Set<any>} [guideSourceShapes]
  * @property {Set<string>} [guideSourceKeys]
@@ -343,7 +343,9 @@ export function addTrackWaypoint(app, worldPos) {
     }
 
     if (snap.snapType === 'via') {
-        if (!ctx.net) ctx.net = snap.via.net || '';
+        const via = snap.via;
+        if (!via) return;
+        if (!ctx.net) ctx.net = via.net || '';
         finishAtTarget();
         return;
     }
@@ -479,7 +481,7 @@ function _clearPreviewElements(ctx, keepCached = false) {
 /**
  * Shared Track and generic-shape H/V/45 glow renderer.
  * @param {PcbEditor} app
- * @param {any[]} segments
+ * @param {unknown[]} segments
  */
 export function renderTrackAxisGlow(app, segments) {
     renderAxisGlow(app, segments);
@@ -594,7 +596,7 @@ function _renderPreview(app, ctx, livePt) {
         axisGlow.parent.appendChild(line);
     }
 
-    // Implicit-via markers: any committed anchor where adjacent committed
+    // Implicit-via markers: unknown committed anchor where adjacent committed
     // edges differ in layer, PLUS the trailing anchor if currentLayer
     // differs from the last committed edge's layer.
     const viaLayer = app.getLayerGroup('vias');

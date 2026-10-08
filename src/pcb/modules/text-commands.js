@@ -134,7 +134,7 @@ export function finishTextPropertyPreview(app, commit) {
             const changed = TEXT_STYLE_FIELDS.some(key => copy[key] !== text[key]);
             syncTextContentPreview(app, id);
             if (!committed) {
-                schedulePictureCopperRefresh(app, /** @type {any} */ (getTextPosePreviewTexts(app)?.get(id) || text));
+                schedulePictureCopperRefresh(app, getTextPosePreviewTexts(app)?.get(id) || text);
                 if (commit || changed) app.refreshText(id);
             }
         }

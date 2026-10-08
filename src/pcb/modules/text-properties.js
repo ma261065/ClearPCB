@@ -24,7 +24,7 @@ import { isEditorActive } from './pcb-editor-api.js';
 /** @typedef {{x:number,y:number}} Point */
 /** @typedef {{size:number, rotation:number, layer:string, strokeWidth:number, border:boolean}} TextDefaults */
 /** @typedef {import('../../core/pcb-text-commands.js').PcbTextPatch} PcbTextPatch */
-/** @typedef {(PcbText | (Placement & RefStylePatch)) & Record<string, any>} StrokeTextModel */
+/** @typedef {(PcbText | (Placement & RefStylePatch)) & Record<string, any>} StrokeTextModel Dynamic field specs write different text/ref style properties by name. */
 /** @typedef {{key?:string, id:string, type?:'number'|'select', label:string, field:string, min?:number, max?:number, step?:number, numberFormat?:'rotation', options?:()=>Array<any>, parse?:(v:string)=>any, apply?:(m:StrokeTextModel,v:any)=>void, value?:(m:StrokeTextModel)=>any, wrap?:boolean}} StrokeTextFieldSpec */
 /** @typedef {{fields: Array<StrokeTextFieldSpec>, editable?:()=>boolean, begin?:(m:StrokeTextModel)=>StrokeTextModel, cancel?:(snap:StrokeTextModel)=>void, preview:(m:StrokeTextModel)=>void, commit:(m:StrokeTextModel, snap:StrokeTextModel)=>void, refresh?:()=>void}} StrokeTextBindingSpec */
 /** @typedef {{model:StrokeTextModel, spec:StrokeTextBindingSpec, affectsLayer:(layerId:string)=>boolean, readonly active:boolean, fields:(disabled?:boolean, hold?:any)=>PropertyField[], commit:()=>void, cancel:()=>boolean, dispose:()=>void}} StrokeTextBinding */
@@ -245,10 +245,10 @@ export function bindStrokeTextProps(app, model, spec) {
     const editable = () => !disposed && (!spec.editable || spec.editable());
     /** @param {StrokeTextFieldSpec} field */
     const fieldValue = field => field.value ? field.value(target) : target[field.field];
-    /** @param {StrokeTextFieldSpec} field @param {any} value */
+    /** @param {StrokeTextFieldSpec} field @param {any} value Dynamic field values are parsed by each field spec. */
     const apply = (field, value) => {
         if (field.apply) field.apply(target, value);
-        else /** @type {any} */ (target)[field.field] = value;
+        else /** @type {Record<string, any>} */ (target)[field.field] = value;
     };
     /** @param {StrokeTextFieldSpec} field @param {string} text */
     const parse = (field, text) => {
@@ -260,7 +260,7 @@ export function bindStrokeTextProps(app, model, spec) {
         if (invalidField === field) invalidField = null;
         return value;
     };
-    /** @param {StrokeTextFieldSpec} field @param {any} value */
+    /** @param {StrokeTextFieldSpec} field @param {any} value Dynamic field values are parsed by each field spec. */
     const previewField = (field, value) => {
         if (disposed) return;
         if (!editable()) { binding.cancel(); return; }
@@ -373,5 +373,5 @@ export function pressTextTool(app, worldPos) {
     app.history.execute(new AddTextCommand(app, text));
     app.selectText(text);
     app.showTextProperties(text);
-    startTextInlineEdit(app, text, /** @type {any} */ (null), { isNewPlacement: true });
+    startTextInlineEdit(app, text, null, { isNewPlacement: true });
 }

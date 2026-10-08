@@ -5,7 +5,7 @@ import { rasterizePicture, pictureShape, drawPicture, MAX_PICTURE_REGIONS, MAX_P
 /** @typedef {import('./pcb-editor-api.js').PcbEditor} PcbEditor */
 /** @typedef {{pointerId:number, offsetX:number, offsetY:number}} DialogDragState */
 /** @typedef {ReturnType<typeof pictureShape>} PictureShape */
-/** @typedef {{width:number,height:number,rectangles?:Array<any>,contours?:Array<Array<{x:number,y:number}>>,circles?:Array<{x:number,y:number,radius:number}>,mask?:ArrayLike<number>}} PictureArtwork */
+/** @typedef {import('../../shared/pcb/picture-raster.js').PictureArtwork | import('../../shared/pcb/picture-raster.js').PictureRaster | ReturnType<typeof rasterizePicture>} PictureImportArtwork */
 
 /** @param {PcbEditor} app */
 export function showPictureImport(app) {
@@ -293,7 +293,7 @@ export function showPictureImport(app) {
             if (heightMm > 500) throw new Error('Image height must be at most 500 mm.');
             if (isLayerLocked(layer) || !isLayerVisible(layer)) throw new Error('Choose an unlocked, visible layer.');
             /** @type {any} */
-            let artwork = /** @type {PictureArtwork|null} */ (raster);
+            let artwork = raster;
             if (halftoning) {
                 summary.textContent = 'Generating dots...';
                 const { halftonePicture } = await import('./picture-halftone.js');
@@ -316,7 +316,7 @@ export function showPictureImport(app) {
                 summary.textContent = `${widthMm.toFixed(2)} x ${heightMm.toFixed(2)} mm | ${pixels.width} x ${pixels.height} px | ${usage}`;
             }
             const viewport = /** @type {NonNullable<PcbEditor['viewport']>} */ (app.viewport);
-            prepared = pictureShape(artwork, { widthMm, layer, center: viewport.offset, net: field('net').value,
+            prepared = pictureShape(/** @type {import('../../shared/pcb/picture-raster.js').PictureRaster} */ (artwork), { widthMm, layer, center: viewport.offset, net: field('net').value,
                 name: field('file').files?.[0]?.name || 'Image' });
             if (contourMode) {
                 const previewScale = 512 / Math.max(pixels.width, pixels.height);

@@ -11,9 +11,9 @@ import { resolveTrackContactGeometry, copperContactsTouch, copperRegionShape, co
 /** @typedef {import('./pcb-editor-api.js').PcbBoard} PcbBoard */
 /** @typedef {{x: number, y: number}} Point */
 /** @typedef {import('./copper-connectivity.js').CopperCluster} CopperCluster */
-/** @typedef {*} CopperContact */
-/** @typedef {{track?: any, tracks?: Set<any>, via?: any, padKey?: string, edgeId?: string, nodeId?: string}} CopperSeed */
-/** @typedef {{tracks:Set<any>, trackNodes:Map<any,Set<string>>, vias:Set<any>, shapes:Set<any>, padNets:Set<string>, padKeys:Set<string>, padNetByKey:Map<string,string>}} BondedCopper */
+/** Physical-contact records differ by source (track, via, pad, fill, region). @typedef {*} CopperContact */
+/** @typedef {{track?: any, tracks?: Set<any>, via?: any, padKey?: string, edgeId?: string, nodeId?: string}} CopperSeed Dynamic seeds can start from any copper object kind. */
+/** @typedef {{tracks:Set<any>, trackNodes:Map<any,Set<string>>, vias:Set<any>, shapes:Set<any>, padNets:Set<string>, padKeys:Set<string>, padNetByKey:Map<string,string>}} BondedCopper Heterogeneous copper object sets are keyed by runtime identity. */
 
 const TOGGLE_LAYERS = ['top-copper', 'bottom-copper'];
 /** @param {Point} point */
@@ -50,7 +50,7 @@ export function shapeCopperContains(contact, point) {
  * Drill voids and region holes do not conduct. Cross-layer contact still
  * requires a through Via or Pad.
  * @param {CopperBoard} app
- * @param {{track?:any, tracks?:Set<object>, via?:object, padKey?:string, edgeId?:string, nodeId?:string}} seed
+ * @param {CopperSeed} seed
  * @param {{includeShapes?:boolean, newTracks?:Set<object>|null}} [options]
  *   Include physical shape contacts; new Tracks reserve clearance in foreign-net pours.
  * @returns {BondedCopper}
@@ -91,7 +91,7 @@ export function collectBondedCopper(app, seed, { includeShapes = false, newTrack
  * @param {CopperContact[]} contacts
  * @param {Set<number>} roots
  * @param {Set<any>|null} [newTracks]
- * @param {(first: any, second: any) => boolean} [touches]
+ * @param {(first: any, second: any) => boolean} [touches] Dynamic contact comparator accepts heterogeneous contact records.
  */
 export function expandCopperContactRoots(contacts, roots, newTracks = null, touches = copperContactsTouch) {
     const neighbours = new Map();
@@ -278,7 +278,7 @@ export function clearTerminalContactPasses(app) {
 export function _clusterCopperContacts(app, clusters) {
     /** @type {CopperContact[]} */
     const contacts = [];
-    /** @type {Map<any, any[]>} */
+    /** @type {Map<any, unknown[]>} */
     const segments = new Map();
     const model = app.pcbDocument;
     const previous = terminalContactPasses.get(app);
@@ -295,8 +295,8 @@ export function _clusterCopperContacts(app, clusters) {
             geometries = [terminal.shape];
         } else {
             if (!segments.has(cluster.track)) segments.set(cluster.track, resolveTrackSegments(cluster.track));
-            geometries = /** @type {any[]} */ (segments.get(cluster.track))
-                .filter(/** @param {any} segment */ segment => cluster.edgeIds.has(segment.edgeId))
+            geometries = /** @type {Array<{edgeId:string,start:Point,end:Point,layer:string,width:number}>} */ (segments.get(cluster.track))
+                .filter(segment => cluster.edgeIds.has(segment.edgeId))
                 .map(copperSegmentShape);
         }
         for (const geometry of geometries) contacts.push({
@@ -372,7 +372,7 @@ function _unionViaTrackOverlaps(clusters, union, requireSameNet) {
         }
     }
 }
-/** @param {PcbEditor} app @param {any} seedTrack @param {CopperSeed|null} [terminalSeed] */
+/** @param {PcbEditor} app @param {unknown} seedTrack @param {CopperSeed|null} [terminalSeed] */
 export function bondedExclusion(app, seedTrack, terminalSeed = null) {
     if (!seedTrack && !terminalSeed) return null;
     const { tracks, trackNodes, vias, padKeys } = collectBondedCopper(app, seedTrack ? { track: seedTrack } : /** @type {CopperSeed} */ (terminalSeed));

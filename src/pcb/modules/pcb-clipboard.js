@@ -14,7 +14,7 @@ import { showComponentPopup } from './component-selection.js';
 /** @typedef {import('../../shapes/copper-fill.js').CopperFill} CopperFill */
 /** @typedef {'component'|'reftext'|'track'|'via'|'pad'|'shape'|'text'|'fill'} PcbSelectionKind */
 /** @typedef {{tracks: ReturnType<Track['toJSON']>[], vias: ReturnType<Via['toJSON']>[], pads: ReturnType<Pad['toJSON']>[],
- *   shapes: any[], texts: ReturnType<typeof serializePcbText>[], fills: ReturnType<CopperFill['captureState']>[]}} PcbClipboardPayload */
+ *   shapes: any[], texts: ReturnType<typeof serializePcbText>[], fills: ReturnType<CopperFill['captureState']>[]}} PcbClipboardPayload Dynamic clipboard shape payloads preserve serialized board-shape JSON. */
 
 /** @type {WeakMap<PcbEditor, PcbClipboardPayload|null>} */
 const clipboards = new WeakMap();
@@ -61,7 +61,7 @@ export function capturePcbClipboardSelection(app, { unlockedOnly = false } = {})
     const payload = { tracks: [], vias: [], pads: [], shapes: [], texts: [], fills: [] };
     /**
      * @param {PcbSelectionKind} kind
-     * @returns {any[]}
+     * @returns {any[]} Dynamic selection arrays are narrowed by the requested kind at each call site.
      */
     const selected = kind => getPcbSelection(app, kind)
         .filter(/** @param {any} object */ (object) => !unlockedOnly || !isPcbObjectLocked(app, kind, object));
@@ -117,7 +117,7 @@ export function pastePcbSelection(app) {
         app.syncClipboardButtons();
         return false;
     }
-    const pasted = preparePcbPaste(app, clipboard);
+    const pasted = preparePcbPaste(app, /** @type {PcbClipboardPayload} */ (clipboard));
     const started = beginPcbPaste(app, pasted);
     app.syncClipboardButtons();
     return started;

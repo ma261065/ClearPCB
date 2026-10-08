@@ -21,7 +21,7 @@ import { CompoundCommand, SetPlacementLockedCommand } from './track-commands.js'
 /** @typedef {import('../../shared/ui/context-menu.js').MenuItem} MenuItem */
 /** @typedef {'component'|'reftext'|'track'|'via'|'pad'|'shape'|'fill'|'text'} PcbLockKind */
 /** @typedef {'track'|'via'|'pad'|'shape'|'fill'|'text'} PcbObjectLockKind */
-/** @typedef {{kind: string, object: any}} LockEntry */
+/** @typedef {{kind: string, object: any}} LockEntry Heterogeneous lock entries carry model objects or component ids by kind. */
 
 /** @type {Record<PcbLockKind, string>} */
 const NOUNS = {
@@ -39,7 +39,7 @@ const NOUNS = {
  * The layers an object lives on; components have none of their own.
  * @param {Pick<PcbEditor, 'placements'>} app
  * @param {PcbLockKind|string} kind
- * @param {any} object
+ * @param {any} object Heterogeneous lock helpers accept model objects or component ids by kind.
  * @returns {string[]}
  */
 export function pcbObjectLayers(app, kind, object) {
@@ -60,7 +60,7 @@ export function pcbObjectLayers(app, kind, object) {
  * component id; every other kind is the model object.
  * @param {Pick<PcbEditor, 'placements'>} app
  * @param {PcbLockKind|string} kind
- * @param {any} object
+ * @param {any} object Heterogeneous lock helpers accept model objects or component ids by kind.
  * @returns {PcbLockState}
  */
 export function pcbLockState(app, kind, object) {
@@ -80,7 +80,7 @@ export function pcbLockState(app, kind, object) {
  * own, so a whole selection can be unlocked again from Properties.
  * @param {Pick<PcbEditor, 'placements'>} app
  * @param {PcbLockKind|string} kind
- * @param {any} object
+ * @param {any} object Heterogeneous lock helpers accept model objects or component ids by kind.
  */
 export function isPcbObjectLayerLocked(app, kind, object) {
     return pcbLockState(app, kind, object).layers.length > 0;
@@ -90,7 +90,7 @@ export function isPcbObjectLayerLocked(app, kind, object) {
  * Whether an object is held by its own lock or a layer lock.
  * @param {Pick<PcbEditor, 'placements'>} app
  * @param {PcbLockKind|string} kind
- * @param {any} object
+ * @param {any} object Heterogeneous lock helpers accept model objects or component ids by kind.
  */
 export function isPcbObjectLocked(app, kind, object) {
     const state = pcbLockState(app, kind, object);
@@ -104,8 +104,8 @@ export function isPcbObjectLocked(app, kind, object) {
  */
 export function lockedRoutedCopper(app) {
     return {
-        tracks: (app.tracks || []).filter(/** @param {any} track */ track => isPcbObjectLocked(app, 'track', track)),
-        vias: (app.vias || []).filter(/** @param {any} via */ via => isPcbObjectLocked(app, 'via', via)),
+        tracks: (app.tracks || []).filter(/** @param {any} track Heterogeneous locked routed copper entries are model objects. */ track => isPcbObjectLocked(app, 'track', track)),
+        vias: (app.vias || []).filter(/** @param {any} via Heterogeneous locked routed copper entries are model objects. */ via => isPcbObjectLocked(app, 'via', via)),
     };
 }
 
@@ -119,7 +119,12 @@ export function boardShapeLocked(shape) {
 
 /** Editor command: the model toggle plus the Properties refresh it implies. */
 export class SetObjectLockedCommand extends ModelSetObjectLockedCommand {
-    /** @param {PcbEditor} app @param {PcbObjectLockKind} kind @param {any} object @param {boolean} locked */
+    /**
+     * @param {PcbEditor} app
+     * @param {PcbObjectLockKind} kind
+     * @param {any} object Heterogeneous lock helpers accept model objects or component ids by kind.
+     * @param {boolean} locked
+     */
     constructor(app, kind, object, locked) {
         super(app.pcbDocument, kind, object, locked);
         this.app = app;
@@ -135,7 +140,7 @@ export class SetObjectLockedCommand extends ModelSetObjectLockedCommand {
  * The undoable command that sets one object's own lock.
  * @param {PcbEditor} app
  * @param {PcbLockKind|string} kind
- * @param {any} object
+ * @param {any} object Heterogeneous lock helpers accept model objects or component ids by kind.
  * @param {boolean} locked
  */
 export function objectLockCommand(app, kind, object, locked) {
@@ -193,7 +198,7 @@ export function describeLayerLocks(app, layers) {
 /**
  * Message for an edit the lock gate refused, e.g. "This track is locked" or "Top Copper layer is locked".
  * @param {PcbEditor} app
- * @param {{kind: PcbLockKind, object: any}} target
+ * @param {{kind: PcbLockKind, object: any}} target Heterogeneous lock target carries a model object or component id by kind.
  */
 export function describeLockedEdit(app, { kind, object }) {
     const state = pcbLockState(app, kind, object);
@@ -221,7 +226,7 @@ export function createPcbHistory(app, { onChanged, onRefused } = {}) {
  * Menu items lifting the object's own lock, its layer locks, or both; only applicable ones.
  * @param {PcbEditor} app
  * @param {PcbLockKind} kind
- * @param {any} object
+ * @param {any} object Heterogeneous lock helpers accept model objects or component ids by kind.
  * @returns {MenuItem[]}
  */
 export function unlockMenuItems(app, kind, object) {
@@ -241,7 +246,7 @@ export function unlockMenuItems(app, kind, object) {
  * The lock icon's click: offer the applicable unlock choices at the pointer.
  * @param {PcbEditor} app
  * @param {PcbLockKind} kind
- * @param {any} object
+ * @param {any} object Heterogeneous lock helpers accept model objects or component ids by kind.
  * @param {number} clientX
  * @param {number} clientY
  */

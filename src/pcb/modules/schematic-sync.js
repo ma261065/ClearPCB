@@ -21,6 +21,7 @@ import { resetPlacementCullView } from './component-selection.js';
 import { clearCopperCuts } from './copper-cuts.js';
 /** @typedef {import('./pcb-editor-api.js').PcbEditor} PcbEditor */
 /** @typedef {import('../../core/pcb-placement-geometry.js').Placement} Placement */
+/** @typedef {import('../../shared/pcb/footprint.js').FootprintGeometry} FootprintGeometry */
 
 const syncTimers = new WeakMap();
 const hasContent = new WeakMap();
@@ -175,7 +176,7 @@ export function clearPcbContent(app) {
 /**
  * Render model-resolved footprints onto PCB SVG layer groups.
  * @param {PcbEditor} app
- * @param {Map<string, Placement & {geometry: any}>} placements
+ * @param {Map<string, Placement & {geometry: FootprintGeometry}>} placements
  */
 export function placeFootprints(app, placements) {
     for (const [compId, resolved] of placements) {
@@ -215,7 +216,7 @@ export function placeFootprints(app, placements) {
 
 /**
  * Render one resolved footprint's SVG layer groups.
- * @param {any} geometry
+ * @param {FootprintGeometry} geometry
  * @param {Placement & {reference: string}} placement
  */
 export function renderPcbFootprint(geometry, placement) {

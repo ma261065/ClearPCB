@@ -197,13 +197,13 @@ export function pressViaTool(app, worldPos) {
     }
     const splitTrack = /** @type {Track} */ (split.track);
     const via = new Via({ x: split.px, y: split.py, diameter, drill, net: selectedNet || splitTrack.net || '' });
-    const parts = splitTrackObjectAtPoint(split.track, split.edgeId, { x: split.px, y: split.py });
+    const parts = /** @type {Track[]|null} */ (splitTrackObjectAtPoint(split.track, split.edgeId, { x: split.px, y: split.py }));
     if (!parts?.length) {
         app.history.execute(new AddViaCommand(app, via));
         return;
     }
-    /** @type {any[]} */
-    const commands = [new RemoveTrackCommand(app, split.track)];
+    /** @type {Array<{execute(): void, undo(): void}>} */
+    const commands = [new RemoveTrackCommand(app, splitTrack)];
     for (const part of parts) commands.push(new AddTrackCommand(app, part));
     commands.push(new AddViaCommand(app, via));
     app.history.execute(new CompoundCommand(commands));

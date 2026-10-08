@@ -51,9 +51,9 @@ const COPPER_LAYERS = PCB_LAYERS.filter((layer) => layer.id === 'top-copper' || 
 export function showTrackSelectionProperties(app, track) {
     track = canonicalTrack(app, track);
     const edit = getTrackEdit(app);
-    if (edit?.track === track && track.nodes.has(edit.nodeId)) {
+    if (edit?.track === track && edit.nodeId != null && track.nodes.has(edit.nodeId)) {
         showTrackNodeProperties(app, track, edit.nodeId);
-    } else if (edit?.track === track && track.edges.has(edit.edgeId)) {
+    } else if (edit?.track === track && edit.edgeId != null && track.edges.has(edit.edgeId)) {
         showTrackSegmentProperties(app, track, edit.edgeId);
     } else selectTrackOrVia(app, { type: 'track', track });
 }
@@ -240,7 +240,7 @@ function bindTrackWidth(binding, edgeId = null) {
         apply: (track, width, before) => {
             /** @param {string} id */
             const setWidth = id => {
-                const edge = track.edges.get(id), original = /** @type {Record<string, any>} */ (before.edges?.[id] || {});
+                const edge = track.edges.get(id), original = /** @type {Record<string, unknown>} */ (before.edges?.[id] || {});
                 if (width === (original.width ?? before.width)) {
                     if (Object.hasOwn(original, 'width')) edge.width = original.width;
                     else delete edge.width;
@@ -617,4 +617,3 @@ export function applyNetToCopperSelection(app, entries, v, additionalCommands = 
     }
     return true;
 }
-
