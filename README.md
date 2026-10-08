@@ -311,8 +311,8 @@ The repo has a single regression gate; run it before committing:
 node tools/regression.mjs
 ```
 
-It checks the import directions between editors (`tools/check-imports.mjs`) and
-both editors' remaining private-member accesses (`tools/check-pcb-editor-access.mjs`,
+It checks the import directions between editors (`tools/check-imports.mjs`), that
+no module uses an editor's private members (`tools/check-pcb-editor-access.mjs`,
 `tools/check-schematic-editor-access.mjs`), checks that the tests, files and pages the
 docs name still exist (`tools/check-doc-references.mjs`), runs every `tests/unit/test-*.mjs` in its own
 process, then routes `test-board.json` and checks the result

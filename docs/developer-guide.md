@@ -34,8 +34,8 @@ ClearPCB is vanilla JavaScript ES modules with no build step: the browser loads
    `getLastCrosshairWorld(app)` in `cursor-state.js`). Other modules call those functions; they do not reach
    into `app._something`. What the editor itself provides, modules reach through
    its public services (`pcb/modules/pcb-editor-api.js`,
-   `schematic/modules/schematic-editor-api.js`). Two ratchets count the private
-   accesses that remain, and the counts may only fall.
+   `schematic/modules/schematic-editor-api.js`). The gate fails on any module that
+   uses an editor's private (`_`-prefixed) members.
 4. **Every authored change is a command.** A command changes the model and can
    undo itself; `core/CommandHistory` runs it. PCB *model* commands
    (`core/pcb-*-commands.js`) change only `PcbDocument`; *editor* commands
@@ -221,26 +221,34 @@ in `pcb-editor-api.js` (or `schematic-editor-api.js`). See State Ownership in
 
 ## Before You Commit
 
-Run the gate (setup for TypeScript and Playwright is in the
+Run these before pushing (setup for TypeScript and Playwright is in the
 [README](../README.md#testing)):
 
-```
-node tools/typecheck.mjs
-node tools/regression.mjs
-node tools/browser-test.mjs
-```
+1. `node tools/typecheck.mjs`: the type check, in two passes. The everyday pass
+   (`jsconfig.json`) must have no errors. The strict pass (`jsconfig.strict.json`:
+   no implicit `any`, null checks) compares each file with
+   `tools/typecheck-strict-baseline.json`: a file may only lose errors, a new file
+   must have none, and the folders listed in `cleanFolders` must stay at zero. So
+   type new code fully: JSDoc on every parameter, null cases handled. A PCB module
+   types the editor as `PcbEditor` and plain board data as `PcbBoard`
+   (`pcb-editor-api.js`); a schematic module types the editor as `SchematicEditor`
+   (`schematic-editor-api.js`) and its objects as `SchematicShape`. Keep all of a
+   declaration's tags in one JSDoc block: the type check reads only the block
+   nearest the declaration, and `typecheck.mjs` fails on tags it would ignore.
+   After moving code between files, rewrite the baseline with `--write-baseline`,
+   check that the total did not rise, and say so in the commit message.
+2. `node tools/regression.mjs`: the gate. It checks the import directions, that no
+   module uses an editor's private members, that every file, test and page a doc
+   names exists (so rename or update the doc with the code), runs every unit test,
+   and routes the autorouter's fixture board against its baseline. It takes a few
+   minutes, most of it routing.
+3. `node tools/browser-test.mjs`: the browser scenarios. For changes to timing,
+   rendering or input, also run two full runs at once (`--shard=1/4` to
+   `--shard=4/4` twice, in parallel) to load the machine the way a CI runner is.
+4. Push, then check that the Regression Checks workflow is green on CI, which runs
+   all three, with the browser tests on Linux.
 
-`typecheck.mjs` also runs the strict settings, where a file may only lose errors and a
-new file must have none, so type new code fully (JSDoc on parameters, no implicit
-`any`, null cases handled). A PCB module types the editor as `PcbEditor` and plain
-board data as `PcbBoard` (`pcb-editor-api.js`); a schematic module types it as
-`SchematicEditor` (`schematic-editor-api.js`) and its objects as `SchematicShape`; keep a function's tags in one JSDoc
-block, since the type check reads only the block nearest the declaration. `regression.mjs` covers the import rules, both private-access ratchets, the docs'
-references (a test, file or page a doc names must exist, so rename or update the
-doc with the code), every unit test and the autorouter baseline. When a ratchet reports resolved accesses, remove
-them from its baseline so the count only falls. Files use LF line endings
-(`.gitattributes`). A local pass is not the last word: after pushing, check that
-the Regression Checks workflow is green on CI, which runs the browser tests on Linux.
+Files use LF line endings (`.gitattributes`).
 
 ## Handover: Where Things Stand
 
@@ -275,7 +283,7 @@ the remaining errors per file. Work that is known but not done, with a way in:
   pathfinder, maze and common modules (about 5,900 lines) have no unit tests of their
   own. Add tests for the pieces with clear inputs and outputs (cost functions,
   obstacle maps, path simplification) before changing their behaviour.
-- **Browser tests under load.** Run two full browser runs at once (as below) and a
+- **Browser tests under load.** When two full browser runs share the machine, a
   few schematic scenarios (corner drag and wire drawing in cancel isolation, text
   autoreplace and text property changes) have occasionally failed once and then
   passed on every rerun, also at `CPU_THROTTLE=6`. If one fails again, read its
@@ -283,13 +291,4 @@ the remaining errors per file. Work that is known but not done, with a way in:
   for a wait on a fixed delay or on a condition that holds before the editor has
   finished.
 
-### Before pushing
-
-1. `node tools/typecheck.mjs` (both passes; after moving code between files, rewrite
-   the strict baseline with `--write-baseline`, check the total did not rise, and say
-   so in the commit).
-2. `node tools/regression.mjs`.
-3. `node tools/browser-test.mjs`, and for changes to timing, rendering or input,
-   two full runs at once (for example `--shard=1/4` to `--shard=4/4` twice, in
-   parallel) to load the machine the way a CI runner is loaded.
-4. Push, then check that the Regression Checks workflow is green.
+Before pushing, follow [Before You Commit](#before-you-commit).
