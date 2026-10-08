@@ -5,6 +5,7 @@
  * in board-shapes.js.
  */
 
+import { pcbToolBlockNotice } from './tool-lifecycle.js';
 import { bulgePointFromRatio } from '../../core/geometry.js';
 import { displayRotationDegrees, formatNumberInputValue } from '../../core/number-inputs.js';
 import { canRoundPathNode } from '../../shapes/path-geometry.js';
@@ -77,8 +78,7 @@ function boardNetNames(app) {
  */
 export function showBoardShapeToolProperties(app, kind) {
     const defaults = getShapeDefaults(app);
-    const currentLayer = getShapeDraw(app)?.layer || resolveShapeDrawLayer(app, app.activeLayer);
-    if (!getShapeDraw(app) && currentLayer) app.activeLayer = currentLayer;
+    if (!getShapeDraw(app)) app.activeLayer = resolveShapeDrawLayer(app, app.activeLayer);
     const redraw = () => updateShapeDrawPreview(app, getLastCrosshairWorld(app) || getShapeDraw(app)?.points.at(-1));
     const refresh = () => app.refreshPropertyPanel?.(describe());
     const describe = () => {
@@ -87,12 +87,14 @@ export function showBoardShapeToolProperties(app, kind) {
         const showFill = layer !== 'hole' && kind !== 'line';
         const showLineWidth = (layer !== 'hole' || kind === 'line') && !defaults.filled;
         const lineWidthMinimum = boardShapeLineWidthMinimum({ kind, layer });
+        const notice = pcbToolBlockNotice(app, kind);
         return {
             title: `New ${shapeKindLabel(kind)}`,
+            actions: notice.actions,
             fields: [
-                { key: 'layer', id: 'pcbToolShapeLayer', type: 'select', label: 'Layer', value: layer || '', disabled: !layer,
-                    options: layer ? PCB_LAYERS.filter(item => !PROP_HIDDEN_LAYERS.has(item.id))
-                        .map(item => pcbLayerOption(item.id, item.name)) : [{ value: '', label: 'No unlocked layers', disabled: true }],
+                { key: 'layer', id: 'pcbToolShapeLayer', type: 'select', label: 'Layer', value: layer, warning: notice.warning,
+                    options: PCB_LAYERS.filter(item => !PROP_HIDDEN_LAYERS.has(item.id))
+                        .map(item => pcbLayerOption(item.id, item.name)),
                     commit: next => {
                         if (!next || isLayerLocked(next)) { refresh(); return; }
                         app.activeLayer = next;
@@ -139,12 +141,6 @@ export function showBoardShapeToolProperties(app, kind) {
     };
     if (!app.openPropertyPanel?.(describe())) return;
     app.setPcbStatus?.();
-}
-
-export function refreshBoardShapeToolLayer(app) {
-    if (!SHAPE_KINDS.has(app.currentTool) || app.currentTool === 'image') return;
-    if (getShapeDraw(app)) return;
-    showBoardShapeToolProperties(app, app.currentTool);
 }
 
 export function showImageProperties(app, shape) {

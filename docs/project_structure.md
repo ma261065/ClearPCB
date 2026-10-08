@@ -160,7 +160,8 @@ evaluation-order cycle fails.
   copper connection discovery), `track-commit.js` (drawn-track command assembly),
   `save-toast.js` (PCB save
   toast presentation), `svg-defs.js` (editor-owned SVG `<defs>` cache) and
-  `layers.js` (layer-panel lock bubble timer and registered layer-change hooks), and
+  `layers.js` (layer-panel lock bubble timer, registered layer-change hooks and what
+  blocks a placement on a layer), and
   `pcb-interactions.js` (in-progress interaction slots).
 - In-progress interaction slots (`_drag`, `_trackDraw`, …) are listed once in
   `pcb-interactions.js` with their owner module and stored in its import-free

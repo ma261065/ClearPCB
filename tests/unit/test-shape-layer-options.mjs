@@ -140,8 +140,9 @@ try {
         for (const kind of ['line', 'circle', 'rect', 'polygon', 'arc']) {
             app.activeLayer = 'hole';
             showBoardShapeToolProperties(app, kind);
+            // A locked layer stays the tool's layer (flagged, and refused on press) rather than being swapped.
             assert.deepEqual(layerOption('pcbToolShapeLayer', 'hole'),
-                { disabled: locked, selected: !locked, label: `Hole${locked ? ' \u{1F512}\uFE0E' : ''}` });
+                { disabled: locked, selected: true, label: `Hole${locked ? ' \u{1F512}\uFE0E' : ''}` });
             const shape = { ...legacy, id: kind, kind, layer: 'top-silk',
                 x: 5, y: 4, radius: 3, start: points[0], end: points[1], bulge: { x: 5, y: 3 } };
             const second = { ...shape, id: `${kind}-second` };

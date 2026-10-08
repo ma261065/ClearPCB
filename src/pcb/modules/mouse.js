@@ -29,7 +29,7 @@ import { hitTestPcbSelectionAnchor } from './selection-anchors.js';
 import { activeTextInlineEdit, startTextInlineEdit, endTextInlineEdit } from './text-inline-edit.js';
 import { hitTestText } from './pcb-text-render.js';
 import { toggleDebugTooltipPin, updateDebugTooltip } from './debug-tooltip.js';
-import { PCB_CROSSHAIR_TOOLS, PCB_PROPERTIES_TOOLS, updateCursorForTool } from './tool-lifecycle.js';
+import { PCB_CROSSHAIR_TOOLS, PCB_PROPERTIES_TOOLS, syncToolBlockIndicator, updateCursorForTool } from './tool-lifecycle.js';
 import { dispatchPcbPointerMove, releasePcbPointerGestures } from './pcb-interaction-routing.js';
 import {
     getTrackDraw, resolveTrackDrawSnap, showTrackSnapMarker, clearTrackSnapMarker, addTrackWaypoint, finishTrackDraw,
@@ -107,6 +107,7 @@ export function bindPcbMouseEvents(app) {
     if (!svg) return;
     svg.addEventListener('mousedown', e => onMouseDown(app, e));
     svg.addEventListener('mousemove', e => onMouseMove(app, e));
+    svg.addEventListener('mouseleave', () => syncToolBlockIndicator(app, null));
     svg.addEventListener('dblclick', e => onDoubleClick(app, e));
     // Some pointer sequences (e.g. when the two clicks land on different child elements
     // within the layer-group hierarchy) never fire a `dblclick`; catch those through
@@ -242,6 +243,8 @@ function updateToolCursor(app, worldPos) {
 function onMouseMove(app, e) {
     if (!isEditorActive(app)) return;
     app.viewport.shiftHeld = e.shiftKey;
+    // Before any press, show when the active tool's layer is locked or hidden.
+    syncToolBlockIndicator(app, e);
     if (app.viewport.isPanning) {
         app.viewport.updatePan(e.clientX, e.clientY);
         // Keep tool crosshairs anchored under the cursor while panning.

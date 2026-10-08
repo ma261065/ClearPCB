@@ -1,3 +1,4 @@
+import { pcbToolBlockNotice } from './tool-lifecycle.js';
 import { canonicalBoardShape, createBoardShapePropertyBinding, createBoardShapePropertyPreview, displayedBoardShape,
     getBoardShapeAnchors, handleBoardShapeDrag, startBoardShapeDrag, endBoardShapeDrag,
     remapBoardShapeNodeRadii } from './board-shapes.js';
@@ -331,8 +332,9 @@ export function showFillToolProperties(app) {
     /** @returns {import('../../shared/ui/property-fields.js').PropertyPanel} */
     const describe = () => {
         const defaults = fillToolDefaults(app);
-        return { title: 'New Fill', fields: [
-            { key: 'layer', id: 'pcbPropFillToolLayer', type: 'select', label: 'Layer', value: defaults.layer,
+        const notice = pcbToolBlockNotice(app, 'fill');
+        return { title: 'New Fill', actions: notice.actions, fields: [
+            { key: 'layer', id: 'pcbPropFillToolLayer', type: 'select', label: 'Layer', value: defaults.layer, warning: notice.warning,
                 options: [pcbLayerOption('top-copper', 'Top Copper'), pcbLayerOption('bottom-copper', 'Bottom Copper')],
                 commit: value => {
                     if (value !== 'top-copper' && value !== 'bottom-copper' || isLayerLocked(value)) { refresh(); return; }

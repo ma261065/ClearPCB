@@ -12,7 +12,7 @@ import { loadAndApplyTheme } from '../shared/ui/theme.js';
 import { renderFootprint, REF_DEFAULT_SIZE, REF_DEFAULT_STROKE } from '../shared/pcb/footprint.js';
 import { updateGridDropdown, restoreGridSettings, serializeGridSettings } from '../shared/ui/viewport.js';
 import { setInlineTextInputActive } from '../shared/ui/inline-text-overlay.js';
-import { PCB_LAYERS, pcbLayerName, isLayerLocked, isViaLocked, isLayerVisible, isViaVisible, isCopperFillLocked, isCopperFillVisible, applyLayerPrefsToRender } from '../pcb/modules/layers.js';
+import { PCB_LAYERS, pcbLayerName, isLayerLocked, isLayerVisible, isViaVisible, isCopperFillLocked, isCopperFillVisible, applyLayerPrefsToRender } from '../pcb/modules/layers.js';
 import { exportDSN, importSES } from '../pcb/modules/dsn.js';
 import { disposeDrcRefresh, invalidateDrcRefresh } from '../pcb/modules/drc-refresh.js';
 import {
@@ -27,7 +27,7 @@ import { cancelPcbPosePreviews, disposePcbPropertyEditors, hasPcbEditInProgress 
 import { isPcbDrawing } from '../pcb/modules/pcb-interactions.js';
 import { handlePcbKeyDown } from '../pcb/modules/keyboard.js';
 import { showSaveToast } from '../pcb/modules/save-toast.js';
-import { PCB_CROSSHAIR_TOOLS, cancelPcbDrawingMode, updateCursorForTool } from '../pcb/modules/tool-lifecycle.js';
+import { PCB_CROSSHAIR_TOOLS, cancelPcbDrawingMode, refuseBlockedToolPlacement, syncPcbToolBlocks, updateCursorForTool } from '../pcb/modules/tool-lifecycle.js';
 import { buildCopperObstacles } from '../pcb/modules/copper-obstacles.js';
 import { buildRouteInput } from '../pcb/modules/route-input.js';
 import { hasFabricationContent } from '../pcb/modules/fabrication-snapshot.js';
@@ -409,6 +409,8 @@ export default class PCBApp {
     }
 
     setPcbStatus() {
+        // The tool's layer may have changed: its ribbon button shows whether that layer is blocked.
+        syncPcbToolBlocks(this);
         if (!this.status.modeStatus) return;
         const rawTool = this.currentTool || 'select';
         const shapeTool = ['line', 'circle', 'rect', 'polygon', 'arc'].includes(rawTool);
@@ -418,7 +420,7 @@ export default class PCBApp {
             : rawTool === 'track' ? getTrackDraw(this)?.currentLayer || getTrackToolLayer(this) || 'top-copper'
             : shapeTool ? getShapeDraw(this)?.layer || resolveShapeDrawLayer(this, this.activeLayer)
             : this.activeLayer;
-        const layerLabel = layer ? pcbLayerName(layer) : (shapeTool ? 'No unlocked layers' : 'Top Copper');
+        const layerLabel = layer ? pcbLayerName(layer) : 'Top Copper';
         const selectedShape = getPcbSelection(this, 'shape');
         const selectedTrack = getPcbSelection(this, 'track');
         const showSegmentTip = rawTool === 'select'
@@ -1028,8 +1030,8 @@ export default class PCBApp {
      */
     _pressTrackTool(e) {
         const worldPos = this.screenToWorld(e);
-        // Can't draw on a locked layer.
-        if (!getTrackDraw(this) && isLayerLocked(getTrackToolLayer(this) || 'top-copper')) return;
+        // Can't draw on a locked or hidden layer.
+        if (!getTrackDraw(this) && refuseBlockedToolPlacement(this, e)) return;
         if (getTrackDraw(this)) {
             addTrackWaypoint(this, worldPos);
         } else {
@@ -1046,7 +1048,7 @@ export default class PCBApp {
      */
     _pressFillTool(e) {
         const worldPos = this.screenToWorld(e);
-        if (!getFillDraw(this) && isLayerLocked(fillToolDefaults(this).layer)) return;
+        if (!getFillDraw(this) && refuseBlockedToolPlacement(this, e)) return;
         if (getFillDraw(this)) {
             addFillWaypoint(this, worldPos);
         } else {
@@ -1061,8 +1063,7 @@ export default class PCBApp {
      */
     _pressViaTool(e) {
         const worldPos = this.screenToWorld(e);
-        // A via spans both copper layers — refuse if either is locked.
-        if (isViaLocked()) return;
+        if (refuseBlockedToolPlacement(this, e)) return;
         const snap = resolveTrackSnap(this, worldPos, {});
         const p = /** @type {Partial<RoutingParams>} */ (this.getRoutingParams?.() || {});
         const diameter = Number.isFinite(p.viaDiameter) && p.viaDiameter > 0 ? p.viaDiameter : 0.6;
@@ -1108,11 +1109,9 @@ export default class PCBApp {
      * Primary press with the pad tool.
      */
     _pressPadTool(e) {
+        if (refuseBlockedToolPlacement(this, e)) return;
         const snap = snapPadPlacement(this, this.screenToWorld(e));
         const pad = new Pad({ ...getPadToolDefaults(this), x: snap.x, y: snap.y });
-        if (pad.layers === 'both'
-            ? (isLayerLocked('top-copper') || isLayerLocked('bottom-copper'))
-            : isLayerLocked(pad.layers)) return;
         this.history.execute(new AddPadCommand(this, pad));
         setPcbSelection(this, [{ kind: 'pad', object: pad }]);
         this.showPadProperties(pad);
@@ -1124,6 +1123,7 @@ export default class PCBApp {
      * clicks, and Line/Polygon accept vertices until double-click or Enter.
      */
     _pressShapeTool(e) {
+        if (getShapeDraw(this)?.kind !== this.currentTool && refuseBlockedToolPlacement(this, e)) return;
         shapeDrawClick(this, this.currentTool, this.screenToWorld(e));
     }
 
@@ -1135,8 +1135,8 @@ export default class PCBApp {
         const snap = this.snapToGrid(worldPos);
         const defaults = getTextToolDefaults(this);
         const layer = defaults.layer;
-        // Don't place text on a locked layer.
-        if (isLayerLocked(layer)) return;
+        // Don't place text on a locked or hidden layer.
+        if (refuseBlockedToolPlacement(this, e)) return;
         const text = createPcbText({
             content: '',
             x: snap.x,

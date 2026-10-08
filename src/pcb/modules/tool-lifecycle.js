@@ -1,12 +1,16 @@
 import { getPcbInteraction, isPcbDrawing } from './pcb-interactions.js';
-import { cancelShapeDraw, getShapeDraw } from './board-shapes.js';
+import { cancelShapeDraw, getShapeDraw, resolveShapeDrawLayer } from './board-shapes.js';
 import { showBoardShapeToolProperties } from './board-shape-properties.js';
 import { showFillToolProperties } from './copper-fill-edit.js';
-import { getFillDraw, cancelFillDraw } from './copper-fill-draw.js';
-import { showPadToolProperties } from './pad-tool.js';
+import { getFillDraw, cancelFillDraw, fillToolDefaults } from './copper-fill-draw.js';
+import { getPadToolDefaults, showPadToolProperties } from './pad-tool.js';
 import { clearPadPreview } from './pad-tool.js';
-import { showTextToolProperties } from './text-properties.js';
-import { cancelTrackDrawing, showTrackDrawProperties } from './track-draw.js';
+import { getTextToolDefaults, showTextToolProperties } from './text-properties.js';
+import { cancelTrackDrawing, getTrackDraw, getTrackToolLayer, showTrackDrawProperties } from './track-draw.js';
+import { clearPlacementBlock, placementBlock, placementBlockAction, placementBlockMessage, placementBlockName,
+    refuseBlockedPlacement } from './layers.js';
+import { getPcbSelectionEntries } from './selection-registry.js';
+import { padLayers } from '../../shapes/pad-geometry.js';
 import { clearViaRing, showViaToolProperties } from './via-tool.js';
 import { activeTextInlineEdit, endTextInlineEdit } from './text-inline-edit.js';
 import { hoverComponent } from './component-selection.js';
@@ -21,6 +25,136 @@ export const PCB_PROPERTIES_TOOLS = new Set(['track', 'via', 'pad', 'text', 'fil
 
 export function normalizePcbTool(tool) {
     return tool === 'select' || PCB_CROSSHAIR_TOOLS.has(tool) ? tool : 'select';
+}
+
+/**
+ * The layer-panel rows a placement tool would put new objects on, from the tool's own
+ * settings (or the draw in progress). Its press, cursor, ribbon button and Properties
+ * all read this, so they always agree. Tools that place nothing give none.
+ * @param {any} app
+ * @param {string} [tool]
+ * @returns {import('./layers.js').PlacementLayer[]}
+ */
+export function pcbToolTargets(app, tool = app.currentTool) {
+    if (tool === 'via') return [{ id: 'vias' }];
+    if (tool === 'pad') return padLayers(getPadToolDefaults(app)).map(id => ({ id }));
+    if (tool === 'text') return [{ id: getTextToolDefaults(app).layer }];
+    if (tool === 'track') return [{ id: getTrackDraw(app)?.currentLayer || getTrackToolLayer(app) || 'top-copper' }];
+    if (tool === 'fill') {
+        const layer = getFillDraw(app)?.layer || fillToolDefaults(app).layer;
+        return [{ id: layer }, { id: layer, fill: true }];
+    }
+    if (tool === 'hole') return [{ id: 'hole' }];
+    if (PCB_SHAPE_TOOLS.has(tool)) {
+        const draw = getShapeDraw(app);
+        return [{ id: (draw?.kind === tool && draw.layer) || resolveShapeDrawLayer(app, app.activeLayer) }];
+    }
+    return [];
+}
+
+/** Why the tool cannot place here, or null. */
+export const pcbToolBlock = (app, tool = app.currentTool) => placementBlock(pcbToolTargets(app, tool));
+
+/** Refuse a placement press on a locked or hidden layer, explaining it at the pointer. */
+export const refuseBlockedToolPlacement = (app, event) => refuseBlockedPlacement(app, pcbToolTargets(app), event);
+
+/**
+ * What a tool's Properties shows when its layer is blocked: a warning on its layer field
+ * and an action group that unlocks or shows the layer.
+ * @returns {{warning?: string, actions: import('../../shared/ui/property-fields.js').PropertyActionGroup[]}}
+ */
+export function pcbToolBlockNotice(app, tool = app.currentTool) {
+    const block = pcbToolBlock(app, tool);
+    if (!block) return { actions: [] };
+    const message = placementBlockMessage(block);
+    const verb = placementBlockAction(block);
+    return {
+        warning: `${message}: new objects can't be placed on it`,
+        actions: [{ title: `${block.reason === 'locked' ? '🔒' : '🚫'} ${message}`, actions: [{
+            id: 'pcbToolUnblockLayer', label: `${verb} ${placementBlockName(block)}`,
+            title: `${verb} the layer so this tool can place on it`,
+            run: () => clearPlacementBlock(app, block),
+        }] }],
+    };
+}
+
+const toolBadges = new WeakMap();
+
+/** The pointer badge saying the active tool's layer is blocked. */
+function toolBadge(app) {
+    let badge = toolBadges.get(app);
+    if (!badge && typeof document !== 'undefined' && document.body) {
+        badge = document.createElement('div');
+        badge.className = 'pcb-tool-blocked-badge';
+        badge.setAttribute('aria-hidden', 'true');
+        document.body.appendChild(badge);
+        toolBadges.set(app, badge);
+    }
+    return badge || null;
+}
+
+/**
+ * Show at the pointer, before any press, that the active tool's layer is locked or
+ * hidden: a not-allowed cursor, the tool's preview dimmed, and a badge naming the layer.
+ * Called on every canvas pointer move (a few lookups), and with no event to hide it.
+ * @param {any} app
+ * @param {{clientX: number, clientY: number}|null} [event]
+ */
+export function syncToolBlockIndicator(app, event = null) {
+    const svg = app.viewport?.svg;
+    if (!svg) return;
+    const block = event && !getPcbInteraction(app, '_pasteDrop') ? pcbToolBlock(app) : null;
+    svg.classList?.toggle('pcb-placement-blocked', !!block);
+    app.viewport.crosshairContainer?.classList?.toggle('pcb-placement-blocked', !!block);
+    if (block) svg.style.cursor = 'not-allowed';
+    else if (svg.style.cursor === 'not-allowed') updateCursorForTool(app);
+    const badge = block ? toolBadge(app) : toolBadges.get(app);
+    if (!badge) return;
+    if (!block) {
+        badge.style.display = 'none';
+        return;
+    }
+    badge.textContent = `${block.reason === 'locked' ? '🔒' : '🚫'} ${placementBlockName(block)} ${block.reason}`;
+    badge.style.display = 'block';
+    badge.style.left = `${event.clientX + 14}px`;
+    badge.style.top = `${event.clientY + 14}px`;
+}
+
+const ribbonBlockSignatures = new WeakMap();
+
+/** Placement tools whose ribbon button carries a lock badge when its layer is blocked. */
+export const PCB_RIBBON_PLACEMENT_TOOLS = Object.freeze(['track', 'via', 'pad', 'hole', 'text', 'fill', ...PCB_SHAPE_TOOLS]);
+
+/**
+ * Refresh the ribbon's tool badges when which tools are blocked changes. Called where
+ * the status bar shows the tool's layer (setPcbStatus) and on layer lock/eye changes.
+ */
+export function syncPcbToolBlocks(app) {
+    const signature = PCB_RIBBON_PLACEMENT_TOOLS.map(tool => pcbToolBlock(app, tool)?.reason?.[0] || '-').join('');
+    if (ribbonBlockSignatures.get(app) === signature) return;
+    ribbonBlockSignatures.set(app, signature);
+    app.refreshPcbRibbon?.();
+}
+
+/** Show the Properties panel the tool owns (its defaults, or the draw in progress). */
+export function showPcbToolProperties(app, tool = app.currentTool) {
+    if (tool === 'fill') showFillToolProperties(app);
+    else if (tool === 'via') showViaToolProperties(app);
+    else if (tool === 'pad') showPadToolProperties(app);
+    else if (tool === 'track') showTrackDrawProperties(app);
+    else if (tool === 'text') showTextToolProperties(app);
+    else if (PCB_SHAPE_TOOLS.has(tool)) showBoardShapeToolProperties(app, tool);
+}
+
+/**
+ * A layer's lock or eye changed: refresh the ribbon badges and, while a placement tool
+ * owns Properties (nothing drawn or selected), its panel and its layer warning.
+ */
+export function refreshPcbToolLayerState(app) {
+    syncPcbToolBlocks(app);
+    if (!PCB_PROPERTIES_TOOLS.has(app.currentTool) || isPcbDrawing(app) || activeTextInlineEdit(app)) return;
+    if (getPcbSelectionEntries(app).length) return;
+    showPcbToolProperties(app);
 }
 
 export function updateCursorForTool(app) {
@@ -72,12 +206,7 @@ export function selectPcbTool(app, tool) {
     app.refreshPcbRibbon?.();
     updateCursorForTool(app);
     app.setPcbStatus?.();
-    if (next === 'fill') showFillToolProperties(app);
-    else if (next === 'via') showViaToolProperties(app);
-    else if (next === 'pad') showPadToolProperties(app);
-    else if (next === 'track') showTrackDrawProperties(app);
-    else if (next === 'text') showTextToolProperties(app);
-    else if (PCB_SHAPE_TOOLS.has(next)) showBoardShapeToolProperties(app, next);
+    showPcbToolProperties(app, next);
 }
 
 /** @param {import('../../ui/PCBApp.js').default} app */

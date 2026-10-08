@@ -5,7 +5,8 @@ import { showPictureImport } from './picture-import.js';
 import { runPcbHistoryAction, savePcbProject } from './editor-actions.js';
 import { commitDesignInput } from './design-settings.js';
 import { PCB_DESIGN_MAX_MM } from '../../core/PcbDesignSettings.js';
-import { PCB_SHAPE_TOOLS as SHAPE_TOOLS, normalizePcbTool, preparePcbRibbonTransition, selectPcbTool } from './tool-lifecycle.js';
+import { PCB_SHAPE_TOOLS as SHAPE_TOOLS, normalizePcbTool, pcbToolBlock, preparePcbRibbonTransition, selectPcbTool } from './tool-lifecycle.js';
+import { placementBlockMessage } from './layers.js';
 import { peekDrcPresentation } from './drc-state.js';
 
 const E = (tag, props = {}, children = undefined) => ({ kind: 'element', tag, ...props, children });
@@ -115,6 +116,16 @@ export function createPcbRibbonDescription(app) {
     const project = () => app.project;
     const canCopyCut = () => app.canCopyCutPcbSelection?.() || false;
     const canPaste = () => app.hasPcbClipboardData?.() || false;
+    // A placement tool's button carries a lock or hidden badge while its layer is blocked.
+    const blockBadge = tool => ({
+        'tool-layer-locked': () => pcbToolBlock(app, tool)?.reason === 'locked',
+        'tool-layer-hidden': () => pcbToolBlock(app, tool)?.reason === 'hidden',
+    });
+    const blockTitle = (title, tool) => () => {
+        const block = pcbToolBlock(app, tool);
+        return block ? `${title} (${placementBlockMessage(block)})` : title;
+    };
+    const shapeTool = () => (SHAPE_TOOLS.has(normalizePcbTool(app.currentTool)) ? normalizePcbTool(app.currentTool) : lastShape);
     return {
         onBeforeTabChange({ from, to, userInitiated }) {
             preparePcbRibbonTransition(app, from, to, userInitiated);
@@ -204,15 +215,19 @@ export function createPcbRibbonDescription(app) {
                         items: [
                             E('div', { className: 'ribbon-group-items ribbon-shape-tools' }, [
                                 { kind: 'toolButton', id: 'pcbToolSelect', title: 'Select (V)', content: '⊹ Select', active: () => normalizePcbTool(app.currentTool) === 'select', run: () => setTool('select') },
-                                { kind: 'toolButton', id: 'pcbToolTrack', title: 'Route Track', content: '⏤ Track', active: () => normalizePcbTool(app.currentTool) === 'track', run: () => setTool('track') },
+                                { kind: 'toolButton', id: 'pcbToolTrack', title: blockTitle('Route Track', 'track'), classes: blockBadge('track'), content: '⏤ Track', active: () => normalizePcbTool(app.currentTool) === 'track', run: () => setTool('track') },
                                 { kind: 'toolButton', id: 'pcbImportImage', title: 'Import PNG or JPEG artwork', content: '🖼 Image', run: () => showPictureImport(app) },
-                                { kind: 'toolButton', id: 'pcbToolVia', title: 'Place Via', content: '◉ Via', active: () => normalizePcbTool(app.currentTool) === 'via', run: () => setTool('via') },
-                                { kind: 'toolButton', id: 'pcbToolPad', title: 'Place Pad', content: '▣ Pad', active: () => normalizePcbTool(app.currentTool) === 'pad', run: () => setTool('pad') },
-                                { kind: 'toolButton', id: 'pcbToolHole', title: 'Place Hole', content: '◎ Hole', run: () => { app.activeLayer = 'hole'; setTool('circle'); } },
+                                { kind: 'toolButton', id: 'pcbToolVia', title: blockTitle('Place Via', 'via'), classes: blockBadge('via'), content: '◉ Via', active: () => normalizePcbTool(app.currentTool) === 'via', run: () => setTool('via') },
+                                { kind: 'toolButton', id: 'pcbToolPad', title: blockTitle('Place Pad', 'pad'), classes: blockBadge('pad'), content: '▣ Pad', active: () => normalizePcbTool(app.currentTool) === 'pad', run: () => setTool('pad') },
+                                { kind: 'toolButton', id: 'pcbToolHole', title: blockTitle('Place Hole', 'hole'), classes: blockBadge('hole'), content: '◎ Hole', run: () => { app.activeLayer = 'hole'; setTool('circle'); } },
                                 {
                                     kind: 'splitTool',
                                     id: 'pcbToolShapesWrap',
                                     active: () => SHAPE_TOOLS.has(normalizePcbTool(app.currentTool)),
+                                    classes: {
+                                        'tool-layer-locked': () => pcbToolBlock(app, shapeTool())?.reason === 'locked',
+                                        'tool-layer-hidden': () => pcbToolBlock(app, shapeTool())?.reason === 'hidden',
+                                    },
                                     main: { id: 'pcbToolShapes', title: 'Draw current shape',
                                         content: () => `${SHAPE_ICONS[SHAPE_TOOLS.has(normalizePcbTool(app.currentTool)) ? normalizePcbTool(app.currentTool) : lastShape]} Shapes`,
                                         run: () => {
@@ -223,8 +238,8 @@ export function createPcbRibbonDescription(app) {
                                     menuId: 'pcbToolShapesMenu',
                                     items: shapeItems.map(item => ({ ...item, run: () => { lastShape = item.dataset.shape; setTool(lastShape); } })),
                                 },
-                                { kind: 'toolButton', id: 'pcbToolText', title: 'Place Text', content: 'T Text', active: () => normalizePcbTool(app.currentTool) === 'text', run: () => setTool('text') },
-                                { kind: 'toolButton', id: 'pcbToolFill', title: 'Draw Copper Fill / Pour', content: '▦ Fill', active: () => normalizePcbTool(app.currentTool) === 'fill', run: () => setTool('fill') },
+                                { kind: 'toolButton', id: 'pcbToolText', title: blockTitle('Place Text', 'text'), classes: blockBadge('text'), content: 'T Text', active: () => normalizePcbTool(app.currentTool) === 'text', run: () => setTool('text') },
+                                { kind: 'toolButton', id: 'pcbToolFill', title: blockTitle('Draw Copper Fill / Pour', 'fill'), classes: blockBadge('fill'), content: '▦ Fill', active: () => normalizePcbTool(app.currentTool) === 'fill', run: () => setTool('fill') },
                             ]),
                         ],
                     },

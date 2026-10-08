@@ -1,3 +1,4 @@
+import { pcbToolBlockNotice } from './tool-lifecycle.js';
 import { buildCopperClusters, unionCoincidentClusters } from './copper-connectivity.js';
 import { getComputedFill } from './computed-fill-cache.js';
 import { deferDerivedUpdate } from '../../core/DerivedUpdates.js';
@@ -565,10 +566,13 @@ export function showTrackDrawProperties(app) {
         if (hadError) refresh();
     };
     /** @returns {import('../../shared/ui/property-fields.js').PropertyPanel} */
-    const describe = () => ({
+    const describe = () => {
+        const notice = pcbToolBlockNotice(app, 'track');
+        return {
         title: 'New Track',
+        actions: notice.actions,
         fields: [
-            { key: 'layer', id: 'pcbPropTrackToolLayer', type: 'select', label: 'Layer', value: currentLayer(),
+            { key: 'layer', id: 'pcbPropTrackToolLayer', type: 'select', label: 'Layer', value: currentLayer(), warning: notice.warning,
                 options: [
                     { value: 'top-copper', label: 'Top Copper', disabled: isLayerLocked('top-copper') },
                     { value: 'bottom-copper', label: 'Bottom Copper', disabled: isLayerLocked('bottom-copper') },
@@ -579,7 +583,8 @@ export function showTrackDrawProperties(app) {
                 value: currentWidth(), min: 0.05, step: 0.05, numberFormat: 'precise',
                 error: widthError, preview: setWidth, commit: setWidth },
         ],
-    });
+        };
+    };
     app.openPropertyPanel(describe());
 }
 

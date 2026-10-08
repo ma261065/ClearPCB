@@ -3173,6 +3173,96 @@ body {
     100% { opacity: 1; transform: translate(0, -50%) scale(1); }
 }
 
+/* A refused placement's bubble carries the button that unlocks or shows the layer. */
+.pcb-locked-bubble.pcb-locked-bubble-actionable {
+    pointer-events: auto;
+}
+.pcb-locked-bubble .pcb-locked-bubble-action {
+    margin-left: 4px;
+    padding: 2px 8px;
+    border-radius: 4px;
+    border: 1px solid #f1c40f;
+    background: #f1c40f;
+    color: #2b2b38;
+    font: inherit;
+    font-weight: 600;
+    cursor: pointer;
+}
+.pcb-locked-bubble .pcb-locked-bubble-action:hover {
+    background: #f5d76e;
+}
+
+/* ========================================
+   Placement on a locked or hidden layer
+   ======================================== */
+/* Pointer badge naming the blocked layer, shown before any press. */
+.pcb-tool-blocked-badge {
+    position: fixed;
+    z-index: 10999;
+    display: none;
+    padding: 2px 6px;
+    border-radius: 4px;
+    border: 1px solid #f1c40f;
+    background: rgba(43, 43, 56, 0.92);
+    color: #f5d76e;
+    font-size: 11px;
+    line-height: 1.3;
+    white-space: nowrap;
+    pointer-events: none;
+}
+/* The tool's preview and crosshair dim while it cannot place. */
+svg.pcb-placement-blocked .pcb-via-preview,
+svg.pcb-placement-blocked .pcb-pad-preview,
+svg.pcb-placement-blocked .pcb-shape-preview,
+.pcb-placement-blocked:not(svg) {
+    opacity: 0.3;
+}
+/* Ribbon tool buttons whose layer is locked (🔒) or hidden (⊘). */
+.ribbon-tool-btn.tool-layer-locked,
+.ribbon-tool-btn.tool-layer-hidden,
+.ribbon-split-btn.tool-layer-locked,
+.ribbon-split-btn.tool-layer-hidden {
+    position: relative;
+}
+.ribbon-tool-btn.tool-layer-locked::after,
+.ribbon-tool-btn.tool-layer-hidden::after,
+.ribbon-split-btn.tool-layer-locked::after,
+.ribbon-split-btn.tool-layer-hidden::after {
+    position: absolute;
+    top: -3px;
+    right: -3px;
+    padding: 0 2px;
+    border-radius: 3px;
+    background: #f1c40f;
+    color: #2b2b38;
+    font-size: 9px;
+    line-height: 12px;
+    pointer-events: none;
+}
+.ribbon-tool-btn.tool-layer-locked::after,
+.ribbon-split-btn.tool-layer-locked::after {
+    content: '\1F512\FE0E';
+}
+.ribbon-tool-btn.tool-layer-hidden::after,
+.ribbon-split-btn.tool-layer-hidden::after {
+    content: '\2298';
+}
+/* A Properties field whose layer is blocked, and the group that unblocks it. */
+.prop-row.prop-row-warning select,
+.prop-row.prop-row-warning input {
+    outline: 1px solid #f1c40f;
+    outline-offset: 1px;
+}
+.prop-row.prop-row-warning label {
+    color: #f5d76e;
+}
+.prop-action-group:has(#pcbToolUnblockLayer) .ribbon-group-title {
+    color: #f5d76e;
+}
+.prop-action-group:has(#pcbToolUnblockLayer) #pcbToolUnblockLayer {
+    border-color: #f1c40f;
+}
+
 /* ========================================
    Specctra Help Flyout
    ======================================== */

@@ -3,6 +3,7 @@
  * plus the stroke-text field binding they share with the reference-designator panel.
  * Panels describe fields only; shared/ui/property-fields.js owns the DOM.
  */
+import { pcbToolBlockNotice } from './tool-lifecycle.js';
 import { displayRotationDegrees } from '../../core/number-inputs.js';
 import { TEXT_LAYERS } from '../../core/pcb-text.js';
 import { measureText as measureStrokeText } from '../../shared/pcb/stroke-font.js';
@@ -64,8 +65,10 @@ export function showTextToolProperties(app) {
     };
     const describe = () => ({
         title: 'New Text',
+        actions: pcbToolBlockNotice(app, 'text').actions,
         fields: [
             { key: 'layer', id: 'pcbPropTextToolLayer', type: 'select', label: 'Layer', value: defaults.layer,
+                warning: pcbToolBlockNotice(app, 'text').warning,
                 options: TEXT_LAYERS.map(layer => pcbLayerOption(layer, app.layerLabel(layer))),
                 commit: value => {
                     if (TEXT_LAYERS.includes(value)) defaults.layer = value;

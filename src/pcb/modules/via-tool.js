@@ -1,3 +1,4 @@
+import { pcbToolBlockNotice } from './tool-lifecycle.js';
 import { commitDesignValue, renderDesignSettings } from './design-settings.js';
 import { resolveTrackSnap } from './track-draw.js';
 
@@ -126,6 +127,7 @@ export function showViaToolProperties(app) {
     /** @returns {import('../../shared/ui/property-fields.js').PropertyPanel} */
     const describe = () => ({
         title: 'New Via',
+        actions: pcbToolBlockNotice(app, 'via').actions,
         fields: [
             { key: 'net', id: 'pcbPropViaToolNet', type: 'net', label: 'Net', value: String(getViaToolNet(app) || ''),
                 nets: app.netNames(), commit: value => { setViaToolNet(app, value); refresh(); } },

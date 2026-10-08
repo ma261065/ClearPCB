@@ -34,6 +34,7 @@ class Element {
     setAttribute(name, value) { this.attributes.set(name, String(value)); }
     getAttribute(name) { return this.attributes.get(name) ?? null; }
     removeAttribute(name) { this.attributes.delete(name); }
+    get className() { return this.getAttribute('class') || ''; }
     set className(value) { this.setAttribute('class', value); }
     get classList() {
         return {

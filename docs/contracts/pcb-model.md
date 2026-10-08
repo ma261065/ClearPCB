@@ -590,12 +590,12 @@ every move.
   Locked destinations in shape/image layer dropdowns show a monochrome text lock and
   use native disabled options (greyed out). Layer-panel lock changes update
   these options in place without rebuilding the shape property form.
-  New shape tools retain an unlocked valid active layer, otherwise select the
-  first valid unlocked entry in layer order. If none is available, the dropdown
-  and status show **No unlocked layers** and no new shape preview can begin.
-  Lock changes refresh an idle drawing tool's default and layer-dependent
-  controls; unlocking a valid layer makes drawing available immediately.
-  Existing shape assignments and in-progress drawing layers are not automatically
-  reassigned by this default-selection policy.
+  New shape tools keep their chosen layer even when it is locked or hidden: they
+  never draw on another layer instead. The tool refuses to start a shape there and
+  says why, and its Properties flags the layer with an Unlock or Show action (see
+  [placing on a locked or hidden layer](pcb-editing.md)). Lock and visibility
+  changes refresh an idle drawing tool's layer-dependent controls; unlocking the
+  layer makes drawing available immediately. Existing shape assignments and
+  in-progress drawing layers are not reassigned.
 - Render (`track-render.js`) and Gerber/Excellon output (`gerber.js`)
   read vias exclusively from `PCBApp.vias`.

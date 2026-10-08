@@ -7,6 +7,7 @@
  * editor shows them. Number edits preview on display copies of the pads and commit one
  * ModifyPadCommand (per pad) when the field's run settles.
  */
+import { pcbToolBlockNotice } from './tool-lifecycle.js';
 import { refreshBoxSelectionHighlights } from './box-select.js';
 import { isLayerVisible } from './layers.js';
 import { isPcbObjectLocked, lockedProperty } from './object-locks.js';
@@ -44,6 +45,8 @@ export function showPadEditor(app, pad, tool) {
         const shownPads = pads.map(shown);
         const mixed = property => shownPads.some(target => (target[property] ?? '') !== (current[property] ?? ''));
         const lock = pad ? lockedProperty(app, lockEntries) : null;
+        // The tool's defaults: say when its layer is locked or hidden.
+        const notice = pad ? null : pcbToolBlockNotice(app, 'pad');
         const readOnly = !!lock?.readOnly;
         const number = (key, id, label, extra) => ({
             key, id, type: 'number', label, value: current[key], mixed: mixed(key), disabled: readOnly, hold,
@@ -64,7 +67,7 @@ export function showPadEditor(app, pad, tool) {
                     if (!disposed) showPadEditor(app, pad, tool);
                 } },
             { key: 'layer', id: 'pcbPropPadLayers', type: 'select', label: 'Layer', value: current.layers, mixed: mixed('layers'),
-                disabled: readOnly, options: LAYERS, commit: value => apply('layers', value) },
+                disabled: readOnly, warning: notice?.warning, options: LAYERS, commit: value => apply('layers', value) },
             { key: 'net', id: 'pcbPropPadNet', type: 'net', label: 'Net', value: current.net || '', mixed: mixed('net'),
                 disabled: readOnly, nets: app.netNames(), commit: value => apply('net', value) },
             number('size', 'pcbPropPadSize', 'Size (mm)', { min: 0.05, step: 0.05 }),
@@ -74,7 +77,7 @@ export function showPadEditor(app, pad, tool) {
             ...(showRotation ? [number('rotation', 'pcbPropPadRotation', 'Rotation (°)', { step: 1,
                 normalize: value => ((value % 360) + 360) % 360 })] : []),
         ];
-        return { title: pad ? 'Pad' : 'New Pad', fields };
+        return { title: pad ? 'Pad' : 'New Pad', fields, actions: notice?.actions };
     };
     const refresh = () => { if (!disposed) app.refreshPropertyPanel(describe()); };
 

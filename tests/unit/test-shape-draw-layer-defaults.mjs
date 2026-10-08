@@ -30,12 +30,13 @@ const { resolveShapeDrawLayer, shapeDrawClick, cancelShapeDraw } =
     await import('../../src/pcb/modules/board-shapes.js');
 const { showBoardShapeToolProperties } = await import('../../src/pcb/modules/board-shape-properties.js');
 const { default: PCBApp } = await import('../../src/ui/PCBApp.js');
-let html = '';
+let shown = null;
 const syncPanel = panel => {
     const layer = panel.fields.find(field => field.id === 'pcbToolShapeLayer');
-    select = { value: layer?.value || '', disabled: !!layer?.disabled, addEventListener() {} };
-    html = layer?.disabled ? '<option value="" selected disabled>No unlocked layers</option>' : '';
+    select = { value: layer?.value || '', disabled: !!layer?.disabled, warning: layer?.warning || '', addEventListener() {} };
+    shown = panel;
 };
+const unlockAction = () => shown?.actions?.[0]?.actions?.[0] || null;
 const model = new PcbDocument();
 const app = {
     pcbDocument: model, boardShapes: model.boardShapes, tracks: model.tracks,
@@ -58,9 +59,17 @@ try {
         app.currentTool = kind;
         app.activeLayer = 'top-copper';
         showBoardShapeToolProperties(app, kind);
-        assert.equal(select.value, 'bottom-copper', `${kind}: first unlocked valid layer is selected`);
+        assert.equal(select.value, 'top-copper', `${kind}: a locked default stays the tool's layer, not swapped for another`);
         assert.equal(app.activeLayer, select.value, 'The dropdown and drawing default agree');
-        assert.ok(app.status.modeStatus.textContent.endsWith(' | Bottom Copper'));
+        assert.match(select.warning, /“Top Copper” is locked/, 'The layer field says why nothing can be drawn');
+        assert.equal(unlockAction()?.label, 'Unlock Top Copper', 'Properties offers the way out');
+        assert.ok(app.status.modeStatus.textContent.endsWith(' | Top Copper'));
+        shapeDrawClick(app, kind, { x: 1, y: -1 });
+        assert.equal(getShapeDraw(app), null, `${kind}: nothing is drawn on the locked layer`);
+        app.activeLayer = 'bottom-copper';
+        showBoardShapeToolProperties(app, kind);
+        assert.equal(select.warning, '', 'An unlocked layer carries no warning');
+        assert.equal(unlockAction(), null);
         shapeDrawClick(app, kind, { x: 1, y: -1 });
         assert.equal(getShapeDraw(app).layer, 'bottom-copper', 'The preview uses the displayed default');
         const draw = getShapeDraw(app);
@@ -72,29 +81,27 @@ try {
     app.activeLayer = 'top-document';
     showBoardShapeToolProperties(app, 'rect');
     assert.equal(select.value, 'top-document', 'An explicitly chosen unlocked layer remains preferred');
-    app.activeLayer = 'top-copper';
-    showBoardShapeToolProperties(app, 'rect');
     bottom.locked = true;
+    app.activeLayer = 'bottom-copper';
+    showBoardShapeToolProperties(app, 'rect');
     notifyLayerLockChanged(app, 'bottom-copper', true);
-    assert.equal(select.value, 'top-silk', 'Locking the current default selects the next valid layer');
-    assert.equal(app.activeLayer, 'top-silk');
+    assert.equal(select.value, 'bottom-copper', 'Locking the current default keeps it, flagged');
+    assert.equal(app.activeLayer, 'bottom-copper');
+    assert.match(select.warning, /“Bottom Copper” is locked/);
 
+    assert.equal(resolveShapeDrawLayer(app, 'vias'), 'top-silk',
+        'Display-only layers still map to a drawable layer');
     const validLayers = ['top-copper', 'bottom-copper', 'top-silk', 'bottom-silk',
         'top-document', 'bottom-document', 'hole'];
     for (const layer of PCB_LAYERS) layer.locked = validLayers.includes(layer.id);
+    app.activeLayer = 'hole';
     notifyLayerLockChanged(app, 'top-silk', true);
-    assert.equal(resolveShapeDrawLayer(app, app.activeLayer), null,
-        'Unlocked mask, paste, outline and Via display layers are not drawing fallbacks');
-    assert.equal(select.value, '');
-    assert.equal(select.disabled, true);
-    assert.match(html, /<option value="" selected disabled>No unlocked layers<\/option>/);
-    assert.equal(app.status.modeStatus.textContent, 'Rect | No unlocked layers');
+    assert.equal(select.value, 'hole');
     const blockedLocks = PCB_LAYERS.map(layer => layer.locked);
     for (const kind of ['line', 'rect', 'circle', 'polygon', 'arc']) {
         app.currentTool = kind;
         shapeDrawClick(app, kind, { x: 1, y: -1 });
-        assert.equal(getShapeDraw(app), null, `${kind}: no preview begins without an unlocked layer`);
-        assert.equal(select.disabled, true);
+        assert.equal(getShapeDraw(app), null, `${kind}: no preview begins on a locked layer`);
     }
     assert.equal(app.history.undoStack.length, 0);
     assert.deepEqual(model.boardShapes, []);
@@ -104,8 +111,8 @@ try {
     const hole = PCB_LAYERS.find(layer => layer.id === 'hole');
     hole.locked = false;
     notifyLayerLockChanged(app, 'hole', false);
-    assert.equal(select.value, 'hole', 'Unlocking one valid layer recovers the existing dropdown immediately');
-    assert.equal(select.disabled, false);
+    assert.equal(select.value, 'hole', 'Unlocking the layer recovers the tool immediately');
+    assert.equal(select.warning, '');
     assert.equal(app.activeLayer, 'hole');
     assert.equal(app.status.modeStatus.textContent, 'Rect | Hole');
     shapeDrawClick(app, 'rect', { x: 1, y: -1 });
@@ -118,11 +125,11 @@ try {
     app.history.redo();
     assert.equal(model.boardShapes[0].layer, 'hole');
     app.currentTool = 'select';
-    const previousForm = html;
+    const previousPanel = shown;
     hole.locked = true;
     notifyLayerLockChanged(app, 'hole', true);
-    assert.equal(html, previousForm, 'Inactive drawing controls are not rebuilt as a new shape tool');
+    assert.equal(shown, previousPanel, 'Inactive drawing controls are not rebuilt as a new shape tool');
 } finally {
     PCB_LAYERS.forEach((layer, index) => { layer.locked = locks[index]; });
 }
-console.log('PASS unlocked shape defaults, all-locked blocking, live recovery and completed shape/history layer parity');
+console.log('PASS shape tools keep a locked layer and refuse it with a warning, live recovery and completed shape/history layer parity');

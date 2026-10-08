@@ -9,7 +9,7 @@ import { cancelPcbPosePreviews } from './edit-lifecycle.js';
 import {
     endBoardShapeDrag, getBoardShapeDrag, getBoardShapeRotationPreview, finishBoardShapeRotationPreview, selectBoardShape,
 } from './board-shapes.js';
-import { refreshBoardShapeToolLayer } from './board-shape-properties.js';
+import { refreshPcbToolLayerState } from './tool-lifecycle.js';
 import { cancelVertexDrag, getVertexDrag, trackPointerTouchesLayer } from './track-drag.js';
 import { getSelectedTrack, getSelectedVia, clearTrackSelection, setHoverHighlight } from './track-select.js';
 import { activeTextInlineEdit, endTextInlineEdit } from './text-inline-edit.js';
@@ -111,6 +111,7 @@ export function onLayerVisibilityChanged(app, layerId, visible) {
     }
     app.refreshSelectionHighlights?.();
     saveLayerPrefs();
+    refreshPcbToolLayerState(app);
 }
 
 /** Lock or unlock a layer: cancel edits on it and refresh the lock-dependent UI. */
@@ -147,7 +148,7 @@ export function onLayerLockChanged(app, layerId, locked) {
     }
     saveLayerPrefs();
     refreshPcbLayerOptions(layerId);
-    refreshBoardShapeToolLayer(app);
+    refreshPcbToolLayerState(app);
     const checkbox = /** @type {HTMLInputElement|null} */ (document.getElementById('pcbPropOutlineLocked'));
     if (checkbox) checkbox.checked = locked;
     app.refreshSelectionHighlights?.();
@@ -168,6 +169,7 @@ export function onCopperFillVisibilityChanged(app, copperLayerId, visible) {
     if (g) g.style.display = visible ? '' : 'none';
     app.refreshSelectionHighlights?.();
     saveLayerPrefs();
+    refreshPcbToolLayerState(app);
 }
 
 /**
@@ -182,6 +184,7 @@ export function onCopperFillLockChanged(app, copperLayerId, locked) {
     app.refreshSelectionHighlights?.();
     if (getPcbSelection(app, 'fill').some(fill => fill.layer === copperLayerId)) showPcbSelectionProperties(app);
     saveLayerPrefs();
+    refreshPcbToolLayerState(app);
 }
 
 /** Show or hide an overlay (clearance halos, ratlines). */

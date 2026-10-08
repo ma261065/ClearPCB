@@ -138,6 +138,26 @@ are described disabled.
 The board outline keeps its existing layer-lock checkbox
 (`test-pcb-object-locks`, `tests/browser/object-locks.mjs`).
 
+**Placing on a locked or hidden layer.** Nothing new is drawn on a locked layer,
+nor on a hidden one (the object would be invisible); for pours, that side's
+Copper Fill row counts too. `pcbToolTargets(app, tool)` (`tool-lifecycle.js`)
+names the rows each placement tool would draw on, from its own settings: Via,
+the pad tool's copper sides, the text, track, fill and shape tools' layers, and
+Hole. Everything that reports a blocked tool reads it, so they agree:
+- the ribbon tool button carries a lock (or ⊘) badge and its tooltip names the
+  layer; the badges refresh when the blocked set changes (`syncPcbToolBlocks`,
+  from `setPcbStatus` and every layer lock or eye change);
+- over the canvas, before any press, the cursor is not-allowed, the tool's
+  preview and crosshair are dimmed and a badge names the layer
+  (`syncToolBlockIndicator`);
+- the tool's Properties flags its layer field and shows an action group that
+  unlocks or shows the layer;
+- a press is refused with a bubble at the pointer saying why, with an Unlock or
+  Show button (`refuseBlockedPlacement`, `layers.js`).
+Unlock and Show go through the layer panel's own buttons, so every view follows.
+Shape tools keep a locked or hidden layer rather than drawing on another one
+(`test-placement-blocks`, `placing-on-a-locked-or-hidden-layer-says-why`).
+
 The editor checks above give feedback; the **lock gate** guarantees the rule.
 Every model command declares what it changes with `lockTargets()`
 (`core/edit-guard.js`), and the editor's `CommandHistory` guard refuses, before

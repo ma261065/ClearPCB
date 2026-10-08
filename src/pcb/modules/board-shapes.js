@@ -35,6 +35,7 @@ import {
     PCB_HOVER_HIGHLIGHT_OPACITY,
     PCB_LAYERS,
     PCB_SELECTION_HIGHLIGHT_OPACITY,
+    placementBlock,
 } from './layers.js';
 import { boardShapeLocked, isPcbObjectLocked } from './object-locks.js';
 import {
@@ -1906,14 +1907,19 @@ export function showBoardShapeContextMenu(app, shape, clientX, clientY, worldPos
 
 // â”€â”€ Draw lifecycle â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
-/** Prefer the active drawing layer, otherwise the first unlocked valid choice. */
+/**
+ * The layer a shape tool draws on: the active layer, with display-only layers (paste,
+ * mask, outline, Via) mapped to a drawable one. A locked or hidden layer is kept, not
+ * swapped for another: the tool refuses to draw there and says why (tool-lifecycle.js).
+ * @returns {string}
+ */
 export function resolveShapeDrawLayer(app, layerId) {
     let id = String(layerId || 'top-copper');
     if (id === 'top-paste' || id === 'bottom-paste' || id === 'board-outline' || id === 'vias') {
         id = id.startsWith('bottom-') ? 'bottom-silk' : 'top-silk';
     }
-    const available = PCB_LAYERS.filter(layer => !PROP_HIDDEN_LAYERS.has(layer.id) && !layer.locked);
-    return (available.find(layer => layer.id === id) || available[0])?.id || null;
+    const drawable = PCB_LAYERS.filter(layer => !PROP_HIDDEN_LAYERS.has(layer.id));
+    return (drawable.find(layer => layer.id === id) || drawable[0]).id;
 }
 
 function makePreview(app) {
@@ -1952,10 +1958,8 @@ export function shapeDrawClick(app, kind, worldPos) {
     const activeDraw = getShapeDraw(app);
     if (!activeDraw || activeDraw.kind !== kind) {
         const layer = resolveShapeDrawLayer(app, app.activeLayer);
-        if (!layer) {
-            showBoardShapeToolProperties(app, kind);
-            return;
-        }
+        // The press handler explains a blocked layer; nothing is drawn there either way.
+        if (placementBlock([{ id: layer }])) return;
         app.activeLayer = layer;
         setPcbInteraction(app, '_shapeDraw', {
             kind,

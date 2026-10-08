@@ -179,6 +179,36 @@ export function unlockPcbCopperFill(app, layerId) {
     setPcbCopperFillLocked(app, layerId, false);
 }
 
+/** Show or hide a PCB layer through its panel control so all UI state stays in sync. */
+export function setPcbLayerVisible(app, layerId, visible) {
+    const layer = PCB_LAYERS.find(item => item.id === layerId);
+    if (!layer || layer.visible === !!visible) return;
+    const button = /** @type {HTMLElement|null} */ (document.querySelector(
+        `.pcb-layer-row[data-layer-id="${layerId}"] .vis-btn`,
+    ));
+    if (button) {
+        button.click();
+        return;
+    }
+    layer.visible = !!visible;
+    notifyLayerVisibilityChanged(app, layerId, layer.visible);
+}
+
+/** Show or hide one side's pours through the Copper Fill row's eye. */
+export function setPcbCopperFillVisible(app, layerId, visible) {
+    const fill = PCB_COPPER_FILLS.find(item => item.id === layerId);
+    if (!fill || fill.visible === !!visible) return;
+    const button = /** @type {HTMLElement|null} */ (document.querySelector(
+        `.pcb-layer-row[data-fill-id="${layerId}"] .vis-btn`,
+    ));
+    if (button) {
+        button.click();
+        return;
+    }
+    fill.visible = !!visible;
+    notifyCopperFillVisibilityChanged(app, layerId, fill.visible);
+}
+
 /**
  * True when the given layer id is currently locked. Locked layers are
  * read-only: their objects can be selected for inspection/unlocking, but
@@ -708,6 +738,72 @@ export function buildLayerPanel(app) {
 
 }
 /**
+ * A layer-panel row a new object would be drawn on: a layer, or (`fill`) one side's
+ * Copper Fill row, which locks or hides that side's pours.
+ * @typedef {{id: string, fill?: boolean}} PlacementLayer
+ * @typedef {PlacementLayer & {reason: 'locked'|'hidden'}} PlacementBlock
+ */
+
+/** @param {PlacementLayer} target @param {'locked'|'hidden'} reason */
+function placementBlocked(target, reason) {
+    if (target.fill) return reason === 'locked' ? isCopperFillLocked(target.id) : !isCopperFillVisible(target.id);
+    return reason === 'locked' ? isLayerLocked(target.id) : !isLayerVisible(target.id);
+}
+
+/**
+ * Why nothing may be placed on these rows, or null. Nothing is drawn on a locked row,
+ * nor on a hidden one, where the new object would be invisible. A lock is reported first.
+ * @param {PlacementLayer[]} targets
+ * @returns {PlacementBlock|null}
+ */
+export function placementBlock(targets) {
+    for (const reason of /** @type {const} */ (['locked', 'hidden'])) {
+        const target = targets.find(item => placementBlocked(item, reason));
+        if (target) return { id: target.id, fill: !!target.fill, reason };
+    }
+    return null;
+}
+
+/** The layer panel's name for a blocked row: "Via", "Top Silk", "Top Copper Fill". */
+export function placementBlockName(block) {
+    if (!block.fill) return pcbLayerName(block.id);
+    return `${PCB_COPPER_FILLS.find(fill => fill.id === block.id)?.name || pcbLayerName(block.id)} Copper Fill`;
+}
+
+/** "“Via” is locked" / "“Top Silk” is hidden". */
+export function placementBlockMessage(block) {
+    return `“${placementBlockName(block)}” is ${block.reason}`;
+}
+
+/** The button label that lifts a block: Unlock or Show. */
+export const placementBlockAction = block => (block.reason === 'locked' ? 'Unlock' : 'Show');
+
+/** Lift a block through the layer panel's own control, so every view of the layer follows. */
+export function clearPlacementBlock(app, block) {
+    if (block.reason === 'locked') {
+        if (block.fill) unlockPcbCopperFill(app, block.id);
+        else unlockPcbLayer(app, block.id);
+    } else if (block.fill) setPcbCopperFillVisible(app, block.id, true);
+    else setPcbLayerVisible(app, block.id, true);
+}
+
+/**
+ * Refuse a placement onto a locked or hidden row, saying why at the pointer with a
+ * button that lifts the block. Placement tools keep their preview there, so a silent
+ * refusal would look like a dead click.
+ * @param {object} app
+ * @param {PlacementLayer[]} targets every row the placed object would occupy
+ * @param {{clientX: number, clientY: number}} [event] the press, to anchor the bubble
+ * @returns {boolean} true when the press was refused
+ */
+export function refuseBlockedPlacement(app, targets, event) {
+    const block = placementBlock(targets);
+    if (!block) return false;
+    showLayerBubble(app, block, event ? { x: event.clientX, y: event.clientY } : undefined, { action: true });
+    return true;
+}
+
+/**
  * Show a small speech bubble explaining why a locked layer/object can't be
  * selected. Anchors to the layer's row in the panel by default, or to a given
  * client-space point (e.g. the mouse cursor) when `anchor` is provided.
@@ -717,12 +813,25 @@ export function buildLayerPanel(app) {
  * @param {{x:number,y:number}} [anchor] client-space point to anchor beside
  */
 export function showLockedLayerBubble(app, layerId, anchor) {
+    showLayerBubble(app, { id: layerId, reason: 'locked' }, anchor);
+}
+
+/**
+ * Speech bubble saying a row is locked or hidden, beside `anchor` or the row itself.
+ * With `action`, it carries the button that unlocks or shows the row, and stays up
+ * longer (and while the pointer is on it) so the button can be reached.
+ * @param {object} app
+ * @param {PlacementBlock} block
+ * @param {{x:number,y:number}} [anchor] client-space point to anchor beside
+ * @param {{action?: boolean}} [options]
+ */
+export function showLayerBubble(app, block, anchor, { action = false } = {}) {
     const panel = document.getElementById('pcbLayerPanel');
     const row = panel
-        ? panel.querySelector(`.pcb-layer-row[data-layer-id="${layerId}"]`)
+        ? panel.querySelector(block.fill ? `.pcb-layer-row[data-fill-id="${block.id}"]`
+            : `.pcb-layer-row[data-layer-id="${block.id}"]`)
         : null;
     if (!row && !anchor) return;
-    const def = PCB_LAYERS.find(l => l.id === layerId);
 
     let bubble = document.getElementById('pcbLockedLayerBubble');
     if (!bubble) {
@@ -731,9 +840,27 @@ export function showLockedLayerBubble(app, layerId, anchor) {
         bubble.className = 'pcb-locked-bubble';
         document.body.appendChild(bubble);
     }
-    bubble.innerHTML =
-        `<span class="pcb-locked-bubble-icon">${LOCK_CLOSED_SVG}</span>`
-        + `<span>“${def ? def.name : 'This layer'}” is locked</span>`;
+    const hide = () => {
+        clearTimeout(lockedBubbleTimers.get(app));
+        bubble.classList.remove('pcb-locked-bubble-show');
+        bubble.style.display = 'none';
+    };
+    const icon = block.reason === 'locked' ? LOCK_CLOSED_SVG : EYE_CLOSED_SVG;
+    bubble.innerHTML = `<span class="pcb-locked-bubble-icon">${icon}</span>`
+        + `<span class="pcb-locked-bubble-text">${placementBlockMessage(block)}</span>`;
+    bubble.classList.toggle('pcb-locked-bubble-actionable', action);
+    if (action) {
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.className = 'pcb-locked-bubble-action';
+        button.textContent = placementBlockAction(block);
+        button.addEventListener('click', event => {
+            event.stopPropagation();
+            hide();
+            clearPlacementBlock(app, block);
+        });
+        bubble.appendChild(button);
+    }
 
     // Resolve the anchor point (client space). Default to the row's left edge.
     let anchorX, anchorY;
@@ -774,9 +901,12 @@ export function showLockedLayerBubble(app, layerId, anchor) {
     void bubble.offsetWidth;
     bubble.classList.add('pcb-locked-bubble-show');
 
-    clearTimeout(lockedBubbleTimers.get(app));
-    lockedBubbleTimers.set(app, setTimeout(() => {
-        bubble.classList.remove('pcb-locked-bubble-show');
-        bubble.style.display = 'none';
-    }, 2400));
+    const linger = action ? 5000 : 2400;
+    const schedule = () => {
+        clearTimeout(lockedBubbleTimers.get(app));
+        lockedBubbleTimers.set(app, setTimeout(hide, linger));
+    };
+    bubble.onmouseenter = action ? () => clearTimeout(lockedBubbleTimers.get(app)) : null;
+    bubble.onmouseleave = action ? schedule : null;
+    schedule();
 }
