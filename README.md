@@ -325,7 +325,8 @@ For a faster loop while editing, `node tools/test.mjs [filter…]` runs only the
 regression tests, optionally filtered by name.
 
 CI also runs `node tools/typecheck.mjs` (a `checkJs` type check against
-`jsconfig.json`, with an empty error baseline) and `node tools/browser-test.mjs`,
+`jsconfig.json`, with an empty error baseline, then against the stricter
+`jsconfig.strict.json`, which may only improve) and `node tools/browser-test.mjs`,
 which drives the real app in headless Chromium; see
 [releases](docs/releases.md#automated-regression-gate). Both need tools that are not
 vendored. Install them into the repo's git-ignored `node_modules`, as CI does:

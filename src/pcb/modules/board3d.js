@@ -2970,6 +2970,8 @@ class ThreeScene {
      */
     addMesh(mesh, material, groupByColor = false) {
         const geo = mesh instanceof THREE.BufferGeometry ? mesh : meshToGeometry(mesh, groupByColor);
+        // Any material, or one per geometry group (three.js's inferred types allow neither).
+        /** @type {any} */
         let mat = material || this.material;
         let owned = null;
         if (groupByColor && !material) {
@@ -3007,7 +3009,7 @@ class ThreeScene {
             const counts = geo.userData.groupVertCounts || [];
             if (counts.length > 1) {
                 const owned = makeComponentGroupMaterials(counts);
-                obj.material = owned;
+                obj.material = /** @type {any} */ (owned);
                 obj.userData.ownedMaterials = owned;
             } else {
                 obj.material = /** @type {any} */ (this.material);

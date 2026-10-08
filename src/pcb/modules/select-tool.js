@@ -33,14 +33,27 @@ import { clearTrackSelection, getSelectedTrack, getSelectedVia, hitTestTrack, se
  * @property {any} selectedGroupHit - the box-selected group member under the pointer, if any
  */
 
-/** A primary press with the select tool. */
+/** @typedef {(app: any, press: SelectPress) => boolean|void} SelectPressPhase */
+
+/**
+ * A primary press with the select tool.
+ * @param {any} app
+ * @param {MouseEvent} e
+ * @param {{x: number, y: number}} worldPos
+ * @param {any} selectedGroupHit
+ * @param {readonly SelectPressPhase[]} [phases]
+ */
 export function pressSelectTool(app, e, worldPos, selectedGroupHit, phases = SELECT_PRESS_PHASES) {
     /** @type {SelectPress} */
     const press = { e, worldPos, additiveSelection: e.ctrlKey || e.metaKey, selectedGroupHit };
     phases.some(phase => phase(app, press));
 }
 
-/** Pointer movement with the select tool: a pending marquee owns it, otherwise hover. */
+/**
+ * Pointer movement with the select tool: a pending marquee owns it, otherwise hover.
+ * @param {any} app
+ * @param {MouseEvent} e
+ */
 export function hoverSelectTool(app, e) {
     // Hover hit-testing is O(N) over every pad, track and text, so it is coalesced to
     // one pass per animation frame to keep up with the cursor on complex boards.
@@ -48,6 +61,7 @@ export function hoverSelectTool(app, e) {
 }
 
 /** Hand the press to the shared adapter controller (anchors, rotation, overlap cycling). */
+/** @type {SelectPressPhase} */
 function pressSelectionInteraction(app, press) {
     const { e, worldPos, additiveSelection } = press;
     const svg = app.viewport.svg;
@@ -65,6 +79,7 @@ function pressSelectionInteraction(app, press) {
 }
 
 /** Ctrl/Cmd-click toggles a board shape in the multi-selection. */
+/** @type {SelectPressPhase} */
 function pressToggleShape(app, press) {
     const { worldPos, additiveSelection } = press;
     // Ctrl/Cmd-click mirrors the schematic editor's additive
@@ -92,6 +107,7 @@ function pressToggleShape(app, press) {
 }
 
 /** Edit or drag an active box selection, or drop it when the press misses it. */
+/** @type {SelectPressPhase} */
 function pressBoxSelection(app, press) {
     const { worldPos, selectedGroupHit } = press;
     const svg = app.viewport.svg;
@@ -104,7 +120,7 @@ function pressBoxSelection(app, press) {
         // marquee-selected shape edits only that shape, rather
         // than moving the entire marquee selection.
         const shapeWithHandle = getPcbSelection(app, 'shape').find(
-            (shape) => hitTestBoardShapeVertex(app, shape, worldPos) != null,
+            (/** @type {any} */ shape) => hitTestBoardShapeVertex(app, shape, worldPos) != null,
         );
         if (shapeWithHandle && startBoardShapeDrag(app, shapeWithHandle, worldPos)) {
             selectBoardShape(app, shapeWithHandle);
@@ -132,6 +148,7 @@ function pressBoxSelection(app, press) {
 }
 
 /** Continue dragging the selected fill, track, via or shape; otherwise release it. */
+/** @type {SelectPressPhase} */
 function pressCurrentSelection(app, press) {
     const { e, worldPos } = press;
     const svg = app.viewport.svg;
@@ -212,6 +229,7 @@ function pressCurrentSelection(app, press) {
 }
 
 /** Select (and start dragging) the topmost target under the pointer, or arm a box select. */
+/** @type {SelectPressPhase} */
 function pressNewTarget(app, press) {
     const { e, worldPos } = press;
     const svg = app.viewport.svg;

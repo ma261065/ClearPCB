@@ -121,6 +121,9 @@ export class Model3DViewer {
         geo.computeBoundingSphere();
 
         this._material = null;
+        // three.js's types are inferred from its source, where Mesh defaults to one
+        // MeshBasicMaterial; it takes any material, or one per geometry group.
+        /** @type {any} */
         let meshMaterial;
         // meshToGeometry split the model into one draw group per material
         // colour, preserving the OBJ's authoring order. makeComponentGroupMaterials

@@ -14,6 +14,7 @@ clearpcb/
 ├── mcp-worker/                 # Cloudflare Worker + Durable Object MCP relay
 ├── manifest.json
 ├── jsconfig.json               # checkJs: true, noImplicitAny: false
+├── jsconfig.strict.json        # adds noImplicitAny and strictNullChecks (adopted gradually)
 ├── assets/
 │   ├── icons/
 │   └── vendor/                 # Vendored libraries: three, clipper, earcut, fflate, jsPDF,
@@ -391,8 +392,13 @@ object before it runs. A new command class must declare `lockTargets()`;
   file, project path and relative link the docs name must exist), every `tests/unit/test-*.mjs` in its own process, and the
   autorouter baseline on `test-board.json`.
 - `node tools/test.mjs [filter…]` — only the regression tests, optionally filtered.
-- `node tools/typecheck.mjs` — `checkJs` type check; the baseline is empty, so any error
-  fails.
+- `node tools/typecheck.mjs` — `checkJs` type check in two passes. The everyday settings
+  (`jsconfig.json`) have an empty baseline, so any error fails. The strict settings
+  (`jsconfig.strict.json`: implicit `any` and null checks) are being adopted folder by
+  folder: `tools/typecheck-strict-baseline.json` holds each file's error count, which may
+  only fall (a new file must be clean), and lists the folders already clean, which must
+  stay at zero. To adopt a folder, clear its strict errors, add it to `cleanFolders` and
+  run `node tools/typecheck.mjs --write-baseline`.
 - `node tools/browser-test.mjs [filter] [--shard=i/n]` — real-browser scenarios (headless
   Chromium; `HEADED=1` shows the browser; CI runs four shards in parallel). `node tools/serve.mjs [port]` serves the app without
   dependencies.

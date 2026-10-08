@@ -2,6 +2,19 @@ import * as THREE from '../../../assets/vendor/three.module.js';
 
 export const COLOR_COMPONENT = [40, 44, 52];
 
+/** @typedef {{x: number, y: number, z: number}} ModelVertex */
+/** @typedef {{idx?: number[], color?: number[]}} ModelFace */
+/**
+ * A triangulated model: vertices, and faces indexing them with an sRGB colour (0-255).
+ * @typedef {{verts: Array<ModelVertex|undefined>, faces: ModelFace[]}} ModelMesh
+ */
+
+/**
+ * Parse Wavefront OBJ text (with inline `newmtl`/`Kd` colours) into vertices and
+ * triangulated, coloured faces.
+ * @param {string|null|undefined} objText
+ * @returns {{vertices: ModelVertex[], faces: Array<{idx: number[], color: number[]}>, source: string}|null}
+ */
 export function parseObjModel(objText) {
     if (!objText) return null;
     /** @type {Array<{x:number,y:number,z:number}>} */
@@ -69,6 +82,12 @@ export function parseObjModel(objText) {
     return { vertices, faces, source: builtInModel ? 'builtin' : kicadMaterial ? 'kicad' : 'easyeda' };
 }
 
+/**
+ * Build a three.js geometry from a mesh; grouped by face colour, its groups are listed
+ * in `userData.groupVertCounts`.
+ * @param {ModelMesh} mesh
+ * @param {boolean} [groupByColor]
+ */
 export function meshToGeometry(mesh, groupByColor = false) {
     const col = new THREE.Color();
     if (!groupByColor) {
@@ -152,7 +171,7 @@ export function meshToGeometry(mesh, groupByColor = false) {
     geo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
     geo.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
     geo.computeVertexNormals();
-    geo.userData.groupVertCounts = groupVertCounts;
+    Object.assign(geo.userData, { groupVertCounts });
     return geo;
 }
 
@@ -170,6 +189,7 @@ export function makeComponentMaterial() {
     return makeMaterial();
 }
 
+/** @param {number[]} groupVertCounts */
 export function makeComponentGroupMaterials(groupVertCounts) {
     return groupVertCounts.map((_, i) => {
         const m = makeComponentMaterial();

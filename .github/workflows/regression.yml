@@ -28,7 +28,8 @@ jobs:
         run: node tools/regression.mjs
 
   typecheck:
-    # The baseline (tools/typecheck-baseline.json) is empty: any type error fails.
+    # The everyday baseline (tools/typecheck-baseline.json) is empty: any type error fails.
+    # The strict pass (jsconfig.strict.json) may only improve on tools/typecheck-strict-baseline.json.
     name: Type check
     runs-on: ubuntu-latest
     timeout-minutes: 10

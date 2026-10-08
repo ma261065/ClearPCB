@@ -33,8 +33,10 @@ unchanged.
 Its **Type check** job installs TypeScript 5.9.3 and runs `node tools/typecheck.mjs`,
 which writes per-file error counts to the job summary and compares them with the
 committed `tools/typecheck-baseline.json`, which is empty: any type error fails the
-job. If a baseline is ever needed again, record it with
-`node tools/typecheck.mjs --write-baseline` using the same TypeScript version
+job. It then runs the strict settings (`jsconfig.strict.json`, implicit `any` and null
+checks) against `tools/typecheck-strict-baseline.json`: a file's error count may only
+fall, a new file must be clean, and the folders listed as clean must stay at zero.
+Record baselines with `node tools/typecheck.mjs --write-baseline` using the same TypeScript version
 (installed locally as in the [README](../README.md#testing)). Vendored modules
 are not checked: `assets/vendor/fflate.module.d.ts` declares the fflate API in use.
 

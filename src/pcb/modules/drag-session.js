@@ -55,7 +55,11 @@ export function beginDragSession(app, { nets = null, suspendBoardView = false } 
     return session;
 }
 
-/** After a move: redraw the ratlines of the nets the drag moves, and no others. */
+/**
+ * After a move: redraw the ratlines of the nets the drag moves, and no others.
+ * @param {any} app
+ * @param {DragSession|null|undefined} session
+ */
 export function refreshDragRatlines(app, session) {
     if (session?.nets && !session.released) app.updateRatsnest?.({ nets: session.nets });
 }
@@ -63,6 +67,8 @@ export function refreshDragRatlines(app, session) {
 /**
  * Hand back the overlay deferral (and board-view suspension) the drag found. Returns
  * whether this call released it.
+ * @param {any} app
+ * @param {DragSession|null|undefined} session
  */
 export function releaseDragSession(app, session) {
     if (!session || session.released) return false;

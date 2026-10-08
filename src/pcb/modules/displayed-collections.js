@@ -46,6 +46,10 @@ export const PREVIEW_SOURCES = Object.freeze(/** @type {PreviewSource[]} */ ([
     { name: 'shape Properties', collections: ['boardShapes'], preview: getBoardShapePropertyPreview },
 ]).map(source => Object.freeze(source)));
 
+/**
+ * @param {DisplayedCollection} key
+ * @param {any} collection
+ */
 function wrap(key, collection) {
     return collection ? { [key]: collection } : null;
 }

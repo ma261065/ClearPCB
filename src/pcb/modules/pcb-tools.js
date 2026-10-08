@@ -47,10 +47,18 @@ import { getViaPreviewWorld, pressViaTool, showViaToolProperties, updateViaPrevi
  * @property {(app: any) => void} [showProperties] - show its Properties panel
  */
 
-const onLayer = layer => app => [{ id: layer(app) }];
+/** @param {(app: any) => string} layer */
+const onLayer = layer => (/** @type {any} */ app) => [{ id: layer(app) }];
 
-/** @param {'line'|'circle'|'arc'|'rect'|'polygon'} kind */
+/**
+ * @param {'line'|'circle'|'arc'|'rect'|'polygon'} kind
+ * @param {string} title
+ * @param {string} content
+ * @param {string} icon
+ * @returns {PcbTool}
+ */
 function shapeTool(kind, title, content, icon) {
+    /** @param {any} app */
     const layer = app => (getShapeDraw(app)?.kind === kind && getShapeDraw(app).layer) || resolveShapeDrawLayer(app, app.activeLayer);
     return {
         id: kind, button: { title, content, icon }, layer, targets: onLayer(layer),
@@ -60,8 +68,11 @@ function shapeTool(kind, title, content, icon) {
     };
 }
 
+/** @param {any} app */
 const trackLayer = app => getTrackDraw(app)?.currentLayer || getTrackToolLayer(app) || 'top-copper';
+/** @param {any} app */
 const textLayer = app => getTextToolDefaults(app).layer;
+/** @param {any} app */
 const fillLayer = app => getFillDraw(app)?.layer || fillToolDefaults(app).layer;
 
 /** @type {Readonly<Record<string, Readonly<PcbTool>>>} */
@@ -125,9 +136,12 @@ export const PCB_SHAPE_TOOLS = new Set(['line', 'circle', 'arc', 'rect', 'polygo
 /** Ribbon buttons that carry a lock or hidden badge when their layer is blocked. */
 export const PCB_RIBBON_PLACEMENT_TOOLS = Object.freeze([...PCB_PLACEMENT_TOOLS, ...Object.keys(PCB_TOOL_PRESETS)]);
 
-/** A tool id the editor knows, else 'select'. */
+/**
+ * A tool id the editor knows, else 'select'.
+ * @param {string|null|undefined} tool
+ */
 export function normalizePcbTool(tool) {
-    return Object.hasOwn(PCB_TOOLS, tool) ? tool : 'select';
+    return tool && Object.hasOwn(PCB_TOOLS, tool) ? tool : 'select';
 }
 
 /**
@@ -143,12 +157,20 @@ export function pcbToolTargets(app, tool = app.currentTool) {
     return entry?.targets?.(app) || [];
 }
 
-/** The layer the status bar names for the active tool. */
+/**
+ * The layer the status bar names for the active tool.
+ * @param {any} app
+ * @param {string} [tool]
+ */
 export function pcbToolLayer(app, tool = app.currentTool) {
     return PCB_TOOLS[tool]?.layer?.(app) || app.activeLayer;
 }
 
-/** Show the Properties panel the tool owns (its defaults, or the draw in progress). */
+/**
+ * Show the Properties panel the tool owns (its defaults, or the draw in progress).
+ * @param {any} app
+ * @param {string} [tool]
+ */
 export function showPcbToolProperties(app, tool = app.currentTool) {
     PCB_TOOLS[tool]?.showProperties?.(app);
 }
@@ -171,7 +193,11 @@ export function pressPcbTool(app, e, worldPos, groupHit = null, tools = PCB_TOOL
     return true;
 }
 
-/** Keep the active tool's cursor preview (via ring, pad outline or crosshair) under the pointer. */
+/**
+ * Keep the active tool's cursor preview (via ring, pad outline or crosshair) under the pointer.
+ * @param {any} app
+ * @param {WorldPoint} worldPos
+ */
 export function followPcbTool(app, worldPos) {
     const tool = PCB_TOOLS[app.currentTool];
     if (!tool?.targets) return;
@@ -179,18 +205,25 @@ export function followPcbTool(app, worldPos) {
     else updateCursorCrosshair(app, worldPos);
 }
 
-/** Pointer movement with no interaction under way: the active tool's hover, else its cursor. */
+/**
+ * Pointer movement with no interaction under way: the active tool's hover, else its cursor.
+ * @param {any} app
+ * @param {MouseEvent} e
+ */
 export function hoverPcbTool(app, e) {
     const tool = PCB_TOOLS[app.currentTool];
     if (tool?.hover) tool.hover(app, e);
     else followPcbTool(app, app.screenToWorld(e));
 }
 
-/** Redraw the active tool's cursor preview where it last was (after a zoom). */
+/**
+ * Redraw the active tool's cursor preview where it last was (after a zoom).
+ * @param {any} app
+ */
 export function refreshPcbToolFollow(app) {
     const tool = PCB_TOOLS[app.currentTool];
     if (!tool?.targets) return;
     const own = tool.followPoint?.(app);
-    if (own) tool.follow(app, own);
+    if (own && tool.follow) tool.follow(app, own);
     else if (getLastCrosshairWorld(app)) updateCursorCrosshair(app, getLastCrosshairWorld(app));
 }
