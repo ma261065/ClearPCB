@@ -14,6 +14,19 @@
  */
 
 /**
+ * @typedef {{x:number, y:number, width:number, height:number}} LCSCBoundingBox
+ * @typedef {{ladder?: number|string, usdPrice?: number|string|null, currencyPrice?: number|string|null, [key:string]: any}} LCSCPriceTier
+ * @typedef {{quantity: number|string|undefined, price: number|string|null|undefined}} LCSCPriceBreak
+ * @typedef {{productCode?: string, productModel?: string, brandNameEn?: string, productIntroEn?: string, productDescEn?: string, parentCatalogName?: string, catalogName?: string, encapStandard?: string, stockNumber?: number, isEnvironment?: boolean, isHot?: boolean, productImageUrl?: string, productImageUrlBig?: string, pdfUrl?: string, productPriceList?: LCSCPriceTier[], minBuyNumber?: number, [key:string]: any}} RawLCSCProduct
+ * @typedef {{c_para?: Record<string, string|undefined>, [key:string]: any}} EasyEDAHead
+ * @typedef {{shape?: string[], BBox?: LCSCBoundingBox|null, bbox?: LCSCBoundingBox|null, head?: EasyEDAHead, [key:string]: any}} EasyEDADataStr
+ * @typedef {{title?: string, dataStr?: EasyEDADataStr, [key:string]: any}} EasyEDAPackageDetail
+ * @typedef {{dataStr?: EasyEDADataStr, packageDetail?: EasyEDAPackageDetail, [key:string]: any}} EasyEDADetail
+ * @typedef {{lcscPartNumber: string, mpn: string, manufacturer: string, description: string, category: string, package: string, stock: number, price: number|string|null|undefined, isBasic: boolean, isPreferred?: boolean, imageUrl: string, thumbUrl?: string, datasheet: string, productUrl: string, easyedaSymbolData?: EasyEDADataStr, easyedaSymbolBBox?: LCSCBoundingBox|null, hasEasyedaSymbol?: boolean, hasFootprint?: boolean, footprintName?: string, footprintShapes?: string[], footprintBBox?: LCSCBoundingBox|null, has3d?: boolean, model3dName?: string, model3dUrl?: string|null, model3dObj?: string, priceBreaks?: LCSCPriceBreak[], minOrderQty?: number, stockStatus?: string}} LCSCMetadata
+ * @typedef {{result?: any, data?: any, list?: any, items?: any, productList?: any, success?: boolean, lists?: {lcsc?: any[], szlcs?: any[]}, [key:string]: any}} ApiResponseObject
+ */
+
+/**
  * Shrink an OBJ string for storage by rounding geometry coordinates to 4
  * decimal places (0.1 µm — far finer than the 3D viewer needs). Suppliers ship
  * 6-decimal vertices/normals, which bloats the serialised document for no
@@ -165,9 +178,11 @@ export class LCSCFetcher {
         // CORS proxy list (try multiple fallbacks)
         // Tokens: {encodedUrl}, {url}, {urlSansScheme}
         // Use dedicated Cloudflare Worker proxy provided by user
+        /** @type {string[]} */
         this.corsProxies = [
             'https://clearpcb.mikealex.workers.dev/?url={encodedUrl}'
         ];
+        /** @type {string|null} */
         this.lastWorkingProxy = null;
         
         // API endpoints
@@ -178,7 +193,9 @@ export class LCSCFetcher {
         this.easyedaDetailVersion = '6.4.19.5';
         
         // Cache for component metadata
+        /** @type {Map<string, LCSCMetadata>} */
         this.metadataCache = new Map();
+        /** @type {Map<string, string>} */
         this.imageCache = new Map();
         
         // Track CORS status
@@ -209,9 +226,9 @@ export class LCSCFetcher {
 
     /**
      * Find exact LCSC part match in search results.
-     * @param {Array} results
+     * @param {LCSCMetadata[]} results
      * @param {string} normalizedPart
-     * @returns {Object|undefined}
+     * @returns {LCSCMetadata|undefined}
      */
     _findExactLCSCResult(results, normalizedPart) {
         const expectedPartKey = this._normalizePartLookupKey(normalizedPart);
@@ -224,7 +241,7 @@ export class LCSCFetcher {
      * Read metadata cache entry only when it already contains useful symbol/footprint/3D data.
      * Invalid cached placeholders are removed.
      * @param {string} normalizedPart
-     * @returns {Object|null}
+     * @returns {LCSCMetadata|null}
      */
     _getCachedMetadataIfComplete(normalizedPart) {
         if (!this.metadataCache.has(normalizedPart)) {
@@ -285,7 +302,7 @@ export class LCSCFetcher {
             const text = await response.text();
             return { text };
         } catch (error) {
-            return { error };
+            return { error: /** @type {Error} */ (error) };
         }
     }
 
@@ -295,10 +312,10 @@ export class LCSCFetcher {
      * rejected because they always indicate a corrupted or non-JSON response
      * from a misbehaving proxy.
      * @param {string} text
-     * @returns {{data?: any, error?: Error}}
+     * @returns {{data?: any, error?: Error|null}}
      */
     _parseJsonWithRecovery(text) {
-        const accept = (value) => {
+        const accept = (/** @type {unknown} */ value) => {
             if (value === null || typeof value !== 'object') {
                 return { error: new Error('LCSC: expected JSON object, got ' + typeof value) };
             }
@@ -312,10 +329,10 @@ export class LCSCFetcher {
                 try {
                     return accept(JSON.parse(text.slice(jsonStart)));
                 } catch (retryError) {
-                    return { error: retryError };
+                    return { error: /** @type {Error} */ (retryError) };
                 }
             }
-            return { error: parseError };
+            return { error: /** @type {Error} */ (parseError) };
         }
     }
 
@@ -324,7 +341,7 @@ export class LCSCFetcher {
      * Tries proxies in order; returns `{ data }` on success or `{ error }` on failure.
      * @param {string} targetUrl
      * @param {RequestInit} [options]
-     * @returns {Promise<{data?: any, error?: Error}>}
+     * @returns {Promise<{data?: any, error?: Error|null}>}
      */
     async _fetchJsonWithProxies(targetUrl, options = {}) {
         const proxies = this._getProxyOrder(true);
@@ -363,7 +380,7 @@ export class LCSCFetcher {
     /**
      * Search the EasyEDA component API.
      * @param {string} query
-     * @returns {Promise<Array>} Normalised search result objects
+     * @returns {Promise<LCSCMetadata[]>} Normalised search result objects
      */
     async _searchEasyEDA(query) {
         const normalizedQuery = this._normalizeQuery(query);
@@ -401,7 +418,7 @@ export class LCSCFetcher {
     /**
      * Fetch detailed component data (symbol, footprint, 3D) from EasyEDA.
      * @param {string} lcscPartNumber - e.g. 'C46749'
-     * @returns {Promise<Object|null>} Component detail or null
+     * @returns {Promise<EasyEDADetail|null>} Component detail or null
      */
     async _fetchEasyEDADetail(lcscPartNumber) {
         const normalizedPart = this._normalizeQuery(lcscPartNumber);
@@ -455,8 +472,8 @@ export class LCSCFetcher {
 
     /**
      * Extract the component list array from various EasyEDA response shapes.
-     * @param {Object|Array} data - Raw EasyEDA API response
-     * @returns {Array}
+     * @param {ApiResponseObject|Array<any>} data - Raw EasyEDA API response
+     * @returns {Array<Record<string, any>>}
      */
     _extractEasyEDAList(data) {
         if (!data) return [];
@@ -488,8 +505,8 @@ export class LCSCFetcher {
 
     /**
      * Map raw EasyEDA search items to normalised result objects.
-     * @param {Array} items - Raw result items
-     * @returns {Array<Object>} Normalised results with lcscPartNumber, mpn, etc.
+     * @param {Array<Record<string, any>>} items - Raw result items
+     * @returns {LCSCMetadata[]} Normalised results with lcscPartNumber, mpn, etc.
      */
     _formatEasyEDASearchResults(items) {
         return items.map(item => {
@@ -554,7 +571,7 @@ export class LCSCFetcher {
     /**
      * Search for components on LCSC
      * @param {string} query - Search query
-     * @returns {Promise<Array>} Search results
+     * @returns {Promise<LCSCMetadata[]>} Search results
      */
     async search(query) {
         const normalizedQuery = this._normalizeQuery(query);
@@ -574,7 +591,7 @@ export class LCSCFetcher {
 
     /**
      * Extract a 3D model UUID from EasyEDA shape data.
-     * @param {Array} shapeList
+     * @param {Array<unknown>} shapeList
      * @returns {string|null}
      */
     _extractModel3DUuidFromShapes(shapeList) {
@@ -604,8 +621,8 @@ export class LCSCFetcher {
 
     /**
      * Apply EasyEDA detail response to a normalized result item.
-     * @param {Object} exact
-     * @param {Object|null} detail
+     * @param {LCSCMetadata} exact
+     * @param {EasyEDADetail|null} detail
      * @returns {Promise<void>}
      */
     async _applyEasyEDADetailToMetadata(exact, detail) {
@@ -635,7 +652,7 @@ export class LCSCFetcher {
             return;
         }
 
-        const model3dUuid = this._extractModel3DUuidFromShapes(dataStr.shape);
+        const model3dUuid = this._extractModel3DUuidFromShapes(dataStr.shape || []);
         if (!model3dUuid) {
             console.log('No 3D model UUID found in SVGNODE');
             return;
@@ -652,7 +669,7 @@ export class LCSCFetcher {
     /**
      * Fetch detailed metadata for a specific component
      * @param {string} lcscPartNumber - LCSC part number (e.g., "C46749")
-     * @returns {Promise<object>} Component metadata
+     * @returns {Promise<LCSCMetadata|null>} Component metadata
      */
     async fetchComponentMetadata(lcscPartNumber) {
         const normalizedPart = this._normalizeQuery(lcscPartNumber);
@@ -692,7 +709,7 @@ export class LCSCFetcher {
         if (!normalizedPart) return '';
 
         if (this.imageCache.has(normalizedPart)) {
-            return this.imageCache.get(normalizedPart);
+            return /** @type {string} */ (this.imageCache.get(normalizedPart));
         }
 
         const targetUrl = this._buildEasyedaProductImageUrl(normalizedPart);
@@ -706,8 +723,8 @@ export class LCSCFetcher {
 
     /**
      * Build normalized metadata fields shared by LCSC search and detail records.
-     * @param {Object} product
-     * @returns {Object}
+     * @param {RawLCSCProduct} product
+     * @returns {LCSCMetadata}
      */
     _buildBaseProductMetadata(product) {
         return {
@@ -723,12 +740,14 @@ export class LCSCFetcher {
             isPreferred: product.isHot === true,
             imageUrl: product.productImageUrl || product.productImageUrlBig || '',
             datasheet: product.pdfUrl || '',
-            productUrl: this._buildLCSCProductUrl(product.productCode)
+            productUrl: this._buildLCSCProductUrl(product.productCode || '')
         };
     }
     
     /**
      * Format search results from LCSC API
+     * @param {RawLCSCProduct[]} products
+     * @returns {LCSCMetadata[]}
      */
     _formatSearchResults(products) {
         return products.map(product => this._buildBaseProductMetadata(product));
@@ -736,18 +755,22 @@ export class LCSCFetcher {
     
     /**
      * Extract metadata from a single product
+     * @param {RawLCSCProduct} product
+     * @returns {LCSCMetadata}
      */
     _extractMetadataFromProduct(product) {
         return {
             ...this._buildBaseProductMetadata(product),
             priceBreaks: this._extractPriceBreaksFromProduct(product),
             minOrderQty: product.minBuyNumber || 1,
-            stockStatus: product.stockNumber > 0 ? 'In Stock' : 'Out of Stock'
+            stockStatus: (product.stockNumber || 0) > 0 ? 'In Stock' : 'Out of Stock'
         };
     }
     
     /**
      * Extract best price from product
+     * @param {RawLCSCProduct} product
+     * @returns {number|string|null|undefined}
      */
     _extractPriceFromProduct(product) {
         if (product.productPriceList && product.productPriceList.length > 0) {
@@ -758,6 +781,8 @@ export class LCSCFetcher {
     
     /**
      * Extract price breaks from product
+     * @param {RawLCSCProduct} product
+     * @returns {LCSCPriceBreak[]}
      */
     _extractPriceBreaksFromProduct(product) {
         if (!product.productPriceList || product.productPriceList.length === 0) {
@@ -774,7 +799,7 @@ export class LCSCFetcher {
      * Get suggested KiCad library and symbol name for an MPN
      * @param {string} mpn - Manufacturer part number
      * @param {string} category - LCSC category
-     * @returns {object} Suggested library and symbol
+     * @returns {{library: string, symbol: string}|null} Suggested library and symbol
      */
     suggestKiCadMapping(mpn, category) {
         const mpnUpper = mpn.toUpperCase();

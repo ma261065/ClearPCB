@@ -22,10 +22,11 @@ export function createGenerationGate() {
 /**
  * Creates a debounced function runner.
  * @param {number} delayMs - Debounce delay in milliseconds.
- * @param {Function} callback - Function invoked after debounce delay.
+ * @param {(...args: any[]) => void} callback - Function invoked after debounce delay.
  * @returns {{run: (...args: any[]) => void, cancel: () => void, dispose: () => void}}
  */
 export function createDebouncedRunner(delayMs, callback) {
+    /** @type {ReturnType<typeof setTimeout>|null} */
     let timer = null;
 
     const cancel = () => {
