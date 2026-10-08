@@ -229,6 +229,8 @@ function setupTestBoardState(app, routeInput) {
     for (const offset of padOffsets) {
         padMap.set(offset.number, { x: offset.dx, y: offset.dy });
     }
+    // Placement bounds are a box (x, y, width, height); the route input's are extents.
+    const extents = routeInput.bounds || { minX: 0, minY: 0, maxX: 100, maxY: 100 };
     app.placements.set('TestBoard', {
         x: 0,
         y: 0,
@@ -236,7 +238,7 @@ function setupTestBoardState(app, routeInput) {
         pads: padMap,
         padOffsets,
         elements: [],
-        bounds: routeInput.bounds || { minX: 0, minY: 0, maxX: 100, maxY: 100 },
+        bounds: { x: extents.minX, y: extents.minY, width: extents.maxX - extents.minX, height: extents.maxY - extents.minY },
     });
 
     for (const connection of routeInput.connections) {

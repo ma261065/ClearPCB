@@ -16,6 +16,7 @@ const resolvedPlacementFields = ['x', 'y', 'rotation', 'mirror', 'side', 'padOff
  *   paste?:boolean, _baseLayer?:string}} PadOffset
  */
 /** @typedef {{dx?:number, dy?:number, width?:number, height?:number, shape?:string, side?:string, _baseSide?:string}} PasteOffset */
+/** A placement's footprint box in board coordinates. @typedef {{x:number, y:number, width:number, height:number}} PlacementBounds */
 /** @typedef {ReturnType<import('./pcb-footprint.js').createPcbFootprint>['geometry']} FootprintGeometry */
 /** @typedef {FootprintGeometry['outline']} FootprintOutline */
 /** @typedef {FootprintGeometry['silks']} FootprintSilks */
@@ -27,11 +28,11 @@ const resolvedPlacementFields = ['x', 'y', 'rotation', 'mirror', 'side', 'padOff
  *   padOffsets?:PadOffset[], pasteOffsets?:PasteOffset[], pads:Map<string|number, BoardPad>, geometry?:FootprintGeometry,
  *   outline?:FootprintOutline|null, silks?:FootprintSilks, reference?:string, value?:string, footprint?:string, source?:string,
  *   model3dObj?:unknown, model3dUrl?:string|null, elements: *[], lodEl?: *,
- *   bounds?: Record<string, number>, [key:string]:unknown}} Placement
+ *   bounds?: PlacementBounds|null, [key:string]:unknown}} Placement
  * @typedef {Partial<import('./PcbPlacementState.js').PlacementOverride> & {x:number, y:number,
  *   padOffsets?:PadOffset[], pasteOffsets?:PasteOffset[], pads:Map<string|number, BoardPad>, geometry?:FootprintGeometry,
  *   outline?:FootprintOutline|null, silks?:FootprintSilks, model3dObj?:unknown, model3dUrl?:string|null,
- *   elements?: *[], bounds?: Record<string, number>, [key:string]:unknown}} CorePlacement
+ *   elements?: *[], bounds?: PlacementBounds|null, [key:string]:unknown}} CorePlacement
  */
 /** @typedef {import('../shapes/track.js').Track} Track */
 

@@ -33,7 +33,7 @@ const JSON_CONTEXT_WIDTH = 180;
 /** @typedef {JsonRecord & {defs?: Record<string, SerializableComponentDefinition>}} ProjectSchematic */
 /** @typedef {JsonRecord & {format?: string, version?: number, models?: Record<string, string>}} ProjectManifest */
 /** @typedef {import('./ProjectDocument.js').ProjectData & {schematic?: ProjectSchematic, pcb?: JsonRecord|null}} ProjectData */
-/** @typedef {{name:string, kind?: string, getFile?: () => Promise<File>, createWritable?: () => Promise<FileSystemWritableFileStream>, isSameEntry?: (other: unknown) => Promise<boolean>, queryPermission?: (options?: unknown) => Promise<string>, requestPermission?: (options?: unknown) => Promise<string>}} FileHandle */
+/** @typedef {{name:string, kind?: string, getFile?: () => Promise<File>, createWritable?: () => Promise<FileSystemWritableFileStream>, isSameEntry?(other: FileHandle): Promise<boolean>, queryPermission?: (options?: unknown) => Promise<string>, requestPermission?: (options?: unknown) => Promise<string>}} FileHandle */
 /** @typedef {{name:string, path:string, ts:number, handle:FileHandle}} RecentRecord */
 /** @typedef {{fileName:string, key:string, timestamp:number}} AutoSaveIndexEntry */
 /** @typedef {{success:boolean, fileName?:string, data?:ProjectData, handle?:FileHandle|null, filePath?:string|null, clean?:boolean, cancelled?:boolean, error?:string, errorName?:string, missingHandle?:boolean}} FileOperationResult */
