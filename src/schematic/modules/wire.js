@@ -18,10 +18,11 @@ import { getDrawingSnappedPosition, getPinKey } from './wire-snap.js';
 import { captureShapeSnapshot } from './wire-labels.js';
 import { buildWireDiffBatch, reconcileWires, refreshWireConnections } from './wire-reconcile.js';
 /** @typedef {import('./schematic-editor-api.js').SchematicEditor} SchematicEditor */
-/** @typedef {import('../../core/SchematicDocument.js').SchematicShape} WireShape */
+/** @typedef {import('../../shapes/wire.js').Wire} WireShape */
+/** @typedef {import('../../shapes/net.js').Net} NetShape */
 /** @typedef {import('../../core/geometry.js').Point} Point */
 /** @typedef {'horizontal'|'vertical'} WireAxis */
-/** @typedef {{component: {id: string, type?: string, net?: string, [key: string]: any}, pin: {number: string|number, [key: string]: any}, pinKey?: string|number|null, worldPos: Point}} SnapPin */
+/** @typedef {{component: {id: string, type?: string, net?: string, [key: string]: unknown}, pin: {number: string|number, [key: string]: unknown}, pinKey?: string|number|null, worldPos: Point}} SnapPin */
 /** @typedef {Point & {pin?: SnapPin|null, _savedX?: number, _savedY?: number}} WirePoint */
 /** @typedef {{componentId: string, pinNumber: string|number}} PinConnection */
 /** @typedef {Record<string, Point>} GraphNodes */
@@ -240,13 +241,14 @@ export function addWireWaypoint(app, waypointData) {
 function _findWireNetConflict(app) {
     for (const w of app.shapes) {
         if (w.type !== 'wire') continue;
+        const wireShape = /** @type {WireShape} */ (w);
         const netNames = new Set();
-        for (const [, conn] of w.pinConnections) {
-            const ns = app.shapes.find(s => s.id === conn.componentId && s.type === 'net');
+        for (const [, conn] of wireShape.pinConnections) {
+            const ns = app.shapes.find(/** @returns {s is NetShape} */ s => s.id === conn.componentId && s.type === 'net');
             if (ns?.net) netNames.add(ns.net);
         }
         if (netNames.size > 1) {
-            return { wire: w, names: [...netNames].sort() };
+            return { wire: wireShape, names: [...netNames].sort() };
         }
     }
     return null;
@@ -339,7 +341,7 @@ export function finishWireDrawing(app, worldPos) {
     const wire = new Wire(wireOpts);
 
     // Snapshot all existing wires before any mutations
-    const existingWires = app.shapes.filter(s => s.type === 'wire');
+    const existingWires = app.shapes.filter(/** @returns {s is WireShape} */ s => s.type === 'wire');
     const beforeStates = new Map();
     for (const w of existingWires) beforeStates.set(w, captureShapeSnapshot(w));
 

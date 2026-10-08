@@ -12,7 +12,7 @@ const _r4 = v => Math.round(v * 10000) / 10000;
 
 /** @typedef {{x:number,y:number}} Point */
 /** @typedef {{x:number,y:number,width:number,height:number}} TextBBox */
-/** @typedef {{type?: string, id?: string, locked?: boolean, invalidate?: () => void, syncTextOffsetFromLabelText?: () => void, [key: string]: any}} TextParent */
+/** @typedef {import('../core/SchematicDocument.js').SchematicItem} TextParent */
 /** @typedef {{x?: number, y?: number, text?: string, fontSize?: number, fontFamily?: string, textAnchor?: string, rotation?: number, border?: boolean, attachment?: Record<string, any>|null, parentComponentId?: string|null, fieldKey?: string|null, visible?: boolean, color?: string|number, fillColor?: string|number|null}} TextOptions */
 /** @typedef {{x: number, y: number, text: string, fontSize: number, fontFamily: string, textAnchor: string, rotation: 0|270, border: boolean, attachment?: Record<string, any>|null, parentComponentId?: string|null, fieldKey?: string|null, visible?: boolean}} TextState */
 /** @typedef {ReturnType<Shape['toJSON']> & {x: number, y: number, t: string, fs?: number, ff?: string, ta?: string, rot?: number, bd?: true, cid?: string, fk?: string|null, att?: Record<string, any>}} TextJSON */
@@ -37,6 +37,9 @@ export function textOrientation(rotation = 0) {
 }
 
 export class Text extends Shape {
+    /** @type {'text'} */
+    type;
+
     /**
      * @param {TextOptions} [options]
      */
@@ -80,6 +83,8 @@ export class Text extends Shape {
         this.fieldKey = null;  // 'reference', 'value', or 'wireLabel'
         /** @type {Record<string, any>|null} */
         this.attachment = options.attachment || null;
+        /** @type {Set<Text>|null|undefined} Labels attached to this text. */
+        this.attachedLabels = null;
         /** @type {string|undefined} */
         this._pendingComponentId;
     }

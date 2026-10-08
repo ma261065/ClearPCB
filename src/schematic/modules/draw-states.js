@@ -50,13 +50,18 @@ import { isSchematicDrawingActive } from './drawing.js';
 import { getSchematicInteraction, setSchematicInteraction } from './schematic-interactions.js';
 import { applyWireSegmentLabelMovement, applyWireSegmentNodeMovement, beginBoxSelectSession, beginSelectionMove, canQueueMidpointAnchorDrag, collectMovingComponentIds, collectWireSegmentDragGuides, getDragTJunctionWireSet, getMoveDragSnappedTarget, getReusablePoint, handleDragEnd, mergeAnchorTJunctionGuides, movableSelection, promotePendingAnchorDragSession, propagateMovedWireJunctions, propagateWireSegmentLinkedMovement, queuePendingAnchorDrag, resolveMoveDragTarget, syncAnchorDragLinkedNodes, tryBeginWireSegmentDrag } from './drag-gestures.js';
 import { resolveDraggingComponentSnap, resolvePinSnapPlacement, resolvePlacingComponentSnap } from './component-snap.js';
+import { isComponentItem, isNetItem, isTextItem, isWireItem, isPolylineItem, isGraphItem as isGraphShape } from '../../core/schematic-items.js';
 /** @typedef {import('./schematic-editor-api.js').SchematicEditor} SchematicEditor */
 /** @typedef {import('../../core/Viewport.js').Viewport} Viewport */
-/** @typedef {import('../../core/SchematicDocument.js').SchematicShape} SchematicShape */
+/** @typedef {import('../../core/SchematicDocument.js').SchematicItem} SchematicItem */
 /** @typedef {import('../../components/Component.js').Component} Component */
+/** @typedef {import('../../shapes/net.js').Net} Net */
+/** @typedef {import('../../shapes/polyline.js').Polyline} Polyline */
+/** @typedef {import('../../shapes/text.js').Text} Text */
+/** @typedef {import('../../shapes/wire.js').Wire} Wire */
 /** @typedef {{x: number, y: number}} Point */
 /** @typedef {{screenPos: Point, worldPos: Point, snapped: Point}} EventPositions */
-/** @typedef {{shape: SchematicShape, edgeId: string|null, hadSegment?: boolean}} ShapeSegmentToggle */
+/** @typedef {{shape: Polyline, edgeId: string|null, hadSegment?: boolean}} ShapeSegmentToggle */
 /** @typedef {{positions: EventPositions, additive: boolean}} OverlapCyclePress */
 /** @typedef {{drawSnapResult: any, pendingShapeSegmentToggle: ShapeSegmentToggle|null, didDrag: boolean, skipClickSelection: boolean}} DrawStateData */
 /** @typedef {{mousedown?: (app: SchematicEditor, event: MouseEvent, positions: EventPositions) => void, mousemove?: (app: SchematicEditor, event: MouseEvent, positions: EventPositions) => void, mouseup?: (app: SchematicEditor, event: MouseEvent, positions: EventPositions) => void, click?: (app: SchematicEditor, event: MouseEvent, positions: EventPositions) => void, dblclick?: (app: SchematicEditor, event: MouseEvent, positions: EventPositions) => void, rightclick?: (app: SchematicEditor, event: MouseEvent, positions: EventPositions) => void, contextmenu?: (app: SchematicEditor, event: MouseEvent, positions: EventPositions) => void}} DrawInteractionState */
@@ -66,7 +71,8 @@ import { resolveDraggingComponentSnap, resolvePinSnapPlacement, resolvePlacingCo
 export const DRAG_THRESHOLD_PX = 3;
 /** @type {WeakMap<SchematicEditor, DrawStateData>} */
 const drawStates = new WeakMap();
-
+/** @param {SchematicItem} item @returns {item is Component} */
+const isComponentWithPins = item => isComponentItem(item) && Array.isArray(item.symbol?.pins);
 /** @param {SchematicEditor} app @returns {DrawStateData} */
 function stateFor(app) {
     let state = drawStates.get(app);
@@ -238,7 +244,7 @@ function activateHomeTabIfFileTabOpen(app) {
 
 /**
  * @param {SchematicEditor} app
- * @param {SchematicShape} shape
+ * @param {SchematicItem} shape
  */
 function selectOnlyShapeAndRender(app, shape) {
     app.selection.clearSelection();
@@ -248,7 +254,7 @@ function selectOnlyShapeAndRender(app, shape) {
 
 /**
  * @param {SchematicEditor} app
- * @param {SchematicShape} shape
+ * @param {SchematicItem} shape
  */
 function selectContextTargetShape(app, shape) {
     if (!app.selection.isSelected(shape)) {
@@ -271,10 +277,10 @@ export function updateToolCrosshair(app, snapped, screenPos) {
  * @param {SchematicEditor} app
  * @param {Point} point
  * @param {EventTarget|null} eventTarget
- * @returns {SchematicShape|null}
+ * @returns {SchematicItem|null}
  */
 function findSchematicInlineEditableHit(app, point, eventTarget) {
-    return /** @type {SchematicShape|null} */ (
+    return /** @type {SchematicItem|null} */ (
         (/** @type {(selection: typeof app.selection, point: Point, eventTarget: EventTarget|null) => unknown} */ (findInlineEditableHit))
             (app.selection, point, eventTarget)
     );
@@ -326,15 +332,15 @@ function handleAnchorContextMenu(app, worldPos, clientX, clientY) {
         const anchorId = shape.hitTestAnchor(worldPos, app.viewport.scale);
         if (anchorId && !anchorId.startsWith('mid')) {
             let canDeletePoint = false;
-            if (shape.nodes && shape.edges) {
+            if (isGraphShape(shape)) {
                 // Graph-based shape (wire, line, polygon, rect)
                 canDeletePoint = shape.nodes.has(anchorId) && (shape.type === 'polyline' || shape.edges.size > 1);
             }
-            const junctionInfo = shape.type === 'wire' ? detectTJunction(app, shape, anchorId) : null;
-            const canDisconnectPin = shape.type === 'wire' && shape.pinConnections?.has(anchorId);
-            if (junctionInfo && shape.type === 'wire') canDeletePoint = false;
+            const junctionInfo = isWireItem(shape) ? detectTJunction(app, shape, anchorId) : null;
+            const canDisconnectPin = isWireItem(shape) && shape.pinConnections.has(anchorId);
+            if (junctionInfo && isWireItem(shape)) canDeletePoint = false;
             if (canDeletePoint || junctionInfo || canDisconnectPin) {
-                (/** @type {(app: SchematicEditor, shape: SchematicShape, anchorId: string, clientX: number, clientY: number, canDeletePoint: boolean, junctionInfo: unknown) => void} */ (showAnchorContextMenu))
+                (/** @type {(app: SchematicEditor, shape: SchematicItem, anchorId: string, clientX: number, clientY: number, canDeletePoint: boolean, junctionInfo: unknown) => void} */ (showAnchorContextMenu))
                     (app, shape, anchorId, clientX, clientY, canDeletePoint, junctionInfo);
                 return true;
             }
@@ -344,7 +350,7 @@ function handleAnchorContextMenu(app, worldPos, clientX, clientY) {
     // Also check unselected wires for anchor context menus
     const anchorTol = Math.max(0.5, 3 / app.viewport.scale);
     for (const wire of app.shapes) {
-        if (wire.type !== 'wire' || wire.locked) continue;
+        if (!isWireItem(wire) || wire.locked) continue;
         const nid = wire.nodeAt(worldPos, anchorTol);
         if (!nid) continue;
 
@@ -355,7 +361,7 @@ function handleAnchorContextMenu(app, worldPos, clientX, clientY) {
 
         if (canDeletePoint || junctionInfo || canDisconnectPin) {
             selectContextTargetShape(app, wire);
-            (/** @type {(app: SchematicEditor, shape: SchematicShape, anchorId: string, clientX: number, clientY: number, canDeletePoint: boolean, junctionInfo: unknown) => void} */ (showAnchorContextMenu))
+            (/** @type {(app: SchematicEditor, shape: SchematicItem, anchorId: string, clientX: number, clientY: number, canDeletePoint: boolean, junctionInfo: unknown) => void} */ (showAnchorContextMenu))
                 (app, wire, nid, clientX, clientY, canDeletePoint, junctionInfo);
             return true;
         }
@@ -377,7 +383,7 @@ function handleSegmentContextMenu(app, worldPos, clientX, clientY) {
             showSegmentContextMenu(app, shape, '', clientX, clientY);
             return true;
         }
-        if (shape.locked || !shape.hitTestEdge) continue;
+        if (shape.locked || !isGraphShape(shape)) continue;
         const edgeId = shape.hitTestEdge(worldPos, segTolerance);
         if (!edgeId) continue;
         selectContextTargetShape(app, shape);
@@ -395,7 +401,7 @@ function handleSegmentContextMenu(app, worldPos, clientX, clientY) {
  */
 function handleSelectContextMenu(app, worldPos, clientX, clientY) {
     const hit = app.selection.hitTest(worldPos);
-    if (hit?.type === 'text' && hit.fieldKey === 'label') {
+    if (hit && isTextItem(hit) && hit.fieldKey === 'label') {
         selectContextTargetShape(app, hit);
         showLabelContextMenu(app, hit, clientX, clientY);
         return true;
@@ -426,12 +432,12 @@ function handleComponentContextMenu(app, worldPos, clientX, clientY) {
 /**
  * @param {SchematicEditor} app
  * @param {Point} probePos
- * @param {SchematicShape|null} [excludeShape]
- * @returns {{target: SchematicShape|Component, snapPos: Point}|null}
+ * @param {SchematicItem|null} [excludeShape]
+ * @returns {{target: SchematicItem|Component, snapPos: Point}|null}
  */
 export function resolveLabelAttachTarget(app, probePos, excludeShape = null) {
     // Also exclude the label's current parent so the snap dot doesn't show for it
-    const excludeParent = excludeShape?.parentComponent || null;
+    const excludeParent = /** @type {SchematicItem|Component|null} */ (excludeShape && isTextItem(excludeShape) ? excludeShape.parentComponent : null);
 
     const hitComponent = /** @type {Component|null} */ (findComponentAt(app, probePos));
     if (hitComponent && hitComponent !== excludeShape && hitComponent !== excludeParent) {
@@ -444,10 +450,10 @@ export function resolveLabelAttachTarget(app, probePos, excludeShape = null) {
     const wireTolerance = SNAP_SCREEN_PX / app.viewport.scale;
     for (let i = app.shapes.length - 1; i >= 0; i--) {
         const shape = app.shapes[i];
-        if (!shape || shape === excludeShape || shape === excludeParent || shape.type !== 'wire' || isCulled(shape) || !shape.visible) continue;
-        const edgeId = shape.hitTestEdge?.(probePos, wireTolerance);
+        if (!shape || shape === excludeShape || shape === excludeParent || !isWireItem(shape) || isCulled(shape) || !shape.visible) continue;
+        const edgeId = shape.hitTestEdge(probePos, wireTolerance);
         if (!edgeId) continue;
-        const nearest = shape.closestEdge?.(probePos);
+        const nearest = shape.closestEdge(probePos);
         return {
             target: shape,
             snapPos: nearest?.point ? { x: nearest.point.x, y: nearest.point.y } : { x: probePos.x, y: probePos.y }
@@ -460,7 +466,7 @@ export function resolveLabelAttachTarget(app, probePos, excludeShape = null) {
         : null;
     if (!hit) return null;
 
-    if (hit.type === 'wire' && typeof hit.closestEdge === 'function') {
+    if (isWireItem(hit) && typeof hit.closestEdge === 'function') {
         const nearest = hit.closestEdge(probePos);
         if (nearest?.point) {
             return {
@@ -570,18 +576,18 @@ export const idleState = {
         // Anchor drag on selected shapes
         const selectedShapes = app.selection.getSelection();
         for (const shape of selectedShapes) {
-            if (isSchematicLocked(shape)) continue;
+            if (isSchematicLocked(shape) || isComponentItem(shape)) continue;
             const anchorId = shape.hitTestAnchor(worldPos, app.viewport.scale);
             if (!anchorId) continue;
 
             setShapeSegmentFocus(app, null);
             app.updateShapeSelectionTip();
 
-            if (shape.type === 'wire' && shape.edges.size <= 1 && shape.nodes.has(anchorId)) {
-                const pos = shape.nodes.get(anchorId);
+            if (isWireItem(shape) && shape.edges.size <= 1 && shape.nodes.has(anchorId)) {
+                const pos = /** @type {Point} */ (shape.nodes.get(anchorId));
                 let atJunction = false;
                 for (const other of app.shapes) {
-                    if (other === shape || other.type !== 'wire') continue;
+                    if (other === shape || !isWireItem(other)) continue;
                     if (other.nodeAt(pos, VERTEX_EPSILON)) { atJunction = true; break; }
                 }
                 if (atJunction) break;
@@ -606,7 +612,7 @@ export const idleState = {
         if (hitShape) {
             const wasSelected = app.selection.isSelected(hitShape);
             const segmentTolerance = SNAP_SCREEN_PX / app.viewport.scale;
-            const hitSegmentEdgeId = hitShape.type === 'polyline'
+            const hitSegmentEdgeId = isPolylineItem(hitShape)
                 ? hitShape.hitTestEdge(worldPos, segmentTolerance)
                 : null;
             if (!wasSelected) {
@@ -638,7 +644,7 @@ export const idleState = {
                 ? { ...getShapeSegmentFocus(app) }
                 : null;
             setShapeNodeFocus(app, null);
-            setPendingShapeSegmentToggle(app, wasSelected && hitShape.type === 'polyline'
+            setPendingShapeSegmentToggle(app, wasSelected && isPolylineItem(hitShape)
                 ? {
                     shape: hitShape,
                     edgeId: hitSegmentEdgeId,
@@ -890,11 +896,10 @@ export const moveDragState = {
         if (app.viewport.isPanning) return;
 
         const selNow = movableSelection(app);
-        const isDraggingText = selNow.length === 1 && selNow[0]?.type === 'text';
-        const isGenericLabel = isDraggingText && selNow[0].fieldKey === 'label';
-        if (isGenericLabel) {
-            const labelShape = selNow[0];
-            const hotspot = (/** @type {(labelShape: SchematicShape, fallbackPos: Point|null) => Point} */ (getLabelDropHotspot))
+        const labelShape = selNow.length === 1 && isTextItem(selNow[0]) ? selNow[0] : null;
+        const isGenericLabel = labelShape?.fieldKey === 'label';
+        if (isGenericLabel && labelShape) {
+            const hotspot = (/** @type {(labelShape: SchematicItem, fallbackPos: Point|null) => Point} */ (getLabelDropHotspot))
                 (labelShape, worldPos);
             const attach = resolveLabelAttachTarget(app, hotspot, labelShape);
             (/** @type {(app: SchematicEditor, target: unknown) => void} */ (updateSnapHighlight))
@@ -921,11 +926,11 @@ export const moveDragState = {
 
         // Net drag highlight should follow projected snapped shape position,
         // not raw mouse movement, to avoid flicker when shape is stationary.
-        const dragNet = selNow.length === 1 && selNow[0]?.type === 'net' ? selNow[0] : null;
+        const dragNet = selNow.length === 1 && isNetItem(selNow[0]) ? selNow[0] : null;
         let deferredNetSnap = null;
         if (dragNet) {
             const alreadyConnected = dragNet.id && app.shapes.some(s =>
-                s.type === 'wire' && [...s.pinConnections.values()].some(c => c.componentId === dragNet.id)
+                isWireItem(s) && [...s.pinConnections.values()].some(c => c.componentId === dragNet.id)
             );
             if (!alreadyConnected) {
                 const previewDx = snappedTarget.x - getSchematicDrag(app).lastSnapped.x;
@@ -935,10 +940,13 @@ export const moveDragState = {
                     y: dragNet.y + previewDy
                 };
                 const netPin = dragNet.symbol?.pins?.[0] || null;
+                const netPinKey = netPin
+                    ? (/** @type {{_key?: string|number, _id?: string|number, number: string|number}} */ (netPin))._key
+                        || (/** @type {{_key?: string|number, _id?: string|number, number: string|number}} */ (netPin))._id
+                        || netPin.number
+                    : undefined;
                 const { resolved } = resolvePinSnapPlacement(app, pinProbe, {
-                    excludePin: netPin
-                        ? { component: dragNet, pin: netPin, pinKey: netPin._key || netPin._id || netPin.number }
-                        : undefined
+                    excludePin: netPin ? { component: dragNet, pin: netPin, pinKey: netPinKey } : undefined
                 });
                 deferredNetSnap = resolved;
             }
@@ -946,7 +954,7 @@ export const moveDragState = {
 
         // Component drag: show snap highlight when an unconnected pin would
         // land on a wire node after this frame's snapped movement.
-        const dragComp = selNow.find(s => s.definition && s.symbol?.pins);
+        const dragComp = selNow.find(isComponentWithPins);
         let deferredComponentSnap = null;
         if (dragComp) {
             const compSnap = resolveDraggingComponentSnap(app, dragComp, snappedTarget, getSchematicDrag(app).lastSnapped);
@@ -965,12 +973,13 @@ export const moveDragState = {
             getSchematicDrag(app).totalDy += dy;
 
             for (const shape of sel) {
-                if (shape.parentComponent && movingCompIds.has(shape.parentComponent.id)) continue;
+                if (isTextItem(shape) && shape.parentComponent
+                    && movingCompIds.has(/** @type {string} */ (shape.parentComponent.id))) continue;
                 shape.move(dx, dy);
-                if (shape.definition) refreshComponentPose(shape);
+                if (isComponentItem(shape)) refreshComponentPose(shape);
 
                 for (const maybeLabel of app.shapes) {
-                    if (maybeLabel?.type !== 'text') continue;
+                    if (!isTextItem(maybeLabel)) continue;
                     if (maybeLabel.parentComponent !== shape || maybeLabel.fieldKey !== 'label') continue;
                     maybeLabel.move(dx, dy);
                 }
@@ -999,11 +1008,11 @@ export const moveDragState = {
         if (event.button !== 0) return;
 
         const sel = movableSelection(app);
-        const isGenericLabel = sel.length === 1 && sel[0]?.type === 'text' && sel[0].fieldKey === 'label';
-        if (isGenericLabel) {
-            const labelShape = sel[0];
+        const labelShape = sel.length === 1 && isTextItem(sel[0]) ? sel[0] : null;
+        const isGenericLabel = labelShape?.fieldKey === 'label';
+        if (isGenericLabel && labelShape) {
             const oldParent = labelShape.parentComponent;
-            const hotspot = (/** @type {(labelShape: SchematicShape, fallbackPos: Point|null) => Point} */ (getLabelDropHotspot))
+            const hotspot = (/** @type {(labelShape: SchematicItem, fallbackPos: Point|null) => Point} */ (getLabelDropHotspot))
                 (labelShape, worldPos);
             const attach = resolveLabelAttachTarget(app, hotspot, labelShape);
             if (attach?.target) {

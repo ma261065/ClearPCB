@@ -7,8 +7,8 @@ import { PIN_SNAP_TOL, SNAP_SCREEN_PX, WIRE_SNAP_TOL, findNearbyPin, findNearbyW
 /** @typedef {import('./schematic-editor-api.js').SchematicEditor} SchematicEditor */
 /**
  * @typedef {{x: number, y: number}} Point
- * @typedef {import('../../core/SchematicDocument.js').SchematicShape} Wire
- * @typedef {{from: string, to: string, [key: string]: any}} GraphEdge
+ * @typedef {import('../../shapes/wire.js').Wire} Wire
+ * @typedef {{from: string, to: string, [key: string]: unknown}} GraphEdge
  * @typedef {{nodes: Record<string, Point>, edges: Record<string, GraphEdge>}} WireGraphState
  * @typedef {{moving: Point, fixed: Point, beyond?: Point}} SnapEdge
  * @typedef {{a: Point, b: Point, collinear?: boolean, axisKind?: string}} SnapGuide
@@ -428,8 +428,10 @@ export function computeSegmentDragSnap(app, wire, dragEdgeId, origState, target,
         // Also check if any other wire's node falls on the dragged edge body
         if (!highlight) {
             for (const other of app.shapes) {
-                if (other.type !== 'wire' || wireExclude.has(other)) continue;
-                for (const [, npos] of other.nodes) {
+                if (other.type !== 'wire') continue;
+                const otherWire = /** @type {Wire} */ (other);
+                if (wireExclude.has(otherWire)) continue;
+                for (const [, npos] of otherWire.nodes) {
                     const d = distanceToSegment(npos, futureA, futureB);
                     if (d < WIRE_SNAP_TOL) {
                         highlight = { x: npos.x, y: npos.y, type: 'endpoint' };
@@ -481,19 +483,20 @@ export function computeStickyWireSnaps(app, movingCompIds, proposedDx, proposedD
 
     for (const shape of app.shapes) {
         if (shape.type !== 'wire') continue;
-        if (shape.pinConnections.size === 0) continue;
+        const wireShape = shape;
+        if (wireShape.pinConnections.size === 0) continue;
 
-        for (const [nodeId, conn] of shape.pinConnections) {
+        for (const [nodeId, conn] of wireShape.pinConnections) {
             if (!movingCompIds.has(conn.componentId)) continue;
-            const node = shape.nodes.get(nodeId);
+            const node = wireShape.nodes.get(nodeId);
             if (!node) continue;
             // Find a non-moving neighbor node for the snap reference
-            const neighbors = shape.incidentEdges(nodeId);
+            const neighbors = wireShape.incidentEdges(nodeId);
             for (const { otherNode } of neighbors) {
-                const npos = shape.nodes.get(otherNode);
+                const npos = wireShape.nodes.get(otherNode);
                 if (!npos) continue;
                 // Only use non-moving neighbors as fixed reference
-                const otherConn = shape.pinConnections.get(otherNode);
+                const otherConn = wireShape.pinConnections.get(otherNode);
                 if (otherConn && movingCompIds.has(otherConn.componentId)) continue;
                 edges.push({
                     moving: { x: node.x + proposedDx, y: node.y + proposedDy },

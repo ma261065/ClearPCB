@@ -10,7 +10,8 @@
 
 /** @typedef {{minX:number, minY:number, maxX:number, maxY:number}} Bounds */
 /** @typedef {import('./geometry.js').Point} Point */
-/** @typedef {{id:string, visible?:boolean, type?:string, kind?:string, object?:any, fieldKey?:string, parentComponent?:Shape|string|null, attachedLabels?:Set<Shape>|null, labelText?:Shape|null, locked?:boolean, invalidate:() => void, getBounds:() => Bounds|null, getHitBounds?:() => Bounds|null, hitTest:(point:Point, tolerance?:number) => boolean, [key:string]: any}} Shape */
+/** @typedef {{id?:string, invalidate?:() => void}} LinkedSelectable */
+/** @typedef {{id:string, visible?:boolean, type?:string, kind?:string, object?:{id?:string}, fieldKey?:string|null, parentComponent?:LinkedSelectable|string|null, attachedLabels?:ReadonlySet<LinkedSelectable>|null, labelText?:LinkedSelectable|null, locked?:boolean, invalidate:() => void, getBounds:() => Bounds|null, getHitBounds?:() => Bounds|null, hitTest:(point:Point, tolerance?:number) => boolean}} Shape */
 /**
  * @template {Shape} [T=Shape]
  * @typedef {{tolerance?:number, screenTolerancePx?:number, getScale?:() => number, isCulled?:(entity:T) => boolean, onSelectionChanged?:(selection:T[]) => void, invalidateEntity?:(entity:T) => void}} SelectionManagerOptions

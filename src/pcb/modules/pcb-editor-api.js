@@ -9,7 +9,7 @@
  * @typedef {object} PcbEditorServices
  * @property {(layerId: string) => SVGGElement} getLayerGroup
  *   SVG group for a layer or overlay, created on first use.
- * @property {() => ReadonlyMap<string, SVGGElement>} existingLayerGroups
+ * @property {() => Map<string, SVGGElement>} existingLayerGroups
  *   The layer and overlay groups created so far, without creating any.
  * @property {() => ReturnType<import('../../core/PcbDesignSettings.js').PcbDesignSettings['getRoutingParams']>} getRoutingParams
  *   Canonical millimetre design rules, independent of ribbon display rounding.

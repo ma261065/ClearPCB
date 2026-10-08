@@ -19,6 +19,9 @@ import { pointsBounds, hitTestStrokeSegments } from './path-geometry.js';
 const _r4 = v => Math.round(v * 10000) / 10000;
 
 export class Arc extends Shape {
+    /** @type {'arc'} */
+    type;
+
     /**
      * @param {ArcOptions} [options]
      */
@@ -44,6 +47,8 @@ export class Arc extends Shape {
         this.fillAlpha = options.fillAlpha ?? 0.3;
         /** @type {number|null|undefined} */
         this._dragBulgeRatio;
+        /** @type {Set<import('./text.js').Text>|null|undefined} Labels attached to this arc. */
+        this.attachedLabels = null;
     }
     
     /** @returns {{x:number,y:number}} Arc start control point. */

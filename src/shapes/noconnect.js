@@ -16,6 +16,9 @@ const _r4 = v => Math.round(v * 10000) / 10000;
 const NC_HALF = 0.8;
 
 export class NoConnect extends Shape {
+    /** @type {'noconnect'} */
+    type;
+
     /**
      * @param {Object} [options]
         * @param {string} [options.id]
@@ -44,6 +47,8 @@ export class NoConnect extends Shape {
 
         /** @type {{ componentId: string, pinNumber: string|number }|null} */
         this.pinConnection = options.pinConnection || null;
+        /** @type {Set<import('./text.js').Text>|null|undefined} Labels attached to this no-connect marker. */
+        this.attachedLabels = null;
     }
 
     // ─── Shape overrides ───────────────────────────────────────────

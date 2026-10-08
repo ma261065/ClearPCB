@@ -7,11 +7,12 @@ import { getSchematicDrag } from './drag.js';
 import { getPlacingComponent } from './components.js';
 /** @typedef {import('./schematic-editor-api.js').SchematicEditor} SchematicEditor */
 /** @typedef {import('../../components/Component.js').Component} Component */
-/** @typedef {import('../../core/SchematicDocument.js').SchematicShape} SchematicShape */
+/** @typedef {import('../../core/SchematicDocument.js').SchematicItem} SchematicItem */
 /** @typedef {import('../../core/geometry.js').Point} Point */
 /** @typedef {import('./wire-snap.js').ComponentPin} ComponentPin */
+/** @typedef {import('./wire-snap.js').PinIdentity} PinIdentity */
 /** @typedef {ReturnType<typeof resolveWireSnapPosition>} WireSnapResult */
-/** @typedef {{excludePin?: {component: Component|SchematicShape, pin: ComponentPin, pinKey?: string|number|null}, pinTolerance?: number, wireTolerance?: number}} PinSnapOptions */
+/** @typedef {{excludePin?: PinIdentity|null, pinTolerance?: number, wireTolerance?: number}} PinSnapOptions */
 /** @typedef {{pin?: ComponentPin, pinWorld: Point, resolved: WireSnapResult, distance: number}} ComponentSnapCandidate */
 
 /**
@@ -92,7 +93,7 @@ export function resolvePlacingComponentSnap(app, placePos) {
 
 /**
  * @param {SchematicEditor} app
- * @param {Component|SchematicShape} comp
+ * @param {Component} comp
  * @param {Point} snappedTarget
  * @param {Point} lastSnapped
  */

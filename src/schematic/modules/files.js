@@ -12,11 +12,14 @@ import { duplicateIdRepairMessage, repairDuplicateIds } from '../../core/project
 import { showSaveToast } from './ribbon.js';
 import { updateUndoRedoButtons } from './ui-utils.js';
 import { getSchematicTextEdit } from './text-edit.js';
+import { isTextItem as isTextShape } from '../../core/schematic-items.js';
 /** @typedef {import('./schematic-editor-api.js').SchematicEditor} SchematicEditor */
 /** @typedef {import('../../core/ProjectDocument.js').ProjectData} ProjectData */
 /** @typedef {{data: ProjectData, fileName: string, handle?: any, filePath?: string|null}} OpenSuccess */
 /** @typedef {import('../../core/FileManager.js').OpenResult} OpenResult */
 /** @typedef {import('../../core/FileManager.js').SaveResult} SaveResult */
+/** @typedef {import('../../core/SchematicDocument.js').SchematicItem} SchematicItem */
+/** @typedef {import('../../shapes/text.js').Text} Text */
 
 /** @param {SchematicEditor} app */
 function canReplaceDocument(app) {
@@ -95,7 +98,7 @@ export async function loadDocument(app, data, prepared = prepareDocument(app, da
     for (const shape of app.shapes) linkTargets.set(shape.id, shape);
     for (const component of app.components) linkTargets.set(component.id, component);
     for (const shape of app.shapes) {
-        if (shape.type !== 'text' || !shape._pendingComponentId) continue;
+        if (!isTextShape(shape) || !shape._pendingComponentId) continue;
         if (shape.fieldKey !== 'label') continue;
         const target = linkTargets.get(shape._pendingComponentId);
         if (!target) continue;

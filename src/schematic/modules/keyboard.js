@@ -12,8 +12,13 @@ import {
 } from './editor-actions.js';
 import { isSchematicLocked } from '../../shapes/lock-owner.js';
 import { isSchematicDrawingActive } from './drawing.js';
+import { isComponentItem, isNetItem, isTextItem } from '../../core/schematic-items.js';
 /** @typedef {import('./schematic-editor-api.js').SchematicEditor} SchematicEditor */
+/** @typedef {import('../../core/SchematicDocument.js').SchematicItem} SchematicItem */
+/** @typedef {import('../../components/Component.js').Component} Component */
+/** @typedef {import('../../shapes/net.js').Net} Net */
 /** @typedef {import('../../shapes/net.js').NetOrientation} NetOrientation */
+/** @typedef {import('../../shapes/text.js').Text} Text */
 /** @typedef {import('../../ui/SchematicApp.js').SchematicToolOptions} KeyboardToolOptions */
 
 
@@ -37,7 +42,7 @@ function handleFlipHorizontal(app, e) {
         e.preventDefault();
         return true;
     }
-    if (canActOnSelection(app) && app.selection.getSelection().some(s => s.definition)) {
+    if (canActOnSelection(app) && app.selection.getSelection().some(isComponentItem)) {
         flipComponentH(app);
         e.preventDefault();
         return true;
@@ -56,7 +61,7 @@ function handleFlipVertical(app, e) {
         e.preventDefault();
         return;
     }
-    if (canActOnSelection(app) && app.selection.getSelection().some(s => s.definition)) {
+    if (canActOnSelection(app) && app.selection.getSelection().some(isComponentItem)) {
         flipComponentV(app);
         e.preventDefault();
     }
@@ -76,7 +81,7 @@ function handleSpaceRotate(app, e) {
         return;
     }
     // Rotate selected component(s).
-    if (canActOnSelection(app) && app.selection.getSelection().some(s => s.definition)) {
+    if (canActOnSelection(app) && app.selection.getSelection().some(isComponentItem)) {
         rotateComponentRight(app);
         e.preventDefault();
         return;
@@ -97,7 +102,7 @@ function handleSpaceRotate(app, e) {
     if (canActOnSelection(app)) {
         const sel = app.selection.getSelection();
 
-        const netShapes = sel.filter(s => s.type === 'net' && !isSchematicLocked(s));
+        const netShapes = sel.filter(/** @param {SchematicItem} s @returns {s is Net} */ s => isNetItem(s) && !isSchematicLocked(s));
         if (netShapes.length > 0) {
             const newOrientation = rotateNetOrientation(netShapes[0].orientation || 'E');
             app.history.execute(new ModifyPropertyCommand(app, netShapes, 'orientation', newOrientation));
@@ -107,7 +112,7 @@ function handleSpaceRotate(app, e) {
             return;
         }
 
-        const textShapes = sel.filter(s => s.type === 'text' && !isSchematicLocked(s));
+        const textShapes = sel.filter(/** @param {SchematicItem} s @returns {s is Text} */ s => isTextItem(s) && !isSchematicLocked(s));
         if (textShapes.length > 0) {
             // Every schematic text, a reference included, toggles horizontal / vertical.
             const newRot = textShapes[0].rotation === 270 ? 0 : 270;

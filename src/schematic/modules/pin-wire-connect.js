@@ -1,7 +1,9 @@
 import { VERTEX_EPSILON } from './wire-constants.js';
+import { isWireItem as isWireShape } from '../../core/schematic-items.js';
 /** @typedef {import('./schematic-editor-api.js').SchematicEditor} SchematicEditor */
 /** @typedef {import('../../shapes/wire.js').Wire} Wire */
-/** @typedef {import('../../core/SchematicDocument.js').SchematicShape} Component */
+/** @typedef {import('../../components/Component.js').Component} Component */
+/** @typedef {import('../../core/SchematicDocument.js').SchematicItem} SchematicItem */
 
 export const PIN_ATTACH_TOL = VERTEX_EPSILON;
 
@@ -27,7 +29,7 @@ export function connectPinsToWires(app, pinTargets, options) {
         if (!Number.isFinite(pos.x) || !Number.isFinite(pos.y)) continue;
 
         for (const wire of app.shapes) {
-            if (wire.type !== 'wire') continue;
+            if (!isWireShape(wire)) continue;
 
             let hitNodeId = null;
             for (const [nodeId, nodePos] of wire.nodes) {
@@ -45,7 +47,7 @@ export function connectPinsToWires(app, pinTargets, options) {
                     });
                     wire.invalidate?.();
                 }
-                onConnectedWire?.(/** @type {Wire} */ (wire));
+                onConnectedWire?.(wire);
                 break;
             }
 
@@ -61,7 +63,7 @@ export function connectPinsToWires(app, pinTargets, options) {
                             });
                         }
                         wire.invalidate?.();
-                        onConnectedWire?.(/** @type {Wire} */ (wire));
+                        onConnectedWire?.(wire);
                         break;
                     }
                 }

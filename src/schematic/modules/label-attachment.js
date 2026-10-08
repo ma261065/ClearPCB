@@ -12,16 +12,78 @@ import { getTextEditBoxWorldCorners } from '../../core/text-edit-geometry.js';
 import { applyTextConnectionGuide } from '../../shared/ui/inline-text-overlay.js';
 import { getSchematicDrag } from './drag.js';
 import { getSchematicTextEdit } from './text-edit.js';
+import { isTextItem as isTextShape, isWireItem as isWireShape, isComponentItem as isComponentShape, isCircleItem as isCircleShape, isArcItem as isArcShape } from '../../core/schematic-items.js';
 /** @typedef {import('./schematic-editor-api.js').SchematicEditor} SchematicEditor */
-/** @typedef {import('../../core/SchematicDocument.js').SchematicShape} SchematicShape */
+/** @typedef {import('../../core/SchematicDocument.js').SchematicItem} SchematicItem */
+/** @typedef {import('../../components/Component.js').Component} Component */
+/** @typedef {import('../../shapes/arc.js').Arc} Arc */
+/** @typedef {import('../../shapes/circle.js').Circle} Circle */
+/** @typedef {import('../../shapes/text.js').Text} Text */
+/** @typedef {import('../../shapes/wire.js').Wire} Wire */
 /** @typedef {{x: number, y: number}} Point */
 /** @typedef {{kind?: string, edgeId?: string|null, t?: number, anchorX?: number, anchorY?: number, offsetX?: number, offsetY?: number}} LabelAttachment */
 /** @typedef {{edgeId?: string|null, t?: number, point?: Point}} ClosestEdge */
+/** @typedef {{from: string, to: string}} GraphEdge */
+/** @typedef {{minX: number, minY: number, maxX: number, maxY: number}} Bounds */
+/** @typedef {SchematicItem & {attachedLabels?: Set<Text>|null}} LabelAttachable */
+/** @typedef {SchematicItem & {getPosition: () => Point}} PositionReadable */
+/** @typedef {SchematicItem & {closestEdge: (point: Point) => ClosestEdge|null|undefined}} EdgeQueryable */
+/** @typedef {{x: number, y: number, rotation?: number, refText?: Text|null, valueText?: Text|null, _getLocalBounds: () => Bounds}} ComponentGuideTarget */
 
 const WIRE_ATTACHED_LABEL_FONT_SIZE = 1.4;
 const DEFAULT_WIRE_LABEL_OFFSET = 1.0;
 /** @type {WeakMap<SchematicEditor, SVGLineElement>} */
 const labelGuides = new WeakMap();
+
+/**
+ * @param {SchematicItem|null|undefined} shape
+ * @returns {shape is Wire|import('../../shapes/net.js').Net}
+ */
+function hasLabelText(shape) {
+    return shape?.type === 'wire' || shape?.type === 'net';
+}
+
+/**
+ * @param {SchematicItem|null|undefined} shape
+ * @returns {shape is PositionReadable}
+ */
+function hasPositionGetter(shape) {
+    return typeof shape?.getPosition === 'function';
+}
+
+/**
+ * @param {SchematicItem|null|undefined} shape
+ * @returns {shape is EdgeQueryable}
+ */
+function hasClosestEdge(shape) {
+    return !!shape && 'closestEdge' in shape && typeof shape.closestEdge === 'function';
+}
+
+/**
+ * @param {unknown} target
+ * @param {Text} label
+ * @returns {target is ComponentGuideTarget}
+ */
+function isComponentFieldTextTarget(target, label) {
+    if (!target || typeof target !== 'object') return false;
+    const candidate = /** @type {Partial<ComponentGuideTarget>} */ (target);
+    return (candidate.refText === label || candidate.valueText === label)
+        && typeof candidate._getLocalBounds === 'function'
+        && typeof candidate.x === 'number'
+        && typeof candidate.y === 'number';
+}
+
+/**
+ * @param {SchematicItem|null|undefined} shape
+ * @returns {Point}
+ */
+function getShapePosition(shape) {
+    if (shape && 'x' in shape && 'y' in shape
+        && typeof shape.x === 'number' && typeof shape.y === 'number') {
+        return { x: shape.x, y: shape.y };
+    }
+    return { x: 0, y: 0 };
+}
 
 /** @param {SchematicEditor} app */
 export function getLabelGuideElement(app) {
@@ -35,11 +97,11 @@ function setLabelGuideElement(app, guide) {
 }
 
 /**
- * @param {SchematicShape|null|undefined} shape
+ * @param {SchematicItem|null|undefined} shape
  * @returns {Point}
  */
 function getShapeCenter(shape) {
-    if (!shape?.getBounds) return { x: shape?.x || 0, y: shape?.y || 0 };
+    if (!shape?.getBounds) return getShapePosition(shape);
     const b = /** @type {{minX: number, minY: number, maxX: number, maxY: number}} */ (shape.getBounds());
     return {
         x: (b.minX + b.maxX) / 2,
@@ -48,58 +110,61 @@ function getShapeCenter(shape) {
 }
 
 /**
- * @param {SchematicShape|null|undefined} target
- * @returns {Set<SchematicShape>|null}
+ * @param {SchematicItem|null|undefined} target
+ * @returns {Set<SchematicItem>|null}
  */
 function ensureAttachedLabelsSet(target) {
     if (!target || typeof target !== 'object') return null;
-    if (!(target.attachedLabels instanceof Set)) {
-        target.attachedLabels = new Set();
+    // Label attachment owns this runtime registry for all attachable target kinds.
+    const attachable = /** @type {LabelAttachable} */ (target);
+    if (!(attachable.attachedLabels instanceof Set)) {
+        attachable.attachedLabels = new Set();
     }
-    return target.attachedLabels;
+    return attachable.attachedLabels;
 }
 
-/** @param {SchematicShape|null|undefined} target @param {SchematicShape|null|undefined} labelShape */
+/** @param {SchematicItem|null|undefined} target @param {Text|null|undefined} labelShape */
 function addAttachedLabel(target, labelShape) {
     const attached = ensureAttachedLabelsSet(target);
     if (!attached || !labelShape) return;
     attached.add(labelShape);
 }
 
-/** @param {SchematicShape|null|undefined} target @param {SchematicShape|null|undefined} labelShape */
+/** @param {SchematicItem|null|undefined} target @param {Text|null|undefined} labelShape */
 function removeAttachedLabel(target, labelShape) {
     if (!target) return;
-    const attached = target?.attachedLabels;
+    // Label attachment owns this runtime registry for all attachable target kinds.
+    const attachable = /** @type {LabelAttachable} */ (target);
+    const attached = attachable.attachedLabels;
     if (!(attached instanceof Set) || !labelShape) return;
     attached.delete(labelShape);
     if (attached.size === 0) {
-        delete target.attachedLabels;
+        delete attachable.attachedLabels;
     }
 }
 
 /**
- * @param {SchematicShape|null|undefined} target
+ * @param {SchematicItem|null|undefined} target
  * @param {Point} pt
  * @returns {Point|null}
  */
 function closestPointOnShapeGeometry(target, pt) {
     if (!target) return null;
-    const type = target?.type;
 
     // Graph-based shapes (polyline, line, polygon, wire) — use closestEdge API
-    if (typeof target?.closestEdge === 'function') {
+    if (hasClosestEdge(target)) {
         const result = target.closestEdge(pt);
         return result?.point || null;
     }
 
-    if (type === 'circle') {
+    if (isCircleShape(target)) {
         const dx = pt.x - target.x, dy = pt.y - target.y;
         const dist = Math.hypot(dx, dy);
         if (dist === 0) return { x: target.x + target.radius, y: target.y };
         return { x: target.x + dx / dist * target.radius, y: target.y + dy / dist * target.radius };
     }
 
-    if (type === 'arc') {
+    if (isArcShape(target)) {
         const dx = pt.x - target.x, dy = pt.y - target.y;
         const angle = Math.atan2(dy, dx);
         if (target._isAngleInRange?.(angle)) {
@@ -120,13 +185,13 @@ function closestPointOnShapeGeometry(target, pt) {
 }
 
 /**
- * @param {SchematicShape} target
+ * @param {SchematicItem} target
  * @param {Point|null} [referencePoint]
  * @returns {Point}
  */
 function getNonWireAnchor(target, referencePoint = null) {
     // For components (have definition), use center
-    if (target?.definition) {
+    if (isComponentShape(target)) {
         return getShapeCenter(target);
     }
     // For primitive shapes, find closest point on actual geometry
@@ -134,19 +199,19 @@ function getNonWireAnchor(target, referencePoint = null) {
         const cp = closestPointOnShapeGeometry(target, referencePoint);
         if (cp) return cp;
     }
-    if (typeof target?.getPosition === 'function') return target.getPosition();
+    if (hasPositionGetter(target)) return target.getPosition();
     return getShapeCenter(target);
 }
 
 /**
- * @param {SchematicShape|null|undefined} wire
+ * @param {Wire|null|undefined} wire
  * @param {LabelAttachment|null|undefined} attachment
  * @returns {Point|null}
  */
 function getWireAnchorFromAttachment(wire, attachment) {
-    if (!wire || wire.type !== 'wire' || !attachment) return null;
+    if (!wire || !attachment) return null;
 
-    const edge = wire.edges?.get(attachment.edgeId);
+    const edge = typeof attachment.edgeId === 'string' ? wire.edges.get(attachment.edgeId) : null;
     if (edge) {
         const from = wire.nodes.get(edge.from);
         const to = wire.nodes.get(edge.to);
@@ -167,13 +232,13 @@ function getWireAnchorFromAttachment(wire, attachment) {
 }
 
 /**
- * @param {SchematicShape|null|undefined} wire
+ * @param {Wire|null|undefined} wire
  * @param {ClosestEdge|null|undefined} closest
  * @returns {Point}
  */
 function getDefaultWireLabelOffset(wire, closest) {
     if (!wire) return { x: 0, y: -DEFAULT_WIRE_LABEL_OFFSET };
-    const edge = closest?.edgeId ? wire?.edges?.get(closest.edgeId) : null;
+    const edge = closest?.edgeId ? /** @type {GraphEdge|null|undefined} */ (wire.edges.get(closest.edgeId)) : null;
     const from = edge ? wire.nodes.get(edge.from) : null;
     const to = edge ? wire.nodes.get(edge.to) : null;
 
@@ -213,14 +278,14 @@ function getDefaultWireLabelOffset(wire, closest) {
  *
  * This helper is shared by drag/drop attach and wire split re-home logic,
  * so both paths choose targets with identical geometry semantics.
- * @param {SchematicShape|null|undefined} labelShape
+ * @param {SchematicItem|null|undefined} labelShape
  * @param {Point|null} [fallbackPos]
  * @returns {Point}
  */
 export function getLabelDropHotspot(labelShape, fallbackPos = null) {
-    if (!labelShape || labelShape.type !== 'text') {
+    if (!isTextShape(labelShape)) {
         if (fallbackPos) return { x: fallbackPos.x, y: fallbackPos.y };
-        return { x: labelShape?.x || 0, y: labelShape?.y || 0 };
+        return getShapePosition(labelShape);
     }
     const b = labelShape.getBounds?.();
     if (b && Number.isFinite(b.minX) && Number.isFinite(b.maxY)) {
@@ -230,17 +295,18 @@ export function getLabelDropHotspot(labelShape, fallbackPos = null) {
 }
 
 /**
- * @param {SchematicShape|null|undefined} labelShape
+ * @param {SchematicItem|null|undefined} labelShape
  * @param {Point|null} [referencePoint]
  * @returns {Point|null}
  */
 export function getLabelAttachmentAnchorPoint(labelShape, referencePoint = null) {
-    if (!labelShape || labelShape.type !== 'text') return null;
-    const target = labelShape.parentComponent;
+    if (!isTextShape(labelShape)) return null;
+    // Generic labels store schematic targets in Text.parentComponent.
+    const target = /** @type {SchematicItem|null} */ (labelShape.parentComponent);
     if (!target) return null;
     const att = labelShape.attachment;
 
-    if (target.type === 'wire') {
+    if (isWireShape(target)) {
         if (referencePoint) {
             const closest = target.closestEdge?.(referencePoint);
             if (closest?.point) return { x: closest.point.x, y: closest.point.y };
@@ -256,14 +322,15 @@ export function getLabelAttachmentAnchorPoint(labelShape, referencePoint = null)
 export function updateLabelGuide(app) {
     const selection = app.selection?.getSelection?.() || [];
     const label = getSchematicTextEdit(app)?.shape || (selection.length === 1 ? selection[0] : null);
-    const target = label?.type === 'text' && label.visible !== false ? label.parentComponent : null;
+    const textLabel = isTextShape(label) ? label : null;
+    const target = textLabel && textLabel.visible !== false ? textLabel.parentComponent : null;
     let anchor = null;
     let endpoint = null;
-    if (target) {
-        const textBox = getTextEditBoxWorldCorners(label);
+    if (target && textLabel) {
+        const textBox = getTextEditBoxWorldCorners(textLabel);
         if (!textBox) return;
         // A component's field texts (reference and value) lead from its box outline.
-        if (target.refText === label || target.valueText === label) {
+        if (isComponentFieldTextTarget(target, textLabel)) {
             const local = target._getLocalBounds();
             const angle = (target.rotation || 0) * Math.PI / 180;
             const cosine = Math.cos(angle), sine = Math.sin(angle);
@@ -280,7 +347,7 @@ export function updateLabelGuide(app) {
                 y: (textBox[0].y + textBox[2].y) / 2,
             };
             const connection = connectPointToBoxOutline(
-                getLabelAttachmentAnchorPoint(label, textCenter),
+                getLabelAttachmentAnchorPoint(textLabel, textCenter),
                 textBox,
             );
             anchor = connection?.start || null;
@@ -305,20 +372,21 @@ export function updateLabelGuide(app) {
 
 /**
  * Attach a generic label Text shape to a target shape/component.
- * @param {SchematicShape|null|undefined} labelShape
- * @param {SchematicShape|null} target - null attaches to nothing
+ * @param {SchematicItem|null|undefined} labelShape
+ * @param {SchematicItem|null} target - null attaches to nothing
  * @param {Point|null} [snapPos]
  * @param {{isNewLabel?:boolean}} [opts]
  */
 export function attachLabelToTarget(labelShape, target, snapPos = null, { isNewLabel = false } = {}) {
-    if (!labelShape || labelShape.type !== 'text') return;
+    if (!isTextShape(labelShape)) return;
 
-    const previousTarget = labelShape.parentComponent || null;
+    // Generic labels store schematic targets in Text.parentComponent.
+    const previousTarget = /** @type {SchematicItem|null} */ (labelShape.parentComponent || null);
     if (previousTarget) {
         removeAttachedLabel(previousTarget, labelShape);
     }
 
-    if (labelShape.parentComponent?.labelText === labelShape) {
+    if (hasLabelText(labelShape.parentComponent) && labelShape.parentComponent.labelText === labelShape) {
         labelShape.parentComponent.labelText = null;
     }
 
@@ -333,14 +401,15 @@ export function attachLabelToTarget(labelShape, target, snapPos = null, { isNewL
 
     addAttachedLabel(target, labelShape);
 
-    if (target.type === 'wire') {
+    if (isWireShape(target)) {
         if (labelShape.fontSize !== WIRE_ATTACHED_LABEL_FONT_SIZE) {
             labelShape.fontSize = WIRE_ATTACHED_LABEL_FONT_SIZE;
         }
         const probe = snapPos || { x: labelShape.x, y: labelShape.y };
         const closest = target.closestEdge?.(probe);
         const anchor = closest?.point || probe;
-        const t = Number.isFinite(closest?.t) ? closest.t : 0.5;
+        const closestT = closest?.t;
+        const t = Number.isFinite(closestT) ? /** @type {number} */ (closestT) : 0.5;
 
         let offsetX = labelShape.x - anchor.x;
         let offsetY = labelShape.y - anchor.y;
@@ -378,11 +447,12 @@ export function attachLabelToTarget(labelShape, target, snapPos = null, { isNewL
     labelShape.invalidate?.();
 }
 
-/** @param {SchematicShape|null|undefined} labelShape */
+/** @param {SchematicItem|null|undefined} labelShape */
 export function detachLabel(labelShape) {
-    if (!labelShape || labelShape.type !== 'text') return;
-    removeAttachedLabel(labelShape.parentComponent, labelShape);
-    if (labelShape.parentComponent?.labelText === labelShape) {
+    if (!isTextShape(labelShape)) return;
+    // Generic labels store schematic targets in Text.parentComponent.
+    removeAttachedLabel(/** @type {SchematicItem|null} */ (labelShape.parentComponent), labelShape);
+    if (hasLabelText(labelShape.parentComponent) && labelShape.parentComponent.labelText === labelShape) {
         labelShape.parentComponent.labelText = null;
     }
     labelShape.parentComponent = null;
@@ -392,14 +462,15 @@ export function detachLabel(labelShape) {
     labelShape.invalidate?.();
 }
 
-/** @param {SchematicShape|null|undefined} labelShape */
+/** @param {SchematicItem|null|undefined} labelShape */
 export function refreshLabelAttachmentOffset(labelShape) {
-    if (!labelShape || labelShape.type !== 'text') return;
-    const target = labelShape.parentComponent;
+    if (!isTextShape(labelShape)) return;
+    // Generic labels store schematic targets in Text.parentComponent.
+    const target = /** @type {SchematicItem|null} */ (labelShape.parentComponent);
     const att = labelShape.attachment;
     if (!target || !att) return;
 
-    if (target.type === 'wire') {
+    if (isWireShape(target)) {
         const closest = target.closestEdge?.({ x: labelShape.x, y: labelShape.y });
         if (!closest?.point) return;
         att.kind = 'wire';
@@ -428,17 +499,18 @@ export function syncAttachedLabels(app) {
         && app.selection.getSelection()[0]?.type === 'text';
 
     for (const shape of app.shapes) {
-        if (shape?.type !== 'text') continue;
+        if (!isTextShape(shape)) continue;
         if (shape.fieldKey !== 'label' || !shape.parentComponent) continue;
         if (isDraggingLabel && app.selection.isSelected(shape)) continue;
 
-        const target = shape.parentComponent;
+        // Generic labels store schematic targets in Text.parentComponent.
+        const target = /** @type {SchematicItem} */ (shape.parentComponent);
         addAttachedLabel(target, shape);
         const att = shape.attachment || { kind: target.type === 'wire' ? 'wire' : 'shape', offsetX: 0, offsetY: 0 };
         shape.attachment = att;
 
         let anchor = null;
-        if (target.type === 'wire') {
+        if (isWireShape(target)) {
             if (shape.fontSize !== WIRE_ATTACHED_LABEL_FONT_SIZE) {
                 shape.fontSize = WIRE_ATTACHED_LABEL_FONT_SIZE;
                 shape.invalidate?.();

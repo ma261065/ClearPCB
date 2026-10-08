@@ -141,8 +141,10 @@ A function that needs only a few of the editor's collections names them
 and net queries do, so what each one depends on is in its signature.
 Schematic modules likewise type the editor as `SchematicEditor`
 (`schematic-editor-api.js`, the `SchematicApp` class) and a schematic object as
-`SchematicShape` (`SchematicDocument.js`: a shape or component); `app.selection` is a
-`SelectionManager<SchematicShape>`. Shared types have one owner and other files alias
+`SchematicItem` (`SchematicDocument.js`: a shape or component); shape-only arrays
+use `SchematicDrawable`, and `app.selection` is a `SelectionManager<SchematicItem>`.
+Literal `item.type` checks narrow the union, and reusable callback predicates live
+in `core/schematic-items.js`. Shared types have one owner and other files alias
 it: `Point` in `core/geometry.js`, the tool options and restore data in
 `SchematicApp.js`, the interaction state next to `STATE_TABLE` in `draw-states.js`,
 pin snaps in `wire-snap.js`, open and save results in `FileManager.js`.

@@ -68,7 +68,7 @@ export function syncFromSchematic(app) {
     }
     clearSyncTimer(app);
 
-    const project = app.project;
+    const project = /** @type {NonNullable<PcbEditor['project']>} */ (app.project);
     const schematic = project?.schematicDocument;
     if (!schematic) {
         setEditorStale(app, true);

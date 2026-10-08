@@ -10,8 +10,10 @@ import { updateRibbonState } from './ribbon.js';
 import { isSchematicLocked, lockOwner } from '../../shapes/lock-owner.js';
 import { CommandHistory } from '../../core/CommandHistory.js';
 import { createLockGuard } from '../../core/edit-guard.js';
+import { isComponentItem, isPolylineItem as isPolylineShape } from '../../core/schematic-items.js';
 /** @typedef {import('./schematic-editor-api.js').SchematicEditor} SchematicEditor */
-/** @typedef {import('../../core/SchematicDocument.js').SchematicShape} SchematicShape */
+/** @typedef {import('../../core/SchematicDocument.js').SchematicItem} SchematicItem */
+/** @typedef {import('../../shapes/polyline.js').Polyline} PolylineShape */
 
 /**
  * The schematic editor's undo history, guarded by the lock gate (core/edit-guard.js).
@@ -23,16 +25,16 @@ export function createSchematicHistory(app, { onChanged, onRefused } = {}) {
     return new CommandHistory({
         onChanged,
         guard: createLockGuard(target => isSchematicLocked(target.object),
-            target => `This ${lockNoun(/** @type {SchematicShape|null|undefined} */ (lockOwner(target.object)))} is locked`),
+            target => `This ${lockNoun(/** @type {SchematicItem|null|undefined} */ (lockOwner(target.object)))} is locked`),
         onRefused,
     });
 }
 
 /** The word the unlock menu uses for an object, e.g. "Unlock wire". */
-/** @param {SchematicShape|null|undefined} item */
+/** @param {SchematicItem|null|undefined} item */
 export function lockNoun(item) {
-    if (item?.definition) return 'component';
-    if (item?.type === 'polyline') return item.isRect ? 'rectangle' : item.closed ? 'polygon' : 'line';
+    if (isComponentItem(item)) return 'component';
+    if (isPolylineShape(item)) return item.isRect ? 'rectangle' : item.closed ? 'polygon' : 'line';
     const type = typeof item?.type === 'string' ? item.type : '';
     return /** @type {Record<string, string>} */ ({ net: 'net label', noconnect: 'no-connect', text: 'text' })[type] || type || 'object';
 }
@@ -40,10 +42,10 @@ export function lockNoun(item) {
 /**
  * Lift one object's lock (an owned field text's owner's) as its own undo step.
  * @param {SchematicEditor} app
- * @param {SchematicShape|null|undefined} item
+ * @param {SchematicItem|null|undefined} item
  */
 export function unlockSchematicItem(app, item) {
-    const owner = /** @type {SchematicShape|null|undefined} */ (lockOwner(item));
+    const owner = /** @type {SchematicItem|null|undefined} */ (lockOwner(item));
     if (!owner?.locked) return;
     app.history.execute(new ModifyPropertyCommand(app, [owner], 'locked', false));
     app.fileManager?.setDirty?.(true);
@@ -56,12 +58,12 @@ export function unlockSchematicItem(app, item) {
  * The lock icon's click: offer to unlock that object, at the pointer. A component's
  * reference or value text offers to unlock the component, as on the PCB.
  * @param {SchematicEditor} app
- * @param {SchematicShape|null|undefined} item
+ * @param {SchematicItem|null|undefined} item
  * @param {number} clientX
  * @param {number} clientY
  */
 export function showUnlockMenu(app, item, clientX, clientY) {
-    const owner = /** @type {SchematicShape|null|undefined} */ (lockOwner(item));
+    const owner = /** @type {SchematicItem|null|undefined} */ (lockOwner(item));
     if (!owner?.locked) return null;
     return createContextMenu([{ text: `Unlock ${lockNoun(owner)}`, onClick: () => unlockSchematicItem(app, owner) }],
         clientX, clientY);

@@ -9,11 +9,15 @@ import { generateReference, isPlacingComponent } from './components.js';
 import { isSchematicLocked } from '../../shapes/lock-owner.js';
 import { isSchematicDrawingActive } from './drawing.js';
 import { getSchematicInteraction, setSchematicInteraction } from './schematic-interactions.js';
+import { isComponentItem, isTextItem } from '../../core/schematic-items.js';
 /** @typedef {import('./schematic-editor-api.js').SchematicEditor} SchematicEditor */
-/** @typedef {import('../../core/SchematicDocument.js').SchematicShape} SchematicShape */
+/** @typedef {import('../../core/SchematicDocument.js').SchematicItem} SchematicItem */
+/** @typedef {import('../../core/SchematicDocument.js').SchematicDrawable} SchematicDrawable */
+/** @typedef {import('../../core/SelectionManager.js').Shape & SchematicItem} SelectableSchematicItem */
 /** @typedef {import('../../shapes/shape.js').Shape} Shape */
 /** @typedef {{x: number, y: number}} Point */
-/** @typedef {Record<string, any> & {_clipX: number, _clipY: number, _clipType: 'component'|'shape', _definition?: import('../../components/Component.js').ComponentDefinition}} ClipboardData */
+/** @typedef {Record<string, any> & {_clipX: number, _clipY: number, _clipType: 'component'|'shape', _definition?: import('../../components/Component.js').ComponentDefinition}} ClipboardData *//** @param {SchematicItem} item @returns {item is SchematicItem & {x: number, y: number}} */
+const hasPointPosition = item => 'x' in item && typeof item.x === 'number' && 'y' in item && typeof item.y === 'number';
 
 // Internal clipboard (array of serialised items)
 /** @type {ClipboardData[]} */
@@ -37,7 +41,7 @@ function setPastingClipboard(app, active) {
 
 /**
  * Compute the centroid of the given items (shapes + components).
- * @param {SchematicShape[]} items
+ * @param {SchematicItem[]} items
  * @returns {Point}
  */
 function centroid(items) {
@@ -48,7 +52,7 @@ function centroid(items) {
             sx += (b.minX + b.maxX) / 2;
             sy += (b.minY + b.maxY) / 2;
             n++;
-        } else if (typeof item.x === 'number' && typeof item.y === 'number') {
+        } else if (hasPointPosition(item)) {
             sx += item.x;
             sy += item.y;
             n++;
@@ -60,12 +64,12 @@ function centroid(items) {
 /**
  * Serialise a shape or component into a plain object that can be stored
  * on the clipboard and later reconstituted.
- * @param {SchematicShape} item
+ * @param {SchematicItem} item
  * @param {Point} origin
  * @returns {ClipboardData}
  */
 function serialiseItem(item, origin) {
-    if (item.definition) {
+    if (isComponentItem(item)) {
         // Component
         const json = item.toJSON();
         // Store position relative to selection centroid
@@ -100,7 +104,8 @@ export function copySelection(app) {
     // since the component will recreate them on paste.
     const selectedSet = new Set(selection);
     const deduped = selection.filter(item =>
-        !(item.parentComponent && item.fieldKey && selectedSet.has(item.parentComponent))
+        !(isTextItem(item) && item.parentComponent && typeof item.parentComponent !== 'string'
+            && item.fieldKey && selectedSet.has(/** @type {SelectableSchematicItem} */ (item.parentComponent)))
     );
 
     const origin = centroid(deduped);
@@ -125,7 +130,8 @@ export function cutSelection(app) {
     // Deduplicate: skip field texts whose parent component is also selected
     const cuttableSet = new Set(cuttable);
     const deduped = cuttable.filter(item =>
-        !(item.parentComponent && item.fieldKey && cuttableSet.has(item.parentComponent))
+        !(isTextItem(item) && item.parentComponent && typeof item.parentComponent !== 'string'
+            && item.fieldKey && cuttableSet.has(/** @type {SelectableSchematicItem} */ (item.parentComponent)))
     );
 
     const origin = centroid(deduped);
@@ -137,18 +143,19 @@ export function cutSelection(app) {
     // Delete via undo-able commands (same logic as runSchematicDeleteAction)
     app.selection.clearSelection();
 
-    /** @type {Shape[]} */
+    /** @type {SchematicDrawable[]} */
     const shapes = [];
     /** @type {Component[]} */
     const components = [];
 
     for (const item of cuttable) {
-        if (app.shapes.includes(item)) {
+        if (app.shapes.includes(/** @type {SchematicDrawable} */ (item))) {
+            const shape = /** @type {SchematicDrawable} */ (item);
             // Skip component ref/value field texts — those can't be cut independently
-            if (item.parentComponent && (item.fieldKey === 'reference' || item.fieldKey === 'value')) continue;
-            shapes.push(/** @type {Shape} */ (item));
-        } else if (app.components.includes(/** @type {Component} */ (item))) {
-            components.push(/** @type {Component} */ (item));
+            if (isTextItem(shape) && shape.parentComponent && (shape.fieldKey === 'reference' || shape.fieldKey === 'value')) continue;
+            shapes.push(shape);
+        } else if (isComponentItem(item) && app.components.includes(item)) {
+            components.push(item);
         }
     }
 
@@ -171,7 +178,7 @@ export function cutSelection(app) {
 /**
  * Build a ghost SVG group from the current selection by cloning their
  * already-rendered DOM elements.  Stored in clipboardGhostSvg for reuse.
- * @param {SchematicShape[]} selection
+ * @param {SchematicItem[]} selection
  * @param {Point} origin
  */
 function _buildGhostFromSelection(selection, origin) {
@@ -288,7 +295,7 @@ export function confirmPaste(app, worldPos) {
 
     const snapped = app.viewport.getSnappedPosition(worldPos);
 
-    /** @type {Shape[]} */
+    /** @type {SchematicDrawable[]} */
     const pastedShapes = [];
     /** @type {Component[]} */
     const pastedComponents = [];
@@ -328,8 +335,9 @@ export function confirmPaste(app, worldPos) {
         // Single command — updateSelectableItems called once, not per item
         app.history.execute(new PasteCommand(app, pastedShapes, pastedComponents));
         // Batch selection — notifySelectionChanged fires once, not per item
+        /** @type {SchematicItem[]} */
         const allPasted = [...pastedShapes, ...pastedComponents];
-        app.selection.selectMultiple(allPasted, false);
+        app.selection.selectMultiple(/** @type {SelectableSchematicItem[]} */ (/** @type {unknown} */ (allPasted)), false);
         app.renderShapes(true);
         app.fileManager.setDirty(true);
     }

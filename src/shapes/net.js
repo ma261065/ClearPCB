@@ -318,6 +318,9 @@ function _getSymbolLocalBounds(style) {
 }
 
 export class Net extends Shape {
+    /** @type {'net'} */
+    type;
+
     /**
      * @param {Object} [options]
         * @param {string} [options.id]
@@ -377,7 +380,7 @@ export class Net extends Shape {
 
         /** @type {import('./text.js').Text|null} */
         this.labelText = null;
-        /** @type {Set<any>|null|undefined} Labels attached to this net. */
+        /** @type {Set<import('./text.js').Text>|null|undefined} Labels attached to this net. */
         this.attachedLabels = null;
     }
 

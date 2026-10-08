@@ -132,7 +132,7 @@ export function bindRibbon(app) {
  * Populates or clears the shape-options panel (line width, fill checkbox,
  * font size) based on the active tool when nothing is selected.
  * @param {SchematicEditor} app
- * @param {import('../../core/SchematicDocument.js').SchematicShape[]} selection - Currently selected items.
+ * @param {import('../../core/SchematicDocument.js').SchematicItem[]} selection - Currently selected items.
  * @param {string} [toolIdArg] - Active tool identifier override.
  */
 export function updateShapePanelOptions(app, selection, toolIdArg) {
@@ -147,7 +147,7 @@ export function updateShapePanelOptions(app, selection, toolIdArg) {
  * Enables/disables ribbon buttons (delete, lock, cut, copy, paste, rotate)
  * based on the current selection count and clipboard state.
  * @param {SchematicEditor} app
- * @param {import('../../core/SchematicDocument.js').SchematicShape[]} selection - Currently selected items.
+ * @param {import('../../core/SchematicDocument.js').SchematicItem[]} selection - Currently selected items.
  */
 export function updateRibbonState(app, selection) {
     app.refreshRibbon?.();

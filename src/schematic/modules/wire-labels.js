@@ -8,9 +8,14 @@ import { attachLabelToTarget, getLabelDropHotspot } from './label-attachment.js'
 import { addShapeInternal } from './shape-management.js';
 /** @typedef {import('./schematic-editor-api.js').SchematicEditor} SchematicEditor */
 /**
- * @typedef {import('../../core/SchematicDocument.js').SchematicShape & {_pendingLabelVisible?: boolean, _pendingLabelPosition?: LabelPosition}} Wire
  * @typedef {import('../../shapes/text.js').Text} TextShape
  * @typedef {{x: number, y: number, rotation?: number}} LabelPosition
+ * @typedef {import('../../shapes/wire.js').Wire & {
+ *   attachedLabels?: Set<TextShape>|null,
+ *   labelText: TextShape|null,
+ *   _pendingLabelVisible?: boolean,
+ *   _pendingLabelPosition?: LabelPosition
+ * }} Wire
  * @typedef {{state: Record<string, any>, signature: string}} ShapeSnapshot
  * @typedef {Record<string, any>} ShapeState
  * @typedef {{label?: string, visible: boolean, position: LabelPosition|null}} WireLabelMeta
@@ -406,7 +411,8 @@ export function rehomeAttachedWireLabelsAfterSplit(originalWire, postSplitWires)
                 targetWire.attachedLabels = new Set();
             }
             targetWire.attachedLabels.add(label);
-            if (label.parentComponent?.labelText === label) {
+            if ((label.parentComponent?.type === 'wire' || label.parentComponent?.type === 'net')
+                && label.parentComponent.labelText === label) {
                 label.parentComponent.labelText = null;
             }
             label.parentComponent = targetWire;

@@ -66,7 +66,8 @@ import { blocksSchematicSnapshot } from '../schematic/modules/schematic-interact
 // Shape construction uses createShape() from shapes/index.js.
 
 /**
- * @typedef {import('../core/SchematicDocument.js').SchematicShape} SchematicShape
+ * @typedef {import('../core/SchematicDocument.js').SchematicItem} SchematicItem
+ * @typedef {import('../core/SchematicDocument.js').SchematicDrawable} SchematicDrawable
  * @typedef {import('../components/Component.js').Component} Component
  * @typedef {import('../components/Component.js').ComponentDefinition} ComponentDefinition
  * @typedef {import('../shapes/text.js').Text} TextShape
@@ -77,7 +78,7 @@ import { blocksSchematicSnapshot } from '../schematic/modules/schematic-interact
  * @typedef {{key: string, fileName: string, timestamp: number}} AutoSaveEntry
  * @typedef {{lineWidth?: number, fill?: boolean, color?: string|number, textColor?: string|number, fontSize?: number, netFontSize?: number, netStyle?: string, netOrientation?: string, cornerRadius?: number, [key: string]: any}} SchematicToolOptions
  * @typedef {{cursorPos: HTMLElement|null, gridSnap: HTMLElement|null, zoomPercent: HTMLElement|null, viewportInfo: HTMLElement|null, docTitle: HTMLElement|null, propertiesPanel?: HTMLElement|null}} SchematicUiElements
- * @typedef {{shape: SchematicShape, index: number, parentWire?: SchematicShape|null}} ShapeRestoreData
+ * @typedef {{shape: SchematicDrawable, index: number, parentWire?: SchematicDrawable|null}} ShapeRestoreData
  */
 
 /**
@@ -145,13 +146,12 @@ export default class SchematicApp {
          */
         this.interactionState = undefined;
         // Shape/selection state
-        /** @type {SelectionManager<SchematicShape>} */
-        this.selection = new SelectionManager({
+        this.selection = /** @type {SelectionManager<SchematicItem>} */ (/** @type {unknown} */ (new SelectionManager({
             getScale: () => this.viewport?.scale,
-            isCulled,
-            onSelectionChanged: (shapes) => this._onSelectionChanged(shapes),
-            invalidateEntity: (entity) => refreshSelectionVisual(this, entity),
-        });
+            isCulled: (entity) => isCulled(/** @type {SchematicItem} */ (entity)),
+            onSelectionChanged: (shapes) => this._onSelectionChanged(/** @type {SchematicItem[]} */ (shapes)),
+            invalidateEntity: (entity) => refreshSelectionVisual(this, /** @type {SchematicItem} */ (entity)),
+        })));
         /** Number of selectable objects under the pointer (overlap cycling tip). */
         this.updateSelectableItems();
 
@@ -413,14 +413,15 @@ export default class SchematicApp {
 
     /**
      * Begins inline text editing on a text shape, or shows a value dialog for passive component fields.
-     * @param {SchematicShape} shape - The text shape to edit.
+     * @param {SchematicItem} shape - The text shape to edit.
      */
     startTextEdit(shape) {
+        const textShape = shape?.type === 'text' ? /** @type {TextShape} */ (shape) : null;
         // For value fields on passive components, show the value dialog instead
-        if (shape && shape.fieldKey === 'value' && shape.parentComponent) {
-            const comp = /** @type {Component} */ (/** @type {unknown} */ (shape.parentComponent));
+        if (textShape && textShape.fieldKey === 'value' && textShape.parentComponent) {
+            const comp = /** @type {Component} */ (/** @type {unknown} */ (textShape.parentComponent));
             if (needsValueDialog(comp.definition)) {
-                const screenPos = this.viewport.worldToScreen({ x: shape.x, y: shape.y });
+                const screenPos = this.viewport.worldToScreen({ x: textShape.x, y: textShape.y });
                 showValueDialog(comp.definition, screenPos.x, screenPos.y, {
                     currentValue: comp.value, allowEscape: true
                 }).then(value => {
@@ -495,8 +496,8 @@ export default class SchematicApp {
     
     /**
      * Adds a shape to the canvas via an undoable command.
-     * @param {SchematicShape} shape - The shape to add.
-     * @returns {SchematicShape} The result of the add operation.
+     * @param {SchematicDrawable} shape - The shape to add.
+     * @returns {SchematicDrawable} The result of the add operation.
      */
     addShape(shape) {
         return addShape(this, shape);
@@ -513,7 +514,7 @@ export default class SchematicApp {
      * @returns {TextShape|null}
      */
     commandAddShape(shape, linkedWireLabelText = null) {
-        return commandAddShapeInternal(this, shape, linkedWireLabelText);
+        return commandAddShapeInternal(this, /** @type {SchematicDrawable} */ (shape), linkedWireLabelText);
     }
 
     /**
@@ -523,7 +524,7 @@ export default class SchematicApp {
      * @returns {TextShape|null}
      */
     commandRemoveShape(shape, options = undefined) {
-        return commandRemoveShapeInternal(this, shape, options);
+        return commandRemoveShapeInternal(this, /** @type {SchematicDrawable} */ (shape), options);
     }
 
     /**
@@ -659,7 +660,7 @@ export default class SchematicApp {
     
     /**
      * Emits selectionChanged on the event bus.
-     * @param {SchematicShape[]} shapes - The currently selected shapes.
+     * @param {SchematicItem[]} shapes - The currently selected shapes.
      */
     _onSelectionChanged(shapes) {
         if (shapes.length !== 1 || shapes[0]?.id !== getShapeSegmentFocus(this)?.shapeId) {
@@ -676,10 +677,10 @@ export default class SchematicApp {
         const tip = document.getElementById('schematicStatusTip');
         if (!tip) return;
         const selected = this.selection.getSelection();
+        const selectedText = selected[0]?.type === 'text' ? /** @type {TextShape} */ (selected[0]) : null;
         const showReferenceTip = this.currentTool === 'select'
             && selected.length === 1
-            && selected[0]?.type === 'text'
-            && selected[0]?.fieldKey === 'reference';
+            && selectedText?.fieldKey === 'reference';
         const showOverlapTip = this.currentTool === 'select' && getOverlapHitCount(this) > 1;
         const show = this.currentTool === 'select'
             && selected.length === 1
@@ -708,7 +709,7 @@ export default class SchematicApp {
 
     /**
      * Updates shape-options panel for the active tool.
-     * @param {SchematicShape[]} selection - The current selection.
+     * @param {SchematicItem[]} selection - The current selection.
      * @param {string} toolId - The active tool identifier.
      */
     updateShapePanelOptions(selection, toolId) {
@@ -726,7 +727,7 @@ export default class SchematicApp {
     
     /**
      * Refreshes the properties panel for the given selection.
-     * @param {SchematicShape[]} selection - The currently selected shapes.
+     * @param {SchematicItem[]} selection - The currently selected shapes.
      */
     updatePropertiesPanel(selection) {
         updatePropertiesPanel(this, selection);
@@ -939,7 +940,7 @@ export default class SchematicApp {
     
     /**
      * Captures a shape's state snapshot for undo.
-     * @param {Shape} shape - The shape to capture state from.
+     * @param {SchematicItem} shape - The shape to capture state from.
      * @returns {Record<string, any>} The captured state snapshot.
      */
     _captureShapeState(shape) {
@@ -948,7 +949,7 @@ export default class SchematicApp {
     
     /**
      * Restores a shape from a captured state snapshot.
-     * @param {Shape} shape - The shape to restore.
+     * @param {SchematicItem} shape - The shape to restore.
      * @param {Record<string, any>} state - The state snapshot to apply.
      */
     _applyShapeState(shape, state) {
@@ -1007,9 +1008,9 @@ export default class SchematicApp {
     }
 
     // Existing interaction modules use these aliases, never a second collection.
-    /** @returns {SchematicShape[]} */
+    /** @returns {SchematicDrawable[]} */
     get shapes() { return this.document.shapes; }
-    /** @param {SchematicShape[]} value */
+    /** @param {SchematicDrawable[]} value */
     set shapes(value) { this.document.shapes = value; }
     /** @returns {Component[]} */
     get components() { return this.document.components; }
@@ -1078,7 +1079,7 @@ export default class SchematicApp {
     /**
      * Creates a shape from serialized type/options data.
      * @param {ProjectData} data - The serialized shape data.
-     * @returns {SchematicShape|null} The created shape, or null if the type is unknown.
+     * @returns {SchematicItem|null} The created shape, or null if the type is unknown.
      */
     _createShapeFromData(data) {
         try {

@@ -8,12 +8,13 @@ import { buildDrawingExtraSegments, getWireAxisLock, setWireAxisLock } from './w
 import { applyOffGridNeighborSnap } from './wire-drag-snap.js';
 /** @typedef {import('./schematic-editor-api.js').SchematicEditor} SchematicEditor */
 /** @typedef {import('../../components/Component.js').Component} Component */
-/** @typedef {SchematicShape} Wire */
-/** @typedef {import('../../core/SchematicDocument.js').SchematicShape} SchematicShape */
+/** @typedef {import('../../core/SchematicDocument.js').SchematicItem} SchematicItem */
+/** @typedef {import('../../shapes/wire.js').Wire} Wire */
+/** @typedef {import('../../shapes/net.js').Net} NetShape */
 /** @typedef {import('../../core/geometry.js').Point} Point */
 /** @typedef {Record<string, any> & {number?: string|number}} ComponentPin */
-/** @typedef {{id: string, type?: string, net?: string, [key: string]: any}} PinComponent */
-/** @typedef {{component: Component|SchematicShape|PinComponent, pin: ComponentPin, pinKey?: string|number|null}} PinIdentity */
+/** @typedef {{id: string, type?: string, net?: string, [key: string]: unknown}} PinComponent */
+/** @typedef {{component: Component|SchematicItem|PinComponent, pin: ComponentPin, pinKey?: string|number|null}} PinIdentity */
 /** @typedef {PinIdentity & {distance: number, worldPos: Point}} PinSnapInfo */
 /** @typedef {{wire: Wire, nodeId: string}} ExcludedWireNode */
 /** @typedef {{a: Point, b: Point}} WireSegment */
@@ -60,7 +61,7 @@ export const PIN_DEPART_RATIO = 2;
  * @param {Component[]} components
  * @param {Point} worldPos
  * @param {number} [tolerance]
- * @param {SchematicShape[]|null} [shapes] - extra shapes (e.g. Net labels) to also test
+ * @param {SchematicItem[]|null} [shapes] - extra shapes (e.g. Net labels) to also test
  * @returns {PinSnapInfo|null}
  */
 export function findNearbyPin(components, worldPos, tolerance = 0.5, shapes = null) {
@@ -95,11 +96,12 @@ export function findNearbyPin(components, worldPos, tolerance = 0.5, shapes = nu
     if (shapes) {
         for (const shape of shapes) {
             if (shape.type !== 'net') continue;
-            const dist = Math.hypot(worldPos.x - shape.x, worldPos.y - shape.y);
+            const netShape = /** @type {NetShape} */ (shape);
+            const dist = Math.hypot(worldPos.x - netShape.x, worldPos.y - netShape.y);
             if (dist < minDist) {
-                const pin = /** @type {ComponentPin} */ (shape.symbol.pins[0]);
+                const pin = /** @type {ComponentPin} */ (netShape.symbol.pins[0]);
                 minDist = dist;
-                nearest = { component: shape, pin, pinKey: pin.number, distance: dist, worldPos: { x: shape.x, y: shape.y } };
+                nearest = { component: netShape, pin, pinKey: pin.number, distance: dist, worldPos: { x: netShape.x, y: netShape.y } };
             }
         }
     }
@@ -396,26 +398,28 @@ export function findNearbyWirePoint(app, worldPos, tolerance, excludeWires = nul
     let bestEdgeDist = tolerance;
 
     for (const shape of app.shapes) {
-        if (shape.type !== 'wire' || shape.edges.size === 0) continue;
+        if (shape.type !== 'wire') continue;
+        const wireShape = shape;
+        if (wireShape.edges.size === 0) continue;
         // Full-wire exclusion (skip entire shape)
-        if (excludeSet.has(shape)) continue;
+        if (excludeSet.has(wireShape)) continue;
 
-        const isPartiallyExcluded = excludeNode && shape === excludeNode.wire;
+        const isPartiallyExcluded = excludeNode && wireShape === excludeNode.wire;
 
         // Check all nodes (endpoints, junctions, corners)
-        for (const [nid, pos] of shape.nodes) {
+        for (const [nid, pos] of wireShape.nodes) {
             if (isPartiallyExcluded && nid === excludeNode.nodeId) continue;
             const d = Math.hypot(worldPos.x - pos.x, worldPos.y - pos.y);
             if (d < bestNodeDist) {
                 bestNodeDist = d;
-                bestNode = { x: pos.x, y: pos.y, type: 'endpoint', wire: shape };
+                bestNode = { x: pos.x, y: pos.y, type: 'endpoint', wire: wireShape };
             }
         }
 
         // Check edges (T-junction)
-        for (const [eid, e] of shape.edges) {
+        for (const [eid, e] of wireShape.edges) {
             if (isPartiallyExcluded && excNodeEdgeIds?.has(eid)) continue;
-            const a = shape.nodes.get(e.from), b = shape.nodes.get(e.to);
+            const a = wireShape.nodes.get(e.from), b = wireShape.nodes.get(e.to);
             if (!a || !b) continue;
             const dx = b.x - a.x, dy = b.y - a.y;
             const lenSq = dx * dx + dy * dy;
@@ -427,14 +431,14 @@ export function findNearbyWirePoint(app, worldPos, tolerance, excludeWires = nul
             if (d < bestEdgeDist) {
                 // Only count if not at an existing node (but ignore the
                 // excluded node — it may have been moved here by a prior frame)
-                const hitNode = shape.nodeAt({ x: px, y: py }, VERTEX_EPSILON);
+                const hitNode = wireShape.nodeAt({ x: px, y: py }, VERTEX_EPSILON);
                 if (!hitNode || (isPartiallyExcluded && hitNode === excludeNode.nodeId)) {
                     bestEdgeDist = d;
                     bestEdge = {
                         x: px, y: py,
                         type: 'segment',
                         wireDir: _classifyDir(dx, dy),
-                        wire: shape
+                        wire: wireShape
                     };
                 }
             }

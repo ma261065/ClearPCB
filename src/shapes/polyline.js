@@ -64,6 +64,9 @@ function rectangleGraphFrame(shape) {
 }
 
 export class Polyline extends PolylineGraph {
+    /** @type {'polyline'} */
+    type;
+
     /**
      * Per-edge attribute schema (see PolylineGraph). `bulge` lets an individual
      * edge curve into a circular arc (0 = straight) — the model behind a
@@ -96,6 +99,8 @@ export class Polyline extends PolylineGraph {
         this.isRect = options.isRect || false;
         /** @type {RectAxisCache} */
         this._rectAxisCache = null;
+        /** @type {Set<import('./text.js').Text>|null|undefined} Labels attached to this polyline. */
+        this.attachedLabels = null;
 
         // Apply per-edge attributes (bulge) from constructor options. Must run
         // after the graph is loaded by super().

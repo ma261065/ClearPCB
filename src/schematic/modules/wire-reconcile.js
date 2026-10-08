@@ -10,8 +10,11 @@ import { VERTEX_EPSILON } from './wire-constants.js';
 import { addShapeInternal, removeShapeInternal } from './shape-management.js';
 import { findNearbyPin } from './wire-snap.js';
 import { applyMergeLabelRules, applySplitLabelRules, applySplitNetRules, captureShapeSnapshot, getWireLabelPosition, getWireLabelVisibility, mergeNetNames, normalizeSnapshot, rehomeAttachedWireLabelsAfterSplit, snapshotChanged, transferAttachedLabelsOnMerge } from './wire-labels.js';
+import { isWireItem as isWire, isNetItem as isNet, isNoConnectItem as isNoConnect } from '../../core/schematic-items.js';
 /** @typedef {import('./schematic-editor-api.js').SchematicEditor} SchematicEditor */
-/** @typedef {import('../../core/SchematicDocument.js').SchematicShape} Wire */
+/** @typedef {import('../../core/SchematicDocument.js').SchematicItem} SchematicItem */
+/** @typedef {import('../../shapes/wire.js').Wire} Wire */
+/** @typedef {import('../../shapes/net.js').Net} Net */
 /** @typedef {import('../../shapes/noconnect.js').NoConnect} NoConnect */
 /** @typedef {{x: number, y: number}} Point */
 /** @typedef {{state: object, signature?: string}} WireSnapshot */
@@ -42,7 +45,7 @@ export function collapseRedundantWirePoints(app, wire) {
 export function isTJunctionPoint(app, pt, ...excludeWires) {
     if (!app) return false;
     for (const s of app.shapes) {
-        if (s.type !== 'wire') continue;
+        if (!isWire(s)) continue;
         if (excludeWires.includes(s)) continue;
         if (s.nodeAt(pt, VERTEX_EPSILON)) return true;
     }
@@ -59,7 +62,7 @@ export function isTJunctionPoint(app, pt, ...excludeWires) {
  * @param {Wire|null|undefined} wire
  */
 export function refreshWireConnections(app, wire) {
-    if (!wire || wire.type !== 'wire' || wire.edges.size === 0) return;
+    if (!wire || wire.edges.size === 0) return;
     const tolerance = 0.1;
     const oldNet = wire.net;
     wire.pinConnections.clear();
@@ -72,10 +75,9 @@ export function refreshWireConnections(app, wire) {
                 pinNumber: nearPin.pin.number
             });
             // If connected to a Net label, propagate its name
-            const nearComponent = /** @type {import('../../core/SchematicDocument.js').SchematicShape} */ (nearPin.component);
-            if (nearComponent.type === 'net') {
+            if (nearPin.component.type === 'net' && 'net' in nearPin.component) {
                 hasNetLabel = true;
-                const netName = nearComponent.net;
+                const netName = nearPin.component.net;
                 if (netName && wire.net !== netName) {
                     const isDefault = wire.net?.startsWith('Net');
                     if (isDefault) {
@@ -116,7 +118,7 @@ function _isNetNameStillConnected(app, wire, netName) {
         if (!w) continue;
         for (const pos of w.nodes.values()) {
             for (const other of app.shapes) {
-                if (other.type !== 'wire' || visited.has(other)) continue;
+                if (!isWire(other) || visited.has(other)) continue;
                 if (other.nodeAt(pos, VERTEX_EPSILON)) {
                     visited.add(other);
                     queue.push(other);
@@ -126,7 +128,7 @@ function _isNetNameStillConnected(app, wire, netName) {
     }
     // Check if any Net label with this name touches any wire in the network
     for (const shape of app.shapes) {
-        if (shape.type !== 'net' || shape.net !== netName) continue;
+        if (!isNet(shape) || shape.net !== netName) continue;
         for (const w of visited) {
             if (w.nodeAt({ x: shape.x, y: shape.y }, VERTEX_EPSILON)) return true;
         }
@@ -138,16 +140,16 @@ function _isNetNameStillConnected(app, wire, netName) {
  * Refresh a noconnect's pin connection by checking whether its position
  * coincides with a component pin.  Call after dragging a noconnect.
  * @param {SchematicEditor} app
- * @param {NoConnect|import('../../core/SchematicDocument.js').SchematicShape|null|undefined} nc
+ * @param {NoConnect|SchematicItem|null|undefined} nc
  */
 export function refreshNoConnectConnection(app, nc) {
-    if (!nc || nc.type !== 'noconnect') return;
+    if (!isNoConnect(nc)) return;
     const tolerance = 0.1;
     const nearPin = findNearbyPin(app.components, { x: nc.x, y: nc.y }, tolerance);
     if (nearPin) {
         nc.pinConnection = {
             componentId: nearPin.component.id,
-            pinNumber: nearPin.pin.number
+            pinNumber: /** @type {string|number} */ (nearPin.pin.number)
         };
     } else {
         nc.pinConnection = null;
@@ -276,7 +278,7 @@ export function reconcileWires(app, changedWires, skipSet = null) {
     const affected = new Set(changed);
     for (const cw of changed) {
         for (const other of app.shapes) {
-            if (other.type !== 'wire' || affected.has(other)) continue;
+            if (!isWire(other) || affected.has(other)) continue;
             if (skipSet && skipSet.has(other)) continue;
             // Forward: changed wire's nodes near other wire's edges
             let found = false;
@@ -406,7 +408,7 @@ export function buildWireDiffBatch(app, beforeStates, label, extraAdds = [], lab
     // New wires (from splits) — not in beforeStates
     const extraSet = new Set(extraAdds);
     for (const s of [...app.shapes]) {
-        if (s.type === 'wire' && !beforeStates.has(s) && !extraSet.has(s)) {
+        if (isWire(s) && !beforeStates.has(s) && !extraSet.has(s)) {
             batch.add(new AddShapeCommand(app, s));
             anyChanges = true;
         }
@@ -445,7 +447,7 @@ export function buildWireDiffBatch(app, beforeStates, label, extraAdds = [], lab
  */
 export function reconcileWiresWithUndo(app, changedWires, skipSet = null) {
     // Snapshot all wires BEFORE
-    const allWires = app.shapes.filter(s => s.type === 'wire');
+    const allWires = app.shapes.filter(isWire);
     const beforeStates = new Map(allWires.map(w => [w, captureShapeSnapshot(w)]));
 
     // Snapshot all wire label texts BEFORE

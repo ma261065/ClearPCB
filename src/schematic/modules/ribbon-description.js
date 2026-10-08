@@ -10,10 +10,10 @@ import { getPaperSize, isPaperSizeKey } from './paper.js';
 /** @typedef {import('./schematic-editor-api.js').SchematicEditor} SchematicEditor */
 /** @typedef {import('../../shapes/net.js').NetStyle} NetStyle */
 /** @typedef {import('../../shapes/net.js').NetOrientation} NetOrientation */
-/** @typedef {{value: string|number, label: string, [key: string]: any}} GridOption */
+/** @typedef {{value: string|number, label: string, [key: string]: unknown}} GridOption */
 /** @typedef {import('../../ui/SchematicApp.js').SchematicToolOptions & {netPresetText?: string|null}} ToolOptions */
 /** @typedef {string|number|boolean|null|undefined|RibbonNode|Array<any>|(() => any)} RibbonContent */
-/** @typedef {{kind: string, [key: string]: any}} RibbonNode */
+/** @typedef {{kind: string, [key: string]: unknown}} RibbonNode */
 
 /** @param {string} tag @param {Record<string, any>} [props] @param {RibbonContent} [children] @returns {RibbonNode} */
 const E = (tag, props = {}, children = undefined) => ({ kind: 'element', tag, ...props, children });

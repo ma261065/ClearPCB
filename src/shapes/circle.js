@@ -15,6 +15,9 @@ const _r4 = v => Math.round(v * 10000) / 10000;
 /** @typedef {ReturnType<Shape['toJSON']> & {x: number, y: number, r: number, f?: true, fa?: number}} CircleJSON */
 
 export class Circle extends Shape {
+    /** @type {'circle'} */
+    type;
+
     /**
      * @param {Object} [options]
         * @param {string|number} [options.color] - Stroke colour.
@@ -46,6 +49,8 @@ export class Circle extends Shape {
         this.fillAlpha = ShapeValidator.validateNumber(options.fillAlpha ?? 0.3, {
             min: 0, max: 1, default: 0.3, name: 'fillAlpha'
         });
+        /** @type {Set<import('./text.js').Text>|null|undefined} Labels attached to this circle. */
+        this.attachedLabels = null;
     }
     
     get diameter() { return this.radius * 2; }

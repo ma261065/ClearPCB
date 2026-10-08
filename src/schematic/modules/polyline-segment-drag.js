@@ -11,7 +11,7 @@ import { getSchematicDrag, setSchematicDrag } from './drag.js';
 
 /**
  * @param {SchematicEditor} app
- * @param {import('../../core/SchematicDocument.js').SchematicShape|null|undefined} shape
+ * @param {import('../../core/SchematicDocument.js').SchematicItem|null|undefined} shape
  * @param {Point} worldPos
  * @param {boolean} allowSegment
  * @param {number} tolerance

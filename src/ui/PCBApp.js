@@ -623,7 +623,7 @@ export default class PCBApp {
     /**
      * The layer and overlay groups created so far, by id (read-only; use getLayerGroup
      * to create one). Lets modules inspect a layer without creating it.
-     * @returns {ReadonlyMap<string, SVGGElement>}
+     * @returns {Map<string, SVGGElement>}
      */
     existingLayerGroups() {
         return this._layerGroups;
@@ -931,7 +931,7 @@ export default class PCBApp {
         refreshPcbText(this, id);
     }
 
-    /** @param {object|null} text */
+    /** @param {PcbText|null} text */
     selectText(text) {
         selectPcbText(this, text);
     }
@@ -1016,7 +1016,7 @@ export default class PCBApp {
         return bindStrokeTextProps(this, model, spec);
     }
 
-    /** @param {string|null} compId */
+    /** @param {string|null|undefined} compId */
     showRefProperties(compId) {
         if (!compId) return false;
         return getComponentProperties(this).showReference(compId);

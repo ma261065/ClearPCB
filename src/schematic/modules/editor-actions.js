@@ -7,9 +7,12 @@ import {
 } from './schematic-interaction-routing.js';
 import { isSchematicLocked } from '../../shapes/lock-owner.js';
 import { flushSettledChanges } from '../../shared/ui/settled-input.js';
+import { isTextItem as isTextShape } from '../../core/schematic-items.js';
 /** @typedef {import('./schematic-editor-api.js').SchematicEditor} SchematicEditor */
 /** @typedef {import('../../components/Component.js').Component} Component */
-/** @typedef {import('../../core/SchematicDocument.js').SchematicShape} SchematicShape */
+/** @typedef {import('../../core/SchematicDocument.js').SchematicItem} SchematicItem */
+/** @typedef {import('../../core/SchematicDocument.js').SchematicDrawable} SchematicDrawable */
+/** @typedef {import('../../shapes/text.js').Text} Text */
 /** @typedef {'undo'|'redo'} HistoryAction */
 
 /**
@@ -123,27 +126,28 @@ export function runSchematicDeleteAction(app) {
     const shapeSet = new Set(app.shapes);
     const compSet = new Set(app.components);
     const deleteSet = new Set(toDelete);
-    /** @type {SchematicShape[]} */
+    /** @type {SchematicDrawable[]} */
     const shapesToDelete = [];
     /** @type {Component[]} */
     const componentsToDelete = [];
     const showFlagCommands = [];
 
     for (const item of toDelete) {
-        if (shapeSet.has(item)) {
-            if (item.parentComponent && item.fieldKey && item.fieldKey !== 'label') {
-                const parentComponent = /** @type {SchematicShape} */ (item.parentComponent);
+        if (shapeSet.has(/** @type {SchematicDrawable} */ (item))) {
+            const shape = /** @type {SchematicDrawable} */ (item);
+            if (isTextShape(shape) && shape.parentComponent && shape.fieldKey && shape.fieldKey !== 'label') {
+                const parentComponent = shape.parentComponent;
                 // Skip show-flag toggle if parent is also being deleted
-                if (!deleteSet.has(parentComponent)) {
-                    if (item.fieldKey === 'wireLabel' && parentComponent.type === 'wire') {
+                if (!deleteSet.has(/** @type {SchematicItem} */ (parentComponent))) {
+                    if (shape.fieldKey === 'wireLabel' && parentComponent.type === 'wire') {
                         // Wire label: hide by setting visible = false on the text shape
-                        if (item.visible) {
+                        if (shape.visible) {
                             showFlagCommands.push(new ModifyPropertyCommand(
-                                app, [item], 'visible', false));
+                                app, [shape], 'visible', false));
                         }
                     } else {
-                        const showKey = item.fieldKey === 'reference' ? 'showReference' : 'showValue';
-                        if (parentComponent[showKey]) {
+                        const showKey = shape.fieldKey === 'reference' ? 'showReference' : 'showValue';
+                        if (parentComponent.type === 'component' && parentComponent[showKey]) {
                             showFlagCommands.push(new ModifyPropertyCommand(
                                 app, [/** @type {Component} */ (parentComponent)], showKey, false));
                         }
@@ -151,7 +155,7 @@ export function runSchematicDeleteAction(app) {
                 }
                 continue;
             }
-            shapesToDelete.push(item);
+            shapesToDelete.push(shape);
         } else if (compSet.has(/** @type {Component} */ (item))) {
             componentsToDelete.push(/** @type {Component} */ (item));
         }

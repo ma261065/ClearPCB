@@ -1,9 +1,10 @@
 import { findNearbyWirePoint } from './wire-snap.js';
 import { VERTEX_EPSILON } from './wire.js';
+import { isWireItem as isWireShape, isNetItem as isNetShape } from '../../core/schematic-items.js';
 /** @typedef {import('./schematic-editor-api.js').SchematicEditor} SchematicEditor */
-/** @typedef {import('../../core/SchematicDocument.js').SchematicShape} Wire */
+/** @typedef {import('../../shapes/wire.js').Wire} Wire */
+/** @typedef {import('../../shapes/net.js').Net} Net */
 /** @typedef {{x: number, y: number}} Point */
-
 /** @param {string|null|undefined} name */
 function normalizeNetName(name) {
     return String(name || '').trim().toUpperCase();
@@ -33,7 +34,7 @@ function getConnectedWires(app, seedWire) {
         const wire = /** @type {Wire} */ (queue.shift());
         for (const pos of wire.nodes.values()) {
             for (const other of app.shapes) {
-                if (other.type !== 'wire' || visited.has(other)) continue;
+                if (!isWireShape(other) || visited.has(other)) continue;
                 if (other.nodeAt(pos, VERTEX_EPSILON)) {
                     visited.add(other);
                     queue.push(other);
@@ -65,7 +66,7 @@ export function validateNetNameAtPoint(app, point, proposedName, excludeNetId = 
     const existingNames = new Set();
 
     for (const shape of app.shapes) {
-        if (shape.type !== 'net') continue;
+        if (!isNetShape(shape)) continue;
         if (excludeNetId && shape.id === excludeNetId) continue;
 
         const otherWire = getAttachedWire(app, { x: shape.x, y: shape.y });

@@ -1,3 +1,4 @@
+import { isNetItem as isNetShape } from '../../core/schematic-items.js';
 import {
     buildNetGroundBarsPath,
     buildNetSymbolPath,
@@ -8,8 +9,9 @@ import {
 /** @typedef {import('./schematic-editor-api.js').SchematicEditor} SchematicEditor */
 /** @typedef {import('../../shapes/net.js').NetStyle} NetStyle */
 /** @typedef {import('../../shapes/net.js').NetOrientation} NetOrientation */
+/** @typedef {import('../../shapes/net.js').Net} NetShape */
 /** @typedef {{x: number, y: number}} Point */
-/** @typedef {{netStyle?: string, netOrientation?: string, netPresetText?: string|null, netFontSize?: number, [key: string]: any}} ToolOptions */
+/** @typedef {{netStyle?: string, netOrientation?: string, netPresetText?: string|null, netFontSize?: number, [key: string]: unknown}} ToolOptions */
 /** @typedef {SVGGElement & {__ghostType?: string, __ghostTextEl?: SVGTextElement, __ghostPathEl?: SVGPathElement, __ghostDetailPathEl?: SVGPathElement}} ToolGhost */
 
 /** Half-size of the NoConnect X mark in mm (mirrors noconnect.js NC_HALF). */
@@ -34,8 +36,10 @@ function setToolGhost(app, ghost) {
 function nextNetName(app) {
     const used = new Set();
     for (const shape of app.shapes) {
-        if (shape?.type !== 'net' || typeof shape.net !== 'string') continue;
-        const m = shape.net.trim().match(/^NET(\d+)$/i);
+        if (!isNetShape(shape)) continue;
+        const netName = shape.net;
+        if (typeof netName !== 'string') continue;
+        const m = netName.trim().match(/^NET(\d+)$/i);
         if (m) used.add(Number(m[1]));
     }
     let i = 1;

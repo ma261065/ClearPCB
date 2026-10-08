@@ -123,6 +123,9 @@ export function updateComponentIdCounter(id) {
  * Component class - represents an electronic component instance on the schematic
  */
 export class Component {
+    /** @type {'component'} */
+    type;
+
     /**
      * Create a component instance.
      * @param {ComponentDefinition} definition - Component definition (symbol, name, defaults, etc.)
@@ -182,7 +185,7 @@ export class Component {
         /** @type {string|undefined} */
         this._worldBoundsSig = undefined;
 
-        /** @type {Set<any>|null} */
+        /** @type {Set<Text>|null|undefined} */
         this.attachedLabels = null;
         /** @type {boolean|undefined} */
         this._dirty;

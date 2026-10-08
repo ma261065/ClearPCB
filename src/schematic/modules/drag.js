@@ -25,18 +25,32 @@ import { setShapeNodeFocus, setShapeSegmentFocus } from './shape-focus.js';
 import { isSchematicLocked } from '../../shapes/lock-owner.js';
 import { getSchematicInteraction, setSchematicInteraction } from './schematic-interactions.js';
 import { setDidSchematicDrag } from './draw-states.js';
+import { isWireItem as isWire, isNetItem as isNet, isNoConnectItem as isNoConnect, isPolylineItem as isPolyline, isArcItem as isArc, isTextItem as isText, isComponentItem as isComponent } from '../../core/schematic-items.js';
 /** @typedef {import('./schematic-editor-api.js').SchematicEditor} SchematicEditor */
-/** @typedef {import('../../core/SchematicDocument.js').SchematicShape} SchematicShape */
-/** @typedef {import('../../shapes/shape.js').Shape} Shape */
-/** @typedef {SchematicShape} Wire */
-/** @typedef {SchematicShape} Net */
+/** @typedef {import('../../core/SchematicDocument.js').SchematicItem} SchematicItem */
+/** @typedef {import('../../core/SchematicDocument.js').SchematicDrawable} SchematicDrawable */
+/** @typedef {import('../../shapes/wire.js').Wire} Wire */
+/** @typedef {import('../../shapes/net.js').Net} Net */
+/** @typedef {import('../../shapes/polyline.js').Polyline} Polyline */
+/** @typedef {import('../../shapes/arc.js').Arc} Arc */
 /** @typedef {import('../../shapes/text.js').Text} Text */
-/** @typedef {SchematicShape} NoConnect */
+/** @typedef {import('../../shapes/noconnect.js').NoConnect} NoConnect */
+/** @typedef {import('../../components/Component.js').Component} Component */
 /** @typedef {import('../../core/CommandHistory.js').Command} Command */
 /** @typedef {{x: number, y: number}} Point */
 /** @typedef {import('./selection.js').ShapeState} ShapeState */
-/** @typedef {{shape: SchematicShape, anchorId: string}} ShapeJoinTarget */
+/** @typedef {{shape: SchematicDrawable, anchorId: string}} ShapeJoinTarget */
 /** @typedef {{nc: NoConnect, before: ShapeState}} NoConnectLink */
+
+/**
+ * @param {SchematicEditor} app
+ * @param {string} id
+ * @returns {Net|null}
+ */
+function findNetById(app, id) {
+    const shape = app.shapes.find(s => s.id === id);
+    return isNet(shape) ? shape : null;
+}
 
 /**
  * Compare two captured shape states for equality.
@@ -166,17 +180,18 @@ export function cancelPendingAnchorDrag(app) {
  * selection, the field and label texts that travel with it, and every wire (sticky
  * wires and junction propagation edit them). Cancelling restores these.
  * @param {SchematicEditor} app
- * @param {SchematicShape[]} selection
- * @returns {Map<SchematicShape, ShapeState>}
+ * @param {SchematicItem[]} selection
+ * @returns {Map<SchematicItem, ShapeState>}
  */
 export function captureMoveDragStates(app, selection) {
+    /** @type {Set<object>} */
     const moved = new Set(selection);
-    /** @type {Map<SchematicShape, ShapeState>} */
+    /** @type {Map<SchematicItem, ShapeState>} */
     const states = new Map();
     for (const item of selection) states.set(item, item.captureState());
     for (const shape of app.shapes) {
         if (states.has(shape)) continue;
-        if (shape.type === 'wire' || (shape.parentComponent && moved.has(shape.parentComponent))) {
+        if (isWire(shape) || (isText(shape) && shape.parentComponent && moved.has(shape.parentComponent))) {
             states.set(shape, shape.captureState());
         }
     }
@@ -192,7 +207,7 @@ function restoreMoveDragStates(app) {
     if (!states) return;
     for (const [entity, state] of states) {
         entity.applyState(state);
-        if (/** @type {any} */ (entity).definition) refreshComponentPose(entity);
+        if (isComponent(entity)) refreshComponentPose(entity);
     }
     getSchematicDrag(app).restoreStates = null;
 }
@@ -231,9 +246,8 @@ export function cancelSchematicShapeConversion(app) {
 function buildBeforeAllWireStates(app, preDragStates) {
     const beforeAll = new Map(preDragStates);
     for (const s of app.shapes) {
-        if (s.type === 'wire' && !beforeAll.has(s)) {
-            const wire = /** @type {Wire} */ (s);
-            beforeAll.set(wire, wire.captureState());
+        if (isWire(s) && !beforeAll.has(s)) {
+            beforeAll.set(s, s.captureState());
         }
     }
     return beforeAll;
@@ -309,7 +323,7 @@ function pushBatchIfNonEmpty(app, batch) {
  * Commit an anchor drag  wire merge, degenerate collapse, undo commands.
  *
  * @param {SchematicEditor} app
- * @param {SchematicShape} dragShape - The shape being dragged
+ * @param {SchematicDrawable} dragShape - The shape being dragged
  * @param {ShapeState} beforeState - Shape state snapshot from drag start
  * @param {Map<Wire, ShapeState>|null} [anchorWireStates] - T-junction linked wire before-states
  * @param {NoConnectLink[]|null} [ncLinks] - NoConnect shapes that moved with anchor
@@ -324,7 +338,7 @@ export function commitAnchorDrag(app, dragShape, beforeState, anchorWireStates =
         const { command } = getSchematicDrag(app).conversion;
         getSchematicDrag(app).conversion = null;
         command.undo();
-        const selectedShape = dragShape.type === 'arc' && Math.abs(dragShape.bulge) < BULGE_EPS
+        const selectedShape = isArc(dragShape) && Math.abs(dragShape.bulge) < BULGE_EPS
             ? appendArcToLineCommand(app, command, dragShape) : dragShape;
         app.history.execute(command);
         app.selection.select(selectedShape, false);
@@ -348,7 +362,7 @@ export function commitAnchorDrag(app, dragShape, beforeState, anchorWireStates =
         return true;
     }
 
-    if (dragShape.type === 'arc' && Math.abs(dragShape.bulge) < BULGE_EPS) {
+    if (isArc(dragShape) && Math.abs(dragShape.bulge) < BULGE_EPS) {
         const after = dragShape.captureState();
         dragShape.applyState(beforeState);
         const batch = new BatchCommand('Convert arc to line');
@@ -361,7 +375,7 @@ export function commitAnchorDrag(app, dragShape, beforeState, anchorWireStates =
         return true;
     }
 
-    if (dragShape.type === 'net') {
+    if (isNet(dragShape)) {
         const check = validateNetNameAtPoint(
             app,
             { x: dragShape.x, y: dragShape.y },
@@ -375,7 +389,7 @@ export function commitAnchorDrag(app, dragShape, beforeState, anchorWireStates =
         }
     }
 
-    if (dragShape.type === 'wire') {
+    if (isWire(dragShape)) {
         // Collapse redundant midpoints
         collapseRedundantWirePoints(app, dragShape);
         if (anchorWireStates) {
@@ -389,7 +403,7 @@ export function commitAnchorDrag(app, dragShape, beforeState, anchorWireStates =
             ? new Map(junctionBeforeWireStates)
             : (() => {
                 const m = new Map();
-                m.set(/** @type {Wire} */ (dragShape), beforeState);
+                m.set(dragShape, beforeState);
                 if (anchorWireStates) {
                     for (const [w, b] of anchorWireStates) m.set(w, b);
                 }
@@ -406,7 +420,7 @@ export function commitAnchorDrag(app, dragShape, beforeState, anchorWireStates =
 
         // Reconcile and build undo
         /** @type {Wire[]} */
-        const changedWires = [/** @type {Wire} */ (dragShape)];
+        const changedWires = [dragShape];
         if (anchorWireStates) {
             for (const wire of anchorWireStates.keys()) {
                 if (app.shapes.includes(wire)) changedWires.push(wire);
@@ -423,13 +437,13 @@ export function commitAnchorDrag(app, dragShape, beforeState, anchorWireStates =
         // Post-commit check: refresh all wire connections, then check if
         // any wire now has two or more Net shapes with different names.
         for (const w of app.shapes) {
-            if (w.type === 'wire') refreshWireConnections(app, w);
+            if (isWire(w)) refreshWireConnections(app, w);
         }
         for (const w of app.shapes) {
-            if (w.type !== 'wire') continue;
+            if (!isWire(w)) continue;
             const netNames = new Set();
             for (const [, conn] of w.pinConnections) {
-                const ns = app.shapes.find(s => s.id === conn.componentId && s.type === 'net');
+                const ns = findNetById(app, conn.componentId);
                 if (ns?.net) netNames.add(ns.net);
             }
             if (netNames.size > 1) {
@@ -457,10 +471,10 @@ export function commitAnchorDrag(app, dragShape, beforeState, anchorWireStates =
     const wasRemoved = !app.shapes.includes(dragShape);
     let degenerate = false;
     if (!wasRemoved) {
-        if (dragShape.nodes && dragShape.edges) {
+        if (isPolyline(dragShape)) {
             // Check if an open polyline's endpoints now coincide → close it
             // (must check BEFORE cleanGraph, which would merge the co-located nodes)
-            if (!dragShape.closed && !dragShape.type?.startsWith('wire')) {
+            if (!dragShape.closed) {
                 const leaves = dragShape.getLeafNodes();
                 if (leaves.length === 2) {
                     const p1 = dragShape.nodes.get(leaves[0]);
@@ -493,31 +507,23 @@ export function commitAnchorDrag(app, dragShape, beforeState, anchorWireStates =
                     dragShape.isRect = true;
                 }
             }
-        } else if (dragShape.points) {
-            const pts = dragShape.points;
-            if (pts.length >= 2) {
-                degenerate = pts.every(/** @param {Point} p */ p =>
-                    Math.abs(p.x - pts[0].x) < 1e-6 && Math.abs(p.y - pts[0].y) < 1e-6);
-            } else if (pts.length < 2) {
-                degenerate = true;
-            }
         }
     }
 
     if (wasRemoved || degenerate) {
         dragShape.applyState(beforeState);
         if (!app.shapes.includes(dragShape)) app.shapes.push(dragShape);
-        app.history.execute(new DeleteShapesCommand(app, [/** @type {Shape} */ (dragShape)]));
+        app.history.execute(new DeleteShapesCommand(app, [dragShape]));
     } else {
-        if (dragShape.type === 'noconnect') refreshNoConnectConnection(app, dragShape);
-        const afterState = captureShapeState(app, /** @type {Shape} */ (dragShape));
-        applyShapeState(app, /** @type {Shape} */ (dragShape), beforeState);
-        app.history.execute(new ModifyShapeCommand(app, /** @type {Shape} */ (dragShape), beforeState, afterState));
-        if (dragShape.type === 'net') {
+        if (isNoConnect(dragShape)) refreshNoConnectConnection(app, dragShape);
+        const afterState = captureShapeState(app, dragShape);
+        applyShapeState(app, dragShape, beforeState);
+        app.history.execute(new ModifyShapeCommand(app, dragShape, beforeState, afterState));
+        if (isNet(dragShape)) {
             // After the command has placed the net at its new position,
             // disconnect from old wire and reconnect at new position
-            disconnectNetFromWires(app, /** @type {Net} */ (dragShape));
-            connectNetToWires(app, /** @type {Net} */ (dragShape));
+            disconnectNetFromWires(app, dragShape);
+            connectNetToWires(app, dragShape);
         }
         app.selection.keepSelected(dragShape);
     }
@@ -535,7 +541,7 @@ export function commitAnchorDrag(app, dragShape, beforeState, anchorWireStates =
  * reuse it; this function only handles the schematic command/selection glue.
  *
  * @param {SchematicEditor} app
- * @param {SchematicShape} dragShape - The shape being dragged.
+ * @param {SchematicDrawable} dragShape - The shape being dragged.
  * @param {string} dragAnchorId - The dragged endpoint anchor.
  * @param {ShapeJoinTarget} joinTarget - The shape/anchor dropped onto.
  * @param {ShapeState} beforeState - Pre-drag captured state of dragShape.
@@ -550,7 +556,7 @@ export function commitShapeJoin(app, dragShape, dragAnchorId, joinTarget, before
 
     // Restore the dragged shape to its pre-drag geometry so that undo brings
     // back the two originals exactly as they were before the drag.
-    if (beforeState) applyShapeState(app, /** @type {Shape} */ (dragShape), beforeState);
+    if (beforeState) applyShapeState(app, dragShape, beforeState);
 
     const batch = new BatchCommand('Join shapes');
     const originals = joinTarget.shape === dragShape
@@ -571,7 +577,7 @@ export function commitShapeJoin(app, dragShape, dragAnchorId, joinTarget, before
  * Resolve anchor drag on mouseup: commit if moved, otherwise keep selected.
  *
  * @param {SchematicEditor} app
- * @param {SchematicShape} dragShape
+ * @param {SchematicDrawable} dragShape
  * @param {ShapeState} beforeState
  * @param {boolean} didDrag
  * @param {Map<Wire, ShapeState>|null} [anchorWireStates]
@@ -635,13 +641,13 @@ export function commitSegmentDrag(app, dragShape, wireStates, ncLinks = null, la
 
     // Post-commit check: net conflict
     for (const w of app.shapes) {
-        if (w.type === 'wire') refreshWireConnections(app, w);
+        if (isWire(w)) refreshWireConnections(app, w);
     }
     for (const w of app.shapes) {
-        if (w.type !== 'wire') continue;
+        if (!isWire(w)) continue;
         const netNames = new Set();
         for (const [, conn] of w.pinConnections) {
-            const ns = app.shapes.find(s => s.id === conn.componentId && s.type === 'net');
+            const ns = findNetById(app, conn.componentId);
             if (ns?.net) netNames.add(ns.net);
         }
         if (netNames.size > 1) {
@@ -654,7 +660,7 @@ export function commitSegmentDrag(app, dragShape, wireStates, ncLinks = null, la
             app.history.redoStack.pop();
 
             for (const rw of app.shapes) {
-                if (rw.type === 'wire') refreshWireConnections(app, rw);
+                if (isWire(rw)) refreshWireConnections(app, rw);
             }
 
             app.history._notifyChanged();
@@ -673,13 +679,13 @@ export function commitSegmentDrag(app, dragShape, wireStates, ncLinks = null, la
  * Revert temporary wire mutations when no drag movement occurred.
  *
  * @param {SchematicEditor} app
- * @param {Map<SchematicShape, ShapeState>|null} [wireStates] - Before-states to revert to
+ * @param {Map<SchematicItem, ShapeState>|null} [wireStates] - Before-states to revert to
  * @returns {boolean}
  */
 export function revertSegmentDragIfNoMove(app, wireStates) {
     if (!wireStates) return false;
     for (const [wire, state] of wireStates) {
-        applyShapeState(app, /** @type {Shape} */ (wire), state);
+        applyShapeState(app, wire, state);
     }
     return true;
 }
@@ -704,24 +710,24 @@ export function commitMoveDrag(app, totalDx, totalDy) {
     // Build moving component ID set
     const movingCompIds = new Set();
     for (const s of movedShapes) {
-        if (s.definition) movingCompIds.add(s.id);
-        if (s.type === 'wire') movingCompIds.add(s.id);
+        if (isComponent(s)) movingCompIds.add(s.id);
+        if (isWire(s)) movingCompIds.add(s.id);
     }
 
     const itemsForCommand = movedShapes.filter(s =>
-        !(s.parentComponent && movingCompIds.has(s.parentComponent.id)));
+        !(isText(s) && s.parentComponent && movingCompIds.has(s.parentComponent.id)));
 
     // Revert movement so execute() can re-apply it
     for (const shape of itemsForCommand) {
         shape.move(-totalDx, -totalDy);
-        if (shape.definition) refreshComponentPose(shape);
+        if (isComponent(shape)) refreshComponentPose(shape);
     }
 
     const command = new MoveShapesCommand(app, itemsForCommand, totalDx, totalDy);
     app.history.execute(command);
 
     // Post-move: reconcile wire overlaps
-    const movedWires = /** @type {Wire[]} */ (movedShapes.filter(s => s.type === 'wire' && app.shapes.includes(s)));
+    const movedWires = movedShapes.filter(isWire).filter(w => app.shapes.includes(w));
     if (movedWires.length > 0) {
         const reconcileBatch = reconcileWiresWithUndo(app, movedWires);
         if (reconcileBatch) {
@@ -735,16 +741,16 @@ export function commitMoveDrag(app, totalDx, totalDy) {
     }
 
     // Post-move: refresh NoConnect connections
-    const movedNCs = movedShapes.filter(s => s.type === 'noconnect');
+    const movedNCs = movedShapes.filter(isNoConnect);
     if (movedNCs.length > 0) {
         const ncCmds = [];
         for (const nc of movedNCs) {
-            const beforeNC = captureShapeState(app, /** @type {Shape} */ (nc));
+            const beforeNC = captureShapeState(app, nc);
             refreshNoConnectConnection(app, nc);
-            const afterNC = captureShapeState(app, /** @type {Shape} */ (nc));
+            const afterNC = captureShapeState(app, nc);
             if (!areCapturedStatesEqual(beforeNC, afterNC)) {
-                /** @type {Shape} */ (nc).applyState(beforeNC);
-                ncCmds.push(new ModifyShapeCommand(app, /** @type {Shape} */ (nc), beforeNC, afterNC));
+                nc.applyState(beforeNC);
+                ncCmds.push(new ModifyShapeCommand(app, nc, beforeNC, afterNC));
             }
         }
         if (ncCmds.length > 0) {
@@ -762,31 +768,31 @@ export function commitMoveDrag(app, totalDx, totalDy) {
     // restore any split-edge/pinConnection mutations from reconnect logic.
     const wireStatesBefore = new Map();
     for (const w of app.shapes) {
-        if (w.type === 'wire') wireStatesBefore.set(w.id, w.captureState());
+        if (isWire(w)) wireStatesBefore.set(w.id, w.captureState());
     }
 
     // Post-move: reconnect moved Net shapes to wires at new positions
-    const movedNets = movedShapes.filter(s => s.type === 'net');
+    const movedNets = movedShapes.filter(isNet);
     for (const netShape of movedNets) {
-        disconnectNetFromWires(app, /** @type {Net} */ (netShape));
-        connectNetToWires(app, /** @type {Net} */ (netShape));
+        disconnectNetFromWires(app, netShape);
+        connectNetToWires(app, netShape);
     }
 
     // Post-move: like Net labels, if a moved component pin lands on a wire
     // segment interior, split the edge so the pin can connect at that point.
-    const movedComponents = movedShapes.filter(s => s.definition && s.symbol?.pins);
+    const movedComponents = movedShapes.filter(isComponent).filter(comp => comp.symbol?.pins);
     for (const comp of movedComponents) {
         connectComponentPinsToWires(app, comp);
     }
 
     // Post-move: refresh wire connections and capture state changes for undo
     for (const w of app.shapes) {
-        if (w.type === 'wire') refreshWireConnections(app, w);
+        if (isWire(w)) refreshWireConnections(app, w);
     }
     // Add wire state changes to the undo batch
     const wireModCmds = [];
     for (const w of app.shapes) {
-        if (w.type !== 'wire') continue;
+        if (!isWire(w)) continue;
         const before = wireStatesBefore.get(w.id);
         if (!before) continue;
         const after = w.captureState();
@@ -807,10 +813,10 @@ export function commitMoveDrag(app, totalDx, totalDy) {
 
     // Post-move: check for net conflicts
     for (const w of app.shapes) {
-        if (w.type !== 'wire') continue;
+        if (!isWire(w)) continue;
         const netNames = new Set();
         for (const [, conn] of w.pinConnections) {
-            const ns = app.shapes.find(s => s.id === conn.componentId && s.type === 'net');
+            const ns = findNetById(app, conn.componentId);
             if (ns?.net) netNames.add(ns.net);
         }
         if (netNames.size > 1) {

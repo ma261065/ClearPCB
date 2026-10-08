@@ -55,7 +55,7 @@ const box = position => ({
 
 assert.equal(lockNoun(new Polyline({ points: [{ x: 0, y: 0 }, { x: 1, y: 0 }, { x: 1, y: 1 }, { x: 0, y: 1 }], closed: true, isRect: true })), 'rectangle');
 assert.equal(lockNoun(new Wire({ points: [{ x: 0, y: 0 }, { x: 1, y: 0 }] })), 'wire');
-assert.equal(lockNoun({ definition: {} }), 'component');
+assert.equal(lockNoun({ type: 'component', definition: {} }), 'component');
 assert.equal(lockNoun({ type: 'net' }), 'net label');
 
 // Owned field texts follow their owner's lock, as a PCB reference designator follows its
@@ -63,7 +63,7 @@ assert.equal(lockNoun({ type: 'net' }), 'net label');
 {
     const { Text } = await import('../../src/shapes/text.js');
     const { lockOwner, isSchematicLocked, hasOwnLock } = await import('../../src/shapes/lock-owner.js');
-    const component = { definition: {}, locked: false };
+    const component = { type: 'component', definition: {}, locked: false };
     const reference = new Text({ x: 0, y: 0, text: 'R1' });
     reference.parentComponent = component;
     reference.fieldKey = 'reference';

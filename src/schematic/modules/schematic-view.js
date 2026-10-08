@@ -30,9 +30,11 @@ import {
 } from '../render/component-renderer.js';
 import { getShapeNodeFocus, getShapeSegmentFocus, setShapeSegmentFocus } from './shape-focus.js';
 /** @typedef {import('./schematic-editor-api.js').SchematicEditor} SchematicEditor */
-/** @typedef {import('../../core/SchematicDocument.js').SchematicShape} SchematicShape */
+/** @typedef {import('../../core/SchematicDocument.js').SchematicItem} SchematicItem */
+/** @typedef {import('../../core/SchematicDocument.js').SchematicDrawable} SchematicDrawable */
+/** @typedef {import('../../shapes/polyline-graph.js').PolylineGraph} PolylineGraph */
 /** @typedef {import('../../shapes/selection-view.js').SelectionView} SelectionView */
-/** @typedef {{data: object, shapes: Array<{shape: SchematicShape}>, components: Component[]}} PreparedDocumentView */
+/** @typedef {{data: object, shapes: Array<{shape: SchematicDrawable}>, components: Component[]}} PreparedDocumentView */
 
 /** Shape types that render above wires (re-appended at end of each render cycle). */
 const OVERLAY_TYPES = new Set(['noconnect', 'net']);
@@ -60,7 +62,7 @@ export function selectionView(app) {
  * hover or ownership tint changed for redraw. Component highlights update at
  * once, because selection changes are not always followed by a render pass.
  * @param {SchematicEditor} app
- * @param {SchematicShape} entity
+ * @param {SchematicItem} entity
  */
 export function refreshSelectionVisual(app, entity) {
     entity.invalidate();
@@ -70,7 +72,7 @@ export function refreshSelectionVisual(app, entity) {
 /**
  * Draw a shape and attach it to the content layer.
  * @param {SchematicEditor} app
- * @param {SchematicShape} shape
+ * @param {SchematicDrawable} shape
  */
 export function mountShape(app, shape) {
     const element = renderShape(shape, app.viewport.scale, { selection: selectionView(app) });
@@ -80,14 +82,14 @@ export function mountShape(app, shape) {
 /**
  * Mount a shape unless its SVG is already attached.
  * @param {SchematicEditor} app
- * @param {SchematicShape} shape
+ * @param {SchematicDrawable} shape
  */
 export function ensureShapeMounted(app, shape) {
     if (!viewOf(shape)?.element?.parentNode) mountShape(app, shape);
 }
 
 /** Detach a shape's SVG and anchor handles, keeping them for a later mount. */
-/** @param {SchematicShape} shape */
+/** @param {SchematicDrawable} shape */
 export function unmountShape(shape) {
     const view = viewOf(shape);
     if (view?.element?.parentNode) view.element.parentNode.removeChild(view.element);
@@ -97,7 +99,7 @@ export function unmountShape(shape) {
 /**
  * Redraw a mounted shape now (outside the batched renderShapes pass).
  * @param {SchematicEditor} app
- * @param {SchematicShape} shape
+ * @param {SchematicDrawable} shape
  */
 export function redrawShape(app, shape) {
     renderShape(shape, app.viewport.scale, { selection: selectionView(app) });
@@ -106,7 +108,7 @@ export function redrawShape(app, shape) {
 /**
  * Build a component symbol if needed and attach it to the component layer.
  * @param {SchematicEditor} app
- * @param {Component|SchematicShape} component
+ * @param {Component} component
  */
 export function mountComponent(app, component) {
     let element = componentViewOf(component)?.element;
@@ -124,7 +126,7 @@ export function unmountComponent(component) {
 /**
  * Rebuild a component symbol from scratch (theme colours changed).
  * @param {SchematicEditor} app
- * @param {Component|SchematicShape} component
+ * @param {Component} component
  */
 export function rebuildComponentSymbol(app, component) {
     componentViewOf(component)?.element?.remove();
@@ -134,7 +136,7 @@ export function rebuildComponentSymbol(app, component) {
 /**
  * Bring a component symbol up to date after its pose changed. Rotation and
  * mirroring are baked into the symbol, so `rebuild` recreates it first.
- * @param {Component|SchematicShape} component
+ * @param {Component} component
  * @param {{rebuild?: boolean}} [options]
  */
 export function refreshComponentPose(component, { rebuild = false } = {}) {
@@ -149,7 +151,7 @@ export function refreshComponentPose(component, { rebuild = false } = {}) {
 /**
  * Detach and release a shape's SVG for good (document cleared).
  * @param {SchematicEditor} app
- * @param {SchematicShape} shape
+ * @param {SchematicDrawable} shape
  */
 export function discardShapeView(app, shape) {
     const view = viewOf(shape);
@@ -209,7 +211,7 @@ export function withContentDetached(app, work) {
 }
 
 /** An entity's live SVG (read-only use, e.g. measuring text for inline edit), or null. */
-/** @param {SchematicShape|null|undefined} entity */
+/** @param {SchematicItem|null|undefined} entity */
 export function viewElementOf(entity) {
     if (!entity) return null;
     if (entity instanceof Component) return componentViewOf(entity)?.element || null;
@@ -217,7 +219,7 @@ export function viewElementOf(entity) {
 }
 
 /** Copy of an entity's current SVG (paste ghost), or null when it has none. */
-/** @param {SchematicShape|null|undefined} entity */
+/** @param {SchematicItem|null|undefined} entity */
 export function cloneEntityElement(entity) {
     const element = viewElementOf(entity);
     return element ? element.cloneNode(true) : null;
@@ -232,14 +234,14 @@ export function componentPreviewElement(component) {
 /**
  * Free-standing shape SVG for a paste preview.
  * @param {SchematicEditor} app
- * @param {SchematicShape} shape
+ * @param {SchematicDrawable} shape
  */
 export function shapePreviewElement(app, shape) {
     return renderShape(shape, app.viewport.scale);
 }
 
 /** Whether viewport culling has hidden this entity. */
-/** @param {SchematicShape} entity */
+/** @param {SchematicItem} entity */
 export function isCulled(entity) {
     return entity instanceof Component ? isComponentCulled(entity) : isShapeCulled(entity);
 }
@@ -308,7 +310,7 @@ export function renderShapes(app, force = false) {
             const shapeView = viewOf(shape);
             if (shapeView?.lastScale !== scale && shapeView?.element) {
                 // Only stroke-width changed on zoom or force — fast-path update
-                const sw = effectiveStrokeWidth(shape, scale);
+                const sw = effectiveStrokeWidth(/** @type {import('../../shapes/shape.js').Shape} */ (shape), scale);
                 if (sw > 0) shapeView.element.setAttribute('stroke-width', String(sw));
                 shapeView.lastScale = scale;
             }
@@ -357,26 +359,28 @@ export function renderShapeSegmentSelection(app) {
     const selected = getShapeSegmentFocus(app);
     const shape = selected ? app.shapes.find((candidate) => candidate.id === selected.shapeId) : null;
     if (!shape || !selectionView(app).isSelected(shape) || shape.type !== 'polyline') return;
-    const edge = shape.edges?.get(selected.edgeId);
-    const first = edge ? shape.nodes?.get(edge.from) : null;
-    const second = edge ? shape.nodes?.get(edge.to) : null;
+    const polyline = /** @type {PolylineGraph} */ (shape);
+    const edge = polyline.edges.get(selected.edgeId);
+    const first = edge ? polyline.nodes.get(edge.from) : null;
+    const second = edge ? polyline.nodes.get(edge.to) : null;
     if (!first || !second) return;
     const NS = 'http://www.w3.org/2000/svg';
-    const bulge = shape.getEdgeAttr?.(selected.edgeId, 'bulge') || 0;
-    const straight = bulge ? null : shape.getStraightEdgePortion(selected.edgeId);
+    const bulge = polyline.getEdgeAttr(selected.edgeId, 'bulge') || 0;
+    const straight = bulge ? null : polyline.getStraightEdgePortion(selected.edgeId);
     if (!bulge && !straight) return;
     const element = document.createElementNS(NS, bulge ? 'path' : 'line');
     if (bulge) {
         element.setAttribute('d', arcEdgePathD(first, second, bulge));
         element.setAttribute('fill', 'none');
     } else {
+        if (!straight) return;
         element.setAttribute('x1', String(straight.first.x));
         element.setAttribute('y1', String(straight.first.y));
         element.setAttribute('x2', String(straight.second.x));
         element.setAttribute('y2', String(straight.second.y));
     }
     element.setAttribute('class', 'schematic-shape-segment-selection');
-    const width = Math.max(Number(shape.getEdgeAttr(selected.edgeId, 'width')) || shape.lineWidth,
+    const width = Math.max(Number(polyline.getEdgeAttr(selected.edgeId, 'width')) || polyline.lineWidth,
         1 / app.viewport.scale);
     const overlay = app.viewport.contentLayer;
     const anchorsGroup = viewOf(shape)?.anchorsGroup;

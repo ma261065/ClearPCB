@@ -17,23 +17,26 @@ import { applyShapeState, captureShapeState } from './selection.js';
 import { isSchematicLocked } from '../../shapes/lock-owner.js';
 import { hasSchematicTextEdit } from './text-edit.js';
 import { DRAG_THRESHOLD_PX, getDidSchematicDrag, resolveState, STATE_TABLE } from './draw-states.js';
+import { isWireItem as isWireShape, isNoConnectItem as isNoConnectShape, isComponentItem as isComponentShape } from '../../core/schematic-items.js';
 /** @typedef {import('./schematic-editor-api.js').SchematicEditor} SchematicEditor */
-/** @typedef {import('../../core/SchematicDocument.js').SchematicShape} SchematicShape */
-/** @typedef {SchematicShape} ShapeModel */
-/** @typedef {SchematicShape} WireShape */
+/** @typedef {import('../../core/SchematicDocument.js').SchematicItem} SchematicItem */
+/** @typedef {SchematicItem} ShapeModel */
+/** @typedef {import('../../shapes/wire.js').Wire} WireShape */
+/** @typedef {import('../../shapes/noconnect.js').NoConnect} NoConnect */
+/** @typedef {import('../../components/Component.js').Component} Component */
 /** @typedef {{x: number, y: number}} Point */
-/** @typedef {ReturnType<SchematicShape['captureState']>} ShapeState */
+/** @typedef {ReturnType<SchematicItem['captureState']>} ShapeState */
 /** @typedef {import('./draw-states.js').InteractionState} InteractionState */
 /** @typedef {Record<string, any>} Guide */
-/** @typedef {{shape: SchematicShape, anchorId: string, screenPos: Point, snapped: Point, preInsertState?: ShapeState}} PendingAnchorDragParams */
-/** @typedef {{shape: SchematicShape, anchorId: string, startSnapped: Point, screenPos: Point, preInsertState?: ShapeState}} AnchorDragSessionParams */
+/** @typedef {{shape: SchematicItem, anchorId: string, screenPos: Point, snapped: Point, preInsertState?: ShapeState}} PendingAnchorDragParams */
+/** @typedef {{shape: SchematicItem, anchorId: string, startSnapped: Point, screenPos: Point, preInsertState?: ShapeState}} AnchorDragSessionParams */
 /** @typedef {{shape: WireShape, dragEdgeId: string, worldPos: Point, beforeState: ShapeState}} SegmentDragSessionParams */
-/** @typedef {{edge: {from: string, to: string}, edgeId?: string, otherNode: string, otherPos?: Point, isPinToPin?: boolean}} IncidentEntry */
+/** @typedef {{wire: WireShape, nodeId: string, edge: {from: string, to: string}, pinPos: Point, otherNode: string, otherPos: Point, isPinToPin?: boolean}} IncidentEntry */
 /** @typedef {{wire: WireShape, nodeId: string, edge: {from: string, to: string}, pinPos: Point, axis: 'x'|'y', sign: number, isPinToPin?: boolean}} StaggerEntry */
 
 /**
  * Reusable buffers for drag updates, per editor, so pointer moves allocate nothing.
- * @type {WeakMap<SchematicEditor, {propagateNonSelectedWires: SchematicShape[], segmentDragGuides: Guide[], moveDragSnappedTarget: Point}>}
+ * @type {WeakMap<SchematicEditor, {propagateNonSelectedWires: WireShape[], segmentDragGuides: Guide[], moveDragSnappedTarget: Point}>}
  */
 const dragScratch = new WeakMap();
 
@@ -66,7 +69,7 @@ export function getMoveDragSnappedTarget(app) {
 /**
  * The selected items a move drag carries: locked ones stay where they are.
  * @param {SchematicEditor} app
- * @returns {SchematicShape[]}
+ * @returns {SchematicItem[]}
  */
 export function movableSelection(app) {
     return app.selection.getSelection().filter(item => !isSchematicLocked(item));
@@ -89,14 +92,14 @@ export function beginSelectionMove(app, worldPos, snapped) {
 }
 
 /**
- * @param {SchematicShape[]} selection
+ * @param {SchematicItem[]} selection
  * @returns {Set<string>}
  */
 export function collectMovingComponentIds(selection) {
     const movingCompIds = new Set();
     for (const shape of selection) {
-        if (shape.definition) movingCompIds.add(shape.id);
-        if (shape.type === 'wire') movingCompIds.add(shape.id);
+        if (isComponentShape(shape)) movingCompIds.add(shape.id);
+        if (isWireShape(shape)) movingCompIds.add(shape.id);
         if (shape.type === 'net') movingCompIds.add(shape.id);
     }
     return movingCompIds;
@@ -150,13 +153,13 @@ function getDraggedSegmentEndpointNodeIds(wire, dragEdgeId, reuseSet) {
 }
 
 /**
- * @param {SchematicShape} shape
+ * @param {SchematicItem} shape
  * @param {string} anchorId
  * @returns {boolean}
  */
 export function canQueueMidpointAnchorDrag(shape, anchorId) {
     if (!anchorId?.startsWith('mid')) return false;
-    return shape.type === 'line' || shape.type === 'polygon' || shape.type === 'wire';
+    return shape.type === 'polyline' || shape.type === 'wire';
 }
 
 /**
@@ -290,13 +293,14 @@ function bridgeStickyPinNodes(app, movingCompIds) {
     };
 
     for (const wire of app.shapes) {
-        if (wire.type !== 'wire') continue;
+        if (!isWireShape(wire)) continue;
         // Bridge component pin connections
         for (const [nodeId, conn] of wire.pinConnections) {
             if (!movingCompIds.has(conn.componentId)) continue;
             const pinPos = wire.nodes.get(nodeId);
             if (!pinPos) continue;
 
+            /** @type {IncidentEntry[]} */
             const incidentEntries = [];
             for (const { edge: e, otherNode } of [...wire.incidentEdges(nodeId)]) {
                 let otherIsPin = false;
@@ -468,10 +472,10 @@ export function promotePendingAnchorDragSession(app, screenPos, midpointPickup =
 
     getSchematicDrag(app).tjLinks = [];
     getSchematicDrag(app).wireStates = new Map();
-    if (shape.type === 'wire' && shape.nodes.has(anchorId)) {
+    if (isWireShape(shape) && shape.nodes.has(anchorId)) {
         const pos = shape.nodes.get(anchorId);
         for (const other of app.shapes) {
-            if (other === shape || other.type !== 'wire') continue;
+            if (other === shape || !isWireShape(other)) continue;
             const otherNid = other.nodeAt(pos, VERTEX_EPSILON);
             if (otherNid) {
                 getSchematicDrag(app).tjLinks.push({ otherWire: other, otherNodeId: otherNid });
@@ -482,18 +486,19 @@ export function promotePendingAnchorDragSession(app, screenPos, midpointPickup =
     }
 
     getSchematicDrag(app).ncLinks = [];
-    if (shape.type === 'wire' && shape.nodes.has(anchorId)) {
+    if (isWireShape(shape) && shape.nodes.has(anchorId)) {
         const nodePos = shape.nodes.get(anchorId);
         for (const s of app.shapes) {
-            if (s.type !== 'noconnect') continue;
+            if (!isNoConnectShape(s)) continue;
             if (Math.hypot(s.x - nodePos.x, s.y - nodePos.y) < VERTEX_EPSILON)
                 getSchematicDrag(app).ncLinks.push({ nc: s, before: s.captureState() });
         }
     }
 
     getSchematicDrag(app).excludePin = null;
-    if (shape.type === 'wire' && shape.pinConnections.has(anchorId)) {
-        const conn = shape.pinConnections.get(anchorId);
+    if (isWireShape(shape) && shape.pinConnections.has(anchorId)) {
+        // pinConnections.has(anchorId) guarantees the graph node has a connection record.
+        const conn = /** @type {{componentId: string, pinNumber: string|number}} */ (shape.pinConnections.get(anchorId));
         const nodePos = shape.nodes.get(anchorId);
         getSchematicDrag(app).excludePin = {
             component: { id: conn.componentId },
@@ -534,7 +539,7 @@ function commitDragGesture(app) {
         commitMoveDrag(app, getSchematicDrag(app).totalDx, getSchematicDrag(app).totalDy);
         // Clean up redundant collinear nodes left by bridge insertion
         for (const wire of app.shapes) {
-            if (wire.type === 'wire') collapseRedundantWirePoints(app, wire);
+            if (isWireShape(wire)) collapseRedundantWirePoints(app, wire);
         }
     } else if (getSchematicDrag(app).mode === 'segment' && getSchematicDrag(app).shape?.type === 'polyline') {
         if (getDidSchematicDrag(app)) {
@@ -560,13 +565,13 @@ function commitDragGesture(app) {
 
 /**
  * @param {SchematicEditor} app
- * @param {SchematicShape} hitShape
+ * @param {SchematicItem} hitShape
  * @param {Point} worldPos
  * @returns {boolean}
  */
 export function tryBeginWireSegmentDrag(app, hitShape, worldPos) {
-    if (!(hitShape?.type === 'wire' && app.selection.getSelection().length === 1)) return false;
-    const hitWire = /** @type {WireShape} */ (hitShape);
+    if (!(isWireShape(hitShape) && app.selection.getSelection().length === 1)) return false;
+    const hitWire = hitShape;
     const dragEdgeId = hitWire.hitTestEdge(worldPos, SNAP_SCREEN_PX / app.viewport.scale);
     if (!dragEdgeId) return false;
 
@@ -617,7 +622,7 @@ export function tryBeginWireSegmentDrag(app, hitShape, worldPos) {
     getSchematicDrag(app).tjLinks = [];
     for (const [nid, pos] of hitWire.nodes) {
         for (const other of app.shapes) {
-            if (other === hitWire || other.type !== 'wire') continue;
+            if (other === hitWire || !isWireShape(other)) continue;
             const otherNid = other.nodeAt(pos, VERTEX_EPSILON);
             if (otherNid) {
                 getSchematicDrag(app).tjLinks.push({ wireNodeId: nid, otherWire: other, otherNodeId: otherNid });
@@ -629,7 +634,7 @@ export function tryBeginWireSegmentDrag(app, hitShape, worldPos) {
     getSchematicDrag(app).ncLinks = [];
     for (const [nid, pos] of hitWire.nodes) {
         for (const shape of app.shapes) {
-            if (shape.type !== 'noconnect') continue;
+            if (!isNoConnectShape(shape)) continue;
             if (Math.hypot(shape.x - pos.x, shape.y - pos.y) < VERTEX_EPSILON)
                 getSchematicDrag(app).ncLinks.push({ wireNodeId: nid, nc: shape, before: shape.captureState() });
         }
@@ -644,24 +649,24 @@ export function tryBeginWireSegmentDrag(app, hitShape, worldPos) {
 
 /**
  * @param {SchematicEditor} app
- * @param {SchematicShape[]} selection
+ * @param {SchematicItem[]} selection
  * @param {number} dx
  * @param {number} dy
  */
 export function propagateMovedWireJunctions(app, selection, dx, dy) {
     let hasMovedWire = false;
-    for (const shape of selection) { if (shape.type === 'wire') { hasMovedWire = true; break; } }
+    for (const shape of selection) { if (isWireShape(shape)) { hasMovedWire = true; break; } }
     if (!hasMovedWire) return;
 
     const selectedSet = getReusableSet(app, '_propagateSelectedSetScratch');
     for (const shape of selection) selectedSet.add(shape);
     const nonSelectedWires = getPropagateNonSelectedWiresScratch(app);
     for (const shape of app.shapes) {
-        if (shape.type !== 'wire' || selectedSet.has(shape)) continue;
+        if (!isWireShape(shape) || selectedSet.has(shape)) continue;
         nonSelectedWires.push(shape);
     }
     for (const movedWire of selection) {
-        if (movedWire.type !== 'wire') continue;
+        if (!isWireShape(movedWire)) continue;
         for (const pos of movedWire.nodes.values()) {
             const prevX = pos.x - dx, prevY = pos.y - dy;
             for (const shape of nonSelectedWires) {
@@ -678,7 +683,7 @@ export function propagateMovedWireJunctions(app, selection, dx, dy) {
 /**
  * @param {SchematicEditor} app
  * @param {Point} targetPos
- * @param {SchematicShape[]} selection
+ * @param {SchematicItem[]} selection
  * @param {Set<string>} movingCompIds
  * @param {Point} snappedTargetOut
  * @returns {Guide[]|undefined}
@@ -688,7 +693,7 @@ export function resolveMoveDragTarget(app, targetPos, selection, movingCompIds, 
     snappedTargetOut.x = snappedTarget.x;
     snappedTargetOut.y = snappedTarget.y;
 
-    const soloNoConnect = selection.length === 1 && selection[0].type === 'noconnect' ? selection[0] : null;
+    const soloNoConnect = selection.length === 1 && isNoConnectShape(selection[0]) ? selection[0] : null;
     if (soloNoConnect) {
         const snap = resolveWireSnapPosition(app, targetPos, { pinTolerance: PIN_SNAP_TOL });
         snappedTargetOut.x = snap.x; snappedTargetOut.y = snap.y;

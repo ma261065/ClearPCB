@@ -229,9 +229,12 @@ Run these before pushing (setup for TypeScript and Playwright is in the
    null cases handled, and callbacks typed to accept every value their caller may pass.
    A PCB module types the editor as `PcbEditor` and plain board data as `PcbBoard`
    (`pcb-editor-api.js`); a schematic module types the editor as `SchematicEditor`
-   (`schematic-editor-api.js`) and its objects as `SchematicShape`. Keep all of a
-   declaration's tags in one JSDoc block: the type check reads only the block
-   nearest the declaration, and `typecheck.mjs` fails on tags it would ignore.
+   (`schematic-editor-api.js`), full selectable objects as `SchematicItem`, and
+   shape-only collections as `SchematicDrawable`. Reuse the item guards in
+   `src/core/schematic-items.js` when a callback (for example `.filter`) needs a
+   named predicate. Keep all of a declaration's tags in one JSDoc block: the type
+   check reads only the block nearest the declaration, and `typecheck.mjs` fails on
+   tags it would ignore.
 2. `node tools/regression.mjs`: the gate. It checks the import directions, that no
    module or shared code uses an editor's private members, that every file, test and page a doc
    names exists (so rename or update the doc with the code), runs every unit test,
@@ -253,13 +256,14 @@ optional call to an editor method (`app.method?.()`), on a doc that names a file
 that no longer exists, and on any strict type error. The source now type-checks under
 TypeScript's strict settings; keep new code fully typed and fix type errors as part of
 the change that introduces them. Work that is known but not done, with a way in:
-- **Loose types.** `SchematicDocument.js` now exports `SchematicItem`, the strict
-  discriminated union for concrete schematic items. `SchematicShape` remains the
-  transitional loose alias while modules move over in batches; new narrowed
-  schematic code should prefer `SchematicItem`. The PCB's `BoardShape` still
-  accepts any field, so a misspelt board-shape field is not caught. A few drag
-  and selection states are still `any` (`VertexDrag` in `track-drag.js`,
-  `SelectionShape` in `selection-registry.js`).
+- **Loose types.** Schematic objects are strict: `SchematicDocument.js` owns
+  `SchematicItem`, the discriminated union of schematic drawables and components,
+  and `SchematicDrawable`, the shape-only subset stored in `app.shapes`. The
+  reusable discriminant guards live in `src/core/schematic-items.js`; plain
+  `item.type === ...` checks also narrow because every concrete class declares a
+  literal `type`. The PCB's `BoardShape` still accepts any field, so a misspelt
+  board-shape field is not caught. A few drag and selection states are still `any`
+  (`VertexDrag` in `track-drag.js`, `SelectionShape` in `selection-registry.js`).
 - **Autorouter.** `tools/regression.mjs` routes fixture boards and compares the result
   with a baseline, and the lifecycle and ownership have unit tests, but the
   pathfinder, maze and common modules (about 5,900 lines) have no unit tests of their

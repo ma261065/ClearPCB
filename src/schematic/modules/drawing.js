@@ -6,7 +6,10 @@ import { clearAxisGlow, pathAlignmentSegments, renderAxisGlow, squareAlignmentSe
 import { controlArcGeometry } from '../../shapes/arc-edit.js';
 import { takeDrawSnapResult } from './draw-states.js';
 import { getSchematicInteraction, setSchematicInteraction } from './schematic-interactions.js';
+import { isNetItem } from '../../core/schematic-items.js';
 /** @typedef {import('./schematic-editor-api.js').SchematicEditor} SchematicEditor */
+/** @typedef {import('../../core/SchematicDocument.js').SchematicItem} SchematicItem */
+/** @typedef {import('../../core/SchematicDocument.js').SchematicDrawable} SchematicDrawable */
 /** @typedef {import('../../shapes/shape-drawing.js').DrawingKind} DrawingKind */
 /** @typedef {import('../../shapes/net.js').NetStyle} NetStyle */
 /** @typedef {{x: number, y: number}} Point */
@@ -34,7 +37,7 @@ export function setSchematicDrawingActive(app, active) {
 function nextNetName_(app) {
     const used = new Set();
     for (const shape of app.shapes) {
-        if (shape?.type !== 'net' || typeof shape.net !== 'string') continue;
+        if (!isNetItem(shape) || typeof shape.net !== 'string') continue;
         const m = shape.net.trim().match(/^NET(\d+)$/i);
         if (m) used.add(Number(m[1]));
     }
@@ -290,7 +293,7 @@ export function shapeDrawingClick(app, point) {
  * Instantiates the appropriate shape object (Rect, Circle, Arc, Text) from
  * the current drawing state and tool options.
  * @param {SchematicEditor} app
- * @returns {import('../../shapes/shape.js').Shape|null} The created shape, or `null` if too small.
+ * @returns {SchematicDrawable|null} The created shape, or `null` if too small.
  */
 export function createShapeFromDrawing(app) {
     const start = /** @type {Point} */ (app.drawStart);

@@ -9,8 +9,10 @@ import {
 import { createInlineTextOverlay } from '../../shared/ui/inline-text-overlay.js';
 import { isSchematicLocked } from '../../shapes/lock-owner.js';
 import { getSchematicInteraction, setSchematicInteraction } from './schematic-interactions.js';
+import { isWireItem as isWireShape } from '../../core/schematic-items.js';
 /** @typedef {import('./schematic-editor-api.js').SchematicEditor} SchematicEditor */
-/** @typedef {import('../../shapes/text.js').Text & {[key: string]: any}} EditableTextShape */
+/** @typedef {import('../../shapes/wire.js').Wire} WireShape */
+/** @typedef {import('../../shapes/text.js').Text & {_lastCaretIndex?: number, getTextEditOrigin?: () => {x: number, y: number}}} EditableTextShape */
 /** @typedef {import('../../shared/ui/inline-text-overlay.js').InlineTextOverlay} InlineTextOverlay */
 /** @typedef {{shape: EditableTextShape, originalText: string, caretIndex: number, overlay: InlineTextOverlay|null, overlayGroup: SVGGElement|null, overlayBox: SVGElement|null, overlayCaret: SVGElement|null, overlayBlink: SVGElement|null, blinkTimeoutId: number|null, blinkTimer?: number|null, overlayOffset: {x: number, y: number}|null}} TextEditState */
 /** @typedef {{x: number, width: number}} CaretProbe */
@@ -139,9 +141,14 @@ export function endTextEdit(app, commit = true) {
         // Enforce unique wire labels
         if (state.shape.parentComponent?.type === 'wire' && state.shape.fieldKey === 'wireLabel' && state.shape.text) {
             const parentWire = state.shape.parentComponent;
-            const dup = app.shapes.find(s =>
-                s.type === 'wire' && s !== parentWire &&
-                s.wireLabel.toUpperCase() === state.shape.text.toUpperCase());
+            let dup = null;
+            for (const s of app.shapes) {
+                if (!isWireShape(s) || s === parentWire) continue;
+                if (s.wireLabel.toUpperCase() === state.shape.text.toUpperCase()) {
+                    dup = s;
+                    break;
+                }
+            }
             if (dup) {
                     app.alert(`Wire name "${state.shape.text}" is already used by another wire.`, { title: 'Duplicate Wire Name' });
                 state.shape.text = state.originalText;

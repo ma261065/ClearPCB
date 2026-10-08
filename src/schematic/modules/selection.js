@@ -2,8 +2,10 @@ import { ModifyPropertyCommand } from './commands.js';
 import { hasOwnLock } from '../../shapes/lock-owner.js';
 import { updateRibbonState } from './ribbon.js';
 import { refreshComponentPose } from './schematic-view.js';
+import { isComponentItem as isComponentShape } from '../../core/schematic-items.js';
 /** @typedef {import('./schematic-editor-api.js').SchematicEditor} SchematicEditor */
-/** @typedef {import('../../core/SchematicDocument.js').SchematicShape} SchematicShape */
+/** @typedef {import('../../core/SchematicDocument.js').SchematicItem} SchematicItem */
+/** @typedef {import('../../components/Component.js').Component} Component */
 /** @typedef {Record<string, any> & {rotation?: number, mirror?: boolean}} ShapeState */
 
 /**
@@ -32,7 +34,7 @@ export function toggleSelectionLock(app) {
 /**
  * Snapshots a shape's current state for undo purposes.
  * @param {SchematicEditor} app
- * @param {SchematicShape} shape - Shape to capture.
+ * @param {SchematicItem} shape - Shape to capture.
  * @returns {ShapeState} The captured state object.
  */
 export function captureShapeState(app, shape) {
@@ -42,15 +44,15 @@ export function captureShapeState(app, shape) {
 /**
  * Restores a shape to a previously captured state and triggers a full re-render.
  * @param {SchematicEditor} app
- * @param {SchematicShape} shape - Shape to restore.
+ * @param {SchematicItem} shape - Shape to restore.
  * @param {ShapeState} state - Previously captured state.
  */
 export function applyShapeState(app, shape, state) {
-    const component = shape;
-    const oldRotation = component.rotation;
-    const oldMirror = component.mirror;
+    const component = isComponentShape(shape) ? shape : null;
+    const oldRotation = component?.rotation;
+    const oldMirror = component?.mirror;
     shape.applyState(/** @type {any} */ (state));
-    if (component.definition) {
+    if (component) {
         const rebuild = (state.rotation !== undefined && state.rotation !== oldRotation)
             || (state.mirror !== undefined && state.mirror !== oldMirror);
         refreshComponentPose(component, { rebuild });

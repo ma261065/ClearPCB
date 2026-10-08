@@ -7,17 +7,18 @@ import { compactProjectAliases } from './project-field-aliases.js';
 import { extractNetlist } from './netlist.js';
 
 /** @typedef {import('./ProjectDocument.js').ProjectData} ProjectData */
-/** @typedef {import('../shapes/wire.js').Wire | import('../shapes/net.js').Net | import('../shapes/text.js').Text | import('../shapes/polyline.js').Polyline | import('../shapes/circle.js').Circle | import('../shapes/arc.js').Arc | import('../shapes/noconnect.js').NoConnect | import('../components/Component.js').Component} SchematicItem */
-/**
- * A schematic shape: one of the shape classes (wire, net label, text, polyline, circle,
- * arc, no-connect) or a component, read through the Shape base class plus the fields its
- * subclass adds.
- * Transitional: modules move to SchematicItem; see docs/developer-guide.md handover.
- * @typedef {(import('../shapes/shape.js').Shape | import('../components/Component.js').Component) & {[key: string]: any}} SchematicShape
- */
+/** @typedef {import('../shapes/wire.js').Wire | import('../shapes/net.js').Net | import('../shapes/text.js').Text | import('../shapes/polyline.js').Polyline | import('../shapes/circle.js').Circle | import('../shapes/arc.js').Arc | import('../shapes/noconnect.js').NoConnect} SchematicDrawable */
+/** @typedef {SchematicDrawable | import('../components/Component.js').Component} SchematicItem */
 
 /** @param {string} name */
 const builtInDefinition = name => BuiltInComponents.find(definition => definition.name === name);
+
+/** @param {SchematicItem} item @returns {item is import('../shapes/text.js').Text} */
+const isTextShape = item => item.type === 'text';
+/** @param {SchematicItem} item @returns {item is import('../shapes/wire.js').Wire} */
+const isWireShape = item => item.type === 'wire';
+/** @param {SchematicItem} item @returns {item is import('../shapes/wire.js').Wire|import('../shapes/net.js').Net} */
+const hasNetName = item => item.type === 'wire' || item.type === 'net';
 
 /** Construct component data without creating its SVG. */
 /**
@@ -58,11 +59,11 @@ export function setComponentReference(component, reference) {
 }
 
 /** Serialize authored entities with detached preferences and deduplicated definitions. */
-/** @param {{shapes: SchematicShape[], components: Component[], settings?: object}} value */
+/** @param {{shapes: SchematicDrawable[], components: Component[], settings?: object}} value */
 export function serializeSchematicDocument({ shapes, components, settings = {} }) {
     const serializedComponents = components.map(component => component.toJSON());
     const serializedShapes = shapes
-        .filter(shape => !(shape.type === 'text' && shape.fieldKey === 'net' && shape.parentComponent?.type === 'net'))
+        .filter(shape => !(isTextShape(shape) && shape.fieldKey === 'net' && shape.parentComponent?.type === 'net'))
         .map(shape => shape.toJSON());
     /** @type {Record<string, any>} */
     const defs = {};
@@ -86,7 +87,7 @@ export function serializeSchematicDocument({ shapes, components, settings = {} }
  */
 export class SchematicDocument {
     constructor() {
-        /** @type {SchematicShape[]} */
+        /** @type {SchematicDrawable[]} */
         this.shapes = [];
         /** @type {Component[]} */
         this.components = [];
@@ -115,16 +116,16 @@ export class SchematicDocument {
     /** Adopt prepared entities without cloning them or creating presentation state. */
     /**
      * @param {ProjectData} data
-     * @param {{data: ProjectData, shapes: Array<{data: ProjectData, shape: SchematicShape}>, components: Component[]}} [prepared]
+     * @param {{data: ProjectData, shapes: Array<{data: ProjectData, shape: SchematicDrawable}>, components: Component[]}} [prepared]
      */
     load(data, prepared = this.prepare(data)) {
         resetWireLabelCounter();
         resetNetNameCounter();
         this.shapes = prepared.shapes.map(({ data: item, shape }) => {
             if (item.id) updateIdCounter(item.id);
-            if (shape.type === 'wire') bumpWireLabelCounter(shape.wireLabel);
-            if (shape.net) bumpNetNameCounter(shape.net);
-            if (item.cid && item.fk) {
+            if (isWireShape(shape)) bumpWireLabelCounter(shape.wireLabel);
+            if (hasNetName(shape)) bumpNetNameCounter(shape.net);
+            if (item.cid && item.fk && isTextShape(shape)) {
                 shape._pendingComponentId = item.cid;
                 shape.fieldKey = item.fk;
             }
@@ -138,7 +139,7 @@ export class SchematicDocument {
         }
         const targets = new Map([...this.shapes, ...this.components].map(item => [item.id, item]));
         for (const shape of this.shapes) {
-            if (shape.type !== 'text' || shape.fieldKey !== 'label' || !shape._pendingComponentId) continue;
+            if (!isTextShape(shape) || shape.fieldKey !== 'label' || !shape._pendingComponentId) continue;
             const target = targets.get(shape._pendingComponentId);
             if (!target) continue;
             shape.parentComponent = target;

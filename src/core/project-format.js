@@ -125,7 +125,7 @@ function validateGraph(item, path) {
 }
 
 /** @param {JsonRecord} item @param {number} index */
-function validateSchematicShape(item, index) {
+function validateSchematicItem(item, index) {
     const path = `schematic.shapes[${index}]`;
     requireRecord(item, path);
     if (!Object.prototype.hasOwnProperty.call(SHAPE_FIELDS, item.type)) {
@@ -185,7 +185,7 @@ function validateSchematic(schematic) {
     }
     if (!Array.isArray(schematic.shapes)) invalid('schematic.shapes', 'Schematic shapes must be an array.', schematic.shapes);
     if (!Array.isArray(schematic.components)) invalid('schematic.components', 'Schematic components must be an array.', schematic.components);
-    schematic.shapes.forEach(validateSchematicShape);
+    schematic.shapes.forEach(validateSchematicItem);
     schematic.components.forEach(validateComponent);
     schematic.components.forEach((component, index) => {
         if (component.pkg !== undefined && Object.prototype.hasOwnProperty.call(schematic.defs || {}, component.dn)) {

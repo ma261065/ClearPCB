@@ -87,7 +87,9 @@ export function collectCopperArtwork(app, { pictureBounds = false } = {}) {
             }
         }
     }
-    const fills = app.copperFills || /** @type {Array<{type?: string}>} */ (app.boardShapes || []).filter((shape) => shape.type === 'fill');
+    const fills = /** @type {import('../../shapes/copper-fill.js').CopperFill[]} */ (
+        app.copperFills || /** @type {Array<{type?: string}>} */ (app.boardShapes || []).filter((shape) => shape.type === 'fill')
+    );
     for (const fill of fills) {
         if (!isCopper(fill.layer)) continue;
         for (const [index, polygon] of (getComputedFill(fill) || []).entries()) {

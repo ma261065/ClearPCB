@@ -17,7 +17,7 @@ import { ensureView, viewOf } from './shape-view-state.js';
 import { schematicLockPosition } from './lock-placement.js';
 import { isSchematicLocked } from '../../shapes/lock-owner.js';
 
-/** @typedef {import('../../core/SchematicDocument.js').SchematicShape} SchematicShape */
+/** @typedef {import('../../core/SchematicDocument.js').SchematicDrawable} SchematicDrawable */
 /** @typedef {import('../../shapes/selection-view.js').SelectionView} SelectionView */
 /** @typedef {{x:number,y:number}} Point */
 /** @typedef {ReturnType<Shape['getAnchors']>[number] & {hidden?: boolean, bulge?: boolean}} RenderAnchor */
@@ -38,7 +38,7 @@ function colorToCSS(color) {
 }
 
 /**
- * @param {SchematicShape} shape
+ * @param {Shape} shape
  * @param {number} scale
  */
 export function effectiveStrokeWidth(shape, scale) {
@@ -56,7 +56,7 @@ setTextMeasurer((shape) => {
 
 setTextEditElementProvider((shape) => viewOf(shape)?.element || null);
 
-/** @param {SchematicShape} shape */
+/** @param {SchematicDrawable} shape */
 function createShapeElement(shape) {
     if (shape instanceof Circle) return document.createElementNS(NS, 'circle');
     if (shape instanceof Text) return createTextElement();
@@ -71,7 +71,7 @@ function createTextElement() {
 }
 
 /**
- * @param {SchematicShape} shape
+ * @param {SchematicDrawable} shape
  * @param {number} scale
  * @param {RenderShapeOptions} [options]
  */
@@ -90,9 +90,10 @@ export function renderShape(shape, scale, options = {}) {
 
     element.style.display = '';
 
-    let strokeColor = colorToCSS(shape.color);
+    const baseShape = /** @type {Shape} */ (shape);
+    let strokeColor = colorToCSS(baseShape.color);
     const shapeWithFill = /** @type {{fillColor?: string|number|null}} */ (shape);
-    const baseFillColor = colorToCSS(shapeWithFill.fillColor ?? shape.color);
+    const baseFillColor = colorToCSS(shapeWithFill.fillColor ?? baseShape.color);
     let fillColor = baseFillColor;
     const attachedLabels = /** @type {any} */ (shape).attachedLabels;
     const view = options.selection || NO_SELECTION;
@@ -139,7 +140,7 @@ export function renderShape(shape, scale, options = {}) {
 }
 
 /**
- * @param {SchematicShape} shape
+ * @param {SchematicDrawable} shape
  * @param {SvgRenderElement} element
  * @param {string} strokeColor
  * @param {string} fillColor
@@ -154,11 +155,10 @@ function updateShapeElement(shape, element, strokeColor, fillColor, scale, view)
     if (shape instanceof Circle) return updateCircleElement(shape, element, strokeColor, fillColor, scale);
     if (shape instanceof NoConnect) return updateNoConnectElement(shape, element, strokeColor, fillColor, scale);
     if (shape instanceof PolylineGraph) return updatePolylineGraphElement(shape, element, strokeColor, fillColor, scale, view);
-    if (shape instanceof Shape) return;
 }
 
 /**
- * @param {SchematicShape} shape
+ * @param {SchematicDrawable} shape
  * @param {number} scale
  * @param {boolean} [visuallySelected]
  * @param {string|null} [selectedNodeId]
@@ -172,7 +172,7 @@ export function updateShapeAnchors(shape, scale, visuallySelected = false, selec
 
 /** A selected locked shape shows its lock instead of edit handles, as in the PCB editor. */
 /**
- * @param {SchematicShape} shape
+ * @param {SchematicDrawable} shape
  * @param {number} scale
  * @param {Point|null|undefined} pointer
  */
@@ -191,7 +191,7 @@ function showLockOnly(shape, scale, pointer) {
 }
 
 /**
- * @param {SchematicShape} shape
+ * @param {SchematicDrawable} shape
  * @param {number} scale
  * @param {boolean} [visuallySelected]
  */
@@ -279,7 +279,7 @@ function updateBaseAnchors(shape, scale, visuallySelected = false) {
 }
 
 /**
- * @param {PolylineGraph} shape
+ * @param {PolylineGraph & SchematicDrawable} shape
  * @param {SvgRenderElement} el
  * @param {string} strokeColor
  * @param {string} fillColor
@@ -421,7 +421,7 @@ export function updatePolylineGraphElement(shape, el, strokeColor, fillColor, sc
 }
 
 /**
- * @param {PolylineGraph} shape
+ * @param {PolylineGraph & SchematicDrawable} shape
  * @param {number} scale
  * @param {boolean} [visuallySelected]
  * @param {string|null} [selectedNodeId]
@@ -439,7 +439,7 @@ function updatePolylineGraphAnchors(shape, scale, visuallySelected = false, sele
     }
     if (viewState.anchorsGroup) viewState.anchorsGroup.remove();
     const { group, rects } = buildPointAnchorsGroup(shape, scale);
-    if (selectedNodeId == null && shape.type !== 'wire' && shape.type !== 'track') {
+    if (selectedNodeId == null && shape.type !== 'wire') {
         const editPath = shape._buildOutlinePathD(shape.closed);
         if (editPath) {
             const guide = document.createElementNS(NS, 'path');
@@ -584,7 +584,7 @@ export function updateNetElement(shape, el, strokeColor, _fillColor, scale, view
     const selectionColor = 'var(--sch-selection, #3399ff)';
     let symbolStroke = strokeColor;
 
-    const attachedLabels = /** @type {{attachedLabels?: Set<SchematicShape>}} */ (shape).attachedLabels;
+    const attachedLabels = shape.attachedLabels;
     const attachedActive = attachedLabels instanceof Set
         && Array.from(attachedLabels).some(label => label && (view.isSelected(label) || view.isHovered(label)));
     const labelActive = !!shape.labelText && (view.isSelected(shape.labelText) || view.isHovered(shape.labelText));

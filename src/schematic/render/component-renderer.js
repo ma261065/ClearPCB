@@ -4,7 +4,7 @@ import { NO_SELECTION } from '../../shapes/selection-view.js';
 import { ensureComponentView, deleteComponentView, componentViewOf } from './shape-view-state.js';
 import { createSymbolGraphicElement, createSymbolPinElement } from '../../components/symbol-svg.js';
 
-/** @typedef {import('../../core/SchematicDocument.js').SchematicShape} Component */
+/** @typedef {import('../../components/Component.js').Component} Component */
 /** @typedef {import('../../shapes/text.js').Text} Text */
 
 const NS = 'http://www.w3.org/2000/svg';
@@ -126,7 +126,7 @@ export function renderComponent(component, scale, options = {}) {
     return element;
 }
 
-/** @param {{id: string, [key: string]: any}} component @param {string|number|undefined} pinKey */
+/** @param {{id: string, [key: string]: unknown}} component @param {string|number|undefined} pinKey */
 export function componentPinElement(component, pinKey) {
     return componentViewOf(component)?.pinElements.get(pinKey) || null;
 }

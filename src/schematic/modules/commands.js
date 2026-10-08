@@ -12,26 +12,60 @@ import { freeWireLabel, bumpWireLabelCounter, freeNetName, bumpNetNameCounter } 
 import { applyStickyConnections } from './sticky-wires.js';
 import { connectComponentPinsToWires, PIN_ATTACH_TOL } from './pin-wire-connect.js';
 import { mountComponent, mountShape, redrawShape, refreshComponentPose, unmountComponent, unmountShape, withContentDetached } from './schematic-view.js';
+import { isWireItem as isWire, isNetItem as isNet, isTextItem as isTextShape, isNoConnectItem as isNoConnect } from '../../core/schematic-items.js';
 /** @typedef {import('./schematic-editor-api.js').SchematicEditor} SchematicEditor */
 /** @typedef {import('../../core/CommandHistory.js').HistoryCommand} HistoryCommand */
 /**
- * @typedef {import('../../core/SchematicDocument.js').SchematicShape} Shape
- * @typedef {import('../../core/SchematicDocument.js').SchematicShape} Wire
+ * @typedef {import('../../core/SchematicDocument.js').SchematicItem} SchematicItem
+ * @typedef {import('../../core/SchematicDocument.js').SchematicDrawable} SchematicDrawable
+ * @typedef {import('../../shapes/wire.js').Wire} Wire
+ * @typedef {import('../../shapes/net.js').Net} Net
  * @typedef {import('../../shapes/text.js').Text} TextShape
+ * @typedef {import('../../shapes/polyline.js').Polyline} Polyline
+ * @typedef {import('../../shapes/circle.js').Circle} Circle
+ * @typedef {import('../../shapes/arc.js').Arc} Arc
+ * @typedef {import('../../shapes/noconnect.js').NoConnect} NoConnect
+ * @typedef {import('../../shapes/shape.js').Shape} BaseShape
+ * @typedef {Wire | Net | TextShape | Polyline | Circle | Arc | NoConnect} Shape
+ * @typedef {SchematicItem | BaseShape} EditableItem
  * @typedef {import('./selection.js').ShapeState} ShapeState
  * @typedef {import('../../ui/SchematicApp.js').ShapeRestoreData} ShapeRestoreData
  * @typedef {{component: Component, index: number}} ComponentRestoreData
  * @typedef {{wire: Wire, nodeId: string, conn: Record<string, any>}} RemovedPinConnection
  */
 
+/** @param {unknown} item @returns {item is {attachedLabels: Set<TextShape>}} */
+function hasAttachedLabels(item) {
+    return typeof item === 'object' && item !== null && 'attachedLabels' in item && item.attachedLabels instanceof Set;
+}
+
+/**
+ * Property descriptors drive schematic property edits by string key.
+ * @param {object} item
+ * @param {string} prop
+ */
+function readSchematicProperty(item, prop) {
+    return Reflect.get(item, prop);
+}
+
+/**
+ * Property descriptors drive schematic property edits by string key.
+ * @param {object} item
+ * @param {string} prop
+ * @param {*} value
+ */
+function writeSchematicProperty(item, prop, value) {
+    Reflect.set(item, prop, value);
+}
+
 /**
  * Update wires connected to a Net label to use its current net name.
  * @param {SchematicEditor} app
- * @param {Shape} netShape
+ * @param {Net} netShape
  */
 function _propagateNetNameToWires(app, netShape) {
     for (const wire of app.shapes) {
-        if (wire.type !== 'wire') continue;
+        if (!isWire(wire)) continue;
         for (const [, conn] of wire.pinConnections) {
             if (conn.componentId === netShape.id) {
                 if (wire.net !== netShape.net) {
@@ -53,13 +87,13 @@ function _propagateNetNameToWires(app, netShape) {
 export class AddShapeCommand extends Command {
     /**
      * @param {SchematicEditor} app
-     * @param {Shape} shape - The shape to add
+     * @param {SchematicDrawable} shape - The shape to add
      */
     constructor(app, shape) {
         super(`Add ${shape.type}`);
         this.app = app;
-        this.shape = /** @type {import('../../shapes/shape.js').Shape} */ (shape);
-        this.linkedLabelText = (shape.type === 'wire' || shape.type === 'net')
+        this.shape = shape;
+        this.linkedLabelText = (isWire(shape) || isNet(shape))
             ? (shape.labelText || null)
             : null;
     }
@@ -82,7 +116,7 @@ export class AddShapeCommand extends Command {
 export class DeleteShapesCommand extends Command {
     /**
      * @param {SchematicEditor} app
-     * @param {Shape[]} shapes - The shapes to delete
+     * @param {BaseShape[]} shapes - The shapes to delete
      */
     constructor(app, shapes) {
         super(shapes.length === 1 ? `Delete ${shapes[0].type}` : `Delete ${shapes.length} shapes`);
@@ -92,8 +126,9 @@ export class DeleteShapesCommand extends Command {
         for (let i = 0; i < app.shapes.length; i++) {
             indexMap.set(app.shapes[i], i);
         }
+        /** @type {ShapeRestoreData[]} */
         this.shapesData = shapes.map(s => ({
-            shape: s,
+            shape: /** @type {SchematicDrawable} */ (s),
             index: indexMap.get(s) ?? -1
         }));
 
@@ -115,19 +150,19 @@ export class DeleteShapesCommand extends Command {
 
         for (const data of this.shapesData) {
             const shape = data.shape;
-            if ((shape.type === 'wire' || shape.type === 'net') && shape.labelText) {
+            if ((isWire(shape) || isNet(shape)) && shape.labelText) {
                 pushLinked(shape.labelText, shape);
             }
-            if (shape.type === 'wire' && shape.attachedLabels instanceof Set) {
+            if (isWire(shape) && shape.attachedLabels instanceof Set) {
                 for (const label of shape.attachedLabels) {
-                    if (!label || label.type !== 'text' || label.fieldKey !== 'label') continue;
+                    if (!isTextShape(label) || label.fieldKey !== 'label') continue;
                     if (label.parentComponent !== shape) continue;
                     pushLinked(label, shape);
                 }
             }
-            if (shape.type !== 'wire' && shape.attachedLabels instanceof Set) {
+            if (!isWire(shape) && hasAttachedLabels(shape)) {
                 for (const label of shape.attachedLabels) {
-                    if (!label || label.type !== 'text' || label.fieldKey !== 'label') continue;
+                    if (!isTextShape(label) || label.fieldKey !== 'label') continue;
                     if (label.parentComponent !== shape) continue;
                     pushLinked(label, null);
                 }
@@ -153,13 +188,13 @@ export class DeleteShapesCommand extends Command {
 export class MoveShapesCommand extends Command {
     /**
      * @param {SchematicEditor} app
-     * @param {Shape[]} items - Items to move
+     * @param {EditableItem[]} items - Items to move
      * @param {number} dx - Horizontal displacement
      * @param {number} dy - Vertical displacement
      */
     constructor(app, items, dx, dy) {
-        const label = items.length === 1 
-            ? `Move ${items[0].type || items[0].reference || 'item'}` 
+        const label = items.length === 1
+            ? `Move ${items[0].type || 'item'}`
             : `Move ${items.length} items`;
         super(label);
         this.app = app;
@@ -170,7 +205,7 @@ export class MoveShapesCommand extends Command {
     
     /**
      * Build a Map of id → shape/component for O(1) lookups.
-     * @returns {Map<string, Shape>}
+     * @returns {Map<string, SchematicItem>}
      */
     _buildLookup() {
         const map = new Map();
@@ -229,7 +264,7 @@ export class MoveShapesCommand extends Command {
 export class ModifyShapeCommand extends Command {
     /**
      * @param {SchematicEditor} app
-     * @param {Shape} shape - The item being modified
+     * @param {EditableItem} shape - The item being modified
      * @param {ShapeState} beforeState - Snapshot of shape state before the edit
      * @param {ShapeState} afterState - Snapshot of shape state after the edit
      */
@@ -261,9 +296,10 @@ export class ModifyShapeCommand extends Command {
     /**
      * Find a shape or component by ID.
      * @param {string} id
-     * @returns {Shape|undefined}
+     * @returns {SchematicItem|undefined}
      */
     _findItem(id) {
+        /** @type {SchematicItem|undefined} */
         let item = this.app.shapes.find(s => s.id === id);
         if (!item) item = this.app.components.find(c => c.id === id);
         return item;
@@ -271,12 +307,12 @@ export class ModifyShapeCommand extends Command {
 
     /**
      * Apply a captured state snapshot to a shape and re-render.
-     * @param {Shape} shape
+     * @param {SchematicItem} shape
      * @param {ShapeState} state - State object from captureState()
      */
     _applyState(shape, state) {
-        const oldRotation = shape.rotation;
-        const oldMirror = shape.mirror;
+        const oldRotation = shape instanceof Component ? shape.rotation : undefined;
+        const oldMirror = shape instanceof Component ? shape.mirror : undefined;
         shape.applyState(state);
         if (shape instanceof Component) {
             const rebuild = (state.rotation !== undefined && state.rotation !== oldRotation)
@@ -284,24 +320,25 @@ export class ModifyShapeCommand extends Command {
             refreshComponentPose(shape, { rebuild });
         }
         // Sync field text changes back to parent component or wire
-        if ('text' in state && shape.parentComponent && shape.fieldKey) {
-            if ((shape.fieldKey === 'wireLabel' || shape.fieldKey === 'label') && shape.parentComponent.type === 'wire') {
-                freeWireLabel(shape.parentComponent.wireLabel);
-                shape.parentComponent.wireLabel = shape.text;
+        if ('text' in state && isTextShape(shape) && shape.parentComponent && shape.fieldKey) {
+            const parent = shape.parentComponent;
+            if ((shape.fieldKey === 'wireLabel' || shape.fieldKey === 'label') && isWire(parent)) {
+                freeWireLabel(parent.wireLabel);
+                parent.wireLabel = shape.text;
                 bumpWireLabelCounter(shape.text);
-                shape.parentComponent.invalidate();
-            } else if (shape.fieldKey === 'net' && shape.parentComponent.type === 'net') {
-                const oldName = shape.parentComponent.net;
-                shape.parentComponent.net = shape.text;
-                shape.parentComponent.syncTextOffsetFromLabelText?.();
-                shape.parentComponent.invalidate();
+                parent.invalidate();
+            } else if (shape.fieldKey === 'net' && isNet(parent)) {
+                const oldName = parent.net;
+                parent.net = shape.text;
+                parent.syncTextOffsetFromLabelText?.();
+                parent.invalidate();
                 // Propagate renamed net to all attached wires
-                if (oldName !== shape.parentComponent.net) {
-                    _propagateNetNameToWires(this.app, shape.parentComponent);
+                if (oldName !== parent.net) {
+                    _propagateNetNameToWires(this.app, parent);
                 }
             } else if (shape.fieldKey !== 'label') {
                 // Generic attached labels on non-wire shapes are free text with no parent field.
-                shape.parentComponent[shape.fieldKey] = shape.text;
+                writeSchematicProperty(parent, shape.fieldKey, shape.text);
             }
         }
         this.app.renderShapes(true);
@@ -314,7 +351,7 @@ export class ModifyShapeCommand extends Command {
 export class ModifyPropertyCommand extends Command {
     /**
      * @param {SchematicEditor} app
-     * @param {Shape[]} items - Items whose property is changing
+     * @param {EditableItem[]} items - Items whose property is changing
      * @param {string} prop - Property name to modify
      * @param {*} newValue - New value for the property
      */
@@ -326,7 +363,7 @@ export class ModifyPropertyCommand extends Command {
         this.app = app;
         this.entries = items.map(item => ({
             id: item.id,
-            oldValue: item[prop],
+            oldValue: readSchematicProperty(item, prop),
             newValue
         }));
         this.prop = prop;
@@ -335,9 +372,10 @@ export class ModifyPropertyCommand extends Command {
     /**
      * Find a shape or component by ID.
      * @param {string} id
-     * @returns {Shape|undefined}
+     * @returns {SchematicItem|undefined}
      */
     _findItem(id) {
+        /** @type {SchematicItem|undefined} */
         let item = this.app.shapes.find(s => s.id === id);
         if (!item) item = this.app.components.find(c => c.id === id);
         return item;
@@ -358,37 +396,38 @@ export class ModifyPropertyCommand extends Command {
             if (!item) continue;
             const val = useNew ? entry.newValue : entry.oldValue;
             // Mirror/flip needs special handling — must use flipHorizontal() for SVG recreation
-            if (this.prop === 'mirror' && typeof item.flipHorizontal === 'function') {
+            if (this.prop === 'mirror' && item instanceof Component) {
                 if (item.mirror !== val) {
                     item.flipHorizontal();
-                    if (item instanceof Component) refreshComponentPose(item, { rebuild: true });
+                    refreshComponentPose(item, { rebuild: true });
                 }
             } else if (this.prop === 'reference') {
-                setComponentReference(item, val);
+                setComponentReference(/** @type {Component} */ (item), val);
             } else {
-                item[this.prop] = val;
+                writeSchematicProperty(item, this.prop, val);
             }
             if (typeof item.invalidate === 'function') item.invalidate();
             // Sync field text changes back to parent component
-            if (this.prop === 'text' && item.parentComponent && item.fieldKey) {
-                if (item.fieldKey === 'net' && item.parentComponent.type === 'net') {
-                    item.parentComponent.net = val;
-                    item.parentComponent.syncTextOffsetFromLabelText?.();
-                    item.parentComponent.invalidate();
-                } else if ((item.fieldKey === 'wireLabel' || item.fieldKey === 'label') && item.parentComponent.type === 'wire') {
+            if (this.prop === 'text' && isTextShape(item) && item.parentComponent && item.fieldKey) {
+                const parent = item.parentComponent;
+                if (item.fieldKey === 'net' && isNet(parent)) {
+                    parent.net = val;
+                    parent.syncTextOffsetFromLabelText?.();
+                    parent.invalidate();
+                } else if ((item.fieldKey === 'wireLabel' || item.fieldKey === 'label') && isWire(parent)) {
                     const prev = useNew ? entry.oldValue : entry.newValue;
                     freeWireLabel(prev);
-                    item.parentComponent.wireLabel = val;
+                    parent.wireLabel = val;
                     bumpWireLabelCounter(val);
-                    item.parentComponent.invalidate();
+                    parent.invalidate();
                 } else if (item.fieldKey === 'reference') {
-                    setComponentReference(item.parentComponent, val);
+                    setComponentReference(/** @type {Component} */ (parent), val);
                 } else if (item.fieldKey !== 'label') {
-                    item.parentComponent[item.fieldKey] = val;
+                    writeSchematicProperty(parent, item.fieldKey, val);
                 }
             }
             // Sync wireLabel property edits through the label tracking system
-            if (this.prop === 'wireLabel' && item.type === 'wire') {
+            if (this.prop === 'wireLabel' && isWire(item)) {
                 const otherLabel = useNew ? entry.oldValue : entry.newValue;
                 freeWireLabel(otherLabel);
                 bumpWireLabelCounter(val);
@@ -399,13 +438,13 @@ export class ModifyPropertyCommand extends Command {
                 }
             }
             // Sync net property edits through the net allocation system
-            if (this.prop === 'net' && item.type === 'wire') {
+            if (this.prop === 'net' && isWire(item)) {
                 const oldNet = useNew ? entry.oldValue : entry.newValue;
                 const newNet = useNew ? entry.newValue : entry.oldValue;
                 if (oldNet) freeNetName(oldNet);
                 if (newNet) bumpNetNameCounter(newNet);
             }
-            if (item.type === 'net' && ['net', 'fontSize', 'style', 'orientation', 'border'].includes(this.prop)) {
+            if (isNet(item) && ['net', 'fontSize', 'style', 'orientation', 'border'].includes(this.prop)) {
                 if (typeof item.syncTextOffsetFromLabelText === 'function') {
                     item.syncTextOffsetFromLabelText();
                 }
@@ -414,19 +453,19 @@ export class ModifyPropertyCommand extends Command {
                 }
             }
             // Sync component reference/value to field text content
-            if (this.prop === 'reference' && item.refText) {
+            if (this.prop === 'reference' && item instanceof Component && item.refText) {
                 item.refText.invalidate();
             }
-            if (this.prop === 'value' && item.valueText) {
+            if (this.prop === 'value' && item instanceof Component && item.valueText) {
                 item.valueText.text = val;
                 item.valueText.invalidate();
             }
             // Sync show flags to field text visibility
-            if (this.prop === 'showReference' && item.refText) {
+            if (this.prop === 'showReference' && item instanceof Component && item.refText) {
                 item.refText.visible = val;
                 item.refText.invalidate();
             }
-            if (this.prop === 'showValue' && item.valueText) {
+            if (this.prop === 'showValue' && item instanceof Component && item.valueText) {
                 item.valueText.visible = val;
                 item.valueText.invalidate();
             }
@@ -496,7 +535,9 @@ export class DeleteComponentsCommand extends Command {
         const app = this.app;
         // Collect all items to remove
         const compsToRemove = new Set(this.componentsData.map(d => d.component));
+        /** @type {Set<object>} */
         const ftsToRemove = new Set();
+        /** @type {Set<object>} */
         const attachedToRemove = new Set(this.attachedLabelData.map(d => d.shape));
         withContentDetached(app, () => {
             for (const data of this.componentsData) {
@@ -510,8 +551,9 @@ export class DeleteComponentsCommand extends Command {
                 }
             }
             for (const label of attachedToRemove) {
-                app.selection.dropHover(label);
-                unmountShape(label);
+                const labelShape = /** @type {TextShape} */ (label);
+                app.selection.dropHover(labelShape);
+                unmountShape(labelShape);
             }
         });
         // In-place filter components: O(N) instead of O(N²)
@@ -540,7 +582,7 @@ export class DeleteComponentsCommand extends Command {
         this._removedPinConnections = [];
         const dirtyWires = new Set();
         for (const shape of app.shapes) {
-            if (shape.type !== 'wire' || shape.pinConnections.size === 0) continue;
+            if (!isWire(shape) || shape.pinConnections.size === 0) continue;
             for (const [nodeId, conn] of shape.pinConnections) {
                 if (removedIds.has(conn.componentId)) {
                     this._removedPinConnections.push({ wire: shape, nodeId, conn });
@@ -620,7 +662,7 @@ export class AddComponentCommand extends Command {
             const comp = this.component;
             if (comp.symbol?.pins) {
                 for (const wire of this.app.shapes) {
-                    if (wire.type !== 'wire') continue;
+                    if (!isWire(wire)) continue;
                     for (const pin of comp.symbol.pins) {
                         const pinPos = comp.getPinPosition?.(pin.number);
                         if (!pinPos) continue;
@@ -676,7 +718,7 @@ export class AddComponentCommand extends Command {
         const compId = this.component.id;
         const affectedWireStates = new Map();
         for (const shape of this.app.shapes) {
-            if (shape.type !== 'wire') continue;
+            if (!isWire(shape)) continue;
             for (const [, conn] of shape.pinConnections) {
                 if (conn.componentId === compId) {
                     // This wire is connected - save its state if we haven't already
@@ -711,7 +753,7 @@ export class AddComponentCommand extends Command {
         // Clean up wire pinConnections referencing this removed component
         // and restore wire geometry to pre-placement state if saved
         for (const shape of this.app.shapes) {
-            if (shape.type !== 'wire') continue;
+            if (!isWire(shape)) continue;
             for (const [nodeId, conn] of shape.pinConnections) {
                 if (conn.componentId === compId) {
                     shape.pinConnections.delete(nodeId);
@@ -722,7 +764,7 @@ export class AddComponentCommand extends Command {
         if (this._wireStatesBeforePlace) {
             for (const [wireId, state] of this._wireStatesBeforePlace) {
                 const wire = this.app.shapes.find(s => s.id === wireId);
-                if (wire?.type === 'wire') {
+                if (isWire(wire)) {
                     wire.applyState(state);
                 }
             }
@@ -814,7 +856,7 @@ export class TransformComponentCommand extends Command {
      */
     _updateStickyWires() {
         for (const shape of this.app.shapes) {
-            if (shape.type === 'wire') {
+            if (isWire(shape)) {
                 for (const [nodeId, conn] of shape.pinConnections) {
                     const comp = this.app.components.find(c => c.id === conn.componentId);
                     if (comp) {
@@ -829,10 +871,11 @@ export class TransformComponentCommand extends Command {
                         }
                     }
                 }
-            } else if (shape.type === 'noconnect' && shape.pinConnection) {
-                const comp = this.app.components.find(c => c.id === shape.pinConnection.componentId);
+            } else if (isNoConnect(shape) && shape.pinConnection) {
+                const pinConnection = shape.pinConnection;
+                const comp = this.app.components.find(c => c.id === pinConnection.componentId);
                 if (comp) {
-                    const pos = comp.getPinPosition(shape.pinConnection.pinNumber);
+                    const pos = comp.getPinPosition(pinConnection.pinNumber);
                     if (pos) {
                         shape.x = pos.x;
                         shape.y = pos.y;
@@ -851,7 +894,7 @@ export class TransformComponentCommand extends Command {
 export class PasteCommand extends Command {
     /**
      * @param {SchematicEditor} app
-     * @param {Shape[]} shapes - Pasted shapes
+     * @param {BaseShape[]} shapes - Pasted shapes
      * @param {Component[]} components - Pasted components
      */
     constructor(app, shapes, components) {
@@ -870,9 +913,10 @@ export class PasteCommand extends Command {
         const shapeSet = new Set(app.shapes);
         // Bulk-add shapes without per-item updateSelectableItems
         for (const shape of this.shapes) {
-            app.shapes.push(shape);
-            mountShape(app, shape);
-            shapeSet.add(shape);
+            const schematicShape = /** @type {SchematicDrawable} */ (shape);
+            app.shapes.push(schematicShape);
+            mountShape(app, schematicShape);
+            shapeSet.add(schematicShape);
         }
         // Bulk-add components
         for (const comp of this.components) {
@@ -899,8 +943,10 @@ export class PasteCommand extends Command {
     undo() {
         const app = this.app;
         // Collect all items to remove in Sets for O(N) filtering
+        /** @type {Set<object>} */
         const shapesToRemove = new Set(this.shapes);
         const compsToRemove = new Set(this.components);
+        /** @type {Set<object>} */
         const ftsToRemove = new Set();
 
         // Remove component DOM and collect field texts
@@ -915,8 +961,9 @@ export class PasteCommand extends Command {
         }
         // Remove shape DOM
         for (const shape of this.shapes) {
-            unmountShape(shape);
-            app.selection.dropSelected(shape);
+            const schematicShape = /** @type {SchematicDrawable} */ (shape);
+            unmountShape(schematicShape);
+            app.selection.dropSelected(schematicShape);
         }
         // In-place filter shapes array: O(N) instead of O(N²)
         let writeIdx = 0;

@@ -24,7 +24,7 @@ import { resolvePinSnapPlacement } from './component-snap.js';
 import { normalizeNetOrientation, normalizeNetStyle } from '../../shapes/net.js';
 import { isPlacingComponent } from './components.js';
 /** @typedef {import('./schematic-editor-api.js').SchematicEditor} SchematicEditor */
-/** @typedef {{fontSize?: number, textColor?: string|number, netStyle?: string, netOrientation?: string, [key: string]: any}} ToolOptions */
+/** @typedef {{fontSize?: number, textColor?: string|number, netStyle?: string, netOrientation?: string, [key: string]: unknown}} ToolOptions */
 
 /** @typedef {{screenPos: {x: number, y: number}, worldPos: {x: number, y: number}, snapped: {x: number, y: number}}} Positions */
 /**
