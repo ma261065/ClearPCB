@@ -3,7 +3,17 @@ import { ModalManager } from '../../core/ModalManager.js';
 let modalCounter = 0;
 
 /**
- * @param {{ title?: string, message?: string, contentEl?: HTMLElement|null, okText?: string, cancelText?: string, showCancel?: boolean, showClose?: boolean, escapeResult?: any }} options
+ * @typedef {boolean} ModalResult
+ * @typedef {{ title?: string, message?: string, contentEl?: HTMLElement|null, okText?: string, cancelText?: string, showCancel?: boolean, showClose?: boolean, escapeResult?: ModalResult }} BuildModalOptions
+ * @typedef {{ overlay: HTMLDivElement, modal: HTMLDivElement, okBtn: HTMLButtonElement, cancelBtn: HTMLButtonElement|null, close: (result: ModalResult) => void, setResolver: (resolver: (result: ModalResult) => void) => void, modalId: string }} BuiltModal
+ * @typedef {{ title?: string, okText?: string }} AlertOptions
+ * @typedef {{ title?: string, okText?: string, cancelText?: string, defaultCancel?: boolean, showClose?: boolean, escapeResult?: ModalResult }} ConfirmOptions
+ * @typedef {{ title?: string, okText?: string, cancelText?: string, placeholder?: string, defaultValue?: string }} PromptOptions
+ */
+
+/**
+ * @param {BuildModalOptions} options
+ * @returns {BuiltModal}
  */
 function buildModal({ title, message, contentEl = null, okText, cancelText, showCancel = false, showClose = false, escapeResult = false }) {
     const overlay = document.createElement('div');
@@ -73,6 +83,7 @@ function buildModal({ title, message, contentEl = null, okText, cancelText, show
     modal.appendChild(actions);
     overlay.appendChild(modal);
 
+    /** @type {((result: ModalResult) => void)|null} */
     let resolvePromise = null;
     const modalId = `modal_${++modalCounter}`;
 
@@ -82,6 +93,7 @@ function buildModal({ title, message, contentEl = null, okText, cancelText, show
             .filter(el => el instanceof HTMLElement);
     };
 
+    /** @param {ModalResult} result */
     const close = (result) => {
         ModalManager.pop(modalId);
         document.removeEventListener('keydown', handleKeyDown, true);
@@ -91,10 +103,11 @@ function buildModal({ title, message, contentEl = null, okText, cancelText, show
         if (resolvePromise) resolvePromise(result);
     };
 
-    overlay.addEventListener('contextmenu', (e) => e.preventDefault());
-    overlay.addEventListener('mousedown', (e) => {
+    overlay.addEventListener('contextmenu', (/** @type {MouseEvent} */ e) => e.preventDefault());
+    overlay.addEventListener('mousedown', (/** @type {MouseEvent} */ e) => {
         if (e.target === overlay) e.preventDefault();
     });
+    /** @param {KeyboardEvent} e */
     const handleKeyDown = (e) => {
         e.stopImmediatePropagation();
         const target = e.target;
@@ -169,6 +182,7 @@ function buildModal({ title, message, contentEl = null, okText, cancelText, show
         }
     };
 
+    /** @param {KeyboardEvent} e */
     const swallowKeyEvent = (e) => {
         e.stopImmediatePropagation();
         const target = e.target;
@@ -182,7 +196,7 @@ function buildModal({ title, message, contentEl = null, okText, cancelText, show
     document.addEventListener('keypress', swallowKeyEvent, true);
     document.addEventListener('keyup', swallowKeyEvent, true);
     overlay.addEventListener('keydown', handleKeyDown);
-    overlay.addEventListener('focusin', (e) => {
+    overlay.addEventListener('focusin', (/** @type {FocusEvent} */ e) => {
         if (e.target instanceof Node && !modal.contains(e.target)) {
             const items = focusables();
             if (items.length) items[0].focus();
@@ -195,14 +209,20 @@ function buildModal({ title, message, contentEl = null, okText, cancelText, show
         okBtn,
         cancelBtn,
         close,
+        /** @param {(result: ModalResult) => void} resolver */
         setResolver(resolver) { resolvePromise = resolver; },
         modalId
     };
 }
 
+/**
+ * @param {string} message
+ * @param {AlertOptions} [options]
+ * @returns {Promise<void>}
+ */
 export function showAlert(message, options = {}) {
     const { title = 'Notice', okText = 'OK' } = options;
-    return new Promise((resolve) => {
+    return new Promise((/** @type {() => void} */ resolve) => {
         const modal = buildModal({ title, message, okText, showCancel: false });
         modal.setResolver(() => resolve());
         document.body.appendChild(modal.overlay);
@@ -211,6 +231,11 @@ export function showAlert(message, options = {}) {
     });
 }
 
+/**
+ * @param {string} message
+ * @param {ConfirmOptions} [options]
+ * @returns {Promise<boolean>}
+ */
 export function showConfirm(message, options = {}) {
     const { title = 'Confirm', okText = 'OK', cancelText = 'Cancel', defaultCancel = false, showClose = false, escapeResult = false } = options;
     return new Promise((resolve) => {
@@ -225,6 +250,11 @@ export function showConfirm(message, options = {}) {
     });
 }
 
+/**
+ * @param {string} message
+ * @param {PromptOptions} [options]
+ * @returns {Promise<string|null>}
+ */
 export function showPrompt(message, options = {}) {
     const {
         title = 'Input',

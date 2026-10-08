@@ -9,12 +9,14 @@ const MENU_STYLE = 'position:fixed;z-index:10000;background:#2b2b2b;border:1px s
 const ITEM_STYLE = 'padding:6px 16px;color:#eee;cursor:pointer;font:13px/1.4 system-ui,sans-serif;white-space:nowrap;';
 
 /** @typedef {{text: string, onClick: (event?: MouseEvent) => void}} MenuItem */
+/** @typedef {{timer: ReturnType<typeof setTimeout>, dismiss: (event: MouseEvent) => void, onKey: (event: KeyboardEvent) => void}} DismissHandlers */
+/** @typedef {HTMLDivElement & {_dismiss?: DismissHandlers}} DismissibleMenu */
 
-/** Close the menu with this id, and its global listeners, if it is open. */
+/** Close the menu with this id, and its global listeners, if it is open. @param {string} id */
 export function dismissContextMenu(id) {
-    const menu = document.getElementById(id);
+    const menu = /** @type {DismissibleMenu|null} */ (document.getElementById(id));
     if (!menu) return;
-    const handlers = /** @type {any} */ (menu)._dismiss;
+    const handlers = menu._dismiss;
     if (handlers) {
         // The listeners attach a tick after opening; a menu closed sooner must not attach them.
         clearTimeout(handlers.timer);
@@ -55,7 +57,12 @@ export function showContextMenu(id, items, clientX, clientY, { className = '', o
     }
     menu.addEventListener('contextmenu', event => event.preventDefault());
     document.body.appendChild(menu);
-    const dismiss = event => { if (!menu.contains(event.target)) dismissContextMenu(id); };
+    /** @param {MouseEvent} event */
+    const dismiss = event => {
+        const target = /** @type {Node|null} */ (event.target);
+        if (!target || !menu.contains(target)) dismissContextMenu(id);
+    };
+    /** @param {KeyboardEvent} event */
     const onKey = event => { if (event.key === 'Escape') dismissContextMenu(id); };
     // Attach after this tick, so the press that opened the menu does not close it.
     const timer = setTimeout(() => {
@@ -63,6 +70,6 @@ export function showContextMenu(id, items, clientX, clientY, { className = '', o
         document.addEventListener('mousedown', dismiss, { capture: true });
         document.addEventListener('keydown', onKey, { capture: true });
     }, 0);
-    /** @type {any} */ (menu)._dismiss = { dismiss, onKey, timer };
+    /** @type {DismissibleMenu} */ (menu)._dismiss = { dismiss, onKey, timer };
     return menu;
 }

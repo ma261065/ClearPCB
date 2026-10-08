@@ -5,6 +5,7 @@
  */
 export function bindRibbonHeight(ribbon) {
     const container = /** @type {HTMLElement|null} */ (ribbon.querySelector('.ribbon-panels'));
+    /** @type {number|null} */
     let retainedWidth = null;
     let retainedHeight = '';
     let scheduled = false;
