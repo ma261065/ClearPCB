@@ -6,26 +6,48 @@
 import { BuiltInComponents } from './BuiltInComponents.js';
 import { builtInPackageLayouts, getBuiltInModel3D } from './BuiltInModels3D.js';
 
+/**
+ * @typedef {import('./Component.js').ComponentDefinition} ComponentDefinition
+ * @typedef {import('./BuiltInModels3D.js').BuiltInPackageLayout} BuiltInPackageLayout
+ * @typedef {'Resistor'|'Resistor_IEC'|'Capacitor'|'Capacitor_Polarized'|'Inductor'|'Diode'|'LED'|'NPN'|'PNP'|'NMOS'|'PMOS'|'OpAmp'|'IC_DIP8'|'Conn_01x02'|'SW_Push'} BuiltInComponentName
+ * @typedef {[string, string]} PackageChoice
+ * @typedef {Partial<ComponentDefinition> & {name: string}} PackageDefinitionInput
+ * @typedef {ComponentDefinition & {name: BuiltInComponentName, _source: 'Built-in'}} BuiltInDefinition
+ * @typedef {{value: string, label: string}} BuiltInPackageOption
+ * @typedef {{footprint: string, footprintName: string, hasFootprint: true, footprintShapes: string[], footprintBBox: {x: number, y: number, width: number, height: number}}} BuiltInFootprintPatch
+ */
+
 // Match library registration: the last definition with a given name is canonical.
+/** @type {Map<string, ComponentDefinition>} */
 const defaults = new Map(BuiltInComponents.map(definition => [definition.name, definition]));
 const chips = ['0402', '0603', '0805', '1206', '1210', '2010', '2512'];
+/**
+ * @param {string} value
+ * @param {string} id
+ * @returns {PackageChoice}
+ */
+function choice(value, id) {
+    return [value, id];
+}
+/** @type {Record<BuiltInComponentName, PackageChoice[]>} */
 const choices = {
-    Resistor: chips.map(id => [id, `r-${id}`]),
-    Resistor_IEC: chips.map(id => [id, `r-${id}`]),
-    Capacitor: chips.map(id => [id, `c-${id}`]),
-    Capacitor_Polarized: [4, 5, 6.3].map(size => [`smd-${size}`, `can-${size}`]),
-    Inductor: ['0603', '0805', '1206', '1210'].map(id => [id, `l-${id}`]),
-    Diode: ['do41', 'sod123', 'sod323', 'sma'].map(id => [id, id]),
-    LED: [['th-3mm', 'led3'], ...['0603', '0805', '1206'].map(id => [id, `led-${id}`])],
-    NPN: [['to92', 'to92'], ['sot23', 'sot23']],
-    PNP: [['to92', 'to92'], ['sot23', 'sot23']],
-    NMOS: [['to92', 'to92'], ['sot23', 'sot23']],
-    PMOS: [['to92', 'to92'], ['sot23', 'sot23']],
-    OpAmp: [['soic8', 'soic8'], ['tssop8', 'tssop8']],
-    IC_DIP8: [['soic8', 'soic8'], ['tssop8', 'tssop8']],
-    Conn_01x02: [['header-smt', 'header-smt'], ['terminal-5.08', 'terminal-5.08']],
-    SW_Push: [['smt-6mm', 'switch-smt']],
+    Resistor: chips.map(id => choice(id, `r-${id}`)),
+    Resistor_IEC: chips.map(id => choice(id, `r-${id}`)),
+    Capacitor: chips.map(id => choice(id, `c-${id}`)),
+    Capacitor_Polarized: [4, 5, 6.3].map(size => choice(`smd-${size}`, `can-${size}`)),
+    Inductor: ['0603', '0805', '1206', '1210'].map(id => choice(id, `l-${id}`)),
+    Diode: ['do41', 'sod123', 'sod323', 'sma'].map(id => choice(id, id)),
+    LED: [choice('th-3mm', 'led3'), ...['0603', '0805', '1206'].map(id => choice(id, `led-${id}`))],
+    NPN: [choice('to92', 'to92'), choice('sot23', 'sot23')],
+    PNP: [choice('to92', 'to92'), choice('sot23', 'sot23')],
+    NMOS: [choice('to92', 'to92'), choice('sot23', 'sot23')],
+    PMOS: [choice('to92', 'to92'), choice('sot23', 'sot23')],
+    OpAmp: [choice('soic8', 'soic8'), choice('tssop8', 'tssop8')],
+    IC_DIP8: [choice('soic8', 'soic8'), choice('tssop8', 'tssop8')],
+    Conn_01x02: [choice('header-smt', 'header-smt'), choice('terminal-5.08', 'terminal-5.08')],
+    SW_Push: [choice('smt-6mm', 'switch-smt')],
 };
+/** @type {Record<BuiltInComponentName, string>} */
 const defaultLabels = {
     Resistor: 'Axial resistor TH', Resistor_IEC: 'Axial resistor TH',
     Capacitor: 'Disc Ø5 mm TH', Capacitor_Polarized: 'Radial Ø5 mm TH',
@@ -35,12 +57,20 @@ const defaultLabels = {
     Conn_01x02: '1×02 header, 2.54 mm pitch TH', SW_Push: '6×6 mm tactile switch TH',
 };
 
+/**
+ * @param {PackageDefinitionInput|null|undefined} definition
+ * @returns {definition is BuiltInDefinition}
+ */
 function supported(definition) {
     return definition?._source === 'Built-in'
         && defaults.has(definition.name) && Object.hasOwn(choices, definition.name);
 }
 
-/** Return fresh UI options, or [] for definitions outside this built-in catalogue. */
+/**
+ * Return fresh UI options, or [] for definitions outside this built-in catalogue.
+ * @param {PackageDefinitionInput|null|undefined} definition
+ * @returns {BuiltInPackageOption[]}
+ */
 export function getBuiltInPackageOptions(definition) {
     if (!supported(definition)) return [];
     return [
@@ -49,6 +79,11 @@ export function getBuiltInPackageOptions(definition) {
     ];
 }
 
+/**
+ * @param {BuiltInComponentName} name
+ * @param {string} packageId
+ * @returns {string[]}
+ */
 function padLabels(name, packageId) {
     // TO-92: left → right; SOT-23: lower-left, lower-right, upper-centre.
     // Preserve the existing TH definitions, including their intentionally different PNP order.
@@ -64,6 +99,12 @@ function padLabels(name, packageId) {
     return ['1', '2'];
 }
 
+/**
+ * @param {BuiltInComponentName} name
+ * @param {string} packageId
+ * @param {BuiltInPackageLayout} entry
+ * @returns {BuiltInFootprintPatch}
+ */
 function variantFootprint(name, packageId, entry) {
     const labels = padLabels(name, packageId);
     const footprintShapes = entry.pads.map(([x, y, width, height, drill], i) =>
@@ -84,9 +125,9 @@ function variantFootprint(name, packageId, entry) {
  * Clone a built-in definition and select its package without changing the library.
  * 'default' always restores the canonical footprint, even from a modified instance.
  * All old footprint/model metadata is removed; OBJ generation remains lazy and cached.
- * @param {object} definition
+ * @param {PackageDefinitionInput} definition
  * @param {string} packageId An option's value returned by getBuiltInPackageOptions.
- * @returns {object} Independent definition with packageId and a lazy model3dObj getter.
+ * @returns {PackageDefinitionInput & {packageId: string, has3d: true, model3dUrl: null, model3dName: string, model3dObj: string}} Independent definition with packageId and a lazy model3dObj getter.
  * @throws {Error} For a non-built-in definition, unknown name, or unsupported package ID.
  */
 export function withBuiltInPackage(definition, packageId) {
@@ -94,6 +135,7 @@ export function withBuiltInPackage(definition, packageId) {
     if (!getBuiltInPackageOptions(definition).some(option => option.value === packageId)) {
         throw new Error(`Unsupported built-in package: ${packageId}`);
     }
+    /** @type {ComponentDefinition & Record<string, any>} */
     const result = {};
     for (const key of Object.keys(definition)) {
         if (/^(footprint|model3d)/i.test(key) || ['hasFootprint', 'has3d', 'packageId'].includes(key)) continue;
@@ -101,11 +143,14 @@ export function withBuiltInPackage(definition, packageId) {
     }
     if (packageId === 'default') {
         const canonical = defaults.get(definition.name);
+        if (!canonical) throw new Error('Unsupported built-in component definition');
         for (const key of Object.keys(canonical)) {
             if (/^footprint/i.test(key) || key === 'hasFootprint') result[key] = structuredClone(canonical[key]);
         }
     } else {
-        const [, id] = choices[definition.name].find(([value]) => value === packageId);
+        const selected = choices[definition.name].find(([value]) => value === packageId);
+        if (!selected) throw new Error(`Unsupported built-in package: ${packageId}`);
+        const [, id] = selected;
         Object.assign(result, variantFootprint(definition.name, packageId, builtInPackageLayouts[id]));
     }
     Object.assign(result, { packageId, has3d: true, model3dUrl: null, model3dName: result.footprintName });
@@ -114,5 +159,5 @@ export function withBuiltInPackage(definition, packageId) {
         configurable: true,
         get() { return getBuiltInModel3D(result.footprint); },
     });
-    return result;
+    return /** @type {PackageDefinitionInput & {packageId: string, has3d: true, model3dUrl: null, model3dName: string, model3dObj: string}} */ (result);
 }

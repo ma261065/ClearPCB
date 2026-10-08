@@ -20,9 +20,25 @@ const colors = {
     stripe: [216, 218, 205],
 };
 
+/**
+ * @typedef {'plastic'|'metal'|'gold'|'ceramic'|'resistor'|'brown'|'red'|'green'|'blue'|'glass'|'stripe'} MaterialName
+ * @typedef {[number, number]} Point2
+ * @typedef {[number, number, number]} Vertex3
+ * @typedef {number[]} Face
+ * @typedef {(point: Vertex3) => Vertex3} VertexTransform
+ * @typedef {[number, number, MaterialName]} Band
+ * @typedef {(model: Model) => void} ModelBuilder
+ * @typedef {'r'|'c'|'l'|'led'|'can'|'axial'|'led-th'|'diode'|'transistor'|'ic'|'header'|'terminal'|'switch'} PackageKind
+ * @typedef {[number, number, number]} PackageBody
+ * @typedef {[number, number, number, number, number]} PackagePad
+ * @typedef {{label: string, kind: PackageKind, footprint: string, body: Readonly<PackageBody>, pads: ReadonlyArray<Readonly<PackagePad>>}} BuiltInPackageLayout
+ */
+
 class Model {
     constructor() {
+        /** @type {Vertex3[]} */
         this.vertices = [];
+        /** @type {string[]} */
         this.lines = Object.entries(colors).flatMap(([name, color]) => [
             `newmtl builtin_${name}`,
             `Kd ${color.map(value => (value / 255).toFixed(6)).join(' ')}`,
@@ -30,6 +46,11 @@ class Model {
     }
 
     // Every primitive is convex. Orient against its interior before reflecting Y.
+    /**
+     * @param {Vertex3[]} vertices
+     * @param {Face[]} faces
+     * @param {MaterialName|MaterialName[]} material
+     */
     solid(vertices, faces, material) {
         const offset = this.vertices.length + 1;
         const centre = [0, 1, 2].map(axis =>
@@ -37,6 +58,7 @@ class Model {
         this.vertices.push(...vertices);
         this.lines.push(...vertices.map(([x, y, z]) =>
             `v ${[x, -y, z].map(value => Number(value.toFixed(6))).join(' ')}`));
+        /** @type {MaterialName|undefined} */
         let previousMaterial;
         faces.forEach((face, index) => {
             const color = Array.isArray(material) ? material[index] : material;
@@ -58,6 +80,13 @@ class Model {
         });
     }
 
+    /**
+     * @param {Point2[]} polygon
+     * @param {number} bottom
+     * @param {number} top
+     * @param {MaterialName|MaterialName[]} material
+     * @param {VertexTransform} [transform]
+     */
     prism(polygon, bottom, top, material, transform = point => point) {
         const count = polygon.length;
         const vertices = [bottom, top].flatMap(z => polygon.map(([x, y]) => transform([x, y, z])));
@@ -69,6 +98,15 @@ class Model {
         this.solid(vertices, faces, material);
     }
 
+    /**
+     * @param {number} x
+     * @param {number} y
+     * @param {number} bottom
+     * @param {number} width
+     * @param {number} depth
+     * @param {number} top
+     * @param {MaterialName} material
+     */
     box(x, y, bottom, width, depth, top, material) {
         this.prism([
             [x - width / 2, y - depth / 2], [x + width / 2, y - depth / 2],
@@ -76,6 +114,16 @@ class Model {
         ], bottom, top, material);
     }
 
+    /**
+     * @param {number} x
+     * @param {number} y
+     * @param {number} bottom
+     * @param {number} radius
+     * @param {number} top
+     * @param {MaterialName|MaterialName[]} material
+     * @param {number} [sides]
+     * @param {VertexTransform} [transform]
+     */
     round(x, y, bottom, radius, top, material, sides = 16, transform = point => point) {
         this.prism(Array.from({ length: sides }, (_, i) => [
             x + radius * Math.cos(i * 2 * Math.PI / sides),
@@ -83,10 +131,24 @@ class Model {
         ]), bottom, top, material, transform);
     }
 
+    /**
+     * @param {number} x
+     * @param {number} y
+     * @param {number} top
+     * @param {number} [radius]
+     */
     pin(x, y, top, radius = 0.25) {
         this.round(x, y, THROUGH_HOLE_LEAD_BOTTOM, radius, top, 'metal', 8);
     }
 
+    /**
+     * @param {number} length
+     * @param {number} radius
+     * @param {number} height
+     * @param {MaterialName} body
+     * @param {Band[]} [bands]
+     * @param {number} [halfPitch]
+     */
     axial(length, radius, height, body, bands = [], halfPitch = 3.81) {
         const ends = [-length / 2, ...bands.flatMap(band => [band[0], band[1]]), length / 2];
         for (let i = 0; i < ends.length - 1; i++) {
@@ -103,6 +165,9 @@ class Model {
         }
     }
 
+    /**
+     * @param {number} diameter
+     */
     led(diameter) {
         const radius = diameter / 2;
         const shoulder = 0.8 + diameter * 0.6;
@@ -114,13 +179,15 @@ class Model {
         ]);
         // Three latitude rings and a single apex avoid degenerate pole faces.
         const sides = 16;
+        /** @type {Vertex3[]} */
         const vertices = [0, Math.PI / 6, Math.PI / 3].flatMap(angle =>
-            Array.from({ length: sides }, (_, i) => [
+            Array.from({ length: sides }, (_, i) => /** @type {Vertex3} */ ([
                 radius * Math.cos(angle) * Math.cos(i * 2 * Math.PI / sides),
                 radius * Math.cos(angle) * Math.sin(i * 2 * Math.PI / sides),
                 shoulder + radius * Math.sin(angle),
-            ]));
+            ])));
         vertices.push([0, 0, shoulder + radius]);
+        /** @type {Face[]} */
         const faces = [Array.from({ length: sides }, (_, i) => i)];
         for (let ring = 0; ring < 2; ring++) {
             for (let i = 0; i < sides; i++) {
@@ -138,7 +205,7 @@ class Model {
     }
 }
 
-const builders = new Map([
+const builders = new Map(/** @type {Array<[string, ModelBuilder]>} */ ([
     ['Resistor_THT:R_Axial_DIN0207_L6.3mm_D2.5mm_P7.62mm_Horizontal', model => {
         model.axial(6.3, 1.25, 1.65, 'resistor', [
             [-2.3, -1.9, 'brown'], [-1.25, -0.85, 'plastic'],
@@ -214,11 +281,20 @@ const builders = new Map([
             model.box(x, Math.sign(y) * 0.8, 0.15, 0.45, 0.5, 0.65, 'metal');
         }
     }],
-]);
+]));
 
 // Shared, immutable dimensions for the package catalogue and its visual models.
 // Pads: [x, y, width, height, drill]. Layouts are generic, not vendor land patterns.
+/** @type {Record<string, BuiltInPackageLayout>} */
 const layouts = Object.create(null);
+/**
+ * @param {string} id
+ * @param {string} label
+ * @param {PackageKind} kind
+ * @param {PackageBody} body
+ * @param {PackagePad[]} pads
+ * @param {string} [footprint]
+ */
 function layout(id, label, kind, body, pads, footprint = `ClearPCB:${id}`) {
     layouts[id] = Object.freeze({
         label, kind, footprint, body: Object.freeze(body),
@@ -231,7 +307,7 @@ const chipSizes = [
     ['1206', 3.2, 1.6], ['1210', 3.2, 2.5], ['2010', 5, 2.5], ['2512', 6.3, 3.2],
 ];
 for (const [size, length, width] of chipSizes) {
-    for (const kind of ['r', 'c', 'l', 'led']) {
+    for (const kind of /** @type {PackageKind[]} */ (['r', 'c', 'l', 'led'])) {
         if (kind === 'l' && !['0603', '0805', '1206', '1210'].includes(size)) continue;
         if (kind === 'led' && !['0603', '0805', '1206'].includes(size)) continue;
         layout(`${kind}-${size}`, `${size} inch (${length} × ${width} mm) SMT`, kind,
@@ -267,8 +343,8 @@ for (const [id, label, width, length, height, x, pitch, padWidth, padHeight] of 
     ['tssop8', 'TSSOP-8, 0.65 mm pitch SMT', 4.4, 3, 1.1, 3, 0.65, 1.4, 0.4],
 ])) {
     layout(id, label, 'ic', [width, length, height], [
-        ...[-1.5, -0.5, 0.5, 1.5].map(y => [-x, y * pitch, padWidth, padHeight, 0]),
-        ...[1.5, 0.5, -0.5, -1.5].map(y => [x, y * pitch, padWidth, padHeight, 0]),
+        ...[-1.5, -0.5, 0.5, 1.5].map(y => /** @type {PackagePad} */ ([-x, y * pitch, padWidth, padHeight, 0])),
+        ...[1.5, 0.5, -0.5, -1.5].map(y => /** @type {PackagePad} */ ([x, y * pitch, padWidth, padHeight, 0])),
     ]);
 }
 layout('header-smt', '1×02 header, 2.54 mm pitch SMT', 'header', [2.54, 5.08, 8.3],
@@ -281,11 +357,17 @@ layout('switch-smt', '6×6 mm tactile switch SMT', 'switch', [6, 6, 4.8],
 /** @internal Shared by BuiltInPackages; values and their nested arrays are immutable. */
 export const builtInPackageLayouts = Object.freeze(layouts);
 
+/**
+ * @param {Model} model
+ * @param {BuiltInPackageLayout} entry
+ */
 function buildVariant(model, { kind, body: [width, depth, height], pads }) {
-    if (['r', 'c', 'l', 'led'].includes(kind)) {
+    if (kind === 'r' || kind === 'c' || kind === 'l' || kind === 'led') {
         // The centre and two 20% end caps meet without coplanar surface overlap.
+        const bodyMaterial = /** @type {Record<'r'|'c'|'l'|'led', MaterialName>} */ (
+            { r: 'plastic', c: 'ceramic', l: 'green', led: 'stripe' })[kind];
         model.box(0, 0, 0.04, width * 0.6, depth, height,
-            { r: 'plastic', c: 'ceramic', l: 'green', led: 'stripe' }[kind]);
+            bodyMaterial);
         for (const [x, y] of pads) model.box(x, y, 0, width * 0.2, depth, height, 'metal');
         if (kind === 'led') {
             model.box(0, 0, height, width * 0.4, depth * 0.7, height + 0.12, 'red');
@@ -357,10 +439,12 @@ for (const entry of Object.values(layouts)) {
 export function getBuiltInModel3D(footprint) {
     const build = builders.get(footprint);
     if (!build) throw new Error(`Unsupported built-in 3D footprint: ${footprint}`);
-    if (!cache.has(footprint)) {
+    let cached = cache.get(footprint);
+    if (cached === undefined) {
         const model = new Model();
         build(model);
-        cache.set(footprint, model.text());
+        cached = model.text();
+        cache.set(footprint, cached);
     }
-    return cache.get(footprint);
+    return cached;
 }
