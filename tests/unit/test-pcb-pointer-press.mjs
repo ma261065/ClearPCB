@@ -38,7 +38,7 @@ function fixture(tool) {
         pcbDocument: { tracks: [], vias: [], pads: [], boardShapes: [], texts: new Map() },
         screenToWorld: () => world,
     });
-    app._bindMouseEvents();
+    app.bindMouseEvents();
     const press = (button, extra = {}) => listeners.get('mousedown')({
         button, clientX: 10, clientY: 20, shiftKey: false, ctrlKey: false, metaKey: false, detail: 1,
         preventDefault: noop, ...extra,
@@ -68,7 +68,7 @@ function editor(tool) {
     });
     app.designSettings = app.pcbDocument.designSettings;
     setEditorActive(app, true);
-    app._bindMouseEvents();
+    app.bindMouseEvents();
     const press = (button, extra = {}) => listeners.get('mousedown')({
         button, clientX: 10, clientY: 20, shiftKey: false, ctrlKey: false, metaKey: false, detail: 1,
         preventDefault: noop, ...extra,

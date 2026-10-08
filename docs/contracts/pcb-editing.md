@@ -98,7 +98,7 @@ gesture finishes, the drags it can wrap (`wrapped`) are left to it, and a
 pending marquee finishes last.
 
 The PCB canvas mouse listeners are in `pcb/modules/mouse.js` (`bindPcbMouseEvents`,
-bound through `PCBApp._bindMouseEvents`). The mousedown listener handles only
+bound through `PCBApp.bindMouseEvents`). The mousedown listener handles only
 cross-tool concerns (paste drop, floating previews, ribbon tab, inline text
 commit, double-click edit, right-button bookkeeping, pan). It then hands a
 primary press to the active tool through `pressPcbTool`, and pointer movement

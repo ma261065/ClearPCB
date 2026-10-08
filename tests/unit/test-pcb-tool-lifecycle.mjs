@@ -81,7 +81,6 @@ function fixture() {
         },
         setActiveRibbonTab: PCBApp.prototype.setActiveRibbonTab,
     };
-    PCBApp.prototype._bindRibbonTabs.call(app);
     bindPcbControls(app);
     events.length = 0;
     app.history.execute({ execute() {}, undo() {} });

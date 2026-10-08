@@ -317,7 +317,7 @@ export default class PCBApp {
         this.refreshPcbRibbon?.();
         this.viewport?._onResize?.();
         peekDrcPresentation(this)?.activate();
-        this._updateViewportStatus();
+        this.updateViewportStatus();
         this.syncPcbViewToggles?.();
         updateGridDropdown(this);
 
@@ -379,7 +379,6 @@ export default class PCBApp {
         this.refreshPcbRibbon?.();
     }
 
-
     hasPcbClipboardData() {
         return hasPcbClipboardData(this);
     }
@@ -400,7 +399,6 @@ export default class PCBApp {
         this.refreshPcbRibbon?.();
     }
 
-
     /** @param {{unlockedOnly?: boolean}} [options] */
     copySelection(options) {
         return copyPcbSelection(this, options);
@@ -419,12 +417,6 @@ export default class PCBApp {
         return new Viewport(container);
     }
 
-    /** Legacy seam for tests. */
-    /** @param {HTMLElement} container */
-    _createViewport(container) {
-        return this.createViewport(container);
-    }
-
     /** After every history change: refresh derived pours, dirty state, buttons and selection overlays. */
     _onHistoryChanged() {
         invalidateFillRefresh(this);
@@ -440,22 +432,12 @@ export default class PCBApp {
         };
     }
 
-    /** Legacy seam for tests. */
-    _bindViewportPanHooks() {
-        this.bindViewportPanHooks();
-    }
-
     ensureViewport() {
         ensurePcbViewport(this);
     }
 
     bindMouseEvents() {
         bindPcbMouseEvents(this);
-    }
-
-    /** Legacy seam for tests and tools. */
-    _bindMouseEvents() {
-        this.bindMouseEvents();
     }
 
     updateViewportStatus() {
@@ -469,11 +451,6 @@ export default class PCBApp {
         // Hide net-name labels on tracks below 200% zoom. At low zoom they're tiny
         // and make every hover/drag repaint many more SVG text nodes.
         this.viewport.svg?.classList.toggle('pcb-zoom-low', this.viewport.zoom < 2);
-    }
-
-    /** Legacy seam for tests. */
-    _updateViewportStatus() {
-        this.updateViewportStatus();
     }
 
     _clearViaRing() {
@@ -643,7 +620,6 @@ export default class PCBApp {
         updateGridDropdown(this);
     }
 
-
     /**
      * The layer and overlay groups created so far, by id (read-only; use getLayerGroup
      * to create one). Lets modules inspect a layer without creating it.
@@ -670,7 +646,6 @@ export default class PCBApp {
         return g;
     }
 
-
     fitToContent() {
         this.ensureViewport();
         const viewport = this.viewport;
@@ -685,11 +660,6 @@ export default class PCBApp {
             Math.max(0, bounds.y + bounds.h) + 10,
             0, 'bottom-left',
         );
-    }
-
-    _bindRibbonTabs() {
-        // Ribbon tabs are rendered and bound by shared/ui/ribbon.js from the
-        // PCB ribbon description. This legacy seam remains for older tests.
     }
 
     // ── Board Outline ─────────────────────────────────────────────
@@ -805,7 +775,6 @@ export default class PCBApp {
         showBoardOutlineProperties(this);
     }
 
-
     /** @param {string} compId */
     showComponentProperties(compId) {
         return getComponentProperties(this).showComponent(compId);
@@ -836,7 +805,6 @@ export default class PCBApp {
         this.history.execute(new FlipPlacementCommand(this, compId, axis));
     }
 
-
     _bindThemeToggle() {
         window.addEventListener('clearpcb-theme-changed', () => {
             this.viewport?.updateTheme?.();
@@ -850,7 +818,6 @@ export default class PCBApp {
     onSchematicChanged() {
         scheduleSchematicPcbSync(this);
     }
-
 
     /**
      * @param {any} geometry
@@ -871,7 +838,6 @@ export default class PCBApp {
         // recomputed; every other net's ratlines are left untouched.
         reconcileRatsnest(this, /** @type {{nets?: Set<string>, skipFillRefresh?: boolean}|undefined} */ (opts));
     }
-
 
     /**
      * Show a modal message, as the schematic editor's alert does.
@@ -956,7 +922,6 @@ export default class PCBApp {
     snapToGrid(p) {
         return snapToViewportGrid(p, this.viewport);
     }
-
 
     /**
      * Re-render an existing text in place (e.g. after a property change).
@@ -1139,7 +1104,6 @@ export default class PCBApp {
         refreshBoxSelectionHighlights(this);
     }
 
-
     runAutoRoute() { return runAutoRouteAction(this); }
 
     /** @param {string|null} [message] */
@@ -1148,7 +1112,6 @@ export default class PCBApp {
     }
 
     // ── Auto Router ───────────────────────────────────────────────
-
 
     /**
      * Toggle a faint ghost halo showing the clearance band around every
@@ -1225,7 +1188,6 @@ export default class PCBApp {
         return '';
     }
 
-
     /** @param {CopperFill|null} fill */
     selectFill(fill) {
         selectPcbFill(this, fill);
@@ -1267,7 +1229,6 @@ export default class PCBApp {
      * ModifyFillCommand for clean undo/redo.
      */
 
-
     clearRoutes() {
         clearPcbRoutes(this);
     }
@@ -1291,7 +1252,6 @@ export default class PCBApp {
     }
 
     // ── Specctra DSN / SES ────────────────────────────────────────
-
 
     /**
      * Toggle the interactive 3D board visualiser. The toolbar 3D View button
@@ -1337,6 +1297,5 @@ export default class PCBApp {
         }
         openBoard3DViewer(this, { view: side });
     }
-
 
 }

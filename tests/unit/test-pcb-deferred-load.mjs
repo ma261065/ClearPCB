@@ -269,7 +269,7 @@ for (const withComponents of [false, true]) {
             synchronizePcbLayout: () => ({ placements: new Map(components.map(component =>
                 [component.id, { ...component, geometry: { outline: { x: 0, y: 0, width: 1, height: 1 } } }])), netlist: [] }) },
         activate: PCBApp.prototype.activate, preload: PCBApp.prototype.preload,
-        initialize() {}, _updateViewportStatus() {},
+        initialize() {}, updateViewportStatus() {},
         _retainRibbonHeight: record('ribbon-height'),
         viewport: viewportStub({ _onResize: record('viewport-resize') }),
         setPcbStatus() {}, setStatus() {}, _fitToPlacedContent() {},
@@ -333,7 +333,7 @@ for (const pcb of [
         components = withComponents ? [{ id: 'U1' }] : [];
         Object.assign(app, {
             initialize() {}, ensureViewport() {}, _retainRibbonHeight() {},
-            refreshPcbRibbon() {}, _updateViewportStatus() {},
+            refreshPcbRibbon() {}, updateViewportStatus() {},
             setPcbStatus() {}, setStatus() {}, _clearPCBContent() {},
             getLayerGroup: layerGroups(),
             renderFootprint() { calls.push('footprints'); return new Map(); }, _fitToPlacedContent() {},

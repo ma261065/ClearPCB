@@ -39,7 +39,7 @@ function fixture(active) {
             gridSize: 1, getGridOptions: () => [{ value: 1, label: '1 mm' }], fitToBounds() {} },
         ui: { gridSize: element('select') },
         initialize() {}, _retainRibbonHeight() {},
-        _updateViewportStatus() {}, syncPcbViewToggles() {},
+        updateViewportStatus() {}, syncPcbViewToggles() {},
         setActiveRibbonTab(tab) { lifecycle.push(tab); },
         _showBoardDimensionsDialog() {
             assert.equal(this.boardShapes.length, 0, 'Prompt follows removal of the old shapes');

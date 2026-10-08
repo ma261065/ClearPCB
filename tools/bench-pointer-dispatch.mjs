@@ -38,7 +38,7 @@ const app = Object.assign(Object.create(PCBApp.prototype), {
     _scheduleDragUpdate: count, _handleTextDrag: count,
     _handleRefDrag: count, _handleFillDrag: count, _updateCursorCrosshair: noop,
 });
-app._bindMouseEvents();
+app.bindMouseEvents();
 const move = listeners.get('mousemove');
 if (!move) throw new Error('PCBApp did not bind a mousemove listener.');
 
