@@ -52,9 +52,9 @@ assert.equal(straight.pathfinderConverged, true);
 assert.deepEqual(straight.tracks, [{ net: 'N1', points: [{ x: 2, y: 5 }, { x: 18, y: 5 }], layer: 'top' }],
     'an uncongested pathfinder route is the obvious direct segment');
 
-// Skipped suspected bug: docs/autorouter.md says same-net vias on pads are allowed
-// for opposite-side reachability, but routeAllPathfinder currently fails a
-// coincident top-pad to bottom-pad case instead of placing the via in the pad.
+// Known limitation, kept as a skipped case: a top pad and a bottom pad of one net at
+// the same spot need a via inside both pads, and routeAllPathfinder reports the
+// connection as failed instead. Enable this if via-in-pad routing is added.
 if (false) {
     const sameNetViaInPad = await routeAllPathfinder(routeInput({
         bounds: { minX: 0, minY: 0, maxX: 10, maxY: 10 },

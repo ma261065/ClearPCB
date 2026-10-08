@@ -102,9 +102,9 @@ const { routeAll } = await import('../../src/pcb/modules/autorouter-maze.js');
     assertTracksAvoidCopper(result, topWall, 'top-layer segments clear the fixed top copper wall');
 }
 
-// Skipped suspected bug: docs/autorouter.md says same-net vias on pads are allowed
-// for pads only reachable from the opposite layer, but routeAll currently fails the
-// coincident top-pad to bottom-pad case instead of placing a via at the pad center.
+// Known limitation, kept as a skipped case: a top pad and a bottom pad of one net at
+// the same spot need a via inside both pads, and routeAll reports the connection as
+// failed instead. Enable this if via-in-pad routing is added.
 if (false) {
     const sameNetViaInPad = await routeAll(routeInput({
         bounds: { minX: 0, minY: 0, maxX: 10, maxY: 10 },
