@@ -1,6 +1,6 @@
 {
   "typescript": "5.9.3",
-  "total": 830,
+  "total": 4,
   "cleanFolders": [
     "src/core",
     "src/easyeda",
@@ -10,31 +10,7 @@
     "src/shared/3d"
   ],
   "files": {
-    "src/components/async-control.js": 2,
-    "src/components/BuiltInModels3D.js": 78,
-    "src/components/BuiltInPackages.js": 34,
-    "src/components/ComponentLibrary.js": 134,
-    "src/components/kicad/footprint-parser.js": 5,
-    "src/components/kicad/footprints.js": 1,
-    "src/components/kicad/sexp-parser.js": 3,
-    "src/components/kicad/symbol-fetch.js": 12,
-    "src/components/kicad/symbol-graphics.js": 13,
-    "src/components/kicad/symbol-index.js": 6,
-    "src/components/kicad/symbol-parser.js": 2,
-    "src/components/KiCadFetcher.js": 32,
-    "src/components/LCSCFetcher.js": 70,
-    "src/components/model3d-source.js": 7,
-    "src/components/Model3DPopout.js": 2,
-    "src/components/Model3DViewer.js": 5,
-    "src/components/picker/dom.js": 2,
-    "src/components/picker/footprint-preview.js": 36,
-    "src/components/picker/online-selection.js": 96,
-    "src/components/picker/results-list.js": 11,
-    "src/components/picker/search.js": 3,
-    "src/components/picker/symbol-preview.js": 99,
-    "src/components/picker/ui-state.js": 3,
-    "src/components/STEPPreview.js": 132,
-    "src/components/VRMLPreview.js": 39,
+    "src/components/picker/symbol-preview.js": 1,
     "src/shared/pcb/board-shape-geometry.js": 3
   }
 }
