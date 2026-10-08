@@ -380,7 +380,8 @@ object before it runs. A new command class must declare `lockTargets()`;
 ## Checks
 
 - `node tools/regression.mjs` — the gate CI runs: import boundaries, both editors'
-  private-access ratchets, every `tests/unit/test-*.mjs` in its own process, and the
+  private-access ratchets, doc references (`tools/check-doc-references.mjs`: every test,
+  file, project path and relative link the docs name must exist), every `tests/unit/test-*.mjs` in its own process, and the
   autorouter baseline on `test-board.json`.
 - `node tools/test.mjs [filter…]` — only the regression tests, optionally filtered.
 - `node tools/typecheck.mjs` — `checkJs` type check; the baseline is empty, so any error

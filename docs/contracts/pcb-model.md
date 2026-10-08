@@ -107,13 +107,11 @@ connectivity and ratline endpoints agree between the two models:
   contours and schematic polylines, arcs and wires alike.
 - Each half of a rounded corner takes the width of the segment it joins.
 
-Assigning a net to an unfilled copper polygon or rectangle converts it to a
-closed-loop Track, as for open copper Lines (`e<i>` is segment `i`, the last
-edge closes the loop). A rectangle's circular corners become explicit arc
-edges, because Track corner rounding is quadratic. Clearing the net restores a
-polygon, or a rectangle when it is still an axis-aligned four-node loop.
-Filled copper shapes are areas and keep the net as a shape
-(`test-track-restoration`).
+An unfilled copper polygon or rectangle is a closed-loop Track whether or not it
+has a net, as an open copper Line is (`e<i>` is segment `i`, the last edge closes
+the loop), and clearing the net keeps it a Track. A rectangle keeps its circular
+corners as the loop's corner radius. Filled copper shapes are areas and stay board
+shapes with their net (see Tracks and Vias below; `test-copper-path-tracks`).
 
 ## Geometry Authorities
 

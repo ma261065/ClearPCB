@@ -215,8 +215,9 @@ node tools/regression.mjs
 node tools/browser-test.mjs
 ```
 
-`regression.mjs` covers the import rules, both private-access ratchets, every unit
-test and the autorouter baseline. When a ratchet reports resolved accesses, remove
+`regression.mjs` covers the import rules, both private-access ratchets, the docs'
+references (a test, file or page a doc names must exist, so rename or update the
+doc with the code), every unit test and the autorouter baseline. When a ratchet reports resolved accesses, remove
 them from its baseline so the count only falls. Files use LF line endings
 (`.gitattributes`). A local pass is not the last word: after pushing, check that
 the Regression Checks workflow is green on CI, which runs the browser tests on Linux.

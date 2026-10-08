@@ -84,8 +84,8 @@ function softCheck(cond, msg) {
 
 console.log('=== ClearPCB Autorouter Regression Gate ===');
 
-// 1. Documented import-direction rules and editor private-member access
-console.log('\n--- [1/3] architecture boundaries ---');
+// 1. Documented import-direction rules, editor private-member access and doc references
+console.log('\n--- [1/3] architecture boundaries and doc references ---');
 {
     const imports = run(process.execPath, ['tools/check-imports.mjs']);
     hardCheck(imports.code === 0, 'import boundaries match tools/import-baseline.json');
@@ -93,6 +93,8 @@ console.log('\n--- [1/3] architecture boundaries ---');
     hardCheck(access.code === 0, 'PCB editor access matches tools/pcb-editor-access-baseline.json');
     const schematicAccess = run(process.execPath, ['tools/check-schematic-editor-access.mjs']);
     hardCheck(schematicAccess.code === 0, 'schematic editor access matches tools/schematic-editor-access-baseline.json');
+    const docs = run(process.execPath, ['tools/check-doc-references.mjs']);
+    hardCheck(docs.code === 0, 'doc references to tests, files and pages resolve');
 }
 
 // 2. Isolated regression suite
