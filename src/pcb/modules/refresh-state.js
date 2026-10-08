@@ -20,21 +20,71 @@ const stateFor = app => {
     return state;
 };
 
+// -- Settling ----------------------------------------------------------
+// Pour and DRC refreshes that come due while an edit is under way (a drag, a draw, an
+// inline text edit, a Properties preview, a paste, the autorouter, a batched picture
+// refresh, or for DRC a pour recompute) wait for it to end. Everything that can hold
+// them back calls noteEditSettled when it ends, and the waiting refreshes check again
+// then; nothing polls. The flags below note it themselves when they drop; interaction
+// slots (pcb-interactions.js), Properties previews and the autorouter call it.
+
+/** @type {Array<(app: object) => void>} */
+const settledListeners = [];
+
+/**
+ * Run `listener(app)` whenever something that can hold back a derived refresh ends.
+ * @param {(app: object) => void} listener
+ */
+export function onEditSettled(listener) {
+    settledListeners.push(listener);
+}
+
+/**
+ * Something that could hold back a derived refresh has ended.
+ * @param {object} app
+ */
+export function noteEditSettled(app) {
+    for (const listener of settledListeners) listener(app);
+}
+
+/**
+ * Set a flag; note the edit settled when one that holds refreshes back drops.
+ * @param {object} app
+ * @param {'fillPending'|'fillScheduled'|'pictureCopperPending'|'overlaysDeferred'|'fillSuspended'} key
+ * @param {boolean} value
+ */
+function setFlag(app, key, value) {
+    const state = stateFor(app);
+    const was = state[key];
+    state[key] = value;
+    if (was && !value) noteEditSettled(app);
+}
+
 /** Copper pours are awaiting a successful recompute. */
 export const isFillRefreshPending = app => states.get(app)?.fillPending ?? false;
-export const setFillRefreshPending = (app, pending) => { stateFor(app).fillPending = !!pending; };
+export const setFillRefreshPending = (app, pending) => setFlag(app, 'fillPending', !!pending);
 
 /** A pour recompute is queued for the next animation frame. */
 export const isFillRefreshScheduled = app => states.get(app)?.fillScheduled ?? false;
-export const setFillRefreshScheduled = (app, scheduled) => { stateFor(app).fillScheduled = !!scheduled; };
+export const setFillRefreshScheduled = (app, scheduled) => setFlag(app, 'fillScheduled', !!scheduled);
 
 /** The last pour recompute failure, retained until a refresh succeeds. */
 export const fillRefreshError = app => states.get(app)?.fillError ?? null;
-export const setFillRefreshError = (app, error) => { stateFor(app).fillError = error ?? null; };
+/**
+ * @param {object} app
+ * @param {any} error
+ */
+export function setFillRefreshError(app, error) {
+    const state = stateFor(app);
+    const failedNow = !state.fillError && error != null;
+    state.fillError = error ?? null;
+    // DRC waits on a pending pour only until it has failed.
+    if (failedNow) noteEditSettled(app);
+}
 
 /** Picture copper edits are batching their clearance/pour refresh. */
 export const isPictureCopperRefreshPending = app => states.get(app)?.pictureCopperPending ?? false;
-export const setPictureCopperRefreshPending = (app, pending) => { stateFor(app).pictureCopperPending = !!pending; };
+export const setPictureCopperRefreshPending = (app, pending) => setFlag(app, 'pictureCopperPending', !!pending);
 
 const IDLE = Object.freeze({ fillPending: false, fillScheduled: false, fillError: null, pictureCopperPending: false,
     overlaysDeferred: false, fillSuspended: false, boardViewSuspended: false });
@@ -68,7 +118,7 @@ export const areDragOverlaysDeferred = app => states.get(app)?.overlaysDeferred 
 export function setDragOverlaysDeferred(app, deferred) {
     const state = stateFor(app);
     if (deferred && !state.overlaysDeferred) for (const listener of suspensionListeners.overlays) listener(app);
-    state.overlaysDeferred = !!deferred;
+    setFlag(app, 'overlaysDeferred', !!deferred);
 }
 
 /** Floating paste suspends pour recomputation. */
@@ -76,7 +126,7 @@ export const isFillRefreshSuspended = app => states.get(app)?.fillSuspended ?? f
 export function setFillRefreshSuspended(app, suspended) {
     const state = stateFor(app);
     if (suspended && !state.fillSuspended) for (const listener of suspensionListeners.fill) listener(app);
-    state.fillSuspended = !!suspended;
+    setFlag(app, 'fillSuspended', !!suspended);
 }
 
 /** Gestures suspend refreshing the external 2D/3D board views. */

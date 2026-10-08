@@ -20,6 +20,7 @@ import { AutorouterPresentation } from './autorouter-presentation.js';
  * @property {(message: string) => void} setStatus
  * @property {import('./autorouter-presentation.js').AutorouterPresentationCapabilities} presentation
  * @property {(error: Error) => void} [reportError]
+ * @property {() => void} [sessionEnded] A session finished or was cancelled; work it held back may run.
  */
 
 /** Owns one latest-only routing session; Stop accepts partial output, cancel never does. */
@@ -101,6 +102,7 @@ export class AutorouterSession {
             this.presentation.finish();
             // Release before the command's dirty notification invalidates pending sessions.
             this._session = null;
+            this.capabilities.sessionEnded?.();
             adopting = true;
             this.capabilities.adoptResult(result);
             const seconds = Math.max(0, Math.floor((this.runtime.now() - startTime) / 1000));
@@ -132,6 +134,7 @@ export class AutorouterSession {
         const session = this._session;
         if (!session) return;
         this._session = null;
+        this.capabilities.sessionEnded?.();
         session.cancelToken.cancelled = true;
         session.cancelToken.abort?.();
         this.presentation.reset();

@@ -135,7 +135,7 @@ function fixture() {
         invalidateFillRefresh(app);
         await loadClipper();
 
-        await new Promise(resolve => setTimeout(resolve, 70));
+        await Promise.resolve(); // the owed refresh resumes in a microtask, not on a timer
         for (const frame of coldFrames) frame();
         assert.equal(counts.clear, 1, 'Cold synchronous refresh debt survives the following history notification');
         assert.equal(isFillRefreshPending(app), false);
@@ -370,7 +370,7 @@ for (const mode of ['preview', 'preview-roundtrip', 'picture', 'sync', 'history'
         if (mode.startsWith('preview') || mode === 'picture') {
             if (mode.startsWith('preview')) setDragOverlaysDeferred(f.app, false);
             else setPictureCopperRefreshPending(f.app, false);
-            await wait(70); flush();
+            await tick(); flush(); // ending the preview resumes the debt, with no timer
             const latest = workers.at(-1);
             latest.finish(); await tick();
             assert.equal(f.counts.clear, 1, 'Previously accepted refresh debt resumes after preview cancellation');

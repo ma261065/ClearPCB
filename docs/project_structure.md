@@ -165,7 +165,7 @@ evaluation-order cycle fails.
   blocks a placement on a layer), and
   `pcb-interactions.js` (in-progress interaction slots).
 - In-progress interaction slots (`_drag`, `_trackDraw`, …) are listed once in
-  `pcb-interactions.js` with their owner module and stored in its import-free
+  `pcb-interactions.js` with their owner module and stored in its
   WeakMap. Only the owner writes its slot with `setPcbInteraction`; other code
   asks the owner through intent APIs such as `getBoardShapeDrag`,
   `endComponentDrag`, `getTrackDraw`, `cancelFillDraw` or
@@ -189,9 +189,9 @@ evaluation-order cycle fails.
   owns placement ghosts; `label-attachment.js` owns the label guide; and
   `schematic-view.js` owns the refined segment-selection overlay. Other modules
   call exported intent APIs instead of reading `app._…`.
-- `pcb-interactions.js`, `property-editors.js`, `refresh-state.js` and
-  `board-shape-state.js` have no imports, because worker-loaded export and DRC
-  code (or low-level selection plumbing) reads them.
+- `property-editors.js`, `refresh-state.js` and `board-shape-state.js` have no imports,
+  and `pcb-interactions.js` imports only `refresh-state.js` (to note an ended slot),
+  because worker-loaded export and DRC code (or low-level selection plumbing) reads them.
 - Entity IDs come from `core/id-allocator.js`; board shapes use
   `PcbDocument.shapeIdCounter` through `board-shapes.js` allocation helpers.
 

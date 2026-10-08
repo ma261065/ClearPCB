@@ -69,7 +69,7 @@ function fixture() {
         rules: { trackWidth: 0.23456789, clearance: 0.1, viaDiameter: 0.6, viaDrill: 0.3 },
     };
     const adopted = [], errors = [], statuses = [];
-    let reconciles = 0;
+    let reconciles = 0, ended = 0;
     const runtime = {
         createWorker() {
             const worker = {
@@ -100,6 +100,7 @@ function fixture() {
         },
         setStatus: message => statuses.push(message),
         reportError: error => errors.push(error),
+        sessionEnded: () => { ended++; },
         presentation: {
             getProgressHost: () => host, getSvg: () => svg,
             getLayerGroup: name => layers.get(name),
@@ -119,7 +120,7 @@ function fixture() {
     return {
         owner, capabilities, runtime, board, workers, host, svg, layers, ratline, label, copper,
         intervals, timeouts, frames, adopted, errors, statuses, checkReleased,
-        reconciles: () => reconciles, advance: value => { now += value; },
+        reconciles: () => reconciles, ended: () => ended, advance: value => { now += value; },
     };
 }
 
@@ -168,6 +169,7 @@ for (const stopped of [false, true]) {
     assert.deepEqual(f.adopted, [result]);
     assert.match(f.statuses.at(-1), /1 min 05 sec/);
     assert.equal(worker.terminated, true);
+    assert.equal(f.ended(), 1, 'A finished session says so once, so refreshes it held back resume');
     f.checkReleased();
     cases++;
 }
@@ -240,6 +242,7 @@ for (const action of ['cancel', 'dispose', 'stop', 'history']) {
     }
     await run;
     assert.equal(f.adopted.length, action === 'stop' ? 1 : 0);
+    assert.equal(f.ended(), 1, `${action}: the session says it ended, once`);
     f.checkReleased();
     cases++;
 }

@@ -49,6 +49,21 @@ redraws after each move the ratlines of the nets the drag moves, and
 previews. Nothing else sets overlay deferral (`test-drag-session`). Raising overlay deferral or fill
 suspension first notifies `onRefreshSuspended` subscribers; `PCBApp.js`
 subscribes to invalidate in-flight pour and DRC work on its instances.
+
+A pour recompute or DRC check that comes due while something holds it back waits for
+that to end, without polling. Pours wait out drag overlay deferral, paste fill
+suspension, a batched picture-copper refresh and an edit in progress (a gesture slot,
+including an inline text edit; an active Properties preview; or the autorouter). DRC
+also waits for a queued or running pour recompute until it succeeds or fails. Each of
+these notes its end with `noteEditSettled(app)` (`refresh-state.js`): the refresh-state
+flags do so themselves when they drop, `setPcbInteraction` when a slot is cleared,
+each Properties binding when its preview ends (or by releasing its drag session), and
+the autorouter through its `sessionEnded` capability. `fill-refresh.js` and
+`drc-refresh.js` subscribe with `onEditSettled` and, in a microtask (so a drop and
+its command finish first), queue any refresh that was waiting and is no longer held
+back. `test-refresh-settle` raises each hold while a refresh is due, ends it and checks
+the refresh is queued at once with no timer, and fails if a Properties binding never
+notes its preview ending.
 `refreshBoardView(app)` is the one place that asks an open 3D/2D board viewer
 to resync after a committed edit; callers check `isBoardViewRefreshSuspended`
 first where a gesture may hold it. `isEditorActive(app)` and
@@ -64,7 +79,8 @@ owned through `pcb/modules/drc-state.js`.
 `pcb/modules/pcb-interactions.js` is the one list of in-progress interaction
 slots (`_drag`, `_trackDraw`, `_pcbSelectionInteraction`, …) in pointer-move
 priority, with each slot's owner, category (`gesture` or `drawing`) and whether
-it blocks export. The active values live in that module's import-free WeakMap so
+it blocks export. The active values live in that module's WeakMap (its only import is
+the import-free `refresh-state.js`, to note a cleared slot) so
 `hasPcbInteractionInProgress`, `isPcbDrawing` and the fabrication-snapshot guard
 can run from worker-loaded code. Only the named owner writes a slot with
 `setPcbInteraction`; other modules call owner APIs (`getGroupDrag`,

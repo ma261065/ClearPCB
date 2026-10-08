@@ -86,7 +86,7 @@ import { displayedCollection } from '../pcb/modules/displayed-collections.js';
 import { preparePcbPaste, beginPcbPaste, cancelPcbPaste, isPcbPasteActive } from '../pcb/modules/pcb-paste.js';
 import { getBoardOutline, boardBoundary } from '../shared/pcb/board-outline.js';
 import { getPropertyEditor, setPropertyEditor } from '../pcb/modules/property-editors.js';
-import { getBoardViewPanel, getLastBoard2DSide, isFillRefreshPending, onRefreshSuspended, refreshBoardViewPanel, setLastBoard2DSide } from '../pcb/modules/refresh-state.js';
+import { getBoardViewPanel, getLastBoard2DSide, isFillRefreshPending, noteEditSettled, onRefreshSuspended, refreshBoardViewPanel, setLastBoard2DSide } from '../pcb/modules/refresh-state.js';
 import {
     drawBoardOutline,
     initializeBoardOutlineState,
@@ -1780,6 +1780,7 @@ export default class PCBApp {
             getRouterMode: () => this._getRouterMode(),
             adoptResult: result => this._renderRouteResult(result),
             reconcileRatsnest: () => reconcileRatsnest(this),
+            sessionEnded: () => noteEditSettled(this),
             setStatus: message => this.setStatus(message),
             presentation: {
                 getProgressHost: () => this.status.modeStatus,

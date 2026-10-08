@@ -14,6 +14,7 @@
  *   - Multi-selection.
  */
 
+import { noteEditSettled } from './refresh-state.js';
 import { buildTrackLayerRuns, removeTrackElements, removeViaElements, renderTrack, renderVia, setTrackLabelsVisible } from './track-render.js';
 import { reconcileRatsnest, collectBondedCopper } from './track-draw.js';
 import {
@@ -1179,6 +1180,7 @@ function createTrackPropertyBinding(app, track, scope = {}, refresh = () => {}) 
         if (!preview) return;
         const refreshFills = activeSpec?.fills;
         preview = null;
+        noteEditSettled(app);
         activeSpec = null;
         activeKey = null;
         let committed = false;
@@ -1711,6 +1713,7 @@ export function showViaProperties(app, via) {
     const finish = commit => {
         if (!preview) return;
         preview = null;
+        noteEditSettled(app);
         activeProperty = null;
         cancelLiveRender();
         let committed = false;

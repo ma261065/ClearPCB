@@ -203,8 +203,10 @@ assert.deepEqual(PCB_INTERACTION_ROUTES.release, ['_boardOutlineResize', '_pcbSe
     assert.equal(isBoxSelectArmed(app), false, 'An armed marquee that never started is disarmed');
 }
 
-// 6. The data table stays importable from worker-loaded export code.
-assert.deepEqual(importSpecifiers(readFileSync(join(root, 'src/pcb/modules/pcb-interactions.js'), 'utf8')), []);
+// 6. The data table stays importable from worker-loaded export code: it imports only
+// refresh-state.js (to note an ended interaction), which imports nothing.
+assert.deepEqual(importSpecifiers(readFileSync(join(root, 'src/pcb/modules/pcb-interactions.js'), 'utf8')), ['./refresh-state.js']);
+assert.deepEqual(importSpecifiers(readFileSync(join(root, 'src/pcb/modules/refresh-state.js'), 'utf8')), []);
 const reachable = new Set();
 const visit = file => {
     if (reachable.has(file)) return;

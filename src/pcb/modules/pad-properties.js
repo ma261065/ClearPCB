@@ -7,6 +7,7 @@
  * editor shows them. Number edits preview on display copies of the pads and commit one
  * ModifyPadCommand (per pad) when the field's run settles.
  */
+import { noteEditSettled } from './refresh-state.js';
 import { pcbToolBlockNotice } from './tool-lifecycle.js';
 import { refreshBoxSelectionHighlights } from './box-select.js';
 import { isLayerVisible } from './layers.js';
@@ -121,6 +122,7 @@ export function showPadEditor(app, pad, tool) {
         if (!preview) return;
         if (commit && !editable()) commit = false;
         preview = null;
+        noteEditSettled(app);
         activeProperty = null;
         cancelLiveRender();
         try {

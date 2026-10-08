@@ -2,13 +2,13 @@ import { runDRC } from './drc.js';
 import { captureDrcInputs } from './drc-worker-inputs.js';
 import { createDrcWorker } from './drc-worker-client.js';
 import { getComputedFill } from './computed-fill-cache.js';
-import { fillRefreshError, isFillRefreshPending, refreshStatus } from './refresh-state.js';
+import { fillRefreshError, isFillRefreshPending, onEditSettled, refreshStatus } from './refresh-state.js';
 import { isEditorActive } from './pcb-editor-api.js';
 import { collectDrcRatlines, drcShouldRun, isDrcDisposed, peekDrcPresentation, storedDrcRatlines } from './drc-state.js';
 
 const states = new WeakMap();
 const stateFor = app => {
-    if (!states.has(app)) states.set(app, { revision: 0, frame: null, retry: null, owed: false, worker: null, failed: false });
+    if (!states.has(app)) states.set(app, { revision: 0, frame: null, waiting: false, owed: false, worker: null, failed: false });
     return states.get(app);
 };
 const visible = app => isEditorActive(app) && !isDrcDisposed(app) && drcShouldRun(app);
@@ -20,10 +20,7 @@ const deferred = app => {
 };
 const rulesFor = app => ({ clearance: app.getRoutingParams().clearance, minAnnularRing: 0.05,
     ratlines: collectDrcRatlines(app) });
-const clearRetry = state => {
-    if (state.retry !== null) clearTimeout(state.retry);
-    state.retry = null;
-};
+const stopWaiting = state => { state.waiting = false; };
 function pending(app) {
     const presentation = peekDrcPresentation(app);
     if (presentation && !presentation.pending) {
@@ -31,17 +28,42 @@ function pending(app) {
         presentation.updateStatus(null, true);
     }
 }
-function retry(app, state) {
+const resumeQueued = new WeakSet();
+/**
+ * Check a waiting check once the current task (a drop and its command, say) has finished.
+ * @param {any} app
+ */
+function queueResume(app) {
+    if (resumeQueued.has(app)) return;
+    resumeQueued.add(app);
+    queueMicrotask(() => {
+        resumeQueued.delete(app);
+        resumeDrcRefresh(app);
+    });
+}
+onEditSettled(queueResume);
+
+/**
+ * Hold an owed check until nothing defers it: whatever ends last (an edit, or the pour
+ * recompute it waits for) notes the edit settled (refresh-state.js). Nothing polls.
+ */
+function waitUntilSettled(app, state) {
     state.owed = true;
+    state.waiting = true;
     pending(app);
-    if (state.retry !== null || !visible(app)) return;
-    state.retry = setTimeout(() => {
-        state.retry = null;
-        if (states.get(app) !== state || !state.owed || !visible(app)) return;
-        if (deferred(app)) retry(app, state);
-        else scheduleDrcRefresh(app);
-    }, 100);
-    state.retry?.unref?.();
+    queueResume(app);
+}
+
+/** Run a check that was waiting, if nothing holds it back any more.
+ * @param {any} app
+ */
+export function resumeDrcRefresh(app) {
+    const state = states.get(app);
+    if (!state?.waiting || state.frame !== null) return;
+    if (!state.owed) { stopWaiting(state); return; }
+    if (!visible(app) || deferred(app)) return;
+    stopWaiting(state);
+    scheduleDrcRefresh(app);
 }
 function report(app, error) {
     console.error('[DRC] check failed', error);
@@ -57,18 +79,18 @@ export function invalidateDrcRefresh(app) {
     if (!state) return;
     state.revision++;
     state.worker?.invalidate();
-    if (state.owed || state.frame !== null) retry(app, state);
+    if (state.owed || state.frame !== null) waitUntilSettled(app, state);
 }
 export function disposeDrcRefresh(app) {
     const state = states.get(app);
     if (!state) return;
     state.worker?.dispose();
-    clearRetry(state);
+    stopWaiting(state);
     states.delete(app);
 }
 function accept(app, state, result) {
     state.owed = false;
-    clearRetry(state);
+    stopWaiting(state);
     const presentation = peekDrcPresentation(app);
     if (!presentation) return;
     presentation.pending = false;
@@ -84,8 +106,8 @@ export function runDrcNow(app) {
     state.worker?.dispose();
     state.worker = null;
     state.frame = null;
-    clearRetry(state);
-    if (deferred(app)) { retry(app, state); return; }
+    stopWaiting(state);
+    if (deferred(app)) { waitUntilSettled(app, state); return; }
     state.owed = false;
     try { accept(app, state, runDRC(app, rulesFor(app))); }
     catch (error) { report(app, error); }
@@ -116,8 +138,8 @@ export function scheduleDrcRefresh(app) {
     state.owed = true;
     if (!visible(app)) return;
     pending(app);
-    if (deferred(app)) { retry(app, state); return; }
-    clearRetry(state);
+    if (deferred(app)) { waitUntilSettled(app, state); return; }
+    stopWaiting(state);
     if (state.frame !== null) return;
     const token = {};
     state.frame = token;
@@ -125,7 +147,7 @@ export function scheduleDrcRefresh(app) {
         if (states.get(app) !== state || state.frame !== token) return;
         state.frame = null;
         if (!visible(app)) return;
-        if (deferred(app)) { retry(app, state); return; }
+        if (deferred(app)) { waitUntilSettled(app, state); return; }
         if (state.failed || typeof Worker === 'undefined') { runDrcNow(app); return; }
         const revision = state.revision;
         let inputs, saved;
@@ -143,19 +165,19 @@ export function scheduleDrcRefresh(app) {
                     state.owed = false;
                     state.worker?.dispose();
                     state.worker = null;
-                    if ((app.pcbDocument || app) === saved.model) retry(app, state);
+                    if ((app.pcbDocument || app) === saved.model) waitUntilSettled(app, state);
                 }
                 return;
             }
             if (!result) return;
-            if (!visible(app) || deferred(app)) { retry(app, state); return; }
+            if (!visible(app) || deferred(app)) { waitUntilSettled(app, state); return; }
             try { accept(app, state, result); }
             catch (error) { report(app, error); }
         }).catch(error => {
             if (!valid()) return;
             report(app, error);
             state.failed = true;
-            if (!visible(app) || deferred(app)) { retry(app, state); return; }
+            if (!visible(app) || deferred(app)) { waitUntilSettled(app, state); return; }
             runDrcNow(app);
         });
     });

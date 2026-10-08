@@ -13,7 +13,11 @@
  *   Fabrication export refuses to snapshot while the interaction is active.
  *
  * At most one pointer drag is active at a time; `_pcbSelectionInteraction` can wrap one.
+ * Ending one notes the edit settled (refresh-state.js), so refreshes it held back resume.
+ * The only import is refresh-state.js, itself import-free.
  */
+import { noteEditSettled } from './refresh-state.js';
+
 export const PCB_INTERACTIONS = Object.freeze([
     { key: '_boardOutlineResize', category: 'gesture', blocksExport: true, owner: 'board-outline-resize.js' },
     { key: '_pasteDrop', category: 'gesture', blocksExport: false, owner: 'pcb-paste.js' },
@@ -62,8 +66,12 @@ export function getPcbInteraction(app, key) {
 export function setPcbInteraction(app, key, value) {
     assertInteractionKey(key);
     const state = slotState(app);
-    if (value) state[key] = value;
-    else delete state[key];
+    if (value) {
+        state[key] = value;
+    } else if (key in state) {
+        delete state[key];
+        noteEditSettled(app);
+    }
 }
 
 const anyActive = (app, keys) => {

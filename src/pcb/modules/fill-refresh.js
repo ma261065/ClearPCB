@@ -7,7 +7,7 @@ import { getPcbSelection, isPcbSelected } from './selection-registry.js';
 import { renderPcbSelectionAnchors } from './selection-anchors.js';
 import { reconcileRatsnest } from './track-draw.js';
 import { installCopperRegionContact, validateCopperRegionContact } from './track-contact-geometry.js';
-import { areDragOverlaysDeferred, isFillRefreshPending, isFillRefreshSuspended, isPictureCopperRefreshPending, refreshStatus, setFillRefreshError, setFillRefreshPending, setFillRefreshScheduled, refreshBoardView } from './refresh-state.js';
+import { areDragOverlaysDeferred, isFillRefreshPending, isFillRefreshSuspended, isPictureCopperRefreshPending, onEditSettled, refreshStatus, setFillRefreshError, setFillRefreshPending, setFillRefreshScheduled, refreshBoardView } from './refresh-state.js';
 import { isEditorActive } from './pcb-editor-api.js';
 import { buildFillContext } from './fill-context.js';
 import { scheduleDrc } from './drc-state.js';
@@ -18,7 +18,7 @@ const disposedApps = new WeakSet();
 function stateFor(app) {
     let state = states.get(app);
     if (!state) {
-        state = { revision: 0, frame: null, retry: null, owed: false, worker: null, failed: false };
+        state = { revision: 0, frame: null, waiting: false, owed: false, worker: null, failed: false };
         states.set(app, state);
     }
     return state;
@@ -35,22 +35,46 @@ function reportFailure(app, message, error) {
     app.setStatus?.(`${message} ${error instanceof Error ? error.message : String(error)}`);
 }
 
-function clearRetry(state) {
-    if (state.retry !== null) clearTimeout(state.retry);
-    state.retry = null;
+function stopWaiting(state) {
+    state.waiting = false;
 }
 
-function retryWhenSettled(app, state) {
+const resumeQueued = new WeakSet();
+/**
+ * Check a waiting refresh once the current task (a drop and its command, say) has finished.
+ * @param {any} app
+ */
+function queueResume(app) {
+    if (resumeQueued.has(app)) return;
+    resumeQueued.add(app);
+    queueMicrotask(() => {
+        resumeQueued.delete(app);
+        resumeFillRefresh(app);
+    });
+}
+onEditSettled(queueResume);
+
+/**
+ * Hold an owed recompute until nothing defers it: whatever ends last notes the edit
+ * settled (refresh-state.js) and the recompute runs then. Nothing polls.
+ */
+function waitUntilSettled(app, state) {
     state.owed = true;
+    state.waiting = true;
     setFillRefreshPending(app, true);
-    if (state.retry !== null || !isEditorActive(app) || disposedApps.has(app)) return;
-    state.retry = setTimeout(() => {
-        state.retry = null;
-        if (states.get(app) !== state || !isFillRefreshPending(app)) return;
-        if (deferred(app)) retryWhenSettled(app, state);
-        else scheduleFillRefresh(app);
-    }, 50);
-    state.retry?.unref?.();
+    queueResume(app);
+}
+
+/** Run a recompute that was waiting, if nothing holds it back any more.
+ * @param {any} app
+ */
+export function resumeFillRefresh(app) {
+    const state = states.get(app);
+    if (!state?.waiting || state.frame !== null || disposedApps.has(app)) return;
+    if (!isFillRefreshPending(app)) { stopWaiting(state); return; }
+    if (!isEditorActive(app) || deferred(app)) return;
+    stopWaiting(state);
+    scheduleFillRefresh(app);
 }
 
 /** Invalidate pending results without inventing a revision on the mutable PCB model. */
@@ -59,7 +83,7 @@ export function invalidateFillRefresh(app) {
     if (!state) return;
     state.revision++;
     state.worker?.invalidate();
-    if (state.owed || state.frame !== null) retryWhenSettled(app, state);
+    if (state.owed || state.frame !== null) waitUntilSettled(app, state);
 }
 
 /** Cancel callbacks and terminate the worker; activation may create a fresh service. */
@@ -69,7 +93,7 @@ export function disposeFillRefresh(app, options = {}) {
     if (!state) return;
     if (state.owed || state.frame !== null) setFillRefreshPending(app, true);
     state.worker?.dispose();
-    clearRetry(state);
+    stopWaiting(state);
     states.delete(app);
     setFillRefreshScheduled(app, false);
 }
@@ -81,7 +105,7 @@ function cancelScheduled(app) {
     state.worker = null;
     state.owed = false;
     state.frame = null;
-    clearRetry(state);
+    stopWaiting(state);
     setFillRefreshScheduled(app, false);
     return state;
 }
@@ -142,7 +166,7 @@ export function recomputeFillsNow(app) {
     invalidateDrcRefresh(app);
     const state = cancelScheduled(app);
     if (areDragOverlaysDeferred(app) || isFillRefreshSuspended(app)) {
-        retryWhenSettled(app, state);
+        waitUntilSettled(app, state);
         return;
     }
     const fills = fillsFor(app);
@@ -186,10 +210,10 @@ export function scheduleFillRefresh(app) {
     state.revision++;
     state.worker?.invalidate();
     if (!isEditorActive(app) || deferred(app)) {
-        retryWhenSettled(app, state);
+        waitUntilSettled(app, state);
         return !!isPictureCopperRefreshPending(app);
     }
-    clearRetry(state);
+    stopWaiting(state);
     if (!fillsFor(app).length) {
         state.owed = false;
         setFillRefreshPending(app, false);
@@ -206,8 +230,8 @@ export function scheduleFillRefresh(app) {
         if (states.get(app) !== state || state.frame !== frame) return;
         state.frame = null;
         setFillRefreshScheduled(app, false);
-        clearRetry(state);
-        if (!isEditorActive(app) || deferred(app)) { retryWhenSettled(app, state); return; }
+        stopWaiting(state);
+        if (!isEditorActive(app) || deferred(app)) { waitUntilSettled(app, state); return; }
         if (typeof Worker !== 'function' || state.failed) { recomputeFillsNow(app); return; }
         const fills = [...fillsFor(app)];
         if (!fills.length) { state.owed = false; setFillRefreshPending(app, false); clearFillGroups(app); return; }
@@ -229,7 +253,7 @@ export function scheduleFillRefresh(app) {
                 }
                 return;
             }
-            if (deferred(app) || !isEditorActive(app)) { retryWhenSettled(app, state); return; }
+            if (deferred(app) || !isEditorActive(app)) { waitUntilSettled(app, state); return; }
             if (batch) {
                 try {
                     adoptFillResults(app, fills, batch.results, batch.contacts);
@@ -247,7 +271,7 @@ export function scheduleFillRefresh(app) {
             state.worker?.dispose();
             state.worker = null;
             if (current(app, state, revision, model, fills)) {
-                if (deferred(app) || !isEditorActive(app)) retryWhenSettled(app, state);
+                if (deferred(app) || !isEditorActive(app)) waitUntilSettled(app, state);
                 else recomputeFillsNow(app);
             }
         });

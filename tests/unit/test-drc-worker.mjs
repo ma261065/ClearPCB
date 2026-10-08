@@ -254,7 +254,9 @@ const flush = () => {
     let count = 0;
     while (frames.length) { assert.ok(++count < 30, 'No frame spin'); frames.shift()(); }
 };
-const retry = () => { const pending = [...timers.values()]; timers.clear(); for (const callback of pending) callback(); flush(); };
+// A deferred check resumes when the edit holding it back ends (refresh-state.js notes it
+// settled), in a microtask, then runs on the next frame; no timer is involved.
+const settle = async () => { await tick(); flush(); };
 class FakeWorker {
     constructor() { this.jobs = []; this.terminated = false; workers.push(this); }
     postMessage(data) { this.jobs.push(structuredClone(data)); }
@@ -301,12 +303,13 @@ try {
         setFlag(true);
         worker.finish(); await tick();
         assert.equal(counts.accepted, 0, `No acceptance during ${flag}`);
-        retry();
+        await settle();
         assert.equal(counts.accepted, 0);
         setFlag(false);
-        retry();
+        await settle();
         workers.at(-1).finish(); await tick();
         assert.equal(counts.accepted, 1, `Deferred debt resumes after ${flag}`);
+        assert.equal(timers.size, 0, `Waiting out ${flag} sets no timer`);
         disposeDrcRefresh(app);
     }
     // Raising a suspension invalidates an in-flight check, even if it is lowered before the result arrives.
@@ -318,7 +321,7 @@ try {
         suspend(app, false);
         workers.at(-1).finish(stale); await tick();
         assert.equal(counts.accepted, 0, `${label}: a check started before the suspension is discarded`);
-        retry();
+        await settle();
         workers.at(-1).finish(); await tick();
         assert.equal(counts.accepted, 1, `${label}: a fresh check runs afterwards`);
         disposeDrcRefresh(app);
@@ -380,7 +383,7 @@ try {
         if (['document', 'deactivate', 'cancel', 'dispose', 'sync'].includes(action)) assert.equal(worker.terminated, true);
         if (action === 'dispose') { scheduleDrc(app); flush(); assert.equal(workers.at(-1), worker); }
         if (['fill-cache', 'fill-replacement'].includes(action)) {
-            retry(); workers.at(-1).finish(); await tick();
+            await settle(); workers.at(-1).finish(); await tick();
             assert.equal(counts.accepted, before + 1);
         }
         if (action === 'deactivate') {
@@ -402,7 +405,7 @@ try {
         scheduleDrc(app); flush();
         assert.equal(workers.length, before, 'Wait for outstanding pour math instead of checking stale copper');
         setFillRefreshError(app, new Error('Pour failure'));
-        retry(); workers.at(-1).finish(); await tick();
+        await settle(); workers.at(-1).finish(); await tick();
         assert.equal(counts.accepted, 1);
         assert.equal(app.lastResult.ok, false);
         assert.ok(app.lastResult.violations.some(item => item.rule === 'fill' && /failed/.test(item.message)));

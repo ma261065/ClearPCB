@@ -3,6 +3,7 @@
  * plus the stroke-text field binding they share with the reference-designator panel.
  * Panels describe fields only; shared/ui/property-fields.js owns the DOM.
  */
+import { noteEditSettled } from './refresh-state.js';
 import { pcbToolBlockNotice } from './tool-lifecycle.js';
 import { displayRotationDegrees } from '../../core/number-inputs.js';
 import { TEXT_LAYERS, createPcbText } from '../../core/pcb-text.js';
@@ -238,6 +239,7 @@ export function bindStrokeTextProps(app, model, spec) {
         const snap = snapshot;
         const edited = target;
         snapshot = null;
+        noteEditSettled(app);
         activeField = null;
         invalidField = null;
         target = model;
@@ -293,6 +295,7 @@ export function bindStrokeTextProps(app, model, spec) {
             if (!snapshot) return false;
             const snap = snapshot;
             snapshot = null;
+            noteEditSettled(app);
             activeField = null;
             invalidField = null;
             target = model;

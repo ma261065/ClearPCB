@@ -1,6 +1,6 @@
 {
   "typescript": "5.9.3",
-  "total": 10979,
+  "total": 10977,
   "cleanFolders": [
     "src/easyeda",
     "src/shared/3d"
@@ -157,7 +157,7 @@
     "src/pcb/modules/property-editors.js": 15,
     "src/pcb/modules/ref-text-geometry.js": 23,
     "src/pcb/modules/ref-text-selection.js": 62,
-    "src/pcb/modules/refresh-state.js": 33,
+    "src/pcb/modules/refresh-state.js": 31,
     "src/pcb/modules/region-geometry.js": 10,
     "src/pcb/modules/removal-hatch.js": 6,
     "src/pcb/modules/ribbon-description.js": 82,
