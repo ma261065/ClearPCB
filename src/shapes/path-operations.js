@@ -1,27 +1,34 @@
 import { BULGE_EPS, arcFromBulge } from './arc-edge.js';
 import { validClosedShape } from './closed-outline.js';
 
+/** @typedef {{x:number,y:number}} Point */
+/** @typedef {{kind?: string, points: Point[], id?: string, lineWidth?: number, cornerRadius?: number, filled?: boolean, segmentWidths?: Record<number, number>, segmentBulges?: Record<number, number>, edgeIds?: Record<number, string>, nodeCornerRadii?: Record<number, number>, nodeIds?: Record<number, string>, [key: string]: any}} PathShape */
+
 const EDGE_FIELDS = ['segmentWidths', 'segmentBulges', 'edgeIds'];
 const NODE_FIELDS = ['nodeCornerRadii', 'nodeIds'];
 
 /** Collapse exact duplicate neighbours on a rounded save copy, not live geometry. */
+/** @param {PathShape} path */
 export function collapseRoundedPolygon(path) {
     if (path.kind !== 'polygon') return false;
     const points = path.points;
+    /** @param {Point} a @param {Point} b */
     const same = (a, b) => a.x === b.x && a.y === b.y;
     if (points.length < 2 || !points.some((point, index) => same(point, points[(index + 1) % points.length]))) return false;
+    /** @type {number[][]} */
     const groups = [];
     for (let index = 0; index < points.length; index++) {
-        if (index && same(points[index - 1], points[index])) groups.at(-1).push(index);
+        if (index && same(points[index - 1], points[index])) groups[groups.length - 1].push(index);
         else groups.push([index]);
     }
-    if (groups.length > 1 && same(points[0], points.at(-1))) {
-        groups[0] = [...groups.pop(), ...groups[0]];
+    if (groups.length > 1 && same(points[0], /** @type {Point} */ (points.at(-1)))) {
+        groups[0] = [.../** @type {number[]} */ (groups.pop()), ...groups[0]];
     }
+    /** @param {string} reason */
     const fail = reason => { throw new Error(`Cannot save polygon${path.id ? ` "${path.id}"` : ''}: ${reason}`); };
     if (groups.length < 3) fail('rounding leaves fewer than three distinct corners.');
     for (const group of groups) {
-        const outgoing = group.at(-1);
+        const outgoing = /** @type {number} */ (group.at(-1));
         const width = path.segmentWidths?.[outgoing] ?? path.lineWidth ?? 0.2;
         const radius = path.nodeCornerRadii?.[outgoing] ?? path.cornerRadius ?? 0;
         // Removing a tiny edge can release the radius clamp and enlarge a rounded corner.
@@ -37,12 +44,12 @@ export function collapseRoundedPolygon(path) {
         }
     }
     const retained = groups.map(group => group.includes(0) ? 0 : group[0]);
-    const cleaned = { ...path, points: retained.map(index => ({ ...points[index] })) };
+    const cleaned = /** @type {PathShape} */ ({ ...path, points: retained.map(index => ({ ...points[index] })) });
     for (const field of [...EDGE_FIELDS, ...NODE_FIELDS]) {
         if (!path[field]) continue;
         cleaned[field] = Object.fromEntries(groups.flatMap((group, index) => {
             const source = EDGE_FIELDS.includes(field) ? group.at(-1)
-                : field === 'nodeCornerRadii' ? group.find(old => Object.hasOwn(path[field], old)) : retained[index];
+                : field === 'nodeCornerRadii' ? group.find(old => Object.hasOwn(path[field] || {}, old)) : retained[index];
             return source !== undefined && Object.hasOwn(path[field], source) ? [[index, path[field][source]]] : [];
         }));
     }
@@ -54,16 +61,17 @@ export function collapseRoundedPolygon(path) {
     return true;
 }
 
+/** @param {PathShape} path @param {number} segment @param {'line'|'arc'} type */
 export function setPathSegmentType(path, segment, type) {
     if (!Array.isArray(path?.points)) return false;
     const count = path?.points?.length - (path?.kind === 'line' ? 1 : 0);
-    if (!['line', 'polygon', 'rect'].includes(path?.kind) || !['line', 'arc'].includes(type)
+    if (typeof path.kind !== 'string' || !['line', 'polygon', 'rect'].includes(path.kind) || !['line', 'arc'].includes(type)
         || !Number.isInteger(segment) || segment < 0 || segment >= count) return false;
     const start = path.points[segment];
     const end = path.points[(segment + 1) % path.points.length];
     if (Math.hypot(end.x - start.x, end.y - start.y) < 1e-9) return false;
     if (type === 'arc') {
-        const existing = path.segmentBulges?.[segment];
+        const existing = Number(path.segmentBulges?.[segment]);
         const bulge = Number.isFinite(existing) && Math.abs(existing) >= BULGE_EPS
             ? Math.max(-1, Math.min(1, existing)) : 0.25;
         if (!arcFromBulge(start, end, bulge)) return false;
@@ -74,6 +82,7 @@ export function setPathSegmentType(path, segment, type) {
     return true;
 }
 
+/** @param {Point[]|null|undefined} points */
 export function pointsFormAxisAlignedRect(points) {
     if (!Array.isArray(points) || points.length !== 4) return false;
     const epsilon = 1e-6;
@@ -90,6 +99,7 @@ export function pointsFormAxisAlignedRect(points) {
     return true;
 }
 
+/** @param {Point[]} points @param {number} index @param {Point} target @returns {Point[]} */
 export function resizeRectanglePoints(points, index, target) {
     const opposite = points[(index + 2) % 4];
     const adjacent = points[(index + 1) % 4];
@@ -113,6 +123,7 @@ export function resizeRectanglePoints(points, index, target) {
     return resized;
 }
 
+/** @param {PathShape} path @param {number} segment @returns {PathShape[]|null} */
 export function deletePathSegment(path, segment) {
     const count = path.kind === 'line' ? path.points.length - 1 : path.points.length;
     if (!Number.isInteger(segment) || segment < 0 || segment >= count) return null;
@@ -123,6 +134,7 @@ export function deletePathSegment(path, segment) {
     return chains.filter(chain => chain.length >= 2).map(chain => pathChain(path, chain));
 }
 
+/** @param {PathShape} path @param {number} endpoint @param {number} [tolerance] */
 export function closePathIfCoincident(path, endpoint, tolerance = 0.15) {
     if (path.kind !== 'line' || !Array.isArray(path.points)) return false;
     const last = path.points.length - 1;
@@ -141,8 +153,9 @@ export function closePathIfCoincident(path, endpoint, tolerance = 0.15) {
     return true;
 }
 
+/** @param {PathShape} path @param {(index: number) => number} [widthAt] */
 export function collapseCollinearPath(path, widthAt = index => path.segmentWidths?.[index] ?? path.lineWidth ?? 0.2) {
-    if (!['line', 'polygon'].includes(path.kind)) return false;
+    if (typeof path.kind !== 'string' || !['line', 'polygon'].includes(path.kind)) return false;
     const closed = path.kind === 'polygon';
     let changed = false;
     let repeat = true;
@@ -173,9 +186,10 @@ export function collapseCollinearPath(path, widthAt = index => path.segmentWidth
     return changed;
 }
 
+/** @param {PathShape} path @param {number[]} indices @returns {PathShape} */
 export function pathChain(path, indices) {
-    const result = { ...path, kind: 'line', filled: false,
-        points: indices.map(index => ({ ...path.points[index] })) };
+    const result = /** @type {PathShape} */ ({ ...path, kind: 'line', filled: false,
+        points: indices.map(index => ({ ...path.points[index] })) });
     for (const field of [...EDGE_FIELDS, ...NODE_FIELDS]) {
         if (!path[field]) continue;
         const count = NODE_FIELDS.includes(field) ? indices.length : indices.length - 1;
@@ -185,6 +199,7 @@ export function pathChain(path, indices) {
     return result;
 }
 
+/** @param {PathShape} path @param {number} index @returns {{moving: PathShape, remainder: PathShape|null}|null} */
 export function splitPathAtNode(path, index) {
     const count = path?.points?.length || 0;
     const open = path?.kind === 'line';
@@ -197,9 +212,10 @@ export function splitPathAtNode(path, index) {
     return { moving, remainder };
 }
 
+/** @param {PathShape} path @returns {PathShape} */
 export function reversePath(path) {
     const count = path.points.length - 1;
-    const result = { ...path, points: [...path.points].reverse().map(point => ({ ...point })) };
+    const result = /** @type {PathShape} */ ({ ...path, points: [...path.points].reverse().map(point => ({ ...point })) });
     for (const field of [...EDGE_FIELDS, ...NODE_FIELDS]) {
         if (!path[field]) continue;
         result[field] = Object.fromEntries(Object.entries(path[field] || {}).map(([key, value]) => [
@@ -210,6 +226,7 @@ export function reversePath(path) {
     return result;
 }
 
+/** @param {PathShape} first @param {number} firstEndpoint @param {PathShape} second @param {number} secondEndpoint @returns {PathShape} */
 export function joinPaths(first, firstEndpoint, second, secondEndpoint) {
     const firstPart = firstEndpoint === first.points.length - 1 ? pathChain(first, first.points.map((_, index) => index)) : reversePath(first);
     const secondPart = secondEndpoint === 0 ? pathChain(second, second.points.map((_, index) => index)) : reversePath(second);
@@ -220,7 +237,7 @@ export function joinPaths(first, firstEndpoint, second, secondEndpoint) {
             [index, part.nodeCornerRadii?.[index] ?? part.cornerRadius ?? 0]));
     }
     const offset = firstPart.points.length - 1;
-    const result = { ...first, kind: 'line', points: [...firstPart.points, ...secondPart.points.slice(1)] };
+    const result = /** @type {PathShape} */ ({ ...first, kind: 'line', points: [...firstPart.points, ...secondPart.points.slice(1)] });
     for (const field of [...EDGE_FIELDS, ...NODE_FIELDS]) {
         if (!firstPart[field] && !secondPart[field]) continue;
         result[field] = { ...firstPart[field], ...Object.fromEntries(Object.entries(secondPart[field] || {})
@@ -230,6 +247,7 @@ export function joinPaths(first, firstEndpoint, second, secondEndpoint) {
     return result;
 }
 
+/** @param {PathShape} path @param {number} index @param {number} delta */
 export function remapPathNodes(path, index, delta) {
     for (const field of NODE_FIELDS) {
     if (!path[field]) continue;
@@ -241,9 +259,11 @@ export function remapPathNodes(path, index, delta) {
     }
 }
 
+/** @param {PathShape} path @param {number} segment */
 export function splitPathSegmentMetadata(path, segment) {
     for (const field of EDGE_FIELDS) {
     if (!path[field]) continue;
+        /** @type {Record<number, any>} */
         const remapped = {};
         for (const [key, value] of Object.entries(path[field] || {})) {
             const index = Number(key);
@@ -259,6 +279,7 @@ export function splitPathSegmentMetadata(path, segment) {
     }
 }
 
+/** @param {PathShape} path @param {number} vertexIndex */
 export function deletePathVertex(path, vertexIndex) {
     const count = path.points.length;
     if (!Number.isInteger(vertexIndex) || vertexIndex < 0 || vertexIndex >= count || count <= 2) return false;
@@ -266,6 +287,7 @@ export function deletePathVertex(path, vertexIndex) {
     for (const field of EDGE_FIELDS) {
         if (!path[field]) continue;
         const values = path[field] || {};
+        /** @type {Record<number, any>} */
         const remapped = {};
         if (closed && count === 3) {
             const source = vertexIndex === 0 ? 1 : vertexIndex === 2 ? 0 : 2;

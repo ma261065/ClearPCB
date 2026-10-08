@@ -1,7 +1,15 @@
 import { getBoardOutline, rectangleBoardOutline } from '../shared/pcb/board-outline.js';
 
+/**
+ * @typedef {{width: number, height: number, radius: number, outline?: any}} BoardOutlineCommandState
+ */
+
 export class SetBoardOutlineCommand {
-    /** @param {import('./PcbDocument.js').PcbDocument} document */
+    /**
+     * @param {import('./PcbDocument.js').PcbDocument} document
+     * @param {BoardOutlineCommandState} before
+     * @param {BoardOutlineCommandState} after
+     */
     constructor(document, before, after) {
         this.document = document;
         this.before = { ...before, outline: structuredClone(getBoardOutline(document)) };
@@ -9,6 +17,7 @@ export class SetBoardOutlineCommand {
             ? structuredClone(after.outline)
             : rectangleBoardOutline(after.width, after.height, after.radius) };
     }
+    /** @param {BoardOutlineCommandState} state */
     _apply(state) {
         this.document.setBoardOutline(state.outline
             || rectangleBoardOutline(state.width, state.height, state.radius));

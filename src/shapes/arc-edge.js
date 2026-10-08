@@ -15,19 +15,23 @@
 
 import { circumcircle, bulgePointFromRatio, distanceToSegment } from '../core/geometry.js';
 
+/** @typedef {{x:number,y:number}} Point */
+/** @typedef {{cx:number,cy:number,radius:number,startAngle:number,endAngle:number,sweep:0|1,largeArc:0|1,bulgePoint:Point}} ArcEdgeGeometry */
+
 /** Below this magnitude a bulge is treated as a straight segment. */
 export const BULGE_EPS = 1e-4;
 
 const TWO_PI = Math.PI * 2;
+/** @param {number} a */
 const mod2pi = (a) => ((a % TWO_PI) + TWO_PI) % TWO_PI;
 
 /**
  * Resolve the circular-arc geometry for an edge `a → b` with a signed bulge.
  * Returns null when the edge is straight or degenerate.
- * @param {{x:number,y:number}} a
- * @param {{x:number,y:number}} b
+ * @param {Point} a
+ * @param {Point} b
  * @param {number} bulge
- * @returns {{cx:number,cy:number,radius:number,startAngle:number,endAngle:number,sweep:0|1,largeArc:0|1,bulgePoint:{x:number,y:number}}|null}
+ * @returns {ArcEdgeGeometry|null}
  */
 export function arcFromBulge(a, b, bulge) {
     if (!a || !b || !Number.isFinite(bulge) || Math.abs(bulge) < BULGE_EPS) return null;
@@ -48,6 +52,8 @@ export function arcFromBulge(a, b, bulge) {
 /**
  * Whether a polar angle (about the arc centre) lies on the drawn arc.
  * Mirrors Arc._isAngleInRange.
+ * @param {ArcEdgeGeometry} arc
+ * @param {number} angle
  */
 function angleInArc(arc, angle) {
     angle = mod2pi(angle);
@@ -61,6 +67,9 @@ function angleInArc(arc, angle) {
 
 /**
  * Full SVG path data for one edge (starts with its own `M`).
+ * @param {Point} a
+ * @param {Point} b
+ * @param {number} bulge
  * @returns {string}
  */
 export function arcEdgePathD(a, b, bulge) {
@@ -73,6 +82,9 @@ export function arcEdgePathD(a, b, bulge) {
  * The path command to append to `b` assuming the current point is already `a`
  * (for chaining edges into one continuous outline path). Returns an `L` for
  * straight edges, an `A` for arcs.
+ * @param {Point} a
+ * @param {Point} b
+ * @param {number} bulge
  * @returns {string}
  */
 export function arcEdgeContinuation(a, b, bulge) {
@@ -83,6 +95,10 @@ export function arcEdgeContinuation(a, b, bulge) {
 
 /**
  * Shortest distance from a point to an edge (segment or arc).
+ * @param {Point} point
+ * @param {Point} a
+ * @param {Point} b
+ * @param {number} bulge
  * @returns {number}
  */
 export function distanceToArcEdge(point, a, b, bulge) {
@@ -97,6 +113,13 @@ export function distanceToArcEdge(point, a, b, bulge) {
     );
 }
 
+/**
+ * @param {Point} point
+ * @param {Point} start
+ * @param {Point} end
+ * @param {number} bulge
+ * @returns {Point}
+ */
 export function closestPointOnArcEdge(point, start, end, bulge) {
     const arc = arcFromBulge(start, end, bulge);
     if (arc) {
@@ -115,8 +138,11 @@ export function closestPointOnArcEdge(point, start, end, bulge) {
  * Sample points along an edge for fill/halo/bounds approximation. Excludes the
  * start point `a`; the final sample is the end point `b`. Straight edges return
  * just `[b]`.
+ * @param {Point} a
+ * @param {Point} b
+ * @param {number} bulge
  * @param {number} [segments] Target subdivisions for a full circle.
- * @returns {Array<{x:number,y:number}>}
+ * @returns {Point[]}
  */
 export function sampleArcEdge(a, b, bulge, segments = 32) {
     const arc = arcFromBulge(a, b, bulge);
@@ -125,6 +151,7 @@ export function sampleArcEdge(a, b, bulge, segments = 32) {
     if (arc.sweep === 1) { span = mod2pi(arc.endAngle - arc.startAngle); dir = 1; }
     else { span = mod2pi(arc.startAngle - arc.endAngle); dir = -1; }
     const n = Math.max(2, Math.ceil((segments * span) / TWO_PI));
+    /** @type {Point[]} */
     const pts = [];
     for (let i = 1; i <= n; i++) {
         const ang = arc.startAngle + dir * (span * (i / n));
@@ -135,6 +162,9 @@ export function sampleArcEdge(a, b, bulge, segments = 32) {
 
 /**
  * Axis-aligned bounds of an edge (segment or arc), including the arc bulge.
+ * @param {Point} a
+ * @param {Point} b
+ * @param {number} bulge
  * @returns {{minX:number,minY:number,maxX:number,maxY:number}}
  */
 export function arcEdgeBounds(a, b, bulge) {

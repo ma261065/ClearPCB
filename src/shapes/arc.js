@@ -9,24 +9,17 @@ import { pointInPolygon, distanceToSegment, bulgeRatio, bulgePointFromRatio } fr
 import { projectArcBulge, arcBulgeRatio, arcBulgeFromRatio, controlArcGeometry, sampleControlArc } from './arc-edit.js';
 import { pointsBounds, hitTestStrokeSegments } from './path-geometry.js';
 
+/** @typedef {{x: number, y: number}} Point */
+/** @typedef {{cx: number, cy: number, radius: number, startAngle: number, endAngle: number, sweepFlag: 0|1}} ArcGeometry */
+/** @typedef {Record<string, any> & {startPoint?: Point, endPoint?: Point, bulgePoint?: Point, fill?: boolean, fillAlpha?: number}} ArcOptions */
+
 /** Round to 4 decimal places for compact serialisation. */
+/** @param {number} v */
 const _r4 = v => Math.round(v * 10000) / 10000;
 
 export class Arc extends Shape {
     /**
-     * @param {Object} [options]
-        * @param {string} [options.id]
-        * @param {string} [options.layer]
-        * @param {string|number} [options.color]
-        * @param {string|number} [options.fillColor]
-        * @param {number} [options.lineWidth]
-        * @param {boolean} [options.visible]
-        * @param {boolean} [options.locked]
-     * @param {{x:number,y:number}} [options.startPoint] - Arc start.
-     * @param {{x:number,y:number}} [options.endPoint]   - Arc end.
-     * @param {{x:number,y:number}} [options.bulgePoint]  - Arc midpoint (curvature control).
-     * @param {boolean} [options.fill] - Whether to fill the chord area.
-     * @param {number} [options.fillAlpha=0.3] - Fill opacity.
+     * @param {ArcOptions} [options]
      */
     constructor(options = {}) {
         super(options);
@@ -36,6 +29,7 @@ export class Arc extends Shape {
         this._startPoint = options.startPoint || { x: 0, y: 0 };
         this._endPoint = options.endPoint || { x: 10, y: 0 };
         this._bulgePoint = options.bulgePoint || { x: 5, y: 5 };
+        /** @type {ArcGeometry|null} */
         this._cachedGeometry = null;
 
         // Fill properties
@@ -100,7 +94,7 @@ export class Arc extends Shape {
     /**
      * Derive centre, radius, angles, and sweep from the three control points
      * via circumcircle calculation.
-     * @returns {{cx:number, cy:number, radius:number, startAngle:number, endAngle:number, sweepFlag:0|1}}
+     * @returns {ArcGeometry}
      */
     _computeGeometry() {
         const p1 = this._startPoint;
@@ -155,6 +149,7 @@ export class Arc extends Shape {
     }
     
     /** @override */
+    /** @param {Point} point @param {number} [tolerance] */
     hitTest(point, tolerance = 0.5) {
         const points = sampleControlArc(this._controlArc());
         return (this.fill && pointInPolygon(point, points)) || hitTestStrokeSegments(point,
@@ -168,6 +163,7 @@ export class Arc extends Shape {
      */
     _isAngleInRange(angle) {
         const TWO_PI = Math.PI * 2;
+        /** @param {number} a */
         const mod = (a) => ((a % TWO_PI) + TWO_PI) % TWO_PI;
         const geo = this._getGeometry();
         angle = mod(angle);
@@ -186,6 +182,7 @@ export class Arc extends Shape {
     }
     
     /** @override */
+    /** @param {Point} point */
     distanceTo(point) {
         const points = sampleControlArc(this._controlArc());
         return points.slice(0, -1).reduce((distance, start, index) =>
@@ -232,6 +229,7 @@ export class Arc extends Shape {
     }
     
     /** @override */
+    /** @param {string} anchorId @param {number} x @param {number} y */
     moveAnchor(anchorId, x, y) {
         const start = this.getStartPoint();
         const end = this.getEndPoint();
@@ -257,6 +255,7 @@ export class Arc extends Shape {
     }
 
     /** @override */
+    /** @param {number} dx @param {number} dy */
     move(dx, dy) {
         if (!Number.isFinite(dx) || !Number.isFinite(dy)) return;
         // Assign new objects through setters so _cachedGeometry is cleared at each step
@@ -271,6 +270,7 @@ export class Arc extends Shape {
         return new Arc(this.toJSON());
     }
     /** @override */
+    /** @returns {Record<string, any>} */
     captureState() {
         return {
             startPoint: { x: this._startPoint.x, y: this._startPoint.y },
@@ -292,6 +292,7 @@ export class Arc extends Shape {
         ];
     }
     /** @override */
+    /** @param {Record<string, any>} state */
     applyState(state) {
         if (state.startPoint) this.startPoint = { x: state.startPoint.x, y: state.startPoint.y };
         if (state.endPoint) this.endPoint = { x: state.endPoint.x, y: state.endPoint.y };
@@ -307,6 +308,7 @@ export class Arc extends Shape {
         return { x: this._startPoint.x, y: this._startPoint.y };
     }
     /** @override — 'none' for the mid anchor, 'grid' for start/end. */
+    /** @param {string} anchorId */
     getAnchorSnapMode(anchorId) {
         return anchorId === 'mid' ? 'none' : 'grid';
     }
@@ -315,13 +317,14 @@ export class Arc extends Shape {
         this._dragBulgeRatio = null;
     }
     /** @override */
+    /** @returns {Record<string, any>} */
     toJSON() {
-        const json = {
+        const json = /** @type {Record<string, any>} */ ({
             ...super.toJSON(),
             sp: { x: _r4(this._startPoint.x), y: _r4(this._startPoint.y) },
             ep: { x: _r4(this._endPoint.x), y: _r4(this._endPoint.y) },
             bp: { x: _r4(this._bulgePoint.x), y: _r4(this._bulgePoint.y) }
-        };
+        });
         if (this.fill) json.f = true;
         return json;
     }

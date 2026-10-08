@@ -7,19 +7,33 @@ import { normalizeShapeCopperMode, rectCornerRadius, polygonCornerRadius } from 
 import { normalizePicturePoints, validatePicturePoints, PICTURE_LAYERS } from '../shared/pcb/picture-raster.js';
 import { encodePictureArtwork, decodePictureArtwork } from '../shared/pcb/picture-storage.js';
 
+/** @typedef {{x: number, y: number}} Point */
+/** Legacy persisted board shapes are loosely shaped project JSON. */
+/** @typedef {Record<string, any>} BoardShapeData */
+/** @typedef {{boardShapes: BoardShapeData[], shapeIdCounter: number}} BoardShapeState */
+
 export const SHAPE_KINDS = new Set(['line', 'rect', 'polygon', 'arc', 'circle', 'image']);
+/** @param {number} n */
 const r4 = n => Math.round(n * 10000) / 10000;
+/** @param {any} p */
 const pt = p => ({ x: Number(p?.x) || 0, y: Number(p?.y) || 0 });
+/** @param {Point} p */
+const clonePoint = p => ({ x: p.x, y: p.y });
 
 /** Full-precision geometry snapshot for moves and edits. */
+/** @param {BoardShapeData} shape */
 export function cloneShapeGeometry(shape) {
     if (shape.kind === 'arc') {
         return { start: { ...shape.start }, end: { ...shape.end }, bulge: { ...shape.bulge } };
     }
     if (shape.kind === 'circle') return { x: shape.x, y: shape.y, radius: shape.radius };
-    return { points: (shape.points || []).map(p => ({ x: p.x, y: p.y })) };
+    return { points: (shape.points || []).map(clonePoint) };
 }
 
+/**
+ * @param {BoardShapeData} shape
+ * @param {BoardShapeData} geom
+ */
 export function applyShapeGeometry(shape, geom) {
     if (shape.kind === 'arc') {
         delete shape.points;
@@ -34,11 +48,12 @@ export function applyShapeGeometry(shape, geom) {
         delete shape.start;
         delete shape.end;
         delete shape.bulge;
-        shape.points = (geom.points || []).map(p => ({ x: p.x, y: p.y }));
+        shape.points = (geom.points || []).map(clonePoint);
     }
 }
 
 /** Authored edit snapshot; image artwork is shared read-only, not copied. */
+/** @param {BoardShapeData} shape */
 export function captureBoardShapeState(shape) {
     return {
         kind: shape.kind,
@@ -58,6 +73,10 @@ export function captureBoardShapeState(shape) {
     };
 }
 
+/**
+ * @param {BoardShapeData} shape
+ * @param {BoardShapeData} state
+ */
 export function applyShapeSnapshot(shape, state) {
     if (state.kind) shape.kind = state.kind;
     if (shape.kind === 'image' && state.artwork) shape.artwork = state.artwork;
@@ -77,13 +96,21 @@ export function applyShapeSnapshot(shape, state) {
     shape.locked = !!state.locked;
 }
 
+/**
+ * @param {{boardShapes?: BoardShapeData[]}} state
+ * @param {{compactArtwork?: boolean, roundGeometry?: boolean, parametricRectangles?: boolean}} [options]
+ */
 export function serializeBoardShapes(state, { compactArtwork = true, roundGeometry = true, parametricRectangles = true } = {}) {
     const artworkIndices = new Map();
     return (state.boardShapes || []).map((s, index) => {
         if (s?.type === 'fill') return s.toJSON();
+        /** @param {number} value */
         const number = value => roundGeometry && Number.isFinite(value) ? r4(value) : value;
+        /** @param {Point} value */
         const point = value => ({ x: number(value.x), y: number(value.y) });
+        /** @param {Record<string, number>} values */
         const numbers = values => Object.fromEntries(Object.entries(values).map(([key, value]) => [key, number(value)]));
+        /** @type {BoardShapeData} */
         const base = {
             id: s.id,
             kind: s.kind,
@@ -104,7 +131,7 @@ export function serializeBoardShapes(state, { compactArtwork = true, roundGeomet
         if (s.kind === 'circle') return { ...base, x: number(s.x), y: number(s.y), radius: number(s.radius) };
         if (s.kind === 'image') {
             const geometry = parametricRectangles ? rectangleFrameFromPoints(s.points)
-                : { points: s.points.map(value => ({ x: value.x, y: value.y })) };
+                : { points: s.points.map(clonePoint) };
             if (!compactArtwork) return { ...base, name: s.name, artwork: structuredClone(s.artwork), ...geometry };
             const encoded = encodePictureArtwork(s.artwork);
             const key = JSON.stringify(encoded);
@@ -126,6 +153,11 @@ export function serializeBoardShapes(state, { compactArtwork = true, roundGeomet
 }
 
 /** Decode into a data-only stage; the caller owns adoption and rendering. */
+/**
+ * @param {any} state Legacy loader stages come from several loosely typed callers.
+ * @param {any} arr Persisted project JSON loaded from disk.
+ * @param {{strict?: boolean, lineWidth?: number}} [options]
+ */
 export function loadBoardShapeData(state, arr, { strict = false, lineWidth = 0.2 } = {}) {
     if (!Array.isArray(arr)) return;
     const loadedArtwork = new Map();
@@ -146,6 +178,7 @@ export function loadBoardShapeData(state, arr, { strict = false, lineWidth = 0.2
             if (strict) throw new Error(`Unknown board shape kind: ${sd?.kind}`);
             continue;
         }
+        /** @type {BoardShapeData} */
         const base = {
             id: String(sd.id || `pshape_${state.shapeIdCounter++}`),
             kind,
@@ -219,6 +252,6 @@ export function loadBoardShapeData(state, arr, { strict = false, lineWidth = 0.2
         }
         state.boardShapes.push(shape);
         const n = /pshape_(\d+)/.exec(shape.id);
-        if (n) state.shapeIdCounter = Math.max(state.shapeIdCounter, Number(n[1]) + 1);
+        if (n) state.shapeIdCounter = Math.max(state.shapeIdCounter, Number(/** @type {string} */ (n[1])) + 1);
     }
 }

@@ -1,4 +1,9 @@
+/** @typedef {Record<string, any>} JsonRecord */
+/** @typedef {'short'|'long'} AliasTarget */
+
+/** @param {unknown} value @param {string} key */
 const own = (value, key) => Object.prototype.hasOwnProperty.call(value, key);
+/** @param {unknown} value @returns {value is JsonRecord} */
 const record = value => value !== null && typeof value === 'object' && !Array.isArray(value);
 
 const GRID = {
@@ -103,6 +108,7 @@ const PANEL = {
     tw: 'tabWidth', hd: 'holeDiameter', hp: 'holePitch', nc: 'noteCreated',
 };
 
+/** @param {any} left @param {any} right @returns {boolean} */
 function equivalent(left, right) {
     if (Object.is(left, right)) return true;
     if (Array.isArray(left) || Array.isArray(right)) {
@@ -117,6 +123,7 @@ function equivalent(left, right) {
         && leftKeys.every((key, index) => key === rightKeys[index] && equivalent(left[key], right[key]));
 }
 
+/** @param {string} path @param {string} shortKey @param {string} longKey @param {unknown} value */
 function conflict(path, shortKey, longKey, value) {
     const snippet = JSON.stringify(value, null, 2)
         .split('\n')
@@ -125,6 +132,7 @@ function conflict(path, shortKey, longKey, value) {
     throw new Error(`Conflicting fields "${shortKey}" and "${longKey}".\nLocation: ${path}.${shortKey}\nFaulty snippet:\n${snippet}`);
 }
 
+/** @param {any} value @param {Record<string, string>} aliases @param {AliasTarget} target @param {string} path */
 function convertRecord(value, aliases, target, path) {
     if (!record(value)) return value;
     for (const [shortKey, longKey] of Object.entries(aliases)) {
@@ -139,6 +147,7 @@ function convertRecord(value, aliases, target, path) {
     return value;
 }
 
+/** @param {any} schematic @param {AliasTarget} target */
 function transformSchematic(schematic, target) {
     if (!record(schematic)) return schematic;
     convertRecord(schematic.settings, SCHEMATIC_SETTINGS, target, 'schematic.settings');
@@ -175,6 +184,7 @@ function transformSchematic(schematic, target) {
     return schematic;
 }
 
+/** @param {any} shape @param {AliasTarget} target @param {string} path */
 function transformBoardShape(shape, target, path) {
     if (shape?.type === 'fill') {
         convertRecord(shape, FILL_BASE, 'short', path);
@@ -186,6 +196,7 @@ function transformBoardShape(shape, target, path) {
     convertRecord(artwork, ARTWORK, target, `${path}.artwork`);
 }
 
+/** @param {any} pcb @param {AliasTarget} target */
 function transformPcb(pcb, target) {
     if (!record(pcb)) return pcb;
     convertRecord(pcb.stackup, STACKUP, target, 'pcb.stackup');
@@ -221,10 +232,12 @@ function transformPcb(pcb, target) {
     return pcb;
 }
 
+/** @param {any} pcb */
 export function normalizePcbSection(pcb) {
     return transformPcb(structuredClone(pcb), 'long');
 }
 
+/** @param {any} data */
 export function normalizeProjectAliases(data) {
     const normalized = structuredClone(data);
     if (!record(normalized)) return normalized;
@@ -233,6 +246,7 @@ export function normalizeProjectAliases(data) {
     return normalized;
 }
 
+/** @param {any} data */
 export function compactProjectAliases(data) {
     return compactNormalizedProject(normalizeProjectAliases(data));
 }
@@ -241,6 +255,7 @@ export function compactProjectAliases(data) {
  * Compact, in place, a project already in the form {@link normalizeProjectAliases}
  * returns. Saves a copy when the caller owns the normalized object.
  */
+/** @param {any} normalized */
 export function compactNormalizedProject(normalized) {
     if (!record(normalized)) return normalized;
     transformSchematic(normalized.schematic, 'short');

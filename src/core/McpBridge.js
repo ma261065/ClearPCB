@@ -4,6 +4,12 @@ const SESSION_STORAGE_KEY = 'clearpcb_mcp_endpoint';
 const CHUNK_SIZE = 192 * 1024;
 const MAX_RELAY_MESSAGE = 16 * 1024 * 1024;
 
+/**
+ * @typedef {{chunks: Array<string|undefined>, bytes: number}} ChunkTransfer
+ * @typedef {{id: string, method: string, params?: any}} RelayRequest
+ * @typedef {{id: string, result?: any, error?: string}} RelayResponse
+ */
+
 function endpointOrigin() {
     try {
         const configured = localStorage.getItem(SESSION_STORAGE_KEY);
@@ -37,6 +43,7 @@ export class McpBridge {
         this.retryCount = 0;
         this.connectionError = '';
         this.lastMcpSnapshot = null;
+        /** @type {Map<string, ChunkTransfer>} */
         this.incomingChunks = new Map();
     }
 
@@ -106,6 +113,10 @@ export class McpBridge {
         return true;
     }
 
+    /**
+     * @param {WebSocket} socket
+     * @param {any} raw
+     */
     async _handleRelayFrame(socket, raw) {
         let frame;
         try {
@@ -138,11 +149,16 @@ export class McpBridge {
         try {
             await this._handleMessage(socket, JSON.parse(transfer.chunks.join('')));
         } catch (error) {
-            this._send(socket, { id: frame.transferId, error: error.message });
+            this._send(socket, { id: frame.transferId, error: /** @type {{message: string}} */ (error).message });
         }
     }
 
+    /**
+     * @param {WebSocket} socket
+     * @param {any} raw Parsed relay JSON from an external MCP client.
+     */
     async _handleMessage(socket, raw) {
+        /** @type {RelayRequest|any} */
         let request = raw;
         try {
             if (!request || typeof request.id !== 'string' || typeof request.method !== 'string') {
@@ -170,11 +186,16 @@ export class McpBridge {
             this._notify();
         } catch (error) {
             if (request?.id) {
-                try { this._send(socket, { id: request.id, error: error.message }); } catch { /* disconnected */ }
+                const message = /** @type {{message: string}} */ (error).message;
+                try { this._send(socket, { id: request.id, error: message }); } catch { /* disconnected */ }
             }
         }
     }
 
+    /**
+     * @param {WebSocket} socket
+     * @param {RelayResponse} response
+     */
     _send(socket, response) {
         const serialized = JSON.stringify(response);
         if (serialized.length > MAX_RELAY_MESSAGE) {

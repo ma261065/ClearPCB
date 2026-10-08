@@ -4,6 +4,35 @@ import { pointsBounds } from './path-geometry.js';
 const NS = 'http://www.w3.org/2000/svg';
 const COLLINEAR_GLOW_COLOR = '#0072B2';
 
+/**
+ * @typedef {{x: number, y: number}} Point
+ * @typedef {string} AxisKind
+ * @typedef {{
+ *   a: Point,
+ *   b: Point,
+ *   width?: number,
+ *   axisKind?: AxisKind|null,
+ *   collinear?: boolean,
+ *   square?: boolean,
+ *   frozen?: boolean,
+ *   layerId?: string,
+ *   haloMarginPx?: number,
+ * }} AxisSegment
+ * @typedef {{
+ *   viewport?: {scale?: number, contentLayer?: Element},
+ *   getLayerGroup?: (layerId?: string) => Element|null,
+ *   _axisGlowHalos?: Element[]|null,
+ *   _axisGlowTop?: Element[]|null,
+ *   _axisGlowResolved?: Array<{segment: AxisSegment, dashKind: string}>|null,
+ *   [key: string]: any,
+ * }} AxisGlowApp
+ */
+
+/**
+ * @param {Point} a
+ * @param {Point} b
+ * @returns {AxisKind|null}
+ */
 export function axisAlignment(a, b) {
     const dx = b.x - a.x;
     const dy = b.y - a.y;
@@ -18,6 +47,15 @@ export function axisAlignment(a, b) {
     return null;
 }
 
+/**
+ * @param {Point[]} points
+ * @param {boolean} closed
+ * @param {number[]} indices
+ * @param {number[]} [widths]
+ * @param {number[]} [bulges]
+ * @param {number[]} [excluded]
+ * @returns {any[]}
+ */
 export function pathAlignmentSegments(points, closed, indices, widths = [], bulges = [], excluded = []) {
     const count = closed ? points.length : points.length - 1;
     const selected = new Set();
@@ -58,10 +96,19 @@ export function pathAlignmentSegments(points, closed, indices, widths = [], bulg
     });
 }
 
+/**
+ * @param {AxisGlowApp} app
+ * @param {AxisSegment} segment
+ */
 function layerFor(app, segment) {
     return app.getLayerGroup ? app.getLayerGroup(segment.layerId) : app.viewport?.contentLayer;
 }
 
+/**
+ * @param {Point[]} points
+ * @param {number[]} [widths]
+ * @returns {any[]}
+ */
 export function squareAlignmentSegments(points, widths = []) {
     if (points.length !== 4) return [];
     const bounds = pointsBounds(points);
@@ -72,14 +119,22 @@ export function squareAlignmentSegments(points, widths = []) {
         width: widths[index] ?? 0.25, square: true }));
 }
 
+/**
+ * @param {any} app
+ * @param {any} guides
+ */
 export function renderGuideLines(app, guides) {
-    renderAxisGlow(app, guides.map(guide => {
+    renderAxisGlow(app, /** @type {any[]} */ (guides).map(guide => {
         const segment = Array.isArray(guide)
             ? { a: guide[0], b: guide[1], collinear: !axisAlignment(guide[0], guide[1]) } : guide;
         return { width: 0.25, ...segment };
     }));
 }
 
+/**
+ * @param {any} app
+ * @param {any} segments
+ */
 export function renderAxisGlow(app, segments) {
     clearAxisGlow(app);
     const resolved = [];
@@ -107,6 +162,7 @@ export function renderAxisGlow(app, segments) {
     renderAxisGlowTop(app);
 }
 
+/** @param {any} app */
 export function renderAxisGlowTop(app) {
     for (const element of app._axisGlowTop || []) element.remove();
     const centerlines = [];
@@ -120,11 +176,14 @@ export function renderAxisGlowTop(app) {
     app._axisGlowTop = centerlines;
 }
 
+/** @param {any} app */
 export function refreshAxisGlow(app) {
-    const segments = app._axisGlowResolved?.map(({ segment }) => segment);
+    const resolved = /** @type {Array<{segment: any}>|undefined} */ (app._axisGlowResolved);
+    const segments = resolved?.map(entry => entry.segment);
     if (segments) renderAxisGlow(app, segments);
 }
 
+/** @param {any} app */
 export function clearAxisGlow(app) {
     for (const key of ['_axisGlowHalos', '_axisGlowTop']) {
         for (const element of app[key] || []) element.remove();
@@ -133,6 +192,12 @@ export function clearAxisGlow(app) {
     app._axisGlowResolved = null;
 }
 
+/**
+ * @param {any} app
+ * @param {AxisSegment} segment
+ * @param {string} color
+ * @param {SVGLineElement} [line]
+ */
 export function makeAxisGlowHalo(app, segment, color, line = document.createElementNS(NS, 'line')) {
     const scale = Math.max(0.01, app.viewport?.scale || 1);
     const width = segment.width || 0.2;
@@ -152,6 +217,12 @@ export function makeAxisGlowHalo(app, segment, color, line = document.createElem
     return line;
 }
 
+/**
+ * @param {any} app
+ * @param {AxisSegment} segment
+ * @param {string} dashKind
+ * @param {SVGLineElement} [line]
+ */
 export function makeAxisGlowCenterline(app, segment, dashKind, line = document.createElementNS(NS, 'line')) {
     const scale = app.viewport?.scale || 1;
     line.setAttribute('class', 'pcb-track-preview');

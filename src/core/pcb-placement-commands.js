@@ -3,19 +3,27 @@ import { updatePlacementPadPositions, repositionPadConnectedNodes,
     applyPlacementSide, disconnectIncompatiblePadNodes } from './pcb-placement-geometry.js';
 
 /** @typedef {import('./PcbPlacementState.js').PcbPlacementState} PcbPlacementState */
+/** @typedef {import('./PcbPlacementState.js').PlacementOverride} PlacementOverride */
 /** @typedef {Partial<import('./PcbPlacementState.js').PlacementOverride> & {x:number, y:number}} PlacementSeed */
+/** @typedef {Partial<import('./PcbPlacementState.js').PlacementOverride> & Record<string, any>} PlacementPatch */
+/** @typedef {{placementState: PcbPlacementState, compId: string, initial: PlacementOverride}} PlacementPatchCommand */
+/** @typedef {PlacementPatchCommand & {project: import('./ProjectDocument.js').ProjectDocument, _footprint?: any}} PlacementPoseCommand */
+/** @typedef {{refSize?: number, refStrokeWidth?: number, refRot?: number}} RefStylePatch */
 
+/** @param {PcbPlacementState} placementState @param {string} compId @param {PlacementSeed|undefined} initial @returns {PlacementOverride} */
 function initialPlacement(placementState, compId, initial) {
     const placement = placementState.overrides.get(compId) || placementState.autoSlots.get(compId) || initial;
     if (!placement) throw new Error(`PCB placement is no longer available: ${compId}`);
     return capturePlacementOverride(placement);
 }
 
+/** @param {PlacementPatchCommand} command @param {PlacementPatch} patch */
 function applyPatch(command, patch) {
     const current = command.placementState.overrides.get(command.compId) || command.initial;
     return command.placementState.record(command.compId, { ...current, ...patch });
 }
 
+/** @param {PlacementPoseCommand} command @param {PlacementPatch} patch */
 function resolvePose(command, patch) {
     const footprint = command.project.getPcbFootprint(command.compId) || command._footprint;
     if (!footprint) throw new Error(`PCB footprint is no longer available: ${command.compId}`);
@@ -32,6 +40,7 @@ function resolvePose(command, patch) {
     return placement;
 }
 
+/** @param {PlacementPoseCommand} command @param {PlacementPatch} patch */
 function applyPose(command, patch) {
     const placement = resolvePose(command, patch);
     const tracks = repositionPadConnectedNodes(command.project.pcbDocument.tracks, command.compId, placement.pads);
@@ -39,7 +48,7 @@ function applyPose(command, patch) {
 }
 
 export class MovePlacementCommand {
-    /** @param {import('./ProjectDocument.js').ProjectDocument} project @param {PlacementSeed} [initial] */
+    /** @param {import('./ProjectDocument.js').ProjectDocument} project @param {string} compId @param {number} fromX @param {number} fromY @param {number} toX @param {number} toY @param {PlacementSeed} [initial] */
     constructor(project, compId, fromX, fromY, toX, toY, initial) {
         this.project = project;
         this.placementState = project.pcbDocument.placementState;
@@ -48,6 +57,7 @@ export class MovePlacementCommand {
         this.from = { x: fromX, y: fromY };
         this.to = { x: toX, y: toY };
     }
+    /** @param {{x:number,y:number}} point */
     _apply(point) { return applyPose(this, point); }
     lockTargets() { return [{ kind: 'component', object: this.compId }]; }
     execute() { this._apply(this.to); }
@@ -55,7 +65,7 @@ export class MovePlacementCommand {
 }
 
 export class RotatePlacementCommand {
-    /** @param {import('./ProjectDocument.js').ProjectDocument} project @param {PlacementSeed} [initial] */
+    /** @param {import('./ProjectDocument.js').ProjectDocument} project @param {string} compId @param {number} fromDeg @param {number} toDeg @param {PlacementSeed} [initial] */
     constructor(project, compId, fromDeg, toDeg, initial) {
         this.project = project;
         this.placementState = project.pcbDocument.placementState;
@@ -64,6 +74,7 @@ export class RotatePlacementCommand {
         this.from = ((fromDeg % 360) + 360) % 360;
         this.to = ((toDeg % 360) + 360) % 360;
     }
+    /** @param {number} rotation */
     _apply(rotation) { return applyPose(this, { rotation }); }
     lockTargets() { return [{ kind: 'component', object: this.compId }]; }
     execute() { this._apply(this.to); }
@@ -71,7 +82,7 @@ export class RotatePlacementCommand {
 }
 
 export class FlipPlacementCommand {
-    /** @param {import('./ProjectDocument.js').ProjectDocument} project @param {PlacementSeed} [initial] */
+    /** @param {import('./ProjectDocument.js').ProjectDocument} project @param {string} compId @param {'H'|'V'|string} axis @param {PlacementSeed} [initial] */
     constructor(project, compId, axis, initial) {
         this.project = project;
         this.placementState = project.pcbDocument.placementState;
@@ -84,6 +95,7 @@ export class FlipPlacementCommand {
             mirror: !this.initial.mirror,
         };
     }
+    /** @param {PlacementPatch} pose */
     _apply(pose) { return applyPose(this, pose); }
     lockTargets() { return [{ kind: 'component', object: this.compId }]; }
     execute() { this._apply(this.after); }
@@ -91,7 +103,7 @@ export class FlipPlacementCommand {
 }
 
 export class SetPlacementSideCommand {
-    /** @param {import('./ProjectDocument.js').ProjectDocument} project @param {PlacementSeed} [initial] */
+    /** @param {import('./ProjectDocument.js').ProjectDocument} project @param {string} compId @param {'top'|'bottom'|string} side @param {PlacementSeed} [initial] */
     constructor(project, compId, side, initial) {
         this.project = project;
         this.placementState = project.pcbDocument.placementState;
@@ -124,6 +136,7 @@ export class SetPlacementSideCommand {
         }
         return touched;
     }
+    /** @param {'top'|'bottom'|string} side @param {boolean} [restore] */
     _apply(side, restore = false) {
         // Resolve before changing bonds; never-executed missing targets still fail atomically.
         const placement = resolvePose(this, { side });
@@ -141,7 +154,7 @@ export class SetPlacementSideCommand {
 }
 
 export class SetPlacementLockedCommand {
-    /** @param {PcbPlacementState} placementState @param {PlacementSeed} [initial] */
+    /** @param {PcbPlacementState} placementState @param {string} compId @param {boolean} locked @param {PlacementSeed} [initial] */
     constructor(placementState, compId, locked, initial) {
         this.placementState = placementState;
         this.compId = compId;
@@ -149,6 +162,7 @@ export class SetPlacementLockedCommand {
         this.before = this.initial.locked;
         this.after = !!locked;
     }
+    /** @param {boolean} locked */
     _apply(locked) { return applyPatch(this, { locked }); }
     /** Lock changes are how locks are lifted, so they are never refused. */
     lockTargets() { return []; }
@@ -157,7 +171,7 @@ export class SetPlacementLockedCommand {
 }
 
 export class SetPlacementRefVisibleCommand {
-    /** @param {PcbPlacementState} placementState @param {PlacementSeed} [initial] */
+    /** @param {PcbPlacementState} placementState @param {string} compId @param {boolean} visible @param {PlacementSeed} [initial] */
     constructor(placementState, compId, visible, initial) {
         this.placementState = placementState;
         this.compId = compId;
@@ -165,6 +179,7 @@ export class SetPlacementRefVisibleCommand {
         this.before = this.initial.refVisible;
         this.after = visible !== false;
     }
+    /** @param {boolean} visible */
     _apply(visible) { return applyPatch(this, { refVisible: visible }); }
     lockTargets() { return [{ kind: 'component', object: this.compId }]; }
     execute() { this._apply(this.after); }
@@ -172,7 +187,7 @@ export class SetPlacementRefVisibleCommand {
 }
 
 export class MoveRefTextCommand {
-    /** @param {PcbPlacementState} placementState @param {PlacementSeed} [initial] */
+    /** @param {PcbPlacementState} placementState @param {string} compId @param {number} fromDx @param {number} fromDy @param {number} toDx @param {number} toDy @param {PlacementSeed} [initial] */
     constructor(placementState, compId, fromDx, fromDy, toDx, toDy, initial) {
         this.placementState = placementState;
         this.compId = compId;
@@ -180,6 +195,7 @@ export class MoveRefTextCommand {
         this.from = { refDx: fromDx, refDy: fromDy };
         this.to = { refDx: toDx, refDy: toDy };
     }
+    /** @param {{refDx:number,refDy:number}} offset */
     _apply(offset) { return applyPatch(this, offset); }
     lockTargets() { return [{ kind: 'reftext', object: this.compId }]; }
     execute() { this._apply(this.to); }
@@ -187,7 +203,7 @@ export class MoveRefTextCommand {
 }
 
 export class RotateRefTextCommand {
-    /** @param {PcbPlacementState} placementState @param {PlacementSeed} [initial] */
+    /** @param {PcbPlacementState} placementState @param {string} compId @param {number} fromDeg @param {number} toDeg @param {PlacementSeed} [initial] */
     constructor(placementState, compId, fromDeg, toDeg, initial) {
         this.placementState = placementState;
         this.compId = compId;
@@ -195,6 +211,7 @@ export class RotateRefTextCommand {
         this.from = ((fromDeg % 360) + 360) % 360;
         this.to = ((toDeg % 360) + 360) % 360;
     }
+    /** @param {number} refRot */
     _apply(refRot) { return applyPatch(this, { refRot }); }
     lockTargets() { return [{ kind: 'reftext', object: this.compId }]; }
     execute() { this._apply(this.to); }
@@ -202,7 +219,7 @@ export class RotateRefTextCommand {
 }
 
 export class SetRefStyleCommand {
-    /** @param {PcbPlacementState} placementState @param {PlacementSeed} [initial] */
+    /** @param {PcbPlacementState} placementState @param {string} compId @param {RefStylePatch} before @param {RefStylePatch} after @param {PlacementSeed} [initial] */
     constructor(placementState, compId, before, after, initial) {
         this.placementState = placementState;
         this.compId = compId;
@@ -210,7 +227,9 @@ export class SetRefStyleCommand {
         this.before = { ...before };
         this.after = { ...after };
     }
+    /** @param {RefStylePatch} state */
     _apply(state) {
+        /** @type {RefStylePatch} */
         const patch = {};
         if (state.refSize !== undefined) patch.refSize = state.refSize;
         if (state.refStrokeWidth !== undefined) patch.refStrokeWidth = state.refStrokeWidth;

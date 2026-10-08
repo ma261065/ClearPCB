@@ -12,7 +12,18 @@
 import { Shape } from './shape.js';
 import { ShapeValidator } from '../core/ShapeValidator.js';
 
+/**
+ * @typedef {{x: number, y: number}} Point
+ * @typedef {'t'|'gnd'|'arrow'|'chevron'} NetStyle
+ * @typedef {'N'|'E'|'S'|'W'} NetOrientation
+ * @typedef {ReturnType<Shape['toJSON']> & {
+ *   x: number, y: number, n: string, fs?: number, nst?: NetStyle,
+ *   no?: NetOrientation, bd?: boolean, nto?: number[]
+ * }} NetJSON
+ */
+
 /** Round to 4 decimal places for compact serialisation. */
+/** @param {number} v */
 const _r4 = v => Math.round(v * 10000) / 10000;
 
 /** Net symbol geometry constants (mm, local space; connection anchor at 0,0). */
@@ -33,7 +44,7 @@ export const NET_ORIENTATIONS = ['N', 'E', 'S', 'W'];
 /**
  * Normalize Net style to supported values.
  * @param {string} style
- * @returns {'t'|'gnd'|'arrow'|'chevron'}
+ * @returns {NetStyle}
  */
 export function normalizeNetStyle(style) {
     if (NET_STYLES.includes(/** @type {any} */ (style))) {
@@ -45,7 +56,7 @@ export function normalizeNetStyle(style) {
 /**
  * Normalize Net orientation to supported values.
  * @param {string} orientation
- * @returns {'N'|'E'|'S'|'W'}
+ * @returns {NetOrientation}
  */
 export function normalizeNetOrientation(orientation) {
     if (NET_ORIENTATIONS.includes(/** @type {any} */ (orientation))) {
@@ -54,6 +65,7 @@ export function normalizeNetOrientation(orientation) {
     return 'E';
 }
 
+/** @param {NetOrientation} orientation */
 function _orientationDir(orientation) {
     switch (orientation) {
         case 'N': return { x: 0, y: -1 };
@@ -63,11 +75,19 @@ function _orientationDir(orientation) {
     }
 }
 
+/** @param {NetOrientation} orientation */
 function _orientationPerp(orientation) {
     const d = _orientationDir(orientation);
     return { x: -d.y, y: d.x };
 }
 
+/**
+ * @param {Point} origin
+ * @param {NetOrientation} orientation
+ * @param {number} s
+ * @param {number} t
+ * @returns {Point}
+ */
 function _worldFromST(origin, orientation, s, t) {
     const d = _orientationDir(orientation);
     const p = _orientationPerp(orientation);
@@ -159,7 +179,19 @@ export function getNetTextBaseLocal(style) {
     }
 }
 
+/**
+ * @param {NetStyle} style
+ * @param {Point} origin
+ * @param {NetOrientation} orientation
+ * @returns {string}
+ */
 function _buildOrientedSymbolPath(style, origin, orientation) {
+    /**
+     * @param {number} s1
+     * @param {number} t1
+     * @param {number} s2
+     * @param {number} t2
+     */
     const line = (s1, t1, s2, t2) => {
         const p1 = _worldFromST(origin, orientation, s1, t1);
         const p2 = _worldFromST(origin, orientation, s2, t2);
@@ -201,7 +233,17 @@ function _buildOrientedSymbolPath(style, origin, orientation) {
     ].join(' ');
 }
 
+/**
+ * @param {Point} origin
+ * @param {NetOrientation} orientation
+ */
 function _buildGroundBarsPath(origin, orientation) {
+    /**
+     * @param {number} s1
+     * @param {number} t1
+     * @param {number} s2
+     * @param {number} t2
+     */
     const line = (s1, t1, s2, t2) => {
         const p1 = _worldFromST(origin, orientation, s1, t1);
         const p2 = _worldFromST(origin, orientation, s2, t2);
@@ -218,7 +260,7 @@ function _buildGroundBarsPath(origin, orientation) {
 
 /**
  * Build the secondary ground bars path for gnd style.
- * @param {'N'|'E'|'S'|'W'} [orientation='E']
+ * @param {NetOrientation} [orientation='E']
  * @param {{x:number,y:number}} [origin={x:0,y:0}]
  * @returns {string}
  */
@@ -228,8 +270,8 @@ export function buildNetGroundBarsPath(orientation = 'E', origin = { x: 0, y: 0 
 
 /**
  * Build symbol path for a style at an orientation and origin.
- * @param {'t'|'gnd'|'arrow'|'chevron'} style
- * @param {'N'|'E'|'S'|'W'} [orientation='E']
+ * @param {NetStyle} style
+ * @param {NetOrientation} [orientation='E']
  * @param {{x:number,y:number}} [origin={x:0,y:0}]
  * @returns {string}
  */
@@ -239,7 +281,7 @@ export function buildNetSymbolPath(style, orientation = 'E', origin = { x: 0, y:
 
 /**
  * Local-space bounds of the visible Net symbol geometry.
- * @param {'t'|'gnd'|'arrow'|'chevron'} style
+ * @param {NetStyle} style
  * @returns {{minS:number,maxS:number,minT:number,maxT:number}}
  */
 function _getSymbolLocalBounds(style) {
@@ -377,6 +419,9 @@ export class Net extends Shape {
 
     /**
      * Apply rotation transform to a point around origin.
+     * @param {number} px
+     * @param {number} py
+     * @returns {Point}
      */
     _rotatePoint(px, py) {
         const rad = (netOrientationToRotation(this.orientation) * Math.PI) / 180;
@@ -388,6 +433,10 @@ export class Net extends Shape {
         };
     }
 
+    /**
+     * @param {Point} point
+     * @returns {Point}
+     */
     _worldToLocal(point) {
         const dx = point.x - this.x;
         const dy = point.y - this.y;
@@ -399,6 +448,10 @@ export class Net extends Shape {
         };
     }
 
+    /**
+     * @param {Point} point
+     * @returns {Point}
+     */
     _localToWorld(point) {
         return _worldFromST({ x: this.x, y: this.y }, this.orientation, point.x, point.y);
     }
@@ -419,6 +472,7 @@ export class Net extends Shape {
     }
 
     /** @override */
+    /** @param {Point} point */
     hitTest(point, tolerance = 0.5) {
         const bounds = this.getBounds();
         return (
@@ -430,6 +484,10 @@ export class Net extends Shape {
     }
 
     /** @override */
+    /**
+     * @param {Point} point
+     * @param {number} scale
+     */
     hitTestAnchor(point, scale) {
         const tol = 8 / scale;
         const dist = Math.hypot(point.x - this.x, point.y - this.y);
@@ -482,6 +540,11 @@ export class Net extends Shape {
     }
 
     /** @override */
+    /**
+     * @param {string} anchorId
+     * @param {number} x
+     * @param {number} y
+     */
     moveAnchor(anchorId, x, y) {
         if (anchorId === 'pos') {
             const dx = x - this.x;
@@ -499,6 +562,10 @@ export class Net extends Shape {
     }
 
     /** @override */
+    /**
+     * @param {number} dx
+     * @param {number} dy
+     */
     move(dx, dy) {
         if (!Number.isFinite(dx) || !Number.isFinite(dy)) return;
         this.x += dx;
@@ -564,6 +631,7 @@ export class Net extends Shape {
         return false;
     }
 
+    /** @param {any} state */
     applyState(state) {
         super.applyState(state);
         this.syncLabelText();
@@ -572,6 +640,7 @@ export class Net extends Shape {
     /** @override */
     toJSON() {
         this.syncTextOffsetFromLabelText();
+        /** @type {NetJSON} */
         const json = {
             ...super.toJSON(),
             x: _r4(this.x),

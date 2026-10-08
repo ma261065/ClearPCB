@@ -21,45 +21,53 @@ export const PANEL_DEFAULTS = Object.freeze({
     verticalPositioningHoles: false, verticalFiducials: false,
 });
 
-/** @returns {PanelSettings} */
+/** @typedef {keyof PanelSettings} PanelSettingKey */
+/** @typedef {Extract<PanelSettingKey, 'rows'|'columns'|'verticalTabsPerEdge'|'horizontalTabsPerEdge'|'verticalTabOffset'|'horizontalTabOffset'|'rowSpacing'|'columnSpacing'|'railTop'|'railBottom'|'railLeft'|'railRight'|'tabWidth'|'holeDiameter'|'holePitch'>} NumericPanelSettingKey */
+/** @typedef {Extract<PanelSettingKey, 'horizontalPositioningHoles'|'horizontalFiducials'|'verticalPositioningHoles'|'verticalFiducials'>} BooleanPanelSettingKey */
+
+/**
+ * @param {Partial<PanelSettings>|unknown} value
+ * @returns {PanelSettings}
+ */
 export function panelSettings(value) {
     if (!value || typeof value !== 'object') throw new Error('Invalid panel settings.');
+    const source = /** @type {Partial<PanelSettings>} */ (value);
     /** @type {PanelSettings} */
     const settings = { ...PANEL_DEFAULTS };
-    for (const key of Object.keys(settings)) {
-        if (value[key] !== undefined) settings[key] = value[key];
+    for (const key of /** @type {PanelSettingKey[]} */ (Object.keys(settings))) {
+        if (source[key] !== undefined) settings[key] = /** @type {never} */ (source[key]);
     }
-    for (const key of ['rows', 'columns']) {
+    for (const key of /** @type {NumericPanelSettingKey[]} */ (['rows', 'columns'])) {
         if (!Number.isInteger(settings[key]) || settings[key] < 1 || settings[key] > 20) {
             throw new Error('Rows and columns must be whole numbers from 1 to 20.');
         }
     }
     if (settings.rows * settings.columns > 100) throw new Error('A panel can contain at most 100 boards.');
-    for (const key of ['verticalTabsPerEdge', 'horizontalTabsPerEdge']) {
+    for (const key of /** @type {NumericPanelSettingKey[]} */ (['verticalTabsPerEdge', 'horizontalTabsPerEdge'])) {
         if (!Number.isInteger(settings[key]) || settings[key] < 1 || settings[key] > 20) {
             throw new Error('Tabs per edge must be a whole number from 1 to 20.');
         }
     }
-    for (const key of ['verticalTabOffset', 'horizontalTabOffset']) {
+    for (const key of /** @type {NumericPanelSettingKey[]} */ (['verticalTabOffset', 'horizontalTabOffset'])) {
         if (!Number.isFinite(settings[key]) || Math.abs(settings[key]) > 100) {
             throw new Error('Tab offsets must be between -100 and 100 mm.');
         }
     }
-    for (const key of ['rowSpacing', 'columnSpacing', 'railTop', 'railBottom', 'railLeft', 'railRight']) {
+    for (const key of /** @type {NumericPanelSettingKey[]} */ (['rowSpacing', 'columnSpacing', 'railTop', 'railBottom', 'railLeft', 'railRight'])) {
         if (!Number.isFinite(settings[key]) || settings[key] < 0 || settings[key] > 100) {
             throw new Error('Spacing and rail widths must be between 0 and 100 mm.');
         }
     }
     if (!['tabs', 'vcut'].includes(settings.separation)) throw new Error('Unknown panel separation method.');
-    for (const key of ['horizontalPositioningHoles', 'horizontalFiducials', 'verticalPositioningHoles', 'verticalFiducials']) {
+    for (const key of /** @type {BooleanPanelSettingKey[]} */ (['horizontalPositioningHoles', 'horizontalFiducials', 'verticalPositioningHoles', 'verticalFiducials'])) {
         if (typeof settings[key] !== 'boolean') throw new Error('Rail feature options must be boolean values.');
     }
-    for (const key of ['tabWidth', 'holeDiameter', 'holePitch']) {
+    for (const key of /** @type {NumericPanelSettingKey[]} */ (['tabWidth', 'holeDiameter', 'holePitch'])) {
         if (!Number.isFinite(settings[key]) || settings[key] <= 0 || settings[key] > 20) {
             throw new Error('Tab and drill dimensions must be greater than zero and at most 20 mm.');
         }
     }
     if (settings.holePitch <= settings.holeDiameter) throw new Error('Hole pitch must exceed hole diameter.');
     if (settings.tabWidth < settings.holePitch * 2) throw new Error('Tabs must be at least two hole pitches wide.');
-    return value.noteCreated === true ? { ...settings, noteCreated: true } : settings;
+    return source.noteCreated === true ? { ...settings, noteCreated: true } : settings;
 }

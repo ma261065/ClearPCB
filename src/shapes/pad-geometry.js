@@ -1,5 +1,10 @@
 /** Physical pad geometry in SVG-Y-down millimetres; no rendering or file output. */
 
+/** @typedef {{x: number, y: number}} Point */
+/** @typedef {{shape: string, layers: string, x: number, y: number, size: number, drill: number, width?: number, height?: number, ratio?: number, rotation?: number}} PadLike */
+/** @typedef {{x: number, y: number, w: number, h: number, shape: string, rotation?: number, rad?: number}} PadFlash */
+
+/** @param {PadLike} pad */
 function flashShape(pad) {
     if (pad.shape === 'round') return 'circle';
     if (pad.shape === 'oval') return 'ellipse';
@@ -7,28 +12,38 @@ function flashShape(pad) {
     return 'rect';
 }
 
+/** @param {PadLike} pad */
 export function padLayers(pad) {
     if (pad.layers === 'both') return ['top-copper', 'bottom-copper'];
     return [pad.layers];
 }
 
 /** Geometric aperture descriptor, also usable with detached plain pad data. */
+/** @param {PadLike} pad */
 export function padFlash(pad) {
     const ratio = ['stadium', 'rectangle', 'oval'].includes(pad.shape) ? pad.ratio || 2 : 1;
+    const width = typeof pad.width === 'number' && Number.isFinite(pad.width) ? pad.width : pad.size * ratio;
+    const height = typeof pad.height === 'number' && Number.isFinite(pad.height) ? pad.height : pad.size;
     return {
         x: pad.x, y: pad.y,
-        w: Number.isFinite(pad.width) ? pad.width : pad.size * ratio,
-        h: Number.isFinite(pad.height) ? pad.height : pad.size,
+        w: width,
+        h: height,
         shape: flashShape(pad), rotation: pad.rotation,
         rad: -(pad.rotation || 0) * Math.PI / 180,
     };
 }
 
 /** Sample a pad flash; enclosing outlines are conservative pour obstacles. */
+/**
+ * @param {any} flash Detached flash descriptors are shared with legacy geometry callers.
+ * @param {number} [tolerance]
+ * @param {boolean} [enclose]
+ */
 export function padFlashOutline(flash, tolerance = 0.001, enclose = false) {
     const halfWidth = flash.w / 2;
     const halfHeight = flash.h / 2;
     const cosine = Math.cos(flash.rad || 0), sine = Math.sin(flash.rad || 0);
+    /** @param {number} x @param {number} y */
     const transform = (x, y) => ({ x: flash.x + x * cosine - y * sine,
         y: flash.y + x * sine + y * cosine });
     if (!['ellipse', 'oval', 'circle', 'round'].includes(flash.shape)) {
@@ -65,10 +80,12 @@ export function padFlashOutline(flash, tolerance = 0.001, enclose = false) {
 }
 
 /** Outer copper outline; drill cutouts are handled by each rendering/export consumer. */
+/** @param {PadLike} pad */
 export function padOutline(pad) {
     return padFlashOutline(padFlash(pad));
 }
 
+/** @param {PadLike} pad */
 export function padBounds(pad) {
     const points = padOutline(pad);
     const radius = pad.drill / 2;
@@ -80,6 +97,10 @@ export function padBounds(pad) {
     };
 }
 
+/**
+ * @param {PadLike} pad
+ * @param {Point} point
+ */
 export function padHitTest(pad, point) {
     const angle = (pad.rotation || 0) * Math.PI / 180;
     const dx = point.x - pad.x;
@@ -87,8 +108,8 @@ export function padHitTest(pad, point) {
     const x = dx * Math.cos(angle) - dy * Math.sin(angle);
     const y = dx * Math.sin(angle) + dy * Math.cos(angle);
     const ratio = ['stadium', 'rectangle', 'oval'].includes(pad.shape) ? pad.ratio || 2 : 1;
-    const halfWidth = (Number.isFinite(pad.width) ? pad.width : pad.size * ratio) / 2;
-    const halfHeight = (Number.isFinite(pad.height) ? pad.height : pad.size) / 2;
+    const halfWidth = (typeof pad.width === 'number' && Number.isFinite(pad.width) ? pad.width : pad.size * ratio) / 2;
+    const halfHeight = (typeof pad.height === 'number' && Number.isFinite(pad.height) ? pad.height : pad.size) / 2;
     if (pad.shape === 'round' || pad.shape === 'oval') {
         return (x / halfWidth) ** 2 + (y / halfHeight) ** 2 <= 1;
     }

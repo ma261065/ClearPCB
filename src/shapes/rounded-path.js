@@ -2,6 +2,16 @@ import { arcEdgeContinuation, sampleArcEdge } from './arc-edge.js';
 
 export const CORNER_CHORD_TOLERANCE = 0.001;
 
+/** @typedef {{x:number, y:number}} Point */
+/** @typedef {{vertex:Point, entry:Point, exit:Point, rounded:boolean, bulge?:number}} RoundedCorner */
+
+/**
+ * @param {Point[]} points
+ * @param {number[]} radii
+ * @param {boolean} [closed]
+ * @param {boolean} [circular]
+ * @returns {RoundedCorner[]}
+ */
 export function roundedPathCorners(points, radii, closed = false, circular = false) {
     return points.map((vertex, index) => {
         const sharp = { vertex, entry: { ...vertex }, exit: { ...vertex }, rounded: false };
@@ -24,11 +34,13 @@ export function roundedPathCorners(points, radii, closed = false, circular = fal
     });
 }
 
+/** @param {RoundedCorner} corner @param {(value:number) => string|number} [format] */
 export function roundedCornerContinuation(corner, format = value => value) {
     return corner.bulge ? arcEdgeContinuation(corner.entry, corner.exit, corner.bulge)
         : `Q ${format(corner.vertex.x)} ${format(corner.vertex.y)} ${format(corner.exit.x)} ${format(corner.exit.y)}`;
 }
 
+/** @param {RoundedCorner[]} corners @param {boolean} [closed] @param {number[]} [bulges] @param {(value:number) => string|number} [format] */
 export function roundedPathData(corners, closed = false, bulges = [], format = value => value) {
     if (!corners.length) return '';
     const parts = [`M ${format(corners[0].entry.x)} ${format(corners[0].entry.y)}`];
@@ -38,10 +50,11 @@ export function roundedPathData(corners, closed = false, bulges = [], format = v
             parts.push(roundedCornerContinuation(corner, format));
         }
     }
-    if (closed) parts.push(arcEdgeContinuation(corners.at(-1).exit, corners[0].entry, bulges[corners.length - 1] || 0), 'Z');
+    if (closed) parts.push(arcEdgeContinuation(corners[corners.length - 1].exit, corners[0].entry, bulges[corners.length - 1] || 0), 'Z');
     return parts.join(' ');
 }
 
+/** @param {RoundedCorner} corner @param {number} [segments] @returns {Point[]} */
 export function sampleRoundedCorner(corner, segments = undefined) {
     if (!corner.rounded) return [{ ...corner.vertex }];
     if (corner.bulge) {

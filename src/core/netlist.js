@@ -19,17 +19,25 @@
  * @property {string} net       - Net name (e.g. 'VCC', 'Net0001')
  * @property {PinRef[]} pins    - Array of component-pin references on this net
  */
+/** @typedef {{componentId?:string, pinNumber?:string|number|null}} PinConnection */
+/** @typedef {{type?:string, net?:string, pinConnections?:Map<any, PinConnection>|Iterable<[any, PinConnection]>}} NetShape */
+/** @typedef {{number?:string|number|null, name?:string}} SymbolPin */
+/** @typedef {{name?:string, footprint?:string, footprintName?:string, footprintShapes?:any, footprintBBox?:any, _source?:string, model3dObj?:string|null, model3dUrl?:string|null}} ComponentDefinition */
+/** @typedef {{pins?:SymbolPin[], _source?:string}} ComponentSymbol */
+/** @typedef {{id:string, reference?:string, value?:string, definition?:ComponentDefinition|null, symbol?:ComponentSymbol|null}} SchematicComponent */
+/** @typedef {{shapes?:NetShape[], components?:SchematicComponent[]}} SchematicState */
 
 /**
  * Extract a netlist from the schematic document's current state.
  *
- * @param {object} schematicApp - Schematic state exposing shapes and components.
+ * @param {SchematicState|null|undefined} schematicApp - Schematic state exposing shapes and components.
  * @returns {NetlistEntry[]} Array of nets, each with a name and pin list
  */
 export function extractNetlist(schematicApp) {
     if (!schematicApp?.shapes || !schematicApp?.components) return [];
 
     // Map: net name → Set of "componentId:pinNumber" (deduplicated)
+    /** @type {Map<string, Set<string>>} */
     const netMap = new Map();
     // Every pin already placed on a wire net — these keep that net and must
     // not also receive a default single-pin net below.
@@ -40,7 +48,7 @@ export function extractNetlist(schematicApp) {
 
         const netName = shape.net || 'unconnected';
         if (!netMap.has(netName)) netMap.set(netName, new Set());
-        const pinSet = netMap.get(netName);
+        const pinSet = /** @type {Set<string>} */ (netMap.get(netName));
 
         for (const [, conn] of shape.pinConnections) {
             if (!conn?.componentId || conn.pinNumber == null) continue;
@@ -53,6 +61,7 @@ export function extractNetlist(schematicApp) {
     }
 
     // Convert to array form
+    /** @type {NetlistEntry[]} */
     const netlist = [];
     for (const [net, pinSet] of netMap) {
         const pins = [];
@@ -85,12 +94,13 @@ export function extractNetlist(schematicApp) {
 /**
  * Build a component summary from the schematic for footprint placement.
  *
- * @param {object} schematicApp - Schematic state exposing shapes and components.
+ * @param {SchematicState|null|undefined} schematicApp - Schematic state exposing shapes and components.
  * @returns {Array<{id: string, reference: string, value: string, footprint: string, pins: Array<{number: string, name: string}>}>}
  */
 export function extractComponents(schematicApp) {
     if (!schematicApp?.components) return [];
 
+    /** @type {Array<{id: string, reference: string, value: string, footprint: string, footprintShapes:any, footprintBBox:any, source:string, model3dObj:string|null, model3dUrl:string|null, pins: Array<{number: string, name: string}>}>} */
     const result = [];
     for (const comp of schematicApp.components) {
         // Skip net labels and other non-physical components

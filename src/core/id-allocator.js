@@ -19,7 +19,10 @@ export class IdAllocator {
         return `${this.head}${++this.highest}`;
     }
 
-    /** Record an existing ID so generated IDs skip past it; other formats are ignored. */
+    /**
+     * Record an existing ID so generated IDs skip past it; other formats are ignored.
+     * @param {unknown} id
+     */
     observe(id) {
         // Entities are constructed in bulk on load, so this parses without a regex or substring.
         if (typeof id !== 'string') return;
@@ -34,7 +37,11 @@ export class IdAllocator {
         if (number > this.highest) this.highest = number;
     }
 
-    /** Assign `id` when given (observing it), otherwise a newly generated ID. */
+    /**
+     * Assign `id` when given (observing it), otherwise a newly generated ID.
+     * @param {string|null|undefined} [id]
+     * @returns {string}
+     */
     claim(id) {
         if (id) {
             this.observe(id);

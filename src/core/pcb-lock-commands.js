@@ -23,13 +23,16 @@ export class SetObjectLockedCommand {
         this.after = !!locked;
     }
 
+    /** @returns {{locked?: boolean}} */
     target() {
-        if (this.kind !== 'text') return this.object;
-        const text = this.document.texts.get(this.textId);
+        if (this.kind !== 'text') return /** @type {{locked?: boolean}} */ (this.object);
+        const textId = /** @type {string} */ (this.textId);
+        const text = this.document.texts.get(textId);
         if (!text) throw new Error(`PCB text is no longer available: ${this.textId}`);
         return text;
     }
 
+    /** @param {boolean} locked */
     _apply(locked) { this.target().locked = locked; }
     /** Lock changes are how locks are lifted, so they are never refused. */
     lockTargets() { return []; }

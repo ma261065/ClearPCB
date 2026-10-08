@@ -15,6 +15,7 @@ import { updateFillIdCounter } from '../shapes/copper-fill.js';
 import { isCopperPathShape, trackFromBoardShape } from '../shared/pcb/copper-path-tracks.js';
 import { panelSettings } from './pcb-panelization.js';
 
+/** @param {number} value */
 const round4 = value => Number.isFinite(value) ? Math.round(value * 10000) / 10000 : value;
 const DEFAULT_BOARD_DIMENSIONS = Object.freeze({ width: 100, height: 80, radius: 0 });
 
@@ -48,6 +49,10 @@ export class PcbDocument {
         return this.boardShapes.filter(shape => shape?.type === 'fill');
     }
 
+    /**
+     * @param {any} data Project PCB JSON from disk/import.
+     * @returns {any}
+     */
     static prepare(data) {
         data = normalizePcbSection(data);
         assertSupportedPcb(data);
@@ -58,6 +63,7 @@ export class PcbDocument {
                 throw new Error('The board outline must be one closed rectangle, polygon, or circle.');
             }
         }
+        /** @type {{boardShapes: any[], shapeIdCounter: number}} */
         const stage = { boardShapes: [], shapeIdCounter: 1 };
         loadBoardShapeData(stage, data?.boardShapes, { strict: true });
         if (!getBoardOutline(stage) && data?.board?.width > 0 && data.board.height > 0) {
@@ -69,7 +75,7 @@ export class PcbDocument {
         if (outlines.length > 1 || outlines.some(shape => !validBoardOutline(shape))) {
             throw new Error('The board outline must be one closed rectangle, polygon, or circle.');
         }
-        const tracks = (data?.tracks || []).map(item => {
+        const tracks = /** @type {any[]} */ (data?.tracks || []).map(item => {
             const track = createShape(item);
             if (!(track instanceof Track)) throw new Error('Invalid PCB track.');
             return track;
@@ -81,9 +87,9 @@ export class PcbDocument {
             stage.boardShapes = stage.boardShapes.filter(shape => !copperPaths.includes(shape));
             tracks.push(...copperPaths.map(shape => trackFromBoardShape(shape)));
         }
-        const prepared = { ...stage, data, tracks, vias: (data?.vias || []).map(item => Via.fromJSON(item)),
-            pads: (data?.pads || []).map(item => new Pad(item)),
-            texts: (data?.texts || []).map(item => createPcbText(item)),
+        const prepared = { ...stage, data, tracks, vias: /** @type {any[]} */ (data?.vias || []).map(item => Via.fromJSON(item)),
+            pads: /** @type {any[]} */ (data?.pads || []).map(item => new Pad(item)),
+            texts: /** @type {any[]} */ (data?.texts || []).map(item => createPcbText(item)),
             panelization: data?.panelization ? panelSettings(data.panelization) : null };
         if (data?.design) new PcbDesignSettings().update(clampDesignDimensions(data.design));
         return prepared;
@@ -108,6 +114,10 @@ export class PcbDocument {
     }
 
     /** Load authored content, leaving panel installation to the final load phase. */
+    /**
+     * @param {any} data Project PCB JSON from disk/import.
+     * @param {any} [prepared]
+     */
     loadContent(data, prepared = PcbDocument.prepare(data)) {
         this.clear();
         for (const track of prepared.tracks) this.tracks.push(track);
@@ -147,6 +157,7 @@ export class PcbDocument {
         this.board.radius = getBoardOutline(this)?.cornerRadius || 0;
     }
 
+    /** @param {any} outline */
     setBoardOutline(outline) {
         if (!validBoardOutline(outline)) {
             throw new Error('The board outline must be one closed rectangle, polygon, or circle.');
@@ -169,6 +180,10 @@ export class PcbDocument {
     }
 
     /** Complete data-only load; editors may use the two phases around rendering. */
+    /**
+     * @param {any} data
+     * @param {any} [prepared]
+     */
     load(data, prepared = PcbDocument.prepare(data)) {
         this.loadContent(data, prepared);
         this.loadPanelization(prepared.panelization);
@@ -178,6 +193,7 @@ export class PcbDocument {
         return { width: round4(this.board.width), height: round4(this.board.height), radius: round4(this.board.radius) };
     }
 
+    /** @param {any} value */
     loadPanelization(value) {
         this.panelization = value ? panelSettings(value) : null;
     }
@@ -188,7 +204,7 @@ export class PcbDocument {
 
     /**
      * Assemble authored state using the existing file format and save precision.
-     * @param {object} [settings] Viewport preferences supplied by the view.
+     * @param {object|undefined} [settings] Viewport preferences supplied by the view.
      */
     serialize(settings = this.settings) {
         const panelization = this.serializePanelization();
@@ -206,13 +222,14 @@ export class PcbDocument {
     /**
      * Retained design defaults alone do not create an otherwise absent PCB section.
      * Current view preferences preserve a settings-only section for an empty viewed board.
-     * @param {object} [settings] Current view preferences, or loaded preferences by default.
+     * @param {object|undefined} [settings] Current view preferences, or loaded preferences by default.
      */
     serializeSection(settings = this.settings) {
         const hasContent = this._loadedSection || this.tracks.length || this.vias.length || this.pads.length
             || this.boardShapes.length || this.texts.size || this.placementState.overrides.size
             || this.placementState.autoSlots.size || this.panelization
-            || Object.keys(DEFAULT_BOARD_DIMENSIONS).some(key => this.board[key] !== DEFAULT_BOARD_DIMENSIONS[key])
+            || /** @type {Array<keyof typeof DEFAULT_BOARD_DIMENSIONS>} */ (Object.keys(DEFAULT_BOARD_DIMENSIONS))
+                .some(key => this.board[key] !== DEFAULT_BOARD_DIMENSIONS[key])
             || settings !== undefined;
         return hasContent ? this.serialize(settings) : null;
     }

@@ -9,6 +9,7 @@ import { disconnectIncompatiblePadNodes, repositionPadConnectedNodes } from './p
 import { flushSettledChanges } from '../shared/ui/settled-input.js';
 
 /** @typedef {{id: string, reference: string, locked: boolean, footprintShapes: string[]}} ComponentInfo */
+/** @typedef {Record<string, any>} ProjectData Parsed project JSON remains loosely shaped until validated. */
 
 /**
  * Neutral owner of the single ClearPCB project document.
@@ -58,7 +59,7 @@ export class ProjectDocument {
      * Register an editor view as a contributor to the project document.
      * @param {string} name e.g. 'schematic' | 'pcb'.
      * @param {any} view The editor instance implementing the view interface.
-     * @param {{isUiHost?: boolean, lifecycle?: Record<string, () => any>}} [opts]
+     * @param {{isUiHost?: boolean, lifecycle?: Record<string, (...args: any[]) => any>}} [opts]
      * @returns {any} The registered view (for convenience).
      */
     registerView(name, view, opts = {}) {
@@ -86,6 +87,7 @@ export class ProjectDocument {
     }
 
     /** Resolve the current physical footprint; missing/non-physical components return null. */
+    /** @param {string} id */
     getPcbFootprint(id) {
         const component = this.schematicDocument.components.find(item => item.id === id);
         if (!component) return null;
@@ -149,6 +151,7 @@ export class ProjectDocument {
      */
     createReferenceRenameCommand(id, reference) {
         const command = this.schematicDocument.createReferenceRenameCommand(id, reference);
+        /** @param {boolean} redo */
         const apply = redo => {
             if (redo) command.execute();
             else command.undo();
@@ -220,7 +223,7 @@ export class ProjectDocument {
      * Assemble authored content from the project-owned models.
      * Views contribute only current preferences, with loaded model fallback.
      * Neither view reaches into the other — the project coordinates them.
-     * @returns {object} The serialized project document.
+     * @returns {ProjectData} The serialized project document.
      */
     serialize() {
         if (!this.canSerialize()) throw new Error('Finish the current edit before saving.');
@@ -233,7 +236,7 @@ export class ProjectDocument {
 
     /**
      * Restore models and registered views from a previously serialized document.
-     * @param {object} data The serialized project document.
+     * @param {ProjectData} data The serialized project document.
      * @returns {Promise<void>}
      */
     async load(data) {
@@ -284,7 +287,8 @@ export class ProjectDocument {
             if (!this.schematic) this.schematicDocument.clear();
             await this.pcb?.clearSection();
             if (!this.pcb) this.pcbDocument.clear();
-            this.fileManager.newDocument(this.serialize());
+            // FileManager's JS default parameter infers empty-array literals; the serialized project is the same runtime shape.
+            this.fileManager.newDocument(/** @type {any} */ (this.serialize()));
         } finally {
             this.fileManager.loading = false;
         }
@@ -314,6 +318,7 @@ export class ProjectDocument {
     /** Open a document from disk (prompts if unsaved). */
     async open() { flushSettledChanges(); return this._lifecycle.open?.(); }
     /** Re-open a file from the recents list (prompts if unsaved). */
+    /** @param {string} name */
     async openRecent(name) { flushSettledChanges(); return this._lifecycle.openRecent?.(name); }
     /** Save the document, prompting for a location if needed. */
     async save() { flushSettledChanges(); return this._lifecycle.save?.(); }

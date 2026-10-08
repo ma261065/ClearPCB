@@ -29,6 +29,12 @@ import { Text } from './text.js';
 import { Net } from './net.js';
 import { NoConnect } from './noconnect.js';
 
+/**
+ * @typedef {Record<string, any>} ShapeData
+ * @typedef {new (options?: any) => any} ShapeConstructor
+ */
+
+/** @type {Record<string, ShapeConstructor>} */
 const shapeRegistry = {
     polyline: Polyline,
     wire: Wire,
@@ -42,6 +48,7 @@ const shapeRegistry = {
 };
 
 /** Map short serialisation keys back to constructor-friendly long names. */
+/** @type {Record<string, string>} */
 const SHORT_KEYS = {
     c: 'color', l: 'layer', lw: 'lineWidth', v: 'visible', lk: 'locked',
     pts: 'points', n: 'net',
@@ -62,17 +69,20 @@ const SHORT_KEYS = {
 /**
  * Expand short serialisation keys to constructor-friendly long names
  * and unflatten flat point arrays.
- * @param {Object} data - Compact JSON shape data.
- * @returns {Object} Expanded data ready for shape constructor.
+ * @param {ShapeData} data - Compact JSON shape data.
+ * @returns {ShapeData} Expanded data ready for shape constructor.
  */
 function expandShapeData(data) {
+    /** @type {ShapeData} */
     const out = {};
     for (const [k, v] of Object.entries(data)) {
         out[SHORT_KEYS[k] || k] = v;
     }
     // Unflatten flat point arrays: [x0,y0,x1,y1,...] → [{x,y},...]
     if (Array.isArray(out.points) && typeof out.points[0] === 'number') {
+        /** @type {number[]} */
         const flat = out.points;
+        /** @type {Array<{x: number, y: number}>} */
         const pts = [];
         for (let i = 0; i < flat.length - 1; i += 2) pts.push({ x: flat[i], y: flat[i + 1] });
         out.points = pts;
@@ -89,6 +99,8 @@ function expandShapeData(data) {
 
 /**
  * Create a shape from JSON data
+ * @param {ShapeData} data
+ * @returns {any}
  */
 export function createShape(data) {
     const expanded = expandShapeData(data);

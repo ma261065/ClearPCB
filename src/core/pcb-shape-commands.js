@@ -2,6 +2,11 @@ import { editTargets } from './edit-guard.js';
 import { applyShapeGeometry, applyShapeSnapshot } from './pcb-board-shapes.js';
 import { validBoardOutline } from '../shared/pcb/board-outline.js';
 
+/** @typedef {import('./PcbDocument.js').PcbDocument} PcbDocument */
+/** @typedef {Record<string, any>} BoardShape */
+/** @typedef {Record<string, any>} BoardShapeState */
+
+/** @param {PcbDocument} document @param {BoardShape} shape @param {BoardShapeState} state @param {(shape: BoardShape, state: BoardShapeState) => void} apply */
 function applyEdit(document, shape, state, apply) {
     if (shape.layer === 'board-outline') {
         const candidate = { ...shape };
@@ -13,6 +18,7 @@ function applyEdit(document, shape, state, apply) {
     return true;
 }
 
+/** @param {BoardShapeState} state */
 function copySnapshot(state) {
     // Artwork is shared read-only; history owns the editable frame and properties.
     const { artwork, ...snapshot } = state;
@@ -20,7 +26,7 @@ function copySnapshot(state) {
 }
 
 export class AddBoardShapeCommand {
-    /** @param {import('./PcbDocument.js').PcbDocument} document */
+    /** @param {PcbDocument} document @param {any} shape */
     constructor(document, shape) {
         this.document = document;
         this.shape = shape;
@@ -42,7 +48,7 @@ export class AddBoardShapeCommand {
 }
 
 export class RemoveBoardShapeCommand {
-    /** @param {import('./PcbDocument.js').PcbDocument} document */
+    /** @param {PcbDocument} document @param {any} shape */
     constructor(document, shape) {
         this.document = document;
         this.shape = shape;
@@ -62,7 +68,7 @@ export class RemoveBoardShapeCommand {
 }
 
 export class MoveBoardShapeCommand {
-    /** @param {import('./PcbDocument.js').PcbDocument} document */
+    /** @param {PcbDocument} document @param {any} shape @param {BoardShapeState} before @param {BoardShapeState} after */
     constructor(document, shape, before, after) {
         this.document = document;
         this.shape = shape;
@@ -70,6 +76,7 @@ export class MoveBoardShapeCommand {
         this.after = structuredClone(after);
     }
 
+    /** @param {any} geometry */
     _apply(geometry) { return applyEdit(this.document, this.shape, geometry, applyShapeGeometry); }
     lockTargets() { return [{ kind: 'shape', object: this.shape }]; }
     execute() { return this._apply(this.after); }
@@ -77,7 +84,7 @@ export class MoveBoardShapeCommand {
 }
 
 export class ModifyBoardShapeCommand {
-    /** @param {import('./PcbDocument.js').PcbDocument} document */
+    /** @param {PcbDocument} document @param {any} shape @param {BoardShapeState} before @param {BoardShapeState} after */
     constructor(document, shape, before, after) {
         this.document = document;
         this.shape = shape;
@@ -85,6 +92,7 @@ export class ModifyBoardShapeCommand {
         this.after = copySnapshot(after);
     }
 
+    /** @param {any} state */
     _apply(state) { return applyEdit(this.document, this.shape, state, applyShapeSnapshot); }
     lockTargets() { return editTargets('shape', this.shape, this.before, this.after); }
     execute() { return this._apply(this.after); }

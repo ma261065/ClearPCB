@@ -28,6 +28,25 @@ import { arcFromBulge } from './arc-edge.js';
 import { resolveTrackSegments } from './track-geometry.js';
 import { distanceToSegment } from '../core/geometry.js';
 
+/** @typedef {{x:number,y:number}} Point */
+/** @typedef {{from:string,to:string,bulge?:number,layer?:string,width?:number,[key:string]:any}} TrackEdge */
+/** @typedef {{componentId:string,pinNumber:string|number}} PadConnection */
+/** @typedef {{id?:string,plated?:true}} SourceShapeRecord */
+/**
+ * @typedef {import('./polyline-graph.js').PolylineGraphOptions & {
+ * net?: string,
+ * width?: number,
+ * layer?: string,
+ * edgeLayers?: object|Map<string,string>,
+ * edgeWidths?: object|Map<string,number>,
+ * edgeBulges?: object|Map<string,number>,
+ * cornerRadius?: number,
+ * nodeCornerRadii?: Record<string,number>,
+ * padConnections?: object|Map<string,PadConnection>,
+ * sourceBoardShape?: object|null
+ * }} TrackOptions
+ */
+
 /** Default copper layer for a Track if none is specified. */
 const DEFAULT_LAYER = 'top-copper';
 
@@ -39,7 +58,7 @@ const DEFAULT_WIDTH = 0.2;
  * when it turns back into a shape, while still free) and a hole's plating. Everything
  * else comes from the track itself; older files stored a full shape copy, trimmed here.
  * @param {any} source
- * @returns {{id?: string, plated?: true}|null}
+ * @returns {SourceShapeRecord|null}
  */
 export function sourceShapeRecord(source) {
     if (!source || typeof source !== 'object') return null;
@@ -57,6 +76,7 @@ export class Track extends PolylineGraph {
      * multiple layers and vary in width segment-by-segment. Each falls back
      * to the track-wide default (`this.layer` / `this.width`).
      */
+    /** @type {Record<string, {prop:string,json:string,default:(s:Track)=>unknown}>} */
     static edgeAttributes = {
         layer: { prop: 'edgeLayers', json: 'el', default: (s) => s.layer },
         width: { prop: 'edgeWidths', json: 'ew', default: (s) => s.width },
@@ -64,36 +84,16 @@ export class Track extends PolylineGraph {
     };
 
     /**
-     * @param {object} [options]
-     * @param {string} [options.id]
-     * @param {string} [options.net] - Net name (e.g. 'VCC', 'Net0034')
-     * @param {number} [options.width] - Track width in mm (track-wide default)
-     * @param {string} [options.layer] - Default copper layer for new edges
-     *   when edgeLayers is not provided. Edges fall back to this layer.
-     * @param {object} [options.edgeLayers] - Map of edgeId → layer name
-     * @param {object} [options.edgeWidths] - Map of edgeId → width (mm)
-    * @param {object} [options.edgeBulges] - Signed arc bulges keyed by edge ID
-    * @param {number} [options.cornerRadius]
-    * @param {object} [options.nodeCornerRadii]
-     * @param {object} [options.padConnections] - Map of nodeId →
-     *   { componentId, pinNumber }
-    * @param {object|null} [options.sourceBoardShape] - Identity of the board
-    *   shape this Track was converted from: `{ id, plated }` only (see sourceShapeRecord).
-     * @param {object} [options.graphNodes] - Forwarded to PolylineGraph
-     * @param {object} [options.graphEdges] - Forwarded to PolylineGraph
-     * @param {Array<{x:number,y:number}>} [options.points] - Forwarded
-     * @param {string} [options.color] - Forwarded to Shape
-     * @param {number} [options.lineWidth] - Forwarded to Shape
-     * @param {boolean} [options.visible] - Forwarded to Shape
-     * @param {boolean} [options.locked] - Forwarded to Shape
+     * @param {TrackOptions} [options]
      */
     constructor(options = {}) {
         super(options);
         this.type = 'track';
 
         this.net = typeof options.net === 'string' ? options.net : '';
-        this.width = Number.isFinite(options.width) && options.width > 0
-            ? options.width
+        const optionWidth = options.width;
+        this.width = Number.isFinite(optionWidth) && /** @type {number} */ (optionWidth) > 0
+            ? /** @type {number} */ (optionWidth)
             : DEFAULT_WIDTH;
 
         // Default layer fallback for edges with no explicit assignment.
@@ -101,9 +101,11 @@ export class Track extends PolylineGraph {
         this.sourceBoardShape = sourceShapeRecord(options.sourceBoardShape);
 
         // Pad connections (mirror of Wire.pinConnections).
+        /** @type {Map<string, PadConnection>} */
         this.padConnections = new Map();
         if (options.padConnections) {
-            for (const [nid, conn] of Object.entries(options.padConnections)) {
+            const entries = options.padConnections instanceof Map ? options.padConnections : Object.entries(/** @type {Record<string, PadConnection>} */ (options.padConnections));
+            for (const [nid, conn] of entries) {
                 if (conn && conn.componentId && conn.pinNumber != null) {
                     this.padConnections.set(nid, { ...conn });
                 }
@@ -117,25 +119,35 @@ export class Track extends PolylineGraph {
 
     /* ──────────────────── Graph overrides ────────────────────── */
 
+    /**
+     * @param {string} edgeId
+     * @param {Point} point
+     */
     splitEdge(edgeId, point) {
         const edge = this.edges.get(edgeId);
         const start = edge && this.nodes.get(edge.from);
         const end = edge && this.nodes.get(edge.to);
-        const arc = edge && arcFromBulge(start, end, edge.bulge || 0);
+        const arc = edge && start && end ? arcFromBulge(start, end, edge.bulge || 0) : null;
         const result = super.splitEdge(edgeId, point);
         if (result && arc) {
+            const sourceBulge = /** @type {TrackEdge} */ (edge).bulge || 0;
+            /**
+             * @param {Point} first
+             * @param {Point} second
+             */
             const ratio = (first, second) => {
                 const cross = (first.x - arc.cx) * (second.y - arc.cy) - (first.y - arc.cy) * (second.x - arc.cx);
                 const dot = (first.x - arc.cx) * (second.x - arc.cx) + (first.y - arc.cy) * (second.y - arc.cy);
-                return Math.sign(edge.bulge) * Math.tan(Math.abs(Math.atan2(cross, dot)) / 4);
+                return Math.sign(sourceBulge) * Math.tan(Math.abs(Math.atan2(cross, dot)) / 4);
             };
-            this.setEdgeAttr(result.edge1Id, 'bulge', ratio(start, point));
-            this.setEdgeAttr(result.edge2Id, 'bulge', ratio(point, end));
+            this.setEdgeAttr(result.edge1Id, 'bulge', ratio(/** @type {Point} */ (start), point));
+            this.setEdgeAttr(result.edge2Id, 'bulge', ratio(point, /** @type {Point} */ (end)));
         }
         return result;
     }
 
     /** @override — also clean up padConnections when removing a node. */
+    /** @param {string} nodeId */
     removeNode(nodeId) {
         this.padConnections.delete(nodeId);
         delete this.nodeCornerRadii[nodeId];
@@ -143,13 +155,17 @@ export class Track extends PolylineGraph {
     }
 
     /** @override — preserve padConnections during node merge. */
+    /**
+     * @param {string} keepId
+     * @param {string} removeId
+     */
     mergeNodes(keepId, removeId) {
         if (keepId === removeId) return;
         if (!(keepId in this.nodeCornerRadii) && removeId in this.nodeCornerRadii) {
             this.nodeCornerRadii[keepId] = this.nodeCornerRadii[removeId];
         }
         if (this.padConnections.has(removeId) && !this.padConnections.has(keepId)) {
-            this.padConnections.set(keepId, this.padConnections.get(removeId));
+            this.padConnections.set(keepId, /** @type {PadConnection} */ (this.padConnections.get(removeId)));
         }
         this.padConnections.delete(removeId);
         super.mergeNodes(keepId, removeId);
@@ -157,12 +173,17 @@ export class Track extends PolylineGraph {
     }
 
     /** @override — protect pad-connected nodes from graph simplification. */
+    /** @param {string} nodeId */
     _isProtectedNode(nodeId) {
         return this.padConnections.has(nodeId);
     }
 
     /** @override — preserve padConnections during absorb. Per-edge layer
      * and width are carried automatically by the base class. */
+    /**
+     * @param {Track} other
+     * @param {Map<string,string>} remap
+     */
     _onAbsorb(other, remap) {
         for (const [oldId, newId] of remap) {
             this.setNodeCornerRadius(newId, other.nodeCornerRadius(oldId));
@@ -190,16 +211,21 @@ export class Track extends PolylineGraph {
 
     /** @override — copy padConnections into subgraph. Per-edge attributes
      * are preserved by the base class (edge IDs + attrs are kept intact). */
+    /**
+     * @param {Track} sub
+     * @param {Set<string>} nodeIds
+     */
     _onExtractSubgraph(sub, nodeIds) {
         for (const nid of nodeIds) {
             if (nid in this.nodeCornerRadii) sub.nodeCornerRadii[nid] = this.nodeCornerRadii[nid];
             if (this.padConnections.has(nid)) {
-                sub.padConnections.set(nid, { ...this.padConnections.get(nid) });
+                sub.padConnections.set(nid, { .../** @type {PadConnection} */ (this.padConnections.get(nid)) });
             }
         }
     }
 
     /** @override — also delete padConnection when deleting an anchor. */
+    /** @param {string} anchorId */
     deleteAnchor(anchorId) {
         const result = super.deleteAnchor(anchorId);
         if (result) this.padConnections.delete(anchorId);
@@ -229,6 +255,7 @@ export class Track extends PolylineGraph {
     /** @override — extend with track-specific fields. Per-edge attributes
      * (layer/width) are captured by the base class as part of each edge. */
     captureState() {
+        /** @type {ReturnType<PolylineGraph['captureState']> & {net?:string,width?:number,layer?:string,sourceBoardShape?:SourceShapeRecord|null,padConnections?:Record<string,PadConnection>}} */
         const s = super.captureState();
         s.net = this.net;
         s.width = this.width;
@@ -253,10 +280,11 @@ export class Track extends PolylineGraph {
     }
 
     /** @override — restore track-specific fields. */
+    /** @param {Partial<ReturnType<Track['captureState']>>} state */
     applyState(state) {
         super.applyState(state);
         if ('net' in state) this.net = state.net || '';
-        if (Number.isFinite(state.width) && state.width > 0) this.width = state.width;
+        if (typeof state.width === 'number' && Number.isFinite(state.width) && state.width > 0) this.width = state.width;
         if (typeof state.layer === 'string') this.layer = state.layer;
         this.sourceBoardShape = sourceShapeRecord(state.sourceBoardShape);
         this.padConnections = new Map();
@@ -284,22 +312,32 @@ export class Track extends PolylineGraph {
         return { minX, minY, maxX, maxY };
     }
 
+    /** @param {Point} point */
     hitTest(point, tolerance = 0.5) {
         return resolveTrackSegments(this).some(({ start, end, width }) =>
             distanceToSegment(point, start, end) <= width / 2 + tolerance);
     }
 
+    /** @param {Point} point */
     distanceTo(point) {
         return resolveTrackSegments(this).reduce((distance, { start, end }) =>
             Math.min(distance, distanceToSegment(point, start, end)), Infinity);
     }
 
     /** Return the layer name for a given edge id (or the default). */
+    /**
+     * @param {string} edgeId
+     * @returns {string}
+     */
     getEdgeLayer(edgeId) {
         return this.getEdgeAttr(edgeId, 'layer');
     }
 
     /** Return the width (mm) for a given edge id (or the default). */
+    /**
+     * @param {string} edgeId
+     * @returns {number}
+     */
     getEdgeWidth(edgeId) {
         return this.getEdgeAttr(edgeId, 'width');
     }
@@ -313,6 +351,7 @@ export class Track extends PolylineGraph {
      * connections).
      */
     toJSON() {
+        /** @type {ReturnType<PolylineGraph['toJSON']> & {type:string,n?:string,w?:number,l?:string,sbs?:SourceShapeRecord,pdc?:Record<string,PadConnection>}} */
         const json = { ...super.toJSON(), type: 'track' };
         if (this.net) json.n = this.net;
         if (this.width !== 0.2) json.w = this.width;

@@ -1,5 +1,9 @@
 export const TEXT_EDIT_BOX_PADDING_RATIO = 0.4;
 
+/** @typedef {{x: number, y: number, width: number, height: number}} BBox */
+/** @typedef {{x: number, y: number}} Point */
+
+/** @param {any} shape @param {number} [measuredHeight] */
 export function getTextEditBoxPadding(shape, measuredHeight = 0) {
     const basis = measuredHeight > 0
         ? measuredHeight
@@ -7,7 +11,9 @@ export function getTextEditBoxPadding(shape, measuredHeight = 0) {
     return basis * TEXT_EDIT_BOX_PADDING_RATIO;
 }
 
+/** @type {CanvasRenderingContext2D|null} */
 let textMeasureContext = null;
+/** @type {((shape: any) => Element|null)|null} */
 let textEditElementProvider = null;
 
 /**
@@ -18,6 +24,7 @@ export function setTextEditElementProvider(provider) {
     textEditElementProvider = typeof provider === 'function' ? provider : null;
 }
 
+/** @param {any} shape @param {string} text */
 function canvasTextMetrics(shape, text) {
     if (typeof document === 'undefined' || typeof document.createElement !== 'function') return null;
     try {
@@ -42,10 +49,12 @@ function canvasTextMetrics(shape, text) {
     }
 }
 
+/** @param {any} shape @param {string} text */
 export function measureTextAdvance(shape, text) {
     return canvasTextMetrics(shape, text)?.width ?? null;
 }
 
+/** @param {any} shape @param {any} el @returns {BBox|null} */
 export function measureTextGlyphBBox(shape, el) {
     const text = typeof shape?.text === 'string' ? shape.text : '';
     const metrics = canvasTextMetrics(shape, text);
@@ -72,6 +81,7 @@ export function measureTextGlyphBBox(shape, el) {
     }
 }
 
+/** @param {any} shape @param {any} el @param {BBox|null} bbox @param {boolean} usesNestedTextCoords @returns {BBox|null} */
 export function normalizeTextBBox(shape, el, bbox, usesNestedTextCoords) {
     if (!bbox) return null;
 
@@ -100,6 +110,7 @@ export function normalizeTextBBox(shape, el, bbox, usesNestedTextCoords) {
     };
 }
 
+/** @param {any} shape @param {any} el @param {BBox|null} [bbox] @param {boolean} [usesNestedTextCoords] */
 export function getTextEditBoxGeometry(shape, el, bbox = null, usesNestedTextCoords = false) {
     const measured = bbox || measureTextGlyphBBox(shape, el);
     const normalized = normalizeTextBBox(shape, el, measured, usesNestedTextCoords) || measured;
@@ -137,6 +148,7 @@ export function getTextEditBoxGeometry(shape, el, bbox = null, usesNestedTextCoo
     };
 }
 
+/** @param {any} shape @param {any} [element] @returns {Point[]|null} */
 export function getTextEditBoxWorldCorners(shape, element = textEditElementProvider?.(shape) || null) {
     const el = element;
     if (!shape || !el) return null;

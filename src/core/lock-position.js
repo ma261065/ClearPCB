@@ -7,7 +7,14 @@
 import { closestPointOnSegment, pointInPolygon } from './geometry.js';
 import { lockIconMetrics, LOCK_SCREEN_GAP_PX } from './ui-helpers.js';
 
-/** A bounds rectangle as a closed outline. */
+/** @typedef {{x:number,y:number}} Point */
+/** @typedef {{minX:number,minY:number,maxX:number,maxY:number}} Bounds */
+/** @typedef {{point: Point, start: Point, end: Point, distance: number, visualDistance: number, path: Point[], margin: number}} NearestBoundary */
+
+/** A bounds rectangle as a closed outline.
+ * @param {Bounds} bounds
+ * @returns {Point[]}
+ */
 export function boundsOutline(bounds) {
     return [
         { x: bounds.minX, y: bounds.minY },
@@ -29,6 +36,7 @@ export function lockPositionOutsideOutline(points, pointer, scale, closed = true
     if (!pointer || !Array.isArray(points) || !points.length) return null;
     /** @type {Array<Array<{x:number,y:number}>>} */
     const paths = /** @type {any} */ (Array.isArray(points[0]) ? points : [points]);
+    /** @type {NearestBoundary|null} */
     let nearest = null;
     for (let pathIndex = 0; pathIndex < paths.length; pathIndex++) {
         const path = paths[pathIndex];
@@ -112,7 +120,11 @@ export function lockPositionOutsideOutline(points, pointer, scale, closed = true
     };
 }
 
-/** Without a pointer, sit the lock just outside the top-left corner of the bounds. */
+/** Without a pointer, sit the lock just outside the top-left corner of the bounds.
+ * @param {Bounds} bounds
+ * @param {number} scale
+ * @returns {Point}
+ */
 export function lockPositionBesideBounds(bounds, scale) {
     const gap = LOCK_SCREEN_GAP_PX / Math.max(0.01, scale);
     const { size } = lockIconMetrics(scale);

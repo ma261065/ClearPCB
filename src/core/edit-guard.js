@@ -21,9 +21,12 @@ export class LockedEditError extends Error {
 }
 
 /** @typedef {{kind?: string, object: any}} LockTarget */
+/** @typedef {{lockTargets?: () => LockTarget[], commands?: Command[]}} Command */
 
 /**
  * Every target a command declares, including those of its child commands.
+ * @param {Command|null|undefined} command
+ * @param {LockTarget[]} [out]
  * @returns {LockTarget[]}
  */
 export function commandLockTargets(command, out = []) {
@@ -33,9 +36,13 @@ export function commandLockTargets(command, out = []) {
     return out;
 }
 
+/** @param {any} a @param {any} b */
 const same = (a, b) => a === b || JSON.stringify(a) === JSON.stringify(b);
 
-/** Whether a before/after edit changes nothing but the net (or the lock itself). */
+/** Whether a before/after edit changes nothing but the net (or the lock itself).
+ * @param {Record<string, any>} [before]
+ * @param {Record<string, any>} [after]
+ */
 export function netOnlyChange(before = {}, after = {}) {
     const keys = new Set([...Object.keys(before || {}), ...Object.keys(after || {})]);
     for (const key of keys) {
@@ -44,7 +51,13 @@ export function netOnlyChange(before = {}, after = {}) {
     return true;
 }
 
-/** Targets for a single changed object, or none when the edit only touches its net. */
+/** Targets for a single changed object, or none when the edit only touches its net.
+ * @param {string|undefined} kind
+ * @param {any} object
+ * @param {Record<string, any>} before
+ * @param {Record<string, any>} after
+ * @returns {LockTarget[]}
+ */
 export function editTargets(kind, object, before, after) {
     return object == null || netOnlyChange(before, after) ? [] : [{ kind, object }];
 }
@@ -53,6 +66,7 @@ export function editTargets(kind, object, before, after) {
  * Build a CommandHistory guard.
  * @param {(target: LockTarget) => boolean} isLocked
  * @param {(target: LockTarget) => string} describe message for a refused edit
+ * @returns {(command: Command) => void}
  */
 export function createLockGuard(isLocked, describe) {
     return command => {

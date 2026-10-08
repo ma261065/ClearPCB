@@ -20,18 +20,43 @@ import { rectangleFrameFromPoints, rectangleFramePoints, pointsFormRectangle } f
 import { IdAllocator } from '../core/id-allocator.js';
 
 const fillIds = new IdAllocator('fill');
+/** @param {number} value */
 const round4 = value => Math.round(value * 10000) / 10000;
 
 // Hit tests and bounds read the rounded outline on every pointer query; fills are
 // edited in place, so the memo key is rebuilt from every outline input on each read.
 const outlineCache = new WeakMap();
 
+/** @typedef {{x:number, y:number}} Point */
+/** @typedef {{minX:number, minY:number, maxX:number, maxY:number}} Bounds */
+/**
+ * @typedef {Object} CopperFillOptions
+ * @property {string} [id]
+ * @property {string} [layer]
+ * @property {string} [net]
+ * @property {Point[]} [outline]
+ * @property {'polygon'|'rect'|'circle'|string} [kind]
+ * @property {number} [cornerRadius]
+ * @property {Record<string, number>} [nodeCornerRadii]
+ * @property {Record<string, number>} [segmentBulges]
+ * @property {number|string} [x]
+ * @property {number|string} [y]
+ * @property {number|string} [radius]
+ * @property {boolean} [locked]
+ * @property {boolean} [visible]
+ */
+/** @typedef {{key:string, points:Point[], bounds:Bounds|null}} OutlineCacheEntry */
+/** @typedef {ReturnType<CopperFill['captureState']>} CopperFillState */
+/** @typedef {{type:string, id:string, l:string, x?:number, y?:number, w?:number, h?:number, rot?:number, rev?:boolean, pts?:number[][], n?:string, lk?:boolean, v?:boolean, kind?:string, cornerRadius?:number, radius?:number, points?:Point[], nodeCornerRadii?:Record<string, number>, segmentBulges?:Record<string, number>}} SerializedCopperFill */
+
+/** @param {Record<string, unknown>|null|undefined} record */
 function recordKey(record) {
     let key = '';
     if (record) for (const name in record) key += `${name}:${record[name]},`;
     return key;
 }
 
+/** @param {CopperFill} fill @returns {OutlineCacheEntry} */
 function resolvedOutline(fill) {
     let key = `${fill.kind}|${fill.x}|${fill.y}|${fill.radius}|${fill.cornerRadius}|`
         + `${recordKey(fill.nodeCornerRadii)}|${recordKey(fill.segmentBulges)}|`;
@@ -41,6 +66,7 @@ function resolvedOutline(fill) {
     return cached;
 }
 
+/** @param {Record<string, any>} data @param {string} compact @param {string} long */
 function storedField(data, compact, long) {
     if (Object.hasOwn(data, compact) && Object.hasOwn(data, long)) {
         throw new Error(`Ambiguous copper-fill fields: ${compact} and ${long}.`);
@@ -49,6 +75,7 @@ function storedField(data, compact, long) {
 }
 
 /** Normalize edited fill topology while retaining circles as their own primitive. */
+/** @param {CopperFill|null|undefined} fill */
 export function normalizeCopperFillKind(fill) {
     if (!fill || fill.kind === 'circle') return false;
     const before = fill.kind;
@@ -63,39 +90,28 @@ export function resetFillIdCounter() {
 }
 
 /** Update the fill ID counter so newly-issued IDs don't collide on load. */
+/** @param {string} id */
 export function updateFillIdCounter(id) {
     fillIds.observe(id);
 }
 
 export class CopperFill {
-    /**
-     * @param {object} options
-     * @param {string} [options.id]
-     * @param {string} [options.layer] - 'top-copper' | 'bottom-copper'
-     * @param {string} [options.net] - Net to pour (empty = isolated pour)
-     * @param {Array<{x:number,y:number}>} [options.outline] - Closed region
-     *   outline in world mm (no implicit closing point needed).
-    * @param {'polygon'|'rect'|'circle'} [options.kind]
-    * @param {number} [options.cornerRadius]
-    * @param {Object<string,number>} [options.nodeCornerRadii]
-    * @param {Object<string,number>} [options.segmentBulges]
-    * @param {number} [options.x]
-    * @param {number} [options.y]
-    * @param {number} [options.radius]
-    * @param {boolean} [options.locked]
-    * @param {boolean} [options.visible]
-     */
+    /** @param {CopperFillOptions} [options] */
     constructor(options = {}) {
+        /** @type {string} */
         this.id = fillIds.claim(options.id);
         this.type = 'fill';
+        /** @type {string} */
         this.layer = options.layer === 'bottom-copper' ? 'bottom-copper' : 'top-copper';
         this.net = typeof options.net === 'string' ? options.net : '';
+        /** @type {Point[]} */
         this.outline = Array.isArray(options.outline)
             ? options.outline.map((p) => ({ x: Number(p.x) || 0, y: Number(p.y) || 0 }))
             : [];
         this.locked = !!options.locked;
         this.visible = options.visible !== undefined ? options.visible : true;
-        this.kind = ['rect', 'circle'].includes(options.kind) ? options.kind : 'polygon';
+        /** @type {string} */
+        this.kind = typeof options.kind === 'string' && ['rect', 'circle'].includes(options.kind) ? options.kind : 'polygon';
         this.cornerRadius = Math.max(0, Number(options.cornerRadius) || 0);
         this.nodeCornerRadii = { ...(options.nodeCornerRadii || {}) };
         this.segmentBulges = { ...(options.segmentBulges || {}) };
@@ -106,6 +122,7 @@ export class CopperFill {
     }
 
     /** Move the whole region by (dx, dy) in world units. */
+    /** @param {number} dx @param {number} dy */
     move(dx, dy) {
         if (this.kind === 'circle') {
             this.x += dx;
@@ -135,6 +152,7 @@ export class CopperFill {
     }
 
     /** Point-in-polygon test against the outline (world coords). */
+    /** @param {number} x @param {number} y */
     containsPoint(x, y) {
         const pts = resolvedOutline(this).points;
         const n = pts.length;
@@ -151,6 +169,7 @@ export class CopperFill {
     }
 
     /** Distance from a point to the nearest outline edge (world coords). */
+    /** @param {number} x @param {number} y */
     distanceToEdge(x, y) {
         const pts = resolvedOutline(this).points;
         const n = pts.length;
@@ -171,7 +190,7 @@ export class CopperFill {
     /** Detached, full-precision resolved boundary; pour computation belongs to consumers. */
     captureCopperGeometry() {
         return { id: this.id, type: 'fill', layer: this.layer, net: this.net,
-            outline: this.getOutline().map(point => ({ x: point.x, y: point.y })) };
+            outline: /** @type {Point[]} */ (this.getOutline()).map(point => ({ x: point.x, y: point.y })) };
     }
 
     clone() {
@@ -197,6 +216,7 @@ export class CopperFill {
     }
 
     /** Restore state from captureState() output. */
+    /** @param {Partial<CopperFillState>} state */
     applyState(state) {
         if (state.layer === 'top-copper' || state.layer === 'bottom-copper') this.layer = state.layer;
         if (typeof state.net === 'string') this.net = state.net;
@@ -205,7 +225,7 @@ export class CopperFill {
         }
         if (typeof state.locked === 'boolean') this.locked = state.locked;
         if (typeof state.visible === 'boolean') this.visible = state.visible;
-        this.kind = ['rect', 'circle'].includes(state.kind) ? state.kind : 'polygon';
+        this.kind = typeof state.kind === 'string' && ['rect', 'circle'].includes(state.kind) ? state.kind : 'polygon';
         this.cornerRadius = Math.max(0, Number(state.cornerRadius) || 0);
         this.nodeCornerRadii = { ...(state.nodeCornerRadii || {}) };
         this.segmentBulges = { ...(state.segmentBulges || {}) };
@@ -216,6 +236,7 @@ export class CopperFill {
 
     /** Serialise to compact JSON. */
     toJSON() {
+        /** @type {SerializedCopperFill} */
         const out = {
             type: 'fill',
             id: this.id,
@@ -231,16 +252,16 @@ export class CopperFill {
         if (!this.visible) out.v = false;
         out.kind = this.kind;
         if (this.cornerRadius) out.cornerRadius = round4(this.cornerRadius);
-        for (const field of ['nodeCornerRadii', 'segmentBulges']) {
+        for (const field of /** @type {Array<'nodeCornerRadii'|'segmentBulges'>} */ (['nodeCornerRadii', 'segmentBulges'])) {
             if (Object.keys(this[field]).length) out[field] = Object.fromEntries(
                 Object.entries(this[field]).map(([key, value]) => [key, round4(value)]));
         }
         if (this.kind === 'circle') Object.assign(out, { x: round4(this.x), y: round4(this.y), radius: round4(this.radius) });
         if (this.kind === 'polygon') {
-            const path = { ...out, points: out.pts.map(([x, y]) => ({ x, y })) };
+            const path = { ...out, points: (out.pts || []).map(([x, y]) => ({ x, y })) };
             if (collapseRoundedPolygon(path)) {
                 out.pts = path.points.map(({ x, y }) => [x, y]);
-                for (const field of ['nodeCornerRadii', 'segmentBulges']) {
+                for (const field of /** @type {Array<'nodeCornerRadii'|'segmentBulges'>} */ (['nodeCornerRadii', 'segmentBulges'])) {
                     if (path[field]) out[field] = path[field];
                     else delete out[field];
                 }
@@ -250,8 +271,9 @@ export class CopperFill {
     }
 
     /** Deserialise from compact JSON produced by toJSON(). */
+    /** @param {any} data */
     static fromJSON(data) {
-        const points = storedField(data, 'pts', 'points');
+        const points = /** @type {any[]} */ (storedField(data, 'pts', 'points'));
         let outline;
         if (data.kind === 'rect') {
             const hasPoints = Object.hasOwn(data, 'pts') || Object.hasOwn(data, 'points');
@@ -292,6 +314,7 @@ export class CopperFill {
 }
 
 /** Distance from point (px,py) to segment (ax,ay)-(bx,by). */
+/** @param {number} px @param {number} py @param {number} ax @param {number} ay @param {number} bx @param {number} by */
 function distPointSeg(px, py, ax, ay, bx, by) {
     const dx = bx - ax, dy = by - ay;
     const len2 = dx * dx + dy * dy;

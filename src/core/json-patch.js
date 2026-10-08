@@ -1,5 +1,6 @@
 const FORBIDDEN_SEGMENTS = new Set(['__proto__', 'prototype', 'constructor']);
 
+/** @param {string} path */
 function decodePointer(path) {
     if (path === '') return [];
     if (typeof path !== 'string' || !path.startsWith('/')) {
@@ -12,6 +13,11 @@ function decodePointer(path) {
     });
 }
 
+/**
+ * @param {string} segment
+ * @param {number} length
+ * @param {{allowEnd?: boolean}} [options]
+ */
 function arrayIndex(segment, length, { allowEnd = false } = {}) {
     if (allowEnd && segment === '-') return length;
     if (!/^(0|[1-9]\d*)$/.test(segment)) throw new Error(`Invalid array index: ${segment}`);
@@ -21,6 +27,14 @@ function arrayIndex(segment, length, { allowEnd = false } = {}) {
     return index;
 }
 
+/**
+ * JSON patch values are untrusted document fragments, so pointer traversal
+ * stays typed as `any` at this boundary.
+ * @param {any} document
+ * @param {string} path
+ * @param {{allowAppend?: boolean}} [options]
+ * @returns {{root: true, parent: null, key: null}|{root: false, parent: any, key: string|number}}
+ */
 function location(document, path, { allowAppend = false } = {}) {
     const segments = decodePointer(path);
     if (!segments.length) return { root: true, parent: null, key: null };
@@ -32,11 +46,16 @@ function location(document, path, { allowAppend = false } = {}) {
         else throw new Error(`JSON Pointer does not exist: ${path}`);
     }
     if (!parent || typeof parent !== 'object') throw new Error(`JSON Pointer parent is not a container: ${path}`);
-    const final = segments.at(-1);
+    const final = /** @type {string} */ (segments.at(-1));
     const key = Array.isArray(parent) ? arrayIndex(final, parent.length, { allowEnd: allowAppend }) : final;
     return { root: false, parent, key };
 }
 
+/**
+ * @param {any} document
+ * @param {string} path
+ * @returns {any}
+ */
 function getValue(document, path) {
     const target = location(document, path);
     if (target.root) return document;
@@ -46,15 +65,26 @@ function getValue(document, path) {
     return target.parent[target.key];
 }
 
+/**
+ * @param {any} document
+ * @param {string} path
+ * @param {any} value
+ * @returns {any}
+ */
 function addValue(document, path, value) {
     const target = location(document, path, { allowAppend: true });
     const copy = structuredClone(value);
     if (target.root) return copy;
-    if (Array.isArray(target.parent)) target.parent.splice(target.key, 0, copy);
-    else target.parent[target.key] = copy;
+    if (Array.isArray(target.parent)) target.parent.splice(/** @type {number} */ (target.key), 0, copy);
+    else target.parent[/** @type {string} */ (target.key)] = copy;
     return document;
 }
 
+/**
+ * @param {any} document
+ * @param {string} path
+ * @returns {{document: any, removed: any}}
+ */
 function removeValue(document, path) {
     const target = location(document, path);
     if (target.root) return { document: undefined, removed: document };
@@ -62,11 +92,16 @@ function removeValue(document, path) {
         throw new Error(`JSON Pointer does not exist: ${path}`);
     }
     const removed = target.parent[target.key];
-    if (Array.isArray(target.parent)) target.parent.splice(target.key, 1);
-    else delete target.parent[target.key];
+    if (Array.isArray(target.parent)) target.parent.splice(/** @type {number} */ (target.key), 1);
+    else delete target.parent[/** @type {string} */ (target.key)];
     return { document, removed };
 }
 
+/**
+ * @param {any} left
+ * @param {any} right
+ * @returns {boolean}
+ */
 function equalJson(left, right) {
     if (Object.is(left, right)) return true;
     if (Array.isArray(left) && Array.isArray(right)) {

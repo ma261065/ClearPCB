@@ -7,10 +7,20 @@ import { ShapeValidator } from '../core/ShapeValidator.js';
 import { hasOwnLock } from './lock-owner.js';
 
 /** Round to 4 decimal places for compact serialisation. */
+/** @param {number} v */
 const _r4 = v => Math.round(v * 10000) / 10000;
 
+/** @typedef {{x:number,y:number}} Point */
+/** @typedef {{x:number,y:number,width:number,height:number}} TextBBox */
+/** @typedef {{type?: string, id?: string, locked?: boolean, syncTextOffsetFromLabelText?: () => void}} TextParent */
+/** @typedef {{x?: number, y?: number, text?: string, fontSize?: number, fontFamily?: string, textAnchor?: string, rotation?: number, border?: boolean, attachment?: Record<string, any>|null, parentComponentId?: string|null, fieldKey?: string|null, visible?: boolean, color?: string|number, fillColor?: string|number|null}} TextOptions */
+/** @typedef {{x: number, y: number, text: string, fontSize: number, fontFamily: string, textAnchor: string, rotation: 0|270, border: boolean, attachment?: Record<string, any>|null, parentComponentId?: string|null, fieldKey?: string|null, visible?: boolean}} TextState */
+/** @typedef {ReturnType<Shape['toJSON']> & {x: number, y: number, t: string, fs?: number, ff?: string, ta?: string, rot?: number, bd?: true, cid?: string, fk?: string|null, att?: Record<string, any>}} TextJSON */
+
+/** @type {null | ((text: Text) => TextBBox|null|undefined)} */
 let textMeasurer = null;
 
+/** @param {null | ((text: Text) => TextBBox|null|undefined)} fn */
 export function setTextMeasurer(fn) {
     textMeasurer = typeof fn === 'function' ? fn : null;
 }
@@ -28,18 +38,7 @@ export function textOrientation(rotation = 0) {
 
 export class Text extends Shape {
     /**
-     * @param {Object} [options]
-        * @param {string|number} [options.color] - Text colour.
-        * @param {string|number|null} [options.fillColor] - Fill colour override.
-     * @param {number} [options.x=0]            - Anchor X in mm.
-     * @param {number} [options.y=0]            - Anchor Y in mm.
-     * @param {string} [options.text='']        - Display text.
-     * @param {number} [options.fontSize=2.0]   - Font size in mm.
-     * @param {string} [options.fontFamily='Arial'] - CSS font family.
-     * @param {string} [options.textAnchor='start'] - SVG text-anchor.
-     * @param {boolean} [options.border=false] - Draw a padded rectangular outline.
-     * @param {number} [options.rotation=0] - Rotation in degrees.
-     * @param {object|null} [options.attachment] - Label attachment to a parent anchor.
+     * @param {TextOptions} [options]
      */
     constructor(options = {}) {
         super(options);
@@ -66,6 +65,7 @@ export class Text extends Shape {
         if (options.fillColor == null) this.fillColor = this.color;
         
         // Component field linkage (set externally, not via constructor)
+        /** @type {TextParent|null} */
         this.parentComponent = null;
         this.fieldKey = null;  // 'reference', 'value', or 'wireLabel'
         this.attachment = options.attachment || null;
@@ -134,6 +134,7 @@ export class Text extends Shape {
     }
 
     /** @override */
+    /** @param {Point} point @param {number} [tolerance] */
     hitTest(point, tolerance = 0.5) {
         if (!this.rotation) {
             const bounds = this.getBounds();
@@ -186,6 +187,7 @@ export class Text extends Shape {
         ];
     }
     /** @override */
+    /** @param {string} anchorId @param {number} x @param {number} y */
     moveAnchor(anchorId, x, y) {
         if (anchorId === 'pos') {
             this.x = x;
@@ -197,6 +199,7 @@ export class Text extends Shape {
     }
 
     /** @override */
+    /** @param {number} dx @param {number} dy */
     move(dx, dy) {
         if (!Number.isFinite(dx) || !Number.isFinite(dy)) return;
         this.x += dx;
@@ -222,7 +225,7 @@ export class Text extends Shape {
     
     /** @override */
     captureState() {
-        const state = { x: this.x, y: this.y, text: this.text, fontSize: this.fontSize, fontFamily: this.fontFamily, textAnchor: this.textAnchor, rotation: this.rotation, border: this.border };
+        const state = /** @type {TextState} */ ({ x: this.x, y: this.y, text: this.text, fontSize: this.fontSize, fontFamily: this.fontFamily, textAnchor: this.textAnchor, rotation: this.rotation, border: this.border });
         if (this.attachment) state.attachment = { ...this.attachment };
         else state.attachment = null;
         state.parentComponentId = this.parentComponent?.id || null;
@@ -233,6 +236,7 @@ export class Text extends Shape {
     }
 
     /** @override */
+    /** @param {Partial<TextState> & Record<string, any>} state */
     applyState(state) {
         super.applyState(state);
         if ('attachment' in state) {
@@ -277,12 +281,12 @@ export class Text extends Shape {
     }
     /** @override */
     toJSON() {
-        const json = {
+        const json = /** @type {TextJSON} */ ({
             ...super.toJSON(),
             x: _r4(this.x),
             y: _r4(this.y),
             t: this.text,
-        };
+        });
         if (this.fontSize !== 2.0) json.fs = this.fontSize;
         if (this.fontFamily !== 'Arial') json.ff = this.fontFamily;
         if (this.textAnchor !== 'start') json.ta = this.textAnchor;

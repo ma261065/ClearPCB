@@ -1,4 +1,4 @@
-﻿/**
+/**
  * StorageManager - Centralized cache with TTL support.
  *
  * Uses IndexedDB for persistence (much higher quota than localStorage)
@@ -114,6 +114,10 @@ export class StorageManager {
         } catch {}
     }
 
+    /**
+     * @param {string} key
+     * @param {{data: any, expires: number}} value
+     */
     _persistToIDB(key, value) {
         if (!this._db) return;
         try {
@@ -126,6 +130,7 @@ export class StorageManager {
         }
     }
 
+    /** @param {string} key */
     _removeFromIDB(key) {
         if (!this._db) return;
         try {
@@ -151,7 +156,7 @@ export class StorageManager {
      * Store a value with TTL.
      * @param {string} key
      * @param {any} value
-     * @param {number} [ttlMs]
+     * @param {number|null} [ttlMs]
      * @returns {boolean}
      */
     set(key, value, ttlMs = null) {

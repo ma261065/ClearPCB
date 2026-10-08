@@ -8,6 +8,11 @@ import { applyPlacementSide, updatePlacementPadPositions } from './pcb-placement
  * refSize:number, refStrokeWidth:number}} PlacementOverride
  */
 
+/**
+ * @typedef {{id:string, reference?:string, value?:string, footprint?:string, source?:string, model3dObj?:unknown, model3dUrl?:string|null}} PlacementComponent
+ */
+
+/** @param {number} value */
 const round4 = value => Number.isFinite(value) ? Math.round(value * 10000) / 10000 : value;
 
 /** @param {Partial<PlacementOverride> & {x:number, y:number}} placement */
@@ -48,11 +53,19 @@ export class PcbPlacementState {
         return snapshot;
     }
 
-    /** Resolve physical placements without rendering or changing authored overrides. */
+    /**
+     * Resolve physical placements without rendering or changing authored overrides.
+     * @param {PlacementComponent[]} components
+     */
     resolve(components) {
         const columns = Math.max(1, Math.ceil(Math.sqrt(components.length)));
+        /** @param {number} index */
         const slotPosition = index => ({ x: 10 + (index % columns) * 20,
             y: -10 - Math.floor(index / columns) * 20 });
+        /**
+         * @param {number} x
+         * @param {number} y
+         */
         const positionKey = (x, y) => `${Math.round(x * 100)},${Math.round(y * 100)}`;
         const occupied = new Set();
         const newSlots = new Map();
@@ -71,7 +84,7 @@ export class PcbPlacementState {
         const placements = new Map();
         for (const component of components) {
             const pose = this.overrides.get(component.id) || this.autoSlots.get(component.id) || newSlots.get(component.id);
-            const { geometry, padOffsets, pasteOffsets } = createPcbFootprint(component);
+            const { geometry, padOffsets, pasteOffsets } = createPcbFootprint(/** @type {Parameters<typeof createPcbFootprint>[0]} */ (/** @type {unknown} */ (component)));
             const placement = {
                 ...capturePlacementOverride(pose),
                 geometry, padOffsets, pasteOffsets, pads: new Map(),
@@ -88,21 +101,30 @@ export class PcbPlacementState {
         return placements;
     }
 
-    /** Restore saved values in place so editor aliases remain valid. */
+    /**
+     * Restore saved values in place so editor aliases remain valid.
+     * @param {Record<string, Partial<PlacementOverride>>|null|undefined} placements
+     */
     load(placements) {
         this.overrides.clear();
         this.autoSlots.clear();
         if (!placements || typeof placements !== 'object') return;
         for (const [id, placement] of Object.entries(placements)) {
             if (!placement) continue;
-            const loaded = { ...placement };
-            for (const key of ['x', 'y', 'rotation', 'refDx', 'refDy', 'refRot', 'refSize', 'refStrokeWidth']) {
-                loaded[key] = Number(placement[key]) || 0;
-            }
+            const loaded = /** @type {Partial<PlacementOverride> & {x:number,y:number}} */ ({ ...placement, x: 0, y: 0 });
+            loaded.x = Number(placement.x) || 0;
+            loaded.y = Number(placement.y) || 0;
+            loaded.rotation = Number(placement.rotation) || 0;
+            loaded.refDx = Number(placement.refDx) || 0;
+            loaded.refDy = Number(placement.refDy) || 0;
+            loaded.refRot = Number(placement.refRot) || 0;
+            loaded.refSize = Number(placement.refSize) || 0;
+            loaded.refStrokeWidth = Number(placement.refStrokeWidth) || 0;
             this.record(id, loaded);
         }
     }
 
+    /** @returns {Record<string, Partial<PlacementOverride>>} */
     serialize() {
         /** @type {Record<string, Partial<PlacementOverride>>} */
         const placements = {};
@@ -110,6 +132,7 @@ export class PcbPlacementState {
             placements[id] = { x: round4(p.x), y: round4(p.y), rotation: 0 };
         }
         for (const [id, p] of this.overrides) {
+            /** @type {Partial<PlacementOverride>} */
             const saved = { x: round4(p.x), y: round4(p.y), rotation: round4(p.rotation || 0) };
             if (p.locked) saved.locked = true;
             if (p.mirror) saved.mirror = true;

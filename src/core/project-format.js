@@ -2,7 +2,11 @@ import { compactNormalizedProject, normalizeProjectAliases, normalizePcbSection 
 import { getBuiltInPackageOptions } from '../components/BuiltInPackages.js';
 import { hasRectangleFrame, rectangleFramePoints } from '../shapes/rectangle-frame.js';
 
+/** @typedef {Record<string, any>} JsonRecord */
+
+/** @param {unknown} value @returns {value is JsonRecord} */
 const record = (value) => value !== null && typeof value === 'object' && !Array.isArray(value);
+/** @param {...string} names @returns {Set<string>} */
 const fields = (...names) => new Set(names);
 
 const ENVELOPE_FIELDS = fields('version', 'type', 'created', 'schematic', 'pcb');
@@ -15,6 +19,7 @@ const DEFINITION_FIELDS = fields('name', 'category', 'description', 'symbol', 'd
     'defaultProperties', '_source', 'supplier_part_numbers', 'footprintShapes', 'footprintBBox', 'footprintName',
     'model3dObj', 'model3dUrl', 'model3dName', 'has3d');
 const SHAPE_COMMON_FIELDS = fields('id', 'type', 'c', 'l', 'lw', 'v', 'lk');
+/** @type {Record<string, Set<string>>} */
 const SHAPE_FIELDS = {
     polyline: fields('nd', 'ed', 'cl', 'f', 'fa', 'cr', 'ncr', 'bg', 'ew', 'ir', 'fc', 'x', 'y', 'w', 'h', 'rot', 'rev', 'cn'),
     wire: fields('nd', 'ed', 'f', 'fa', 'cr', 'ncr', 'bg', 'ew', 'pc', 'wl', 'n', 'lo'),
@@ -48,12 +53,14 @@ const PANEL_FIELDS = fields('rows', 'columns', 'rowSpacing', 'columnSpacing', 's
     'verticalTabOffset', 'horizontalTabOffset', 'horizontalPositioningHoles', 'horizontalFiducials',
     'verticalPositioningHoles', 'verticalFiducials', 'tabWidth', 'holeDiameter', 'holePitch', 'noteCreated');
 const COPPER_MODES = new Set(['add', 'remove-copper', 'remove-solder-mask', 'remove-copper-mask']);
+/** @type {Record<string, Set<string>>} */
 const ARTWORK_FIELDS = {
     'tuples-v1': fields('encoding', 'data'),
     'deflate-tuples-v1': fields('encoding', 'bytes', 'data'),
     'reference-v1': fields('encoding', 'index'),
 };
 
+/** @param {unknown} value */
 function numberedSnippet(value) {
     let text;
     try {
@@ -70,14 +77,17 @@ function numberedSnippet(value) {
     return numbered.join('\n');
 }
 
+/** @param {string} path @param {string} message @param {unknown} value @returns {never} */
 function invalid(path, message, value) {
     throw new Error(`${message}\nLocation: ${path}\nFaulty snippet:\n${numberedSnippet(value)}`);
 }
 
+/** @param {unknown} value @param {string} path @param {string} [message] */
 function requireRecord(value, path, message = 'Expected an object.') {
     if (!record(value)) invalid(path, message, value);
 }
 
+/** @param {JsonRecord} value @param {Iterable<string>} required @param {string} path */
 function requireFields(value, required, path) {
     for (const key of required) {
         if (!Object.prototype.hasOwnProperty.call(value, key)) {
@@ -86,6 +96,7 @@ function requireFields(value, required, path) {
     }
 }
 
+/** @param {JsonRecord} value @param {Set<string>} allowed @param {string} path */
 function rejectUnknownFields(value, allowed, path) {
     requireRecord(value, path);
     for (const key of Object.keys(value)) {
@@ -93,6 +104,7 @@ function rejectUnknownFields(value, allowed, path) {
     }
 }
 
+/** @param {JsonRecord} item @param {string} path */
 function validateGraph(item, path) {
     requireRecord(item.nd, `${path}.nd`, 'Graph shapes require an "nd" node map.');
     requireRecord(item.ed, `${path}.ed`, 'Graph shapes require an "ed" edge map.');
@@ -112,6 +124,7 @@ function validateGraph(item, path) {
     }
 }
 
+/** @param {JsonRecord} item @param {number} index */
 function validateSchematicShape(item, index) {
     const path = `schematic.shapes[${index}]`;
     requireRecord(item, path);
@@ -127,12 +140,13 @@ function validateSchematicShape(item, index) {
         const frame = { x: item.x, y: item.y, width: item.w, height: item.h, rotation: item.rot, reversed: item.rev };
         validateFrame(frame, path);
         if (!Array.isArray(item.cn) || item.cn.length !== 4 || new Set(item.cn).size !== 4
-            || !item.cn.every(id => typeof id === 'string' && id.length)) {
+            || !item.cn.every((id) => typeof id === 'string' && id.length)) {
             invalid(`${path}.cn`, 'A rectangle requires four distinct corner node IDs.', item.cn);
         }
+        const cornerNodeIds = /** @type {string[]} */ (item.cn);
         const points = rectangleFramePoints(frame);
-        validateGraph({ ...item, nd: Object.fromEntries(item.cn.map((id, i) => [id, [points[i].x, points[i].y]])) }, path);
-        const expected = new Set(item.cn.map((id, i) => JSON.stringify([id, item.cn[(i + 1) % 4]].sort())));
+        validateGraph({ ...item, nd: Object.fromEntries(cornerNodeIds.map((id, i) => [id, [points[i].x, points[i].y]])) }, path);
+        const expected = new Set(cornerNodeIds.map((id, i) => JSON.stringify([id, cornerNodeIds[(i + 1) % 4]].sort())));
         const actual = Object.values(item.ed).map(edge => JSON.stringify([...edge].sort()));
         if (actual.length !== 4 || new Set(actual).size !== 4 || actual.some(edge => !expected.has(edge))) {
             invalid(`${path}.ed`, 'Rectangle edges must connect the four corners in order.', item.ed);
@@ -140,6 +154,7 @@ function validateSchematicShape(item, index) {
     } else if (item.type === 'polyline' || item.type === 'wire') validateGraph(item, path);
 }
 
+/** @param {JsonRecord} frame @param {string} path */
 function validateFrame(frame, path) {
     try {
         rectangleFramePoints(frame);
@@ -148,6 +163,7 @@ function validateFrame(frame, path) {
     }
 }
 
+/** @param {JsonRecord} item @param {number} index */
 function validateComponent(item, index) {
     const path = `schematic.components[${index}]`;
     rejectUnknownFields(item, COMPONENT_FIELDS, path);
@@ -159,6 +175,7 @@ function validateComponent(item, index) {
     }
 }
 
+/** @param {JsonRecord} schematic */
 function validateSchematic(schematic) {
     rejectUnknownFields(schematic, SCHEMATIC_FIELDS, 'schematic');
     requireFields(schematic, ['shapes', 'components'], 'schematic');
@@ -183,12 +200,14 @@ function validateSchematic(schematic) {
     }
 }
 
+/** @param {JsonRecord} settings @param {string} path */
 function validateUnits(settings, path) {
     if (settings.units !== undefined && !['mm', 'inch'].includes(settings.units)) {
         invalid(`${path}.units`, 'Units must be "mm" or "inch".', { units: settings.units });
     }
 }
 
+/** @param {JsonRecord} item @param {number} index */
 function validatePcbShape(item, index) {
     const path = `pcb.boardShapes[${index}]`;
     requireRecord(item, path);
@@ -232,6 +251,7 @@ function validatePcbShape(item, index) {
     }
 }
 
+/** @param {JsonRecord} pcb */
 function validatePcb(pcb) {
     rejectUnknownFields(pcb, PCB_FIELDS, 'pcb');
     requireFields(pcb, ['stackup', 'design'], 'pcb');
@@ -310,6 +330,7 @@ export function defaultPcbStackup() {
     return { copperLayers: ['top-copper', 'bottom-copper'] };
 }
 
+/** @param {any} pcb @returns {string[]} */
 export function validatePcbStackup(pcb) {
     if (pcb == null) return defaultPcbStackup().copperLayers;
     requireRecord(pcb.stackup, 'pcb.stackup', 'PCB stackup is required.');
@@ -347,16 +368,19 @@ export function validatePcbStackup(pcb) {
     return layers;
 }
 
+/** @param {string[]} layers */
 function assertTwoCopperLayers(layers) {
     if (layers.length !== 2) {
         throw new Error('This project uses multiple copper layers. This editor currently supports only two-layer boards.');
     }
 }
 
+/** @param {any} pcb */
 export function assertSupportedPcb(pcb) {
     assertTwoCopperLayers(validatePcbStackup(normalizePcbSection(pcb)));
 }
 
+/** @param {any} data */
 export function validateEditableProject(data) {
     const normalized = validateProject(data);
     // validateProject has checked the normalized section's stackup; only the layer count remains.
@@ -379,6 +403,7 @@ export class ProjectIntegrityError extends Error {
  * file or recovery snapshot that would not reopen.
  * @throws {ProjectIntegrityError}
  */
+/** @param {any} data */
 export function storableProject(data) {
     let normalized;
     try {
@@ -389,11 +414,13 @@ export function storableProject(data) {
     return compactNormalizedProject(normalized);
 }
 
+/** @param {any} data */
 export function repairDuplicateTrackIds(data) {
     const normalized = normalizeProjectAliases(data);
     const tracks = normalized?.pcb?.tracks;
     if (!Array.isArray(tracks)) return { data: normalized, count: 0 };
     const seen = new Set();
+    /** @type {number[]} */
     const duplicates = [];
     tracks.forEach((track, index) => {
         if (!track?.id) return;
@@ -417,11 +444,13 @@ export function repairDuplicateTrackIds(data) {
  * Give later board shapes that repeat an earlier shape's id a fresh `pshape_N` id
  * (older builds could reuse a converted track's source-shape id). Geometry is kept.
  */
+/** @param {any} data */
 export function repairDuplicateBoardShapeIds(data) {
     const normalized = normalizeProjectAliases(data);
     const shapes = normalized?.pcb?.boardShapes;
     if (!Array.isArray(shapes)) return { data: normalized, count: 0 };
     const seen = new Set();
+    /** @type {number[]} */
     const duplicates = [];
     shapes.forEach((shape, index) => {
         if (!shape?.id) return;
@@ -440,6 +469,7 @@ export function repairDuplicateBoardShapeIds(data) {
 }
 
 /** Repair duplicate track and board-shape ids before loading an opened or recovered project. */
+/** @param {any} data */
 export function repairDuplicateIds(data) {
     const tracks = repairDuplicateTrackIds(data);
     const shapes = repairDuplicateBoardShapeIds(tracks.data);
@@ -447,6 +477,7 @@ export function repairDuplicateIds(data) {
 }
 
 /** User-facing summary of {@link repairDuplicateIds}, or null when nothing changed. */
+/** @param {{tracks: number, shapes: number}} repair */
 export function duplicateIdRepairMessage({ tracks, shapes }) {
     const parts = [[tracks, 'track'], [shapes, 'board shape']].filter(([count]) => count)
         .map(([count, noun]) => `${count} ${noun}${count === 1 ? '' : 's'}`);
@@ -454,6 +485,7 @@ export function duplicateIdRepairMessage({ tracks, shapes }) {
     return `Assigned new IDs to ${parts.join(' and ')} with duplicate IDs. All geometry was kept. Save the project to keep the repaired IDs.`;
 }
 
+/** @param {any} data */
 export function validateProject(data) {
     data = normalizeProjectAliases(data);
     if (!record(data) || data.type !== 'clearpcb-project' || data.version !== '1.0') {

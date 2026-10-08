@@ -6,9 +6,17 @@ import { validateEditableProject } from './project-format.js';
 import { compactProjectAliases } from './project-field-aliases.js';
 import { extractNetlist } from './netlist.js';
 
+/** @typedef {Record<string, any>} ProjectData Parsed project JSON remains loosely shaped until validated. */
+/** @typedef {ReturnType<typeof createShape>} SchematicShape */
+
+/** @param {string} name */
 const builtInDefinition = name => BuiltInComponents.find(definition => definition.name === name);
 
 /** Construct component data without creating its SVG. */
+/**
+ * @param {ProjectData} data
+ * @param {(name: string) => any} [getDefinition]
+ */
 export function deserializeComponent(data, getDefinition = builtInDefinition) {
     const embedded = data.def;
     const definition = embedded ? structuredClone(embedded) : getDefinition(data.dn);
@@ -33,17 +41,23 @@ export function deserializeComponent(data, getDefinition = builtInDefinition) {
 }
 
 /** Shared data mutation for project commands and schematic property edits. */
+/**
+ * @param {Component} component
+ * @param {string} reference
+ */
 export function setComponentReference(component, reference) {
     component.reference = reference;
     if (component.refText) component.refText.text = reference;
 }
 
 /** Serialize authored entities with detached preferences and deduplicated definitions. */
+/** @param {{shapes: SchematicShape[], components: Component[], settings?: object}} value */
 export function serializeSchematicDocument({ shapes, components, settings = {} }) {
     const serializedComponents = components.map(component => component.toJSON());
     const serializedShapes = shapes
         .filter(shape => !(shape.type === 'text' && shape.fieldKey === 'net' && shape.parentComponent?.type === 'net'))
         .map(shape => shape.toJSON());
+    /** @type {Record<string, any>} */
     const defs = {};
     for (const component of serializedComponents) {
         if (component.def && component.dn) {
@@ -51,6 +65,7 @@ export function serializeSchematicDocument({ shapes, components, settings = {} }
             delete component.def;
         }
     }
+    /** @type {{settings: object, shapes: any[], components: Record<string, any>[], defs?: Record<string, any>}} */
     const schematic = { settings, shapes: serializedShapes, components: serializedComponents };
     if (Object.keys(defs).length) schematic.defs = defs;
     return compactProjectAliases({
@@ -72,8 +87,13 @@ export class SchematicDocument {
     }
 
     /** Validate and construct a replacement without changing the live collections. */
+    /**
+     * @param {ProjectData} data
+     * @param {(name: string) => any} [getDefinition]
+     */
     prepare(data, getDefinition = builtInDefinition) {
         data = validateEditableProject(data);
+        /** @type {{shapes: ProjectData[], components: ProjectData[], defs?: Record<string, ProjectData>, settings?: object}} */
         const schematic = data.schematic;
         const shapes = schematic.shapes.filter(item => item.fk !== 'net')
             .map(item => ({ data: item, shape: createShape(item) }));
@@ -86,6 +106,10 @@ export class SchematicDocument {
     }
 
     /** Adopt prepared entities without cloning them or creating presentation state. */
+    /**
+     * @param {ProjectData} data
+     * @param {{data: ProjectData, shapes: Array<{data: ProjectData, shape: SchematicShape}>, components: Component[]}} [prepared]
+     */
     load(data, prepared = this.prepare(data)) {
         resetWireLabelCounter();
         resetNetNameCounter();
@@ -123,11 +147,13 @@ export class SchematicDocument {
     }
 
     /** Current view preferences override the loaded fallback for this snapshot only. */
+    /** @param {object} [settings] */
     serialize(settings = this.settings) {
         return serializeSchematicDocument({ shapes: this.shapes, components: this.components, settings });
     }
 
     /** @returns {import('./ProjectDocument.js').ComponentInfo|null} */
+    /** @param {string} id */
     getComponentInfo(id) {
         const component = this.components.find(item => item.id === id);
         if (!component) return null;
@@ -136,6 +162,10 @@ export class SchematicDocument {
             footprintShapes: Array.isArray(shapes) ? shapes.filter(shape => typeof shape === 'string') : [] };
     }
 
+    /**
+     * @param {string} id
+     * @param {string} reference
+     */
     validateComponentReference(id, reference) {
         const component = this.components.find(item => item.id === id);
         if (!component) return { message: 'Component is no longer available.', title: 'Invalid Reference' };
@@ -148,10 +178,15 @@ export class SchematicDocument {
         return null;
     }
 
+    /**
+     * @param {string} id
+     * @param {string} reference
+     */
     createReferenceRenameCommand(id, reference) {
         const issue = this.validateComponentReference(id, reference);
         if (issue) throw new Error(issue.message);
-        const original = this.getComponentInfo(id).reference;
+        const original = (/** @type {import('./ProjectDocument.js').ComponentInfo} */ (this.getComponentInfo(id))).reference;
+        /** @param {string} value */
         const apply = value => {
             const component = this.components.find(item => item.id === id);
             if (!component) throw new Error('Component is no longer available.');

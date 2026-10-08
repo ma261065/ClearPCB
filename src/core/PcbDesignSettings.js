@@ -1,15 +1,25 @@
+/** @typedef {'trackWidth'|'clearance'|'viaDiameter'|'viaDrill'} PcbRoutingField */
+/** @typedef {{trackWidth: number, clearance: number, viaDiameter: number, viaDrill: number, units: string, router: string}} PcbDesignValues */
+
+/** @type {PcbRoutingField[]} */
 export const PCB_ROUTING_FIELDS = ['trackWidth', 'clearance', 'viaDiameter', 'viaDrill'];
 /**
  * Upper bounds for routing dimensions. Larger values are input slips: clearance halo
  * rendering grows with the clearance, and a 5 m clearance took minutes to open.
  */
+/** @type {Readonly<Record<PcbRoutingField, number>>} */
 export const PCB_DESIGN_MAX_MM = Object.freeze({ trackWidth: 25, clearance: 10, viaDiameter: 25, viaDrill: 25 });
 
-/** Clamp oversized routing dimensions from saved data so slipped values still open, at a renderable size. */
+/** Clamp oversized routing dimensions from saved data so slipped values still open, at a renderable size.
+ * @param {Record<string, any>} design
+ * @returns {Record<string, any> & Partial<Record<PcbRoutingField, number>>}
+ */
 export function clampDesignDimensions(design) {
+    /** @type {Record<string, any> & Partial<Record<PcbRoutingField, number>>} */
     const clamped = { ...design };
     for (const key of PCB_ROUTING_FIELDS) {
-        if (Number.isFinite(clamped[key]) && clamped[key] > PCB_DESIGN_MAX_MM[key]) clamped[key] = PCB_DESIGN_MAX_MM[key];
+        const value = clamped[key];
+        if (typeof value === 'number' && Number.isFinite(value) && value > PCB_DESIGN_MAX_MM[key]) clamped[key] = PCB_DESIGN_MAX_MM[key];
     }
     return clamped;
 }
@@ -18,13 +28,17 @@ export function clampDesignDimensions(design) {
 export class PcbDesignSettings {
     constructor() {
         this.hasAppliedSettings = false;
+        /** @type {PcbDesignValues} */
         this._values = { trackWidth: 0.2, clearance: 0.1, viaDiameter: 0.3, viaDrill: 0.15,
             units: 'mm', router: 'maze' };
     }
 
     get values() { return { ...this._values }; }
 
-    /** Validate before changing any field. Returns whether anything changed. */
+    /** Validate before changing any field. Returns whether anything changed.
+     * @param {Partial<PcbDesignValues>} changes
+     * @returns {boolean}
+     */
     update(changes) {
         const next = { ...this._values, ...changes };
         for (const key of PCB_ROUTING_FIELDS) {
@@ -37,7 +51,8 @@ export class PcbDesignSettings {
         }
         if (!['mm', 'inch'].includes(next.units)) throw new Error('Invalid PCB design units.');
         if (!['maze', 'pathfinder'].includes(next.router)) throw new Error('Invalid PCB router mode.');
-        const changed = Object.keys(this._values).some(key => this._values[key] !== next[key]);
+        const keys = /** @type {(keyof PcbDesignValues)[]} */ (Object.keys(this._values));
+        const changed = keys.some(key => this._values[key] !== next[key]);
         this._values = next;
         this.hasAppliedSettings = true;
         return changed;

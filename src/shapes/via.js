@@ -17,7 +17,33 @@
 
 import { IdAllocator } from '../core/id-allocator.js';
 
+/**
+ * @typedef {{x: number, y: number}} Point
+ * @typedef {{
+ *   id?: string,
+ *   x?: number,
+ *   y?: number,
+ *   diameter?: number,
+ *   drill?: number,
+ *   net?: string,
+ *   locked?: boolean,
+ *   visible?: boolean,
+ * }} ViaOptions
+ * @typedef {{
+ *   id: string,
+ *   x: number,
+ *   y: number,
+ *   diameter: number,
+ *   drill: number,
+ *   net: string,
+ *   locked: boolean,
+ *   visible: boolean,
+ * }} ViaState
+ * @typedef {{type: 'via', id: string, x: number, y: number, d: number, dr: number, n?: string, lk?: boolean, v?: boolean}} ViaJSON
+ */
+
 const viaIds = new IdAllocator('via');
+/** @param {number} value */
 const round4 = value => Math.round(value * 10000) / 10000;
 
 /** Reset the via ID counter (for testing / new-document). */
@@ -26,6 +52,7 @@ export function resetViaIdCounter() {
 }
 
 /** Update the via ID counter so newly-issued IDs don't collide on load. */
+/** @param {string} id */
 export function updateViaIdCounter(id) {
     viaIds.observe(id);
 }
@@ -36,38 +63,34 @@ export function nextViaId() {
 }
 
 /** Physical bounds, also accepting detached plain via data. */
+/** @param {{x: number, y: number, diameter?: number}} via */
 export function viaBounds(via) {
     const radius = Math.max(0, Number(via.diameter) || 0.6) / 2;
     return { minX: via.x - radius, minY: via.y - radius, maxX: via.x + radius, maxY: via.y + radius };
 }
 
 /** Test the outer via area, including its drill centre. Tolerance is in mm. */
+/**
+ * @param {{x: number, y: number, diameter?: number}} via
+ * @param {Point} point
+ * @param {number} [tolerance]
+ */
 export function viaHitTest(via, point, tolerance = 0) {
     return Math.hypot(via.x - point.x, via.y - point.y) <= (Number(via.diameter) || 0.6) / 2 + tolerance;
 }
 
 export class Via {
-    /**
-     * @param {object} [options]
-     * @param {string} [options.id]
-     * @param {number} [options.x] - World x in mm
-     * @param {number} [options.y] - World y in mm
-     * @param {number} [options.diameter] - Annular ring outer diameter (mm, default 0.6)
-     * @param {number} [options.drill] - Drill hole diameter (mm, default 0.3)
-     * @param {string} [options.net] - Net name (optional; set explicitly
-     *   for standalone vias such as ground-plane stitches)
-     * @param {boolean} [options.locked]
-     * @param {boolean} [options.visible]
-     */
+    /** @param {ViaOptions} [options] */
     constructor(options = {}) {
         this.id = viaIds.claim(options.id);
         this.type = 'via';
         this.x = Number(options.x) || 0;
         this.y = Number(options.y) || 0;
-        this.diameter = Number.isFinite(options.diameter) && options.diameter > 0
-            ? options.diameter : 0.6;
-        const drill = Number.isFinite(options.drill) && options.drill > 0
-            ? options.drill : 0.3;
+        const diameter = Number.isFinite(options.diameter) && /** @type {number} */ (options.diameter) > 0
+            ? /** @type {number} */ (options.diameter) : 0.6;
+        this.diameter = diameter;
+        const drill = Number.isFinite(options.drill) && /** @type {number} */ (options.drill) > 0
+            ? /** @type {number} */ (options.drill) : 0.3;
         this.drill = Math.min(drill, this.diameter);
         this.net = typeof options.net === 'string' ? options.net : '';
         this.locked = !!options.locked;
@@ -78,11 +101,19 @@ export class Via {
         return viaBounds(this);
     }
 
+    /**
+     * @param {Point} point
+     * @param {number} [tolerance]
+     */
     hitTest(point, tolerance = 0) {
         return viaHitTest(this, point, tolerance);
     }
 
     /** Move the via by (dx, dy) in world units. */
+    /**
+     * @param {number} dx
+     * @param {number} dy
+     */
     move(dx, dy) {
         this.x += dx;
         this.y += dy;
@@ -101,6 +132,7 @@ export class Via {
     }
 
     /** Capture state for undo/redo. */
+    /** @returns {ViaState} */
     captureState() {
         return {
             id: this.id,
@@ -115,13 +147,14 @@ export class Via {
     }
 
     /** Restore state from captureState() output. */
+    /** @param {Partial<ViaState>} state */
     applyState(state) {
-        if (Number.isFinite(state.x)) this.x = state.x;
-        if (Number.isFinite(state.y)) this.y = state.y;
-        const diameter = Number.isFinite(state.diameter) && state.diameter > 0
-            ? state.diameter : this.diameter;
-        const drill = Number.isFinite(state.drill) && state.drill > 0
-            ? state.drill : this.drill;
+        if (Number.isFinite(state.x)) this.x = /** @type {number} */ (state.x);
+        if (Number.isFinite(state.y)) this.y = /** @type {number} */ (state.y);
+        const diameter = Number.isFinite(state.diameter) && /** @type {number} */ (state.diameter) > 0
+            ? /** @type {number} */ (state.diameter) : this.diameter;
+        const drill = Number.isFinite(state.drill) && /** @type {number} */ (state.drill) > 0
+            ? /** @type {number} */ (state.drill) : this.drill;
         this.diameter = diameter;
         this.drill = Math.min(drill, diameter);
         if (typeof state.net === 'string') this.net = state.net;
@@ -130,7 +163,9 @@ export class Via {
     }
 
     /** Serialise to compact JSON. */
+    /** @returns {ViaJSON} */
     toJSON() {
+        /** @type {ViaJSON} */
         const out = {
             type: 'via',
             id: this.id,
@@ -146,6 +181,7 @@ export class Via {
     }
 
     /** Deserialise from compact JSON produced by toJSON(). */
+    /** @param {ViaJSON} data */
     static fromJSON(data) {
         return new Via({
             id: data.id,

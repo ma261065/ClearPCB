@@ -12,6 +12,10 @@ const shapeIds = new IdAllocator('shape');
 // Anchor handle size in screen pixels
 const ANCHOR_SIZE_PIXELS = 8;
 
+/** @typedef {{x: number, y: number}} Point */
+/** @typedef {{id: string, x: number, y: number, cursor: string, midpoint?: boolean}} AnchorDescriptor */
+/** @typedef {Record<string, any> & {id?: string, layer?: string, color?: string|number, fillColor?: string|number|null, lineWidth?: number, visible?: boolean, locked?: boolean}} ShapeOptions */
+
 /**
  * Update the ID counter to avoid collisions with loaded shapes
  * Call this after loading shapes from a file
@@ -31,14 +35,7 @@ export function resetIdCounter() {
 export class Shape {
     /**
      * Create a new shape.
-     * @param {Object} [options] - Shape configuration.
-     * @param {string} [options.id] - Unique ID (auto-generated if omitted).
-     * @param {string} [options.layer='top'] - Board layer ('top', 'bottom', etc.).
-     * @param {string|number} [options.color='#00b894'] - Stroke/fill colour.
-    * @param {string|number|null} [options.fillColor] - Optional fill colour override.
-     * @param {number} [options.lineWidth=0.2] - Stroke width in mm.
-     * @param {boolean} [options.visible=true] - Whether the shape is rendered.
-     * @param {boolean} [options.locked=false] - Whether the shape is locked.
+     * @param {ShapeOptions} [options] - Shape configuration.
      */
     constructor(options = {}) {
         this.id = shapeIds.claim(options.id);
@@ -81,7 +78,7 @@ export class Shape {
     
     /**
      * Test whether a point intersects this shape. Override in subclasses.
-     * @param {{x: number, y: number}} point - World-space point to test.
+     * @param {Point} point - World-space point to test.
      * @param {number} [tolerance=0.5] - Hit margin in mm.
      * @returns {boolean} True if the point hits the shape.
      */
@@ -91,7 +88,7 @@ export class Shape {
     
     /**
      * Minimum distance from a world point to this shape. Override in subclasses.
-     * @param {{x: number, y: number}} point - World-space point.
+     * @param {Point} point - World-space point.
      * @returns {number} Distance in mm (Infinity by default).
      */
     distanceTo(point) {
@@ -101,7 +98,7 @@ export class Shape {
     /**
      * Get anchor points for this shape
      * Returns array of { id, x, y, cursor } objects
-     * @returns {Array<{id: string, x: number, y: number, cursor: string, midpoint?: boolean}>}
+     * @returns {AnchorDescriptor[]}
      */
     getAnchors() {
         return [];
@@ -110,6 +107,7 @@ export class Shape {
     /**
      * Test if point hits an anchor, returns anchor id or null
      */
+    /** @param {Point} point @param {number} scale */
     hitTestAnchor(point, scale) {
         const anchors = this.getAnchors();
         const tolerance = ANCHOR_SIZE_PIXELS / scale;
@@ -166,9 +164,11 @@ export class Shape {
      * Restore a previously captured state.
      * Override in subclasses if custom deep-copy logic is needed.
      */
+    /** @param {Record<string, any>} state */
     applyState(state) {
+        const target = /** @type {Record<string, any>} */ (/** @type {unknown} */ (this));
         for (const [key, value] of Object.entries(state)) {
-            this[key] = value;
+            target[key] = value;
         }
         this.invalidate();
     }
@@ -189,6 +189,7 @@ export class Shape {
      * Get the snap mode for a given anchor during drag.
      * Returns 'grid' (default), 'none', or 'axis'.
      */
+    /** @param {string} anchorId */
     getAnchorSnapMode(anchorId) {
         return 'grid';
     }
@@ -231,14 +232,14 @@ export class Shape {
     /**
      * Serialise the shape to a compact JSON-friendly object.
      * Subclasses should call `super.toJSON()` and extend the result.
-     * @returns {Object} Plain object with short keys (`c`, `l`, `lw`, etc.).
+     * @returns {any} Plain object with short keys (`c`, `l`, `lw`, etc.).
      */
     toJSON() {
-        const json = {
+        const json = /** @type {any} */ ({
             id: this.id,
             type: this.type,
             c: this.color,
-        };
+        });
         if (this.layer !== 'top') json.l = this.layer;
         if (this.lineWidth !== 0.2) json.lw = this.lineWidth;
         if (!this.visible) json.v = false;

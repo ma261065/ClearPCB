@@ -23,6 +23,8 @@ export const JOIN_COINCIDENT_EPS = 1e-3;
 /** Shape types that can take part in a join. */
 const JOINABLE_TYPES = new Set(['polyline', 'arc']);
 
+/** @typedef {{id: string, x: number, y: number, midpoint?: boolean}} JoinAnchor */
+
 /**
  * @param {any} shape
  * @returns {boolean} Whether the shape can participate in a join.
@@ -47,7 +49,7 @@ export function joinableAnchors(shape) {
         ];
     }
     // Polyline: real graph nodes only (skip the 'copy'/midpoint handles).
-    return shape.getAnchors()
+    return /** @type {JoinAnchor[]} */ (shape.getAnchors())
         .filter(a => !a.midpoint && shape.degree(a.id) === 1)
         .map(a => ({ id: a.id, x: a.x, y: a.y }));
 }

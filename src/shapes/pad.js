@@ -2,9 +2,29 @@ import { padOutline, padBounds, padHitTest } from './pad-geometry.js';
 import { IdAllocator } from '../core/id-allocator.js';
 
 const padIds = new IdAllocator('pad');
+/** @param {number} value */
 const round4 = value => Math.round(value * 10000) / 10000;
 // Bounds are read by every pointer query's pre-filter; pads change by field assignment.
 const boundsCache = new WeakMap();
+
+/**
+ * @typedef {Object} PadOptions
+ * @property {string} [id]
+ * @property {number|string} [x]
+ * @property {number|string} [y]
+ * @property {string} [shape]
+ * @property {number} [size]
+ * @property {number} [drill]
+ * @property {number} [ratio]
+ * @property {number|string} [rotation]
+ * @property {string} [layers]
+ * @property {string} [net]
+ * @property {boolean} [locked]
+ * @property {boolean} [visible]
+ */
+/** @typedef {ReturnType<Pad['captureState']>} PadState */
+/** @typedef {{type:string, id:string, x:number, y:number, sh:string, s:number, dr:number, ls:string, ra?:number, rot?:number, n?:string, lk?:boolean, v?:boolean}} SerializedPad */
+/** @typedef {{x:number, y:number}} Point */
 
 export const PAD_SHAPES = ['round', 'stadium', 'square', 'rectangle', 'oval'];
 export const PAD_LAYERS = ['top-copper', 'bottom-copper', 'both'];
@@ -13,26 +33,37 @@ export function resetPadIdCounter() {
     padIds.reset();
 }
 
+/** @param {string} id */
 export function updatePadIdCounter(id) {
     padIds.observe(id);
 }
 
 export class Pad {
+    /** @param {PadOptions} [options] */
     constructor(options = {}) {
+        const size = /** @type {number} */ (options.size);
+        const drill = /** @type {number} */ (options.drill);
+        const ratio = /** @type {number} */ (options.ratio);
+        /** @type {string} */
         this.id = padIds.claim(options.id);
         this.type = 'pad';
         this.x = Number(options.x) || 0;
         this.y = Number(options.y) || 0;
-        this.shape = PAD_SHAPES.includes(options.shape) ? options.shape : 'round';
-        this.size = Number.isFinite(options.size) && options.size > 0 ? options.size : 1.5;
+        /** @type {string} */
+        this.shape = typeof options.shape === 'string' && PAD_SHAPES.includes(options.shape) ? options.shape : 'round';
+        /** @type {number} */
+        this.size = Number.isFinite(size) && size > 0 ? size : 1.5;
         // A zero drill is a pad without a hole (e.g. a test pad).
+        /** @type {number} */
         this.drill = Math.min(
-            Number.isFinite(options.drill) && options.drill >= 0 ? options.drill : 0.8,
+            Number.isFinite(drill) && drill >= 0 ? drill : 0.8,
             this.size,
         );
-        this.ratio = Number.isFinite(options.ratio) && options.ratio >= 1 ? options.ratio : 2;
+        /** @type {number} */
+        this.ratio = Number.isFinite(ratio) && ratio >= 1 ? ratio : 2;
         this.rotation = ((Number(options.rotation) || 0) % 360 + 360) % 360;
-        this.layers = PAD_LAYERS.includes(options.layers) ? options.layers : 'both';
+        /** @type {string} */
+        this.layers = typeof options.layers === 'string' && PAD_LAYERS.includes(options.layers) ? options.layers : 'both';
         this.net = typeof options.net === 'string' ? options.net : '';
         this.locked = !!options.locked;
         this.visible = options.visible !== false;
@@ -63,10 +94,12 @@ export class Pad {
     }
 
     /** Test the outer pad area, including the drill centre for selection. */
+    /** @param {Point} point */
     hitTest(point) {
         return padHitTest(this, point);
     }
 
+    /** @param {number} dx @param {number} dy */
     move(dx, dy) {
         this.x += dx;
         this.y += dy;
@@ -81,6 +114,7 @@ export class Pad {
         };
     }
 
+    /** @param {Partial<PadState>} state */
     applyState(state) {
         Object.assign(this, new Pad({ ...this.captureState(), ...state, id: this.id }));
     }
@@ -90,6 +124,7 @@ export class Pad {
     }
 
     toJSON() {
+        /** @type {SerializedPad} */
         const out = {
             type: 'pad', id: this.id, x: round4(this.x), y: round4(this.y),
             sh: this.shape, s: round4(this.size), dr: round4(this.drill),
@@ -103,6 +138,7 @@ export class Pad {
         return out;
     }
 
+    /** @param {any} data */
     static fromJSON(data) {
         return new Pad({
             id: data.id, x: data.x, y: data.y, shape: data.sh,

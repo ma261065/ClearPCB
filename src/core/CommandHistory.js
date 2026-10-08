@@ -1,3 +1,8 @@
+/**
+ * @typedef {{execute(): void, undo(): void, description?: string}} HistoryCommand
+ * @typedef {{canUndo: boolean, canRedo: boolean, undoDescription: string|null, redoDescription: string|null}} HistoryState
+ */
+
 export class CommandHistory {
     /**
      * Create a new CommandHistory.
@@ -9,7 +14,9 @@ export class CommandHistory {
      * @param {(error: Error) => void} [options.onRefused] - Told about a refusal, which is rethrown
      */
     constructor(options = {}) {
+        /** @type {HistoryCommand[]} */
         this.undoStack = [];
+        /** @type {HistoryCommand[]} */
         this.redoStack = [];
         this.maxSize = options.maxSize || 100;
         
@@ -136,7 +143,7 @@ export class CommandHistory {
      * Push a pre-applied command onto the undo stack without executing it.
      * Use when the command's effects have already been applied manually.
      * Clears the redo stack.
-     * @param {Object} command - Command to record
+     * @param {HistoryCommand} command - Command to record
      */
     record(command) {
         this.undoStack.push(command);
@@ -150,12 +157,14 @@ export class CommandHistory {
     /**
      * Pop the top N entries from the undo stack.
      * @param {number} [count=1] - Number of entries to remove
-     * @returns {Object[]} The popped commands (most recent first)
+     * @returns {HistoryCommand[]} The popped commands (most recent first)
      */
     popUndo(count = 1) {
+        /** @type {HistoryCommand[]} */
         const popped = [];
         for (let i = 0; i < count && this.undoStack.length > 0; i++) {
-            popped.push(this.undoStack.pop());
+            const command = this.undoStack.pop();
+            if (command) popped.push(command);
         }
         return popped;
     }
@@ -163,7 +172,7 @@ export class CommandHistory {
     /**
      * Replace the top undo entry with a new command.
      * Useful for merging a just-pushed command with additional follow-up work.
-     * @param {Object} command - Replacement command
+     * @param {HistoryCommand} command - Replacement command
      */
     replaceTop(command) {
         if (this.undoStack.length > 0) {

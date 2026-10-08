@@ -23,6 +23,10 @@
 import { Polyline } from './polyline.js';
 import { bulgeRatio } from '../core/geometry.js';
 
+/** @typedef {{x: number, y: number}} Point */
+/** @typedef {Record<string, Point>} NodeMap */
+/** @typedef {Record<string, {from: string, to: string}>} EdgeMap */
+
 /** Corners shorter than this (world units) are left sharp. */
 const MIN_CORNER = 0.01;
 
@@ -36,7 +40,7 @@ export function canDecomposeRoundedCorners(shape) {
         && shape.type === 'polyline'
         && shape.closed === true
         && ((shape.cornerRadius || 0) > 0
-            || Object.values(shape.nodeCornerRadii || {}).some((radius) => Number(radius) > 0))
+            || Object.values(/** @type {Record<string, any>} */ (shape.nodeCornerRadii || {})).some((radius) => Number(radius) > 0))
         && typeof shape.getOrderedPoints === 'function'
         && !(typeof shape._hasBulgedEdges === 'function' && shape._hasBulgedEdges());
 }
@@ -57,14 +61,19 @@ export function decomposeRoundedCorners(shape) {
     const nodeIds = shape.getOrderedNodeIds?.() || [];
     const n = pts.length;
 
+    /** @type {NodeMap} */
     const graphNodes = {};
+    /** @type {EdgeMap} */
     const graphEdges = {};
+    /** @type {Record<string, number>} */
     const edgeBulges = {};
     let nodeIdx = 0;
     let edgeIdx = 0;
 
     // Per-corner first/last node ids (a sharp corner has first === last).
+    /** @type {string[]} */
     const firstNode = new Array(n);
+    /** @type {string[]} */
     const lastNode = new Array(n);
     let anyRounded = false;
 

@@ -1,13 +1,19 @@
+/** @typedef {{x: number, y: number}} Point */
+/** @typedef {{x: number, y: number, width: number, height: number, rotation: number, reversed?: boolean}} RectangleFrame */
+
+/** @param {number} value */
 const round4 = value => {
     const rounded = Math.round(value * 10000) / 10000;
     return rounded === 0 ? 0 : rounded;
 };
 const frameFields = ['x', 'y', 'width', 'height', 'rotation'];
 
+/** @param {any} value */
 export function hasRectangleFrame(value) {
     return ['width', 'height', 'rotation', 'reversed'].some(key => Object.hasOwn(value, key));
 }
 
+/** @param {any} frame */
 export function validateRectangleFrame(frame) {
     if (!frame || !frameFields.every(key => Number.isFinite(frame[key]))
         || frame.width <= 0 || frame.height <= 0
@@ -17,6 +23,7 @@ export function validateRectangleFrame(frame) {
 }
 
 /** Reconstruct source-corner order; reversed winding must not mirror image artwork or edge metadata. */
+/** @param {Record<string, any>} frame - checked by validateRectangleFrame */
 export function rectangleFramePoints(frame) {
     validateRectangleFrame(frame);
     const angle = -(frame.rotation % 360) * Math.PI / 180;
@@ -34,6 +41,11 @@ export function rectangleFramePoints(frame) {
     return points;
 }
 
+/**
+ * @param {Point[]} points
+ * @param {{coordinateTolerance?: number}} [options]
+ * @returns {string|null}
+ */
 function rectanglePointsError(points, { coordinateTolerance = 0 } = {}) {
     if (!Array.isArray(points) || points.length !== 4
         || !points.every(point => point && Number.isFinite(point.x) && Number.isFinite(point.y))) {
@@ -53,15 +65,24 @@ function rectanglePointsError(points, { coordinateTolerance = 0 } = {}) {
     return null;
 }
 
+/** @param {Point[]} points */
 export function pointsFormRectangle(points) {
     return rectanglePointsError(points) === null;
 }
 
+/**
+ * @param {Point[]} points
+ * @param {{coordinateTolerance?: number}} [options]
+ */
 export function validateRectanglePoints(points, options = {}) {
     const error = rectanglePointsError(points, options);
     if (error) throw new Error(error);
 }
 
+/**
+ * @param {Point[]} points
+ * @param {{coordinateTolerance?: number}} [options]
+ */
 export function normalizeRectanglePoints(points, options = {}) {
     validateRectanglePoints(points, options);
     const horizontal = {
@@ -91,6 +112,7 @@ export function normalizeRectanglePoints(points, options = {}) {
 }
 
 /** Fit only rectangular corners, allowing the bounded noise in legacy four-decimal records. */
+/** @param {Point[]} points */
 export function rectangleFrameFromPoints(points) {
     const normalized = normalizeRectanglePoints(points, { coordinateTolerance: 0.0001 });
     const horizontal = { x: normalized[1].x - normalized[0].x, y: normalized[1].y - normalized[0].y };

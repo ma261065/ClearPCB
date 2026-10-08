@@ -2,15 +2,25 @@ import { CORNER_CHORD_TOLERANCE, roundedPathCorners, sampleRoundedCorner } from 
 import { BULGE_EPS, sampleArcEdge } from './arc-edge.js';
 import ClipperLib from '../../assets/vendor/clipper.esm.js';
 
+/**
+ * @typedef {{x: number, y: number}} Point
+ * @typedef {{[key: string]: any, kind?: string, points?: Point[], outline?: Point[]}} ClosedShape
+ */
+
+/**
+ * @param {ClosedShape|null|undefined} shape
+ * @param {{minArea?: number, allowCrossings?: boolean}} [options]
+ */
 export function validClosedShape(shape, { minArea = 0, allowCrossings = false } = {}) {
-    if (!shape || !['rect', 'polygon', 'circle'].includes(shape.kind)) return false;
+    if (!shape || !['rect', 'polygon', 'circle'].includes(shape.kind ?? '')) return false;
     if (shape.kind === 'circle') return Number.isFinite(shape.x) && Number.isFinite(shape.y)
         && Number.isFinite(shape.radius) && shape.radius > 0;
-    if (!Array.isArray(shape.points) || shape.points.length < 3
-        || (shape.kind === 'rect' && shape.points.length !== 4)
-        || shape.points.some(point => !point || !Number.isFinite(point.x) || !Number.isFinite(point.y))) return false;
-    if (shape.points.some((point, index) => {
-        const next = shape.points[(index + 1) % shape.points.length];
+    const inputPoints = shape.points;
+    if (!Array.isArray(inputPoints) || inputPoints.length < 3
+        || (shape.kind === 'rect' && inputPoints.length !== 4)
+        || inputPoints.some(point => !point || !Number.isFinite(point.x) || !Number.isFinite(point.y))) return false;
+    if (inputPoints.some((point, index) => {
+        const next = inputPoints[(index + 1) % inputPoints.length];
         return Math.hypot(next.x - point.x, next.y - point.y) < 1e-9;
     })) return false;
     const points = closedShapeOutline(shape);
@@ -21,13 +31,21 @@ export function validClosedShape(shape, { minArea = 0, allowCrossings = false } 
     }
     if (!Number.isFinite(area) || (!allowCrossings && Math.abs(area) <= minArea)) return false;
     const path = points.map(point => ({ X: Math.round(point.x * 10000), Y: Math.round(point.y * 10000) }));
-    const simple = ClipperLib.Clipper.SimplifyPolygon(path, allowCrossings
-        ? ClipperLib.PolyFillType.pftEvenOdd : ClipperLib.PolyFillType.pftNonZero);
+    const simple = /** @type {any[]} */ (ClipperLib.Clipper.SimplifyPolygon(path, allowCrossings
+        ? ClipperLib.PolyFillType.pftEvenOdd : ClipperLib.PolyFillType.pftNonZero));
     if (allowCrossings) return simple.some(outline => Math.abs(ClipperLib.Clipper.Area(outline)) > minArea * 1e8 / 2);
     return simple.length === 1 && Math.abs(Math.abs(ClipperLib.Clipper.Area(path))
         - Math.abs(ClipperLib.Clipper.Area(simple[0]))) < 1;
 }
 
+/**
+ * @param {number} minX
+ * @param {number} minY
+ * @param {number} maxX
+ * @param {number} maxY
+ * @param {number} radius
+ * @returns {Point[]}
+ */
 function roundedRectangleOutline(minX, minY, maxX, maxY, radius) {
     const segments = Math.max(16, Math.ceil(Math.PI / (8 * Math.asin(Math.sqrt(Math.min(1, CORNER_CHORD_TOLERANCE / (2 * radius)))))));
     return [
@@ -41,6 +59,10 @@ function roundedRectangleOutline(minX, minY, maxX, maxY, radius) {
     }));
 }
 
+/**
+ * @param {ClosedShape} shape
+ * @returns {Point[]}
+ */
 export function closedShapeOutline(shape) {
     const points = shape.points || shape.outline || [];
     if (shape.kind === 'circle') {
@@ -51,6 +73,7 @@ export function closedShapeOutline(shape) {
         });
     }
     if (points.length < 3) return points.map(point => ({ ...point }));
+    /** @param {number} index */
     const bulge = index => {
         const value = Number(shape.segmentBulges?.[index]);
         return Number.isFinite(value) && Math.abs(value) >= BULGE_EPS ? Math.max(-1, Math.min(1, value)) : 0;
@@ -78,7 +101,7 @@ export function closedShapeOutline(shape) {
     const radii = points.map((_, index) => bulge((index + points.length - 1) % points.length) || bulge(index)
         ? 0 : Math.max(0, Number(shape.nodeCornerRadii?.[index] ?? radius) || 0));
     if (radii.some(value => value > 0)) {
-        const corners = roundedPathCorners(points, radii, true);
+        const corners = /** @type {any[]} */ (roundedPathCorners(points, radii, true));
         return corners.flatMap((corner, index) => [
             ...sampleRoundedCorner(corner),
             ...sampleArcEdge(corner.exit, corners[(index + 1) % corners.length].entry, bulge(index), 64),

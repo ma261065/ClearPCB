@@ -9,11 +9,21 @@
  * - Clear error messages
  */
 
+/**
+ * @typedef {Object} NumberValidationOptions
+ * @property {number} [min]
+ * @property {number} [max]
+ * @property {number} [default]
+ * @property {boolean} [coerce]
+ * @property {string} [name]
+ */
+/** @typedef {{coerce?:boolean, default?:string}} StringValidationOptions */
+
 export class ShapeValidator {
     /**
      * Validate a numeric coordinate or dimension
-     * @param {*} value - The value to validate
-     * @param {object} options - Validation options
+     * @param {unknown} value - The value to validate
+     * @param {NumberValidationOptions} options - Validation options
      * @returns {number} Valid coordinate/dimension
      * @throws {Error} If validation fails and coercion disabled
      */
@@ -65,6 +75,7 @@ export class ShapeValidator {
     /**
      * Validate line width
      */
+    /** @param {unknown} value @param {NumberValidationOptions} [options] */
     static validateLineWidth(value, options = {}) {
         return this.validateNumber(value, {
             min: 0.01,      // Minimum 0.01mm
@@ -78,6 +89,7 @@ export class ShapeValidator {
     /**
      * Validate radius
      */
+    /** @param {unknown} value @param {NumberValidationOptions} [options] */
     static validateRadius(value, options = {}) {
         return this.validateNumber(value, {
             min: 0.01,      // Minimum 0.01mm
@@ -91,6 +103,7 @@ export class ShapeValidator {
     /**
      * Validate a coordinate (X or Y)
      */
+    /** @param {unknown} value @param {NumberValidationOptions} [options] */
     static validateCoordinate(value, options = {}) {
         return this.validateNumber(value, {
             min: -100000,   // World bounds
@@ -104,6 +117,7 @@ export class ShapeValidator {
     /**
      * Validate color (hex format)
      */
+    /** @param {unknown} value @param {StringValidationOptions} [options] @returns {string} */
     static validateColor(value, options = {}) {
         const {
             coerce = true,
@@ -131,6 +145,7 @@ export class ShapeValidator {
     /**
      * Validate layer name
      */
+    /** @param {unknown} value @param {StringValidationOptions} [options] @returns {string} */
     static validateLayer(value, options = {}) {
         const validLayers = [
             // Schematic / generic layers
@@ -145,7 +160,7 @@ export class ShapeValidator {
             default: defaultLayer = 'top'
         } = options;
 
-        if (validLayers.includes(value)) {
+        if (typeof value === 'string' && validLayers.includes(value)) {
             return value;
         }
 

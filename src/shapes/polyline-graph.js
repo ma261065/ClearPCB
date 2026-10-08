@@ -25,7 +25,32 @@ import { roundedPathCorners, roundedPathData, sampleRoundedCorner, roundedCorner
 import { pathStrokeSegments, hitTestStrokeSegments, pointsBounds, pathHandleDescriptors, pathSegmentAt } from './path-geometry.js';
 import { pointsFormAxisAlignedRect } from './path-operations.js';
 
+/** @typedef {{x:number,y:number}} Point */
+/** @typedef {{from:string,to:string,bulge?:number,[key:string]:any}} GraphEdge */
+/** @typedef {{prop:string,json:string,default:(shape:any)=>any}} EdgeAttributeSpec */
+/** @typedef {Record<string, Point|number[]>} GraphNodeInput */
+/** @typedef {Record<string, GraphEdge|string[]>} GraphEdgeInput */
+/**
+ * @typedef {object} PolylineGraphOptions
+ * @property {string} [id]
+ * @property {string} [layer]
+ * @property {string|number} [color]
+ * @property {string|number} [fillColor]
+ * @property {number} [lineWidth]
+ * @property {boolean} [visible]
+ * @property {boolean} [locked]
+ * @property {boolean} [closed]
+ * @property {boolean} [fill]
+ * @property {number} [fillAlpha]
+ * @property {object} [graphNodes]
+ * @property {object} [graphEdges]
+ * @property {Point[]} [points]
+ * @property {number} [cornerRadius]
+ * @property {Record<string, number>} [nodeCornerRadii]
+ */
+
 /** Round to 4 decimal places for compact serialisation. */
+/** @param {number} v */
 const _r4 = v => Math.round(v * 10000) / 10000;
 
 // ── Geometry constants ────────────────────────────────────────────
@@ -56,41 +81,28 @@ export class PolylineGraph extends Shape {
     /* ──────────────────────── constructor ──────────────────────── */
 
     /**
-     * @param {object} [options]
-     * @param {string} [options.id]
-     * @param {string} [options.layer]
-     * @param {string|number} [options.color]
-     * @param {string|number} [options.fillColor]
-     * @param {number} [options.lineWidth]
-     * @param {boolean} [options.visible]
-     * @param {boolean} [options.locked]
-     * @param {boolean} [options.closed=false] - Whether the shape is closed (polygon) or open (polyline)
-     * @param {boolean} [options.fill=false] - Whether to fill the interior (only for closed shapes)
-     * @param {number} [options.fillAlpha=0.5] - Fill opacity
-     * @param {object} [options.graphNodes] - Node map {id: {x,y} | [x,y]}
-     * @param {object} [options.graphEdges] - Edge map {id: {from,to} | [from,to]}
-     * @param {Array<{x:number,y:number}>} [options.points] - Simple point array (auto-converted to graph)
-     * @param {number} [options.cornerRadius=0] - Corner rounding radius
-    * @param {object} [options.nodeCornerRadii] - Per-node corner-radius overrides
+     * @param {PolylineGraphOptions} [options]
      */
     constructor(options = {}) {
         super(options);
         this.type = 'polyline';
 
-        // Core graph data
-        this.nodes = new Map();           // nodeId → {x, y}
-        this.edges = new Map();           // edgeId → {from: nodeId, to: nodeId}
+        /** @type {Map<string, any>} Core graph data: nodeId → {x, y}. Public legacy graph maps accept subclass extras. */
+        this.nodes = new Map();
+        /** @type {Map<string, any>} Core graph data: edgeId → {from: nodeId, to: nodeId}. Public legacy graph maps accept subclass extras. */
+        this.edges = new Map();
 
         // Closed/fill properties
         this.closed = options.closed || false;
         this.fill = options.fill !== undefined ? options.fill : false;
         this.fillAlpha = options.fillAlpha ?? 0.3;
         this.cornerRadius = options.cornerRadius || 0;
+        /** @type {Record<string, number>} */
         this.nodeCornerRadii = { ...(options.nodeCornerRadii || {}) };
 
         // Initialise from graph format
         if (options.graphNodes && options.graphEdges) {
-            this._loadGraph(options.graphNodes, options.graphEdges);
+            this._loadGraph(/** @type {GraphNodeInput} */ (options.graphNodes), /** @type {GraphEdgeInput} */ (options.graphEdges));
         }
         // Or from simple point array
         else if (options.points && options.points.length >= 2) {
@@ -103,8 +115,8 @@ export class PolylineGraph extends Shape {
     /**
      * Populate the graph from deserialised node/edge data.
      * Accepts both object ({x,y}) and array ([x,y]) position formats.
-     * @param {object} graphNodes - {nodeId: {x,y} | [x,y]}
-     * @param {object} graphEdges - {edgeId: {from,to} | [from,to]}
+     * @param {GraphNodeInput} graphNodes - {nodeId: {x,y} | [x,y]}
+     * @param {GraphEdgeInput} graphEdges - {edgeId: {from,to} | [from,to]}
      */
     _loadGraph(graphNodes, graphEdges) {
         for (const [id, pos] of Object.entries(graphNodes)) {
@@ -113,7 +125,7 @@ export class PolylineGraph extends Shape {
         }
         for (const [id, ep] of Object.entries(graphEdges)) {
             const e = Array.isArray(ep) ? { from: ep[0], to: ep[1] } : ep;
-            this.edges.set(id, { from: e.from, to: e.to });
+            this.edges.set(id, /** @type {GraphEdge} */ ({ from: e.from, to: e.to }));
         }
     }
 
@@ -152,6 +164,7 @@ export class PolylineGraph extends Shape {
         const points = [];
         const visited = new Set();
         let current = startId;
+        /** @type {string|null} */
         let prevEdge = null;
 
         while (current && !visited.has(current)) {
@@ -180,6 +193,7 @@ export class PolylineGraph extends Shape {
         const nodeIds = [];
         const visited = new Set();
         let current = startId;
+        /** @type {string|null} */
         let previousEdge = null;
         while (current && !visited.has(current)) {
             nodeIds.push(current);
@@ -193,10 +207,15 @@ export class PolylineGraph extends Shape {
         return nodeIds;
     }
 
+    /** @param {string} nodeId */
     nodeCornerRadius(nodeId) {
         return Math.max(0, Number(this.nodeCornerRadii?.[nodeId] ?? this.cornerRadius) || 0);
     }
 
+    /**
+     * @param {string} nodeId
+     * @param {number} radius
+     */
     setNodeCornerRadius(nodeId, radius) {
         if (!this.nodes.has(nodeId)) return;
         const value = Math.max(0, Number(radius) || 0);
@@ -228,6 +247,7 @@ export class PolylineGraph extends Shape {
         const chain = [];
         const visited = new Set();
         let current = startId;
+        /** @type {string|null} */
         let prevEdge = null;
 
         while (current && !visited.has(current)) {
@@ -266,6 +286,10 @@ export class PolylineGraph extends Shape {
         return d;
     }
 
+    /**
+     * @param {string} edgeId
+     * @returns {{first:Point,second:Point}|null}
+     */
     getStraightEdgePortion(edgeId) {
         const edge = this.edges.get(edgeId);
         const first = edge && this.nodes.get(edge.from);
@@ -314,7 +338,7 @@ export class PolylineGraph extends Shape {
      * e.g. from `splitEdge`/`absorb` — and have its attributes carried over).
      * @param {string} fromId
      * @param {string} toId
-     * @param {object} [attrs] Optional per-edge attribute values (or a source edge).
+     * @param {Partial<GraphEdge>} [attrs] Optional per-edge attribute values (or a source edge).
      * @returns {string|null} The new edge ID, or null if self-loop
      */
     addEdge(fromId, toId, attrs = {}) {
@@ -322,6 +346,7 @@ export class PolylineGraph extends Shape {
         let i = 0;
         while (this.edges.has(`e${i}`)) i++;
         const id = `e${i}`;
+        /** @type {GraphEdge} */
         const edge = { from: fromId, to: toId };
         const schema = this._edgeAttrSchema();
         for (const name of Object.keys(schema)) {
@@ -350,16 +375,20 @@ export class PolylineGraph extends Shape {
      *   - `json`: compact key used in `toJSON`/`fromJSON` serialisation
      *   - `default(shape)`: returns the fallback value for an edge that has
      *     no explicit value (typically a shape-wide field).
-     * @type {Object<string, {prop: string, json: string, default: (shape: any) => any}>}
+     * @type {Record<string, EdgeAttributeSpec>}
      */
     static edgeAttributes = {};
 
-    /** @returns {Object<string, {prop: string, json: string, default: Function}>} */
+    /** @returns {Record<string, EdgeAttributeSpec>} */
     _edgeAttrSchema() {
         return /** @type {any} */ (this.constructor).edgeAttributes || {};
     }
 
-    /** Shallow-copy an edge object (structure + attributes). */
+    /**
+     * Shallow-copy an edge object (structure + attributes).
+     * @param {any} e
+     * @returns {any}
+     */
     _cloneEdge(e) {
         return { ...e };
     }
@@ -400,9 +429,10 @@ export class PolylineGraph extends Shape {
      * @param {object} [options]
      */
     _initEdgeAttributes(options = {}) {
+        const optionMaps = /** @type {Record<string, Record<string, unknown>|Map<string, unknown>|undefined>} */ (options);
         const schema = this._edgeAttrSchema();
         for (const [name, spec] of Object.entries(schema)) {
-            const provided = options[spec.prop];
+            const provided = optionMaps[spec.prop];
             for (const [eid, e] of this.edges) {
                 let v;
                 if (provided instanceof Map) v = provided.get(eid);
@@ -451,9 +481,10 @@ export class PolylineGraph extends Shape {
     /**
      * Get all edges incident to a node.
      * @param {string} nodeId
-     * @returns {Array<{edgeId: string, edge: object, otherNode: string}>}
+     * @returns {Array<{edgeId: string, edge: GraphEdge, otherNode: string}>}
      */
     incidentEdges(nodeId) {
+        /** @type {Array<{edgeId: string, edge: GraphEdge, otherNode: string}>} */
         const out = [];
         for (const [eid, e] of this.edges) {
             if (e.from === nodeId || e.to === nodeId)
@@ -508,7 +539,7 @@ export class PolylineGraph extends Shape {
 
     /**
      * Find a node at or very near a point.
-     * @param {{x: number, y: number}} point
+     * @param {Point} point
      * @param {number} [epsilon=NODE_SNAP_EPSILON]
      * @returns {string|null} Node ID, or null
      */
@@ -521,11 +552,13 @@ export class PolylineGraph extends Shape {
 
     /**
      * Find the closest edge to a point.
-     * @param {{x: number, y: number}} point
-     * @returns {{edgeId: string, t: number, point: {x,y}, distance: number}|null}
+     * @param {Point} point
+     * @returns {{edgeId: string, t: number, point: Point, distance: number}|null}
      */
     closestEdge(point) {
-        let bestD = Infinity, bestId = null, bestT = 0;
+        let bestD = Infinity, bestT = 0;
+        /** @type {string|null} */
+        let bestId = null;
         for (const [eid, e] of this.edges) {
             const a = this.nodes.get(e.from), b = this.nodes.get(e.to);
             if (!a || !b) continue;
@@ -542,8 +575,8 @@ export class PolylineGraph extends Shape {
             if (d < bestD) { bestD = d; bestId = eid; bestT = t; }
         }
         if (!bestId) return null;
-        const e = this.edges.get(bestId);
-        const a = this.nodes.get(e.from), b = this.nodes.get(e.to);
+        const e = /** @type {GraphEdge} */ (this.edges.get(bestId));
+        const a = /** @type {Point} */ (this.nodes.get(e.from)), b = /** @type {Point} */ (this.nodes.get(e.to));
         return {
             edgeId: bestId, t: bestT,
             point: { x: a.x + bestT * (b.x - a.x), y: a.y + bestT * (b.y - a.y) },
@@ -553,7 +586,7 @@ export class PolylineGraph extends Shape {
 
     /**
      * Hit-test a point against all edges.
-     * @param {{x: number, y: number}} point
+     * @param {Point} point
      * @param {number} [tolerance=HIT_TEST_TOLERANCE]
      * @returns {string|null} Edge ID if hit, otherwise null
      */
@@ -562,7 +595,7 @@ export class PolylineGraph extends Shape {
             const start = this.nodes.get(edge.from), end = this.nodes.get(edge.to);
             return start && end ? [{ id, start, end, bulge: edge.bulge,
                 lineWidth: this.getEdgeAttr(id, 'width') ?? this.lineWidth }] : [];
-        }), tolerance);
+        }), tolerance) ?? null;
         const c = this.closestEdge(point);
         if (!c) return null;
         return c.distance <= tolerance + this.lineWidth / 2 ? c.edgeId : null;
@@ -570,9 +603,9 @@ export class PolylineGraph extends Shape {
 
     /**
      * Find the closest point on an edge interior (not near an existing node).
-     * @param {{x: number, y: number}} point
+     * @param {Point} point
      * @param {number} [tolerance=NODE_SNAP_EPSILON]
-     * @returns {{edgeId: string, t: number, point: {x,y}, distance: number}|null}
+     * @returns {{edgeId: string, t: number, point: Point, distance: number}|null}
      */
     pointOnEdge(point, tolerance = NODE_SNAP_EPSILON) {
         const c = this.closestEdge(point);
@@ -585,6 +618,8 @@ export class PolylineGraph extends Shape {
 
     /**
      * Split an edge at a point, creating a new node.
+     * @param {string} edgeId
+     * @param {Point} point
      * @returns {{newNodeId: string, edge1Id: string, edge2Id: string}|null}
      */
     splitEdge(edgeId, point) {
@@ -598,12 +633,14 @@ export class PolylineGraph extends Shape {
         this.edges.delete(edgeId);
         const e1 = this.addEdge(edge.from, nid, attrs);
         const e2 = this.addEdge(nid, edge.to, attrs);
-        return { newNodeId: nid, edge1Id: e1, edge2Id: e2 };
+        return { newNodeId: nid, edge1Id: /** @type {string} */ (e1), edge2Id: /** @type {string} */ (e2) };
     }
 
     /**
      * Merge nodes: keep keepId, redirect removeId's edges to keepId, delete removeId.
      * Subclasses can override to handle additional data (e.g. pinConnections).
+     * @param {string} keepId
+     * @param {string} removeId
      */
     mergeNodes(keepId, removeId) {
         if (keepId === removeId) return;
@@ -626,7 +663,7 @@ export class PolylineGraph extends Shape {
         for (const [oldId, pos] of other.nodes)
             remap.set(oldId, this.addNode(pos.x, pos.y));
         for (const [, e] of other.edges)
-            this.addEdge(remap.get(e.from), remap.get(e.to), e);
+            this.addEdge(/** @type {string} */ (remap.get(e.from)), /** @type {string} */ (remap.get(e.to)), e);
         this._onAbsorb(other, remap);
         this.invalidate();
         return remap;
@@ -641,14 +678,20 @@ export class PolylineGraph extends Shape {
         // Override in subclasses (e.g. Wire handles pinConnections + net names)
     }
 
-    /** Connected components → array of Set<nodeId> */
+    /** @returns {Set<string>[]} Connected components → array of Set<nodeId> */
     connectedComponents() {
-        const visited = new Set(), comps = [];
+        /** @type {Set<string>} */
+        const visited = new Set();
+        /** @type {Set<string>[]} */
+        const comps = [];
         for (const nid of this.nodes.keys()) {
             if (visited.has(nid)) continue;
-            const comp = new Set(), queue = [nid];
+            /** @type {Set<string>} */
+            const comp = new Set();
+            /** @type {string[]} */
+            const queue = [nid];
             while (queue.length) {
-                const n = queue.shift();
+                const n = /** @type {string} */ (queue.shift());
                 if (visited.has(n)) continue;
                 visited.add(n); comp.add(n);
                 for (const { otherNode } of this.incidentEdges(n))
@@ -748,7 +791,7 @@ export class PolylineGraph extends Shape {
                     if (t <= T_ENDPOINT_MARGIN || t >= 1 - T_ENDPOINT_MARGIN) continue;
                     const px = a.x + t * dx, py = a.y + t * dy;
                     if (Math.hypot(pos.x - px, pos.y - py) < NODE_SNAP_EPSILON) {
-                        const { newNodeId } = this.splitEdge(eid, pos);
+                        const { newNodeId } = /** @type {{newNodeId:string,edge1Id:string,edge2Id:string}} */ (this.splitEdge(eid, pos));
                         this.mergeNodes(nid, newNodeId);
                         changed = true; break;
                     }
@@ -818,9 +861,9 @@ export class PolylineGraph extends Shape {
 
     /**
      * Test whether three points are collinear within COLLINEAR_EPSILON.
-     * @param {{x,y}} p1
-     * @param {{x,y}} p2
-     * @param {{x,y}} p3
+     * @param {Point} p1
+     * @param {Point} p2
+     * @param {Point} p3
      * @returns {boolean}
      */
     _areCollinear(p1, p2, p3) {
@@ -879,6 +922,7 @@ export class PolylineGraph extends Shape {
     }
 
     /** @override */
+    /** @param {Point} point */
     hitTest(point, tolerance = HIT_TEST_TOLERANCE) {
         if (this.type === 'polyline') {
             const segments = this._strokeSegments();
@@ -897,6 +941,7 @@ export class PolylineGraph extends Shape {
     }
 
     /** @override */
+    /** @param {Point} point */
     distanceTo(point) {
         if (this.type === 'polyline') {
             return this._strokeSegments().reduce((distance, segment) =>
@@ -931,11 +976,19 @@ export class PolylineGraph extends Shape {
         const nodeIds = this.getOrderedNodeIds();
         const chain = this.getOrderedEdgeChain();
         const corners = this._pathCorners(nodeIds);
-        return corners.flatMap((corner, index) => [
-            ...sampleRoundedCorner(corner),
-            ...(index < chain.length ? sampleArcEdge(corner.exit,
-                corners[(index + 1) % corners.length].entry, chain[index].bulge || 0, 64) : []),
-        ]);
+        /**
+         * @param {any} corner
+         * @param {number} index
+         */
+        const renderCorner = (corner, index) => {
+            const roundedCorner = /** @type {any} */ (corner);
+            return [
+                ...sampleRoundedCorner(roundedCorner),
+                ...(index < chain.length ? sampleArcEdge(roundedCorner.exit,
+                    /** @type {any} */ (corners[(index + 1) % corners.length]).entry, chain[index].bulge || 0, 64) : []),
+            ];
+        };
+        return corners.flatMap(renderCorner);
     }
 
     _pathCorners(nodeIds = this.getOrderedNodeIds()) {
@@ -959,12 +1012,19 @@ export class PolylineGraph extends Shape {
             const start = this.nodes.get(edge.from), end = this.nodes.get(edge.to);
             return start && end ? [{ id, start, end, bulge: this.getEdgeAttr(id, 'bulge') || 0 }] : [];
         });
-        return pathHandleDescriptors(vertices, edges, id => `mid_${id}`, id => `bulge_${id}`, this.type !== 'wire');
+        /** @param {string} id */
+        const midpointId = id => `mid_${id}`;
+        /** @param {string} id */
+        const bulgeId = id => `bulge_${id}`;
+        return pathHandleDescriptors(vertices, edges, midpointId, bulgeId, this.type !== 'wire');
     }
 
     /**
      * Move a node anchor, split an edge at its midpoint, or re-curve an edge
      * via its bulge apex handle.
+     * @param {string} anchorId
+     * @param {number} x
+     * @param {number} y
      * @returns {string|undefined} New anchor ID for midpoint insertions
      */
     moveAnchor(anchorId, x, y) {
@@ -988,7 +1048,7 @@ export class PolylineGraph extends Shape {
             return anchorId;
         }
         if (this.nodes.has(anchorId)) {
-            const p = this.nodes.get(anchorId);
+            const p = /** @type {Point} */ (this.nodes.get(anchorId));
             p.x = x; p.y = y;
             this.invalidate();
         }
@@ -997,6 +1057,7 @@ export class PolylineGraph extends Shape {
     /**
      * Delete a node anchor.
      * degree 1 → remove leaf; degree 2 → reconnect neighbours.
+     * @param {string} anchorId
      * @returns {boolean} true if deleted
      */
     deleteAnchor(anchorId) {
@@ -1008,7 +1069,7 @@ export class PolylineGraph extends Shape {
             const [e1, e2] = this.incidentEdges(anchorId);
             // The bridging edge inherits the first removed edge's attributes
             // (layer/width/etc.) so the reconnected segment keeps its styling.
-            const inherited = this._cloneEdge(this.edges.get(e1.edgeId));
+            const inherited = this._cloneEdge(/** @type {GraphEdge} */ (this.edges.get(e1.edgeId)));
             this.edges.delete(e1.edgeId);
             this.edges.delete(e2.edgeId);
             this.nodes.delete(anchorId);
@@ -1022,6 +1083,7 @@ export class PolylineGraph extends Shape {
 
     /**
      * @override — Wire-style: anchor dragging snaps along H/V axes.
+     * @param {string} anchorId
      * @returns {'none'|'axis'|'grid'}
      */
     getAnchorSnapMode(anchorId) {
@@ -1054,9 +1116,10 @@ export class PolylineGraph extends Shape {
 
     /**
      * Capture the current graph state for undo/redo.
-     * @returns {object}
+     * @returns {{nodes:Record<string,Point>,edges:Record<string,GraphEdge>,closed:boolean,type:string,fill:boolean,fillAlpha:number,cornerRadius:number,nodeCornerRadii:Record<string,number>,[key:string]:any}}
      */
     captureState() {
+        /** @type {{nodes:Record<string,Point>,edges:Record<string,GraphEdge>,closed:boolean,type:string,fill:boolean,fillAlpha:number,cornerRadius:number,nodeCornerRadii:Record<string,number>,[key:string]:any}} */
         const s = { nodes: {}, edges: {}, closed: this.closed, type: this.type, fill: this.fill, fillAlpha: this.fillAlpha, cornerRadius: this.cornerRadius, nodeCornerRadii: { ...this.nodeCornerRadii } };
         for (const [id, p] of this.nodes) s.nodes[id] = { x: p.x, y: p.y };
         for (const [id, e] of this.edges) s.edges[id] = this._cloneEdge(e);
@@ -1065,7 +1128,7 @@ export class PolylineGraph extends Shape {
 
     /**
      * Restore the graph from a previously captured state.
-     * @param {object} state
+     * @param {Partial<ReturnType<PolylineGraph['captureState']>>} state
      */
     applyState(state) {
         if (state.nodes) {
@@ -1081,11 +1144,11 @@ export class PolylineGraph extends Shape {
                     this.edges.set(id, this._cloneEdge(e));
                 }
         }
-        if ('closed' in state) this.closed = state.closed;
-        if ('type' in state) this.type = state.type;
-        if ('fill' in state) this.fill = state.fill;
-        if ('fillAlpha' in state) this.fillAlpha = state.fillAlpha;
-        if ('cornerRadius' in state) this.cornerRadius = state.cornerRadius;
+        if (typeof state.closed === 'boolean') this.closed = state.closed;
+        if (typeof state.type === 'string') this.type = state.type;
+        if (typeof state.fill === 'boolean') this.fill = state.fill;
+        if (typeof state.fillAlpha === 'number') this.fillAlpha = state.fillAlpha;
+        if (typeof state.cornerRadius === 'number') this.cornerRadius = state.cornerRadius;
         if ('nodeCornerRadii' in state) this.nodeCornerRadii = { ...(state.nodeCornerRadii || {}) };
         this.invalidate();
     }
@@ -1093,7 +1156,7 @@ export class PolylineGraph extends Shape {
     /** @override */
     getPosition() {
         if (this.nodes.size === 0) return { x: 0, y: 0 };
-        const first = this.nodes.values().next().value;
+        const first = /** @type {Point} */ (this.nodes.values().next().value);
         return { x: first.x, y: first.y };
     }
 
@@ -1104,7 +1167,7 @@ export class PolylineGraph extends Shape {
     isAxisAlignedRect() {
         if (!this.closed || this.nodes.size !== 4 || this.edges.size !== 4) return false;
         if ([...this.edges.values()].some(edge => Math.abs(edge.bulge || 0) >= BULGE_EPS)) return false;
-        return pointsFormAxisAlignedRect(this.getOrderedPoints());
+        return pointsFormAxisAlignedRect(/** @type {Point[]} */ (this.getOrderedPoints()));
     }
 
     /** @override */
@@ -1149,6 +1212,7 @@ export class PolylineGraph extends Shape {
 
     /** @override */
     toJSON() {
+        /** @type {ReturnType<Shape['toJSON']> & {nd:Record<string, [number, number]>,ed:Record<string, [string, string]>,cl?:boolean,f?:boolean,fa?:number,cr?:number,ncr?:Record<string, number>,[key:string]: unknown}} */
         const json = { ...super.toJSON(), nd: {}, ed: {} };
         for (const [id, p] of this.nodes) json.nd[id] = [_r4(p.x), _r4(p.y)];
         for (const [id, e] of this.edges) json.ed[id] = [e.from, e.to];
@@ -1157,6 +1221,7 @@ export class PolylineGraph extends Shape {
         // common (uniform) case stays compact.
         const schema = this._edgeAttrSchema();
         for (const [name, spec] of Object.entries(schema)) {
+            /** @type {Record<string, unknown>} */
             const map = {};
             let any = false;
             const def = spec.default(this);
@@ -1171,6 +1236,7 @@ export class PolylineGraph extends Shape {
         else json.f = false;
         if (this.fillAlpha !== 0.3) json.fa = this.fillAlpha;
         if (this.cornerRadius) json.cr = this.cornerRadius;
+        /** @type {Record<string, number>} */
         const nodeCornerRadii = {};
         for (const [nodeId, radius] of Object.entries(this.nodeCornerRadii || {})) {
             if (this.nodes.has(nodeId) && Math.abs(radius - this.cornerRadius) >= 1e-9) {

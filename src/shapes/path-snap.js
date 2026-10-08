@@ -1,13 +1,26 @@
 import { collinearSnap } from '../core/geometry.js';
 import { BULGE_EPS } from './arc-edge.js';
 
+/** @typedef {{x:number,y:number}} Point */
+/** @typedef {{index:number, neighbours:Point[], continuations: Array<[Point, Point]>}} PathDragConstraint */
+/** @typedef {{x:number,y:number,distance:number}} SnapDelta */
+
+/**
+ * @param {Point[]} points
+ * @param {boolean} closed
+ * @param {number} index
+ * @param {number[]} [bulges]
+ * @returns {Array<[Point, Point]>}
+ */
 export function pathContinuationConstraints(points, closed, index, bulges = []) {
+    /** @type {Array<[Point, Point]>} */
     const constraints = [];
     for (const direction of [-1, 1]) {
         const neighbourIndex = index + direction;
         const beyondIndex = index + 2 * direction;
         if (!closed && (beyondIndex < 0 || beyondIndex >= points.length)) continue;
         if (points.length < 3) continue;
+        /** @param {number} value */
         const wrap = value => (value + points.length) % points.length;
         const firstEdge = wrap(direction < 0 ? neighbourIndex : index);
         const secondEdge = wrap(direction < 0 ? beyondIndex : neighbourIndex);
@@ -17,6 +30,13 @@ export function pathContinuationConstraints(points, closed, index, bulges = []) 
     return constraints;
 }
 
+/**
+ * @param {Point[]} points
+ * @param {boolean} closed
+ * @param {number} segment
+ * @param {number[]} [bulges]
+ * @returns {PathDragConstraint[]}
+ */
 export function pathSegmentConstraints(points, closed, segment, bulges = []) {
     const count = points.length;
     if (segment < 0 || segment >= count - (closed ? 0 : 1)) return [];
@@ -91,7 +111,16 @@ export function snapNodeToCollinear(point, neighbours, threshold) {
     return neighbours.length === 2 ? collinearSnap(neighbours[0], point, neighbours[1], threshold) : null;
 }
 
+/**
+ * @param {Point} point
+ * @param {Point[]} neighbours
+ * @param {Point} grid
+ * @param {number} threshold
+ * @param {Array<[Point, Point]>} continuations
+ * @returns {Point|null}
+ */
 function snapPathCollinear(point, neighbours, grid, threshold, continuations) {
+    /** @type {Point|null} */
     let continuation = null;
     let bestDistance = Infinity;
     for (const [fixed, beyond] of continuations) {
@@ -114,13 +143,33 @@ function snapPathCollinear(point, neighbours, grid, threshold, continuations) {
     return null;
 }
 
+/**
+ * @param {Point} point
+ * @param {Point[]} neighbours
+ * @param {Point} grid
+ * @param {number} threshold
+ * @param {Point|null} [target]
+ * @param {Array<[Point, Point]>} [continuations]
+ * @returns {Point}
+ */
 export function resolvePathPoint(point, neighbours, grid, threshold, target = null, continuations = []) {
     if (target) return { x: target.x, y: target.y };
     return snapPathCollinear(point, neighbours, grid, threshold, continuations)
         || snapNodeToAxis(point, neighbours, threshold, grid);
 }
 
+/**
+ * @param {Point[]} points
+ * @param {Point} delta
+ * @param {Point[]} neighbours
+ * @param {PathDragConstraint[]} constraints
+ * @param {number} threshold
+ * @param {(point: Point, threshold: number) => Point|null} findTarget
+ * @param {(point: Point, neighbours: Point[]) => Point} snapPoint
+ * @returns {Point|SnapDelta}
+ */
 export function resolvePathTranslation(points, delta, neighbours, constraints, threshold, findTarget, snapPoint) {
+    /** @type {SnapDelta|null} */
     let best = null;
     for (const point of points) {
         const target = { x: point.x + delta.x, y: point.y + delta.y };

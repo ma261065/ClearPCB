@@ -26,6 +26,13 @@ import { ProjectIntegrityError, storableProject } from './project-format.js';
 const _MANIFEST_NAME = 'manifest.json';
 const JSON_CONTEXT_WIDTH = 180;
 
+/** @typedef {{position:number, line:number, column:number}} JsonLocation */
+/** @typedef {{name:string, path:string, ts:number, handle:any}} RecentRecord */
+/** @typedef {{fileName:string, key:string, timestamp:number}} AutoSaveIndexEntry */
+/** @typedef {{success:boolean, fileName?:string, data?:any, handle?:any, filePath?:string|null, clean?:boolean, cancelled?:boolean, error?:string, errorName?:string, missingHandle?:boolean}} FileOperationResult */
+/** @typedef {{revision:number, fileName:string}} AutoSaveSnapshot */
+
+/** @param {string} text @returns {number|null} */
 function locateJsonSyntaxError(text) {
     let index = 0;
     const whitespace = () => {
@@ -103,26 +110,28 @@ function locateJsonSyntaxError(text) {
         whitespace();
         if (index !== text.length) fail();
     } catch (error) {
-        const position = Number(error.message);
+        const position = Number(/** @type {any} */ (error).message);
         return Number.isInteger(position) ? Math.min(text.length, position) : null;
     }
     return null;
 }
 
+/** @param {unknown} error @param {string} text @returns {JsonLocation|null} */
 function jsonErrorPosition(error, text) {
-    const positionMatch = String(error?.message || '').match(/\bposition\s+(\d+)/i);
+    const message = String(error && /** @type {any} */ (error).message || '');
+    const positionMatch = message.match(/\bposition\s+(\d+)/i);
     if (positionMatch) {
         const position = Math.min(text.length, Number(positionMatch[1]));
         const before = text.slice(0, position);
         const lines = before.split('\n');
-        return { position, line: lines.length, column: lines.at(-1).length + 1 };
+        return { position, line: lines.length, column: lines[lines.length - 1].length + 1 };
     }
-    const locationMatch = String(error?.message || '').match(/\bline\s+(\d+)\s+column\s+(\d+)/i);
+    const locationMatch = message.match(/\bline\s+(\d+)\s+column\s+(\d+)/i);
     if (!locationMatch) {
         const position = locateJsonSyntaxError(text);
         if (position == null) return null;
         const lines = text.slice(0, position).split('\n');
-        return { position, line: lines.length, column: lines.at(-1).length + 1 };
+        return { position, line: lines.length, column: lines[lines.length - 1].length + 1 };
     }
     const line = Number(locationMatch[1]);
     const column = Number(locationMatch[2]);
@@ -132,6 +141,7 @@ function jsonErrorPosition(error, text) {
     return { position: Math.min(text.length, position), line, column };
 }
 
+/** @param {string} text @param {JsonLocation} location */
 function jsonSourceContext(text, location) {
     const lines = text.split('\n');
     const targetIndex = Math.max(0, Math.min(lines.length - 1, location.line - 1));
@@ -341,6 +351,8 @@ function _openHandleDB() {
 /**
  * Normalise a stored value to a record. Tolerates the legacy format where the
  * bare FileSystemFileHandle was stored directly (no metadata wrapper).
+ * @param {string} name
+ * @param {any} value
  * @returns {{name:string, path:string, ts:number, handle:any}|null}
  */
 function _asRecord(name, value) {
@@ -361,6 +373,7 @@ function _asRecord(name, value) {
     return null;
 }
 
+/** @param {string} name @returns {Promise<RecentRecord|null>} */
 async function _idbGetRecord(name) {
     if (!name) return null;
     try {
@@ -376,6 +389,7 @@ async function _idbGetRecord(name) {
     } catch { return null; }
 }
 
+/** @param {string} name @returns {Promise<any|null>} */
 async function _idbGetHandle(name) {
     const rec = await _idbGetRecord(name);
     return rec ? rec.handle : null;
@@ -411,6 +425,7 @@ async function _idbPutRecord(name, { path, handle } = {}) {
     } catch (e) { console.warn('[recents] failed to store record for', name, e); }
 }
 
+/** @param {string} name */
 async function _idbDeleteRecord(name) {
     if (!name) return;
     try {
@@ -434,13 +449,16 @@ async function _idbPruneRecents() {
             const store = tx.objectStore(HANDLE_STORE);
             const rv = store.getAll();
             const rk = store.getAllKeys();
-            let values = [], keys = [];
+            /** @type {any[]} */
+            let values = [];
+            /** @type {IDBValidKey[]} */
+            let keys = [];
             rv.onsuccess = () => { values = rv.result || []; };
             rk.onsuccess = () => { keys = rk.result || []; };
             tx.oncomplete = () => resolve(keys.map((k, i) => ({ key: k, ts: (values[i] && values[i].ts) || 0 })));
             tx.onerror = () => resolve([]);
         });
-        const stale = entries
+        const stale = /** @type {Array<{key:IDBValidKey, ts:number}>} */ (entries)
             .sort((a, b) => b.ts - a.ts)
             .slice(MAX_RECENTS);
         if (stale.length) {
@@ -476,9 +494,10 @@ async function _idbGetAllRecents() {
             r.onerror = () => resolve([]);
         });
         db.close();
-        return values
+        const records = /** @type {RecentRecord[]} */ (/** @type {any[]} */ (values)
             .map((v, i) => _asRecord(String(keys[i]), v))
-            .filter((r) => r)
+            .filter((r) => r));
+        return records
             .sort((a, b) => b.ts - a.ts)
             .slice(0, MAX_RECENTS)
             .map(({ name, path, ts }) => ({ name, path, ts }));
@@ -489,8 +508,10 @@ export class FileManager {
     /** Initialises the file manager with default state (no file open). */
     constructor() {
         // Current file handle (for "Save" without prompting)
+        /** @type {any|null} */
         this.fileHandle = null;
         this.fileName = 'untitled.cpcb';
+        /** @type {string|null} */
         this.filePath = null;
         this.isDirty = false;
         this.revision = 0;
@@ -500,20 +521,28 @@ export class FileManager {
         // Auto-save key prefix for localStorage
         this.autoSavePrefix = 'clearpcb_autosave_';
         this.autoSaveInterval = 10000; // 10 seconds
+        /** @type {ReturnType<typeof setInterval>|null} */
         this.autoSaveTimer = null;
+        /** @type {number|null} */
         this.autoSaveIdleHandle = null;
+        /** @type {number|null} */
         this.autoSaveSize = null;
         /** @type {{revision:number,fileName:string}|null} */
         this._lastAutoSave = null;
         
         // Callbacks
+        /** @type {((dirty:boolean) => void)|null} */
         this.onDirtyChanged = null;
+        /** @type {((fileName:string) => void)|null} */
         this.onFileNameChanged = null;
+        /** @type {((size:number|null) => void)|null} */
         this.onAutoSaveChanged = null;
         /** @type {(() => void|Promise<void>)|null} */
         this.onAutoSaveSuccess = null;
         /** @type {((error: unknown) => void|Promise<void>)|null} */
         this.onAutoSaveError = null;
+        this._autoSaveBackoffMs = 0;
+        this._autoSaveErrorNotified = false;
     }
     
     /**
@@ -525,6 +554,7 @@ export class FileManager {
     
     /**
      * Mark document as modified
+     * @param {boolean} [dirty]
      */
     setDirty(dirty = true) {
         if (dirty) this.touch();
@@ -542,6 +572,7 @@ export class FileManager {
 
     /**
      * Set the current file name
+     * @param {string} name
      */
     setFileName(name) {
         this.fileName = name;
@@ -569,11 +600,13 @@ export class FileManager {
     
     /**
      * Save to current file (or Save As if no file)
+     * @param {any} data
      */
     async save(data) {
         return this._save(data, false);
     }
 
+    /** @param {any} data @param {boolean} saveAs */
     async _save(data, saveAs) {
         if (this.saving || this.loading) return { success: false, error: 'A file operation is already in progress.' };
         this.saving = true;
@@ -602,6 +635,7 @@ export class FileManager {
         }
     }
 
+    /** @param {any} data */
     async _saveCurrent(data) {
         if (this.fileHandle) {
             // A handle restored from IndexedDB (e.g. after autosave recovery)
@@ -624,17 +658,20 @@ export class FileManager {
     
     /**
      * Save As - always prompts for location
+     * @param {any} data
      */
     async saveAs(data) {
         return this._save(data, true);
     }
 
+    /** @param {any} data */
     async _saveAsCurrent(data) {
         return this.hasFileSystemAccess() ? this.saveWithFilePicker(data) : this.saveWithDownload(data);
     }
     
     /**
      * Save using File System Access API (Chrome/Edge)
+     * @param {any} data
      */
     async saveWithFilePicker(data) {
         try {
@@ -659,11 +696,11 @@ export class FileManager {
             
             return { success: true, fileName: handle.name };
         } catch (err) {
-            if (err.name === 'AbortError') {
+            if (err && /** @type {any} */ (err).name === 'AbortError') {
                 return { success: false, cancelled: true };
             }
             console.error('Save failed:', err);
-            return { success: false, error: err.message };
+            return { success: false, error: err instanceof Error ? err.message : String(err) };
         }
     }
     
@@ -706,6 +743,8 @@ export class FileManager {
 
     /**
      * Save to an existing file handle
+     * @param {any} data
+     * @param {any} handle
      */
     async saveToHandle(data, handle) {
         try {
@@ -716,12 +755,13 @@ export class FileManager {
             return { success: true, fileName: handle.name };
         } catch (err) {
             console.error('Save failed:', err);
-            return { success: false, error: err.message, errorName: err.name };
+            return { success: false, error: err instanceof Error ? err.message : String(err), errorName: /** @type {any} */ (err)?.name };
         }
     }
     
     /**
      * Save using download (fallback for all browsers)
+     * @param {any} data
      */
     async saveWithDownload(data) {
         const blob = await _serializeProject(data);
@@ -747,6 +787,7 @@ export class FileManager {
         return this.hasFileSystemAccess() ? this.openWithFilePicker() : this.openWithInput();
     }
 
+    /** @param {{fileName:string, filePath?:string|null, handle?:any}} result */
     async adoptOpen(result) {
         this.fileHandle = result.handle || null;
         this.setFileName(result.fileName);
@@ -773,11 +814,11 @@ export class FileManager {
 
             return { success: true, data, fileName: handle.name, handle };
         } catch (err) {
-            if (err.name === 'AbortError') {
+            if (err && /** @type {any} */ (err).name === 'AbortError') {
                 return { success: false, cancelled: true };
             }
             console.error('Open failed:', err);
-            return { success: false, error: err.message };
+            return { success: false, error: err instanceof Error ? err.message : String(err) };
         }
     }
 
@@ -847,16 +888,16 @@ export class FileManager {
 
             return { success: true, data, fileName: handle.name || name, handle };
         } catch (err) {
-            if (err && err.name === 'NotFoundError') {
+            if (err && /** @type {any} */ (err).name === 'NotFoundError') {
                 // The file was moved or deleted — drop the dead recent.
                 this.removeRecent(name);
                 return { success: false, error: 'The file could not be found (it may have been moved or deleted).' };
             }
-            if (err && err.name === 'NotAllowedError') {
+            if (err && /** @type {any} */ (err).name === 'NotAllowedError') {
                 return { success: false, error: 'Permission to read the file was denied.' };
             }
             console.error('Open recent failed:', err);
-            return { success: false, error: err.message };
+            return { success: false, error: err instanceof Error ? err.message : String(err) };
         }
     }
 
@@ -883,7 +924,7 @@ export class FileManager {
                     resolve({ success: true, data, fileName: file.name, handle: null });
                 } catch (err) {
                     console.error('Open failed:', err);
-                    resolve({ success: false, error: err.message });
+                    resolve({ success: false, error: err instanceof Error ? err.message : String(err) });
                 }
             };
             
@@ -895,6 +936,9 @@ export class FileManager {
     
     /**
      * Start auto-save timer. Recheck snapshot readiness when idle work actually runs.
+     * @param {() => any} getDataFn
+     * @param {() => boolean} isDirtyFn
+     * @param {() => boolean} [canSaveFn]
      */
     startAutoSave(getDataFn, isDirtyFn, canSaveFn = () => true) {
         this.stopAutoSave();
@@ -944,6 +988,8 @@ export class FileManager {
     
     /**
      * Save to localStorage
+     * @param {any} data
+     * @param {AutoSaveSnapshot} [snapshot]
      */
     autoSaveToStorage(data, snapshot = { revision: this.revision, fileName: this.fileName }) {
         // Recovery copies live in browser storage; a project loaded without one (in Node or
@@ -962,9 +1008,10 @@ export class FileManager {
             this.autoSaveSize = new TextEncoder().encode(json).byteLength;
             this.onAutoSaveChanged?.(this.autoSaveSize);
             // Update autosave index
+            /** @type {AutoSaveIndexEntry[]} */
             let index = [];
             try {
-                index = JSON.parse(localStorage.getItem(this.autoSavePrefix + 'index')) || [];
+                index = JSON.parse(/** @type {any} */ (localStorage.getItem(this.autoSavePrefix + 'index'))) || [];
             } catch {}
             const existing = index.find(i => i.fileName === snapshot.fileName);
             if (!existing) {
@@ -1006,13 +1053,14 @@ export class FileManager {
         // Returns true if any autosave exists
         let index = [];
         try {
-            index = JSON.parse(localStorage.getItem(this.autoSavePrefix + 'index')) || [];
+            index = JSON.parse(/** @type {any} */ (localStorage.getItem(this.autoSavePrefix + 'index'))) || [];
         } catch {}
         return index.length > 0;
     }
     
     /**
      * Load auto-saved document
+     * @param {string} [fileName]
      */
     loadAutoSave(fileName) {
         // If fileName is provided, load that autosave; else load the most recent
@@ -1022,9 +1070,10 @@ export class FileManager {
                 key = this.autoSavePrefix + encodeURIComponent(fileName);
             } else {
                 // Load most recent from index
+                /** @type {AutoSaveIndexEntry[]} */
                 let index = [];
                 try {
-                    index = JSON.parse(localStorage.getItem(this.autoSavePrefix + 'index')) || [];
+                    index = JSON.parse(/** @type {any} */ (localStorage.getItem(this.autoSavePrefix + 'index'))) || [];
                 } catch {}
                 if (index.length === 0) return null;
                 // Sort by timestamp desc
@@ -1049,12 +1098,14 @@ export class FileManager {
     
     /**
      * Clear auto-saved document
+     * @param {string} [fileName]
      */
     clearAutoSave(fileName) {
         // Remove autosave for a specific file, or all if no fileName
+        /** @type {AutoSaveIndexEntry[]} */
         let index = [];
         try {
-            index = JSON.parse(localStorage.getItem(this.autoSavePrefix + 'index')) || [];
+            index = JSON.parse(/** @type {any} */ (localStorage.getItem(this.autoSavePrefix + 'index'))) || [];
         } catch {}
         if (fileName) {
             const key = this.autoSavePrefix + encodeURIComponent(fileName);

@@ -1,6 +1,14 @@
 export const GRID_SNAP_PX = 8;
 
+/** @typedef {{x:number, y:number}} Point */
+/** @typedef {{snapToGrid?:boolean, shiftHeld?:boolean, gridVisible?:boolean, gridSize:number, scale?:number, getEffectiveGridSize?:() => number}} GridViewport */
+
 /** Shared displayed-grid magnet, including visibility and the temporary Shift override. */
+/**
+ * @param {Point} point
+ * @param {GridViewport|null|undefined} viewport
+ * @returns {Point}
+ */
 export function snapToViewportGrid(point, viewport) {
     let shouldSnap = viewport?.snapToGrid;
     if (viewport?.shiftHeld && viewport.gridVisible) shouldSnap = !shouldSnap;
@@ -10,6 +18,12 @@ export function snapToViewportGrid(point, viewport) {
     return { x, y };
 }
 
+/**
+ * @param {Point} point
+ * @param {number} gridSize
+ * @param {number|undefined} scale
+ * @returns {Point & {snappedX:boolean, snappedY:boolean}}
+ */
 export function snapToGridLines(point, gridSize, scale) {
     if (!(gridSize > 0)) return { x: point.x, y: point.y, snappedX: false, snappedY: false };
     const tolerance = Math.min(

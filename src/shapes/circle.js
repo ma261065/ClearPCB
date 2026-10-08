@@ -7,7 +7,12 @@ import { ShapeValidator } from '../core/ShapeValidator.js';
 import { circleOuterRadius, circleHitTest } from './path-geometry.js';
 
 /** Round to 4 decimal places for compact serialisation. */
+/** @param {number} v */
 const _r4 = v => Math.round(v * 10000) / 10000;
+
+/** @typedef {{x:number,y:number}} Point */
+/** @typedef {{x?: number, y?: number, radius?: number, fill?: boolean, lineWidth?: number}} CircleState */
+/** @typedef {ReturnType<Shape['toJSON']> & {x: number, y: number, r: number, f?: true, fa?: number}} CircleJSON */
 
 export class Circle extends Shape {
     /**
@@ -58,11 +63,13 @@ export class Circle extends Shape {
     }
     
     /** @override */
+    /** @param {Point} point @param {number} [tolerance] */
     hitTest(point, tolerance = 0.5) {
         return circleHitTest(this, point, tolerance, this.fill, this.lineWidth);
     }
     
     /** @override */
+    /** @param {Point} point */
     distanceTo(point) {
         const dist = Math.hypot(point.x - this.x, point.y - this.y);
         if (this.fill) {
@@ -98,6 +105,7 @@ export class Circle extends Shape {
     }
     
     /** @override */
+    /** @param {number} dx @param {number} dy */
     move(dx, dy) {
         if (!Number.isFinite(dx) || !Number.isFinite(dy)) return;
         this.x += dx;
@@ -110,16 +118,18 @@ export class Circle extends Shape {
         return new Circle({ ...this.toJSON(), x: this.x, y: this.y, radius: this.radius });
     }
     /** @override */
+    /** @returns {{x:number,y:number,radius:number,fill:boolean,lineWidth:number}} */
     captureState() {
         return { x: this.x, y: this.y, radius: this.radius, fill: this.fill, lineWidth: this.lineWidth };
     }
     /** @override */
+    /** @param {CircleState} state */
     applyState(state) {
-        if ('x' in state) this.x = state.x;
-        if ('y' in state) this.y = state.y;
-        if ('radius' in state) this.radius = state.radius;
-        if ('lineWidth' in state) this.lineWidth = state.lineWidth;
-        if ('fill' in state) this.fill = state.fill;
+        if ('x' in state) this.x = /** @type {number} */ (state.x);
+        if ('y' in state) this.y = /** @type {number} */ (state.y);
+        if ('radius' in state) this.radius = /** @type {number} */ (state.radius);
+        if ('lineWidth' in state) this.lineWidth = /** @type {number} */ (state.lineWidth);
+        if ('fill' in state) this.fill = /** @type {boolean} */ (state.fill);
         this.invalidate();
     }
     /** @override */
@@ -135,7 +145,7 @@ export class Circle extends Shape {
 
     /** @override */
     toJSON() {
-        const json = { ...super.toJSON(), x: _r4(this.x), y: _r4(this.y), r: _r4(this.radius) };
+        const json = /** @type {CircleJSON} */ ({ ...super.toJSON(), x: _r4(this.x), y: _r4(this.y), r: _r4(this.radius) });
         if (this.fill) json.f = true;
         if (this.fillAlpha !== 0.3) json.fa = this.fillAlpha;
         return json;

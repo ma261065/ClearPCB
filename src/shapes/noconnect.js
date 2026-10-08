@@ -9,6 +9,7 @@ import { Shape } from './shape.js';
 import { ShapeValidator } from '../core/ShapeValidator.js';
 
 /** Round to 4 decimal places for compact serialisation. */
+/** @param {number} v */
 const _r4 = v => Math.round(v * 10000) / 10000;
 
 /** Half-size of the X mark in mm */
@@ -55,12 +56,14 @@ export class NoConnect extends Shape {
     }
 
     /** @override */
+    /** @param {{x:number,y:number}} point */
     hitTest(point, tolerance = 0.5) {
         const d = Math.hypot(point.x - this.x, point.y - this.y);
         return d <= NC_HALF + tolerance;
     }
 
     /** @override */
+    /** @param {{x:number,y:number}} point */
     distanceTo(point) {
         return Math.hypot(point.x - this.x, point.y - this.y);
     }
@@ -73,6 +76,11 @@ export class NoConnect extends Shape {
     }
 
     /** @override */
+    /**
+     * @param {string} anchorId
+     * @param {number} x
+     * @param {number} y
+     */
     moveAnchor(anchorId, x, y) {
         if (anchorId === 'pos') {
             this.x = x;
@@ -83,6 +91,10 @@ export class NoConnect extends Shape {
     }
 
     /** @override */
+    /**
+     * @param {number} dx
+     * @param {number} dy
+     */
     move(dx, dy) {
         if (!Number.isFinite(dx) || !Number.isFinite(dy)) return;
         this.x += dx;
@@ -119,6 +131,7 @@ export class NoConnect extends Shape {
 
     /** @override */
     toJSON() {
+        /** @type {ReturnType<Shape['toJSON']> & {x:number,y:number,pn?: { componentId: string, pinNumber: string|number }}} */
         const json = {
             ...super.toJSON(),
             x: _r4(this.x),

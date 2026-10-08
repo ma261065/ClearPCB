@@ -11,6 +11,7 @@ export const LOCK_SCREEN_GAP_PX = 5;
 let insideStrokeId = 0;
 
 /** Keep a path's border inside its fill geometry without changing that geometry. */
+/** @param {Element} path */
 export function insideStrokeGroup(path) {
     const group = document.createElementNS(NS, 'g');
     const clip = document.createElementNS(NS, 'clipPath');
@@ -18,7 +19,7 @@ export function insideStrokeGroup(path) {
     clip.setAttribute('id', id);
     clip.setAttribute('clipPathUnits', 'userSpaceOnUse');
     const outline = document.createElementNS(NS, 'path');
-    outline.setAttribute('d', path.getAttribute('d'));
+    outline.setAttribute('d', /** @type {string} */ (path.getAttribute('d')));
     outline.setAttribute('clip-rule', path.getAttribute('fill-rule') || 'nonzero');
     clip.appendChild(outline);
     path.setAttribute('clip-path', `url(#${id})`);
@@ -46,6 +47,13 @@ export function lockIconMetrics(scale = Infinity) {
 
 export const LOCK_BOUNDS = Object.freeze(lockIconMetrics().bounds);
 
+/**
+ * @param {Element} overlay
+ * @param {Element} element
+ * @param {string} color
+ * @param {number} width
+ * @param {Element|null} [handles]
+ */
 export function appendSegmentSelection(overlay, element, color, width, handles = null) {
     element.setAttribute('fill', 'none');
     element.setAttribute('stroke', color);
@@ -60,7 +68,7 @@ export function appendSegmentSelection(overlay, element, color, width, handles =
  * Create a lock-icon SVG group with click-to-unlock behaviour.
  * @param {number} x       Left edge of the lock body in local coordinates
  * @param {number} y       Top edge of the lock (above the body)
- * @param {object} item    Shape or Component that owns the lock
+ * @param {{element?: Element, [key: string]: any}} item    Shape or Component that owns the lock
  * @param {string} cls     CSS class name for the group
  * @returns {SVGGElement}
  */
@@ -126,7 +134,7 @@ export function createLockIcon(x, y, item, cls, scale = Infinity) {
  * Renders point anchors as white/red squares and midpoint anchors as white/blue
  * circles with a "+" sign.
  *
- * @param {object} shape   Shape instance (must have getAnchors()); locked shapes show a lock instead
+ * @param {{getAnchors: () => Array<{id: string, x: number, y: number, midpoint?: boolean, bulge?: boolean, fill?: string}>}} shape   Shape instance (must have getAnchors()); locked shapes show a lock instead
  * @param {number} scale   Current viewport scale
  */
 export function buildPointAnchorsGroup(shape, scale) {
