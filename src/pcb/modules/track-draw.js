@@ -652,7 +652,7 @@ function _appendPreviewVia(ctx, viaLayer, p, viaDia, viaDrill, index, used) {
  * zeroes the minor-axis component), so the tolerance is effectively zero —
  * the classifier returns a kind only for geometry the snap actually
  * produced. The drag glow does not call this directly; the segment model
- * (`_incidentSegments`) calls it once per edge and the glow renders that
+ * (`incidentSegments`) calls it once per edge and the glow renders that
  * decision, so the two can never disagree.
  *
  * @param {{x:number,y:number}} a

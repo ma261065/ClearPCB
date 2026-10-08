@@ -25,7 +25,9 @@ import { beginTextDrag } from './pcb-text-selection.js';
 import { beginRefTextDrag, hitTestReferenceText, selectRefText } from './ref-text-selection.js';
 import { beginSelectionInteraction, getSelectionInteraction, selectionInteractionCursor } from './selection-interaction.js';
 import { getPcbSelection } from './selection-registry.js';
-import { commitCollinearCleanup, getVertexDrag, setSegmentClickEdgeId, setVertexDragDownScreen, startVertexDrag, startViaDrag } from './track-drag.js';
+import { commitCollinearCleanup } from './track-edits.js';
+import { getVertexDrag, setSegmentClickEdgeId, setVertexDragDownScreen, startVertexDrag } from './track-drag.js';
+import { startViaDrag } from './terminal-drag.js';
 import { clearTrackSelection, getSelectedTrack, getSelectedVia, hitTestTrack, selectTrackOrVia, setHoverHighlight, getTrackEdit } from './track-select.js';
 /** @typedef {import('./pcb-editor-api.js').PcbEditor} PcbEditor */
 

@@ -2,7 +2,7 @@ import { pcbToolBlockNotice } from './tool-lifecycle.js';
 import { commitDesignValue, renderDesignSettings } from './design-settings.js';
 import { resolveTrackSnap } from './track-snap.js';
 import { AddTrackCommand, AddViaCommand, CompoundCommand, RemoveTrackCommand } from './track-commands.js';
-import { findSplittableTrackEdge, splitTrackObjectAtPoint } from './track-drag.js';
+import { findSplittableTrackEdge, splitTrackObjectAtPoint } from './track-edits.js';
 import { Via } from '../../shapes/via.js';
 /** @typedef {import('./pcb-editor-api.js').PcbEditor} PcbEditor */
 /** @typedef {import('../../shapes/track.js').Track} Track */

@@ -7,7 +7,7 @@ import { clearPcbSelection, isPcbSelected } from './selection-registry.js';
 import { schedulePictureCopperRefresh } from './picture-refresh.js';
 import { Pad } from '../../shapes/pad.js';
 import { beginRotationHandleDrag, endRotationHandleDrag } from './rotation-handle.js';
-import { getViaDrag } from './track-drag.js';
+import { getViaDrag } from './terminal-drag.js';
 /** @typedef {import('./pcb-editor-api.js').PcbEditor} PcbEditor */
 /** @typedef {import('../../shapes/pad.js').Pad} PadShape */
 /** @typedef {import('../../shapes/pad.js').PadState} PadState */

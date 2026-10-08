@@ -12,8 +12,8 @@ installFakeDom();
 globalThis.requestAnimationFrame = () => 0;
 globalThis.cancelAnimationFrame = () => {};
 const { default: PCBApp } = await import('../../src/ui/PCBApp.js');
-const { startVertexDrag, updateVertexDrag, finishVertexDrag, buildDrawnTrackCommands } =
-    await import('../../src/pcb/modules/track-drag.js');
+const { startVertexDrag, updateVertexDrag, finishVertexDrag } = await import('../../src/pcb/modules/track-drag.js');
+const { buildDrawnTrackCommands } = await import('../../src/pcb/modules/track-commit.js');
 const { startTrackDraw, addTrackWaypoint, cancelTrackDraw } = await import('../../src/pcb/modules/track-draw.js');
 const { collectBondedCopper, collectNodeConnections } = await import('../../src/pcb/modules/track-connections.js');
 const { _applyNetToBondedCopper } = await import('../../src/pcb/modules/track-select.js');

@@ -3,10 +3,10 @@ import { PcbDocument } from '../../src/core/PcbDocument.js';
 import { Track } from '../../src/shapes/track.js';
 import { Via } from '../../src/shapes/via.js';
 import { Pad } from '../../src/shapes/pad.js';
-import { getViaDrag } from '../../src/pcb/modules/track-drag.js';
+import { getViaDrag } from '../../src/pcb/modules/terminal-drag.js';
 
 globalThis.window = { addEventListener() {} };
-const { startViaDrag, startPadDrag } = await import('../../src/pcb/modules/track-drag.js');
+const { startViaDrag, startPadDrag } = await import('../../src/pcb/modules/terminal-drag.js');
 const { resolveTrackSnap } = await import('../../src/pcb/modules/track-snap.js');
 
 for (const kind of ['via', 'pad']) {

@@ -8,8 +8,7 @@ const { Pad } = await import('../../src/shapes/pad.js');
 const { Via } = await import('../../src/shapes/via.js');
 const { Track } = await import('../../src/shapes/track.js');
 const { CopperFill } = await import('../../src/shapes/copper-fill.js');
-const { startVertexDrag, updateVertexDrag, finishVertexDrag, cancelVertexDrag } =
-    await import('../../src/pcb/modules/track-drag.js');
+const { startVertexDrag, updateVertexDrag, finishVertexDrag, cancelVertexDrag } = await import('../../src/pcb/modules/track-drag.js');
 const { default: PCBApp } = await import('../../src/ui/PCBApp.js');
 const copperPrototype = Object.create(null, Object.fromEntries(['tracks', 'vias', 'pads', 'boardShapes']
     .map(key => [key, Object.getOwnPropertyDescriptor(PCBApp.prototype, key)])));

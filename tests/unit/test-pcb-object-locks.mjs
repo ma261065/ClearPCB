@@ -230,7 +230,7 @@ function fixture() {
 {
     globalThis.requestAnimationFrame ??= () => 0;
     const { default: PCBApp } = await import('../../src/ui/PCBApp.js');
-    const { buildDrawnTrackCommands } = await import('../../src/pcb/modules/track-drag.js');
+    const { buildDrawnTrackCommands } = await import('../../src/pcb/modules/track-commit.js');
     const copper = Object.create(null, Object.fromEntries(['tracks', 'vias', 'pads', 'boardShapes']
         .map(key => [key, Object.getOwnPropertyDescriptor(PCBApp.prototype, key)])));
     const app = Object.assign(Object.create(copper), {

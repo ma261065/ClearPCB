@@ -8,15 +8,15 @@ import { renderTrack, renderVia, buildTrackLayerRuns } from '../../src/pcb/modul
 import { createTrackSelectionAdapter, selectTrackNode, selectTrackOrVia, setHoverHighlight } from '../../src/pcb/modules/track-select.js';
 import { renderPcbSelectionAnchors } from '../../src/pcb/modules/selection-anchors.js';
 import { arcEdgePathD } from '../../src/shapes/arc-edge.js';
-import { startVertexDrag, updateVertexDrag, finishVertexDrag, cancelVertexDrag,
-    startMidpointInsertDrag, splitTrackNodeAndDrag, startViaDrag, updateViaDrag, finishViaDrag, cancelViaDrag } from '../../src/pcb/modules/track-drag.js';
+import { startVertexDrag, updateVertexDrag, finishVertexDrag, cancelVertexDrag, startMidpointInsertDrag, splitTrackNodeAndDrag } from '../../src/pcb/modules/track-drag.js';
+import { startViaDrag, updateViaDrag, finishViaDrag, cancelViaDrag } from '../../src/pcb/modules/terminal-drag.js';
 import { syncPcbSelection, getPcbSelection, clearPcbSelection } from '../../src/pcb/modules/selection-registry.js';
 import { finishSelectionInteraction } from '../../src/pcb/modules/selection-interaction.js';
 import { prepareFabricationSnapshot } from '../../src/pcb/modules/fabrication-snapshot.js';
 import { loadPcb } from '../../src/pcb/modules/project-state.js';
 import { PCB_LAYERS, notifyLayerVisibilityChanged, notifyLayerLockChanged } from '../../src/pcb/modules/layers.js';
 import { areDragOverlaysDeferred, isBoardViewRefreshSuspended, setBoardViewPanel, setBoardViewRefreshSuspended, setDragOverlaysDeferred } from '../../src/pcb/modules/refresh-state.js';
-import { getViaDrag } from '../../src/pcb/modules/track-drag.js';
+import { getViaDrag } from '../../src/pcb/modules/terminal-drag.js';
 import { getVertexDrag } from '../../src/pcb/modules/track-drag.js';
 import { showNetGuideLine } from '../../src/pcb/modules/ratsnest.js';
 import { showTrackSnapMarker } from '../../src/pcb/modules/track-snap.js';

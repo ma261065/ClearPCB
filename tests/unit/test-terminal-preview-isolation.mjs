@@ -13,7 +13,7 @@ import { finishSelectionInteraction } from '../../src/pcb/modules/selection-inte
 import { loadPcb } from '../../src/pcb/modules/project-state.js';
 import { areDragOverlaysDeferred, setDragOverlaysDeferred } from '../../src/pcb/modules/refresh-state.js';
 import { getSelectionInteraction } from '../../src/pcb/modules/selection-interaction.js';
-import { getViaDrag } from '../../src/pcb/modules/track-drag.js';
+import { getViaDrag } from '../../src/pcb/modules/terminal-drag.js';
 import { setPcbInteraction } from '../../src/pcb/modules/pcb-interactions.js';
 import { fakeElement, installFakeDom } from './helpers/fake-dom.mjs';
 

@@ -7,8 +7,8 @@ import { renderTrack, buildTrackLayerRuns } from '../../src/pcb/modules/track-re
 import { getTrackPropertyPreview, RemoveTrackCommand } from '../../src/pcb/modules/track-commands.js';
 import { createTrackSelectionAdapter, selectTrackOrVia, selectTrackSegment, selectTrackNode,
     showTrackSelectionProperties, setHoverHighlight, getTrackEdit } from '../../src/pcb/modules/track-select.js';
-import { startVertexDrag, startMidpointInsertDrag, splitTrackNodeAndDrag, cancelVertexDrag,
-    startViaDrag, cancelViaDrag } from '../../src/pcb/modules/track-drag.js';
+import { startVertexDrag, startMidpointInsertDrag, splitTrackNodeAndDrag, cancelVertexDrag } from '../../src/pcb/modules/track-drag.js';
+import { startViaDrag, cancelViaDrag } from '../../src/pcb/modules/terminal-drag.js';
 import { syncPcbSelection, getPcbSelection } from '../../src/pcb/modules/selection-registry.js';
 import { prepareFabricationSnapshot } from '../../src/pcb/modules/fabrication-snapshot.js';
 import { loadPcb } from '../../src/pcb/modules/project-state.js';

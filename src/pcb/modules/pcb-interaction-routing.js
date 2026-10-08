@@ -3,7 +3,8 @@ import { updateBoardOutlineResize, endBoardOutlineResize } from './board-outline
 import { updateSelectionInteraction, selectionInteractionCursor, finishSelectionInteraction, showPcbSelectionProperties } from './selection-interaction.js';
 import { scheduleGroupDrag, cancelGroupDrag, endGroupDrag, finishBoxSelect, getGroupDrag, refreshBoxSelectionHighlights } from './box-select.js';
 import { getBoardShapeDrag, handleBoardShapeDrag, endBoardShapeDrag, updateShapeDrawPreview } from './board-shapes.js';
-import { updateVertexDrag, updateViaDrag, cancelVertexDrag, cancelViaDrag, finishVertexDrag, finishViaDrag, getVertexDrag, getVertexDragDownScreen, setVertexDragDownScreen, getSegmentClickEdgeId, setSegmentClickEdgeId } from './track-drag.js';
+import { updateVertexDrag, cancelVertexDrag, finishVertexDrag, getVertexDrag, getVertexDragDownScreen, setVertexDragDownScreen, getSegmentClickEdgeId, setSegmentClickEdgeId } from './track-drag.js';
+import { updateViaDrag, cancelViaDrag, finishViaDrag } from './terminal-drag.js';
 import { getTrackDraw, updateTrackDraw } from './track-draw.js';
 import { getFillDraw, updateFillDraw } from './copper-fill-draw.js';
 import { getSelectedTrack, getSelectedVia, clearTrackSelection, selectTrackOrVia, selectTrackSegment } from './track-select.js';

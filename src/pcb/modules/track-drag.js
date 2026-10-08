@@ -1,42 +1,28 @@
 /**
- * Vertex/segment drag editing for a selected Track.
+ * Dragging a track's nodes and segments.
  *
- * Drag rules (chosen to match the schematic Wire conventions):
- *   - Mousedown on a Track node moves that single node.
- *   - Mousedown on a Track segment drags the whole segment (both
- *     endpoints translate by the same delta, KiCad-style); the
- *     adjacent segments stretch to stay connected.
- *   - Single-node move snaps to grid; pad / track-node snap targets
- *     supersede grid when the cursor is within tolerance. Segment drag
- *     is unsnapped (raw delta) so the segment keeps its shape.
- *   - A via colocated with a dragged NODE is left behind: moving a node
- *     disconnects it from the via. A via on an endpoint of a dragged
- *     SEGMENT instead stays anchored while a new bridge segment grows
- *     from the via to the moving endpoint, keeping the track connected.
- *     Only dragging the via itself carries its attached track nodes
- *     along (see startViaDrag).
- *   - Mouseup commits a MoveVertexCommand (or a CompoundCommand for a
- *     segment drag) to the history stack.
- *   - Escape cancels and restores the original position(s).
+ * A press on a node moves that node; a press on a segment drags the whole segment (both
+ * ends move by the same delta, KiCad-style) while the neighbouring segments stretch; a
+ * press on a segment's midpoint handle inserts a node there and drags it. A moved node
+ * snaps to pads, track nodes and the grid (track-snap.js); a dragged segment keeps its
+ * shape. A via under a dragged node stays behind; a via at the end of a dragged segment
+ * stays put and a bridge segment grows from it. Release commits one undoable command
+ * (track-drop.js decides what the dropped copper joins); Escape restores the track.
+ *
+ * Hit tests and structural edits (split, delete, collapse) are track-edits.js; dragging
+ * vias and pads is terminal-drag.js.
  */
-
 import { beginDragSession, copperNets, refreshDragRatlines, releaseDragSession } from './drag-session.js';
-import { renderTrack, removeTrackElements, removeViaElements } from './track-render.js';
-import { resolveTrackSegments } from '../../shared/pcb/board-geometry.js';
-import { renderVia } from './track-render.js';
+import { renderTrack, removeTrackElements } from './track-render.js';
 import { resolveTrackSnap, showTrackSnapMarker, clearTrackSnapMarker, applyAxisConstraint, COLLINEAR_SNAP_SCREEN_PX, COLLINEAR_GLOW_ANGLE_TOL } from './track-snap.js';
 import { reconcileRatsnest, updateNetGuideLine, clearNetGuideLine } from './ratsnest.js';
 import { renderTrackAxisGlow, renderTrackAxisGlowTop, clearTrackAxisGlow, _axisAlignment } from './track-draw.js';
 import { snapNodeToAxis, snapNodeToCollinear } from '../../shapes/path-snap.js';
-import { bondedExclusion, collectNodeConnections } from './track-connections.js';
-export { buildDrawnTrackCommands } from './track-commit.js';
-import { showBondedNetConflict } from './track-commit.js';
+import { bondedExclusion } from './track-connections.js';
 import { clearTrackEdit, createTrackSelectionAdapter, getTrackEdit, refreshTrackSelectionHalo } from './track-select.js';
-import { MoveVertexCommand, MoveViaCommand, CompoundCommand, ModifyTrackGraphCommand, RemoveTrackCommand, AddViaCommand, AddTrackCommand, ModifyTrackCommand, ModifyViaCommand, canonicalTrack, getPlacementPreviewTracks } from './track-commands.js';
+import { CompoundCommand, canonicalTrack, getPlacementPreviewTracks } from './track-commands.js';
 import { pointsCollinear, collinearSnap } from '../../core/geometry.js';
-import { Via, viaHitTest } from '../../shapes/via.js';
 import { Track } from '../../shapes/track.js';
-import { Pad } from '../../shapes/pad.js';
 import { isLayerLocked, isLayerVisible } from './layers.js';
 import { bulgeRatio } from '../../core/geometry.js';
 import { formatNumberInputValue } from '../../core/number-inputs.js';
@@ -44,37 +30,21 @@ import { arcFromBulge } from '../../shapes/arc-edge.js';
 import { trackRectangleOrder } from '../../shapes/track-geometry.js';
 import { resizeRectanglePoints } from '../../shapes/path-operations.js';
 import { getPcbSelection, syncPcbSelection } from './selection-registry.js';
-import { padLayers } from '../../shapes/pad-geometry.js';
-import { renderPad, removePadElements } from './pad.js';
-import { MovePadCommand, ModifyPadCommand } from './pad-commands.js';
-import { captureBoardShapeState } from './board-shapes.js';
-import { ModifyBoardShapeCommand } from './shape-commands.js';
-import { ModifyFillCommand } from './copper-fill-commands.js';
 import { snapPathTranslation, snapPathPoint, beginPathSplit } from './path-edit.js';
-import { closestPointOnArcEdge } from '../../shapes/arc-edge.js';
-import { commitPropertyEditors, getPropertyEditor } from './property-editors.js';
+import { commitPropertyEditors } from './property-editors.js';
 import { areDragOverlaysDeferred, isBoardViewRefreshSuspended, refreshBoardView } from './refresh-state.js';
 import { isEditorActive } from './pcb-editor-api.js';
-import { refreshTrackClearance, refreshViaClearance } from './clearance-overlay.js';
+import { refreshTrackClearance } from './clearance-overlay.js';
 import { getPcbInteraction, setPcbInteraction } from './pcb-interactions.js';
 import { getSelectionInteraction, setSelectionInteraction } from './selection-interaction.js';
 import { refreshSelectedDrcMarker } from './drc-state.js';
+import { finishViaDrag, getViaDrag } from './terminal-drag.js';
+import { findNearbyVia, hitTestTrackEdge, hitTestTrackMidpoint, hitTestTrackNode, viaAtPoint } from './track-edits.js';
+import { lockedJoinTarget, trackPointerCommands } from './track-drop.js';
 /** @typedef {import('./pcb-editor-api.js').PcbEditor} PcbEditor */
-/** @typedef {ReturnType<import('../../core/PcbDesignSettings.js').PcbDesignSettings['getRoutingParams']>} RoutingParams */
 /** @typedef {{x: number, y: number}} Point */
-/** @typedef {import('../../shapes/track.js').TrackEdge} TrackEdge */
-/** @typedef {{track: Track, nodeId: string}} TrackNodeRef */
-/** @typedef {{excludeTracks?: Set<Track>, layers?: string[]}} SplitTrackOptions */
-/** @typedef {any} VertexDrag */
+/** The node, segment, move or bulge drag in progress (see beginTrackPointer). @typedef {any} VertexDrag */
 
-/** Screen-px hit tolerance for selecting a Track node to drag. */
-const NODE_HIT_PX = 8;
-
-/** World-space tolerance for treating a Via as "on" a Track node. */
-const VIA_NODE_EPS = 1e-4;
-
-/** World-space tolerance for treating two dropped nodes as coincident. */
-const NODE_MERGE_EPS = 1e-3;
 /** @type {WeakMap<PcbEditor, {downScreen: Point|null, segmentEdgeId: string|null}>} */
 const vertexClickState = new WeakMap();
 
@@ -168,11 +138,6 @@ export function getVertexDrag(app) {
     return getPcbInteraction(app, '_vertexDrag');
 }
 
-/** @param {PcbEditor} app */
-export function getViaDrag(app) {
-    return getPcbInteraction(app, '_viaDrag');
-}
-
 /**
  * The track a node/bulge drag is moving: `original` is the authored track and `preview`
  * the copy shown while dragging. Null when no track drag is active.
@@ -182,16 +147,6 @@ export function getViaDrag(app) {
 export function draggedTrack(app) {
     const drag = getVertexDrag(app);
     return drag ? { original: drag.original, preview: drag.track } : null;
-}
-
-/**
- * The via a via drag is moving (authored `original`, displayed `preview`), plus the
- * attached tracks it carries (`tracks.originals` / `tracks.copies`), or null.
- * @param {PcbEditor} app
- */
-export function draggedVia(app) {
-    const drag = getViaDrag(app);
-    return drag ? { original: drag.original, preview: drag.via, tracks: drag.preview || null } : null;
 }
 
 /**
@@ -226,343 +181,13 @@ export function startTrackBulgeDrag(app, track, edgeId) {
         bulgeOrigin: arcFromBulge(a, b, edge.bulge)?.bulgePoint || { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 } });
 }
 
-/**
- * True if any standalone Via sits on `(x, y)`.
- * @param {PcbEditor} app
- * @param {number} x
- * @param {number} y
- */
-function _viaAtPoint(app, x, y) {
-    for (const via of (app.vias || [])) {
-        if (Math.abs(via.x - x) < VIA_NODE_EPS && Math.abs(via.y - y) < VIA_NODE_EPS) return true;
-    }
-    return false;
-}
-
 /** @param {PcbEditor} app @param {Track} [track] */
-function _opts(app, track = getVertexDrag(app)?.track) {
+export function trackEditRenderOptions(app, track = getVertexDrag(app)?.track) {
     return {
         viaDiameter: app.getRoutingParams?.()?.viaDiameter,
         viaDrill: app.getRoutingParams?.()?.viaDrill,
         hideNetLabel: !!track && (track === getPcbSelection(app, 'track')[0] || track === getVertexDrag(app)?.track),
     };
-}
-
-/**
- * Hit-test a Track's nodes against the world position. Returns the
- * nodeId of the closest node within tolerance, else null.
- * @param {PcbEditor} app
- * @param {Track} track
- * @param {Point} worldPos
- * @param {number} [pxTol]
- */
-export function hitTestTrackNode(app, track, worldPos, pxTol = NODE_HIT_PX) {
-    const scale = app.viewport?.scale || 1;
-    const tol = pxTol / scale;
-    let best = null;
-    let bestD = tol;
-    for (const [nid, n] of track.nodes) {
-        const d = Math.hypot(n.x - worldPos.x, n.y - worldPos.y);
-        if (d < bestD) { bestD = d; best = nid; }
-    }
-    return best;
-}
-
-/**
- * Hit-test the "+" insertion handles drawn at each segment midpoint.
- * Returns the edgeId of the closest segment whose midpoint is within
- * tolerance of `worldPos`, else null. Mirrors the schematic Wire
- * midpoint-anchor model: grabbing a midpoint inserts a new vertex.
- * @param {PcbEditor} app
- * @param {Track} track
- * @param {Point} worldPos
- * @param {number} [pxTol]
- */
-export function hitTestTrackMidpoint(app, track, worldPos, pxTol = NODE_HIT_PX) {
-    const scale = app.viewport?.scale || 1;
-    const tol = pxTol / scale;
-    let best = null;
-    let bestD = tol;
-    for (const [eid, e] of track.edges) {
-        if (e.bulge) continue;
-        const a = track.nodes.get(e.from);
-        const b = track.nodes.get(e.to);
-        if (!a || !b) continue;
-        const mx = (a.x + b.x) / 2, my = (a.y + b.y) / 2;
-        const d = Math.hypot(mx - worldPos.x, my - worldPos.y);
-        if (d < bestD) { bestD = d; best = eid; }
-    }
-    return best;
-}
-
-/**
- * Find which edge of `track` the world position lies on (closest
- * perpendicular projection within `track.width/2 + tol`). Returns
- * { edgeId, edge, t } or null.
- * @param {PcbEditor} app
- * @param {Track} track
- * @param {Point} worldPos
- * @param {number} [pxTol]
- */
-export function hitTestTrackEdge(app, track, worldPos, pxTol = 6) {
-    const scale = app.viewport?.scale || 1;
-    const tol = pxTol / scale;
-    let best = null;
-    let bestD = Infinity;
-    for (const { edgeId, start: a, end: b, width } of resolveTrackSegments(track)) {
-        const half = width / 2 + tol;
-        const vx = b.x - a.x, vy = b.y - a.y;
-        const len2 = vx * vx + vy * vy;
-        if (len2 < 1e-12) continue;
-        let t = ((worldPos.x - a.x) * vx + (worldPos.y - a.y) * vy) / len2;
-        if (t < 0 || t > 1) continue;
-        const d = Math.hypot(worldPos.x - (a.x + t * vx), worldPos.y - (a.y + t * vy));
-        if (d <= half && d < bestD) { bestD = d; best = { edgeId, edge: track.edges.get(edgeId), t }; }
-    }
-    return best;
-}
-
-/** World-space margin from an edge endpoint below which a projection is
- *  treated as "on the node" (attach) rather than mid-segment (split). */
-const SPLIT_ENDPOINT_EPS = 0.05;
-
-/**
- * Scan every Track for an edge whose interior passes under `worldPos`
- * (within the track half-width + pixel tolerance). Returns the closest
- * match with the perpendicular projection point on that edge, or null.
- * Projections that land on (or very near) an endpoint node are rejected
- * so that mid-segment drops split while end drops attach.
- *
- * @param {PcbEditor} app
- * @param {Point} worldPos
- * @param {number} [pxTol]
- * @param {SplitTrackOptions} [options]
- * @returns {{track:Track, edgeId:string, edge:TrackEdge, px:number, py:number}|null}
- */
-export function findSplittableTrackEdge(app, worldPos, pxTol = 6, options = {}) {
-    const scale = app.viewport?.scale || 1;
-    let best = null;
-    let bestD = Infinity;
-    for (const t of (app.tracks || [])) {
-        if (options.excludeTracks?.has(t)) continue;
-        for (const [eid, e] of t.edges) {
-            if (options.layers && !options.layers.includes(t.getEdgeLayer(eid))) continue;
-            const a = t.nodes.get(e.from);
-            const b = t.nodes.get(e.to);
-            if (!a || !b) continue;
-            const half = (t.getEdgeWidth ? t.getEdgeWidth(eid) : t.width || 0.2) / 2 + pxTol / scale;
-            const { x: px, y: py } = closestPointOnArcEdge(worldPos, a, b, e.bulge || 0);
-            const d = Math.hypot(worldPos.x - px, worldPos.y - py);
-            if (d > half || d >= bestD) continue;
-            // Reject projections that sit essentially on an endpoint node.
-            if (Math.hypot(px - a.x, py - a.y) < SPLIT_ENDPOINT_EPS) continue;
-            if (Math.hypot(px - b.x, py - b.y) < SPLIT_ENDPOINT_EPS) continue;
-            bestD = d;
-            best = { track: t, edgeId: eid, edge: e, px, py };
-        }
-    }
-    return best;
-}
-
-/** @param {PcbEditor} app @param {Point} worldPos @param {Via|null} [excludeVia] */
-function _findNearbyVia(app, worldPos, excludeVia = null) {
-    const tolerance = 6 / (app.viewport?.scale || 1);
-    let best = null;
-    let bestDistance = Infinity;
-    for (const via of app.vias || []) {
-        if (via === excludeVia || via.visible === false) continue;
-        const distance = Math.hypot(worldPos.x - via.x, worldPos.y - via.y);
-        if (distance <= Math.max(tolerance, (via.diameter || 0.6) / 2)
-            && distance < bestDistance) {
-            best = via;
-            bestDistance = distance;
-        }
-    }
-    return best;
-}
-
-/** @param {PcbEditor} app @param {string} trackNet @param {string} viaNet @param {string} [kind] */
-function _showTrackViaNetConflict(app, trackNet, viaNet, kind = 'via') {
-    const message = `Cannot connect track net "${trackNet}" to ${kind} net "${viaNet}".`;
-    app.alert(message, { title: 'Net Conflict' });
-}
-
-/**
- * Split a Track into separate Track objects at `splitPoint` on `edgeId`.
- *
- * The point becomes a new node; that node is then duplicated so the two
- * sides of the cut belong to disjoint graphs, which are extracted into
- * independent Tracks (each keeps the original net, width, layer, per-edge
- * layers and any pad connections on its side). Both resulting Tracks have
- * a node exactly at the split point, so a via dropped there sits on a node
- * of each. If the cut does not disconnect the graph (e.g. a loop), a
- * single Track with a node at the point is returned instead.
- *
- * @param {Track} track
- * @param {string} edgeId
- * @param {Point} splitPoint
- * @returns {any[]|null} new Track objects, or null on failure.
- */
-export function splitTrackObjectAtPoint(track, edgeId, splitPoint) {
-    const clone = track.clone();
-    const split = clone.splitEdge(edgeId, splitPoint);
-    if (!split) return null;
-    // splitEdge copies the source edge's per-edge attributes (layer/width)
-    // onto both halves, so no manual carry-over is needed here.
-
-    const P = split.newNodeId;
-    const p = clone.nodes.get(P);
-    // Duplicate the split node and hand one incident edge to the copy so
-    // the two halves become separate connected components.
-    const P2 = clone.addNode(p.x, p.y);
-    const e2 = clone.edges.get(split.edge2Id);
-    if (e2.from === P) e2.from = P2; else e2.to = P2;
-
-    const comps = clone.connectedComponents();
-    if (comps.length < 2) {
-        // Cut did not separate the graph (loop) — keep it as one Track.
-        clone.mergeNodes(P, P2);
-        return [clone];
-    }
-    return comps.map((set) => clone.extractSubgraph(set));
-}
-
-/**
- * Remove a single edge (segment) from a Track. Returns the Track objects
- * that should replace the original: the graph minus that edge, split into
- * its remaining connected components (each keeps the original net, width,
- * layer, per-edge layers and pad connections). Nodes left with no edges
- * are dropped. Returns an empty array if the track had only that segment.
- *
- * @param {Track} track
- * @param {string} edgeId
- * @returns {any[]} replacement Track objects (possibly empty).
- */
-export function deleteTrackSegment(track, edgeId) {
-    const clone = track.clone();
-    if (!clone.edges.has(edgeId)) return [clone];
-    clone.removeEdge(edgeId);
-    // Keep only components that still contain at least one edge; a lone
-    // node is just a dangling point with no copper to render.
-    const parts = [];
-    for (const set of clone.connectedComponents()) {
-        const sub = clone.extractSubgraph(set);
-        if (sub.edges.size > 0) parts.push(sub);
-    }
-    return parts;
-}
-
-/**
- * Delete a single Track node, mirroring the schematic "Delete point"
- * action: a degree-1 leaf is removed; a degree-2 node is removed and its
- * two neighbours are reconnected by a bridging edge. Commits a
- * ModifyTrackGraphCommand. Returns true if the node was deleted.
- *
- * @param {PcbEditor} app
- * @param {Track} track
- * @param {string} nodeId
- * @returns {boolean}
- */
-export function deleteTrackNode(app, track, nodeId) {
-    if (!track?.nodes?.has(nodeId)) return false;
-    if (track.edges.size <= 1) {
-        app.history.execute(new RemoveTrackCommand(app, track));
-        return true;
-    }
-    const before = track.captureState();
-    const incident = track.incidentEdges(nodeId);
-    // deleteAnchor reconnects a degree-2 node's neighbours with a bridging
-    // edge that inherits the first incident edge's attributes (layer/width),
-    // so no manual carry-over is needed here.
-    if (!track.deleteAnchor(nodeId)) return false;
-    if (incident.length === 2) {
-        for (const edge of track.edges.values()) {
-            if (incident.some(item => item.otherNode === edge.from) && incident.some(item => item.otherNode === edge.to)) edge.bulge = 0;
-        }
-    }
-    const after = track.captureState();
-    track.applyState(before);
-    app.history.execute(new ModifyTrackGraphCommand(app, track, before, after));
-    refreshTrackSelectionHalo(app);
-    reconcileRatsnest(app);
-    return true;
-}
-
-/**
- * Dissolve redundant collinear waypoints from a track: any degree-2 node
- * whose two incident edges share a copper layer and whose neighbours are
- * collinear through it is removed, joining the neighbours with a single
- * edge of that layer. Nodes anchored to a pad, or sitting on a via (a
- * layer transition / stitch point), are preserved. Mutates `track` in
- * place and returns whether anything was removed — callers fold the
- * result into their own undo snapshot.
- *
- * @param {PcbEditor} app
- * @param {Track} track
- * @returns {boolean} true if at least one node was dissolved.
- */
-export function collapseCollinearTrackNodes(app, track) {
-    if (!track?.nodes) return false;
-    let removedAny = false;
-    let changed = true;
-    let guard = 0;
-    while (changed && guard++ < 10000) {
-        changed = false;
-        for (const [nid, pos] of track.nodes) {
-            if (track.degree(nid) !== 2) continue;
-            if (track.padConnections.has(nid)) continue;   // pad anchor
-            if (_viaAtPoint(app, pos.x, pos.y)) continue;  // via / layer change
-            const inc = track.incidentEdges(nid);
-            if (inc.length !== 2) continue;
-            if (inc.some(({ edgeId }) => track.getEdgeAttr(edgeId, 'bulge'))) continue;
-            const l1 = track.getEdgeLayer(inc[0].edgeId);
-            const l2 = track.getEdgeLayer(inc[1].edgeId);
-            if (l1 !== l2) continue;                        // layer change → keep
-            const w1 = track.getEdgeWidth(inc[0].edgeId);
-            const w2 = track.getEdgeWidth(inc[1].edgeId);
-            if (w1 !== w2) continue;                         // width change → keep
-            const p1 = track.nodes.get(inc[0].otherNode);
-            const p2 = track.nodes.get(inc[1].otherNode);
-            if (!p1 || !p2) continue;
-            if (!track._areCollinear(p1, pos, p2)) continue;
-            // Drop the node and its two edges, then bridge the neighbours,
-            // carrying the (shared) layer/width onto the new edge.
-            const bridgeAttrs = track._cloneEdge(track.edges.get(inc[0].edgeId));
-            track.removeEdge(inc[0].edgeId);
-            track.removeEdge(inc[1].edgeId);
-            track.removeNode(nid);
-            if (!track.hasEdgeBetween(inc[0].otherNode, inc[1].otherNode)) {
-                track.addEdge(inc[0].otherNode, inc[1].otherNode, bridgeAttrs);
-            }
-            removedAny = true;
-            changed = true;
-            break;
-        }
-    }
-    return removedAny;
-}
-
-/**
- * Tidy a track's redundant collinear waypoints as an undoable edit. Used
- * when a track is deselected: a node added by double-click but never moved
- * is, by definition, collinear and gets dissolved here. Captures a graph
- * snapshot, runs {@link collapseCollinearTrackNodes}, and only commits a
- * {@link ModifyTrackGraphCommand} when something actually changed.
- *
- * @param {PcbEditor} app
- * @param {Track} track
- * @returns {boolean} true if a cleanup command was committed.
- */
-export function commitCollinearCleanup(app, track) {
-    if (!track?.nodes) return false;
-    const before = track.captureState();
-    if (!collapseCollinearTrackNodes(app, track)) return false;
-    const after = track.captureState();
-    track.applyState(before);
-    app.history.execute(new ModifyTrackGraphCommand(app, track, before, after));
-    refreshTrackSelectionHalo(app);
-    reconcileRatsnest(app);
-    return true;
 }
 
 /**
@@ -594,7 +219,7 @@ export function splitTrackNodeAndDrag(app, track, nodeId) {
     copy.setNodeCornerRadius(newNodeId, copy.nodeCornerRadius(nodeId));
     drag.nodes[0].nodeId = newNodeId;
     drag.splitNodeId = newNodeId;
-    renderTrack(copy, id => app.getLayerGroup(id), _opts(app));
+    renderTrack(copy, id => app.getLayerGroup(id), trackEditRenderOptions(app));
 
     // Float the freshly-detached node under the cursor. The whole split
     // (topology + move) commits atomically via the topology branch in
@@ -641,462 +266,10 @@ export function startMidpointInsertDrag(app, track, edgeId) {
     // halves, so no manual carry-over is needed.
 
     drag.nodes = [{ nodeId: res.newNodeId, startX: mid.x, startY: mid.y, padLink: null }];
-    renderTrack(copy, (id) => app.getLayerGroup(id), _opts(app));
+    renderTrack(copy, (id) => app.getLayerGroup(id), trackEditRenderOptions(app));
     refreshTrackSelectionHalo(app);
     reconcileRatsnest(app);
     return true;
-}
-
-/**
- * Find a node (on any track) coincident with `(x, y)`, other than the
- * dragged node itself. Returns `{track, nodeId}` or null.
- */
-/**
- * A locked track is never a join target: joining would rewrite or delete it.
- * @param {PcbEditor} app
- * @param {Track} track
- */
-const lockedJoinTarget = (app, track) => !!canonicalTrack(app, track)?.locked;
-
-/** @param {PcbEditor} app @param {Track} dragTrack @param {string} dragNodeId @param {number} x @param {number} y */
-function _findCoincidentNode(app, dragTrack, dragNodeId, x, y) {
-    for (const t of (app.tracks || [])) {
-        if (t !== dragTrack && lockedJoinTarget(app, t)) continue;
-        for (const [nid, p] of t.nodes) {
-            if (t === dragTrack && nid === dragNodeId) continue;
-            if (Math.abs(p.x - x) < NODE_MERGE_EPS && Math.abs(p.y - y) < NODE_MERGE_EPS) {
-                return { track: t, nodeId: nid };
-            }
-        }
-    }
-    return null;
-}
-
-/** Set of copper layers of the edges incident to `nodeId` on `track`. */
-/** @param {Track} track @param {string} nodeId */
-function _incidentLayers(track, nodeId) {
-    const layers = new Set();
-    for (const [eid, e] of track.edges) {
-        if (e.from === nodeId || e.to === nodeId) {
-            layers.add(track.getEdgeLayer(eid));
-        }
-    }
-    return layers;
-}
-
-/**
- * Find an existing track node coincident with `(x, y)` that the drawn
- * geometry may fuse into: same net (or one side blank) and carrying an
- * edge on `layer`. Tracks in `exclude` (the freshly drawn ones, not yet
- * committed) are skipped.
- *
- * @param {PcbEditor} app
- * @param {number} x
- * @param {number} y
- * @param {string} net
- * @param {string} layer
- * @param {Iterable<Track>|Set<Track>|null|undefined} exclude
- * @returns {TrackNodeRef|null}
- */
-function _findExistingMergeNode(app, x, y, net, layer, exclude) {
-    const excludeSet = exclude instanceof Set ? exclude : new Set(exclude || []);
-    for (const t of (app.tracks || [])) {
-        if (excludeSet.has(t) || lockedJoinTarget(app, t)) continue;
-        const otherNet = t.net || '';
-        if (net && otherNet && net !== otherNet) continue; // net conflict
-        for (const [nid, p] of t.nodes) {
-            if (Math.abs(p.x - x) >= NODE_MERGE_EPS || Math.abs(p.y - y) >= NODE_MERGE_EPS) continue;
-            // Same copper layer required so we don't silently fuse what
-            // should be a via transition.
-            if (!_incidentLayers(t, nid).has(layer)) continue;
-            return { track: t, nodeId: nid };
-        }
-    }
-    return null;
-}
-
-/** @param {any} bonded @param {any[]} [shapes] */
-function _bondedNets(bonded, shapes = bonded.shapes) {
-    return new Set([...bonded.tracks, ...bonded.vias, ...shapes].map(object => object.net || '')
-        .concat([...bonded.padNets]).filter(Boolean));
-}
-
-
-/** @param {PcbEditor} app @param {any} bonded @param {string} net @param {any[]} [shapes] @param {boolean} [includeTracks] */
-function _buildCopperNetCommands(app, bonded, net, shapes = bonded.shapes, includeTracks = true) {
-    /** @type {any[]} */
-    const commands = [];
-    if (!net) return commands;
-    if (includeTracks) {
-        for (const track of bonded.tracks) {
-            if (track.net) continue;
-            const nodes = bonded.trackNodes.get(track);
-            if (nodes.size === track.nodes.size) {
-                commands.push(new ModifyTrackCommand(app, track, { net: track.net }, { net }));
-            } else {
-                const before = track.captureState();
-                const after = track.extractSubgraph(nodes).captureState();
-                after.net = net;
-                commands.push(new ModifyTrackGraphCommand(app, track, before, after));
-                for (const component of track.connectedComponents()) {
-                    if (![...component].some(node => nodes.has(node))) {
-                        commands.push(new AddTrackCommand(app, track.extractSubgraph(component)));
-                    }
-                }
-            }
-        }
-    }
-    for (const via of bonded.vias) {
-        if (!via.net) commands.push(new ModifyViaCommand(app, via, { net: via.net }, { net }));
-    }
-    for (const pad of app.pads || []) {
-        if (pad.net || !bonded.padKeys.has(`null|${pad.id}`)) continue;
-        const before = pad.captureState();
-        commands.push(new ModifyPadCommand(app, pad, before, { ...before, net }));
-    }
-    for (const shape of shapes) {
-        if (shape.net) continue;
-        if (shape.type === 'fill') {
-            const before = shape.captureState();
-            commands.push(new ModifyFillCommand(app, shape, before, { ...before, net }));
-        } else {
-            const before = captureBoardShapeState(shape);
-            commands.push(new ModifyBoardShapeCommand(app, shape, before, { ...before, net }));
-        }
-    }
-    return commands;
-}
-
-/** Capture Net edits after the move/merge so snapshots reference the final topology. */
-class AdoptDroppedCopperNetCommand {
-    /** @param {PcbEditor} app @param {any} bonded @param {string} net */
-    constructor(app, bonded, net) {
-        this.app = app;
-        this.bonded = bonded;
-        this.net = net;
-        this.command = null;
-    }
-    execute() {
-        if (!this.command) {
-            // Rebind validated contacts to final topology, without rediscovering
-            // crossings or depending on a dropped node that may have been merged.
-            const tracks = new Set();
-            const trackNodes = new Map();
-            for (const [preview, nodes] of this.bonded.trackNodes) {
-                const track = /** @type {Track[]} */ (this.app.tracks).find(candidate => candidate.id === preview.id);
-                if (!track) continue; // Absorbed tracks are now part of the surviving graph.
-                const connected = /** @type {Set<string>[]} */ (track.connectedComponents()).filter(component =>
-                    [...component].some(id => nodes.has(id)));
-                if (!connected.length) continue;
-                tracks.add(track);
-                trackNodes.set(track, new Set(connected.flatMap((/** @param {Set<string>} component */ component) => [...component])));
-            }
-            const vias = new Set();
-            for (const preview of this.bonded.vias) {
-                const via = /** @type {Via[]} */ (this.app.vias).find(candidate => candidate.id === preview.id)
-                    || /** @type {Via[]} */ (this.app.vias).find(candidate => candidate.x === preview.x && candidate.y === preview.y);
-                if (!via) throw new Error('Validated node-drop Via is missing after the geometry command.');
-                vias.add(via);
-            }
-            const bonded = { ...this.bonded, tracks, trackNodes, vias };
-            this.command = new CompoundCommand(_buildCopperNetCommands(this.app, bonded, this.net));
-        }
-        this.command.execute();
-    }
-    undo() { this.command?.undo(); }
-}
-
-/**
- * True if a standalone Via already sits at `(x, y)`.
- * @param {PcbEditor} app
- * @param {number} x
- * @param {number} y
- */
-function _hasViaAt(app, x, y) {
-    return /** @type {Via[]} */ (app.vias || []).some(
-        (v) => Math.abs(v.x - x) < NODE_MERGE_EPS && Math.abs(v.y - y) < NODE_MERGE_EPS);
-}
-
-/**
- * Build a standalone Via at `(x, y)` on `net` using the app's routing params.
- * @param {PcbEditor} app
- * @param {number} x
- * @param {number} y
- * @param {string} net
- */
-function _makeViaAt(app, x, y, net) {
-    const p = /** @type {Partial<RoutingParams>} */ (app.getRoutingParams?.() || {});
-    const viaDiameter = p.viaDiameter;
-    const viaDrill = p.viaDrill;
-    const diameter = typeof viaDiameter === 'number' && Number.isFinite(viaDiameter) && viaDiameter > 0 ? viaDiameter : 0.6;
-    const drill = typeof viaDrill === 'number' && Number.isFinite(viaDrill) && viaDrill > 0 ? viaDrill : 0.3;
-    return new Via({ x, y, diameter, drill, net: net || '' });
-}
-
-/**
- * Re-normalise the whole copper region physically bonded to `seedTrack`
- * into the canonical model and return the minimal command payload to get
- * there. Handles BOTH directions of an edit:
- *
- *  - SPLIT: an edge now jumps layer → the region splits into one
- *    single-layer Track per maximal same-layer connected run, with a
- *    standalone Via added at every position where ≥2 layers now meet.
- *  - MERGE: an edge moved back so a former transition is gone → the two
- *    formerly-separate single-layer Tracks fuse into one and the now
- *    superfluous Via is removed.
- *
- * The region is the set of Tracks reachable from `seedTrack` through
- * coincident node positions (positional bonding — the same premise the
- * ratsnest uses), plus every standalone Via sitting on one of those
- * positions. The region is rebuilt from a single position-keyed multigraph
- * of all its edges: per layer → connected components → one Track each; a
- * via is needed iff a position carries edges of ≥2 distinct layers. Region
- * vias at a still-needed position are KEPT (preserving their diameter/drill);
- * all other region vias are removed as superfluous.
- *
- * A via is required at EVERY layer boundary regardless of copper-ness, so a
- * TOP → SILK → BOTTOM run keeps a via at each boundary.
- *
- * The caller must apply the edge's layer change to `seedTrack` BEFORE calling
- * this (the mutated graph is read here), then restore it to its pre-change
- * state so the returned RemoveTrackCommand captures clean undo.
- *
- * @param {PcbEditor} app
- * @param {import('../../shapes/track.js').Track} seedTrack
- * @returns {{removeTracks: object[], addTracks: object[], removeVias: object[], addVias: object[]}}
- */
-export function reconcileCopperRegion(app, seedTrack) {
-    const EPS = NODE_MERGE_EPS;
-    /** @param {number} x @param {number} y */
-    const key = (x, y) => `${Math.round(x / EPS)}|${Math.round(y / EPS)}`;
-
-    // Index every track node by rounded position for fast coincidence lookup.
-    const nodeIndex = new Map();   // posKey → [{ track }]
-    for (const t of (app.tracks || [])) {
-        for (const [, p] of t.nodes) {
-            const k = key(p.x, p.y);
-            if (!nodeIndex.has(k)) nodeIndex.set(k, []);
-            nodeIndex.get(k).push(t);
-        }
-    }
-
-    // BFS the region of tracks connected through shared positions.
-    const regionTracks = new Set([seedTrack]);
-    const stack = [seedTrack];
-    while (stack.length) {
-        const t = stack.pop();
-        if (!t) continue;
-        for (const [, p] of t.nodes) {
-            for (const other of nodeIndex.get(key(p.x, p.y)) || []) {
-                if (!regionTracks.has(other)) {
-                    regionTracks.add(other);
-                    stack.push(other);
-                }
-            }
-        }
-    }
-
-    // Positions occupied by region copper, and the region's standalone vias.
-    const regionPosSet = new Set();
-    for (const t of regionTracks)
-        for (const [, p] of t.nodes) regionPosSet.add(key(p.x, p.y));
-    const regionVias = /** @type {Via[]} */ (app.vias || []).filter((v) => regionPosSet.has(key(v.x, v.y)));
-
-    // Net for rebuilt copper: first non-empty among region tracks, then vias.
-    let net = '';
-    for (const t of regionTracks) if (t.net) { net = t.net; break; }
-    if (!net) for (const v of regionVias) if (v.net) { net = v.net; break; }
-
-    // Unified position-keyed multigraph of all region edges.
-    const uNodes = new Map();      // posKey → { x, y }
-    const uEdges = [];             // { a, b, layer, width }
-    const padAt = new Map();       // posKey → padConnection
-    const radiusAt = new Map();
-    for (const t of regionTracks) {
-        for (const [nodeId, point] of t.nodes) {
-            const position = key(point.x, point.y);
-            if (!radiusAt.has(position)) radiusAt.set(position, t.nodeCornerRadius(nodeId));
-        }
-        for (const [eid, e] of t.edges) {
-            const pa = t.nodes.get(e.from), pb = t.nodes.get(e.to);
-            const ka = key(pa.x, pa.y), kb = key(pb.x, pb.y);
-            if (!uNodes.has(ka)) uNodes.set(ka, { x: pa.x, y: pa.y });
-            if (!uNodes.has(kb)) uNodes.set(kb, { x: pb.x, y: pb.y });
-            uEdges.push({ a: ka, b: kb, layer: t.getEdgeLayer(eid), width: t.getEdgeWidth(eid), bulge: e.bulge || 0 });
-        }
-        for (const [nid, conn] of t.padConnections) {
-            const p = t.nodes.get(nid);
-            if (p) padAt.set(key(p.x, p.y), { ...conn });
-        }
-    }
-
-    // Per-layer connected components → one fresh single-layer Track each.
-    const addTracks = [];
-    const layers = new Set(uEdges.map((e) => e.layer));
-    for (const layer of layers) {
-        const layerEdges = uEdges.filter((e) => e.layer === layer);
-        const adj = new Map();     // posKey → [posKey]
-        for (const e of layerEdges) {
-            if (!adj.has(e.a)) adj.set(e.a, []);
-            if (!adj.has(e.b)) adj.set(e.b, []);
-            adj.get(e.a).push(e.b);
-            adj.get(e.b).push(e.a);
-        }
-        const seen = new Set();
-        for (const startK of adj.keys()) {
-            if (seen.has(startK)) continue;
-            const compKeys = new Set();
-            const st = [startK];
-            while (st.length) {
-                const k = st.pop();
-                if (compKeys.has(k)) continue;
-                compKeys.add(k);
-                seen.add(k);
-                for (const o of adj.get(k) || []) if (!compKeys.has(o)) st.push(o);
-            }
-            const compWidth = layerEdges.find((e) => compKeys.has(e.a))?.width || seedTrack.width;
-            const sub = new Track({ net, width: compWidth, layer, cornerRadius: seedTrack.cornerRadius });
-            const kToNid = new Map();
-            for (const k of compKeys) {
-                const p = uNodes.get(k);
-                const nn = sub.addNode(p.x, p.y);
-                kToNid.set(k, nn);
-                sub.setNodeCornerRadius(nn, radiusAt.get(k) || 0);
-                if (padAt.has(k)) sub.padConnections.set(nn, { ...padAt.get(k) });
-            }
-            for (const e of layerEdges) {
-                if (!compKeys.has(e.a)) continue;
-                // Carry the per-edge layer and width onto the rebuilt edge so
-                // a component with mixed-width segments keeps each width.
-                sub.addEdge(kToNid.get(e.a), kToNid.get(e.b), { layer, width: e.width, bulge: e.bulge });
-            }
-            addTracks.push(sub);
-        }
-    }
-
-    // Positions where ≥2 distinct layers meet require a via.
-    const layersAt = new Map();    // posKey → Set(layer)
-    for (const e of uEdges) {
-        if (!layersAt.has(e.a)) layersAt.set(e.a, new Set());
-        if (!layersAt.has(e.b)) layersAt.set(e.b, new Set());
-        layersAt.get(e.a).add(e.layer);
-        layersAt.get(e.b).add(e.layer);
-    }
-    const neededViaKeys = new Set();
-    for (const [k, ls] of layersAt) if (ls.size >= 2) neededViaKeys.add(k);
-
-    // Keep region vias still at a needed boundary; remove the rest as
-    // superfluous; add vias at needed boundaries not already covered.
-    const keptKeys = new Set();
-    const removeVias = [];
-    for (const v of regionVias) {
-        const k = key(v.x, v.y);
-        if (neededViaKeys.has(k) && !keptKeys.has(k)) keptKeys.add(k);
-        else removeVias.push(v);
-    }
-    const addVias = [];
-    for (const k of neededViaKeys) {
-        if (keptKeys.has(k)) continue;
-        const p = uNodes.get(k);
-        addVias.push(_makeViaAt(app, p.x, p.y, net));
-    }
-
-    return { removeTracks: [...regionTracks], addTracks, removeVias, addVias };
-}
-
-/** @param {PcbEditor} app @param {VertexDrag} drag */
-function _droppedNodeTarget(app, drag) {
-    const nd = drag.nodes[0];
-    const track = drag.track;
-    const n = track.nodes.get(nd.nodeId);
-    if (!n) return null;
-    // Prefer the node the cursor actually snapped onto during the drag (the
-    // yellow target). Coincidence re-detection is a fallback: with the
-    // screen-pixel node-snap band, a drop can land visually-on but not
-    // bit-exactly on the target, so coincidence alone would miss the merge.
-    if (drag.snapTargetNode
-        && !(drag.snapTargetNode.track === track && drag.snapTargetNode.nodeId === nd.nodeId)
-        && app.tracks?.includes(drag.snapTargetNode.track)
-        && !lockedJoinTarget(app, drag.snapTargetNode.track)
-        && drag.snapTargetNode.track.nodes?.has(drag.snapTargetNode.nodeId)) {
-        return drag.snapTargetNode;
-    }
-    return _findCoincidentNode(app, track, nd.nodeId, n.x, n.y);
-}
-
-/**
- * Same-layer drops fuse nodes; cross-layer drops keep distinct coincident
- * nodes joined by a Via, preserving the single-layer graph-node invariant.
- * Builds canonical commands from the detached graph, or null for a plain move.
- * @param {PcbEditor} app
- * @param {PcbEditor} view
- * @param {VertexDrag} drag
- */
-function droppedNodeCommands(app, view, drag) {
-    const nd = drag.nodes[0];
-    const track = drag.track;
-    const n = track.nodes.get(nd.nodeId);
-    if (!n) return null;
-    let dropX = n.x, dropY = n.y;
-    const target = _droppedNodeTarget(view, drag);
-    if (!target) return null;
-    // Pull the dragged node exactly onto the target so the fused geometry is
-    // bit-coincident regardless of the release position.
-    const tp = target.track.nodes.get(target.nodeId);
-    if (tp) { dropX = tp.x; dropY = tp.y; n.x = tp.x; n.y = tp.y; }
-
-    const netA = track.net || '';
-    const netB = target.track.net || '';
-    if (netA && netB && netA !== netB) {
-        app.alert(`Cannot merge nodes on different nets: "${netA}" and "${netB}".`, { title: 'Net Conflict' });
-        return [];
-    }
-
-    // Does the merge span copper layers? The dragged node and target node
-    // each carry the layer(s) of their incident edges; if they share none,
-    // this is a layer transition (→ keep nodes distinct + bond with a via).
-    const dragLayers = _incidentLayers(track, nd.nodeId);
-    const targetLayers = _incidentLayers(target.track, target.nodeId);
-    let shareLayer = false;
-    for (const l of dragLayers) if (targetLayers.has(l)) { shareLayer = true; break; }
-    const crossLayer = dragLayers.size > 0 && targetLayers.size > 0 && !shareLayer;
-    const needsVia = crossLayer && !_hasViaAt(app, dropX, dropY);
-    const mergedNet = netA || netB;
-
-    const cmds = [];
-    if (crossLayer) {
-        // CROSS-LAYER: do NOT fuse the nodes. Place the dragged node exactly
-        // on the target coordinate so the two single-layer nodes are
-        // coincident, then bond them with a via. Each node keeps only its
-        // own layer's edges, so a later segment drag moves only that layer.
-        const dn = track.nodes.get(nd.nodeId);
-        if (dn) { dn.x = dropX; dn.y = dropY; }
-        if (!track.net && netB) track.net = netB;
-        const after = track.captureState();
-        cmds.push(new ModifyTrackGraphCommand(app, drag.original, drag.before, after));
-        if (needsVia) {
-            cmds.push(new AddViaCommand(app, _makeViaAt(app, dropX, dropY, mergedNet)));
-        }
-    } else if (target.track === track) {
-        // Same track, same layer: collapse the two nodes (keep the target).
-        track.mergeNodes(target.nodeId, nd.nodeId);
-        const after = track.captureState();
-        cmds.push(new ModifyTrackGraphCommand(app, drag.original, drag.before, after));
-    } else {
-        // Cross-track, same layer: pull the other track's graph in, fuse the
-        // shared node into one continuous track, inherit its net if we had
-        // none, then drop the now-empty other track.
-        const remap = track.absorb(target.track);
-        const absorbedNid = remap.get(target.nodeId);
-        const dn = track.nodes.get(nd.nodeId);
-        if (dn) { dn.x = dropX; dn.y = dropY; }
-        if (absorbedNid) track.mergeNodes(nd.nodeId, absorbedNid);
-        if (!track.net && netB) track.net = netB;
-        const after = track.captureState();
-        cmds.push(new RemoveTrackCommand(app, canonicalTrack(app, target.track)));
-        cmds.push(new ModifyTrackGraphCommand(app, drag.original, drag.before, after));
-    }
-    return cmds;
 }
 
 /**
@@ -1201,7 +374,7 @@ export function startVertexDrag(app, track, worldPos, opts = {}) {
     const bridges = [];
     for (const epId of [e.from, e.to]) {
         const n = track.nodes.get(epId);
-        if (!_viaAtPoint(app, n.x, n.y)) continue;
+        if (!viaAtPoint(app, n.x, n.y)) continue;
         bridges.push({ nodeId: epId, attrs: segAttrs });
         // NOTE: the other layer's copper at this via lives on a SEPARATE
         // coincident node (model invariant: one node per layer at a via),
@@ -1249,7 +422,7 @@ export function updateVertexDrag(app, worldPos) {
         if ((edge.bulge || 0) === bulge) return;
         const copy = beginTrackPointerPreview(app, drag);
         copy.setEdgeAttr(drag.edgeId, 'bulge', bulge);
-        renderTrack(copy, layer => app.getLayerGroup(layer), _opts(app));
+        renderTrack(copy, layer => app.getLayerGroup(layer), trackEditRenderOptions(app));
         refreshTrackClearance(app, copy);
         refreshSelectedDrcMarker(app);
         refreshTrackSelectionHalo(app);
@@ -1274,7 +447,7 @@ export function updateVertexDrag(app, worldPos) {
         nodes.forEach((node, index) => Object.assign(drag.track.nodes.get(node.nodeId), points[index]));
         drag.track.invalidate();
         app.viewport?.setCrosshair(points[drag.handle]);
-        renderTrack(drag.track, (id) => app.getLayerGroup(id), _opts(app));
+        renderTrack(drag.track, (id) => app.getLayerGroup(id), trackEditRenderOptions(app));
         refreshTrackClearance(app, drag.track);
         refreshTrackSelectionHalo(app);
         refreshDragRatlines(app, drag.session);
@@ -1322,8 +495,8 @@ export function updateVertexDrag(app, worldPos) {
         const anchor = drag.track.nodes.get(drag.nodes[0]?.nodeId);
         drag.track.invalidate();
         if (anchor) app.viewport?.setCrosshair({ x: anchor.x, y: anchor.y });
-        renderTrackAxisGlow(app, _incidentSegments(drag.track, drag.nodes));
-        renderTrack(drag.track, (id) => app.getLayerGroup(id), _opts(app));
+        renderTrackAxisGlow(app, incidentSegments(drag.track, drag.nodes));
+        renderTrack(drag.track, (id) => app.getLayerGroup(id), trackEditRenderOptions(app));
         refreshTrackClearance(app, drag.track);
         renderTrackAxisGlowTop(app);
         refreshTrackSelectionHalo(app);
@@ -1351,7 +524,7 @@ export function updateVertexDrag(app, worldPos) {
     if (!current) return;
     const snapVia = app.viewport?.shiftHeld
         || snap.snapType === 'pad' || snap.snapType === 'track-node'
-        ? null : _findNearbyVia(app, worldPos);
+        ? null : findNearbyVia(app, worldPos);
     const n = { x: snapVia ? snapVia.x : snap.x, y: snapVia ? snapVia.y : snap.y };
     const previousTarget = drag.snapTargetNode, previousVia = drag.snapTargetVia;
     drag.snapTargetVia = snapVia || snap.pad?.standalonePad || null;
@@ -1393,7 +566,7 @@ export function updateVertexDrag(app, worldPos) {
         //    far segment so the dragged segment lines up straight through
         //    the corner (the across-the-node collinear case). Subtle pull,
         //    same band as the green collinear glow.
-        if (!snapped) snapped = _snapNodeAcrossNeighbour(drag.track, nd.nodeId, rawPos, threshold);
+        if (!snapped) snapped = snapNodeAcrossNeighbour(drag.track, nd.nodeId, rawPos, threshold);
         // 3. Fall back to the per-segment H/V/45° axis snap (same pull band).
         //    Both incident axes are tested independently against the raw
         //    cursor, so an L-pivot can lock H and V at once; unaligned axes
@@ -1428,8 +601,8 @@ export function updateVertexDrag(app, worldPos) {
     }
 
     drag.track.invalidate();
-    renderTrackAxisGlow(app, _incidentSegments(drag.track, drag.nodes));
-    renderTrack(drag.track, (id) => app.getLayerGroup(id), _opts(app));
+    renderTrackAxisGlow(app, incidentSegments(drag.track, drag.nodes));
+    renderTrack(drag.track, (id) => app.getLayerGroup(id), trackEditRenderOptions(app));
     refreshTrackClearance(app, drag.track);
     renderTrackAxisGlowTop(app);
     // Keep the selection halo glued to the new geometry.
@@ -1565,7 +738,7 @@ function _snapSegmentDrag(track, nodes, rawDx, rawDy, threshold) {
  * @param {Array<{nodeId:string}>} nodes
  * @returns {Array<{a:{x:number,y:number}, b:{x:number,y:number}, layerId:string, width:number, collinear:boolean}>}
  */
-function _incidentSegments(track, nodes) {
+export function incidentSegments(track, nodes) {
     const draggedSet = new Set(nodes.map((n) => n.nodeId));
     const segMap = new Map(); // edgeId → segment record (deduped)
     /** @param {string} edgeId */
@@ -1655,7 +828,7 @@ function _incidentSegments(track, nodes) {
  * @param {number} threshold perpendicular pull distance (world mm)
  * @returns {{x:number,y:number}|null}
  */
-function _snapNodeAcrossNeighbour(track, nodeId, pos, threshold) {
+export function snapNodeAcrossNeighbour(track, nodeId, pos, threshold) {
     let best = null;
     let bestDist = Infinity;
     for (const { edgeId, otherNode } of track.incidentEdges(nodeId)) {
@@ -1724,105 +897,6 @@ export function finishVertexDrag(app) {
     }
 }
 
-/** @param {PcbEditor} app @param {PcbEditor} view @param {VertexDrag} drag */
-function trackPointerCommands(app, view, drag) {
-    if (drag.mode === 'bulge') {
-        const edge = drag.track.edges.get(drag.edgeId);
-        if (Number(formatNumberInputValue(edge.bulge)) === 0) edge.bulge = 0;
-        const after = drag.track.captureState();
-        return JSON.stringify(after) === JSON.stringify(drag.before) ? []
-            : [new ModifyTrackGraphCommand(app, drag.original, drag.before, after)];
-    }
-    const moved = /** @type {any[]} */ (drag.nodes).some(nd => {
-        const n = drag.track.nodes.get(nd.nodeId);
-        return n && (Math.abs(n.x - nd.startX) > 1e-6 || Math.abs(n.y - nd.startY) > 1e-6);
-    });
-    if (!moved && (drag.topology || !drag.snapTargetNode)) return [];
-    let netCommand = null;
-    if (drag.mode === 'node' && drag.nodes.length === 1 && (moved || drag.snapTargetNode)) {
-        const nodeId = drag.nodes[0].nodeId;
-        const target = _droppedNodeTarget(view, drag);
-        let prospectiveApp = /** @type {PcbEditor} */ (/** @type {unknown} */ (view));
-        if (target && !drag.topology) {
-            const fromLayers = _incidentLayers(drag.track, nodeId);
-            const toLayers = _incidentLayers(target.track, target.nodeId);
-            const point = target.track.nodes.get(target.nodeId);
-            if (fromLayers.size && toLayers.size && ![...fromLayers].some((/** @param {string} layer */ layer) => toLayers.has(layer))
-                && !_hasViaAt(app, point.x, point.y)) {
-                // Validate the connection the merge will create across layers,
-                // including the transition Via that is not on the board yet.
-                prospectiveApp = /** @type {PcbEditor} */ (/** @type {unknown} */ ({ ...view,
-                    vias: [...(app.vias || []), _makeViaAt(app, point.x, point.y, '')] }));
-            }
-        }
-        const bonded = collectNodeConnections(prospectiveApp,
-            new Map([[drag.track, new Set([nodeId])]]));
-        const nets = _bondedNets(bonded);
-        if (nets.size > 1) {
-            const terminalNet = drag.snapTargetVia?.net;
-            if (drag.track.net && terminalNet && drag.track.net !== terminalNet) {
-                _showTrackViaNetConflict(app, drag.track.net, terminalNet, drag.snapTargetKind);
-            } else showBondedNetConflict(app, nets);
-            return [];
-        }
-        const net = [...nets][0];
-        if (net) netCommand = new AdoptDroppedCopperNetCommand(app, bonded, net);
-    }
-    /** @param {any[]} commands */
-    const withNet = commands => netCommand && commands.length ? [...commands, netCommand] : commands;
-    if (drag.topology) {
-        if (drag.mode !== 'move') collapseCollinearTrackNodes(app, drag.track);
-        if (drag.splitNodeId) {
-            const components = drag.track.connectedComponents();
-            if (components.length > 1) {
-                const movingNodes = /** @type {Set<string>[]} */ (components).find(nodes => nodes.has(drag.splitNodeId));
-                const movingPart = drag.track.extractSubgraph(movingNodes);
-                movingPart.sourceBoardShape = drag.track.sourceBoardShape;
-                const remainder = /** @type {Set<string>[]} */ (components).filter(nodes => nodes !== movingNodes)
-                    .map(nodes => drag.track.extractSubgraph(nodes));
-                const after = movingPart.captureState();
-                return withNet([
-                    new ModifyTrackGraphCommand(app, drag.original, drag.before, after),
-                    ...remainder.map((/** @param {Track} track */ track) => new AddTrackCommand(app, track)),
-                ]);
-            }
-        }
-        const after = drag.track.captureState();
-        return withNet([new ModifyTrackGraphCommand(app, drag.original, drag.before, after)]);
-    }
-
-    // Single-node drop onto another node → merge into one (schematic-style).
-    // A net conflict (two different non-empty nets) is rejected with a dialog.
-    // The merge also fires when the node didn't net-move but snapped onto
-    // another track's node during the drag (`snapTargetNode`): two endpoints
-    // that are already coincident (the visible "join") produce zero net
-    // displacement when one is dragged onto the other, so a `moved`-only gate
-    // would never fuse them.
-    if (drag.mode === 'node' && drag.nodes.length === 1 && (moved || drag.snapTargetNode)) {
-        const merged = droppedNodeCommands(app, view, drag);
-        if (merged) return withNet(merged);
-    }
-
-    /** @type {any[]} */
-    const moves = [];
-    for (const nd of drag.nodes) {
-        const n = drag.track.nodes.get(nd.nodeId);
-        if (!n) continue;
-        if (Math.abs(n.x - nd.startX) > 1e-6 || Math.abs(n.y - nd.startY) > 1e-6) {
-            moves.push({ nodeId: nd.nodeId, fromX: nd.startX, fromY: nd.startY, toX: n.x, toY: n.y });
-        }
-    }
-    if (!moves.length) return [];
-    const collapsed = collapseCollinearTrackNodes(app, drag.track);
-    const after = drag.track.captureState();
-    if (collapsed || JSON.stringify(after.padConnections) !== JSON.stringify(drag.before.padConnections)) {
-        return withNet([new ModifyTrackGraphCommand(app, drag.original, drag.before, after)]);
-    }
-    const moveCmds = moves.map((m) =>
-        new MoveVertexCommand(app, drag.original, m.nodeId, m.fromX, m.fromY, m.toX, m.toY));
-    return withNet(moveCmds);
-}
-
 /**
  * Discard the in-progress drag and restore canonical artwork.
  * @param {PcbEditor} app
@@ -1861,7 +935,7 @@ function endTrackPointer(app, drag, committed) {
         if (drag.preview) {
             removeTrackElements(drag.track);
             if (!committed && present) {
-                renderTrack(drag.original, id => app.getLayerGroup(id), _opts(app, drag.original));
+                renderTrack(drag.original, id => app.getLayerGroup(id), trackEditRenderOptions(app, drag.original));
             }
             refreshTrackSelectionHalo(app);
         }
@@ -1870,350 +944,4 @@ function endTrackPointer(app, drag, committed) {
         if (drag.preview) reconcileRatsnest(app, { skipFillRefresh: !committed });
         if (!isBoardViewRefreshSuspended(app) && drag.preview) refreshBoardView(app);
     }
-}
-
-/* ──────────────────────────── via drag ──────────────────────────── */
-
-/** Screen-px hit tolerance for picking up a Via to drag. */
-const VIA_HIT_PX = 6;
-
-/**
- * Hit-test a Via against the world position. Returns true if the
- * cursor is within the via's annular-ring radius (plus pixel tolerance).
- * @param {PcbEditor} app
- * @param {Via} via
- * @param {Point} worldPos
- * @param {number} [pxTol]
- */
-function _hitVia(app, via, worldPos, pxTol = VIA_HIT_PX) {
-    const scale = app.viewport?.scale || 1;
-    return viaHitTest(via, worldPos, pxTol / scale);
-}
-
-/**
- * Begin a drag on the given (already-selected) Via if the click landed
- * on it. Captures any Track nodes colocated with the via so they drag
- * along — the via acts as a hinge that connected wires follow.
- * @param {PcbEditor} app
- * @param {Via} via
- * @param {Point} worldPos
- */
-export function startViaDrag(app, via, worldPos) {
-    if (!via || !_hitVia(app, via, worldPos)) return false;
-    return startTerminalDrag(app, via, worldPos, 'via');
-}
-
-/**
- * Pads and vias share attached-node movement, snapping and atomic history.
- * @param {PcbEditor} app
- * @param {Pad} pad
- * @param {Point} worldPos
- */
-export function startPadDrag(app, pad, worldPos) {
-    return startTerminalDrag(app, pad, worldPos, 'pad');
-}
-
-/** @param {PcbEditor} app @param {Via|Pad} via @param {Point} worldPos @param {'via'|'pad'} kind */
-function startTerminalDrag(app, via, worldPos, kind) {
-    if (getVertexDrag(app)) finishVertexDrag(app);
-    getPropertyEditor(app, 'track')?.commit();
-    const layers = kind === 'pad' ? padLayers(/** @type {Pad} */ (via)) : ['top-copper', 'bottom-copper'];
-    // Find every Track node at the via's current (x, y). Track endpoints
-    // and layer-change nodes commonly sit exactly on a via.
-    const EPS = 1e-4;
-    const attached = []; // [{track, nodeId, startX, startY}]
-    for (const t of app.tracks || []) {
-        for (const [nid, n] of t.nodes) {
-            if (Math.abs(n.x - via.x) < EPS && Math.abs(n.y - via.y) < EPS) {
-                if (!/** @type {any[]} */ (t.incidentEdges(nid)).some((edge) => layers.includes(t.getEdgeLayer(edge.edgeId)))) continue;
-                attached.push({ track: t, nodeId: nid, startX: n.x, startY: n.y });
-            }
-        }
-    }
-    setPcbInteraction(app, '_viaDrag', {
-        via,
-        original: via,
-        kind,
-        layers,
-        render: kind === 'pad' ? renderPad : renderVia,
-        remove: kind === 'pad' ? removePadElements : removeViaElements,
-        startX: via.x,
-        startY: via.y,
-        grabX: worldPos.x,
-        grabY: worldPos.y,
-        attached,
-        session: beginDragSession(app, { nets: copperNets([via, ...attached.map((/** @param {any} item */ item) => item.track)]) }),
-    });
-    app.viewport?.setCrosshair({ x: via.x, y: via.y });
-    return true;
-}
-
-/** @param {PcbEditor} app @param {VertexDrag} drag */
-function beginTerminalPreview(app, drag) {
-    if (drag.preview) return;
-    const copy = drag.kind === 'pad' ? new Pad({ id: drag.original.id }) : new Via({ id: drag.original.id });
-    copy.applyState(drag.original.captureState());
-    const copies = new Map();
-    const originals = new Map();
-    for (const { track } of drag.attached) {
-        if (copies.has(track)) continue;
-        const copy = new Track({ id: track.id });
-        copy.applyState(track.captureState());
-        copies.set(track, copy);
-        originals.set(copy, track);
-    }
-    const collection = drag.kind === 'pad' ? 'pads' : 'vias';
-    const preview = {
-        tracks: app.pcbDocument.tracks.map((/** @param {Track} track */ track) => copies.get(track) || track),
-        [collection]: app.pcbDocument[collection].map((/** @param {any} item */ item) => item === drag.original ? copy : item),
-        copies, originals,
-    };
-    drag.attached = /** @type {any[]} */ (drag.attached).map((item) => ({
-        ...item, originalTrack: item.track, track: copies.get(item.track),
-    }));
-    drag.preview = preview;
-    drag.via = copy;
-    drag.remove(drag.original);
-    for (const track of copies.keys()) removeTrackElements(track);
-}
-
-/** @param {VertexDrag} drag */
-function removeTerminalPreviewArtwork(drag) {
-    drag.remove(drag.via);
-    for (const copy of drag.preview.copies.values()) removeTrackElements(copy);
-}
-
-/** @param {PcbEditor} app @param {VertexDrag} drag @param {boolean} committed */
-function restoreTerminalArtwork(app, drag, committed) {
-    if (!drag.preview) return;
-    removeTerminalPreviewArtwork(drag);
-    if (!committed) {
-        const collection = drag.kind === 'pad' ? 'pads' : 'vias';
-        /** @param {string} id */
-        const layerGroup = (id) => app.getLayerGroup(id);
-        if (app.pcbDocument[collection].includes(drag.original)) {
-            drag.render(drag.original, layerGroup);
-        }
-        for (const track of drag.preview.copies.keys()) {
-            if (app.pcbDocument.tracks.includes(track)) {
-                renderTrack(track, layerGroup, _opts(app, track));
-            }
-        }
-        refreshTrackSelectionHalo(app);
-        reconcileRatsnest(app, { skipFillRefresh: true });
-    }
-    if (!areDragOverlaysDeferred(app)) {
-        if (!committed) app.refreshClearanceHalos?.();
-    } else {
-        if (drag.kind === 'via') refreshViaClearance(app, drag.original);
-        for (const track of drag.preview.copies.keys()) refreshTrackClearance(app, track);
-    }
-}
-
-/**
- * Update a dragged Via or standalone Pad and its layer-compatible Track nodes.
- * @param {PcbEditor} app
- * @param {Point} worldPos
- */
-export function updateViaDrag(app, worldPos) {
-    const drag = getViaDrag(app);
-    if (!drag) return;
-    const targetPos = {
-        x: drag.startX + worldPos.x - drag.grabX,
-        y: drag.startY + worldPos.y - drag.grabY,
-    };
-    // Skip the via's own attached nodes when snapping — they ride along with
-    // the via, so letting the snap catch them (within the coarse track-node
-    // tolerance) would override the finer grid snap and feel sticky.
-    /** @param {Track} track @param {string} nodeId */
-    const excludeNode = (track, nodeId) =>
-        /** @type {any[]} */ (drag.attached).some((a) => a.track === track && a.nodeId === nodeId)
-        || !track.incidentEdges(nodeId).some((/** @param {any} edge */ edge) => drag.layers.includes(track.getEdgeLayer(edge.edgeId)));
-    const snap = resolveTrackSnap(app, targetPos, {
-        excludeNode,
-        excludePad: drag.kind === 'pad' ? drag.via : null,
-        layer: drag.kind === 'pad' ? drag.via.layers : 'both',
-    });
-    if (drag.kind === 'pad' && snap.snapType !== 'pad' && snap.snapType !== 'track-node') {
-        Object.assign(snap, app.viewport?.getSnappedPosition?.(targetPos) || targetPos);
-    }
-    let pos = { x: snap.x, y: snap.y };
-    const attachedTracks = new Set(/** @type {any[]} */ (drag.attached).map(item => item.track));
-    const trackTarget = app.viewport?.shiftHeld || snap.snapType === 'pad'
-        ? null
-        : snap.snapType === 'track-node'
-            ? { track: snap.trackNode.track, nodeId: snap.trackNode.nodeId,
-                px: snap.trackNode.x, py: snap.trackNode.y }
-            : findSplittableTrackEdge(app, targetPos, 6, { excludeTracks: attachedTracks, layers: drag.layers });
-    if (trackTarget) pos = { x: trackTarget.px, y: trackTarget.py };
-    drag.snapTargetTrack = trackTarget
-        ? { ...trackTarget, track: canonicalTrack(app, trackTarget.track) }
-        : null;
-
-    // Yellow target circle when locked onto a hard copper target.
-    if (snap.snapType === 'pad' || snap.snapType === 'track-node' || trackTarget) {
-        showTrackSnapMarker(app, pos);
-    } else {
-        clearTrackSnapMarker(app);
-    }
-
-    // Axis / collinear snap — match single-node drag so the via aligns onto
-    // H/V/45° axes and straight runs (and lights the same glow). Skip when
-    // the grid snap already locked a hard pad / track-node target. The via's
-    // attached nodes all move with it, so they're excluded as neighbours.
-    if (!app.viewport?.shiftHeld && snap.snapType !== 'pad' && snap.snapType !== 'track-node' && !trackTarget) {
-        const threshold = COLLINEAR_SNAP_SCREEN_PX / (app.viewport?.scale || 1);
-        /** @param {Track} track @param {string} nid */
-        const isAttached = (track, nid) =>
-            /** @type {any[]} */ (drag.attached).some(a => a.track === track && a.nodeId === nid);
-        /** @param {any} a */
-        const neighboursOf = (a) => {
-            const nbs = [];
-            for (const { otherNode } of a.track.incidentEdges(a.nodeId)) {
-                if (isAttached(a.track, otherNode)) continue;
-                const nb = a.track.nodes.get(otherNode);
-                if (nb) nbs.push({ x: nb.x, y: nb.y });
-            }
-            return nbs;
-        };
-        // Measure alignment from the RAW cursor (not the grid-snapped point)
-        // so grid quantisation can't shrink the pull band; unaligned axes
-        // fall back to the grid-snapped position.
-        const rawPos = targetPos;
-        const gridPos = { x: snap.x, y: snap.y };
-        // 1. Collinear straight-run (degree-2) or across-the-corner, per node.
-        let snapped = null;
-        for (const a of drag.attached) {
-            snapped = snapNodeToCollinear(rawPos, neighboursOf(a), threshold);
-            if (snapped) break;
-            snapped = _snapNodeAcrossNeighbour(a.track, a.nodeId, rawPos, threshold);
-            if (snapped) break;
-        }
-        // 2. Fall back to H/V/45° against any attached node's neighbour.
-        if (!snapped) {
-            const allNeighbours = [];
-            for (const a of /** @type {any[]} */ (drag.attached)) allNeighbours.push(...neighboursOf(a));
-            snapped = snapNodeToAxis(rawPos, allNeighbours, threshold, gridPos);
-        }
-        if (snapped) pos = { x: snapped.x, y: snapped.y };
-    }
-
-    app.viewport?.setCrosshair(pos);
-    if (drag.via.x === pos.x && drag.via.y === pos.y) return;
-    beginTerminalPreview(app, drag);
-    drag.via.x = pos.x;
-    drag.via.y = pos.y;
-    // Drag attached track nodes in lock-step.
-    const touched = new Set();
-    for (const a of /** @type {any[]} */ (drag.attached)) {
-        const n = a.track.nodes.get(a.nodeId);
-        if (!n) continue;
-        n.x = pos.x;
-        n.y = pos.y;
-        touched.add(a.track);
-    }
-    for (const track of /** @type {Set<Track>} */ (touched)) track.invalidate();
-    // Build the axis glow from every attached track's incident segments, then
-    // render: glow halos UNDER the copper, centerlines ON TOP (two-pass).
-    const byTrack = new Map();
-    for (const a of /** @type {any[]} */ (drag.attached)) {
-        if (!byTrack.has(a.track)) byTrack.set(a.track, []);
-        byTrack.get(a.track).push({ nodeId: a.nodeId });
-    }
-    const glowSegs = [];
-    for (const [track, nodes] of /** @type {Map<Track, any[]>} */ (byTrack)) glowSegs.push(..._incidentSegments(track, nodes));
-    renderTrackAxisGlow(app, glowSegs);
-    /** @param {string} id */
-    const layerGroup = (id) => app.getLayerGroup(id);
-    for (const t of /** @type {Set<Track>} */ (touched)) {
-        renderTrack(t, layerGroup, _opts(app, t));
-        refreshTrackClearance(app, t);
-    }
-    drag.render(drag.via, layerGroup);
-    if (drag.kind === 'via') refreshViaClearance(app, drag.via);
-    renderTrackAxisGlowTop(app);
-    refreshTrackSelectionHalo(app);
-    refreshDragRatlines(app, drag.session);
-}
-
-/**
- * Commit the in-progress terminal drag. Wraps the Pad/Via move plus every
- * attached track-node move as a single compound history entry.
- * @param {PcbEditor} app
- */
-export function finishViaDrag(app) {
-    const drag = getViaDrag(app);
-    if (!drag) return;
-    setPcbInteraction(app, '_viaDrag', null);
-    releaseDragSession(app, drag.session);
-    app.viewport?.hideCrosshair();
-    clearTrackAxisGlow(app);
-    clearTrackSnapMarker(app);
-    const moved = Math.abs(drag.via.x - drag.startX) > 1e-6
-        || Math.abs(drag.via.y - drag.startY) > 1e-6;
-    let committed = false;
-    try {
-        if (!moved) return;
-        if (drag.snapTargetTrack) {
-            const viaNet = drag.via.net || '';
-            const trackNet = drag.snapTargetTrack.track.net || '';
-            if (viaNet && trackNet && viaNet !== trackNet) {
-                _showTrackViaNetConflict(app, trackNet, viaNet, drag.kind);
-                return;
-            }
-        }
-        const collection = drag.kind === 'pad' ? 'pads' : 'vias';
-        if (!app.pcbDocument[collection].includes(drag.original)) {
-            throw new Error(`Cannot move a missing ${drag.kind}.`);
-        }
-        for (const { originalTrack, nodeId } of /** @type {any[]} */ (drag.attached)) {
-            if (!app.pcbDocument.tracks.includes(originalTrack) || !originalTrack.nodes.has(nodeId)) {
-                throw new Error('Cannot move a missing attached track node.');
-            }
-        }
-        const toX = drag.via.x, toY = drag.via.y;
-        /** @type {any[]} */
-        const cmds = [drag.kind === 'pad'
-            ? new MovePadCommand(app, drag.original, { x: drag.startX, y: drag.startY }, { x: toX, y: toY })
-            : new MoveViaCommand(app, drag.original, drag.startX, drag.startY, toX, toY)];
-        for (const a of /** @type {any[]} */ (drag.attached)) {
-            cmds.push(new MoveVertexCommand(app, a.originalTrack, a.nodeId, a.startX, a.startY, toX, toY));
-        }
-        if (drag.snapTargetTrack) {
-            const { track, edgeId, nodeId } = drag.snapTargetTrack;
-            if (!app.pcbDocument.tracks.includes(track)
-                || (edgeId ? !track.edges.has(edgeId) : !track.nodes.has(nodeId))) {
-                throw new Error('Cannot connect to a missing track target.');
-            }
-            if (edgeId) {
-                const before = track.captureState();
-                const copy = new Track({ id: track.id });
-                copy.applyState(before);
-                copy.splitEdge(edgeId, { x: toX, y: toY });
-                cmds.push(new ModifyTrackGraphCommand(app, track, before, copy.captureState()));
-            }
-        }
-        // Command refreshes must not see both preview and committed track artwork.
-        removeTerminalPreviewArtwork(drag);
-        app.history.execute(new CompoundCommand(cmds));
-        committed = true;
-    } finally {
-        restoreTerminalArtwork(app, drag, committed);
-    }
-    reconcileRatsnest(app);
-}
-
-/**
- * Abort the in-progress Pad/Via drag and restore the terminal and Track nodes.
- * @param {PcbEditor} app
- */
-export function cancelViaDrag(app) {
-    const drag = getViaDrag(app);
-    if (!drag) return;
-    setPcbInteraction(app, '_viaDrag', null);
-    releaseDragSession(app, drag.session);
-    app.viewport?.hideCrosshair();
-    clearTrackAxisGlow(app);
-    clearTrackSnapMarker(app);
-    restoreTerminalArtwork(app, drag, false);
 }

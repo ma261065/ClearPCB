@@ -19,25 +19,10 @@ import { buildTrackLayerRuns, removeTrackElements, removeViaElements, renderTrac
 import { reconcileRatsnest } from './ratsnest.js';
 import { collectBondedCopper } from './track-connections.js';
 import { copperBoardWith } from './track-connections.js';
-import {
-    hitTestTrackEdge,
-    deleteTrackSegment,
-    hitTestTrackNode,
-    splitTrackNodeAndDrag,
-    deleteTrackNode,
-    reconcileCopperRegion,
-    startViaDrag,
-    updateViaDrag,
-    finishViaDrag,
-    cancelViaDrag,
-    startVertexDrag,
-    startTrackBulgeDrag,
-    updateVertexDrag,
-    finishVertexDrag,
-    cancelVertexDrag,
-    getVertexDrag,
-    isDraggingTrack,
-} from './track-drag.js';
+import { hitTestTrackEdge, deleteTrackSegment, hitTestTrackNode, deleteTrackNode } from './track-edits.js';
+import { splitTrackNodeAndDrag, startVertexDrag, startTrackBulgeDrag, updateVertexDrag, finishVertexDrag, cancelVertexDrag, getVertexDrag, isDraggingTrack } from './track-drag.js';
+import { reconcileCopperRegion } from './track-drop.js';
+import { startViaDrag, updateViaDrag, finishViaDrag, cancelViaDrag } from './terminal-drag.js';
 import {
     RemoveTrackCommand,
     RemoveViaCommand,

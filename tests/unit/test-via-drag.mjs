@@ -39,16 +39,8 @@ const {
     applyPlacementPose,
 } = await import('../../src/pcb/modules/track-commands.js');
 const { beginGroupDrag, updateGroupDrag, cancelGroupDrag, endGroupDrag } = await import('../../src/pcb/modules/box-select.js');
-const {
-    startVertexDrag,
-    updateVertexDrag,
-    finishVertexDrag,
-    cancelVertexDrag,
-    startViaDrag,
-    updateViaDrag,
-    finishViaDrag,
-    cancelViaDrag,
-} = await import('../../src/pcb/modules/track-drag.js');
+const { startVertexDrag, updateVertexDrag, finishVertexDrag, cancelVertexDrag } = await import('../../src/pcb/modules/track-drag.js');
+const { startViaDrag, updateViaDrag, finishViaDrag, cancelViaDrag } = await import('../../src/pcb/modules/terminal-drag.js');
 
 let failures = 0;
 

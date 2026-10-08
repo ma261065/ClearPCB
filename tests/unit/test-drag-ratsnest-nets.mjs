@@ -8,8 +8,8 @@ const { setEditorActive } = await import('../../src/pcb/modules/pcb-editor-api.j
 const { reconcileRatsnest } = await import('../../src/pcb/modules/ratsnest.js');
 const { storedDrcRatlines } = await import('../../src/pcb/modules/drc-state.js');
 const { setDragOverlaysDeferred } = await import('../../src/pcb/modules/refresh-state.js');
-const { startVertexDrag, updateVertexDrag, cancelVertexDrag, startViaDrag, startPadDrag, updateViaDrag,
-    cancelViaDrag } = await import('../../src/pcb/modules/track-drag.js');
+const { startVertexDrag, updateVertexDrag, cancelVertexDrag } = await import('../../src/pcb/modules/track-drag.js');
+const { startViaDrag, startPadDrag, updateViaDrag, cancelViaDrag } = await import('../../src/pcb/modules/terminal-drag.js');
 const { Track } = await import('../../src/shapes/track.js');
 const { Via } = await import('../../src/shapes/via.js');
 const { Pad } = await import('../../src/shapes/pad.js');

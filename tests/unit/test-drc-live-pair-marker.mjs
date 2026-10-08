@@ -16,8 +16,7 @@ globalThis.requestAnimationFrame = () => 0;
 globalThis.cancelAnimationFrame = () => {};
 const { runDRC, resolveDrcPairMarker } = await import('../../src/pcb/modules/drc.js');
 const { default: PCBApp } = await import('../../src/ui/PCBApp.js');
-const { startVertexDrag, updateVertexDrag, cancelVertexDrag, finishVertexDrag } =
-    await import('../../src/pcb/modules/track-drag.js');
+const { startVertexDrag, updateVertexDrag, cancelVertexDrag, finishVertexDrag } = await import('../../src/pcb/modules/track-drag.js');
 
 const rules = { clearance: 0.2 };
 const board = () => ({

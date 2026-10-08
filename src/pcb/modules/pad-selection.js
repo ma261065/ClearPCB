@@ -9,7 +9,7 @@ import {
     ModifyPadCommand, getPadRotationPreview, beginPadRotationPreview, previewPadRotation, finishPadRotationPreview,
     canonicalPad, displayedPad,
 } from './pad-commands.js';
-import { startPadDrag, updateViaDrag, finishViaDrag, cancelViaDrag } from './track-drag.js';
+import { startPadDrag, updateViaDrag, finishViaDrag, cancelViaDrag } from './terminal-drag.js';
 import { getPropertyEditor } from './property-editors.js';
 import { areDragOverlaysDeferred } from './refresh-state.js';
 /** @typedef {import('./pcb-editor-api.js').PcbEditor} PcbEditor */

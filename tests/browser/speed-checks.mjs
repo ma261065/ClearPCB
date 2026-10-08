@@ -150,9 +150,10 @@ export const scenarios = [
                     }
                 }));
                 assert.ok(await waitForPage(page, kind => Promise.all([import('/src/pcb/modules/track-drag.js'),
-                    import('/src/pcb/modules/board-shapes.js')]).then(([drags, shapes]) => {
+                    import('/src/pcb/modules/terminal-drag.js'), import('/src/pcb/modules/board-shapes.js')])
+                    .then(([drags, terminals, shapes]) => {
                     const app = window.bootstrap.pcbApp;
-                    const drag = kind === 'via' ? drags.getViaDrag(app) : kind === 'track' ? drags.getVertexDrag(app)
+                    const drag = kind === 'via' ? terminals.getViaDrag(app) : kind === 'track' ? drags.getVertexDrag(app)
                         : shapes.getBoardShapeDrag(app);
                     return !!drag?.preview && (kind !== 'pour' || drag.original.type === 'fill');
                 }), kind, { timeout: 5000 }), `${name}: the press started a ${kind} drag that moved copper`);

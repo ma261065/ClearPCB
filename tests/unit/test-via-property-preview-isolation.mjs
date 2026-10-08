@@ -15,7 +15,7 @@ import { PCB_LAYERS, notifyLayerVisibilityChanged, notifyLayerLockChanged } from
 import { getPropertyEditor } from '../../src/pcb/modules/property-editors.js';
 import { renderPropertyFields } from '../../src/shared/ui/property-fields.js';
 import { flushSettledChanges } from '../../src/shared/ui/settled-input.js';
-import { getViaDrag } from '../../src/pcb/modules/track-drag.js';
+import { getViaDrag } from '../../src/pcb/modules/terminal-drag.js';
 import { fakeElement, installFakeDom } from './helpers/fake-dom.mjs';
 
 let allocations = 0, frameId = 0, inputs = new Map();

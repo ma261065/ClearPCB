@@ -4,7 +4,8 @@ import { beginGroupDrag, updateGroupDrag, endGroupDrag, cancelGroupDrag, clearBo
 import { clearCursorCrosshair } from './cursor-state.js';
 import { getBoardDimensionPreview, endBoardOutlineResize, finishBoardDimensionPreview, getBoardOutlineResize } from './board-outline-resize.js';
 import { getBoardShapeDrag, getBoardShapeRotationPreview, finishBoardShapeRotationPreview, endBoardShapeDrag, deleteFocusedBoardShape } from './board-shapes.js';
-import { cancelVertexDrag, cancelViaDrag, getVertexDrag, getViaDrag, setSegmentClickEdgeId } from './track-drag.js';
+import { cancelVertexDrag, getVertexDrag, setSegmentClickEdgeId } from './track-drag.js';
+import { cancelViaDrag, getViaDrag } from './terminal-drag.js';
 import { getPcbSelection, getPcbSelectionEntries } from './selection-registry.js';
 import { getSelectedTrack, getSelectedVia, clearTrackSelection, deleteSelectedTrack, getTrackEdit } from './track-select.js';
 import { canEditFill, deleteFocusedFillPart } from './copper-fill-edit.js';

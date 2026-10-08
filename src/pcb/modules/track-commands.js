@@ -53,7 +53,8 @@ import {
     ModifyViasCommand as ModelModifyViasCommand,
     MoveViaCommand as ModelMoveViaCommand,
 } from '../../core/pcb-via-commands.js';
-import { cancelTrackDragOf, draggedTrack, draggedVia } from './track-drag.js';
+import { cancelTrackDragOf, draggedTrack } from './track-drag.js';
+import { draggedVia } from './terminal-drag.js';
 import { getPropertyEditor } from './property-editors.js';
 import { areDragOverlaysDeferred, refreshBoardView } from './refresh-state.js';
 import { getPadHaloGroup } from './clearance-overlay.js';

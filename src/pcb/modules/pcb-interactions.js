@@ -32,7 +32,7 @@ export const PCB_INTERACTIONS = Object.freeze([
     { key: '_shapeDrag', category: 'gesture', blocksExport: true, owner: 'board-shapes.js' },
     { key: '_refDrag', category: 'gesture', blocksExport: false, owner: 'ref-text-selection.js' },
     { key: '_vertexDrag', category: 'gesture', blocksExport: true, owner: 'track-drag.js' },
-    { key: '_viaDrag', category: 'gesture', blocksExport: true, owner: 'track-drag.js' },
+    { key: '_viaDrag', category: 'gesture', blocksExport: true, owner: 'terminal-drag.js' },
     { key: '_trackDraw', category: 'drawing', blocksExport: false, owner: 'track-draw.js' },
     { key: '_fillDraw', category: 'drawing', blocksExport: false, owner: 'copper-fill-draw.js' },
     { key: '_shapeDraw', category: 'drawing', blocksExport: false, owner: 'board-shapes.js' },

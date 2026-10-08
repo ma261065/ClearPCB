@@ -43,9 +43,7 @@ import { renderTrack, renderVia, removeTrackElements, removeViaElements } from '
 import { refreshTrackDrawPreview } from '../pcb/modules/track-draw.js';
 import { reconcileRatsnest } from '../pcb/modules/ratsnest.js';
 import { refreshTrackSelectionHalo, getSelectedTrack, getSelectedVia, dismissTrackContextMenu, trackIsSelectable } from '../pcb/modules/track-select.js';
-import {
-    getVertexDrag,
-} from '../pcb/modules/track-drag.js';
+import { getVertexDrag } from '../pcb/modules/track-drag.js';
 import { AddTrackCommand, ReplaceRoutesCommand, renderRoutedCopper, RotatePlacementCommand, SetPlacementLockedCommand, FlipPlacementCommand, SetPlacementSideCommand, SetPlacementRefVisibleCommand, renderPlacementPose, renderPlacementSide, applyPlacementRefVisible, placementTransform } from '../pcb/modules/track-commands.js';
 import { serializePcbText } from '../core/pcb-text.js';
 import { RemoveTextCommand, EditTextCommand } from '../pcb/modules/text-commands.js';

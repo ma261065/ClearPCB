@@ -57,7 +57,7 @@ assert.deepEqual(via.getBounds(), viaBounds(via), 'Direct previews need no rende
 const { createViaSelectionAdapter, hitTestTrack, hitTestLockedTrack } = await import('../../src/pcb/modules/track-select.js');
 const { pointInBoxSelection, armBoxSelect, maybeStartBoxSelect, finishBoxSelect } = await import('../../src/pcb/modules/box-select.js');
 const { setPcbSelection, getPcbSelection } = await import('../../src/pcb/modules/selection-registry.js');
-const { startViaDrag, cancelViaDrag } = await import('../../src/pcb/modules/track-drag.js');
+const { startViaDrag, cancelViaDrag } = await import('../../src/pcb/modules/terminal-drag.js');
 const { PCB_LAYERS } = await import('../../src/pcb/modules/layers.js');
 const viaLayer = PCB_LAYERS.find(layer => layer.id === 'vias');
 const layerState = { visible: viaLayer.visible, locked: viaLayer.locked };

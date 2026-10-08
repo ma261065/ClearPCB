@@ -19,7 +19,8 @@ import { getPadPropertyPreview, getPadRotationPreview } from './pad-commands.js'
 import { getPcbPastePreview } from './pcb-paste.js';
 import { getTextPosePreviewTexts } from './text-commands.js';
 import { getPlacementPreviewTracks, getTrackPropertyPreview, getViaPropertyPreview } from './track-commands.js';
-import { getVertexDrag, getViaDrag } from './track-drag.js';
+import { getVertexDrag } from './track-drag.js';
+import { getViaDrag } from './terminal-drag.js';
 /** @typedef {import('./pcb-editor-api.js').PcbEditor} PcbEditor */
 
 /** @typedef {'tracks'|'vias'|'pads'|'texts'|'boardShapes'} DisplayedCollection */

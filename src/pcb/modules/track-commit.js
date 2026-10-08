@@ -5,26 +5,14 @@ import { ModifyFillCommand } from './copper-fill-commands.js';
 import { ModifyBoardShapeCommand } from './shape-commands.js';
 import { captureBoardShapeState } from './board-shapes.js';
 import { Track } from '../../shapes/track.js';
+import { viaAtPoint } from './track-edits.js';
+import { NODE_MERGE_EPS } from './track-drop.js';
 /** @typedef {import('./pcb-editor-api.js').PcbEditor} PcbEditor */
 /** @typedef {import('../../shapes/via.js').Via} Via */
 /** @typedef {import('../../core/CommandHistory.js').HistoryCommand} HistoryCommand */
 /** @typedef {import('../../core/netlist.js').NetShape} NetShape */
 /** @typedef {import('./track-connections.js').BondedCopper} BondedCopper */
 
-const VIA_NODE_EPS = 1e-4;
-const NODE_MERGE_EPS = 1e-3;
-/**
- * True if any standalone Via sits on `(x, y)`.
- * @param {PcbEditor} app
- * @param {number} x
- * @param {number} y
- */
-function _viaAtPoint(app, x, y) {
-    for (const via of (app.vias || [])) {
-        if (Math.abs(via.x - x) < VIA_NODE_EPS && Math.abs(via.y - y) < VIA_NODE_EPS) return true;
-    }
-    return false;
-}
 
 /**
  * Dissolve redundant collinear waypoints from a track: any degree-2 node
@@ -49,7 +37,7 @@ export function collapseCollinearTrackNodes(app, track) {
         for (const [nid, pos] of track.nodes) {
             if (track.degree(nid) !== 2) continue;
             if (track.padConnections.has(nid)) continue;   // pad anchor
-            if (_viaAtPoint(app, pos.x, pos.y)) continue;  // via / layer change
+            if (viaAtPoint(app, pos.x, pos.y)) continue;  // via / layer change
             const inc = track.incidentEdges(nid);
             if (inc.length !== 2) continue;
             if (inc.some(({ edgeId }) => track.getEdgeAttr(edgeId, 'bulge'))) continue;
