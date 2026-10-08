@@ -1,6 +1,6 @@
 {
   "typescript": "5.9.3",
-  "total": 3,
+  "total": 0,
   "cleanFolders": [
     "src/core",
     "src/components",
@@ -10,7 +10,5 @@
     "src/shapes",
     "src/shared/3d"
   ],
-  "files": {
-    "src/shared/pcb/board-shape-geometry.js": 3
-  }
+  "files": {}
 }

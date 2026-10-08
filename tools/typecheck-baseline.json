@@ -1,7 +1,5 @@
 {
   "typescript": "5.9.3",
-  "total": 3,
-  "files": {
-    "src/shared/pcb/board-shape-geometry.js": 3
-  }
+  "total": 0,
+  "files": {}
 }
