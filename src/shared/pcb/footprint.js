@@ -9,6 +9,20 @@
 import { MASK_EXPANSION } from './board-geometry.js';
 import { layoutReferenceText, referenceAnchor, REF_DEFAULT_SIZE, REF_DEFAULT_STROKE } from './reference-text.js';
 
+/** @typedef {{x:number, y:number, width:number, height:number}} FootprintBox */
+/** @typedef {'top'|'bottom'|'both'} PadLayer */
+/** @typedef {'rect'|'ellipse'|'oval'} PadShape */
+/** @typedef {'top'|'bottom'} FootprintSide */
+/** @typedef {'top-copper'|'bottom-copper'|'top-silk'|'bottom-silk'|'top-paste'|'bottom-paste'|'top-mask'|'bottom-mask'|'top-document'|'bottom-document'|'board-outline'|'hole'} FootprintLayer */
+/** @typedef {{number:string, x:number, y:number, width:number, height:number, shape:PadShape, drill:number, slotLength:number, slotAngle:number, layer:PadLayer, mask:boolean, paste:boolean}} FootprintPad */
+/** @typedef {{x:number, y:number, width:number, height:number, shape:PadShape, side:FootprintSide}} PasteAperture */
+/** @typedef {{type:'line', x1:number, y1:number, x2:number, y2:number, strokeWidth:number, layer:FootprintLayer, filled?:boolean}} FootprintLine */
+/** @typedef {{type:'circle', cx:number, cy:number, r:number, strokeWidth:number, layer:FootprintLayer, filled?:boolean}} FootprintCircle */
+/** @typedef {{type:'path', d:string, strokeWidth:number, layer:FootprintLayer, filled?:boolean}} FootprintPath */
+/** @typedef {FootprintLine|FootprintCircle|FootprintPath} FootprintGraphic */
+/** @typedef {{dx:number, dy:number, rotation:number, z:number}} FootprintModel3d */
+/** @typedef {{pads:FootprintPad[], silks:FootprintGraphic[], outline:FootprintBox|null, courtyard:FootprintBox|null, pasteApertures?:PasteAperture[], model3d?:FootprintModel3d|null}} FootprintGeometry */
+
 const NS = 'http://www.w3.org/2000/svg';
 /** @type {WeakMap<SVGGElement, {ref:string, cxRef:number, baseY:number, size:number, strokeWidth:number}>} */
 const referenceGeometry = new WeakMap();
@@ -68,7 +82,7 @@ export function applyRefGeometry(refGroup, ref, cxRef, baseY, size, strokeWidth)
  * @param {string[]|null} [footprintShapes] - Real pad data (PAD~TYPE~x~y~w~h~num)
  * @param {object|null} [footprintBBox] - Bounding box {x, y, width, height}
  * @param {string} [source] - Component source ('EasyEDA', 'LCSC', 'KiCad', 'Built-in')
- * @returns {{pads: Array, silks: Array, outline: object|null, courtyard: object|null, pasteApertures?: Array, model3d?: {dx:number, dy:number, rotation:number, z:number}|null}}
+ * @returns {FootprintGeometry}
  */
 export function generateFootprint(_footprintName, _pins, footprintShapes, footprintBBox, source) {
     if (!Array.isArray(footprintShapes) || footprintShapes.length === 0) {
@@ -94,14 +108,16 @@ export function generateFootprint(_footprintName, _pins, footprintShapes, footpr
  *   for EasyEDA sources which are auto-scaled).
  *
  * @param {string[]} shapes - Array of PAD~ strings
- * @param {object|null} bbox - Optional bounding box from source
+ * @param {object|null|undefined} bbox - Optional bounding box from source
  * @param {string} [source] - Component source ('EasyEDA', 'LCSC', 'KiCad', 'Built-in')
- * @returns {{pads: Array, silks: Array, outline: object|null, courtyard: object|null, pasteApertures?: Array, model3d?: {dx:number, dy:number, rotation:number, z:number}|null}}
+ * @returns {FootprintGeometry}
  */
 function generateFromShapes(shapes, bbox, source) {
+    /** @type {FootprintPad[]} */
     const pads = [];
+    /** @type {FootprintGraphic[]} */
     const silks = [];
-    /** Paste-only stencil apertures (no copper): {x,y,width,height,shape,side} */
+    /** @type {PasteAperture[]} Paste-only stencil apertures (no copper): {x,y,width,height,shape,side} */
     const pasteApertures = [];
     let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
     // Separate bounding box of the copper PADS only. The footprint is centred on
@@ -115,6 +131,7 @@ function generateFromShapes(shapes, bbox, source) {
 
     // Debug: log all shape prefixes for EasyEDA components
     if (isEasyEDA && typeof console !== 'undefined') {
+        /** @type {Record<string, number>} */
         const prefixes = {};
         for (const s of shapes) {
             const p = typeof s === 'string' ? s.split('~')[0] : typeof s;
@@ -194,6 +211,7 @@ function generateFromShapes(shapes, bbox, source) {
             const rot = String(at.c_rotation || '0,0,0').split(',').map(Number);
             // Bounding box of the outline geometry, in raw footprint units.
             let oMinX = Infinity, oMinY = Infinity, oMaxX = -Infinity, oMaxY = -Infinity;
+            /** @param {string} str */
             const accPts = (str) => {
                 const n = String(str).trim().split(/[\s,]+/).map(Number);
                 for (let i = 0; i + 1 < n.length; i += 2) {
@@ -202,11 +220,13 @@ function generateFromShapes(shapes, bbox, source) {
                     oMinY = Math.min(oMinY, n[i + 1]); oMaxY = Math.max(oMaxY, n[i + 1]);
                 }
             };
+            /** @param {unknown} node */
             const walk = (node) => {
                 if (!node || typeof node !== 'object') return;
                 if (Array.isArray(node)) { node.forEach(walk); return; }
-                if (node.attrs && typeof node.attrs.points === 'string') accPts(node.attrs.points);
-                if (Array.isArray(node.childNodes)) node.childNodes.forEach(walk);
+                const svgNode = /** @type {{attrs?:{points?:unknown}, childNodes?:unknown[]}} */ (node);
+                if (svgNode.attrs && typeof svgNode.attrs.points === 'string') accPts(svgNode.attrs.points);
+                if (Array.isArray(svgNode.childNodes)) svgNode.childNodes.forEach(walk);
             };
             walk(svg);
             const hasOutline = oMaxX > oMinX;
@@ -247,7 +267,7 @@ function generateFromShapes(shapes, bbox, source) {
      *   13 = F.Fab (fabrication)   14 = B.Fab (fabrication)
      *   99/100/101 = EasyEDA Pro component shape/lead/marking layers
      * @param {number} code
-     * @returns {string|null}
+     * @returns {FootprintLayer|null}
      */
     const eeShapeLayer = (code) => {
         if (code === 1) return 'top-copper';
@@ -266,6 +286,10 @@ function generateFromShapes(shapes, bbox, source) {
         return null;
     };
 
+    /**
+     * @param {FootprintGraphic} graphic
+     * @param {number} code
+     */
     const appendShape = (graphic, code) => {
         silks.push(graphic);
         if (code === 12) silks.push({ ...graphic, layer: 'bottom-document' });
@@ -300,6 +324,7 @@ function generateFromShapes(shapes, bbox, source) {
             // Pad layer naming convention: 'top' | 'bottom' | 'both'
             // (compact form used throughout the routing + gerber pipelines).
             // Tracks/edges use the long form 'top-copper'/'bottom-copper'.
+            /** @type {PadLayer} */
             let padLayer = 'top';
             if (isEasyEDA) {
                 const layerCode = parseInt(parts[6], 10);
@@ -360,6 +385,7 @@ function generateFromShapes(shapes, bbox, source) {
             // POLYGON pads are fairly rare; we conservatively treat them as
             // their bounding rectangle for both rendering and routing — the
             // polygon outline (field [10]) is not yet consumed.
+            /** @type {PadShape} */
             let canonicalShape;
             switch (padType) {
                 case 'ELLIPSE': canonicalShape = 'ellipse'; break;
@@ -403,6 +429,7 @@ function generateFromShapes(shapes, bbox, source) {
             const side = parts[6] === 'bottom' ? 'bottom' : 'top';
             if (!Number.isFinite(cx) || !Number.isFinite(cy) ||
                 !Number.isFinite(w)  || !Number.isFinite(h)) continue;
+            /** @type {PadShape} */
             let canonicalShape;
             switch (padType) {
                 case 'ELLIPSE': canonicalShape = 'ellipse'; break;
@@ -693,6 +720,15 @@ function generateFromShapes(shapes, bbox, source) {
     const sw = 0.1;
 
     /** Push a filled pad-shaped opening onto `silks` for the given layer. */
+    /**
+     * @param {number} px
+     * @param {number} py
+     * @param {number} pw
+     * @param {number} ph
+     * @param {PadShape} padShape
+     * @param {number} exp
+     * @param {FootprintLayer} layerId
+     */
     const emitFilledOpening = (px, py, pw, ph, padShape, exp, layerId) => {
         if (padShape === 'ellipse') {
             silks.push({ type: 'circle', cx: px, cy: py,
@@ -725,9 +761,9 @@ function generateFromShapes(shapes, bbox, source) {
 
         // A pad only contributes paste/mask openings on the layers it
         // actually lists (KiCad). Absent flags (EasyEDA) default to true.
-        for (const side of (isTop ? ['top'] : []).concat(isBottom ? ['bottom'] : [])) {
-            if (pad.paste !== false) emitFilledOpening(pad.x, pad.y, pad.width, pad.height, pad.shape, 0, `${side}-paste`);
-            if (pad.mask !== false) emitFilledOpening(pad.x, pad.y, pad.width, pad.height, pad.shape, MASK_EXPANSION, `${side}-mask`);
+        for (const side of /** @type {FootprintSide[]} */ ((isTop ? ['top'] : []).concat(isBottom ? ['bottom'] : []))) {
+            if (pad.paste !== false) emitFilledOpening(pad.x, pad.y, pad.width, pad.height, pad.shape, 0, /** @type {FootprintLayer} */ (`${side}-paste`));
+            if (pad.mask !== false) emitFilledOpening(pad.x, pad.y, pad.width, pad.height, pad.shape, MASK_EXPANSION, /** @type {FootprintLayer} */ (`${side}-mask`));
         }
     }
 
@@ -852,7 +888,7 @@ function _offsetPath(d, dx, dy) {
 /**
  * Render a footprint's elements into per-layer SVG groups.
  *
- * @param {object} fp    - Footprint geometry from generateFootprint()
+ * @param {FootprintGeometry} fp - Footprint geometry from generateFootprint()
  * @param {string} ref   - Reference designator (e.g. 'R1')
  * @param {number} x     - World X position
  * @param {number} y     - World Y position
@@ -863,6 +899,7 @@ export function renderFootprint(fp, ref, x, y, rotation = 0) {
     /** @type {Map<string, SVGGElement>} */
     const layers = new Map();
 
+    /** @param {string} layerId */
     const getLayer = (layerId) => {
         let g = layers.get(layerId);
         if (!g) {
@@ -878,6 +915,7 @@ export function renderFootprint(fp, ref, x, y, rotation = 0) {
         return g;
     };
 
+    /** @type {Record<string, string>} */
     const layerColors = {
         'top-copper': '#e74c3c',
         'bottom-copper': '#3498db',
@@ -896,10 +934,10 @@ export function renderFootprint(fp, ref, x, y, rotation = 0) {
     // Silk outline (fallback bounding box when no real silk data)
     if (fp.outline && (!fp.silks || fp.silks.length === 0)) {
         const ol = document.createElementNS(NS, 'rect');
-        ol.setAttribute('x', fp.outline.x);
-        ol.setAttribute('y', fp.outline.y);
-        ol.setAttribute('width', fp.outline.width);
-        ol.setAttribute('height', fp.outline.height);
+        ol.setAttribute('x', String(fp.outline.x));
+        ol.setAttribute('y', String(fp.outline.y));
+        ol.setAttribute('width', String(fp.outline.width));
+        ol.setAttribute('height', String(fp.outline.height));
         ol.setAttribute('fill', 'none');
         ol.setAttribute('stroke', '#f0e68c');
         ol.setAttribute('stroke-width', '0.15');

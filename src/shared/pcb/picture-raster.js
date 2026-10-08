@@ -1,10 +1,32 @@
 import ClipperLib from '../../../assets/vendor/clipper.esm.js';
 import earcut from '../../../assets/vendor/earcut.module.js';
 
+/** @typedef {import('../../core/geometry.js').Point} Point */
+/** @typedef {{x:number, y:number, width:number, height:number}} PictureRectangle */
+/** @typedef {{x:number, y:number, radius:number}} PictureCircle */
+/** @typedef {{width:number, height:number, invert?:boolean, flipHorizontal?:boolean, flipVertical?:boolean, rectangles:PictureRectangle[], contours?:undefined, circles?:undefined}} PictureRectangleArtwork */
+/** @typedef {{width:number, height:number, invert?:boolean, flipHorizontal?:boolean, flipVertical?:boolean, contours:Point[][], rectangles?:undefined, circles?:undefined}} PictureContourArtwork */
+/** @typedef {{width:number, height:number, invert?:boolean, flipHorizontal?:boolean, flipVertical?:boolean, circles:PictureCircle[], rectangles?:undefined, contours?:undefined}} PictureCircleArtwork */
+/** @typedef {PictureRectangleArtwork|PictureContourArtwork|PictureCircleArtwork} PictureArtwork */
+/** @typedef {Record<string, unknown> & {width?:unknown, height?:unknown, rectangles?:unknown, contours?:unknown, circles?:unknown, invert?:unknown, flipHorizontal?:unknown, flipVertical?:unknown}} PictureArtworkCandidate */
+/** @typedef {{width:number, height:number, rectangles:PictureRectangle[], contours?:Point[][], circles?:PictureCircle[]}} PictureRaster */
+/** @typedef {{kind?:'image', name?:string, layer?:string, artwork:PictureArtwork, points:Point[]}} PictureShape */
+/** @typedef {{outer:Point[], holes:Point[][]}} PictureRegion */
+/** @typedef {{regions:PictureRegion[], triangles:null|Point[][]}} MergedArtwork */
+/** @typedef {{artwork:PictureArtwork, key:string, regions:PictureRegion[], contours:Point[][], triangles:null|Point[][], map:(point:Point)=>Point}} PictureGeometry */
+/** @typedef {{data:Uint8ClampedArray|Uint8Array|number[], width:number, height:number}} PicturePixelData */
+/** @typedef {{threshold?:number, invert?:boolean, maskOnly?:boolean}} RasterizePictureOptions */
+/** @typedef {{width:number, height:number, mask:Uint8Array, rectangles:PictureRectangle[]}} PictureRasterization */
+
+/** @type {WeakMap<PictureArtwork, MergedArtwork>} */
 const artworkCache = new WeakMap();
+/** @type {WeakMap<PictureShape, PictureGeometry>} */
 const geometryCache = new WeakMap();
+/** @type {WeakMap<PictureArtwork, boolean>} */
 const nativeCircleCache = new WeakMap();
+/** @type {WeakMap<PictureArtwork, Path2D>} */
 const canvasPathCache = new WeakMap();
+/** @type {WeakMap<PictureArtwork, {canvas:HTMLCanvasElement, width:number, height:number, color:string}>} */
 const bitmapCache = new WeakMap();
 
 export const PICTURE_LAYERS = ['top-silk', 'bottom-silk', 'top-copper', 'bottom-copper', 'top-document', 'bottom-document'];
@@ -13,6 +35,11 @@ export const MAX_PICTURE_VERTICES = 50000;
 export const MAX_PICTURE_CIRCLES = 20000;
 export const MAX_TRACE_RESOLUTION = 2048;
 
+/**
+ * @param {PictureRaster} raster
+ * @param {{widthMm:number, layer:string, center?:Point, net?:string, name?:string}} options
+ * @returns {PictureShape & {kind:'image', name:string, layer:string, filled:true, lineWidth:number, copperMode:'add', net:string}}
+ */
 export function pictureShape(raster, { widthMm, layer, center = { x: 0, y: 0 }, net = '', name = 'Image' }) {
     if (!PICTURE_LAYERS.includes(layer)) throw new Error('Choose a silk, copper or document layer.');
     const pitch = widthMm / raster.width;
@@ -33,21 +60,27 @@ export function pictureShape(raster, { widthMm, layer, center = { x: 0, y: 0 }, 
             { x: left + widthMm, y: top + artwork.height * pitch }, { x: left, y: top + artwork.height * pitch }] };
 }
 
+/**
+ * @param {PictureArtworkCandidate|null|undefined} artwork
+ * @returns {void}
+ */
 export function validatePictureArtwork(artwork) {
     const maxSide = Array.isArray(artwork?.contours) || Array.isArray(artwork?.circles) ? MAX_TRACE_RESOLUTION : 512;
-    if (!artwork || !Number.isInteger(artwork.width) || !Number.isInteger(artwork.height)
-        || artwork.width < 1 || artwork.height < 1 || artwork.width > maxSide || artwork.height > maxSide
+    const width = /** @type {number} */ (artwork?.width);
+    const height = /** @type {number} */ (artwork?.height);
+    if (!artwork || !Number.isInteger(width) || !Number.isInteger(height)
+        || width < 1 || height < 1 || width > maxSide || height > maxSide
         || !['rectangles', 'contours', 'circles'].some(key => Array.isArray(artwork[key]))) {
         throw new Error(`Invalid image artwork data. Dimensions must be between 1 and ${maxSide} pixels with rectangles, contours or circles.`);
     }
     if (['rectangles', 'contours', 'circles'].filter(key => artwork[key] !== undefined).length !== 1) {
         throw new Error('Image artwork must use only one representation: rectangles, contours or circles.');
     }
-    const paths = artwork.circles ?? artwork.contours ?? artwork.rectangles;
+    const paths = /** @type {unknown[]} */ (artwork.circles ?? artwork.contours ?? artwork.rectangles);
     if (!paths.length) {
         throw new Error('Image artwork is empty: no pixels remain after conversion. Adjust the threshold or invert the image.');
     }
-    if (artwork.rectangles && artwork.rectangles.length > MAX_PICTURE_REGIONS) {
+    if (Array.isArray(artwork.rectangles) && artwork.rectangles.length > MAX_PICTURE_REGIONS) {
         throw new Error(`Image artwork has ${artwork.rectangles.length} rectangles; the limit is ${MAX_PICTURE_REGIONS}. Reduce resolution or adjust the threshold to simplify the artwork.`);
     }
     for (const property of ['invert', 'flipHorizontal', 'flipVertical']) {
@@ -59,10 +92,11 @@ export function validatePictureArtwork(artwork) {
         if (!Array.isArray(artwork.circles) || artwork.circles.length > MAX_PICTURE_CIRCLES) {
             throw new Error(`Image artwork exceeds ${MAX_PICTURE_CIRCLES} circles. Increase dot size or reduce image width.`);
         }
-        for (const circle of artwork.circles) {
+        const circles = /** @type {PictureCircle[]} */ (artwork.circles);
+        for (const circle of circles) {
             if (!circle || ![circle.x, circle.y, circle.radius].every(Number.isFinite)
                 || circle.radius <= 0 || circle.x - circle.radius < 0 || circle.y - circle.radius < 0
-                || circle.x + circle.radius > artwork.width || circle.y + circle.radius > artwork.height) {
+                || circle.x + circle.radius > width || circle.y + circle.radius > height) {
                 throw new Error('Invalid image circle coordinates or radius.');
             }
         }
@@ -74,21 +108,23 @@ export function validatePictureArtwork(artwork) {
             throw new Error(`Invalid traced artwork: use at most ${MAX_PICTURE_REGIONS} contours and no rectangles.`);
         }
         let vertices = 0;
-        for (const contour of artwork.contours) {
+        const contours = /** @type {Point[][]} */ (artwork.contours);
+        for (const contour of contours) {
             if (!Array.isArray(contour) || contour.length < 3) throw new Error('Invalid image contour.');
             vertices += contour.length;
             if (vertices > MAX_PICTURE_VERTICES) throw new Error(`Traced artwork exceeds ${MAX_PICTURE_VERTICES} points. Increase simplification or reduce resolution.`);
             if (!contour.every(point => point && Number.isFinite(point.x) && Number.isFinite(point.y)
-                && point.x >= 0 && point.x <= artwork.width && point.y >= 0 && point.y <= artwork.height)) {
+                && point.x >= 0 && point.x <= width && point.y >= 0 && point.y <= height)) {
                 throw new Error('Invalid image contour coordinates.');
             }
         }
         return;
     }
-    for (const rectangle of artwork.rectangles) {
-        if (!rectangle || !['x', 'y', 'width', 'height'].every(key => Number.isInteger(rectangle[key]))
+    const rectangles = /** @type {PictureRectangle[]} */ (artwork.rectangles);
+    for (const rectangle of rectangles) {
+        if (!rectangle || ![rectangle.x, rectangle.y, rectangle.width, rectangle.height].every(Number.isInteger)
             || rectangle.x < 0 || rectangle.y < 0 || rectangle.width < 1 || rectangle.height < 1
-            || rectangle.x + rectangle.width > artwork.width || rectangle.y + rectangle.height > artwork.height) {
+            || rectangle.x + rectangle.width > width || rectangle.y + rectangle.height > height) {
             throw new Error('Invalid image artwork data.');
         }
     }
@@ -97,6 +133,10 @@ export function validatePictureArtwork(artwork) {
 export { validateRectanglePoints as validatePicturePoints,
     normalizeRectanglePoints as normalizePicturePoints } from '../../shapes/rectangle-frame.js';
 
+/**
+ * @param {PictureArtwork} artwork
+ * @returns {MergedArtwork}
+ */
 function mergedArtwork(artwork) {
     const cached = artworkCache.get(artwork);
     if (cached) return cached;
@@ -131,23 +171,31 @@ function mergedArtwork(artwork) {
     clipper.Execute(artwork.invert ? ClipperLib.ClipType.ctDifference : ClipperLib.ClipType.ctUnion, tree,
         artwork.contours ? ClipperLib.PolyFillType.pftEvenOdd : ClipperLib.PolyFillType.pftNonZero,
         artwork.contours ? ClipperLib.PolyFillType.pftEvenOdd : ClipperLib.PolyFillType.pftNonZero);
-    const regions = ClipperLib.JS.PolyTreeToExPolygons(tree).map(region => ({
-        outer: ClipperLib.Clipper.CleanPolygon(region.outer, 0.01).map(point => ({ x: point.X / scale, y: point.Y / scale })),
-        holes: region.holes.map(hole => ClipperLib.Clipper.CleanPolygon(hole, 0.01).map(point => ({ x: point.X / scale, y: point.Y / scale }))),
+    /** @param {{X:number, Y:number}} point @returns {Point} */
+    const fromClipperPoint = point => ({ x: point.X / scale, y: point.Y / scale });
+    const regions = ClipperLib.JS.PolyTreeToExPolygons(tree).map(/** @param {{outer:{X:number,Y:number}[], holes:{X:number,Y:number}[][]}} region */ region => ({
+        outer: ClipperLib.Clipper.CleanPolygon(region.outer, 0.01).map(fromClipperPoint),
+        holes: region.holes.map(hole => ClipperLib.Clipper.CleanPolygon(hole, 0.01).map(fromClipperPoint)),
     }));
     const result = { regions, triangles: null };
     artworkCache.set(artwork, result);
     return result;
 }
 
+/**
+ * @param {PictureRegion[]} regions
+ * @returns {Point[][]}
+ */
 function triangulateRegions(regions) {
     return regions.flatMap(region => {
         const rings = [region.outer, ...region.holes];
         const points = rings.flat();
+        /** @type {number[]} */
         const holes = [];
         let offset = region.outer.length;
         for (const hole of region.holes) { holes.push(offset); offset += hole.length; }
         const indices = earcut(points.flatMap(point => [point.x, point.y]), holes, 2);
+        /** @type {Point[][]} */
         const result = [];
         for (let index = 0; index < indices.length; index += 3) {
             result.push(indices.slice(index, index + 3).map(vertex => points[vertex]));
@@ -156,12 +204,20 @@ function triangulateRegions(regions) {
     });
 }
 
+/**
+ * @param {PictureShape} shape
+ * @returns {Point[]}
+ */
 export function picturePoints(shape) {
     const points = shape.points;
     return shape.layer?.startsWith('bottom-')
         ? [points[1], points[0], points[3], points[2]] : points;
 }
 
+/**
+ * @param {PictureShape} shape
+ * @returns {PictureGeometry}
+ */
 function pictureGeometry(shape) {
     const { artwork } = shape;
     const points = picturePoints(shape);
@@ -170,6 +226,7 @@ function pictureGeometry(shape) {
     if (cached?.artwork === artwork && cached.key === key) return cached;
     const source = mergedArtwork(artwork);
     const origin = points[0];
+    /** @param {Point} point @returns {Point} */
     const map = ({ x: column, y: row }) => ({
         x: origin.x + (points[1].x - origin.x) * column / artwork.width + (points[3].x - origin.x) * row / artwork.height,
         y: origin.y + (points[1].y - origin.y) * column / artwork.width + (points[3].y - origin.y) * row / artwork.height,
@@ -181,6 +238,10 @@ function pictureGeometry(shape) {
     return result;
 }
 
+/**
+ * @param {PictureShape} shape
+ * @returns {Point[][]}
+ */
 export function pictureContours(shape) {
     return pictureGeometry(shape).contours;
 }
@@ -190,11 +251,16 @@ export function pictureContours(shape) {
  * they cover exactly the merged picture area, so fill-only rendering can skip the
  * expensive strictly-simple merge that exports, copper and 3D still use.
  */
+/**
+ * @param {PictureShape} shape
+ * @returns {Point[][]|null}
+ */
 export function pictureOutlineRings(shape) {
     const { artwork } = shape;
     if (!artwork?.contours) return null;
     const points = picturePoints(shape);
     const origin = points[0];
+    /** @param {Point[]} path @returns {Point[]} */
     const ring = path => path.map(({ x, y }) => {
         const column = artwork.flipHorizontal ? artwork.width - x : x;
         const row = artwork.flipVertical ? artwork.height - y : y;
@@ -209,10 +275,18 @@ export function pictureOutlineRings(shape) {
     return rings;
 }
 
+/**
+ * @param {PictureShape} shape
+ * @returns {PictureRegion[]}
+ */
 export function pictureRegions(shape) {
     return pictureGeometry(shape).regions;
 }
 
+/**
+ * @param {PictureShape} shape
+ * @returns {Point[][]}
+ */
 export function pictureTriangles(shape) {
     const geometry = pictureGeometry(shape);
     if (!geometry.triangles) {
@@ -223,15 +297,25 @@ export function pictureTriangles(shape) {
     return geometry.triangles;
 }
 
+/**
+ * @param {PictureArtwork} artwork
+ * @returns {boolean}
+ */
 export function canDrawPictureCircles(artwork) {
     if (!artwork.circles) return false;
     return !artwork.invert || pictureCirclesDisjoint(artwork);
 }
 
+/**
+ * @param {PictureArtwork} artwork
+ * @returns {boolean}
+ */
 export function pictureCirclesDisjoint(artwork) {
     if (!artwork.circles) return false;
-    if (nativeCircleCache.has(artwork)) return nativeCircleCache.get(artwork);
+    const cached = nativeCircleCache.get(artwork);
+    if (cached !== undefined) return cached;
     const size = artwork.circles.reduce((largest, circle) => Math.max(largest, circle.radius * 2), 0);
+    /** @type {Map<string, PictureCircle[]>} */
     const buckets = new Map();
     for (const circle of artwork.circles) {
         const column = Math.floor(circle.x / size), row = Math.floor(circle.y / size);
@@ -244,17 +328,25 @@ export function pictureCirclesDisjoint(artwork) {
             }
         }
         const key = `${column},${row}`;
-        if (!buckets.has(key)) buckets.set(key, []);
-        buckets.get(key).push(circle);
+        let bucket = buckets.get(key);
+        if (!bucket) {
+            bucket = [];
+            buckets.set(key, bucket);
+        }
+        bucket.push(circle);
     }
     nativeCircleCache.set(artwork, true);
     return true;
 }
 
+/**
+ * @param {PictureShape} shape
+ * @returns {string|null}
+ */
 export function pictureCirclePathD(shape) {
     const { artwork } = shape;
     const points = picturePoints(shape);
-    if (!canDrawPictureCircles(artwork)) return null;
+    if (!canDrawPictureCircles(artwork) || !artwork.circles) return null;
     const origin = points[0];
     const horizontal = { x: (points[1].x - origin.x) / artwork.width, y: (points[1].y - origin.y) / artwork.width };
     const vertical = { x: (points[3].x - origin.x) / artwork.height, y: (points[3].y - origin.y) / artwork.height };
@@ -273,6 +365,11 @@ export function pictureCirclePathD(shape) {
     }).join(' ');
 }
 
+/**
+ * @param {CanvasRenderingContext2D} context
+ * @param {PictureShape} shape
+ * @returns {void}
+ */
 export function drawPictureCached(context, shape) {
     const { artwork } = shape;
     const points = picturePoints(shape);
@@ -286,6 +383,7 @@ export function drawPictureCached(context, shape) {
     const horizontal = { x: points[1].x - origin.x, y: points[1].y - origin.y };
     const vertical = { x: points[3].x - origin.x, y: points[3].y - origin.y };
     const transform = context.getTransform();
+    /** @param {Point} axis */
     const pixels = axis => Math.hypot(transform.a * axis.x + transform.c * axis.y,
         transform.b * axis.x + transform.d * axis.y);
     const width = 2 ** Math.ceil(Math.log2(Math.max(1, pixels(horizontal))));
@@ -319,11 +417,16 @@ export function drawPictureCached(context, shape) {
     context.restore();
 }
 
+/**
+ * @param {CanvasRenderingContext2D} context
+ * @param {PictureShape} shape
+ * @returns {void}
+ */
 export function drawPicture(context, shape) {
     const { artwork } = shape;
     const points = picturePoints(shape);
     context.beginPath();
-    if (canDrawPictureCircles(artwork)) {
+    if (canDrawPictureCircles(artwork) && artwork.circles) {
         const origin = points[0];
         context.save();
         context.transform((points[1].x - origin.x) / artwork.width, (points[1].y - origin.y) / artwork.width,
@@ -351,8 +454,8 @@ export function drawPicture(context, shape) {
             path.closePath();
         }
         if (Path) {
-            canvasPathCache.set(artwork, path);
-            context.fill(path, 'nonzero');
+            canvasPathCache.set(artwork, /** @type {Path2D} */ (path));
+            context.fill(/** @type {Path2D} */ (path), 'nonzero');
         } else {
             context.fill('nonzero');
         }
@@ -369,6 +472,12 @@ export function drawPicture(context, shape) {
     context.fill('evenodd');
 }
 
+/**
+ * @param {Point[]} points
+ * @param {number} index
+ * @param {Point} target
+ * @returns {Point[]}
+ */
 export function resizePicturePoints(points, index, target) {
     const opposite = points[(index + 2) % 4];
     const corner = points[index];
@@ -382,6 +491,11 @@ export function resizePicturePoints(points, index, target) {
         y: opposite.y + (point.y - opposite.y) * factor }));
 }
 
+/**
+ * @param {PicturePixelData} image
+ * @param {RasterizePictureOptions} [options]
+ * @returns {PictureRasterization}
+ */
 export function rasterizePicture({ data, width, height }, { threshold = 128, invert = false, maskOnly = false } = {}) {
     const maxPixels = maskOnly ? MAX_TRACE_RESOLUTION * MAX_TRACE_RESOLUTION : 262144;
     if (!Number.isInteger(width) || !Number.isInteger(height) || width < 1 || height < 1
@@ -391,9 +505,12 @@ export function rasterizePicture({ data, width, height }, { threshold = 128, inv
     }
     if (!Number.isFinite(threshold) || threshold < 0 || threshold > 255) throw new Error('Invalid threshold.');
     const mask = new Uint8Array(width * height);
+    /** @type {PictureRectangle[]} */
     const rectangles = [];
+    /** @type {Map<string, PictureRectangle>} */
     let active = new Map();
     for (let row = 0; row < height; row++) {
+        /** @type {Map<string, PictureRectangle>} */
         const next = new Map();
         let column = 0;
         while (column < width) {

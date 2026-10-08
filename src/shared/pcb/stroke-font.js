@@ -9,8 +9,11 @@
 import { HERSHEY } from './hershey-data.js';
 import { EXTRA_GLYPHS } from './stroke-font-extras.js';
 
-/** Stroked glyph table: { char: { w: cellWidth, s: [stroke,...] } } */
-export const GLYPHS = { ...HERSHEY, ...EXTRA_GLYPHS };
+/** @typedef {import('./stroke-font-extras.js').StrokeGlyph} StrokeGlyph */
+/** @typedef {import('../../core/geometry.js').Point} Point */
+
+/** @type {Record<string, StrokeGlyph>} Stroked glyph table: { char: { w: cellWidth, s: [stroke,...] } } */
+export const GLYPHS = { .../** @type {Record<string, StrokeGlyph>} */ (/** @type {unknown} */ (HERSHEY)), ...EXTRA_GLYPHS };
 
 /** Letter spacing (in glyph cells, multiply by size). Hershey glyphs
  * already include side bearings, so a small extra value gives natural spacing. */
@@ -18,6 +21,9 @@ export const TRACKING = 0.05;
 
 /**
  * Measure the rendered width of a string at the given size (mm).
+ * @param {string} text
+ * @param {number} size
+ * @returns {number}
  */
 export function measureText(text, size) {
     let w = 0;
@@ -37,8 +43,15 @@ export function measureText(text, size) {
  * caller's Y convention: pass `yUp=true` if positive Y goes up (e.g. Gerber),
  * `false` for SVG-Y-down. The result is a list of polylines, each an
  * array of `{x, y}` points in the caller's coordinate system.
+ * @param {string} text
+ * @param {number} x
+ * @param {number} y
+ * @param {number} size
+ * @param {boolean} [yUp]
+ * @returns {Point[][]}
  */
 export function stringToPolylines(text, x, y, size, yUp = false) {
+    /** @type {Point[][]} */
     const segs = [];
     let cx = x;
     const sy = yUp ? 1 : -1;

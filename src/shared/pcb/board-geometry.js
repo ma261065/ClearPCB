@@ -15,6 +15,23 @@ export { resolveTrackEdgePaths, resolveTrackSegments } from '../../shapes/track-
 export { padFlashOutline } from '../../shapes/pad-geometry.js';
 export { CORNER_CHORD_TOLERANCE, roundedPathCorners, sampleRoundedCorner } from '../../shapes/rounded-path.js';
 
+/** @typedef {import('../../core/geometry.js').Point} Point */
+/** @typedef {string} PadLayer */
+/** @typedef {string} BoardSide */
+/** @typedef {string} PadShape */
+/** @typedef {{dx?:number, dy?:number, width?:number, height?:number, shape?:PadShape, drill?:number, slotLength?:number, slotAngle?:number, layer?:PadLayer, side?:BoardSide, mask?:boolean, paste?:boolean}} PlacementOffset */
+/** @typedef {{type:'line', layer:string, x1:number, y1:number, x2:number, y2:number, strokeWidth:number, filled?:boolean}} PlacementLine */
+/** @typedef {{type:'circle', layer:string, cx:number, cy:number, r:number, strokeWidth:number, filled?:boolean}} PlacementCircle */
+/** @typedef {{type:'path', layer:string, d:string, strokeWidth:number, filled?:boolean}} PlacementPath */
+/** @typedef {PlacementLine|PlacementCircle|PlacementPath} PlacementSilk */
+/** @typedef {{x?:number, y?:number, rotation?:number, mirror?:boolean, side?:BoardSide|string, padOffsets?:PlacementOffset[], pasteOffsets?:PlacementOffset[], silks?:PlacementSilk[]}} BoardPlacement */
+/** @typedef {Map<unknown, BoardPlacement>|Iterable<[unknown, BoardPlacement]>} BoardPlacements */
+/** @typedef {{rad:number, mx:number, cos:number, sin:number, xf:(lx:number, ly:number)=>Point}} PlacementPose */
+/** @typedef {{x:number, y:number, dia:number, plated:boolean, slot:null|{x2:number, y2:number}}} DrillDescriptor */
+/** @typedef {{side?:BoardSide|null, source?:'pad'|'paste', includeThruHole?:boolean, includeSmd?:boolean, expansion?:number}} PadFlashOptions */
+/** @typedef {{x:number, y:number, shape:PadShape, w:number, h:number, rad:number, rotation:number, layer:PadLayer|BoardSide, isThru:boolean, paste:boolean, mask:boolean, drill:number, slot:null|{x1:number, y1:number, x2:number, y2:number}}} PadFlash */
+/** @typedef {{kind:'line', side:BoardSide, x1:number, y1:number, x2:number, y2:number, width:number}|{kind:'circle', side:BoardSide, cx:number, cy:number, r:number, width:number, filled:boolean}|{kind:'path', side:BoardSide, polys:Point[][], width:number, filled:boolean}} SilkDescriptor */
+
 /**
  * Soldermask expansion per side (mm). 0.05 mm is the typical board-house
  * default — a pad emerges with a 0.1 mm-larger opening so solder wicks to
@@ -33,6 +50,10 @@ export const MASK_EXPANSION = 0.05;
 export const TENT_VIAS = true;
 
 /** A user flip and bottom-side placement each mirror the footprint, cancelling when combined. */
+/**
+* @param {BoardPlacement|null|undefined} placement
+* @returns {boolean}
+*/
 export function isPlacementMirrored(placement) {
     return (!!placement?.mirror) !== (placement?.side === 'bottom');
 }
@@ -47,9 +68,8 @@ export function isPlacementMirrored(placement) {
  * A user flip (`mirror`) and a bottom-side placement each mirror the footprint;
  * together they cancel out (`mx`).
  *
- * @param {{x?:number,y?:number,rotation?:number,mirror?:boolean,side?:string}} pl
- * @returns {{rad:number, mx:number, cos:number, sin:number,
- *            xf:(lx:number, ly:number) => {x:number, y:number}}}
+ * @param {BoardPlacement} pl
+ * @returns {PlacementPose}
  */
 export function placementPose(pl) {
     const rad = ((pl.rotation || 0) * Math.PI) / 180;
@@ -97,11 +117,11 @@ export function orthoSwap(rotation) {
  * holes/cutouts are NOT included — they carry no pose and each renderer treats
  * them differently.
  *
- * @param {Map<string, object>|Iterable<[any, object]>} placements
- * @returns {Array<{x:number, y:number, dia:number, plated:boolean,
- *                  slot:null|{x2:number, y2:number}}>}
+ * @param {BoardPlacements} placements
+ * @returns {DrillDescriptor[]}
  */
 export function resolvePlacementDrills(placements) {
+    /** @type {DrillDescriptor[]} */
     const out = [];
     for (const [, pl] of placements) {
         const pose = placementPose(pl);
@@ -112,7 +132,7 @@ export function resolvePlacementDrills(placements) {
             if (caps) {
                 out.push({ x: caps.a.x, y: caps.a.y, dia, plated: true, slot: { x2: caps.b.x, y2: caps.b.y } });
             } else {
-                const p = pose.xf(off.dx, off.dy);
+                const p = pose.xf(/** @type {number} */ (off.dx), /** @type {number} */ (off.dy));
                 out.push({ x: p.x, y: p.y, dia, plated: true, slot: null });
             }
         }
@@ -135,19 +155,20 @@ export function resolvePlacementDrills(placements) {
  * Pose the two stadium cap-centres of a slotted pad drill. A pad offset is a
  * slot when `off.slotLength > drillWidth`; the caps sit at ±(slotLength-width)/2
  * along `off.slotAngle` in footprint-local space, then run through the pose.
- * @param {{xf:(lx:number,ly:number)=>{x:number,y:number}}} pose
- * @param {object} off pad offset (`dx,dy,slotLength,slotAngle`)
+ * @param {PlacementPose|{xf:(lx:number,ly:number)=>Point}} pose
+ * @param {PlacementOffset} off pad offset (`dx,dy,slotLength,slotAngle`)
  * @param {number} drillWidth bore width (the round drill diameter)
- * @returns {null|{a:{x:number,y:number}, b:{x:number,y:number}}}
+ * @returns {null|{a:Point, b:Point}}
  */
 function _slotCaps(pose, off, drillWidth) {
-    if (!(off.slotLength > drillWidth)) return null;
-    const half = (off.slotLength - drillWidth) / 2;
+    const slotLength = off.slotLength || 0;
+    if (!(slotLength > drillWidth)) return null;
+    const half = (slotLength - drillWidth) / 2;
     const ca = Math.cos(off.slotAngle || 0);
     const sa = Math.sin(off.slotAngle || 0);
     return {
-        a: pose.xf(off.dx - half * ca, off.dy - half * sa),
-        b: pose.xf(off.dx + half * ca, off.dy + half * sa),
+        a: pose.xf(/** @type {number} */ (off.dx) - half * ca, /** @type {number} */ (off.dy) - half * sa),
+        b: pose.xf(/** @type {number} */ (off.dx) + half * ca, /** @type {number} */ (off.dy) + half * sa),
     };
 }
 
@@ -173,14 +194,9 @@ function _slotCaps(pose, off, drillWidth) {
  * `ctx.ellipse`/`arcTo`, and 3D builds meshes — only the descriptor is shared.
  * Standalone vias are NOT included (they carry no footprint pose).
  *
- * @param {Map<string, object>|Iterable<[any, object]>} placements
- * @param {object} [opts]
- * @param {'top'|'bottom'|null} [opts.side=null] filter by pad layer; null = all
- * @param {'pad'|'paste'} [opts.source='pad'] `padOffsets` vs `pasteOffsets`
- * @param {boolean} [opts.includeThruHole=true] include drilled (THT) pads
- * @param {boolean} [opts.includeSmd=true] include non-drilled (SMD) pads
- * @param {number} [opts.expansion=0] mm added to EACH side (mask/paste inflate)
- * @returns {Array<object>}
+ * @param {BoardPlacements} placements
+ * @param {PadFlashOptions} [opts] Options including side filter, source offset set and mask/paste expansion.
+ * @returns {PadFlash[]}
  */
 export function resolvePadFlashes(placements, opts = {}) {
     const {
@@ -190,6 +206,7 @@ export function resolvePadFlashes(placements, opts = {}) {
         includeSmd = true,
         expansion = 0,
     } = opts;
+    /** @type {PadFlash[]} */
     const out = [];
     const offsetsKey = source === 'paste' ? 'pasteOffsets' : 'padOffsets';
     for (const [, pl] of placements) {
@@ -210,7 +227,7 @@ export function resolvePadFlashes(placements, opts = {}) {
             const w = (off.width || 1.2) + 2 * expansion;
             const h = (off.height || 1.2) + 2 * expansion;
             if (w <= 0 || h <= 0) continue;
-            const p = pose.xf(off.dx, off.dy);
+            const p = pose.xf(/** @type {number} */ (off.dx), /** @type {number} */ (off.dy));
             const drill = off.drill || 0;
             const caps = isThru ? _slotCaps(pose, off, drill) : null;
             out.push({
@@ -249,11 +266,12 @@ export function resolvePadFlashes(placements, opts = {}) {
  * per renderer. Non-silk-layer entries in `pl.silks` (e.g. `'hole'` circles)
  * are skipped.
  *
- * @param {Map<string, object>|Iterable<[any, object]>} placements
+ * @param {BoardPlacements} placements
  * @param {'top'|'bottom'|null} [side=null] filter by effective side; null = all
- * @returns {Array<object>}
+ * @returns {SilkDescriptor[]}
  */
 export function resolveSilk(placements, side = null) {
+    /** @type {SilkDescriptor[]} */
     const out = [];
     for (const [, pl] of placements) {
         const pose = placementPose(pl);
@@ -282,6 +300,11 @@ export function resolveSilk(placements, side = null) {
     return out;
 }
 
+/**
+ * @param {BoardPlacements} placements
+ * @param {BoardSide|null} side
+ * @returns {PadFlash[]}
+ */
 export function resolvePadMaskOpenings(placements, side) {
     return resolvePadFlashes(placements, { side, expansion: MASK_EXPANSION })
         .filter(flash => flash.mask);
@@ -290,7 +313,17 @@ export function resolvePadMaskOpenings(placements, side) {
 /**
  * Sample a cubic bézier into `steps` chords, pushing points 1..steps onto
  * `poly` (the start point is assumed already present).
- * @param {Array<{x:number,y:number}>} poly
+ * @param {Point[]} poly
+ * @param {number} x0
+ * @param {number} y0
+ * @param {number} x1
+ * @param {number} y1
+ * @param {number} x2
+ * @param {number} y2
+ * @param {number} x3
+ * @param {number} y3
+ * @param {number} steps
+ * @param {number} tolerance
  */
 function sampleBezier(poly, x0, y0, x1, y1, x2, y2, x3, y3, steps, tolerance) {
     if (tolerance > 0) {
@@ -311,8 +344,17 @@ function sampleBezier(poly, x0, y0, x1, y1, x2, y2, x3, y3, steps, tolerance) {
  * Sample an SVG elliptical arc (A/a) into chords, pushing points onto `poly`.
  * Endpoint-to-centre parameterisation per the SVG implementation notes
  * (F.6.5). Returns the arc endpoint so the caller can update the pen.
- * @param {Array<{x:number,y:number}>} poly
- * @returns {{x:number,y:number}}
+ * @param {Point[]} poly
+ * @param {number} x0
+ * @param {number} y0
+ * @param {number} rx
+ * @param {number} ry
+ * @param {number} phiDeg
+ * @param {boolean} largeArc
+ * @param {boolean} sweep
+ * @param {number} ex
+ * @param {number} ey
+ * @returns {Point}
  */
 function sampleArc(poly, x0, y0, rx, ry, phiDeg, largeArc, sweep, ex, ey) {
     rx = Math.abs(rx); ry = Math.abs(ry);
@@ -335,6 +377,12 @@ function sampleArc(poly, x0, y0, rx, ry, phiDeg, largeArc, sweep, ex, ey) {
     const cyp = (-factor * ry * x1p) / rx;
     const cx = cp * cxp - sp * cyp + (x0 + ex) / 2;
     const cy = sp * cxp + cp * cyp + (y0 + ey) / 2;
+    /**
+     * @param {number} ux
+     * @param {number} uy
+     * @param {number} vx
+     * @param {number} vy
+     */
     const ang = (ux, uy, vx, vy) => {
         const dot = ux * vx + uy * vy;
         const len = Math.hypot(ux, uy) * Math.hypot(vx, vy) || 1;
@@ -373,11 +421,14 @@ function sampleArc(poly, x0, y0, rx, ry, phiDeg, largeArc, sweep, ex, ey) {
 export function flattenSvgPath(d, bezierSteps = 16, bezierTolerance = 0) {
     if (!d) return [];
     const tokens = d.match(/[a-zA-Z]|-?[0-9]*\.?[0-9]+(?:e[-+]?[0-9]+)?/g) || [];
+    /** @type {Point[][]} */
     const polys = [];
+    /** @type {Point[]} */
     let poly = [];
     let x = 0, y = 0, sx = 0, sy = 0, i = 0;
     const num = () => parseFloat(tokens[i++]);
     const push = () => poly.push({ x, y });
+    /** @param {string} tok */
     const isCmd = (tok) => /[a-zA-Z]/.test(tok);
     while (i < tokens.length) {
         let t = tokens[i++];

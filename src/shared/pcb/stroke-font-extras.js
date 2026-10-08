@@ -7,8 +7,19 @@
  * x grows right, descenders go negative.
  */
 
+/** @typedef {[number, number]} StrokePoint */
+/** @typedef {StrokePoint[]} Stroke */
+/** @typedef {{w:number, s:Stroke[]}} StrokeGlyph */
+
 // 16-segment circle as a closed polyline: 17 points, first==last.
+/**
+ * @param {number} cx
+ * @param {number} cy
+ * @param {number} r
+ * @returns {Stroke}
+ */
 function circle(cx, cy, r) {
+    /** @type {Stroke} */
     const pts = [];
     for (let i = 0; i <= 16; i++) {
         const a = (i / 16) * 2 * Math.PI;
@@ -21,7 +32,17 @@ function circle(cx, cy, r) {
 }
 
 // Open arc from angle `a0` to `a1` (degrees, CCW), `n` samples.
+/**
+ * @param {number} cx
+ * @param {number} cy
+ * @param {number} r
+ * @param {number} a0
+ * @param {number} a1
+ * @param {number} n
+ * @returns {Stroke}
+ */
 function arc(cx, cy, r, a0, a1, n) {
+    /** @type {Stroke} */
     const pts = [];
     for (let i = 0; i <= n; i++) {
         const a = ((a0 + (a1 - a0) * (i / n)) * Math.PI) / 180;
@@ -34,6 +55,12 @@ function arc(cx, cy, r, a0, a1, n) {
 }
 
 // Tiny diamond ~"dot" centred at (cx, cy) with half-size h.
+/**
+ * @param {number} cx
+ * @param {number} cy
+ * @param {number} [h]
+ * @returns {Stroke}
+ */
 function dot(cx, cy, h = 0.05) {
     return [
         [+(cx + h).toFixed(3), +cy.toFixed(3)],
@@ -44,6 +71,7 @@ function dot(cx, cy, h = 0.05) {
     ];
 }
 
+/** @type {Record<string, StrokeGlyph>} */
 export const EXTRA_GLYPHS = {
     // Override Hershey '.' and ',': place dot just above the true
     // baseline (y = -0.313 in this font, matching the bottom of 'H').
