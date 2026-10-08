@@ -57,13 +57,15 @@ clearpcb/
 │   │                           # files, shape-management) and schematic-view (the
 │   │                           # entity-SVG lifecycle boundary)
 │   ├── pcb/
-│   │   └── modules/            # PCB-only modules: tools and interaction (mouse, keyboard,
-│   │                           # track-*, board-shapes, pcb-interaction-*), rendering,
-│   │                           # pours, DRC, autorouter family, fabrication (gerber, dsn, …)
+│   │   └── modules/            # PCB-only modules: host/action owners (viewport-host,
+│   │                           # layer-groups, schematic-sync, component-properties-host,
+│   │                           # selection-actions, pcb-clipboard, autorouter-actions,
+│   │                           # fabrication-actions), tools, rendering, pours, DRC,
+│   │                           # autorouter family and fabrication output
 │   └── ui/
 │       ├── AppBootstrap.js     # Shared startup + mode switching
-│       ├── SchematicApp.js     # Schematic editor facade over src/schematic
-│       ├── PCBApp.js           # PCB editor facade over src/pcb
+│       ├── SchematicApp.js     # Thin schematic editor facade over src/schematic/modules
+│       ├── PCBApp.js           # Thin PCB editor facade over src/pcb/modules
 │       ├── mcp-session.js      # MCP session dialog (used by AppBootstrap)
 │       └── schematic.css
 ├── workers/
@@ -96,8 +98,8 @@ clearpcb/
 - `src/pcb/**` and `src/ui/PCBApp.js` are pcb-only. Schematic code must
   not import them.
 - `src/ui/AppBootstrap.js` is shared orchestration only (startup, mode
-  switching, platform launch hooks); other `src/ui` files besides the two
-  editor facades (`mcp-session.js`) serve only it.
+  switching, platform launch hooks). Other `src/ui` files besides the two
+  editor facades and `mcp-session.js` serve only it.
 - `src/easyeda/*` is import-only (read EasyEDA files into our model).
 - Shared code (`core`, `shapes`, `components`, `shared`, `easyeda`) must not
   import either editor.
@@ -510,7 +512,7 @@ object before it runs. A new command class must declare `lockTargets()`;
 - `node tools/test.mjs [filter…]` — only the regression tests, optionally filtered. A test
   that passes but prints a `TypeError`, `ReferenceError`, `SyntaxError` or `RangeError`
   (a programming error a handler swallowed) counts as failed.
-- `node tools/typecheck.mjs` — strict `checkJs` type check for `src/` using
+- `node tools/typecheck.mjs` — a single strict `checkJs` pass for `src/` using
   `jsconfig.json`. Any TypeScript error fails; type new code fully.
 - `node tools/browser-test.mjs [filter] [--shard=i/n]` — real-browser scenarios (headless
   Chromium; `HEADED=1` shows the browser; CI runs four shards in parallel). `node tools/serve.mjs [port]` serves the app without

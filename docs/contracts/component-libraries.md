@@ -31,11 +31,13 @@ KiCad responsibilities are split by data source and conversion step:
 - `kicad/footprint-parser.js` owns `.kicad_mod` S-expression conversion into
   ClearPCB preview shapes and bounding boxes.
 
-Component picker UI state lives in `ComponentPicker.js`. Focused picker helpers
-under `src/components/picker/` own DOM binding, result lists, search flow,
-symbol previews, footprint and 3D previews, online selection, placement and
-status rendering. The shared component definition, symbol, pin and graphic typedefs
-live in `Component.js`; picker code aliases those types instead of declaring local
+`ComponentPicker.js` owns the public picker lifecycle and wires the focused
+picker owner modules. Under `src/components/picker/`, `dom.js` owns DOM binding
+and modal cleanup; `results-list.js`, `search.js`, `online-selection.js`,
+`symbol-preview.js`, `footprint-preview.js`, `placement.js` and `ui-state.js`
+own their respective result, preview, placement and small UI-state concerns.
+The shared component definition, symbol, pin and graphic typedefs live in
+`Component.js`; picker code aliases those types instead of declaring local
 stand-ins.
 
 Footprint ownership is separate from symbol ownership. KiCad footprint coordinates

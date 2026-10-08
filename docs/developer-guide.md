@@ -224,8 +224,8 @@ in `pcb-editor-api.js` (or `schematic-editor-api.js`). See State Ownership in
 Run these before pushing (setup for TypeScript and Playwright is in the
 [README](../README.md#testing)):
 
-1. `node tools/typecheck.mjs`: TypeScript `checkJs` uses `jsconfig.json` with
-   `strict: true`; any error fails. Type new code fully: JSDoc on every parameter,
+1. `node tools/typecheck.mjs`: a single strict `checkJs` pass against
+   `jsconfig.json`; any error fails. Type new code fully: JSDoc on every parameter,
    null cases handled, and callbacks typed to accept every value their caller may pass.
    A PCB module types the editor as `PcbEditor` and plain board data as `PcbBoard`
    (`pcb-editor-api.js`); a schematic module types the editor as `SchematicEditor`
@@ -267,19 +267,20 @@ CI fail on:
 `SchematicItem` (`SchematicDrawable` plus `Component`, in `SchematicDocument.js`)
 and PCB board shapes the union `BoardShape` (`core/pcb-board-shapes.js`); both
 narrow on their `type` or `kind` field. Shared guards for schematic items are in
-`core/schematic-items.js`. Checking is weakest where a value is typed `any` or cast:
+`core/schematic-items.js`. Checking is weakest where a value is still typed `any` or cast:
 mostly raw file and network data before validation, captured-state snapshots, the 3D
 scene and third-party libraries. Treat raw data as `unknown` and narrow it; give
 snapshots a typedef next to the class that captures them.
 
 **Large modules.** The biggest files are the autorouter
 (`autorouter-pathfinder.js` and `autorouter-common.js`, about 2,200 lines each, and
-`autorouter-maze.js`), `core/Viewport.js`, `ComponentLibrary.js`, `board-shapes.js`,
-`gerber.js`, `draw-states.js` and `polyline-graph.js` (about 1,250 to 1,850). Each is
-one subject. Split one only along a real seam, when you are changing it, the way
-`track-drag.js`, `board-shapes.js`, `PCBApp.js`, `ComponentPicker.js` and
-`KiCadFetcher.js` were split: one owner per piece of state, importers changed to the
-owner rather than re-exported, the owner index in
+`autorouter-maze.js`), `core/Viewport.js` (about 1,840), `ComponentLibrary.js`
+(about 1,460), and `board-shapes.js`, `gerber.js`, `draw-states.js` and
+`polyline-graph.js` (about 1,280 to 1,380). Each is one subject. Split one only
+along a real seam, when you are changing it. Follow the same pattern as the
+focused owner modules under `src/pcb/modules/`, `src/components/picker/` and
+`src/components/kicad/`: one owner per piece of state, importers changed to the
+owner rather than re-exported, and the owner index in
 [project_structure.md](project_structure.md) updated.
 
 **Autorouter.** `test-autorouter-geometry`, `test-autorouter-maze` and

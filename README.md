@@ -97,15 +97,19 @@ clearpcb/
 │   │                     # FileManager, CommandHistory, Viewport, geometry
 │   ├── shapes/           # Shape and copper primitives (wire, polyline, track, via, pad, …)
 │   │                     # and shared path editing, snapping and alignment guides
-│   ├── components/       # Component library and picker, KiCad/LCSC fetchers, packages,
-│   │                     # 3D model previews
+│   ├── components/       # Component libraries, picker shell, KiCad/LCSC fetchers,
+│   │   ├── picker/       # Picker DOM, search/results flow, previews, placement hand-off
+│   │   ├── kicad/        # KiCad network, indexes, symbol/footprint parsing
+│   │   └── …             # packages, 3D model previews, shared component types
 │   ├── shared/           # Code both editors use: 3d/, pcb/ (board and footprint geometry,
 │   │                     # stroke font, pictures) and ui/ (modal, viewport, export, theme, …)
 │   ├── schematic/        # Schematic editor: modules/ (interaction, wiring, files, …), render/
-│   ├── pcb/modules/      # PCB editor: tools, rendering, routing, DRC, pours, fabrication
+│   ├── pcb/
+│   │   └── modules/      # PCB editor: host/action owners (viewport, layers, sync, clipboard,
+│   │                     # fabrication, autorouter), tools, rendering, routing, DRC, pours
 │   ├── easyeda/          # EasyEDA schematic importer
 │   └── ui/               # AppBootstrap (startup, mode switching), SchematicApp and PCBApp
-│                         # (editor facades), MCP session dialog, styles
+│                         # (thin editor facades), MCP session dialog, styles
 ├── assets/               # Icons, version.json and vendored libraries (vendor/)
 ├── workers/              # CORS proxy worker
 ├── mcp-worker/           # Cloudflare Worker relay for the hosted MCP endpoint
@@ -324,7 +328,7 @@ and soft checks. The run takes a few minutes, most of it routing.
 For a faster loop while editing, `node tools/test.mjs [filter…]` runs only the
 regression tests, optionally filtered by name.
 
-CI also runs `node tools/typecheck.mjs` (a strict `checkJs` type check against
+CI also runs `node tools/typecheck.mjs` (a single strict `checkJs` pass against
 `jsconfig.json`; any error fails) and `node tools/browser-test.mjs`,
 which drives the real app in headless Chromium; see
 [releases](docs/releases.md#automated-regression-gate). Both need tools that are not

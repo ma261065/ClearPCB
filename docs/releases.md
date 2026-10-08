@@ -24,14 +24,14 @@ Cloudflare zone, repository secrets, local testing, and security limitations.
 
 **Regression Checks** runs on pushes and pull requests targeting `dev` and
 `release_*`, and can be started manually. Its **Regression gate** job runs
-`node tools/regression.mjs` on Node 22: the import-boundary check, both editors'
-private-access checks, every unit regression test, and the autorouter clearance
-baseline. Any test failure or hard baseline failure fails the job. Track/via-count
-differences remain visible soft warnings, not evidence that routing quality is
-unchanged.
+`node tools/regression.mjs` on Node 22: the import-boundary check, the PCB,
+schematic and shared private-access checks, the doc-reference check, every unit
+regression test, and the autorouter clearance baseline. Any hard failure fails
+the job. Track/via-count differences remain visible soft warnings, not evidence
+that routing quality is unchanged.
 
 Its **Strict type check** job installs TypeScript 5.9.3 and runs `node tools/typecheck.mjs`,
-which checks `src/` with `jsconfig.json` and TypeScript's strict settings. Any
+which runs one strict `checkJs` pass on `src/` with `jsconfig.json`. Any
 TypeScript error fails the job. Use the same TypeScript version locally (installed as
 in the [README](../README.md#testing)). Vendored modules are not checked:
 `assets/vendor/fflate.module.d.ts` declares the fflate API in use.

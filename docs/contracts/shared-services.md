@@ -264,9 +264,9 @@ and reference text, which is why only PCB uses a selection registry.
   supplies the DRC broad phase.
 
 `node tools/test.mjs` runs every `tests/unit/test-*.mjs` in an isolated process.
-`node tools/regression.mjs` also checks import boundaries, editor service-access
-baselines and the autorouter clearance baseline. `node tools/typecheck.mjs`
-summarises `checkJs` errors for the everyday and strict settings and locates
-TypeScript from `TSC` or the repo's git-ignored `node_modules`.
+`node tools/regression.mjs` also checks import boundaries, the PCB/schematic/shared
+editor-access baselines, doc references and the autorouter clearance baseline.
+`node tools/typecheck.mjs` runs one strict `checkJs` pass against `jsconfig.json`
+and locates TypeScript from `TSC` or the repo's git-ignored `node_modules`.
 `node tools/browser-test.mjs` runs `tests/browser/*.mjs` with Playwright from
 `PLAYWRIGHT` or the same git-ignored `node_modules`.
