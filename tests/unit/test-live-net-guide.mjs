@@ -38,6 +38,8 @@ const board = () => {
         getLayerGroup(id) { return id === 'ratlines' ? ratLayer : null; },
         viewport: { svg, scale: 100, gridVisible: false, setCrosshair() {}, hideCrosshair() {} },
         history: { execute(command) { command.execute(); } },
+        // The editor's ratline service, which drags call after each move.
+        updateRatsnest(options) { reconcileRatsnest(app, options); },
     };
     app.pcbDocument = {
         get tracks() { return app.tracks; },

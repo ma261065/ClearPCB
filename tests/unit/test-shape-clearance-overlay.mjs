@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { PcbDocument } from '../../src/core/PcbDocument.js';
-import { setDragOverlaysDeferred, setPictureCopperRefreshPending } from '../../src/pcb/modules/refresh-state.js';
+import { setPictureCopperRefreshPending } from '../../src/pcb/modules/refresh-state.js';
 import { endTextDrag, getTextDrag } from '../../src/pcb/modules/pcb-text-selection.js';
 import { getBoardShapeDrag } from '../../src/pcb/modules/board-shapes.js';
 import { setPcbInteraction } from '../../src/pcb/modules/pcb-interactions.js';
@@ -42,6 +42,7 @@ globalThis.window.requestAnimationFrame = globalThis.requestAnimationFrame;
 globalThis.window.cancelAnimationFrame = globalThis.cancelAnimationFrame;
 const { default: PCBApp } = await import('../../src/ui/PCBApp.js');
 const { boardShapeClearanceOutlines } = await import('../../src/pcb/modules/copper-fill-geom.js');
+const { beginDragSession } = await import('../../src/pcb/modules/drag-session.js');
 const { resolveBoardShapeGeometry, boardShapeRemovalPathD } = await import('../../src/shared/pcb/board-shape-geometry.js');
 const { getBoardShapeAnchors, renderBoardShape } = await import('../../src/pcb/modules/board-shapes.js');
 
@@ -274,8 +275,7 @@ try {
     const textCacheBeforeDrop = getBoardShapeClearance(app, text.id);
     const calculationsBeforeDrop = textOutlineCalls;
     const startPos = { x: text.x, y: text.y };
-    setPcbInteraction(app, '_textDrag', { textId: text.id, startPos, previousDeferDragOverlays: false });
-    setDragOverlaysDeferred(app, true);
+    setPcbInteraction(app, '_textDrag', { textId: text.id, startPos, session: beginDragSession(app) });
     text.x += 7;
     text.y -= 2;
     app.refreshText(text.id);

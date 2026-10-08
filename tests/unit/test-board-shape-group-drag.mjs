@@ -186,13 +186,13 @@ const dragApp = {
 startBoardShapeDrag(dragApp, additiveShape, { x: 5, y: 5 });
 expect('additive copper drag defers derived overlays', areDragOverlaysDeferred(dragApp), true);
 expect('additive copper drag restricts ratsnest to its net',
-    [...getBoardShapeDrag(dragApp).ratsnestNets], ['GND']);
+    [...getBoardShapeDrag(dragApp).session.nets], ['GND']);
 endBoardShapeDrag(dragApp, false);
 
 const removalShape = { ...additiveShape, id: 'removal', copperMode: 'remove-copper' };
 dragApp.boardShapes = [removalShape];
 startBoardShapeDrag(dragApp, removalShape, { x: 5, y: 5 });
-expect('removal copper drag skips ratsnest reconciliation', getBoardShapeDrag(dragApp).ratsnestNets, null);
+expect('removal copper drag skips ratsnest reconciliation', getBoardShapeDrag(dragApp).session.nets, null);
 endBoardShapeDrag(dragApp, false);
 
 for (const shape of [

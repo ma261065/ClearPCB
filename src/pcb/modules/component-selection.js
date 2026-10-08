@@ -1,10 +1,10 @@
+import { beginDragSession, refreshDragRatlines, releaseDragSession } from './drag-session.js';
 import { getPcbSelection, isPcbSelected, registerPcbPlacementHitTest, registerPcbSelectionAdapter, getComponentSelectionHits } from './selection-registry.js';
 import { lockPositionOutsideOutline } from './selection-anchors.js';
 import { beginRotationHandleDrag, endRotationHandleDrag, rotationHandleAnchor, pointerRotation } from './rotation-handle.js';
 import { previewPlacementPose, restorePlacementPosePreview, finishPlacementPreview, MovePlacementCommand, RotatePlacementCommand, placementTransform, isPlacementMirrored } from './track-commands.js';
 import { worldToPlacementLocal } from './ref-text-geometry.js';
 import { dismissTrackContextMenu, setHoverHighlight } from './track-select.js';
-import { setDragOverlaysDeferred } from './refresh-state.js';
 import { areClearancesVisible, getPadHaloGroup } from './clearance-overlay.js';
 import { getPcbInteraction, setPcbInteraction } from './pcb-interactions.js';
 import { isEditorActive } from './pcb-editor-api.js';
@@ -70,16 +70,15 @@ export function beginComponentDrag(app, componentId, worldPos) {
         compId: componentId,
         startWorld: worldPos,
         startPos: { x: placement.x, y: placement.y },
-        nets: netsForComponent(app, componentId),
+        session: beginDragSession(app, { nets: netsForComponent(app, componentId) }),
     };
     setPcbInteraction(app, '_drag', drag);
-    setDragOverlaysDeferred(app, true);
     if (areClearancesVisible(app)) {
         const group = getPadHaloGroup(app, componentId);
         if (group) group.style.display = 'none';
         const overlay = app.getLayerGroup('clearance-overlay');
         if (overlay) {
-            for (const net of drag.nets) {
+            for (const net of drag.session.nets || []) {
                 for (const element of overlay.querySelectorAll(`.debug-clearance[data-net="${CSS.escape(net)}"]`)) {
                     /** @type {SVGElement} */ (element).style.display = 'none';
                 }
@@ -231,7 +230,7 @@ export function updateComponentDrag(app, worldPos) {
     if (placement.x === snap.x && placement.y === snap.y) return;
     previewPlacementPose(app, drag.compId, { x: snap.x, y: snap.y });
     showFootprintCrosshair(app, placement);
-    app.updateRatsnest({ nets: drag.nets });
+    refreshDragRatlines(app, drag.session);
 }
 
 export function scheduleComponentDragUpdate(app, e) {
@@ -271,7 +270,7 @@ export function endComponentDrag(app, commit = true) {
     const { compId, startPos } = drag;
     const placement = app.placements.get(compId);
     setPcbInteraction(app, '_drag', null);
-    setDragOverlaysDeferred(app, false);
+    releaseDragSession(app, drag.session);
     if (areClearancesVisible(app)) {
         const overlay = app.getLayerGroup('clearance-overlay');
         if (overlay) overlay.style.willChange = '';

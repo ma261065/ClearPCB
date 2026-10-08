@@ -36,7 +36,7 @@ function fixture(viewport) {
     initializeBoardOutlineState(app, true);
     setBoardOutlineSelected(app, true);
     setPcbInteraction(app, '_textDrag', { textId: text.id, startWorld: { x: 0, y: 0 }, startPos: { x: 0, y: 0 } });
-    setPcbInteraction(app, '_drag', { compId: 'part', startWorld: { x: 0, y: 0 }, startPos: { x: 0, y: 0 }, nets: new Set() });
+    setPcbInteraction(app, '_drag', { compId: 'part', startWorld: { x: 0, y: 0 }, startPos: { x: 0, y: 0 } });
     setPcbInteraction(app, '_refDrag', { compId: 'part', startWorld: { x: 0, y: 0 }, startDx: 0, startDy: 0 });
     Object.defineProperty(app, 'texts', Object.getOwnPropertyDescriptor(PCBApp.prototype, 'texts'));
     for (const method of ['snapToGrid', '_worldToPlacementLocal']) {

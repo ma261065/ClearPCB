@@ -1,3 +1,4 @@
+import { beginDragSession, releaseDragSession } from './drag-session.js';
 import { isLayerLocked, isLayerVisible, setPcbLayerLocked } from './layers.js';
 import { showBoardShapeProperties } from './board-shape-properties.js';
 import { SetBoardOutlineCommand } from './track-commands.js';
@@ -6,7 +7,7 @@ import { clearBoardDimensionPreview, getBoardDimensionPreview, getBoardOutline, 
     boardBoundary, boardDimensions, setBoardDimensionPreview } from '../../shared/pcb/board-outline.js';
 import { removeBoardShapeElement, renderBoardShape, selectBoardShape } from './board-shapes.js';
 import { getPropertyEditor, releasePropertyEditor, setPropertyEditor } from './property-editors.js';
-import { areDragOverlaysDeferred, isBoardViewRefreshSuspended, setBoardViewRefreshSuspended, setDragOverlaysDeferred, refreshBoardView } from './refresh-state.js';
+import { areDragOverlaysDeferred, isBoardViewRefreshSuspended, setBoardViewRefreshSuspended, refreshBoardView } from './refresh-state.js';
 import { getPcbInteraction, setPcbInteraction } from './pcb-interactions.js';
 import { renderPanelPreview } from './panelization-ui.js';
 
@@ -198,12 +199,12 @@ export function previewBoardDimensions(app, dimensions) {
             model, original, originalBoard: model.board, before: { ...model.board }, board: { ...model.board }, outline,
             boardShapes: original ? model.boardShapes.map(shape => shape === original ? outline : shape)
                 : [...model.boardShapes, outline],
-            previousSuspend: !!isBoardViewRefreshSuspended(app), previousDefer: !!areDragOverlaysDeferred(app),
+            // The board view is handed back after the commit, overlays before it.
+            previousSuspend: !!isBoardViewRefreshSuspended(app), session: beginDragSession(app),
             wasDrawn: isBoardOutlineDrawn(app),
         };
         setBoardDimensionPreview(app, preview);
         setBoardViewRefreshSuspended(app, true);
-        setDragOverlaysDeferred(app, true);
     }
     Object.assign(preview.board, dimensions);
     const { width, height, radius } = dimensions;
@@ -234,7 +235,7 @@ export function finishBoardDimensionPreview(app, commit = false) {
                 throw new Error('The board outline is no longer available.');
             }
             if (['width', 'height', 'radius'].some(key => preview.before[key] !== preview.board[key])) {
-                setDragOverlaysDeferred(app, preview.previousDefer);
+                releaseDragSession(app, preview.session);
                 app.history.execute(new SetBoardOutlineCommand(app, preview.before, preview.board));
                 committed = true;
             }
@@ -247,7 +248,7 @@ export function finishBoardDimensionPreview(app, commit = false) {
             }
         } finally {
             setBoardViewRefreshSuspended(app, preview.previousSuspend);
-            setDragOverlaysDeferred(app, preview.previousDefer);
+            releaseDragSession(app, preview.session);
             renderBoardOutlineHandles(app);
         }
     }

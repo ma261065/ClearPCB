@@ -104,7 +104,7 @@ for (const dispatch of dispatches.slice(1)) {
         else if (guard === '_pasteDrop') setPcbInteraction(app, guard, {
             model: app,
             payload: { tracks: [], vias: [], pads: [], shapes: [], texts: [], fills: [] },
-            selection: [], flags: {}, suspensions: { overlays: false, fill: false, boardView: false },
+            selection: [], flags: {}, suspensions: { fill: false },
             fillPending: false,
         });
         else setPcbInteraction(app, guard, {});

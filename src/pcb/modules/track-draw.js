@@ -888,7 +888,7 @@ function trackRatlineTargets(cluster, pathsByTrack) {
 export function reconcileRatsnest(app, opts) {
     refreshSelectedDrcMarker(app);
     const shapeDrag = getBoardShapeDrag(app);
-    const liveShapeDrag = shapeDrag?.ratsnestNets && opts?.nets === shapeDrag.ratsnestNets;
+    const liveShapeDrag = shapeDrag?.session?.nets && opts?.nets === shapeDrag.session.nets;
     if (isPictureCopperRefreshPending(app) && !liveShapeDrag) return;
     if (deferDerivedUpdate(app, 'ratsnest', () => reconcileRatsnest(app))) return;
     // Incremental net filter: when present, restrict all cluster construction

@@ -16,6 +16,7 @@
  *   circle:       + { x, y, radius }
  */
 
+import { beginDragSession, refreshDragRatlines, releaseDragSession } from './drag-session.js';
 import { bulgeRatio, distanceToSegment } from '../../core/geometry.js';
 import { formatNumberInputValue } from '../../core/number-inputs.js';
 import { projectArcBulge, snapArcBulgeToChord, arcBulgeRatio, arcBulgeFromRatio } from '../../shapes/arc-edit.js';
@@ -72,7 +73,7 @@ import { beginRotationHandleDrag, endRotationHandleDrag, isRotationHandleDragAct
 import { BULGE_EPS, arcFromBulge } from '../../shapes/arc-edge.js';
 import { syncBoardOutlineDimensions } from '../../shared/pcb/board-outline.js';
 import { getPropertyEditor, releasePropertyEditor, setPropertyEditor } from './property-editors.js';
-import { areDragOverlaysDeferred, isPictureCopperRefreshPending, setDragOverlaysDeferred } from './refresh-state.js';
+import { isPictureCopperRefreshPending } from './refresh-state.js';
 import { getPcbInteraction, setPcbInteraction } from './pcb-interactions.js';
 
 import {
@@ -226,7 +227,7 @@ function boardShapeEditProfile() {
                 && normalizeShapeCopperMode(shape.copperMode) === 'add' ? new Set([net]) : null;
         },
         afterCommit(app, original, committed, drag) {
-            if (drag.ratsnestNets) app.updateRatsnest?.({ nets: drag.ratsnestNets, skipFillRefresh: !committed });
+            if (drag.session?.nets) app.updateRatsnest?.({ nets: drag.session.nets, skipFillRefresh: !committed });
             if (original && this.collection(app).includes(original)) {
                 renderBoardShapeHandles(app, original);
                 renderBoardShapeSegmentSelection(app);
@@ -736,7 +737,7 @@ export function createBoardShapePropertyPreview(app, targets, { liveDrag = false
         state = null;
         binding.release(control);
         if (boardShapePropertyPreviews.get(app)?.editorKey === profile.editorKey) boardShapePropertyPreviews.delete(app);
-        setDragOverlaysDeferred(app, preview.previousDeferDragOverlays);
+        releaseDragSession(app, preview.session);
         let committed = false;
         try {
             if (commit && originals.some(shape => !collection().includes(shape))) {
@@ -788,12 +789,11 @@ export function createBoardShapePropertyPreview(app, targets, { liveDrag = false
                     originals, copies, copiesByOriginal, editorKey: profile.editorKey,
                     originalsByCopy: new Map(copies.map((copy, index) => [copy, originals[index]])),
                     before: originals.map(profile.capture),
-                    previousDeferDragOverlays: areDragOverlaysDeferred(app),
                     previousPictureRefreshPending: !!isPictureCopperRefreshPending(app),
                     boardShapes: collection().map(shape => copiesByOriginal.get(shape) || shape),
+                    session: beginDragSession(app),
                 };
                 boardShapePropertyPreviews.set(app, state);
-                setDragOverlaysDeferred(app, true);
             }
             try {
                 mutate(state.before, state.copies);
@@ -1529,7 +1529,6 @@ export function startBoardShapeDrag(app, shape, worldPos, anchorId = null, optio
     const drag = {
         original: shape, shape, id: shape.id, before, beforeState, editProfile: profile,
         startWorld: { x: worldPos.x, y: worldPos.y }, sourceAnchorId: anchorId,
-        previousDeferDragOverlays: !!areDragOverlaysDeferred(app),
     };
     if (['line', 'polygon', 'rect'].includes(shape.kind) && midpointMatch) {
         segment = Number(midpointMatch[1]);
@@ -1562,16 +1561,14 @@ export function startBoardShapeDrag(app, shape, worldPos, anchorId = null, optio
         profile.showProperties(app, shape);
     } else if (mode !== 'segment') profile.setSegmentFocus(app, null);
     profile.renderSegmentSelection(app);
-    const ratsnestNets = profile.dragRatsnestNets?.(shape) || null;
     setPcbInteraction(app, '_shapeDrag', Object.assign(drag, {
         mode,
         handle,
         segment,
         vertexBefore: cloneShapeGeometry(shape),
-        ratsnestNets,
+        session: beginDragSession(app, { nets: profile.dragRatsnestNets?.(shape) }),
     }));
     app.setPcbStatus?.();
-    setDragOverlaysDeferred(app, true);
     if (profile.kind === 'shape' && (mode === 'vertex' || mode === 'segment')) schedulePictureCopperRefresh(app, shape);
     const vertex = midpointMatch ? shape.points[handle] : handle != null
         ? shapeHandlePoints(shape).find((point) => point.key === handle)
@@ -1640,7 +1637,7 @@ export function handleBoardShapeDrag(app, worldPos) {
         profile.renderSegmentSelection(app);
         profile.syncProperties(app, s);
         if (['line', 'polygon', 'rect', 'arc'].includes(s.kind)) renderPolygonAxisIndicators(app, s, d.handle);
-        if (d.ratsnestNets) app.updateRatsnest?.({ nets: d.ratsnestNets });
+        refreshDragRatlines(app, d.session);
         return;
     }
     if (d.mode === 'segment' && ['line', 'polygon', 'rect'].includes(s.kind) && d.segment != null) {
@@ -1659,7 +1656,7 @@ export function handleBoardShapeDrag(app, worldPos) {
         if (['line', 'polygon', 'rect'].includes(s.kind)) {
             renderPolygonAxisIndicators(app, s, [firstIndex, secondIndex], [d.segment]);
         }
-        if (d.ratsnestNets) app.updateRatsnest?.({ nets: d.ratsnestNets });
+        refreshDragRatlines(app, d.session);
         return;
     }
     const dx = worldPos.x - d.startWorld.x;
@@ -1673,7 +1670,7 @@ export function handleBoardShapeDrag(app, worldPos) {
     profile.render(app, s, { liveDrag: true });
     profile.renderHandles(app, s);
     renderAxisGlow(app, boardSquareIndicators(s));
-    if (d.ratsnestNets) app.updateRatsnest?.({ nets: d.ratsnestNets });
+    refreshDragRatlines(app, d.session);
 }
 
 export function endBoardShapeDrag(app, commit) {
@@ -1687,7 +1684,7 @@ export function endBoardShapeDrag(app, commit) {
     app.setPcbStatus?.();
     app.viewport?.hideCrosshair?.();
     clearPolygonAxisIndicators(app);
-    setDragOverlaysDeferred(app, d.previousDeferDragOverlays);
+    releaseDragSession(app, d.session);
     const s = d.shape, original = d.original;
     const originals = profile.collection(app);
     const present = originals.includes(original);

@@ -186,7 +186,7 @@ const { updateSelectionInteraction, finishSelectionInteraction, placeFloatingSel
         for (const anchor of [null, kind === 'arc' ? 'end' : 1]) {
             const start = anchor == null ? { x: 3, y: 4 } : { ...endpoints[1] };
             startBoardShapeDrag(app, shape, start, anchor);
-            app.updateRatsnest({ nets: getBoardShapeDrag(app).ratsnestNets });
+            app.updateRatsnest({ nets: getBoardShapeDrag(app).session.nets });
             assert.equal(isPictureCopperRefreshPending(app), true);
             assert.equal(ratLayer.children.length, 1);
             const coordinates = () => ['x1', 'y1', 'x2', 'y2'].map(name => ratLayer.children[0].getAttribute(name));

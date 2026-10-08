@@ -109,7 +109,7 @@ for (const tool of Object.keys(PCB_TOOLS)) {
         model: app.pcbDocument,
         payload: { tracks: [], vias: [], pads: [], shapes: [], texts: [], fills: [] },
         tracks: [], terminals: [], shapes: [], fills: [], selection: [], flags: {},
-        suspensions: { overlays: false, fill: false, boardView: false }, fillPending: false,
+        suspensions: { fill: false }, fillPending: false,
     });
     press(0);
     assert.ok(!acted.track(app), 'A floating paste consumes the press before any tool');

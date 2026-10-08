@@ -213,6 +213,8 @@ PCB editor:
   editor shows: the ordered table of previews behind `PCBApp`'s collection getters.
 - `pcb/modules/edit-lifecycle.js` — preview cancellation, property-editor disposal,
   snapshot readiness; `tool-lifecycle.js` — tool selection and drawing cancellation.
+- `pcb/modules/drag-session.js` — what every drag or live preview defers while it runs
+  (overlays, optionally the board view), the ratlines it keeps live, and restoring both.
 - `pcb/modules/pcb-tools.js` — the tool catalog: one entry per tool (press, hover,
   target layers, status layer, Properties, ribbon button) and the press dispatcher;
   `select-tool.js` — the select tool's press phases and hover.

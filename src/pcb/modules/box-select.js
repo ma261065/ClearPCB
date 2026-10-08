@@ -13,6 +13,7 @@
  * `app.viewport.scale` and `app.viewport.contentLayer`).
  */
 
+import { beginDragSession, copperNets, refreshDragRatlines, releaseDragSession } from './drag-session.js';
 import { snapToViewportGrid } from '../../core/grid-snap.js';
 import {
     createBoxSelectElement,
@@ -64,7 +65,7 @@ import { renderPad, removePadElements } from './pad.js';
 import { pcbTextBounds, pcbTextHitTest } from './pcb-text.js';
 import { clearPcbSelectionAnchors, renderPcbSelectionAnchors } from './selection-anchors.js';
 import { commitPropertyEditors } from './property-editors.js';
-import { areDragOverlaysDeferred, isBoardViewRefreshSuspended, setBoardViewRefreshSuspended, setDragOverlaysDeferred, refreshBoardView } from './refresh-state.js';
+import { areDragOverlaysDeferred, isBoardViewRefreshSuspended, setBoardViewRefreshSuspended, refreshBoardView } from './refresh-state.js';
 import { rerenderFills } from './fill-refresh.js';
 import {
     clearPcbSelection,
@@ -581,16 +582,13 @@ export function beginGroupDrag(app, worldPos) {
             || isCopperFillLocked(fill.layer) || !isCopperFillVisible(fill.layer)) continue;
         fills.push({ fill, before: fill.captureState() });
     }
-    const ratsnestNets = new Set();
+    // Ratlines follow the moved copper: components' nets, vias, pads, tracks and additive
+    // copper shapes. Pours only move their outline until the drop recomputes them.
+    const ratsnestNets = copperNets([...vias.map(entry => entry.via), ...pads.map(entry => entry.pad),
+        ...tracks.map(entry => entry.track),
+        ...shapes.map(entry => entry.shape).filter(shape => normalizeShapeCopperMode(shape.copperMode) === 'add')]);
     for (const component of comps) {
         for (const net of netsForComponent(app, component.id)) ratsnestNets.add(net);
-    }
-    for (const entry of vias) if (entry.via.net) ratsnestNets.add(entry.via.net);
-    for (const entry of pads) if (entry.pad.net) ratsnestNets.add(entry.pad.net);
-    for (const entry of tracks) if (entry.track.net) ratsnestNets.add(entry.track.net);
-    for (const entry of shapes) {
-        const shape = entry.shape;
-        if (shape.net && normalizeShapeCopperMode(shape.copperMode) === 'add') ratsnestNets.add(shape.net);
     }
     setPcbInteraction(app, '_groupDrag', {
         startWorld: { x: worldPos.x, y: worldPos.y },
@@ -598,12 +596,11 @@ export function beginGroupDrag(app, worldPos) {
         comps, vias, pads, tracks, shapes, texts, fills,
         directTrackIds: new Set(tracks.map(entry => entry.track.id)),
         posePreview: true,
-        ratsnestNets,
         padCrosshairStart: pads.length ? { x: pads[0].before.x, y: pads[0].before.y } : null,
-        previousDeferDragOverlays: !!areDragOverlaysDeferred(app),
+        // The board view is handed back after the drop's command, overlays before it.
         previousSuspendBoardViewRefresh: !!isBoardViewRefreshSuspended(app),
+        session: beginDragSession(app, { nets: ratsnestNets }),
     });
-    setDragOverlaysDeferred(app, true);
     setBoardViewRefreshSuspended(app, true);
     const drag = getGroupDrag(app);
     if (drag.padCrosshairStart) {
@@ -704,7 +701,7 @@ function updateGroupPreview(app, worldPos, snap) {
         });
         renderCopperFill(fill, id => app.getLayerGroup(id), { selected: true, outlineOnly: true });
     }
-    if (g.ratsnestNets.size) app.updateRatsnest?.({ nets: g.ratsnestNets });
+    refreshDragRatlines(app, g.session);
     refreshTrackSelectionHalo(app);
     _applyHighlights(app);
 }
@@ -728,7 +725,7 @@ export function endGroupDrag(app) {
         removeGroupPreviewArtwork(app, g);
         finishPlacementPreview(app, () => finishTextPosePreview(app, () => {
             syncPcbSelection(app);
-            setDragOverlaysDeferred(app, g.previousDeferDragOverlays);
+            releaseDragSession(app, g.session);
             app.history.execute(command);
         }));
         committed = true;
@@ -838,7 +835,7 @@ function finishGroupPreview(app, g, committed) {
             }
         }
     } finally {
-        setDragOverlaysDeferred(app, g.previousDeferDragOverlays);
+        releaseDragSession(app, g.session);
         setBoardViewRefreshSuspended(app, g.previousSuspendBoardViewRefresh);
         if (g.padCrosshairStart) app.viewport?.hideCrosshair();
         if (g.preview) syncPcbSelection(app);

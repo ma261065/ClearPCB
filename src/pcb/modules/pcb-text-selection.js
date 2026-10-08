@@ -1,3 +1,4 @@
+import { beginDragSession, releaseDragSession } from './drag-session.js';
 import { isLayerVisible } from './layers.js';
 import { boardShapeLocked, isPcbObjectLocked } from './object-locks.js';
 import { pcbTextBounds, pcbTextHitTest, pcbTextOutline, renderPcbText } from './pcb-text.js';
@@ -7,7 +8,6 @@ import { beginRotationHandleDrag, endRotationHandleDrag, rotationHandleAnchor, p
 import { schedulePictureCopperRefresh } from './picture-refresh.js';
 import { EditTextCommand, MoveTextCommand, previewTextPose, finishTextPosePreview } from './text-commands.js';
 import { getPropertyEditor } from './property-editors.js';
-import { areDragOverlaysDeferred, setDragOverlaysDeferred } from './refresh-state.js';
 import { getPcbInteraction, setPcbInteraction } from './pcb-interactions.js';
 
 export function getTextDrag(app) {
@@ -22,9 +22,9 @@ export function beginTextDrag(app, text, worldPos) {
         textId: text.id,
         startWorld: worldPos,
         startPos: { x: text.x, y: text.y },
-        previousDeferDragOverlays: !!areDragOverlaysDeferred(app),
+        // Text carries no net, so no ratlines follow it.
+        session: beginDragSession(app),
     });
-    setDragOverlaysDeferred(app, true);
     app.viewport?.setCrosshair({ x: text.x, y: text.y });
     return true;
 }
@@ -54,9 +54,9 @@ export function handleTextDrag(app, e) {
 export function endTextDrag(app, commit = true) {
     const drag = getTextDrag(app);
     if (!drag) return;
-    const { textId, startPos, previousDeferDragOverlays } = drag;
+    const { textId, startPos } = drag;
     setPcbInteraction(app, '_textDrag', null);
-    setDragOverlaysDeferred(app, previousDeferDragOverlays);
+    releaseDragSession(app, drag.session);
     app.viewport?.hideCrosshair();
     app.viewport.svg.style.cursor = 'default';
     const text = app.texts.get(textId);

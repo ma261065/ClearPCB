@@ -68,7 +68,10 @@ for (const locked of [false, true]) {
         assert.notEqual(svg.style.cursor, 'grabbing');
         assert.equal(areDragOverlaysDeferred(app), false, 'and overlays are not deferred');
     } else {
-        assert.deepEqual(getComponentDrag(app), { compId: 'U1', startWorld: { x: 10, y: 20 }, startPos: { x: 10, y: 20 }, nets: new Set(['N1']) });
+        const drag = getComponentDrag(app);
+        assert.deepEqual({ compId: drag.compId, startWorld: drag.startWorld, startPos: drag.startPos },
+            { compId: 'U1', startWorld: { x: 10, y: 20 }, startPos: { x: 10, y: 20 } });
+        assert.deepEqual(drag.session.nets, new Set(['N1']), 'ratlines follow the component\'s nets');
         assert.equal(svg.style.cursor, 'grabbing');
         assert.equal(areDragOverlaysDeferred(app), true, 'drag defers pours and halos');
     }

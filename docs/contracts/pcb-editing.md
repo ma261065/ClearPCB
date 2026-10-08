@@ -41,7 +41,12 @@ WeakMap: copper-pour pending, scheduled and last error (written by
 `picture-refresh.js`). It also owns the refresh suspensions gestures hold while
 previewing: drag-overlay deferral, fill-refresh suspension (paste) and
 board-view refresh suspension. Gestures save the current value, set it and
-restore the saved value when they finish. Raising overlay deferral or fill
+restore the saved value when they finish. Every drag and live preview does this
+for overlays (and, when it asks, the board view) through a session from
+`drag-session.js`: `beginDragSession` saves and raises, `refreshDragRatlines`
+redraws after each move the ratlines of the nets the drag moves, and
+`releaseDragSession` restores what begin found, once, so drags nest inside other
+previews. Nothing else sets overlay deferral (`test-drag-session`). Raising overlay deferral or fill
 suspension first notifies `onRefreshSuspended` subscribers; `PCBApp.js`
 subscribes to invalidate in-flight pour and DRC work on its instances.
 `refreshBoardView(app)` is the one place that asks an open 3D/2D board viewer

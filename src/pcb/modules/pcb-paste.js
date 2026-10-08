@@ -1,3 +1,4 @@
+import { beginDragSession, releaseDragSession } from './drag-session.js';
 import { createShape } from '../../shapes/index.js';
 import { Track } from '../../shapes/track.js';
 import { Via } from '../../shapes/via.js';
@@ -27,7 +28,7 @@ import { renderPcbSelectionAnchors } from './selection-anchors.js';
 import { reconcileRatsnest } from './track-draw.js';
 import { trackIsSelectable } from './track-select.js';
 import { showPcbSelectionProperties } from './selection-interaction.js';
-import { areDragOverlaysDeferred, isBoardViewRefreshSuspended, isFillRefreshPending, isFillRefreshSuspended, setBoardViewRefreshSuspended, setDragOverlaysDeferred, setFillRefreshPending, setFillRefreshSuspended, refreshBoardView } from './refresh-state.js';
+import { areDragOverlaysDeferred, isBoardViewRefreshSuspended, isFillRefreshPending, isFillRefreshSuspended, setFillRefreshPending, setFillRefreshSuspended, refreshBoardView } from './refresh-state.js';
 import { isEditorActive } from './pcb-editor-api.js';
 import { cancelPcbPosePreviews } from './edit-lifecycle.js';
 import { forgetBoardShapeClearance, getBoardShapeClearance } from './clearance-overlay.js';
@@ -241,14 +242,12 @@ export function beginPcbPaste(app, source, { select = false } = {}) {
             boardShapes: [...model.boardShapes, ...payload.shapes, ...payload.fills],
         },
         flags: { deferredShapeCopperCuts: areShapeCopperCutsDeferred(app) },
-        suspensions: { overlays: areDragOverlaysDeferred(app), fill: isFillRefreshSuspended(app),
-            boardView: isBoardViewRefreshSuspended(app) },
+        suspensions: { fill: isFillRefreshSuspended(app) },
         fillPending: isFillRefreshPending(app),
     };
     setPcbInteraction(app, '_pasteDrop', state);
-    setBoardViewRefreshSuspended(app, true);
     setFillRefreshSuspended(app, true);
-    setDragOverlaysDeferred(app, true);
+    state.session = beginDragSession(app, { suspendBoardView: true });
     try {
         app.syncPcbHistoryButtons?.();
         if (select) setPcbSelection(app, payload.shapes.map(object => ({ kind: 'shape', object })));
@@ -297,9 +296,8 @@ export function updatePcbPaste(app, world) {
 function release(app, state) {
     const pendingFill = isFillRefreshPending(app);
     setPcbInteraction(app, '_pasteDrop', null);
-    setDragOverlaysDeferred(app, state.suspensions.overlays);
+    releaseDragSession(app, state.session);
     setFillRefreshSuspended(app, state.suspensions.fill);
-    setBoardViewRefreshSuspended(app, state.suspensions.boardView);
     setShapeCopperCutsDeferred(app, state.flags.deferredShapeCopperCuts);
     // Pours owed before the paste, or requested during it, remain owed.
     setFillRefreshPending(app, state.fillPending || pendingFill);

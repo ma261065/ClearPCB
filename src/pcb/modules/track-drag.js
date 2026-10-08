@@ -20,6 +20,7 @@
  *   - Escape cancels and restores the original position(s).
  */
 
+import { beginDragSession, copperNets, refreshDragRatlines, releaseDragSession } from './drag-session.js';
 import { renderTrack, removeTrackElements, removeViaElements } from './track-render.js';
 import { resolveTrackSegments } from '../../shared/pcb/board-geometry.js';
 import { renderVia } from './track-render.js';
@@ -65,7 +66,7 @@ import { ModifyFillCommand } from './copper-fill-commands.js';
 import { snapPathTranslation, snapPathPoint, beginPathSplit } from './path-edit.js';
 import { closestPointOnArcEdge } from '../../shapes/arc-edge.js';
 import { commitPropertyEditors, getPropertyEditor } from './property-editors.js';
-import { areDragOverlaysDeferred, isBoardViewRefreshSuspended, setBoardViewRefreshSuspended, setDragOverlaysDeferred, refreshBoardView } from './refresh-state.js';
+import { areDragOverlaysDeferred, isBoardViewRefreshSuspended, refreshBoardView } from './refresh-state.js';
 import { isEditorActive } from './pcb-editor-api.js';
 import { refreshTrackClearance, refreshViaClearance } from './clearance-overlay.js';
 import { getPcbInteraction, setPcbInteraction } from './pcb-interactions.js';
@@ -104,26 +105,10 @@ export function getSegmentClickEdgeId(app) {
     return clickState(app).segmentEdgeId;
 }
 
-function _beginVertexDragOverlayDeferral(app) {
-    const previous = !!areDragOverlaysDeferred(app);
-    setDragOverlaysDeferred(app, true);
-    return previous;
-}
-
 function _endVertexDragOverlayDeferral(app, drag) {
-    setDragOverlaysDeferred(app, drag.previousDeferDragOverlays);
+    releaseDragSession(app, drag.session);
     if (!areDragOverlaysDeferred(app)) app.refreshClearanceHalos?.();
     else if (drag.preview) refreshTrackClearance(app, drag.original);
-}
-
-/**
- * Nets whose ratlines a live drag can change. Ratlines join copper of one net only, and
- * copper without a net draws none, so a move need only redo the nets of the copper it
- * moves; the drop and cancel redo every net.
- * @param {Iterable<{net?: string}>} copper
- */
-function dragRatsnestNets(copper) {
-    return new Set([...copper].map(item => item?.net || '').filter(Boolean));
 }
 
 function prepareTrackPointer(app, track) {
@@ -141,11 +126,9 @@ function beginTrackPointer(app, track, details) {
         .map(([id]) => track.getEdgeLayer(id)));
     if (!isEditorActive(app) || [...layers].some(layer => isLayerLocked(layer) || !isLayerVisible(layer))) return null;
     const drag = { ...details, original: track, track, layers, lastDx: 0, lastDy: 0,
-        ratsnestNets: dragRatsnestNets([track]),
-        previousDeferDragOverlays: _beginVertexDragOverlayDeferral(app),
-        previousSuspendBoardViewRefresh: !!isBoardViewRefreshSuspended(app) };
+        // The 2D/3D board view rebuilds once on the drop, not from in-flight node positions.
+        session: beginDragSession(app, { nets: copperNets([track]), suspendBoardView: true }) };
     setPcbInteraction(app, '_vertexDrag', drag);
-    setBoardViewRefreshSuspended(app, true);
     return drag;
 }
 
@@ -609,9 +592,6 @@ export function startMidpointInsertDrag(app, track, edgeId) {
     // halves, so no manual carry-over is needed.
 
     drag.nodes = [{ nodeId: res.newNodeId, startX: mid.x, startY: mid.y, padLink: null }];
-    // Freeze 3D board-view sync for the drag; it rebuilds once on commit
-    // rather than live from the in-flight (uncommitted) node positions.
-    setBoardViewRefreshSuspended(app, true);
     renderTrack(copy, (id) => app.getLayerGroup(id), _opts(app));
     refreshTrackSelectionHalo(app);
     reconcileRatsnest(app);
@@ -1088,7 +1068,6 @@ export function startVertexDrag(app, track, worldPos, opts = {}) {
                     startY: track.nodes.get(id).y, padLink: null })),
             });
             if (!drag) return false;
-            setBoardViewRefreshSuspended(app, true);
             app.viewport?.setCrosshair({ x: n.x, y: n.y });
             return true;
         }
@@ -1110,9 +1089,6 @@ export function startVertexDrag(app, track, worldPos, opts = {}) {
             guideExclude: track.net ? bondedExclusion(app, track) : null,
         });
         if (!drag) return false;
-        // Freeze 3D board-view sync for the drag; it rebuilds once on commit
-        // rather than live from the in-flight (uncommitted) node positions.
-        setBoardViewRefreshSuspended(app, true);
         app.viewport?.setCrosshair({ x: n.x, y: n.y });
         return true;
     }
@@ -1170,9 +1146,6 @@ export function startVertexDrag(app, track, worldPos, opts = {}) {
         ],
     });
     if (!drag) return false;
-    // Freeze 3D board-view sync for the drag; it rebuilds once on commit
-    // rather than live from the in-flight (uncommitted) node positions.
-    setBoardViewRefreshSuspended(app, true);
     app.viewport?.setCrosshair({ x: a.x, y: a.y });
     return true;
 }
@@ -1224,7 +1197,7 @@ export function updateVertexDrag(app, worldPos) {
         renderTrack(drag.track, (id) => app.getLayerGroup(id), _opts(app));
         refreshTrackClearance(app, drag.track);
         refreshTrackSelectionHalo(app);
-        reconcileRatsnest(app, { nets: drag.ratsnestNets });
+        refreshDragRatlines(app, drag.session);
         return;
     }
 
@@ -1273,7 +1246,7 @@ export function updateVertexDrag(app, worldPos) {
         refreshTrackClearance(app, drag.track);
         renderTrackAxisGlowTop(app);
         refreshTrackSelectionHalo(app);
-        reconcileRatsnest(app, { nets: drag.ratsnestNets });
+        refreshDragRatlines(app, drag.session);
         clearNetGuideLine(app);
         return;
     }
@@ -1380,7 +1353,7 @@ export function updateVertexDrag(app, worldPos) {
     renderTrackAxisGlowTop(app);
     // Keep the selection halo glued to the new geometry.
     refreshTrackSelectionHalo(app);
-    reconcileRatsnest(app, { nets: drag.ratsnestNets });
+    refreshDragRatlines(app, drag.session);
 
     updateNetGuideLine(app, drag.track.net, { x: n.x, y: n.y }, drag.guideExclude?.ratlinePointKeys);
 }
@@ -1801,7 +1774,6 @@ function endTrackPointer(app, drag, committed) {
             refreshTrackSelectionHalo(app);
         }
     } finally {
-        setBoardViewRefreshSuspended(app, drag.previousSuspendBoardViewRefresh);
         _endVertexDragOverlayDeferral(app, drag);
         if (drag.preview) reconcileRatsnest(app, { skipFillRefresh: !committed });
         if (!isBoardViewRefreshSuspended(app) && drag.preview) refreshBoardView(app);
@@ -1865,10 +1837,8 @@ function startTerminalDrag(app, via, worldPos, kind) {
         grabX: worldPos.x,
         grabY: worldPos.y,
         attached,
-        ratsnestNets: dragRatsnestNets([via, ...attached.map(item => item.track)]),
-        previousDeferDragOverlays: !!areDragOverlaysDeferred(app),
+        session: beginDragSession(app, { nets: copperNets([via, ...attached.map(item => item.track)]) }),
     });
-    setDragOverlaysDeferred(app, true);
     app.viewport?.setCrosshair({ x: via.x, y: via.y });
     return true;
 }
@@ -2044,7 +2014,7 @@ export function updateViaDrag(app, worldPos) {
     if (drag.kind === 'via') refreshViaClearance(app, drag.via);
     renderTrackAxisGlowTop(app);
     refreshTrackSelectionHalo(app);
-    reconcileRatsnest(app, { nets: drag.ratsnestNets });
+    refreshDragRatlines(app, drag.session);
 }
 
 /**
@@ -2055,7 +2025,7 @@ export function finishViaDrag(app) {
     const drag = getViaDrag(app);
     if (!drag) return;
     setPcbInteraction(app, '_viaDrag', null);
-    setDragOverlaysDeferred(app, drag.previousDeferDragOverlays);
+    releaseDragSession(app, drag.session);
     app.viewport?.hideCrosshair();
     clearTrackAxisGlow(app);
     clearTrackSnapMarker(app);
@@ -2118,7 +2088,7 @@ export function cancelViaDrag(app) {
     const drag = getViaDrag(app);
     if (!drag) return;
     setPcbInteraction(app, '_viaDrag', null);
-    setDragOverlaysDeferred(app, drag.previousDeferDragOverlays);
+    releaseDragSession(app, drag.session);
     app.viewport?.hideCrosshair();
     clearTrackAxisGlow(app);
     clearTrackSnapMarker(app);

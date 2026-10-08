@@ -48,7 +48,7 @@ export const refreshStatus = app => states.get(app) ?? IDLE;
 
 // -- Suspensions --------------------------------------------------------
 // Gestures save the current value, set it, and restore the saved value when they
-// finish. Raising overlay deferral or fill suspension notifies subscribers first,
+// finish (drags and live previews through drag-session.js). Raising overlay deferral or fill suspension notifies subscribers first,
 // so pending pour/DRC work is invalidated before the suspended state is observed.
 
 /** @type {{overlays: Array<(app: object) => void>, fill: Array<(app: object) => void>}} */

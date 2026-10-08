@@ -74,7 +74,7 @@ pour.
 A pour drag moves only the outline: ratlines and connectivity keep reading the
 canonical pour's computed copper, which stays put until the drop recomputes it, so
 the drag does not rebuild ratlines on each move (the board-shape profile names the
-nets a copper shape's drag redraws; the fill profile names none). The drop's command
+nets a copper shape's drag session redraws; the fill profile names none). The drop's command
 recomputes the pour and redraws every net (`test-pour-drag-ratsnest`). Pours loaded
 from a file are computed in the fill worker, so the main thread loads its geometry
 library lazily; a pour drag starts that load, so the first drop after opening a

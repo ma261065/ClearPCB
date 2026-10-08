@@ -73,7 +73,7 @@ for (const source of ['keyboard', 'ribbon']) for (const action of ['undo', 'redo
         if (preview === 'paste') setPcbInteraction(app, '_pasteDrop', {
             model: app,
             payload: { tracks: [], vias: [], pads: [], shapes: [], texts: [], fills: [] },
-            selection: [], flags: {}, suspensions: { overlays: false, fill: false, boardView: false },
+            selection: [], flags: {}, suspensions: { fill: false },
             fillPending: false,
         });
         else if (preview === 'dimensions') {
@@ -81,7 +81,7 @@ for (const source of ['keyboard', 'ribbon']) for (const action of ['undo', 'redo
             setPropertyEditor(app, 'boardDimension', { cancel() { f.events.push('cancel-dimensions'); } });
         } else if (preview === 'group') {
             setPcbInteraction(app, '_groupDrag', { posePreview: true, tracks: [], vias: [], pads: [], shapes: [], fills: [],
-                previousDeferDragOverlays: false, previousSuspendBoardViewRefresh: false });
+                previousSuspendBoardViewRefresh: false });
         } else if (preview === 'track-draw') {
             setPcbInteraction(app, '_trackDraw', { previewElements: [] });
         } else if (preview === 'fill-draw') {
