@@ -9,7 +9,26 @@ import { disconnectIncompatiblePadNodes, repositionPadConnectedNodes } from './p
 import { flushSettledChanges } from '../shared/ui/settled-input.js';
 
 /** @typedef {{id: string, reference: string, locked: boolean, footprintShapes: string[]}} ComponentInfo */
-/** @typedef {Record<string, any>} ProjectData Parsed project JSON remains loosely shaped until validated. */
+/** @typedef {import('./project-field-aliases.js').JsonRecord} JsonRecord */
+/** @typedef {JsonRecord & {shapes: JsonRecord[], components: JsonRecord[], defs?: Record<string, import('../components/Component.js').ComponentDefinition>, settings?: JsonRecord}} ProjectSchematicData */
+/** @typedef {JsonRecord & {version?: string, type?: string, created?: string, schematic: ProjectSchematicData, pcb?: import('./PcbDocument.js').PcbData|null}} ProjectData Parsed project JSON remains loosely shaped until validated. */
+/**
+ * @typedef {{
+ *   onDocumentChanged?: (() => void)|null,
+ *   onProjectChanged?: () => void,
+ *   onComponentReferenceChanged?: (id: string) => void,
+ *   onSchematicChanged?: () => void,
+ *   onDocumentReplaced?: (reason: 'new'|'open'|'import') => void,
+ *   getViewSettings?: () => object|undefined,
+ *   loadSection?: Function,
+ *   prepareSection?: Function,
+ *   clearSection?: () => void|Promise<void>,
+ *   isSectionDirty?: () => unknown,
+ *   markSectionClean?: () => void,
+ *   isSectionEditing?: () => unknown,
+ *   restoreSectionDirty?: (dirty: boolean) => void,
+ * }} ProjectView
+ */
 
 /**
  * Neutral owner of the single ClearPCB project document.
@@ -45,11 +64,11 @@ export class ProjectDocument {
         this.fileManager = new FileManager();
         this.schematicDocument = new SchematicDocument();
         this.pcbDocument = new PcbDocument();
-        /** @type {Map<string, any>} Registered editor views by name. */
+        /** @type {Map<string, ProjectView>} Registered editor views by name. */
         this.views = new Map();
         /** View that owns canvas-level UI (prompts, toasts, title). */
         this.uiHost = null;
-        /** @type {Record<string, (...args: any[]) => any>} Injected lifecycle callbacks. */
+        /** @type {Record<string, (...args: *[]) => unknown>} Injected lifecycle callbacks. */
         this._lifecycle = {};
         /** @type {((loading: boolean) => void|Promise<void>)|null} */
         this.onLoadingChange = null;
@@ -58,9 +77,9 @@ export class ProjectDocument {
     /**
      * Register an editor view as a contributor to the project document.
      * @param {string} name e.g. 'schematic' | 'pcb'.
-     * @param {any} view The editor instance implementing the view interface.
-     * @param {{isUiHost?: boolean, lifecycle?: Record<string, (...args: any[]) => any>}} [opts]
-     * @returns {any} The registered view (for convenience).
+     * @param {ProjectView} view The editor instance implementing the view interface.
+     * @param {{isUiHost?: boolean, lifecycle?: Record<string, (...args: *[]) => unknown>}} [opts]
+     * @returns {ProjectView} The registered view (for convenience).
      */
     registerView(name, view, opts = {}) {
         this.views.set(name, view);
@@ -73,9 +92,9 @@ export class ProjectDocument {
         return view;
     }
 
-    /** @returns {any} The schematic view, if registered. */
+    /** @returns {ProjectView|undefined} The schematic view, if registered. */
     get schematic() { return this.views.get('schematic'); }
-    /** @returns {any} The PCB view, if registered. */
+    /** @returns {ProjectView|undefined} The PCB view, if registered. */
     get pcb() { return this.views.get('pcb'); }
 
     /**
@@ -227,22 +246,22 @@ export class ProjectDocument {
      */
     serialize() {
         if (!this.canSerialize()) throw new Error('Finish the current edit before saving.');
-        const doc = this.schematicDocument.serialize(this.schematic?.getViewSettings?.());
+        const doc = /** @type {ProjectData} */ (this.schematicDocument.serialize(this.schematic?.getViewSettings?.()));
         const pcbSection = this.pcbDocument.serializeSection(this.pcb?.getViewSettings?.());
         if (pcbSection) doc.pcb = pcbSection;
         else delete doc.pcb;
-        return compactProjectAliases(doc);
+        return /** @type {ProjectData} */ (compactProjectAliases(doc));
     }
 
     /**
      * Restore models and registered views from a previously serialized document.
-     * @param {ProjectData} data The serialized project document.
+     * @param {object|null} data The serialized project document.
      * @returns {Promise<void>}
      */
     async load(data) {
         if (this.fileManager.saving) throw new Error('Wait for the current save to finish.');
         if (this.fileManager.loading) throw new Error('A project is already being loaded.');
-        data = validateEditableProject(data);
+        const projectData = /** @type {ProjectData} */ (validateEditableProject(data));
         this.fileManager.loading = true;
         try {
             await this.onLoadingChange?.(true);
@@ -250,17 +269,17 @@ export class ProjectDocument {
             const dirty = this.fileManager.isDirty;
             const pcbDirty = this.pcb?.isSectionDirty?.();
             const prepared = this.schematic
-                ? await this.schematic.prepareSection?.(data)
-                : this.schematicDocument.prepare(data);
+                ? await this.schematic.prepareSection?.(projectData)
+                : this.schematicDocument.prepare(projectData);
             const pcbPrepared = this.pcb
-                ? await this.pcb.prepareSection?.(data.pcb || null)
-                : PcbDocument.prepare(data.pcb || null);
+                ? await this.pcb.prepareSection?.(projectData.pcb || null)
+                : PcbDocument.prepare(projectData.pcb || null);
             this.fileManager.touch();
             try {
-                await this.schematic?.loadSection?.(data, prepared);
-                if (!this.schematic) this.schematicDocument.load(data, prepared);
-                await this.pcb?.loadSection?.(data.pcb || null, pcbPrepared);
-                if (!this.pcb) this.pcbDocument.load(data.pcb || null, pcbPrepared);
+                await this.schematic?.loadSection?.(projectData, /** @type {never} */ (prepared));
+                if (!this.schematic) this.schematicDocument.load(projectData, /** @type {Parameters<SchematicDocument['load']>[1]} */ (prepared));
+                await this.pcb?.loadSection?.(projectData.pcb || null, /** @type {never} */ (pcbPrepared));
+                if (!this.pcb) this.pcbDocument.load(projectData.pcb || null, /** @type {Parameters<PcbDocument['load']>[1]} */ (pcbPrepared));
             } catch (error) {
                 await this.schematic?.loadSection?.(previous);
                 if (!this.schematic) this.schematicDocument.load(previous);
@@ -283,12 +302,12 @@ export class ProjectDocument {
         }
         this.fileManager.loading = true;
         try {
-            await this.schematic?.clearSection();
+            await this.schematic?.clearSection?.();
             if (!this.schematic) this.schematicDocument.clear();
-            await this.pcb?.clearSection();
+            await this.pcb?.clearSection?.();
             if (!this.pcb) this.pcbDocument.clear();
             // FileManager's JS default parameter infers empty-array literals; the serialized project is the same runtime shape.
-            this.fileManager.newDocument(/** @type {any} */ (this.serialize()));
+            this.fileManager.newDocument(this.serialize());
         } finally {
             this.fileManager.loading = false;
         }
@@ -313,17 +332,16 @@ export class ProjectDocument {
     // Each first commits a number field still settling, so it is saved or
     // counted as unsaved rather than lost.
 
-    /** Create a new blank document (prompts if unsaved). */
-    async newDocument() { flushSettledChanges(); return this._lifecycle.new?.(); }
-    /** Open a document from disk (prompts if unsaved). */
-    async open() { flushSettledChanges(); return this._lifecycle.open?.(); }
-    /** Re-open a file from the recents list (prompts if unsaved). */
-    /** @param {string} name */
-    async openRecent(name) { flushSettledChanges(); return this._lifecycle.openRecent?.(name); }
-    /** Save the document, prompting for a location if needed. */
+    /** Create a new blank document (prompts if unsaved). @returns {Promise<void>} */
+    async newDocument() { flushSettledChanges(); await this._lifecycle.new?.(); }
+    /** Open a document from disk (prompts if unsaved). @returns {Promise<void>} */
+    async open() { flushSettledChanges(); await this._lifecycle.open?.(); }
+    /** Re-open a file from the recents list (prompts if unsaved). @param {string} name @returns {Promise<void>} */
+    async openRecent(name) { flushSettledChanges(); await this._lifecycle.openRecent?.(name); }
+    /** Save the document, prompting for a location if needed. @returns {Promise<*>} */
     async save() { flushSettledChanges(); return this._lifecycle.save?.(); }
-    /** Save the document to a new location. */
+    /** Save the document to a new location. @returns {Promise<*>} */
     async saveAs() { flushSettledChanges(); return this._lifecycle.saveAs?.(); }
-    /** Import an EasyEDA schematic into a fresh document. */
-    async importEasyEDA() { flushSettledChanges(); return this._lifecycle.importEasyEDA?.(); }
+    /** Import an EasyEDA schematic into a fresh document. @returns {Promise<void>} */
+    async importEasyEDA() { flushSettledChanges(); await this._lifecycle.importEasyEDA?.(); }
 }

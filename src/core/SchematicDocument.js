@@ -7,6 +7,10 @@ import { compactProjectAliases } from './project-field-aliases.js';
 import { extractNetlist } from './netlist.js';
 
 /** @typedef {import('./ProjectDocument.js').ProjectData} ProjectData */
+/** @typedef {import('./ProjectDocument.js').ProjectSchematicData} ProjectSchematicData */
+/** @typedef {import('../components/Component.js').ComponentDefinition} ComponentDefinition */
+/** @typedef {import('./project-field-aliases.js').JsonRecord} JsonRecord */
+/** @typedef {object & {id?: string, dn?: string, x?: number, y?: number, rot?: number, mir?: boolean, ref?: string, val?: string, pkg?: string, sr?: boolean, sv?: boolean, props?: import('../components/Component.js').ComponentProperties, v?: boolean, lk?: boolean, def?: ComponentDefinition}} SerializedComponentData */
 /** @typedef {import('../shapes/wire.js').Wire | import('../shapes/net.js').Net | import('../shapes/text.js').Text | import('../shapes/polyline.js').Polyline | import('../shapes/circle.js').Circle | import('../shapes/arc.js').Arc | import('../shapes/noconnect.js').NoConnect} SchematicDrawable */
 /** @typedef {SchematicDrawable | import('../components/Component.js').Component} SchematicItem */
 
@@ -22,14 +26,15 @@ const hasNetName = item => item.type === 'wire' || item.type === 'net';
 
 /** Construct component data without creating its SVG. */
 /**
- * @param {ProjectData} data
- * @param {(name: string) => any} [getDefinition]
+ * @param {SerializedComponentData} data
+ * @param {(name: string) => ComponentDefinition|null|undefined} [getDefinition]
  */
 export function deserializeComponent(data, getDefinition = builtInDefinition) {
     const embedded = data.def;
-    const definition = embedded ? structuredClone(embedded) : getDefinition(data.dn);
+    const definitionName = String(data.dn || '');
+    const definition = embedded ? structuredClone(embedded) : getDefinition(definitionName);
     if (!definition) {
-        console.warn('Component definition not found:', data.dn);
+        console.warn('Component definition not found:', definitionName);
         return null;
     }
     if (embedded && (!definition._source || definition._source === 'Built-in')) definition._source = 'Project';
@@ -59,13 +64,13 @@ export function setComponentReference(component, reference) {
 }
 
 /** Serialize authored entities with detached preferences and deduplicated definitions. */
-/** @param {{shapes: SchematicDrawable[], components: Component[], settings?: object}} value */
+/** @param {{shapes: SchematicDrawable[], components: Component[], settings?: object}} value @returns {ProjectData} */
 export function serializeSchematicDocument({ shapes, components, settings = {} }) {
     const serializedComponents = components.map(component => component.toJSON());
     const serializedShapes = shapes
         .filter(shape => !(isTextShape(shape) && shape.fieldKey === 'net' && shape.parentComponent?.type === 'net'))
         .map(shape => shape.toJSON());
-    /** @type {Record<string, any>} */
+    /** @type {Record<string, ComponentDefinition>} */
     const defs = {};
     for (const component of serializedComponents) {
         if (component.def && component.dn) {
@@ -73,12 +78,12 @@ export function serializeSchematicDocument({ shapes, components, settings = {} }
             delete component.def;
         }
     }
-    /** @type {{settings: object, shapes: any[], components: Record<string, any>[], defs?: Record<string, any>}} */
+    /** @type {{settings: object, shapes: ReturnType<SchematicDrawable['toJSON']>[], components: ReturnType<Component['toJSON']>[], defs?: Record<string, ComponentDefinition>}} */
     const schematic = { settings, shapes: serializedShapes, components: serializedComponents };
     if (Object.keys(defs).length) schematic.defs = defs;
-    return compactProjectAliases({
+    return /** @type {ProjectData} */ (compactProjectAliases({
         version: '1.0', type: 'clearpcb-project', created: new Date().toISOString(), schematic,
-    });
+    }));
 }
 
 /**
@@ -97,16 +102,15 @@ export class SchematicDocument {
     /** Validate and construct a replacement without changing the live collections. */
     /**
      * @param {ProjectData} data
-     * @param {(name: string) => any} [getDefinition]
+     * @param {(name: string) => ComponentDefinition|null|undefined} [getDefinition]
      */
     prepare(data, getDefinition = builtInDefinition) {
-        data = validateEditableProject(data);
-        /** @type {{shapes: ProjectData[], components: ProjectData[], defs?: Record<string, ProjectData>, settings?: object}} */
-        const schematic = data.schematic;
+        data = /** @type {ProjectData} */ (validateEditableProject(data));
+        const schematic = /** @type {ProjectSchematicData} */ (data.schematic);
         const shapes = schematic.shapes.filter(item => item.fk !== 'net')
             .map(item => ({ data: item, shape: createShape(item) }));
         const components = schematic.components.map(item => {
-            const component = deserializeComponent({ ...item, def: schematic.defs?.[item.dn] }, getDefinition);
+            const component = deserializeComponent(/** @type {SerializedComponentData} */ ({ ...item, def: schematic.defs?.[String(item.dn)] }), getDefinition);
             if (!component) throw new Error(`Missing component definition: ${item.dn}`);
             return component;
         });
@@ -116,23 +120,23 @@ export class SchematicDocument {
     /** Adopt prepared entities without cloning them or creating presentation state. */
     /**
      * @param {ProjectData} data
-     * @param {{data: ProjectData, shapes: Array<{data: ProjectData, shape: SchematicDrawable}>, components: Component[]}} [prepared]
+     * @param {{data: ProjectData, shapes: Array<{data: JsonRecord, shape: SchematicDrawable}>, components: Component[]}} [prepared]
      */
     load(data, prepared = this.prepare(data)) {
         resetWireLabelCounter();
         resetNetNameCounter();
         this.shapes = prepared.shapes.map(({ data: item, shape }) => {
-            if (item.id) updateIdCounter(item.id);
+            if (typeof item.id === 'string') updateIdCounter(item.id);
             if (isWireShape(shape)) bumpWireLabelCounter(shape.wireLabel);
             if (hasNetName(shape)) bumpNetNameCounter(shape.net);
-            if (item.cid && item.fk && isTextShape(shape)) {
+            if (typeof item.cid === 'string' && typeof item.fk === 'string' && isTextShape(shape)) {
                 shape._pendingComponentId = item.cid;
                 shape.fieldKey = item.fk;
             }
             return shape;
         });
         this.components = prepared.components;
-        this.settings = structuredClone(prepared.data.schematic.settings || {});
+        this.settings = structuredClone((/** @type {ProjectSchematicData} */ (prepared.data.schematic)).settings || {});
         for (const component of this.components) {
             updateComponentIdCounter(component.id);
             component.linkFieldTexts(this.shapes);

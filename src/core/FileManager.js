@@ -28,12 +28,25 @@ const _MANIFEST_NAME = 'manifest.json';
 const JSON_CONTEXT_WIDTH = 180;
 
 /** @typedef {{position:number, line:number, column:number}} JsonLocation */
-/** @typedef {{name:string, path:string, ts:number, handle:any}} RecentRecord */
+/** @typedef {import('./project-field-aliases.js').JsonRecord} JsonRecord */
+/** @typedef {import('../components/Component.js').ComponentDefinition & {m3o?: string|null, model3dObj?: string|null}} SerializableComponentDefinition */
+/** @typedef {JsonRecord & {defs?: Record<string, SerializableComponentDefinition>}} ProjectSchematic */
+/** @typedef {JsonRecord & {format?: string, version?: number, models?: Record<string, string>}} ProjectManifest */
+/** @typedef {import('./ProjectDocument.js').ProjectData & {schematic?: ProjectSchematic, pcb?: JsonRecord|null}} ProjectData */
+/** @typedef {{name:string, kind?: string, getFile?: () => Promise<File>, createWritable?: () => Promise<FileSystemWritableFileStream>, isSameEntry?: (other: unknown) => Promise<boolean>, queryPermission?: (options?: unknown) => Promise<string>, requestPermission?: (options?: unknown) => Promise<string>}} FileHandle */
+/** @typedef {{name:string, path:string, ts:number, handle:FileHandle}} RecentRecord */
 /** @typedef {{fileName:string, key:string, timestamp:number}} AutoSaveIndexEntry */
-/** @typedef {{success:boolean, fileName?:string, data?:any, handle?:any, filePath?:string|null, clean?:boolean, cancelled?:boolean, error?:string, errorName?:string, missingHandle?:boolean}} FileOperationResult */
+/** @typedef {{success:boolean, fileName?:string, data?:ProjectData, handle?:FileHandle|null, filePath?:string|null, clean?:boolean, cancelled?:boolean, error?:string, errorName?:string, missingHandle?:boolean}} FileOperationResult */
 /** @typedef {FileOperationResult} OpenResult */
 /** @typedef {FileOperationResult} SaveResult */
 /** @typedef {{revision:number, fileName:string}} AutoSaveSnapshot */
+
+/** @param {unknown} value @returns {value is Record<string, unknown>} */
+const record = value => value !== null && typeof value === 'object' && !Array.isArray(value);
+
+/** @param {unknown} error */
+const errorName = error => error instanceof Error ? error.name
+    : (record(error) && typeof error.name === 'string' ? error.name : undefined);
 
 /** @param {string} text @returns {number|null} */
 function locateJsonSyntaxError(text) {
@@ -113,7 +126,7 @@ function locateJsonSyntaxError(text) {
         whitespace();
         if (index !== text.length) fail();
     } catch (error) {
-        const position = Number(/** @type {any} */ (error).message);
+        const position = Number(error instanceof Error ? error.message : '');
         return Number.isInteger(position) ? Math.min(text.length, position) : null;
     }
     return null;
@@ -121,7 +134,8 @@ function locateJsonSyntaxError(text) {
 
 /** @param {unknown} error @param {string} text @returns {JsonLocation|null} */
 function jsonErrorPosition(error, text) {
-    const message = String(error && /** @type {any} */ (error).message || '');
+    const message = String(error instanceof Error ? error.message
+        : (record(error) ? error.message || '' : ''));
     const positionMatch = message.match(/\bposition\s+(\d+)/i);
     if (positionMatch) {
         const position = Math.min(text.length, Number(positionMatch[1]));
@@ -223,11 +237,11 @@ function _unzip(bytes) {
  * Serialise a project to a ZIP-container Blob for on-disk storage. The document
  * is partitioned into separate entries (see file header) so the large, rarely-
  * changing 3D meshes live apart from the editable schematic/board data.
- * @param {any} data
+ * @param {ProjectData} data
  * @returns {Promise<Blob>}
  */
 async function _serializeProject(data) {
-    data = compactProjectAliases(data);
+    data = /** @type {ProjectData} */ (compactProjectAliases(data));
     /** @type {Record<string, Uint8Array>} */
     const files = {};
 
@@ -242,16 +256,16 @@ async function _serializeProject(data) {
     if (schematic) {
         sch = { ...schematic };
         if (sch.defs) {
-            /** @type {Record<string, any>} */
+            /** @type {Record<string, SerializableComponentDefinition>} */
             const defs = {};
             let i = 0;
             for (const [key, def] of Object.entries(sch.defs)) {
-                const model3dObj = def && (/** @type {any} */ (def).m3o ?? /** @type {any} */ (def).model3dObj);
+                const model3dObj = def && (def.m3o ?? def.model3dObj);
                 if (model3dObj) {
                     const entry = `models/m${i++}.obj`;
                     files[entry] = strToU8(model3dObj);
                     models[key] = entry;
-                    const rest = { .../** @type {any} */ (def) };
+                    const rest = { ...def };
                     delete rest.model3dObj;
                     delete rest.m3o;
                     defs[key] = rest;
@@ -278,7 +292,7 @@ async function _serializeProject(data) {
  * object. Exported so other entry points (e.g. the PWA launch-file handler)
  * decode documents the same way.
  * @param {Blob} file
- * @returns {Promise<any>}
+ * @returns {Promise<ProjectData>}
  */
 export async function readProjectFile(file) {
     return _deserializeProject(file);
@@ -286,7 +300,7 @@ export async function readProjectFile(file) {
 
 /**
  * @param {Blob} file
- * @returns {Promise<any>}
+ * @returns {Promise<ProjectData>}
  */
 async function _deserializeProject(file) {
     const buf = await file.arrayBuffer();
@@ -297,13 +311,13 @@ async function _deserializeProject(file) {
         ? parseProjectJSON(strFromU8(entries[name]), name)
         : null);
 
-    const manifest = readJSON(_MANIFEST_NAME);
+    const manifest = /** @type {ProjectManifest|null} */ (readJSON(_MANIFEST_NAME));
     if (manifest?.format !== 'clearpcb-zip' || manifest.version !== 1) {
         throw new Error('Invalid or unsupported project manifest.');
     }
-    const options = readJSON('options.json') || {};
-    const schematic = readJSON('schematic.json');
-    const pcb = readJSON('pcb.json');
+    const options = /** @type {JsonRecord} */ (readJSON('options.json') || {});
+    const schematic = /** @type {ProjectSchematic|null} */ (readJSON('schematic.json'));
+    const pcb = /** @type {JsonRecord|null} */ (readJSON('pcb.json'));
 
     // Re-attach the hoisted 3D meshes onto their definitions.
     if (schematic && schematic.defs && manifest.models) {
@@ -319,7 +333,7 @@ async function _deserializeProject(file) {
     const doc = { ...options };
     if (schematic) doc.schematic = schematic;
     if (pcb) doc.pcb = pcb;
-    return doc;
+    return /** @type {ProjectData} */ (doc);
 }
 
 // ==================== FileSystemFileHandle persistence ====================
@@ -355,23 +369,24 @@ function _openHandleDB() {
  * Normalise a stored value to a record. Tolerates the legacy format where the
  * bare FileSystemFileHandle was stored directly (no metadata wrapper).
  * @param {string} name
- * @param {any} value
- * @returns {{name:string, path:string, ts:number, handle:any}|null}
+ * @param {unknown} value
+ * @returns {RecentRecord|null}
  */
 function _asRecord(name, value) {
     if (!value) return null;
     // New format: a wrapper object carrying the handle.
-    if (value.handle) {
+    if (record(value) && value.handle) {
+        const handle = /** @type {FileHandle} */ (/** @type {unknown} */ (value.handle));
         return {
-            name: value.name || name,
-            path: value.path || value.name || name,
-            ts: value.ts || 0,
-            handle: value.handle,
+            name: typeof value.name === 'string' ? value.name : name,
+            path: typeof value.path === 'string' ? value.path : (typeof value.name === 'string' ? value.name : name),
+            ts: typeof value.ts === 'number' ? value.ts : 0,
+            handle,
         };
     }
     // Legacy format: the value IS the handle (has a `kind`/`getFile`).
-    if (typeof value.getFile === 'function' || value.kind) {
-        return { name, path: name, ts: 0, handle: value };
+    if (record(value) && (typeof value.getFile === 'function' || value.kind)) {
+        return { name, path: name, ts: 0, handle: /** @type {FileHandle} */ (/** @type {unknown} */ (value)) };
     }
     return null;
 }
@@ -392,7 +407,7 @@ async function _idbGetRecord(name) {
     } catch { return null; }
 }
 
-/** @param {string} name @returns {Promise<any|null>} */
+/** @param {string} name @returns {Promise<FileHandle|null>} */
 async function _idbGetHandle(name) {
     const rec = await _idbGetRecord(name);
     return rec ? rec.handle : null;
@@ -403,7 +418,7 @@ async function _idbGetHandle(name) {
  * transaction. If `handle` is omitted, the existing stored handle is preserved
  * (so bumping a recent's position never drops its handle).
  * @param {string} name
- * @param {{path?:string, handle?:any}} [opts]
+ * @param {{path?:string, handle?:FileHandle|null}} [opts]
  */
 async function _idbPutRecord(name, { path, handle } = {}) {
     if (!name) return;
@@ -452,13 +467,16 @@ async function _idbPruneRecents() {
             const store = tx.objectStore(HANDLE_STORE);
             const rv = store.getAll();
             const rk = store.getAllKeys();
-            /** @type {any[]} */
+            /** @type {unknown[]} */
             let values = [];
             /** @type {IDBValidKey[]} */
             let keys = [];
             rv.onsuccess = () => { values = rv.result || []; };
             rk.onsuccess = () => { keys = rk.result || []; };
-            tx.oncomplete = () => resolve(keys.map((k, i) => ({ key: k, ts: (values[i] && values[i].ts) || 0 })));
+            tx.oncomplete = () => resolve(keys.map((k, i) => {
+                const value = values[i];
+                return { key: k, ts: record(value) && typeof value.ts === 'number' ? value.ts : 0 };
+            }));
             tx.onerror = () => resolve([]);
         });
         const stale = /** @type {Array<{key:IDBValidKey, ts:number}>} */ (entries)
@@ -484,20 +502,20 @@ async function _idbPruneRecents() {
 async function _idbGetAllRecents() {
     try {
         const db = await _openHandleDB();
-        const values = await new Promise((resolve, reject) => {
+        const values = /** @type {unknown[]} */ (await new Promise((resolve, reject) => {
             const tx = db.transaction(HANDLE_STORE, 'readonly');
             const r = tx.objectStore(HANDLE_STORE).getAll();
             r.onsuccess = () => resolve(r.result || []);
             r.onerror = () => reject(r.error);
-        });
-        const keys = await new Promise((resolve) => {
+        }));
+        const keys = /** @type {IDBValidKey[]} */ (await new Promise((resolve) => {
             const tx = db.transaction(HANDLE_STORE, 'readonly');
             const r = tx.objectStore(HANDLE_STORE).getAllKeys();
             r.onsuccess = () => resolve(r.result || []);
             r.onerror = () => resolve([]);
-        });
+        }));
         db.close();
-        const records = /** @type {RecentRecord[]} */ (/** @type {any[]} */ (values)
+        const records = /** @type {RecentRecord[]} */ (values
             .map((v, i) => _asRecord(String(keys[i]), v))
             .filter((r) => r));
         return records
@@ -511,7 +529,7 @@ export class FileManager {
     /** Initialises the file manager with default state (no file open). */
     constructor() {
         // Current file handle (for "Save" without prompting)
-        /** @type {any|null} */
+        /** @type {FileHandle|null} */
         this.fileHandle = null;
         this.fileName = 'untitled.cpcb';
         /** @type {string|null} */
@@ -603,13 +621,13 @@ export class FileManager {
     
     /**
      * Save to current file (or Save As if no file)
-     * @param {any} data
+     * @param {ProjectData} data
      */
     async save(data) {
         return this._save(data, false);
     }
 
-    /** @param {any} data @param {boolean} saveAs */
+    /** @param {ProjectData} data @param {boolean} saveAs */
     async _save(data, saveAs) {
         if (this.saving || this.loading) return { success: false, error: 'A file operation is already in progress.' };
         this.saving = true;
@@ -617,7 +635,7 @@ export class FileManager {
         const oldFileName = this.fileName;
         try {
             // Check before any permission prompt or file picker; a failure leaves the file untouched.
-            const snapshot = storableProject(data);
+            const snapshot = /** @type {ProjectData} */ (storableProject(data));
             const result = await (saveAs ? this._saveAsCurrent(snapshot) : this._saveCurrent(snapshot));
             if (!result.success) return result;
             const clean = this.revision === revision;
@@ -638,7 +656,7 @@ export class FileManager {
         }
     }
 
-    /** @param {any} data */
+    /** @param {ProjectData} data */
     async _saveCurrent(data) {
         if (this.fileHandle) {
             // A handle restored from IndexedDB (e.g. after autosave recovery)
@@ -661,20 +679,20 @@ export class FileManager {
     
     /**
      * Save As - always prompts for location
-     * @param {any} data
+     * @param {ProjectData} data
      */
     async saveAs(data) {
         return this._save(data, true);
     }
 
-    /** @param {any} data */
+    /** @param {ProjectData} data */
     async _saveAsCurrent(data) {
         return this.hasFileSystemAccess() ? this.saveWithFilePicker(data) : this.saveWithDownload(data);
     }
     
     /**
      * Save using File System Access API (Chrome/Edge)
-     * @param {any} data
+     * @param {ProjectData} data
      */
     async saveWithFilePicker(data) {
         try {
@@ -686,7 +704,7 @@ export class FileManager {
                 }]
             };
 
-            const handle = await /** @type {any} */ (window).showSaveFilePicker(options);
+            const handle = await /** @type {Window & {showSaveFilePicker(options?: unknown): Promise<FileHandle>}} */ (/** @type {unknown} */ (window)).showSaveFilePicker(options);
             const result = await this.saveToHandle(data, handle);
             if (!result.success) return result;
             
@@ -699,7 +717,7 @@ export class FileManager {
             
             return { success: true, fileName: handle.name };
         } catch (err) {
-            if (err && /** @type {any} */ (err).name === 'AbortError') {
+            if (errorName(err) === 'AbortError') {
                 return { success: false, cancelled: true };
             }
             console.error('Save failed:', err);
@@ -711,15 +729,17 @@ export class FileManager {
      * Ensure we hold a write grant for a handle, requesting it if needed.
      * Must be called from a user gesture for the prompt to appear. Returns
      * true if writing is permitted, false if the user denied access.
-     * @param {any} handle
+     * @param {FileHandle} handle
      */
     async _ensureWritePermission(handle) {
         // Older/non-FSA handles have no permission API — assume writable.
-        if (!handle || typeof handle.queryPermission !== 'function') return true;
+        const queryPermission = handle?.queryPermission;
+        const requestPermission = handle?.requestPermission;
+        if (typeof queryPermission !== 'function' || typeof requestPermission !== 'function') return true;
         const opts = { mode: 'readwrite' };
         try {
-            if (await handle.queryPermission(opts) === 'granted') return true;
-            return await handle.requestPermission(opts) === 'granted';
+            if (await queryPermission.call(handle, opts) === 'granted') return true;
+            return await requestPermission.call(handle, opts) === 'granted';
         } catch {
             // If the permission API throws (e.g. handle no longer valid),
             // signal a fall back to Save As.
@@ -746,25 +766,25 @@ export class FileManager {
 
     /**
      * Save to an existing file handle
-     * @param {any} data
-     * @param {any} handle
+     * @param {ProjectData} data
+     * @param {FileHandle} handle
      */
     async saveToHandle(data, handle) {
         try {
-            const writable = await handle.createWritable();
+            const writable = await /** @type {{createWritable: () => Promise<FileSystemWritableFileStream>}} */ (handle).createWritable();
             const blob = await _serializeProject(data);
             await writable.write(blob);
             await writable.close();
             return { success: true, fileName: handle.name };
         } catch (err) {
             console.error('Save failed:', err);
-            return { success: false, error: err instanceof Error ? err.message : String(err), errorName: /** @type {any} */ (err)?.name };
+            return { success: false, error: err instanceof Error ? err.message : String(err), errorName: errorName(err) };
         }
     }
     
     /**
      * Save using download (fallback for all browsers)
-     * @param {any} data
+     * @param {ProjectData} data
      */
     async saveWithDownload(data) {
         const blob = await _serializeProject(data);
@@ -790,7 +810,7 @@ export class FileManager {
         return this.hasFileSystemAccess() ? this.openWithFilePicker() : this.openWithInput();
     }
 
-    /** @param {{fileName:string, filePath?:string|null, handle?:any}} result */
+    /** @param {{fileName:string, filePath?:string|null, handle?:FileHandle|null}} result */
     async adoptOpen(result) {
         this.fileHandle = result.handle || null;
         this.setFileName(result.fileName);
@@ -811,13 +831,13 @@ export class FileManager {
                 }]
             };
 
-            const [handle] = await /** @type {any} */ (window).showOpenFilePicker(options);
-            const file = await handle.getFile();
+            const [handle] = await /** @type {Window & {showOpenFilePicker(options?: unknown): Promise<FileHandle[]>}} */ (/** @type {unknown} */ (window)).showOpenFilePicker(options);
+            const file = await /** @type {{getFile: () => Promise<File>}} */ (handle).getFile();
             const data = await _deserializeProject(file);
 
             return { success: true, data, fileName: handle.name, handle };
         } catch (err) {
-            if (err && /** @type {any} */ (err).name === 'AbortError') {
+            if (errorName(err) === 'AbortError') {
                 return { success: false, cancelled: true };
             }
             console.error('Open failed:', err);
@@ -841,7 +861,7 @@ export class FileManager {
      * handle in the same record. Called after a successful open/save.
      * @param {string} name File name (the IndexedDB record key).
      * @param {string} [path] Display path (defaults to name).
-     * @param {any} [handle] FileSystemFileHandle (preserved if omitted).
+     * @param {FileHandle|null} [handle] FileSystemFileHandle (preserved if omitted).
      */
     _recordRecent(name, path, handle) {
         if (!name) return Promise.resolve();
@@ -864,7 +884,7 @@ export class FileManager {
      * (re)request read permission. Mirrors {@link openWithFilePicker}'s result
      * shape so callers can run the same load pipeline.
      * @param {string} name The recents entry / handle key.
-    * @returns {Promise<{success:boolean, data?:any, fileName?:string, handle?:any, error?:string, missingHandle?:boolean}>}
+    * @returns {Promise<{success:boolean, data?:ProjectData, fileName?:string, handle?:FileHandle|null, error?:string, missingHandle?:boolean}>}
      */
     async openRecent(name) {
         if (!name) return { success: false, error: 'No file specified' };
@@ -879,24 +899,26 @@ export class FileManager {
             return this.openWithFilePicker();
         }
         try {
-            if (typeof handle.queryPermission === 'function') {
+            const queryPermission = handle.queryPermission;
+            const requestPermission = handle.requestPermission;
+            if (typeof queryPermission === 'function' && typeof requestPermission === 'function') {
                 const opts = { mode: 'read' };
-                if (await handle.queryPermission(opts) !== 'granted'
-                    && await handle.requestPermission(opts) !== 'granted') {
+                if (await queryPermission.call(handle, opts) !== 'granted'
+                    && await requestPermission.call(handle, opts) !== 'granted') {
                     return { success: false, error: 'Permission to read the file was denied.' };
                 }
             }
-            const file = await handle.getFile();
+            const file = await /** @type {{getFile: () => Promise<File>}} */ (handle).getFile();
             const data = await _deserializeProject(file);
 
             return { success: true, data, fileName: handle.name || name, handle };
         } catch (err) {
-            if (err && /** @type {any} */ (err).name === 'NotFoundError') {
+            if (errorName(err) === 'NotFoundError') {
                 // The file was moved or deleted — drop the dead recent.
                 this.removeRecent(name);
                 return { success: false, error: 'The file could not be found (it may have been moved or deleted).' };
             }
-            if (err && /** @type {any} */ (err).name === 'NotAllowedError') {
+            if (errorName(err) === 'NotAllowedError') {
                 return { success: false, error: 'Permission to read the file was denied.' };
             }
             console.error('Open recent failed:', err);
@@ -939,7 +961,7 @@ export class FileManager {
     
     /**
      * Start auto-save timer. Recheck snapshot readiness when idle work actually runs.
-     * @param {() => any} getDataFn
+     * @param {() => ProjectData} getDataFn
      * @param {() => boolean} isDirtyFn
      * @param {() => boolean} [canSaveFn]
      */
@@ -991,7 +1013,7 @@ export class FileManager {
     
     /**
      * Save to localStorage
-     * @param {any} data
+     * @param {ProjectData} data
      * @param {AutoSaveSnapshot} [snapshot]
      */
     autoSaveToStorage(data, snapshot = { revision: this.revision, fileName: this.fileName }) {
@@ -1000,7 +1022,7 @@ export class FileManager {
         if (typeof localStorage === 'undefined') return;
         try {
             // A project that would not reopen keeps the last good autosave instead.
-            data = storableProject(data);
+            data = /** @type {ProjectData} */ (storableProject(data));
             const key = this.autoSavePrefix + encodeURIComponent(snapshot.fileName || 'untitled');
             const json = JSON.stringify({
                 timestamp: Date.now(),
@@ -1014,7 +1036,7 @@ export class FileManager {
             /** @type {AutoSaveIndexEntry[]} */
             let index = [];
             try {
-                index = JSON.parse(/** @type {any} */ (localStorage.getItem(this.autoSavePrefix + 'index'))) || [];
+                index = JSON.parse(localStorage.getItem(this.autoSavePrefix + 'index') ?? 'null') || [];
             } catch {}
             const existing = index.find(i => i.fileName === snapshot.fileName);
             if (!existing) {
@@ -1056,7 +1078,7 @@ export class FileManager {
         // Returns true if any autosave exists
         let index = [];
         try {
-            index = JSON.parse(/** @type {any} */ (localStorage.getItem(this.autoSavePrefix + 'index'))) || [];
+            index = JSON.parse(localStorage.getItem(this.autoSavePrefix + 'index') ?? 'null') || [];
         } catch {}
         return index.length > 0;
     }
@@ -1076,7 +1098,7 @@ export class FileManager {
                 /** @type {AutoSaveIndexEntry[]} */
                 let index = [];
                 try {
-                    index = JSON.parse(/** @type {any} */ (localStorage.getItem(this.autoSavePrefix + 'index'))) || [];
+                    index = JSON.parse(localStorage.getItem(this.autoSavePrefix + 'index') ?? 'null') || [];
                 } catch {}
                 if (index.length === 0) return null;
                 // Sort by timestamp desc
@@ -1108,7 +1130,7 @@ export class FileManager {
         /** @type {AutoSaveIndexEntry[]} */
         let index = [];
         try {
-            index = JSON.parse(/** @type {any} */ (localStorage.getItem(this.autoSavePrefix + 'index'))) || [];
+            index = JSON.parse(localStorage.getItem(this.autoSavePrefix + 'index') ?? 'null') || [];
         } catch {}
         if (fileName) {
             const key = this.autoSavePrefix + encodeURIComponent(fileName);
@@ -1137,8 +1159,9 @@ export class FileManager {
     
     /**
      * Adopt a new file identity and save the supplied cleared document for recovery.
+     * @param {ProjectData} [data]
      */
-    newDocument(data = { version: '1.0', type: 'clearpcb-project', schematic: { shapes: [], components: [] } }) {
+    newDocument(data = /** @type {ProjectData} */ ({ version: '1.0', type: 'clearpcb-project', schematic: { shapes: [], components: [] } })) {
         this.touch();
         this.fileHandle = null;
         this.setFileName('untitled.cpcb');

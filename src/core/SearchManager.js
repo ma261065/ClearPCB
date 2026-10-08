@@ -20,6 +20,7 @@ import { storageManager } from './StorageManager.js';
 /** @typedef {import('../components/kicad/symbol-index.js').SymbolSearchResult} SymbolSearchResult */
 /** @typedef {import('../components/LCSCFetcher.js').LCSCSearchResult} LCSCSearchResult */
 /** @typedef {{local: ComponentDefinition[], kicad: SymbolSearchResult[], lcsc: LCSCSearchResult[]}} SearchResults */
+/** @typedef {ComponentDefinition|SymbolSearchResult|LCSCSearchResult} SearchResult */
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const SEARCH_CACHE_TTL_MS = DAY_MS;
@@ -35,7 +36,7 @@ export class SearchManager {
      */
     constructor(componentLibrary) {
         this.library = componentLibrary;
-        /** @type {Map<string, any>} */
+        /** @type {Map<string, unknown>} */
         this.searchCache = new Map();
         this.stats = {
             cacheHits: 0,
@@ -85,9 +86,10 @@ export class SearchManager {
 
     /**
      * Read cached search results if valid.
+     * @template T
      * @param {string} cacheKey
-     * @param {(results: any) => boolean} [isValid]
-     * @returns {any|null}
+     * @param {(results: unknown) => boolean} [isValid]
+     * @returns {T|null}
      */
     _getCachedSearchResults(cacheKey, isValid) {
         if (!this.searchCache.has(cacheKey)) {
@@ -102,14 +104,14 @@ export class SearchManager {
         }
 
         this.stats.cacheHits++;
-        return cached;
+        return /** @type {T} */ (cached);
     }
 
     /**
      * Cache search results in memory and localStorage.
      * @param {string} cacheKey
      * @param {string} storageKey
-     * @param {any} results
+     * @param {unknown} results
      * @param {number} ttl
      */
     _cacheSearchResults(cacheKey, storageKey, results, ttl) {
@@ -170,18 +172,19 @@ export class SearchManager {
 
     /**
      * Whether a result set is a single proxy/CORS error payload.
-     * @param {any} results
+     * @param {unknown} results
      * @returns {boolean}
      */
     _isSingleErrorResult(results) {
-        return !!(results && results.length === 1 && results[0]?.error);
+        return Array.isArray(results) && results.length === 1 && !!results[0]?.error;
     }
 
     /**
      * Log and return a default empty search result list.
+     * @template T
      * @param {string} source
      * @param {unknown} error
-     * @returns {any[]}
+     * @returns {T[]}
      */
     _handleSearchError(source, error) {
         console.error(`SearchManager: ${source} search error:`, error);
@@ -198,15 +201,16 @@ export class SearchManager {
 
     /**
      * Execute a remote search with shared cache/miss/error handling.
+     * @template T
      * @param {Object} options
      * @param {'KiCad'|'LCSC'} options.source
      * @param {'kicad'|'lcsc'} options.domain
      * @param {string} options.storageQuery
      * @param {string} options.cacheKey
-     * @param {(results: any) => boolean} options.isCacheValid
-     * @param {() => Promise<any>} options.fetcher
-     * @param {(results: any) => boolean} options.shouldCache
-     * @returns {Promise<any[]>}
+     * @param {(results: unknown) => boolean} options.isCacheValid
+     * @param {() => Promise<T[]>} options.fetcher
+     * @param {(results: T[]) => boolean} options.shouldCache
+     * @returns {Promise<T[]>}
      */
     async _runRemoteSearch({ source, domain, storageQuery, cacheKey, isCacheValid, fetcher, shouldCache }) {
         const cached = this._getCachedSearchResults(cacheKey, isCacheValid);
@@ -323,7 +327,7 @@ export class SearchManager {
     /**
      * Cache a fetched entity value with a fixed TTL.
      * @param {string} cacheKey
-     * @param {any} value
+     * @param {ComponentDefinition|null} value
      */
     _cacheFetchedEntity(cacheKey, value) {
         if (!value) {
@@ -367,9 +371,9 @@ export class SearchManager {
 
     /**
      * Validate search results format
-     * @param {any} results
+     * @param {unknown} results
      * @param {'local'|'kicad'|'lcsc'|string} [type]
-     * @returns {any[]}
+     * @returns {SearchResult[]}
      */
     validateResults(results, type = 'local') {
         if (!Array.isArray(results)) {

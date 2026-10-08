@@ -20,7 +20,7 @@ export class LockedEditError extends Error {
     }
 }
 
-/** @typedef {{kind?: string, object: any}} LockTarget */
+/** @typedef {{kind?: string, object: object|null|undefined}} LockTarget */
 /** @typedef {{lockTargets?: () => LockTarget[], commands?: Command[]}} Command */
 
 /**
@@ -36,12 +36,12 @@ export function commandLockTargets(command, out = []) {
     return out;
 }
 
-/** @param {any} a @param {any} b */
+/** @param {unknown} a @param {unknown} b */
 const same = (a, b) => a === b || JSON.stringify(a) === JSON.stringify(b);
 
 /** Whether a before/after edit changes nothing but the net (or the lock itself).
- * @param {Record<string, any>} [before]
- * @param {Record<string, any>} [after]
+ * @param {Record<string, unknown>} [before]
+ * @param {Record<string, unknown>} [after]
  */
 export function netOnlyChange(before = {}, after = {}) {
     const keys = new Set([...Object.keys(before || {}), ...Object.keys(after || {})]);
@@ -53,9 +53,9 @@ export function netOnlyChange(before = {}, after = {}) {
 
 /** Targets for a single changed object, or none when the edit only touches its net.
  * @param {string|undefined} kind
- * @param {any} object
- * @param {Record<string, any>} before
- * @param {Record<string, any>} after
+ * @param {object|null|undefined} object
+ * @param {Record<string, unknown>} before
+ * @param {Record<string, unknown>} after
  * @returns {LockTarget[]}
  */
 export function editTargets(kind, object, before, after) {

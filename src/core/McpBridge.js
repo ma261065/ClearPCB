@@ -6,8 +6,9 @@ const MAX_RELAY_MESSAGE = 16 * 1024 * 1024;
 
 /**
  * @typedef {{chunks: Array<string|undefined>, bytes: number}} ChunkTransfer
- * @typedef {{id: string, method: string, params?: any}} RelayRequest
- * @typedef {{id: string, result?: any, error?: string}} RelayResponse
+ * @typedef {{id: string, method: string, params?: Record<string, unknown>}} RelayRequest
+ * @typedef {{id: string, result?: unknown, error?: string}} RelayResponse
+ * @typedef {{enabled: boolean, connected: boolean, sessionId?: string, mcpUrl?: string, connectionError?: string, canRevert?: boolean}} McpBridgeState
  */
 
 function endpointOrigin() {
@@ -29,8 +30,8 @@ function makeSessionId() {
 
 export class McpBridge {
     /**
-     * @param {any} project
-     * @param {{onStateChanged?: (state: any) => void}} [options]
+     * @param {import('./ProjectDocument.js').ProjectDocument} project
+     * @param {{onStateChanged?: (state: McpBridgeState) => void}} [options]
      */
     constructor(project, { onStateChanged = () => {} } = {}) {
         this.project = project;
@@ -115,7 +116,7 @@ export class McpBridge {
 
     /**
      * @param {WebSocket} socket
-     * @param {any} raw
+     * @param {unknown} raw
      */
     async _handleRelayFrame(socket, raw) {
         let frame;
@@ -155,11 +156,11 @@ export class McpBridge {
 
     /**
      * @param {WebSocket} socket
-     * @param {any} raw Parsed relay JSON from an external MCP client.
+     * @param {unknown} raw Parsed relay JSON from an external MCP client.
      */
     async _handleMessage(socket, raw) {
-        /** @type {RelayRequest|any} */
-        let request = raw;
+        /** @type {RelayRequest|undefined} */
+        let request = /** @type {RelayRequest|undefined} */ (raw);
         try {
             if (!request || typeof request.id !== 'string' || typeof request.method !== 'string') {
                 throw new Error('Invalid relay request.');
@@ -170,13 +171,13 @@ export class McpBridge {
             } else if (request.method === 'replace_project') {
                 if (!request.params?.project) throw new Error('replace_project requires project.');
                 const previous = this.project.serialize();
-                await this.project.load(request.params.project);
+                await this.project.load(/** @type {import('./ProjectDocument.js').ProjectData} */ (request.params.project));
                 this.lastMcpSnapshot = previous;
                 result = this.project.serialize();
             } else if (request.method === 'apply_project_patch') {
                 const previous = this.project.serialize();
-                const updated = applyJsonPatch(previous, request.params?.patch);
-                await this.project.load(updated);
+                const updated = applyJsonPatch(previous, /** @type {Parameters<typeof applyJsonPatch>[1]} */ (request.params?.patch));
+                await this.project.load(/** @type {import('./ProjectDocument.js').ProjectData} */ (updated));
                 this.lastMcpSnapshot = previous;
                 result = this.project.serialize();
             } else {

@@ -11,11 +11,11 @@ export const PCB_ROUTING_FIELDS = ['trackWidth', 'clearance', 'viaDiameter', 'vi
 export const PCB_DESIGN_MAX_MM = Object.freeze({ trackWidth: 25, clearance: 10, viaDiameter: 25, viaDrill: 25 });
 
 /** Clamp oversized routing dimensions from saved data so slipped values still open, at a renderable size.
- * @param {Record<string, any>} design
- * @returns {Record<string, any> & Partial<Record<PcbRoutingField, number>>}
+ * @param {Record<string, unknown>} design
+ * @returns {Record<string, unknown> & Partial<Record<PcbRoutingField, number>>}
  */
 export function clampDesignDimensions(design) {
-    /** @type {Record<string, any> & Partial<Record<PcbRoutingField, number>>} */
+    /** @type {Record<string, unknown> & Partial<Record<PcbRoutingField, number>>} */
     const clamped = { ...design };
     for (const key of PCB_ROUTING_FIELDS) {
         const value = clamped[key];

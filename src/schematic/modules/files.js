@@ -148,12 +148,12 @@ export async function loadDocument(app, data, prepared = prepareDocument(app, da
     // schematic section loads, so neither view reaches into the other.
 }
 
-/** @param {SchematicEditor} app @param {ProjectData} data */
+/** @param {SchematicEditor} app @param {object} data */
 export async function loadProjectDocument(app, data) {
     if (app.project) {
         await app.project.load(data);
     } else {
-        await app.loadSection(data);
+        await app.loadSection(/** @type {ProjectData} */ (data));
     }
 }
 

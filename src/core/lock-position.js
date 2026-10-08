@@ -35,7 +35,9 @@ export function boundsOutline(bounds) {
 export function lockPositionOutsideOutline(points, pointer, scale, closed = true, objectMargin = 0) {
     if (!pointer || !Array.isArray(points) || !points.length) return null;
     /** @type {Array<Array<{x:number,y:number}>>} */
-    const paths = /** @type {any} */ (Array.isArray(points[0]) ? points : [points]);
+    const paths = Array.isArray(points[0])
+        ? /** @type {Array<Array<{x:number,y:number}>>} */ (points)
+        : [/** @type {Array<{x:number,y:number}>} */ (points)];
     /** @type {NearestBoundary|null} */
     let nearest = null;
     for (let pathIndex = 0; pathIndex < paths.length; pathIndex++) {

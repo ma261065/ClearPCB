@@ -68,13 +68,15 @@ import { encodePictureArtwork, decodePictureArtwork } from '../shared/pcb/pictur
  *   geom: BoardShapeGeometry,
  *   [key: string]: unknown,
  * }} BoardShapeSnapshot
- * @typedef {{boardShapes: BoardShape[], shapeIdCounter: number}} BoardShapeState
+ * @typedef {BoardShape|CopperFill} BoardShapeEntry
+ * @typedef {{boardShapes: BoardShapeEntry[], shapeIdCounter: number}} BoardShapeState
+ * @typedef {Partial<BoardShapeBase> & {type?: string, l?: string, k?: string, f?: boolean, p?: boolean, n?: string, lk?: boolean, v?: boolean, r?: number, pts?: number[][]|Point[], sp?: Point, ep?: Point, bp?: Point, aw?: PictureArtwork, nm?: string, w?: number, h?: number, rot?: number, rev?: boolean}} SerializedBoardShape
  */
 
 export const SHAPE_KINDS = new Set(['line', 'rect', 'polygon', 'arc', 'circle', 'image']);
 /** @param {number} n */
 const r4 = n => Math.round(n * 10000) / 10000;
-/** @param {any} p */
+/** @param {{x?: unknown, y?: unknown}|null|undefined} p */
 const pt = p => ({ x: Number(p?.x) || 0, y: Number(p?.y) || 0 });
 /** @param {Point} p */
 const clonePoint = p => ({ x: p.x, y: p.y });
@@ -215,8 +217,8 @@ export function serializeBoardShapes(state, { compactArtwork = true, roundGeomet
 
 /** Decode into a data-only stage; the caller owns adoption and rendering. */
 /**
- * @param {any} state Legacy loader stages come from several loosely typed callers.
- * @param {any} arr Persisted project JSON loaded from disk.
+ * @param {BoardShapeState} state Legacy loader stages come from several loosely typed callers.
+ * @param {unknown} arr Persisted project JSON loaded from disk.
  * @param {{strict?: boolean, lineWidth?: number}} [options]
  */
 export function loadBoardShapeData(state, arr, { strict = false, lineWidth = 0.2 } = {}) {
@@ -268,24 +270,24 @@ export function loadBoardShapeData(state, arr, { strict = false, lineWidth = 0.2
                 .map(([index, radius]) => [index, Number(radius)]));
         }
         if (['line', 'rect', 'polygon'].includes(kind)) base.cornerRadius = Math.max(0, Number(sd.cornerRadius) || 0);
-        /** @type {any} */
+        /** @type {BoardShape} */
         let shape;
         if ((kind === 'rect' || kind === 'image') && hasRectangleFrame(sd)) {
             if (Object.hasOwn(sd, 'points')) throw new Error('Rectangle records cannot contain both a frame and corner points.');
-            shape = { ...base, points: rectangleFramePoints(sd) };
+            shape = /** @type {BoardShape} */ ({ ...base, kind, points: rectangleFramePoints(sd) });
         } else if (kind === 'arc') {
-            shape = { ...base, start: pt(sd.start), end: pt(sd.end), bulge: pt(sd.bulge) };
+            shape = /** @type {BoardArcShape} */ ({ ...base, kind, start: pt(sd.start), end: pt(sd.end), bulge: pt(sd.bulge) });
         } else if (kind === 'circle') {
             const radius = Math.max(0.05, Number(sd.radius) || 0);
             if (!radius) continue;
-            shape = { ...base, x: Number(sd.x) || 0, y: Number(sd.y) || 0, radius };
+            shape = /** @type {BoardCircleShape} */ ({ ...base, kind, x: Number(sd.x) || 0, y: Number(sd.y) || 0, radius });
         } else {
             const pts = Array.isArray(sd.points) ? sd.points.map(pt) : [];
             if (pts.length < (kind === 'line' ? 2 : 3)) {
                 if (strict) throw new Error(`Insufficient points in board shape: ${sd.id}`);
                 continue;
             }
-            shape = { ...base, points: pts };
+            shape = /** @type {BoardShape} */ ({ ...base, kind, points: pts });
         }
         if (kind === 'image') {
             try {

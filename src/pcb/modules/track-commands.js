@@ -520,8 +520,8 @@ export function renderPlacementPose(app, compId) {
                 // The reference designator can be moved/rotated relative to the
                 // footprint. Compose (outermost → innermost):
                 //   translate(offset) · [counter-mirror] · rotate(refRot,cx,cy)
-                const c = parseFloat(t.getAttribute('data-mx-center')) || 0;
-                const cy = parseFloat(t.getAttribute('data-ref-cy')) || 0;
+                const c = parseFloat(t.getAttribute('data-mx-center') || '0') || 0;
+                const cy = parseFloat(t.getAttribute('data-ref-cy') || '0') || 0;
                 const dx = pl.refDx || 0, dy = pl.refDy || 0, rr = pl.refRot || 0;
                 const parts = [];
                 if (dx || dy) parts.push(`translate(${dx}, ${dy})`);
@@ -530,7 +530,7 @@ export function renderPlacementPose(app, compId) {
                 if (parts.length) t.setAttribute('transform', parts.join(' '));
                 else t.removeAttribute('transform');
             } else if (flip) {
-                const c = parseFloat(t.getAttribute('data-mx-center')) || 0;
+                const c = parseFloat(t.getAttribute('data-mx-center') || '0') || 0;
                 t.setAttribute('transform', `translate(${2 * c}, 0) scale(-1, 1)`);
             } else {
                 t.removeAttribute('transform');

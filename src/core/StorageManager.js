@@ -14,13 +14,15 @@ const DB_NAME = 'clearpcb_cache';
 const DB_VERSION = 1;
 const STORE_NAME = 'cache';
 
+/** @typedef {{data: unknown, expires: number}} CacheEntry */
+
 export class StorageManager {
     /**
      * @param {number} [ttlMs=86400000] - Default TTL (24 hours)
      */
     constructor(ttlMs = 24 * 60 * 60 * 1000) {
         this.ttlMs = ttlMs;
-        /** @type {Map<string, {data: any, expires: number}>} */
+        /** @type {Map<string, CacheEntry>} */
         this._mem = new Map();
         /** @type {IDBDatabase|null} */
         this._db = null;
@@ -72,7 +74,7 @@ export class StorageManager {
                 const key = /** @type {string} */ (cursor.key);
                 const val = cursor.value;
                 if (val && typeof val === 'object' && 'data' in val && 'expires' in val) {
-                    this._mem.set(key, val);
+                    this._mem.set(key, /** @type {CacheEntry} */ (val));
                 }
                 cursor.continue();
             };
@@ -116,7 +118,7 @@ export class StorageManager {
 
     /**
      * @param {string} key
-     * @param {{data: any, expires: number}} value
+     * @param {CacheEntry} value
      */
     _persistToIDB(key, value) {
         if (!this._db) return;
@@ -155,7 +157,7 @@ export class StorageManager {
     /**
      * Store a value with TTL.
      * @param {string} key
-     * @param {any} value
+     * @param {unknown} value
      * @param {number|null} [ttlMs]
      * @returns {boolean}
      */
@@ -169,8 +171,9 @@ export class StorageManager {
 
     /**
      * Get a value (sync, from memory).
+     * @template T
      * @param {string} key
-     * @returns {any|null}
+     * @returns {T|null}
      */
     get(key) {
         const entry = this._mem.get(key);
@@ -180,7 +183,7 @@ export class StorageManager {
             this._removeFromIDB(key);
             return null;
         }
-        return entry.data;
+        return /** @type {T} */ (entry.data);
     }
 
     /**
@@ -205,13 +208,14 @@ export class StorageManager {
 
     /**
      * Get value with expiry status without deleting expired entries.
+     * @template T
      * @param {string} key
-     * @returns {{ data: any, expired: boolean } | null}
+     * @returns {{ data: T, expired: boolean } | null}
      */
     getRaw(key) {
         const entry = this._mem.get(key);
         if (!entry) return null;
-        return { data: entry.data, expired: Date.now() > entry.expires };
+        return { data: /** @type {T} */ (entry.data), expired: Date.now() > entry.expires };
     }
 
     /**

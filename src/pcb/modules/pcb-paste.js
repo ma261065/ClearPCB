@@ -150,7 +150,7 @@ function removeArtwork(app, payload) {
     for (const fill of payload.fills) {
         removeCopperFillElements(fill, layer);
         const current = app.pcbDocument.boardShapes.find(item => item.id === fill.id && item !== fill);
-        if (current?.type === 'fill') renderCopperFill(current, layer);
+        if (current?.type === 'fill') renderCopperFill(/** @type {import('../../shapes/copper-fill.js').CopperFill} */ (/** @type {unknown} */ (current)), layer);
     }
 }
 

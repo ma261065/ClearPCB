@@ -5,9 +5,11 @@ import { updatePlacementPadPositions, repositionPadConnectedNodes,
 /** @typedef {import('./PcbPlacementState.js').PcbPlacementState} PcbPlacementState */
 /** @typedef {import('./PcbPlacementState.js').PlacementOverride} PlacementOverride */
 /** @typedef {Partial<import('./PcbPlacementState.js').PlacementOverride> & {x:number, y:number}} PlacementSeed */
-/** @typedef {Partial<import('./PcbPlacementState.js').PlacementOverride> & Record<string, any>} PlacementPatch */
+/** @typedef {Partial<import('./PcbPlacementState.js').PlacementOverride> & Record<string, unknown>} PlacementPatch */
 /** @typedef {{placementState: PcbPlacementState, compId: string, initial: PlacementOverride}} PlacementPatchCommand */
-/** @typedef {PlacementPatchCommand & {project: import('./ProjectDocument.js').ProjectDocument, _footprint?: any}} PlacementPoseCommand */
+/** @typedef {ReturnType<import('./ProjectDocument.js').ProjectDocument['getPcbFootprint']>} ResolvedFootprint */
+/** @typedef {{padOffsets: NonNullable<ResolvedFootprint>['padOffsets'], pasteOffsets: NonNullable<ResolvedFootprint>['pasteOffsets']}} CachedFootprint */
+/** @typedef {PlacementPatchCommand & {project: import('./ProjectDocument.js').ProjectDocument, _footprint?: ResolvedFootprint|CachedFootprint}} PlacementPoseCommand */
 /** @typedef {{refSize?: number, refStrokeWidth?: number, refRot?: number}} RefStylePatch */
 
 /** @param {PcbPlacementState} placementState @param {string} compId @param {PlacementSeed|undefined} initial @returns {PlacementOverride} */

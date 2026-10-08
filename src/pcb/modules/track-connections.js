@@ -11,7 +11,7 @@ import { resolveTrackContactGeometry, copperContactsTouch, copperRegionShape, co
 /** @typedef {import('./pcb-editor-api.js').PcbBoard} PcbBoard */
 /** @typedef {{x: number, y: number}} Point */
 /** @typedef {import('./copper-connectivity.js').CopperCluster} CopperCluster */
-/** @typedef {Record<string, any>} CopperContact */
+/** @typedef {*} CopperContact */
 /** @typedef {{track?: any, tracks?: Set<any>, via?: any, padKey?: string, edgeId?: string, nodeId?: string}} CopperSeed */
 /** @typedef {{tracks:Set<any>, trackNodes:Map<any,Set<string>>, vias:Set<any>, shapes:Set<any>, padNets:Set<string>, padKeys:Set<string>, padNetByKey:Map<string,string>}} BondedCopper */
 

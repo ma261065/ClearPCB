@@ -16,25 +16,33 @@ const resolvedPlacementFields = ['x', 'y', 'rotation', 'mirror', 'side', 'padOff
  *   paste?:boolean, _baseLayer?:string}} PadOffset
  */
 /** @typedef {{dx?:number, dy?:number, width?:number, height?:number, shape?:string, side?:string, _baseSide?:string}} PasteOffset */
+/** @typedef {ReturnType<import('./pcb-footprint.js').createPcbFootprint>['geometry']} FootprintGeometry */
+/** @typedef {FootprintGeometry['outline']} FootprintOutline */
+/** @typedef {FootprintGeometry['silks']} FootprintSilks */
 /**
  * A component on the board: its saved pose (PlacementOverride) and the footprint
  * resolved for it (PcbPlacementState.resolve). Render code also keeps its SVG
  * elements on the placement, hence the open index.
  * @typedef {Partial<import('./PcbPlacementState.js').PlacementOverride> & {x:number, y:number,
- *   padOffsets?:PadOffset[], pasteOffsets?:PasteOffset[], pads:Map<string|number, BoardPad>, geometry?:any,
- *   outline?:any, silks?:any[], reference?:string, value?:string, footprint?:string, source?:string,
- *   model3dObj?:unknown, model3dUrl?:string|null, [key:string]:any}} Placement
+ *   padOffsets?:PadOffset[], pasteOffsets?:PasteOffset[], pads:Map<string|number, BoardPad>, geometry?:FootprintGeometry,
+ *   outline?:FootprintOutline|null, silks?:FootprintSilks, reference?:string, value?:string, footprint?:string, source?:string,
+ *   model3dObj?:unknown, model3dUrl?:string|null, elements: *[], lodEl?: *,
+ *   bounds?: Record<string, number>, [key:string]:unknown}} Placement
+ * @typedef {Partial<import('./PcbPlacementState.js').PlacementOverride> & {x:number, y:number,
+ *   padOffsets?:PadOffset[], pasteOffsets?:PasteOffset[], pads:Map<string|number, BoardPad>, geometry?:FootprintGeometry,
+ *   outline?:FootprintOutline|null, silks?:FootprintSilks, model3dObj?:unknown, model3dUrl?:string|null,
+ *   elements?: *[], bounds?: Record<string, number>, [key:string]:unknown}} CorePlacement
  */
 /** @typedef {import('../shapes/track.js').Track} Track */
 
 /** Detach full-precision physical placement data without copying presentation state. */
-/** @param {Placement} placement */
+/** @param {CorePlacement} placement */
 export function captureResolvedPlacement(placement) {
     return structuredClone(Object.fromEntries(resolvedPlacementFields.map(key => [key, placement[key]])));
 }
 
 /** Update derived world-pad positions from current footprint-local geometry. */
-/** @param {Placement} placement */
+/** @param {CorePlacement} placement */
 export function updatePlacementPadPositions(placement) {
     const pose = placementPose(placement);
     for (const offset of placement.padOffsets || []) {
@@ -43,7 +51,7 @@ export function updatePlacementPadPositions(placement) {
     }
 }
 
-/** @param {Track[]} tracks @param {string} compId @param {Map<any, BoardPad>} pads */
+/** @param {Track[]} tracks @param {string} compId @param {Map<string|number, BoardPad>} pads */
 export function repositionPadConnectedNodes(tracks, compId, pads) {
     const touched = new Set();
     for (const track of tracks) {
@@ -68,7 +76,7 @@ export function repositionPadConnectedNodes(tracks, compId, pads) {
 const flipShortLayer = layer => layer === 'top' ? 'bottom' : layer === 'bottom' ? 'top' : layer;
 
 /** Apply side-dependent pad/paste layers without touching presentation. */
-/** @param {Placement} placement @param {string} side */
+/** @param {CorePlacement} placement @param {string} side */
 export function applyPlacementSide(placement, side) {
     const flip = side === 'bottom';
     placement.side = flip ? 'bottom' : 'top';

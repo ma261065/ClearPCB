@@ -56,7 +56,7 @@ export function fillEditProfile() {
         /** @param {PcbEditor} app @param {CopperFill} fill */
         displayed: (app, fill) => displayedBoardShape(app, fillBoardShape(fill)),
         /** @param {PcbEditor} app */
-        collection: app => app.pcbDocument?.boardShapes || app.boardShapes,
+        collection: app => /** @type {Array<import('../../core/pcb-board-shapes.js').BoardShape|CopperFill>} */ (app.pcbDocument?.boardShapes || app.boardShapes),
         copy: /** @param {CopperFill} fill */ fill => new CopperFill(fill.captureState()),
         capture: /** @param {CopperFill} fill */ fill => fill.captureState(),
         canEdit: /** @param {PcbEditor} _app @param {CopperFill} fill */ (_app, fill) => canEditFill(fill),

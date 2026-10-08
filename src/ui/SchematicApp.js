@@ -284,7 +284,7 @@ export default class SchematicApp {
         if (this._pendingAutoLoad) {
             // Use the same logic as loadDocument
             import('../schematic/modules/files.js').then(async FileTools => {
-                await FileTools.loadProjectDocument(this, this._pendingAutoLoad);
+                await FileTools.loadProjectDocument(this, /** @type {object} */ (this._pendingAutoLoad));
                 this._pendingAutoLoad = null;
             }).catch(err => {
                 console.error('Failed to auto-load document:', err);
@@ -383,7 +383,7 @@ export default class SchematicApp {
                 const recovered = repairDuplicateIds(saved.data);
                 const repairMessage = duplicateIdRepairMessage(recovered);
                 if (this._initComplete) {
-                    await FileTools.loadProjectDocument(this, recovered.data);
+                    await FileTools.loadProjectDocument(this, /** @type {object} */ (recovered.data));
                 } else {
                     this.shapes = [];
                     this.components = [];

@@ -32,7 +32,7 @@ function copySnapshot(state) {
 }
 
 export class AddBoardShapeCommand {
-    /** @param {PcbDocument} document @param {any} shape */
+    /** @param {PcbDocument} document @param {import('./pcb-board-shapes.js').BoardShape} shape */
     constructor(document, shape) {
         this.document = document;
         this.shape = shape;
@@ -54,7 +54,7 @@ export class AddBoardShapeCommand {
 }
 
 export class RemoveBoardShapeCommand {
-    /** @param {PcbDocument} document @param {any} shape */
+    /** @param {PcbDocument} document @param {import('./pcb-board-shapes.js').BoardShape} shape */
     constructor(document, shape) {
         this.document = document;
         this.shape = shape;
@@ -74,7 +74,7 @@ export class RemoveBoardShapeCommand {
 }
 
 export class MoveBoardShapeCommand {
-    /** @param {PcbDocument} document @param {any} shape @param {import('./pcb-board-shapes.js').BoardShapeGeometry} before @param {import('./pcb-board-shapes.js').BoardShapeGeometry} after */
+    /** @param {PcbDocument} document @param {import('./pcb-board-shapes.js').BoardShape} shape @param {import('./pcb-board-shapes.js').BoardShapeGeometry} before @param {import('./pcb-board-shapes.js').BoardShapeGeometry} after */
     constructor(document, shape, before, after) {
         this.document = document;
         this.shape = shape;
@@ -90,7 +90,7 @@ export class MoveBoardShapeCommand {
 }
 
 export class ModifyBoardShapeCommand {
-    /** @param {PcbDocument} document @param {any} shape @param {import('./pcb-board-shapes.js').BoardShapeSnapshot} before @param {import('./pcb-board-shapes.js').BoardShapeSnapshot} after */
+    /** @param {PcbDocument} document @param {import('./pcb-board-shapes.js').BoardShape} shape @param {import('./pcb-board-shapes.js').BoardShapeSnapshot} before @param {import('./pcb-board-shapes.js').BoardShapeSnapshot} after */
     constructor(document, shape, before, after) {
         this.document = document;
         this.shape = shape;

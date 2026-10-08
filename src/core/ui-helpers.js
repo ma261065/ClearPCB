@@ -68,7 +68,7 @@ export function appendSegmentSelection(overlay, element, color, width, handles =
  * Create a lock-icon SVG group with click-to-unlock behaviour.
  * @param {number} x       Left edge of the lock body in local coordinates
  * @param {number} y       Top edge of the lock (above the body)
- * @param {{element?: Element, [key: string]: any}} item    Shape or Component that owns the lock
+ * @param {object & {element?: Element, locked?: boolean}} item    Shape or Component that owns the lock
  * @param {string} cls     CSS class name for the group
  * @returns {SVGGElement}
  */

@@ -9,7 +9,7 @@ export class CommandHistory {
      * @param {Object} [options]
      * @param {number} [options.maxSize=100] - Maximum number of undo entries to keep
      * @param {Function} [options.onChanged] - Callback fired after every undo/redo/execute/clear
-     * @param {(command: any) => void} [options.guard] - Throws to refuse a new command before it
+     * @param {Function} [options.guard] - Throws to refuse a new command before it
      *   runs (see core/edit-guard.js); undo, redo and record() are not guarded
      * @param {(error: unknown) => void} [options.onRefused] - Told about a refusal, which is rethrown
      */

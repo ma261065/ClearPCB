@@ -20,7 +20,7 @@
  * @property {PinRef[]} pins    - Array of component-pin references on this net
  */
 /** @typedef {{componentId?:string, pinNumber?:string|number|null}} PinConnection */
-/** @typedef {{type?:string, net?:string, captureState?: () => object, pinConnections?:Map<any, PinConnection>|Iterable<[any, PinConnection]>}} NetShape */
+/** @typedef {{type?:string, net?:string, captureState?: () => object, pinConnections?:Map<string|number, PinConnection>|Iterable<[string|number, PinConnection]>}} NetShape */
 /** @typedef {{number?:string|number|null, name?:string}} SymbolPin */
 /** @typedef {import('../components/Component.js').ComponentDefinition} ComponentDefinition */
 /** @typedef {{pins?:SymbolPin[], _source?:string}} ComponentSymbol */
@@ -100,7 +100,7 @@ export function extractNetlist(schematicApp) {
 export function extractComponents(schematicApp) {
     if (!schematicApp?.components) return [];
 
-    /** @type {Array<{id: string, reference: string, value: string, footprint: string, footprintShapes:any, footprintBBox:any, source:string, model3dObj:string|null, model3dUrl:string|null, pins: Array<{number: string, name: string}>}>} */
+    /** @type {Array<{id: string, reference: string, value: string, footprint: string, footprintShapes:ComponentDefinition['footprintShapes'], footprintBBox:ComponentDefinition['footprintBBox'], source:string, model3dObj:string|null, model3dUrl:string|null, pins: Array<{number: string, name: string}>}>} */
     const result = [];
     for (const comp of schematicApp.components) {
         // Skip net labels and other non-physical components

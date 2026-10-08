@@ -3,7 +3,7 @@ import { serializePcbText } from './pcb-text.js';
 
 /** @typedef {import('./PcbDocument.js').PcbDocument} PcbDocument */
 /** @typedef {import('./pcb-text.js').PcbText} PcbText */
-/** @typedef {Partial<Record<keyof PcbText, any>>} PcbTextPatch */
+/** @typedef {Object<string, *>} PcbTextPatch */
 
 /** @param {PcbDocument} document @param {string} id */
 function requireText(document, id) {
@@ -16,9 +16,9 @@ function requireText(document, id) {
 export class AddTextCommand {
     /** @param {PcbDocument} document @param {PcbText} text */
     constructor(document, text) {
-        /** @type {any} Adapter subclasses treat the document as legacy app data. */
+        /** @type {PcbDocument} */
         this.document = document;
-        /** @type {any} Adapter subclasses pass text through loosely typed render helpers. */
+        /** @type {PcbText} */
         this.text = text;
     }
     lockTargets() { return []; }
@@ -34,21 +34,21 @@ export class AddTextCommand {
 export class RemoveTextCommand {
     /** @param {PcbDocument} document @param {string} textId */
     constructor(document, textId) {
-        /** @type {any} Adapter subclasses treat the document as legacy app data. */
+        /** @type {PcbDocument} */
         this.document = document;
-        /** @type {any} Full-precision legacy snapshot consumed by UI adapters. */
+        /** @type {PcbText} Full-precision snapshot consumed by UI adapters. */
         this.snapshot = serializePcbText(requireText(document, textId));
     }
     lockTargets() { return [{ kind: 'text', object: this.document.texts.get(this.snapshot.id) }]; }
     execute() { this.document.texts.delete(this.snapshot.id); }
-    undo() { this.document.texts.set(this.snapshot.id, /** @type {any} */ ({ ...this.snapshot })); }
+    undo() { this.document.texts.set(this.snapshot.id, { ...this.snapshot }); }
     get description() { return `Delete text "${this.snapshot.content}"`; }
 }
 
 export class MoveTextCommand {
     /** @param {PcbDocument} document @param {string} textId @param {number} x0 @param {number} y0 @param {number} x1 @param {number} y1 */
     constructor(document, textId, x0, y0, x1, y1) {
-        /** @type {any} Adapter subclasses treat the document as legacy app data. */
+        /** @type {PcbDocument} */
         this.document = document;
         this.id = textId;
         this.x0 = x0; this.y0 = y0;
@@ -68,7 +68,7 @@ export class MoveTextCommand {
 export class EditTextCommand {
     /** @param {PcbDocument} document @param {string} textId @param {PcbTextPatch} after */
     constructor(document, textId, after) {
-        /** @type {any} Adapter subclasses treat the document as legacy app data. */
+        /** @type {PcbDocument} */
         this.document = document;
         this.id = textId;
         const text = requireText(document, textId);
@@ -78,8 +78,8 @@ export class EditTextCommand {
         this.after = {};
         const current = /** @type {PcbText} */ (text);
         for (const key of /** @type {(keyof PcbText)[]} */ (Object.keys(after))) {
-            this.before[key] = current[key];
-            this.after[key] = after[key];
+            /** @type {Record<string, unknown>} */ (this.before)[key] = current[key];
+            /** @type {Record<string, unknown>} */ (this.after)[key] = after[key];
         }
     }
     lockTargets() { return editTargets('text', this.document.texts.get(this.id), this.before, this.after); }

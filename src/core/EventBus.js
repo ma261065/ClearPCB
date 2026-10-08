@@ -7,7 +7,7 @@
  *   eventBus.off('component:added', handler);
  */
 
-/** @typedef {(...args: any[]) => void} EventCallback */
+/** @typedef {Function} EventCallback */
 
 export class EventBus {
     /** Initialises the listener map. */
@@ -19,7 +19,7 @@ export class EventBus {
     /**
      * Subscribe to an event
      * @param {string} event - Event name
-     * @param {EventCallback} callback - Handler function
+     * @param {(...args: *[]) => void} callback - Handler function
      * @returns {() => void} Unsubscribe function
      */
     on(event, callback) {
@@ -35,13 +35,13 @@ export class EventBus {
     /**
      * Subscribe to an event, but only fire once
      * @param {string} event - Event name
-     * @param {EventCallback} callback - Handler function
+     * @param {(...args: *[]) => void} callback - Handler function
      */
     once(event, callback) {
-        /** @param {...any} args */
+        /** @param {...unknown} args */
         const wrapper = (...args) => {
             this.off(event, wrapper);
-            callback(...args);
+            callback.apply(null, args);
         };
         this.on(event, wrapper);
     }
@@ -61,7 +61,7 @@ export class EventBus {
     /**
      * Emit an event to all subscribers
      * @param {string} event - Event name
-     * @param {...any} args - Arguments to pass to handlers
+     * @param {...unknown} args - Arguments to pass to handlers
      */
     emit(event, ...args) {
         const handlers = this.listeners.get(event);

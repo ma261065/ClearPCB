@@ -171,7 +171,7 @@ export class Viewport {
         this.onInteractionStart = null;
         
         // Event handlers (stored for cleanup)
-        /** @type {Record<string, any>} DOM listener registry with mixed event signatures. */
+        /** @type {{wheel: ((event: WheelEvent) => void)|null, mousedown: EventListener|null, mousemove: EventListener|null, mouseup: EventListener|null, contextmenu: EventListener|null, resize: (() => void)|null, keydown: EventListener|null, browserZoom?: (event: KeyboardEvent) => void, browserWheelZoom?: (event: WheelEvent) => void}} DOM listener registry with mixed event signatures. */
         this.boundHandlers = {
             wheel: null,
             mousedown: null,

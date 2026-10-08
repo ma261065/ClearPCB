@@ -4,19 +4,20 @@ import { serializePcbText } from './pcb-text.js';
 /** Capture detached, full-precision entities from canonical or explicit collections. */
 /**
  * @typedef {{
- *   tracks: Array<{captureCopperGeometry(): any}>,
- *   copperFills: Array<{captureCopperGeometry(): any}>,
+ *   tracks: Array<{captureCopperGeometry(): ReturnType<import('../shapes/track.js').Track['captureCopperGeometry']>}>,
+ *   copperFills: Array<{captureCopperGeometry(): ReturnType<import('../shapes/copper-fill.js').CopperFill['captureCopperGeometry']>}>,
  *   vias: Array<{id: string, x: number, y: number, diameter: number, drill: number, net: string}>,
- *   pads?: Array<{captureState(): any}>,
- *   texts: Map<any, any>,
- *   boardShapes: any[],
+ *   pads?: Array<{captureState(): unknown}>,
+ *   texts: Map<string, import('./pcb-text.js').PcbText>,
+ *   boardShapes: import('./pcb-board-shapes.js').BoardShape[],
  * }} PcbGeometrySource
  */
 /**
- * @param {any} source Snapshot callers include legacy app facades as well as PcbDocument.
+ * @param {PcbGeometrySource} source Snapshot callers include legacy app facades as well as PcbDocument.
+ * @returns {{tracks: *[], fills: *[], vias: *[], pads: *[], texts: *[], boardShapes: *[]}}
  */
 export function capturePcbGeometry(source) {
-    const typedSource = /** @type {PcbGeometrySource} */ (source);
+    const typedSource = source;
     const tracks = typedSource.tracks.map(track => track.captureCopperGeometry());
     const fills = typedSource.copperFills.map(fill => fill.captureCopperGeometry());
     return {

@@ -253,6 +253,7 @@ export class RemoveTextCommand extends ModelRemoveTextCommand {
     undo() {
         super.undo();
         const text = this.document.texts.get(this.snapshot.id);
+        if (!text) throw new Error(`PCB text is no longer available: ${this.snapshot.id}`);
         schedulePictureCopperRefresh(this.app, text);
         renderText(this.app, text);
     }
@@ -290,6 +291,7 @@ export class EditTextCommand extends ModelEditTextCommand {
         super._apply(patch);
         syncTextContentPreview(this.app, this.id);
         const t = this.document.texts.get(this.id);
+        if (!t) throw new Error(`PCB text is no longer available: ${this.id}`);
         schedulePictureCopperRefresh(this.app, getTextPosePreviewTexts(this.app)?.get(this.id) || t);
         this.app.refreshText(this.id);
         if ('layer' in patch && isPcbSelected(this.app, 'text', t)) {

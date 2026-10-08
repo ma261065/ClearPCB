@@ -1,7 +1,7 @@
 import { editTargets } from './edit-guard.js';
 /** @typedef {import('./PcbDocument.js').PcbDocument} PcbDocument */
 /** @typedef {import('../shapes/via.js').Via} Via */
-/** @typedef {Partial<ReturnType<Via['captureState']>> & Record<string, any>} ViaState */
+/** @typedef {Partial<ReturnType<Via['captureState']>> & object} ViaState */
 /** @typedef {{via: Via, before: ViaState, after: ViaState}} ViaChange */
 
 export class AddViaCommand {

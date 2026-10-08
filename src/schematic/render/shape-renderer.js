@@ -55,7 +55,7 @@ setTextMeasurer((shape) => {
     return /** @type {SVGGraphicsElement} */ (element).getBBox();
 });
 
-setTextEditElementProvider((shape) => viewOf(shape)?.element || null);
+setTextEditElementProvider(/** @param {SchematicDrawable} shape */ (shape) => viewOf(shape)?.element || null);
 
 /** @param {SchematicDrawable} shape */
 function createShapeElement(shape) {
