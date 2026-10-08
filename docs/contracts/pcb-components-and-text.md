@@ -138,9 +138,10 @@ cancellation discards any still-uncommitted field first. Text deselection also
 clears its rotation anchors, including after inline completion.
 
 Standalone text property panels, including the multi-selection intersection and
-inline symbol insertion, are read-only on locked layers. Drag/rotation handlers
-recheck layer locks and visibility before preview updates and commit; a protected
-drop restores the original pose. Locking a layer cancels active text movement,
+inline symbol insertion, are read-only when the text has its own lock or its
+layer is locked. Drag/rotation handlers recheck the same object/layer lock rule
+and layer visibility before preview updates and commit; a protected drop
+restores the original pose. Locking a layer cancels active text movement,
 rotation and inline-content previews and refreshes selected property controls.
 Direct inline-edit and deletion entry points also reject locked/hidden text.
 Model history commands remain independent of these editor interaction guards.
@@ -250,11 +251,12 @@ geometry, presentation caches and temporary gesture state, not a second
 authoritative saved-placement store. Model-owned `PcbPlacementState` retains the
 derived automatic layout slots separately from saved overrides. PCB presentation
 during loading and viewport settings remain in the PCB adapter.
-Viewport culling uses constant-time selection membership rather than rebuilding
-the selection list for each footprint. Every in-view selected footprint keeps
-its detailed artwork at low zoom; unselected footprints retain the 24-pixel
-placeholder threshold, and offscreen footprints still cull with 50% overdraw.
-The placement culling, LOD and world-bounds cache is owned by
+Viewport culling asks the selection registry for constant-time selection
+membership instead of rebuilding the selected-footprint list inside the
+placement loop. Every in-view selected footprint keeps its detailed artwork at
+low zoom; unselected footprints retain the 24-pixel placeholder threshold, and
+offscreen footprints still cull with 50% overdraw. The placement culling, LOD
+and world-bounds cache is owned by
 `pcb/modules/component-selection.js` in a WeakMap keyed by placement identity.
 
 ## Placement Metadata and References

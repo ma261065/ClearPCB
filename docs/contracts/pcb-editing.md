@@ -293,11 +293,12 @@ policy.
 `syncPcbSelection()` runs on every hover and click query, so it reuses one
 adapter per model object (adapters read live state lazily). It rebuilds the
 entry list and selection flags only when the set of entities changes;
-otherwise it just resets the hit caches. Pad bounds and copper-fill outlines
-are memoised on their geometry fields, because the bounds pre-filter reads them
-for every entity on every query. `test-pcb-selection-sync-reuse` guards the
-work counts and correctness; `node tools/bench-pcb-hit-test.mjs` is the
-selection-sync and pointer-hit benchmark.
+otherwise it calls `SelectionManager.invalidateHitCache()` and
+`SelectionManager.invalidateSelectionCache()`. Pad bounds and copper-fill
+outlines are memoised on their geometry fields, because the bounds pre-filter
+reads them for every entity on every query. `test-pcb-selection-sync-reuse`
+guards the work counts and correctness; `node tools/bench-pcb-hit-test.mjs` is
+the selection-sync and pointer-hit benchmark.
 Hiding a layer deselects only the entries whose adapter reports
 `visible === false` (`deselectHiddenPcbSelection()` in `box-select.js`); objects
 on other layers, and pours that stay visible, remain selected and the
@@ -532,9 +533,12 @@ changing copper geometry or corner radii. Authored arc edges remain arcs;
 branches and disconnected edges stay separate and hidden-layer edges are
 excluded. Idle node focus hides the whole-path guide, matching Line selection.
 
-On drop, transient crosshair, axis/snap and nearest-net guides are cleared before
-connection validation and history execution. Final cleanup repeats this safely
-for cancellation/errors; commit ordering and repaint scheduling are unchanged.
+On drop, transient crosshair, nearest-net guides, track-snap markers and
+axis-glow guides are cleared before connection validation and history execution.
+The snap marker is owned by `track-snap.js`; axis-glow state lives in
+`shapes/axis-glow.js` behind `getAxisGlowState()`. Final cleanup repeats this
+safely for cancellation/errors; commit ordering and repaint scheduling are
+unchanged.
 Node-drop validation reuses the seed-reachable physical-contact traversal from
 `collectBondedCopper`: cheap node/coincidence joins establish seed groups, then
 exact stationary terminal/artwork contacts are tested only as those groups are
@@ -549,11 +553,14 @@ state. Discarded previews do not repour unchanged copper. Property/terminal
 handoffs finish pending edits before canonical pickup; save/export guards remain.
 Mixed-object group movement in `box-select.js` reuses detached copies of
 directly selected tracks, vias, pads, board shapes and fills alongside the
-component/text projections. The group projection is the first row of the displayed-collection
-table, so it takes precedence. The selection manager itself lives in `selection-registry.js` per-editor WeakMap state, exposed through selection-registry helpers for diagnostics and tests. Group-specific selection-registry forwarding resolves
-displayed bounds, paths, hits and anchors without retargeting gesture methods
-away from canonical objects. Selected tracks also attached to a moving component
-are rendered once, not by both preview paths.
+component/text projections. The group projection is the first row of the
+displayed-collection table, so it takes precedence.
+`selection-registry.js` keeps each editor's `SelectionManager` instance in a
+WeakMap and exposes helpers for diagnostics and tests. Group-specific
+selection-registry forwarding resolves displayed bounds, paths, hits and
+anchors without retargeting gesture methods away from canonical objects.
+Selected tracks also attached to a moving component are rendered once, not by
+both preview paths.
 
 Group completion preflights stored originals and clears projections before the
 existing compound commands. Cancellation, missing/deleted targets, rejected
