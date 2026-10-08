@@ -24,6 +24,11 @@ const autorouters = new WeakMap();
 /** @type {WeakMap<PcbEditor, RouteInput|null>} */
 const testRouteInputs = new WeakMap();
 
+/** @param {PcbEditor} app @param {RouteInput|null} input */
+export function setAutorouterTestRouteInput(app, input) {
+    testRouteInputs.set(app, input);
+}
+
 /** @param {PcbEditor} app */
 export function getAutorouter(app) {
     let autorouter = autorouters.get(app);

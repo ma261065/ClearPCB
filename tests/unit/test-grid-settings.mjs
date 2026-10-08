@@ -178,6 +178,7 @@ class TestViewport {
         Object.assign(this, editor().viewport);
         this.svg = { addEventListener() {}, style: {} };
     }
+    addContent() {}
     updateTheme() {}
     hideCrosshair() {}
 }

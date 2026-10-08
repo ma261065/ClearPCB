@@ -9,7 +9,7 @@ import { setPropertyEditor } from '../../src/pcb/modules/property-editors.js';
 import { getTrackDraw } from '../../src/pcb/modules/track-draw.js';
 import { setPcbInteraction } from '../../src/pcb/modules/pcb-interactions.js';
 import { isEditorActive, setEditorActive } from '../../src/pcb/modules/pcb-editor-api.js';
-import { clearRoutes, getAutorouter, runAutoRoute } from '../../src/pcb/modules/autorouter-actions.js';
+import { clearRoutes, getAutorouter, runAutoRoute, setAutorouterTestRouteInput } from '../../src/pcb/modules/autorouter-actions.js';
 import { fakeElement, installFakeDom } from './helpers/fake-dom.mjs';
 
 installFakeDom();
@@ -185,7 +185,9 @@ for (const mode of ['error', 'messageerror', 'post', 'constructor', 'capture', '
     try {
         if (mode === 'constructor') globalThis.Worker = class { constructor() { throw new Error('Constructor failed'); } };
         if (mode === 'post') globalThis.Worker = class extends FakeWorker { postMessage() { throw new Error('Post failed'); } };
-        if (mode === 'capture') app.placements = null;
+        if (mode === 'capture') setAutorouterTestRouteInput(app, {
+            get connections() { throw new Error('Capture failed'); },
+        });
         const run = runAutoRoute(app);
         if (mode === 'error') workers.at(-1).emit({ type: 'error', error: 'Router failed' });
         if (mode === 'messageerror') workers.at(-1).listeners.get('messageerror')();

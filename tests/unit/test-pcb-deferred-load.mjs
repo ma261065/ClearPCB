@@ -266,7 +266,8 @@ for (const withComponents of [false, true]) {
     const app = makeApp(false);
     Object.assign(app, {
         project: { schematicDocument: {},
-            synchronizePcbLayout: () => ({ placements: new Map(components.map(component => [component.id, component])), netlist: [] }) },
+            synchronizePcbLayout: () => ({ placements: new Map(components.map(component =>
+                [component.id, { ...component, geometry: { outline: { x: 0, y: 0, width: 1, height: 1 } } }])), netlist: [] }) },
         activate: PCBApp.prototype.activate, preload: PCBApp.prototype.preload,
         initialize() {}, _updateViewportStatus() {},
         _retainRibbonHeight: record('ribbon-height'),
@@ -326,7 +327,8 @@ for (const pcb of [
         const before = pcbDocument.serializeSection();
         const outline = getBoardOutline(pcbDocument);
         const app = new PCBApp({ pcbDocument, schematicDocument: {},
-            synchronizePcbLayout: () => ({ placements: new Map(components.map(component => [component.id, component])), netlist: [] }) });
+            synchronizePcbLayout: () => ({ placements: new Map(components.map(component =>
+                [component.id, { ...component, geometry: { outline: { x: 0, y: 0, width: 1, height: 1 } } }])), netlist: [] }) });
         assert.equal(app.isBoardOutlineDrawn(), !!outline, 'Editor attachment recognizes an existing model outline');
         components = withComponents ? [{ id: 'U1' }] : [];
         Object.assign(app, {
@@ -339,6 +341,7 @@ for (const pcb of [
             _showBoardDimensionsDialog: record('dimensions-dialog'),
             viewport: viewportStub({ _onResize() {} }),
         });
+        setSchematicSyncHasContent(app, true);
         calls.length = 0;
         if (preload) {
             assert.equal(app.preload(), true);
@@ -454,7 +457,7 @@ const pcb = Object.assign(Object.create(PCBApp.prototype), {
     pcbDocument: project.pcbDocument,
     project: null, boardShapes: project.pcbDocument.boardShapes, texts: project.pcbDocument.texts,
     tracks: project.pcbDocument.tracks, vias: project.pcbDocument.vias, pads: project.pcbDocument.pads,
-    copperFills: project.pcbDocument.copperFills, placements: placed,
+    placements: placed,
     ensureViewport() { syncs++; }, renderFootprint() { return new Map(); },
     existingLayerGroups() { return syncGroups; },
     getLayerGroup(id) { if (!syncGroups.has(id)) syncGroups.set(id, fakeElement('g')); return syncGroups.get(id); },

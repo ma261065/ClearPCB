@@ -44,12 +44,13 @@ const PCB_LAYER_GROUP_ORDER = Object.freeze([
  * @param {PcbEditor} app
  */
 export function createPcbLayerGroups(app) {
-    if (app.existingLayerGroups().size > 0) return;
+    const groups = /** @type {Map<string, SVGGElement>} */ (app.existingLayerGroups());
+    if (groups.size > 0) return;
     for (const id of PCB_LAYER_GROUP_ORDER) {
         const group = document.createElementNS('http://www.w3.org/2000/svg', 'g');
         group.setAttribute('class', `pcb-layer-${id}`);
         group.setAttribute('data-layer', id);
         /** @type {Viewport} */ (app.viewport).addContent(group);
-        app.existingLayerGroups().set(id, group);
+        groups.set(id, group);
     }
 }

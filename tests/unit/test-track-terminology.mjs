@@ -28,6 +28,7 @@ const { importSES } = await import('../../src/pcb/modules/fabrication-actions.js
 let displayed;
 const editor = pcbEditorFixture({
     setStatus: message => { displayed = message; }, cancelAutoRoute() {},
+    getRoutingParams: () => ({ trackWidth: 0.2, clearance: 0.1, viaDiameter: 0.4, viaDrill: 0.2 }),
 });
 const quietLog = console.log;
 console.log = () => {};

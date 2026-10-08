@@ -6,6 +6,7 @@ import { capturePlacementOverride } from '../../src/core/PcbPlacementState.js';
 import { captureResolvedPlacement } from '../../src/core/pcb-placement-geometry.js';
 import { applyPlacementOverrides, placeFootprints, renderPcbFootprint } from '../../src/pcb/modules/schematic-sync.js';
 import { installFakeDom, fakeElement } from './helpers/fake-dom.mjs';
+import { rerenderRef } from '../../src/pcb/modules/ref-text-selection.js';
 
 const definition = distance => ({
     name: 'RestorationFixture', _source: 'KiCad', symbol: { pins: [{ number: '1' }] },
@@ -116,7 +117,7 @@ const app = {
         if (!groups.has(id)) groups.set(id, element());
         return groups.get(id);
     },
-    updateRatsnest: () => refreshes++, rerenderRef() {},
+    updateRatsnest: () => refreshes++, rerenderRef(compId) { return rerenderRef(this, compId); },
     renderFootprint: renderPcbFootprint,
     applyPlacementOverrides() { applyPlacementOverrides(this); },
 };

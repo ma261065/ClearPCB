@@ -116,7 +116,7 @@ for (const shape of [{ ...circle, layer: 'top-silk' }, { ...circle, copperMode: 
     globalThis.setTimeout = callback => { callback(); return 1; };
     updateNetTooltip(app, { clientX: 0, clientY: 0 }, { type: 'via', via: { net: 'N1' } });
     globalThis.setTimeout = nativeSetTimeout;
-    PCBApp.prototype._bindViewportPanHooks.call(app);
+    PCBApp.prototype.bindViewportPanHooks.call(app);
     app.viewport.onPanStart();
     assert.notEqual(overlay.style.display, 'none', 'Panning keeps clearance visible throughout the gesture');
     app.viewport.onPanEnd?.();

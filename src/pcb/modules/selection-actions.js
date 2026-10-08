@@ -78,7 +78,7 @@ export function selectPcbComponent(app, compId) {
 
     if (!compId) {
         renderPcbSelectionAnchors(app);
-        app.viewport.svg.style.cursor = 'default';
+        if (app.viewport) app.viewport.svg.style.cursor = 'default';
         return;
     }
 
@@ -101,7 +101,7 @@ export function selectPcbComponent(app, compId) {
     placement.elements[0].appendChild(highlight);
     renderPcbSelectionAnchors(app);
 
-    app.viewport.svg.style.cursor = placement.locked ? 'default' : 'grab';
+    if (app.viewport) app.viewport.svg.style.cursor = placement.locked ? 'default' : 'grab';
     updatePcbCulling(app);
 }
 

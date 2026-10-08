@@ -228,6 +228,7 @@ export function renderPcbFootprint(geometry, placement) {
  */
 export function applyPlacementOverrides(app) {
     const project = app.project;
+    if (!project) return;
     const placements = project.restorePcbPlacementOverrides(app.placements.keys());
     for (const compId of placements.keys()) {
         const placement = /** @type {Placement} */ (app.placements.get(compId));

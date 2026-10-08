@@ -401,6 +401,7 @@ export default class PCBApp {
     }
 
 
+    /** @param {{unlockedOnly?: boolean}} [options] */
     copySelection(options) {
         return copyPcbSelection(this, options);
     }
@@ -413,11 +414,13 @@ export default class PCBApp {
         return pastePcbSelection(this);
     }
 
+    /** @param {HTMLElement} container */
     createViewport(container) {
         return new Viewport(container);
     }
 
     /** Legacy seam for tests. */
+    /** @param {HTMLElement} container */
     _createViewport(container) {
         return this.createViewport(container);
     }
@@ -431,6 +434,7 @@ export default class PCBApp {
     }
 
     bindViewportPanHooks() {
+        if (!this.viewport) return;
         this.viewport.onPanStart = () => {
             hideNetTooltip(this);
         };
@@ -799,6 +803,7 @@ export default class PCBApp {
     }
 
 
+    /** @param {string} compId */
     showComponentProperties(compId) {
         return getComponentProperties(this).showComponent(compId);
     }
@@ -844,6 +849,10 @@ export default class PCBApp {
     }
 
 
+    /**
+     * @param {any} geometry
+     * @param {Placement & {reference: string}} placement
+     */
     renderFootprint(geometry, placement) {
         return renderPcbFootprint(geometry, placement);
     }
@@ -930,6 +939,7 @@ export default class PCBApp {
         this.markDirty();
     }
 
+    /** @param {string|null} compId */
     selectComponent(compId) {
         selectPcbComponent(this, compId);
     }
@@ -953,6 +963,7 @@ export default class PCBApp {
         refreshPcbText(this, id);
     }
 
+    /** @param {object|null} text */
     selectText(text) {
         selectPcbText(this, text);
     }
@@ -1037,6 +1048,7 @@ export default class PCBApp {
         return bindStrokeTextProps(this, model, spec);
     }
 
+    /** @param {string|null} compId */
     showRefProperties(compId) {
         if (!compId) return false;
         return getComponentProperties(this).showReference(compId);
@@ -1127,6 +1139,7 @@ export default class PCBApp {
 
     runAutoRoute() { return runAutoRouteAction(this); }
 
+    /** @param {string|null} [message] */
     cancelAutoRoute(message = null) {
         cancelAutoRouteAction(this, message);
     }
@@ -1210,6 +1223,7 @@ export default class PCBApp {
     }
 
 
+    /** @param {CopperFill|null} fill */
     selectFill(fill) {
         selectPcbFill(this, fill);
     }

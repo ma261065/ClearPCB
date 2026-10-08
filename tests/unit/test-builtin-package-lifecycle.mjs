@@ -231,7 +231,7 @@ const duplicateComponent = new Component({
         'PASTE~RECT~0~0~0.5~0.5~top'],
 }, { reference: 'J1' });
 pcbProject.schematicDocument.components.push(duplicateComponent);
-place.call(board, pcbProject.resolvePcbLayout().placements);
+placeFootprints(board, pcbProject.resolvePcbLayout().placements);
 const duplicatePlacement = board.placements.get(duplicateComponent.id);
 const duplicateFootprint = pcbProject.getPcbFootprint(duplicateComponent.id);
 assert.deepEqual(duplicatePlacement.padOffsets, duplicateFootprint.padOffsets);

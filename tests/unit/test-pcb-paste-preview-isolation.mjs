@@ -18,6 +18,7 @@ import { loadPcb } from '../../src/pcb/modules/project-state.js';
 import { PCB_LAYERS, notifyLayerVisibilityChanged, notifyLayerLockChanged } from '../../src/pcb/modules/layers.js';
 import { areDragOverlaysDeferred, isBoardViewRefreshSuspended, isFillRefreshSuspended, setBoardViewPanel, setBoardViewRefreshSuspended, setDragOverlaysDeferred, setFillRefreshPending, setFillRefreshSuspended } from '../../src/pcb/modules/refresh-state.js';
 import { getPcbPaste } from '../../src/pcb/modules/pcb-paste.js';
+import { setPcbClipboard } from '../../src/pcb/modules/pcb-clipboard.js';
 import { getTextElement, renderText } from '../../src/pcb/modules/pcb-text-render.js';
 import { clearanceOverlayState } from '../../src/pcb/modules/clearance-overlay.js';
 import { isEditorActive, setEditorActive } from '../../src/pcb/modules/pcb-editor-api.js';
@@ -104,7 +105,7 @@ function fixture(deferred = false) {
     const clipboard = { tracks: [track.toJSON()], vias: [via.toJSON()], pads: [pad.toJSON()],
         shapes: [rect, circle, arc, image].map(shape => structuredClone(shape)),
         texts: [{ ...text }], fills: [fill.captureState(), circleFill.captureState()] };
-    app._pcbClipboard = clipboard;
+    setPcbClipboard(app, clipboard);
     return { app, model, track, fill, clipboard, image, groups, work: () => [allocations, derived, crosshairs] };
 }
 
@@ -223,7 +224,7 @@ console.log(`PASS ${cases} detached paste cases: mixed/image, exact history, no 
 
 for (const key of ['tracks', 'vias', 'pads', 'shapes', 'texts', 'fills']) {
     const { app, model, clipboard } = fixture(), before = model.captureGeometry();
-    app._pcbClipboard = { [key]: clipboard[key] };
+    setPcbClipboard(app, { [key]: clipboard[key] });
     app.pasteSelection();
     const first = getPcbPaste(app).payload;
     app.pasteSelection();
@@ -321,8 +322,8 @@ console.log('PASS toolbar undo/redo, cut discard, ID collision ownership and par
 }
 {
     const { app } = fixture();
-    app._pcbClipboard = { shapes: [{ id: 'cut', kind: 'circle', layer: 'top-copper', x: 10, y: 10,
-        radius: 2, lineWidth: 0.2, copperMode: 'remove-copper' }] };
+    setPcbClipboard(app, { shapes: [{ id: 'cut', kind: 'circle', layer: 'top-copper', x: 10, y: 10,
+        radius: 2, lineWidth: 0.2, copperMode: 'remove-copper' }] });
     const defs = element('defs');
     defs.setAttribute('data-pcb-defs', '');
     const svg = element('svg');
