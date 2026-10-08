@@ -18,7 +18,10 @@ function fixture(options = {}) {
     });
     const model = new PcbDocument();
     model.boardShapes.push(fill);
+    // The model collections and layer groups an editor gives the pour recompute it triggers.
     const app = { pcbDocument: model, boardShapes: model.boardShapes, placements: new Map(),
+        tracks: model.tracks, vias: model.vias, pads: model.pads, texts: model.texts,
+        get copperFills() { return model.copperFills; }, existingLayerGroups: () => new Map(),
         history: new CommandHistory(), viewport: { scale: 100 }, getLayerGroup() { return null; } };
     return { app, model, fill };
 }

@@ -94,6 +94,7 @@ function fixture(kind, object) {
     setComputedFill(cachedFill, [{ outer: cachedFill.getOutline(), holes: [] }]);
     app.history = new CommandHistory();
     app.placements = new Map();
+    app._layerGroups = new Map(); // an editor's layer groups (existingLayerGroups)
     app.netlist = [];
     app._shapeElements = new Map();
     app._boardShapeClearanceCache = new Map([[object.id, { elements: [], authored: object }]]);

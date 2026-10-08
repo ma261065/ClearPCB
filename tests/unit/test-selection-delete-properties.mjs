@@ -43,6 +43,7 @@ for (const layer of ['hole', 'top-copper', 'top-silk']) {
         const app = {
 
             pcbDocument, boardShapes: pcbDocument.boardShapes, placements: new Map(), tracks: [], vias: [], texts: new Map(),
+            get copperFills() { return pcbDocument.copperFills; }, existingLayerGroups: () => new Map(),
             _shapeElements: new Map(), getLayerGroup() { return null; },
             history: new CommandHistory(),
             clearProperties() {
@@ -84,8 +85,9 @@ function fixture() {
     const model = new PcbDocument();
     const events = [];
     const app = {
-        shapeIdCounter: 1, pcbDocument: model, placements: model.placements,
+        shapeIdCounter: 1, pcbDocument: model, placements: new Map(),
         tracks: model.tracks, vias: model.vias, pads: model.pads, texts: model.texts, boardShapes: model.boardShapes,
+        get copperFills() { return model.copperFills; }, existingLayerGroups: () => new Map(),
         history: new CommandHistory(), _shapeElements: new Map(), getLayerGroup() { return null; },
         clearProperties() { events.push('properties'); }, setActiveRibbonTab(tab) { events.push(tab); },
         _cancelPasteDrop() { setPcbInteraction(this, '_pasteDrop', null); events.push('paste'); },

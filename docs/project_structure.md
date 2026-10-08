@@ -393,7 +393,9 @@ object before it runs. A new command class must declare `lockTargets()`;
   private-access ratchets, doc references (`tools/check-doc-references.mjs`: every test,
   file, project path and relative link the docs name must exist), every `tests/unit/test-*.mjs` in its own process, and the
   autorouter baseline on `test-board.json`.
-- `node tools/test.mjs [filter…]` — only the regression tests, optionally filtered.
+- `node tools/test.mjs [filter…]` — only the regression tests, optionally filtered. A test
+  that passes but prints a `TypeError`, `ReferenceError`, `SyntaxError` or `RangeError`
+  (a programming error a handler swallowed) counts as failed.
 - `node tools/typecheck.mjs` — `checkJs` type check in two passes. The everyday settings
   (`jsconfig.json`) have an empty baseline, so any error fails. The strict settings
   (`jsconfig.strict.json`: implicit `any` and null checks) are being adopted folder by

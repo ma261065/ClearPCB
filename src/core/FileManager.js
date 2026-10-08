@@ -946,6 +946,9 @@ export class FileManager {
      * Save to localStorage
      */
     autoSaveToStorage(data, snapshot = { revision: this.revision, fileName: this.fileName }) {
+        // Recovery copies live in browser storage; a project loaded without one (in Node or
+        // a worker) has nowhere to keep them, which is not an autosave failure.
+        if (typeof localStorage === 'undefined') return;
         try {
             // A project that would not reopen keeps the last good autosave instead.
             data = storableProject(data);

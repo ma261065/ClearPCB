@@ -190,7 +190,10 @@ in `pcb-editor-api.js` (or `schematic-editor-api.js`). See State Ownership in
   `tests/unit/pcb-editor-fixture.mjs` (real undo history and lock gate), and DOM code on
   `installFakeDom()` from `tests/unit/helpers/fake-dom.mjs` (never a hand-rolled
   `globalThis.document`). Run one with
-  `node tools/test.mjs <name>`.
+  `node tools/test.mjs <name>`. A test that passes but prints a `TypeError`,
+  `ReferenceError`, `SyntaxError` or `RangeError` fails: some handler caught and logged a
+  programming error, usually because the fixture lacks something the real editor has.
+  A test that exercises such a path on purpose replaces `console.error` for that step.
 - **Browser scenarios** are `tests/browser/*.mjs`, each exporting
   `scenarios: [{ name, run(page, url) }]`, driven by Playwright in headless
   Chromium. Use the helpers in `tests/browser/helpers/editor-helpers.mjs`

@@ -95,6 +95,7 @@ function appFor(shape) {
         selection,
         pcbDocument, boardShapes: pcbDocument.boardShapes, shapes: [shape], components: [], _shapeElements: new Map(),
         placements: new Map(), tracks: [], vias: [], texts: new Map(),
+        get copperFills() { return pcbDocument.copperFills; }, existingLayerGroups: () => new Map(),
         history: new CommandHistory(), getLayerGroup() { return null; }, renderShapes() {},
         refreshFills() {}, _refreshFillProperties() {},
         _captureShapeState: item => item.captureState(), _applyShapeState: (item, state) => item.applyState(state),
