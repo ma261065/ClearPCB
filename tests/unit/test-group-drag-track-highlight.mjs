@@ -31,7 +31,7 @@ document.getElementById = () => null;
 const { Track } = await import('../../src/shapes/track.js');
 const { setPcbSelection } = await import('../../src/pcb/modules/selection-registry.js');
 const { beginGroupDrag, updateGroupDrag, endGroupDrag, refreshBoxSelectionHighlights, getGroupPreview } = await import('../../src/pcb/modules/box-select.js');
-const { refreshTrackSelectionHalo } = await import('../../src/pcb/modules/track-select.js');
+const { refreshTrackSelectionHalo } = await import('../../src/pcb/modules/copper-halos.js');
 const { buildTrackLayerRuns } = await import('../../src/pcb/modules/track-render.js');
 
 for (const count of [1, 2]) {

@@ -27,7 +27,8 @@ assert.deepEqual(sortByPropertyOrder(['b-unknown', 'net', 'a-unknown', 'locked',
 
 // Every key a panel uses must be ranked, or it would silently drift to the end.
 const sources = ['src/ui/PCBApp.js', 'src/pcb/modules/board-shape-properties.js', 'src/pcb/modules/component-properties.js',
-    'src/pcb/modules/copper-fill-edit.js', 'src/pcb/modules/track-select.js', 'src/schematic/modules/properties.js']
+    'src/pcb/modules/copper-fill-edit.js', 'src/pcb/modules/track-properties.js', 'src/pcb/modules/via-properties.js',
+    'src/schematic/modules/properties.js']
     .map(path => [path, readFileSync(new URL(`../../${path}`, import.meta.url), 'utf8')]);
 const ranked = key => PROPERTY_ORDER.includes(key);
 for (const [path, source] of sources) {

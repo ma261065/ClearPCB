@@ -8,7 +8,7 @@ installFakeDom();
 globalThis.requestAnimationFrame = () => 0;
 const { startTrackDraw, updateTrackDraw, addTrackWaypoint } = await import('../../src/pcb/modules/track-draw.js');
 const { resolveTrackDrawSnap } = await import('../../src/pcb/modules/track-snap.js');
-const { applyNetToCopperSelection } = await import('../../src/pcb/modules/track-select.js');
+const { applyNetToCopperSelection } = await import('../../src/pcb/modules/track-properties.js');
 const { Via } = await import('../../src/shapes/via.js');
 
 const shape = (x, net, extra = {}) => ({ id: `shape-${x}`, kind: 'rect', layer: 'top-copper',

@@ -11,7 +11,8 @@ import {
 } from './board-shapes.js';
 import { refreshPcbToolLayerState } from './tool-lifecycle.js';
 import { cancelVertexDrag, getVertexDrag, trackPointerTouchesLayer } from './track-drag.js';
-import { getSelectedTrack, getSelectedVia, clearTrackSelection, setHoverHighlight } from './track-select.js';
+import { getSelectedTrack, getSelectedVia, clearTrackSelection } from './track-select.js';
+import { setHoverHighlight } from './copper-halos.js';
 import { activeTextInlineEdit, endTextInlineEdit } from './text-inline-edit.js';
 import { endTextDrag, getTextDrag } from './pcb-text-selection.js';
 import { endRefDrag, getRefDrag } from './ref-text-selection.js';

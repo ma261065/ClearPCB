@@ -32,7 +32,8 @@ const { createBoardShapeSelectionAdapter, getBoardShapeAnchors,
 const { showBoardShapeProperties } = await import('../../src/pcb/modules/board-shape-properties.js');
 const { renderPcbSelectionAnchors } = await import('../../src/pcb/modules/selection-anchors.js');
 const { Track } = await import('../../src/shapes/track.js');
-const { selectTrackOrVia, selectTrackNode, drawTrackHalo, createTrackSelectionAdapter, getTrackEdit } = await import('../../src/pcb/modules/track-select.js');
+const { selectTrackOrVia, selectTrackNode, createTrackSelectionAdapter, getTrackEdit } = await import('../../src/pcb/modules/track-select.js');
+const { drawTrackHalo } = await import('../../src/pcb/modules/copper-halos.js');
 const { cancelPictureCopperRefresh } = await import('../../src/pcb/modules/picture-refresh.js');
 const { splitTrackNodeAndDrag } = await import('../../src/pcb/modules/track-drag.js');
 const { getPcbSelection, setPcbSelection } = await import('../../src/pcb/modules/selection-registry.js');

@@ -28,7 +28,8 @@ import { getPcbSelection } from './selection-registry.js';
 import { commitCollinearCleanup } from './track-edits.js';
 import { getVertexDrag, setSegmentClickEdgeId, setVertexDragDownScreen, startVertexDrag } from './track-drag.js';
 import { startViaDrag } from './terminal-drag.js';
-import { clearTrackSelection, getSelectedTrack, getSelectedVia, hitTestTrack, selectTrackOrVia, setHoverHighlight, getTrackEdit } from './track-select.js';
+import { clearTrackSelection, getSelectedTrack, getSelectedVia, hitTestTrack, selectTrackOrVia, getTrackEdit } from './track-select.js';
+import { setHoverHighlight } from './copper-halos.js';
 /** @typedef {import('./pcb-editor-api.js').PcbEditor} PcbEditor */
 
 /**

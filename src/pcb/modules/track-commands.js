@@ -13,7 +13,8 @@ import {
     removeViaElements,
 } from './track-render.js';
 import { reconcileRatsnest } from './ratsnest.js';
-import { clearTrackSelection, refreshTrackSelectionHalo } from './track-select.js';
+import { clearTrackSelection } from './track-select.js';
+import { refreshTrackSelectionHalo } from './copper-halos.js';
 import { getPcbSelection, syncPcbSelection, togglePcbSelection } from './selection-registry.js';
 import { showPcbSelectionProperties } from './selection-interaction.js';
 import { batchDerivedUpdates, deferDerivedUpdate } from '../../core/DerivedUpdates.js';

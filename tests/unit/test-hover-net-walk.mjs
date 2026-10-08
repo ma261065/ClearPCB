@@ -3,7 +3,7 @@ import { installFakeDom } from './helpers/fake-dom.mjs';
 
 globalThis.window = { addEventListener() {} };
 installFakeDom();
-const { collectHoveredNet } = await import('../../src/pcb/modules/track-select.js');
+const { collectHoveredNet } = await import('../../src/pcb/modules/copper-halos.js');
 
 // The scanning walk collectHoveredNet replaced, kept verbatim as the reference: the
 // indexed walk must find the same copper in the same order.

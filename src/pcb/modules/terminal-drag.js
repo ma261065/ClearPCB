@@ -10,7 +10,7 @@ import { resolveTrackSnap, showTrackSnapMarker, clearTrackSnapMarker, COLLINEAR_
 import { reconcileRatsnest } from './ratsnest.js';
 import { renderTrackAxisGlow, renderTrackAxisGlowTop, clearTrackAxisGlow } from './track-draw.js';
 import { snapNodeToAxis, snapNodeToCollinear } from '../../shapes/path-snap.js';
-import { refreshTrackSelectionHalo } from './track-select.js';
+import { refreshTrackSelectionHalo } from './copper-halos.js';
 import { MoveVertexCommand, MoveViaCommand, CompoundCommand, ModifyTrackGraphCommand, canonicalTrack } from './track-commands.js';
 import { Via, viaHitTest } from '../../shapes/via.js';
 import { Track } from '../../shapes/track.js';

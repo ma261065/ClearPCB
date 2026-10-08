@@ -16,7 +16,7 @@ const { startVertexDrag, updateVertexDrag, finishVertexDrag } = await import('..
 const { buildDrawnTrackCommands } = await import('../../src/pcb/modules/track-commit.js');
 const { startTrackDraw, addTrackWaypoint, cancelTrackDraw } = await import('../../src/pcb/modules/track-draw.js');
 const { collectBondedCopper, collectNodeConnections } = await import('../../src/pcb/modules/track-connections.js');
-const { _applyNetToBondedCopper } = await import('../../src/pcb/modules/track-select.js');
+const { applyNetToBondedCopper } = await import('../../src/pcb/modules/track-properties.js');
 const { runDRC } = await import('../../src/pcb/modules/drc.js');
 
 const track = (points, net = 'A', extra = {}) => new Track({ points, net, width: 0.4, ...extra });
@@ -120,7 +120,7 @@ for (const kind of ['segment', 'arc', 'pad', 'via', 'shape']) {
     const first = track([{ x: 0, y: 0 }, { x: 10, y: 0 }]);
     const second = track([{ x: 5, y: -5 }, { x: 5, y: 5 }]);
     app.tracks.push(first, second);
-    assert.equal(_applyNetToBondedCopper(app, { track: second }, 'B'), true);
+    assert.equal(applyNetToBondedCopper(app, { track: second }, 'B'), true);
     assert.equal(first.net, 'A');
     assert.equal(second.net, 'B');
     for (const item of [first, second]) {

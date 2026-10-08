@@ -42,7 +42,8 @@ import { tracksFromAutorouterResult } from '../pcb/modules/autorouter-adapter.js
 import { renderTrack, renderVia, removeTrackElements, removeViaElements } from '../pcb/modules/track-render.js';
 import { refreshTrackDrawPreview } from '../pcb/modules/track-draw.js';
 import { reconcileRatsnest } from '../pcb/modules/ratsnest.js';
-import { refreshTrackSelectionHalo, getSelectedTrack, getSelectedVia, dismissTrackContextMenu, trackIsSelectable } from '../pcb/modules/track-select.js';
+import { refreshTrackSelectionHalo } from '../pcb/modules/copper-halos.js';
+import { getSelectedTrack, getSelectedVia, dismissTrackContextMenu, trackIsSelectable } from '../pcb/modules/track-select.js';
 import { getVertexDrag } from '../pcb/modules/track-drag.js';
 import { AddTrackCommand, ReplaceRoutesCommand, renderRoutedCopper, RotatePlacementCommand, SetPlacementLockedCommand, FlipPlacementCommand, SetPlacementSideCommand, SetPlacementRefVisibleCommand, renderPlacementPose, renderPlacementSide, applyPlacementRefVisible, placementTransform } from '../pcb/modules/track-commands.js';
 import { serializePcbText } from '../core/pcb-text.js';

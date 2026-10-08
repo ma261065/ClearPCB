@@ -5,7 +5,7 @@
  */
 import { resolveTrackSegments } from '../../shared/pcb/board-geometry.js';
 import { reconcileRatsnest } from './ratsnest.js';
-import { refreshTrackSelectionHalo } from './track-select.js';
+import { refreshTrackSelectionHalo } from './copper-halos.js';
 import { ModifyTrackGraphCommand, RemoveTrackCommand } from './track-commands.js';
 import { Via } from '../../shapes/via.js';
 import { Track } from '../../shapes/track.js';

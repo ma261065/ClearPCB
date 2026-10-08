@@ -24,7 +24,7 @@ import { ModifyBoardShapeCommand } from './shape-commands.js';
 import { EditTextCommand } from './text-commands.js';
 import { CompoundCommand, ModifyTrackGraphCommand, ModifyViaCommand, RotatePlacementCommand, SetPlacementLockedCommand, SetPlacementRefVisibleCommand, SetPlacementSideCommand } from './track-commands.js';
 import { SetRefStyleCommand } from './ref-text-selection.js';
-import { applyNetToCopperSelection } from './track-select.js';
+import { applyNetToCopperSelection } from './track-properties.js';
 /** @typedef {import('./pcb-editor-api.js').PcbEditor} PcbEditor */
 /** @typedef {import('../../shared/ui/property-fields.js').PropertyField} PropertyField */
 /** @typedef {'component'|'reftext'|'track'|'via'|'pad'|'shape'|'fill'|'text'} MultiKind */

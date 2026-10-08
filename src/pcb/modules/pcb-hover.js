@@ -1,7 +1,8 @@
 import { hitTestBoardShape, setBoardShapeHover } from './board-shapes.js';
 import { hitTestPcbSelectionAnchor } from './selection-anchors.js';
 import { getPcbSelectionHits, isPcbSelected } from './selection-registry.js';
-import { hitTestTrack, getSelectedTrack, setHoverHighlight } from './track-select.js';
+import { hitTestTrack, getSelectedTrack } from './track-select.js';
+import { setHoverHighlight } from './copper-halos.js';
 import { hitTestTrackMidpoint, hitTestTrackNode } from './track-edits.js';
 import { hitTestText, setTextHover } from './pcb-text-render.js';
 import { normalizeShapeCopperMode } from '../../shared/pcb/board-shape-geometry.js';

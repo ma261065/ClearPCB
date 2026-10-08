@@ -20,14 +20,8 @@ import {
     removeBoxSelectElement,
     getBoxSelectBounds,
 } from '../../shared/ui/box-selection.js';
-import {
-    drawStandalonePadHalo,
-    drawTrackHalo,
-    drawViaHalo,
-    refreshTrackSelectionHalo,
-    removeHalosByClass,
-    trackIsSelectable,
-} from './track-select.js';
+import { drawStandalonePadHalo, drawTrackHalo, drawViaHalo, refreshTrackSelectionHalo, removeHalosByClass } from './copper-halos.js';
+import { trackIsSelectable } from './track-select.js';
 import { renderTrack, renderVia, removeTrackElements, removeViaElements } from './track-render.js';
 import { Track } from '../../shapes/track.js';
 import { Via, viaBounds, viaHitTest } from '../../shapes/via.js';

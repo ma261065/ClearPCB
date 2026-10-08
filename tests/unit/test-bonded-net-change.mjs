@@ -4,10 +4,10 @@ import { installFakeDom } from './helpers/fake-dom.mjs';
 
 installFakeDom();
 
-const [{ Track }, { Via }, { _applyNetToBondedCopper, applyNetToCopperSelection }] = await Promise.all([
+const [{ Track }, { Via }, { applyNetToBondedCopper, applyNetToCopperSelection }] = await Promise.all([
     import('../../src/shapes/track.js'),
     import('../../src/shapes/via.js'),
-    import('../../src/pcb/modules/track-select.js'),
+    import('../../src/pcb/modules/track-properties.js'),
 ]);
 const { default: PCBApp } = await import('../../src/ui/PCBApp.js');
 const copperPrototype = Object.create(null, Object.fromEntries(['tracks', 'vias', 'pads', 'boardShapes']
@@ -39,7 +39,7 @@ const app = Object.assign(Object.create(copperPrototype), {
     },
 });
 
-assert.equal(_applyNetToBondedCopper(app, { track, edgeId: firstEdgeId }, 'NEW'), true);
+assert.equal(applyNetToBondedCopper(app, { track, edgeId: firstEdgeId }, 'NEW'), true);
 assert.equal(app.tracks.length, 2, 'disconnected components become independent tracks');
 assert.equal(app.tracks.find(item => item.nodes.has('n0'))?.net, 'NEW',
     'the clicked connected component receives the new net');

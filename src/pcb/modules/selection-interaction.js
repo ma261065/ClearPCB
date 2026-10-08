@@ -12,7 +12,9 @@ import {
     selectBoardShape,
 } from './board-shapes.js';
 import { showBoardShapeProperties } from './board-shape-properties.js';
-import { clearTrackSelection, showTrackSelectionProperties, showViaProperties } from './track-select.js';
+import { clearTrackSelection } from './track-select.js';
+import { showTrackSelectionProperties } from './track-properties.js';
+import { showViaProperties } from './via-properties.js';
 import {
     beginGroupDrag,
     cancelGroupDrag,

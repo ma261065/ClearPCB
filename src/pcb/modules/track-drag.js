@@ -19,7 +19,8 @@ import { reconcileRatsnest, updateNetGuideLine, clearNetGuideLine } from './rats
 import { renderTrackAxisGlow, renderTrackAxisGlowTop, clearTrackAxisGlow, _axisAlignment } from './track-draw.js';
 import { snapNodeToAxis, snapNodeToCollinear } from '../../shapes/path-snap.js';
 import { bondedExclusion } from './track-connections.js';
-import { clearTrackEdit, createTrackSelectionAdapter, getTrackEdit, refreshTrackSelectionHalo } from './track-select.js';
+import { clearTrackEdit, createTrackSelectionAdapter, getTrackEdit } from './track-select.js';
+import { refreshTrackSelectionHalo } from './copper-halos.js';
 import { CompoundCommand, canonicalTrack, getPlacementPreviewTracks } from './track-commands.js';
 import { pointsCollinear, collinearSnap } from '../../core/geometry.js';
 import { Track } from '../../shapes/track.js';

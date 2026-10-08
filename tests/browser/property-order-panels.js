@@ -7,12 +7,13 @@
 export async function collectPropertyPanels() {
     const at = path => import(new URL(path, location.origin).href);
     const [{ Track }, { Via }, { Pad }, { CopperFill }, { createPcbText }, trackCommands, { AddPadCommand }, { AddFillCommand },
-        { AddTextCommand }, { AddBoardShapeCommand }, { setPcbSelection }, trackSelect, shapeProps, { createRect, createLine },
+        { AddTextCommand }, { AddBoardShapeCommand }, { setPcbSelection }, trackProps, viaProps, shapeProps, { createRect, createLine },
         { Circle }, { Arc }, { Text }, { Net }, { Wire }, trackDraw, viaTool, padProps, textProps, fillProps] = await Promise.all([
         at('/src/shapes/track.js'), at('/src/shapes/via.js'), at('/src/shapes/pad.js'), at('/src/shapes/copper-fill.js'),
         at('/src/core/pcb-text.js'), at('/src/pcb/modules/track-commands.js'), at('/src/pcb/modules/pad-commands.js'),
         at('/src/pcb/modules/copper-fill-commands.js'), at('/src/pcb/modules/text-commands.js'), at('/src/pcb/modules/shape-commands.js'),
-        at('/src/pcb/modules/selection-registry.js'), at('/src/pcb/modules/track-select.js'), at('/src/pcb/modules/board-shape-properties.js'),
+        at('/src/pcb/modules/selection-registry.js'), at('/src/pcb/modules/track-properties.js'),
+        at('/src/pcb/modules/via-properties.js'), at('/src/pcb/modules/board-shape-properties.js'),
         at('/src/shapes/polyline.js'), at('/src/shapes/circle.js'), at('/src/shapes/arc.js'), at('/src/shapes/text.js'),
         at('/src/shapes/net.js'), at('/src/shapes/wire.js'), at('/src/pcb/modules/track-draw.js'),
         at('/src/pcb/modules/via-tool.js'), at('/src/pcb/modules/pad-tool.js'), at('/src/pcb/modules/text-properties.js'),
@@ -53,9 +54,9 @@ export async function collectPropertyPanels() {
     };
     for (const object of Object.values(shapes)) add(new AddBoardShapeCommand(pcb, object));
 
-    pcbPanel('track', () => { select('track', track); trackSelect.showTrackSelectionProperties(pcb, track); });
-    pcbPanel('closed track loop', () => { select('track', loop); trackSelect.showTrackSelectionProperties(pcb, loop); });
-    pcbPanel('via', () => { select('via', via); trackSelect.showViaProperties(pcb, via); });
+    pcbPanel('track', () => { select('track', track); trackProps.showTrackSelectionProperties(pcb, track); });
+    pcbPanel('closed track loop', () => { select('track', loop); trackProps.showTrackSelectionProperties(pcb, loop); });
+    pcbPanel('via', () => { select('via', via); viaProps.showViaProperties(pcb, via); });
     pcbPanel('pad', () => { select('pad', pad); pcb.showPadProperties(pad); });
     pcbPanel('copper pour', () => { select('fill', fill); fillProps.showFillProperties(pcb, fill); });
     pcbPanel('text', () => { select('text', text); pcb.showTextProperties(text); });

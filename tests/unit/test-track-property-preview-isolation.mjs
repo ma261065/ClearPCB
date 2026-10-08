@@ -5,8 +5,9 @@ import { Track } from '../../src/shapes/track.js';
 import { Via } from '../../src/shapes/via.js';
 import { renderTrack, buildTrackLayerRuns } from '../../src/pcb/modules/track-render.js';
 import { getTrackPropertyPreview, RemoveTrackCommand } from '../../src/pcb/modules/track-commands.js';
-import { createTrackSelectionAdapter, selectTrackOrVia, selectTrackSegment, selectTrackNode,
-    showTrackSelectionProperties, setHoverHighlight, getTrackEdit } from '../../src/pcb/modules/track-select.js';
+import { createTrackSelectionAdapter, selectTrackOrVia, selectTrackSegment, selectTrackNode, getTrackEdit } from '../../src/pcb/modules/track-select.js';
+import { showTrackSelectionProperties } from '../../src/pcb/modules/track-properties.js';
+import { setHoverHighlight } from '../../src/pcb/modules/copper-halos.js';
 import { startVertexDrag, startMidpointInsertDrag, splitTrackNodeAndDrag, cancelVertexDrag } from '../../src/pcb/modules/track-drag.js';
 import { startViaDrag, cancelViaDrag } from '../../src/pcb/modules/terminal-drag.js';
 import { syncPcbSelection, getPcbSelection } from '../../src/pcb/modules/selection-registry.js';
