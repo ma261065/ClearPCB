@@ -61,9 +61,24 @@ Live computed pour polygons belong to `pcb/modules/computed-fill-cache.js`,
 an identity-keyed weak map outside authored `CopperFill` entities. SVG, flat 2D,
 3D, DRC, routing contacts, net propagation and ratsnest consumers read the same
 results. Null means no completed result; an empty array means a successfully
-computed empty pour. Previews and outstanding refreshes retain the previous
-complete result. Failed computations retain settled artwork, leave refresh debt
-pending and report the error rather than displaying an empty or partial pour.
+computed empty pour. Previews retain the previous complete result, and so do
+outstanding refreshes of a pour whose own geometry has not changed (a neighbour
+moved, or the pour changed net or lock). A `ModifyFillCommand` that reshapes or
+moves the pour, on its layer, clearance or any other copper-affecting setting, drops
+its result instead, so copper computed for the old outline is never drawn at the new
+one: until the recompute lands the pour shows its outline
+(`test-fill-copper-invalidation`). Failed computations retain settled artwork, leave
+refresh debt pending and report the error rather than displaying an empty or partial
+pour.
+
+A pour drag moves only the outline: ratlines and connectivity keep reading the
+canonical pour's computed copper, which stays put until the drop recomputes it, so
+the drag does not rebuild ratlines on each move (the board-shape profile names the
+nets a copper shape's drag redraws; the fill profile names none). The drop's command
+recomputes the pour and redraws every net (`test-pour-drag-ratsnest`). Pours loaded
+from a file are computed in the fill worker, so the main thread loads its geometry
+library lazily; a pour drag starts that load, so the first drop after opening a
+board does not wait for it.
 Clones and loaded replacements do not inherit results, even with equal IDs.
 Detached fabrication snapshots intentionally retain their own `_computed`
 transfer field and recompute from captured authored geometry rather than using

@@ -16,6 +16,7 @@ import { distanceToArcEdge, arcEdgePathD } from '../../shapes/arc-edge.js';
 import { CopperFill, normalizeCopperFillKind } from '../../shapes/copper-fill.js';
 import { fillToolDefaults, setFillToolDefaults } from './copper-fill-draw.js';
 import { getPropertyEditor } from './property-editors.js';
+import { loadClipper } from './copper-fill-geom.js';
 
 /**
  * A pour's outline follows its Properties number fields live (corner radius, size,
@@ -88,6 +89,11 @@ export function fillEditProfile() {
         },
         removeCommand(app, fill) { return new RemoveFillCommand(app, fill); },
         valid(_app, fill) { return validFill(fill); },
+        // A drop recomputes pours on the main thread; load the geometry library now, so the
+        // first drop after opening a board does not wait for it.
+        prepareDrag() { loadClipper().catch(() => {}); },
+        // No dragRatsnestNets: ratlines see a pour's computed copper, which stays put until
+        // the drop recomputes it, so rebuilding them while the outline moves changes nothing.
         afterCommit(app, original) {
             if (this.collection(app).includes(original)) {
                 refreshFillProperties(app, original);

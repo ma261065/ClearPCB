@@ -219,6 +219,12 @@ function boardShapeEditProfile() {
         },
         removeCommand(app, shape) { return new RemoveBoardShapeCommand(app, shape); },
         valid(_app, shape) { return shape.layer !== 'board-outline' || validBoardOutline(shape); },
+        /** The nets whose ratlines follow the shape while it is dragged: its own, if it is net copper. */
+        dragRatsnestNets(shape) {
+            const net = String(shape.net || '');
+            return net && (shape.layer === 'top-copper' || shape.layer === 'bottom-copper')
+                && normalizeShapeCopperMode(shape.copperMode) === 'add' ? new Set([net]) : null;
+        },
         afterCommit(app, original, committed, drag) {
             if (drag.ratsnestNets) app.updateRatsnest?.({ nets: drag.ratsnestNets, skipFillRefresh: !committed });
             if (original && this.collection(app).includes(original)) {
@@ -1512,6 +1518,7 @@ export function startBoardShapeDrag(app, shape, worldPos, anchorId = null, optio
     if (boardShapeRotationPreviews.has(app)) {
         if (!finishSelectionInteraction(app, true)) finishBoardShapeRotationPreview(app, true);
     }
+    profile.prepareDrag?.(app, shape);
     const before = cloneShapeGeometry(shape);
     const beforeState = profile.capture(shape);
     let handle = anchorId != null ? anchorId : options.whole ? null : hitTestBoardShapeVertex(app, shape, worldPos);
@@ -1555,12 +1562,7 @@ export function startBoardShapeDrag(app, shape, worldPos, anchorId = null, optio
         profile.showProperties(app, shape);
     } else if (mode !== 'segment') profile.setSegmentFocus(app, null);
     profile.renderSegmentSelection(app);
-    const net = String(shape.net || '');
-    const ratsnestNets = net
-        && (shape.layer === 'top-copper' || shape.layer === 'bottom-copper')
-        && normalizeShapeCopperMode(shape.copperMode) === 'add'
-        ? new Set([net])
-        : null;
+    const ratsnestNets = profile.dragRatsnestNets?.(shape) || null;
     setPcbInteraction(app, '_shapeDrag', Object.assign(drag, {
         mode,
         handle,

@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { openPcb, screenPoint, viewportSettled, waitForPage } from './helpers/editor-helpers.mjs';
+import { clickWorld, openPcb, screenPoint, viewportSettled, waitForPage } from './helpers/editor-helpers.mjs';
 
 // Speed checks on a large board: pointer moves, Properties panel rebuilds, pour refresh
 // and picture import. Each measures main-thread task time with Chrome's own metrics, so
@@ -146,9 +146,12 @@ export const scenarios = [
                         await page.mouse.move(start.x + step * 3, start.y + step * 1.5);
                     }
                 }));
-                assert.ok(await waitForPage(page, kind => import('/src/pcb/modules/track-drag.js').then(drags => {
+                assert.ok(await waitForPage(page, kind => Promise.all([import('/src/pcb/modules/track-drag.js'),
+                    import('/src/pcb/modules/board-shapes.js')]).then(([drags, shapes]) => {
                     const app = window.bootstrap.pcbApp;
-                    return !!(kind === 'via' ? drags.getViaDrag(app) : drags.getVertexDrag(app))?.preview;
+                    const drag = kind === 'via' ? drags.getViaDrag(app) : kind === 'track' ? drags.getVertexDrag(app)
+                        : shapes.getBoardShapeDrag(app);
+                    return !!drag?.preview && (kind !== 'pour' || drag.original.type === 'fill');
                 }), kind, { timeout: 5000 }), `${name}: the press started a ${kind} drag that moved copper`);
                 await page.keyboard.press('Escape');
                 await page.mouse.up();
@@ -165,6 +168,13 @@ export const scenarios = [
             });
             await measureDrag('track drag move', trackGrab,
                 () => JSON.stringify([...window.bootstrap.pcbApp.tracks[100].nodes.values()]), 'track');
+            // A pour's left edge, clear of the board outline and of the other copper.
+            const pourEdge = { x: 1, y: -BOARD.height / 2 + 1.2 };
+            const pourOutline = () => JSON.stringify(window.bootstrap.pcbApp.copperFills[0].outline);
+            await clickWorld(page, 'pcb', pourEdge.x, pourEdge.y);
+            assert.equal(await page.evaluate(async () => (await import('/src/pcb/modules/selection-registry.js'))
+                .getPcbSelection(window.bootstrap.pcbApp, 'fill').length), 1, 'the pour edge selects the pour');
+            await measureDrag('pour drag move', pourEdge, pourOutline, 'pour');
 
             // Rebuilding the Properties panel as the selection changes kind (median of 40).
             const rebuild = await page.evaluate(async () => {

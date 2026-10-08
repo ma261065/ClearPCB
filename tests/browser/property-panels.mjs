@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { openPcb, stepSpinnerOneRun } from './helpers/editor-helpers.mjs';
+import { openPcb, stepSpinnerOneRun, waitForPage } from './helpers/editor-helpers.mjs';
 
 // Properties panels are descriptions rendered by shared/ui/property-fields.js. These
 // scenarios drive real panels: rows, mixed/locked states, live preview and settled commit.
@@ -195,6 +195,58 @@ export const scenarios = [
             await page.mouse.up();
             const radius = await page.evaluate(() => window.bootstrap.pcbApp.pcbDocument.copperFills[0].radius);
             assert.ok(Math.abs(radius * 2 - live) < 0.6, 'the committed pour matches what the panel showed');
+        },
+    },
+    {
+        name: 'the first pour drop after opening a board never shows copper at the old spot',
+        async run(page, url) {
+            await openPcb(page, url);
+            // Load the board as a file would, so its pours are computed in the worker and
+            // the main thread has not loaded the geometry library yet: the first drop is the
+            // one that used to redraw the old copper while that library loaded.
+            await page.evaluate(async () => {
+                const [{ PcbDocument }, { CopperFill }, { rectangleBoardOutline }] = await Promise.all([
+                    import('/src/core/PcbDocument.js'), import('/src/shapes/copper-fill.js'), import('/src/shared/pcb/board-outline.js')]);
+                const model = new PcbDocument();
+                model.setBoardOutline(rectangleBoardOutline(100, 80));
+                model.boardShapes.push(new CopperFill({ kind: 'circle', x: 25, y: -20, radius: 10, net: 'GND' }));
+                const project = window.bootstrap.project;
+                const data = project.serialize();
+                data.pcb = model.serializeSection();
+                await project.load(data);
+            });
+            await waitForPage(page, () => import('/src/pcb/modules/refresh-state.js')
+                .then(state => !state.isFillRefreshPending(window.bootstrap.pcbApp)));
+            assert.equal(await page.evaluate(async () => (await import('/src/pcb/modules/copper-fill-geom.js')).isClipperReady()), false,
+                'a freshly loaded board has not loaded the main-thread geometry library');
+            await clickAt(page, 35, -20);
+            const from = await screenPoint(page, 25, -20), to = await screenPoint(page, 55, -25);
+            await page.mouse.move(from.x, from.y);
+            await page.mouse.down();
+            for (let index = 1; index <= 15; index++) {
+                await page.mouse.move(from.x + (to.x - from.x) * index / 15, from.y + (to.y - from.y) * index / 15);
+            }
+            // Record where the pour's copper is drawn on every frame after the drop.
+            await page.evaluate(() => {
+                window.__pourFrames = [];
+                const app = window.bootstrap.pcbApp, started = performance.now();
+                const sample = () => {
+                    for (const element of app.getLayerGroup('top-fill').querySelectorAll('.pcb-fill-copper')) {
+                        const box = element.getBBox();
+                        if (box.width) window.__pourFrames.push({ x: box.x + box.width / 2, y: box.y + box.height / 2 });
+                    }
+                    if (performance.now() - started < 1500) requestAnimationFrame(sample);
+                };
+                requestAnimationFrame(sample);
+            });
+            await page.mouse.up();
+            await page.waitForTimeout(1700);
+            const frames = await page.evaluate(() => window.__pourFrames);
+            assert.ok(frames.length, 'the pour is poured again after the drop');
+            assert.deepEqual(frames.filter(centre => Math.hypot(centre.x - 25, centre.y + 20) < 5), [],
+                'no frame draws the pour\'s copper at its old position');
+            const last = frames.at(-1);
+            assert.ok(Math.hypot(last.x - 55, last.y + 25) < 1, 'the copper settles at the new position');
         },
     },
 ];
