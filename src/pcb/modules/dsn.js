@@ -570,7 +570,7 @@ function _unquote(s) {
  * Minimal S-expression parser for DSN/SES files.
  * Returns nested arrays: (a b (c d)) → ['a', 'b', ['c', 'd']]
  * @param {string} text
- * @returns {any[]}
+ * @returns {any[]} Dynamic DSN S-expression leaves are strings or nested lists from external files.
  */
 function _parseSExp(text) {
     /** @type {string[]} */
@@ -614,11 +614,11 @@ function _parseSExp(text) {
     }
 
     // Build tree
-    /** @type {any[][]} */
+    /** @type {any[][]} Dynamic DSN S-expression stack; leaves and nested lists are validated by readers. */
     const stack = [[]];
     for (const tok of tokens) {
         if (tok === '(') {
-            /** @type {any[]} */
+            /** @type {any[]} Dynamic DSN S-expression node; readers validate expected leaves. */
             const node = [];
             stack[stack.length - 1].push(node);
             stack.push(node);
@@ -633,7 +633,7 @@ function _parseSExp(text) {
 
 /**
  * Find a named node in an S-expression tree.
- * @param {any[]|null|undefined} tree
+ * @param {any[]|null|undefined} tree Dynamic DSN S-expression tree; callers validate named node contents.
  * @param {string} name
  * @returns {any[]|null}
  */
@@ -650,7 +650,7 @@ function _findNode(tree, name) {
 }
 
 /**
- * @param {any[]|null|undefined} tree
+ * @param {any[]|null|undefined} tree Dynamic DSN S-expression tree; callers validate named node contents.
  * @param {string} name
  * @returns {any[]|null}
  */

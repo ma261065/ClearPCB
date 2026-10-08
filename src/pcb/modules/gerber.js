@@ -784,7 +784,7 @@ function _buildSilk(placements, side, bounds, texts = [], boardShapes = []) {
         // â”€â”€ Component silk shapes (resolved into posed, renderer-neutral
         // descriptors). Called per-placement so the aperture/D-code stream
         // keeps the same emission order as the reference designator below.
-        for (const sk of /** @type {Array<any>} */ (resolveSilk(new Map([[0, pl]]), side))) {
+        for (const sk of /** @type {import('../../shared/pcb/board-geometry.js').SilkDescriptor[]} */ (resolveSilk(new Map([[0, pl]]), side))) {
             const head = useAperture(sk.width);
             if (head) body += head;
             if (sk.kind === 'line') {

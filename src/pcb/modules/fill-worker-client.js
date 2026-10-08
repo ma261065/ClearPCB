@@ -3,7 +3,8 @@ import { validateCopperRegionContact } from './track-contact-geometry.js';
 /** @typedef {{x: number, y: number}} Point */
 /** @typedef {import('./copper-fill-geom.js').FillRegion} FillRegion */
 /** @typedef {{fills: unknown[]}} FillWorkerInputs */
-/** @typedef {{id: number, revision: number, inputs: FillWorkerInputs, resolve: (value: any) => void, reject: (reason?: any) => void}} FillWorkerJob */
+/** @typedef {{id: number, revision: number, inputs: FillWorkerInputs, resolve: (value: FillWorkerResult|null) => void, reject: (reason?: unknown) => void}} FillWorkerJob */
+/** @typedef {{results: FillRegion[][], contacts: import('./track-contact-geometry.js').PreparedCopperRegionContact[][]}} FillWorkerResult */
 
 /** One active job and one replaceable pending job, matching the surface-worker transport. */
 export function createFillWorker(createWorker = () => new Worker(
@@ -16,7 +17,7 @@ export function createFillWorker(createWorker = () => new Worker(
     /** @type {FillWorkerJob|null} */
     let pending = null;
     let revision = 0, nextId = 0, disposed = false;
-    /** @param {any} error */
+    /** @param {unknown} error */
     const fail = error => {
         worker?.terminate();
         worker = null;
@@ -34,10 +35,10 @@ export function createFillWorker(createWorker = () => new Worker(
                 worker.onmessage = ({ data }) => {
                     if (!active || data?.id !== active.id) return;
                     if (data.error) { fail(new Error(data.error)); return; }
-                    /** @param {any} points */
+                    /** @param {unknown} points */
                     const ring = points => Array.isArray(points) && points.length >= 3
                         && points.every(point => Number.isFinite(point?.x) && Number.isFinite(point?.y));
-                    const rawResults = /** @type {any[]} */ (data.results);
+                    const rawResults = /** @type {unknown[]} */ (data.results);
                     if (!Array.isArray(data.results) || data.results.length !== active.inputs.fills.length
                         || rawResults.some(result => !Array.isArray(result) || result.some(polygon =>
                             !ring(polygon?.outer) || !Array.isArray(polygon?.holes) || !polygon.holes.every(ring)))) {
@@ -46,7 +47,7 @@ export function createFillWorker(createWorker = () => new Worker(
                     }
                     try {
                         const results = /** @type {FillRegion[][]} */ (data.results);
-                        const contactsList = /** @type {any[][]} */ (data.contacts);
+                        const contactsList = /** @type {import('./track-contact-geometry.js').PreparedCopperRegionContact[][]} */ (data.contacts);
                         if (!Array.isArray(data.contacts) || contactsList.length !== results.length) {
                             throw new Error('Incomplete prepared copper contacts');
                         }

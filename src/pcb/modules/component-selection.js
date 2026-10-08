@@ -19,7 +19,7 @@ import { hideNetTooltip } from './net-tooltip.js';
 /** @typedef {{x: number, y: number}} PadPosition */
 /** @typedef {{minX:number,minY:number,maxX:number,maxY:number}} WorldBounds */
 /** @typedef {{culled: boolean, lodFar: boolean, cullSig?: string, cullBounds?: WorldBounds}} PlacementViewState */
-/** @typedef {{x: number, y: number, rotation?: number, mirror?: boolean, side?: string, locked?: boolean, refVisible?: boolean, bounds?: PlacementBounds|null, elements?: Element[], pads?: Map<string, PadPosition>, padOffsets?: ComponentPadOffset[], lodEl?: SVGElement|null}} ComponentPlacementLike */
+/** @typedef {Record<string, any> & {x: number, y: number, rotation?: number, mirror?: boolean, side?: string, locked?: boolean, refVisible?: boolean, bounds?: PlacementBounds|null, elements?: Element[], pads?: Map<string|number, any>, padOffsets?: any[], lodEl?: SVGElement|null}} ComponentPlacementLike Placement records merge component-library, board-geometry, and optional 3D-model fields. */
 
 /** @type {WeakMap<PcbEditor, {raf: number, pending: MouseEvent|null}>} */
 const componentDragFrames = new WeakMap();
@@ -63,7 +63,7 @@ export function getPlacementCullBounds(placement) {
     return placement ? placementViewStates.get(placement)?.cullBounds || null : null;
 }
 
-/** @param {PcbEditor} app @param {any} placement */
+/** @param {PcbEditor} app @param {ComponentPlacementLike} placement */
 function showFootprintCrosshair(app, placement) {
     if (!placement || !app.viewport?.setCrosshair) return;
     app.viewport.setCrosshair({ x: placement.x, y: placement.y });
@@ -229,18 +229,18 @@ export function netsForComponent(app, compId) {
 /**
  * Keep a placement's LOD placeholder rect aligned with the footprint's
  * current pose. Called when revealing it and whenever the footprint moves.
- * @param {any} pl
+ * @param {ComponentPlacementLike} pl
  */
 function syncLodTransform(pl) {
     if (!pl.lodEl) return;
-    pl.lodEl.setAttribute('transform', placementTransform(pl));
+    pl.lodEl.setAttribute('transform', placementTransform(/** @type {import('../../core/pcb-placement-geometry.js').Placement} */ (pl)));
 }
 
 /**
  * World-space AABB of a placement's footprint bounds (local courtyard/
  * outline rotated by the placement rotation and translated to position).
  * Cached and recomputed only when the placement's pose changes.
- * @param {any} pl
+ * @param {ComponentPlacementLike} pl
  * @returns {WorldBounds|null}
  */
 function placementWorldBounds(pl) {
@@ -479,7 +479,7 @@ export function showComponent3DMenu(app, compId, clientX, clientY) {
 /**
  * Open the interactive 3D model pop-out for a placement (or compId).
  * @param {PcbEditor} app
- * @param {string|any} placementOrId
+ * @param {string|ComponentPlacementLike} placementOrId
  */
 export function openComponent3DPopout(app, placementOrId) {
     const pl = typeof placementOrId === 'string'
@@ -494,8 +494,8 @@ export function openComponent3DPopout(app, placementOrId) {
         .catch(err => console.error('Failed to open 3D pop-out:', err));
 }
 
-/** @param {any} placement */
-function outlineForPlacement(placement) {
+/** @param {ComponentPlacementLike|null|undefined} placement */
+function outlineForPlacement(placement = null) {
     const bounds = placement?.bounds;
     if (!bounds) return [{ x: placement?.x || 0, y: placement?.y || 0 }];
     return [
@@ -506,12 +506,12 @@ function outlineForPlacement(placement) {
     ].map((point) => appLocalToWorld(placement, point));
 }
 
-/** @param {any} placement */
-function boundsForPlacement(placement) {
+/** @param {ComponentPlacementLike|null|undefined} placement */
+function boundsForPlacement(placement = null) {
     if (!placement?.bounds) {
         const padOffsets = /** @type {ComponentPadOffset[]} */ (placement?.padOffsets || []);
         const pads = padOffsets.flatMap(off => {
-            const pos = placement.pads?.get(off.padId);
+            const pos = placement?.pads?.get(off.padId);
             if (!pos) return [];
             const halfWidth = (off.width || 1.2) / 2 + 0.5;
             const halfHeight = (off.height || 1.2) / 2 + 0.5;
@@ -534,7 +534,7 @@ function boundsForPlacement(placement) {
     };
 }
 
-/** @param {any} placement @param {Point} point */
+/** @param {ComponentPlacementLike} placement @param {Point} point */
 function appLocalToWorld(placement, point) {
     const rad = (Number(placement.rotation) || 0) * Math.PI / 180;
     const mirror = (!!placement.mirror) !== (placement.side === 'bottom') ? -1 : 1;

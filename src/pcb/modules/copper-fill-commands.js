@@ -27,7 +27,7 @@ const NON_GEOMETRY = new Set(['net', 'locked', 'visible']);
 /** @param {Partial<CopperFillState>|null|undefined} before @param {Partial<CopperFillState>|null|undefined} after */
 function reshapesCopper(before, after) {
     const keys = new Set([...Object.keys(before || {}), ...Object.keys(after || {})]);
-    return [...keys].some(key => !NON_GEOMETRY.has(key) && JSON.stringify(/** @type {any} */ (before)?.[key]) !== JSON.stringify(/** @type {any} */ (after)?.[key]));
+    return [...keys].some(key => !NON_GEOMETRY.has(key) && JSON.stringify((/** @type {Record<string, unknown>|null|undefined} */ (before))?.[key]) !== JSON.stringify((/** @type {Record<string, unknown>|null|undefined} */ (after))?.[key]));
 }
 
 /** @param {PcbEditor} app */

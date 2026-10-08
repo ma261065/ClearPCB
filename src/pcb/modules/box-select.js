@@ -948,7 +948,7 @@ export function deleteBoxSelection(app) {
     }
     if (!hasBoxSelection(app)) return false;
     // Locked objects (by their own lock or a layer's) stay put.
-    /** @param {string} kind @returns {any[]} */
+    /** @param {string} kind @returns {any[]} Selection entry object type depends on kind-specific registries and command targets. */
     const removable = kind => getPcbSelectionEntries(app)
         .filter((/** @type {{kind: string, locked?: boolean}} */ entry) => entry.kind === kind && !entry.locked).map((/** @type {{object: unknown}} */ entry) => entry.object);
     const cmds = [];

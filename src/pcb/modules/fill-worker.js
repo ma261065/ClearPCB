@@ -1,7 +1,7 @@
 import { computeFillBatch } from './fill-worker-geometry.js';
 import { prepareCopperRegionContact } from './track-contact-geometry.js';
 
-/** @param {MessageEvent<{id: any, inputs: any}>} event */
+/** @param {MessageEvent<{id: number|string, inputs: import('./fill-worker-geometry.js').SerializedFillInputs}>} event */
 globalThis.onmessage = async (event) => {
     const { data } = event;
     try {

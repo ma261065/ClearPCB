@@ -41,7 +41,7 @@ const silkLayerOf = placement => (placement.side === 'bottom' ? 'bottom-silk' : 
  * wraps it, if any), and a group drag of objects that are no longer editable.
  * @param {PcbEditor} app
  * @param {string} layerId
- * @param {(entry: any) => boolean} affectsGroup Whether a group-drag entry became uneditable.
+ * @param {(entry: import('./selection-registry.js').PcbSelectionEntry) => boolean|undefined} affectsGroup Whether a group-drag entry became uneditable.
  */
 function cancelStrandedGestures(app, layerId, affectsGroup) {
     if (layerId === 'board-outline') endBoardOutlineResize(app, false);

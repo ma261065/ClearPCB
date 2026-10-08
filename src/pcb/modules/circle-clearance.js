@@ -1,7 +1,7 @@
 import { closestPointOnSegment } from '../../core/geometry.js';
 
 /** @typedef {{x: number, y: number}} Point */
-/** @typedef {Record<string, any>} ClearanceCircle */
+/** @typedef {Record<string, any>} ClearanceCircle DRC circle features carry dynamic copper metadata alongside radii. */
 
 /** @param {ClearanceCircle} first @param {ClearanceCircle} second */
 export function circleCircleDistance(first, second) {

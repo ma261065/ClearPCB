@@ -16,7 +16,7 @@ const TOLERANCE = 1e-4;
 const toPath = ring => ring.map(point => ({ X: Math.round(point.x * SCALE), Y: Math.round(point.y * SCALE) }));
 /** @param {ClipperPoint[]} ring */
 const fromPath = ring => ring.map(point => ({ x: point.X / SCALE, y: point.Y / SCALE }));
-/** @param {any} tree @returns {CopperRegion[]} */
+/** @param {Parameters<typeof ClipperLib.JS.PolyTreeToExPolygons>[0]} tree @returns {CopperRegion[]} */
 const fromTree = tree => ClipperLib.JS.PolyTreeToExPolygons(tree).map(/** @param {{outer: ClipperPoint[], holes: ClipperPoint[][]}} region */ region => ({
     outer: fromPath(region.outer), holes: region.holes.map(fromPath),
 }));

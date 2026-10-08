@@ -28,7 +28,7 @@ import { getViaDrag } from './terminal-drag.js';
  * @typedef {object} PreviewSource
  * @property {string} name
  * @property {DisplayedCollection[]} collections - the collections this preview replaces
- * @property {(app: any) => any} preview - its preview object while active, else null/undefined
+ * @property {(app: any) => any} preview - preview sources return different keyed collection bags; displayedCollection narrows by key.
  */
 
 export const PREVIEW_SOURCES = Object.freeze(/** @type {PreviewSource[]} */ ([
@@ -54,7 +54,7 @@ export const PREVIEW_SOURCES = Object.freeze(/** @type {PreviewSource[]} */ ([
 
 /**
  * @param {DisplayedCollection} key
- * @param {any} collection
+ * @param {any} collection Dynamic preview collection value; it is wrapped under the requested collection key.
  */
 function wrap(key, collection) {
     return collection ? { [key]: collection } : null;

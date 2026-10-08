@@ -2,8 +2,12 @@ import { AutorouterPresentation } from './autorouter-presentation.js';
 
 /**
  * @typedef {ReturnType<import('../../core/PcbDesignSettings.js').PcbDesignSettings['getRoutingParams']>} RoutingParams
- * @typedef {{connections: Array<any>, trackWidth?: number, clearance?: number, viaDiameter?: number, [key: string]: any}} AutorouterRouteInput
- * @typedef {{totalConnectionCount?: number, failedConnectionCount?: number, tracks: Array<any>, failed: Array<any>, vias?: Array<any>, [key: string]: any}} AutorouterResult
+ * @typedef {Omit<import('./autorouter-common.js').RouteInput, 'trackWidth'|'clearance'|'viaDiameter'> & {trackWidth?: number, clearance?: number, viaDiameter?: number}} AutorouterRouteInput
+ * @typedef {import('./autorouter-common.js').RouteResult} AutorouterResult
+ * @typedef {object} AutorouterWorkerMessage
+ * @property {'done'|'error'|string} type
+ * @property {AutorouterResult|null|undefined} [result]
+ * @property {string} [error]
  * @typedef {{cancelled: boolean, abort?: () => void}} AutorouterCancelToken
  * @typedef {AutorouterBoardState & {cancelToken: AutorouterCancelToken}} AutorouterSessionState
  * @typedef {{requestStop: () => void}} AutorouterWorkerTransport
@@ -12,10 +16,10 @@ import { AutorouterPresentation } from './autorouter-presentation.js';
  * @property {boolean} active
  * @property {boolean} editing
  * @property {object} model Identity of the authored document (never mutated here).
- * @property {Map<string, any>} placements
- * @property {Array<any>} netlist
- * @property {Array<any>} undo
- * @property {Array<any>} redo
+ * @property {Map<string, object>} placements
+ * @property {object[]} netlist
+ * @property {object[]} undo
+ * @property {object[]} redo
  * @property {Partial<RoutingParams> & Record<string, number|undefined>} rules Canonical routing dimensions.
  *
  * @typedef {object} AutorouterCapabilities
@@ -199,12 +203,12 @@ export class AutorouterSession {
                 if (current()) settle(null, workerError.error || new Error(event.message || 'Autorouter worker failed'));
             };
             const onMessageError = () => onError(new Error('Invalid autorouter worker response'));
-            /** @param {MessageEvent<any>} event */
+            /** @param {MessageEvent<AutorouterWorkerMessage>} event */
             const onMessage = event => {
                 try {
                     if (!current()) return;
                     const message = event.data || {};
-                    if (message.type === 'done') settle(message.result);
+                    if (message.type === 'done') settle(message.result ?? null);
                     else if (message.type === 'error') settle(null, new Error(message.error || 'Autorouter worker error'));
                     else this.presentation.handleMessage(message);
                 } catch (error) { onError(/** @type {Error} */ (error)); }

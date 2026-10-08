@@ -243,7 +243,7 @@ export class AutorouterPresentation {
             ripupPass: 0,
             ripupMaxPasses: 4,
         };
-        const m = /** @type {any} */ (meta || {});
+        const m = /** @type {{phase: string, pendingConnections: number, pendingNets: number, ripupDone: number, ripupTotal: number, ripupPass: number, ripupMaxPasses: number, currentIteration?: number, maxIterations?: number, trialIndex?: number, trialCount?: number, cleanCount?: number, totalCount?: number}} */ (meta || {});
         this._progress = {
             done,
             total,

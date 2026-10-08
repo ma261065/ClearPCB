@@ -195,7 +195,7 @@ export function circleRing(cx, cz, r, seg) {
 /** @param {PointXY[][]} rings @returns {PointXY[][]|null} */
 export function unionBoreRings(rings) {
     if (!isClipperReady() || !rings.length) return null;
-    const C = /** @type {any} */ (getClipper());
+    const C = /** @type {NonNullable<ReturnType<typeof getClipper>>} */ (getClipper());
     const scale = 10000;
     const paths = rings
         .filter((ring) => ring.length >= 3)
@@ -569,7 +569,7 @@ export function discardNestedBores(bores) {
  */
 function _subtractRingsFromOutline(outline, rings) {
     if (!isClipperReady()) return [{ outer: outline, holes: [] }];
-    const C = /** @type {any} */ (getClipper());
+    const C = /** @type {NonNullable<ReturnType<typeof getClipper>>} */ (getClipper());
     const SC = 10000;
     /** @param {PointXZ[]} pts */
     const toPath = (pts) => pts.map((p) => ({ X: Math.round(p.x * SC), Y: Math.round(p.z * SC) }));

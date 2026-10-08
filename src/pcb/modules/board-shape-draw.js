@@ -24,9 +24,9 @@ import { nextBoardShapeId } from './board-shapes.js';
 /** @typedef {import('./pcb-editor-api.js').PcbEditor} PcbEditor */
 /** @typedef {import('../../shapes/track.js').Track} Track */
 /** @typedef {import('../../shapes/shape-drawing.js').DrawingKind} DrawingKind */
-/** @typedef {{x: number, y: number, [key: string]: any}} Point */
+/** @typedef {import('../../core/geometry.js').Point} Point */
 /** @typedef {import('../../core/pcb-board-shapes.js').BoardShape} BoardShape */
-/** @typedef {Record<string, any> & {kind: DrawingKind, layer: string, points: Point[], preview: SVGPathElement, cursorWorld?: Point}} ShapeDraw */
+/** @typedef {{kind: DrawingKind, layer: string, points: Point[], preview: SVGPathElement, cursorWorld?: Point, startWorld?: Point, currentWorld?: Point, centered?: boolean, square?: boolean}} ShapeDraw */
 
 const NS = 'http://www.w3.org/2000/svg';
 

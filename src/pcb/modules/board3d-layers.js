@@ -27,7 +27,17 @@ import { emptyMesh, appendMesh } from './board3d-mesh-ops.js';
 /** @typedef {import('./board3d-mesh-ops.js').MeshVertex} MeshVertex */
 /** @typedef {import('./board3d-mesh-ops.js').MeshFace} MeshFace */
 /** @typedef {import('./board3d-mesh-ops.js').Mesh & {cull?: boolean}} Mesh */
-/** @typedef {{circle?: any, path?: Point[], pathClosed?: boolean, filled?: boolean, lineWidth?: number, strokeSegments?: any[], physicalContours?: Point[][]|null, copperMode?: string}} ResolvedBoardGeometry */
+/** @typedef {import('../../shared/pcb/board-shape-geometry.js').ResolvedBoardShapeGeometry} ResolvedBoardGeometry */
+/** @typedef {import('../../core/pcb-board-shapes.js').BoardShape} BoardShape */
+/** @typedef {import('../../core/pcb-board-shapes.js').BoardImageShape} BoardImageShape */
+/** @typedef {import('../../shapes/track.js').Track} Track */
+/** @typedef {import('../../shapes/via.js').Via} Via */
+/** @typedef {import('../../shapes/copper-fill.js').CopperFill} CopperFill */
+/** @typedef {import('../../shared/pcb/board-geometry.js').BoardPlacement} BoardPlacement */
+/** @typedef {import('../../shared/pcb/board-geometry.js').PadFlash} PadFlash */
+/** @typedef {import('../../shared/pcb/board-geometry.js').SilkDescriptor} SilkDescriptor */
+/** @typedef {import('../../core/pcb-text.js').PcbText} PcbText */
+/** @typedef {{x:number,z:number,r:number,ring?:Array<{x:number,z:number}>,y?:number,boardShape?:boolean}} BoreHole */
 /** @typedef {{x:number,y?:number,z:number,dia?:number,r:number,slot?:null|{x2:number,y2:number,points?:Point[]}, plated?:boolean, ring?:Array<XzPoint>, layer?:string, boardShape?: boolean}} DrillHole */
 /** @typedef {{x:number,y:number,size:number,shape:string,layers?:string,rotation?:number,drill:number,holeLength?:number,ratio?:number,locked?:boolean,visible?:boolean,net?:string}} StandalonePad */
 
@@ -65,7 +75,7 @@ function strokePolysToMesh(polys, strokeWidth, y, color, toWorld) {
 
 /**
  * Flat mesh for a picture board shape's raster artwork, at one elevation.
- * @param {any} shape picture board shape
+ * @param {any} shape picture board shape; picture artwork records are validated by picture-raster helpers.
  * @param {number} elevation
  * @param {number[]} color
  * @returns {Mesh}
@@ -107,7 +117,7 @@ export function imageArtworkMesh(shape, elevation, color) {
 /**
  * Build one combined copper mesh from all routed Tracks. Each edge becomes a
  * flat ribbon on its layer's surface with round end-caps so joints look smooth.
- * @param {Array<any>} tracks
+ * @param {Array<any>} tracks Dynamic track-like records from editor snapshots/workers.
  * @param {Array<any>} [circles] @param {Array<any>} [boardShapes] @param {any} [texts] a Map of texts or an array
  * @returns {Mesh}
  */
@@ -253,6 +263,7 @@ export function appendFlatStroke(mesh, outline, closed, width, y, color) {
 /** @param {Mesh} mesh @param {ResolvedBoardGeometry & {centerlineClosed?: boolean}} geometry @param {number} y @param {number[]} color */
 function appendResolvedFlatStroke(mesh, geometry, y, color) {
     if (geometry.strokeSegments?.length) {
+        /** @type {Point[]} */
         let outline = [];
         let width = 0;
         for (const segment of geometry.strokeSegments) {
@@ -273,7 +284,7 @@ function appendResolvedFlatStroke(mesh, geometry, y, color) {
 }
 
 /** Approximate a stroked circle with bounded convex annular sectors.
- * @param {any} circle
+ * @param {any} circle Dynamic circle-like board shape.
  * @param {number} [segments]
  */
 function circleStrokeHoles(circle, segments = 24) {
@@ -322,7 +333,7 @@ function resolvedRemovalHoles(geometry) {
     return holes;
 }
 
-/** @param {Array<any>} [boardShapes] */
+/** @param {Array<any>} [boardShapes] Dynamic board-shape snapshots. */
 export function collectCopperSubtractHoles(boardShapes = []) {
     const holes = [];
     for (const c of boardShapes || []) {
@@ -353,13 +364,13 @@ export function collectCopperSubtractHoles(boardShapes = []) {
  * Collect mask openings for one board side.
  * @param {Array<any>} boardShapes
  * @param {'top'|'bottom'} side
- * @param {Map<string, any>} [placements]
+ * @param {Map<string, BoardPlacement>} [placements]
  * @param {StandalonePad[]} [pads]
  * @returns {Array<{x?:number,z?:number,r?:number,ring?:Array<{x:number,z:number}>}>}
  */
 export function collectMaskOpeningHoles(boardShapes = [], side = 'top', placements = new Map(), pads = []) {
      /** @type {Array<{x?:number,z?:number,r?:number,ring?:Array<{x:number,z:number}>}>} */
-    const holes = resolvePadMaskOpenings(placements, side).map((/** @type {any} */ flash) => ({
+    const holes = resolvePadMaskOpenings(placements, side).map((/** @type {PadFlash} */ flash) => ({
         ring: padFlashOutline(flash).map(point => ({ x: point.x, z: point.y })),
     }));
     const copperLayer = `${side}-copper`;
@@ -671,8 +682,8 @@ export function standalonePadEdgeMesh(pad, boardOutline) {
 /** @param {DrillHole[]} drilledHoles */
 export function boardCutoutEdgeRings(drilledHoles) {
     const rings = (drilledHoles || [])
-        .filter((/** @type {any} */ hole) => hole?.boardShape)
-        .flatMap((/** @type {any} */ hole) => {
+        .filter((/** @type {DrillHole} */ hole) => hole?.boardShape)
+        .flatMap((/** @type {DrillHole} */ hole) => {
             if (Array.isArray(hole.ring) && hole.ring.length >= 3) {
                 return [hole.ring.map((/** @type {XzPoint} */ point) => ({ x: point.x, y: point.z }))];
             }
@@ -688,7 +699,7 @@ export function boardCutoutEdgeRings(drilledHoles) {
  * all component placements, in world board-plane coordinates. These are bored
  * clean through the board slab by {@link boardWithHoles}; plated holes are
  * additionally lined with a gold barrel by {@link padMesh}.
- * @param {Iterable<[string, any]>} placements
+ * @param {Iterable<[string, any]>} placements Dynamic placement records from editor snapshots.
  * @param {StandalonePad[]} [pads] standalone pads
  * @returns {Array<{x:number,z:number,r:number,plated:boolean,boardShape?:boolean,ring?:Array<{x:number,z:number}>}>}
  */
@@ -798,7 +809,7 @@ export function buildSilkMesh(app) {
     // and the `filled` flag now match the 2D preview and Gerber output (the 3D
     // view previously defaulted stroke to 0.15 and never filled paths).
     for (const rawSk of resolveSilk(placements)) {
-        const sk = /** @type {any} */ (rawSk);
+        const sk = /** @type {SilkDescriptor} */ (rawSk);
         const bottom = sk.side === 'bottom';
         const y = bottom ? Y_BOT - SILK_EPS : Y_TOP + SILK_EPS;
         if (sk.kind === 'line') {
@@ -893,9 +904,9 @@ export function buildSilkMesh(app) {
 
 /** Viewer-owned immutable mesh cache; compare authored inputs, not expanded image triangles. */
 export function createSilkArtworkMeshCache() {
-    /** @type {{input: any, mesh: Mesh}|null} */
+    /** @type {{input: any, mesh: Mesh}|null} Authored silk artwork cache compares cloned dynamic board-shape inputs. */
     let cached = null;
-    /** @param {Array<any>} boardShapes */
+    /** @param {Array<any>} boardShapes Dynamic board-shape snapshots. */
     return (boardShapes) => {
         const input = { boardShapes, color: [...COLOR_SILK] };
         if (cached && surfaceInputsEqual(cached.input, input)) return cached.mesh;

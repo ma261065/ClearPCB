@@ -140,7 +140,7 @@ export function fallbackBoxMesh(pl) {
  * round/oval, quad for rect) on their own face; through-hole pads are gold
  * annular rings on BOTH faces with an open bore (the board is bored to match),
  * so the drilled hole reads as a real opening.
- * @param {{x:number,y:number,rotation?:number,padOffsets?:Array<any>}} pl
+ * @param {{x:number,y:number,rotation?:number,padOffsets?:Array<any>}} pl Dynamic footprint pad offsets come from component definitions and may include package-specific fields.
  * @returns {Mesh}
  */
 export function padMesh(pl) {

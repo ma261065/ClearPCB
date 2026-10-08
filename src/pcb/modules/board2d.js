@@ -36,7 +36,7 @@ import { getComputedFill } from './computed-fill-cache.js';
 /** @typedef {'board'|'soldermask'|'tracks'|'vias'|'silkscreen'|'pads'} LayerStyleKey */
 /** @typedef {Record<LayerStyleKey, LayerStyle>} LayerStyleMap */
 /** @typedef {import('../../shared/pcb/board-shape-geometry.js').ResolvedBoardShapeGeometry} BoardShapeGeometry */
-/** @typedef {{placements?: Map<string, any>, pads?: any[], boardShapes?: any[], fills?: any[], tracks?: any[], vias?: any[], texts?: any[], boardX?: number, boardY?: number, boardWidth?: number, boardHeight?: number, boardRadius?: number, [key:string]: any}} Board2DData */
+/** @typedef {import('./pcb-editor-api.js').PcbBoard & {fills?: import('../../shapes/copper-fill.js').CopperFill[], boardX?: number, boardY?: number, boardWidth?: number, boardHeight?: number, boardRadius?: number, [key:string]: unknown}} Board2DData */
 
 /** @param {CanvasRenderingContext2D} context @param {BoardShapeGeometry} geometry */
 function traceBoardShape(context, geometry) {
@@ -724,7 +724,7 @@ export class Board2D {
         const copperLayer = top ? 'top-copper' : 'bottom-copper';
         const copperCol = COL.copper;
 
-        /** @param {any} shape @param {BoardShapeGeometry} [geometry] */
+        /** @param {import('../../core/pcb-board-shapes.js').BoardShape} shape @param {BoardShapeGeometry} [geometry] */
         const drawCopperShape = (shape, geometry = resolveBoardShapeGeometry(shape)) => {
             drawBoardShape(cctx, geometry);
         };
@@ -983,7 +983,7 @@ export class Board2D {
         };
 
         for (const rawSk of resolveSilk(d.placements || new Map(), this.side)) {
-            const sk = /** @type {any} */ (rawSk);
+            const sk = /** @type {import('../../shared/pcb/board-geometry.js').SilkDescriptor} */ (rawSk);
             if (sk.kind === 'line') {
                 stroke([[{ x: sk.x1, y: sk.y1 }, { x: sk.x2, y: sk.y2 }]], sk.width);
             } else if (sk.kind === 'circle') {

@@ -178,7 +178,7 @@ export async function openBoard3DViewer(app, opts = {}) {
     // Slide the panel in.
     slideIn();
 
-    /** @type {any} */
+    /** @type {any} Panel is augmented below with lifecycle methods and optional popout state. */
     const panel = { mode: 'docked', popWin: null, closed: false, hidden: false, scene: null, view: initialView };
     setBoardViewPanel(app, panel);
     app.refreshPcbRibbon?.();
@@ -580,7 +580,7 @@ export async function openBoard3DViewer(app, opts = {}) {
     syncBodies = () => {
         if (!scene) return;
         const ids = new Set();
-        /** @type {Array<[string, any]>} */
+        /** @type {Array<[string, any]>} Placement model-load queue carries live placement objects with optional 3D source fields. */
         const toLoad = [];
         for (const [id, pl] of app.placements) {
             ids.add(id);
@@ -735,7 +735,8 @@ export async function openBoard3DViewer(app, opts = {}) {
     // through history.onChanged below; schematic-side edits call panel.refresh.
     panel.refresh = scheduleSync;
     const prevOnChanged = app.history?.onChanged;
-    const onHistoryChanged = (/** @type {any[]} */ ...args) => {
+    /** @template {unknown[]} A */
+    const onHistoryChanged = (/** @type {A} */ ...args) => {
         prevOnChanged?.(...args);
         scheduleSync();
     };

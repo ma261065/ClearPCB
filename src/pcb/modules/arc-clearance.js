@@ -1,8 +1,8 @@
 import { closestPointOnSegment } from '../../core/geometry.js';
 
 /** @typedef {{x:number,y:number}} Point */
-/** @typedef {Record<string, any>} ArcShape */
-/** @typedef {Record<string, any>} CircleBand */
+/** @typedef {Record<string, any>} ArcShape DRC passes dynamic copper features; geometry fields are validated by callers before clearance math. */
+/** @typedef {Record<string, any>} CircleBand DRC circle-band features carry dynamic copper metadata alongside radii. */
 /** @typedef {{dist:number,x:number,y:number}} ClearancePoint */
 
 const TURN = 2 * Math.PI;

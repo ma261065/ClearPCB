@@ -16,12 +16,17 @@
 /** @typedef {import('./autorouter-common.js').RoutePoint} RoutePoint */
 /** @typedef {import('./autorouter-common.js').ViaPoint} ViaPoint */
 /** @typedef {import('./autorouter-common.js').SkipIds} SkipIds */
+/** @typedef {import('./autorouter-common.js').RouteInput} RouteInput */
+/** @typedef {import('./autorouter-common.js').PathObstacleView} PathObstacleView */
+/** @typedef {import('./autorouter-common.js').CopperObstacle} CopperObstacle */
+/** @typedef {import('./autorouter-common.js').CancelToken} CancelToken */
 /** @typedef {{path:RoutePoint[], vias:ViaPoint[]}} PathResult */
 /** @typedef {{path:RoutePoint[], vias:ViaPoint[], net:string}} RouteData */
 /** @typedef {Map<string, RouteData|null>} RouteMap */
-/** @typedef {{net:string, connIdx:number, from:any, to:any, skipIds:Set<string>, startLayer:string, endLayer:string, [key:string]:any}} ConnItem */
-/** @typedef {import('./autorouter-common.js').PadLike & {id:string, net?:string, [key:string]:any}} PadLike */
-/** @typedef {Record<string, any>} RouterOptions */
+/** @typedef {{net:string, connIdx:number, from:RoutePad, to:RoutePad, skipIds:Set<string>, startLayer:string, endLayer:string, [key:string]:unknown}} ConnItem */
+/** @typedef {import('./autorouter-common.js').PadLike & {layer?:string, alternates?:RoutePad[], [key:string]:unknown}} RoutePad */
+/** @typedef {RoutePad & {id:string, net?:string}} PadLike */
+/** @typedef {Record<string, any>} RouterOptions Dynamic router option bags thread heterogeneous callbacks, caches, and numeric tuning through several routing phases. */
 /** @typedef {{pads: Point[]}} RouterPadConnection */
 
 /**
@@ -794,9 +799,9 @@ function smoothPathfinderRoutes(finalRoutes, connList, opts) {
         // fixAngles merges collinear runs and normalises any stray angle.
         // Every optimizePath candidate is validated against the combined
         // pad+route obstacle view, so this cannot introduce a violation.
-        const s1 = simplifyPath(route.path, combinedObstacles, item.skipIds, totalClear, /** @type {any} */ (item.net));
+        const s1 = simplifyPath(route.path, combinedObstacles, item.skipIds, totalClear, item.net);
         const s2 = fixAngles(s1);
-        const cleaned = fixAngles(optimizePath(s2, combinedObstacles, item.skipIds, totalClear, /** @type {any} */ (item.net)));
+        const cleaned = fixAngles(optimizePath(s2, combinedObstacles, item.skipIds, totalClear, item.net));
 
         // Accept the cleaned path when it is no longer than the original.
         // optimizePath/simplifyPath never lengthen a route in practice, but
@@ -1034,7 +1039,7 @@ function padHashViaViolations(padHash, vx, vy, queryClear, skipPadIds, padNetMap
  * Cost: zero overhead when the coarse attempt succeeds (the common case).
  * Only failures pay the refinement cost.
  * @param {number} sx @param {number} sy @param {number} ex @param {number} ey
- * @param {any} obstacles
+ * @param {SpatialHash} obstacles
  * @param {Set<string>} skipIds
  * @param {number} gridStep @param {number} trackWidth @param {number} clearance
  * @param {number} greedyWeight @param {boolean} allowVias
@@ -1070,8 +1075,8 @@ async function astarRouteWithRefinement(sx, sy, ex, ey, obstacles, skipIds, grid
  *
  * `skipIds` MUST already include every primary + alternate pad id of both
  * endpoints (callers build this via netPadIdList).
- * @param {any} fromPad @param {any} toPad
- * @param {any} obstacles
+ * @param {RoutePad} fromPad @param {RoutePad} toPad
+ * @param {SpatialHash} obstacles
  * @param {Set<string>} skipIds
  * @param {number} gridStep @param {number} trackWidth @param {number} clearance
  * @param {number} greedyWeight @param {boolean} allowVias
@@ -1092,7 +1097,7 @@ async function astarRouteAnyEndpoint(fromPad, toPad, obstacles, skipIds, gridSte
             { ...opts, startPad: fromPad, endPad: toPad }
         );
     }
-    /** @type {Array<{s: any, e: any, d: number}>} */
+    /** @type {Array<{s: RoutePad, e: RoutePad, d: number}>} */
     const pairs = [];
     for (const s of sList) {
         for (const e of eList) {
@@ -1552,7 +1557,7 @@ async function ripUpSwap(bestRoutes, allTrialRoutes, connList, allPads, opts) {
  * the clearance check will report those as violations and they should be
  * treated as failed connections.
  *
- * @param {RouterOptions} input - same shape as routeAll's input
+ * @param {RouteInput} input - same shape as routeAll's input
  * @param {RouterOptions} [options]
  */
 export async function routeAllPathfinder(input, options = {}) {
@@ -1589,7 +1594,7 @@ export async function routeAllPathfinder(input, options = {}) {
     const progressTotal = maxIterations + PROGRESS_TRIAL_BUDGET + PROGRESS_POST_BUDGET;
 
     // â”€â”€ Validate inputs â”€â”€
-    /** @param {string} name @param {any} value */
+    /** @param {string} name @param {unknown} value */
     const requirePositive = (name, value) => {
         if (typeof value !== 'number' || !Number.isFinite(value) || value <= 0) {
             throw new Error(`routeAllPathfinder: input.${name} must be a positive number, got ${value}`);
@@ -1632,7 +1637,7 @@ export async function routeAllPathfinder(input, options = {}) {
         const lb = b || 'both';
         return la === 'both' || lb === 'both' || la === lb;
     };
-    /** @param {PadLike} cpad @param {Set<string>} usedIds */
+    /** @param {RoutePad} cpad @param {Set<string>} usedIds */
     const findMatchingPad = (cpad, usedIds) => {
         let best = null, bestScore = Infinity;
         for (const pad of allPads) {
@@ -2229,7 +2234,7 @@ export async function routeAllPathfinder(input, options = {}) {
 
 /**
  * Negotiated-congestion (Pathfinder) autorouter entrypoint.
- * @param {RouterOptions} input
+ * @param {RouteInput} input
  * @param {RouterOptions} [options]
  */
 export async function routeWithPathfinderRouter(input, options = {}) {

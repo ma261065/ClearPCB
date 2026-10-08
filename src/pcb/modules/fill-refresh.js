@@ -16,7 +16,7 @@ import { invalidateDrcRefresh } from './drc-refresh.js';
 /** @typedef {import('../../core/PcbDocument.js').PcbDocument} PcbDocument */
 /** @typedef {import('../../shapes/copper-fill.js').CopperFill} CopperFill */
 /** @typedef {import('./copper-fill-geom.js').FillRegion} FillRegion */
-/** @typedef {{revision:number, frame:object|null, waiting:boolean, owed:boolean, worker:any, failed:boolean}} FillRefreshState */
+/** @typedef {{revision:number, frame:object|null, waiting:boolean, owed:boolean, worker:any, failed:boolean}} FillRefreshState Fill refresh owns a nullable worker transport with async lifecycle state. */
 /** @typedef {{terminal?: boolean}} DisposeFillRefreshOptions */
 
 /** @type {WeakMap<PcbEditor, FillRefreshState>} */
@@ -39,7 +39,7 @@ const deferred = app => {
     return status.pictureCopperPending || status.overlaysDeferred || status.fillSuspended || app.isSectionEditing();
 };
 
-/** @param {PcbEditor} app @param {string} message @param {any} error */
+/** @param {PcbEditor} app @param {string} message @param {unknown} error */
 function reportFailure(app, message, error) {
     setFillRefreshError(app, error);
     console.error(message, error);
@@ -145,7 +145,7 @@ function current(app, state, revision, model, fills) {
  * @param {PcbEditor} app
  * @param {CopperFill[]} fills
  * @param {FillRegion[][]} results
- * @param {any[][]} [contacts]
+ * @param {import('./track-contact-geometry.js').PreparedCopperRegionContact[][]} [contacts]
  */
 export function adoptFillResults(app, fills, results, contacts) {
     if (contacts) results.forEach((regions, index) => regions.forEach((region, regionIndex) =>
@@ -208,7 +208,7 @@ export function recomputeFillsNow(app) {
         const revision = state.revision, model = app.pcbDocument;
         loadClipper().then(() => {
             if (current(app, state, revision, model, fills)) recomputeFillsNow(app);
-        }).catch(/** @param {any} error */ error => {
+        }).catch(/** @param {unknown} error */ error => {
             if (!current(app, state, revision, model, fills)) return;
             reportFailure(app, 'Failed to load copper-fill geometry:', error);
             setFillRefreshPending(app, true);
@@ -278,7 +278,7 @@ export function scheduleFillRefresh(app) {
         }
         state.worker ||= createFillWorker();
         setFillRefreshPending(app, true);
-        state.worker.build(inputs).then(/** @param {{results: FillRegion[][], contacts: any[][][]}|null} batch */ batch => {
+        state.worker.build(inputs).then(/** @param {{results: FillRegion[][], contacts: import('./track-contact-geometry.js').PreparedCopperRegionContact[][]}|null} batch */ batch => {
             if (!current(app, state, revision, model, fills)) {
                 if (states.get(app) === state && state.revision === revision) {
                     if (app.pcbDocument === model && fillsFor(app).length) scheduleFillRefresh(app);
@@ -297,7 +297,7 @@ export function scheduleFillRefresh(app) {
                     setFillRefreshPending(app, true);
                 }
             }
-        }, /** @param {any} error */ error => {
+        }, /** @param {unknown} error */ error => {
             if (states.get(app) !== state) return;
             if (!state.failed) reportFailure(app, 'Copper-fill worker failed; using synchronous refresh:', error);
             state.failed = true;

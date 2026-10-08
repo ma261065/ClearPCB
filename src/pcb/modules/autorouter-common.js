@@ -20,7 +20,7 @@
 
 /**
  * @typedef {Object} RouteInput
- * @property {Array<{net: string, pads: Array<{x: number, y: number, width: number, height: number, layer?: ('top'|'bottom'|'both'), shape?: ('rect'|'ellipse'), alternates?: Array<{x: number, y: number, width: number, height: number, layer?: ('top'|'bottom'|'both'), shape?: ('rect'|'ellipse')}>}>, edges?: Array<any>}>} connections
+ * @property {Array<{net: string, pads: Array<{x: number, y: number, width: number, height: number, layer?: ('top'|'bottom'|'both'), shape?: ('rect'|'ellipse'), alternates?: Array<{x: number, y: number, width: number, height: number, layer?: ('top'|'bottom'|'both'), shape?: ('rect'|'ellipse')}>}>, edges?: Array<[number, number]>}>} connections
  *   `edges` is router-internal: the maze router stores each connection's MST edges there.
  *   Each connection pad's `alternates` array (optional) lists physically
  *   distinct pads that share the same logical pin (e.g. thermal/centre
@@ -205,7 +205,7 @@ export function createMinHeap() {
  * Obstacle stored in the spatial hash. Either a pad (isPad=true) or a track segment.
  * @typedef {SpatialSegmentObstacle|SpatialPadObstacle} SpatialObstacle
  * @typedef {{cx: number, cy: number, hw: number, hh: number, shape?: string}} PadObstacleLike
- * @typedef {{isOnPad: (x: number, y: number, clearance: number) => any, isSegmentBlocked: (x1: number, y1: number, x2: number, y2: number, clearance: number, skipIds?: SkipIds, layer?: string|number, skipNet?: string|null) => boolean}} PathObstacleView
+ * @typedef {{isOnPad: (x: number, y: number, clearance: number) => boolean, isSegmentBlocked: (x1: number, y1: number, x2: number, y2: number, clearance: number, skipIds?: SkipIds, layer?: string|number, skipNet?: string|null) => boolean}} PathObstacleView
  */
 
 export class SpatialHash {

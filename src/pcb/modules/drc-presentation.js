@@ -58,14 +58,14 @@ export class DrcPresentation {
     /**
      * @param {EventTarget|null|undefined} target
      * @param {string} type
-     * @param {(event: any) => void} callback
+     * @param {(event: Event & KeyboardEvent & MouseEvent) => void} callback
      * @param {boolean|AddEventListenerOptions} [options]
      * @param {Array<() => void>} [listeners]
      */
     listen(target, type, callback, options, listeners = this.listeners) {
         if (!target) return;
         const guarded = (/** @type {Event} */ event) => {
-            if (!this.disposed && !this.suspended) callback(event);
+            if (!this.disposed && !this.suspended) callback(/** @type {Event & KeyboardEvent & MouseEvent} */ (event));
         };
         target.addEventListener(type, guarded, options);
         listeners.push(() => target.removeEventListener?.(type, guarded, options));

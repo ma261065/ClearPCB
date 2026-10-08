@@ -12,7 +12,7 @@ import { isPcbPasteActive } from './pcb-paste.js';
 /** @typedef {Point & {layer?: string, width?: number}} TrackRunPoint */
 /** @typedef {import('../../shapes/track.js').Track} TrackLike */
 /** @typedef {import('../../shapes/via.js').Via} ViaLike */
-/** @typedef {Record<string, any> & {id: string, layer: string, content?: string}} ClearanceShape */
+/** @typedef {Record<string, any> & {id: string, layer: string, content?: string}} ClearanceShape Clearance halos accept board-shape, text, and legacy copper records with module-specific fields. */
 /** @typedef {{style: string, artwork: unknown, points: Point[], elements: SVGPolygonElement[]}} ShapeClearanceCacheEntry */
 /** @typedef {{cx: number, cy: number, r: number, net?: string}} ViaClearanceSource */
 /** @typedef {{element?: SVGCircleElement, sources: Map<string|SVGElement, ViaClearanceSource>}} ViaClearanceEntry */

@@ -3,7 +3,7 @@ import { computeFillPolygonsInOrder, loadClipper } from './copper-fill-geom.js';
 import { serializePcbText } from '../../core/pcb-text.js';
 import { boardDimensions } from '../../shared/pcb/board-outline.js';
 /** @typedef {import('./pcb-editor-api.js').PcbEditor} PcbEditor */
-/** @typedef {import('./copper-fill-geom.js').FillContext & {tracks: Array<any>, fills: Array<any>}} SerializedFillInputs */
+/** @typedef {import('./copper-fill-geom.js').FillContext & {tracks: import('../../shapes/track.js').Track[], fills: import('../../shapes/copper-fill.js').CopperFill[]}} SerializedFillInputs */
 /** @typedef {{edges: Map<string, {width: number, layer: string}>}} SerializedTrackGeometry */
 
 /**

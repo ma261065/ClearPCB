@@ -1,7 +1,7 @@
 import { surfaceInputsEqual } from './board3d-surface-equality.js';
 import { encodeSurfaceInputs } from './board3d-surface-transfer.js';
 
-/** @typedef {Record<string, any>} SurfaceMap */
+/** @typedef {Record<string, any>} SurfaceMap Worker surface payloads are transferable GPU buffers keyed by layer and validated by the surface builder. */
 /** @typedef {{id:number, revision:number, surfaces:SurfaceMap, reused:SurfaceMap, inputs:Map<string, any>, resolve:(value:any)=>void, reject:(reason:any)=>void}} BuildRequest */
 
 /** @param {() => Worker} [createWorker] */
@@ -17,10 +17,10 @@ export function createSurfaceBuilder(createWorker = () => new Worker(
     /** @type {BuildRequest|null} */
     let pending = null;
     let disposed = false;
-    /** @type {Map<string, {input:any, buffers:any}>} */
+    /** @type {Map<string, {input:any, buffers:any}>} Surface cache stores structured-cloned worker inputs and transferable buffers. */
     let cache = new Map();
 
-    /** @param {any} error */
+    /** @param {any} error Worker errors can be ErrorEvent, Error, or cloned rejection payloads. */
     const fail = (error) => {
         worker?.terminate();
         worker = null;

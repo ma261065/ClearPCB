@@ -5,7 +5,7 @@ import { copperLayer, resolveCopperPads } from './copper-model.js';
 /** @typedef {import('../../core/pcb-placement-geometry.js').BoardPad} BoardPad */
 /** @typedef {{x:number,y:number}} Point */
 
-/** @typedef {Record<string, any>} CopperCluster */
+/** @typedef {Record<string, any>} CopperCluster Dynamic copper connectivity clusters are extended by ratsnest and track-connection passes with shape/contact-specific fields. */
 
 /**
  * @returns {CopperCluster[]}

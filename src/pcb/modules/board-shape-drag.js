@@ -29,12 +29,12 @@ import { beginBoardShapePointerPreview, collapseCollinearPolylinePoints, dragPro
 import { addBoardShapeOrTrackCommand, copperPathReplacementCommands, selectReplacementTracks } from './track-shape-conversion.js';
 /** @typedef {import('./pcb-editor-api.js').PcbEditor} PcbEditor */
 /** @typedef {import('../../shapes/track.js').Track} Track */
-/** @typedef {{x: number, y: number, [key: string]: any}} Point */
+/** @typedef {import('../../core/geometry.js').Point} Point */
 /** @typedef {import('../../core/pcb-board-shapes.js').BoardShape} BoardShape */
 /** @typedef {import('../../core/pcb-board-shapes.js').BoardPathShape} BoardPathShape */
 /** @typedef {import('../../core/pcb-board-shapes.js').BoardShapeGeometry} BoardShapeGeometry */
 /** @typedef {import('./board-shapes.js').BoardShapeEditProfile} BoardShapeEditProfile */
-/** @typedef {Record<string, any>} BoardShapeDrag */
+/** @typedef {Record<string, any>} BoardShapeDrag Dynamic drag session bag shared by pointer, split, rotation, and fill-edit previews. */
 
 /** @param {PcbEditor} app */
 function snapActive(app) {
@@ -192,10 +192,11 @@ export function applyBoardShapeVertexResize(shape, drag, snap) {
 export function polygonSegmentIndexAt(shape, worldPos, tolerance) {
     if (shape.kind !== 'line' && shape.kind !== 'polygon' && shape.kind !== 'rect' || !Array.isArray(shape.points) || shape.points.length < 2) return null;
     const count = shape.kind === 'line' ? shape.points.length - 1 : shape.points.length;
-    return pathSegmentAt(worldPos, /** @type {any} */ (shape.points.slice(0, count).map((start, id) => ({
+    const segments = /** @type {import('../../shapes/path-geometry.js').StrokeSegment[]} */ (/** @type {unknown} */ (shape.points.slice(0, count).map((start, id) => ({
         id, start, end: shape.points[(id + 1) % shape.points.length],
         bulge: boardShapeSegmentBulge(shape, id), lineWidth: boardShapeSegmentWidth(shape, id),
-    }))), tolerance);
+    }))));
+    return pathSegmentAt(worldPos, segments, tolerance);
 }
 
 /**
@@ -225,7 +226,7 @@ function clearPolygonAxisIndicators(app) {
 export function boardSquareIndicators(shape) {
     if (shape.kind !== 'rect') return [];
     return squareAlignmentSegments(shape.points || [],
-        (shape.points || []).map(/** @param {any} _ @param {number} index */ (_, index) => boardShapeSegmentWidth(shape, index)))
+        (shape.points || []).map((_, index) => boardShapeSegmentWidth(shape, index)))
         .map(segment => ({ ...segment, layerId: shape.layer }));
 }
 
@@ -272,8 +273,8 @@ function renderPolygonAxisIndicators(app, shape, indices, excludedSegments = [],
     const pathShape = /** @type {BoardPathShape} */ (shape);
     const segments = pathAlignmentSegments(pathShape.points, pathShape.kind !== 'line',
         /** @type {number[]} */ (Array.isArray(indices) ? indices : [indices]),
-        pathShape.points.map(/** @param {any} _ @param {number} index */ (_, index) => boardShapeSegmentWidth(shape, index)),
-        pathShape.points.map(/** @param {any} _ @param {number} index */ (_, index) => boardShapeSegmentBulge(shape, index)), excludedSegments)
+        pathShape.points.map((_, index) => boardShapeSegmentWidth(shape, index)),
+        pathShape.points.map((_, index) => boardShapeSegmentBulge(shape, index)), excludedSegments)
         .map(segment => ({ ...segment, layerId: shape.layer, haloMarginPx }));
     renderAxisGlow(app, segments);
 }
