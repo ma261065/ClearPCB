@@ -354,7 +354,7 @@ export class VRMLPreview {
     /**
      * Render EasyEDA 3D model JSON data
      * EasyEDA stores 3D data as a simple array of vertices and faces
-     * @param {any} model3dJson raw EasyEDA JSON/string before validation
+     * @param {unknown} model3dJson raw EasyEDA JSON/string before validation
      * @param {RenderOptions} [options]
      * @returns {string}
      */
@@ -383,21 +383,21 @@ export class VRMLPreview {
             // Handle different EasyEDA formats
             if (modelData.vertices && Array.isArray(modelData.vertices)) {
                 // Format: { vertices: [[x,y,z],...], faces: [[i1,i2,i3],...] }
-                geometry.vertices = modelData.vertices.map(/** @param {any[]} v */ (v) => ({
-                    x: parseFloat(v[0]) || 0,
-                    y: parseFloat(v[1]) || 0,
-                    z: parseFloat(v[2]) || 0
+                geometry.vertices = modelData.vertices.map(/** @param {unknown[]} v */ (v) => ({
+                    x: parseFloat(String(v[0])) || 0,
+                    y: parseFloat(String(v[1])) || 0,
+                    z: parseFloat(String(v[2])) || 0
                 }));
 
                 if (modelData.faces && Array.isArray(modelData.faces)) {
-                    geometry.faces = modelData.faces.map(/** @param {any[]} f */ (f) => f.map(/** @param {any} i */ (i) => parseInt(i)));
+                    geometry.faces = modelData.faces.map(/** @param {unknown[]} f */ (f) => f.map((i) => parseInt(String(i))));
                 }
             } else if (Array.isArray(modelData)) {
                 // Format: [[x,y,z],...]
-                geometry.vertices = modelData.map(/** @param {any[]} v */ (v) => ({
-                    x: parseFloat(v[0]) || 0,
-                    y: parseFloat(v[1]) || 0,
-                    z: parseFloat(v[2]) || 0
+                geometry.vertices = modelData.map(/** @param {unknown[]} v */ (v) => ({
+                    x: parseFloat(String(v[0])) || 0,
+                    y: parseFloat(String(v[1])) || 0,
+                    z: parseFloat(String(v[2])) || 0
                 }));
             }
 
@@ -433,7 +433,7 @@ export class VRMLPreview {
                 return '<div style="color:var(--text-muted);text-align:center;padding:20px">No nodes found</div>';
             }
 
-            // Force white colors, ignore any colors from the file
+            // Force white colors, ignore file-supplied colors
             const renderOptions = {
                 ...options,
                 lineColor: '#ffffff',

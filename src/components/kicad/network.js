@@ -11,6 +11,8 @@ import {
     SYMBOL_LIBRARY_MARKER, FOOTPRINT_MARKER
 } from './constants.js';
 
+/** @typedef {{json?: unknown, headers?: Headers, length?: number, [key:string]: unknown}} KiCadJsonResponse */
+
 
 
     /**
@@ -144,7 +146,7 @@ export function _cacheLibraryContent(fetcher, cacheKey, library, content) {
  * @param {import('../KiCadFetcher.js').KiCadFetcher} fetcher
      * Cache content data with the standard content TTL.
      * @param {string} key
-     * @param {any} value
+     * @param {unknown} value
      * @returns {boolean}
      */
 export function _setContentCache(fetcher, key, value) {
@@ -238,7 +240,7 @@ export function _isValidFootprintContent(fetcher, content) {
      * Parse JSON from a fetch response and optionally include headers.
      * @param {Response} response
      * @param {boolean} [returnHeaders=false]
-     * @returns {Promise<any|null>}
+     * @returns {Promise<KiCadJsonResponse|null>}
      */
 export async function _parseJsonFromResponse(fetcher, response, returnHeaders = false) {
     try {
@@ -260,7 +262,7 @@ export async function _parseJsonFromResponse(fetcher, response, returnHeaders = 
      * Fetch JSON from a URL through CORS proxies.
      * @param {string} targetUrl
      * @param {boolean} [returnHeaders=false] - If true, return `{ json, headers }`
-     * @returns {Promise<any|null>}
+     * @returns {Promise<KiCadJsonResponse|null>}
      */
 export async function _fetchJsonWithProxy(fetcher, targetUrl, returnHeaders = false) {
     const response = await fetcher._fetchFirstOkResponse(targetUrl);
@@ -333,7 +335,7 @@ export function _buildGitLabSearchApiUrl(fetcher, { projectPath, scope, search, 
      * @param {boolean} [params.recursive=false]
      * @param {string} [params.path]
      * @param {boolean} [returnHeaders=false]
-     * @returns {Promise<any|null>}
+     * @returns {Promise<KiCadJsonResponse|null>}
      */
 export function _fetchGitLabTreePage(fetcher, params, returnHeaders = false) {
     const apiUrl = fetcher._buildGitLabTreeApiUrl(params);
@@ -346,7 +348,7 @@ export function _fetchGitLabTreePage(fetcher, params, returnHeaders = false) {
  * @param {import('../KiCadFetcher.js').KiCadFetcher} fetcher
      * Search blobs in a GitLab project.
      * @param {{projectPath: string, scope: string, search: string, perPage?: number, page?: number, ref?: string}} params
-     * @returns {Promise<any|null>}
+     * @returns {Promise<KiCadJsonResponse|null>}
      */
 export function _fetchGitLabSearchPage(fetcher, params) {
     const apiUrl = fetcher._buildGitLabSearchApiUrl(params);

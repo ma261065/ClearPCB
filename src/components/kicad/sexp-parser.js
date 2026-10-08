@@ -3,8 +3,9 @@
  * syntax shared by symbol and footprint conversion.
  */
 
-/** @typedef {string|number|SExprList} SExpr */
-/** @typedef {Array<any>} SExprList */
+/** @typedef {string|number|boolean|SExprList} SExpr */
+/** Heterogeneous parser output; consumers narrow by node tag before reading fields. */
+/** @typedef {Array<*>} SExprList */
 
 
 

@@ -39,7 +39,7 @@ import { showLCSCPrompt } from './picker/ui-state.js';
 /** @typedef {import('./LCSCFetcher.js').LCSCSearchResult} LCSCSearchResult */
 
 /** @typedef {{next: () => number, invalidate: () => void, isCurrent: (token: number) => boolean}} GenerationGate */
-/** @typedef {{run: (...args: any[]) => void, cancel: () => void, dispose: () => void}} DebouncedRunner */
+/** @typedef {{run: (...args: unknown[]) => void, cancel: () => void, dispose: () => void}} DebouncedRunner */
 /** @typedef {import('./KiCadFetcher.js').KiCadIndexProgress} SearchProgress */
 /** @typedef {{setModel: (modelText: string) => boolean, dispose: () => void}} Model3DViewerLike */
 /** @typedef {ComponentSymbol} SymbolDefinitionLike */

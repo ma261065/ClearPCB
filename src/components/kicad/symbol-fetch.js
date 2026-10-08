@@ -16,7 +16,7 @@ import { KICAD_SYMBOLS_PROJECT_PATH } from '../kicad-index-format.js';
      * Fetch a specific symbol
      * @param {string} library - Library name (e.g., "Timer")
      * @param {string} symbolName - Symbol name (e.g., "NE555")
-     * @returns {Promise<any>} ClearPCB symbol definition
+     * @returns {Promise<import('../Component.js').ComponentDefinition|null>} ClearPCB symbol definition
      */
 export async function fetchSymbol(fetcher, library, symbolName) {
     const cacheKey = `${library}:${symbolName}`;

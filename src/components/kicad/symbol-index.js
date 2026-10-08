@@ -210,7 +210,7 @@ export function _refreshIndexInBackground(fetcher) {
 
     /**
  * @param {import('../KiCadFetcher.js').KiCadFetcher} fetcher
-     * Persist latest index progress and notify active UI callback (if any).
+     * Persist latest index progress and notify active UI callback when set.
      * @param {{loaded:number,total:number,message:string}} progress
      */
 export function _emitIndexProgress(fetcher, progress) {

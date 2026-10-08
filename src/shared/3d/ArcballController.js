@@ -1,8 +1,12 @@
 import * as THREE from '../../../assets/vendor/three.module.js';
 
+/** @typedef {*} PerspectiveCamera Vendored three.js camera type is minified. */
+/** @typedef {*} Quaternion Vendored three.js quaternion type is minified. */
+/** @typedef {*} Box3 Vendored three.js box type is minified. */
+
 export class ArcballController {
     /**
-     * @param {any} camera THREE.PerspectiveCamera
+     * @param {PerspectiveCamera} camera THREE.PerspectiveCamera
      * @param {HTMLElement} domElement
      */
     constructor(camera, domElement) {
@@ -23,7 +27,7 @@ export class ArcballController {
         // out to the nearest face each frame. `minDistance` alone can't prevent
         // this because it only limits distance-to-target, and panning moves the
         // whole rig (camera + target) together.
-        /** @type {any} */
+        /** @type {Box3|null} */
         this.boundingBox = null;
 
         /** @type {Record<string, Array<() => void>>} */
@@ -133,7 +137,7 @@ export class ArcballController {
     _onPointerDown(e) {
         if (!this.enabled) return;
         this._rect = this.domElement.getBoundingClientRect();
-        // A fresh grab cancels any in-flight coast spin / zoom glide.
+        // A fresh grab cancels an in-flight coast spin / zoom glide.
         this._spinning = false;
         this._spinVel = 0;
         this._zoomGoalCam = null;
@@ -231,7 +235,7 @@ export class ArcballController {
      * quaternion). `update()`'s lookAt re-derives the orientation from position
      * and up, so carrying `up` with the rotation lets the board flip past the
      * poles without the gimbal lock a fixed +Y up imposes.
-     * @param {any} q THREE.Quaternion
+     * @param {Quaternion} q THREE.Quaternion
      */
     _setOrientation(q) {
         const dist = this.camera.position.distanceTo(this.target);
@@ -245,7 +249,7 @@ export class ArcballController {
      * Record the world-space rotation between the previous rotate frame and the
      * new orientation `q` as the coast spin axis/velocity, then store `q` for
      * the next frame. Velocity is clamped so a fast flick can't fling the view.
-     * @param {any} q THREE.Quaternion
+     * @param {Quaternion} q THREE.Quaternion
      */
     _seedSpin(q) {
         const incr = q.clone().multiply(this._qPrev.clone().invert());
@@ -454,7 +458,7 @@ export class ArcballController {
      * Define the solid keep-out volume the camera may not enter (the board +
      * components bounding box). A small margin keeps the camera just clear of
      * surfaces. Pass null to disable.
-     * @param {any} box THREE.Box3 in world space, or null
+     * @param {Box3|null} box THREE.Box3 in world space, or null
      * @param {number} [margin] outward expansion in mm
      */
     setBounds(box, margin = 0.5) {

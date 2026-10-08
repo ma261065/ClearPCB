@@ -24,6 +24,7 @@ import * as KiCadSymbolGraphics from './kicad/symbol-graphics.js';
 /** @typedef {import('./kicad/footprints.js').FootprintAvailability} FootprintAvailability */
 /** @typedef {import('./kicad/footprint-parser.js').FootprintPreview} FootprintPreview */
 /** @typedef {import('./kicad/sexp-parser.js').SExprList} SExprList */
+/** @typedef {import('./kicad/network.js').KiCadJsonResponse} KiCadJsonResponse */
 /** @typedef {{symbols: Record<string, string[]>}} KiCadLibraryIndex */
 /** @typedef {{loaded: number, total: number, message: string}} KiCadIndexProgress */
 /** @typedef {(progress: KiCadIndexProgress) => void} KiCadIndexProgressCallback */
@@ -156,7 +157,7 @@ export class KiCadFetcher {
     /**
      * Cache content data with the standard content TTL.
      * @param {string} key
-     * @param {any} value
+     * @param {unknown} value
      * @returns {boolean}
      */
     _setContentCache(key, value) {
@@ -218,7 +219,7 @@ export class KiCadFetcher {
      * Parse JSON from a fetch response and optionally include headers.
      * @param {Response} response
      * @param {boolean} [returnHeaders=false]
-     * @returns {Promise<any|null>}
+     * @returns {Promise<KiCadJsonResponse|null>}
      */
     _parseJsonFromResponse(response, returnHeaders = false) {
         return KiCadNetwork._parseJsonFromResponse(this, response, returnHeaders);
@@ -230,7 +231,7 @@ export class KiCadFetcher {
      * Fetch JSON from a URL through CORS proxies.
      * @param {string} targetUrl
      * @param {boolean} [returnHeaders=false] - If true, return `{ json, headers }`
-     * @returns {Promise<any|null>}
+     * @returns {Promise<KiCadJsonResponse|null>}
      */
     _fetchJsonWithProxy(targetUrl, returnHeaders = false) {
         return KiCadNetwork._fetchJsonWithProxy(this, targetUrl, returnHeaders);
@@ -276,7 +277,7 @@ export class KiCadFetcher {
      * @param {boolean} [params.recursive=false]
      * @param {string} [params.path]
      * @param {boolean} [returnHeaders=false]
-     * @returns {Promise<any|null>}
+     * @returns {Promise<KiCadJsonResponse|null>}
      */
     _fetchGitLabTreePage(params, returnHeaders = false) {
         return KiCadNetwork._fetchGitLabTreePage(this, params, returnHeaders);
@@ -287,7 +288,7 @@ export class KiCadFetcher {
     /**
      * Search blobs in a GitLab project.
      * @param {{projectPath: string, scope: string, search: string, perPage?: number, page?: number, ref?: string}} params
-     * @returns {Promise<any|null>}
+     * @returns {Promise<KiCadJsonResponse|null>}
      */
     _fetchGitLabSearchPage(params) {
         return KiCadNetwork._fetchGitLabSearchPage(this, params);
@@ -496,7 +497,7 @@ export class KiCadFetcher {
 
 
     /**
-     * Persist latest index progress and notify active UI callback (if any).
+     * Persist latest index progress and notify active UI callback when set.
      * @param {{loaded:number,total:number,message:string}} progress
      */
     _emitIndexProgress(progress) {
@@ -734,10 +735,10 @@ export class KiCadFetcher {
     /**
      * Resolve an `extends` reference by fetching the base symbol and
      * copying its graphics/pins into the extending symbol.
-     * @param {any} result - Parsed symbol result from _convertKiCadSymbol
+     * @param {ComponentDefinition} result - Parsed symbol result from _convertKiCadSymbol
      * @param {string} library - Library name (e.g., "Timer")
      * @param {number} depth - Recursion depth guard
-     * @returns {Promise<any>} result with graphics/pins populated from base
+     * @returns {Promise<ComponentDefinition>} result with graphics/pins populated from base
      */
     _resolveExtends(result, library, depth = 0) {
         return KiCadSymbolParser._resolveExtends(this, result, library, depth);
@@ -749,7 +750,7 @@ export class KiCadFetcher {
      * Process a single symbol unit sub-element, extracting its pins,
      * rectangles, polylines, circles and arcs, and tracking min/max bounds.
      * @param {SExprList} unitSexp - Unit S-expression
-     * @returns {{graphics: any[], pins: any[], minX: number, minY: number, maxX: number, maxY: number}}
+     * @returns {{graphics: ComponentSymbolGraphic[], pins: ComponentSymbolPin[], minX: number, minY: number, maxX: number, maxY: number}}
      */
     _processSymbolUnit(unitSexp) {
         return KiCadSymbolParser._processSymbolUnit(this, unitSexp);
@@ -855,7 +856,7 @@ export class KiCadFetcher {
 
     /**
      * Offset a graphic element
-     * @param {any} g
+     * @param {ComponentSymbolGraphic} g
      * @param {number} dx
      * @param {number} dy
      */

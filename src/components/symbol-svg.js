@@ -5,7 +5,13 @@
  */
 
 /**
- * @param {any} component
+ * @typedef {import('./Component.js').Component} Component
+ * @typedef {import('./Component.js').ComponentSymbolGraphic} ComponentSymbolGraphic
+ * @typedef {import('./Component.js').ComponentSymbolPin} ComponentSymbolPin
+ */
+
+/**
+ * @param {Component} component
  * @param {number} localRot
  * @param {string} anchor
  * @returns {{ rot: number, anchor: string, flipped: boolean }}
@@ -23,20 +29,21 @@ function readablePinText(component, localRot, anchor) {
 }
 
 /**
- * @param {any} component
- * @param {*} pin
+ * @param {Component} component
+ * @param {ComponentSymbolPin} pin
  * @param {string} ns
  * @returns {SVGGElement}
  */
 export function createSymbolPinElement(component, pin, ns) {
         const group = /** @type {SVGGElement} */ (document.createElementNS(ns, 'g'));
-        const length = Number.isFinite(pin.length) ? pin.length : 0;
+        const length = Number.isFinite(pin.length) ? /** @type {number} */ (pin.length) : 0;
         const source = component.symbol?._source || component.definition?._source;
         const m = component.mirror;
         const mx = (/** @type {number} */ x) => m ? -x : x;
         const flipAnchor = (/** @type {string} */ a) => a === 'start' ? 'end' : a === 'end' ? 'start' : a;
         const flipOrient = (/** @type {string} */ o) => o === 'left' ? 'right' : o === 'right' ? 'left' : o;
-        const orient = m ? flipOrient(pin.orientation) : pin.orientation;
+        const pinOrientation = pin.orientation || 'right';
+        const orient = m ? flipOrient(pinOrientation) : pinOrientation;
         
         // Pin connection point
         const connectionX = mx(pin.x); 
@@ -97,10 +104,11 @@ export function createSymbolPinElement(component, pin, ns) {
         let numRot = 0;
         
         const isKiCad = source === 'KiCad';
-        const isActiveLow = pin.bubble || pin.name?.includes('~') || pin.name?.includes('/');
+        const pinName = pin.name || '';
+        const isActiveLow = pin.bubble || pinName.includes('~') || pinName.includes('/');
         const bubbleRadius = 0.6;
         const dotRadius = 0.35;
-        const kicadTextOffset = isKiCad ? (component.symbol?.kicadTextOffset ?? 0.508) : null;
+        const kicadTextOffset = isKiCad ? (component.symbol?.kicadTextOffset ?? 0.508) : 0;
 
         const hasNamePos = pin.namePos && Number.isFinite(pin.namePos.x) && Number.isFinite(pin.namePos.y);
         const hasNumberPos = pin.numberPos && Number.isFinite(pin.numberPos.x) && Number.isFinite(pin.numberPos.y);
@@ -271,12 +279,12 @@ export function createSymbolPinElement(component, pin, ns) {
             group.appendChild(bubble);
         }
 
-        const shouldShowName = pin.name && pin.showName !== false && pin.name !== pin.number;
+        const shouldShowName = pinName && pin.showName !== false && pinName !== String(pin.number);
 
         if (shouldShowName && (hasNamePos || allowInfer)) {
             const labelGroup = document.createElementNS(ns, 'g');
             const nameTxt = document.createElementNS(ns, 'text');
-            const cleanName = pin.name.replace(/[{}]/g, '').replace(/[~/]/g, '');
+            const cleanName = pinName.replace(/[{}]/g, '').replace(/[~/]/g, '');
             const nameFontSizeBase = (pin.namePos && Number.isFinite(pin.namePos.fontSize))
                 ? pin.namePos.fontSize
                 : (source === 'KiCad' ? (pin.kicadNameFontSize || 1.27) : 1.0);
@@ -300,22 +308,22 @@ export function createSymbolPinElement(component, pin, ns) {
             nameTxt.textContent = cleanName;
 
             if (effNameRot !== 0) {
-                labelGroup.setAttribute('transform', `translate(${nameX},${nameY}) rotate(${effNameRot})`);
+                labelGroup.setAttribute('transform', `translate(${nameX ?? 0},${nameY ?? 0}) rotate(${effNameRot})`);
             } else {
-                nameTxt.setAttribute('x', nameX); nameTxt.setAttribute('y', nameY);
+                nameTxt.setAttribute('x', String(nameX ?? 0)); nameTxt.setAttribute('y', String(nameY ?? 0));
             }
             labelGroup.appendChild(nameTxt);
 
             if (isActiveLow) {
                 const overbar = document.createElementNS(ns, 'line');
                 const textWidth = cleanName.length * 0.65; 
-                let oy = (effNameRot !== 0) ? (nameRead.flipped ? 0.8 : -0.8) : nameY - 0.8; 
+                let oy = (effNameRot !== 0) ? (nameRead.flipped ? 0.8 : -0.8) : (nameY ?? 0) - 0.8;
                 let ox1, ox2;
                 if (effNameAnchor === 'start') {
-                    ox1 = (effNameRot !== 0) ? 0.1 : nameX + 0.1;
+                    ox1 = (effNameRot !== 0) ? 0.1 : (nameX ?? 0) + 0.1;
                     ox2 = ox1 + textWidth;
                 } else {
-                    ox2 = (effNameRot !== 0) ? -0.1 : nameX - 0.1;
+                    ox2 = (effNameRot !== 0) ? -0.1 : (nameX ?? 0) - 0.1;
                     ox1 = ox2 - textWidth;
                 }
                 overbar.setAttribute('x1', String(ox1)); overbar.setAttribute('y1', String(oy));
@@ -353,7 +361,7 @@ export function createSymbolPinElement(component, pin, ns) {
             } else {
                 numTxt.setAttribute('dominant-baseline', 'middle');
             }
-            numTxt.textContent = pin.number;
+            numTxt.textContent = String(pin.number);
             if (effNumRot !== 0) {
                 numLabelGroup.setAttribute('transform', `translate(${numX},${numY}) rotate(${effNumRot})`);
             } else {
@@ -366,8 +374,8 @@ export function createSymbolPinElement(component, pin, ns) {
 }
 
 /**
- * @param {any} component
- * @param {*} g
+ * @param {Component} component
+ * @param {ComponentSymbolGraphic} g
  * @param {string} ns
  * @returns {SVGElement|null}
  */
@@ -398,12 +406,12 @@ export function createSymbolGraphicElement(component, g, ns) {
                 break;
             case 'polyline':
                 el = /** @type {SVGElement} */ (document.createElementNS(ns, 'polyline'));
-                const pts = g.points.map((/** @type {any} */ p) => `${mx(p[0])},${p[1]}`).join(' ');
+                const pts = (g.points || []).map((/** @type {number[]} */ p) => `${mx(p[0])},${p[1]}`).join(' ');
                 el.setAttribute('points', pts);
                 break;
             case 'polygon':
                 el = /** @type {SVGElement} */ (document.createElementNS(ns, 'polygon'));
-                const polPts = g.points.map((/** @type {any} */ p) => `${mx(p[0])},${p[1]}`).join(' ');
+                const polPts = (g.points || []).map((/** @type {number[]} */ p) => `${mx(p[0])},${p[1]}`).join(' ');
                 el.setAttribute('points', polPts);
                 break;
             case 'arc': {

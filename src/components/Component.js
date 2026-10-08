@@ -25,10 +25,12 @@ function _compactShapeStr(s) {
  * @typedef {{x: number, y: number, width: number, height: number}} ComponentFootprintBox
  * @typedef {{minX: number, minY: number, maxX: number, maxY: number}} ComponentBounds
  * @typedef {'left'|'right'|'up'|'down'} ComponentSymbolPinOrientation
- * @typedef {{[key:string]: any, x?: number, y?: number, rotation?: number, anchor?: 'start'|'end'|'middle'|string|null, fontFamily?: string|null, fontSize?: number|null}} ComponentSymbolTextPosition
+ * @typedef {{[key:string]: unknown, x?: number, y?: number, rotation?: number, anchor?: 'start'|'end'|'middle'|string|null, fontFamily?: string|null, fontSize?: number|null}} ComponentSymbolTextPosition
+ * Kept permissive: built-in, EasyEDA, and KiCad graphics share a parser-validated dynamic schema.
  * @typedef {{[key:string]: any, type?: string}} ComponentSymbolGraphic
+ * Kept permissive: parser-specific pin label metadata is optional and validated before rendering.
  * @typedef {{[key:string]: any, number: string|number, name?: string, x: number, y: number, orientation?: ComponentSymbolPinOrientation|string}} ComponentSymbolPin
- * @typedef {{width?: number, height?: number, origin?: {x:number, y:number}, graphics: ComponentSymbolGraphic[], pins: ComponentSymbolPin[], properties?: ComponentProperties, symbol?: ComponentSymbol, kicadName?: string, kicadTextOffset?: number, _boundsIncludePins?: boolean, _easyedaRawShapes?: string[], _kicadRaw?: any, _source?: string, _extends?: string}} ComponentSymbol
+ * @typedef {{width?: number, height?: number, origin?: {x:number, y:number}, graphics: ComponentSymbolGraphic[], pins: ComponentSymbolPin[], properties?: ComponentProperties, symbol?: ComponentSymbol, kicadName?: string, kicadTextOffset?: number, _boundsIncludePins?: boolean, _easyedaRawShapes?: string[], _kicadRaw?: unknown, _source?: string, _extends?: string}} ComponentSymbol
  * @typedef {{
  *   name: string,
  *   symbol?: ComponentSymbol,
@@ -66,10 +68,10 @@ function _compactShapeStr(s) {
  *   lcscPartNumber?: string,
  *   kicadName?: string,
  *   _source?: string,
- *   _kicadRaw?: any,
+ *   _kicadRaw?: *,
  *   _easyedaResolved?: boolean,
  *   _easyedaParserVersion?: string,
- *   [key: string]: any
+ *   [key: string]: *
  * }} ComponentDefinition
  */
 
@@ -83,7 +85,8 @@ function _compactShapeStr(s) {
  *   value?: string,
  *   showReference?: boolean,
  *   showValue?: boolean,
- *   [key: string]: any
+ *   packageId?: string,
+ *   [key: string]: *
  * }} ComponentState
  */
 
@@ -93,12 +96,12 @@ const componentIds = new IdAllocator('comp');
  * Merge component property objects while stripping dangerous keys
  * (`__proto__`, `constructor`, `prototype`) so that definitions parsed from
  * remote/untrusted sources cannot pollute the prototype chain.
- * @param {Object} [base]
- * @param {Object} [override]
- * @returns {Object}
+ * @param {ComponentProperties|null|undefined} [base]
+ * @param {ComponentProperties|null|undefined} [override]
+ * @returns {ComponentProperties}
  */
 function _safeMergeProps(base, override) {
-    /** @type {Record<string, any>} */
+    /** @type {ComponentProperties} */
     const result = {};
     const FORBIDDEN = new Set(['__proto__', 'constructor', 'prototype']);
     for (const src of [base, override]) {
@@ -141,7 +144,7 @@ export class Component {
      * @param {boolean} [options.showValue=true] - Whether the value text is visible
      * @param {boolean} [options.visible=true] - Component visibility
      * @param {boolean} [options.locked=false] - Lock against edits
-     * @param {Object} [options.properties] - Additional user properties
+     * @param {ComponentProperties} [options.properties] - Additional user properties
      * @param {string} [options.packageId] - Built-in footprint/model selection
      */
     constructor(definition, options = {}) {
@@ -162,7 +165,7 @@ export class Component {
         this.reference = options.reference ?? (definition.defaultReference || 'U?');
         /** @type {string} */
         this.value = options.value ?? (definition.defaultValue ?? '');
-        /** @type {Object} */
+        /** @type {ComponentProperties} */
         this.properties = _safeMergeProps(definition.defaultProperties, options.properties);
         
         // Field text shapes (set by createFieldTexts)
@@ -247,7 +250,7 @@ export class Component {
      * Reference is placed centered above the symbol, Value centered below.
      * Both use 1.778mm font (≈7pt/70mil). Call once after the component
      * is placed. Adds them to app.shapes and returns the created models.
-     * @param {any} app
+     * @param {{toolOptions: {textColor?: string|number}, shapes: Array<{type?: string}>}} app
      * @returns {Text[]}
      */
     createFieldTexts(app) {
@@ -277,7 +280,7 @@ export class Component {
         const created = [];
         for (const f of fields) {
             const world = this.localToWorld(f.local.x, f.local.y);
-            const text = new Text(/** @type {any} */ ({
+            const text = new Text({
                 x: world.x,
                 y: world.y,
                 text: f.label,
@@ -286,7 +289,7 @@ export class Component {
                 textAnchor: 'middle',
                 color: app.toolOptions.textColor,
                 fillColor: app.toolOptions.textColor
-            }));
+            });
             text.parentComponent = this;
             text.fieldKey = f.key;
             text.visible = f.visible;
@@ -303,17 +306,17 @@ export class Component {
     /**
      * Re-link field Text shapes after deserialization.
      * Called from loadDocument after both shapes and components are loaded.
-     * @param {any[]} shapes
+     * @param {Array<{type?: string, _pendingComponentId?: string, parentComponent?: unknown, fieldKey?: string|null, visible?: boolean}>} shapes
      */
     linkFieldTexts(shapes) {
         for (const s of shapes) {
             if (s.type === 'text' && s._pendingComponentId === this.id) {
                 s.parentComponent = this;
                 if (s.fieldKey === 'reference') {
-                    this.refText = s;
+                    this.refText = /** @type {Text} */ (s);
                     s.visible = this.showReference;
                 } else if (s.fieldKey === 'value') {
-                    this.valueText = s;
+                    this.valueText = /** @type {Text} */ (s);
                     s.visible = this.showValue;
                 }
                 delete s._pendingComponentId;
@@ -323,7 +326,7 @@ export class Component {
 
     /** Return array of linked field texts (non-null only). */
     getFieldTexts() {
-        /** @type {any[]} */
+        /** @type {Text[]} */
         const fields = [];
         if (this.refText) fields.push(this.refText);
         if (this.valueText) fields.push(this.valueText);
@@ -392,7 +395,7 @@ export class Component {
     /**
      * Restore a previously captured state, recreating the SVG element if
      * the rotation or mirror has changed.
-     * @param {Record<string, any>} state - State snapshot from captureState()
+     * @param {ComponentState} state - State snapshot from captureState()
      */
     applyState(state) {
         Object.assign(this, state);
@@ -585,7 +588,7 @@ export class Component {
                         if (tmpl.includes('${REF}') || tmpl.includes('${VALUE}')) break;
                         const rawText = tmpl;
                         const source = symbol?._source || this.definition?._source;
-                        const fontSize = Number.isFinite(g.fontSize) ? g.fontSize : 1.5;
+                        const fontSize = Number.isFinite(g.fontSize) ? /** @type {number} */ (g.fontSize) : 1.5;
                         const textScale = source === 'KiCad' ? 1.6 : 1.0;
                         const actualFontSize = fontSize * textScale;
                         const textWidth = rawText.length * actualFontSize * 0.7; // More generous
@@ -679,7 +682,7 @@ export class Component {
                     }
                 } else if (Number.isFinite(pin.length)) {
                     // Fallback to orientation-based length
-                    const length = pin.length;
+                    const length = /** @type {number} */ (pin.length);
                     let px = pin.x, py = pin.y;
                     switch (pin.orientation) {
                         case 'right': px += length; break;
@@ -866,10 +869,11 @@ export class Component {
 
     /**
      * Serialize component to JSON
+     * @returns {Record<string, *>}
      */
     toJSON() {
         const _r4 = (/** @type {number} */ v) => Math.round(v * 10000) / 10000;
-        /** @type {Record<string,any>} */
+        /** @type {Record<string, *> & {dn: string, def?: Partial<ComponentDefinition>}} */
         const json = {
             type: 'component',
             id: this.id,
@@ -924,7 +928,7 @@ export class Component {
             // Persist 3D model geometry so the 3D viewer survives save/reload
             // (e.g. autorecover) without re-fetching from the supplier. Compact
             // it on the way out so models cached before compaction existed (or
-            // from any other source) are also rounded to 4 dp in the file.
+            // from another source) are also rounded to 4 dp in the file.
             if (this.definition.model3dObj) {
                 json.def.model3dObj = compactObjText(this.definition.model3dObj);
             }
@@ -956,10 +960,10 @@ export class Component {
             '_easyedaRawShapes', '_coordKey', '_source',
             'pinType', 'shape',                  // pin metadata unused by renderer
             'stroke', 'fill']);                   // graphics always use theme colors
-        /** @type {Record<string,any>} */
+        /** @type {Record<string, unknown>} */
         const OMIT_DEFAULTS = { strokeWidth: 0.254, kicadNameFontSize: null, kicadNumberFontSize: null };
 
-        /** @type {function(*): *} */
+        /** @type {(val: unknown) => unknown} */
         const deepClean = (val) => {
             if (val == null) return val;
             if (typeof val === 'number') return _r4(val);
@@ -969,7 +973,7 @@ export class Component {
             }
             if (Array.isArray(val)) return val.map(deepClean);
             if (typeof val === 'object') {
-                /** @type {Record<string,any>} */
+                /** @type {Record<string, unknown>} */
                 const out = {};
                 for (const [k, v] of Object.entries(val)) {
                     if (STRIP_KEYS.has(k)) continue;

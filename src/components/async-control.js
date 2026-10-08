@@ -20,10 +20,16 @@ export function createGenerationGate() {
 }
 
 /**
+ * @template {unknown[]} A
+ * @typedef {{run: (...args: A) => void, cancel: () => void, dispose: () => void}} DebouncedRunner
+ */
+
+/**
  * Creates a debounced function runner.
+ * @template {unknown[]} A
  * @param {number} delayMs - Debounce delay in milliseconds.
- * @param {(...args: any[]) => void} callback - Function invoked after debounce delay.
- * @returns {{run: (...args: any[]) => void, cancel: () => void, dispose: () => void}}
+ * @param {(...args: A) => void} callback - Function invoked after debounce delay.
+ * @returns {DebouncedRunner<A>}
  */
 export function createDebouncedRunner(delayMs, callback) {
     /** @type {ReturnType<typeof setTimeout>|null} */

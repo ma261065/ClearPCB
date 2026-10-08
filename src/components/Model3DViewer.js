@@ -30,13 +30,14 @@ export class Model3DViewer {
         this.container = container;
         this._disposed = false;
         this._raf = 0;
-        /** @type {any|null} */
+        // Vendored three.js has minified inferred types; keep instances wildcard-typed at this boundary.
+        /** @type {*|null} */
         this._mesh = null;
-        /** @type {any|null} */
+        /** @type {*|null} */
         this._material = null;
-        /** @type {any|null} */
+        /** @type {*|null} */
         this._bodyMaterial = null;
-        /** @type {any[]|null} */
+        /** @type {*[]|null} */
         this._materials = null;
         /** @type {ResizeObserver|null|undefined} */
         this._resizeObs = undefined;
@@ -74,7 +75,7 @@ export class Model3DViewer {
         const scene = new THREE.Scene();
         this.scene = scene;
 
-        /** @type {any} */
+        /** @type {*} Vendored three.js camera type is minified. */
         const camera = new THREE.PerspectiveCamera(45, w / h, 0.1, 20000);
         camera.position.set(60, 50, 80);
         this.camera = camera;
@@ -91,9 +92,9 @@ export class Model3DViewer {
         scene.add(fill);
         scene.add(glint);
         // The vendored three.js build is minified, so its inferred types are unusable.
-        this._key = /** @type {any} */ (key);
-        this._fill = /** @type {any} */ (fill);
-        this._glint = /** @type {any} */ (glint);
+        this._key = /** @type {*} */ (key);
+        this._fill = /** @type {*} */ (fill);
+        this._glint = /** @type {*} */ (glint);
 
         const controls = new ArcballController(camera, canvas);
         controls.rotateSpeed = 1.0;
@@ -132,9 +133,7 @@ export class Model3DViewer {
         geo.computeBoundingSphere();
 
         this._material = null;
-        // three.js's types are inferred from its source, where Mesh defaults to one
-        // MeshBasicMaterial; it takes any material, or one per geometry group.
-        /** @type {any} */
+        /** @type {*} Vendored three.js accepts either one material or a material array. */
         let meshMaterial;
         // meshToGeometry split the model into one draw group per material
         // colour, preserving the OBJ's authoring order. makeComponentGroupMaterials

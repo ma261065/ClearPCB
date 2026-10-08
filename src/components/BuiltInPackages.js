@@ -133,8 +133,8 @@ export function withBuiltInPackage(definition, packageId) {
     if (!getBuiltInPackageOptions(definition).some(option => option.value === packageId)) {
         throw new Error(`Unsupported built-in package: ${packageId}`);
     }
-    /** @type {ComponentDefinition & Record<string, any>} */
-    const result = {};
+    /** @type {ComponentDefinition & Record<string, unknown>} */
+    const result = /** @type {ComponentDefinition & Record<string, unknown>} */ ({});
     for (const key of Object.keys(definition)) {
         if (/^(footprint|model3d)/i.test(key) || ['hasFootprint', 'has3d', 'packageId'].includes(key)) continue;
         result[key] = structuredClone(definition[key]);

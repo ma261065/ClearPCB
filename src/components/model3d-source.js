@@ -6,7 +6,7 @@ import { getComponentLibrary } from './index.js';
 /**
  * @typedef {{x:number,y:number,z:number}} ModelVertex
  * @typedef {{vertices:ModelVertex[], faces:number[][], faceColors?:number[][]|null, bodyFaces?:boolean[]}} ModelMesh
- * @typedef {{model3dObj?: any, model3dUrl?: any, has3d?: any, footprintName?: any, footprint?: any, reference?: string, value?: string, source?: string, _source?: string, [key:string]: any}} Model3DSourceData
+ * @typedef {{model3dObj?: unknown, model3dUrl?: unknown, has3d?: unknown, footprintName?: unknown, footprint?: unknown, footprintShapes?: unknown, footprintBBox?: unknown, reference?: string, value?: string, source?: string, _source?: string, [key:string]: unknown}} Model3DSourceData
  * @typedef {import('./kicad/footprints.js').FootprintAvailability} KiCadFootprintAvailability
  * @typedef {{corsProxy?:string, checkFootprintAvailability?:(footprintName:string)=>Promise<KiCadFootprintAvailability>}} KiCad3DFetcher
  */
@@ -60,7 +60,7 @@ export function buildComponent3DTitle(data) {
 export async function openComponent3DFromData({ data, title = '3D Model' }) {
     if (!data) return false;
 
-    let objText = data.model3dObj || '';
+    let objText = typeof data.model3dObj === 'string' ? data.model3dObj : '';
     if (!objText) {
         const modelUrl = await _resolveModelUrl(data);
         if (!modelUrl) return false;
@@ -80,9 +80,11 @@ export async function openComponent3DFromData({ data, title = '3D Model' }) {
  * @returns {Promise<string|null>}
  */
 async function _resolveModelUrl(data) {
-    if (data.model3dUrl) return data.model3dUrl;
+    if (typeof data.model3dUrl === 'string') return data.model3dUrl;
 
-    const footprintName = data.footprintName || data.footprint;
+    const footprintName = typeof data.footprintName === 'string'
+        ? data.footprintName
+        : typeof data.footprint === 'string' ? data.footprint : '';
     if (!footprintName || !data.has3d) return null;
 
     const kicad = _getKiCadFetcher();
@@ -100,7 +102,7 @@ async function _resolveModelUrl(data) {
 }
 
 /**
- * Resolve any supported KiCad model URL (WRL/STEP) into OBJ text.
+ * Resolve supported KiCad model URLs (WRL/STEP) into OBJ text.
  * @param {string} modelUrl
  * @param {string} proxyUrl
  * @returns {Promise<string>}
@@ -196,7 +198,7 @@ function _coloredMeshToObj(geometry) {
     // Body faces (the STEP solid's largest shell) are emitted under a distinct
     // material — same colour, "_body" suffix — so the renderer can draw them in
     // a separate, depth-offset pass to beat coplanar z-fighting with the pads
-    // resting on them, without moving any geometry. See STEPPreview.
+    // resting on them, without moving geometry. See STEPPreview.
     /** @param {number[]|null|undefined} c @param {boolean} body @returns {string} */
     const matName = (c, body) => {
         const col = safeColor(c);

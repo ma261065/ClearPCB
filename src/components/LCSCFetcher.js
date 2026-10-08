@@ -15,16 +15,18 @@
 
 /**
  * @typedef {{x:number, y:number, width:number, height:number}} LCSCBoundingBox
- * @typedef {{ladder?: number|string, usdPrice?: number|string|null, currencyPrice?: number|string|null, [key:string]: any}} LCSCPriceTier
+ * @typedef {{ladder?: number|string, usdPrice?: number|string|null, currencyPrice?: number|string|null, [key:string]: unknown}} LCSCPriceTier
  * @typedef {{quantity: number|string|undefined, price: number|string|null|undefined}} LCSCPriceBreak
- * @typedef {{productCode?: string, productModel?: string, brandNameEn?: string, productIntroEn?: string, productDescEn?: string, parentCatalogName?: string, catalogName?: string, encapStandard?: string, stockNumber?: number, isEnvironment?: boolean, isHot?: boolean, productImageUrl?: string, productImageUrlBig?: string, pdfUrl?: string, productPriceList?: LCSCPriceTier[], minBuyNumber?: number, [key:string]: any}} RawLCSCProduct
- * @typedef {{c_para?: Record<string, string|undefined>, [key:string]: any}} EasyEDAHead
- * @typedef {{shape?: string[], BBox?: LCSCBoundingBox|null, bbox?: LCSCBoundingBox|null, head?: EasyEDAHead, [key:string]: any}} EasyEDADataStr
- * @typedef {{title?: string, dataStr?: EasyEDADataStr, [key:string]: any}} EasyEDAPackageDetail
- * @typedef {{dataStr?: EasyEDADataStr, packageDetail?: EasyEDAPackageDetail, [key:string]: any}} EasyEDADetail
+ * @typedef {{productCode?: string, productModel?: string, brandNameEn?: string, productIntroEn?: string, productDescEn?: string, parentCatalogName?: string, catalogName?: string, encapStandard?: string, stockNumber?: number, isEnvironment?: boolean, isHot?: boolean, productImageUrl?: string, productImageUrlBig?: string, pdfUrl?: string, productPriceList?: LCSCPriceTier[], minBuyNumber?: number, [key:string]: unknown}} RawLCSCProduct
+ * @typedef {{c_para?: Record<string, string|undefined>, [key:string]: unknown}} EasyEDAHead
+ * @typedef {{shape?: string[], BBox?: LCSCBoundingBox|null, bbox?: LCSCBoundingBox|null, head?: EasyEDAHead, [key:string]: unknown}} EasyEDADataStr
+ * @typedef {{title?: string, dataStr?: EasyEDADataStr, [key:string]: unknown}} EasyEDAPackageDetail
+ * @typedef {{dataStr?: EasyEDADataStr, packageDetail?: EasyEDAPackageDetail, hasFootprint?: boolean, footprintName?: string, package?: string, footprintShapes?: string[]|null, footprintBBox?: LCSCBoundingBox|null, has3d?: boolean, model3dName?: string, model3dUrl?: string|null, model3dObj?: string, [key:string]: unknown}} EasyEDADetail
  * @typedef {{lcscPartNumber: string, mpn: string, manufacturer: string, description: string, category: string, package: string, stock: number, price: number|string|null|undefined, isBasic: boolean, isPreferred?: boolean, imageUrl: string, thumbUrl?: string, datasheet: string, productUrl: string, easyedaSymbolData?: EasyEDADataStr, easyedaSymbolBBox?: LCSCBoundingBox|null, hasEasyedaSymbol?: boolean, hasFootprint?: boolean, footprintName?: string, footprintShapes?: string[], footprintBBox?: LCSCBoundingBox|null, has3d?: boolean, model3dName?: string, model3dUrl?: string|null, model3dObj?: string, priceBreaks?: LCSCPriceBreak[], minOrderQty?: number, stockStatus?: string}} LCSCMetadata
  * @typedef {LCSCMetadata & {error?: boolean, message?: string, _thumbPromise?: Promise<string|null>|null, _detailPromise?: Promise<LCSCMetadata|null>|null, _definitionPromise?: Promise<import('./Component.js').ComponentDefinition|null>|null, _detail?: LCSCMetadata|null}} LCSCSearchResult
- * @typedef {{result?: any, data?: any, list?: any, items?: any, productList?: any, success?: boolean, lists?: {lcsc?: any[], szlcs?: any[]}, [key:string]: any}} ApiResponseObject
+ * @typedef {{number?: string, stock?: number, price?: number|string|null, image?: string, url?: string, [key:string]: *}} EasyEDAVendorInfo
+ * @typedef {{lcsc?: *, szlcsc?: *, lcscPartNumber?: string, lcsc_part_number?: string, productCode?: string, product_code?: string, component_code?: string, componentCode?: string, lcsc_number?: string, dataStr?: EasyEDADataStr, mpn?: string, productModel?: string, model?: string, part_number?: string, partNumber?: string, title?: string, manufacturer?: string, brand?: string, brandName?: string, brand_name?: string, description?: string, intro?: string, productIntro?: string, productIntroEn?: string, productDesc?: string, productDescEn?: string, category?: string, catalog?: string, catalogName?: string, parentCatalogName?: string, class?: string, package?: string, encapStandard?: string, footprint?: string, stock?: number, stockNumber?: number, stock_number?: number, price?: number|string|null, unitPrice?: number|string|null, usdPrice?: number|string|null, isBasic?: boolean, is_basic?: boolean, isPreferred?: boolean, is_preferred?: boolean, imageUrl?: string, image?: string, productImageUrl?: string, productImageUrlBig?: string, thumb?: string, thumbUrl?: string, thumbnail?: string, datasheet?: string, pdf?: string, pdfUrl?: string, productUrl?: string, url?: string, [key:string]: unknown}} RawEasyEDAItem
+ * @typedef {{result?: *, data?: *, list?: *, items?: *, productList?: *, success?: boolean, lists?: {lcsc?: RawEasyEDAItem[], szlcs?: RawEasyEDAItem[]}, [key:string]: *}} ApiResponseObject
  */
 
 /**
@@ -313,7 +315,7 @@ export class LCSCFetcher {
      * rejected because they always indicate a corrupted or non-JSON response
      * from a misbehaving proxy.
      * @param {string} text
-     * @returns {{data?: any, error?: Error|null}}
+     * @returns {{data?: *, error?: Error|null}}
      */
     _parseJsonWithRecovery(text) {
         const accept = (/** @type {unknown} */ value) => {
@@ -342,7 +344,7 @@ export class LCSCFetcher {
      * Tries proxies in order; returns `{ data }` on success or `{ error }` on failure.
      * @param {string} targetUrl
      * @param {RequestInit} [options]
-     * @returns {Promise<{data?: any, error?: Error|null}>}
+     * @returns {Promise<{data?: *, error?: Error|null}>}
      */
     async _fetchJsonWithProxies(targetUrl, options = {}) {
         const proxies = this._getProxyOrder(true);
@@ -473,8 +475,8 @@ export class LCSCFetcher {
 
     /**
      * Extract the component list array from various EasyEDA response shapes.
-     * @param {ApiResponseObject|Array<any>} data - Raw EasyEDA API response
-     * @returns {Array<Record<string, any>>}
+     * @param {ApiResponseObject|RawEasyEDAItem[]} data - Raw EasyEDA API response
+     * @returns {RawEasyEDAItem[]}
      */
     _extractEasyEDAList(data) {
         if (!data) return [];
@@ -506,7 +508,7 @@ export class LCSCFetcher {
 
     /**
      * Map raw EasyEDA search items to normalised result objects.
-     * @param {Array<Record<string, any>>} items - Raw result items
+     * @param {RawEasyEDAItem[]} items - Raw result items
      * @returns {LCSCMetadata[]} Normalised results with lcscPartNumber, mpn, etc.
      */
     _formatEasyEDASearchResults(items) {

@@ -22,7 +22,9 @@ function nextCompId() { return `eda_c${_nextId++}`; }
 
 /**
  * The library that parses an EasyEDA symbol's shapes (ComponentLibrary).
- * @typedef {{_createEasyEDASymbol?: (dataStr: {shape: string[], BBox: null}) => any}} EasyEDASymbolParser
+ * @typedef {import('../components/Component.js').ComponentDefinition} ComponentDefinition
+ * @typedef {import('../components/Component.js').ComponentSymbol} ComponentSymbol
+ * @typedef {{_createEasyEDASymbol?: (dataStr: {shape: string[], BBox: null}) => ComponentSymbol|null|undefined}} EasyEDASymbolParser
  */
 
 /**
@@ -221,7 +223,7 @@ function _convertLIB(libString, componentLibrary) {
     }
 
     // Build definition
-    /** @type {Record<string, any>} */
+    /** @type {ComponentDefinition} */
     const definition = {
         name: defName,
         description: value || mfgPart,
