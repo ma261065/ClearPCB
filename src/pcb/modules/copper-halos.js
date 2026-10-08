@@ -150,7 +150,7 @@ export function setHoverHighlight(app, hit) {
  * to it through shared track nodes, vias at track nodes and pad connections. Tracks are
  * indexed by node position and pad once per walk, so a hover costs linear time on large
  * boards; the walk visits tracks in board order, as a scan would.
- * @param {PcbEditor} app
+ * @param {Pick<PcbEditor, 'tracks'|'vias'|'pads'|'boardShapes'|'netlist'>} app
  * @param {CopperHoverHit} seed
  */
 export function collectHoveredNet(app, seed) {
@@ -280,7 +280,7 @@ function _posKey(x, y) {
 
 /**
  * Look up the net name a pad belongs to, or '' if unknown.
- * @param {PcbEditor} app
+ * @param {Pick<PcbEditor, 'netlist'>} app
  * @param {string} componentId
  * @param {string|number} pinNumber
  */

@@ -13,7 +13,7 @@ export function createCopperFillSelectionAdapter(app, fill, id) {
 
 /**
  * Hit-test a world point against any pour region outline.
- * @param {PcbEditor} app
+ * @param {Pick<PcbEditor, 'copperFills'>} app
  * @param {Point} worldPos
  */
 export function hitTestFill(app, worldPos) {

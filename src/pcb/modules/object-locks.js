@@ -37,7 +37,7 @@ const NOUNS = {
 
 /**
  * The layers an object lives on; components have none of their own.
- * @param {PcbEditor} app
+ * @param {Pick<PcbEditor, 'placements'>} app
  * @param {PcbLockKind|string} kind
  * @param {any} object
  * @returns {string[]}
@@ -58,7 +58,7 @@ export function pcbObjectLayers(app, kind, object) {
 /**
  * The locks holding one object. Components and reference text are keyed by
  * component id; every other kind is the model object.
- * @param {PcbEditor} app
+ * @param {Pick<PcbEditor, 'placements'>} app
  * @param {PcbLockKind|string} kind
  * @param {any} object
  * @returns {PcbLockState}
@@ -78,7 +78,7 @@ export function pcbLockState(app, kind, object) {
  * Whether a layer lock holds the object. Select All and the marquee skip these (a
  * locked layer is meant to stay out of the way) but take objects locked on their
  * own, so a whole selection can be unlocked again from Properties.
- * @param {PcbEditor} app
+ * @param {Pick<PcbEditor, 'placements'>} app
  * @param {PcbLockKind|string} kind
  * @param {any} object
  */
@@ -88,7 +88,7 @@ export function isPcbObjectLayerLocked(app, kind, object) {
 
 /**
  * Whether an object is held by its own lock or a layer lock.
- * @param {PcbEditor} app
+ * @param {Pick<PcbEditor, 'placements'>} app
  * @param {PcbLockKind|string} kind
  * @param {any} object
  */
@@ -100,7 +100,7 @@ export function isPcbObjectLocked(app, kind, object) {
 /**
  * Tracks and vias that routing and Clear Routes keep: everything locked. The router
  * treats them as fixed copper, so new routes join same-net copper and avoid the rest.
- * @param {PcbEditor} app
+ * @param {Pick<PcbEditor, 'tracks'|'vias'|'placements'>} app
  */
 export function lockedRoutedCopper(app) {
     return {

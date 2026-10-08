@@ -131,6 +131,9 @@ which editor members each module uses. A computation that only reads the board's
 collections (DRC, copper connectivity, the 3D and Gerber builders) takes a
 `PcbBoard` instead, so it can be given a worker snapshot or a filtered copy, and
 state keyed by the editor that any object may read (`refresh-state.js`) takes `object`.
+A function that needs only a few of the editor's collections names them
+(`@param {Pick<PcbEditor, 'tracks'|'vias'>} app`): hit tests, snapping lookups, lock
+and net queries do, so what each one depends on is in its signature.
 `node tools/check-pcb-editor-access.mjs` checks `src/pcb` and `src/shared/pcb` for
 private editor accesses against `tools/pcb-editor-access-baseline.json`, and
 `node tools/check-schematic-editor-access.mjs` checks the schematic layer

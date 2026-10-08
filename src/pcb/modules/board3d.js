@@ -75,7 +75,7 @@ export function board2DDataFromApp(app) {
  * Open the interactive 3D board visualiser as a 50:50 split panel beside the
  * PCB editor. The panel can be popped out into a separate window and docked
  * back again, carrying its live WebGL view with it.
- * @param {PcbEditor} app The PCBApp instance.
+ * @param {PcbEditor} app
  * @param {{view?: '3d'|'top'|'bottom'}} [opts] Initial view; defaults to 3D.
  */
 export async function openBoard3DViewer(app, opts = {}) {

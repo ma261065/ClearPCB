@@ -66,7 +66,7 @@ export const TRACK_SNAP_SCREEN_PX = 8;
 /**
  * Find the nearest Pad centre. Component Pads require entering their outline;
  * standalone Pads retain their minimum snap radius of `tolerance`.
- * @param {PcbEditor} app
+ * @param {Pick<PcbEditor, 'pads'|'placements'|'netlist'>} app
  * @param {Point} worldPos
  * @param {number} [tolerance]
  * @param {string} [layer]
@@ -137,7 +137,7 @@ export function findNearbyPad(app, worldPos, tolerance = PAD_SNAP_TOL, layer = '
 
 /**
  * Find the nearest Track node (endpoint or junction) to `worldPos`.
- * @param {PcbEditor} app
+ * @param {Pick<PcbEditor, 'tracks'>} app
  * @param {Point} worldPos
  * @param {number} [tolerance]
  * @param {Track|null} [excludeTrack]
@@ -302,7 +302,7 @@ const SNAP_PX = GRID_SNAP_PX;
  * Same as findNearbyTrackNode but prefers nodes whose owning Track
  * matches `preferredNet`. A same-net hit beats an other-net hit even
  * if the other-net node is geometrically closer (within tolerance).
- * @param {PcbEditor} app
+ * @param {Pick<PcbEditor, 'tracks'>} app
  * @param {Point} worldPos
  * @param {number} tolerance
  * @param {Track|null} excludeTrack
@@ -504,7 +504,7 @@ export function hasTrackSnapMarker(app) {
     return trackSnapMarkers.has(app);
 }
 
-/** @param {PcbEditor} app @param {string} componentId @param {string} pinNumber */
+/** @param {Pick<PcbEditor, 'netlist'>} app @param {string} componentId @param {string} pinNumber */
 export function _padNet(app, componentId, pinNumber) {
     if (!Array.isArray(app.netlist)) return '';
     for (const entry of app.netlist) {

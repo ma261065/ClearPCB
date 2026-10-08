@@ -70,7 +70,7 @@ for (const source of PREVIEW_SOURCES) {
 
 /**
  * The collection the editor displays: the first active preview's copy, else the document's.
- * @param {PcbEditor} app - PCBApp
+ * @param {PcbEditor} app
  * @param {DisplayedCollection} key
  */
 export function displayedCollection(app, key) {

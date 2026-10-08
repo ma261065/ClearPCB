@@ -445,7 +445,7 @@ function _shouldHideNetLabel(app, track) {
  * Pad world positions are read live from the placement, so the caller
  * must update `pl.pads` (and `pl.x`/`pl.y`) before calling this.
  *
- * @param {PcbEditor} app - PCBApp
+ * @param {PcbEditor} app
  * @param {string} compId - The component whose pads moved
  * @returns {Set<Track>|null} the set of tracks that were repositioned
  */
@@ -479,7 +479,7 @@ export function placementTransform(pl) {
  *
  * Callers must set `pl.x`, `pl.y` and `pl.rotation` first, then call this; the
  * caller decides whether to also reconcile the ratsnest / record an override.
- * @param {PcbEditor} app - PCBApp
+ * @param {PcbEditor} app
  * @param {string} compId
  */
 export function applyPlacementPose(app, compId) {
@@ -930,7 +930,7 @@ export class FlipPlacementCommand extends ModelFlipPlacementCommand {
  * Show or hide a placement's reference designator (the silkscreen label). The
  * reference group is tagged with `data-fp-ref` by {@link renderFootprint}, so
  * it can be toggled per placement without touching the rest of the footprint.
- * @param {PcbEditor} app - PCBApp
+ * @param {PcbEditor} app
  * @param {string} compId
  * @param {boolean} visible
  */
@@ -978,7 +978,7 @@ const FP_LAYER_FLIP = {
  * layer is now electrically disconnected, so its `padConnections` entry is
  * dropped and the track left where it lies. Through-hole pads (`both`) reach
  * every copper layer and keep their bonds.
- * @param {PcbEditor} app - PCBApp
+ * @param {PcbEditor} app
  * @param {string} compId
  */
 export function disconnectIncompatiblePadNodes(app, compId) {
@@ -996,7 +996,7 @@ export function disconnectIncompatiblePadNodes(app, compId) {
  * layers for the ratsnest, DRC and gerber export. Geometry mirroring itself is
  * handled by {@link applyPlacementPose} via {@link isPlacementMirrored}; the
  * caller must invoke that afterwards. Does not touch history.
- * @param {PcbEditor} app - PCBApp
+ * @param {PcbEditor} app
  * @param {string} compId
  * @param {'top'|'bottom'} side
  */

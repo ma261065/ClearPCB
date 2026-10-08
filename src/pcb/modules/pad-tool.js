@@ -47,7 +47,7 @@ export function snapPadPlacement(app, point) {
  * Hit-test: find a pad whose bounding box contains the world position.
  * Returns `{ type:'pad', componentId, pinNumber }` or null. Pad shape
  * is approximated by the bounding box from padOffsets.
- * @param {PcbEditor} app
+ * @param {Pick<PcbEditor, 'placements'>} app
  * @param {Point} worldPos
  */
 export function hitTestPad(app, worldPos) {

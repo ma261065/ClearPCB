@@ -173,7 +173,7 @@ export function uncullAllPlacements(app) {
  * The set of net names a placement's pads belong to (from the netlist).
  * Used to scope the live ratsnest rebuild during a drag to just the nets
  * that actually move with the component.
- * @param {PcbEditor} app
+ * @param {Pick<PcbEditor, 'netlist'>} app
  * @param {string} compId
  * @returns {Set<string>}
  */
@@ -319,7 +319,7 @@ export function endComponentDrag(app, commit = true) {
  * extent for footprints without stored bounds. Returns the component ID
  * or null. Iterates in insertion order and keeps the last (topmost)
  * match so overlapping components resolve to the one drawn on top.
- * @param {PcbEditor} app
+ * @param {Pick<PcbEditor, 'placements'>} app
  * @param {{x: number, y: number}} worldPos
  * @param {boolean} [all=false] Return every hit in top-to-bottom order for overlap selection.
  * @returns {string|string[]|null}

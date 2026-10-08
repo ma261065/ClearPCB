@@ -298,7 +298,7 @@ export class SetRefStyleCommand extends ModelSetRefStyleCommand {
 }
 
 /**
- * @param {PcbEditor} app
+ * @param {Pick<PcbEditor, 'placements'>} app
  * @param {Point} worldPos
  */
 export function hitTestReferenceText(app, worldPos) {
@@ -427,7 +427,7 @@ export function selectRefText(app, compId) {
 }
 
 /**
- * @param {PcbEditor} app
+ * @param {Pick<PcbEditor, 'placements'>} app
  * @param {string} componentId
  */
 function outlineForRefText(app, componentId) {
@@ -458,7 +458,7 @@ function outlineForRefText(app, componentId) {
 }
 
 /**
- * @param {PcbEditor} app
+ * @param {Pick<PcbEditor, 'placements'>} app
  * @param {string} componentId
  */
 function boundsForRefText(app, componentId) {

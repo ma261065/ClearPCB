@@ -138,7 +138,7 @@ export function boardSurfaceFrame(app) {
 /**
  * Per-layer worker inputs for the 3D board surfaces (meshes plus the holes to
  * punch through each), built from the editor model and a surface frame.
- * @param {PcbEditor} app
+ * @param {Pick<PcbEditor, 'tracks'|'vias'|'pads'|'texts'|'boardShapes'|'copperFills'|'placements'>} app
  * @param {{ outline: XzPoint[], drilledHoles: BoardHole[], boardHoles: BoardHole[], crossingRings: XzPoint[][] }} frame
  * @param {(boardShapes: object[]) => ReturnType<typeof emptyMesh>} silkArtworkMesh Per-viewer cache from createSilkArtworkMeshCache().
  * @returns {Record<string, SurfaceInput>}

@@ -23,7 +23,7 @@ const VIA_NODE_EPS = 1e-4;
 
 /**
  * True if any standalone Via sits on `(x, y)`.
- * @param {PcbEditor} app
+ * @param {Pick<PcbEditor, 'vias'>} app
  * @param {number} x
  * @param {number} y
  */

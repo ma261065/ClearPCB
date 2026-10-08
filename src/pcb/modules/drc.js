@@ -163,7 +163,7 @@ function sameNet(a, b) {
 
 /**
  * Collect every copper primitive from the board into flat arrays.
- * @param {PcbBoard} app - PCBApp instance.
+ * @param {PcbBoard} app
  * @returns {CopperCollection}
  */
 export function collectCopper(app) {
@@ -432,7 +432,7 @@ function makeViolation(rule, severity, message, x, y, marker, key) {
 
 /**
  * Run all design-rule checks against the board.
- * @param {PcbEditor} app - PCBApp instance.
+ * @param {PcbBoard} app
  * @param {DrcRules} rules - { clearance, minAnnularRing, ratlines }. `ratlines`
  *   is an array of { net, x1, y1, x2, y2 } air wires (remaining ratsnest),
  *   each reported as an incomplete-connection violation.

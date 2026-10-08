@@ -82,7 +82,7 @@ function trackRatlineTargets(cluster, pathsByTrack) {
  * Autorouter "failed" lines (class `ratsnest-failed`) have their own
  * lifecycle and are left untouched.
  *
- * @param {PcbEditor} app - PCBApp
+ * @param {PcbEditor} app
  * @param {{nets?: Set<string>, skipFillRefresh?:boolean}} [opts] - Incremental
  *   mode can restrict ratline work to `nets`. `skipFillRefresh` is used after
  *   a fill recompute to consume its new geometry without scheduling another
@@ -313,7 +313,7 @@ function _projectPointOnSegment(p, a, b) {
  * excluded via `excludeTracks`/`excludeVias`/`excludePadKeys` (a precomputed
  * bonded cluster) so the guide never points back at it.
  *
- * @param {PcbEditor} app - PCBApp
+ * @param {Pick<PcbEditor, 'tracks'|'vias'|'pads'|'boardShapes'|'copperFills'|'placements'|'netlist'>} app
  * @param {string} net - net name to search
  * @param {{x:number,y:number}} from - reference point (the live tip / node)
  * @param {object} [opts]

@@ -44,7 +44,7 @@ const FIT_MARGIN_MM = 10;
 
 /**
  * Derive a sensible base file name (no extension) from the project file.
- * @param {PcbEditor} app PCBApp instance.
+ * @param {PcbEditor} app
  * @param {string} [fallback='pcb'] Base name when no project filename is available.
  * @returns {string}
  */
@@ -116,7 +116,7 @@ const ARTWORK_LAYER_IDS = [
  * List all artwork layers in z-order, annotated with display name, colour
  * and whether they currently have rendered content (used to decide which
  * checkboxes start ticked).
- * @param {PcbEditor} app PCBApp instance.
+ * @param {PcbEditor} app
  * @returns {Array<{id: string, name: string, color: string, populated: boolean}>}
  */
 export function listArtworkLayers(app) {
@@ -138,7 +138,7 @@ export function listArtworkLayers(app) {
  * artwork. Unions the bounding boxes of the included artwork layers so the
  * page is cropped snugly to whatever is actually being exported, rather
  * than to the (possibly mismatched) nominal board-outline dimensions.
- * @param {PcbEditor} app PCBApp instance.
+ * @param {PcbEditor} app
  * @param {Set<string>} [layers] Layer ids to measure; defaults to all artwork.
  * @returns {{x: number, y: number, w: number, h: number}}
  */
@@ -189,7 +189,7 @@ function forceMono(root, color) {
  * Deep-clone the PCB viewport SVG for export: crop to the included
  * artwork bounds (plus a margin), drop non-artwork layers, unselected
  * layers, and on-screen aids, then apply colour / mono / invert options.
- * @param {PcbEditor} app PCBApp instance.
+ * @param {PcbEditor} app
  * @param {PdfExportOptions} [opts]
  * @returns {{svgNode: SVGSVGElement, widthMm: number, heightMm: number}}
  */
@@ -285,7 +285,7 @@ export function clonePcbViewportForExport(app, opts) {
 /**
  * Show the PCB PDF export options dialog (scale, layers, colour, invert)
  * and resolve with the chosen options, or null if cancelled.
- * @param {PcbEditor} app PCBApp instance.
+ * @param {PcbEditor} app
  * @returns {Promise<PdfExportOptions|null>}
  */
 function showPdfExportDialog(app) {
@@ -407,7 +407,7 @@ function showPdfExportDialog(app) {
 /**
  * Export the PCB to a vector PDF. Presents an options dialog (scale,
  * layers, colour, invert), then renders and prompts to save.
- * @param {PcbEditor} app PCBApp instance.
+ * @param {PcbEditor} app
  */
 export async function savePcbPdf(app) {
     const opts = await showPdfExportDialog(app);
@@ -479,7 +479,7 @@ export async function savePcbPdf(app) {
 
 /**
  * Print the PCB via a hidden iframe, sized to the board outline.
- * @param {PcbEditor} app PCBApp instance.
+ * @param {PcbEditor} app
  */
 export async function printPcb(app) {
     try {

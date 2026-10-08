@@ -84,7 +84,7 @@ export function clearTextElements(app) {
 /**
  * Hit-test the given world point against every text. Returns the
  * topmost (last-added) hit, or null.
- * @param {PcbEditor} app
+ * @param {Pick<PcbEditor, 'texts'>} app
  * @param {{x: number, y: number}} worldPos
  */
 export function hitTestText(app, worldPos) {

@@ -183,7 +183,7 @@ class AdoptDroppedCopperNetCommand {
 
 /**
  * True if a standalone Via already sits at `(x, y)`.
- * @param {PcbEditor} app
+ * @param {Pick<PcbEditor, 'vias'>} app
  * @param {number} x
  * @param {number} y
  */

@@ -192,7 +192,7 @@ export function showTrackDrawProperties(app) {
  * draw context with the first anchor. If the click landed on a pad,
  * the pad's net is inherited.
  *
- * @param {PcbEditor} app - PCBApp
+ * @param {PcbEditor} app
  * @param {Point} worldPos - Raw cursor world position
  * @returns {TrackDrawContext|null} the draw context
  */

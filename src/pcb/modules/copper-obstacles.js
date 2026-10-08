@@ -12,7 +12,7 @@ const ROUTER_LAYERS = { 'top-copper': 'top', 'bottom-copper': 'bottom' };
  * The router's fixed copper obstacles from the live board: copper text strokes,
  * copper shapes as pads (filled) or stroke segments (outlines), and locked tracks
  * and vias, which routing keeps.
- * @param {PcbEditor} app
+ * @param {Pick<PcbEditor, 'tracks'|'vias'|'texts'|'boardShapes'|'placements'>} app
  * @returns {import('./autorouter-common.js').CopperObstacle[]}
  */
 export function buildCopperObstacles(app) {

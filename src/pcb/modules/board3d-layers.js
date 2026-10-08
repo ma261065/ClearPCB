@@ -910,7 +910,7 @@ export function createSilkArtworkMeshCache() {
  * Build one combined mesh of stroke-font text — free-standing PCB text
  * annotations plus component reference designators — as white silk strokes
  * (copper-coloured when the text lives on a copper layer).
- * @param {PcbEditor} app PCBApp instance
+ * @param {Pick<PcbEditor, 'texts'|'placements'>} app
  * @returns {Mesh}
  */
 export function buildTextMesh(app) {

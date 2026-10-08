@@ -431,7 +431,7 @@ const PIN_SVG = `<svg width="28" height="28" viewBox="3.5 0.5 7 13" fill="none" 
 
 /**
  * Build the layer panel inside #pcbLayerPanel and wire events.
- * @param {PcbEditor} app - PCBApp instance
+ * @param {PcbEditor} app
  */
 export function buildLayerPanel(app) {
     const panel = document.getElementById('pcbLayerPanel');

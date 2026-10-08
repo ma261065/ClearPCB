@@ -13,7 +13,7 @@ function state(app) {
 
 /**
  * Resolve the net name for a hovered pad/track/via hit, or '' if none.
- * @param {PcbEditor} app
+ * @param {Pick<PcbEditor, 'netlist'>} app
  * @param {{type:string, track?:any, via?:any, pad?:any, shape?:any, componentId?:string, pinNumber?:string|number}|null} hovered
  * @returns {string}
  */
