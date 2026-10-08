@@ -2,6 +2,7 @@ import { SCHEMATIC_INTERACTIONS, schematicInteractionActive } from './schematic-
 import { cancelDragGesture, cancelPendingAnchorDrag } from './drag.js';
 import { cancelOverlapCyclePress } from './draw-states.js';
 import { cancelWireDrawing } from './wire.js';
+/** @typedef {import('./schematic-editor-api.js').SchematicEditor} SchematicEditor */
 
 /**
  * Cancel handler for each interaction in schematic-interactions.js — the
@@ -11,15 +12,19 @@ import { cancelWireDrawing } from './wire.js';
  * @type {Record<string, (app: any) => (boolean|void)>}
  */
 const HANDLERS = {
+    /** @param {SchematicEditor} app */
     textEdit: app => { app.endTextEdit(false); },
     overlapCyclePress: cancelOverlapCyclePress,
     drag: cancelDragGesture,
     pendingAnchorDrag: cancelPendingAnchorDrag,
+    /** @param {SchematicEditor} app */
     isDrawing: app => {
         if (app.currentTool === 'wire') cancelWireDrawing(app);
         else app.cancelDrawing();
     },
+    /** @param {SchematicEditor} app */
     pastingClipboard: app => { app.cancelPaste(); },
+    /** @param {SchematicEditor} app */
     placingComponent: app => { app.cancelComponentPlacement(); },
 };
 
@@ -39,7 +44,7 @@ export const SCHEMATIC_CANCEL_ROUTES = Object.freeze(ORDER.filter(key => HANDLER
 
 /**
  * Cancel the highest-priority active interaction among `keys`.
- * @param {any} app
+ * @param {SchematicEditor} app
  * @param {readonly string[]} [keys] - Defaults to every interaction.
  * @returns {string|null} The cancelled interaction's key.
  */
@@ -53,7 +58,7 @@ export function cancelSchematicInteraction(app, keys = ORDER) {
 
 /**
  * Cancel every active interaction except `keep`, in priority order.
- * @param {any} app
+ * @param {SchematicEditor} app
  * @param {readonly string[]} [keep]
  * @returns {string[]} The cancelled keys.
  */
@@ -66,7 +71,10 @@ export function cancelSchematicInteractions(app, keep = []) {
     return cancelled;
 }
 
-/** Restore an active pointer edit before Escape, history, a tool switch or a load. */
+/**
+ * Restore an active pointer edit before Escape, history, a tool switch or a load.
+ * @param {SchematicEditor} app
+ */
 export function cancelSchematicPointerInteraction(app) {
     return cancelSchematicInteraction(app, SCHEMATIC_POINTER_GESTURES) !== null;
 }

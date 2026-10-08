@@ -6,14 +6,22 @@
 import { boundsOutline, lockPositionBesideBounds, lockPositionOutsideOutline } from '../../core/lock-position.js';
 import { sampleArcEdge } from '../../shapes/arc-edge.js';
 
+/** @typedef {import('../../shapes/arc.js').Arc} Arc */
+/** @typedef {import('../../core/SchematicDocument.js').SchematicShape} SchematicShape */
+/** @typedef {{x:number,y:number}} Point */
+/** @typedef {{points: Point[]|Point[][], closed: boolean, margin: number|number[]}} LockOutline */
+
 const TWO_PI = Math.PI * 2;
+/** @param {number} angle */
 const turn = angle => ((angle % TWO_PI) + TWO_PI) % TWO_PI;
 
 /** Points along an Arc shape from start, through its middle, to its end. */
+/** @param {Arc} shape @returns {Point[]} */
 function arcShapePoints(shape) {
     const start = shape.getStartPoint(), end = shape.getEndPoint(), middle = shape.getMidPoint();
     const cx = shape.x, cy = shape.y, radius = shape.radius;
     if (!(radius > 0)) return [start, middle, end];
+    /** @param {Point} point */
     const angle = point => Math.atan2(point.y - cy, point.x - cx);
     const a0 = angle(start), am = angle(middle), a1 = angle(end);
     const forward = turn(am - a0) <= turn(a1 - a0);
@@ -27,7 +35,8 @@ function arcShapePoints(shape) {
 
 /**
  * The geometry a lock should stay clear of.
- * @returns {{points: any[], closed: boolean, margin: number|number[]}|null}
+ * @param {SchematicShape} entity
+ * @returns {LockOutline|null}
  */
 function lockOutline(entity) {
     const halfWidth = Math.max(0, Number(entity.lineWidth) || 0) / 2;
@@ -60,7 +69,7 @@ function lockOutline(entity) {
         return { points, closed: true, margin: halfWidth };
     }
     if (entity.type === 'arc' && typeof entity.getStartPoint === 'function') {
-        return { points: arcShapePoints(entity), closed: false, margin: halfWidth };
+        return { points: arcShapePoints(/** @type {Arc} */ (entity)), closed: false, margin: halfWidth };
     }
     const bounds = entity.getBounds?.();
     return bounds ? { points: boundsOutline(bounds), closed: true, margin: 0 } : null;
@@ -68,7 +77,7 @@ function lockOutline(entity) {
 
 /**
  * World position (top-left of the icon) for a selected locked entity's lock.
- * @param {any} entity shape or component
+ * @param {SchematicShape} entity shape or component
  * @param {{x:number,y:number}|null|undefined} pointer where the selecting press landed
  * @param {number} scale
  */

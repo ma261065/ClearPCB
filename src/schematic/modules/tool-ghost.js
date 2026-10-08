@@ -5,22 +5,32 @@ import {
     normalizeNetOrientation,
     normalizeNetStyle
 } from '../../shapes/net.js';
+/** @typedef {import('./schematic-editor-api.js').SchematicEditor} SchematicEditor */
+/** @typedef {import('../../shapes/net.js').NetStyle} NetStyle */
+/** @typedef {import('../../shapes/net.js').NetOrientation} NetOrientation */
+/** @typedef {{x: number, y: number}} Point */
+/** @typedef {{netStyle?: string, netOrientation?: string, netPresetText?: string|null, netFontSize?: number, [key: string]: any}} ToolOptions */
+/** @typedef {SVGGElement & {__ghostType?: string, __ghostTextEl?: SVGTextElement, __ghostPathEl?: SVGPathElement, __ghostDetailPathEl?: SVGPathElement}} ToolGhost */
 
 /** Half-size of the NoConnect X mark in mm (mirrors noconnect.js NC_HALF). */
 const NC_HALF = 0.8;
 /** Net ghost text defaults. */
 const NL_FONT_SIZE = 1.4;
+/** @type {WeakMap<SchematicEditor, ToolGhost>} */
 const toolGhosts = new WeakMap();
 
+/** @param {SchematicEditor} app */
 export function getToolGhost(app) {
     return toolGhosts.get(app) || null;
 }
 
+/** @param {SchematicEditor} app @param {ToolGhost|null} ghost */
 function setToolGhost(app, ghost) {
     if (ghost) toolGhosts.set(app, ghost);
     else toolGhosts.delete(app);
 }
 
+/** @param {SchematicEditor} app */
 function nextNetName(app) {
     const used = new Set();
     for (const shape of app.shapes) {
@@ -33,18 +43,28 @@ function nextNetName(app) {
     return `NET${i}`;
 }
 
+/** @param {SchematicEditor} app @param {NetStyle} style */
 function defaultNetText(app, style) {
-    if (app.toolOptions?.netPresetText) return app.toolOptions.netPresetText;
+    const toolOptions = /** @type {ToolOptions} */ (app.toolOptions || {});
+    if (toolOptions.netPresetText) return toolOptions.netPresetText;
     if (style === 'gnd') return 'Gnd';
     return nextNetName(app);
 }
 
+/** @param {SchematicEditor} app */
 function netToolOptionState(app) {
-    const style = normalizeNetStyle(app.toolOptions?.netStyle || 't');
-    const orientation = normalizeNetOrientation(app.toolOptions?.netOrientation || 'N');
+    const toolOptions = /** @type {ToolOptions} */ (app.toolOptions || {});
+    const style = normalizeNetStyle(toolOptions.netStyle || 't');
+    const orientation = normalizeNetOrientation(toolOptions.netOrientation || 'N');
     return { style, orientation };
 }
 
+/**
+ * @param {NetOrientation} orientation
+ * @param {number} s
+ * @param {number} t
+ * @returns {Point}
+ */
 function orientNetLocal(orientation, s, t) {
     switch (orientation) {
         case 'N': return { x: t, y: -s };
@@ -54,6 +74,7 @@ function orientNetLocal(orientation, s, t) {
     }
 }
 
+/** @param {SchematicEditor} app */
 export function createNoConnectToolGhost(app) {
     const ns = 'http://www.w3.org/2000/svg';
     const g = document.createElementNS(ns, 'g');
@@ -79,9 +100,10 @@ export function createNoConnectToolGhost(app) {
     setToolGhost(app, g);
 }
 
+/** @param {SchematicEditor} app */
 export function createNetToolGhost(app) {
     const ns = 'http://www.w3.org/2000/svg';
-    const g = document.createElementNS(ns, 'g');
+    const g = /** @type {ToolGhost} */ (document.createElementNS(ns, 'g'));
     g.style.opacity = '0.55';
     g.style.pointerEvents = 'none';
 
@@ -114,7 +136,8 @@ export function createNetToolGhost(app) {
     text.setAttribute('x', String(textLocal.x));
     text.setAttribute('y', String(textLocal.y));
     text.setAttribute('fill', 'var(--sch-net-label, #00cccc)');
-    text.setAttribute('font-size', String(app.toolOptions?.netFontSize || NL_FONT_SIZE));
+    const toolOptions = /** @type {ToolOptions} */ (app.toolOptions || {});
+    text.setAttribute('font-size', String(toolOptions.netFontSize || NL_FONT_SIZE));
     text.setAttribute('font-family', 'Arial');
     text.setAttribute('dominant-baseline', 'alphabetic');
     text.setAttribute('alignment-baseline', 'alphabetic');
@@ -127,13 +150,14 @@ export function createNetToolGhost(app) {
     g.setAttribute('data-nl-style', style);
     g.setAttribute('data-nl-orientation', orientation);
     app.viewport.contentLayer.appendChild(g);
-    /** @type {any} */ (g).__ghostType = 'net';
-    /** @type {any} */ (g).__ghostTextEl = text;
-    /** @type {any} */ (g).__ghostPathEl = path;
-    /** @type {any} */ (g).__ghostDetailPathEl = detailPath;
+    g.__ghostType = 'net';
+    g.__ghostTextEl = text;
+    g.__ghostPathEl = path;
+    g.__ghostDetailPathEl = detailPath;
     setToolGhost(app, g);
 }
 
+/** @param {SchematicEditor} app */
 export function removeToolGhost(app) {
     const ghost = getToolGhost(app);
     if (ghost) {
@@ -142,6 +166,7 @@ export function removeToolGhost(app) {
     }
 }
 
+/** @param {SchematicEditor} app @param {Point} pos */
 export function updateToolGhost(app, pos) {
     const ghost = getToolGhost(app);
     if (ghost) {
@@ -167,7 +192,8 @@ export function updateToolGhost(app, pos) {
             const textLocal = orientNetLocal(orientation, base.s, base.t);
             ghost.__ghostTextEl.setAttribute('x', String(textLocal.x));
             ghost.__ghostTextEl.setAttribute('y', String(textLocal.y));
-            ghost.__ghostTextEl.setAttribute('font-size', String(app.toolOptions?.netFontSize || NL_FONT_SIZE));
+            const toolOptions = /** @type {ToolOptions} */ (app.toolOptions || {});
+            ghost.__ghostTextEl.setAttribute('font-size', String(toolOptions.netFontSize || NL_FONT_SIZE));
             ghost.__ghostTextEl.setAttribute('text-anchor', (style === 'chevron') ? 'start' : 'middle');
             ghost.setAttribute('data-nl-orientation', orientation);
             ghost.__ghostTextEl.textContent = defaultNetText(app, style);

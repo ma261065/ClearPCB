@@ -30,6 +30,8 @@ const JSON_CONTEXT_WIDTH = 180;
 /** @typedef {{name:string, path:string, ts:number, handle:any}} RecentRecord */
 /** @typedef {{fileName:string, key:string, timestamp:number}} AutoSaveIndexEntry */
 /** @typedef {{success:boolean, fileName?:string, data?:any, handle?:any, filePath?:string|null, clean?:boolean, cancelled?:boolean, error?:string, errorName?:string, missingHandle?:boolean}} FileOperationResult */
+/** @typedef {FileOperationResult} OpenResult */
+/** @typedef {FileOperationResult} SaveResult */
 /** @typedef {{revision:number, fileName:string}} AutoSaveSnapshot */
 
 /** @param {string} text @returns {number|null} */

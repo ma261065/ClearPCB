@@ -9,28 +9,38 @@
  */
 
 /** @typedef {{minX:number, minY:number, maxX:number, maxY:number}} Bounds */
-/** @typedef {{x:number, y:number}} Point */
-/** @typedef {{id:string, visible?:boolean, _culled?:boolean, type?:string, kind?:string, object?:any, fieldKey?:string, parentComponent?:Shape|string|null, attachedLabels?:Set<Shape>, labelText?:Shape|null, invalidate:() => void, getBounds:() => Bounds, getHitBounds?:() => Bounds|null, hitTest:(point:Point, tolerance?:number) => boolean}} Shape */
-/** @typedef {{lastPoint:string|null, lastResult:Shape|null, lastAllResults:Shape[]|null}} HitTestCache */
-/** @typedef {{tolerance?:number, screenTolerancePx?:number, getScale?:() => number, onSelectionChanged?:(selection:Shape[]) => void, invalidateEntity?:(entity:Shape) => void}} SelectionManagerOptions */
+/** @typedef {import('./geometry.js').Point} Point */
+/** @typedef {{id:string, visible?:boolean, _culled?:boolean, type?:string, kind?:string, object?:any, fieldKey?:string, parentComponent?:Shape|string|null, attachedLabels?:Set<Shape>|null, labelText?:Shape|null, locked?:boolean, invalidate:() => void, getBounds:() => Bounds|null, getHitBounds?:() => Bounds|null, hitTest:(point:Point, tolerance?:number) => boolean, [key:string]: any}} Shape */
+/**
+ * @template {Shape} [T=Shape]
+ * @typedef {{tolerance?:number, screenTolerancePx?:number, getScale?:() => number, onSelectionChanged?:(selection:T[]) => void, invalidateEntity?:(entity:T) => void}} SelectionManagerOptions
+ */
 
+/**
+ * @template {Shape} [T=Shape] The selectable items: each editor's own shape type.
+ */
 export class SelectionManager {
     /**
      * Create a new SelectionManager.
-     * @param {SelectionManagerOptions} [options]
+     * @param {SelectionManagerOptions<T>} [options]
      */
     constructor(options = {}) {
-        /** @type {Shape[]} */
+        /** @type {T[]} */
         this.shapes = [];  // Reference to all shapes (set by Document)
-        /** @type {Map<string, Shape>} */
+        /** @type {Map<string, T>} */
         this._shapeMap = new Map();  // ID → shape for O(1) lookups
         /** @type {Map<string, number>} */
         this._shapeIndex = new Map();  // ID → z-order index (position in shapes)
         /** @type {Set<string>} */
         this.selected = new Set();  // Set of selected shape IDs
+        /**
+         * Where the last selecting press landed; the schematic renders lock icons beside it.
+         * @type {{x: number, y: number}|null}
+         */
+        this.lockPointer = null;
         /** @type {string|null} */
         this.hovered = null;  // Currently hovered shape ID
-        /** @type {Shape[]|null} */
+        /** @type {T[]|null} */
         this._selectionCache = null;  // Cached getSelection() result
         /** @type {Set<string>|null} */
         this._boxSelectBase = null;
@@ -45,7 +55,7 @@ export class SelectionManager {
         this.getScale = options.getScale || null;
         
         // Cache for hitTest results (point-based)
-        /** @type {HitTestCache} */
+        /** @type {{lastPoint:string|null, lastResult:T|null, lastAllResults:T[]|null}} */
         this.hitTestCache = {
             lastPoint: null,
             lastResult: null,
@@ -53,10 +63,10 @@ export class SelectionManager {
         };
         
         // Callbacks
-        /** @type {((selection:Shape[]) => void)|null} */
+        /** @type {((selection:T[]) => void)|null} */
         this.onSelectionChanged = options.onSelectionChanged || null;
-        /** @type {(entity:Shape) => void} */
-        this._invalidateEntity = options.invalidateEntity || (entity => entity.invalidate());
+        /** @type {(entity:T) => void} */
+        this._invalidateEntity = /** @type {(entity:T) => void} */ (options.invalidateEntity || (entity => entity.invalidate()));
     }
     
     /**
@@ -76,7 +86,7 @@ export class SelectionManager {
      * Cheaply reject shapes whose cached bounds cannot contain the hit point.
      * Shapes without usable bounds fall through to their authoritative test.
      */
-    /** @param {Shape} shape @param {Point} point @param {number} tolerance */
+    /** @param {T} shape @param {Point} point @param {number} tolerance */
     _boundsMayHit(shape, point, tolerance) {
         // Adapters whose hitTest reaches beyond their visual bounds supply wider hit bounds.
         const bounds = typeof shape.getHitBounds === 'function' ? shape.getHitBounds()
@@ -100,7 +110,7 @@ export class SelectionManager {
     /**
      * Set the shapes array to select from
      */
-    /** @param {Shape[]} shapes */
+    /** @param {T[]} shapes */
     setShapes(shapes) {
         this.shapes = shapes;
         this._shapeMap = new Map();
@@ -117,20 +127,22 @@ export class SelectionManager {
      * Invalidate linked selection visuals for parent/child shape pairs.
      * Keeps ownership tint in sync for component fields, wire labels,
      * and Net text.
-     * @param {Shape|null|undefined} shape
+     * @param {T|null|undefined} shape
      */
     _invalidateLinkedSelectionVisuals(shape) {
         if (!shape) return;
         if (shape.type === 'text' && shape.parentComponent) {
             const owner = shape.parentComponent;
-            /** @type {Shape|null} */
+            /** @type {T|null} */
             let parent = null;
             if (typeof owner === 'string') {
                 parent = this._shapeMap.get(owner) || null;
             } else if (owner && typeof owner === 'object') {
+                // A text's owner is one of this manager's items.
+                const ownerItem = /** @type {T} */ (owner);
                 parent = owner.id && typeof owner.invalidate !== 'function'
-                    ? this._shapeMap.get(owner.id) || owner
-                    : owner;
+                    ? this._shapeMap.get(owner.id) || ownerItem
+                    : ownerItem;
             }
             if (parent && typeof parent.invalidate === 'function') {
                 this._invalidateEntity(parent);
@@ -139,20 +151,33 @@ export class SelectionManager {
         if (shape.attachedLabels instanceof Set) {
             for (const label of shape.attachedLabels) {
                 if (label && typeof label.invalidate === 'function') {
-                    this._invalidateEntity(label);
+                    this._invalidateEntity(/** @type {T} */ (label));
                 }
             }
         }
         if (shape.labelText && typeof shape.labelText.invalidate === 'function') {
-            this._invalidateEntity(shape.labelText);
+            this._invalidateEntity(/** @type {T} */ (shape.labelText));
         }
     }
     
     /**
-     * Hit test at a point, return shape(s) under cursor
+     * @overload
+     * @param {Point} point
+     * @param {true} all
+     * @returns {T[]}
+     */
+    /**
+     * @overload
+     * @param {Point} point
+     * @param {false} [all]
+     * @returns {T|null}
+     */
+    /**
+     * Hit test at a point: every shape under it (topmost first) when `all`, else the
+     * one a click would pick (a selected shape before the topmost).
      * @param {Point} point - {x, y} in world coordinates
-     * @param {boolean} all - If true, return all shapes at point; else just topmost
-     * @returns {Shape|Shape[]|null}
+     * @param {boolean} [all]
+     * @returns {T|T[]|null}
      */
     hitTest(point, all = false) {
         const tol = this._effectiveTolerance();
@@ -238,7 +263,7 @@ export class SelectionManager {
      * Find shapes within a rectangular region
      * @param {Bounds} bounds - {minX, minY, maxX, maxY}
      * @param {string} mode - 'contain' (fully inside) or 'intersect' (any overlap)
-     * @returns {Shape[]}
+     * @returns {T[]}
      */
     hitTestRect(bounds, mode = 'intersect') {
         const hits = [];
@@ -247,6 +272,7 @@ export class SelectionManager {
             if (!shape.visible) continue;
             
             const shapeBounds = shape.getBounds();
+            if (!shapeBounds) continue;
             
             if (mode === 'contain') {
                 // Shape must be fully inside bounds
@@ -272,7 +298,7 @@ export class SelectionManager {
     
     /**
      * Select a shape
-     * @param {Shape|string} shape - Shape or shape ID
+     * @param {T|string} shape - Shape or shape ID
      * @param {boolean} additive - If true, add to selection; else replace
      */
     select(shape, additive = false) {
@@ -299,7 +325,7 @@ export class SelectionManager {
     
     /**
      * Deselect a shape
-     * @param {Shape|string} shape - Shape or shape ID
+     * @param {T|string} shape - Shape or shape ID
      */
     deselect(shape) {
         const id = typeof shape === 'string' ? shape : shape.id;
@@ -319,7 +345,7 @@ export class SelectionManager {
     
     /**
      * Toggle selection state
-     * @param {Shape|string} shape - Shape or shape ID
+     * @param {T|string} shape - Shape or shape ID
      */
     toggle(shape) {
         const id = typeof shape === 'string' ? shape : shape.id;
@@ -333,7 +359,7 @@ export class SelectionManager {
     
     /**
      * Select multiple shapes
-     * @param {Shape[]|string[]} shapes - Shapes or shape IDs
+     * @param {T[]|string[]} shapes - Shapes or shape IDs
      * @param {boolean} additive - If true, add to selection; else replace
      */
     selectMultiple(shapes, additive = false) {
@@ -399,7 +425,7 @@ export class SelectionManager {
     
     /**
      * Get selected shapes
-     * @returns {Shape[]}
+     * @returns {T[]}
      */
     getSelection() {
         if (this._selectionCache) return this._selectionCache;
@@ -412,7 +438,7 @@ export class SelectionManager {
     
     /**
      * Check if a shape is selected
-     * @param {Shape|string} shape
+     * @param {T|string} shape
      * @returns {boolean}
      */
     isSelected(shape) {
@@ -422,7 +448,7 @@ export class SelectionManager {
     
     /**
      * Check if a shape is the hovered one
-     * @param {Shape|string|null|undefined} shape
+     * @param {T|string|null|undefined} shape
      * @returns {boolean}
      */
     isHovered(shape) {
@@ -439,7 +465,7 @@ export class SelectionManager {
     
     /**
      * Update hover state
-     * @param {Shape|null} shape
+     * @param {T|null} shape
      */
     setHovered(shape) {
         const newId = shape ? shape.id : null;
@@ -458,7 +484,7 @@ export class SelectionManager {
     /**
      * Keep a tracked shape selected after an edit, without notifying listeners.
      * Untracked shapes are ignored so the selection never names a shape it cannot find.
-     * @param {Shape|null|undefined} shape
+     * @param {T|null|undefined} shape
      */
     keepSelected(shape) {
         if (!shape || this._shapeMap.get(shape.id) !== shape || this.selected.has(shape.id)) return;
@@ -471,7 +497,7 @@ export class SelectionManager {
 
     /**
      * Drop a shape that is leaving the document from the selection, without notifying.
-     * @param {Shape|null|undefined} shape
+     * @param {T|null|undefined} shape
      */
     dropSelected(shape) {
         if (!shape) return;
@@ -483,7 +509,7 @@ export class SelectionManager {
 
     /**
      * Drop a shape that is leaving or re-entering the document from hover state.
-     * @param {Shape|null|undefined} shape
+     * @param {T|null|undefined} shape
      */
     dropHover(shape) {
         if (shape && this.hovered === shape.id) this.hovered = null;
@@ -491,7 +517,7 @@ export class SelectionManager {
 
     /**
      * Drop a shape from both selection and hover state, without notifying.
-     * @param {Shape|null|undefined} shape
+     * @param {T|null|undefined} shape
      */
     forget(shape) {
         this.dropSelected(shape);
@@ -521,6 +547,7 @@ export class SelectionManager {
         
         for (const shape of shapes) {
             const b = shape.getBounds();
+            if (!b) continue;
             minX = Math.min(minX, b.minX);
             minY = Math.min(minY, b.minY);
             maxX = Math.max(maxX, b.maxX);
@@ -536,7 +563,7 @@ export class SelectionManager {
      * @param {boolean} additive - Shift key held?
      */
     handleClick(point, additive = false) {
-        const hit = /** @type {Shape|null} */ (this.hitTest(point));
+        const hit = /** @type {T|null} */ (this.hitTest(point));
         
         if (hit) {
             if (additive) {
@@ -609,7 +636,7 @@ export class SelectionManager {
     /**
      * Look up a shape by ID from the internal map.
      * @param {string} id - Shape identifier
-     * @returns {Shape|null}
+     * @returns {T|null}
      */
     _getShape(id) {
         return this._shapeMap.get(id) || null;

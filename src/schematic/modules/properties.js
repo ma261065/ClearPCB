@@ -16,17 +16,36 @@ import { runSchematicDeleteAction } from './editor-actions.js';
 import { getShapeNodeFocus, getShapeSegmentFocus, setShapeNodeFocus, setShapeSegmentFocus } from './shape-focus.js';
 import { renderSchematicPropertyPanel } from './property-host.js';
 import { getSchematicTextEdit } from './text-edit.js';
-
+/** @typedef {import('./schematic-editor-api.js').SchematicEditor} SchematicEditor */
+/** @typedef {import('../../core/SchematicDocument.js').SchematicShape} SchematicShape */
 /** @typedef {import('../../shared/ui/property-fields.js').PropertyField} PropertyField */
 /** @typedef {import('../../shared/ui/property-fields.js').PropertyPanel} PropertyPanel */
+/** @typedef {import('../../shared/ui/property-fields.js').PropertyAction} PropertyAction */
+/** @typedef {import('../../shared/ui/property-fields.js').PropertyActionGroup} PropertyActionGroup */
+/** @typedef {import('../../shapes/property-preview.js').PropertyBinding} PropertyBinding */
+/** @typedef {import('../../shapes/property-preview.js').PropertyPreview} PropertyPreview */
 
+/** @typedef {{value: string, label: string, disabled?: boolean, title?: string, dataset?: Record<string, string>}} PropertyOption */
+/** @typedef {{key: string, label: string, type: string, min?: number, max?: number, step?: number, readonly?: boolean, orderKey?: string, options?: PropertyOption[], [extra: string]: any}} PropertyDescriptor */
+/** @typedef {{shape: SchematicShape, edgeId: string}} SelectedSegment */
+/** @typedef {{shape: SchematicShape, nodeId: string}} SelectedNode */
+/** @typedef {{selection: SchematicShape[], segmentShape: SchematicShape|null, segmentEdge: string|null, nodeShape: SchematicShape|null, nodeId: string|null}} PropertyContextSnapshot */
+/** @typedef {{binding: PropertyBinding, context: PropertyContextSnapshot|null, previews: Map<string, PropertyPreview>, isCurrent: () => boolean, generation: number}} PropertyState */
+/** @typedef {{selectedSegment: SelectedSegment|null, selectedNode: SelectedNode|null, singleWire: SchematicShape|null, singlePolyline: SchematicShape|null, allLocked: boolean, state: PropertyState, isCurrentSelection: () => boolean, applyProperty: (key: string, value: any) => void}} DescriptorContext */
+/** @typedef {import('../../ui/SchematicApp.js').SchematicToolOptions & {wireNet?: string}} ToolOptions */
+/** @typedef {{propertiesPanel?: HTMLElement|null}} PropertiesPanelUi */
+
+/** @type {WeakMap<HTMLElement, {binding: PropertyBinding, previews: Map<string, PropertyPreview>}>} */
 const propertyPanels = new WeakMap();
+/** @type {WeakMap<SchematicEditor, PropertyState>} */
 const propertyStates = new WeakMap();
 
+/** @param {SchematicEditor} app */
 export function hasSchematicPropertyPreview(app) {
     return !!propertyStates.get(app)?.binding.active;
 }
 
+/** @param {SchematicEditor} app */
 export function cancelSchematicPropertyPreview(app) {
     const state = propertyStates.get(app);
     if (!state) return false;
@@ -39,14 +58,14 @@ export function cancelSchematicPropertyPreview(app) {
 /**
  * Initializes the properties panel and subscribes to `selectionChanged`
  * events to rebuild it when the selection changes.
- * @param {object} app - Application state.
+ * @param {SchematicEditor} app
  */
 export function bindPropertiesPanel(app) {
-    if (!app.ui.propertiesPanel) return;
+    if (!/** @type {PropertiesPanelUi} */ (app.ui).propertiesPanel) return;
 
     updatePropertiesPanel(app, []);
 
-    app.eventBus.on('selectionChanged', (shapes) => {
+    app.eventBus.on('selectionChanged', /** @param {SchematicShape[]} shapes */ (shapes) => {
         updatePropertiesPanel(app, shapes);
     });
 }
@@ -56,6 +75,8 @@ export function bindPropertiesPanel(app) {
 /**
  * Compute the intersection of property descriptors across all selected items.
  * Only properties declared by *every* item in the selection are shown.
+ * @param {SchematicShape[]} selection
+ * @returns {PropertyDescriptor[]}
  */
 export function mergeDescriptors(selection) {
     if (selection.length === 0) return [];
@@ -70,7 +91,7 @@ export function mergeDescriptors(selection) {
         if (desc.key !== 'locked' && matches.some(item => !item)) return [];
         if (desc.type !== 'select' || !Array.isArray(desc.options)) return [desc];
         const options = desc.options.filter(option =>
-            matches.every(item => item.options?.some(other => other.value === option.value)));
+            matches.every(item => item && item.options?.some(/** @param {PropertyOption} other */ other => other.value === option.value)));
         if (!options.length) return [];
         return [{ ...desc, options: options.map(option =>
             desc.key === 'packageId' && option.value === 'default'
@@ -78,11 +99,16 @@ export function mergeDescriptors(selection) {
     });
 }
 
-/** Canonical-order key of a descriptor; `orderKey` lets a property sort as a related one. */
+/**
+ * Canonical-order key of a descriptor; `orderKey` lets a property sort as a related one.
+ * @param {PropertyDescriptor|(PropertyField & {orderKey?: string})} desc
+ */
 const descriptorOrderKey = desc => desc.orderKey || desc.key;
 
+/** @param {SchematicShape[]} selection */
 function headerLabel(selection) {
     if (selection.length === 0) return 'Properties';
+    /** @type {Record<string, string>} */
     const displayNames = { rect: 'Rectangle', text: 'Label', Net: 'Net', noconnect: 'No Connect', polyline: 'Line' };
     const types = selection.map(s => {
         if (s.definition) return 'Component';
@@ -102,10 +128,14 @@ function headerLabel(selection) {
     return 'Multiple';
 }
 
+/** @param {SchematicShape[]} selection */
 const summaryText = selection => selection.length === 0 ? 'None selected'
     : selection.length === 1 ? '1 selected' : `${selection.length} selected`;
 
-/** Collect existing electrical net names for editable wire suggestions. */
+/**
+ * Collect existing electrical net names for editable wire suggestions.
+ * @param {SchematicEditor} app
+ */
 function wireNetNames(app) {
     return [...new Set((app.shapes || [])
         .filter((shape) => shape?.type === 'wire' || shape?.type === 'net')
@@ -116,7 +146,7 @@ function wireNetNames(app) {
 
 /**
  * Append an editable Net field descriptor with a menu of current schematic nets.
- * @param {any} app @param {PropertyField[]} fields @param {string} id @param {string} value
+ * @param {SchematicEditor} app @param {PropertyField[]} fields @param {string} id @param {string} value
  * @param {(net: string) => void} onChange
  * @param {{allowAuto?: boolean, isCurrent?: () => boolean, readOnly?: boolean, key?: string}} [options]
  */
@@ -142,14 +172,23 @@ const NEW_SHAPE_TOOLS = new Map([
     ['noconnect', 'No Connect'],
 ]);
 
+/** @param {number} value @param {number} [min] @param {number} [max] */
 const clamp = (value, min = -Infinity, max = Infinity) => Math.min(max, Math.max(min, value));
+/** @param {number} value */
 const round2 = value => Number(value.toFixed(2));
+/** @param {PropertyContextSnapshot|null} a @param {PropertyContextSnapshot|null} b */
 const sameContext = (a, b) => !!a && !!b
     && a.selection.length === b.selection.length
     && a.selection.every((item, index) => item === b.selection[index])
     && a.segmentShape === b.segmentShape && a.segmentEdge === b.segmentEdge
     && a.nodeShape === b.nodeShape && a.nodeId === b.nodeId;
 
+/**
+ * @param {SchematicShape[]} selection
+ * @param {SelectedSegment|null} selectedSegment
+ * @param {SelectedNode|null} selectedNode
+ * @returns {PropertyContextSnapshot}
+ */
 function contextFor(selection, selectedSegment, selectedNode) {
     return {
         selection: [...selection],
@@ -160,6 +199,7 @@ function contextFor(selection, selectedSegment, selectedNode) {
     };
 }
 
+/** @param {SchematicEditor} app @param {PropertyContextSnapshot} context */
 function editorState(app, context) {
     let state = propertyStates.get(app);
     if (!state) {
@@ -173,25 +213,35 @@ function editorState(app, context) {
     return state;
 }
 
+/** @param {string|number} value */
 function optionValue(value) {
-    const numeric = parseFloat(value);
+    const numeric = parseFloat(String(value));
     return !Number.isNaN(numeric) && String(numeric) === String(value) ? numeric : value;
 }
 
+/** @param {SchematicShape[]} selection @param {string} key */
 function valuesFor(selection, key) {
     return selection.map(item => item[key]);
 }
 
+/** @template T @param {T[]} values @param {(a: T, b: T) => boolean} [equal] */
 function allSame(values, equal = (a, b) => a === b) {
     return values.length > 0 && values.every(value => equal(value, values[0]));
 }
 
+/** @param {SchematicShape[]} selection @param {string} key @param {any} [empty] */
 function scalarFieldValue(selection, key, empty = '') {
     const values = valuesFor(selection, key);
     const same = allSame(values);
     return { value: same ? values[0] ?? empty : empty, mixed: !same };
 }
 
+/**
+ * @param {SchematicShape[]} selection
+ * @param {string} key
+ * @param {SelectedSegment|null} selectedSegment
+ * @param {SelectedNode|null} selectedNode
+ */
 function numberValue(selection, key, selectedSegment, selectedNode) {
     if (key === 'bulge' && selectedSegment) {
         return { value: selectedSegment.shape.getEdgeAttr(selectedSegment.edgeId, 'bulge') || 0, mixed: false };
@@ -207,6 +257,7 @@ function numberValue(selection, key, selectedSegment, selectedNode) {
     return { value: same ? values[0] : undefined, mixed: !same };
 }
 
+/** @param {SchematicEditor} app @param {SchematicShape[]} selection */
 function selectedFocus(app, selection) {
     const segmentFocus = getShapeSegmentFocus(app);
     const selectedSegment = selection.length === 1
@@ -227,18 +278,29 @@ function selectedFocus(app, selection) {
 
 /**
  * Describe drawing defaults in Properties before a geometric shape is placed.
+ * @param {SchematicEditor} app
+ * @param {string} tool
+ * @param {() => boolean} isCurrent
  * @returns {PropertyPanel|null}
  */
 function renderNewShapeProperties(app, tool, isCurrent) {
     const label = NEW_SHAPE_TOOLS.get(tool);
     if (!label) return null;
     const canEdit = () => isCurrent() && app.currentTool === tool;
-    const options = app.toolOptions || {};
+    const options = /** @type {ToolOptions} */ (app.toolOptions || {});
+    /** @param {string} key @param {any} value */
     const setOption = (key, value) => {
         if (!canEdit()) return;
-        app.toolOptions[key] = value;
+        /** @type {ToolOptions} */ (app.toolOptions)[key] = value;
     };
-    /** @returns {PropertyField} */
+    /**
+     * @param {string} key
+     * @param {string} id
+     * @param {string} fieldLabel
+     * @param {number} value
+     * @param {{min: number, max: number, step: number}} limits
+     * @returns {PropertyField}
+     */
     const numberDefault = (key, id, fieldLabel, value, { min, max, step }) => ({
         key, id, type: 'number', label: fieldLabel, value, min, max, step,
         normalize: next => clamp(next, min, max),
@@ -249,8 +311,8 @@ function renderNewShapeProperties(app, tool, isCurrent) {
     /** @type {PropertyField[]} */
     const fields = [];
     if (tool === 'wire') {
-        appendWireNetField(app, fields, 'prop_newWireNet', options.wireNet, net => {
-            app.toolOptions.wireNet = net;
+        appendWireNetField(app, fields, 'prop_newWireNet', options.wireNet || '', net => {
+            /** @type {ToolOptions} */ (app.toolOptions).wireNet = net;
         }, { allowAuto: true, isCurrent: canEdit });
     } else if (tool === 'text' || tool === 'net') {
         const key = tool === 'text' ? 'fontSize' : 'netFontSize';
@@ -259,7 +321,7 @@ function renderNewShapeProperties(app, tool, isCurrent) {
     } else if (tool !== 'noconnect') {
         fields.push({
             key: 'fill', id: 'prop_newShapeFill', type: 'checkbox', label: 'Fill', value: !!options.fill,
-            commit: value => { if (canEdit()) app.toolOptions.fill = value; },
+            commit: value => { if (canEdit()) /** @type {ToolOptions} */ (app.toolOptions).fill = value; },
         });
         fields.push(numberDefault('lineWidth', 'prop_newShapeLineWidth', 'Line Width (mm)',
             options.lineWidth ?? 0.2, { min: 0.05, max: 5, step: 0.05 }));
@@ -267,6 +329,7 @@ function renderNewShapeProperties(app, tool, isCurrent) {
     return { title: `New ${label}`, summary: 'None selected', fields, actions: [] };
 }
 
+/** @param {PropertyDescriptor} desc @param {SchematicShape[]} affected @param {number} value */
 function normalizeNumber(desc, affected, value) {
     let next = value;
     if (desc.key === 'rotation') next = ((Math.round(next) % 360) + 360) % 360;
@@ -280,6 +343,7 @@ function normalizeNumber(desc, affected, value) {
     return next;
 }
 
+/** @param {PropertyDescriptor} desc @param {SelectedSegment|null} selectedSegment @param {SelectedNode|null} selectedNode */
 function numberFieldKey(desc, selectedSegment, selectedNode) {
     if (selectedSegment && desc.key === 'lineWidth') return 'segmentLineWidth';
     if (selectedSegment && desc.key === 'bulge') return 'segmentBulge';
@@ -287,12 +351,19 @@ function numberFieldKey(desc, selectedSegment, selectedNode) {
     return desc.key;
 }
 
-/** @returns {PropertyField} */
+/**
+ * @param {SchematicEditor} app
+ * @param {SchematicShape[]} selection
+ * @param {PropertyDescriptor} desc
+ * @param {DescriptorContext} context
+ * @returns {PropertyField}
+ */
 function createNumberField(app, selection, desc, context) {
     const { selectedSegment, selectedNode, singlePolyline, allLocked, state, isCurrentSelection } = context;
     const key = desc.key;
     const affected = key === 'bulge' && selectedSegment ? [selectedSegment.shape]
         : selection.filter(item => key in item && !isSchematicLocked(item));
+    /** @param {SchematicShape} item */
     const usesGeometryState = item => ['lineWidth', 'cornerRadius', 'diameter', 'bulge'].includes(key)
         && ['polyline', 'circle', 'arc'].includes(item.type);
     const geometryEdit = affected.some(usesGeometryState);
@@ -322,7 +393,8 @@ function createNumberField(app, selection, desc, context) {
             },
             redraw: () => redrawPropertyPreview(selection, { renderScene: () => {
                 app.renderShapes(false);
-                if (key === 'rotation' && affected.includes(getSchematicTextEdit(app)?.shape)) app.updateTextEditOverlay?.();
+                const textEditShape = getSchematicTextEdit(app)?.shape;
+                if (key === 'rotation' && textEditShape && affected.includes(textEditShape)) app.updateTextEditOverlay?.();
             } }),
             commit: (before, after, { rebuild = true } = {}) => {
                 let structureChanged = false;
@@ -351,7 +423,8 @@ function createNumberField(app, selection, desc, context) {
                         && Math.abs(selectedSegment.shape.getEdgeAttr(selectedSegment.edgeId, 'bulge') || 0) < BULGE_EPS);
                 } else {
                     app.history.execute(new ModifyPropertyCommand(app, affected, key, after[0]));
-                    if (['fontSize', 'rotation'].includes(key) && affected.includes(getSchematicTextEdit(app)?.shape)) app.updateTextEditOverlay?.();
+                    const textEditShape = getSchematicTextEdit(app)?.shape;
+                    if (['fontSize', 'rotation'].includes(key) && textEditShape && affected.includes(textEditShape)) app.updateTextEditOverlay?.();
                 }
                 app.fileManager.setDirty(true);
                 if (!structureChanged && !rebuild) refresh();
@@ -361,10 +434,11 @@ function createNumberField(app, selection, desc, context) {
         state.previews.set(previewKey, preview);
     }
     const { value, mixed } = readValue();
+    /** @param {number} raw */
     const previewValue = raw => {
         if (!isCurrentSelection()) return;
         const next = normalizeNumber(desc, affected, raw);
-        preview.update(before => {
+        preview.update(/** @param {any[]} before */ before => {
             if (key === 'bulge' && selectedSegment) {
                 selectedSegment.shape.setEdgeAttr(selectedSegment.edgeId, 'bulge', next);
                 selectedSegment.shape.isRect = selectedSegment.shape.isAxisAlignedRect();
@@ -405,7 +479,13 @@ function createNumberField(app, selection, desc, context) {
     };
 }
 
-/** @returns {PropertyField|null} */
+/**
+ * @param {SchematicEditor} app
+ * @param {SchematicShape[]} selection
+ * @param {PropertyDescriptor} desc
+ * @param {DescriptorContext} context
+ * @returns {PropertyField|null}
+ */
 function descriptorField(app, selection, desc, context) {
     const { allLocked, selectedSegment, selectedNode, applyProperty } = context;
     const disabled = allLocked && desc.key !== 'locked';
@@ -430,12 +510,18 @@ function descriptorField(app, selection, desc, context) {
     return null;
 }
 
-/** @returns {PropertyField[]} */
+/**
+ * @param {SchematicEditor} app
+ * @param {SchematicShape[]} selection
+ * @param {DescriptorContext} context
+ * @returns {PropertyField[]}
+ */
 function describeFields(app, selection, context) {
     const { selectedSegment, selectedNode, singleWire, allLocked, applyProperty, isCurrentSelection, state } = context;
     const selectedNodePath = selectedNode ? selectedNode.shape.toEditablePath() : null;
-    const showNodeCornerRadius = selectedNodePath && canRoundPathNode(selectedNodePath,
+    const showNodeCornerRadius = selectedNode && selectedNodePath && canRoundPathNode(selectedNodePath,
         Object.values(selectedNodePath.nodeIds).indexOf(selectedNode.nodeId));
+    /** @type {PropertyField[]} */
     const fields = [];
     const descriptors = selectedNode
         ? (showNodeCornerRadius
@@ -451,6 +537,7 @@ function describeFields(app, selection, context) {
     }
     let netShown = !singleWire;
     const appendNet = () => {
+        if (!singleWire) return;
         appendWireNetField(app, fields, 'prop_net', singleWire.net, net => {
             if (!net) {
                 app.updatePropertiesPanel?.(selection);
@@ -471,12 +558,29 @@ function describeFields(app, selection, context) {
     return sortByPropertyOrder(fields, field => field.prop || field.key);
 }
 
+/**
+ * @param {string} id
+ * @param {string} label
+ * @param {string} title
+ * @param {() => void} run
+ * @param {boolean} [disabled]
+ * @returns {PropertyAction}
+ */
 function action(id, label, title, run, disabled = false) {
     return { id, label, title, disabled, run };
 }
 
+/**
+ * @param {SchematicEditor} app
+ * @param {SchematicShape[]} selection
+ * @param {() => boolean} isCurrent
+ * @param {boolean} allLocked
+ * @param {(key: string, value: any) => void} applyProperty
+ * @returns {PropertyActionGroup[]}
+ */
 function _bindActionButtons(app, selection, isCurrent, allLocked, applyProperty) {
     if (selection.length === 0) return [];
+    /** @type {PropertyActionGroup[]} */
     const groups = [{
         title: 'Clipboard',
         actions: [
@@ -488,6 +592,7 @@ function _bindActionButtons(app, selection, isCurrent, allLocked, applyProperty)
     const hasComponent = selection.some(s => s.definition);
     const hasNet = selection.every(s => s.type === 'net') && selection.length > 0;
     if (hasComponent || hasNet) {
+        /** @type {PropertyAction[]} */
         const actions = [];
         if (hasNet) {
             actions.push(action('propNetRotateLeft', '↶ Rotate L', 'Rotate Left', () => {
@@ -520,13 +625,15 @@ function _bindActionButtons(app, selection, isCurrent, allLocked, applyProperty)
             ],
         });
     }
+    /** @type {PropertyAction[]} */
     const finalActions = [];
     if (selection.length === 1 && hasAny3DModel(selection[0].definition)) {
         finalActions.push(action('propShow3D', '🧊 Show 3D', 'Show 3D model', async () => {
             if (!isCurrent()) return;
             const sel = app.selection?.getSelection?.() || [];
             const comp = sel.length === 1 ? sel[0] : null;
-            const modelData = comp?.definition;
+            if (!comp) return;
+            const modelData = comp.definition;
             if (!hasAny3DModel(modelData)) return;
             const title = comp.reference ? `${comp.reference} — 3D Model` : '3D Model';
             try {
@@ -552,16 +659,21 @@ function _bindActionButtons(app, selection, isCurrent, allLocked, applyProperty)
     return groups;
 }
 
-/** @returns {PropertyPanel} */
+/**
+ * @param {SchematicEditor} app
+ * @param {SchematicShape[]} selection
+ * @returns {PropertyPanel}
+ */
 export function describePropertiesPanel(app, selection) {
     const { selectedSegment, selectedNode } = selectedFocus(app, selection);
     const context = contextFor(selection, selectedSegment, selectedNode);
     const state = editorState(app, context);
-    const panel = app.ui.propertiesPanel;
+    const panel = /** @type {PropertiesPanelUi} */ (app.ui).propertiesPanel;
     const currentPanel = { binding: state.binding, previews: state.previews };
     if (panel) propertyPanels.set(panel, currentPanel);
     const isCurrentSelection = () => {
-        if (app.ui.propertiesPanel !== panel || propertyPanels.get(panel) !== currentPanel) return false;
+        if (/** @type {PropertiesPanelUi} */ (app.ui).propertiesPanel !== panel
+            || propertyPanels.get(/** @type {HTMLElement} */ (panel)) !== currentPanel) return false;
         const current = app.selection.getSelection();
         return current.length === selection.length && current.every((item, index) => item === selection[index]);
     };
@@ -570,6 +682,7 @@ export function describePropertiesPanel(app, selection) {
         return renderNewShapeProperties(app, app.currentTool, isCurrentSelection)
             || { title: headerLabel(selection), summary: summaryText(selection), fields: [], actions: [] };
     }
+    /** @param {string} key @param {any} value */
     const applyProperty = (key, value) => {
         if (isCurrentSelection()) applyCommonProperty(app, key, value);
     };
@@ -596,11 +709,11 @@ export function describePropertiesPanel(app, selection) {
 /**
  * Rebuilds the properties panel from a description: merged property descriptors,
  * clipboard actions, transform buttons, and delete.
- * @param {object} app - Application state.
- * @param {Array} selection - Currently selected shapes/components.
+ * @param {SchematicEditor} app
+ * @param {SchematicShape[]} selection - Currently selected shapes/components.
  */
 export function updatePropertiesPanel(app, selection) {
-    const panel = app.ui.propertiesPanel;
+    const panel = /** @type {PropertiesPanelUi} */ (app.ui).propertiesPanel;
     if (!panel) return;
     renderSchematicPropertyPanel(panel, describePropertiesPanel(app, selection));
 }
@@ -610,7 +723,7 @@ export function updatePropertiesPanel(app, selection) {
 /**
  * Applies a property value change to all selected items via
  * `ModifyPropertyCommand`, with duplicate reference validation for components.
- * @param {object} app - Application state.
+ * @param {SchematicEditor} app
  * @param {string} prop - Property key to modify.
  * @param {*} value - New value for the property.
  */
@@ -627,7 +740,7 @@ export function applyCommonProperty(app, prop, value) {
     if (changing.length === 0) return;
 
     if (prop === 'packageId' && changing.some(item => !item.getPropertyDescriptors()
-        .find(desc => desc.key === prop)?.options?.some(option => option.value === value))) {
+        .find(desc => desc.key === prop)?.options?.some(/** @param {PropertyOption} option */ option => option.value === value))) {
         app.alert('Choose a package supported by every selected component.', { title: 'Incompatible Package' });
         app.updatePropertiesPanel(selection);
         return;

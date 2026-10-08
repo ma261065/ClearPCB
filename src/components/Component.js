@@ -60,6 +60,7 @@ const componentIds = new IdAllocator('comp');
  * @returns {Object}
  */
 function _safeMergeProps(base, override) {
+    /** @type {Record<string, any>} */
     const result = {};
     const FORBIDDEN = new Set(['__proto__', 'constructor', 'prototype']);
     for (const src of [base, override]) {
@@ -123,6 +124,12 @@ export class Component {
         // Selection-related properties
         this.visible = options.visible !== undefined ? options.visible : true;
         this.locked = options.locked !== undefined ? options.locked : false;
+        /** @type {boolean|undefined} Set by schematic viewport culling. */
+        this._culled = undefined;
+        /** @type {{minX:number, minY:number, maxX:number, maxY:number}|null|undefined} */
+        this._worldBounds = undefined;
+        /** @type {string|undefined} */
+        this._worldBoundsSig = undefined;
 
         /** @type {Set<any>|null} */
         this.attachedLabels = null;
@@ -138,7 +145,7 @@ export class Component {
     }
     set packageId(value) {
         if (value === this.packageId) return;
-        this.definition = withBuiltInPackage(this.definition, value);
+        this.definition = /** @type {ComponentDefinition} */ (withBuiltInPackage(this.definition, value));
     }
 
     // ── Coordinate transforms ─────────────────────────────────────
@@ -322,7 +329,7 @@ export class Component {
     /**
      * Restore a previously captured state, recreating the SVG element if
      * the rotation or mirror has changed.
-     * @param {ComponentState} state - State snapshot from captureState()
+     * @param {Record<string, any>} state - State snapshot from captureState()
      */
     applyState(state) {
         Object.assign(this, state);

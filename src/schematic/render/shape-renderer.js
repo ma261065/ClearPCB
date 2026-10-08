@@ -17,6 +17,13 @@ import { ensureView, viewOf } from './shape-view-state.js';
 import { schematicLockPosition } from './lock-placement.js';
 import { isSchematicLocked } from '../../shapes/lock-owner.js';
 
+/** @typedef {import('../../core/SchematicDocument.js').SchematicShape} SchematicShape */
+/** @typedef {import('../../shapes/selection-view.js').SelectionView} SelectionView */
+/** @typedef {{x:number,y:number}} Point */
+/** @typedef {ReturnType<Shape['getAnchors']>[number] & {hidden?: boolean, bulge?: boolean}} RenderAnchor */
+/** @typedef {SVGElement & {setAttribute(name: string, value: unknown): void}} SvgRenderElement */
+/** @typedef {{selection?: SelectionView, suppressSelection?: boolean}} RenderShapeOptions */
+
 const NS = 'http://www.w3.org/2000/svg';
 const MIN_STROKE_PIXELS = 1;
 const ANCHOR_SIZE_PIXELS = 8;
@@ -24,11 +31,16 @@ const MIN_JUNCTION_RADIUS = 0.4;
 const JUNCTION_SCREEN_PX = 2.5;
 const NC_HALF = 0.8;
 
+/** @param {string|number} color */
 function colorToCSS(color) {
     if (typeof color === 'string') return color;
     return '#' + color.toString(16).padStart(6, '0');
 }
 
+/**
+ * @param {SchematicShape} shape
+ * @param {number} scale
+ */
 export function effectiveStrokeWidth(shape, scale) {
     if (shape instanceof Text || shape instanceof Net) return 0;
     if (shape instanceof NoConnect) return Math.max(shape.lineWidth, 1.5 / scale);
@@ -44,6 +56,7 @@ setTextMeasurer((shape) => {
 
 setTextEditElementProvider((shape) => viewOf(shape)?.element || null);
 
+/** @param {SchematicShape} shape */
 function createShapeElement(shape) {
     if (shape instanceof Circle) return document.createElementNS(NS, 'circle');
     if (shape instanceof Text) return createTextElement();
@@ -57,6 +70,11 @@ function createTextElement() {
     return group;
 }
 
+/**
+ * @param {SchematicShape} shape
+ * @param {number} scale
+ * @param {RenderShapeOptions} [options]
+ */
 export function renderShape(shape, scale, options = {}) {
     const viewState = ensureView(shape);
     if (!viewState.element) {
@@ -120,6 +138,14 @@ export function renderShape(shape, scale, options = {}) {
     return element;
 }
 
+/**
+ * @param {SchematicShape} shape
+ * @param {SvgRenderElement} element
+ * @param {string} strokeColor
+ * @param {string} fillColor
+ * @param {number} scale
+ * @param {SelectionView} view
+ */
 function updateShapeElement(shape, element, strokeColor, fillColor, scale, view) {
     if (shape instanceof Wire) return updateWireElement(shape, element, strokeColor, fillColor, scale, view);
     if (shape instanceof Text) return updateTextElement(shape, element, strokeColor, fillColor, scale, view);
@@ -132,7 +158,11 @@ function updateShapeElement(shape, element, strokeColor, fillColor, scale, view)
 }
 
 /**
- * @param {import('../../shapes/selection-view.js').SelectionView} [view] its `lockPointer` places a lock icon
+ * @param {SchematicShape} shape
+ * @param {number} scale
+ * @param {boolean} [visuallySelected]
+ * @param {string|null} [selectedNodeId]
+ * @param {SelectionView} [view] its `lockPointer` places a lock icon
  */
 export function updateShapeAnchors(shape, scale, visuallySelected = false, selectedNodeId = null, view = NO_SELECTION) {
     if (visuallySelected && isSchematicLocked(shape)) return showLockOnly(shape, scale, view.lockPointer);
@@ -141,6 +171,11 @@ export function updateShapeAnchors(shape, scale, visuallySelected = false, selec
 }
 
 /** A selected locked shape shows its lock instead of edit handles, as in the PCB editor. */
+/**
+ * @param {SchematicShape} shape
+ * @param {number} scale
+ * @param {Point|null|undefined} pointer
+ */
 function showLockOnly(shape, scale, pointer) {
     const viewState = ensureView(shape);
     viewState.anchorsGroup?.remove();
@@ -155,6 +190,11 @@ function showLockOnly(shape, scale, pointer) {
     if (element?.parentNode) element.parentNode.insertBefore(group, element.nextSibling);
 }
 
+/**
+ * @param {SchematicShape} shape
+ * @param {number} scale
+ * @param {boolean} [visuallySelected]
+ */
 function updateBaseAnchors(shape, scale, visuallySelected = false) {
     const viewState = ensureView(shape);
     const element = viewState.element;
@@ -167,7 +207,7 @@ function updateBaseAnchors(shape, scale, visuallySelected = false) {
         return;
     }
 
-    const anchors = shape.getAnchors();
+    const anchors = /** @type {RenderAnchor[]} */ (shape.getAnchors());
     const visibleAnchors = anchors.filter(anchor => !anchor.hidden);
     if (visibleAnchors.length === 0) {
         if (viewState.anchorsGroup) {
@@ -238,6 +278,14 @@ function updateBaseAnchors(shape, scale, visuallySelected = false) {
     }
 }
 
+/**
+ * @param {PolylineGraph} shape
+ * @param {SvgRenderElement} el
+ * @param {string} strokeColor
+ * @param {string} fillColor
+ * @param {number} scale
+ * @param {SelectionView} [_view]
+ */
 export function updatePolylineGraphElement(shape, el, strokeColor, fillColor, scale, _view = NO_SELECTION) {
     el.textContent = '';
 
@@ -372,6 +420,12 @@ export function updatePolylineGraphElement(shape, el, strokeColor, fillColor, sc
     }
 }
 
+/**
+ * @param {PolylineGraph} shape
+ * @param {number} scale
+ * @param {boolean} [visuallySelected]
+ * @param {string|null} [selectedNodeId]
+ */
 function updatePolylineGraphAnchors(shape, scale, visuallySelected = false, selectedNodeId = null) {
     const viewState = ensureView(shape);
     const element = viewState.element;
@@ -419,6 +473,14 @@ function updatePolylineGraphAnchors(shape, scale, visuallySelected = false, sele
         element.parentNode.insertBefore(viewState.anchorsGroup, element.nextSibling);
 }
 
+/**
+ * @param {Wire} shape
+ * @param {SvgRenderElement} el
+ * @param {string} strokeColor
+ * @param {string} fillColor
+ * @param {number} scale
+ * @param {SelectionView} [view]
+ */
 export function updateWireElement(shape, el, strokeColor, fillColor, scale, view = NO_SELECTION) {
     const attachedSelected = shape.attachedLabels instanceof Set
         && Array.from(shape.attachedLabels).some(label => label && view.isSelected(label));
@@ -445,9 +507,17 @@ export function updateWireElement(shape, el, strokeColor, fillColor, scale, view
     if (shape.labelText) shape.labelText.invalidate();
 }
 
+/**
+ * @param {Text} shape
+ * @param {SvgRenderElement} el
+ * @param {string} _strokeColor
+ * @param {string} fillColor
+ * @param {number} scale
+ * @param {SelectionView} [view]
+ */
 export function updateTextElement(shape, el, _strokeColor, fillColor, scale, view = NO_SELECTION) {
-    const borderEl = el.children[0];
-    const textEl = el.children[1];
+    const borderEl = /** @type {SvgRenderElement} */ (el.children[0]);
+    const textEl = /** @type {SvgRenderElement} */ (el.children[1]);
     textEl.setAttribute('x', shape.x);
     textEl.setAttribute('y', shape.y);
     if (shape.parentComponent && view.isSelected(shape.parentComponent) && !view.isSelected(shape) && !view.isHovered(shape)) {
@@ -467,7 +537,8 @@ export function updateTextElement(shape, el, _strokeColor, fillColor, scale, vie
     textEl.removeAttribute('stroke-width');
 
     if (shape.border) {
-        const box = getTextEditBoxGeometry(shape, textEl);
+        // Rendered text supplies measurable geometry when the border is drawn.
+        const box = /** @type {NonNullable<ReturnType<typeof getTextEditBoxGeometry>>} */ (getTextEditBoxGeometry(shape, textEl));
         const borderWidth = Math.max(shape.lineWidth, 1 / scale);
         borderEl.setAttribute('x', String(box.x + box.originX));
         borderEl.setAttribute('y', String(box.y + box.originY));
@@ -488,6 +559,14 @@ export function updateTextElement(shape, el, _strokeColor, fillColor, scale, vie
     shape._bounds = null;
 }
 
+/**
+ * @param {Net} shape
+ * @param {SvgRenderElement} el
+ * @param {string} strokeColor
+ * @param {string} _fillColor
+ * @param {number} scale
+ * @param {SelectionView} [view]
+ */
 export function updateNetElement(shape, el, strokeColor, _fillColor, scale, view = NO_SELECTION) {
     const geo = shape._getGeometry();
 
@@ -499,13 +578,13 @@ export function updateNetElement(shape, el, strokeColor, _fillColor, scale, view
         el.appendChild(detailPath);
     }
 
-    const path = el.children[0];
-    const detailPath = el.children[1];
+    const path = /** @type {SvgRenderElement} */ (el.children[0]);
+    const detailPath = /** @type {SvgRenderElement} */ (el.children[1]);
     const baseStrokeWidth = Math.max(shape.lineWidth, 1 / scale);
     const selectionColor = 'var(--sch-selection, #3399ff)';
     let symbolStroke = strokeColor;
 
-    const attachedLabels = shape.attachedLabels;
+    const attachedLabels = /** @type {{attachedLabels?: Set<SchematicShape>}} */ (shape).attachedLabels;
     const attachedActive = attachedLabels instanceof Set
         && Array.from(attachedLabels).some(label => label && (view.isSelected(label) || view.isHovered(label)));
     const labelActive = !!shape.labelText && (view.isSelected(shape.labelText) || view.isHovered(shape.labelText));
@@ -536,10 +615,17 @@ export function updateNetElement(shape, el, strokeColor, _fillColor, scale, view
     el.removeAttribute('transform');
 }
 
+/**
+ * @param {Arc} shape
+ * @param {SvgRenderElement} el
+ * @param {string} strokeColor
+ * @param {string} fillColor
+ * @param {number} scale
+ */
 export function updateArcElement(shape, el, strokeColor, fillColor, scale) {
     el.textContent = '';
 
-    const arcPath = primitiveShapePath(shape._controlArc());
+    const arcPath = primitiveShapePath(/** @type {Parameters<typeof primitiveShapePath>[0]} */ (shape._controlArc()));
     const sw = effectiveStrokeWidth(shape, scale);
 
     if (shape.fill) {
@@ -560,6 +646,13 @@ export function updateArcElement(shape, el, strokeColor, fillColor, scale) {
     el.appendChild(strokeEl);
 }
 
+/**
+ * @param {Circle} shape
+ * @param {SvgRenderElement} el
+ * @param {string} strokeColor
+ * @param {string} fillColor
+ * @param {number} scale
+ */
 export function updateCircleElement(shape, el, strokeColor, fillColor, scale) {
     el.setAttribute('cx', shape.x);
     el.setAttribute('cy', shape.y);
@@ -577,6 +670,13 @@ export function updateCircleElement(shape, el, strokeColor, fillColor, scale) {
     }
 }
 
+/**
+ * @param {NoConnect} shape
+ * @param {SvgRenderElement} el
+ * @param {string} strokeColor
+ * @param {string} _fillColor
+ * @param {number} scale
+ */
 export function updateNoConnectElement(shape, el, strokeColor, _fillColor, scale) {
     const sw = Math.max(shape.lineWidth, 1.5 / scale);
 
@@ -586,8 +686,8 @@ export function updateNoConnectElement(shape, el, strokeColor, _fillColor, scale
         el.appendChild(document.createElementNS(NS, 'line'));
     }
 
-    const line1 = el.children[0];
-    const line2 = el.children[1];
+    const line1 = /** @type {SvgRenderElement} */ (el.children[0]);
+    const line2 = /** @type {SvgRenderElement} */ (el.children[1]);
 
     line1.setAttribute('x1', shape.x - NC_HALF);
     line1.setAttribute('y1', shape.y - NC_HALF);

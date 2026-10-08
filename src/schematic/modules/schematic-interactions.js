@@ -21,7 +21,11 @@
  * Keep this module import-free. Owner modules expose intent APIs and are the only
  * modules that write their slots.
  */
-export const SCHEMATIC_INTERACTIONS = Object.freeze([
+/** @typedef {import('./schematic-editor-api.js').SchematicEditor} SchematicEditor */
+/** @typedef {'gesture'|'drawing'} SchematicInteractionCategory */
+/** @typedef {{key: string, category: SchematicInteractionCategory, blocksSnapshot: boolean, owner: string}} SchematicInteractionDescriptor */
+
+export const SCHEMATIC_INTERACTIONS = /** @type {readonly SchematicInteractionDescriptor[]} */ (Object.freeze([
     { key: 'textEdit', category: 'gesture', blocksSnapshot: true, owner: 'text-edit.js' },
     { key: 'overlapCyclePress', category: 'gesture', blocksSnapshot: false, owner: 'draw-states.js' },
     { key: 'drag', category: 'gesture', blocksSnapshot: true, owner: 'drag.js' },
@@ -29,35 +33,39 @@ export const SCHEMATIC_INTERACTIONS = Object.freeze([
     { key: 'isDrawing', category: 'drawing', blocksSnapshot: true, owner: 'drawing.js' },
     { key: 'pastingClipboard', category: 'gesture', blocksSnapshot: true, owner: 'clipboard.js' },
     { key: 'placingComponent', category: 'gesture', blocksSnapshot: true, owner: 'components.js' },
-].map(entry => Object.freeze(entry)));
+].map(entry => Object.freeze(entry))));
 
 const INTERACTION_KEYS = new Set(SCHEMATIC_INTERACTIONS.map(entry => entry.key));
+/** @param {(entry: SchematicInteractionDescriptor) => boolean} predicate */
 const keysWhere = predicate => Object.freeze(SCHEMATIC_INTERACTIONS.filter(predicate).map(entry => entry.key));
 const ALL_KEYS = keysWhere(() => true);
 const GESTURE_KEYS = keysWhere(entry => entry.category === 'gesture');
 const DRAWING_KEYS = keysWhere(entry => entry.category === 'drawing');
 const SNAPSHOT_BLOCKING_KEYS = keysWhere(entry => entry.blocksSnapshot);
+/** @type {WeakMap<SchematicEditor, Record<string, any>>} */
 const interactionState = new WeakMap();
 
-/** @param {any} app */
+/** @param {SchematicEditor} app */
 function slotState(app) {
     let state = interactionState.get(app);
     if (!state) {
-        state = Object.create(null);
+        state = /** @type {Record<string, any>} */ (Object.create(null));
         interactionState.set(app, state);
     }
     return state;
 }
 
+/** @param {string} key */
 function assertInteractionKey(key) {
     if (!INTERACTION_KEYS.has(key)) throw new Error(`Unknown schematic interaction slot ${key}.`);
 }
 
 /**
  * Return one schematic interaction slot's value, or null when inactive.
- * @param {any} app
- * @param {string} key
- * @returns {any}
+ * @template {string} K
+ * @param {SchematicEditor} app
+ * @param {K} key
+ * @returns {K extends 'textEdit' ? import('./text-edit.js').TextEditState|null : any}
  */
 export function getSchematicInteraction(app, key) {
     assertInteractionKey(key);
@@ -66,7 +74,7 @@ export function getSchematicInteraction(app, key) {
 
 /**
  * Set one schematic interaction slot. Passing null/undefined/false clears it.
- * @param {any} app
+ * @param {SchematicEditor} app
  * @param {string} key
  * @param {any} value
  */
@@ -81,13 +89,14 @@ export function setSchematicInteraction(app, key, value) {
 }
 
 /**
- * @param {any} app
+ * @param {SchematicEditor} app
  * @param {string} key
  */
 export function schematicInteractionActive(app, key) {
     return !!getSchematicInteraction(app, key);
 }
 
+/** @param {SchematicEditor} app @param {readonly string[]} keys */
 const anyActive = (app, keys) => {
     const state = interactionState.get(app);
     if (!state) return false;
@@ -95,19 +104,34 @@ const anyActive = (app, keys) => {
     return false;
 };
 
-/** A pointer, inline-text, paste or placement edit is in progress. */
+/**
+ * A pointer, inline-text, paste or placement edit is in progress.
+ * @param {SchematicEditor} app
+ */
 export const hasSchematicGesture = app => anyActive(app, GESTURE_KEYS);
 
-/** A shape or wire drawing session is open. */
+/**
+ * A shape or wire drawing session is open.
+ * @param {SchematicEditor} app
+ */
 export const isSchematicDrawing = app => anyActive(app, DRAWING_KEYS);
 
-/** Any interaction at all is in progress. */
+/**
+ * Any interaction at all is in progress.
+ * @param {SchematicEditor} app
+ */
 export const hasSchematicInteraction = app => anyActive(app, ALL_KEYS);
 
-/** An interaction whose transient state must not reach a saved snapshot. */
+/**
+ * An interaction whose transient state must not reach a saved snapshot.
+ * @param {SchematicEditor} app
+ */
 export const blocksSchematicSnapshot = app => anyActive(app, SNAPSHOT_BLOCKING_KEYS);
 
-/** The active interaction with the highest cancellation priority, or null. */
+/**
+ * The active interaction with the highest cancellation priority, or null.
+ * @param {SchematicEditor} app
+ */
 export function activeSchematicInteraction(app) {
     for (const key of ALL_KEYS) {
         if (schematicInteractionActive(app, key)) return key;

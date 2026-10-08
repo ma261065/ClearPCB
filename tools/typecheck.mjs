@@ -90,7 +90,7 @@ export function cleanFolderErrors(files, cleanFolders = []) {
 
 /**
  * Declarations in `text` with JSDoc tags in a block TypeScript ignores (any block but the
- * one nearest the declaration). Typedef and callback blocks declare types of their own.
+ * one nearest the declaration). Typedef, callback and overload blocks stand on their own.
  * @param {any} ts The TypeScript module.
  * @returns {number[]} 1-based line numbers of the ignored blocks.
  */
@@ -99,7 +99,7 @@ export function ignoredJsDocBlocks(ts, fileName, text) {
     const lines = [];
     const visit = node => {
         const blocks = (node.jsDoc || []).filter(block => !(block.tags || [])
-            .some(tag => ['typedef', 'callback'].includes(tag.tagName.text)));
+            .some(tag => ['typedef', 'callback', 'overload'].includes(tag.tagName.text)));
         for (const block of blocks.slice(0, -1)) {
             if (block.tags?.length) lines.push(source.getLineAndCharacterOfPosition(block.getStart()).line + 1);
         }

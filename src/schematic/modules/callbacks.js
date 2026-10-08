@@ -3,13 +3,20 @@ import { dismissAnchorContextMenu } from './context-menu.js';
 import { onComponentDefinitionSelected } from './components.js';
 import { onComponentPickerClosed } from './tool.js';
 import { isPastingClipboard, updatePastePreview } from './clipboard.js';
+/** @typedef {import('./schematic-editor-api.js').SchematicEditor} SchematicEditor */
+/** @typedef {{x: number, y: number}} Point */
+/** @typedef {{minX: number, minY: number, maxX: number, maxY: number}} Bounds */
+/** @typedef {{offset: Point, zoom: number, bounds: Bounds, scaleChanged: boolean, boundsChanged: boolean}} ViewChange */
 
+/** @type {WeakMap<SchematicEditor, number>} */
 const overlapHitCounts = new WeakMap();
 
+/** @param {SchematicEditor} app */
 export function getOverlapHitCount(app) {
     return overlapHitCounts.get(app) || 0;
 }
 
+/** @param {SchematicEditor} app @param {number} count */
 export function setOverlapHitCount(app, count) {
     overlapHitCounts.set(app, count);
 }
@@ -18,7 +25,7 @@ export function setOverlapHitCount(app, count) {
  * Wires up EventBus listeners (component picker) and viewport callbacks
  * (`onMouseMove`, `onViewChanged`, `onViewportCull`) for status bar updates,
  * cursor tracking, hover detection, and viewport culling.
- * @param {object} app - Application state.
+ * @param {SchematicEditor} app
  */
 export function setupCallbacks(app) {
     // Event bus listeners (component picker)
@@ -32,8 +39,10 @@ export function setupCallbacks(app) {
     // Hover + status updates are coalesced to one animation frame so a burst
     // of mousemove events performs at most one hit-test / DOM update per frame
     // (matches the PCB hover scheduler pattern).
+    /** @type {{world: Point, snapped: Point}|null} */
     let pendingMove = null;
     let moveRaf = 0;
+    /** @type {ViewChange|null} */
     let pendingView = null;
     let viewRaf = 0;
 
@@ -102,6 +111,7 @@ export function setupCallbacks(app) {
         }
     };
 
+    /** @param {Point} world @param {Point} snapped */
     app.viewport.onMouseMove = (world, snapped) => {
         if (isPastingClipboard(app) && app.pastePreviewGroup) {
             updatePastePreview(app, snapped);
@@ -135,6 +145,7 @@ export function setupCallbacks(app) {
         viewRaf = 0;
     };
 
+    /** @param {ViewChange} view */
     app.viewport.onViewChanged = (view) => {
         // A context menu is anchored to a screen position but refers to a board
         // location; any zoom or pan (wheel, +/- keys, arrow-key pan, buttons,

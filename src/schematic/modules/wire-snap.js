@@ -6,6 +6,20 @@ import { VERTEX_EPSILON } from './wire-constants.js';
 import { getEffectiveStrokeWidth } from './drawing.js';
 import { buildDrawingExtraSegments, getWireAxisLock, setWireAxisLock } from './wire.js';
 import { applyOffGridNeighborSnap } from './wire-drag-snap.js';
+/** @typedef {import('./schematic-editor-api.js').SchematicEditor} SchematicEditor */
+/** @typedef {import('../../components/Component.js').Component} Component */
+/** @typedef {SchematicShape} Wire */
+/** @typedef {import('../../core/SchematicDocument.js').SchematicShape} SchematicShape */
+/** @typedef {import('../../core/geometry.js').Point} Point */
+/** @typedef {Record<string, any> & {number?: string|number}} ComponentPin */
+/** @typedef {{id: string, type?: string, net?: string, [key: string]: any}} PinComponent */
+/** @typedef {{component: Component|SchematicShape|PinComponent, pin: ComponentPin, pinKey?: string|number|null}} PinIdentity */
+/** @typedef {PinIdentity & {distance: number, worldPos: Point}} PinSnapInfo */
+/** @typedef {{wire: Wire, nodeId: string}} ExcludedWireNode */
+/** @typedef {{a: Point, b: Point}} WireSegment */
+/** @typedef {{excludePin?: PinIdentity|null, excludeWire?: Wire|Set<Wire>|null, excludeNode?: ExcludedWireNode|null, extraSegments?: WireSegment[]|null, pinTolerance?: number, wireTolerance?: number}} WireSnapOptions */
+/** @typedef {{x:number, y:number, snapPin: PinSnapInfo|null, snapType: 'pin'|'endpoint'|'segment'|'grid', wireDir?: 'horizontal'|'vertical'|'angled'}} WireSnapResult */
+/** @typedef {{x:number, y:number, type: 'endpoint'|'segment', wire: Wire|null, wireDir?: 'horizontal'|'vertical'|'angled'}} NearbyWirePoint */
 
 // --- Constants ---
 
@@ -43,12 +57,14 @@ export const PIN_DEPART_RATIO = 2;
 /**
  * Find the nearest component pin (or Net label connection point) within tolerance.
  * Returns { component, pin, pinKey, distance, worldPos } or null.
- * @param {Array<any>} components
- * @param {{x:number,y:number}} worldPos
+ * @param {Component[]} components
+ * @param {Point} worldPos
  * @param {number} [tolerance]
- * @param {Array<any>|null} [shapes] - extra shapes (e.g. Net labels) to also test
+ * @param {SchematicShape[]|null} [shapes] - extra shapes (e.g. Net labels) to also test
+ * @returns {PinSnapInfo|null}
  */
 export function findNearbyPin(components, worldPos, tolerance = 0.5, shapes = null) {
+    /** @type {PinSnapInfo|null} */
     let nearest = null;
     let minDist = tolerance;
 
@@ -62,7 +78,7 @@ export function findNearbyPin(components, worldPos, tolerance = 0.5, shapes = nu
         const rad = (component.rotation || 0) * Math.PI / 180;
         const cos = Math.cos(rad), sin = Math.sin(rad);
         const mirror = !!component.mirror;
-        for (const pin of component.symbol.pins) {
+        for (const pin of /** @type {ComponentPin[]} */ (component.symbol.pins)) {
             const lx = mirror ? -pin.x : pin.x;
             const ly = pin.y;
             const wx = lx * cos - ly * sin + cx;
@@ -81,7 +97,7 @@ export function findNearbyPin(components, worldPos, tolerance = 0.5, shapes = nu
             if (shape.type !== 'net') continue;
             const dist = Math.hypot(worldPos.x - shape.x, worldPos.y - shape.y);
             if (dist < minDist) {
-                const pin = shape.symbol.pins[0];
+                const pin = /** @type {ComponentPin} */ (shape.symbol.pins[0]);
                 minDist = dist;
                 nearest = { component: shape, pin, pinKey: pin.number, distance: dist, worldPos: { x: shape.x, y: shape.y } };
             }
@@ -93,6 +109,8 @@ export function findNearbyPin(components, worldPos, tolerance = 0.5, shapes = nu
 /**
  * Resolve the unique key for a pin-snap object.
  * Handles the multiple fallback fields in component pin data.
+ * @param {PinIdentity|null|undefined} snapInfo
+ * @returns {string|number|undefined}
  */
 export function getPinKey(snapInfo) {
     return snapInfo?.pinKey || snapInfo?.pin?._key || snapInfo?.pin?._id || snapInfo?.pin?.number;
@@ -100,8 +118,8 @@ export function getPinKey(snapInfo) {
 
 /**
  * Compare two pin-snap objects for identity (same component + same pin).
- * @param {object} pin1 - Pin snap info
- * @param {object} pin2 - Pin snap info
+ * @param {PinIdentity|null|undefined} pin1 - Pin snap info
+ * @param {PinIdentity|null|undefined} pin2 - Pin snap info
  * @returns {boolean}
  */
 export function isSamePin(pin1, pin2) {
@@ -115,6 +133,8 @@ export function isSamePin(pin1, pin2) {
  * Determine the axis direction a pin points into the schematic.
  * The wire departs along the pin stub direction.
  * Returns 'horizontal' or 'vertical'.
+ * @param {PinIdentity|null|undefined} pin
+ * @returns {'horizontal'|'vertical'}
  */
 function pinDepartAxis(pin) {
     const orient = pin?.pin?.orientation || 'right';
@@ -132,16 +152,10 @@ function pinDepartAxis(pin) {
  * getDrawingSnappedPosition (which layers drawing-specific constraints on
  * top of the result).
  *
- * @param {object} app
- * @param {object} worldPos - Raw (unsnapped) cursor world position
- * @param {object} [options]
- * @param {object} [options.excludePin] - Pin snap to exclude (e.g. start pin)
- * @param {object} [options.excludeWire] - Wire to exclude entirely from wire snap
- * @param {{wire,nodeId}} [options.excludeNode] - Skip one node + its incident edges (partial exclusion)
- * @param {Array<{a:{x,y},b:{x,y}}>} [options.extraSegments] - Additional segments to check (e.g. in-progress wirePoints)
- * @param {number} [options.pinTolerance=PIN_SNAP_TOL] - Pin detection radius
- * @param {number} [options.wireTolerance=WIRE_SNAP_TOL] - Wire detection radius
- * @returns {{ x, y, snapPin, snapType: 'pin'|'endpoint'|'segment'|'grid', wireDir? }}
+ * @param {SchematicEditor} app
+ * @param {Point} worldPos - Raw (unsnapped) cursor world position
+ * @param {WireSnapOptions} [options]
+ * @returns {WireSnapResult}
  */
 export function resolveWireSnapPosition(app, worldPos, options = {}) {
     const {
@@ -210,6 +224,9 @@ export function resolveWireSnapPosition(app, worldPos, options = {}) {
  *    axis so the wire aligns to it even when it is off-grid.
  *  - When departing a pin (first segment), the axis is locked to the pin
  *    orientation axis.
+ * @param {SchematicEditor} app
+ * @param {Point} worldPos
+ * @returns {WireSnapResult & {adjustLastX?: number, adjustLastY?: number, corner?: Point}}
  */
 export function getDrawingSnappedPosition(app, worldPos) {
     // No points yet — use unified resolver (pin tol 1.0, no wires to snap to)
@@ -230,6 +247,7 @@ export function getDrawingSnappedPosition(app, worldPos) {
     const choiceRadius = Math.max(getEffectiveStrokeWidth(app, 0.2) * 2, CHOICE_ZONE_MIN_PX / app.viewport.scale);
     const inChoiceZone = rawDx < choiceRadius && rawDy < choiceRadius;
 
+    /** @type {'horizontal'|'vertical'} */
     let axis;
     if (inChoiceZone) {
         // Inside the zone: unlock axis so user can re-pick direction
@@ -248,7 +266,7 @@ export function getDrawingSnappedPosition(app, worldPos) {
     // cursor direction is ambiguous. Once the user clearly moves in the
     // perpendicular direction (ratio > PIN_DEPART_RATIO:1), respect that choice.
     if (app.wirePoints.length === 1 && lastPoint.pin) {
-        const pinAxis = pinDepartAxis(lastPoint);
+        const pinAxis = pinDepartAxis(lastPoint.pin);
         const dominant = Math.max(rawDx, rawDy);
         const minor = Math.min(rawDx, rawDy);
         if (dominant < minor * PIN_DEPART_RATIO) {
@@ -334,6 +352,9 @@ export function getDrawingSnappedPosition(app, worldPos) {
 /**
  * Classify a segment direction as horizontal, vertical, or angled.
  * H/V threshold: the minor axis must be < 5% of the major axis.
+ * @param {number} dx
+ * @param {number} dy
+ * @returns {'horizontal'|'vertical'|'angled'}
  */
 function _classifyDir(dx, dy) {
     const ax = Math.abs(dx), ay = Math.abs(dy);
@@ -346,11 +367,12 @@ function _classifyDir(dx, dy) {
  * Find the nearest point on another wire (node or edge interior)
  * that is within tolerance of worldPos.  Returns { x, y, type } or null.
  * type is 'endpoint' (snap to node) or 'segment' (T-junction on edge).
- * @param {object} app
- * @param {{x:number,y:number}} worldPos
+ * @param {SchematicEditor} app
+ * @param {Point} worldPos
  * @param {number} tolerance
- * @param {object|Set<any>|null} [excludeWires] - a wire, set of wires, or null
- * @param {object} [options]
+ * @param {Wire|Set<Wire>|null} [excludeWires] - a wire, set of wires, or null
+ * @param {{excludeNode?: ExcludedWireNode|null, extraSegments?: WireSegment[]|null}} [options]
+ * @returns {NearbyWirePoint|null}
  */
 export function findNearbyWirePoint(app, worldPos, tolerance, excludeWires = null, options = {}) {
     const excludeSet = !excludeWires ? new Set() :
@@ -362,12 +384,16 @@ export function findNearbyWirePoint(app, worldPos, tolerance, excludeWires = nul
     let excNodeEdgeIds = null;
     if (excludeNode) {
         excNodeEdgeIds = new Set(
-            excludeNode.wire.incidentEdges(excludeNode.nodeId).map(e => e.edgeId)
+            excludeNode.wire.incidentEdges(excludeNode.nodeId).map((/** @type {{edgeId: string}} */ e) => e.edgeId)
         );
     }
 
-    let bestNode = null, bestNodeDist = tolerance;
-    let bestEdge = null, bestEdgeDist = tolerance;
+    /** @type {NearbyWirePoint|null} */
+    let bestNode = null;
+    let bestNodeDist = tolerance;
+    /** @type {NearbyWirePoint|null} */
+    let bestEdge = null;
+    let bestEdgeDist = tolerance;
 
     for (const shape of app.shapes) {
         if (shape.type !== 'wire' || shape.edges.size === 0) continue;

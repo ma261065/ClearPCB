@@ -5,7 +5,20 @@
 import { resolveWireSnapPosition, PIN_SNAP_TOL } from './wire-snap.js';
 import { getSchematicDrag } from './drag.js';
 import { getPlacingComponent } from './components.js';
+/** @typedef {import('./schematic-editor-api.js').SchematicEditor} SchematicEditor */
+/** @typedef {import('../../components/Component.js').Component} Component */
+/** @typedef {import('../../core/SchematicDocument.js').SchematicShape} SchematicShape */
+/** @typedef {import('../../core/geometry.js').Point} Point */
+/** @typedef {import('./wire-snap.js').ComponentPin} ComponentPin */
+/** @typedef {ReturnType<typeof resolveWireSnapPosition>} WireSnapResult */
+/** @typedef {{excludePin?: {component: Component|SchematicShape, pin: ComponentPin, pinKey?: string|number|null}, pinTolerance?: number, wireTolerance?: number}} PinSnapOptions */
+/** @typedef {{pin?: ComponentPin, pinWorld: Point, resolved: WireSnapResult, distance: number}} ComponentSnapCandidate */
 
+/**
+ * @param {SchematicEditor} app
+ * @param {Point} worldPos
+ * @param {PinSnapOptions} [options]
+ */
 export function resolvePinSnapPlacement(app, worldPos, options = {}) {
     const resolved = resolveWireSnapPosition(app, worldPos, {
         pinTolerance: PIN_SNAP_TOL,
@@ -14,10 +27,22 @@ export function resolvePinSnapPlacement(app, worldPos, options = {}) {
     return { resolved, pos: { x: resolved.x, y: resolved.y } };
 }
 
+/**
+ * @param {ComponentPin|null|undefined} pin
+ * @returns {string|number|null}
+ */
 function getPinIdentityKey(pin) {
     return pin?._key || pin?._id || pin?.number || null;
 }
 
+/**
+ * @param {ComponentPin|null|undefined} pin
+ * @param {number} baseX
+ * @param {number} baseY
+ * @param {number} rotationDeg
+ * @param {boolean} mirror
+ * @returns {Point}
+ */
 function getPinWorldWithTransform(pin, baseX, baseY, rotationDeg, mirror) {
     const lx = Number(pin?.x) || 0;
     const ly = Number(pin?.y) || 0;
@@ -31,15 +56,20 @@ function getPinWorldWithTransform(pin, baseX, baseY, rotationDeg, mirror) {
     };
 }
 
+/**
+ * @param {SchematicEditor} app
+ * @param {Point} placePos
+ */
 export function resolvePlacingComponentSnap(app, placePos) {
     const def = getPlacingComponent(app);
     if (!def?.symbol?.pins?.length) return { placePos, pinSnap: null };
 
     const rotation = app.componentRotation || 0;
     const mirror = !!app.componentMirror;
+    /** @type {ComponentSnapCandidate|null} */
     let best = null;
 
-    for (const pin of def.symbol.pins) {
+    for (const pin of /** @type {ComponentPin[]} */ (def.symbol.pins)) {
         const pinWorld = getPinWorldWithTransform(pin, placePos.x, placePos.y, rotation, mirror);
         const { resolved } = resolvePinSnapPlacement(app, pinWorld);
         if (!resolved || resolved.snapType === 'grid') continue;
@@ -60,8 +90,14 @@ export function resolvePlacingComponentSnap(app, placePos) {
     };
 }
 
+/**
+ * @param {SchematicEditor} app
+ * @param {Component|SchematicShape} comp
+ * @param {Point} snappedTarget
+ * @param {Point} lastSnapped
+ */
 export function resolveDraggingComponentSnap(app, comp, snappedTarget, lastSnapped) {
-    const pins = comp.symbol?.pins || [];
+    const pins = /** @type {ComponentPin[]} */ (comp.symbol?.pins || []);
     if (pins.length === 0) return { targetPos: snappedTarget, pinSnap: null };
 
     const SNAP_LOCK_ENGAGE_DISTANCE = 0.55;
@@ -81,6 +117,7 @@ export function resolveDraggingComponentSnap(app, comp, snappedTarget, lastSnapp
     }
     const snapState = getSchematicDrag(app)._componentSnapState;
 
+    /** @param {ComponentPin} pin @returns {ComponentSnapCandidate|null} */
     const evaluatePin = (pin) => {
         const pinWorld = getPinWorldWithTransform(pin, projectedX, projectedY, comp.rotation || 0, !!comp.mirror);
         const { resolved } = resolvePinSnapPlacement(app, pinWorld, {
@@ -95,6 +132,7 @@ export function resolveDraggingComponentSnap(app, comp, snappedTarget, lastSnapp
         return { pin, pinWorld, resolved, distance };
     };
 
+    /** @param {ComponentSnapCandidate|null} candidate */
     const makeResult = (candidate) => {
         if (!candidate) return { targetPos: snappedTarget, pinSnap: null };
         return {
@@ -120,6 +158,7 @@ export function resolveDraggingComponentSnap(app, comp, snappedTarget, lastSnapp
         snapState.lockedPinKey = null;
     }
 
+    /** @type {ComponentSnapCandidate|null} */
     let best = null;
     for (const pin of pins) {
         const candidate = evaluatePin(pin);

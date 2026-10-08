@@ -7,6 +7,10 @@ import {
 } from './schematic-interaction-routing.js';
 import { isSchematicLocked } from '../../shapes/lock-owner.js';
 import { flushSettledChanges } from '../../shared/ui/settled-input.js';
+/** @typedef {import('./schematic-editor-api.js').SchematicEditor} SchematicEditor */
+/** @typedef {import('../../components/Component.js').Component} Component */
+/** @typedef {import('../../core/SchematicDocument.js').SchematicShape} SchematicShape */
+/** @typedef {'undo'|'redo'} HistoryAction */
 
 /**
  * Keyboard, ribbon and Properties entry points for the schematic editor's Escape,
@@ -29,7 +33,7 @@ import { flushSettledChanges } from '../../shared/ui/settled-input.js';
  *   5. the open Net-style dropdown
  *   6. a non-Home ribbon tab (back to Home)
  *   7. a non-select tool (back to select)
- * @param {object} app - Application state.
+ * @param {SchematicEditor} app
  */
 export function runSchematicEscapeAction(app) {
     // 1. In-progress interactions, highest priority first.
@@ -79,7 +83,11 @@ export function runSchematicEscapeAction(app) {
     }
 }
 
-/** Settle reversible edits before either keyboard or ribbon history advances. */
+/**
+ * Settle reversible edits before either keyboard or ribbon history advances.
+ * @param {SchematicEditor} app
+ * @param {HistoryAction} action
+ */
 export function runSchematicHistoryAction(app, action) {
     // Like the PCB editor: drawing blocks history, modal edits (inline text, paste,
     // placement) are only cancelled, and pointer previews are cancelled first.
@@ -101,7 +109,7 @@ export function runSchematicHistoryAction(app, action) {
 /**
  * Deletes all unlocked selected items (shapes and components), handling
  * component field-text show-flag toggling and batching delete commands for undo.
- * @param {object} app - Application state.
+ * @param {SchematicEditor} app
  */
 export function runSchematicDeleteAction(app) {
     // A focused node or segment delete settles its own drag on that shape first.
@@ -115,16 +123,19 @@ export function runSchematicDeleteAction(app) {
     const shapeSet = new Set(app.shapes);
     const compSet = new Set(app.components);
     const deleteSet = new Set(toDelete);
+    /** @type {SchematicShape[]} */
     const shapesToDelete = [];
+    /** @type {Component[]} */
     const componentsToDelete = [];
     const showFlagCommands = [];
 
     for (const item of toDelete) {
         if (shapeSet.has(item)) {
             if (item.parentComponent && item.fieldKey && item.fieldKey !== 'label') {
+                const parentComponent = /** @type {SchematicShape} */ (item.parentComponent);
                 // Skip show-flag toggle if parent is also being deleted
-                if (!deleteSet.has(item.parentComponent)) {
-                    if (item.fieldKey === 'wireLabel' && item.parentComponent.type === 'wire') {
+                if (!deleteSet.has(parentComponent)) {
+                    if (item.fieldKey === 'wireLabel' && parentComponent.type === 'wire') {
                         // Wire label: hide by setting visible = false on the text shape
                         if (item.visible) {
                             showFlagCommands.push(new ModifyPropertyCommand(
@@ -132,17 +143,17 @@ export function runSchematicDeleteAction(app) {
                         }
                     } else {
                         const showKey = item.fieldKey === 'reference' ? 'showReference' : 'showValue';
-                        if (item.parentComponent[showKey]) {
+                        if (parentComponent[showKey]) {
                             showFlagCommands.push(new ModifyPropertyCommand(
-                                app, [item.parentComponent], showKey, false));
+                                app, [/** @type {Component} */ (parentComponent)], showKey, false));
                         }
                     }
                 }
                 continue;
             }
             shapesToDelete.push(item);
-        } else if (compSet.has(item)) {
-            componentsToDelete.push(item);
+        } else if (compSet.has(/** @type {Component} */ (item))) {
+            componentsToDelete.push(/** @type {Component} */ (item));
         }
     }
 
@@ -171,7 +182,7 @@ export function runSchematicDeleteAction(app) {
  * Whether an action on the current selection (delete, cut, paste, nudge, flip,
  * rotate, select all) may run: nothing may be in progress, as in the PCB editor.
  * Placement keys that act on the component being placed check that first.
- * @param {object} app
+ * @param {SchematicEditor} app
  */
 export function canRunSchematicSelectionAction(app) {
     return !hasSchematicInteraction(app);

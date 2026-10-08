@@ -9,7 +9,8 @@ import { pointInPolygon, distanceToSegment, bulgeRatio, bulgePointFromRatio } fr
 import { projectArcBulge, arcBulgeRatio, arcBulgeFromRatio, controlArcGeometry, sampleControlArc } from './arc-edit.js';
 import { pointsBounds, hitTestStrokeSegments } from './path-geometry.js';
 
-/** @typedef {{x: number, y: number}} Point */
+/** @typedef {import('../core/geometry.js').Point} Point */
+/** @typedef {import('./arc-edit.js').ControlArcShape & {kind: 'arc'}} ControlArcShape */
 /** @typedef {{cx: number, cy: number, radius: number, startAngle: number, endAngle: number, sweepFlag: 0|1}} ArcGeometry */
 /** @typedef {Record<string, any> & {startPoint?: Point, endPoint?: Point, bulgePoint?: Point, fill?: boolean, fillAlpha?: number}} ArcOptions */
 
@@ -193,6 +194,7 @@ export class Arc extends Shape {
             Math.min(distance, distanceToSegment(point, start, points[index + 1])), Infinity);
     }
 
+    /** @returns {ControlArcShape} */
     _controlArc() {
         return { kind: 'arc', start: this._startPoint, end: this._endPoint, bulge: this._bulgePoint };
     }

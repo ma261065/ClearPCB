@@ -12,9 +12,22 @@ import { freeWireLabel, bumpWireLabelCounter, freeNetName, bumpNetNameCounter } 
 import { applyStickyConnections } from './sticky-wires.js';
 import { connectComponentPinsToWires, PIN_ATTACH_TOL } from './pin-wire-connect.js';
 import { mountComponent, mountShape, redrawShape, refreshComponentPose, unmountComponent, unmountShape, withContentDetached } from './schematic-view.js';
+/** @typedef {import('./schematic-editor-api.js').SchematicEditor} SchematicEditor */
+/** @typedef {import('../../core/CommandHistory.js').HistoryCommand} HistoryCommand */
+/**
+ * @typedef {any} Shape
+ * @typedef {import('../../core/SchematicDocument.js').SchematicShape} Wire
+ * @typedef {import('../../shapes/text.js').Text} TextShape
+ * @typedef {import('./selection.js').ShapeState} ShapeState
+ * @typedef {import('../../ui/SchematicApp.js').ShapeRestoreData} ShapeRestoreData
+ * @typedef {{component: Component, index: number}} ComponentRestoreData
+ * @typedef {{wire: Wire, nodeId: string, conn: Record<string, any>}} RemovedPinConnection
+ */
 
 /**
  * Update wires connected to a Net label to use its current net name.
+ * @param {SchematicEditor} app
+ * @param {Shape} netShape
  */
 function _propagateNetNameToWires(app, netShape) {
     for (const wire of app.shapes) {
@@ -34,15 +47,12 @@ function _propagateNetNameToWires(app, netShape) {
     app.updatePropertiesPanel?.(app.selection?.getSelection?.() || []);
 }
 
-/** @typedef {any} SchematicApp */
-/** @typedef {any} Shape */
-
 /**
  * Command to add a shape
  */
 export class AddShapeCommand extends Command {
     /**
-     * @param {SchematicApp} app - Application instance
+     * @param {SchematicEditor} app
      * @param {Shape} shape - The shape to add
      */
     constructor(app, shape) {
@@ -71,7 +81,7 @@ export class AddShapeCommand extends Command {
  */
 export class DeleteShapesCommand extends Command {
     /**
-     * @param {SchematicApp} app - Application instance
+     * @param {SchematicEditor} app
      * @param {Shape[]} shapes - The shapes to delete
      */
     constructor(app, shapes) {
@@ -89,8 +99,10 @@ export class DeleteShapesCommand extends Command {
 
         const explicitShapes = new Set(shapes);
         const linkedShapeSet = new Set();
+        /** @type {ShapeRestoreData[]} */
         this.linkedLabelData = [];
 
+        /** @param {TextShape|null|undefined} labelShape @param {Shape|null} parentShape */
         const pushLinked = (labelShape, parentShape) => {
             if (!labelShape || explicitShapes.has(labelShape) || linkedShapeSet.has(labelShape)) return;
             linkedShapeSet.add(labelShape);
@@ -140,7 +152,7 @@ export class DeleteShapesCommand extends Command {
  */
 export class MoveShapesCommand extends Command {
     /**
-     * @param {SchematicApp} app - Application instance
+     * @param {SchematicEditor} app
      * @param {Array<Shape|Component>} items - Items to move
      * @param {number} dx - Horizontal displacement
      * @param {number} dy - Vertical displacement
@@ -216,10 +228,10 @@ export class MoveShapesCommand extends Command {
  */
 export class ModifyShapeCommand extends Command {
     /**
-     * @param {SchematicApp} app - Application instance
+     * @param {SchematicEditor} app
      * @param {Shape|Component} shape - The item being modified
-     * @param {Object} beforeState - Snapshot of shape state before the edit
-     * @param {Object} afterState - Snapshot of shape state after the edit
+     * @param {ShapeState} beforeState - Snapshot of shape state before the edit
+     * @param {ShapeState} afterState - Snapshot of shape state after the edit
      */
     constructor(app, shape, beforeState, afterState) {
         super(`Modify ${shape.type}`);
@@ -260,7 +272,7 @@ export class ModifyShapeCommand extends Command {
     /**
      * Apply a captured state snapshot to a shape and re-render.
      * @param {Shape|Component} shape
-     * @param {Object} state - State object from captureState()
+     * @param {ShapeState} state - State object from captureState()
      */
     _applyState(shape, state) {
         const oldRotation = shape.rotation;
@@ -301,7 +313,7 @@ export class ModifyShapeCommand extends Command {
  */
 export class ModifyPropertyCommand extends Command {
     /**
-     * @param {SchematicApp} app - Application instance
+     * @param {SchematicEditor} app
      * @param {Array<Shape|Component>} items - Items whose property is changing
      * @param {string} prop - Property name to modify
      * @param {*} newValue - New value for the property
@@ -439,7 +451,7 @@ export class ModifyPropertyCommand extends Command {
  */
 export class DeleteComponentsCommand extends Command {
     /**
-     * @param {SchematicApp} app - Application instance
+     * @param {SchematicEditor} app
      * @param {Component[]} components - Components to delete
      */
     constructor(app, components) {
@@ -524,6 +536,7 @@ export class DeleteComponentsCommand extends Command {
         // on-canvas connection dots disappear (and can be restored on undo).
         const removedIds = new Set();
         for (const c of compsToRemove) removedIds.add(c.id);
+        /** @type {RemovedPinConnection[]|null} */
         this._removedPinConnections = [];
         const dirtyWires = new Set();
         for (const shape of app.shapes) {
@@ -589,7 +602,7 @@ export class DeleteComponentsCommand extends Command {
  */
 export class AddComponentCommand extends Command {
     /**
-     * @param {SchematicApp} app - Application instance
+     * @param {SchematicEditor} app
      * @param {Component} component - The component to add
      */
     constructor(app, component) {
@@ -724,7 +737,7 @@ export class AddComponentCommand extends Command {
  */
 export class TransformComponentCommand extends Command {
     /**
-     * @param {SchematicApp} app - Application instance
+     * @param {SchematicEditor} app
      * @param {Component[]} components - Components to transform
      * @param {string} type - Transform type: 'RotateRight', 'RotateLeft', 'FlipH', 'FlipV', 'Rotate', or 'Mirror'
      */
@@ -837,7 +850,7 @@ export class TransformComponentCommand extends Command {
  */
 export class PasteCommand extends Command {
     /**
-     * @param {SchematicApp} app - Application instance
+     * @param {SchematicEditor} app
      * @param {Shape[]} shapes - Pasted shapes
      * @param {Component[]} components - Pasted components
      */
@@ -938,12 +951,13 @@ export class BatchCommand extends Command {
      */
     constructor(label) {
         super(label);
+        /** @type {HistoryCommand[]} */
         this.commands = [];
     }
 
     /**
      * Append a sub-command to the batch.
-     * @param {Command} command
+     * @param {HistoryCommand} command
      */
     add(command) {
         this.commands.push(command);

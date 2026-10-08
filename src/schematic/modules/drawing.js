@@ -6,14 +6,19 @@ import { clearAxisGlow, pathAlignmentSegments, renderAxisGlow, squareAlignmentSe
 import { controlArcGeometry } from '../../shapes/arc-edit.js';
 import { takeDrawSnapResult } from './draw-states.js';
 import { getSchematicInteraction, setSchematicInteraction } from './schematic-interactions.js';
+/** @typedef {import('./schematic-editor-api.js').SchematicEditor} SchematicEditor */
+/** @typedef {import('../../shapes/shape-drawing.js').DrawingKind} DrawingKind */
+/** @typedef {import('../../shapes/net.js').NetStyle} NetStyle */
+/** @typedef {{x: number, y: number}} Point */
+/** @typedef {import('../../ui/SchematicApp.js').SchematicToolOptions} SchematicToolOptions */
 
-/** @param {object} app */
+/** @param {SchematicEditor} app */
 export function isSchematicDrawingActive(app) {
     return !!getSchematicInteraction(app, 'isDrawing');
 }
 
 /**
- * @param {object} app
+ * @param {SchematicEditor} app
  * @param {boolean} active
  */
 export function setSchematicDrawingActive(app, active) {
@@ -23,7 +28,7 @@ export function setSchematicDrawingActive(app, active) {
 /**
  * Allocate the lowest unused default net name in the current document.
  * Example: NET1, NET2, NET3 ... (fills gaps).
- * @param {object} app - Application state.
+ * @param {SchematicEditor} app
  * @returns {string}
  */
 function nextNetName_(app) {
@@ -38,8 +43,18 @@ function nextNetName_(app) {
     return `NET${i}`;
 }
 
+/**
+ * @param {string} tool
+ * @returns {tool is DrawingKind}
+ */
+function isDrawingKind(tool) {
+    return DRAWING_SHAPES.has(/** @type {DrawingKind} */ (tool));
+}
+
+/** @param {SchematicEditor} app @param {NetStyle} style */
 function defaultNetText(app, style) {
-    if (app.toolOptions.netPresetText) return app.toolOptions.netPresetText;
+    const opts = /** @type {SchematicToolOptions} */ (app.toolOptions);
+    if (opts.netPresetText) return opts.netPresetText;
     if (style === 'gnd') return 'Gnd';
     return nextNetName_(app);
 }
@@ -47,7 +62,7 @@ function defaultNetText(app, style) {
 /**
  * Begins a shape-drawing session: stores start position, initializes
  * polygon/line/arc state, creates preview, and shows crosshair.
- * @param {object} app - Application state.
+ * @param {SchematicEditor} app
  * @param {{x: number, y: number}} worldPos - Starting position in world coordinates.
  */
 export function startDrawing(app, worldPos) {
@@ -78,7 +93,7 @@ export function startDrawing(app, worldPos) {
 
 /**
  * Updates the current cursor position during drawing and refreshes the preview.
- * @param {object} app - Application state.
+ * @param {SchematicEditor} app
  * @param {{x: number, y: number}} worldPos - Current cursor position in world coordinates.
  */
 export function updateDrawing(app, worldPos) {
@@ -91,7 +106,7 @@ export function updateDrawing(app, worldPos) {
 /**
  * Completes the drawing: creates the final shape, adds it to the canvas,
  * starts text edit if text tool, then cancels drawing mode.
- * @param {object} app - Application state.
+ * @param {SchematicEditor} app
  * @param {{x: number, y: number}} worldPos - Final position in world coordinates.
  */
 export function finishDrawing(app, worldPos) {
@@ -117,7 +132,7 @@ export function finishDrawing(app, worldPos) {
 
 /**
  * Adds a vertex to the in-progress polygon and updates the preview.
- * @param {object} app - Application state.
+ * @param {SchematicEditor} app
  * @param {{x: number, y: number}} worldPos - Vertex position in world coordinates.
  */
 export function addPolygonPoint(app, worldPos) {
@@ -130,15 +145,15 @@ export function addPolygonPoint(app, worldPos) {
 /**
  * Completes the polygon (≥3 points required), strips duplicate trailing
  * points, creates a `Polygon` shape, and adds it to the canvas.
- * @param {object} app - Application state.
+ * @param {SchematicEditor} app
  */
 export function finishPolygon(app) {
-    if (app.currentTool === 'polygon' && isSchematicDrawingActive(app)) finishDrawing(app, app.drawCurrent);
+    if (app.currentTool === 'polygon' && isSchematicDrawingActive(app) && app.drawCurrent) finishDrawing(app, app.drawCurrent);
 }
 
 /**
  * Adds a vertex to the in-progress polyline and updates the preview.
- * @param {object} app - Application state.
+ * @param {SchematicEditor} app
  * @param {{x: number, y: number}} worldPos - Vertex position in world coordinates.
  */
 export function addLinePoint(app, worldPos) {
@@ -151,16 +166,16 @@ export function addLinePoint(app, worldPos) {
 /**
  * Completes the line (≥2 points required), strips duplicates, creates
  * a `Line` shape, and adds it to the canvas.
- * @param {object} app - Application state.
+ * @param {SchematicEditor} app
  */
 export function finishLine(app) {
-    if (app.currentTool === 'line' && isSchematicDrawingActive(app)) finishDrawing(app, app.drawCurrent);
+    if (app.currentTool === 'line' && isSchematicDrawingActive(app) && app.drawCurrent) finishDrawing(app, app.drawCurrent);
 }
 
 /**
  * Cancels active drawing: resets all state, removes the preview SVG,
  * hides crosshair, and restores cursor.
- * @param {object} app - Application state.
+ * @param {SchematicEditor} app
  */
 export function cancelDrawing(app) {
     clearAxisGlow(app);
@@ -183,7 +198,7 @@ export function cancelDrawing(app) {
 
 /**
  * Creates a semi-transparent SVG `<g>` for previewing the shape being drawn.
- * @param {object} app - Application state.
+ * @param {SchematicEditor} app
  */
 export function createPreview(app) {
     app.previewElement = document.createElementNS('http://www.w3.org/2000/svg', 'g');
@@ -196,7 +211,7 @@ export function createPreview(app) {
 /**
  * Returns the larger of `lineWidth` or the minimum visible stroke width
  * at the current zoom level.
- * @param {object} app - Application state.
+ * @param {SchematicEditor} app
  * @param {number} lineWidth - Requested line width.
  * @returns {number} Effective stroke width.
  */
@@ -208,12 +223,13 @@ export function getEffectiveStrokeWidth(app, lineWidth) {
 /**
  * Redraws the preview SVG to match the current tool, start position, and
  * cursor position (handles line, wire, rect, circle, arc, polygon, text).
- * @param {object} app - Application state.
+ * @param {SchematicEditor} app
  */
 export function updatePreview(app) {
     if (!app.previewElement || !app.drawStart || !app.drawCurrent) return;
     const kind = app.currentTool === 'wire' ? 'line' : app.currentTool;
-    if (!DRAWING_SHAPES.has(kind)) return;
+    if (!isDrawingKind(kind)) return;
+    const opts = /** @type {SchematicToolOptions} */ (app.toolOptions);
     const points = drawingPoints(app);
     let element = app.previewElement.firstElementChild;
     if (!element || element.tagName !== 'path') {
@@ -221,44 +237,48 @@ export function updatePreview(app) {
         element = document.createElementNS('http://www.w3.org/2000/svg', 'path');
         app.previewElement.appendChild(element);
     }
-    element.setAttribute('d', shapePreviewPath(kind, points, app.drawCurrent, app.toolOptions.cornerRadius || 0));
-    element.setAttribute('stroke', app.toolOptions.color);
-    element.setAttribute('stroke-width', getEffectiveStrokeWidth(app, app.toolOptions.lineWidth));
+    element.setAttribute('d', shapePreviewPath(kind, points, app.drawCurrent, opts.cornerRadius || 0));
+    element.setAttribute('stroke', String(opts.color));
+    const lineWidth = opts.lineWidth ?? 0.25;
+    element.setAttribute('stroke-width', String(getEffectiveStrokeWidth(app, lineWidth)));
     element.setAttribute('stroke-linecap', 'round');
     element.setAttribute('stroke-linejoin', 'round');
-    element.setAttribute('fill', app.toolOptions.fill && kind !== 'line' && kind !== 'arc' ? 'var(--sch-shape-fill, #777777)' : 'none');
+    element.setAttribute('fill', opts.fill && kind !== 'line' && kind !== 'arc' ? 'var(--sch-shape-fill, #777777)' : 'none');
     element.setAttribute('fill-opacity', '0.3');
     if (app.currentTool !== 'wire') {
         const geometry = shapeFromPoints(kind, [...points, app.drawCurrent], true);
         let segments = [];
         if (geometry?.points) {
             const vertices = geometry.points;
-            const widths = vertices.map(() => app.toolOptions.lineWidth);
+            const widths = vertices.map(() => lineWidth);
             segments = kind === 'rect' ? squareAlignmentSegments(vertices, widths)
                 : pathAlignmentSegments(vertices, kind !== 'line', [vertices.length - 2, vertices.length - 1], widths);
         } else if (kind === 'arc') {
             const start = points[0], end = points[1] || app.drawCurrent;
             segments = points.length === 1
-                ? pathAlignmentSegments([start, end], false, [0], [app.toolOptions.lineWidth])
+                ? pathAlignmentSegments([start, end], false, [0], [lineWidth])
                 : geometry && !controlArcGeometry(geometry)
-                    ? [{ a: start, b: end, width: app.toolOptions.lineWidth, collinear: true }] : [];
+                    ? [{ a: start, b: end, width: lineWidth, collinear: true }] : [];
         }
         renderAxisGlow(app, segments);
     }
 }
 
+/** @param {SchematicEditor} app @returns {Point[]} */
 function drawingPoints(app) {
     if (app.currentTool === 'line') return app.linePoints || [];
     if (app.currentTool === 'polygon') return app.polygonPoints || [];
-    return app.arcEndpoint && app.currentTool === 'arc' ? [app.drawStart, app.arcEndpoint] : [app.drawStart];
+    const start = /** @type {Point} */ (app.drawStart);
+    return app.arcEndpoint && app.currentTool === 'arc' ? [start, app.arcEndpoint] : [start];
 }
 
+/** @param {SchematicEditor} app @param {Point} point */
 export function shapeDrawingClick(app, point) {
     if (!isSchematicDrawingActive(app)) {
         startDrawing(app, point);
         return;
     }
-    const next = advanceShapeDrawing(app.currentTool, drawingPoints(app), point);
+    const next = advanceShapeDrawing(/** @type {DrawingKind} */ (app.currentTool), drawingPoints(app), point);
     if (app.currentTool === 'line') app.linePoints = next.points;
     if (app.currentTool === 'polygon') app.polygonPoints = next.points;
     if (app.currentTool === 'arc') app.arcEndpoint = next.points[1];
@@ -269,14 +289,15 @@ export function shapeDrawingClick(app, point) {
 /**
  * Instantiates the appropriate shape object (Rect, Circle, Arc, Text) from
  * the current drawing state and tool options.
- * @param {object} app - Application state.
+ * @param {SchematicEditor} app
  * @returns {import('../../shapes/shape.js').Shape|null} The created shape, or `null` if too small.
  */
 export function createShapeFromDrawing(app) {
-    const start = app.drawStart;
+    const start = /** @type {Point} */ (app.drawStart);
     const end = app.drawCurrent;
-    const opts = app.toolOptions;
-    if (DRAWING_SHAPES.has(app.currentTool)) {
+    if (!end) return null;
+    const opts = /** @type {SchematicToolOptions} */ (app.toolOptions);
+    if (isDrawingKind(app.currentTool)) {
         const points = drawingPoints(app);
         const geometry = shapeFromPoints(app.currentTool,
             ['line', 'polygon'].includes(app.currentTool) ? points : [...points, end]);
@@ -301,12 +322,12 @@ export function createShapeFromDrawing(app) {
                 text: '',
                 color: opts.textColor,
                 fillColor: opts.textColor,
-                fontSize: app.toolOptions.fontSize || 2.0
+                fontSize: opts.fontSize || 2.0
             });
         }
 
         case 'net': {
-            const style = normalizeNetStyle(app.toolOptions.netStyle || 't');
+            const style = normalizeNetStyle(opts.netStyle || 't');
             const net = defaultNetText(app, style);
             const validation = validateNetNameAtPoint(app, { x: start.x, y: start.y }, net);
             if (!validation.ok) {
@@ -318,9 +339,9 @@ export function createShapeFromDrawing(app) {
                 x: start.x,
                 y: start.y,
                 net,
-                fontSize: app.toolOptions.netFontSize || 1.4,
+                fontSize: opts.netFontSize || 1.4,
                 style,
-                orientation: normalizeNetOrientation(app.toolOptions.netOrientation || 'N')
+                orientation: normalizeNetOrientation(opts.netOrientation || 'N')
             });
         }
 

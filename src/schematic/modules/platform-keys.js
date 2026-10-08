@@ -44,14 +44,14 @@ export function adaptShortcutsInDOM() {
 
     // Rewrite title attributes on every element with one
     for (const el of document.querySelectorAll('[title]')) {
-        const t = el.getAttribute('title');
+        const t = /** @type {string} */ (el.getAttribute('title'));
         const adapted = adaptShortcutText(t);
         if (adapted !== t) el.setAttribute('title', adapted);
     }
 
     // Rewrite <kbd> elements (help panel)
     for (const kbd of document.querySelectorAll('kbd')) {
-        const t = kbd.textContent;
+        const t = /** @type {string} */ (kbd.textContent);
         const adapted = adaptShortcutText(t);
         if (adapted !== t) kbd.textContent = adapted;
     }

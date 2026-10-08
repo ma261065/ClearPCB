@@ -1,13 +1,18 @@
 import { renderPropertyActions, renderPropertyFields } from '../../shared/ui/property-fields.js';
 
+/** @typedef {{main: HTMLElement, title: HTMLElement, items: HTMLElement, summary: HTMLElement, summaryValue: HTMLElement, fields: HTMLElement}} PropertyHostState */
+
+/** @type {WeakMap<HTMLElement, PropertyHostState>} */
 const states = new WeakMap();
 
+/** @param {string} tag @param {string} [className] */
 const element = (tag, className = '') => {
     const node = document.createElement(tag);
     if (className) node.className = className;
     return node;
 };
 
+/** @param {HTMLElement} container */
 function createState(container) {
     while (container.firstChild) container.removeChild(container.firstChild);
     const main = element('div', 'ribbon-group schematic-property-group');
@@ -25,6 +30,7 @@ function createState(container) {
     return state;
 }
 
+/** @param {HTMLElement} container */
 function stateFor(container) {
     const state = states.get(container);
     return state?.main.parentNode === container ? state : createState(container);

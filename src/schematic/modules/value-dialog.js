@@ -8,7 +8,15 @@
 
 import { ModalManager } from '../../core/ModalManager.js';
 
+/**
+ * @typedef {{suffix: string, mult: number, aliases: string[]}} UnitEntry
+ * @typedef {{base: string, label: string, units: UnitEntry[], defaultIdx: number}} UnitTable
+ * @typedef {{defaultReference?: string, defaultValue?: string}} ComponentValueDefinition
+ * @typedef {{number: string, unitIdx: number}} ParsedValueInput
+ */
+
 // ── Unit definitions per reference prefix ─────────────────────────
+/** @type {Record<string, UnitTable>} */
 const UNIT_TABLES = {
     'R': {
         base: 'Ω',
@@ -50,6 +58,8 @@ const UNIT_TABLES = {
 /**
  * Determine which unit table applies to a component definition.
  * Returns null if this component type should not get a value dialog.
+ * @param {ComponentValueDefinition} definition
+ * @returns {UnitTable|null}
  */
 function getUnitTable(definition) {
     const ref = (definition.defaultReference || '').replace(/[^A-Z]/gi, '').toUpperCase();
@@ -59,6 +69,9 @@ function getUnitTable(definition) {
 /**
  * Parse a freeform value string like "10k", "4.7u", "100", "2.2M".
  * Returns { number: string, unitIdx: number } or null if unparseable.
+ * @param {string} raw
+ * @param {UnitTable} table
+ * @returns {ParsedValueInput|null}
  */
 function parseValueInput(raw, table) {
     const s = raw.trim();
@@ -85,6 +98,9 @@ function parseValueInput(raw, table) {
 
 /**
  * Format the dialog result into a display string like "10kΩ", "100nF".
+ * @param {string} numStr
+ * @param {UnitEntry} unitEntry
+ * @returns {string}
  */
 function formatValue(numStr, unitEntry) {
     // Strip trailing zeros after decimal
@@ -101,7 +117,7 @@ function formatValue(numStr, unitEntry) {
  * Show the value dialog at a screen position.
  * Returns a Promise that resolves to the value string, or null if cancelled.
  *
- * @param {object} definition - Component definition (has defaultReference, defaultValue)
+ * @param {ComponentValueDefinition} definition - Component definition (has defaultReference, defaultValue)
  * @param {number} screenX - Approximate screen X to place dialog near
  * @param {number} screenY - Approximate screen Y to place dialog near
  * @param {object} [opts] - Options
@@ -111,7 +127,7 @@ function formatValue(numStr, unitEntry) {
  */
 export function showValueDialog(definition, screenX, screenY, opts = {}) {
     const { currentValue, allowEscape = false } = opts;
-    const table = getUnitTable(definition);
+    const table = /** @type {UnitTable} */ (getUnitTable(definition));
     if (!table) return Promise.resolve(null);  // not a passive — skip dialog
 
     return new Promise(resolve => {
@@ -206,7 +222,7 @@ export function showValueDialog(definition, screenX, screenY, opts = {}) {
                             }
                         }
                     }
-                    const pos = Math.max(0, input.selectionStart - (input.value.length - cleaned.length));
+                    const pos = Math.max(0, /** @type {number} */ (input.selectionStart) - (input.value.length - cleaned.length));
                     input.value = cleaned;
                     input.setSelectionRange(pos, pos);
                 }
@@ -271,6 +287,8 @@ export function showValueDialog(definition, screenX, screenY, opts = {}) {
 
 /**
  * Returns true if the component definition should show a value dialog.
+ * @param {ComponentValueDefinition} definition
+ * @returns {boolean}
  */
 export function needsValueDialog(definition) {
     return getUnitTable(definition) !== null;

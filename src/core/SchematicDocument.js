@@ -7,7 +7,12 @@ import { compactProjectAliases } from './project-field-aliases.js';
 import { extractNetlist } from './netlist.js';
 
 /** @typedef {import('./ProjectDocument.js').ProjectData} ProjectData */
-/** @typedef {ReturnType<typeof createShape>} SchematicShape */
+/**
+ * A schematic shape: one of the shape classes (wire, net label, text, polyline, circle,
+ * arc, no-connect) or a component, read through the Shape base class plus the fields its
+ * subclass adds.
+ * @typedef {(import('../shapes/shape.js').Shape | import('../components/Component.js').Component) & {[key: string]: any}} SchematicShape
+ */
 
 /** @param {string} name */
 const builtInDefinition = name => BuiltInComponents.find(definition => definition.name === name);
@@ -79,7 +84,7 @@ export function serializeSchematicDocument({ shapes, components, settings = {} }
  */
 export class SchematicDocument {
     constructor() {
-        /** @type {ReturnType<typeof createShape>[]} */
+        /** @type {SchematicShape[]} */
         this.shapes = [];
         /** @type {Component[]} */
         this.components = [];

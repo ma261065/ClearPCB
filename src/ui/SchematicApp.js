@@ -64,6 +64,21 @@ import { blocksSchematicSnapshot } from '../schematic/modules/schematic-interact
 // Shape construction uses createShape() from shapes/index.js.
 
 /**
+ * @typedef {import('../core/SchematicDocument.js').SchematicShape} SchematicShape
+ * @typedef {import('../components/Component.js').Component} Component
+ * @typedef {import('../components/Component.js').ComponentDefinition} ComponentDefinition
+ * @typedef {import('../shapes/text.js').Text} TextShape
+ * @typedef {import('../shapes/shape.js').Shape} Shape
+ * @typedef {import('../core/ProjectDocument.js').ProjectData} ProjectData
+ * @typedef {import('../core/geometry.js').Point} Point
+ * @typedef {import('../schematic/modules/draw-states.js').InteractionState} InteractionState
+ * @typedef {{key: string, fileName: string, timestamp: number}} AutoSaveEntry
+ * @typedef {{lineWidth?: number, fill?: boolean, color?: string|number, textColor?: string|number, fontSize?: number, netFontSize?: number, netStyle?: string, netOrientation?: string, cornerRadius?: number, [key: string]: any}} SchematicToolOptions
+ * @typedef {{cursorPos: HTMLElement|null, gridSnap: HTMLElement|null, zoomPercent: HTMLElement|null, viewportInfo: HTMLElement|null, docTitle: HTMLElement|null, propertiesPanel?: HTMLElement|null}} SchematicUiElements
+ * @typedef {{shape: SchematicShape, index: number, parentWire?: SchematicShape|null}} ShapeRestoreData
+ */
+
+/**
  * Central application class — a thin facade over the `schematic/modules/` layer.
  *
  * Almost all logic lives in the module files (mouse.js, wire.js, drawing.js,
@@ -106,7 +121,7 @@ export default class SchematicApp {
         // Auto-save recovery now runs after initialization.
         this._skipAutoSaveRecovery = !!/** @type {any} */ (window)._launchFile;
 
-        this.container = document.getElementById('canvasContainer');
+        this.container = /** @type {HTMLElement} */ (document.getElementById('canvasContainer'));
         this.viewport = new Viewport(this.container);
         /** @type {any} */ (this.viewport)._app = this; // back-reference for state-aware pan suppression
         this.eventBus = globalEventBus;
@@ -121,7 +136,14 @@ export default class SchematicApp {
         this.fileManager.onAutoSaveSuccess = flashAutoSaveIndicator;
         this.fileManager.onAutoSaveError = error => this.onAutoSaveError(error);
 
+        /**
+         * The pointer state draw-states.js dispatches events to; set as interactions
+         * begin and end (resolveState derives it from the interaction slots).
+         * @type {InteractionState | undefined}
+         */
+        this.interactionState = undefined;
         // Shape/selection state
+        /** @type {SelectionManager<SchematicShape>} */
         this.selection = new SelectionManager({
             getScale: () => this.viewport?.scale,
             onSelectionChanged: (shapes) => this._onSelectionChanged(shapes),
@@ -132,26 +154,39 @@ export default class SchematicApp {
 
         // ── Tool / drawing state ─────────────────────────────────────
         this.currentTool = 'select';
+        /** @type {Point|null} */
         this.drawStart = null;
+        /** @type {Point|null} */
         this.drawCurrent = null;
+        /** @type {Point[]} */
         this.polygonPoints = [];
+        /** @type {SVGGElement|null} */
         this.previewElement = null;
+        /** @type {import('../schematic/modules/wire.js').WirePoint[]} */
         this.wirePoints = [];
+        /** @type {any|null} */
         this.wireSnapPin = null;
+        /** @type {any|null} */
         this.wireStartPin = null;
+        /** @type {any|null} */
         this.lastSnappedData = null;
+        /** @type {Point|null} */
         this.drawCorner = null;         // set by wire.js — auto-corner waypoint
+        /** @type {Point[]} */
         this.linePoints = [];           // set by drawing.js — polyline vertices
+        /** @type {Point|null} */
         this.arcEndpoint = null;        // set by drawing.js / mouse.js — arc second click
         this.arcDirection = undefined;  // set by drawing.js — arc CW/CCW flag
         this.arcSweepFlag = undefined;  // set by drawing.js — SVG sweep-flag
 
         // ── Clipboard / paste state (set by clipboard.js) ─────────────
+        /** @type {SVGGElement|null} */
         this.pastePreviewGroup = null;
 
         // Tool options
         const savedOptions = loadToolOptions();
         const defaultShapeColor = 'var(--sch-symbol-outline, #ffffff)';
+        /** @type {SchematicToolOptions} */
         this.toolOptions = savedOptions || {
             lineWidth: 0.25,
             fill: false,
@@ -165,6 +200,7 @@ export default class SchematicApp {
         this.toolOptions.color = defaultShapeColor;
 
         // UI elements
+        /** @type {SchematicUiElements} */
         this.ui = {
             cursorPos: document.getElementById('cursorPos'),
             gridSnap: document.getElementById('gridSnap'),
@@ -185,6 +221,8 @@ export default class SchematicApp {
         this.showComponentDebugTooltip = false;
         /** @type {(() => void)|null} Refreshes renderer-owned schematic ribbon state. */
         this.refreshRibbon = null;
+        /** @type {string|null} The ribbon tab shown last (set by ribbon.js). */
+        this.activeRibbonTab = null;
 
         // Help panel now lives in ribbon
 
@@ -196,6 +234,7 @@ export default class SchematicApp {
         this.componentPicker.appendTo(this.container);
 
         // Component placement state
+        /** @type {SVGElement|null} */
         this.componentPreview = null;  // Preview SVG element
         this.componentRotation = 0;    // Current rotation for placement
         this.componentMirror = false;  // Current mirror state
@@ -266,9 +305,10 @@ export default class SchematicApp {
      */
     async _recoverAutoSave() {
         if (this._skipAutoSaveRecovery) return true;
+        /** @type {AutoSaveEntry[]} */
         let index = [];
         try {
-            index = JSON.parse(localStorage.getItem(this.fileManager.autoSavePrefix + 'index')) || [];
+            index = JSON.parse(/** @type {string} */ (localStorage.getItem(this.fileManager.autoSavePrefix + 'index'))) || [];
         } catch {}
 
         // Remove autosaves older than 7 days
@@ -331,7 +371,7 @@ export default class SchematicApp {
 
     /**
      * Restores auto-saved document data and marks the document as dirty.
-     * @param {Object} entry - The auto-save index entry to restore.
+     * @param {AutoSaveEntry} entry - The auto-save index entry to restore.
      */
     async _applyAutoSave(entry) {
         const saved = this.fileManager.loadAutoSave(entry.fileName);
@@ -370,12 +410,12 @@ export default class SchematicApp {
 
     /**
      * Begins inline text editing on a text shape, or shows a value dialog for passive component fields.
-     * @param {Object} shape - The text shape to edit.
+     * @param {SchematicShape} shape - The text shape to edit.
      */
     startTextEdit(shape) {
         // For value fields on passive components, show the value dialog instead
         if (shape && shape.fieldKey === 'value' && shape.parentComponent) {
-            const comp = shape.parentComponent;
+            const comp = /** @type {Component} */ (/** @type {unknown} */ (shape.parentComponent));
             if (needsValueDialog(comp.definition)) {
                 const screenPos = this.viewport.worldToScreen({ x: shape.x, y: shape.y });
                 showValueDialog(comp.definition, screenPos.x, screenPos.y, {
@@ -394,7 +434,7 @@ export default class SchematicApp {
                 return;
             }
         }
-        startTextEdit(this, shape);
+        startTextEdit(this, /** @type {TextShape} */ (shape));
     }
 
     /**
@@ -423,7 +463,7 @@ export default class SchematicApp {
 
     /**
      * Sets the text-edit caret position from screen coordinates.
-     * @param {Object} screenPos - The screen position {x, y}.
+     * @param {Point} screenPos - The screen position {x, y}.
      */
     setTextEditCaretFromScreen(screenPos) {
         setTextCaretFromScreen(this, screenPos);
@@ -442,7 +482,7 @@ export default class SchematicApp {
     
     /**
      * Merges updated tool options and persists to storage.
-     * @param {Object} options - The tool options to apply.
+     * @param {SchematicToolOptions} options - The tool options to apply.
      */
     updateToolOptions(options) {
         onOptionsChanged(this, options);
@@ -452,8 +492,8 @@ export default class SchematicApp {
     
     /**
      * Adds a shape to the canvas via an undoable command.
-     * @param {Object} shape - The shape to add.
-     * @returns {*} The result of the add operation.
+     * @param {SchematicShape} shape - The shape to add.
+     * @returns {SchematicShape} The result of the add operation.
      */
     addShape(shape) {
         return addShape(this, shape);
@@ -465,6 +505,9 @@ export default class SchematicApp {
      */
     /**
      * Command boundary: add one shape with command-safe wire-label handling.
+     * @param {Shape} shape
+     * @param {TextShape|null} [linkedWireLabelText]
+     * @returns {TextShape|null}
      */
     commandAddShape(shape, linkedWireLabelText = null) {
         return commandAddShapeInternal(this, shape, linkedWireLabelText);
@@ -472,6 +515,9 @@ export default class SchematicApp {
 
     /**
      * Command boundary: remove one shape with command-safe wire-label handling.
+     * @param {Shape} shape
+     * @param {{ preserveWireLabelRef?: boolean, preserveLinkedLabelRef?: boolean }} [options]
+     * @returns {TextShape|null}
      */
     commandRemoveShape(shape, options = undefined) {
         return commandRemoveShapeInternal(this, shape, options);
@@ -479,16 +525,20 @@ export default class SchematicApp {
 
     /**
      * Command boundary: batch-delete shapes and linked wire labels.
+     * @param {ShapeRestoreData[]} shapesData
+     * @param {ShapeRestoreData[]} [linkedLabelData]
      */
     commandDeleteShapes(shapesData, linkedLabelData) {
-        commandDeleteShapesInternal(this, shapesData, linkedLabelData);
+        commandDeleteShapesInternal(this, shapesData, /** @type {any} */ (linkedLabelData));
     }
 
     /**
      * Command boundary: batch-restore shapes and linked wire labels.
+     * @param {ShapeRestoreData[]} shapesData
+     * @param {ShapeRestoreData[]} [linkedLabelData]
      */
     commandRestoreShapes(shapesData, linkedLabelData) {
-        commandRestoreShapesInternal(this, shapesData, linkedLabelData);
+        commandRestoreShapesInternal(this, shapesData, /** @type {any} */ (linkedLabelData));
     }
     
     /**
@@ -535,7 +585,7 @@ export default class SchematicApp {
     
     /**
      * Generates the next unique reference designator.
-     * @param {Object} definition - The component definition.
+     * @param {ComponentDefinition} definition - The component definition.
      * @returns {string} The generated reference designator.
      */
     _generateReference(definition) {
@@ -574,7 +624,7 @@ export default class SchematicApp {
     
     /**
      * Positions the crosshair at the snapped world position.
-     * @param {Object} snapped - The snapped position data.
+     * @param {Point} snapped - The snapped position data.
      */
     updateCrosshair(snapped) {
         this.lastCrosshairWorld = { x: snapped.x, y: snapped.y };
@@ -606,7 +656,7 @@ export default class SchematicApp {
     
     /**
      * Emits selectionChanged on the event bus.
-     * @param {Array} shapes - The currently selected shapes.
+     * @param {SchematicShape[]} shapes - The currently selected shapes.
      */
     _onSelectionChanged(shapes) {
         if (shapes.length !== 1 || shapes[0]?.id !== getShapeSegmentFocus(this)?.shapeId) {
@@ -655,7 +705,7 @@ export default class SchematicApp {
 
     /**
      * Updates shape-options panel for the active tool.
-     * @param {Array} selection - The current selection.
+     * @param {SchematicShape[]} selection - The current selection.
      * @param {string} toolId - The active tool identifier.
      */
     updateShapePanelOptions(selection, toolId) {
@@ -673,7 +723,7 @@ export default class SchematicApp {
     
     /**
      * Refreshes the properties panel for the given selection.
-     * @param {Array} selection - The currently selected shapes.
+     * @param {SchematicShape[]} selection - The currently selected shapes.
      */
     updatePropertiesPanel(selection) {
         updatePropertiesPanel(this, selection);
@@ -727,8 +777,8 @@ export default class SchematicApp {
 
     /**
      * Shows, updates, or hides the component debug tooltip.
-     * @param {Object|null} component - The component to display info for, or null to hide.
-     * @param {Object|null} screenPos - The screen position {x, y} for the tooltip.
+     * @param {Component|null} component - The component to display info for, or null to hide.
+     * @param {Point|null} screenPos - The screen position {x, y} for the tooltip.
      * @param {Object} [options={}] - Options (e.g., { forceHide: true }).
      */
     updateComponentCodeTooltip(component, screenPos, options = {}) {
@@ -796,14 +846,29 @@ export default class SchematicApp {
 
     // ==================== Modal helpers ====================
 
+    /**
+     * @param {string} message
+     * @param {object} [options]
+     * @returns {Promise<void>}
+     */
     async alert(message, options = {}) {
         await showAlert(message, options);
     }
 
+    /**
+     * @param {string} message
+     * @param {object} [options]
+     * @returns {Promise<boolean>}
+     */
     async confirm(message, options = {}) {
         return await showConfirm(message, options);
     }
 
+    /**
+     * @param {string} message
+     * @param {object} [options]
+     * @returns {Promise<string|null>}
+     */
     async _prompt(message, options = {}) {
         return await showPrompt(message, options);
     }
@@ -871,8 +936,8 @@ export default class SchematicApp {
     
     /**
      * Captures a shape's state snapshot for undo.
-     * @param {Object} shape - The shape to capture state from.
-     * @returns {Object} The captured state snapshot.
+     * @param {Shape} shape - The shape to capture state from.
+     * @returns {Record<string, any>} The captured state snapshot.
      */
     _captureShapeState(shape) {
         return captureShapeState(this, shape);
@@ -880,8 +945,8 @@ export default class SchematicApp {
     
     /**
      * Restores a shape from a captured state snapshot.
-     * @param {Object} shape - The shape to restore.
-     * @param {Object} state - The state snapshot to apply.
+     * @param {Shape} shape - The shape to restore.
+     * @param {Record<string, any>} state - The state snapshot to apply.
      */
     _applyShapeState(shape, state) {
         applyShapeState(this, shape, state);
@@ -939,12 +1004,19 @@ export default class SchematicApp {
     }
 
     // Existing interaction modules use these aliases, never a second collection.
+    /** @returns {SchematicShape[]} */
     get shapes() { return this.document.shapes; }
+    /** @param {SchematicShape[]} value */
     set shapes(value) { this.document.shapes = value; }
+    /** @returns {Component[]} */
     get components() { return this.document.components; }
+    /** @param {Component[]} value */
     set components(value) { this.document.components = value; }
 
-    /** Refresh presentation after a project-owned reference operation. */
+    /**
+     * Refresh presentation after a project-owned reference operation.
+     * @param {string} id
+     */
     onComponentReferenceChanged(id) {
         const component = this.components.find(item => item.id === id);
         if (!component) return;
@@ -953,9 +1025,12 @@ export default class SchematicApp {
         this.renderShapes(true);
     }
 
-    /** Current view preferences only; authored state is serialized by the project model. */
+    /**
+     * Current view preferences only; authored state is serialized by the project model.
+     * @returns {object}
+     */
     getViewSettings() {
-        return FileTools.serializeViewSettings(this.viewport);
+        return /** @type {object} */ (FileTools.serializeViewSettings(this.viewport));
     }
 
     /**
@@ -967,12 +1042,18 @@ export default class SchematicApp {
         return FileTools.serializeDocument(this);
     }
 
-    /** Validate and render replacement entities before either editor is changed. */
+    /**
+     * Validate and render replacement entities before either editor is changed.
+     * @param {ProjectData} data
+     */
     prepareSection(data) {
         return FileTools.prepareDocument(this, data);
     }
 
-    /** Restore this editor's slice, consuming project preflight when provided. */
+    /**
+     * Restore this editor's slice, consuming project preflight when provided.
+     * @param {ProjectData} data @param {any} [prepared]
+     */
     async loadSection(data, prepared = this.prepareSection(data)) {
         await FileTools.loadDocument(this, data, prepared);
     }
@@ -993,8 +1074,8 @@ export default class SchematicApp {
     
     /**
      * Creates a shape from serialized type/options data.
-     * @param {Object} data - The serialized shape data.
-     * @returns {Object|null} The created shape, or null if the type is unknown.
+     * @param {ProjectData} data - The serialized shape data.
+     * @returns {SchematicShape|null} The created shape, or null if the type is unknown.
      */
     _createShapeFromData(data) {
         try {
@@ -1098,6 +1179,7 @@ export default class SchematicApp {
         return await this._importEasyEDA();
     }
 
+    /** @param {string} [text] */
     showSaveToast(text = 'Saved') {
         showRibbonSaveToast(this, text);
     }

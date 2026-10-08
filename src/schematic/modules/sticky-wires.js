@@ -1,13 +1,14 @@
 /**
  * Shared sticky-wire update logic used by interaction code and undo commands.
  */
+/** @typedef {import('./schematic-editor-api.js').SchematicEditor} SchematicEditor */
 
 /**
  * Update wire-pin and NoConnect-pin attachments after component movement.
  * Pin nodes follow their component pins; bridge nodes (inserted at drag
  * start) stay in place so the wire maintains its shape.
  *
- * @param {object} app
+ * @param {SchematicEditor} app
  * @param {{ movedIds?: Set<string> }} [options]
  */
 export function applyStickyConnections(app, options = {}) {

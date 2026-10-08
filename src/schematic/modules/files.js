@@ -11,7 +11,13 @@ import { duplicateIdRepairMessage, repairDuplicateIds } from '../../core/project
 import { showSaveToast } from './ribbon.js';
 import { updateUndoRedoButtons } from './ui-utils.js';
 import { getSchematicTextEdit } from './text-edit.js';
+/** @typedef {import('./schematic-editor-api.js').SchematicEditor} SchematicEditor */
+/** @typedef {import('../../core/ProjectDocument.js').ProjectData} ProjectData */
+/** @typedef {{data: ProjectData, fileName: string, handle?: any, filePath?: string|null}} OpenSuccess */
+/** @typedef {import('../../core/FileManager.js').OpenResult} OpenResult */
+/** @typedef {import('../../core/FileManager.js').SaveResult} SaveResult */
 
+/** @param {SchematicEditor} app */
 function canReplaceDocument(app) {
     if (!app.fileManager.saving && !app.fileManager.loading) return true;
     app.alert('Wait for the current file operation to finish.', { title: 'File Operation In Progress' });
@@ -21,18 +27,22 @@ function canReplaceDocument(app) {
 /**
  * Serializes the entire document (shapes, components, settings, paper size,
  * title block) into a JSON-ready object with deduplicated component definitions.
- * @param {object} app - Application state.
- * @returns {object} Serialized document object.
+ * @param {SchematicEditor} app
+ * @returns {ProjectData} Serialized document object.
  */
 export function serializeDocument(app) {
-    return app.document.serialize(serializeViewSettings(app.viewport));
+    return /** @type {ProjectData} */ (app.document.serialize(serializeViewSettings(app.viewport)));
 }
 
+/** @param {SchematicEditor} app @returns {ProjectData} */
 export function serializeProjectDocument(app) {
-    return app.project ? app.project.serialize() : app.serializeSection();
+    return /** @type {ProjectData} */ (app.project ? app.project.serialize() : app.serializeSection());
 }
 
-/** Capture view preferences without accessing authored content or creating a viewport. */
+/**
+ * Capture view preferences without accessing authored content or creating a viewport.
+ * @param {any} viewport
+ */
 export function serializeViewSettings(viewport) {
     if (!viewport) return undefined;
     return {
@@ -49,8 +59,8 @@ export function serializeViewSettings(viewport) {
 
 /**
  * Prepare model data and its SVG before replacing the live editor content.
- * @param {object} app - Application state.
- * @param {object} data - Previously serialized document.
+ * @param {SchematicEditor} app
+ * @param {ProjectData} data - Previously serialized document.
  */
 export function prepareDocument(app, data) {
     const prepared = app.document.prepare(data, name => app.componentLibrary.getDefinition(name));
@@ -58,6 +68,7 @@ export function prepareDocument(app, data) {
     return prepared;
 }
 
+/** @param {SchematicEditor} app @param {ProjectData} data @param {ReturnType<typeof prepareDocument>} [prepared] */
 export async function loadDocument(app, data, prepared = prepareDocument(app, data)) {
     data = prepared.data || data;
     app.selection.clearSelection();
@@ -98,9 +109,10 @@ export async function loadDocument(app, data, prepared = prepareDocument(app, da
         if (settings.paperSize && typeof settings.paperSize === 'string') {
             const orientation = settings.paperOrientation || 'landscape';
             // Trigger paper display update via the same path as UI
-            const { PAPER_SIZES } = await import('./paper.js');
-            if (PAPER_SIZES[settings.paperSize]) {
-                let size = { ...PAPER_SIZES[settings.paperSize] };
+            const { getPaperSize } = await import('./paper.js');
+            const paperSize = getPaperSize(settings.paperSize);
+            if (paperSize) {
+                let size = { ...paperSize };
                 if (orientation === 'portrait') {
                     if (size.width > size.height) [size.width, size.height] = [size.height, size.width];
                 } else {
@@ -132,6 +144,7 @@ export async function loadDocument(app, data, prepared = prepareDocument(app, da
     // schematic section loads, so neither view reaches into the other.
 }
 
+/** @param {SchematicEditor} app @param {ProjectData} data */
 export async function loadProjectDocument(app, data) {
     if (app.project) {
         await app.project.load(data);
@@ -140,12 +153,13 @@ export async function loadProjectDocument(app, data) {
     }
 }
 
-/** @param {object} app @param {'new'|'open'|'import'} reason */
+/** @param {SchematicEditor} app @param {'new'|'open'|'import'} reason */
 export function notifyDocumentReplaced(app, reason) {
     if (app.project) app.project.notifyDocumentReplaced(reason);
     else app.onDocumentReplaced();
 }
 
+/** @param {SchematicEditor} app */
 export function clearAllShapes(app) {
     for (const shape of app.shapes) discardShapeView(app, shape);
     app.shapes = [];
@@ -154,6 +168,7 @@ export function clearAllShapes(app) {
     updateUndoRedoButtons(app);
 }
 
+/** @param {SchematicEditor} app */
 export function clearAllComponents(app) {
     for (const comp of app.components) {
         // Remove field texts from shapes array and DOM
@@ -171,7 +186,7 @@ export function clearAllComponents(app) {
 /**
  * Creates a `Component` instance from serialized data, resolving definitions
  * from the library or embedding them if missing.
- * @param {object} app - Application state.
+ * @param {SchematicEditor} app
  * @param {object} data - Serialized component data.
  * @returns {import('../../components/Component.js').Component|null} The created component, or `null` if definition not found.
  */
@@ -182,7 +197,7 @@ export function createComponentFromData(app, data) {
 /**
  * Updates `document.title` and the UI title element with the file name
  * and dirty indicator (`•`).
- * @param {object} app - Application state.
+ * @param {SchematicEditor} app
  */
 export function updateTitle(app) {
     // Reflect the aggregate project dirty state (schematic file-manager dirty
@@ -196,7 +211,7 @@ export function updateTitle(app) {
     document.title = title;
     const path = app.fileManager.filePath || app.fileManager.fileName;
     const autoSaveSize = app.fileManager.autoSaveSize;
-    const formattedSize = Number.isFinite(autoSaveSize)
+    const formattedSize = typeof autoSaveSize === 'number' && Number.isFinite(autoSaveSize)
         ? autoSaveSize < 1024
             ? `${autoSaveSize} B`
             : autoSaveSize < 1024 * 1024
@@ -222,7 +237,7 @@ export function updateTitle(app) {
 /**
  * Checks for auto-saved content on startup and prompts the user to recover
  * or discard it.
- * @param {object} app - Application state.
+ * @param {SchematicEditor} app
  */
 export async function checkAutoSave(app) {
     if (app.fileManager.hasAutoSave()) {
@@ -250,7 +265,7 @@ export async function checkAutoSave(app) {
 
 /**
  * Fetches `version.json` and displays the version number in the UI.
- * @param {object} app - Application state.
+ * @param {SchematicEditor} app
  */
 export async function loadVersion(app) {
     try {
@@ -284,7 +299,10 @@ export async function loadVersion(app) {
     }
 }
 
-/** Clear only the schematic section, retaining paper/grid preferences. */
+/**
+ * Clear only the schematic section, retaining paper/grid preferences.
+ * @param {SchematicEditor} app
+ */
 export function clearDocument(app) {
     cancelSchematicPropertyPreview(app);
     cancelSchematicInteractions(app);
@@ -307,7 +325,10 @@ export function clearDocument(app) {
     });
 }
 
-/** Confirm New in the UI, then let the project coordinate both editors. */
+/**
+ * Confirm New in the UI, then let the project coordinate both editors.
+ * @param {SchematicEditor} app
+ */
 export async function newFile(app) {
     if (!canReplaceDocument(app)) return;
     if (app.project?.isDirty ?? app.fileManager.isDirty) {
@@ -320,10 +341,9 @@ export async function newFile(app) {
         if (app.project) await app.project.reset();
         else {
             clearDocument(app);
-            app.fileManager.newDocument(serializeDocument(app));
+            app.fileManager.newDocument(/** @type {Parameters<typeof app.fileManager.newDocument>[0]} */ (serializeDocument(app)));
         }
         updateTitle(app);
-        app.invalidate?.();
         notifyDocumentReplaced(app, 'new');
         console.log('New document created');
     } catch (error) {
@@ -334,8 +354,8 @@ export async function newFile(app) {
 
 /**
  * Serializes and saves the document using the file manager. Shows toast on success.
- * @param {object} app - Application state.
- * @returns {Promise<{success: boolean, fileName?: string, error?: string}>}
+ * @param {SchematicEditor} app
+ * @returns {Promise<SaveResult>}
  */
 export async function saveFile(app) {
     const result = await writeDocument(app, false);
@@ -362,8 +382,8 @@ export async function saveFile(app) {
 
 /**
  * Serializes and saves the document with a new file name/location ("Save As").
- * @param {object} app - Application state.
- * @returns {Promise<{success: boolean, fileName?: string, error?: string}>}
+ * @param {SchematicEditor} app
+ * @returns {Promise<SaveResult>}
  */
 export async function saveFileAs(app) {
     const result = await writeDocument(app, true);
@@ -381,6 +401,11 @@ export async function saveFileAs(app) {
     return result;
 }
 
+/**
+ * @param {SchematicEditor} app
+ * @param {boolean} saveAs
+ * @returns {Promise<SaveResult>}
+ */
 async function writeDocument(app, saveAs) {
     let data;
     try {
@@ -389,14 +414,14 @@ async function writeDocument(app, saveAs) {
         console.error('Save snapshot failed:', error);
         return { success: false, error: error instanceof Error ? error.message : String(error) };
     }
-    return saveAs ? app.fileManager.saveAs(data) : app.fileManager.save(data);
+    return /** @type {Promise<SaveResult>} */ (saveAs ? app.fileManager.saveAs(data) : app.fileManager.save(data));
 }
 
 /**
  * Load an opened project and adopt its file identity. Duplicate ids left by older
  * builds are repaired first; the document is then marked unsaved so the fix can be kept.
- * @param {object} app - Application state.
- * @param {{data: any, fileName: string}} result - A successful open result.
+ * @param {SchematicEditor} app
+ * @param {OpenSuccess} result - A successful open result.
  */
 export async function loadOpenedProject(app, result) {
     const repaired = repairDuplicateIds(result.data);
@@ -416,7 +441,7 @@ export async function loadOpenedProject(app, result) {
 /**
  * Opens a file via the file manager, loads its data, and updates the title.
  * Prompts if there are unsaved changes.
- * @param {object} app - Application state.
+ * @param {SchematicEditor} app
  */
 export async function openFile(app) {
     if (!canReplaceDocument(app)) return;
@@ -427,10 +452,10 @@ export async function openFile(app) {
     }
 
     try {
-        const result = await app.fileManager.open();
+        const result = /** @type {OpenResult} */ (await app.fileManager.open());
 
         if (result.success) {
-            await loadOpenedProject(app, result);
+            await loadOpenedProject(app, /** @type {OpenSuccess} */ (result));
             console.log('Opened:', result.fileName);
         } else if (result.error) {
             app.alert('Failed to open: ' + result.error, { title: 'Open Failed' });
@@ -444,7 +469,7 @@ export async function openFile(app) {
  * Re-open a file from the recents list (Open ▾ dropdown) without showing the
  * file picker. Mirrors {@link openFile} but routes through
  * `fileManager.openRecent(name)`, which reuses the stored handle.
- * @param {object} app - Application state.
+ * @param {SchematicEditor} app
  * @param {string} name - The recents entry / file name to reopen.
  */
 export async function openRecentFile(app, name) {
@@ -456,10 +481,10 @@ export async function openRecentFile(app, name) {
     }
 
     try {
-        const result = await app.fileManager.openRecent(name);
+        const result = /** @type {OpenResult} */ (await app.fileManager.openRecent(name));
 
         if (result.success) {
-            await loadOpenedProject(app, result);
+            await loadOpenedProject(app, /** @type {OpenSuccess} */ (result));
             console.log('Opened recent:', result.fileName);
         } else if (result.error) {
             app.alert('Failed to open: ' + result.error, { title: 'Open Failed' });
@@ -472,7 +497,7 @@ export async function openRecentFile(app, name) {
 /**
  * Import an EasyEDA schematic (.json) file.
  * Opens a file picker for .json, detects EasyEDA format, converts, and loads.
- * @param {object} app - Application state.
+ * @param {SchematicEditor} app
  */
 export async function importEasyEDA(app) {
     if (!canReplaceDocument(app)) return;
@@ -510,6 +535,7 @@ export async function importEasyEDA(app) {
 
 /**
  * Detect whether parsed JSON is an EasyEDA schematic file.
+ * @param {any} data
  */
 function _isEasyEDASchematic(data) {
     return data

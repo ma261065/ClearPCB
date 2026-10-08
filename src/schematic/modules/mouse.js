@@ -14,12 +14,16 @@
 import { STATE_TABLE, clearPendingShapeSegmentToggle, getDidSchematicDrag, getEventPositions, getSkipClickSelection, hasPendingShapeSegmentToggle, resolveState } from './draw-states.js';
 import { DRAWING_SHAPES } from '../../shapes/shape-drawing.js';
 import { snapShapeDrawingPoint } from './shape-snap.js';
+/** @typedef {import('./schematic-editor-api.js').SchematicEditor} SchematicEditor */
+/** @typedef {import('./draw-states.js').InteractionState} InteractionState */
+/** @typedef {import('./draw-states.js').EventPositions} EventPositions */
 
 export { clearDragState } from './drag.js';
 
 const RIGHT_CLICK_THRESHOLD = 3;
 const mouseState = new WeakMap();
 
+/** @param {SchematicEditor} app */
 function stateFor(app) {
     let state = mouseState.get(app);
     if (!state) {
@@ -29,15 +33,23 @@ function stateFor(app) {
     return state;
 }
 
+/**
+ * @param {SchematicEditor} app
+ * @param {string} eventName
+ * @param {MouseEvent} event
+ * @param {EventPositions} positions
+ */
 function dispatch(app, eventName, event, positions) {
-    if (DRAWING_SHAPES.has(app.currentTool)) positions.snapped = snapShapeDrawingPoint(app, positions.worldPos);
+    if (DRAWING_SHAPES.has(app.currentTool)) positions.snapped = snapShapeDrawingPoint(app, /** @type {{screenPos: any, worldPos: any, snapped: any}} */ (positions).worldPos);
     if (!app.interactionState || !STATE_TABLE[app.interactionState]) {
         app.interactionState = resolveState(app);
     }
-    const handler = STATE_TABLE[app.interactionState]?.[eventName];
+    const stateHandlers = /** @type {Record<string, (app: SchematicEditor, event: MouseEvent, positions: EventPositions) => void>|undefined} */ (STATE_TABLE[app.interactionState]);
+    const handler = stateHandlers?.[eventName];
     if (handler) handler(app, event, positions);
 }
 
+/** @param {SchematicEditor} app */
 export function bindMouseEvents(app) {
     const svg = app.viewport.svg;
     app.interactionState = resolveState(app);

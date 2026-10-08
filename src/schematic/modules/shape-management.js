@@ -5,12 +5,14 @@ import { detachLabel } from './label-attachment.js';
 import { VERTEX_EPSILON } from './wire.js';
 import { connectComponentPinsToWires as _connectComponentPinsToWires, connectPinsToWires } from './pin-wire-connect.js';
 import { ensureShapeMounted, mountShape, unmountShape, withContentDetached } from './schematic-view.js';
+/** @typedef {import('./schematic-editor-api.js').SchematicEditor} SchematicEditor */
+/** @typedef {import('../../core/SchematicDocument.js').SchematicShape} Net */
 
 /**
  * Adds a shape to the canvas via an undoable `AddShapeCommand`.
- * @param {object} app - Application state.
- * @param {import('../../shapes/shape.js').Shape} shape - Shape to add.
- * @returns {import('../../shapes/shape.js').Shape} The added shape.
+ * @param {SchematicEditor} app
+ * @param {import('../../core/SchematicDocument.js').SchematicShape} shape - Shape to add.
+ * @returns {import('../../core/SchematicDocument.js').SchematicShape} The added shape.
  */
 export function addShape(app, shape) {
     const command = new AddShapeCommand(app, shape);
@@ -21,9 +23,9 @@ export function addShape(app, shape) {
 /**
  * Directly adds a shape (no undo) — pushes to `app.shapes`, renders,
  * adds SVG element, updates selectable items, and marks dirty.
- * @param {object} app - Application state.
- * @param {import('../../shapes/shape.js').Shape} shape - Shape to add.
- * @returns {import('../../shapes/shape.js').Shape} The added shape.
+ * @param {SchematicEditor} app
+ * @param {import('../../core/SchematicDocument.js').SchematicShape} shape - Shape to add.
+ * @returns {import('../../core/SchematicDocument.js').SchematicShape} The added shape.
  */
 export function addShapeInternal(app, shape) {
     app.shapes.push(shape);
@@ -49,8 +51,8 @@ export function addShapeInternal(app, shape) {
 /**
  * Command-layer shape add hook to keep AddShapeCommand decoupled from
  * direct shape-array/DOM bookkeeping details.
- * @param {object} app
- * @param {import('../../shapes/shape.js').Shape} shape
+ * @param {SchematicEditor} app
+ * @param {import('../../core/SchematicDocument.js').SchematicShape} shape
  * @param {import('../../shapes/text.js').Text|null} [linkedLabelText]
  * @returns {import('../../shapes/text.js').Text|null}
  */
@@ -92,10 +94,10 @@ export function commandAddShapeInternal(app, shape, linkedLabelText = null) {
 /**
  * Like `addShapeInternal` but inserts at a specific index in the shapes array
  * (used for undo re-insertion at original position).
- * @param {object} app - Application state.
- * @param {import('../../shapes/shape.js').Shape} shape - Shape to insert.
+ * @param {SchematicEditor} app
+ * @param {import('../../core/SchematicDocument.js').SchematicShape} shape - Shape to insert.
  * @param {number} index - Array index at which to insert.
- * @returns {import('../../shapes/shape.js').Shape} The inserted shape.
+ * @returns {import('../../core/SchematicDocument.js').SchematicShape} The inserted shape.
  */
 export function addShapeInternalAt(app, shape, index) {
     if (index >= 0 && index < app.shapes.length) {
@@ -114,8 +116,8 @@ export function addShapeInternalAt(app, shape, index) {
 /**
  * Directly removes a shape (no undo) — splices from array, removes SVG elements,
  * deselects, invalidates hit-test cache, and marks dirty.
- * @param {object} app - Application state.
- * @param {any} shape - Shape to remove (text fields carry fieldKey/parentComponent).
+ * @param {SchematicEditor} app
+ * @param {import('../../core/SchematicDocument.js').SchematicShape} shape - Shape to remove (text fields carry fieldKey/parentComponent).
  * @param {{ preserveWireLabelRef?: boolean, preserveLinkedLabelRef?: boolean }} [options] - Optional remove behavior.
  */
 export function removeShapeInternal(app, shape, options = {}) {
@@ -143,7 +145,7 @@ export function removeShapeInternal(app, shape, options = {}) {
             removeShapeInternal(app, label, options);
         }
         if (wireShape && attachedLabels.length > 0) {
-            delete wireShape.attachedLabels;
+            delete (/** @type {{attachedLabels?: Set<any>|null}} */ (wireShape)).attachedLabels;
         }
 
         // Also remove the linked label Text shape
@@ -167,8 +169,8 @@ export function removeShapeInternal(app, shape, options = {}) {
 
 /**
  * Command-layer shape remove hook to preserve wire/label linkage metadata.
- * @param {object} app
- * @param {import('../../shapes/shape.js').Shape} shape
+ * @param {SchematicEditor} app
+ * @param {import('../../core/SchematicDocument.js').SchematicShape} shape
  * @param {{ preserveWireLabelRef?: boolean }} [options]
  * @returns {import('../../shapes/text.js').Text|null}
  */
@@ -187,9 +189,9 @@ export function commandRemoveShapeInternal(app, shape, options = {}) {
 
 /**
  * Command-layer batch delete hook to isolate shape-array/DOM internals.
- * @param {object} app
- * @param {Array<{shape: import('../../shapes/shape.js').Shape, index: number}>} shapesData
- * @param {Array<{shape: any, index: number, parentWire: import('../../shapes/wire.js').Wire}>} linkedLabelData
+ * @param {SchematicEditor} app
+ * @param {Array<{shape: import('../../core/SchematicDocument.js').SchematicShape, index: number}>} shapesData
+ * @param {Array<{shape: import('../../core/SchematicDocument.js').SchematicShape, index: number, parentWire: import('../../core/SchematicDocument.js').SchematicShape|null}>} linkedLabelData
  */
 export function commandDeleteShapesInternal(app, shapesData, linkedLabelData) {
     const allData = [...shapesData, ...linkedLabelData];
@@ -224,9 +226,9 @@ export function commandDeleteShapesInternal(app, shapesData, linkedLabelData) {
 
 /**
  * Command-layer batch restore hook to isolate shape-array/DOM internals.
- * @param {object} app
- * @param {Array<{shape: import('../../shapes/shape.js').Shape, index: number}>} shapesData
- * @param {Array<{shape: any, index: number, parentWire: import('../../shapes/wire.js').Wire}>} linkedLabelData
+ * @param {SchematicEditor} app
+ * @param {Array<{shape: import('../../core/SchematicDocument.js').SchematicShape, index: number}>} shapesData
+ * @param {Array<{shape: import('../../core/SchematicDocument.js').SchematicShape, index: number, parentWire: import('../../core/SchematicDocument.js').SchematicShape|null}>} linkedLabelData
  */
 export function commandRestoreShapesInternal(app, shapesData, linkedLabelData) {
     const allData = [...shapesData, ...linkedLabelData];
@@ -263,8 +265,8 @@ export function commandRestoreShapesInternal(app, shapesData, linkedLabelData) {
 /**
  * Creates a Text shape for a Net's text, adds it to app.shapes and
  * viewport, and links it via parentComponent/fieldKey.
- * @param {object} app
- * @param {import('../../shapes/net.js').Net} Net
+ * @param {SchematicEditor} app
+ * @param {import('../../core/SchematicDocument.js').SchematicShape} Net
  */
 function _createNetText(app, Net) {
     const pos = Net.getTextPosition();
@@ -297,8 +299,8 @@ export { _disconnectNetFromWires as disconnectNetFromWires };
  * (split edge) so connectivity can be established by refreshWireConnections.
  * Mirrors the Net label mid-segment split behavior.
  *
- * @param {object} app
- * @param {object} component
+ * @param {SchematicEditor} app
+ * @param {import('../../core/SchematicDocument.js').SchematicShape} component
  */
 export function connectComponentPinsToWires(app, component) {
     _connectComponentPinsToWires(app, component, {
@@ -311,6 +313,8 @@ export function connectComponentPinsToWires(app, component) {
  * When a Net shape is placed on a wire, record the connection
  * via the wire's pinConnections (reusing the component pin system)
  * and propagate the net name.
+ * @param {SchematicEditor} app
+ * @param {Net} netShape
  */
 function _connectNetToWires(app, netShape) {
     connectPinsToWires(app, [{ x: netShape.x, y: netShape.y, pinNumber: 'conn' }], {
@@ -318,10 +322,11 @@ function _connectNetToWires(app, netShape) {
         connectPinConnections: true,
         tolerance: VERTEX_EPSILON,
         onConnectedWire: (wire) => {
+            const wireShape = /** @type {import('../../shapes/wire.js').Wire} */ (wire);
             const netName = netShape.net;
-            if (netName && wire.net !== netName) {
-                freeNetName(wire.net);
-                wire.net = netName;
+            if (netName && wireShape.net !== netName) {
+                freeNetName(wireShape.net);
+                wireShape.net = netName;
                 bumpNetNameCounter(netName);
             }
         }
@@ -332,6 +337,8 @@ function _connectNetToWires(app, netShape) {
 /**
  * When a Net shape is deleted, remove its entries from wire pinConnections
  * and revert wire net names if no other same-named Net is still connected.
+ * @param {SchematicEditor} app
+ * @param {Net} netShape
  */
 function _disconnectNetFromWires(app, netShape) {
     const removedName = netShape.net;

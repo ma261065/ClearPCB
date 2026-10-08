@@ -1,13 +1,16 @@
 import { VERTEX_EPSILON } from './wire-constants.js';
+/** @typedef {import('./schematic-editor-api.js').SchematicEditor} SchematicEditor */
+/** @typedef {import('../../shapes/wire.js').Wire} Wire */
+/** @typedef {import('../../core/SchematicDocument.js').SchematicShape} Component */
 
 export const PIN_ATTACH_TOL = VERTEX_EPSILON;
 
 /**
  * Connect arbitrary pin-like points to wires by node hit or edge split.
  *
- * @param {object} app
+ * @param {SchematicEditor} app
  * @param {Array<{x:number,y:number,pinNumber:string|number}>} pinTargets
- * @param {{ ownerId: string, connectPinConnections?: boolean, tolerance?: number, onConnectedWire?: (wire: object) => void }} options
+ * @param {{ ownerId: string, connectPinConnections?: boolean, tolerance?: number, onConnectedWire?: (wire: Wire) => void }} options
  */
 export function connectPinsToWires(app, pinTargets, options) {
     const {
@@ -42,7 +45,7 @@ export function connectPinsToWires(app, pinTargets, options) {
                     });
                     wire.invalidate?.();
                 }
-                onConnectedWire?.(wire);
+                onConnectedWire?.(/** @type {Wire} */ (wire));
                 break;
             }
 
@@ -58,7 +61,7 @@ export function connectPinsToWires(app, pinTargets, options) {
                             });
                         }
                         wire.invalidate?.();
-                        onConnectedWire?.(wire);
+                        onConnectedWire?.(/** @type {Wire} */ (wire));
                         break;
                     }
                 }
@@ -74,8 +77,8 @@ export function connectPinsToWires(app, pinTargets, options) {
  * - If a pin lands on a wire segment interior, splitEdge creates a node there,
  *   and optionally writes pinConnections for the new node.
  *
- * @param {object} app
- * @param {object} component
+ * @param {SchematicEditor} app
+ * @param {Component} component
  * @param {{ connectPinConnections?: boolean, tolerance?: number }} [options]
  */
 export function connectComponentPinsToWires(app, component, options = {}) {

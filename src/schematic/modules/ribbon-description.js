@@ -6,20 +6,32 @@ import { rotateComponentRight } from './components.js';
 import { beginPastePreview, cutSelection } from './clipboard.js';
 import { runSchematicDeleteAction, runSchematicHistoryAction } from './editor-actions.js';
 import { getSavedTheme, getThemeIcon } from '../../shared/ui/theme.js';
-import { PAPER_SIZES } from './paper.js';
+import { getPaperSize, isPaperSizeKey } from './paper.js';
+/** @typedef {import('./schematic-editor-api.js').SchematicEditor} SchematicEditor */
+/** @typedef {import('../../shapes/net.js').NetStyle} NetStyle */
+/** @typedef {import('../../shapes/net.js').NetOrientation} NetOrientation */
+/** @typedef {{value: string|number, label: string, [key: string]: any}} GridOption */
+/** @typedef {import('../../ui/SchematicApp.js').SchematicToolOptions & {netPresetText?: string|null}} ToolOptions */
+/** @typedef {string|number|boolean|null|undefined|RibbonNode|Array<any>|(() => any)} RibbonContent */
+/** @typedef {{kind: string, [key: string]: any}} RibbonNode */
 
+/** @param {string} tag @param {Record<string, any>} [props] @param {RibbonContent} [children] @returns {RibbonNode} */
 const E = (tag, props = {}, children = undefined) => ({ kind: 'element', tag, ...props, children });
+/** @param {string} id @param {RibbonContent} content @param {string} title @param {Record<string, any>} [props] @returns {RibbonNode} */
 const B = (id, content, title, props = {}) => ({ kind: 'button', id, title, content, ...props });
+/** @param {string} tool @param {RibbonContent} content @param {string} title @param {Record<string, any>} [props] @returns {RibbonNode} */
 const T = (tool, content, title, props = {}) => ({ kind: 'toolButton', dataset: { tool }, title, content, ...props });
 /**
  * A tool's ribbon button: label and tooltip from its entry in schematic-tools.js.
- * @param {any} app
+ * @param {SchematicEditor} app
  * @param {string} id
  * @param {any} [content] - a label built from elements, for tools whose entry has none
  */
 const toolButton = (app, id, content = SCHEMATIC_TOOLS[id].content) => T(id, content, schematicToolTitle(id),
     { active: () => app.currentTool === id, run: () => app.selectTool(id) });
+/** @param {string} text @returns {RibbonNode} */
 const K = text => E('kbd', {}, text);
+/** @param {RibbonContent[]} children @returns {RibbonNode} */
 const H = children => ({ kind: 'helpRow', children: [E('span', {}, children)] });
 
 const PAPER_KEY = 'clearpcb_paper_size';
@@ -29,6 +41,10 @@ const TITLE_BLOCK_INFO_KEY = 'clearpcb_title_block_info';
 
 const DRAWING_TOOL_IDS = new Set(['wire', 'line', 'rect', 'circle', 'arc', 'polygon']);
 
+/**
+ * @param {string|null|undefined} style
+ * @returns {NetStyle}
+ */
 function normalizenetStyle(style) {
     return style === 'gnd' || style === 'arrow' || style === 'chevron' ? style : 't';
 }
@@ -47,58 +63,67 @@ const DEFAULT_ORIENTATION_BY_STYLE = {
     chevron: 'E',
 };
 
+/** @param {SchematicEditor} app */
 function gridOptions(app) {
-    return app.viewport?.getGridOptions?.() || [{ value: '1', label: '1 mm' }];
+    return /** @type {GridOption[]} */ (app.viewport?.getGridOptions?.() || [{ value: 1, label: '1 mm' }]);
 }
 
+/** @param {SchematicEditor} app */
 function nearestGridValue(app) {
-    const options = gridOptions(app).filter(option => Number.isFinite(option.value));
+    const options = gridOptions(app).filter(option => typeof option.value === 'number' && Number.isFinite(option.value));
     const current = app.viewport?.gridSize ?? Number(options[0]?.value || 1);
     let best = options[0];
     let bestDiff = Infinity;
     for (const option of options) {
-        const diff = Math.abs(option.value - current);
+        const diff = Math.abs(/** @type {number} */ (option.value) - current);
         if (diff < bestDiff) {
             best = option;
             bestDiff = diff;
         }
     }
-    if (best && best.value !== current) app.viewport?.setGridSize?.(best.value);
+    if (best && best.value !== current) app.viewport?.setGridSize?.(/** @type {number} */ (best.value));
     return String(best?.value ?? current);
 }
 
+/** @param {SchematicEditor} app @param {string|null|undefined} key @param {string} orientation */
 function applyPaperDisplay(app, key, orientation) {
-    if (!key || !PAPER_SIZES[key]) {
+    const paperSize = getPaperSize(key || '');
+    if (!key || !paperSize) {
         app.viewport.setPaperSize(null, null);
         return;
     }
-    const size = { ...PAPER_SIZES[key] };
+    const size = { ...paperSize };
     if (orientation === 'portrait') {
         if (size.width > size.height) [size.width, size.height] = [size.height, size.width];
     } else if (size.width < size.height) [size.width, size.height] = [size.height, size.width];
     app.viewport.setPaperSize(size, key);
 }
 
+/** @param {string} key */
 function storageGet(key) {
     return typeof localStorage === 'undefined' ? null : localStorage.getItem(key);
 }
 
+/** @param {string} key @param {string} value */
 function storageSet(key, value) {
     if (typeof localStorage !== 'undefined') localStorage.setItem(key, value);
 }
 
+/** @param {string} key */
 function storageRemove(key) {
     if (typeof localStorage !== 'undefined') localStorage.removeItem(key);
 }
 
+/** @param {SchematicEditor} app */
 function restorePaperState(app) {
     const orientation = storageGet(ORIENTATION_KEY) || 'landscape';
     const key = storageGet(PAPER_KEY) || '';
     app.viewport.setTitleBlock?.(storageGet(TITLE_BLOCK_KEY) === 'true');
     app.viewport.setTitleBlockInfo?.(storageGet(TITLE_BLOCK_INFO_KEY) === 'true');
-    if (key && PAPER_SIZES[key]) applyPaperDisplay(app, key, orientation);
+    if (isPaperSizeKey(key)) applyPaperDisplay(app, key, orientation);
 }
 
+/** @param {SchematicEditor} app */
 function paperKey(app) {
     return app.viewport?.paperSizeKey || storageGet(PAPER_KEY) || '';
 }
@@ -107,11 +132,13 @@ function paperOrientation() {
     return storageGet(ORIENTATION_KEY) || 'landscape';
 }
 
+/** @param {SchematicEditor} app */
 function hasPaper(app) {
     const key = paperKey(app);
-    return !!(key && PAPER_SIZES[key]);
+    return isPaperSizeKey(key);
 }
 
+/** @param {SchematicEditor} app */
 function markDirty(app) {
     app.fileManager?.setDirty?.(true);
 }
@@ -135,15 +162,18 @@ const netMenuItems = [
     { kind: 'button', className: 'dropdown-item', type: 'button', dataset: { netStyle: 'chevron' }, content: '« Chevron' },
 ];
 
+/** @param {SchematicEditor} app */
 export function createSchematicRibbonDescription(app) {
     if (app?.viewport) restorePaperState(app);
     return {
+        /** @param {{from: string, to: string, userInitiated: boolean}} event */
         onBeforeTabChange({ from, to, userInitiated }) {
             if (userInitiated && from !== to && DRAWING_TOOL_IDS.has(app.currentTool)) {
                 if (app.currentTool === 'wire') app.cancelWireDrawing?.();
                 app.selectTool?.('select');
             }
         },
+        /** @param {{to: string}} event */
         onTabChange({ to }) {
             if (to === 'home') app.refreshRibbon?.();
         },
@@ -169,8 +199,9 @@ export function createSchematicRibbonDescription(app) {
                                 main: { id: 'ribbonOpen', title: 'Open (Ctrl+O)', content: '📂 Open', run: () => app.openFile() },
                                 arrow: { id: 'ribbonOpenRecent', title: 'Recent files', attrs: { 'aria-haspopup': 'true', 'aria-label': 'Recent files' }, content: '▾' },
                                 menuId: 'ribbonRecentMenu',
-                                onOpen: ({ menu }) => void renderRecentFiles({
-                                    container: menu,
+                                /** @param {{menu: HTMLElement}} event */
+                                onOpen: (event) => void renderRecentFiles({
+                                    container: event.menu,
                                     getFileManager: () => app.fileManager,
                                     openRecent: name => app.openRecentFile?.(name),
                                 }),
@@ -195,7 +226,7 @@ export function createSchematicRibbonDescription(app) {
                             B('ribbonClearComponentCache', '🧹 Clear Cache', 'Clear component caches', { className: 'ribbon-danger', run: () => app.clearComponentCaches?.() }),
                             { kind: 'checkbox', id: 'ribbonToggleComponentTooltip', label: 'Component tooltip',
                                 checked: () => app.showComponentDebugTooltip !== false,
-                                onChange: checked => {
+                                onChange: /** @param {boolean} checked */ (checked) => {
                                     app.showComponentDebugTooltip = checked;
                                     if (!checked) app.updateComponentCodeTooltip?.(null, null, { forceHide: true });
                                 } },
@@ -221,11 +252,13 @@ export function createSchematicRibbonDescription(app) {
                                     active: () => app.currentTool === 'net',
                                     main: { id: 'ribbonNetTool', className: 'ribbon-tool-btn ribbon-split-main', dataset: { tool: 'net' },
                                         title: () => {
-                                            const meta = NET_STYLE_META[normalizenetStyle(app.toolOptions?.netStyle || 't')] || NET_STYLE_META.t;
+                                            const toolOptions = /** @type {ToolOptions} */ (app.toolOptions || {});
+                                            const meta = NET_STYLE_META[normalizenetStyle(toolOptions.netStyle || 't')] || NET_STYLE_META.t;
                                             return `${SCHEMATIC_TOOLS.net.name} (${meta.title}) (${(SCHEMATIC_TOOLS.net.key || '').toUpperCase()})`;
                                         },
                                         content: () => {
-                                            const meta = NET_STYLE_META[normalizenetStyle(app.toolOptions?.netStyle || 't')] || NET_STYLE_META.t;
+                                            const toolOptions = /** @type {ToolOptions} */ (app.toolOptions || {});
+                                            const meta = NET_STYLE_META[normalizenetStyle(toolOptions.netStyle || 't')] || NET_STYLE_META.t;
                                             return [E('span', { className: 'ribbon-net-icon', attrs: { 'aria-hidden': 'true' } }, meta.icon), ' Net'];
                                         },
                                         run: () => app.selectTool('net') },
@@ -234,12 +267,15 @@ export function createSchematicRibbonDescription(app) {
                                     menuAttrs: { 'aria-label': 'Net style' },
                                     items: netMenuItems.map(item => ({
                                         ...item,
-                                        active: () => item.dataset.netStyle === normalizenetStyle(app.toolOptions?.netStyle || 't')
-                                            && (item.dataset.netText || null) === (app.toolOptions?.netPresetText || null),
+                                        active: () => {
+                                            const toolOptions = /** @type {ToolOptions} */ (app.toolOptions || {});
+                                            return item.dataset.netStyle === normalizenetStyle(toolOptions.netStyle || 't')
+                                                && (item.dataset.netText || null) === (toolOptions.netPresetText || null);
+                                        },
                                         run: () => {
                                             const style = normalizenetStyle(item.dataset.netStyle || 't');
                                             app.updateToolOptions?.({ netStyle: style, netOrientation: DEFAULT_ORIENTATION_BY_STYLE[style] || 'E' });
-                                            app.toolOptions.netPresetText = item.dataset.netText || null;
+                                            /** @type {ToolOptions} */ (app.toolOptions).netPresetText = item.dataset.netText || null;
                                             app.selectTool('net');
                                         },
                                     })),
@@ -273,8 +309,8 @@ export function createSchematicRibbonDescription(app) {
                                 id: 'paperSize',
                                 title: 'Paper size',
                                 value: () => paperKey(app),
-                                onChange: value => {
-                                    if (!value || !PAPER_SIZES[value]) {
+                                onChange: /** @param {string} value */ (value) => {
+                                    if (!isPaperSizeKey(value)) {
                                         app.viewport.setPaperSize(null, null);
                                         storageRemove(PAPER_KEY);
                                     } else {
@@ -299,28 +335,28 @@ export function createSchematicRibbonDescription(app) {
                                 ],
                             },
                             { kind: 'select', id: 'paperOrientation', title: 'Paper orientation', value: () => paperOrientation(), disabled: () => !hasPaper(app),
-                                onChange: value => { storageSet(ORIENTATION_KEY, value); if (hasPaper(app)) applyPaperDisplay(app, paperKey(app), value); },
+                                onChange: /** @param {string} value */ (value) => { storageSet(ORIENTATION_KEY, value); if (hasPaper(app)) applyPaperDisplay(app, paperKey(app), value); },
                                 options: [{ value: 'landscape', label: 'Landscape', selected: true }, { value: 'portrait', label: 'Portrait' }] },
                             { kind: 'checkbox', id: 'showTitleBlock', label: 'Border', checked: () => !!app.viewport?.showTitleBlock, disabled: () => !hasPaper(app),
-                                onChange: checked => { app.viewport.setTitleBlock(checked); storageSet(TITLE_BLOCK_KEY, String(checked)); } },
+                                onChange: /** @param {boolean} checked */ (checked) => { app.viewport.setTitleBlock(checked); storageSet(TITLE_BLOCK_KEY, String(checked)); } },
                             { kind: 'checkbox', id: 'showTitleBlockInfo', label: 'Title Block', checked: () => !!app.viewport?.showTitleBlockInfo, disabled: () => !hasPaper(app),
-                                onChange: checked => { app.viewport.setTitleBlockInfo(checked); storageSet(TITLE_BLOCK_INFO_KEY, String(checked)); } },
+                                onChange: /** @param {boolean} checked */ (checked) => { app.viewport.setTitleBlockInfo(checked); storageSet(TITLE_BLOCK_INFO_KEY, String(checked)); } },
                         ],
                     },
                     {
                         title: 'Grid',
                         items: [
                             { kind: 'checkbox', id: 'showGrid', label: 'Grid', checked: () => !!app.viewport?.gridVisible,
-                                onChange: checked => { app.viewport.setGridVisible(checked); if (!checked) app.viewport.snapToGrid = false; markDirty(app); } },
+                                onChange: /** @param {boolean} checked */ (checked) => { app.viewport.setGridVisible(checked); if (!checked) app.viewport.snapToGrid = false; markDirty(app); } },
                             { kind: 'checkbox', id: 'snapToGrid', label: 'Snap', checked: () => !!app.viewport?.snapToGrid && !!app.viewport?.gridVisible,
-                                disabled: () => !app.viewport?.gridVisible, onChange: checked => { if (app.viewport.gridVisible) app.viewport.snapToGrid = checked; markDirty(app); } },
+                                disabled: () => !app.viewport?.gridVisible, onChange: /** @param {boolean} checked */ (checked) => { if (app.viewport.gridVisible) app.viewport.snapToGrid = checked; markDirty(app); } },
                             { kind: 'select', id: 'gridSize', title: 'Grid size', options: () => gridOptions(app),
-                                value: () => nearestGridValue(app), onChange: value => { app.viewport.setGridSize(parseFloat(value)); markDirty(app); } },
+                                value: () => nearestGridValue(app), onChange: /** @param {string} value */ (value) => { app.viewport.setGridSize(parseFloat(value)); markDirty(app); } },
                             { kind: 'select', id: 'units', title: 'Units', value: () => app.viewport?.units || 'mm',
-                                onChange: value => { app.viewport.setUnits(value); nearestGridValue(app); markDirty(app); },
+                                onChange: /** @param {string} value */ (value) => { app.viewport.setUnits(/** @type {import('../../core/Viewport.js').ViewportUnit} */ (value)); nearestGridValue(app); markDirty(app); },
                                 options: [{ value: 'mm', label: 'mm', selected: true }, { value: 'inch', label: 'inch' }] },
                             { kind: 'select', id: 'gridStyle', title: 'Grid style', value: () => app.viewport?.gridStyle || 'lines',
-                                onChange: value => { app.viewport.setGridStyle(value); markDirty(app); },
+                                onChange: /** @param {string} value */ (value) => { app.viewport.setGridStyle(/** @type {'lines'|'dots'} */ (value)); markDirty(app); },
                                 options: [{ value: 'lines', label: 'Lines', selected: true }, { value: 'dots', label: 'Dots' }] },
                         ],
                     },

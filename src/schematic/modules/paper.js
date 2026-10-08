@@ -2,6 +2,10 @@
  * Paper Size Management
  * Handles paper size selection and display with persistence
  */
+/** @typedef {import('./schematic-editor-api.js').SchematicEditor} SchematicEditor */
+/** @typedef {{width: number, height: number}} PaperSize */
+/** @typedef {keyof typeof PAPER_SIZES} PaperSizeKey */
+/** @typedef {'portrait'|'landscape'} PaperOrientation */
 
 // Standard paper sizes in mm (width × height)
 const PAPER_SIZES = {
@@ -26,12 +30,17 @@ const TITLE_BLOCK_INFO_KEY = 'clearpcb_title_block_info';
 /**
  * Binds change listeners for paper size, orientation, and title block
  * checkboxes; restores persisted state from localStorage.
- * @param {object} app - Application state.
+ * @param {SchematicEditor} app
  */
 export function bindPaperEvents(app) {
     app.refreshRibbon?.();
 }
 
+/**
+ * @param {SchematicEditor} app
+ * @param {PaperSizeKey} paperSizeKey
+ * @param {PaperOrientation} orientation
+ */
 function updatePaperDisplay(app, paperSizeKey, orientation) {
     let size = { ...PAPER_SIZES[paperSizeKey] };  // Make a copy
     
@@ -54,10 +63,18 @@ function updatePaperDisplay(app, paperSizeKey, orientation) {
 /**
  * Returns the width and height (in mm) for a named paper size key.
  * @param {string} key - Paper size key (e.g. `'A4'`, `'Letter'`).
- * @returns {{width: number, height: number}|null} Size in mm, or `null` if not found.
+ * @returns {PaperSize|null} Size in mm, or `null` if not found.
  */
 export function getPaperSize(key) {
-    return PAPER_SIZES[key] || null;
+    return PAPER_SIZES[/** @type {PaperSizeKey} */ (key)] || null;
+}
+
+/**
+ * @param {string|null|undefined} key
+ * @returns {key is PaperSizeKey}
+ */
+export function isPaperSizeKey(key) {
+    return typeof key === 'string' && Object.hasOwn(PAPER_SIZES, key);
 }
 
 export { PAPER_SIZES };

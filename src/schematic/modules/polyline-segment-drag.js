@@ -5,27 +5,44 @@ import { captureShapeState } from './selection.js';
 import { getShapeSegmentFocus, setShapeSegmentFocus } from './shape-focus.js';
 import { getDidSchematicDrag, setDidSchematicDrag } from './draw-states.js';
 import { getSchematicDrag, setSchematicDrag } from './drag.js';
+/** @typedef {import('./schematic-editor-api.js').SchematicEditor} SchematicEditor */
+/** @typedef {import('../../shapes/polyline.js').Polyline} Polyline */
+/** @typedef {{x: number, y: number}} Point */
 
+/**
+ * @param {SchematicEditor} app
+ * @param {import('../../core/SchematicDocument.js').SchematicShape|null|undefined} shape
+ * @param {Point} worldPos
+ * @param {boolean} allowSegment
+ * @param {number} tolerance
+ * @returns {boolean}
+ */
 export function tryBeginPolylineSegmentDrag(app, shape, worldPos, allowSegment, tolerance) {
     if (!allowSegment || shape?.type !== 'polyline'
         || app.selection.getSelection().length !== 1) return false;
-    const edgeId = shape.hitTestEdge(worldPos, tolerance);
+    const polyline = /** @type {Polyline} */ (shape);
+    const edgeId = polyline.hitTestEdge(worldPos, tolerance);
     if (!edgeId) return false;
     const selectedSegment = getShapeSegmentFocus(app);
-    if (selectedSegment?.shapeId === shape.id && selectedSegment.edgeId !== edgeId) return false;
-    setShapeSegmentFocus(app, { shapeId: shape.id, edgeId });
+    if (selectedSegment?.shapeId === polyline.id && selectedSegment.edgeId !== edgeId) return false;
+    setShapeSegmentFocus(app, { shapeId: polyline.id, edgeId });
     app.updateShapeSelectionTip?.();
     setSchematicDrag(app, {
         mode: 'segment',
-        shape,
+        shape: polyline,
         edgeId,
-        beforeState: captureShapeState(app, shape),
+        beforeState: captureShapeState(app, polyline),
         startWorldPos: { ...worldPos },
     });
     app.interactionState = 'segmentDrag';
     return true;
 }
 
+/**
+ * @param {SchematicEditor} app
+ * @param {Point} worldPos
+ * @returns {boolean}
+ */
 export function updatePolylineSegmentDrag(app, worldPos) {
     const drag = getSchematicDrag(app);
     const shape = drag?.shape;
@@ -46,6 +63,7 @@ export function updatePolylineSegmentDrag(app, worldPos) {
         neighbours: Object.entries(drag.beforeState.edges).filter(([id, edge]) => id !== edgeId
             && (edge.from === nodeId || edge.to === nodeId)).map(([, edge]) =>
             drag.beforeState.nodes[edge.from === nodeId ? edge.to : edge.from]),
+        continuations: [],
     }));
     const delta = snapShapeTranslation(app, [first, second], {
         x: worldPos.x - drag.startWorldPos.x, y: worldPos.y - drag.startWorldPos.y,

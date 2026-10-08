@@ -12,29 +12,45 @@ import { getTextEditBoxWorldCorners } from '../../core/text-edit-geometry.js';
 import { applyTextConnectionGuide } from '../../shared/ui/inline-text-overlay.js';
 import { getSchematicDrag } from './drag.js';
 import { getSchematicTextEdit } from './text-edit.js';
+/** @typedef {import('./schematic-editor-api.js').SchematicEditor} SchematicEditor */
+/** @typedef {import('../../core/SchematicDocument.js').SchematicShape} SchematicShape */
+/** @typedef {{x: number, y: number}} Point */
+/** @typedef {{kind?: string, edgeId?: string|null, t?: number, anchorX?: number, anchorY?: number, offsetX?: number, offsetY?: number}} LabelAttachment */
+/** @typedef {{edgeId?: string|null, t?: number, point?: Point}} ClosestEdge */
 
 const WIRE_ATTACHED_LABEL_FONT_SIZE = 1.4;
 const DEFAULT_WIRE_LABEL_OFFSET = 1.0;
+/** @type {WeakMap<SchematicEditor, SVGLineElement>} */
 const labelGuides = new WeakMap();
 
+/** @param {SchematicEditor} app */
 export function getLabelGuideElement(app) {
     return labelGuides.get(app) || null;
 }
 
+/** @param {SchematicEditor} app @param {SVGLineElement|null} guide */
 function setLabelGuideElement(app, guide) {
     if (guide) labelGuides.set(app, guide);
     else labelGuides.delete(app);
 }
 
+/**
+ * @param {SchematicShape|null|undefined} shape
+ * @returns {Point}
+ */
 function getShapeCenter(shape) {
     if (!shape?.getBounds) return { x: shape?.x || 0, y: shape?.y || 0 };
-    const b = shape.getBounds();
+    const b = /** @type {{minX: number, minY: number, maxX: number, maxY: number}} */ (shape.getBounds());
     return {
         x: (b.minX + b.maxX) / 2,
         y: (b.minY + b.maxY) / 2
     };
 }
 
+/**
+ * @param {SchematicShape|null|undefined} target
+ * @returns {Set<SchematicShape>|null}
+ */
 function ensureAttachedLabelsSet(target) {
     if (!target || typeof target !== 'object') return null;
     if (!(target.attachedLabels instanceof Set)) {
@@ -43,13 +59,16 @@ function ensureAttachedLabelsSet(target) {
     return target.attachedLabels;
 }
 
+/** @param {SchematicShape|null|undefined} target @param {SchematicShape|null|undefined} labelShape */
 function addAttachedLabel(target, labelShape) {
     const attached = ensureAttachedLabelsSet(target);
     if (!attached || !labelShape) return;
     attached.add(labelShape);
 }
 
+/** @param {SchematicShape|null|undefined} target @param {SchematicShape|null|undefined} labelShape */
 function removeAttachedLabel(target, labelShape) {
+    if (!target) return;
     const attached = target?.attachedLabels;
     if (!(attached instanceof Set) || !labelShape) return;
     attached.delete(labelShape);
@@ -58,7 +77,13 @@ function removeAttachedLabel(target, labelShape) {
     }
 }
 
+/**
+ * @param {SchematicShape|null|undefined} target
+ * @param {Point} pt
+ * @returns {Point|null}
+ */
 function closestPointOnShapeGeometry(target, pt) {
+    if (!target) return null;
     const type = target?.type;
 
     // Graph-based shapes (polyline, line, polygon, wire) — use closestEdge API
@@ -94,7 +119,12 @@ function closestPointOnShapeGeometry(target, pt) {
     return null;
 }
 
-function getNonWireAnchor(target, referencePoint) {
+/**
+ * @param {SchematicShape} target
+ * @param {Point|null} [referencePoint]
+ * @returns {Point}
+ */
+function getNonWireAnchor(target, referencePoint = null) {
     // For components (have definition), use center
     if (target?.definition) {
         return getShapeCenter(target);
@@ -108,6 +138,11 @@ function getNonWireAnchor(target, referencePoint) {
     return getShapeCenter(target);
 }
 
+/**
+ * @param {SchematicShape|null|undefined} wire
+ * @param {LabelAttachment|null|undefined} attachment
+ * @returns {Point|null}
+ */
 function getWireAnchorFromAttachment(wire, attachment) {
     if (!wire || wire.type !== 'wire' || !attachment) return null;
 
@@ -116,7 +151,7 @@ function getWireAnchorFromAttachment(wire, attachment) {
         const from = wire.nodes.get(edge.from);
         const to = wire.nodes.get(edge.to);
         if (from && to) {
-            const t = Number.isFinite(attachment.t) ? attachment.t : 0.5;
+            const t = Number.isFinite(attachment.t) ? /** @type {number} */ (attachment.t) : 0.5;
             return {
                 x: from.x + (to.x - from.x) * t,
                 y: from.y + (to.y - from.y) * t
@@ -131,7 +166,13 @@ function getWireAnchorFromAttachment(wire, attachment) {
     return { x: fallback.point.x, y: fallback.point.y };
 }
 
+/**
+ * @param {SchematicShape|null|undefined} wire
+ * @param {ClosestEdge|null|undefined} closest
+ * @returns {Point}
+ */
 function getDefaultWireLabelOffset(wire, closest) {
+    if (!wire) return { x: 0, y: -DEFAULT_WIRE_LABEL_OFFSET };
     const edge = closest?.edgeId ? wire?.edges?.get(closest.edgeId) : null;
     const from = edge ? wire.nodes.get(edge.from) : null;
     const to = edge ? wire.nodes.get(edge.to) : null;
@@ -172,6 +213,9 @@ function getDefaultWireLabelOffset(wire, closest) {
  *
  * This helper is shared by drag/drop attach and wire split re-home logic,
  * so both paths choose targets with identical geometry semantics.
+ * @param {SchematicShape|null|undefined} labelShape
+ * @param {Point|null} [fallbackPos]
+ * @returns {Point}
  */
 export function getLabelDropHotspot(labelShape, fallbackPos = null) {
     if (!labelShape || labelShape.type !== 'text') {
@@ -185,6 +229,11 @@ export function getLabelDropHotspot(labelShape, fallbackPos = null) {
     return { x: labelShape.x, y: labelShape.y };
 }
 
+/**
+ * @param {SchematicShape|null|undefined} labelShape
+ * @param {Point|null} [referencePoint]
+ * @returns {Point|null}
+ */
 export function getLabelAttachmentAnchorPoint(labelShape, referencePoint = null) {
     if (!labelShape || labelShape.type !== 'text') return null;
     const target = labelShape.parentComponent;
@@ -203,6 +252,7 @@ export function getLabelAttachmentAnchorPoint(labelShape, referencePoint = null)
     return getNonWireAnchor(target, referencePoint);
 }
 
+/** @param {SchematicEditor} app */
 export function updateLabelGuide(app) {
     const selection = app.selection?.getSelection?.() || [];
     const label = getSchematicTextEdit(app)?.shape || (selection.length === 1 ? selection[0] : null);
@@ -255,9 +305,9 @@ export function updateLabelGuide(app) {
 
 /**
  * Attach a generic label Text shape to a target shape/component.
- * @param {object} labelShape
- * @param {object|null} target - null attaches to nothing
- * @param {{x:number,y:number}|null} [snapPos]
+ * @param {SchematicShape|null|undefined} labelShape
+ * @param {SchematicShape|null} target - null attaches to nothing
+ * @param {Point|null} [snapPos]
  * @param {{isNewLabel?:boolean}} [opts]
  */
 export function attachLabelToTarget(labelShape, target, snapPos = null, { isNewLabel = false } = {}) {
@@ -328,6 +378,7 @@ export function attachLabelToTarget(labelShape, target, snapPos = null, { isNewL
     labelShape.invalidate?.();
 }
 
+/** @param {SchematicShape|null|undefined} labelShape */
 export function detachLabel(labelShape) {
     if (!labelShape || labelShape.type !== 'text') return;
     removeAttachedLabel(labelShape.parentComponent, labelShape);
@@ -341,6 +392,7 @@ export function detachLabel(labelShape) {
     labelShape.invalidate?.();
 }
 
+/** @param {SchematicShape|null|undefined} labelShape */
 export function refreshLabelAttachmentOffset(labelShape) {
     if (!labelShape || labelShape.type !== 'text') return;
     const target = labelShape.parentComponent;
@@ -368,6 +420,7 @@ export function refreshLabelAttachmentOffset(labelShape) {
 
 /**
  * Keep attached labels aligned with their parent target.
+ * @param {SchematicEditor} app
  */
 export function syncAttachedLabels(app) {
     const isDraggingLabel = getSchematicDrag(app)?.mode === 'move'

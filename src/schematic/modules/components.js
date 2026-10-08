@@ -3,27 +3,34 @@ import { AddComponentCommand, TransformComponentCommand } from './commands.js';
 import { needsValueDialog, showValueDialog } from './value-dialog.js';
 import { componentPreviewElement } from './schematic-view.js';
 import { getSchematicInteraction, setSchematicInteraction } from './schematic-interactions.js';
+/** @typedef {import('./schematic-editor-api.js').SchematicEditor} SchematicEditor */
+/** @typedef {import('../../components/Component.js').ComponentDefinition} ComponentDefinition */
+/** @typedef {{x: number, y: number}} Point */
+/** @typedef {{forceHide?: boolean}} TooltipOptions */
+/** @typedef {{previewHidden: boolean, codeTooltip: HTMLDivElement|null, codeTooltipActiveId: string|null, codeTooltipPinned: boolean, codeTooltipPosition: Point|null}} ComponentUiState */
 
+/** @type {WeakMap<SchematicEditor, ComponentUiState>} */
 const componentState = new WeakMap();
 
-/** @param {object} app */
+/** @param {SchematicEditor} app @returns {ComponentDefinition|null} */
 export function getPlacingComponent(app) {
-    return getSchematicInteraction(app, 'placingComponent');
+    return /** @type {ComponentDefinition|null} */ (getSchematicInteraction(app, 'placingComponent'));
 }
 
-/** @param {object} app */
+/** @param {SchematicEditor} app */
 export function isPlacingComponent(app) {
     return !!getPlacingComponent(app);
 }
 
 /**
- * @param {object} app
- * @param {object|null} definition
+ * @param {SchematicEditor} app
+ * @param {ComponentDefinition|null} definition
  */
 function setPlacingComponent(app, definition) {
     setSchematicInteraction(app, 'placingComponent', definition);
 }
 
+/** @param {SchematicEditor} app @returns {ComponentUiState} */
 function stateFor(app) {
     let state = componentState.get(app);
     if (!state) {
@@ -39,6 +46,7 @@ function stateFor(app) {
     return state;
 }
 
+/** @param {SchematicEditor} app */
 export function initializeComponentCodeTooltip(app) {
     const state = stateFor(app);
     const tooltip = document.createElement('div');
@@ -59,9 +67,9 @@ export function initializeComponentCodeTooltip(app) {
 
 /**
  * Returns the topmost component at a world coordinate, or null.
- * @param {object} app
- * @param {{x:number,y:number}} point
- * @returns {object|null}
+ * @param {SchematicEditor} app
+ * @param {Point} point
+ * @returns {Component|null}
  */
 export function findComponentAt(app, point) {
     for (let i = app.components.length - 1; i >= 0; i--) {
@@ -74,10 +82,17 @@ export function findComponentAt(app, point) {
     return null;
 }
 
+/** @param {SchematicEditor} app */
 export function isComponentCodeTooltipPinned(app) {
     return stateFor(app).codeTooltipPinned;
 }
 
+/**
+ * @param {SchematicEditor} app
+ * @param {Component|null} component
+ * @param {Point|null} screenPos
+ * @param {TooltipOptions} [options]
+ */
 export function updateComponentCodeTooltip(app, component, screenPos, options = {}) {
     const state = stateFor(app);
     const tooltip = state.codeTooltip;
@@ -112,7 +127,7 @@ export function updateComponentCodeTooltip(app, component, screenPos, options = 
     const pad = 12;
     const position = state.codeTooltipPinned && state.codeTooltipPosition
         ? state.codeTooltipPosition
-        : screenPos;
+        : /** Callers pass a screen position whenever a component tooltip is shown. @type {Point} */ (screenPos);
     const maxX = window.innerWidth - tooltip.offsetWidth - pad;
     const maxY = window.innerHeight - tooltip.offsetHeight - pad;
     const left = Math.min(position.x + pad, Math.max(pad, maxX));
@@ -125,9 +140,9 @@ export function updateComponentCodeTooltip(app, component, screenPos, options = 
 
 /**
  * Pins the component tooltip at a fixed position.
- * @param {object} app
- * @param {Object} component - The component to pin the tooltip for.
- * @param {Object} screenPos - The screen position {x, y} to pin at.
+ * @param {SchematicEditor} app
+ * @param {Component|null} component - The component to pin the tooltip for.
+ * @param {Point|null} screenPos - The screen position {x, y} to pin at.
  */
 export function pinComponentCodeTooltip(app, component, screenPos) {
     if (!component || !screenPos) return;
@@ -140,7 +155,7 @@ export function pinComponentCodeTooltip(app, component, screenPos) {
 /**
  * Rebuilds the selection manager's list of selectable items by merging
  * `app.components` and `app.shapes`.
- * @param {object} app - Application state.
+ * @param {SchematicEditor} app
  */
 export function updateSelectableItems(app) {
     const items = [...app.components, ...app.shapes];
@@ -150,8 +165,8 @@ export function updateSelectableItems(app) {
 /**
  * Generates the next unique reference designator (e.g. `R3`, `U5`) for a
  * component definition by scanning existing components.
- * @param {object} app - Application state.
- * @param {object} definition - Component definition with `defaultReference`.
+ * @param {SchematicEditor} app
+ * @param {ComponentDefinition} definition - Component definition with `defaultReference`.
  * @returns {string} Next available reference designator.
  */
 export function generateReference(app, definition) {
@@ -171,7 +186,7 @@ export function generateReference(app, definition) {
 
 /**
  * Filters the current selection to return only `Component` instances.
- * @param {object} app - Application state.
+ * @param {SchematicEditor} app
  * @returns {import('../../components/Component.js').Component[]} Selected components.
  */
 export function getSelectedComponents(app) {
@@ -181,8 +196,8 @@ export function getSelectedComponents(app) {
 /**
  * Handles a component definition being chosen from the picker — sets placement
  * mode, creates a preview, and sets crosshair cursor.
- * @param {object} app - Application state.
- * @param {object} definition - The selected component definition.
+ * @param {SchematicEditor} app
+ * @param {ComponentDefinition} definition - The selected component definition.
  */
 export function onComponentDefinitionSelected(app, definition) {
     app.cancelDrawing();
@@ -209,8 +224,8 @@ export function onComponentDefinitionSelected(app, definition) {
 /**
  * Creates a semi-transparent SVG element showing the component symbol
  * under the cursor during placement.
- * @param {object} app - Application state.
- * @param {object} definition - Component definition to preview.
+ * @param {SchematicEditor} app
+ * @param {ComponentDefinition} definition - Component definition to preview.
  */
 export function createComponentPreview(app, definition) {
     if (app.componentPreview) {
@@ -240,7 +255,7 @@ export function createComponentPreview(app, definition) {
 /**
  * Moves the component placement preview to follow the cursor, applying
  * current rotation and mirror transforms.
- * @param {object} app - Application state.
+ * @param {SchematicEditor} app
  * @param {{x: number, y: number}} worldPos - Cursor position in world coordinates.
  */
 export function updateComponentPreview(app, worldPos) {
@@ -267,7 +282,7 @@ export function updateComponentPreview(app, worldPos) {
  * Instantiates a `Component` at the given position, executes an
  * `AddComponentCommand`, and optionally shows a value dialog for passive
  * components (R/C/L).
- * @param {object} app - Application state.
+ * @param {SchematicEditor} app
  * @param {{x: number, y: number}} worldPos - Placement position in world coordinates.
  */
 export async function placeComponent(app, worldPos) {
@@ -304,7 +319,7 @@ export async function placeComponent(app, worldPos) {
 /**
  * Rotates the placement preview +90°, or rotates all selected components
  * right via `TransformComponentCommand`.
- * @param {object} app - Application state.
+ * @param {SchematicEditor} app
  */
 export function rotateComponentRight(app) {
     const placing = getPlacingComponent(app);
@@ -326,7 +341,7 @@ export function rotateComponentRight(app) {
 /**
  * Rotates the placement preview −90°, or rotates all selected components
  * left via `TransformComponentCommand`.
- * @param {object} app - Application state.
+ * @param {SchematicEditor} app
  */
 export function rotateComponentLeft(app) {
     const placing = getPlacingComponent(app);
@@ -348,7 +363,7 @@ export function rotateComponentLeft(app) {
 /**
  * Toggles horizontal mirror on the placement preview, or flips selected
  * components horizontally via `TransformComponentCommand`.
- * @param {object} app - Application state.
+ * @param {SchematicEditor} app
  */
 export function flipComponentH(app) {
     const placing = getPlacingComponent(app);
@@ -372,7 +387,7 @@ export function flipComponentH(app) {
 /**
  * Flips selected components vertically via `TransformComponentCommand`
  * (no effect during placement).
- * @param {object} app - Application state.
+ * @param {SchematicEditor} app
  */
 export function flipComponentV(app) {
     const placing = getPlacingComponent(app);
@@ -396,7 +411,7 @@ export function flipComponentV(app) {
 /**
  * Removes the placement preview, resets rotation/mirror state, and switches
  * back to the select tool.
- * @param {object} app - Application state.
+ * @param {SchematicEditor} app
  */
 export function cancelComponentPlacement(app) {
     if (app.componentPreview) {

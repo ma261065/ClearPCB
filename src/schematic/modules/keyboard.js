@@ -12,18 +12,25 @@ import {
 } from './editor-actions.js';
 import { isSchematicLocked } from '../../shapes/lock-owner.js';
 import { isSchematicDrawingActive } from './drawing.js';
+/** @typedef {import('./schematic-editor-api.js').SchematicEditor} SchematicEditor */
+/** @typedef {import('../../shapes/net.js').NetOrientation} NetOrientation */
+/** @typedef {import('../../ui/SchematicApp.js').SchematicToolOptions} KeyboardToolOptions */
 
 
 /**
  * True when keyboard actions that operate on the current selection
  * (flip, rotate, etc.) are allowed: select tool active and nothing in progress.
- * @param {object} app
+ * @param {SchematicEditor} app
  */
 function canActOnSelection(app) {
     return canRunSchematicSelectionAction(app) && app.currentTool === 'select';
 }
 
-/** Flip the placing component / selected components horizontally. */
+/**
+ * Flip the placing component / selected components horizontally.
+ * @param {SchematicEditor} app
+ * @param {KeyboardEvent} e
+ */
 function handleFlipHorizontal(app, e) {
     if (!hasSchematicTextEdit(app) && isPlacingComponent(app)) {
         flipComponentH(app);
@@ -38,7 +45,11 @@ function handleFlipHorizontal(app, e) {
     return false;
 }
 
-/** Flip the placing component / selected components vertically. */
+/**
+ * Flip the placing component / selected components vertically.
+ * @param {SchematicEditor} app
+ * @param {KeyboardEvent} e
+ */
 function handleFlipVertical(app, e) {
     if (!hasSchematicTextEdit(app) && isPlacingComponent(app)) {
         flipComponentV(app);
@@ -54,6 +65,8 @@ function handleFlipVertical(app, e) {
 /**
  * Spacebar: rotate the placing component, the selected components, the
  * active Net tool's orientation, or selected Net/Text shapes.
+ * @param {SchematicEditor} app
+ * @param {KeyboardEvent} e
  */
 function handleSpaceRotate(app, e) {
     // Rotate component while placing.
@@ -70,7 +83,7 @@ function handleSpaceRotate(app, e) {
     }
     // Rotate Net orientation while the Net tool is active.
     if (!hasSchematicTextEdit(app) && app.currentTool === 'net') {
-        const current = app.toolOptions?.netOrientation || 'E';
+        const current = /** @type {NetOrientation} */ (/** @type {KeyboardToolOptions} */ (app.toolOptions)?.netOrientation || 'E');
         app.updateToolOptions?.({ netOrientation: rotateNetOrientation(current) });
         const world = app.viewport.currentMouseWorld;
         if (world) {
@@ -109,10 +122,11 @@ function handleSpaceRotate(app, e) {
 /**
  * Registers global keyboard event listeners for all shortcuts
  * (Ctrl+S/O/N/Z/Y/A/C/X/V/P, tool keys, Enter, Delete, Escape, etc.).
- * @param {object} app - Application state.
+ * @param {SchematicEditor} app
  * @returns {Function} Cleanup function that removes the keyboard listeners.
  */
 export function bindKeyboardShortcuts(app) {
+    /** @type {(e: KeyboardEvent) => void} */
     const onKeyDown = (e) => {
         // PCB mode owns the keyboard. AppBootstrap's window-capture
         // dispatcher runs first; if it consumed the key it already
@@ -128,13 +142,14 @@ export function bindKeyboardShortcuts(app) {
         if (topModal && topModal.id !== 'text-edit' && topModal.id !== 'componentPicker') {
             return;
         }
+        const target = /** @type {(EventTarget & {tagName?: string, type?: string, isContentEditable?: boolean})|null} */ (e.target);
         // Allow shortcuts through for non-text inputs (checkboxes, buttons, etc.)
         // Only block when user is actively typing in a text field
-        if (e.target) {
-            const tag = e.target.tagName;
+        if (target) {
+            const tag = target.tagName;
             if ((tag === 'TEXTAREA' || tag === 'SELECT') && e.key !== 'Escape' && e.key !== 'Enter') return;
             if (tag === 'INPUT') {
-                const inputType = (e.target.type || 'text').toLowerCase();
+                const inputType = (target.type || 'text').toLowerCase();
                 // Block shortcuts only for text-entry inputs
                 if (inputType !== 'checkbox' && inputType !== 'radio' && inputType !== 'button' && e.key !== 'Escape' && e.key !== 'Enter') return;
             }
@@ -144,13 +159,13 @@ export function bindKeyboardShortcuts(app) {
         // Text edit has absolute priority for Escape and Enter
         if (hasSchematicTextEdit(app)) {
             if (e.key === 'Escape' || e.key === 'Enter') {
-                if (app.handleTextEditKey && handleTextEditKey(app, e)) {
+                if (/** @type {{handleTextEditKey?: Function}} */ (app).handleTextEditKey && handleTextEditKey(app, e)) {
                     return;
                 }
             }
         }
 
-        if (app.handleTextEditKey && handleTextEditKey(app, e)) {
+        if (/** @type {{handleTextEditKey?: Function}} */ (app).handleTextEditKey && handleTextEditKey(app, e)) {
             return;
         }
 
@@ -242,11 +257,11 @@ export function bindKeyboardShortcuts(app) {
                     handleFlipVertical(app, e);
                     break;
                 case ' ':
-                    if (e.target?.isContentEditable) break;
+                    if (target?.isContentEditable) break;
                     handleSpaceRotate(app, e);
                     if (!e.defaultPrevented && !e.altKey && !hasSchematicTextEdit(app) && !isPlacingComponent(app)
                         && !isSchematicDrawingActive(app) && !isPastingClipboard(app) && !app.selection.getSelection().length
-                        && !['INPUT', 'BUTTON'].includes(e.target?.tagName)) {
+                        && !['INPUT', 'BUTTON'].includes(target?.tagName || '')) {
                         e.preventDefault();
                         app.fitToContent();
                     }

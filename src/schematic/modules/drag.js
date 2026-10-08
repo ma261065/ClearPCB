@@ -25,6 +25,18 @@ import { setShapeNodeFocus, setShapeSegmentFocus } from './shape-focus.js';
 import { isSchematicLocked } from '../../shapes/lock-owner.js';
 import { getSchematicInteraction, setSchematicInteraction } from './schematic-interactions.js';
 import { setDidSchematicDrag } from './draw-states.js';
+/** @typedef {import('./schematic-editor-api.js').SchematicEditor} SchematicEditor */
+/** @typedef {import('../../core/SchematicDocument.js').SchematicShape} SchematicShape */
+/** @typedef {import('../../shapes/shape.js').Shape} Shape */
+/** @typedef {SchematicShape} Wire */
+/** @typedef {SchematicShape} Net */
+/** @typedef {import('../../shapes/text.js').Text} Text */
+/** @typedef {SchematicShape} NoConnect */
+/** @typedef {import('../../core/CommandHistory.js').Command} Command */
+/** @typedef {{x: number, y: number}} Point */
+/** @typedef {any} ShapeState */
+/** @typedef {{shape: SchematicShape, anchorId: string}} ShapeJoinTarget */
+/** @typedef {{nc: NoConnect, before: ShapeState}} NoConnectLink */
 
 /**
  * Compare two captured shape states for equality.
@@ -39,7 +51,7 @@ export function areCapturedStatesEqual(a, b) {
 //  State reset 
 
 /**
- * @param {object} app
+ * @param {SchematicEditor} app
  * @returns {any}
  */
 export function getSchematicDrag(app) {
@@ -47,33 +59,34 @@ export function getSchematicDrag(app) {
 }
 
 /**
- * @param {object} app
+ * @param {SchematicEditor} app
  * @param {any} drag
  */
 export function setSchematicDrag(app, drag) {
     setSchematicInteraction(app, 'drag', drag);
 }
 
-/** @param {object} app */
+/** @param {SchematicEditor} app */
 export function getPendingAnchorDrag(app) {
     return getSchematicInteraction(app, 'pendingAnchorDrag');
 }
 
 /**
- * @param {object} app
+ * @param {SchematicEditor} app
  * @param {any} pending
  */
 export function setPendingAnchorDrag(app, pending) {
     setSchematicInteraction(app, 'pendingAnchorDrag', pending);
 }
 
-/** @param {object} app */
+/** @param {SchematicEditor} app */
 export function clearPendingAnchorDrag(app) {
     setPendingAnchorDrag(app, null);
 }
 
 /**
  * Reset all drag state. Callers handle UI cleanup.
+ * @param {SchematicEditor} app
  */
 export function clearDragState(app) {
     clearAxisGlow(app);
@@ -91,7 +104,10 @@ export function clearDragState(app) {
  * function declarations so modules in an import cycle with this one can use them.
  */
 
-/** Cancel an anchor, segment or move drag or a box selection, restoring what it moved. */
+/**
+ * Cancel an anchor, segment or move drag or a box selection, restoring what it moved.
+ * @param {SchematicEditor} app
+ */
 export function cancelDragGesture(app) {
     const state = app.interactionState;
     if (state === 'anchorDrag' || state === 'segmentDrag') {
@@ -131,7 +147,10 @@ export function cancelDragGesture(app) {
     return false;
 }
 
-/** Cancel a pending (pre-threshold) anchor drag or midpoint split. */
+/**
+ * Cancel a pending (pre-threshold) anchor drag or midpoint split.
+ * @param {SchematicEditor} app
+ */
 export function cancelPendingAnchorDrag(app) {
     const { shape, preInsertState } = getPendingAnchorDrag(app);
     if (preInsertState) applyShapeState(app, shape, preInsertState);
@@ -146,12 +165,13 @@ export function cancelPendingAnchorDrag(app) {
  * Snapshot everything a move drag can change before its first movement: the moved
  * selection, the field and label texts that travel with it, and every wire (sticky
  * wires and junction propagation edit them). Cancelling restores these.
- * @param {object} app
- * @param {object[]} selection
- * @returns {Map<object, object>}
+ * @param {SchematicEditor} app
+ * @param {SchematicShape[]} selection
+ * @returns {Map<SchematicShape, ShapeState>}
  */
 export function captureMoveDragStates(app, selection) {
     const moved = new Set(selection);
+    /** @type {Map<SchematicShape, ShapeState>} */
     const states = new Map();
     for (const item of selection) states.set(item, item.captureState());
     for (const shape of app.shapes) {
@@ -163,7 +183,10 @@ export function captureMoveDragStates(app, selection) {
     return states;
 }
 
-/** Undo a cancelled move drag's live changes from its snapshot, with one redraw. */
+/**
+ * Undo a cancelled move drag's live changes from its snapshot, with one redraw.
+ * @param {SchematicEditor} app
+ */
 function restoreMoveDragStates(app) {
     const states = getSchematicDrag(app)?.restoreStates;
     if (!states) return;
@@ -174,6 +197,7 @@ function restoreMoveDragStates(app) {
     getSchematicDrag(app).restoreStates = null;
 }
 
+/** @param {SchematicEditor} app */
 export function cancelSchematicPathSplit(app) {
     if (!getSchematicDrag(app)?.pathSplit) return false;
     const remainder = getSchematicDrag(app).splitRemainder;
@@ -182,6 +206,7 @@ export function cancelSchematicPathSplit(app) {
     return true;
 }
 
+/** @param {SchematicEditor} app */
 export function cancelSchematicShapeConversion(app) {
     const conversion = getSchematicDrag(app)?.conversion;
     if (!conversion) return false;
@@ -199,15 +224,16 @@ export function cancelSchematicShapeConversion(app) {
 /**
  * Build a complete before-state map for all wires: combine pre-drag
  * snapshots with current state of unchanged wires.
- * @param {object} app
- * @param {Map} preDragStates - Wire  state snapshots from drag start
- * @returns {Map}
+ * @param {SchematicEditor} app
+ * @param {Map<Wire, ShapeState>} preDragStates - Wire  state snapshots from drag start
+ * @returns {Map<Wire, ShapeState>}
  */
 function buildBeforeAllWireStates(app, preDragStates) {
     const beforeAll = new Map(preDragStates);
     for (const s of app.shapes) {
         if (s.type === 'wire' && !beforeAll.has(s)) {
-            beforeAll.set(s, s.captureState());
+            const wire = /** @type {Wire} */ (s);
+            beforeAll.set(wire, wire.captureState());
         }
     }
     return beforeAll;
@@ -215,11 +241,12 @@ function buildBeforeAllWireStates(app, preDragStates) {
 
 /**
  * Capture label text states for all wires in the before-state map.
- * @param {object} app
- * @param {Map} beforeAll - Wire  state map
- * @returns {Map}
+ * @param {SchematicEditor} app
+ * @param {Map<Wire, ShapeState>} beforeAll - Wire  state map
+ * @returns {Map<Text, ShapeState>}
  */
 function captureLabelTextStates(app, beforeAll) {
+    /** @type {Map<Text, ShapeState>} */
     const labelStates = new Map();
     for (const [w] of beforeAll) {
         if (w.labelText && app.shapes.includes(w.labelText)) {
@@ -233,11 +260,11 @@ function captureLabelTextStates(app, beforeAll) {
  * Reconcile wires, refresh connections, and build the undo batch.
  * Shared by commitAnchorDrag and commitSegmentDrag.
  *
- * @param {object} app
- * @param {object[]} changedWires - Wires that were modified by the drag
- * @param {Map} beforeAll - Complete wire before-state map
+ * @param {SchematicEditor} app
+ * @param {Wire[]} changedWires - Wires that were modified by the drag
+ * @param {Map<Wire, ShapeState>} beforeAll - Complete wire before-state map
  * @param {string} label - Undo command label
- * @param {Map} labelTextBefore - Label text before-states
+ * @param {Map<Text, ShapeState>} labelTextBefore - Label text before-states
  * @returns {BatchCommand|null}
  */
 function reconcileAndBuildBatch(app, changedWires, beforeAll, label, labelTextBefore) {
@@ -250,9 +277,9 @@ function reconcileAndBuildBatch(app, changedWires, beforeAll, label, labelTextBe
 
 /**
  * Add NoConnect modify commands to a batch for shapes that moved.
- * @param {object} app
+ * @param {SchematicEditor} app
  * @param {BatchCommand} batch
- * @param {Array} ncLinks - Array of {nc, before} objects
+ * @param {NoConnectLink[]|null} ncLinks - Array of {nc, before} objects
  */
 function addNoConnectCommands(app, batch, ncLinks) {
     if (!ncLinks) return;
@@ -267,7 +294,7 @@ function addNoConnectCommands(app, batch, ncLinks) {
 
 /**
  * Push a batch to the undo stack if it has commands.
- * @param {object} app
+ * @param {SchematicEditor} app
  * @param {BatchCommand|null} batch
  */
 function pushBatchIfNonEmpty(app, batch) {
@@ -281,13 +308,13 @@ function pushBatchIfNonEmpty(app, batch) {
 /**
  * Commit an anchor drag  wire merge, degenerate collapse, undo commands.
  *
- * @param {object} app
- * @param {object} dragShape - The shape being dragged
- * @param {object} beforeState - Shape state snapshot from drag start
- * @param {Map} [anchorWireStates] - T-junction linked wire before-states
- * @param {Array} [ncLinks] - NoConnect shapes that moved with anchor
- * @param {Map} [junctionBeforeWireStates] - Pre-junction-split wire states
- * @param {Map} [junctionBeforeLabelTextStates] - Pre-junction-split label states
+ * @param {SchematicEditor} app
+ * @param {SchematicShape} dragShape - The shape being dragged
+ * @param {ShapeState} beforeState - Shape state snapshot from drag start
+ * @param {Map<Wire, ShapeState>|null} [anchorWireStates] - T-junction linked wire before-states
+ * @param {NoConnectLink[]|null} [ncLinks] - NoConnect shapes that moved with anchor
+ * @param {Map<Wire, ShapeState>|null} [junctionBeforeWireStates] - Pre-junction-split wire states
+ * @param {Map<Text, ShapeState>|null} [junctionBeforeLabelTextStates] - Pre-junction-split label states
  * @returns {boolean}
  */
 export function commitAnchorDrag(app, dragShape, beforeState, anchorWireStates = null, ncLinks = null, junctionBeforeWireStates = null, junctionBeforeLabelTextStates = null) {
@@ -325,7 +352,7 @@ export function commitAnchorDrag(app, dragShape, beforeState, anchorWireStates =
         const after = dragShape.captureState();
         dragShape.applyState(beforeState);
         const batch = new BatchCommand('Convert arc to line');
-        const line = appendArcToLineCommand(app, batch, dragShape, after);
+        const line = appendArcToLineCommand(app, batch, dragShape, /** @type {import('./context-menu.js').ArcLineState} */ (after));
         app.history.execute(batch);
         app.selection.select(line, false);
         setShapeNodeFocus(app, null);
@@ -362,7 +389,7 @@ export function commitAnchorDrag(app, dragShape, beforeState, anchorWireStates =
             ? new Map(junctionBeforeWireStates)
             : (() => {
                 const m = new Map();
-                m.set(dragShape, beforeState);
+                m.set(/** @type {Wire} */ (dragShape), beforeState);
                 if (anchorWireStates) {
                     for (const [w, b] of anchorWireStates) m.set(w, b);
                 }
@@ -378,7 +405,8 @@ export function commitAnchorDrag(app, dragShape, beforeState, anchorWireStates =
             : captureLabelTextStates(app, beforeAll);
 
         // Reconcile and build undo
-        const changedWires = [dragShape];
+        /** @type {Wire[]} */
+        const changedWires = [/** @type {Wire} */ (dragShape)];
         if (anchorWireStates) {
             for (const wire of anchorWireStates.keys()) {
                 if (app.shapes.includes(wire)) changedWires.push(wire);
@@ -468,7 +496,7 @@ export function commitAnchorDrag(app, dragShape, beforeState, anchorWireStates =
         } else if (dragShape.points) {
             const pts = dragShape.points;
             if (pts.length >= 2) {
-                degenerate = pts.every(p =>
+                degenerate = pts.every(/** @param {Point} p */ p =>
                     Math.abs(p.x - pts[0].x) < 1e-6 && Math.abs(p.y - pts[0].y) < 1e-6);
             } else if (pts.length < 2) {
                 degenerate = true;
@@ -479,17 +507,17 @@ export function commitAnchorDrag(app, dragShape, beforeState, anchorWireStates =
     if (wasRemoved || degenerate) {
         dragShape.applyState(beforeState);
         if (!app.shapes.includes(dragShape)) app.shapes.push(dragShape);
-        app.history.execute(new DeleteShapesCommand(app, [dragShape]));
+        app.history.execute(new DeleteShapesCommand(app, [/** @type {Shape} */ (dragShape)]));
     } else {
         if (dragShape.type === 'noconnect') refreshNoConnectConnection(app, dragShape);
-        const afterState = captureShapeState(app, dragShape);
-        applyShapeState(app, dragShape, beforeState);
-        app.history.execute(new ModifyShapeCommand(app, dragShape, beforeState, afterState));
+        const afterState = captureShapeState(app, /** @type {Shape} */ (dragShape));
+        applyShapeState(app, /** @type {Shape} */ (dragShape), beforeState);
+        app.history.execute(new ModifyShapeCommand(app, /** @type {Shape} */ (dragShape), beforeState, afterState));
         if (dragShape.type === 'net') {
             // After the command has placed the net at its new position,
             // disconnect from old wire and reconnect at new position
-            disconnectNetFromWires(app, dragShape);
-            connectNetToWires(app, dragShape);
+            disconnectNetFromWires(app, /** @type {Net} */ (dragShape));
+            connectNetToWires(app, /** @type {Net} */ (dragShape));
         }
         app.selection.keepSelected(dragShape);
     }
@@ -506,11 +534,11 @@ export function commitAnchorDrag(app, dragShape, beforeState, anchorWireStates =
  * Pure-geometry merge lives in shapes/shape-join.js so the PCB editor can
  * reuse it; this function only handles the schematic command/selection glue.
  *
- * @param {object} app
- * @param {any} dragShape - The shape being dragged.
+ * @param {SchematicEditor} app
+ * @param {SchematicShape} dragShape - The shape being dragged.
  * @param {string} dragAnchorId - The dragged endpoint anchor.
- * @param {{shape:any, anchorId:string}} joinTarget - The shape/anchor dropped onto.
- * @param {any} beforeState - Pre-drag captured state of dragShape.
+ * @param {ShapeJoinTarget} joinTarget - The shape/anchor dropped onto.
+ * @param {ShapeState} beforeState - Pre-drag captured state of dragShape.
  * @returns {boolean}
  */
 export function commitShapeJoin(app, dragShape, dragAnchorId, joinTarget, beforeState) {
@@ -522,7 +550,7 @@ export function commitShapeJoin(app, dragShape, dragAnchorId, joinTarget, before
 
     // Restore the dragged shape to its pre-drag geometry so that undo brings
     // back the two originals exactly as they were before the drag.
-    if (beforeState) applyShapeState(app, dragShape, beforeState);
+    if (beforeState) applyShapeState(app, /** @type {Shape} */ (dragShape), beforeState);
 
     const batch = new BatchCommand('Join shapes');
     const originals = joinTarget.shape === dragShape
@@ -542,14 +570,14 @@ export function commitShapeJoin(app, dragShape, dragAnchorId, joinTarget, before
 /**
  * Resolve anchor drag on mouseup: commit if moved, otherwise keep selected.
  *
- * @param {object} app
- * @param {object} dragShape
- * @param {object} beforeState
+ * @param {SchematicEditor} app
+ * @param {SchematicShape} dragShape
+ * @param {ShapeState} beforeState
  * @param {boolean} didDrag
- * @param {Map} [anchorWireStates]
- * @param {Array} [ncLinks]
- * @param {Map} [junctionBeforeWireStates]
- * @param {Map} [junctionBeforeLabelTextStates]
+ * @param {Map<Wire, ShapeState>|null} [anchorWireStates]
+ * @param {NoConnectLink[]|null} [ncLinks]
+ * @param {Map<Wire, ShapeState>|null} [junctionBeforeWireStates]
+ * @param {Map<Text, ShapeState>|null} [junctionBeforeLabelTextStates]
  * @returns {boolean}
  */
 export function resolveAnchorDragOnMouseUp(app, dragShape, beforeState, didDrag, anchorWireStates = null, ncLinks = null, junctionBeforeWireStates = null, junctionBeforeLabelTextStates = null) {
@@ -570,11 +598,11 @@ export function resolveAnchorDragOnMouseUp(app, dragShape, beforeState, didDrag,
 /**
  * Commit a wire-segment drag  collapse, reconcile, build undo batch.
  *
- * @param {object} app
- * @param {object} dragShape - The dragged wire
- * @param {Map} wireStates - Before-states for all affected wires
- * @param {Array} [ncLinks] - NoConnect shapes that moved
- * @param {object} [labelBefore] - Label text before-state
+ * @param {SchematicEditor} app
+ * @param {Wire} dragShape - The dragged wire
+ * @param {Map<Wire, ShapeState>} wireStates - Before-states for all affected wires
+ * @param {NoConnectLink[]|null} [ncLinks] - NoConnect shapes that moved
+ * @param {ShapeState|null} [labelBefore] - Label text before-state
  * @returns {boolean}
  */
 export function commitSegmentDrag(app, dragShape, wireStates, ncLinks = null, labelBefore = null) {
@@ -644,14 +672,14 @@ export function commitSegmentDrag(app, dragShape, wireStates, ncLinks = null, la
 /**
  * Revert temporary wire mutations when no drag movement occurred.
  *
- * @param {object} app
- * @param {Map} [wireStates] - Before-states to revert to
+ * @param {SchematicEditor} app
+ * @param {Map<SchematicShape, ShapeState>|null} [wireStates] - Before-states to revert to
  * @returns {boolean}
  */
 export function revertSegmentDragIfNoMove(app, wireStates) {
     if (!wireStates) return false;
     for (const [wire, state] of wireStates) {
-        applyShapeState(app, wire, state);
+        applyShapeState(app, /** @type {Shape} */ (wire), state);
     }
     return true;
 }
@@ -662,9 +690,9 @@ export function revertSegmentDragIfNoMove(app, wireStates) {
  * Commit a move drag  records MoveShapesCommand, reconciles wires,
  * and merges NoConnect updates into the undo entry.
  *
- * @param {object} app
- * @param {number} [totalDx]
- * @param {number} [totalDy]
+ * @param {SchematicEditor} app
+ * @param {number} totalDx
+ * @param {number} totalDy
  * @returns {boolean}
  */
 export function commitMoveDrag(app, totalDx, totalDy) {
@@ -693,7 +721,7 @@ export function commitMoveDrag(app, totalDx, totalDy) {
     app.history.execute(command);
 
     // Post-move: reconcile wire overlaps
-    const movedWires = movedShapes.filter(s => s.type === 'wire' && app.shapes.includes(s));
+    const movedWires = /** @type {Wire[]} */ (movedShapes.filter(s => s.type === 'wire' && app.shapes.includes(s)));
     if (movedWires.length > 0) {
         const reconcileBatch = reconcileWiresWithUndo(app, movedWires);
         if (reconcileBatch) {
@@ -711,19 +739,19 @@ export function commitMoveDrag(app, totalDx, totalDy) {
     if (movedNCs.length > 0) {
         const ncCmds = [];
         for (const nc of movedNCs) {
-            const beforeNC = captureShapeState(app, nc);
+            const beforeNC = captureShapeState(app, /** @type {Shape} */ (nc));
             refreshNoConnectConnection(app, nc);
-            const afterNC = captureShapeState(app, nc);
+            const afterNC = captureShapeState(app, /** @type {Shape} */ (nc));
             if (!areCapturedStatesEqual(beforeNC, afterNC)) {
-                nc.applyState(beforeNC);
-                ncCmds.push(new ModifyShapeCommand(app, nc, beforeNC, afterNC));
+                /** @type {Shape} */ (nc).applyState(beforeNC);
+                ncCmds.push(new ModifyShapeCommand(app, /** @type {Shape} */ (nc), beforeNC, afterNC));
             }
         }
         if (ncCmds.length > 0) {
             const [top] = app.history.popUndo(1);
             const combined = top instanceof BatchCommand
                 ? top
-                : (() => { const b = new BatchCommand('Move + NC update'); b.add(top); return b; })();
+                : (() => { const b = new BatchCommand('Move + NC update'); b.add(/** @type {Command} */ (top)); return b; })();
             for (const cmd of ncCmds) combined.add(cmd);
             for (const cmd of ncCmds) cmd.execute();
             app.history.record(combined);
@@ -740,8 +768,8 @@ export function commitMoveDrag(app, totalDx, totalDy) {
     // Post-move: reconnect moved Net shapes to wires at new positions
     const movedNets = movedShapes.filter(s => s.type === 'net');
     for (const netShape of movedNets) {
-        disconnectNetFromWires(app, netShape);
-        connectNetToWires(app, netShape);
+        disconnectNetFromWires(app, /** @type {Net} */ (netShape));
+        connectNetToWires(app, /** @type {Net} */ (netShape));
     }
 
     // Post-move: like Net labels, if a moved component pin lands on a wire
@@ -771,7 +799,7 @@ export function commitMoveDrag(app, totalDx, totalDy) {
         const [top] = app.history.popUndo(1);
         const combined = top instanceof BatchCommand
             ? top
-            : (() => { const b = new BatchCommand('Move + wire connections'); b.add(top); return b; })();
+            : (() => { const b = new BatchCommand('Move + wire connections'); b.add(/** @type {Command} */ (top)); return b; })();
         for (const cmd of wireModCmds) combined.add(cmd);
         for (const cmd of wireModCmds) cmd.execute();
         app.history.record(combined);

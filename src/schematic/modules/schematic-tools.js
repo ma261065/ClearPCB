@@ -23,6 +23,8 @@ import { resolveLabelAttachTarget, setDrawSnapResult, updateToolCrosshair } from
 import { resolvePinSnapPlacement } from './component-snap.js';
 import { normalizeNetOrientation, normalizeNetStyle } from '../../shapes/net.js';
 import { isPlacingComponent } from './components.js';
+/** @typedef {import('./schematic-editor-api.js').SchematicEditor} SchematicEditor */
+/** @typedef {{fontSize?: number, textColor?: string|number, netStyle?: string, netOrientation?: string, [key: string]: any}} ToolOptions */
 
 /** @typedef {{screenPos: {x: number, y: number}, worldPos: {x: number, y: number}, snapped: {x: number, y: number}}} Positions */
 /**
@@ -46,7 +48,7 @@ import { isPlacingComponent } from './components.js';
 /**
  * Arc's middle click follows the pointer exactly; other clicks land on the grid.
  * @param {string} kind
- * @param {any} app
+ * @param {SchematicEditor} app
  * @param {Positions} pos
  */
 const drawPoint = (kind, app, { worldPos, snapped }) => (kind === 'arc' && app.arcEndpoint ? worldPos : snapped);
@@ -60,13 +62,15 @@ const drawPoint = (kind, app, { worldPos, snapped }) => (kind === 'arc' && app.a
  * @returns {SchematicTool}
  */
 function shapeTool(kind, name, content, key) {
-    /** @param {any} app @param {MouseEvent} _event @param {Positions} pos */
+    /** @param {SchematicEditor} app @param {MouseEvent} _event @param {Positions} pos */
     const click = (app, _event, pos) => shapeDrawingClick(app, drawPoint(kind, app, pos));
     return {
         id: kind, name, content, key, newShapeDefaults: true, multiClick: true,
         press: click,
         pressDrawing: click,
+        /** @param {SchematicEditor} app */
         moveDrawing: (app, _event, pos) => { updateDrawing(app, drawPoint(kind, app, pos)); },
+        /** @param {SchematicEditor} app */
         finishAtPointer(app, { worldPos, snapped }) {
             if (kind === 'line') { addLinePoint(app, snapped); finishLine(app); return true; }
             if (kind === 'polygon') { addPolygonPoint(app, snapped); finishPolygon(app); return true; }
@@ -79,6 +83,7 @@ function shapeTool(kind, name, content, key) {
             finishDrawing(app, snapped);
             return true;
         },
+        /** @param {SchematicEditor} app */
         finishInPlace(app) {
             if (kind === 'line') { finishLine(app); return true; }
             if (kind === 'polygon') { finishPolygon(app); return true; }
@@ -97,7 +102,7 @@ function shapeTool(kind, name, content, key) {
  * @returns {SchematicTool}
  */
 function pinMarkerTool(id, name, key, onSelected, content) {
-    /** @param {any} app @param {Positions} pos */
+    /** @param {SchematicEditor} app @param {Positions} pos */
     const showPlacement = (app, { worldPos }) => {
         const { resolved, pos } = resolvePinSnapPlacement(app, worldPos);
         updateSnapHighlight(app, resolved);
@@ -105,6 +110,7 @@ function pinMarkerTool(id, name, key, onSelected, content) {
     };
     return {
         id, name, key, content, newShapeDefaults: true, onSelected,
+        /** @param {SchematicEditor} app */
         press(app, _event, { worldPos }) {
             const { resolved, pos } = resolvePinSnapPlacement(app, worldPos);
             setDrawSnapResult(app, resolved);
@@ -112,6 +118,7 @@ function pinMarkerTool(id, name, key, onSelected, content) {
             else { finishDrawing(app, pos); }
             updateToolGhost(app, pos);
         },
+        /** @param {SchematicEditor} app */
         pressDrawing(app, _event, { worldPos }) {
             const { resolved, pos } = resolvePinSnapPlacement(app, worldPos);
             setDrawSnapResult(app, resolved);
@@ -120,7 +127,9 @@ function pinMarkerTool(id, name, key, onSelected, content) {
             // Stay in toolActive — these are click-to-place
             app.interactionState = 'toolActive';
         },
+        /** @param {SchematicEditor} app */
         hover: (app, _event, pos) => { showPlacement(app, pos); },
+        /** @param {SchematicEditor} app */
         moveDrawing: (app, _event, pos) => { showPlacement(app, pos); },
     };
 }
@@ -130,6 +139,7 @@ export const SCHEMATIC_TOOLS = Object.freeze(Object.fromEntries(/** @type {Schem
     { id: 'select', name: 'Select', key: 'v', content: '⊹ Select' },
     {
         id: 'wire', name: 'Wire', key: 'w', content: '●⏤● Wire', newShapeDefaults: true, multiClick: true,
+        /** @param {SchematicEditor} app */
         press(app, event, { worldPos }) {
             app.selection.clearSelection();
             app.renderShapes(true);
@@ -138,6 +148,7 @@ export const SCHEMATIC_TOOLS = Object.freeze(Object.fromEntries(/** @type {Schem
             app.interactionState = 'drawing';
             event.preventDefault();
         },
+        /** @param {SchematicEditor} app */
         pressDrawing(app, event) {
             if (!app.drawCurrent) return;
             let waypointPos = { x: app.drawCurrent.x, y: app.drawCurrent.y };
@@ -156,19 +167,23 @@ export const SCHEMATIC_TOOLS = Object.freeze(Object.fromEntries(/** @type {Schem
             }
             event.preventDefault();
         },
+        /** @param {SchematicEditor} app */
         hover(app, _event, { worldPos }) {
             updateSnapHighlight(app, resolveWireSnapPosition(app, worldPos, { pinTolerance: 0.5 }));
         },
+        /** @param {SchematicEditor} app */
         moveDrawing(app, _event, { worldPos }) {
             updateWireDrawing(app, worldPos);
         },
+        /** @param {SchematicEditor} app */
         finishAtPointer(app, { worldPos }) {
             if (!(app.wirePoints?.length >= 1)) return false;
             finishWireDrawing(app, app.drawCurrent || worldPos);
             return true;
         },
+        /** @param {SchematicEditor} app */
         finishInPlace(app) {
-            if (!(app.wirePoints?.length >= 1)) return false;
+            if (!(app.wirePoints?.length >= 1) || !app.drawCurrent) return false;
             finishWireDrawing(app, app.drawCurrent);
             return true;
         },
@@ -180,16 +195,18 @@ export const SCHEMATIC_TOOLS = Object.freeze(Object.fromEntries(/** @type {Schem
     shapeTool('polygon', 'Polygon', '⬠ Polygon', 'p'),
     {
         id: 'text', name: 'Label', key: 'l', newShapeDefaults: true,
+        /** @param {SchematicEditor} app */
         press(app, event, { worldPos, snapped }) {
             const attach = resolveLabelAttachTarget(app, worldPos);
             const placePos = attach ? attach.snapPos : snapped;
+            const toolOptions = /** @type {ToolOptions} */ (app.toolOptions || {});
             const shape = new Text({
                 x: placePos.x,
                 y: placePos.y,
                 text: '',
-                fontSize: app.toolOptions.fontSize || 2.0,
-                color: app.toolOptions.textColor,
-                fillColor: app.toolOptions.textColor
+                fontSize: toolOptions.fontSize || 2.0,
+                color: toolOptions.textColor,
+                fillColor: toolOptions.textColor
             });
             attachLabelToTarget(shape, attach?.target || null, attach?.snapPos || null, { isNewLabel: true });
             app.addShape(shape);
@@ -199,6 +216,7 @@ export const SCHEMATIC_TOOLS = Object.freeze(Object.fromEntries(/** @type {Schem
             app.renderShapes(true);
             event.preventDefault();
         },
+        /** @param {SchematicEditor} app */
         hover(app, _event, { worldPos }) {
             const attach = resolveLabelAttachTarget(app, worldPos);
             updateSnapHighlight(app, attach ? { x: attach.snapPos.x, y: attach.snapPos.y, type: 'attach' } : null);
@@ -214,6 +232,7 @@ export const SCHEMATIC_TOOLS = Object.freeze(Object.fromEntries(/** @type {Schem
     pinMarkerTool('noconnect', 'No Connect', 'x', app => createNoConnectToolGhost(app), '✕ No Connect'),
     {
         id: 'component', name: 'Component', key: 'o', content: '⊞ Component', placesComponents: true,
+        /** @param {SchematicEditor} app */
         onSelected(app) {
             if (!app.componentPicker.isOpen) {
                 app.componentPicker.open();
@@ -222,6 +241,7 @@ export const SCHEMATIC_TOOLS = Object.freeze(Object.fromEntries(/** @type {Schem
             // Don't show placement guides until the user clicks Place Component.
             app.hideCrosshair();
         },
+        /** @param {SchematicEditor} app */
         hover(app) {
             if (isPlacingComponent(app)) return false;
             app.hideCrosshair();
@@ -243,13 +263,13 @@ export function schematicToolTitle(id) {
     return tool.key ? `${tool.name} (${tool.key.toUpperCase()})` : tool.name;
 }
 
-/** @param {any} app */
+/** @param {SchematicEditor} app */
 const activeTool = app => (Object.hasOwn(SCHEMATIC_TOOLS, app.currentTool) ? SCHEMATIC_TOOLS[app.currentTool] : null);
 
 /**
  * A primary press with a tool chosen and no draw under way. A tool without its own press
  * starts a draw, or finishes one already open.
- * @param {any} app
+ * @param {SchematicEditor} app
  * @param {MouseEvent} event
  * @param {Positions} pos
  */
@@ -262,7 +282,7 @@ export function pressSchematicTool(app, event, pos) {
 
 /**
  * A primary press during a draw. A tool without its own finishes the draw there.
- * @param {any} app
+ * @param {SchematicEditor} app
  * @param {MouseEvent} event
  * @param {Positions} pos
  */
@@ -276,7 +296,7 @@ export function pressSchematicToolDrawing(app, event, pos) {
 /**
  * Pointer movement with a tool chosen: its hover before a draw, its preview during one,
  * then the crosshair at the snapped point unless the tool placed it.
- * @param {any} app
+ * @param {SchematicEditor} app
  * @param {MouseEvent} event
  * @param {Positions} pos
  * @param {boolean} drawing
@@ -290,7 +310,7 @@ export function moveSchematicTool(app, event, pos, drawing) {
 /**
  * Releasing the primary button finishes a draw of a single-click tool; draws that
  * continue across clicks are left open.
- * @param {any} app
+ * @param {SchematicEditor} app
  * @param {Positions} pos
  */
 export function releaseSchematicTool(app, pos) {
@@ -303,7 +323,7 @@ export function releaseSchematicTool(app, pos) {
 
 /**
  * A stationary right-click during a draw: finish it at the pointer. Returns whether it did.
- * @param {any} app
+ * @param {SchematicEditor} app
  * @param {Positions} pos
  */
 export function finishSchematicDrawAtPointer(app, pos) {
@@ -313,7 +333,7 @@ export function finishSchematicDrawAtPointer(app, pos) {
 /**
  * A double-click or Enter during a draw: finish it with the points already placed.
  * Returns whether it did.
- * @param {any} app
+ * @param {SchematicEditor} app
  */
 export function finishSchematicDrawInPlace(app) {
     if (activeTool(app)?.finishInPlace?.(app)) return true;

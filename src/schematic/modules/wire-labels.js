@@ -2,12 +2,21 @@
  * Net names and wire-name labels across wire edits: which label and net name survive a
  * merge, how they are shared out after a split, and where a wire's name label sits.
  */
-import { Wire } from '../../shapes/index.js';
 import { Text } from '../../shapes/text.js';
 import { freeWireLabel, nextWireLabel, bumpWireLabelCounter, freeNetName, bumpNetNameCounter, nextNetName } from '../../shapes/wire.js';
 import { attachLabelToTarget, getLabelDropHotspot } from './label-attachment.js';
 import { addShapeInternal } from './shape-management.js';
+/** @typedef {import('./schematic-editor-api.js').SchematicEditor} SchematicEditor */
+/**
+ * @typedef {import('../../core/SchematicDocument.js').SchematicShape & {_pendingLabelVisible?: boolean, _pendingLabelPosition?: LabelPosition}} Wire
+ * @typedef {import('../../shapes/text.js').Text} TextShape
+ * @typedef {{x: number, y: number, rotation?: number}} LabelPosition
+ * @typedef {{state: Record<string, any>, signature: string}} ShapeSnapshot
+ * @typedef {Record<string, any>} ShapeState
+ * @typedef {{label?: string, visible: boolean, position: LabelPosition|null}} WireLabelMeta
+ */
 
+/** @param {Wire} wire */
 function _syncWireLabelText(wire) {
     const primary = _getPrimaryWireNameLabel(wire);
     if (!primary) return;
@@ -16,6 +25,7 @@ function _syncWireLabelText(wire) {
     primary.invalidate();
 }
 
+/** @param {Wire} wire @param {TextShape} label */
 function _setPrimaryWireNameLabel(wire, label) {
     if (!wire || !label) return;
     const attached = wire.attachedLabels;
@@ -35,6 +45,7 @@ function _setPrimaryWireNameLabel(wire, label) {
     label.attachment.wireName = true;
 }
 
+/** @param {Wire|null|undefined} wire @returns {TextShape|null} */
 function _getPrimaryWireNameLabel(wire) {
     if (!wire) return null;
     const attached = wire.attachedLabels;
@@ -60,6 +71,7 @@ function _getPrimaryWireNameLabel(wire) {
     return labels[0] || null;
 }
 
+/** @param {SchematicEditor} app @param {Wire} wire @param {boolean} [visible] @returns {TextShape|null} */
 function _ensureWireNameLabel(app, wire, visible = false) {
     let label = _getPrimaryWireNameLabel(wire);
     if (!label && app) {
@@ -89,12 +101,14 @@ function _ensureWireNameLabel(app, wire, visible = false) {
  * Resolve the live Text shape that backs a wire's name label: the primary
  * attached label if present, otherwise the legacy `wire.labelText`, otherwise
  * null (the label state lives only in the wire's pending-* fields).
- * @returns {Text|null}
+ * @param {Wire} wire
+ * @returns {TextShape|null}
  */
 function wireLabelTextTarget(wire) {
     return _getPrimaryWireNameLabel(wire) || wire.labelText || null;
 }
 
+/** @param {Wire} wire @param {boolean} visible */
 function _setWireLabelVisibility(wire, visible) {
     const target = wireLabelTextTarget(wire);
     if (target) {
@@ -105,6 +119,7 @@ function _setWireLabelVisibility(wire, visible) {
     wire._pendingLabelVisible = visible;
 }
 
+/** @param {Wire} wire @returns {boolean} */
 export function getWireLabelVisibility(wire) {
     const target = wireLabelTextTarget(wire);
     if (target) return !!target.visible;
@@ -112,6 +127,7 @@ export function getWireLabelVisibility(wire) {
     return false;
 }
 
+/** @param {Wire} wire @param {LabelPosition|null|undefined} position */
 function _setWireLabelPosition(wire, position) {
     if (!position) return;
     const target = wireLabelTextTarget(wire);
@@ -122,7 +138,7 @@ function _setWireLabelPosition(wire, position) {
     if (target) {
         target.x = position.x;
         target.y = position.y;
-        target.rotation = rotation;
+        target.rotation = /** @type {0|270} */ (rotation);
         target.invalidate();
         return;
     }
@@ -133,6 +149,7 @@ function _setWireLabelPosition(wire, position) {
     };
 }
 
+/** @param {Wire} wire */
 function _resetWireLabelPositionToDefault(wire) {
     const pos = wire.getLabelPosition();
     const target = wireLabelTextTarget(wire);
@@ -140,7 +157,7 @@ function _resetWireLabelPositionToDefault(wire) {
     if (target) {
         target.x = pos.x;
         target.y = pos.y;
-        target.rotation = rotation;
+        target.rotation = /** @type {0|270} */ (rotation);
         target.invalidate();
         return;
     }
@@ -151,6 +168,7 @@ function _resetWireLabelPositionToDefault(wire) {
     };
 }
 
+/** @param {Wire} wire @returns {LabelPosition|null} */
 export function getWireLabelPosition(wire) {
     const target = wireLabelTextTarget(wire);
     if (target) {
@@ -166,6 +184,7 @@ export function getWireLabelPosition(wire) {
     return null;
 }
 
+/** @param {LabelPosition} pos @param {LabelPosition[]} refs */
 function _distanceToClosest(pos, refs) {
     if (!refs || refs.length === 0) return Infinity;
     let min = Infinity;
@@ -176,6 +195,7 @@ function _distanceToClosest(pos, refs) {
     return min;
 }
 
+/** @param {Wire} wire @param {LabelPosition[]} referencePositions @returns {LabelPosition|null} */
 function _deoverlapWireLabelPosition(wire, referencePositions) {
     const current = getWireLabelPosition(wire);
     if (!current) return null;
@@ -206,11 +226,13 @@ function _deoverlapWireLabelPosition(wire, referencePositions) {
     // Default to neutral centerline unless a nearby reference label exists.
     let signedReference = 0;
     if (refs.length > 0) {
-        const closestRef = refs.reduce((best, ref) => {
+        const closestRef = refs.reduce(
+            /** @type {(best: {ref: LabelPosition, d: number}|null, ref: LabelPosition) => {ref: LabelPosition, d: number}} */
+            ((best, ref) => {
             const d = Math.hypot(current.x - ref.x, current.y - ref.y);
             if (!best || d < best.d) return { ref, d };
             return best;
-        }, null)?.ref;
+        }), null)?.ref;
         if (closestRef) {
             signedReference = (closestRef.x - nearest.point.x) * nx + (closestRef.y - nearest.point.y) * ny;
         }
@@ -254,6 +276,7 @@ function _deoverlapWireLabelPosition(wire, referencePositions) {
  * label and registering the new one in the allocation pool.  No-op when the
  * value is unchanged.  (Labels have no "default" tier — every label is equal.)
  */
+/** @param {Wire} wire @param {string} label */
 function _adoptWireLabel(wire, label) {
     if (!label || wire.wireLabel === label) return;
     freeWireLabel(wire.wireLabel);
@@ -265,6 +288,7 @@ function _adoptWireLabel(wire, label) {
  * Reassign a wire's net name, freeing the previous name and registering the
  * new one in the allocation pool.  No-op when the value is unchanged.
  */
+/** @param {Wire} wire @param {string} net */
 function _adoptNetName(wire, net) {
     if (!net || wire.net === net) return;
     if (wire.net) freeNetName(wire.net);
@@ -272,7 +296,7 @@ function _adoptNetName(wire, net) {
     bumpNetNameCounter(net);
 }
 
-/** Case-insensitive wireLabel comparator (negative => prefer `a`). */
+/** Case-insensitive wireLabel comparator (negative => prefer `a`). @type {(a: Wire, b: Wire) => number} */
 const _wireLabelTieBreak = (a, b) =>
     String(a.wireLabel).localeCompare(String(b.wireLabel), undefined, { sensitivity: 'base' });
 
@@ -288,9 +312,10 @@ const _wireLabelTieBreak = (a, b) =>
  *   • label split breaks the remaining tie by case-insensitive wireLabel order;
  *   • net split passes no comparator, so the earlier fragment is kept (array order).
  * Everything else is identical, which is why they share this selector.
- * @param {Array<any>} wires
- * @param {any|null} [preferredOnTie]
- * @param {((a:any,b:any)=>number)|null} [tieBreak]
+ * @param {Wire[]} wires
+ * @param {Wire|null} [preferredOnTie]
+ * @param {((a: Wire, b: Wire) => number)|null} [tieBreak]
+ * @returns {Wire|null}
  */
 function _selectSurvivor(wires, preferredOnTie = null, tieBreak = null) {
     if (!wires || wires.length === 0) return null;
@@ -315,24 +340,28 @@ function _selectSurvivor(wires, preferredOnTie = null, tieBreak = null) {
     return winner;
 }
 
+/** @param {number} keeperPreSegs @param {number} removedPreSegs @param {boolean} keeperVisible @param {boolean} removedVisible @param {string} [keeperLabel] @param {string} [removedLabel] */
 function _shouldUseRemovedLabel(keeperPreSegs, removedPreSegs, keeperVisible, removedVisible, keeperLabel = '', removedLabel = '') {
     if (keeperVisible !== removedVisible) return removedVisible;
     if (removedPreSegs !== keeperPreSegs) return removedPreSegs > keeperPreSegs;
     return String(removedLabel).localeCompare(String(keeperLabel), undefined, { sensitivity: 'base' }) < 0;
 }
 
+/** @param {{captureState(): ShapeState}} shape @returns {ShapeSnapshot} */
 export function captureShapeSnapshot(shape) {
     const state = shape.captureState();
     return { state, signature: JSON.stringify(state) };
 }
 
+/** @param {ShapeSnapshot} snapshot @param {ShapeState} afterState @returns {boolean} */
 export function snapshotChanged(snapshot, afterState) {
     return snapshot.signature !== JSON.stringify(afterState);
 }
 
+/** @param {ShapeSnapshot|ShapeState} snapshotOrState @returns {ShapeSnapshot} */
 export function normalizeSnapshot(snapshotOrState) {
     if (snapshotOrState && typeof snapshotOrState === 'object' && 'state' in snapshotOrState && 'signature' in snapshotOrState) {
-        return snapshotOrState;
+        return /** @type {ShapeSnapshot} */ (snapshotOrState);
     }
     return {
         state: snapshotOrState,
@@ -340,6 +369,7 @@ export function normalizeSnapshot(snapshotOrState) {
     };
 }
 
+/** @param {Wire} originalWire @param {Wire[]} postSplitWires */
 export function rehomeAttachedWireLabelsAfterSplit(originalWire, postSplitWires) {
     const attached = originalWire?.attachedLabels;
     if (!(attached instanceof Set) || attached.size === 0) return;
@@ -371,7 +401,7 @@ export function rehomeAttachedWireLabelsAfterSplit(originalWire, postSplitWires)
         const targetWire = best.wire;
         if (targetWire !== originalWire) {
             attached.delete(label);
-            if (attached.size === 0) delete originalWire.attachedLabels;
+            if (attached.size === 0) delete /** @type {any} */ (originalWire).attachedLabels;
             if (!(targetWire.attachedLabels instanceof Set)) {
                 targetWire.attachedLabels = new Set();
             }
@@ -422,9 +452,11 @@ export function rehomeAttachedWireLabelsAfterSplit(originalWire, postSplitWires)
 //    - Positioning logic is shared for visible labelText and pending hidden-label
 //      position state so behavior matches in both modes.
 
+/** @param {Wire} keeper @param {Wire} removed @param {number} keeperPreSegs @param {number} removedPreSegs @param {WireLabelMeta|null|undefined} removedLabelMeta @param {boolean} [keeperWasChanged] @param {boolean} [removedWasChanged] */
 export function applyMergeLabelRules(keeper, removed, keeperPreSegs, removedPreSegs, removedLabelMeta, keeperWasChanged = false, removedWasChanged = false) {
+    const removedMeta = /** @type {WireLabelMeta} */ (removedLabelMeta);
     const keeperVis = getWireLabelVisibility(keeper);
-    const removedVis = removedLabelMeta.visible;
+    const removedVis = removedMeta.visible;
     const postVisible = keeperVis || removedVis;
 
     // Join behavior: when a newly drawn wire merges into an existing wire,
@@ -433,7 +465,7 @@ export function applyMergeLabelRules(keeper, removed, keeperPreSegs, removedPreS
         if (removed.wireLabel && removed.wireLabel !== keeper.wireLabel) {
             _adoptWireLabel(keeper, removed.wireLabel);
             _syncWireLabelText(keeper);
-            _setWireLabelPosition(keeper, removedLabelMeta.position);
+            _setWireLabelPosition(keeper, removedMeta.position);
         }
         _setWireLabelVisibility(keeper, postVisible);
         return;
@@ -454,7 +486,7 @@ export function applyMergeLabelRules(keeper, removed, keeperPreSegs, removedPreS
         _adoptWireLabel(keeper, removed.wireLabel);
         _syncWireLabelText(keeper);
 
-        _setWireLabelPosition(keeper, removedLabelMeta.position);
+        _setWireLabelPosition(keeper, removedMeta.position);
     }
 
     _setWireLabelVisibility(keeper, postVisible);
@@ -466,7 +498,7 @@ export function applyMergeLabelRules(keeper, removed, keeperPreSegs, removedPreS
  * @param {string} preSplitLabel
  * @param {boolean} preSplitVisible
  * @param {{x:number,y:number,rotation?:number}|null} [preSplitLabelPosition]
- * @param {object|null} [app]
+ * @param {SchematicEditor|null} [app]
  */
 export function applySplitLabelRules(originalWire, newFragments, preSplitLabel, preSplitVisible, preSplitLabelPosition = null, app = null) {
     const allPostWires = [originalWire, ...newFragments];
@@ -527,6 +559,7 @@ export function applySplitLabelRules(originalWire, newFragments, preSplitLabel, 
     }
 }
 
+/** @param {Wire} originalWire @param {Wire[]} newFragments @param {string} [preSplitNet] */
 export function applySplitNetRules(originalWire, newFragments, preSplitNet = '') {
     const allPostWires = [originalWire, ...newFragments].filter(w => w?.type === 'wire');
     if (allPostWires.length <= 1) return;
@@ -560,6 +593,7 @@ export function applySplitNetRules(originalWire, newFragments, preSplitNet = '')
  * (bottom-left bounds corner) is probed against the keeper to compute fresh
  * attachment metadata so the label follows the keeper correctly.
  */
+/** @param {Wire} keeper @param {Wire} removed */
 export function transferAttachedLabelsOnMerge(keeper, removed) {
     const set = removed?.attachedLabels;
     if (!(set instanceof Set) || set.size === 0) return;
@@ -587,7 +621,8 @@ export function transferAttachedLabelsOnMerge(keeper, removed) {
         }
         label.attachment.kind   = 'wire';
         label.attachment.edgeId = nearest?.edgeId ?? null;
-        label.attachment.t      = Number.isFinite(nearest?.t) ? nearest.t : 0.5;
+        const nearestT = nearest?.t;
+        label.attachment.t      = Number.isFinite(nearestT) ? nearestT : 0.5;
         label.attachment.anchorX  = anchor.x;
         label.attachment.anchorY  = anchor.y;
         label.attachment.offsetX  = label.x - anchor.x;
@@ -600,7 +635,7 @@ export function transferAttachedLabelsOnMerge(keeper, removed) {
     keeper.invalidate?.();
 
     // Clean up empty set on removed
-    if (set.size === 0) delete removed.attachedLabels;
+    if (set.size === 0) delete /** @type {any} */ (removed).attachedLabels;
 }
 
 /**
@@ -612,6 +647,7 @@ export function transferAttachedLabelsOnMerge(keeper, removed) {
  * a custom name always beats a default one — which is why this policy differs
  * from the label merge (labels fall back to visibility/segments/lexical).
  */
+/** @param {Wire} keeper @param {Wire} removed @param {boolean} [keeperWasChanged] @param {boolean} [removedWasChanged] */
 export function mergeNetNames(keeper, removed, keeperWasChanged = false, removedWasChanged = false) {
     if (!removed.net) return;
 

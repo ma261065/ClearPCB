@@ -5,6 +5,7 @@ import { normalizeNetStyle } from '../../shapes/net.js';
 import { removeToolGhost } from './tool-ghost.js';
 import { SCHEMATIC_TOOLS } from './schematic-tools.js';
 import { isPlacingComponent } from './components.js';
+/** @typedef {import('./schematic-editor-api.js').SchematicEditor} SchematicEditor */
 export { getToolGhost } from './tool-ghost.js';
 export { updateToolGhost } from './tool-ghost.js';
 
@@ -35,6 +36,7 @@ export function loadToolOptions() {
  */
 function _sanitizeToolOptions(opts) {
     if (!opts || typeof opts !== 'object') return null;
+    /** @param {*} v @param {number} min @param {number} max @param {number} dflt */
     const clampNum = (v, min, max, dflt) =>
         (Number.isFinite(v) && v >= min && v <= max) ? v : dflt;
     const out = { ...opts };
@@ -64,7 +66,7 @@ export function saveToolOptions(options) {
  * highlight, clears selection for non-select tools, closes the component picker
  * unless the tool places components, runs the tool's own set-up (schematic-tools.js),
  * and updates cursor, ribbon and Properties.
- * @param {object} app - Application state.
+ * @param {SchematicEditor} app
  * @param {string} tool - Tool identifier to activate.
  */
 export function onToolSelected(app, tool) {
@@ -116,7 +118,7 @@ export function onToolSelected(app, tool) {
 /**
  * Handles the component picker closing — switches back to select tool
  * if the current tool is `'component'`.
- * @param {object} app - Application state.
+ * @param {SchematicEditor} app
  */
 export function onComponentPickerClosed(app) {
     if (SCHEMATIC_TOOLS[app.currentTool]?.placesComponents) {
@@ -126,7 +128,7 @@ export function onComponentPickerClosed(app) {
 
 /**
  * Update and persist the default Net style option.
- * @param {object} app
+ * @param {SchematicEditor} app
  * @param {string} style
  */
 export function setnetStyleOption(app, style) {
@@ -136,7 +138,7 @@ export function setnetStyleOption(app, style) {
 
 /**
  * Merges new options into `app.toolOptions` and persists to storage.
- * @param {object} app - Application state.
+ * @param {SchematicEditor} app
  * @param {object} options - Tool option overrides to merge.
  */
 export function onOptionsChanged(app, options) {

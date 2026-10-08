@@ -9,19 +9,26 @@ import { generateReference, isPlacingComponent } from './components.js';
 import { isSchematicLocked } from '../../shapes/lock-owner.js';
 import { isSchematicDrawingActive } from './drawing.js';
 import { getSchematicInteraction, setSchematicInteraction } from './schematic-interactions.js';
+/** @typedef {import('./schematic-editor-api.js').SchematicEditor} SchematicEditor */
+/** @typedef {import('../../core/SchematicDocument.js').SchematicShape} SchematicShape */
+/** @typedef {import('../../shapes/shape.js').Shape} Shape */
+/** @typedef {{x: number, y: number}} Point */
+/** @typedef {Record<string, any> & {_clipX: number, _clipY: number, _clipType: 'component'|'shape', _definition?: import('../../components/Component.js').ComponentDefinition}} ClipboardData */
 
 // Internal clipboard (array of serialised items)
+/** @type {ClipboardData[]} */
 let clipboard = [];
 // Pre-built ghost SVG captured at copy time (avoids expensive rebuild on paste)
+/** @type {SVGGElement|null} */
 let clipboardGhostSvg = null;
 
-/** @param {object} app */
+/** @param {SchematicEditor} app */
 export function isPastingClipboard(app) {
     return !!getSchematicInteraction(app, 'pastingClipboard');
 }
 
 /**
- * @param {object} app
+ * @param {SchematicEditor} app
  * @param {boolean} active
  */
 function setPastingClipboard(app, active) {
@@ -30,6 +37,8 @@ function setPastingClipboard(app, active) {
 
 /**
  * Compute the centroid of the given items (shapes + components).
+ * @param {SchematicShape[]} items
+ * @returns {Point}
  */
 function centroid(items) {
     let sx = 0, sy = 0, n = 0;
@@ -51,6 +60,9 @@ function centroid(items) {
 /**
  * Serialise a shape or component into a plain object that can be stored
  * on the clipboard and later reconstituted.
+ * @param {SchematicShape} item
+ * @param {Point} origin
+ * @returns {ClipboardData}
  */
 function serialiseItem(item, origin) {
     if (item.definition) {
@@ -62,7 +74,7 @@ function serialiseItem(item, origin) {
         json._clipType = 'component';
         // Store full definition so we can recreate it
         json._definition = item.definition;
-        return json;
+        return /** @type {ClipboardData} */ (json);
     } else {
         // Shape
         const json = item.toJSON();
@@ -72,12 +84,13 @@ function serialiseItem(item, origin) {
         json._clipX = shapeCentroid.x - origin.x;
         json._clipY = shapeCentroid.y - origin.y;
         json._clipType = 'shape';
-        return json;
+        return /** @type {ClipboardData} */ (json);
     }
 }
 
 /**
  * Copy the current selection to the clipboard.
+ * @param {SchematicEditor} app
  */
 export function copySelection(app) {
     const selection = app.selection.getSelection();
@@ -99,6 +112,7 @@ export function copySelection(app) {
 
 /**
  * Cut the current selection (copy then delete).
+ * @param {SchematicEditor} app
  */
 export function cutSelection(app) {
     const selection = app.selection.getSelection();
@@ -123,16 +137,18 @@ export function cutSelection(app) {
     // Delete via undo-able commands (same logic as runSchematicDeleteAction)
     app.selection.clearSelection();
 
+    /** @type {Shape[]} */
     const shapes = [];
+    /** @type {Component[]} */
     const components = [];
 
     for (const item of cuttable) {
         if (app.shapes.includes(item)) {
             // Skip component ref/value field texts — those can't be cut independently
             if (item.parentComponent && (item.fieldKey === 'reference' || item.fieldKey === 'value')) continue;
-            shapes.push(item);
-        } else if (app.components.includes(item)) {
-            components.push(item);
+            shapes.push(/** @type {Shape} */ (item));
+        } else if (app.components.includes(/** @type {Component} */ (item))) {
+            components.push(/** @type {Component} */ (item));
         }
     }
 
@@ -155,6 +171,8 @@ export function cutSelection(app) {
 /**
  * Build a ghost SVG group from the current selection by cloning their
  * already-rendered DOM elements.  Stored in clipboardGhostSvg for reuse.
+ * @param {SchematicShape[]} selection
+ * @param {Point} origin
  */
 function _buildGhostFromSelection(selection, origin) {
     const ghost = document.createElementNS('http://www.w3.org/2000/svg', 'g');
@@ -178,6 +196,7 @@ function _buildGhostFromSelection(selection, origin) {
 
 /**
  * Begin paste-preview mode: show a ghost that follows the cursor.
+ * @param {SchematicEditor} app
  */
 export function beginPastePreview(app) {
     if (clipboard.length === 0) return;
@@ -192,9 +211,9 @@ export function beginPastePreview(app) {
     if (isSchematicDrawingActive(app)) app.cancelDrawing();
 
     // Clone the pre-built ghost (fast single cloneNode)
-    const ghost = clipboardGhostSvg
+    const ghost = /** @type {SVGGElement} */ (clipboardGhostSvg
         ? clipboardGhostSvg.cloneNode(true)
-        : _buildGhostFallback(app);
+        : _buildGhostFallback(app));
 
     app.viewport.contentLayer.appendChild(ghost);
     app.pastePreviewGroup = ghost;
@@ -213,6 +232,8 @@ export function beginPastePreview(app) {
 
 /**
  * Fallback ghost builder (only used if clipboardGhostSvg is somehow null).
+ * @param {SchematicEditor} app
+ * @returns {SVGGElement}
  */
 function _buildGhostFallback(app) {
     const ghost = document.createElementNS('http://www.w3.org/2000/svg', 'g');
@@ -234,7 +255,7 @@ function _buildGhostFallback(app) {
             });
             ghost.appendChild(componentPreviewElement(temp));
         } else {
-            const clonedData = structuredClone(data);
+            const clonedData = /** @type {Record<string, any>} */ (structuredClone(data));
             delete clonedData.id;
             delete clonedData._clipType;
             offsetShapeData(clonedData, clonedData._clipX || 0, clonedData._clipY || 0);
@@ -249,6 +270,8 @@ function _buildGhostFallback(app) {
 
 /**
  * Move the paste preview ghost to follow the cursor.
+ * @param {SchematicEditor} app
+ * @param {Point} worldPos
  */
 export function updatePastePreview(app, worldPos) {
     if (!app.pastePreviewGroup || !isPastingClipboard(app)) return;
@@ -257,13 +280,17 @@ export function updatePastePreview(app, worldPos) {
 
 /**
  * Confirm paste: instantiate items at the given world position.
+ * @param {SchematicEditor} app
+ * @param {Point} worldPos
  */
 export function confirmPaste(app, worldPos) {
     if (!isPastingClipboard(app) || clipboard.length === 0) return;
 
     const snapped = app.viewport.getSnappedPosition(worldPos);
 
+    /** @type {Shape[]} */
     const pastedShapes = [];
+    /** @type {Component[]} */
     const pastedComponents = [];
 
     for (const data of clipboard) {
@@ -312,6 +339,7 @@ export function confirmPaste(app, worldPos) {
 
 /**
  * Cancel paste-preview mode without placing.
+ * @param {SchematicEditor} app
  */
 export function cancelPaste(app) {
     if (app.pastePreviewGroup) {
@@ -336,6 +364,8 @@ export function cancelPaste(app) {
 
 /**
  * Compute the centroid of serialized shape data, matching offsetShapeData logic.
+ * @param {Record<string, any>} data
+ * @returns {Point}
  */
 function _getShapeDataCentroid(data) {
     const type = data.type;
@@ -366,6 +396,9 @@ function _getShapeDataCentroid(data) {
 /**
  * Reposition shape data so its centre lands on (tx, ty).
  * Different shape types store position differently.
+ * @param {Record<string, any>} data
+ * @param {number} tx
+ * @param {number} ty
  */
 function offsetShapeData(data, tx, ty) {
     const type = data.type;

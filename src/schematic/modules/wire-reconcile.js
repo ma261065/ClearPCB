@@ -3,7 +3,6 @@
  * no longer do, dropping redundant points, refreshing pin and no-connect connections,
  * and recording the result as one undoable batch.
  */
-import { Wire } from '../../shapes/index.js';
 import { freeNetName, bumpNetNameCounter, nextNetName } from '../../shapes/wire.js';
 import { BatchCommand, AddShapeCommand, ModifyShapeCommand, DeleteShapesCommand } from './commands.js';
 import { applyStickyConnections } from './sticky-wires.js';
@@ -11,6 +10,11 @@ import { VERTEX_EPSILON } from './wire-constants.js';
 import { addShapeInternal, removeShapeInternal } from './shape-management.js';
 import { findNearbyPin } from './wire-snap.js';
 import { applyMergeLabelRules, applySplitLabelRules, applySplitNetRules, captureShapeSnapshot, getWireLabelPosition, getWireLabelVisibility, mergeNetNames, normalizeSnapshot, rehomeAttachedWireLabelsAfterSplit, snapshotChanged, transferAttachedLabelsOnMerge } from './wire-labels.js';
+/** @typedef {import('./schematic-editor-api.js').SchematicEditor} SchematicEditor */
+/** @typedef {import('../../core/SchematicDocument.js').SchematicShape} Wire */
+/** @typedef {import('../../shapes/noconnect.js').NoConnect} NoConnect */
+/** @typedef {{x: number, y: number}} Point */
+/** @typedef {{state: object, signature?: string}} WireSnapshot */
 
 /** Maximum iterations for pairwise merge loop. */
 const MAX_MERGE_ITERATIONS = 50;
@@ -20,6 +24,8 @@ const MAX_MERGE_ITERATIONS = 50;
 /**
  * Collapse redundant collinear points in a wire.
  * Delegates to Wire.cleanGraph() in the graph model.
+ * @param {SchematicEditor} app
+ * @param {Wire|null|undefined} wire
  */
 export function collapseRedundantWirePoints(app, wire) {
     if (wire && wire.cleanGraph) wire.cleanGraph();
@@ -29,6 +35,9 @@ export function collapseRedundantWirePoints(app, wire) {
 
 /**
  * Check whether a point coincides with a node on any non-excluded wire.
+ * @param {SchematicEditor} app
+ * @param {Point} pt
+ * @param {...Wire} excludeWires
  */
 export function isTJunctionPoint(app, pt, ...excludeWires) {
     if (!app) return false;
@@ -46,6 +55,8 @@ export function isTJunctionPoint(app, pt, ...excludeWires) {
  * Refresh a wire's pin connections by checking which nodes coincide
  * with component pins or Net label connection points.
  * Call after anchor or segment drags, or wire reconciliation.
+ * @param {SchematicEditor} app
+ * @param {Wire|null|undefined} wire
  */
 export function refreshWireConnections(app, wire) {
     if (!wire || wire.type !== 'wire' || wire.edges.size === 0) return;
@@ -61,9 +72,10 @@ export function refreshWireConnections(app, wire) {
                 pinNumber: nearPin.pin.number
             });
             // If connected to a Net label, propagate its name
-            if (nearPin.component.type === 'net') {
+            const nearComponent = /** @type {import('../../core/SchematicDocument.js').SchematicShape} */ (nearPin.component);
+            if (nearComponent.type === 'net') {
                 hasNetLabel = true;
-                const netName = nearPin.component.net;
+                const netName = nearComponent.net;
                 if (netName && wire.net !== netName) {
                     const isDefault = wire.net?.startsWith('Net');
                     if (isDefault) {
@@ -91,6 +103,9 @@ export function refreshWireConnections(app, wire) {
 /**
  * Check whether any Net label with the given name is still connected
  * to the wire's network (via shared nodes with other wires).
+ * @param {SchematicEditor} app
+ * @param {Wire} wire
+ * @param {string} netName
  */
 function _isNetNameStillConnected(app, wire, netName) {
     // BFS to find all wires in the same connected network
@@ -98,6 +113,7 @@ function _isNetNameStillConnected(app, wire, netName) {
     const queue = [wire];
     while (queue.length > 0) {
         const w = queue.shift();
+        if (!w) continue;
         for (const pos of w.nodes.values()) {
             for (const other of app.shapes) {
                 if (other.type !== 'wire' || visited.has(other)) continue;
@@ -121,6 +137,8 @@ function _isNetNameStillConnected(app, wire, netName) {
 /**
  * Refresh a noconnect's pin connection by checking whether its position
  * coincides with a component pin.  Call after dragging a noconnect.
+ * @param {SchematicEditor} app
+ * @param {NoConnect|import('../../core/SchematicDocument.js').SchematicShape|null|undefined} nc
  */
 export function refreshNoConnectConnection(app, nc) {
     if (!nc || nc.type !== 'noconnect') return;
@@ -139,6 +157,8 @@ export function refreshNoConnectConnection(app, nc) {
 /**
  * Call this after moving components. For every wire node that has a pin
  * connection, update that node to the pin's current world position.
+ * @param {SchematicEditor} app
+ * @param {{movedIds?: Set<string>}} [options]
  */
 export function updateStickyWires(app, options = undefined) {
     applyStickyConnections(app, options);
@@ -151,6 +171,12 @@ export function updateStickyWires(app, options = undefined) {
  * a node or on an edge of wireB (and vice-versa).  If found, absorbs
  * wireB into wireA, merges coincident nodes, and removes wireB from
  * app.shapes.  Returns true if a merge occurred.
+ * @param {SchematicEditor} app
+ * @param {Wire} wireA
+ * @param {Wire} wireB
+ * @param {Set<Wire>} affected
+ * @param {Set<Wire>} changed
+ * @returns {boolean}
  */
 function _tryMergeGraphs(app, wireA, wireB, affected, changed) {
     // Capture pre-merge segment counts for label winner determination
@@ -164,15 +190,15 @@ function _tryMergeGraphs(app, wireA, wireB, affected, changed) {
         const match = wireB.nodeAt(pos, VERTEX_EPSILON);
         if (match) {
             const remap = wireA.absorb(wireB);
-            wireA.mergeNodes(nodeId, remap.get(match));
+            wireA.mergeNodes(nodeId, /** @type {string} */ (remap.get(match)));
             _removeMerged(app, wireB, affected, changed, wireA, segsA, segsB, keeperWasChanged, removedWasChanged);
             return true;
         }
         const onEdge = wireB.closestEdge(pos);
         if (onEdge && onEdge.distance < VERTEX_EPSILON) {
-            const split = wireB.splitEdge(onEdge.edgeId, pos);
+            const split = /** @type {{newNodeId: string}} */ (wireB.splitEdge(onEdge.edgeId, pos));
             const remap = wireA.absorb(wireB);
-            wireA.mergeNodes(nodeId, remap.get(split.newNodeId));
+            wireA.mergeNodes(nodeId, /** @type {string} */ (remap.get(split.newNodeId)));
             _removeMerged(app, wireB, affected, changed, wireA, segsA, segsB, keeperWasChanged, removedWasChanged);
             return true;
         }
@@ -182,9 +208,9 @@ function _tryMergeGraphs(app, wireA, wireB, affected, changed) {
         if (wireA.nodeAt(pos, VERTEX_EPSILON)) continue;
         const onEdge = wireA.closestEdge(pos);
         if (onEdge && onEdge.distance < VERTEX_EPSILON) {
-            const split = wireA.splitEdge(onEdge.edgeId, pos);
+            const split = /** @type {{newNodeId: string}} */ (wireA.splitEdge(onEdge.edgeId, pos));
             const remap = wireA.absorb(wireB);
-            wireA.mergeNodes(split.newNodeId, remap.get(nodeId));
+            wireA.mergeNodes(split.newNodeId, /** @type {string} */ (remap.get(nodeId)));
             _removeMerged(app, wireB, affected, changed, wireA, segsA, segsB, keeperWasChanged, removedWasChanged);
             return true;
         }
@@ -192,6 +218,17 @@ function _tryMergeGraphs(app, wireA, wireB, affected, changed) {
     return false;
 }
 
+/**
+ * @param {SchematicEditor} app
+ * @param {Wire} removed
+ * @param {Set<Wire>} affected
+ * @param {Set<Wire>} changed
+ * @param {Wire} keeper
+ * @param {number} keeperPreSegs
+ * @param {number} removedPreSegs
+ * @param {boolean} [keeperWasChanged]
+ * @param {boolean} [removedWasChanged]
+ */
 function _removeMerged(app, removed, affected, changed, keeper, keeperPreSegs, removedPreSegs, keeperWasChanged = false, removedWasChanged = false) {
     const removedLabelMeta = {
         visible: getWireLabelVisibility(removed),
@@ -227,7 +264,7 @@ function _removeMerged(app, removed, affected, changed, keeper, keeperPreSegs, r
  * Discovers affected partner wires automatically by geometric proximity.
  * Modifies wires in place (nodes, edges).  May remove wires from app.shapes.
  *
- * @param {object} app
+ * @param {SchematicEditor} app
  * @param {Wire[]} changedWires - the wires that just changed
  * @param {Set<Wire>|null} [skipSet] - wires to skip pairwise checks against
  */
@@ -299,7 +336,7 @@ export function reconcileWires(app, changedWires, skipSet = null) {
         const preSplitNet = w.net;
 
         // Keep the largest component in the original wire
-        comps.sort((a, b) => b.size - a.size);
+        comps.sort((/** @type {Set<string>} */ a, /** @type {Set<string>} */ b) => b.size - a.size);
         const keepSet = comps[0];
 
         const newFragments = [];
@@ -333,8 +370,8 @@ export function reconcileWires(app, changedWires, skipSet = null) {
  * Diff wire states before/after mutation and build an undo batch.
  * Reverts all wires to their before-state so batch.execute() replays correctly.
  *
- * @param {object} app
- * @param {Map<Wire, {state: object, signature: string} | object>} beforeStates - captured states before mutation
+ * @param {SchematicEditor} app
+ * @param {Map<Wire, WireSnapshot | object>} beforeStates - captured states before mutation
  * @param {string} label - undo command label
  * @param {Wire[]} [extraAdds] - additional new wires to include as AddShapeCommand
  * @param {Map<any,any>|null} [labelTextBefore] - captured label-text states before mutation
@@ -401,7 +438,7 @@ export function buildWireDiffBatch(app, beforeStates, label, extraAdds = [], lab
  * Build undo commands for wire reconciliation.  Snapshots all wire state
  * before reconciliation, runs it, then diffs to create the undo batch.
  *
- * @param {object} app
+ * @param {SchematicEditor} app
  * @param {Wire[]} changedWires
  * @param {Set<Wire>|null} [skipSet]
  * @returns {BatchCommand|null} - batch command or null if nothing changed

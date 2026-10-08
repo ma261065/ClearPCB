@@ -2,9 +2,19 @@
  * The snaps wires take while their segments, anchors or attached components are being
  * dragged: collinear chains, pin bridges, off-grid neighbours and sticky wires.
  */
-import { Wire } from '../../shapes/index.js';
 import { distanceToSegment, pointsCollinear, collinearSnap } from '../../core/geometry.js';
 import { PIN_SNAP_TOL, SNAP_SCREEN_PX, WIRE_SNAP_TOL, findNearbyPin, findNearbyWirePoint } from './wire-snap.js';
+/** @typedef {import('./schematic-editor-api.js').SchematicEditor} SchematicEditor */
+/**
+ * @typedef {{x: number, y: number}} Point
+ * @typedef {import('../../core/SchematicDocument.js').SchematicShape} Wire
+ * @typedef {{from: string, to: string, [key: string]: any}} GraphEdge
+ * @typedef {{nodes: Record<string, Point>, edges: Record<string, GraphEdge>}} WireGraphState
+ * @typedef {{moving: Point, fixed: Point, beyond?: Point}} SnapEdge
+ * @typedef {{a: Point, b: Point, collinear?: boolean, axisKind?: string}} SnapGuide
+ * @typedef {import('./wire-snap.js').PinSnapInfo} PinSnap
+ * @typedef {Point & {type?: string}} WirePointSnap
+ */
 
 // --- Collinear / H-V snap for moving wire segments ---
 
@@ -24,9 +34,9 @@ import { PIN_SNAP_TOL, SNAP_SCREEN_PX, WIRE_SNAP_TOL, findNearbyPin, findNearbyW
  * at drag start) so that in-progress movement doesn't skew the collinearity
  * check.
  *
- * @param {import('../../shapes/wire.js').Wire} wire - the live wire graph
+ * @param {Wire} wire - the live wire graph
  * @param {string} dragEdgeId - the edge being dragged
- * @param {object} origState  - captured state snapshot {nodes, edges, …}
+ * @param {WireGraphState} origState  - captured state snapshot {nodes, edges, …}
  * @returns {Set<string>} IDs of all nodes that should move with the drag
  */
 export function buildCollinearChain(wire, dragEdgeId, origState) {
@@ -61,7 +71,7 @@ export function buildCollinearChain(wire, dragEdgeId, origState) {
  * fixed while the chain (including the bridge) can move.
  *
  * @param {Wire} wire       The wire to modify
- * @param {Set}  chain      The collinear moving-node set (from buildCollinearChain).
+ * @param {Set<string>}  chain      The collinear moving-node set (from buildCollinearChain).
  *                          Bridge node IDs are added to this set so they move with the chain.
  */
 export function bridgeCollinearPinEndpoints(wire, chain) {
@@ -124,11 +134,11 @@ export function applyOffGridNeighborSnap(raw, snapped, neighbors, gridSize) {
  * Works regardless of snap-to-grid — the threshold is screen-pixel-based.
  *
  * @param {number} threshold - snap distance in world units
- * @param {Array<{ moving: {x,y}, fixed: {x,y}, beyond?: {x,y} }>} edges
+ * @param {SnapEdge[]} edges
  * @param {string} [axisLock] - 'horizontal'|'vertical' drag-axis constraint
  * @param {{ diagonal?: boolean }} [options] - `diagonal` also snaps and guides 45° segments
  *   (when no collinear or H/V snap applies)
- * @returns {{ adjustX: number, adjustY: number, guides: Array<{a:{x:number,y:number},b:{x:number,y:number},collinear?:boolean,axisKind?:string}> }}
+ * @returns {{ adjustX: number, adjustY: number, guides: SnapGuide[] }}
  */
 export function computeMovingSegmentSnaps(threshold, edges, axisLock, { diagonal = false } = {}) {
     let adjustX = 0, adjustY = 0;
@@ -244,11 +254,16 @@ export function computeMovingSegmentSnaps(threshold, edges, axisLock, { diagonal
 /**
  * Compute collinear/H-V snap and guide lines for a wire anchor drag.
  * Delegates to computeMovingSegmentSnaps.
+ * @param {SchematicEditor} app
+ * @param {Wire} wire
+ * @param {string} anchorId
+ * @param {Point} anchorPos
  */
 export function computeAnchorCollinearSnap(app, wire, anchorId, anchorPos) {
     if (!wire.nodes.has(anchorId)) return { anchorPos, guides: [] };
 
     const threshold = SNAP_SCREEN_PX / app.viewport.scale;
+    /** @type {SnapEdge[]} */
     const edges = [];
     const neighbors = wire.incidentEdges(anchorId);
 
@@ -260,7 +275,9 @@ export function computeAnchorCollinearSnap(app, wire, anchorId, anchorPos) {
         edges.push({ moving: anchorPos, fixed: npos });
 
         // Walk collinear chain from neighbor outward to find the endpoint
+        /** @type {Point|null} */
         let farthest = null;
+        /** @type {Set<string>} */
         const visited = new Set([anchorId, otherNode]);
         const queue = [{ nodeId: otherNode, prevPos: anchorPos }];
         while (queue.length > 0) {
@@ -307,13 +324,13 @@ export function computeAnchorCollinearSnap(app, wire, anchorId, anchorPos) {
  * segment (edge) drag.  Collinear and H/V logic delegates to
  * computeMovingSegmentSnaps.
  *
- * @param {object} app
+ * @param {SchematicEditor} app
  * @param {Wire}   wire         - the wire being dragged
  * @param {string} dragEdgeId   - the edge being dragged
- * @param {object} origState    - captured state before drag {nodes, edges, …}
- * @param {{x,y}}  target       - raw cursor world position
- * @param {string} dragSegAxis  - 'horizontal'|'vertical'|null axis lock
- * @param {Set|null} excludeWires - wires to exclude from snap detection
+ * @param {WireGraphState} origState    - captured state before drag {nodes, edges, …}
+ * @param {Point}  target       - raw cursor world position
+ * @param {'horizontal'|'vertical'|null} dragSegAxis  - drag-axis constraint
+ * @param {Set<Wire>|null} excludeWires - wires to exclude from snap detection
  */
 export function computeSegmentDragSnap(app, wire, dragEdgeId, origState, target, dragSegAxis, excludeWires = null) {
     const snappedTarget = app.viewport.getSnappedPosition(target);
@@ -330,7 +347,8 @@ export function computeSegmentDragSnap(app, wire, dragEdgeId, origState, target,
     // Collect fixed neighbors at the chain boundary (for off-grid snap + guides).
     // Track which moving node each fixed neighbor is adjacent to, so we use the
     // correct endpoint (futureA vs futureB) for guide line computation.
-    const fixedNeighbors = [];      // { pos, movingNodeId }
+    /** @type {{pos: Point, movingNodeId: string}[]} */
+    const fixedNeighbors = [];
     for (const nodeId of movingNodes) {
         for (const { otherNode } of wire.incidentEdges(nodeId)) {
             if (movingNodes.has(otherNode)) continue;
@@ -363,11 +381,15 @@ export function computeSegmentDragSnap(app, wire, dragEdgeId, origState, target,
     // Pin snap — check both endpoints, pick closest
     const rawA = target;
     const rawB = { x: target.x + segOffX, y: target.y + segOffY };
+    /** @type {PinSnap|WirePointSnap|null} */
     let highlight = null;
 
     const pinA = findNearbyPin(app.components, rawA, PIN_SNAP_TOL);
     const pinB = findNearbyPin(app.components, rawB, PIN_SNAP_TOL);
-    let bestPin = null, bestRaw = null;
+    /** @type {PinSnap|null} */
+    let bestPin = null;
+    /** @type {Point|null} */
+    let bestRaw = null;
     if (pinA && pinB) {
         bestPin = pinA.distance <= pinB.distance ? pinA : pinB;
         bestRaw = pinA.distance <= pinB.distance ? rawA : rawB;
@@ -377,9 +399,10 @@ export function computeSegmentDragSnap(app, wire, dragEdgeId, origState, target,
     if (bestPin) {
         // Don't snap to a pin the wire is already connected to — the bridge
         // maintains the connection and pin snap would fight the drag.
+        const pin = bestPin;
         const alreadyConnected = [...wire.pinConnections.values()].some(
-            conn => conn.componentId === bestPin.component.id &&
-                    String(conn.pinNumber) === String(bestPin.pin.number)
+            conn => conn.componentId === pin.component.id &&
+                    String(conn.pinNumber) === String(pin.pin.number)
         );
         if (alreadyConnected) bestPin = null;
     }
@@ -394,6 +417,7 @@ export function computeSegmentDragSnap(app, wire, dragEdgeId, origState, target,
         highlight = bestPin;
     } else {
         // Wire junction highlight — check endpoint proximity first
+        /** @type {Set<Wire>} */
         const wireExclude = excludeWires ? new Set([wire, ...excludeWires]) : new Set([wire]);
         const futureA = { x: snappedTarget.x, y: snappedTarget.y };
         const futureB = { x: snappedTarget.x + segOffX, y: snappedTarget.y + segOffY };
@@ -420,6 +444,7 @@ export function computeSegmentDragSnap(app, wire, dragEdgeId, origState, target,
     // Collinear and H/V via unified function
     const futureA = { x: snappedTarget.x, y: snappedTarget.y };
     const futureB = { x: snappedTarget.x + segOffX, y: snappedTarget.y + segOffY };
+    /** @type {SnapEdge[]} */
     const snapEdges = [];
     // Use fixed chain-boundary neighbors as snap/guide targets.
     // Each fixed neighbor knows which moving node it connects to, so we
@@ -430,7 +455,7 @@ export function computeSegmentDragSnap(app, wire, dragEdgeId, origState, target,
         snapEdges.push({ moving: movingPt, fixed: p, beyond: beyondPt });
     }
     const threshold = SNAP_SCREEN_PX / app.viewport.scale;
-    const snapResult = computeMovingSegmentSnaps(threshold, snapEdges, dragSegAxis, { diagonal: true });
+    const snapResult = computeMovingSegmentSnaps(threshold, snapEdges, dragSegAxis || undefined, { diagonal: true });
     snappedTarget.x += snapResult.adjustX;
     snappedTarget.y += snapResult.adjustY;
 
@@ -441,7 +466,7 @@ export function computeSegmentDragSnap(app, wire, dragEdgeId, origState, target,
  * Compute H/V snap adjustment and guide lines for sticky wire nodes
  * connected to moving components.
  *
- * @param {object} app
+ * @param {SchematicEditor} app
  * @param {Set<string>} movingCompIds
  * @param {number} proposedDx - grid-snapped dx about to be applied
  * @param {number} proposedDy - grid-snapped dy about to be applied
@@ -451,6 +476,7 @@ export function computeStickyWireSnaps(app, movingCompIds, proposedDx, proposedD
     const screenThreshold = SNAP_SCREEN_PX / app.viewport.scale;
     const halfGrid = (app.viewport.gridSize || 1.0) * 0.5;
     const threshold = Math.max(screenThreshold, halfGrid);
+    /** @type {SnapEdge[]} */
     const edges = [];
 
     for (const shape of app.shapes) {

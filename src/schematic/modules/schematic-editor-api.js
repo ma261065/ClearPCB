@@ -16,7 +16,7 @@
  *   Rebuild the Properties panel for the given (default: current) selection.
  * @property {() => void} showCrosshair
  * @property {() => void} hideCrosshair
- * @property {(snapped: {x: number, y: number}) => void} updateCrosshair
+ * @property {(snapped: {x: number, y: number}, screenPos?: {x: number, y: number}) => void} updateCrosshair
  *   Move the snapped-cursor crosshair.
  * @property {(message: string, options?: object) => Promise<void>} alert
  * @property {(message: string, options?: object) => Promise<boolean>} confirm
@@ -52,6 +52,13 @@
  * @property {(shapesData: object[], linkedLabelData?: object[]) => void} commandDeleteShapes
  * @property {(shapesData: object[], linkedLabelData?: object[]) => void} commandRestoreShapes
  *   View hooks commands call to add, remove, delete and restore shapes without history.
+ */
+
+/**
+ * The schematic editor as schematic/modules see it. Every module types its `app`
+ * parameter with this (`@typedef {import('./schematic-editor-api.js').SchematicEditor} SchematicEditor`
+ * at the top of the file), so the checker knows which editor members a module uses.
+ * @typedef {import('../../ui/SchematicApp.js').default} SchematicEditor
  */
 
 /** Service names, checked against SchematicApp by test-schematic-editor-api. */

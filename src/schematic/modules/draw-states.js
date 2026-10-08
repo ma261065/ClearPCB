@@ -50,12 +50,24 @@ import { isSchematicDrawingActive } from './drawing.js';
 import { getSchematicInteraction, setSchematicInteraction } from './schematic-interactions.js';
 import { applyWireSegmentLabelMovement, applyWireSegmentNodeMovement, beginBoxSelectSession, beginSelectionMove, canQueueMidpointAnchorDrag, collectMovingComponentIds, collectWireSegmentDragGuides, getDragTJunctionWireSet, getMoveDragSnappedTarget, getReusablePoint, handleDragEnd, mergeAnchorTJunctionGuides, movableSelection, promotePendingAnchorDragSession, propagateMovedWireJunctions, propagateWireSegmentLinkedMovement, queuePendingAnchorDrag, resolveMoveDragTarget, syncAnchorDragLinkedNodes, tryBeginWireSegmentDrag } from './drag-gestures.js';
 import { resolveDraggingComponentSnap, resolvePinSnapPlacement, resolvePlacingComponentSnap } from './component-snap.js';
+/** @typedef {import('./schematic-editor-api.js').SchematicEditor} SchematicEditor */
+/** @typedef {import('../../core/Viewport.js').Viewport} Viewport */
+/** @typedef {import('../../core/SchematicDocument.js').SchematicShape} SchematicShape */
+/** @typedef {import('../../components/Component.js').Component} Component */
+/** @typedef {{x: number, y: number}} Point */
+/** @typedef {{screenPos: Point, worldPos: Point, snapped: Point}} EventPositions */
+/** @typedef {{shape: SchematicShape, edgeId: string|null, hadSegment?: boolean}} ShapeSegmentToggle */
+/** @typedef {{positions: EventPositions, additive: boolean}} OverlapCyclePress */
+/** @typedef {{drawSnapResult: any, pendingShapeSegmentToggle: ShapeSegmentToggle|null, didDrag: boolean, skipClickSelection: boolean}} DrawStateData */
+/** @typedef {{mousedown?: (app: SchematicEditor, event: MouseEvent, positions: EventPositions) => void, mousemove?: (app: SchematicEditor, event: MouseEvent, positions: EventPositions) => void, mouseup?: (app: SchematicEditor, event: MouseEvent, positions: EventPositions) => void, click?: (app: SchematicEditor, event: MouseEvent, positions: EventPositions) => void, dblclick?: (app: SchematicEditor, event: MouseEvent, positions: EventPositions) => void, rightclick?: (app: SchematicEditor, event: MouseEvent, positions: EventPositions) => void, contextmenu?: (app: SchematicEditor, event: MouseEvent, positions: EventPositions) => void}} DrawInteractionState */
 
 // ─── Constants ─────────────────────────────────────────────────────
 
 export const DRAG_THRESHOLD_PX = 3;
+/** @type {WeakMap<SchematicEditor, DrawStateData>} */
 const drawStates = new WeakMap();
 
+/** @param {SchematicEditor} app @returns {DrawStateData} */
 function stateFor(app) {
     let state = drawStates.get(app);
     if (!state) {
@@ -70,10 +82,15 @@ function stateFor(app) {
     return state;
 }
 
+/**
+ * @param {SchematicEditor} app
+ * @param {any} result
+ */
 export function setDrawSnapResult(app, result) {
     stateFor(app).drawSnapResult = result;
 }
 
+/** @param {SchematicEditor} app @returns {any} */
 export function takeDrawSnapResult(app) {
     const state = stateFor(app);
     const result = state.drawSnapResult;
@@ -81,22 +98,30 @@ export function takeDrawSnapResult(app) {
     return result;
 }
 
+/** @param {SchematicEditor} app */
 export function clearOverlapCyclePress(app) {
     setSchematicInteraction(app, 'overlapCyclePress', null);
 }
 
+/** @param {SchematicEditor} app @returns {OverlapCyclePress|null} */
 export function getOverlapCyclePress(app) {
     return getSchematicInteraction(app, 'overlapCyclePress');
 }
 
+/** @param {SchematicEditor} app */
 export function hasOverlapCyclePress(app) {
     return !!getOverlapCyclePress(app);
 }
 
+/**
+ * @param {SchematicEditor} app
+ * @param {OverlapCyclePress|null} press
+ */
 export function setOverlapCyclePress(app, press) {
     setSchematicInteraction(app, 'overlapCyclePress', press);
 }
 
+/** @param {SchematicEditor} app */
 export function cancelOverlapCyclePress(app) {
     if (app.interactionState !== 'overlapCycle') return false;
     clearOverlapCyclePress(app);
@@ -105,44 +130,51 @@ export function cancelOverlapCyclePress(app) {
     return true;
 }
 
-/** @param {object} app */
+/** @param {SchematicEditor} app */
 export function getDidSchematicDrag(app) {
     return !!stateFor(app).didDrag;
 }
 
 /**
- * @param {object} app
+ * @param {SchematicEditor} app
  * @param {boolean} value
  */
 export function setDidSchematicDrag(app, value) {
     stateFor(app).didDrag = !!value;
 }
 
-/** @param {object} app */
+/** @param {SchematicEditor} app */
 export function getSkipClickSelection(app) {
     return !!stateFor(app).skipClickSelection;
 }
 
 /**
- * @param {object} app
+ * @param {SchematicEditor} app
  * @param {boolean} value
  */
 export function setSkipClickSelection(app, value) {
     stateFor(app).skipClickSelection = !!value;
 }
 
+/** @param {SchematicEditor} app */
 export function clearPendingShapeSegmentToggle(app) {
     stateFor(app).pendingShapeSegmentToggle = null;
 }
 
+/** @param {SchematicEditor} app */
 export function hasPendingShapeSegmentToggle(app) {
     return !!stateFor(app).pendingShapeSegmentToggle;
 }
 
+/** @param {SchematicEditor} app @returns {ShapeSegmentToggle|null} */
 export function getPendingShapeSegmentToggle(app) {
     return stateFor(app).pendingShapeSegmentToggle;
 }
 
+/**
+ * @param {SchematicEditor} app
+ * @param {ShapeSegmentToggle|null} toggle
+ */
 export function setPendingShapeSegmentToggle(app, toggle) {
     stateFor(app).pendingShapeSegmentToggle = toggle;
 }
@@ -152,8 +184,8 @@ export function setPendingShapeSegmentToggle(app, toggle) {
 /**
  * Determine current state from legacy app flags.
  * Used as initialization and safety-net fallback.
- * @param {object} app
- * @returns {string}
+ * @param {SchematicEditor} app
+ * @returns {InteractionState}
  */
 export function resolveState(app) {
     if (isPastingClipboard(app)) return 'placing';
@@ -173,6 +205,11 @@ export function resolveState(app) {
 
 // ─── Shared helpers ────────────────────────────────────────────────
 
+/**
+ * @param {MouseEvent} e
+ * @param {Viewport} viewport
+ * @returns {EventPositions}
+ */
 export function getEventPositions(e, viewport) {
     const rect = viewport._getCachedRect();
     const screenPos = {
@@ -185,10 +222,12 @@ export function getEventPositions(e, viewport) {
     return { screenPos, worldPos, snapped };
 }
 
+/** @param {MouseEvent} event */
 function isAdditiveSelectionModifier(event) {
     return !!(event?.ctrlKey || event?.metaKey);
 }
 
+/** @param {SchematicEditor} app */
 function activateHomeTabIfFileTabOpen(app) {
     const ribbonEl = document.getElementById('ribbonSchematic');
     const activeTab = ribbonEl?.querySelector('.ribbon-tab.active') || document.querySelector('.ribbon-tab.active');
@@ -197,12 +236,20 @@ function activateHomeTabIfFileTabOpen(app) {
     }
 }
 
+/**
+ * @param {SchematicEditor} app
+ * @param {SchematicShape} shape
+ */
 function selectOnlyShapeAndRender(app, shape) {
     app.selection.clearSelection();
     app.selection.select(shape, false);
     app.renderShapes(true);
 }
 
+/**
+ * @param {SchematicEditor} app
+ * @param {SchematicShape} shape
+ */
 function selectContextTargetShape(app, shape) {
     if (!app.selection.isSelected(shape)) {
         selectOnlyShapeAndRender(app, shape);
@@ -210,11 +257,34 @@ function selectContextTargetShape(app, shape) {
     app.selection.keepSelected(shape);
 }
 
+/**
+ * @param {SchematicEditor} app
+ * @param {Point} snapped
+ * @param {Point} screenPos
+ */
 export function updateToolCrosshair(app, snapped, screenPos) {
     app.showCrosshair();
-    app.updateCrosshair(snapped, screenPos);
+    /** @type {(snapped: Point, screenPos: Point) => void} */ (app.updateCrosshair)(snapped, screenPos);
 }
 
+/**
+ * @param {SchematicEditor} app
+ * @param {Point} point
+ * @param {EventTarget|null} eventTarget
+ * @returns {SchematicShape|null}
+ */
+function findSchematicInlineEditableHit(app, point, eventTarget) {
+    return /** @type {SchematicShape|null} */ (
+        (/** @type {(selection: typeof app.selection, point: Point, eventTarget: EventTarget|null) => unknown} */ (findInlineEditableHit))
+            (app.selection, point, eventTarget)
+    );
+}
+
+/**
+ * @param {SchematicEditor} app
+ * @param {Point} worldPos
+ * @param {Point} screenPos
+ */
 function handleComponentTooltipContextMenu(app, worldPos, screenPos) {
     if (app.showComponentDebugTooltip === false) return;
     const hitComponent = findComponentAt(app, worldPos);
@@ -222,6 +292,11 @@ function handleComponentTooltipContextMenu(app, worldPos, screenPos) {
     else app.updateComponentCodeTooltip?.(null, null, { forceHide: true });
 }
 
+/**
+ * @param {SchematicEditor} app
+ * @param {Point} worldPos
+ * @param {Point} screenPos
+ */
 function handleComponentTooltipMouseMove(app, worldPos, screenPos) {
     const canShow = app.showComponentDebugTooltip !== false
         && !getSchematicDrag(app) && !app.viewport.isPanning
@@ -238,6 +313,12 @@ function handleComponentTooltipMouseMove(app, worldPos, screenPos) {
 
 // ─── Context menu helpers ──────────────────────────────────────────
 
+/**
+ * @param {SchematicEditor} app
+ * @param {Point} worldPos
+ * @param {number} clientX
+ * @param {number} clientY
+ */
 function handleAnchorContextMenu(app, worldPos, clientX, clientY) {
     const selectedShapes = app.selection.getSelection();
     for (const shape of selectedShapes) {
@@ -253,7 +334,8 @@ function handleAnchorContextMenu(app, worldPos, clientX, clientY) {
             const canDisconnectPin = shape.type === 'wire' && shape.pinConnections?.has(anchorId);
             if (junctionInfo && shape.type === 'wire') canDeletePoint = false;
             if (canDeletePoint || junctionInfo || canDisconnectPin) {
-                showAnchorContextMenu(app, shape, anchorId, clientX, clientY, canDeletePoint, junctionInfo);
+                (/** @type {(app: SchematicEditor, shape: SchematicShape, anchorId: string, clientX: number, clientY: number, canDeletePoint: boolean, junctionInfo: unknown) => void} */ (showAnchorContextMenu))
+                    (app, shape, anchorId, clientX, clientY, canDeletePoint, junctionInfo);
                 return true;
             }
         }
@@ -273,19 +355,26 @@ function handleAnchorContextMenu(app, worldPos, clientX, clientY) {
 
         if (canDeletePoint || junctionInfo || canDisconnectPin) {
             selectContextTargetShape(app, wire);
-            showAnchorContextMenu(app, wire, nid, clientX, clientY, canDeletePoint, junctionInfo);
+            (/** @type {(app: SchematicEditor, shape: SchematicShape, anchorId: string, clientX: number, clientY: number, canDeletePoint: boolean, junctionInfo: unknown) => void} */ (showAnchorContextMenu))
+                (app, wire, nid, clientX, clientY, canDeletePoint, junctionInfo);
             return true;
         }
     }
     return false;
 }
 
+/**
+ * @param {SchematicEditor} app
+ * @param {Point} worldPos
+ * @param {number} clientX
+ * @param {number} clientY
+ */
 function handleSegmentContextMenu(app, worldPos, clientX, clientY) {
     const segTolerance = SNAP_SCREEN_PX / app.viewport.scale;
     for (const shape of app.shapes) {
         if (!shape.locked && shape.type === 'arc' && shape.hitTest(worldPos, segTolerance)) {
             selectContextTargetShape(app, shape);
-            showSegmentContextMenu(app, shape, null, clientX, clientY);
+            showSegmentContextMenu(app, shape, '', clientX, clientY);
             return true;
         }
         if (shape.locked || !shape.hitTestEdge) continue;
@@ -298,6 +387,12 @@ function handleSegmentContextMenu(app, worldPos, clientX, clientY) {
     return false;
 }
 
+/**
+ * @param {SchematicEditor} app
+ * @param {Point} worldPos
+ * @param {number} clientX
+ * @param {number} clientY
+ */
 function handleSelectContextMenu(app, worldPos, clientX, clientY) {
     const hit = app.selection.hitTest(worldPos);
     if (hit?.type === 'text' && hit.fieldKey === 'label') {
@@ -314,19 +409,31 @@ function handleSelectContextMenu(app, worldPos, clientX, clientY) {
  * Show the component context menu ("Show 3D") when the right-click lands on a
  * placed component that carries a 3D OBJ model. Returns false otherwise so the
  * caller falls through to the debug-tooltip behaviour.
+ * @param {SchematicEditor} app
+ * @param {Point} worldPos
+ * @param {number} clientX
+ * @param {number} clientY
+ * @returns {boolean}
  */
 function handleComponentContextMenu(app, worldPos, clientX, clientY) {
-    const comp = findComponentAt(app, worldPos);
+    const comp = /** @type {Component|null} */ (findComponentAt(app, worldPos));
     if (!hasAny3DModel(comp?.definition)) return false;
+    if (!comp) return false;
     showComponentContextMenu(app, comp, clientX, clientY);
     return true;
 }
 
+/**
+ * @param {SchematicEditor} app
+ * @param {Point} probePos
+ * @param {SchematicShape|null} [excludeShape]
+ * @returns {{target: SchematicShape|Component, snapPos: Point}|null}
+ */
 export function resolveLabelAttachTarget(app, probePos, excludeShape = null) {
     // Also exclude the label's current parent so the snap dot doesn't show for it
     const excludeParent = excludeShape?.parentComponent || null;
 
-    const hitComponent = findComponentAt(app, probePos);
+    const hitComponent = /** @type {Component|null} */ (findComponentAt(app, probePos));
     if (hitComponent && hitComponent !== excludeShape && hitComponent !== excludeParent) {
         return {
             target: hitComponent,
@@ -376,7 +483,9 @@ export function resolveLabelAttachTarget(app, probePos, excludeShape = null) {
 /**
  * idle — select tool, nothing active.
  */
+/** @type {DrawInteractionState} */
 export const overlapCycleState = {
+    /** @param {SchematicEditor} app */
     mousemove(app, event, positions) {
         const press = getOverlapCyclePress(app);
         if (!press || Math.hypot(positions.screenPos.x - press.positions.screenPos.x,
@@ -384,16 +493,17 @@ export const overlapCycleState = {
         clearOverlapCyclePress(app);
         app.interactionState = 'idle';
         setSkipClickSelection(app, false);
-        idleState.mousedown(app, { button: 0, shiftKey: false, ctrlKey: false, metaKey: false,
-            preventDefault() {} }, press.positions);
+        idleState.mousedown?.(app, /** @type {MouseEvent} */ ({ button: 0, shiftKey: false, ctrlKey: false, metaKey: false,
+            preventDefault() {} }), press.positions);
         STATE_TABLE[app.interactionState]?.mousemove?.(app, event, positions);
     },
+    /** @param {SchematicEditor} app */
     mouseup(app, event, positions) {
         if (event.button !== 0) return;
-        overlapCycleState.mousemove(app, event, positions);
+        overlapCycleState.mousemove?.(app, event, positions);
         const press = getOverlapCyclePress(app);
         if (!press) {
-            STATE_TABLE[app.interactionState]?.mouseup?.(app, event, positions);
+            if (app.interactionState) STATE_TABLE[app.interactionState]?.mouseup?.(app, event, positions);
             return;
         }
         clearOverlapCyclePress(app);
@@ -401,7 +511,7 @@ export const overlapCycleState = {
         const hits = app.selection.hitTest(press.positions.worldPos, true);
         const selected = app.selection.getSelection();
         const index = hits.findIndex(shape => selected.includes(shape));
-        const next = hits[(index + 1) % hits.length];
+        const next = hits.length > 0 ? hits[(index + 1) % hits.length] : null;
         if (next) {
             const keep = press.additive ? selected.filter(shape => !hits.includes(shape)) : [];
             app.selection.selectMultiple([...keep, next]);
@@ -412,14 +522,16 @@ export const overlapCycleState = {
     },
 };
 
+/** @type {DrawInteractionState} */
 export const idleState = {
+    /** @param {SchematicEditor} app */
     mousedown(app, event, { screenPos, worldPos, snapped }) {
         if (event.button !== 0) return;
 
         activateHomeTabIfFileTabOpen(app);
 
         if (!getSchematicTextEdit(app) && isUnmodifiedPrimaryDoublePress(event)) {
-            const textHit = findInlineEditableHit(app.selection, worldPos, event.target);
+            const textHit = findSchematicInlineEditableHit(app, worldPos, event.target);
             if (textHit) {
                 app.selection.select(textHit, false);
                 app.renderShapes();
@@ -475,8 +587,8 @@ export const idleState = {
                 if (atJunction) break;
             }
 
-            if (canQueueMidpointAnchorDrag(shape, anchorId)) {
-                const beforeState = captureShapeState(app, shape);
+            if (canQueueMidpointAnchorDrag(/** @type {any} */ (shape), anchorId)) {
+                const beforeState = captureShapeState(app, /** @type {any} */ (shape));
                 const newAnchorId = shape.moveAnchor(anchorId, snapped.x, snapped.y);
                 app.renderShapes();
                 app.viewport.svg.style.cursor = 'move';
@@ -507,7 +619,7 @@ export const idleState = {
                 // starts the split (matches the PCB track behaviour).
                 const justSelectedAnchor = hitShape.hitTestAnchor?.(worldPos, app.viewport.scale);
                 if (justSelectedAnchor && String(justSelectedAnchor).startsWith('mid')
-                    && canQueueMidpointAnchorDrag(hitShape, justSelectedAnchor)) {
+                    && canQueueMidpointAnchorDrag(/** @type {any} */ (hitShape), justSelectedAnchor)) {
                     app.viewport.svg.style.cursor = 'copy';
                     event.preventDefault();
                     return;
@@ -562,6 +674,7 @@ export const idleState = {
         event.preventDefault();
     },
 
+    /** @param {SchematicEditor} app */
     mousemove(app, event, { screenPos, worldPos, snapped }) {
         handleComponentTooltipMouseMove(app, worldPos, screenPos);
 
@@ -571,6 +684,7 @@ export const idleState = {
         }
     },
 
+    /** @param {SchematicEditor} app */
     mouseup(app, event, { worldPos, snapped }) {
         if (event.button !== 0) return;
         const pendingNode = getPendingAnchorDrag(app);
@@ -596,6 +710,7 @@ export const idleState = {
         }
     },
 
+    /** @param {SchematicEditor} app */
     click(app, event, { worldPos }) {
         const pendingSegmentToggle = getPendingShapeSegmentToggle(app);
         clearPendingShapeSegmentToggle(app);
@@ -625,16 +740,18 @@ export const idleState = {
         }
 
         const hit = app.selection.hitTest(worldPos);
-        if (getSchematicTextEdit(app)) {
-            if (!hit || hit !== getSchematicTextEdit(app).shape) app.endTextEdit(true);
+        const textEdit = getSchematicTextEdit(app);
+        if (textEdit) {
+            if (!hit || hit !== textEdit.shape) app.endTextEdit(true);
         }
         app.selection.handleClick(worldPos, isAdditiveSelectionModifier(event));
         app.renderShapes(true);
     },
 
+    /** @param {SchematicEditor} app */
     dblclick(app, event, { screenPos, worldPos }) {
         if (getSchematicTextEdit(app)) return;
-        const hit = findInlineEditableHit(app.selection, worldPos, event.target)
+        const hit = findSchematicInlineEditableHit(app, worldPos, event.target)
             || app.selection.hitTest(worldPos);
         if (hit && hit.supportsInlineEdit) {
             app.selection.select(hit, false);
@@ -647,6 +764,7 @@ export const idleState = {
         if (!hit) app.viewport._onTitleBlockDblClick(worldPos);
     },
 
+    /** @param {SchematicEditor} app */
     rightclick(app, event, { screenPos, worldPos }) {
         if (handleSelectContextMenu(app, worldPos, event.clientX, event.clientY)) {
             return;
@@ -658,7 +776,9 @@ export const idleState = {
 /**
  * toolActive — non-select tool, not yet drawing.
  */
+/** @type {DrawInteractionState} */
 export const toolActiveState = {
+    /** @param {SchematicEditor} app */
     mousedown(app, event, { screenPos, worldPos, snapped }) {
         if (event.button !== 0) return;
 
@@ -681,6 +801,7 @@ export const toolActiveState = {
         pressSchematicTool(app, event, { screenPos, worldPos, snapped });
     },
 
+    /** @param {SchematicEditor} app */
     mousemove(app, event, { screenPos, worldPos, snapped }) {
         handleComponentTooltipMouseMove(app, worldPos, screenPos);
 
@@ -695,10 +816,12 @@ export const toolActiveState = {
         moveSchematicTool(app, event, { screenPos, worldPos, snapped }, false);
     },
 
+    /** @param {SchematicEditor} app */
     mouseup(app, event, { worldPos, snapped }) {
         if (event.button !== 0) return;
     },
 
+    /** @param {SchematicEditor} app */
     rightclick(app, event, { screenPos, worldPos }) {
         handleComponentTooltipContextMenu(app, worldPos, screenPos);
         app.setToolCursor(app.currentTool, app.viewport.svg);
@@ -708,7 +831,9 @@ export const toolActiveState = {
 /**
  * drawing — actively drawing a shape (wire/line/rect/circle/arc/polygon).
  */
+/** @type {DrawInteractionState} */
 export const drawingState = {
+    /** @param {SchematicEditor} app */
     mousedown(app, event, { screenPos, worldPos, snapped }) {
         if (event.button !== 0) return;
 
@@ -717,6 +842,7 @@ export const drawingState = {
         pressSchematicToolDrawing(app, event, { screenPos, worldPos, snapped });
     },
 
+    /** @param {SchematicEditor} app */
     mousemove(app, event, { screenPos, worldPos, snapped }) {
         handleComponentTooltipMouseMove(app, worldPos, screenPos);
 
@@ -733,6 +859,7 @@ export const drawingState = {
     /**
      * Right-click in place (no pan) — finish multi-point drawing tools.
      * Dispatched by mouse.js via contextmenu when movement < threshold.
+     * @param {SchematicEditor} app
      */
     rightclick(app, event, { screenPos, worldPos, snapped }) {
         if (finishSchematicDrawAtPointer(app, { screenPos, worldPos, snapped })) {
@@ -741,11 +868,13 @@ export const drawingState = {
         }
     },
 
+    /** @param {SchematicEditor} app */
     mouseup(app, event, { screenPos, worldPos, snapped }) {
         if (event.button !== 0) return;
         releaseSchematicTool(app, { screenPos, worldPos, snapped });
     },
 
+    /** @param {SchematicEditor} app */
     dblclick(app) {
         if (finishSchematicDrawInPlace(app)) app.interactionState = 'toolActive';
     },
@@ -754,7 +883,9 @@ export const drawingState = {
 /**
  * moveDrag — dragging selected shapes.
  */
+/** @type {DrawInteractionState} */
 export const moveDragState = {
+    /** @param {SchematicEditor} app */
     mousemove(app, event, { worldPos }) {
         if (app.viewport.isPanning) return;
 
@@ -763,9 +894,11 @@ export const moveDragState = {
         const isGenericLabel = isDraggingText && selNow[0].fieldKey === 'label';
         if (isGenericLabel) {
             const labelShape = selNow[0];
-            const hotspot = getLabelDropHotspot(labelShape, worldPos);
+            const hotspot = (/** @type {(labelShape: SchematicShape, fallbackPos: Point|null) => Point} */ (getLabelDropHotspot))
+                (labelShape, worldPos);
             const attach = resolveLabelAttachTarget(app, hotspot, labelShape);
-            updateSnapHighlight(app, attach ? { x: attach.snapPos.x, y: attach.snapPos.y, type: 'attach' } : null);
+            (/** @type {(app: SchematicEditor, target: unknown) => void} */ (updateSnapHighlight))
+                (app, attach ? { x: attach.snapPos.x, y: attach.snapPos.y, type: 'attach' } : null);
             // Track hover target for invalidation
             const newTarget = attach?.target || null;
             const oldTarget = getSchematicDrag(app).labelHoverTarget || null;
@@ -805,7 +938,7 @@ export const moveDragState = {
                 const { resolved } = resolvePinSnapPlacement(app, pinProbe, {
                     excludePin: netPin
                         ? { component: dragNet, pin: netPin, pinKey: netPin._key || netPin._id || netPin.number }
-                        : null
+                        : undefined
                 });
                 deferredNetSnap = resolved;
             }
@@ -861,6 +994,7 @@ export const moveDragState = {
         }
     },
 
+    /** @param {SchematicEditor} app */
     mouseup(app, event, { worldPos }) {
         if (event.button !== 0) return;
 
@@ -869,7 +1003,8 @@ export const moveDragState = {
         if (isGenericLabel) {
             const labelShape = sel[0];
             const oldParent = labelShape.parentComponent;
-            const hotspot = getLabelDropHotspot(labelShape, worldPos);
+            const hotspot = (/** @type {(labelShape: SchematicShape, fallbackPos: Point|null) => Point} */ (getLabelDropHotspot))
+                (labelShape, worldPos);
             const attach = resolveLabelAttachTarget(app, hotspot, labelShape);
             if (attach?.target) {
                 attachLabelToTarget(labelShape, attach.target, attach.snapPos || null, { isNewLabel: false });
@@ -894,16 +1029,19 @@ export const moveDragState = {
 /**
  * anchorDrag — dragging an anchor point.
  */
+/** @type {DrawInteractionState} */
 export const anchorDragState = {
+    /** @param {SchematicEditor} app */
     mousedown(app, event, positions) {
         if (event.button !== 0 || !getSchematicDrag(app).midpointPlacement) return;
-        anchorDragState.mousemove(app, event, positions);
+        anchorDragState.mousemove?.(app, event, positions);
         handleDragEnd(app);
         setSkipClickSelection(app, true);
         app.viewport.svg.style.cursor = '';
         event.preventDefault();
     },
 
+    /** @param {SchematicEditor} app */
     mousemove(app, event, { worldPos, snapped }) {
         if (app.viewport.isPanning) return;
 
@@ -919,6 +1057,7 @@ export const anchorDragState = {
             anchorPos = { x: snap.x, y: snap.y };
         }
 
+        /** @type {any[]} */
         let anchorGuides = [];
         const isBulgeHandle = typeof getSchematicDrag(app).anchorId === 'string' && getSchematicDrag(app).anchorId.startsWith('bulge_');
         const isGraphShape = !isBulgeHandle && !!(getSchematicDrag(app).shape.nodes && getSchematicDrag(app).shape.edges);
@@ -948,15 +1087,15 @@ export const anchorDragState = {
                 if (getSchematicDrag(app).shape.type === 'polyline') {
                     const nodeIds = getSchematicDrag(app).shape.isRect ? getSchematicDrag(app).shape.getOrderedNodeIds() : [];
                     const cornerIndex = nodeIds.indexOf(getSchematicDrag(app).anchorId);
-                    const neighbourIds = getSchematicDrag(app).shape.isRect
+                    const neighbourIds = /** @type {string[]} */ (getSchematicDrag(app).shape.isRect
                         ? (cornerIndex >= 0 ? [nodeIds[(cornerIndex + 2) % 4]] : [])
-                        : getSchematicDrag(app).shape.neighborNodes(getSchematicDrag(app).anchorId);
+                        : getSchematicDrag(app).shape.neighborNodes(getSchematicDrag(app).anchorId));
                     const neighbours = neighbourIds
                         .map(id => getSchematicDrag(app).shape.nodes.get(id)).filter(Boolean);
                     anchorPos = snapShapePoint(app, worldPos, neighbours,
                         shapeContinuationConstraints(getSchematicDrag(app).shape, getSchematicDrag(app).anchorId));
                 } else if (!getSchematicDrag(app).shape.isRect) {
-                    const neighbors = getSchematicDrag(app).shape.neighborNodes(getSchematicDrag(app).anchorId)
+                    const neighbors = /** @type {string[]} */ (getSchematicDrag(app).shape.neighborNodes(getSchematicDrag(app).anchorId))
                         .map(nid => getSchematicDrag(app).shape.nodes.get(nid)).filter(Boolean);
                     applyOffGridNeighborSnap(worldPos, anchorPos, neighbors, app.viewport.gridSize || 1.0);
                     const collinearSnap = computeAnchorCollinearSnap(app, getSchematicDrag(app).shape, getSchematicDrag(app).anchorId, anchorPos);
@@ -1018,6 +1157,7 @@ export const anchorDragState = {
         app.fileManager.setDirty(true);
     },
 
+    /** @param {SchematicEditor} app */
     mouseup(app, event) {
         if (event.button !== 0) return;
         if (getSchematicDrag(app).midpointPlacement) return;
@@ -1028,7 +1168,9 @@ export const anchorDragState = {
 /**
  * segmentDrag — dragging a wire segment.
  */
+/** @type {DrawInteractionState} */
 export const segmentDragState = {
+    /** @param {SchematicEditor} app */
     mousemove(app, event, { worldPos }) {
         if (app.viewport.isPanning) return;
 
@@ -1081,6 +1223,7 @@ export const segmentDragState = {
         }
     },
 
+    /** @param {SchematicEditor} app */
     mouseup(app, event) {
         if (event.button !== 0) return;
         handleDragEnd(app);
@@ -1090,7 +1233,9 @@ export const segmentDragState = {
 /**
  * boxSelect — rubber-band selection.
  */
+/** @type {DrawInteractionState} */
 export const boxSelectState = {
+    /** @param {SchematicEditor} app */
     mousemove(app, event, { worldPos }) {
         if (app.viewport.isPanning) return;
         setDidSchematicDrag(app, true);
@@ -1100,6 +1245,7 @@ export const boxSelectState = {
         app.renderShapes(false);
     },
 
+    /** @param {SchematicEditor} app */
     mouseup(app, event, { worldPos }) {
         if (event.button !== 0) return;
 
@@ -1119,7 +1265,9 @@ export const boxSelectState = {
 /**
  * placing — paste preview or component placement active.
  */
+/** @type {DrawInteractionState} */
 export const placingState = {
+    /** @param {SchematicEditor} app */
     mousedown(app, event, { snapped }) {
         if (event.button !== 0 || app.viewport.isPanning) return;
         activateHomeTabIfFileTabOpen(app);
@@ -1137,6 +1285,7 @@ export const placingState = {
         }
     },
 
+    /** @param {SchematicEditor} app */
     mousemove(app, event, { screenPos, worldPos, snapped }) {
         if (isPastingClipboard(app)) updatePastePreview(app, snapped);
         if (getPlacingComponent(app)) {
@@ -1151,6 +1300,8 @@ export const placingState = {
 
 // ─── State table ───────────────────────────────────────────────────
 
+/** @typedef {'overlapCycle'|'idle'|'toolActive'|'drawing'|'moveDrag'|'anchorDrag'|'segmentDrag'|'boxSelect'|'placing'} InteractionState */
+/** @satisfies {Record<InteractionState, DrawInteractionState>} */
 export const STATE_TABLE = {
     overlapCycle: overlapCycleState,
     idle: idleState,

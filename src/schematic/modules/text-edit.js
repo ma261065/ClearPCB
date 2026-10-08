@@ -9,20 +9,28 @@ import {
 import { createInlineTextOverlay } from '../../shared/ui/inline-text-overlay.js';
 import { isSchematicLocked } from '../../shapes/lock-owner.js';
 import { getSchematicInteraction, setSchematicInteraction } from './schematic-interactions.js';
+/** @typedef {import('./schematic-editor-api.js').SchematicEditor} SchematicEditor */
+/** @typedef {import('../../shapes/text.js').Text & {[key: string]: any}} EditableTextShape */
+/** @typedef {{destroy: () => void, group: SVGGElement, box: SVGElement, caret: SVGElement, blinkTimer?: number|null, updateGeometry: (geometry: object) => void, keepCaretVisible: () => void}} InlineTextOverlay */
+/** @typedef {{shape: EditableTextShape, originalText: string, caretIndex: number, overlay: InlineTextOverlay|null, overlayGroup: SVGGElement|null, overlayBox: SVGElement|null, overlayCaret: SVGElement|null, overlayBlink: SVGElement|null, blinkTimeoutId: number|null, blinkTimer?: number|null, overlayOffset: {x: number, y: number}|null}} TextEditState */
+/** @typedef {{x: number, width: number}} CaretProbe */
 
-/** @param {object} app */
+/**
+ * @param {SchematicEditor} app
+ * @returns {TextEditState|null}
+ */
 export function getSchematicTextEdit(app) {
     return getSchematicInteraction(app, 'textEdit');
 }
 
-/** @param {object} app */
+/** @param {SchematicEditor} app */
 export function hasSchematicTextEdit(app) {
     return !!getSchematicTextEdit(app);
 }
 
 /**
- * @param {object} app
- * @param {any} state
+ * @param {SchematicEditor} app
+ * @param {TextEditState|null} state
  */
 function setSchematicTextEdit(app, state) {
     setSchematicInteraction(app, 'textEdit', state);
@@ -31,7 +39,7 @@ function setSchematicTextEdit(app, state) {
 /**
  * Begins inline text editing on a text shape: initializes caret, creates
  * the overlay box and blinking caret.
- * @param {object} app - Application state.
+ * @param {SchematicEditor} app
  * @param {import('../../shapes/text.js').Text} shape - Text shape to edit.
  */
 export function startTextEdit(app, shape) {
@@ -64,7 +72,7 @@ export function startTextEdit(app, shape) {
 
     const initialText = typeof shape.text === 'string' ? shape.text : '';
     const shapeWithCaret = /** @type {import('../../shapes/text.js').Text & {_lastCaretIndex?: number}} */ (shape);
-    const storedCaret = Number.isFinite(shapeWithCaret._lastCaretIndex) ? shapeWithCaret._lastCaretIndex : null;
+    const storedCaret = Number.isFinite(shapeWithCaret._lastCaretIndex) ? /** @type {number} */ (shapeWithCaret._lastCaretIndex) : null;
     const initialCaret = storedCaret === null
         ? initialText.length
         : Math.max(0, Math.min(initialText.length, storedCaret));
@@ -91,7 +99,7 @@ export function startTextEdit(app, shape) {
  * Ends text editing. If `commit` is true, creates an undo command for the
  * text change and syncs to the parent component; otherwise reverts.
  * Cleans up the overlay.
- * @param {object} app - Application state.
+ * @param {SchematicEditor} app
  * @param {boolean} [commit=true] - Whether to commit the edit.
  */
 export function endTextEdit(app, commit = true) {
@@ -153,7 +161,7 @@ export function endTextEdit(app, commit = true) {
                 _cleanupTextEditState(state, app, shape);
                 return;
             }
-            const parentnet = state.shape.parentComponent;
+            const parentnet = /** @type {{x: number, y: number, id: string}} */ (state.shape.parentComponent);
             const check = validateNetNameAtPoint(
                 app,
                 { x: parentnet.x, y: parentnet.y },
@@ -206,7 +214,7 @@ export function endTextEdit(app, commit = true) {
 /**
  * Handles all keystrokes during text editing: arrow keys, Home/End,
  * Backspace, Delete, printable characters, Enter (commit), Escape (cancel).
- * @param {object} app - Application state.
+ * @param {SchematicEditor} app
  * @param {KeyboardEvent} e - The keyboard event.
  * @returns {boolean} `true` if the key was consumed.
  */
@@ -319,7 +327,7 @@ export function handleTextEditKey(app, e) {
 /**
  * Repositions and resizes the text-edit overlay box and caret based on
  * the text shape's current bounding box and caret index.
- * @param {object} app - Application state.
+ * @param {SchematicEditor} app
  */
 export function updateTextEditOverlay(app) {
     const state = getSchematicTextEdit(app);
@@ -381,7 +389,7 @@ export function updateTextEditOverlay(app) {
 /**
  * Applies an incremental pixel offset to the text-edit overlay group
  * (used during drag to keep the overlay in sync).
- * @param {object} app - Application state.
+ * @param {SchematicEditor} app
  * @param {number} dx - Horizontal offset in world units.
  * @param {number} dy - Vertical offset in world units.
  */
@@ -404,7 +412,7 @@ export function nudgeTextEditOverlay(app, dx, dy) {
 /**
  * Sets the text caret position from a screen-space click coordinate
  * using `getCharNumAtPosition`.
- * @param {object} app - Application state.
+ * @param {SchematicEditor} app
  * @param {{x: number, y: number}} screenPos - Screen-space click position.
  */
 export function setTextCaretFromScreen(app, screenPos) {
@@ -418,7 +426,8 @@ export function setTextCaretFromScreen(app, screenPos) {
         )
         : null;
     const el = ownTextEl || shapeEl;
-    if (!el || typeof el.getCharNumAtPosition !== 'function') {
+    const textEl = /** @type {SVGElement & Partial<SVGTextContentElement>} */ (el);
+    if (!textEl || typeof textEl.getCharNumAtPosition !== 'function' || typeof textEl.getScreenCTM !== 'function') {
         state.caretIndex = (state.shape.text || '').length;
         updateTextEditOverlay(app);
         return;
@@ -429,17 +438,17 @@ export function setTextCaretFromScreen(app, screenPos) {
         const pt = app.viewport.svg.createSVGPoint();
         pt.x = screenPos.x + rect.left;
         pt.y = screenPos.y + rect.top;
-        const ctm = el.getScreenCTM();
+        const ctm = textEl.getScreenCTM();
         const localPt = ctm ? pt.matrixTransform(ctm.inverse()) : pt;
-        const idx = el.getCharNumAtPosition(localPt);
+        const idx = textEl.getCharNumAtPosition(localPt);
         if (idx >= 0) {
-            const start = el.getStartPositionOfChar?.(idx);
-            const end = el.getEndPositionOfChar?.(idx);
+            const start = textEl.getStartPositionOfChar?.(idx);
+            const end = textEl.getEndPositionOfChar?.(idx);
             const midpoint = start && end ? (start.x + end.x) / 2 : null;
-            state.caretIndex = Number.isFinite(midpoint) && localPt.x >= midpoint ? idx + 1 : idx;
+            state.caretIndex = midpoint !== null && Number.isFinite(midpoint) && localPt.x >= midpoint ? idx + 1 : idx;
         } else {
             const textLength = (state.shape.text || '').length;
-            const start = textLength > 0 ? el.getStartPositionOfChar?.(0) : null;
+            const start = textLength > 0 ? textEl.getStartPositionOfChar?.(0) : null;
             state.caretIndex = start && Number.isFinite(start.x) && localPt.x < start.x
                 ? 0
                 : textLength;
@@ -453,11 +462,16 @@ export function setTextCaretFromScreen(app, screenPos) {
     }
 }
 
+/** @param {string|undefined} ch */
 function isWordChar(ch) {
     if (!ch) return false;
     return /[\p{L}\p{N}_]/u.test(ch);
 }
 
+/**
+ * @param {string} text
+ * @param {number} index
+ */
 function findWordBoundaryLeft(text, index) {
     let i = Math.max(0, Math.min(text.length, index));
     if (i === 0) return 0;
@@ -470,6 +484,10 @@ function findWordBoundaryLeft(text, index) {
     return i;
 }
 
+/**
+ * @param {string} text
+ * @param {number} index
+ */
 function findWordBoundaryRight(text, index) {
     let i = Math.max(0, Math.min(text.length, index));
     if (i >= text.length) return text.length;
@@ -484,11 +502,13 @@ function findWordBoundaryRight(text, index) {
     return i;
 }
 
+/** @param {SchematicEditor} app */
 function ensureOverlay(app) {
     const state = getSchematicTextEdit(app);
     if (!state || state.overlayGroup) return;
 
     const overlay = createInlineTextOverlay(
+        /** @param {SVGGElement} group */
         group => {
             if (typeof app.viewport.addInteractionOverlay === 'function') {
                 app.viewport.addInteractionOverlay(group);
@@ -506,10 +526,19 @@ function ensureOverlay(app) {
     state.blinkTimer = overlay.blinkTimer;
 }
 
+/**
+ * @param {TextEditState|null} state
+ * @param {number} [_delay]
+ */
 function resetCaretBlink(state, _delay = 300) {
     state?.overlay?.keepCaretVisible();
 }
 
+/**
+ * @param {SchematicEditor} app
+ * @param {string} nextText
+ * @param {number} caretIndex
+ */
 function updateText(app, nextText, caretIndex) {
     const state = getSchematicTextEdit(app);
     if (!state) return;
@@ -524,11 +553,19 @@ function updateText(app, nextText, caretIndex) {
     updateTextEditOverlay(app);
 }
 
+/**
+ * @param {SchematicEditor} app
+ * @param {EditableTextShape} shape
+ * @param {SVGElement & Partial<SVGTextContentElement>} el
+ * @param {CaretProbe} bbox
+ * @param {number} caretIndex
+ * @returns {number}
+ */
 function getCaretX(app, shape, el, bbox, caretIndex) {
     const textValue = typeof shape.text === 'string' ? shape.text : '';
     const clampedIndex = Math.max(0, Math.min(caretIndex, textValue.length));
     const advance = measureTextAdvance(shape, textValue.slice(0, clampedIndex));
-    if (Number.isFinite(advance)) return bbox.x + advance;
+    if (advance !== null && Number.isFinite(advance)) return bbox.x + advance;
 
     if (!el || caretIndex <= 0) {
         // Caret at position 0 — left edge of first character
@@ -552,7 +589,7 @@ function getCaretX(app, shape, el, bbox, caretIndex) {
         // Fallback: clone-based measurement for texts with spaces
         if (textValue.includes(' ') && app?.viewport) {
             const measured = measureCaretWithClone(app, el, textValue, clampedIndex);
-            if (Number.isFinite(measured)) return measured;
+            if (measured !== null && Number.isFinite(measured)) return measured;
         }
 
         // Fallback: start + substring length (only reliable for text-anchor="start")
@@ -571,9 +608,16 @@ function getCaretX(app, shape, el, bbox, caretIndex) {
     return bbox.x + (bbox.width * (caretIndex / textLength));
 }
 
+/**
+ * @param {SchematicEditor} app
+ * @param {SVGElement & Partial<SVGTextContentElement>} el
+ * @param {string} textValue
+ * @param {number} caretIndex
+ * @returns {number|null}
+ */
 function measureCaretWithClone(app, el, textValue, caretIndex) {
     try {
-        const temp = el.cloneNode(true);
+        const temp = /** @type {SVGTextContentElement} */ (el.cloneNode(true));
         temp.textContent = textValue;
         temp.setAttribute('xml:space', 'preserve');
         temp.style.whiteSpace = 'pre';
@@ -600,7 +644,12 @@ function measureCaretWithClone(app, el, textValue, caretIndex) {
     return null;
 }
 
-/** Clean up text-edit overlay state (used for early abort). */
+/**
+ * Clean up text-edit overlay state (used for early abort).
+ * @param {TextEditState} state
+ * @param {SchematicEditor} app
+ * @param {EditableTextShape|null} shape
+ */
 function _cleanupTextEditState(state, app, shape) {
     state.overlay?.destroy();
     state.overlay = null;

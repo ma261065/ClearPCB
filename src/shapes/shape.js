@@ -13,7 +13,7 @@ const shapeIds = new IdAllocator('shape');
 const ANCHOR_SIZE_PIXELS = 8;
 
 /** @typedef {{x: number, y: number}} Point */
-/** @typedef {{id: string, x: number, y: number, cursor: string, midpoint?: boolean}} AnchorDescriptor */
+/** @typedef {{id: string, x: number, y: number, cursor: string, midpoint?: boolean, hidden?: boolean, bulge?: boolean}} AnchorDescriptor */
 /** @typedef {Record<string, any> & {id?: string, layer?: string, color?: string|number, fillColor?: string|number|null, lineWidth?: number, visible?: boolean, locked?: boolean}} ShapeOptions */
 
 /**

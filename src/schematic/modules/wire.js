@@ -17,9 +17,24 @@ import { addShapeInternal } from './shape-management.js';
 import { getDrawingSnappedPosition, getPinKey } from './wire-snap.js';
 import { captureShapeSnapshot } from './wire-labels.js';
 import { buildWireDiffBatch, reconcileWires, refreshWireConnections } from './wire-reconcile.js';
+/** @typedef {import('./schematic-editor-api.js').SchematicEditor} SchematicEditor */
+/** @typedef {import('../../core/SchematicDocument.js').SchematicShape} WireShape */
+/** @typedef {import('../../core/geometry.js').Point} Point */
+/** @typedef {'horizontal'|'vertical'} WireAxis */
+/** @typedef {{component: {id: string, type?: string, net?: string, [key: string]: any}, pin: {number: string|number, [key: string]: any}, pinKey?: string|number|null, worldPos: Point}} SnapPin */
+/** @typedef {Point & {pin?: SnapPin|null, _savedX?: number, _savedY?: number}} WirePoint */
+/** @typedef {{componentId: string, pinNumber: string|number}} PinConnection */
+/** @typedef {Record<string, Point>} GraphNodes */
+/** @typedef {Record<string, {from: string, to: string}>} GraphEdges */
+/** @typedef {Record<string, PinConnection>} PinConnections */
+/** @typedef {{graphNodes: GraphNodes, graphEdges: GraphEdges, pinConnections: PinConnections, color: string, lineWidth: number, net?: string}} NewWireOptions */
+/** @typedef {{committedGroup: SVGGElement, dotsGroup: SVGGElement, liveA: SVGLineElement, liveB: SVGLineElement, committedCount: number, dotCount: number}} WirePreviewState */
+/** @typedef {SVGGElement & {_wirePreviewState?: WirePreviewState}} WirePreviewElement */
+/** @typedef {{x?: number, y?: number, type?: string, pin?: object|null, snapType?: string, snapPin?: object|null, wireDir?: string, wire?: object|null}} SnapHighlightTarget */
 
 const wireEditorState = new WeakMap();
 
+/** @param {SchematicEditor} app */
 function stateFor(app) {
     let state = wireEditorState.get(app);
     if (!state) {
@@ -33,18 +48,25 @@ function stateFor(app) {
     return state;
 }
 
+/** @param {SchematicEditor} app */
 export function getWireJunctionData(app) {
     return stateFor(app).junctionData;
 }
 
+/** @param {SchematicEditor} app */
 export function hasWireJunctionDot(app) {
     return !!stateFor(app).junctionDot;
 }
 
+/**
+ * @param {SchematicEditor} app
+ * @param {WireAxis|null} axis
+ */
 export function setWireAxisLock(app, axis) {
     stateFor(app).axisLock = axis;
 }
 
+/** @param {SchematicEditor} app */
 export function getWireAxisLock(app) {
     return stateFor(app).axisLock;
 }
@@ -68,7 +90,7 @@ export { WIRE_COLOR, WIRE_WIDTH };
  * current cursor position) and needs ≥ 3 points (≥ 2 segments).
  *
  * @param {Array<{x:number,y:number}>} pts - app.wirePoints
- * @returns {Array<{a:{x,y},b:{x,y}}>|null}
+ * @returns {Array<{a: Point, b: Point}>|null}
  */
 export function buildDrawingExtraSegments(pts) {
     if (!pts || pts.length < 3) return null;
@@ -84,12 +106,12 @@ export function buildDrawingExtraSegments(pts) {
 /**
  * Begin drawing a new wire from a snapped start position.
  * Sets up app.wirePoints, axis lock, and shows the crosshair.
- * @param {object} app - SchematicApp instance
- * @param {{x: number, y: number, snapPin?: object}} snappedData - Start position
+ * @param {SchematicEditor} app
+ * @param {{x: number, y: number, snapPin?: object|null}} snappedData - Start position
  */
 export function startWireDrawing(app, snappedData) {
-    const snapPin = snappedData.snapPin || null;
-    const startPoint = { x: snappedData.x, y: snappedData.y };
+    const snapPin = /** @type {SnapPin|null} */ (snappedData.snapPin || null);
+    const startPoint = /** @type {WirePoint} */ ({ x: snappedData.x, y: snappedData.y });
     if (snapPin) startPoint.pin = snapPin;
 
     app.wirePoints = [startPoint];
@@ -107,7 +129,7 @@ export function startWireDrawing(app, snappedData) {
 /**
  * Update the wire-drawing preview as the cursor moves.
  * Calculates snap target and updates the preview SVG.
- * @param {object} app - SchematicApp instance
+ * @param {SchematicEditor} app
  * @param {{x: number, y: number}} worldPos - Raw cursor position in world coords
  */
 export function updateWireDrawing(app, worldPos) {
@@ -116,7 +138,7 @@ export function updateWireDrawing(app, worldPos) {
     // Calculate snapped target (includes snap detection via resolveWireSnapPosition)
     const target = getDrawingSnappedPosition(app, worldPos);
 
-    updateSnapHighlight(app, target);
+    updateSnapHighlight(app, /** @type {SnapHighlightTarget} */ (target));
 
     app.drawCurrent = { x: target.x, y: target.y };
     app.drawCorner = target.corner || null;
@@ -174,14 +196,14 @@ function _lockDrawAdjustLast(pt) {
 /**
  * Add a waypoint (corner) to the wire being drawn.
  * Collinear points are collapsed automatically.
- * @param {object} app - SchematicApp instance
+ * @param {SchematicEditor} app
  * @param {{x: number, y: number, snapPin?: object|null}} waypointData
  */
 export function addWireWaypoint(app, waypointData) {
     if (app.wirePoints.length === 0) return;
 
-    const point = { x: waypointData.x, y: waypointData.y };
-    if (waypointData.snapPin) point.pin = waypointData.snapPin;
+    const point = /** @type {WirePoint} */ ({ x: waypointData.x, y: waypointData.y });
+    if (waypointData.snapPin) point.pin = /** @type {SnapPin} */ (waypointData.snapPin);
 
     // Don't add duplicate point
     const last = app.wirePoints[app.wirePoints.length - 1];
@@ -212,8 +234,8 @@ export function addWireWaypoint(app, waypointData) {
  * Scan all surviving wires for a net conflict: a single wire whose connected
  * Net-label shapes carry two or more different net names. Returns the first
  * offending wire with the two clashing names (sorted), or null if none.
- * @param {object} app
- * @returns {{ wire: object, names: string[] } | null}
+ * @param {SchematicEditor} app
+ * @returns {{ wire: WireShape, names: string[] } | null}
  */
 function _findWireNetConflict(app) {
     for (const w of app.shapes) {
@@ -234,7 +256,7 @@ function _findWireNetConflict(app) {
  * Finish the current wire drawing: create a Wire shape from the
  * accumulated waypoints, run reconciliation (merge, overlap,
  * junctions), and push an undo batch.
- * @param {object} app - SchematicApp instance
+ * @param {SchematicEditor} app
  * @param {{x: number, y: number, snapPin?: object}} worldPos - Final endpoint
  */
 export function finishWireDrawing(app, worldPos) {
@@ -258,7 +280,12 @@ export function finishWireDrawing(app, worldPos) {
     updateSnapHighlight(app, null);
 
     // Build graph nodes/edges from the drawn points
-    const graphNodes = {}, graphEdges = {}, pinConns = {};
+    /** @type {GraphNodes} */
+    const graphNodes = {};
+    /** @type {GraphEdges} */
+    const graphEdges = {};
+    /** @type {PinConnections} */
+    const pinConns = {};
     let nc = 0, ec = 0;
     const pts = app.wirePoints;
     let prevId = null;
@@ -278,11 +305,12 @@ export function finishWireDrawing(app, worldPos) {
         pinConns[`n${nc - 1}`] = { componentId: lastPt.pin.component.id, pinNumber: lastPt.pin.pin.number };
 
     // Determine wire net name from connected Net labels (via pin snap)
+    /** @type {string|null} */
     let wireNetName = null;
     let netConflict = false;
     for (const pt of pts) {
         if (pt.pin?.component?.type === 'net') {
-            const proposedNet = pt.pin.component.net;
+            const proposedNet = pt.pin.component.net || null;
             if (wireNetName && wireNetName !== proposedNet) {
                 netConflict = true;
                 break;
@@ -299,11 +327,13 @@ export function finishWireDrawing(app, worldPos) {
         return;
     }
 
+    /** @type {NewWireOptions} */
     const wireOpts = {
         graphNodes, graphEdges, pinConnections: pinConns,
         color: WIRE_COLOR, lineWidth: WIRE_WIDTH,
     };
-    const toolNetName = String(app.toolOptions?.wireNet || '').trim();
+    const toolOptions = /** @type {{wireNet?: string|number|null}|undefined} */ (app.toolOptions);
+    const toolNetName = String(toolOptions?.wireNet || '').trim();
     if (wireNetName) wireOpts.net = wireNetName;
     else if (toolNetName) wireOpts.net = toolNetName;
     const wire = new Wire(wireOpts);
@@ -387,7 +417,7 @@ export function finishWireDrawing(app, worldPos) {
 
 /**
  * Cancel the current wire drawing, cleaning up preview and state.
- * @param {object} app - SchematicApp instance
+ * @param {SchematicEditor} app
  */
 export function cancelWireDrawing(app) {
     app.wirePoints = [];
@@ -416,6 +446,10 @@ const SVG_NS = 'http://www.w3.org/2000/svg';
  * (`liveA`/`liveB`) for the segment(s) from the last waypoint to the cursor.
  * Returns the per-preview state object stored on the previewElement itself
  * so it dies automatically when cancelWireDrawing() removes the element.
+ */
+/**
+ * @param {WirePreviewElement} previewElement
+ * @returns {WirePreviewState}
  */
 function _ensurePreviewState(previewElement) {
     if (previewElement._wirePreviewState) return previewElement._wirePreviewState;
@@ -458,7 +492,7 @@ function _ensurePreviewState(previewElement) {
  * This avoids the O(N) innerHTML re-parse-and-recreate that the previous
  * implementation did on every cursor move.
  *
- * @param {object} app - SchematicApp instance
+ * @param {SchematicEditor} app
  */
 export function updateWirePreview(app) {
     if (!app.previewElement) return;
@@ -473,7 +507,7 @@ export function updateWirePreview(app) {
     const segCount = Math.max(0, pts.length - 1);
     let needsReset = state.committedCount > segCount || state.dotCount > pts.length;
     if (!needsReset && state.committedCount > 0) {
-        const lastLine = state.committedGroup.lastChild;
+        const lastLine = /** @type {SVGLineElement|null} */ (state.committedGroup.lastChild);
         const expectedEnd = pts[state.committedCount];
         if (!lastLine
             || lastLine.getAttribute('x2') !== String(expectedEnd.x)
@@ -553,13 +587,15 @@ export function updateWirePreview(app) {
 
 /**
  * Low-level: show yellow dot on a component pin.
+ * @param {SchematicEditor} app
+ * @param {SnapPin} snapPin
  */
 function _showPinDot(app, snapPin) {
     const pinGroup = componentPinElement(snapPin.component, getPinKey(snapPin));
     if (pinGroup) {
         const dot = pinGroup.querySelector('circle');
         if (dot) {
-            if (!dot.dataset.originalFill) dot.dataset.originalFill = dot.getAttribute('fill');
+            if (!dot.dataset.originalFill) dot.dataset.originalFill = dot.getAttribute('fill') || '';
             dot.setAttribute('fill', '#ffff00');
             dot.setAttribute('display', '');
         }
@@ -572,6 +608,7 @@ function _showPinDot(app, snapPin) {
 
 /**
  * Low-level: restore a previously highlighted pin dot.
+ * @param {SchematicEditor} app
  */
 function _hidePinDot(app) {
     if (!app.wireSnapPin?.pin) return;
@@ -589,6 +626,8 @@ function _hidePinDot(app) {
 
 /**
  * Low-level: show a temporary yellow SVG circle at a wire junction point.
+ * @param {SchematicEditor} app
+ * @param {{x: number, y: number, type?: string}} pos
  */
 function _showWireJunctionDot(app, pos) {
     _hideWireJunctionDot(app);
@@ -599,8 +638,8 @@ function _showWireJunctionDot(app, pos) {
     // but let it scale up naturally when zoomed in.
     const minScreenRadiusPx = 6.5;
     const minWorldRadius = 0.36;
-    dot.setAttribute('cx', pos.x);
-    dot.setAttribute('cy', pos.y);
+    dot.setAttribute('cx', String(pos.x));
+    dot.setAttribute('cy', String(pos.y));
     dot.setAttribute('r', String(Math.max(minWorldRadius, minScreenRadiusPx / app.viewport.scale)));
     dot.setAttribute('fill', '#ffff00');
     dot.setAttribute('stroke', 'none');
@@ -613,6 +652,7 @@ function _showWireJunctionDot(app, pos) {
 
 /**
  * Low-level: remove the temporary wire junction dot.
+ * @param {SchematicEditor} app
  */
 function _hideWireJunctionDot(app) {
     const state = stateFor(app);
@@ -633,12 +673,14 @@ function _hideWireJunctionDot(app) {
  *   - A pin snap object (has .pin): show pin dot
  *   - A wire junction {x, y, type} (no .pin): show junction dot
  *   - null: clear all highlights
+ * @param {SchematicEditor} app
+ * @param {SnapHighlightTarget|null} target
  */
 export function updateSnapHighlight(app, target) {
     // Accept snap resolver results directly — convert to highlight format
     if (target?.snapType) {
         if (target.snapType === 'pin' && target.snapPin) {
-            target = target.snapPin;
+            target = /** @type {SnapHighlightTarget} */ (target.snapPin);
         } else if (target.snapType === 'endpoint' || target.snapType === 'segment') {
             target = { x: target.x, y: target.y, type: target.snapType };
         } else {
@@ -663,9 +705,9 @@ export function updateSnapHighlight(app, target) {
 
     // Show new highlight
     if (isPin) {
-        app.wireSnapPin = target;
-        _showPinDot(app, target);
+        app.wireSnapPin = /** @type {SnapPin} */ (target);
+        _showPinDot(app, /** @type {SnapPin} */ (target));
     } else if (isWireJunction) {
-        _showWireJunctionDot(app, target);
+        _showWireJunctionDot(app, /** @type {{x: number, y: number, type?: string}} */ (target));
     }
 }

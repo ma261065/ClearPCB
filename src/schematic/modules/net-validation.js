@@ -1,22 +1,36 @@
 import { findNearbyWirePoint } from './wire-snap.js';
 import { VERTEX_EPSILON } from './wire.js';
+/** @typedef {import('./schematic-editor-api.js').SchematicEditor} SchematicEditor */
+/** @typedef {import('../../core/SchematicDocument.js').SchematicShape} Wire */
+/** @typedef {{x: number, y: number}} Point */
 
+/** @param {string|null|undefined} name */
 function normalizeNetName(name) {
     return String(name || '').trim().toUpperCase();
 }
 
+/**
+ * @param {SchematicEditor} app
+ * @param {Point} point
+ * @returns {Wire|null}
+ */
 function getAttachedWire(app, point) {
     const hit = findNearbyWirePoint(app, point, VERTEX_EPSILON);
     if (!hit || hit.wire?.type !== 'wire') return null;
-    return hit.wire;
+    return /** @type {Wire} */ (hit.wire);
 }
 
+/**
+ * @param {SchematicEditor} app
+ * @param {Wire} seedWire
+ * @returns {Set<Wire>}
+ */
 function getConnectedWires(app, seedWire) {
     const visited = new Set([seedWire]);
     const queue = [seedWire];
 
     while (queue.length > 0) {
-        const wire = queue.shift();
+        const wire = /** @type {Wire} */ (queue.shift());
         for (const pos of wire.nodes.values()) {
             for (const other of app.shapes) {
                 if (other.type !== 'wire' || visited.has(other)) continue;
@@ -36,7 +50,7 @@ function getConnectedWires(app, seedWire) {
  * If the point is attached to a wire-network, all existing nets on that
  * connected network must either be absent or have the same net name.
  *
- * @param {object} app
+ * @param {SchematicEditor} app
  * @param {{x:number,y:number}} point
  * @param {string} proposedName
  * @param {string|null} [excludeNetId]

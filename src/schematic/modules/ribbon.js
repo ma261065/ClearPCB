@@ -1,9 +1,14 @@
 import { bindRibbonHeight } from '../../shared/ui/ribbon-height.js';
 import { renderRibbon } from '../../shared/ui/ribbon.js';
 import { createSchematicRibbonDescription } from './ribbon-description.js';
+/** @typedef {import('./schematic-editor-api.js').SchematicEditor} SchematicEditor */
+/** @typedef {{refresh: () => void, activateTab: (tabId: string) => void, controls: Map<string, HTMLElement>}} RenderedRibbon */
+/** @typedef {{activateRibbonTab: ((tabId: string) => void)|null, retainRibbonHeight: (() => void)|null, cleanupRibbonEsc: (() => void)|null, showSaveToast: ((text?: string) => void)|null}} RibbonState */
 
+/** @type {WeakMap<SchematicEditor, RibbonState>} */
 const ribbonState = new WeakMap();
 
+/** @param {SchematicEditor} app */
 function stateFor(app) {
     let state = ribbonState.get(app);
     if (!state) {
@@ -18,26 +23,37 @@ function stateFor(app) {
     return state;
 }
 
+/**
+ * @param {SchematicEditor} app
+ * @param {string} tabId
+ */
 export function activateRibbonTab(app, tabId) {
     const state = ribbonState.get(app);
     if (state && state.activateRibbonTab) state.activateRibbonTab(tabId);
 }
 
+/** @param {SchematicEditor} app */
 export function retainRibbonHeight(app) {
     const state = ribbonState.get(app);
     if (state && state.retainRibbonHeight) state.retainRibbonHeight();
 }
 
+/** @param {SchematicEditor} app */
 export function cleanupRibbonEsc(app) {
     const state = ribbonState.get(app);
     if (state && state.cleanupRibbonEsc) state.cleanupRibbonEsc();
 }
 
+/** @param {SchematicEditor} app */
 export function showSaveToast(app, text = 'Saved') {
     const state = ribbonState.get(app);
     if (state && state.showSaveToast) state.showSaveToast(text);
 }
 
+/**
+ * @param {SchematicEditor} app
+ * @param {(text?: string) => void} handler
+ */
 export function setSaveToastHandler(app, handler) {
     stateFor(app).showSaveToast = handler;
 }
@@ -46,14 +62,15 @@ export function setSaveToastHandler(app, handler) {
  * Binds all ribbon tab buttons, tool buttons, file commands, edit commands,
  * and event listeners; sets up the save toast, active tab tracking, and
  * shape panel options.
- * @param {object} app - Application state.
+ * @param {SchematicEditor} app
  */
 export function bindRibbon(app) {
     const ribbonEl = document.getElementById('ribbonSchematic');
     if (!ribbonEl) return;
 
-    const ribbon = renderRibbon(ribbonEl, createSchematicRibbonDescription(app));
-    app.ui.propertiesPanel = ribbon.controls.get('propertiesPanel') || app.ui.propertiesPanel;
+    const ribbon = /** @type {RenderedRibbon} */ (renderRibbon(ribbonEl, createSchematicRibbonDescription(app)));
+    const ui = /** @type {typeof app.ui & {propertiesPanel?: HTMLElement}} */ (app.ui);
+    ui.propertiesPanel = ribbon.controls.get('propertiesPanel') || ui.propertiesPanel;
     const retainRibbonHeight = bindRibbonHeight(ribbonEl);
     const state = stateFor(app);
     state.retainRibbonHeight = retainRibbonHeight;
@@ -61,7 +78,7 @@ export function bindRibbon(app) {
         ribbon.refresh();
         retainRibbonHeight();
     };
-    state.activateRibbonTab = (tabId) => {
+    state.activateRibbonTab = (/** @type {string} */ tabId) => {
         retainRibbonHeight();
         app.activeRibbonTab = tabId;
         ribbon.activateTab(tabId);
@@ -91,7 +108,7 @@ export function bindRibbon(app) {
         }, 900);
     };
 
-    const ribbonEscHandler = (e) => {
+    const ribbonEscHandler = (/** @type {KeyboardEvent} */ e) => {
         if (e.key === 'Escape') app.setActiveRibbonTab('home');
     };
     document.addEventListener('keydown', ribbonEscHandler);
@@ -114,8 +131,8 @@ export function bindRibbon(app) {
 /**
  * Populates or clears the shape-options panel (line width, fill checkbox,
  * font size) based on the active tool when nothing is selected.
- * @param {object} app - Application state.
- * @param {Array} selection - Currently selected items.
+ * @param {SchematicEditor} app
+ * @param {import('../../core/SchematicDocument.js').SchematicShape[]} selection - Currently selected items.
  * @param {string} [toolIdArg] - Active tool identifier override.
  */
 export function updateShapePanelOptions(app, selection, toolIdArg) {
@@ -129,8 +146,8 @@ export function updateShapePanelOptions(app, selection, toolIdArg) {
 /**
  * Enables/disables ribbon buttons (delete, lock, cut, copy, paste, rotate)
  * based on the current selection count and clipboard state.
- * @param {object} app - Application state.
- * @param {Array} selection - Currently selected items.
+ * @param {SchematicEditor} app
+ * @param {import('../../core/SchematicDocument.js').SchematicShape[]} selection - Currently selected items.
  */
 export function updateRibbonState(app, selection) {
     app.refreshRibbon?.();

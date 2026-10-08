@@ -1,14 +1,17 @@
 /**
  * Enables/disables and adjusts opacity of the undo and redo toolbar buttons
  * based on `app.history` state.
- * @param {object} app - Application state.
  */
+/** @typedef {import('./schematic-editor-api.js').SchematicEditor} SchematicEditor */
+/** @param {SchematicEditor} app */
 export function updateUndoRedoButtons(app) {
     app.refreshRibbon?.();
 }
 
 /**
  * Set a checkbox to checked, unchecked, or indeterminate based on an array of boolean values.
+ * @param {HTMLInputElement} el
+ * @param {boolean[]} values
  */
 export function setCheckboxState(el, values) {
     el.indeterminate = false;
@@ -99,7 +102,7 @@ export function flashAutoSaveIndicator() {
         document.body.appendChild(dot);
     }
     dot.style.opacity = '1';
-    clearTimeout(autoSaveIndicatorTimer);
+    if (autoSaveIndicatorTimer !== null) clearTimeout(autoSaveIndicatorTimer);
     autoSaveIndicatorTimer = setTimeout(() => {
         dot.style.opacity = '0';
         autoSaveIndicatorTimer = null;

@@ -2,11 +2,14 @@ import { ModifyPropertyCommand } from './commands.js';
 import { hasOwnLock } from '../../shapes/lock-owner.js';
 import { updateRibbonState } from './ribbon.js';
 import { refreshComponentPose } from './schematic-view.js';
+/** @typedef {import('./schematic-editor-api.js').SchematicEditor} SchematicEditor */
+/** @typedef {import('../../core/SchematicDocument.js').SchematicShape} SchematicShape */
+/** @typedef {Record<string, any> & {rotation?: number, mirror?: boolean}} ShapeState */
 
 /**
  * Toggles the `locked` property on all selected items via `ModifyPropertyCommand`
  * and refreshes the properties panel and ribbon.
- * @param {object} app - Application state.
+ * @param {SchematicEditor} app
  */
 export function toggleSelectionLock(app) {
     const selection = app.selection.getSelection();
@@ -28,9 +31,9 @@ export function toggleSelectionLock(app) {
 
 /**
  * Snapshots a shape's current state for undo purposes.
- * @param {object} app - Application state.
- * @param {import('../../shapes/shape.js').Shape} shape - Shape to capture.
- * @returns {object} The captured state object.
+ * @param {SchematicEditor} app
+ * @param {SchematicShape} shape - Shape to capture.
+ * @returns {ShapeState} The captured state object.
  */
 export function captureShapeState(app, shape) {
     return shape.captureState();
@@ -38,15 +41,15 @@ export function captureShapeState(app, shape) {
 
 /**
  * Restores a shape to a previously captured state and triggers a full re-render.
- * @param {object} app - Application state.
- * @param {import('../../shapes/shape.js').Shape} shape - Shape to restore.
- * @param {object} state - Previously captured state.
+ * @param {SchematicEditor} app
+ * @param {SchematicShape} shape - Shape to restore.
+ * @param {ShapeState} state - Previously captured state.
  */
 export function applyShapeState(app, shape, state) {
-    const component = /** @type {any} */ (shape);
+    const component = shape;
     const oldRotation = component.rotation;
     const oldMirror = component.mirror;
-    shape.applyState(state);
+    shape.applyState(/** @type {any} */ (state));
     if (component.definition) {
         const rebuild = (state.rotation !== undefined && state.rotation !== oldRotation)
             || (state.mirror !== undefined && state.mirror !== oldMirror);
