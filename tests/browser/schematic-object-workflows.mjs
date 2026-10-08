@@ -12,6 +12,7 @@ import {
     screenPoint,
     undoSchematic,
     viewCentre,
+    waitForPage,
 } from './helpers/editor-helpers.mjs';
 
 const p = (x, y) => ({ x, y });
@@ -187,7 +188,8 @@ export const scenarios = [
             await page.locator('.cp-item').first().click();
             await page.locator('.cp-place-btn').click();
             // The part follows the pointer once the editor is ready to place it.
-            await page.waitForFunction(() => !!window.bootstrap.schematicApp.placingComponent);
+            await waitForPage(page, () => import('/src/schematic/modules/components.js')
+                .then(components => !!components.getPlacingComponent(window.bootstrap.schematicApp)));
             // The picker panel resizes the canvas; place once the view has settled.
             await viewportSettled(page, 'schematic');
             // The picker panel stays open over part of the canvas: place on an exposed point.

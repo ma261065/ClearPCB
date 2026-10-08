@@ -10,6 +10,7 @@ import { cancelSchematicPropertyPreview } from './properties.js';
 import { duplicateIdRepairMessage, repairDuplicateIds } from '../../core/project-format.js';
 import { showSaveToast } from './ribbon.js';
 import { updateUndoRedoButtons } from './ui-utils.js';
+import { getSchematicTextEdit } from './text-edit.js';
 
 function canReplaceDocument(app) {
     if (!app.fileManager.saving && !app.fileManager.loading) return true;
@@ -60,7 +61,7 @@ export function prepareDocument(app, data) {
 export async function loadDocument(app, data, prepared = prepareDocument(app, data)) {
     data = prepared.data || data;
     app.selection.clearSelection();
-    if (app.textEdit?.shape) app.endTextEdit(false);
+    if (getSchematicTextEdit(app)?.shape) app.endTextEdit(false);
     clearAllShapes(app);
     clearAllComponents(app);
     app.document.load(data, prepared);

@@ -28,10 +28,16 @@ const fingerprint = page => page.evaluate(() => {
 });
 
 /** Nothing may be left in progress after a cancel. */
-const inProgress = page => page.evaluate(() => {
+const inProgress = page => page.evaluate(async () => {
     const app = window.bootstrap.schematicApp;
-    return { drag: !!app.drag, pending: !!app.pendingAnchorDrag, drawing: !!app.isDrawing,
-        pasting: !!app.pastingClipboard, editing: app.isSectionEditing() };
+    const interactions = await import('/src/schematic/modules/schematic-interactions.js');
+    return {
+        drag: !!interactions.getSchematicInteraction(app, 'drag'),
+        pending: !!interactions.getSchematicInteraction(app, 'pendingAnchorDrag'),
+        drawing: !!interactions.getSchematicInteraction(app, 'isDrawing'),
+        pasting: !!interactions.getSchematicInteraction(app, 'pastingClipboard'),
+        editing: app.isSectionEditing(),
+    };
 });
 
 async function clickAt(page, point) {

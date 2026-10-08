@@ -132,7 +132,6 @@ export default class SchematicApp {
 
         // ── Tool / drawing state ─────────────────────────────────────
         this.currentTool = 'select';
-        this.isDrawing = false;
         this.drawStart = null;
         this.drawCurrent = null;
         this.polygonPoints = [];
@@ -147,15 +146,8 @@ export default class SchematicApp {
         this.arcDirection = undefined;  // set by drawing.js — arc CW/CCW flag
         this.arcSweepFlag = undefined;  // set by drawing.js — SVG sweep-flag
 
-        // ── Drag state (mutated by mouse-states.js / drag.js) ────────
-        this.drag = null;                  // { mode, shape, ... } — see mouse-states.js begin*Session
-        this.didDrag = false;              // true once an actual drag occurred
-        this.pendingAnchorDrag = null;     // deferred anchor drag (before threshold is met)
-        this.skipClickSelection = false;
-
         // ── Clipboard / paste state (set by clipboard.js) ─────────────
         this.pastePreviewGroup = null;
-        this.pastingClipboard = false;
 
         // Tool options
         const savedOptions = loadToolOptions();
@@ -171,9 +163,6 @@ export default class SchematicApp {
             netOrientation: 'N'
         };
         this.toolOptions.color = defaultShapeColor;
-
-        // Text edit state
-        this.textEdit = null;
 
         // UI elements
         this.ui = {
@@ -207,7 +196,6 @@ export default class SchematicApp {
         this.componentPicker.appendTo(this.container);
 
         // Component placement state
-        this.placingComponent = null;  // Definition being placed
         this.componentPreview = null;  // Preview SVG element
         this.componentRotation = 0;    // Current rotation for placement
         this.componentMirror = false;  // Current mirror state

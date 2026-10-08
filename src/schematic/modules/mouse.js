@@ -11,7 +11,10 @@
  *   contextmenu         -> just preventDefault (suppress browser menu)
  */
 
-import { STATE_TABLE, clearPendingShapeSegmentToggle, getEventPositions, hasPendingShapeSegmentToggle, resolveState } from './draw-states.js';
+import {
+    STATE_TABLE, clearPendingShapeSegmentToggle, getDidSchematicDrag, getEventPositions,
+    getSkipClickSelection, hasPendingShapeSegmentToggle, resolveState,
+} from './draw-states.js';
 import { DRAWING_SHAPES } from '../../shapes/shape-drawing.js';
 import { snapShapeDrawingPoint } from './shape-snap.js';
 
@@ -91,7 +94,7 @@ export function bindMouseEvents(app) {
         }
         const positions = getEventPositions(e, app.viewport);
         dispatch(app, 'mouseup', e, positions);
-        if (e.button === 0 && app.interactionState === 'idle' && !app.didDrag && !app.skipClickSelection
+        if (e.button === 0 && app.interactionState === 'idle' && !getDidSchematicDrag(app) && !getSkipClickSelection(app)
             && hasPendingShapeSegmentToggle(app)) {
             dispatch(app, 'click', e, positions);
             segmentClickHandled = true;

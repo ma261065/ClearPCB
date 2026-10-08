@@ -9,6 +9,7 @@ const { KiCadFetcher, warmKiCadIndex } = await import('../../src/components/KiCa
 const { createGenerationGate, createDebouncedRunner } = await import('../../src/components/async-control.js');
 const { ModalManager } = await import('../../src/core/ModalManager.js');
 const { onToolSelected, onComponentPickerClosed } = await import('../../src/schematic/modules/tool.js');
+const { setSchematicInteraction } = await import('../../src/schematic/modules/schematic-interactions.js');
 
 const css = readFileSync(new URL('../../src/ui/schematic.css', import.meta.url), 'utf8');
 const closeStyle = css.match(/\.cp-close\s*\{([^}]+)\}/)?.[1] || '';
@@ -277,7 +278,7 @@ assert.equal(ModalManager.top(), null);
                 setToolCursor(tool) { this.viewport.svg.style.cursor = tool === 'select' ? 'default' : 'crosshair'; },
                 refreshRibbon() { this.activeButton = this.currentTool; },
                 selectTool(tool) { changes.push(tool); onToolSelected(this, tool); },
-                cancelComponentPlacement() { cancelled++; this.placingComponent = null; },
+                cancelComponentPlacement() { cancelled++; setSchematicInteraction(this, 'placingComponent', null); },
             };
             picker._disposeModel3dViewer = () => { disposed++; };
             picker.eventBus.emit = name => {
@@ -288,7 +289,7 @@ assert.equal(ModalManager.top(), null);
                     closed++;
                     onComponentPickerClosed(app);
                 } else if (name === 'component:selected') {
-                    app.placingComponent = {};
+                    setSchematicInteraction(app, 'placingComponent', {});
                     app.interactionState = 'placing';
                 }
             };

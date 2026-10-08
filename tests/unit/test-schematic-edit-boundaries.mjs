@@ -19,6 +19,9 @@ const { bindKeyboardShortcuts } = await import('../../src/schematic/modules/keyb
 const { runSchematicEscapeAction, runSchematicHistoryAction } = await import('../../src/schematic/modules/editor-actions.js');
 const { getToolGhost, onToolSelected } = await import('../../src/schematic/modules/tool.js');
 const { getOverlapCyclePress, setOverlapCyclePress } = await import('../../src/schematic/modules/draw-states.js');
+const { isSchematicDrawingActive, setSchematicDrawingActive } = await import('../../src/schematic/modules/drawing.js');
+const { getSchematicDrag, setPendingAnchorDrag, setSchematicDrag } = await import('../../src/schematic/modules/drag.js');
+const { getSchematicInteraction, setSchematicInteraction } = await import('../../src/schematic/modules/schematic-interactions.js');
 
 function button() {
     const events = new Map();
@@ -67,17 +70,17 @@ for (const source of ['keyboard', 'ribbon']) for (const action of ['undo', 'redo
         app.history.execute(new ModifyShapeCommand(app, shape, before, after));
         if (action === 'redo') app.history.undo();
         const dragBefore = shape.captureState();
-        if (mode === 'pending') app.pendingAnchorDrag = { shape, preInsertState: dragBefore };
+        if (mode === 'pending') setPendingAnchorDrag(app, { shape, preInsertState: dragBefore });
         else {
-            app.drag = { shape, beforeState: dragBefore };
+            setSchematicDrag(app, { shape, beforeState: dragBefore });
             app.interactionState = mode;
         }
         shape.move(4, 5);
         assert.equal(project.canSerialize(), false, `${mode}: snapshot blocked before history`);
         invoke(source, action);
         assert.deepEqual(shape.captureState(), action === 'undo' ? before : after, `${source}/${action}/${mode}`);
-        assert.equal(app.drag ?? null, null);
-        assert.equal(app.pendingAnchorDrag ?? null, null);
+        assert.equal(getSchematicDrag(app), null);
+        assert.equal(getSchematicInteraction(app, 'pendingAnchorDrag'), null);
         assert.equal(app.interactionState, 'idle');
         assert.equal(project.canSerialize(), true);
         assert.equal(app.history.undoStack.length, action === 'undo' ? 0 : 1);
@@ -92,10 +95,10 @@ for (const action of ['undo', 'redo']) for (const state of ['moveDrag', 'boxSele
     const { app, invoke } = fixture();
     app.interactionState = state;
     setOverlapCyclePress(app, {});
-    if (state !== 'overlapCycle') app.drag = { mode: 'move', shapes: [] };
+    if (state !== 'overlapCycle') setSchematicDrag(app, { mode: 'move', shapes: [] });
     invoke('keyboard', action);
     assert.equal(app.interactionState, 'idle');
-    assert.equal(app.drag ?? null, null);
+    assert.equal(getSchematicDrag(app), null);
     if (state === 'overlapCycle') assert.equal(getOverlapCyclePress(app), null);
 }
 
@@ -106,16 +109,16 @@ for (const tool of ['select', 'circle']) for (const mode of ['anchorDrag', 'segm
     app.setToolCursor = () => {};
     app.updateShapePanelOptions = () => {};
     const before = shape.captureState();
-    if (mode === 'pending') app.pendingAnchorDrag = { shape, preInsertState: before };
+    if (mode === 'pending') setPendingAnchorDrag(app, { shape, preInsertState: before });
     else {
-        app.drag = { shape, beforeState: before };
+        setSchematicDrag(app, { shape, beforeState: before });
         app.interactionState = mode;
     }
     shape.move(4, 5);
     onToolSelected(app, tool);
     assert.deepEqual(shape.captureState(), before, 'Changing tools restores the live pointer edit first');
-    assert.equal(app.drag ?? null, null);
-    assert.equal(app.pendingAnchorDrag ?? null, null);
+    assert.equal(getSchematicDrag(app), null);
+    assert.equal(getSchematicInteraction(app, 'pendingAnchorDrag'), null);
     assert.equal(app.currentTool, tool);
     assert.equal(project.canSerialize(), true, 'Tool transitions cannot strand the new save guard');
     assert.equal(app.history.undoStack.length, 0);
@@ -128,7 +131,7 @@ for (const source of ['keyboard', 'ribbon']) for (const action of ['undo', 'redo
     const after = shape.captureState();
     app.history.execute(new ModifyShapeCommand(app, shape, before, after));
     if (action === 'redo') app.history.undo();
-    app.drag = { shape, beforeState: shape.captureState() };
+    setSchematicDrag(app, { shape, beforeState: shape.captureState() });
     app.interactionState = 'anchorDrag';
     const undo = [...app.history.undoStack], redo = [...app.history.redoStack];
     const error = new Error('Fixture rollback failure');
@@ -140,10 +143,10 @@ for (const source of ['keyboard', 'ribbon']) for (const action of ['undo', 'redo
 
 for (const flag of ['drag', 'pendingAnchorDrag', 'isDrawing', 'textEdit', 'pastingClipboard', 'placingComponent']) {
     const { app, project } = fixture();
-    app[flag] = {};
+    setSchematicInteraction(app, flag, {});
     assert.equal(project.canSerialize(), false, `${flag}: pending schematic edits block snapshots`);
     assert.throws(() => project.serialize(), /Finish the current edit before saving/);
-    app[flag] = null;
+    setSchematicInteraction(app, flag, null);
     assert.doesNotThrow(() => project.serialize(), `${flag}: clearing the edit permits snapshots`);
 }
 
@@ -151,15 +154,15 @@ for (const action of ['undo', 'redo']) {
     for (const [flag, cancel] of [['textEdit', 'endTextEdit'], ['pastingClipboard', 'cancelPaste'],
         ['placingComponent', 'cancelComponentPlacement']]) {
         const { app } = fixture();
-        app[flag] = {};
+        setSchematicInteraction(app, flag, {});
         let calls = 0;
-        app[cancel] = () => { calls++; app[flag] = null; };
+        app[cancel] = () => { calls++; setSchematicInteraction(app, flag, null); };
         app.history[action] = () => { throw new Error('Cannot advance history underneath a placement or inline edit'); };
         assert.equal(runSchematicHistoryAction(app, action), true);
         assert.equal(calls, 1);
     }
     const { app } = fixture();
-    app.isDrawing = true;
+    setSchematicDrawingActive(app, true);
     app.interactionState = 'drawing';
     app.history[action] = () => { throw new Error('Drawing retains history ownership'); };
     assert.equal(runSchematicHistoryAction(app, action), false);
@@ -201,7 +204,7 @@ for (const tool of ['wire', 'line', 'rect', 'circle', 'arc', 'polygon', 'text', 
         assert.equal(app.currentTool, tool);
         if (started) {
             app.interactionState = 'drawing';
-            app.isDrawing = true;
+            setSchematicDrawingActive(app, true);
             app.previewElement = svgNode();
             app.drawStart = { x: 0, y: 0 };
         }
@@ -212,7 +215,7 @@ for (const tool of ['wire', 'line', 'rect', 'circle', 'arc', 'polygon', 'text', 
         assert.equal(app.activeButton, 'select');
         assert.equal(app.activeTab, 'home', `${tool}/${started}: no empty Properties tab after cancellation`);
         assert.equal(app.viewport.svg.style.cursor, 'default');
-        assert.equal(app.isDrawing, false);
+        assert.equal(isSchematicDrawingActive(app), false);
         assert.equal(app.previewElement ?? null, null);
         assert.equal(getToolGhost(app), null);
     }

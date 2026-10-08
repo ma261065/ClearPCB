@@ -18,7 +18,11 @@
 
 import { updateStickyWires, updateSnapHighlight, resolveWireSnapPosition, computeAnchorCollinearSnap, computeSegmentDragSnap, computeStickyWireSnaps, applyOffGridNeighborSnap, buildCollinearChain, bridgeCollinearPinEndpoints, SNAP_SCREEN_PX, COLLINEAR_EPSILON, VERTEX_EPSILON, PIN_SNAP_TOL } from './wire.js';
 import { renderGuideLines } from '../../shapes/axis-glow.js';
-import { cancelDragGesture, clearDragState, commitMoveDrag, commitSegmentDrag, resolveAnchorDragOnMouseUp, revertSegmentDragIfNoMove, commitShapeJoin, captureMoveDragStates } from './drag.js';
+import {
+    cancelDragGesture, clearDragState, clearPendingAnchorDrag, commitMoveDrag, commitSegmentDrag, getPendingAnchorDrag,
+    getSchematicDrag, resolveAnchorDragOnMouseUp, revertSegmentDragIfNoMove, setPendingAnchorDrag,
+    setSchematicDrag, commitShapeJoin, captureMoveDragStates
+} from './drag.js';
 import { detectTJunction, showAnchorContextMenu, showSegmentContextMenu, showLabelContextMenu, showComponentContextMenu } from './context-menu.js';
 import { hasAny3DModel } from '../../components/model3d-source.js';
 import { ModifyShapeCommand } from './commands.js';
@@ -33,7 +37,7 @@ import { isCulled } from './schematic-view.js';
 import { findInlineEditableHit, isUnmodifiedPrimaryDoublePress } from '../../shared/ui/inline-edit-activation.js';
 import { createBoxSelectElement, getBoxSelectBounds, updateBoxSelectElement } from '../../shared/ui/box-selection.js';
 import { confirmPaste, updatePastePreview } from './clipboard.js';
-import { findComponentAt, isComponentCodeTooltipPinned, pinComponentCodeTooltip, placeComponent, updateComponentPreview } from './components.js';
+import { findComponentAt, getPlacingComponent, isComponentCodeTooltipPinned, isPlacingComponent, pinComponentCodeTooltip, placeComponent, updateComponentPreview } from './components.js';
 import { applyShapeState, captureShapeState } from './selection.js';
 import { getShapeSegmentFocus, setShapeNodeFocus, setShapeSegmentFocus } from './shape-focus.js';
 import { isSchematicLocked } from '../../shapes/lock-owner.js';
@@ -41,6 +45,10 @@ import {
     finishSchematicDrawAtPointer, finishSchematicDrawInPlace, moveSchematicTool, pressSchematicTool,
     pressSchematicToolDrawing, releaseSchematicTool,
 } from './schematic-tools.js';
+import { getSchematicTextEdit, hasSchematicTextEdit } from './text-edit.js';
+import { isPastingClipboard } from './clipboard.js';
+import { isSchematicDrawingActive } from './drawing.js';
+import { getSchematicInteraction, setSchematicInteraction } from './schematic-interactions.js';
 // ─── Constants ─────────────────────────────────────────────────────
 
 const DRAG_THRESHOLD_PX = 3;
@@ -51,11 +59,12 @@ function stateFor(app) {
     if (!state) {
         state = {
             drawSnapResult: null,
-            overlapCyclePress: null,
             pendingShapeSegmentToggle: null,
             propagateNonSelectedWiresScratch: [],
             segmentDragGuidesScratch: [],
             moveDragSnappedTarget: { x: 0, y: 0 },
+            didDrag: false,
+            skipClickSelection: false,
         };
         drawStates.set(app, state);
     }
@@ -74,27 +83,53 @@ export function takeDrawSnapResult(app) {
 }
 
 export function clearOverlapCyclePress(app) {
-    stateFor(app).overlapCyclePress = null;
+    setSchematicInteraction(app, 'overlapCyclePress', null);
 }
 
 export function getOverlapCyclePress(app) {
-    return stateFor(app).overlapCyclePress;
+    return getSchematicInteraction(app, 'overlapCyclePress');
 }
 
 export function hasOverlapCyclePress(app) {
-    return !!stateFor(app).overlapCyclePress;
+    return !!getOverlapCyclePress(app);
 }
 
 export function setOverlapCyclePress(app, press) {
-    stateFor(app).overlapCyclePress = press;
+    setSchematicInteraction(app, 'overlapCyclePress', press);
 }
 
 export function cancelOverlapCyclePress(app) {
     if (app.interactionState !== 'overlapCycle') return false;
     clearOverlapCyclePress(app);
     app.interactionState = 'idle';
-    app.skipClickSelection = true;
+    setSkipClickSelection(app, true);
     return true;
+}
+
+/** @param {object} app */
+export function getDidSchematicDrag(app) {
+    return !!stateFor(app).didDrag;
+}
+
+/**
+ * @param {object} app
+ * @param {boolean} value
+ */
+export function setDidSchematicDrag(app, value) {
+    stateFor(app).didDrag = !!value;
+}
+
+/** @param {object} app */
+export function getSkipClickSelection(app) {
+    return !!stateFor(app).skipClickSelection;
+}
+
+/**
+ * @param {object} app
+ * @param {boolean} value
+ */
+export function setSkipClickSelection(app, value) {
+    stateFor(app).skipClickSelection = !!value;
 }
 
 export function clearPendingShapeSegmentToggle(app) {
@@ -138,17 +173,17 @@ function getMoveDragSnappedTarget(app) {
  * @returns {string}
  */
 export function resolveState(app) {
-    if (app.pastingClipboard) return 'placing';
-    if (app.placingComponent) return 'placing';
-    if (app.drag) {
-        switch (app.drag.mode) {
+    if (isPastingClipboard(app)) return 'placing';
+    if (getPlacingComponent(app)) return 'placing';
+    if (getSchematicDrag(app)) {
+        switch (getSchematicDrag(app).mode) {
             case 'anchor': return 'anchorDrag';
             case 'segment': return 'segmentDrag';
             case 'move': return 'moveDrag';
             case 'box': return 'boxSelect';
         }
     }
-    if (app.isDrawing) return 'drawing';
+    if (isSchematicDrawingActive(app)) return 'drawing';
     if (app.currentTool !== 'select') return 'toolActive';
     return 'idle';
 }
@@ -270,7 +305,7 @@ function getPinWorldWithTransform(pin, baseX, baseY, rotationDeg, mirror) {
 }
 
 function resolvePlacingComponentSnap(app, placePos) {
-    const def = app.placingComponent;
+    const def = getPlacingComponent(app);
     if (!def?.symbol?.pins?.length) return { placePos, pinSnap: null };
 
     const rotation = app.componentRotation || 0;
@@ -310,14 +345,14 @@ function resolveDraggingComponentSnap(app, comp, snappedTarget, lastSnapped) {
     const projectedX = comp.x + previewDx;
     const projectedY = comp.y + previewDy;
 
-    if (!app.drag._componentSnapState || app.drag._componentSnapState.componentId !== comp.id) {
-        app.drag._componentSnapState = {
+    if (!getSchematicDrag(app)._componentSnapState || getSchematicDrag(app)._componentSnapState.componentId !== comp.id) {
+        getSchematicDrag(app)._componentSnapState = {
             componentId: comp.id,
             lockedPinKey: null,
             lastResult: null
         };
     }
-    const snapState = app.drag._componentSnapState;
+    const snapState = getSchematicDrag(app)._componentSnapState;
 
     const evaluatePin = (pin) => {
         const pinWorld = getPinWorldWithTransform(pin, projectedX, projectedY, comp.rotation || 0, !!comp.mirror);
@@ -393,8 +428,8 @@ function handleComponentTooltipContextMenu(app, worldPos, screenPos) {
 
 function handleComponentTooltipMouseMove(app, worldPos, screenPos) {
     const canShow = app.showComponentDebugTooltip !== false
-        && !app.drag && !app.viewport.isPanning
-        && !app.placingComponent && !isComponentCodeTooltipPinned(app);
+        && !getSchematicDrag(app) && !app.viewport.isPanning
+        && !getPlacingComponent(app) && !isComponentCodeTooltipPinned(app);
     if (canShow) {
         const hit = findComponentAt(app, worldPos);
         app.updateComponentCodeTooltip?.(hit, screenPos);
@@ -414,7 +449,7 @@ function queuePendingAnchorDrag(app, params) {
     const { shape, anchorId, screenPos, snapped, preInsertState } = params;
     const pending = { shape, anchorId, screenPos: { ...screenPos }, snapped: { ...snapped } };
     if (preInsertState) pending.preInsertState = preInsertState;
-    app.pendingAnchorDrag = pending;
+    setPendingAnchorDrag(app, pending);
 }
 
 function finalizeDragInteraction(app, options = {}) {
@@ -425,14 +460,14 @@ function finalizeDragInteraction(app, options = {}) {
 
     clearDragState(app);
     app.renderShapes(true);
-    if (options.refreshTextEdit && app.textEdit) app.updateTextEditOverlay?.();
+    if (options.refreshTextEdit && hasSchematicTextEdit(app)) app.updateTextEditOverlay?.();
 }
 
 // ─── Drag session setup ────────────────────────────────────────────
 
 function beginAnchorDragSession(app, params) {
     const { shape, anchorId, startSnapped, screenPos, preInsertState } = params;
-    app.drag = {
+    setSchematicDrag(app, {
         mode: 'anchor',
         shape,
         beforeState: preInsertState || captureShapeState(app, shape),
@@ -446,7 +481,7 @@ function beginAnchorDragSession(app, params) {
         ncLinks: [],
         junctionBeforeWireStates: null,
         junctionBeforeLabelTextStates: null
-    };
+    });
     app.interactionState = 'anchorDrag';
 }
 
@@ -454,7 +489,7 @@ function beginWireSegmentDragSession(app, params) {
     const { shape, dragEdgeId, worldPos, beforeState } = params;
     const wireStates = new Map();
     wireStates.set(shape, beforeState);
-    app.drag = {
+    setSchematicDrag(app, {
         mode: 'segment',
         shape,
         edgeId: dragEdgeId,
@@ -467,7 +502,7 @@ function beginWireSegmentDragSession(app, params) {
         startWorldPos: { ...worldPos },
         totalDx: 0,
         totalDy: 0
-    };
+    });
     app.interactionState = 'segmentDrag';
 }
 
@@ -630,77 +665,77 @@ function bridgeStickyPinNodes(app, movingCompIds) {
 }
 
 function beginMoveDragSession(app, worldPos, dragObjectStartPos) {
-    app.drag = {
+    setSchematicDrag(app, {
         mode: 'move',
         objectStartPos: { ...dragObjectStartPos },
         lastSnapped: { ...dragObjectStartPos },
         startWorldPos: { ...worldPos },
         totalDx: 0,
         totalDy: 0
-    };
+    });
     app.interactionState = 'moveDrag';
 }
 
 function beginBoxSelectSession(app, worldPos, additive) {
-    app.drag = {
+    setSchematicDrag(app, {
         mode: 'box',
         start: { ...worldPos },
         additive: !!additive
-    };
+    });
     app.selection.captureBoxSelectBase();
     createBoxSelectElement(app, worldPos);
     app.interactionState = 'boxSelect';
 }
 
 function promotePendingAnchorDragSession(app, screenPos, midpointPickup = false) {
-    const pending = app.pendingAnchorDrag;
+    const pending = getPendingAnchorDrag(app);
     if (!pending) return false;
 
     const dx = screenPos.x - pending.screenPos.x;
     const dy = screenPos.y - pending.screenPos.y;
     if (!midpointPickup && Math.hypot(dx, dy) < DRAG_THRESHOLD_PX) return false;
 
-    app.pendingAnchorDrag = null;
+    clearPendingAnchorDrag(app);
     const { shape, anchorId, snapped: startSnapped, preInsertState } = pending;
 
     beginAnchorDragSession(app, { shape, anchorId, startSnapped, screenPos, preInsertState });
-    app.drag.midpointPlacement = midpointPickup;
+    getSchematicDrag(app).midpointPlacement = midpointPickup;
 
     if (shape.getAnchorSnapMode(anchorId) === 'axis') {
         const anchor = shape.getAnchors().find(a => a.id === anchorId);
-        if (anchor) app.drag.wireAnchorOriginal = { x: anchor.x, y: anchor.y };
+        if (anchor) getSchematicDrag(app).wireAnchorOriginal = { x: anchor.x, y: anchor.y };
     }
 
-    app.drag.tjLinks = [];
-    app.drag.wireStates = new Map();
+    getSchematicDrag(app).tjLinks = [];
+    getSchematicDrag(app).wireStates = new Map();
     if (shape.type === 'wire' && shape.nodes.has(anchorId)) {
         const pos = shape.nodes.get(anchorId);
         for (const other of app.shapes) {
             if (other === shape || other.type !== 'wire') continue;
             const otherNid = other.nodeAt(pos, VERTEX_EPSILON);
             if (otherNid) {
-                app.drag.tjLinks.push({ otherWire: other, otherNodeId: otherNid });
-                if (!app.drag.wireStates.has(other))
-                    app.drag.wireStates.set(other, captureShapeState(app, other));
+                getSchematicDrag(app).tjLinks.push({ otherWire: other, otherNodeId: otherNid });
+                if (!getSchematicDrag(app).wireStates.has(other))
+                    getSchematicDrag(app).wireStates.set(other, captureShapeState(app, other));
             }
         }
     }
 
-    app.drag.ncLinks = [];
+    getSchematicDrag(app).ncLinks = [];
     if (shape.type === 'wire' && shape.nodes.has(anchorId)) {
         const nodePos = shape.nodes.get(anchorId);
         for (const s of app.shapes) {
             if (s.type !== 'noconnect') continue;
             if (Math.hypot(s.x - nodePos.x, s.y - nodePos.y) < VERTEX_EPSILON)
-                app.drag.ncLinks.push({ nc: s, before: s.captureState() });
+                getSchematicDrag(app).ncLinks.push({ nc: s, before: s.captureState() });
         }
     }
 
-    app.drag.excludePin = null;
+    getSchematicDrag(app).excludePin = null;
     if (shape.type === 'wire' && shape.pinConnections.has(anchorId)) {
         const conn = shape.pinConnections.get(anchorId);
         const nodePos = shape.nodes.get(anchorId);
-        app.drag.excludePin = {
+        getSchematicDrag(app).excludePin = {
             component: { id: conn.componentId },
             pin: { number: conn.pinNumber },
             worldPos: nodePos ? { x: nodePos.x, y: nodePos.y } : null
@@ -715,7 +750,7 @@ function promotePendingAnchorDragSession(app, screenPos, midpointPickup = false)
 // ─── Drag commit helpers ───────────────────────────────────────────
 
 function handleDragEnd(app) {
-    if (!app.drag) return;
+    if (!getSchematicDrag(app)) return;
     const lastRecorded = app.history?.undoStack?.at(-1);
     try {
         commitDragGesture(app);
@@ -733,28 +768,28 @@ function handleDragEnd(app) {
 }
 
 function commitDragGesture(app) {
-    if (app.didDrag && app.drag.mode === 'move') {
-        commitMoveDrag(app, app.drag.totalDx, app.drag.totalDy);
+    if (getDidSchematicDrag(app) && getSchematicDrag(app).mode === 'move') {
+        commitMoveDrag(app, getSchematicDrag(app).totalDx, getSchematicDrag(app).totalDy);
         // Clean up redundant collinear nodes left by bridge insertion
         for (const wire of app.shapes) {
             if (wire.type === 'wire') collapseRedundantWirePoints(app, wire);
         }
-    } else if (app.drag.mode === 'segment' && app.drag.shape?.type === 'polyline') {
-        if (app.didDrag) {
-            const shape = app.drag.shape;
-            const before = app.drag.beforeState;
+    } else if (getSchematicDrag(app).mode === 'segment' && getSchematicDrag(app).shape?.type === 'polyline') {
+        if (getDidSchematicDrag(app)) {
+            const shape = getSchematicDrag(app).shape;
+            const before = getSchematicDrag(app).beforeState;
             const after = captureShapeState(app, shape);
             applyShapeState(app, shape, before);
             app.history.execute(new ModifyShapeCommand(app, shape, before, after));
         }
-    } else if (app.drag.mode === 'segment' && app.drag.wireStates) {
-        if (app.didDrag) commitSegmentDrag(app, app.drag.shape, app.drag.wireStates, app.drag.ncLinks, app.drag.labelBefore);
-        else revertSegmentDragIfNoMove(app, app.drag.wireStates);
-    } else if (app.drag.shape) {
-        if (app.didDrag && app.drag.joinTarget && isJoinable(app.drag.shape)) {
-            commitShapeJoin(app, app.drag.shape, app.drag.anchorId, app.drag.joinTarget, app.drag.beforeState);
+    } else if (getSchematicDrag(app).mode === 'segment' && getSchematicDrag(app).wireStates) {
+        if (getDidSchematicDrag(app)) commitSegmentDrag(app, getSchematicDrag(app).shape, getSchematicDrag(app).wireStates, getSchematicDrag(app).ncLinks, getSchematicDrag(app).labelBefore);
+        else revertSegmentDragIfNoMove(app, getSchematicDrag(app).wireStates);
+    } else if (getSchematicDrag(app).shape) {
+        if (getDidSchematicDrag(app) && getSchematicDrag(app).joinTarget && isJoinable(getSchematicDrag(app).shape)) {
+            commitShapeJoin(app, getSchematicDrag(app).shape, getSchematicDrag(app).anchorId, getSchematicDrag(app).joinTarget, getSchematicDrag(app).beforeState);
         } else {
-            resolveAnchorDragOnMouseUp(app, app.drag.shape, app.drag.beforeState, app.didDrag, app.drag.wireStates, app.drag.ncLinks, app.drag.junctionBeforeWireStates, app.drag.junctionBeforeLabelTextStates);
+            resolveAnchorDragOnMouseUp(app, getSchematicDrag(app).shape, getSchematicDrag(app).beforeState, getDidSchematicDrag(app), getSchematicDrag(app).wireStates, getSchematicDrag(app).ncLinks, getSchematicDrag(app).junctionBeforeWireStates, getSchematicDrag(app).junctionBeforeLabelTextStates);
         }
     }
 }
@@ -926,11 +961,11 @@ function tryBeginWireSegmentDrag(app, hitShape, worldPos) {
         if (preBridgeEdgeCount > 1 && edgeLock) {
             const pA = hitShape.nodes.get(edgeLock.from), pB = hitShape.nodes.get(edgeLock.to);
             const sDx = Math.abs(pB.x - pA.x), sDy = Math.abs(pB.y - pA.y);
-            if (sDy < COLLINEAR_EPSILON && sDx > COLLINEAR_EPSILON) app.drag.axis = 'vertical';
-            else if (sDx < COLLINEAR_EPSILON && sDy > COLLINEAR_EPSILON) app.drag.axis = 'horizontal';
-            else app.drag.axis = null;
+            if (sDy < COLLINEAR_EPSILON && sDx > COLLINEAR_EPSILON) getSchematicDrag(app).axis = 'vertical';
+            else if (sDx < COLLINEAR_EPSILON && sDy > COLLINEAR_EPSILON) getSchematicDrag(app).axis = 'horizontal';
+            else getSchematicDrag(app).axis = null;
         } else {
-            app.drag.axis = null;
+            getSchematicDrag(app).axis = null;
         }
     }
 
@@ -941,28 +976,28 @@ function tryBeginWireSegmentDrag(app, hitShape, worldPos) {
         bridgeCollinearPinEndpoints(hitShape, chain);
     }
 
-    app.drag.workingState = captureShapeState(app, hitShape);
-    app.drag.tjLinks = [];
+    getSchematicDrag(app).workingState = captureShapeState(app, hitShape);
+    getSchematicDrag(app).tjLinks = [];
     for (const [nid, pos] of hitShape.nodes) {
         for (const other of app.shapes) {
             if (other === hitShape || other.type !== 'wire') continue;
             const otherNid = other.nodeAt(pos, VERTEX_EPSILON);
             if (otherNid) {
-                app.drag.tjLinks.push({ wireNodeId: nid, otherWire: other, otherNodeId: otherNid });
-                if (!app.drag.wireStates.has(other))
-                    app.drag.wireStates.set(other, captureShapeState(app, other));
+                getSchematicDrag(app).tjLinks.push({ wireNodeId: nid, otherWire: other, otherNodeId: otherNid });
+                if (!getSchematicDrag(app).wireStates.has(other))
+                    getSchematicDrag(app).wireStates.set(other, captureShapeState(app, other));
             }
         }
     }
-    app.drag.ncLinks = [];
+    getSchematicDrag(app).ncLinks = [];
     for (const [nid, pos] of hitShape.nodes) {
         for (const shape of app.shapes) {
             if (shape.type !== 'noconnect') continue;
             if (Math.hypot(shape.x - pos.x, shape.y - pos.y) < VERTEX_EPSILON)
-                app.drag.ncLinks.push({ wireNodeId: nid, nc: shape, before: shape.captureState() });
+                getSchematicDrag(app).ncLinks.push({ wireNodeId: nid, nc: shape, before: shape.captureState() });
         }
     }
-    app.drag.labelBefore = hitShape.labelText
+    getSchematicDrag(app).labelBefore = hitShape.labelText
         ? captureShapeState(app, hitShape.labelText) : null;
     app.viewport.svg.style.cursor = 'move';
     return true;
@@ -1011,8 +1046,8 @@ function resolveMoveDragTarget(app, targetPos, selection, movingCompIds, snapped
 
     let stickyGuides;
     if (movingCompIds.size > 0) {
-        const proposedDx = snappedTargetOut.x - app.drag.lastSnapped.x;
-        const proposedDy = snappedTargetOut.y - app.drag.lastSnapped.y;
+        const proposedDx = snappedTargetOut.x - getSchematicDrag(app).lastSnapped.x;
+        const proposedDy = snappedTargetOut.y - getSchematicDrag(app).lastSnapped.y;
         const stickySnap = computeStickyWireSnaps(app, movingCompIds, proposedDx, proposedDy);
         snappedTargetOut.x += stickySnap.adjustX;
         snappedTargetOut.y += stickySnap.adjustY;
@@ -1024,9 +1059,9 @@ function resolveMoveDragTarget(app, targetPos, selection, movingCompIds, snapped
 // ─── Per-state anchor-drag helpers ─────────────────────────────────
 
 function mergeAnchorTJunctionGuides(app, anchorPos, anchorGuides) {
-    if (!(app.drag.tjLinks && app.drag.tjLinks.length > 0)) return anchorPos;
+    if (!(getSchematicDrag(app).tjLinks && getSchematicDrag(app).tjLinks.length > 0)) return anchorPos;
     let mergedAnchorPos = anchorPos;
-    for (const link of app.drag.tjLinks) {
+    for (const link of getSchematicDrag(app).tjLinks) {
         const tjResult = computeAnchorCollinearSnap(app, link.otherWire, link.otherNodeId, mergedAnchorPos);
         if (tjResult.anchorPos.x !== mergedAnchorPos.x || tjResult.anchorPos.y !== mergedAnchorPos.y)
             mergedAnchorPos = tjResult.anchorPos;
@@ -1036,14 +1071,14 @@ function mergeAnchorTJunctionGuides(app, anchorPos, anchorGuides) {
 }
 
 function syncAnchorDragLinkedNodes(app, anchorPos) {
-    if (app.drag.tjLinks) {
-        for (const link of app.drag.tjLinks) {
+    if (getSchematicDrag(app).tjLinks) {
+        for (const link of getSchematicDrag(app).tjLinks) {
             const p = link.otherWire.nodes.get(link.otherNodeId);
             if (p) { p.x = anchorPos.x; p.y = anchorPos.y; link.otherWire.invalidate(); }
         }
     }
-    if (app.drag.ncLinks) {
-        for (const link of app.drag.ncLinks) {
+    if (getSchematicDrag(app).ncLinks) {
+        for (const link of getSchematicDrag(app).ncLinks) {
             link.nc.x = anchorPos.x; link.nc.y = anchorPos.y; link.nc.invalidate();
         }
     }
@@ -1053,8 +1088,8 @@ function syncAnchorDragLinkedNodes(app, anchorPos) {
 
 function getDragTJunctionWireSet(app) {
     const wires = getReusableSet(app, '_dragTJunctionWireSetScratch');
-    if (app.drag.tjLinks) {
-        for (const link of app.drag.tjLinks) wires.add(link.otherWire);
+    if (getSchematicDrag(app).tjLinks) {
+        for (const link of getSchematicDrag(app).tjLinks) wires.add(link.otherWire);
     }
     return wires;
 }
@@ -1062,12 +1097,12 @@ function getDragTJunctionWireSet(app) {
 function collectWireSegmentDragGuides(app, wire, dragEdgeId, snappedTarget, baseGuides) {
     const allGuides = getSegmentDragGuidesScratch(app);
     if (baseGuides && baseGuides.length > 0) allGuides.push(...baseGuides);
-    if (!app.drag.tjLinks) return allGuides;
+    if (!getSchematicDrag(app).tjLinks) return allGuides;
     const edge = wire.edges.get(dragEdgeId);
     if (!edge) return allGuides;
     const fromPos = wire.nodes.get(edge.from);
     if (!fromPos) return allGuides;
-    for (const link of app.drag.tjLinks) {
+    for (const link of getSchematicDrag(app).tjLinks) {
         if (link.wireNodeId !== edge.from && link.wireNodeId !== edge.to) continue;
         const ow = link.otherWire;
         const otherPos = ow.nodes.get(link.otherNodeId);
@@ -1094,15 +1129,15 @@ function applyWireSegmentNodeMovement(app, wire, dragEdgeId, origState, dx, dy) 
 
 function propagateWireSegmentLinkedMovement(app, movedNodes, dx, dy) {
     if (!movedNodes) return;
-    if (app.drag.tjLinks) {
-        for (const link of app.drag.tjLinks) {
+    if (getSchematicDrag(app).tjLinks) {
+        for (const link of getSchematicDrag(app).tjLinks) {
             if (!movedNodes.has(link.wireNodeId)) continue;
             const sp = link.otherWire.nodes.get(link.otherNodeId);
             if (sp) { sp.x += dx; sp.y += dy; link.otherWire.invalidate(); }
         }
     }
-    if (app.drag.ncLinks) {
-        for (const link of app.drag.ncLinks) {
+    if (getSchematicDrag(app).ncLinks) {
+        for (const link of getSchematicDrag(app).ncLinks) {
             if (!movedNodes.has(link.wireNodeId)) continue;
             link.nc.x += dx; link.nc.y += dy; link.nc.invalidate();
         }
@@ -1128,7 +1163,7 @@ export const overlapCycleState = {
             positions.screenPos.y - press.positions.screenPos.y) <= DRAG_THRESHOLD_PX) return;
         clearOverlapCyclePress(app);
         app.interactionState = 'idle';
-        app.skipClickSelection = false;
+        setSkipClickSelection(app, false);
         idleState.mousedown(app, { button: 0, shiftKey: false, ctrlKey: false, metaKey: false,
             preventDefault() {} }, press.positions);
         STATE_TABLE[app.interactionState]?.mousemove?.(app, event, positions);
@@ -1152,7 +1187,7 @@ export const overlapCycleState = {
             app.selection.selectMultiple([...keep, next]);
             app.renderShapes();
         }
-        app.skipClickSelection = true;
+        setSkipClickSelection(app, true);
         event.preventDefault();
     },
 };
@@ -1163,12 +1198,12 @@ export const idleState = {
 
         activateHomeTabIfFileTabOpen(app);
 
-        if (!app.textEdit && isUnmodifiedPrimaryDoublePress(event)) {
+        if (!getSchematicTextEdit(app) && isUnmodifiedPrimaryDoublePress(event)) {
             const textHit = findInlineEditableHit(app.selection, worldPos, event.target);
             if (textHit) {
                 app.selection.select(textHit, false);
                 app.renderShapes();
-                app.pendingAnchorDrag = null;
+                clearPendingAnchorDrag(app);
                 app.startTextEdit(textHit);
                 app.setTextEditCaretFromScreen(screenPos);
                 event.preventDefault();
@@ -1176,8 +1211,8 @@ export const idleState = {
             }
         }
 
-        app.didDrag = false;
-        if (app.pendingAnchorDrag && !app.drag) app.pendingAnchorDrag = null;
+        setDidSchematicDrag(app, false);
+        if (getPendingAnchorDrag(app) && !getSchematicDrag(app)) clearPendingAnchorDrag(app);
 
         if (event.shiftKey) {
             setOverlapCyclePress(app, {
@@ -1185,7 +1220,7 @@ export const idleState = {
                 additive: isAdditiveSelectionModifier(event)
             });
             app.interactionState = 'overlapCycle';
-            app.skipClickSelection = true;
+            setSkipClickSelection(app, true);
             event.preventDefault();
             return;
         }
@@ -1194,7 +1229,7 @@ export const idleState = {
             if (hit) {
                 app.selection.toggle(hit);
                 app.renderShapes();
-                app.skipClickSelection = true;
+                setSkipClickSelection(app, true);
                 event.preventDefault();
                 return;
             }
@@ -1311,21 +1346,21 @@ export const idleState = {
         handleComponentTooltipMouseMove(app, worldPos, screenPos);
 
         // Try to promote pending anchor drag
-        if (app.pendingAnchorDrag && !app.drag) {
+        if (getPendingAnchorDrag(app) && !getSchematicDrag(app)) {
             if (promotePendingAnchorDragSession(app, screenPos)) return;
         }
     },
 
     mouseup(app, event, { worldPos, snapped }) {
         if (event.button !== 0) return;
-        const pendingNode = app.pendingAnchorDrag;
+        const pendingNode = getPendingAnchorDrag(app);
         if (pendingNode && (pendingNode.preInsertState
             || pendingNode.shape.type === 'polyline' && pendingNode.anchorId?.startsWith('mid_'))) {
             promotePendingAnchorDragSession(app, pendingNode.screenPos, true);
             app.viewport.svg.style.cursor = 'move';
             return;
         }
-        app.pendingAnchorDrag = null;
+        clearPendingAnchorDrag(app);
         if (pendingNode?.shape?.type === 'polyline'
             && pendingNode.shape.nodes?.has(pendingNode.anchorId)
             && app.selection.getSelection().length === 1
@@ -1336,7 +1371,7 @@ export const idleState = {
             app.updateShapeSelectionTip?.();
             app.updatePropertiesPanel?.(app.selection.getSelection());
             app.setActiveRibbonTab?.('properties');
-            app.skipClickSelection = true;
+            setSkipClickSelection(app, true);
             event.preventDefault();
         }
     },
@@ -1345,8 +1380,8 @@ export const idleState = {
         const pendingSegmentToggle = getPendingShapeSegmentToggle(app);
         clearPendingShapeSegmentToggle(app);
         if (app.viewport.isPanning) return;
-        if (app.skipClickSelection) { app.skipClickSelection = false; return; }
-        if (app.didDrag) { app.didDrag = false; return; }
+        if (getSkipClickSelection(app)) { setSkipClickSelection(app, false); return; }
+        if (getDidSchematicDrag(app)) { setDidSchematicDrag(app, false); return; }
 
         if (pendingSegmentToggle
             && app.selection.getSelection().length === 1
@@ -1370,21 +1405,21 @@ export const idleState = {
         }
 
         const hit = app.selection.hitTest(worldPos);
-        if (app.textEdit) {
-            if (!hit || hit !== app.textEdit.shape) app.endTextEdit(true);
+        if (getSchematicTextEdit(app)) {
+            if (!hit || hit !== getSchematicTextEdit(app).shape) app.endTextEdit(true);
         }
         app.selection.handleClick(worldPos, isAdditiveSelectionModifier(event));
         app.renderShapes(true);
     },
 
     dblclick(app, event, { screenPos, worldPos }) {
-        if (app.textEdit) return;
+        if (getSchematicTextEdit(app)) return;
         const hit = findInlineEditableHit(app.selection, worldPos, event.target)
             || app.selection.hitTest(worldPos);
         if (hit && hit.supportsInlineEdit) {
             app.selection.select(hit, false);
             app.renderShapes(true);
-            app.pendingAnchorDrag = null;
+            clearPendingAnchorDrag(app);
             app.startTextEdit(hit);
             app.setTextEditCaretFromScreen(screenPos);
             return;
@@ -1408,15 +1443,15 @@ export const toolActiveState = {
         if (event.button !== 0) return;
 
         activateHomeTabIfFileTabOpen(app);
-        app.didDrag = false;
+        setDidSchematicDrag(app, false);
 
         // Paste/component placement
-        if (app.pastingClipboard) {
+        if (isPastingClipboard(app)) {
             confirmPaste(app, snapped);
             event.preventDefault();
             return;
         }
-        if (app.placingComponent) {
+        if (getPlacingComponent(app)) {
             const placement = resolvePlacingComponentSnap(app, snapped);
             placeComponent(app, placement.placePos);
             event.preventDefault();
@@ -1430,8 +1465,8 @@ export const toolActiveState = {
         handleComponentTooltipMouseMove(app, worldPos, screenPos);
 
         // Placement previews
-        if (app.pastingClipboard) updatePastePreview(app, snapped);
-        if (app.placingComponent) {
+        if (isPastingClipboard(app)) updatePastePreview(app, snapped);
+        if (getPlacingComponent(app)) {
             const placement = resolvePlacingComponentSnap(app, snapped);
             updateComponentPreview(app, placement.placePos);
             updateSnapHighlight(app, placement.pinSnap);
@@ -1465,8 +1500,8 @@ export const drawingState = {
     mousemove(app, event, { screenPos, worldPos, snapped }) {
         handleComponentTooltipMouseMove(app, worldPos, screenPos);
 
-        if (app.pastingClipboard) updatePastePreview(app, snapped);
-        if (app.placingComponent) {
+        if (isPastingClipboard(app)) updatePastePreview(app, snapped);
+        if (getPlacingComponent(app)) {
             const placement = resolvePlacingComponentSnap(app, snapped);
             updateComponentPreview(app, placement.placePos);
             updateSnapHighlight(app, placement.pinSnap);
@@ -1513,19 +1548,19 @@ export const moveDragState = {
             updateSnapHighlight(app, attach ? { x: attach.snapPos.x, y: attach.snapPos.y, type: 'attach' } : null);
             // Track hover target for invalidation
             const newTarget = attach?.target || null;
-            const oldTarget = app.drag.labelHoverTarget || null;
+            const oldTarget = getSchematicDrag(app).labelHoverTarget || null;
             if (newTarget !== oldTarget) {
                 if (oldTarget) oldTarget.invalidate?.();
                 if (labelShape.parentComponent && labelShape.parentComponent !== oldTarget) labelShape.parentComponent.invalidate?.();
                 if (newTarget) newTarget.invalidate?.();
-                app.drag.labelHoverTarget = newTarget;
+                getSchematicDrag(app).labelHoverTarget = newTarget;
             }
         } else {
-            app.drag.labelHoverTarget = null;
+            getSchematicDrag(app).labelHoverTarget = null;
         }
 
-        const mouseDelta = { x: worldPos.x - app.drag.startWorldPos.x, y: worldPos.y - app.drag.startWorldPos.y };
-        const targetPos = { x: app.drag.objectStartPos.x + mouseDelta.x, y: app.drag.objectStartPos.y + mouseDelta.y };
+        const mouseDelta = { x: worldPos.x - getSchematicDrag(app).startWorldPos.x, y: worldPos.y - getSchematicDrag(app).startWorldPos.y };
+        const targetPos = { x: getSchematicDrag(app).objectStartPos.x + mouseDelta.x, y: getSchematicDrag(app).objectStartPos.y + mouseDelta.y };
         const sel = selNow;
         const movingCompIds = collectMovingComponentIds(sel);
         const snappedTarget = getMoveDragSnappedTarget(app);
@@ -1540,8 +1575,8 @@ export const moveDragState = {
                 s.type === 'wire' && [...s.pinConnections.values()].some(c => c.componentId === dragNet.id)
             );
             if (!alreadyConnected) {
-                const previewDx = snappedTarget.x - app.drag.lastSnapped.x;
-                const previewDy = snappedTarget.y - app.drag.lastSnapped.y;
+                const previewDx = snappedTarget.x - getSchematicDrag(app).lastSnapped.x;
+                const previewDy = snappedTarget.y - getSchematicDrag(app).lastSnapped.y;
                 const pinProbe = {
                     x: dragNet.x + previewDx,
                     y: dragNet.y + previewDy
@@ -1561,20 +1596,20 @@ export const moveDragState = {
         const dragComp = selNow.find(s => s.definition && s.symbol?.pins);
         let deferredComponentSnap = null;
         if (dragComp) {
-            const compSnap = resolveDraggingComponentSnap(app, dragComp, snappedTarget, app.drag.lastSnapped);
+            const compSnap = resolveDraggingComponentSnap(app, dragComp, snappedTarget, getSchematicDrag(app).lastSnapped);
             snappedTarget.x = compSnap.targetPos.x;
             snappedTarget.y = compSnap.targetPos.y;
             deferredComponentSnap = compSnap.pinSnap;
         }
 
-        const dx = snappedTarget.x - app.drag.lastSnapped.x;
-        const dy = snappedTarget.y - app.drag.lastSnapped.y;
+        const dx = snappedTarget.x - getSchematicDrag(app).lastSnapped.x;
+        const dy = snappedTarget.y - getSchematicDrag(app).lastSnapped.y;
 
         if (dx !== 0 || dy !== 0) {
-            app.didDrag = true;
-            app.drag.restoreStates ??= captureMoveDragStates(app, sel);
-            app.drag.totalDx += dx;
-            app.drag.totalDy += dy;
+            setDidSchematicDrag(app, true);
+            getSchematicDrag(app).restoreStates ??= captureMoveDragStates(app, sel);
+            getSchematicDrag(app).totalDx += dx;
+            getSchematicDrag(app).totalDy += dy;
 
             for (const shape of sel) {
                 if (shape.parentComponent && movingCompIds.has(shape.parentComponent.id)) continue;
@@ -1592,10 +1627,10 @@ export const moveDragState = {
                 renderGuideLines(app, stickyGuides);
             }
             propagateMovedWireJunctions(app, sel, dx, dy);
-            app.drag.lastSnapped.x = snappedTarget.x;
-            app.drag.lastSnapped.y = snappedTarget.y;
+            getSchematicDrag(app).lastSnapped.x = snappedTarget.x;
+            getSchematicDrag(app).lastSnapped.y = snappedTarget.y;
             app.renderShapes(false);
-            if (app.textEdit) app.updateTextEditOverlay?.();
+            if (getSchematicTextEdit(app)) app.updateTextEditOverlay?.();
             app.fileManager.setDirty(true);
         }
 
@@ -1641,10 +1676,10 @@ export const moveDragState = {
  */
 export const anchorDragState = {
     mousedown(app, event, positions) {
-        if (event.button !== 0 || !app.drag.midpointPlacement) return;
+        if (event.button !== 0 || !getSchematicDrag(app).midpointPlacement) return;
         anchorDragState.mousemove(app, event, positions);
         handleDragEnd(app);
-        app.skipClickSelection = true;
+        setSkipClickSelection(app, true);
         app.viewport.svg.style.cursor = '';
         event.preventDefault();
     },
@@ -1652,35 +1687,35 @@ export const anchorDragState = {
     mousemove(app, event, { worldPos, snapped }) {
         if (app.viewport.isPanning) return;
 
-        app.didDrag = true;
-        app.selection.keepSelected(app.drag.shape);
+        setDidSchematicDrag(app, true);
+        app.selection.keepSelected(getSchematicDrag(app).shape);
 
-        const snapMode = app.drag.shape.getAnchorSnapMode(app.drag.anchorId);
+        const snapMode = getSchematicDrag(app).shape.getAnchorSnapMode(getSchematicDrag(app).anchorId);
         let anchorPos = snapMode === 'none' ? worldPos : snapped;
 
-        if (app.drag.shape.type === 'noconnect') {
+        if (getSchematicDrag(app).shape.type === 'noconnect') {
             const snap = resolveWireSnapPosition(app, worldPos, { pinTolerance: PIN_SNAP_TOL });
             updateSnapHighlight(app, snap);
             anchorPos = { x: snap.x, y: snap.y };
         }
 
         let anchorGuides = [];
-        const isBulgeHandle = typeof app.drag.anchorId === 'string' && app.drag.anchorId.startsWith('bulge_');
-        const isGraphShape = !isBulgeHandle && !!(app.drag.shape.nodes && app.drag.shape.edges);
+        const isBulgeHandle = typeof getSchematicDrag(app).anchorId === 'string' && getSchematicDrag(app).anchorId.startsWith('bulge_');
+        const isGraphShape = !isBulgeHandle && !!(getSchematicDrag(app).shape.nodes && getSchematicDrag(app).shape.edges);
         if (isGraphShape) {
-            const isLeaf = app.drag.shape.nodes.has(app.drag.anchorId) && app.drag.shape.degree(app.drag.anchorId) <= 1;
+            const isLeaf = getSchematicDrag(app).shape.nodes.has(getSchematicDrag(app).anchorId) && getSchematicDrag(app).shape.degree(getSchematicDrag(app).anchorId) <= 1;
 
-            if (app.drag.excludePin?.worldPos) {
-                const excludedPin = app.drag.excludePin.worldPos;
+            if (getSchematicDrag(app).excludePin?.worldPos) {
+                const excludedPin = getSchematicDrag(app).excludePin.worldPos;
                 if (Math.hypot(worldPos.x - excludedPin.x, worldPos.y - excludedPin.y) > PIN_SNAP_TOL)
-                    app.drag.excludePin = null;
+                    getSchematicDrag(app).excludePin = null;
             }
 
             let snappedToTarget = false;
-            if (isLeaf && app.drag.shape.type === 'wire') {
+            if (isLeaf && getSchematicDrag(app).shape.type === 'wire') {
                 const snap = resolveWireSnapPosition(app, worldPos, {
-                    excludeNode: { wire: app.drag.shape, nodeId: app.drag.anchorId },
-                    excludePin: app.drag.excludePin || null,
+                    excludeNode: { wire: getSchematicDrag(app).shape, nodeId: getSchematicDrag(app).anchorId },
+                    excludePin: getSchematicDrag(app).excludePin || null,
                     pinTolerance: PIN_SNAP_TOL
                 });
                 anchorPos = { x: snap.x, y: snap.y };
@@ -1690,61 +1725,61 @@ export const anchorDragState = {
 
             if (!snappedToTarget) {
                 updateSnapHighlight(app, null);
-                if (app.drag.shape.type === 'polyline') {
-                    const nodeIds = app.drag.shape.isRect ? app.drag.shape.getOrderedNodeIds() : [];
-                    const cornerIndex = nodeIds.indexOf(app.drag.anchorId);
-                    const neighbourIds = app.drag.shape.isRect
+                if (getSchematicDrag(app).shape.type === 'polyline') {
+                    const nodeIds = getSchematicDrag(app).shape.isRect ? getSchematicDrag(app).shape.getOrderedNodeIds() : [];
+                    const cornerIndex = nodeIds.indexOf(getSchematicDrag(app).anchorId);
+                    const neighbourIds = getSchematicDrag(app).shape.isRect
                         ? (cornerIndex >= 0 ? [nodeIds[(cornerIndex + 2) % 4]] : [])
-                        : app.drag.shape.neighborNodes(app.drag.anchorId);
+                        : getSchematicDrag(app).shape.neighborNodes(getSchematicDrag(app).anchorId);
                     const neighbours = neighbourIds
-                        .map(id => app.drag.shape.nodes.get(id)).filter(Boolean);
+                        .map(id => getSchematicDrag(app).shape.nodes.get(id)).filter(Boolean);
                     anchorPos = snapShapePoint(app, worldPos, neighbours,
-                        shapeContinuationConstraints(app.drag.shape, app.drag.anchorId));
-                } else if (!app.drag.shape.isRect) {
-                    const neighbors = app.drag.shape.neighborNodes(app.drag.anchorId)
-                        .map(nid => app.drag.shape.nodes.get(nid)).filter(Boolean);
+                        shapeContinuationConstraints(getSchematicDrag(app).shape, getSchematicDrag(app).anchorId));
+                } else if (!getSchematicDrag(app).shape.isRect) {
+                    const neighbors = getSchematicDrag(app).shape.neighborNodes(getSchematicDrag(app).anchorId)
+                        .map(nid => getSchematicDrag(app).shape.nodes.get(nid)).filter(Boolean);
                     applyOffGridNeighborSnap(worldPos, anchorPos, neighbors, app.viewport.gridSize || 1.0);
-                    const collinearSnap = computeAnchorCollinearSnap(app, app.drag.shape, app.drag.anchorId, anchorPos);
+                    const collinearSnap = computeAnchorCollinearSnap(app, getSchematicDrag(app).shape, getSchematicDrag(app).anchorId, anchorPos);
                     anchorPos = collinearSnap.anchorPos;
                     anchorGuides = collinearSnap.guides;
                 }
             }
         }
 
-        if (app.drag.shape.type === 'polyline' && isBulgeHandle
-            || app.drag.shape.type === 'arc' && app.drag.anchorId === 'mid') {
-            anchorPos = snapShapeBulge(app, app.drag.shape, app.drag.anchorId, worldPos);
+        if (getSchematicDrag(app).shape.type === 'polyline' && isBulgeHandle
+            || getSchematicDrag(app).shape.type === 'arc' && getSchematicDrag(app).anchorId === 'mid') {
+            anchorPos = snapShapeBulge(app, getSchematicDrag(app).shape, getSchematicDrag(app).anchorId, worldPos);
         }
         app.updateCrosshair(anchorPos);
-        if (app.drag.shape.type === 'wire') anchorPos = mergeAnchorTJunctionGuides(app, anchorPos, anchorGuides);
-        if (app.drag.shape.type !== 'polyline' && app.drag.shape.type !== 'arc') renderGuideLines(app, anchorGuides);
+        if (getSchematicDrag(app).shape.type === 'wire') anchorPos = mergeAnchorTJunctionGuides(app, anchorPos, anchorGuides);
+        if (getSchematicDrag(app).shape.type !== 'polyline' && getSchematicDrag(app).shape.type !== 'arc') renderGuideLines(app, anchorGuides);
 
         // Cross-shape join snap: dragging a polyline/arc endpoint onto another
         // joinable shape's endpoint fuses them on drop. Show the snap dot (the
         // "yellow circle") and record the target. Shared with PCB drawing tools
         // via shapes/shape-join.js (no schematic-only assumptions).
-        app.drag.joinTarget = null;
-        if (!app.drag.pathSplit && !app.viewport.shiftHeld && isJoinable(app.drag.shape)) {
-            const isJoinSource = app.drag.shape.type === 'arc'
-                ? (app.drag.anchorId === 'start' || app.drag.anchorId === 'end')
-                : !!(app.drag.shape.nodes?.has(app.drag.anchorId) && app.drag.shape.degree(app.drag.anchorId) === 1);
+        getSchematicDrag(app).joinTarget = null;
+        if (!getSchematicDrag(app).pathSplit && !app.viewport.shiftHeld && isJoinable(getSchematicDrag(app).shape)) {
+            const isJoinSource = getSchematicDrag(app).shape.type === 'arc'
+                ? (getSchematicDrag(app).anchorId === 'start' || getSchematicDrag(app).anchorId === 'end')
+                : !!(getSchematicDrag(app).shape.nodes?.has(getSchematicDrag(app).anchorId) && getSchematicDrag(app).shape.degree(getSchematicDrag(app).anchorId) === 1);
             if (isJoinSource) {
                 const joinTol = SNAP_SCREEN_PX / app.viewport.scale;
-                const jt = findJoinTarget(app.shapes, anchorPos, joinTol, app.drag.shape, app.drag.anchorId);
+                const jt = findJoinTarget(app.shapes, anchorPos, joinTol, getSchematicDrag(app).shape, getSchematicDrag(app).anchorId);
                 if (jt) {
                     anchorPos = { x: jt.x, y: jt.y };
-                    app.drag.joinTarget = jt;
+                    getSchematicDrag(app).joinTarget = jt;
                     updateSnapHighlight(app, { x: jt.x, y: jt.y, type: 'endpoint' });
-                } else if (app.drag.shape.type === 'arc') {
+                } else if (getSchematicDrag(app).shape.type === 'arc') {
                     updateSnapHighlight(app, null);
                 }
             }
         }
 
-        const newAnchorId = app.drag.shape.moveAnchor(app.drag.anchorId, anchorPos.x, anchorPos.y);
-        if (newAnchorId && newAnchorId !== app.drag.anchorId) app.drag.anchorId = newAnchorId;
+        const newAnchorId = getSchematicDrag(app).shape.moveAnchor(getSchematicDrag(app).anchorId, anchorPos.x, anchorPos.y);
+        if (newAnchorId && newAnchorId !== getSchematicDrag(app).anchorId) getSchematicDrag(app).anchorId = newAnchorId;
 
-        const draggedShape = app.drag.shape;
+        const draggedShape = getSchematicDrag(app).shape;
         const selectedSegment = getShapeSegmentFocus(app);
         const bulge = draggedShape.type === 'arc' ? draggedShape.bulge
             : draggedShape.type === 'polyline' && selectedSegment?.shapeId === draggedShape.id
@@ -1755,17 +1790,17 @@ export const anchorDragState = {
         }
 
         syncAnchorDragLinkedNodes(app, anchorPos);
-        if (app.drag.shape.type === 'polyline' || app.drag.shape.type === 'arc') {
-            renderShapeAlignment(app, app.drag.shape, [app.drag.anchorId]);
+        if (getSchematicDrag(app).shape.type === 'polyline' || getSchematicDrag(app).shape.type === 'arc') {
+            renderShapeAlignment(app, getSchematicDrag(app).shape, [getSchematicDrag(app).anchorId]);
         }
         app.renderShapes(false);
-        if (app.textEdit) app.updateTextEditOverlay?.();
+        if (getSchematicTextEdit(app)) app.updateTextEditOverlay?.();
         app.fileManager.setDirty(true);
     },
 
     mouseup(app, event) {
         if (event.button !== 0) return;
-        if (app.drag.midpointPlacement) return;
+        if (getSchematicDrag(app).midpointPlacement) return;
         handleDragEnd(app);
     }
 };
@@ -1777,23 +1812,23 @@ export const segmentDragState = {
     mousemove(app, event, { worldPos }) {
         if (app.viewport.isPanning) return;
 
-        const wire = app.drag.shape;
-        const dragEdgeId = app.drag.edgeId;
+        const wire = getSchematicDrag(app).shape;
+        const dragEdgeId = getSchematicDrag(app).edgeId;
 
         if (wire.type === 'polyline') {
             updatePolylineSegmentDrag(app, worldPos);
             app.renderShapes(false);
-            if (app.didDrag) app.fileManager.setDirty(true);
+            if (getDidSchematicDrag(app)) app.fileManager.setDirty(true);
             return;
         }
 
         const mouseDelta = getReusablePoint(app, '_dragSegmentMouseDeltaScratch');
-        mouseDelta.x = worldPos.x - app.drag.startWorldPos.x;
-        mouseDelta.y = worldPos.y - app.drag.startWorldPos.y;
-        if (app.drag.axis === 'vertical') mouseDelta.x = 0;
-        else if (app.drag.axis === 'horizontal') mouseDelta.y = 0;
+        mouseDelta.x = worldPos.x - getSchematicDrag(app).startWorldPos.x;
+        mouseDelta.y = worldPos.y - getSchematicDrag(app).startWorldPos.y;
+        if (getSchematicDrag(app).axis === 'vertical') mouseDelta.x = 0;
+        else if (getSchematicDrag(app).axis === 'horizontal') mouseDelta.y = 0;
 
-        const origState = app.drag.workingState || app.drag.wireStates.get(wire);
+        const origState = getSchematicDrag(app).workingState || getSchematicDrag(app).wireStates.get(wire);
         const origEdge = origState.edges[dragEdgeId];
         const refPt = origEdge ? origState.nodes[origEdge.from] : null;
         if (!refPt) return;
@@ -1804,7 +1839,7 @@ export const segmentDragState = {
 
         const tJunctionWires = getDragTJunctionWireSet(app);
         const { snappedTarget, guides: segGuides, highlight: segHighlight } =
-            computeSegmentDragSnap(app, wire, dragEdgeId, origState, target, app.drag.axis, tJunctionWires);
+            computeSegmentDragSnap(app, wire, dragEdgeId, origState, target, getSchematicDrag(app).axis, tJunctionWires);
         updateSnapHighlight(app, segHighlight);
 
         const allSegGuides = collectWireSegmentDragGuides(app, wire, dragEdgeId, snappedTarget, segGuides);
@@ -1815,9 +1850,9 @@ export const segmentDragState = {
         const dy = snappedTarget.y - (curFromPos ? curFromPos.y : refPt.y);
 
         if (dx !== 0 || dy !== 0) {
-            app.didDrag = true;
-            app.drag.totalDx += dx;
-            app.drag.totalDy += dy;
+            setDidSchematicDrag(app, true);
+            getSchematicDrag(app).totalDx += dx;
+            getSchematicDrag(app).totalDy += dy;
             const movedNodes = applyWireSegmentNodeMovement(app, wire, dragEdgeId, origState, dx, dy);
             propagateWireSegmentLinkedMovement(app, movedNodes, dx, dy);
             applyWireSegmentLabelMovement(wire, dx, dy);
@@ -1838,10 +1873,10 @@ export const segmentDragState = {
 export const boxSelectState = {
     mousemove(app, event, { worldPos }) {
         if (app.viewport.isPanning) return;
-        app.didDrag = true;
+        setDidSchematicDrag(app, true);
         updateBoxSelectElement(app, worldPos);
         const bounds = getBoxSelectBounds(app, worldPos);
-        app.selection.syncBoxSelection(bounds, !!app.drag.additive, 'contain');
+        app.selection.syncBoxSelection(bounds, !!getSchematicDrag(app).additive, 'contain');
         app.renderShapes(false);
     },
 
@@ -1850,13 +1885,13 @@ export const boxSelectState = {
 
         const bounds = getBoxSelectBounds(app, worldPos);
         app.removeBoxSelectElement();
-        if (app.didDrag) {
-            app.selection.syncBoxSelection(bounds, !!app.drag?.additive, 'contain');
+        if (getDidSchematicDrag(app)) {
+            app.selection.syncBoxSelection(bounds, !!getSchematicDrag(app)?.additive, 'contain');
             app.selection.notifyChanged();
             app.renderShapes(true);
         }
 
-        app.drag = null;
+        setSchematicDrag(app, null);
         app.interactionState = 'idle';
     }
 };
@@ -1869,12 +1904,12 @@ export const placingState = {
         if (event.button !== 0 || app.viewport.isPanning) return;
         activateHomeTabIfFileTabOpen(app);
 
-        if (app.pastingClipboard) {
+        if (isPastingClipboard(app)) {
             confirmPaste(app, snapped);
             event.preventDefault();
             return;
         }
-        if (app.placingComponent) {
+        if (getPlacingComponent(app)) {
             const placement = resolvePlacingComponentSnap(app, snapped);
             placeComponent(app, placement.placePos);
             event.preventDefault();
@@ -1883,8 +1918,8 @@ export const placingState = {
     },
 
     mousemove(app, event, { screenPos, worldPos, snapped }) {
-        if (app.pastingClipboard) updatePastePreview(app, snapped);
-        if (app.placingComponent) {
+        if (isPastingClipboard(app)) updatePastePreview(app, snapped);
+        if (getPlacingComponent(app)) {
             const placement = resolvePlacingComponentSnap(app, snapped);
             updateComponentPreview(app, placement.placePos);
             updateSnapHighlight(app, placement.pinSnap);

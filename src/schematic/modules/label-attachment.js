@@ -10,6 +10,8 @@ import {
 } from '../../core/geometry.js';
 import { getTextEditBoxWorldCorners } from '../../core/text-edit-geometry.js';
 import { applyTextConnectionGuide } from '../../shared/ui/inline-text-overlay.js';
+import { getSchematicDrag } from './drag.js';
+import { getSchematicTextEdit } from './text-edit.js';
 
 const WIRE_ATTACHED_LABEL_FONT_SIZE = 1.4;
 const DEFAULT_WIRE_LABEL_OFFSET = 1.0;
@@ -203,7 +205,7 @@ export function getLabelAttachmentAnchorPoint(labelShape, referencePoint = null)
 
 export function updateLabelGuide(app) {
     const selection = app.selection?.getSelection?.() || [];
-    const label = app.textEdit?.shape || (selection.length === 1 ? selection[0] : null);
+    const label = getSchematicTextEdit(app)?.shape || (selection.length === 1 ? selection[0] : null);
     const target = label?.type === 'text' && label.visible !== false ? label.parentComponent : null;
     let anchor = null;
     let endpoint = null;
@@ -368,7 +370,7 @@ export function refreshLabelAttachmentOffset(labelShape) {
  * Keep attached labels aligned with their parent target.
  */
 export function syncAttachedLabels(app) {
-    const isDraggingLabel = app.drag?.mode === 'move'
+    const isDraggingLabel = getSchematicDrag(app)?.mode === 'move'
         && app.selection?.getSelection?.().length === 1
         && app.selection.getSelection()[0]?.type === 'text';
 

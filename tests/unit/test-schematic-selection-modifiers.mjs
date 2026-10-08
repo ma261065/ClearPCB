@@ -4,7 +4,7 @@ import { installFakeDom } from './helpers/fake-dom.mjs';
 
 installFakeDom();
 globalThis.HTMLElement = class {};
-const { getOverlapCyclePress, idleState, overlapCycleState, STATE_TABLE } = await import('../../src/schematic/modules/draw-states.js');
+const { getOverlapCyclePress, idleState, overlapCycleState, setSkipClickSelection, STATE_TABLE } = await import('../../src/schematic/modules/draw-states.js');
 const { runSchematicEscapeAction } = await import('../../src/schematic/modules/editor-actions.js');
 const shape = (id, hit = true) => ({ id, visible: true, selected: false,
     hitTest: () => hit, hitTestAnchor: () => 'anchor', invalidate() {} });
@@ -21,7 +21,7 @@ idleState.mousedown(app, event({ ctrlKey: true }), positions);
 assert.deepEqual(ids(), ['unrelated'], 'Ctrl removes a selected item even on its anchor');
 idleState.mousedown(app, event({ metaKey: true }), positions);
 assert.deepEqual(ids(), ['top', 'unrelated'], 'Cmd adds without replacing the other selection');
-app.skipClickSelection = false;
+setSkipClickSelection(app, false);
 idleState.mousedown(app, event({ shiftKey: true }), positions);
 assert.deepEqual(ids(), ['top', 'unrelated']);
 assert.equal(app.interactionState, 'overlapCycle');

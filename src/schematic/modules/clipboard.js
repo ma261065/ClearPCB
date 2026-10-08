@@ -5,13 +5,28 @@ import { DeleteShapesCommand, DeleteComponentsCommand, BatchCommand, PasteComman
 import { Component } from '../../components/Component.js';
 import { createShape } from '../../shapes/index.js';
 import { cloneEntityElement, componentPreviewElement, shapePreviewElement } from './schematic-view.js';
-import { generateReference } from './components.js';
+import { generateReference, isPlacingComponent } from './components.js';
 import { isSchematicLocked } from '../../shapes/lock-owner.js';
+import { isSchematicDrawingActive } from './drawing.js';
+import { getSchematicInteraction, setSchematicInteraction } from './schematic-interactions.js';
 
 // Internal clipboard (array of serialised items)
 let clipboard = [];
 // Pre-built ghost SVG captured at copy time (avoids expensive rebuild on paste)
 let clipboardGhostSvg = null;
+
+/** @param {object} app */
+export function isPastingClipboard(app) {
+    return !!getSchematicInteraction(app, 'pastingClipboard');
+}
+
+/**
+ * @param {object} app
+ * @param {boolean} active
+ */
+function setPastingClipboard(app, active) {
+    setSchematicInteraction(app, 'pastingClipboard', active);
+}
 
 /**
  * Compute the centroid of the given items (shapes + components).
@@ -168,13 +183,13 @@ export function beginPastePreview(app) {
     if (clipboard.length === 0) return;
 
     // Cancel any existing paste preview first (prevents orphaned ghost SVGs)
-    if (app.pastingClipboard) {
+    if (isPastingClipboard(app)) {
         cancelPaste(app);
     }
 
     // Cancel any in-progress placement or drawing
-    if (app.placingComponent) app.cancelComponentPlacement();
-    if (app.isDrawing) app.cancelDrawing();
+    if (isPlacingComponent(app)) app.cancelComponentPlacement();
+    if (isSchematicDrawingActive(app)) app.cancelDrawing();
 
     // Clone the pre-built ghost (fast single cloneNode)
     const ghost = clipboardGhostSvg
@@ -183,7 +198,7 @@ export function beginPastePreview(app) {
 
     app.viewport.contentLayer.appendChild(ghost);
     app.pastePreviewGroup = ghost;
-    app.pastingClipboard = true;
+    setPastingClipboard(app, true);
     app.interactionState = 'placing';
     app.viewport.svg.style.cursor = 'crosshair';
 
@@ -236,7 +251,7 @@ function _buildGhostFallback(app) {
  * Move the paste preview ghost to follow the cursor.
  */
 export function updatePastePreview(app, worldPos) {
-    if (!app.pastePreviewGroup || !app.pastingClipboard) return;
+    if (!app.pastePreviewGroup || !isPastingClipboard(app)) return;
     app.pastePreviewGroup.setAttribute('transform', `translate(${worldPos.x}, ${worldPos.y})`);
 }
 
@@ -244,7 +259,7 @@ export function updatePastePreview(app, worldPos) {
  * Confirm paste: instantiate items at the given world position.
  */
 export function confirmPaste(app, worldPos) {
-    if (!app.pastingClipboard || clipboard.length === 0) return;
+    if (!isPastingClipboard(app) || clipboard.length === 0) return;
 
     const snapped = app.viewport.getSnappedPosition(worldPos);
 
@@ -303,14 +318,14 @@ export function cancelPaste(app) {
         app.pastePreviewGroup.remove();
         app.pastePreviewGroup = null;
     }
-    app.pastingClipboard = false;
+    setPastingClipboard(app, false);
     app.interactionState = app.currentTool === 'select' ? 'idle' : 'toolActive';
     app.viewport.svg.style.cursor = '';
 
     // Paste preview always owns crosshair visibility while active.
     // On exit: hide in select mode, otherwise re-anchor to current cursor.
     const mousePos = app.viewport.currentMouseWorld || null;
-    if (app.currentTool === 'select' && !app.isDrawing && !app.placingComponent) {
+    if (app.currentTool === 'select' && !isSchematicDrawingActive(app) && !isPlacingComponent(app)) {
         app.hideCrosshair?.();
     } else if (mousePos) {
         const snapped = app.viewport.getSnappedPosition(mousePos);

@@ -5,6 +5,20 @@ import { validateNetNameAtPoint } from './net-validation.js';
 import { clearAxisGlow, pathAlignmentSegments, renderAxisGlow, squareAlignmentSegments } from '../../shapes/axis-glow.js';
 import { controlArcGeometry } from '../../shapes/arc-edit.js';
 import { takeDrawSnapResult } from './draw-states.js';
+import { getSchematicInteraction, setSchematicInteraction } from './schematic-interactions.js';
+
+/** @param {object} app */
+export function isSchematicDrawingActive(app) {
+    return !!getSchematicInteraction(app, 'isDrawing');
+}
+
+/**
+ * @param {object} app
+ * @param {boolean} active
+ */
+export function setSchematicDrawingActive(app, active) {
+    setSchematicInteraction(app, 'isDrawing', active);
+}
 
 /**
  * Allocate the lowest unused default net name in the current document.
@@ -39,7 +53,7 @@ function defaultNetText(app, style) {
 export function startDrawing(app, worldPos) {
     if (app.currentTool === 'select') return;
 
-    app.isDrawing = true;
+    setSchematicDrawingActive(app, true);
     app.drawStart = { ...worldPos };
     app.drawCurrent = { ...worldPos };
     app.interactionState = 'drawing';
@@ -68,7 +82,7 @@ export function startDrawing(app, worldPos) {
  * @param {{x: number, y: number}} worldPos - Current cursor position in world coordinates.
  */
 export function updateDrawing(app, worldPos) {
-    if (!app.isDrawing) return;
+    if (!isSchematicDrawingActive(app)) return;
 
     app.drawCurrent = { ...worldPos };
     updatePreview(app);
@@ -81,7 +95,7 @@ export function updateDrawing(app, worldPos) {
  * @param {{x: number, y: number}} worldPos - Final position in world coordinates.
  */
 export function finishDrawing(app, worldPos) {
-    if (!app.isDrawing) return;
+    if (!isSchematicDrawingActive(app)) return;
 
     app.drawCurrent = { ...worldPos };
 
@@ -107,7 +121,7 @@ export function finishDrawing(app, worldPos) {
  * @param {{x: number, y: number}} worldPos - Vertex position in world coordinates.
  */
 export function addPolygonPoint(app, worldPos) {
-    if (app.currentTool === 'polygon' && app.isDrawing) {
+    if (app.currentTool === 'polygon' && isSchematicDrawingActive(app)) {
         app.polygonPoints.push({ ...worldPos });
         updatePreview(app);
     }
@@ -119,7 +133,7 @@ export function addPolygonPoint(app, worldPos) {
  * @param {object} app - Application state.
  */
 export function finishPolygon(app) {
-    if (app.currentTool === 'polygon' && app.isDrawing) finishDrawing(app, app.drawCurrent);
+    if (app.currentTool === 'polygon' && isSchematicDrawingActive(app)) finishDrawing(app, app.drawCurrent);
 }
 
 /**
@@ -128,7 +142,7 @@ export function finishPolygon(app) {
  * @param {{x: number, y: number}} worldPos - Vertex position in world coordinates.
  */
 export function addLinePoint(app, worldPos) {
-    if (app.currentTool === 'line' && app.isDrawing) {
+    if (app.currentTool === 'line' && isSchematicDrawingActive(app)) {
         app.linePoints.push({ ...worldPos });
         updatePreview(app);
     }
@@ -140,7 +154,7 @@ export function addLinePoint(app, worldPos) {
  * @param {object} app - Application state.
  */
 export function finishLine(app) {
-    if (app.currentTool === 'line' && app.isDrawing) finishDrawing(app, app.drawCurrent);
+    if (app.currentTool === 'line' && isSchematicDrawingActive(app)) finishDrawing(app, app.drawCurrent);
 }
 
 /**
@@ -150,7 +164,7 @@ export function finishLine(app) {
  */
 export function cancelDrawing(app) {
     clearAxisGlow(app);
-    app.isDrawing = false;
+    setSchematicDrawingActive(app, false);
     app.interactionState = app.currentTool === 'select' ? 'idle' : 'toolActive';
     app.drawStart = null;
     app.drawCurrent = null;
@@ -240,7 +254,7 @@ function drawingPoints(app) {
 }
 
 export function shapeDrawingClick(app, point) {
-    if (!app.isDrawing) {
+    if (!isSchematicDrawingActive(app)) {
         startDrawing(app, point);
         return;
     }

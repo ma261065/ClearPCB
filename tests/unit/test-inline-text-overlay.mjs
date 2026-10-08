@@ -5,7 +5,8 @@ import {
     createInlineTextOverlay,
     setInlineTextInputActive,
 } from '../../src/shared/ui/inline-text-overlay.js';
-import { setTextCaretFromScreen } from '../../src/schematic/modules/text-edit.js';
+import { getSchematicTextEdit, setTextCaretFromScreen } from '../../src/schematic/modules/text-edit.js';
+import { setSchematicInteraction } from '../../src/schematic/modules/schematic-interactions.js';
 import { ensureView } from '../../src/schematic/render/shape-view-state.js';
 
 function element(tagName) {
@@ -131,11 +132,6 @@ const textElement = {
 const caretShape = { type: 'text', text: 'ABC' };
 ensureView(caretShape).element = { children: [element('rect'), textElement] };
 const caretApp = {
-    textEdit: {
-        shape: caretShape,
-        caretIndex: 3,
-        overlayGroup: null,
-    },
     viewport: {
         svg: {
             getBoundingClientRect() { return { left: 0, top: 0 }; },
@@ -149,7 +145,12 @@ const caretApp = {
         },
     },
 };
+setSchematicInteraction(caretApp, 'textEdit', {
+    shape: caretShape,
+    caretIndex: 3,
+    overlayGroup: null,
+});
 setTextCaretFromScreen(caretApp, { x: 16, y: 0 });
-assert.equal(caretApp.textEdit.caretIndex, 2);
+assert.equal(getSchematicTextEdit(caretApp).caretIndex, 2);
 
 console.log('PASS: editors share text visuals and suspend inactive hidden input independently');

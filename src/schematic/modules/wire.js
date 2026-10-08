@@ -30,7 +30,7 @@ import { applyStickyConnections } from './sticky-wires.js';
 import { attachLabelToTarget, getLabelDropHotspot } from './label-attachment.js';
 import { VERTEX_EPSILON } from './wire-constants.js';
 import { componentPinElement } from '../render/component-renderer.js';
-import { createPreview, getEffectiveStrokeWidth } from './drawing.js';
+import { createPreview, getEffectiveStrokeWidth, isSchematicDrawingActive, setSchematicDrawingActive } from './drawing.js';
 import { addShapeInternal, removeShapeInternal } from './shape-management.js';
 export { renderGuideLines } from '../../shapes/axis-glow.js';
 
@@ -437,7 +437,7 @@ export function startWireDrawing(app, snappedData) {
     app.wireSnapPin = snapPin;
     app.wireStartPin = snapPin;
     setWireAxisLock(app, null);
-    app.isDrawing = true;
+    setSchematicDrawingActive(app, true);
     app.interactionState = 'drawing';
     createPreview(app);
     app.showCrosshair();
@@ -452,7 +452,7 @@ export function startWireDrawing(app, snappedData) {
  * @param {{x: number, y: number}} worldPos - Raw cursor position in world coords
  */
 export function updateWireDrawing(app, worldPos) {
-    if (!app.isDrawing || app.wirePoints.length === 0) return;
+    if (!isSchematicDrawingActive(app) || app.wirePoints.length === 0) return;
 
     // Calculate snapped target (includes snap detection via resolveWireSnapPosition)
     const target = getDrawingSnappedPosition(app, worldPos);
@@ -736,7 +736,7 @@ export function cancelWireDrawing(app) {
     updateSnapHighlight(app, null);
     app.wireSnapPin = null;
     app.wireStartPin = null;
-    app.isDrawing = false;
+    setSchematicDrawingActive(app, false);
     app.interactionState = app.currentTool === 'select' ? 'idle' : 'toolActive';
 
     if (app.previewElement) {

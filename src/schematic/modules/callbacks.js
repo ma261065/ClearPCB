@@ -2,7 +2,7 @@ import { updateViewportCulling } from './schematic-view.js';
 import { dismissAnchorContextMenu } from './context-menu.js';
 import { onComponentDefinitionSelected } from './components.js';
 import { onComponentPickerClosed } from './tool.js';
-import { updatePastePreview } from './clipboard.js';
+import { isPastingClipboard, updatePastePreview } from './clipboard.js';
 
 const overlapHitCounts = new WeakMap();
 
@@ -103,7 +103,7 @@ export function setupCallbacks(app) {
     };
 
     app.viewport.onMouseMove = (world, snapped) => {
-        if (app.pastingClipboard && app.pastePreviewGroup) {
+        if (isPastingClipboard(app) && app.pastePreviewGroup) {
             updatePastePreview(app, snapped);
         }
 

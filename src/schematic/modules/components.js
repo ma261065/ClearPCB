@@ -2,8 +2,27 @@ import { Component } from '../../components/index.js';
 import { AddComponentCommand, TransformComponentCommand } from './commands.js';
 import { needsValueDialog, showValueDialog } from './value-dialog.js';
 import { componentPreviewElement } from './schematic-view.js';
+import { getSchematicInteraction, setSchematicInteraction } from './schematic-interactions.js';
 
 const componentState = new WeakMap();
+
+/** @param {object} app */
+export function getPlacingComponent(app) {
+    return getSchematicInteraction(app, 'placingComponent');
+}
+
+/** @param {object} app */
+export function isPlacingComponent(app) {
+    return !!getPlacingComponent(app);
+}
+
+/**
+ * @param {object} app
+ * @param {object|null} definition
+ */
+function setPlacingComponent(app, definition) {
+    setSchematicInteraction(app, 'placingComponent', definition);
+}
 
 function stateFor(app) {
     let state = componentState.get(app);
@@ -173,7 +192,7 @@ export function onComponentDefinitionSelected(app, definition) {
         activeEl.blur();
     }
 
-    app.placingComponent = definition;
+    setPlacingComponent(app, definition);
     app.currentTool = 'component';
     app.interactionState = 'placing';
 
@@ -225,7 +244,7 @@ export function createComponentPreview(app, definition) {
  * @param {{x: number, y: number}} worldPos - Cursor position in world coordinates.
  */
 export function updateComponentPreview(app, worldPos) {
-    if (!app.componentPreview || !app.placingComponent) return;
+    if (!app.componentPreview || !isPlacingComponent(app)) return;
 
     // Show preview on first mouse move over canvas (hidden initially to avoid flash at 0,0)
     if (stateFor(app).previewHidden) {
@@ -252,9 +271,8 @@ export function updateComponentPreview(app, worldPos) {
  * @param {{x: number, y: number}} worldPos - Placement position in world coordinates.
  */
 export async function placeComponent(app, worldPos) {
-    if (!app.placingComponent) return;
-
-    const definition = app.placingComponent;
+    const definition = getPlacingComponent(app);
+    if (!definition) return;
     const ref = generateReference(app, definition);
 
     const component = new Component(definition, {
@@ -289,9 +307,10 @@ export async function placeComponent(app, worldPos) {
  * @param {object} app - Application state.
  */
 export function rotateComponentRight(app) {
-    if (app.placingComponent) {
+    const placing = getPlacingComponent(app);
+    if (placing) {
         app.componentRotation = (app.componentRotation + 90) % 360;
-        createComponentPreview(app, app.placingComponent);
+        createComponentPreview(app, placing);
         if (app.lastCrosshairWorld) {
             updateComponentPreview(app, app.lastCrosshairWorld);
         }
@@ -310,9 +329,10 @@ export function rotateComponentRight(app) {
  * @param {object} app - Application state.
  */
 export function rotateComponentLeft(app) {
-    if (app.placingComponent) {
+    const placing = getPlacingComponent(app);
+    if (placing) {
         app.componentRotation = (app.componentRotation - 90 + 360) % 360;
-        createComponentPreview(app, app.placingComponent);
+        createComponentPreview(app, placing);
         if (app.lastCrosshairWorld) {
             updateComponentPreview(app, app.lastCrosshairWorld);
         }
@@ -331,11 +351,12 @@ export function rotateComponentLeft(app) {
  * @param {object} app - Application state.
  */
 export function flipComponentH(app) {
-    if (app.placingComponent) {
+    const placing = getPlacingComponent(app);
+    if (placing) {
         // Flip across the world vertical axis regardless of current rotation.
         app.componentRotation = (360 - (app.componentRotation || 0)) % 360;
         app.componentMirror = !app.componentMirror;
-        createComponentPreview(app, app.placingComponent);
+        createComponentPreview(app, placing);
         if (app.lastCrosshairWorld) {
             updateComponentPreview(app, app.lastCrosshairWorld);
         }
@@ -354,11 +375,12 @@ export function flipComponentH(app) {
  * @param {object} app - Application state.
  */
 export function flipComponentV(app) {
-    if (app.placingComponent) {
+    const placing = getPlacingComponent(app);
+    if (placing) {
         // Flip across the world horizontal axis regardless of current rotation.
         app.componentRotation = (180 - (app.componentRotation || 0) + 360) % 360;
         app.componentMirror = !app.componentMirror;
-        createComponentPreview(app, app.placingComponent);
+        createComponentPreview(app, placing);
         if (app.lastCrosshairWorld) {
             updateComponentPreview(app, app.lastCrosshairWorld);
         }
@@ -381,7 +403,7 @@ export function cancelComponentPlacement(app) {
         app.componentPreview.remove();
         app.componentPreview = null;
     }
-    app.placingComponent = null;
+    setPlacingComponent(app, null);
     app.componentRotation = 0;
     app.componentMirror = false;
 

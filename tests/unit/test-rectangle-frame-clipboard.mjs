@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { createShape } from '../../src/shapes/index.js';
-import { copySelection, beginPastePreview, confirmPaste } from '../../src/schematic/modules/clipboard.js';
+import { copySelection, beginPastePreview, confirmPaste, isPastingClipboard } from '../../src/schematic/modules/clipboard.js';
 import { fakeElement, installFakeDom } from './helpers/fake-dom.mjs';
 
 installFakeDom();
@@ -48,7 +48,7 @@ for (const target of [{ x: 101.1, y: -53.1 }, { x: -37.2, y: 29.2 }]) {
             assert.deepEqual(saved[key], original[key], `Paste preserves ${key}`);
         }
     });
-    assert.equal(app.pastingClipboard, false);
+    assert.equal(isPastingClipboard(app), false);
 }
 assert.deepEqual(selection.map(shape => shape.toJSON()), originals, 'Repeated paste must not mutate the source or clipboard geometry');
 assert.notEqual(commands[0].shapes[0].id, commands[1].shapes[0].id);

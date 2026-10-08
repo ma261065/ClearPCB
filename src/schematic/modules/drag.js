@@ -22,6 +22,8 @@ import { refreshComponentPose } from './schematic-view.js';
 import { applyShapeState, captureShapeState } from './selection.js';
 import { setShapeNodeFocus, setShapeSegmentFocus } from './shape-focus.js';
 import { isSchematicLocked } from '../../shapes/lock-owner.js';
+import { getSchematicInteraction, setSchematicInteraction } from './schematic-interactions.js';
+import { setDidSchematicDrag } from './draw-states.js';
 
 /**
  * Compare two captured shape states for equality.
@@ -36,13 +38,48 @@ export function areCapturedStatesEqual(a, b) {
 //  State reset 
 
 /**
+ * @param {object} app
+ * @returns {any}
+ */
+export function getSchematicDrag(app) {
+    return getSchematicInteraction(app, 'drag');
+}
+
+/**
+ * @param {object} app
+ * @param {any} drag
+ */
+export function setSchematicDrag(app, drag) {
+    setSchematicInteraction(app, 'drag', drag);
+}
+
+/** @param {object} app */
+export function getPendingAnchorDrag(app) {
+    return getSchematicInteraction(app, 'pendingAnchorDrag');
+}
+
+/**
+ * @param {object} app
+ * @param {any} pending
+ */
+export function setPendingAnchorDrag(app, pending) {
+    setSchematicInteraction(app, 'pendingAnchorDrag', pending);
+}
+
+/** @param {object} app */
+export function clearPendingAnchorDrag(app) {
+    setPendingAnchorDrag(app, null);
+}
+
+/**
  * Reset all drag state. Callers handle UI cleanup.
  */
 export function clearDragState(app) {
     clearAxisGlow(app);
-    if (app.drag?.shape) app.drag.shape.resetDragState();
-    app.drag = null;
-    app.pendingAnchorDrag = null;
+    const drag = getSchematicDrag(app);
+    if (drag?.shape) drag.shape.resetDragState();
+    setSchematicDrag(app, null);
+    clearPendingAnchorDrag(app);
 }
 
 /*
@@ -61,15 +98,15 @@ export function cancelDragGesture(app) {
             cancelSchematicShapeConversion(app);
             cancelSchematicPathSplit(app);
         }
-        if (app.drag?.beforeState && (state === 'anchorDrag' || app.drag.shape?.type === 'polyline')) {
-            applyShapeState(app, app.drag.shape, app.drag.beforeState);
+        if (getSchematicDrag(app)?.beforeState && (state === 'anchorDrag' || getSchematicDrag(app).shape?.type === 'polyline')) {
+            applyShapeState(app, getSchematicDrag(app).shape, getSchematicDrag(app).beforeState);
         }
-        for (const [wire, beforeState] of app.drag?.wireStates || []) {
+        for (const [wire, beforeState] of getSchematicDrag(app)?.wireStates || []) {
             applyShapeState(app, wire, beforeState);
         }
-        const shape = app.drag?.shape;
+        const shape = getSchematicDrag(app)?.shape;
         clearDragState(app);
-        app.didDrag = false;
+        setDidSchematicDrag(app, false);
         app.viewport.svg.style.cursor = '';
         app.hideCrosshair();
         app.interactionState = 'idle';
@@ -83,7 +120,7 @@ export function cancelDragGesture(app) {
             updateSnapHighlight(app, null);
         }
         clearDragState(app);
-        app.didDrag = false;
+        setDidSchematicDrag(app, false);
         app.removeBoxSelectElement();
         app.viewport.svg.style.cursor = '';
         app.interactionState = 'idle';
@@ -95,10 +132,10 @@ export function cancelDragGesture(app) {
 
 /** Cancel a pending (pre-threshold) anchor drag or midpoint split. */
 export function cancelPendingAnchorDrag(app) {
-    const { shape, preInsertState } = app.pendingAnchorDrag;
+    const { shape, preInsertState } = getPendingAnchorDrag(app);
     if (preInsertState) applyShapeState(app, shape, preInsertState);
     app.selection.keepSelected(shape);
-    app.pendingAnchorDrag = null;
+    clearPendingAnchorDrag(app);
     app.viewport.svg.style.cursor = '';
     app.renderShapes(true);
     return true;
@@ -127,30 +164,30 @@ export function captureMoveDragStates(app, selection) {
 
 /** Undo a cancelled move drag's live changes from its snapshot, with one redraw. */
 function restoreMoveDragStates(app) {
-    const states = app.drag?.restoreStates;
+    const states = getSchematicDrag(app)?.restoreStates;
     if (!states) return;
     for (const [entity, state] of states) {
         entity.applyState(state);
         if (/** @type {any} */ (entity).definition) refreshComponentPose(entity);
     }
-    app.drag.restoreStates = null;
+    getSchematicDrag(app).restoreStates = null;
 }
 
 export function cancelSchematicPathSplit(app) {
-    if (!app.drag?.pathSplit) return false;
-    const remainder = app.drag.splitRemainder;
+    if (!getSchematicDrag(app)?.pathSplit) return false;
+    const remainder = getSchematicDrag(app).splitRemainder;
     if (remainder && app.shapes.includes(remainder)) app.commandRemoveShape(remainder);
-    app.drag.splitRemainder = null;
+    getSchematicDrag(app).splitRemainder = null;
     return true;
 }
 
 export function cancelSchematicShapeConversion(app) {
-    const conversion = app.drag?.conversion;
+    const conversion = getSchematicDrag(app)?.conversion;
     if (!conversion) return false;
     conversion.command.undo();
-    app.drag.shape = conversion.original;
-    app.drag.beforeState = conversion.original.captureState();
-    app.drag.conversion = null;
+    getSchematicDrag(app).shape = conversion.original;
+    getSchematicDrag(app).beforeState = conversion.original.captureState();
+    getSchematicDrag(app).conversion = null;
     app.selection.select(conversion.original, false);
     app.updatePropertiesPanel?.(app.selection.getSelection());
     return true;
@@ -255,9 +292,9 @@ function pushBatchIfNonEmpty(app, batch) {
 export function commitAnchorDrag(app, dragShape, beforeState, anchorWireStates = null, ncLinks = null, junctionBeforeWireStates = null, junctionBeforeLabelTextStates = null) {
     if (!dragShape || !beforeState) return false;
 
-    if (app.drag?.conversion && app.drag.shape === dragShape) {
-        const { command } = app.drag.conversion;
-        app.drag.conversion = null;
+    if (getSchematicDrag(app)?.conversion && getSchematicDrag(app).shape === dragShape) {
+        const { command } = getSchematicDrag(app).conversion;
+        getSchematicDrag(app).conversion = null;
         command.undo();
         const selectedShape = dragShape.type === 'arc' && Math.abs(dragShape.bulge) < BULGE_EPS
             ? appendArcToLineCommand(app, command, dragShape) : dragShape;
@@ -269,9 +306,9 @@ export function commitAnchorDrag(app, dragShape, beforeState, anchorWireStates =
         return true;
     }
 
-    if (app.drag?.pathSplit && app.drag.shape === dragShape) {
+    if (getSchematicDrag(app)?.pathSplit && getSchematicDrag(app).shape === dragShape) {
         const after = dragShape.captureState();
-        const remainder = app.drag.splitRemainder;
+        const remainder = getSchematicDrag(app).splitRemainder;
         cancelSchematicPathSplit(app);
         dragShape.applyState(beforeState);
         const batch = new BatchCommand('Split shape');

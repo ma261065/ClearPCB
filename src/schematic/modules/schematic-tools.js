@@ -19,10 +19,11 @@ import {
     startWireDrawing, updateSnapHighlight, updateWireDrawing,
 } from './wire.js';
 import {
-    addLinePoint, addPolygonPoint, finishDrawing, finishLine, finishPolygon, shapeDrawingClick, startDrawing, updateDrawing,
+    addLinePoint, addPolygonPoint, finishDrawing, finishLine, finishPolygon, isSchematicDrawingActive, shapeDrawingClick, startDrawing, updateDrawing,
 } from './drawing.js';
 import { resolveLabelAttachTarget, resolvePinSnapPlacement, setDrawSnapResult, updateToolCrosshair } from './draw-states.js';
 import { normalizeNetOrientation, normalizeNetStyle } from '../../shapes/net.js';
+import { isPlacingComponent } from './components.js';
 
 /** @typedef {{screenPos: {x: number, y: number}, worldPos: {x: number, y: number}, snapped: {x: number, y: number}}} Positions */
 /**
@@ -108,7 +109,7 @@ function pinMarkerTool(id, name, key, onSelected, content) {
         press(app, _event, { worldPos }) {
             const { resolved, pos } = resolvePinSnapPlacement(app, worldPos);
             setDrawSnapResult(app, resolved);
-            if (!app.isDrawing) { startDrawing(app, pos); }
+            if (!isSchematicDrawingActive(app)) { startDrawing(app, pos); }
             else { finishDrawing(app, pos); }
             updateToolGhost(app, pos);
         },
@@ -223,7 +224,7 @@ export const SCHEMATIC_TOOLS = Object.freeze(Object.fromEntries(/** @type {Schem
             app.hideCrosshair();
         },
         hover(app) {
-            if (app.placingComponent) return false;
+            if (isPlacingComponent(app)) return false;
             app.hideCrosshair();
             return true;
         },
@@ -256,7 +257,7 @@ const activeTool = app => (Object.hasOwn(SCHEMATIC_TOOLS, app.currentTool) ? SCH
 export function pressSchematicTool(app, event, pos) {
     const tool = activeTool(app);
     if (tool?.press) { tool.press(app, event, pos); return; }
-    if (!app.isDrawing) { startDrawing(app, pos.snapped); app.interactionState = 'drawing'; }
+    if (!isSchematicDrawingActive(app)) { startDrawing(app, pos.snapped); app.interactionState = 'drawing'; }
     else { finishDrawing(app, pos.snapped); app.interactionState = 'toolActive'; }
 }
 
@@ -295,7 +296,7 @@ export function moveSchematicTool(app, event, pos, drawing) {
  */
 export function releaseSchematicTool(app, pos) {
     if (activeTool(app)?.multiClick) return;
-    if (app.isDrawing) {
+    if (isSchematicDrawingActive(app)) {
         finishDrawing(app, pos.snapped);
         app.interactionState = 'toolActive';
     }
@@ -317,7 +318,7 @@ export function finishSchematicDrawAtPointer(app, pos) {
  */
 export function finishSchematicDrawInPlace(app) {
     if (activeTool(app)?.finishInPlace?.(app)) return true;
-    if (app.isDrawing && app.drawCurrent) {
+    if (isSchematicDrawingActive(app) && app.drawCurrent) {
         finishDrawing(app, app.drawCurrent);
         return true;
     }

@@ -6,6 +6,7 @@ const {
     SCHEMATIC_TOOLS, SCHEMATIC_TOOL_KEYS, schematicToolTitle, pressSchematicTool, pressSchematicToolDrawing,
     moveSchematicTool, releaseSchematicTool, finishSchematicDrawAtPointer, finishSchematicDrawInPlace,
 } = await import('../../src/schematic/modules/schematic-tools.js');
+const { isSchematicDrawingActive } = await import('../../src/schematic/modules/drawing.js');
 
 // schematic-tools.js holds one entry per schematic tool; the mouse states, keyboard,
 // tool selection and ribbon all read it.
@@ -29,7 +30,7 @@ assert.deepEqual(Object.values(SCHEMATIC_TOOLS).filter(tool => tool.placesCompon
 function editor(tool) {
     const shapes = [];
     const app = {
-        currentTool: tool, interactionState: 'toolActive', isDrawing: false, shapes,
+        currentTool: tool, interactionState: 'toolActive', shapes,
         toolOptions: { color: '#ffffff', lineWidth: 0.25, fill: false, cornerRadius: 0 },
         viewport: { scale: 10, contentLayer: fakeElement('g'), svg: fakeElement('svg') },
         selection: { clearSelection() {}, select() {} },
@@ -45,12 +46,12 @@ const event = { button: 0, preventDefault() {} };
 {
     const app = editor('rect');
     pressSchematicTool(app, event, at(0, 0));
-    assert.equal(app.isDrawing, true);
+    assert.equal(isSchematicDrawingActive(app), true);
     moveSchematicTool(app, event, at(5, 5), true);
     releaseSchematicTool(app, at(5, 5));
-    assert.equal(app.isDrawing, true, 'a click-by-click draw survives the release');
+    assert.equal(isSchematicDrawingActive(app), true, 'a click-by-click draw survives the release');
     pressSchematicToolDrawing(app, event, at(10, 5));
-    assert.equal(app.isDrawing, false);
+    assert.equal(isSchematicDrawingActive(app), false);
     assert.equal(app.shapes.length, 1);
     assert.equal(app.shapes[0].closed, true);
 }
@@ -85,7 +86,7 @@ const event = { button: 0, preventDefault() {} };
     const app = editor('arc');
     pressSchematicTool(app, event, at(0, 0));
     assert.equal(finishSchematicDrawAtPointer(app, at(5, 5)), false);
-    assert.equal(app.isDrawing, true);
+    assert.equal(isSchematicDrawingActive(app), true);
 }
 // A tool without its own press (Component, before a placement) starts a draw that the release ends.
 {
@@ -93,7 +94,7 @@ const event = { button: 0, preventDefault() {} };
     pressSchematicTool(app, event, at(1, 1));
     assert.equal(app.interactionState, 'drawing');
     releaseSchematicTool(app, at(1, 1));
-    assert.equal(app.isDrawing, false);
+    assert.equal(isSchematicDrawingActive(app), false);
     assert.equal(app.interactionState, 'toolActive');
     assert.equal(app.shapes.length, 0, 'it draws nothing');
 }

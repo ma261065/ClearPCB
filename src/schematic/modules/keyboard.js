@@ -4,13 +4,14 @@ import { rotateNetOrientation } from '../../shapes/net.js';
 import { resolveWireSnapPosition, PIN_SNAP_TOL } from './wire.js';
 import { updateToolGhost } from './tool.js';
 import { ModalManager } from '../../core/ModalManager.js';
-import { flipComponentH, flipComponentV, rotateComponentRight } from './components.js';
-import { handleTextEditKey } from './text-edit.js';
-import { beginPastePreview, cutSelection } from './clipboard.js';
+import { flipComponentH, flipComponentV, isPlacingComponent, rotateComponentRight } from './components.js';
+import { handleTextEditKey, hasSchematicTextEdit } from './text-edit.js';
+import { beginPastePreview, cutSelection, isPastingClipboard } from './clipboard.js';
 import {
     canRunSchematicSelectionAction, runSchematicDeleteAction, runSchematicEscapeAction, runSchematicHistoryAction,
 } from './editor-actions.js';
 import { isSchematicLocked } from '../../shapes/lock-owner.js';
+import { isSchematicDrawingActive } from './drawing.js';
 
 
 /**
@@ -24,7 +25,7 @@ function canActOnSelection(app) {
 
 /** Flip the placing component / selected components horizontally. */
 function handleFlipHorizontal(app, e) {
-    if (!app.textEdit && app.placingComponent) {
+    if (!hasSchematicTextEdit(app) && isPlacingComponent(app)) {
         flipComponentH(app);
         e.preventDefault();
         return true;
@@ -39,7 +40,7 @@ function handleFlipHorizontal(app, e) {
 
 /** Flip the placing component / selected components vertically. */
 function handleFlipVertical(app, e) {
-    if (!app.textEdit && app.placingComponent) {
+    if (!hasSchematicTextEdit(app) && isPlacingComponent(app)) {
         flipComponentV(app);
         e.preventDefault();
         return;
@@ -56,7 +57,7 @@ function handleFlipVertical(app, e) {
  */
 function handleSpaceRotate(app, e) {
     // Rotate component while placing.
-    if (!app.textEdit && app.placingComponent) {
+    if (!hasSchematicTextEdit(app) && isPlacingComponent(app)) {
         rotateComponentRight(app);
         e.preventDefault();
         return;
@@ -68,7 +69,7 @@ function handleSpaceRotate(app, e) {
         return;
     }
     // Rotate Net orientation while the Net tool is active.
-    if (!app.textEdit && app.currentTool === 'net') {
+    if (!hasSchematicTextEdit(app) && app.currentTool === 'net') {
         const current = app.toolOptions?.netOrientation || 'E';
         app.updateToolOptions?.({ netOrientation: rotateNetOrientation(current) });
         const world = app.viewport.currentMouseWorld;
@@ -141,7 +142,7 @@ export function bindKeyboardShortcuts(app) {
         if (e.defaultPrevented && e.key !== 'Escape' && e.key !== 'Enter') return;
 
         // Text edit has absolute priority for Escape and Enter
-        if (app.textEdit) {
+        if (hasSchematicTextEdit(app)) {
             if (e.key === 'Escape' || e.key === 'Enter') {
                 if (app.handleTextEditKey && handleTextEditKey(app, e)) {
                     return;
@@ -219,7 +220,7 @@ export function bindKeyboardShortcuts(app) {
                     break;
                 }
                 case 'Enter':
-                    if (app.isDrawing) {
+                    if (isSchematicDrawingActive(app)) {
                         finishSchematicDrawInPlace(app);
                         e.preventDefault();
                     }
@@ -243,8 +244,8 @@ export function bindKeyboardShortcuts(app) {
                 case ' ':
                     if (e.target?.isContentEditable) break;
                     handleSpaceRotate(app, e);
-                    if (!e.defaultPrevented && !e.altKey && !app.textEdit && !app.placingComponent
-                        && !app.isDrawing && !app.pastingClipboard && !app.selection.getSelection().length
+                    if (!e.defaultPrevented && !e.altKey && !hasSchematicTextEdit(app) && !isPlacingComponent(app)
+                        && !isSchematicDrawingActive(app) && !isPastingClipboard(app) && !app.selection.getSelection().length
                         && !['INPUT', 'BUTTON'].includes(e.target?.tagName)) {
                         e.preventDefault();
                         app.fitToContent();
@@ -272,7 +273,7 @@ export function bindKeyboardShortcuts(app) {
                 case 'ArrowDown':
                 case 'ArrowLeft':
                 case 'ArrowRight': {
-                    if (app.textEdit) break;
+                    if (hasSchematicTextEdit(app)) break;
                     e.preventDefault();
                     const step = app.viewport.snapToGrid ? app.viewport.gridSize / 4 : 1;
                     let dx = 0, dy = 0;

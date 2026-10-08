@@ -20,6 +20,7 @@ const { ComponentPicker } = await import('../../src/components/ComponentPicker.j
 const { CommandHistory } = await import('../../src/core/CommandHistory.js');
 const { applyCommonProperty, mergeDescriptors: merge } = await import('../../src/schematic/modules/properties.js');
 const { copySelection, confirmPaste } = await import('../../src/schematic/modules/clipboard.js');
+const { setSchematicInteraction } = await import('../../src/schematic/modules/schematic-interactions.js');
 const { createComponentFromData, serializeDocument } = await import('../../src/schematic/modules/files.js');
 const { FileManager, readProjectFile } = await import('../../src/core/FileManager.js');
 const { validateProject } = await import('../../src/core/project-format.js');
@@ -174,12 +175,13 @@ assert.equal(preview._model3dViewer, undefined);
 
 let pasteCommand;
 const clipboardApp = {
-    ...app, components: [resistor], pastingClipboard: true, currentTool: 'select',
+    ...app, components: [resistor], currentTool: 'select',
     selection: { getSelection: () => [resistor], selectMultiple() {} },
     viewport: { getSnappedPosition: point => point, svg: new Element() },
     history: { execute(command) { pasteCommand = command; } },
     _generateReference: () => 'R2',
 };
+setSchematicInteraction(clipboardApp, 'pastingClipboard', true);
 copySelection(clipboardApp);
 resistor.packageId = '0805';
 confirmPaste(clipboardApp, { x: 20, y: 30 });

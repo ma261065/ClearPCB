@@ -1,11 +1,10 @@
 /**
  * Every in-progress schematic interaction, in cancellation
  * priority — the counterpart of pcb/modules/pcb-interactions.js, with the same
- * categories. Most slots stay on the editor; owner modules expose predicates for
- * WeakMap-owned slots. This table is the one list of them.
- * Their cancel handlers are in schematic-interaction-routing.js, keyed by the same
- * fields. `overlapCyclePress` is owned by draw-states.js; this registry observes
- * its public interaction state so it stays import-light and load-order safe.
+ * categories. This table is the one list of interaction slots. Pointer/cancel
+ * handlers are in schematic-interaction-routing.js, keyed by the same slots. The
+ * slot values live in this module's WeakMap store so snapshot/export guards can
+ * use predicates without depending on owner modules.
  *
  * category
  *   'gesture'  Pointer, inline or placement edit that must finish before another
@@ -18,32 +17,81 @@
  * `drag` covers anchor, segment and move drags and box selection; `interactionState`
  * says which. The Properties panel's live preview is the other edit that blocks
  * snapshots; properties.js owns it.
+ *
+ * Keep this module import-free. Owner modules expose intent APIs and are the only
+ * modules that write their slots.
  */
 export const SCHEMATIC_INTERACTIONS = Object.freeze([
-    { key: 'textEdit', category: 'gesture', blocksSnapshot: true },
-    { key: 'overlapCyclePress', category: 'gesture', blocksSnapshot: false, isActive: app => app.interactionState === 'overlapCycle' },
-    { key: 'drag', category: 'gesture', blocksSnapshot: true },
-    { key: 'pendingAnchorDrag', category: 'gesture', blocksSnapshot: true },
-    { key: 'isDrawing', category: 'drawing', blocksSnapshot: true },
-    { key: 'pastingClipboard', category: 'gesture', blocksSnapshot: true },
-    { key: 'placingComponent', category: 'gesture', blocksSnapshot: true },
+    { key: 'textEdit', category: 'gesture', blocksSnapshot: true, owner: 'text-edit.js' },
+    { key: 'overlapCyclePress', category: 'gesture', blocksSnapshot: false, owner: 'draw-states.js' },
+    { key: 'drag', category: 'gesture', blocksSnapshot: true, owner: 'drag.js' },
+    { key: 'pendingAnchorDrag', category: 'gesture', blocksSnapshot: true, owner: 'drag.js' },
+    { key: 'isDrawing', category: 'drawing', blocksSnapshot: true, owner: 'drawing.js' },
+    { key: 'pastingClipboard', category: 'gesture', blocksSnapshot: true, owner: 'clipboard.js' },
+    { key: 'placingComponent', category: 'gesture', blocksSnapshot: true, owner: 'components.js' },
 ].map(entry => Object.freeze(entry)));
 
+const INTERACTION_KEYS = new Set(SCHEMATIC_INTERACTIONS.map(entry => entry.key));
 const keysWhere = predicate => Object.freeze(SCHEMATIC_INTERACTIONS.filter(predicate).map(entry => entry.key));
 const ALL_KEYS = keysWhere(() => true);
 const GESTURE_KEYS = keysWhere(entry => entry.category === 'gesture');
 const DRAWING_KEYS = keysWhere(entry => entry.category === 'drawing');
 const SNAPSHOT_BLOCKING_KEYS = keysWhere(entry => entry.blocksSnapshot);
+const interactionState = new WeakMap();
 
+/** @param {any} app */
+function slotState(app) {
+    let state = interactionState.get(app);
+    if (!state) {
+        state = Object.create(null);
+        interactionState.set(app, state);
+    }
+    return state;
+}
+
+function assertInteractionKey(key) {
+    if (!INTERACTION_KEYS.has(key)) throw new Error(`Unknown schematic interaction slot ${key}.`);
+}
+
+/**
+ * Return one schematic interaction slot's value, or null when inactive.
+ * @param {any} app
+ * @param {string} key
+ * @returns {any}
+ */
+export function getSchematicInteraction(app, key) {
+    assertInteractionKey(key);
+    return interactionState.get(app)?.[key] || null;
+}
+
+/**
+ * Set one schematic interaction slot. Passing null/undefined/false clears it.
+ * @param {any} app
+ * @param {string} key
+ * @param {any} value
+ */
+export function setSchematicInteraction(app, key, value) {
+    assertInteractionKey(key);
+    const state = slotState(app);
+    if (value) {
+        state[key] = value;
+    } else {
+        delete state[key];
+    }
+}
+
+/**
+ * @param {any} app
+ * @param {string} key
+ */
 export function schematicInteractionActive(app, key) {
-    const entry = SCHEMATIC_INTERACTIONS.find(item => item.key === key);
-    return entry.isActive ? entry.isActive(app) : app[key];
+    return !!getSchematicInteraction(app, key);
 }
 
 const anyActive = (app, keys) => {
-    for (const key of keys) {
-        if (schematicInteractionActive(app, key)) return true;
-    }
+    const state = interactionState.get(app);
+    if (!state) return false;
+    for (const key of keys) if (state[key]) return true;
     return false;
 };
 

@@ -15,6 +15,7 @@ import { hasOwnLock, isSchematicLocked } from '../../shapes/lock-owner.js';
 import { runSchematicDeleteAction } from './editor-actions.js';
 import { getShapeNodeFocus, getShapeSegmentFocus, setShapeNodeFocus, setShapeSegmentFocus } from './shape-focus.js';
 import { renderSchematicPropertyPanel } from './property-host.js';
+import { getSchematicTextEdit } from './text-edit.js';
 
 /** @typedef {import('../../shared/ui/property-fields.js').PropertyField} PropertyField */
 /** @typedef {import('../../shared/ui/property-fields.js').PropertyPanel} PropertyPanel */
@@ -321,7 +322,7 @@ function createNumberField(app, selection, desc, context) {
             },
             redraw: () => redrawPropertyPreview(selection, { renderScene: () => {
                 app.renderShapes(false);
-                if (key === 'rotation' && affected.includes(app.textEdit?.shape)) app.updateTextEditOverlay?.();
+                if (key === 'rotation' && affected.includes(getSchematicTextEdit(app)?.shape)) app.updateTextEditOverlay?.();
             } }),
             commit: (before, after, { rebuild = true } = {}) => {
                 let structureChanged = false;
@@ -350,7 +351,7 @@ function createNumberField(app, selection, desc, context) {
                         && Math.abs(selectedSegment.shape.getEdgeAttr(selectedSegment.edgeId, 'bulge') || 0) < BULGE_EPS);
                 } else {
                     app.history.execute(new ModifyPropertyCommand(app, affected, key, after[0]));
-                    if (['fontSize', 'rotation'].includes(key) && affected.includes(app.textEdit?.shape)) app.updateTextEditOverlay?.();
+                    if (['fontSize', 'rotation'].includes(key) && affected.includes(getSchematicTextEdit(app)?.shape)) app.updateTextEditOverlay?.();
                 }
                 app.fileManager.setDirty(true);
                 if (!structureChanged && !rebuild) refresh();
@@ -684,7 +685,8 @@ export function applyCommonProperty(app, prop, value) {
 
     app.fileManager.setDirty(true);
     app.updatePropertiesPanel(selection);
-    if (prop === 'fontSize' && app.textEdit?.shape && selection.includes(app.textEdit.shape)) {
+    const textEdit = getSchematicTextEdit(app);
+    if (prop === 'fontSize' && textEdit?.shape && selection.includes(textEdit.shape)) {
         app.updateTextEditOverlay?.();
     }
     if (prop === 'locked' && value) app.endTextEdit?.(true);

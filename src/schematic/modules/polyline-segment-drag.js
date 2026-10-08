@@ -3,6 +3,8 @@ import { snapShapeTranslation, renderShapeAlignment } from './shape-snap.js';
 import { pathSegmentConstraints } from '../../shapes/path-snap.js';
 import { captureShapeState } from './selection.js';
 import { getShapeSegmentFocus, setShapeSegmentFocus } from './shape-focus.js';
+import { getDidSchematicDrag, setDidSchematicDrag } from './draw-states.js';
+import { getSchematicDrag, setSchematicDrag } from './drag.js';
 
 export function tryBeginPolylineSegmentDrag(app, shape, worldPos, allowSegment, tolerance) {
     if (!allowSegment || shape?.type !== 'polyline'
@@ -13,39 +15,40 @@ export function tryBeginPolylineSegmentDrag(app, shape, worldPos, allowSegment, 
     if (selectedSegment?.shapeId === shape.id && selectedSegment.edgeId !== edgeId) return false;
     setShapeSegmentFocus(app, { shapeId: shape.id, edgeId });
     app.updateShapeSelectionTip?.();
-    app.drag = {
+    setSchematicDrag(app, {
         mode: 'segment',
         shape,
         edgeId,
         beforeState: captureShapeState(app, shape),
         startWorldPos: { ...worldPos },
-    };
+    });
     app.interactionState = 'segmentDrag';
     return true;
 }
 
 export function updatePolylineSegmentDrag(app, worldPos) {
-    const shape = app.drag?.shape;
-    const edgeId = app.drag?.edgeId;
-    const originalEdge = app.drag?.beforeState?.edges?.[edgeId];
-    const first = originalEdge ? app.drag.beforeState.nodes?.[originalEdge.from] : null;
-    const second = originalEdge ? app.drag.beforeState.nodes?.[originalEdge.to] : null;
+    const drag = getSchematicDrag(app);
+    const shape = drag?.shape;
+    const edgeId = drag?.edgeId;
+    const originalEdge = drag?.beforeState?.edges?.[edgeId];
+    const first = originalEdge ? drag.beforeState.nodes?.[originalEdge.from] : null;
+    const second = originalEdge ? drag.beforeState.nodes?.[originalEdge.to] : null;
     if (!shape || shape.type !== 'polyline' || !first || !second) return false;
     const nodeIds = [originalEdge.from, originalEdge.to];
     const path = shape.toEditablePath();
     const segment = path ? Object.values(path.edgeIds).indexOf(edgeId) : -1;
     const constraints = path ? pathSegmentConstraints(
-        Object.values(path.nodeIds).map(id => app.drag.beforeState.nodes[id]), shape.closed,
+        Object.values(path.nodeIds).map(id => drag.beforeState.nodes[id]), shape.closed,
         segment, path.segmentBulges).map(constraint => ({ ...constraint,
             index: nodeIds.indexOf(path.nodeIds[(segment + constraint.index) % path.points.length]),
         }))
         : nodeIds.map((nodeId, index) => ({ index,
-        neighbours: Object.entries(app.drag.beforeState.edges).filter(([id, edge]) => id !== edgeId
+        neighbours: Object.entries(drag.beforeState.edges).filter(([id, edge]) => id !== edgeId
             && (edge.from === nodeId || edge.to === nodeId)).map(([, edge]) =>
-            app.drag.beforeState.nodes[edge.from === nodeId ? edge.to : edge.from]),
+            drag.beforeState.nodes[edge.from === nodeId ? edge.to : edge.from]),
     }));
     const delta = snapShapeTranslation(app, [first, second], {
-        x: worldPos.x - app.drag.startWorldPos.x, y: worldPos.y - app.drag.startWorldPos.y,
+        x: worldPos.x - drag.startWorldPos.x, y: worldPos.y - drag.startWorldPos.y,
     }, [], constraints);
     const dx = delta.x;
     const dy = delta.y;
@@ -59,6 +62,6 @@ export function updatePolylineSegmentDrag(app, worldPos) {
     shape.isRect = shape.isAxisAlignedRect();
     shape.invalidate();
     renderShapeAlignment(app, shape, nodeIds, [edgeId]);
-    app.didDrag = dx !== 0 || dy !== 0;
-    return app.didDrag;
+    setDidSchematicDrag(app, dx !== 0 || dy !== 0);
+    return getDidSchematicDrag(app);
 }

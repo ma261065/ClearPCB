@@ -4,6 +4,7 @@ import { cancelSchematicInteractions } from './schematic-interaction-routing.js'
 import { normalizeNetStyle } from '../../shapes/net.js';
 import { removeToolGhost } from './tool-ghost.js';
 import { SCHEMATIC_TOOLS } from './schematic-tools.js';
+import { isPlacingComponent } from './components.js';
 export { getToolGhost } from './tool-ghost.js';
 export { updateToolGhost } from './tool-ghost.js';
 
@@ -89,7 +90,7 @@ export function onToolSelected(app, tool) {
     }
 
     const entry = Object.hasOwn(SCHEMATIC_TOOLS, tool) ? SCHEMATIC_TOOLS[tool] : null;
-    if (!entry?.placesComponents && app.placingComponent) {
+    if (!entry?.placesComponents && isPlacingComponent(app)) {
         app.cancelComponentPlacement();
     }
 

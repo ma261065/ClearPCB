@@ -6,6 +6,7 @@ import { Wire } from '../../src/shapes/wire.js';
 import { Arc } from '../../src/shapes/arc.js';
 import { viewOf } from '../../src/schematic/render/shape-view-state.js';
 import { getShapeNodeFocus, getShapeSegmentFocus, setShapeNodeFocus, setShapeSegmentFocus } from '../../src/schematic/modules/shape-focus.js';
+import { getSchematicDrag } from '../../src/schematic/modules/drag.js';
 import { fakeElement, installFakeDom } from './helpers/fake-dom.mjs';
 
 function element(tag = 'div') {
@@ -250,7 +251,7 @@ for (const split of [false, true]) {
     const app = fixture(shape);
     const before = shape.captureState();
     if (split) splitAnchorAndDrag(app, shape, 'n1', 0, 0);
-    setShapeNodeFocus(app, { shapeId: shape.id, nodeId: split ? app.drag.anchorId : 'n1' });
+    setShapeNodeFocus(app, { shapeId: shape.id, nodeId: split ? getSchematicDrag(app).anchorId : 'n1' });
     app._onSelectionChanged(app.selection.getSelection());
     app.renderShapes(true);
     const tip = document.getElementById('schematicStatusTip');
@@ -266,7 +267,7 @@ for (const split of [false, true]) {
     assert.deepEqual(app.shapes, [shape]);
     assert.equal(app.history.undoStack.length, split ? 0 : 1);
     if (split) {
-        assert.equal(app.drag, null);
+        assert.equal(getSchematicDrag(app), null);
         assert.equal(app.interactionState, 'idle');
         assert.equal(app.crosshairVisible, false);
     } else {

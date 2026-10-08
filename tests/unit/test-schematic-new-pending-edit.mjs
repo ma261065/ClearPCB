@@ -12,6 +12,9 @@ document.createElementNS = (_namespace, tag) => element(tag);
 const { default: SchematicApp } = await import('../../src/ui/SchematicApp.js');
 const { copySelection, beginPastePreview } = await import('../../src/schematic/modules/clipboard.js');
 const { newFile } = await import('../../src/schematic/modules/files.js');
+const { setSchematicDrawingActive } = await import('../../src/schematic/modules/drawing.js');
+const { setPendingAnchorDrag, setSchematicDrag } = await import('../../src/schematic/modules/drag.js');
+const { setSchematicInteraction } = await import('../../src/schematic/modules/schematic-interactions.js');
 
 function fixture() {
     const project = new ProjectDocument();
@@ -50,21 +53,21 @@ for (const mode of ['paste', 'drawing', 'wire', 'component', 'anchor', 'pending'
         beginPastePreview(app);
     } else if (mode === 'drawing' || mode === 'wire') {
         app.currentTool = mode === 'wire' ? 'wire' : 'circle';
-        app.isDrawing = true;
+        setSchematicDrawingActive(app, true);
         app.interactionState = 'drawing';
         app.previewElement = element();
         app.viewport.contentLayer.appendChild(app.previewElement);
     } else if (mode === 'component') {
         app.currentTool = 'component';
-        app.placingComponent = {};
+        setSchematicInteraction(app, 'placingComponent', {});
         app.componentPreview = element();
         app.viewport.contentLayer.appendChild(app.componentPreview);
     } else {
         const beforeState = shape.captureState();
         if (mode === 'anchor') {
-            app.drag = { shape, beforeState };
+            setSchematicDrag(app, { shape, beforeState });
             app.interactionState = 'anchorDrag';
-        } else app.pendingAnchorDrag = { shape, preInsertState: beforeState };
+        } else setPendingAnchorDrag(app, { shape, preInsertState: beforeState });
         shape.move(4, 5);
     }
     assert.equal(project.canSerialize(), false, `${mode}: pending edit blocks save before New`);

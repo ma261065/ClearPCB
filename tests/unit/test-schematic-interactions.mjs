@@ -1,5 +1,7 @@
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
+import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { installFakeDom } from './helpers/fake-dom.mjs';
 
 const noop = () => {};
@@ -10,15 +12,15 @@ globalThis.window.removeEventListener = noop;
 const { default: SchematicApp } = await import('../../src/ui/SchematicApp.js');
 const {
     SCHEMATIC_INTERACTIONS, hasSchematicGesture, isSchematicDrawing, hasSchematicInteraction, blocksSchematicSnapshot,
-    activeSchematicInteraction,
+    activeSchematicInteraction, getSchematicInteraction, setSchematicInteraction,
 } = await import('../../src/schematic/modules/schematic-interactions.js');
 const {
     SCHEMATIC_CANCEL_ROUTES, SCHEMATIC_POINTER_GESTURES, SCHEMATIC_MODAL_GESTURES, cancelSchematicInteraction,
     cancelSchematicInteractions,
 } = await import('../../src/schematic/modules/schematic-interaction-routing.js');
 const { canRunSchematicSelectionAction, runSchematicDeleteAction } = await import('../../src/schematic/modules/editor-actions.js');
-const { captureMoveDragStates } = await import('../../src/schematic/modules/drag.js');
-const { resolveState, setOverlapCyclePress } = await import('../../src/schematic/modules/draw-states.js');
+const { captureMoveDragStates, getSchematicDrag, setSchematicDrag } = await import('../../src/schematic/modules/drag.js');
+const { resolveState, setDidSchematicDrag, setOverlapCyclePress } = await import('../../src/schematic/modules/draw-states.js');
 const { importSpecifiers } = await import('../../tools/check-imports.mjs');
 const { createRect } = await import('../../src/shapes/polyline.js');
 const { Wire } = await import('../../src/shapes/wire.js');
@@ -26,14 +28,35 @@ const { Text } = await import('../../src/shapes/text.js');
 const { CommandHistory } = await import('../../src/core/CommandHistory.js');
 
 const keys = SCHEMATIC_INTERACTIONS.map(entry => entry.key);
+const root = fileURLToPath(new URL('../../', import.meta.url));
 
-// The table: unique keys, PCB's two categories, import-free like pcb-interactions.js.
+// The table: unique keys, PCB's two categories and explicit owners.
 assert.equal(new Set(keys).size, keys.length);
 for (const entry of SCHEMATIC_INTERACTIONS) {
     assert.ok(['gesture', 'drawing'].includes(entry.category), `${entry.key} has a PCB category`);
     assert.equal(typeof entry.blocksSnapshot, 'boolean');
+    assert.equal(typeof entry.owner, 'string', `${entry.key} has an owner module`);
 }
 assert.deepEqual(importSpecifiers(readFileSync(new URL('../../src/schematic/modules/schematic-interactions.js', import.meta.url), 'utf8')), []);
+
+// Every registered slot stays off the editor object and is written only by its owner module.
+const schematicSources = [
+    ...readdirSync(join(root, 'src/schematic/modules')).filter(name => name.endsWith('.js')).map(name => join(root, 'src/schematic/modules', name)),
+    join(root, 'src/ui/SchematicApp.js'),
+];
+for (const file of schematicSources) {
+    const basename = file.split(/[\\/]/).at(-1);
+    const source = readFileSync(file, 'utf8');
+    for (const key of keys) {
+        assert.doesNotMatch(source, new RegExp(`\\b(?:app|this)\\.${key}\\s*=`),
+            `${key} must be stored through its owner, not assigned on ${basename}`);
+    }
+    for (const match of source.matchAll(/\bsetSchematicInteraction\(\s*app\s*,\s*['"]([^'"]+)['"]/g)) {
+        const entry = SCHEMATIC_INTERACTIONS.find(item => item.key === match[1]);
+        assert.ok(entry, `${basename} writes unknown interaction ${match[1]}`);
+        assert.equal(basename, entry.owner, `${match[1]} may only be written by ${entry.owner}`);
+    }
+}
 
 // Every interaction has a cancel route; history groups partition the table.
 assert.deepEqual([...SCHEMATIC_CANCEL_ROUTES], keys, 'Each table entry has a cancel handler, in table order');
@@ -42,7 +65,11 @@ assert.deepEqual([...SCHEMATIC_POINTER_GESTURES, ...SCHEMATIC_MODAL_GESTURES, ..
 assert.equal(SCHEMATIC_POINTER_GESTURES.filter(key => SCHEMATIC_MODAL_GESTURES.includes(key)).length, 0);
 
 // interactionState is derived from the same fields.
-const stateFor = fields => resolveState({ currentTool: 'select', ...fields });
+const stateFor = fields => {
+    const app = { currentTool: 'select' };
+    for (const [key, value] of Object.entries(fields)) setSchematicInteraction(app, key, value);
+    return resolveState(app);
+};
 assert.equal(stateFor({ pastingClipboard: true }), 'placing');
 assert.equal(stateFor({ placingComponent: {} }), 'placing');
 assert.equal(stateFor({ isDrawing: true }), 'drawing');
@@ -55,7 +82,7 @@ const stateOf = { drag: 'moveDrag', isDrawing: 'drawing', pastingClipboard: 'pla
 for (const entry of SCHEMATIC_INTERACTIONS) {
     const app = Object.create(SchematicApp.prototype);
     if (entry.key === 'overlapCyclePress') setOverlapCyclePress(app, {});
-    else app[entry.key] = entry.key === 'drag' ? { mode: 'move' } : {};
+    else setSchematicInteraction(app, entry.key, entry.key === 'drag' ? { mode: 'move' } : {});
     app.interactionState = stateOf[entry.key] || 'idle';
     assert.equal(app.isSectionEditing(), entry.blocksSnapshot, `${entry.key}: save guard`);
     assert.equal(blocksSchematicSnapshot(app), entry.blocksSnapshot);
@@ -81,10 +108,12 @@ function moveDragFixture() {
     let renders = 0;
     const app = {
         shapes: [rect, label, wire, other], components: [], history: new CommandHistory(),
-        interactionState: 'moveDrag', drag: { mode: 'move', totalDx: 0, totalDy: 0 }, didDrag: true,
+        interactionState: 'moveDrag',
         viewport: { svg: { style: {} } }, removeBoxSelectElement: noop, renderShapes: () => { renders++; },
         selection: { getSelection: () => [rect] },
     };
+    setSchematicDrag(app, { mode: 'move', totalDx: 0, totalDy: 0 });
+    setDidSchematicDrag(app, true);
     return { app, rect, label, wire, other, renders: () => renders };
 }
 const snapshot = shapes => JSON.stringify(shapes.map(shape => shape.captureState()));
@@ -93,9 +122,9 @@ const snapshot = shapes => JSON.stringify(shapes.map(shape => shape.captureState
 for (const route of ['one', 'all']) {
     const { app, rect, label, wire, other, renders } = moveDragFixture();
     const before = snapshot(app.shapes);
-    app.drag.restoreStates = captureMoveDragStates(app, [rect]);
-    assert.ok(app.drag.restoreStates.has(label) && app.drag.restoreStates.has(wire), 'Snapshot covers labels and wires');
-    assert.equal(app.drag.restoreStates.has(other), false, 'Unrelated shapes are not copied');
+    getSchematicDrag(app).restoreStates = captureMoveDragStates(app, [rect]);
+    assert.ok(getSchematicDrag(app).restoreStates.has(label) && getSchematicDrag(app).restoreStates.has(wire), 'Snapshot covers labels and wires');
+    assert.equal(getSchematicDrag(app).restoreStates.has(other), false, 'Unrelated shapes are not copied');
     rect.move(5, 4); label.move(5, 4);
     wire.nodes.get([...wire.nodes.keys()][0]).x += 5;
     assert.notEqual(snapshot(app.shapes), before);
@@ -103,7 +132,7 @@ for (const route of ['one', 'all']) {
     assert.deepEqual(route === 'one' ? [cancelled] : cancelled, ['drag']);
     assert.equal(snapshot(app.shapes), before, `${route}: authored shapes are back where they were`);
     assert.equal(app.history.undoStack.length, 0);
-    assert.equal(app.drag, null);
+    assert.equal(getSchematicDrag(app), null);
     assert.equal(app.interactionState, 'idle');
     assert.equal(renders(), 1, 'One redraw for the whole restore');
 }

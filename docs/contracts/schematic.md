@@ -31,8 +31,11 @@ In-progress interactions follow the PCB editor's contract.
 cancellation priority, with PCB's categories (`gesture`, `drawing`) and a
 `blocksSnapshot` flag: inline text edit, the WeakMap-owned `overlapCyclePress`
 slot, drag (anchor, segment and move drags and box selection), pending midpoint
-split, drawing, paste and component placement. `schematic-interaction-routing.js`
-holds each one's cancel handler. Everything that needs to know what is in
+split, drawing, paste and component placement. Each slot value lives in the
+registry's import-free WeakMap and has one writer owner:
+`text-edit.js`, `draw-states.js`, `drag.js`, `drawing.js`, `clipboard.js` or
+`components.js`. `schematic-interaction-routing.js` holds each one's cancel
+handler. Everything that needs to know what is in
 progress derives from the table:
 the snapshot guard (`SchematicApp.isSectionEditing()`, with the Properties live
 preview), Escape (cancels the highest-priority interaction), Undo/Redo (drawing
@@ -42,8 +45,11 @@ are cancelled and history still steps, as in the PCB editor), tool switching
 (cancels everything) and selection actions (delete, cut, paste, nudge, flip,
 rotate, select all wait while anything is in progress). `interactionState` in
 `draw-states.js` still drives pointer dispatch; `resolveState()` derives it from
-the same editor fields and owner-module predicates. `test-schematic-interactions`
-checks the table, routes and guards.
+the same registry store and owner-module predicates. Other modules read through
+owner intent APIs such as `getSchematicDrag`, `getPendingAnchorDrag`,
+`isSchematicDrawingActive`, `isPastingClipboard`, `getPlacingComponent` and
+`getSchematicTextEdit`. `test-schematic-interactions` checks the table, routes,
+guards and owner-only slot writes.
 
 Each schematic tool is one entry in `SCHEMATIC_TOOLS` (`schematic-tools.js`), as each
 PCB tool is in `pcb-tools.js`: its name, shortcut and ribbon label, what selecting it
@@ -57,13 +63,13 @@ the keyboard shortcuts, `onToolSelected` and the ribbon's tool buttons all read 
 entry (`test-schematic-tools`).
 
 Transient schematic state is owned where it is used rather than on `SchematicApp`:
-`draw-states.js` keeps pending segment toggles and drag scratch buffers,
-`drawing.js` keeps one-shot draw snap data, `wire.js` keeps wire axis-lock and
-junction highlight state, `components.js` keeps component tooltip and placement
-preview state, `ribbon.js` keeps tab/height/toast handlers, `mouse.js` keeps
-right-click pan tracking, `tool-ghost.js` keeps tool ghosts, `label-attachment.js` keeps
-the label guide, and `schematic-view.js` keeps the refined segment-selection
-overlay.
+`draw-states.js` keeps pending segment toggles, drag-click flags and drag scratch
+buffers, `drawing.js` keeps one-shot draw snap data, `wire.js` keeps wire
+axis-lock and junction highlight state, `components.js` keeps component tooltip
+and placement preview state, `ribbon.js` keeps tab/height/toast handlers,
+`mouse.js` keeps right-click pan tracking, `tool-ghost.js` keeps tool ghosts,
+`label-attachment.js` keeps the label guide, and `schematic-view.js` keeps the
+refined segment-selection overlay.
 
 The mechanism behind a preview differs from the PCB editor's on purpose. PCB
 previews edit detached copies because pours, DRC, ratsnest and the 3D view would

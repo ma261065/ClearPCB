@@ -8,6 +8,8 @@ import '../../src/pcb/modules/component-selection.js';
 import { drawRefOverlay, refreshRefHighlight, tryEditReferenceAt } from '../../src/pcb/modules/ref-text-selection.js';
 import { activeTextInlineEdit } from '../../src/pcb/modules/text-inline-edit.js';
 import { setPcbInteraction } from '../../src/pcb/modules/pcb-interactions.js';
+import { getPendingAnchorDrag, setPendingAnchorDrag } from '../../src/schematic/modules/drag.js';
+import { setSchematicInteraction } from '../../src/schematic/modules/schematic-interactions.js';
 import { fakeElement, installFakeDom } from './helpers/fake-dom.mjs';
 
 const near = (actual, expected) => assert.ok(Math.abs(Number(actual) - expected) < 1e-9,
@@ -289,7 +291,6 @@ let selectedForEdit = null;
 let startedEdit = null;
 let caretScreenPos = null;
 const schematicEditApp = {
-    textEdit: null,
     selection: {
         hitTest(point, all) {
             return all ? [editableReference, selectedComponent] : selectedComponent;
@@ -297,11 +298,11 @@ const schematicEditApp = {
         select(shape) { selectedForEdit = shape; },
     },
     renderShapes() {},
-    pendingAnchorDrag: {},
     startTextEdit(shape) { startedEdit = shape; },
     setTextEditCaretFromScreen(point) { caretScreenPos = point; },
     viewport: { _onTitleBlockDblClick() { throw new Error('Unexpected title block edit'); } },
 };
+setPendingAnchorDrag(schematicEditApp, {});
 let prevented = false;
 idleState.mousedown(schematicEditApp, {
     button: 0,
@@ -320,7 +321,7 @@ assert.equal(selectedForEdit, editableReference);
 assert.equal(startedEdit, editableReference,
     'Second mouse press must start editing before schematic drag handling');
 assert.deepEqual(caretScreenPos, { x: 100, y: 200 });
-assert.equal(schematicEditApp.pendingAnchorDrag, null);
+assert.equal(getPendingAnchorDrag(schematicEditApp), null);
 assert.equal(prevented, true);
 
 selectedForEdit = null;
@@ -400,10 +401,10 @@ for (const rotation of [0, 37, 90]) for (const mirrored of [false, true]) {
     assert.equal(getLabelGuideElement(guideApp), null, 'Reference inside the outline needs no connection');
     center = toWorld(12, 0);
     selected = [];
-    guideApp.textEdit = { shape: reference };
+    setSchematicInteraction(guideApp, 'textEdit', { shape: reference });
     updateLabelGuide(guideApp);
     assert.ok(getLabelGuideElement(guideApp), 'Inline editing uses the same renderer');
-    guideApp.textEdit = null;
+    setSchematicInteraction(guideApp, 'textEdit', null);
     updateLabelGuide(guideApp);
     assert.equal(guideLayer.children.length, 0, 'Deselecting clears the guide');
 

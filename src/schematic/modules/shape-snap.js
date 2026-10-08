@@ -5,6 +5,7 @@ import { axisAlignment, pathAlignmentSegments, renderAxisGlow, squareAlignmentSe
 import { bulgeRatio } from '../../core/geometry.js';
 import { BULGE_EPS } from '../../shapes/arc-edge.js';
 import { snapArcBulgeToChord } from '../../shapes/arc-edit.js';
+import { isSchematicDrawingActive } from './drawing.js';
 
 export function snapShapeBulge(app, shape, anchorId, point) {
     const edge = shape.type === 'polyline' ? shape.edges.get(anchorId.slice(6)) : null;
@@ -79,10 +80,10 @@ export function shapeContinuationConstraints(shape, anchorId) {
 
 export function snapShapeDrawingPoint(app, point) {
     if (app.currentTool === 'arc' && app.arcEndpoint) return point;
-    const previous = !app.isDrawing ? null : app.currentTool === 'line' ? app.linePoints?.at(-1)
+    const previous = !isSchematicDrawingActive(app) ? null : app.currentTool === 'line' ? app.linePoints?.at(-1)
         : app.currentTool === 'polygon' ? app.polygonPoints?.at(-1) : app.drawStart;
     const points = app.currentTool === 'line' ? app.linePoints : app.currentTool === 'polygon' ? app.polygonPoints : null;
-    const continuations = app.isDrawing && points?.length
+    const continuations = isSchematicDrawingActive(app) && points?.length
         ? pathContinuationConstraints([...points, point], false, points.length) : [];
     return snapShapePoint(app, point, previous ? [previous] : [], continuations);
 }

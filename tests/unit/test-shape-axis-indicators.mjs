@@ -35,8 +35,8 @@ const { renderShapeAlignment, snapShapePoint, snapShapeBulge, shapeContinuationC
 const { resolvePathPoint, pathContinuationConstraints, resolvePathTranslation, pathSegmentConstraints } = await import('../../src/shapes/path-snap.js');
 const { snapPathPoint } = await import('../../src/pcb/modules/path-edit.js');
 const { updatePolylineSegmentDrag } = await import('../../src/schematic/modules/polyline-segment-drag.js');
-const { clearDragState } = await import('../../src/schematic/modules/drag.js');
-const { updatePreview, cancelDrawing } = await import('../../src/schematic/modules/drawing.js');
+const { clearDragState, setSchematicDrag } = await import('../../src/schematic/modules/drag.js');
+const { updatePreview, cancelDrawing, setSchematicDrawingActive } = await import('../../src/schematic/modules/drawing.js');
 const { renderShapes } = await import('../../src/schematic/modules/schematic-view.js');
 
 let failures = 0;
@@ -462,7 +462,8 @@ for (const end of [{ x: 10, y: 0 }, { x: 0, y: 10 }, { x: 10, y: 10 }]) {
     const shape = createLine({ points: [{ x: 0, y: 0 }, { x: 0, y: 10 }, { x: 10, y: 10 }, { x: 10, y: 0 }] });
     const edgeId = shape.getOrderedEdgeChain()[1].edgeId;
     const app = { components: [], shapes: [shape], viewport: { scale: 20, contentLayer: element('g'), gridVisible: false },
-        drag: { shape, edgeId, beforeState: shape.captureState(), startWorldPos: { x: 5, y: 10 } } };
+    };
+    setSchematicDrag(app, { shape, edgeId, beforeState: shape.captureState(), startWorldPos: { x: 5, y: 10 } });
     updatePolylineSegmentDrag(app, { x: 5, y: 12 });
     expect('schematic segment dragging renders only adjoining alignment indicators', app._axisGlowResolved.length === 2
         && app._axisGlowResolved.every(({ segment }) => segment.axisKind === 'v'));
@@ -472,10 +473,11 @@ for (const end of [{ x: 10, y: 0 }, { x: 0, y: 10 }, { x: 10, y: 10 }]) {
 }
 
 {
-    const app = { currentTool: 'line', isDrawing: true, linePoints: [{ x: 0, y: 0 }, { x: 10, y: 0 }],
+    const app = { currentTool: 'line', linePoints: [{ x: 0, y: 0 }, { x: 10, y: 0 }],
         drawStart: { x: 0, y: 0 }, drawCurrent: { x: 20, y: 0 }, previewElement: element('g'),
         viewport: { scale: 20, contentLayer: element('g'), svg: element('svg') },
         toolOptions: { lineWidth: 0.2, color: '#ffffff' }, hideCrosshair() {}, setToolCursor() {} };
+    setSchematicDrawingActive(app, true);
     updatePreview(app);
     expect('schematic drawing preview displays collinear continuation', app._axisGlowResolved.length === 2
         && app._axisGlowResolved.every(({ segment }) => segment.collinear));
@@ -553,9 +555,10 @@ for (const [name, edge, collinear, axisKind] of [
 }
 
 {
-    const app = { currentTool: 'rect', isDrawing: true, drawStart: { x: 0, y: 0 }, drawCurrent: { x: 10, y: 10 },
+    const app = { currentTool: 'rect', drawStart: { x: 0, y: 0 }, drawCurrent: { x: 10, y: 10 },
         previewElement: element('g'), viewport: { scale: 20, contentLayer: element('g'), svg: element('svg') },
         toolOptions: { lineWidth: 0.2, color: '#ffffff' }, hideCrosshair() {}, setToolCursor() {} };
+    setSchematicDrawingActive(app, true);
     updatePreview(app);
     expect('square preview uses one shared outline', app._axisGlowResolved.length === 4
         && app._axisGlowResolved.every(({ segment }) => segment.square));
@@ -735,8 +738,9 @@ for (const index of [0, 2]) {
     const noFold = resolvePathPoint(folded, [points[1]], folded, 0.4, null, constraints);
     expect('continuation snapping does not fold an edge back over its neighbor', noFold.x === folded.x && noFold.y === folded.y);
     for (const kind of ['line', 'polygon']) {
-        const app = { currentTool: kind, isDrawing: true, linePoints: points.slice(0, 2), polygonPoints: points.slice(0, 2),
+        const app = { currentTool: kind, linePoints: points.slice(0, 2), polygonPoints: points.slice(0, 2),
             viewport: { scale: 20, shiftHeld: false, gridVisible: false } };
+        setSchematicDrawingActive(app, true);
         const snapped = snapShapeDrawingPoint(app, points[2]);
         expect(`schematic ${kind} drawing snaps to an oblique continuation`, Math.abs(snapped.y * 10 - snapped.x * 3) < 1e-9);
         app.viewport.shiftHeld = true;
@@ -769,8 +773,8 @@ for (const index of [0, 2]) {
         const edge = shape.edges.get(edgeId);
         if (reversed) [edge.from, edge.to] = [edge.to, edge.from];
         const app = { shapes: [shape], components: [], contentLayer: element('g'),
-            viewport: { scale: 100, gridVisible: false },
-            drag: { shape, edgeId, beforeState: shape.captureState(), startWorldPos: { x: 24, y: 10.5 } } };
+            viewport: { scale: 100, gridVisible: false } };
+        setSchematicDrag(app, { shape, edgeId, beforeState: shape.captureState(), startWorldPos: { x: 24, y: 10.5 } });
         updatePolylineSegmentDrag(app, { x: 24, y: 10.55 });
         expect(`schematic segment continuation handles reversed=${reversed}`, onContinuation(shape.nodes.get('n2')));
         app.viewport.shiftHeld = true;

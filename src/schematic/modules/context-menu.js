@@ -13,13 +13,14 @@ import { canDecomposeRoundedCorners, decomposeRoundedCorners } from '../../shape
 import { hasAny3DModel, openComponent3DFromData, buildComponent3DTitle } from '../../components/model3d-source.js';
 import { deletePathSegment, setPathSegmentType, collapseCollinearPath, splitPathAtNode } from '../../shapes/path-operations.js';
 import { BULGE_EPS, arcFromBulge } from '../../shapes/arc-edge.js';
-import { clearDragState, cancelSchematicPathSplit } from './drag.js';
+import { clearDragState, cancelSchematicPathSplit, getSchematicDrag, setSchematicDrag } from './drag.js';
 import { Polyline } from '../../shapes/polyline.js';
 import { Arc } from '../../shapes/arc.js';
 import { addShapeInternal } from './shape-management.js';
 import { applyShapeState, captureShapeState } from './selection.js';
 import { getShapeNodeFocus, getShapeSegmentFocus, setShapeNodeFocus, setShapeSegmentFocus } from './shape-focus.js';
 import { dismissContextMenu, showContextMenu } from '../../shared/ui/context-menu.js';
+import { setDidSchematicDrag } from './draw-states.js';
 
 function getWireSplitLabelMeta(wire) {
     const attached = wire.attachedLabels instanceof Set
@@ -259,7 +260,7 @@ export function deleteJunction(app, junctionInfo) {
     app.selection.clearSelection();
     app.selection.select(dragWire, false);
 
-    app.drag = {
+    setSchematicDrag(app, {
         mode: 'anchor',
         shape: dragWire,
         beforeState: dragBefore,
@@ -273,9 +274,9 @@ export function deleteJunction(app, junctionInfo) {
         ncLinks: [],
         junctionBeforeWireStates: preSplitWireStates,
         junctionBeforeLabelTextStates: preSplitLabelTextStates
-    };
+    });
     app.interactionState = 'anchorDrag';
-    app.didDrag = false;
+    setDidSchematicDrag(app, false);
 
     app.renderShapes(true);
     app.showCrosshair();
@@ -417,13 +418,14 @@ export function deleteFocusedSchematicShape(app) {
     const nodeId = getShapeNodeFocus(app)?.shapeId === shape.id ? getShapeNodeFocus(app).nodeId : null;
     const edgeId = getShapeSegmentFocus(app)?.shapeId === shape.id ? getShapeSegmentFocus(app).edgeId : null;
     if (!shape.nodes.has(nodeId) && !shape.edges.has(edgeId)) return false;
-    if (app.drag?.shape === shape) {
-        const splitting = !!app.drag.pathSplit;
+    const drag = getSchematicDrag(app);
+    if (drag?.shape === shape) {
+        const splitting = !!drag.pathSplit;
         cancelSchematicPathSplit(app);
-        if (app.drag.beforeState) shape.applyState(app.drag.beforeState);
+        if (drag.beforeState) shape.applyState(drag.beforeState);
         clearDragState(app);
         app.interactionState = 'idle';
-        app.didDrag = false;
+        setDidSchematicDrag(app, false);
         app.hideCrosshair?.();
         app.viewport.svg.style.cursor = '';
         if (splitting) {
@@ -460,14 +462,14 @@ export function splitAnchorAndDrag(app, shape, anchorId, clientX, clientY) {
         setShapeSegmentFocus(app, null);
         app.selection.clearSelection();
         app.selection.select(shape, false);
-        app.drag = {
+        setSchematicDrag(app, {
             mode: 'anchor', shape, beforeState, anchorId: shape.getOrderedNodeIds()[0],
             start: { ...pos }, startScreen: null, wireAnchorOriginal: { ...pos },
             tjLinks: [], wireStates: null, excludePin: null, ncLinks: [],
             pathSplit: true, splitRemainder: remainder,
-        };
+        });
         app.interactionState = 'anchorDrag';
-        app.didDrag = true;
+        setDidSchematicDrag(app, true);
         app.renderShapes(true);
         app.showCrosshair();
         app.updateCrosshair(pos);
@@ -507,7 +509,7 @@ export function splitAnchorAndDrag(app, shape, anchorId, clientX, clientY) {
     app.selection.clearSelection();
     app.selection.select(shape, false);
 
-    app.drag = {
+    setSchematicDrag(app, {
         mode: 'anchor',
         shape,
         beforeState,
@@ -521,9 +523,9 @@ export function splitAnchorAndDrag(app, shape, anchorId, clientX, clientY) {
         ncLinks: [],
         junctionBeforeWireStates: null,
         junctionBeforeLabelTextStates: null
-    };
+    });
     app.interactionState = 'anchorDrag';
-    app.didDrag = false;
+    setDidSchematicDrag(app, false);
 
     app.renderShapes(true);
     app.showCrosshair();
@@ -565,7 +567,7 @@ function disconnectPinAndDrag(app, wire, anchorId) {
     app.selection.clearSelection();
     app.selection.select(wire, false);
 
-    app.drag = {
+    setSchematicDrag(app, {
         mode: 'anchor',
         shape: wire,
         beforeState,
@@ -583,9 +585,9 @@ function disconnectPinAndDrag(app, wire, anchorId) {
         ncLinks,
         junctionBeforeWireStates: null,
         junctionBeforeLabelTextStates: null
-    };
+    });
     app.interactionState = 'anchorDrag';
-    app.didDrag = false;
+    setDidSchematicDrag(app, false);
 
     app.renderShapes(true);
     app.showCrosshair();
@@ -774,14 +776,14 @@ export function setSchematicShapeSegmentType(app, shape, edgeId, type, { floatin
         if (floating) {
             command.execute();
             const point = arc.bulgePoint;
-            app.drag = {
+            setSchematicDrag(app, {
                 mode: 'anchor', shape: arc, beforeState: arc.captureState(), anchorId: 'mid',
                 start: { ...point }, startScreen: null, wireAnchorOriginal: { ...point },
                 conversion: { command, original: shape },
                 tjLinks: [], wireStates: null, excludePin: null, ncLinks: [],
-            };
+            });
             app.interactionState = 'anchorDrag';
-            app.didDrag = true;
+            setDidSchematicDrag(app, true);
             app.showCrosshair?.();
             app.updateCrosshair?.(point);
             app.viewport.svg.style.cursor = 'move';
@@ -802,14 +804,14 @@ export function setSchematicShapeSegmentType(app, shape, edgeId, type, { floatin
         const edge = shape.edges.get(edgeId);
         const arc = arcFromBulge(shape.nodes.get(edge.from), shape.nodes.get(edge.to), edge.bulge);
         const point = arc.bulgePoint;
-        app.drag = {
+        setSchematicDrag(app, {
             mode: 'anchor', shape, beforeState: before, anchorId: `bulge_${edgeId}`,
             start: { ...point }, startScreen: null, wireAnchorOriginal: { ...point },
             tjLinks: [], wireStates: null, excludePin: null, ncLinks: [],
             junctionBeforeWireStates: null, junctionBeforeLabelTextStates: null,
-        };
+        });
         app.interactionState = 'anchorDrag';
-        app.didDrag = true;
+        setDidSchematicDrag(app, true);
         app.renderShapes(true);
         app.showCrosshair?.();
         app.updateCrosshair?.(point);
@@ -868,16 +870,16 @@ export function showLabelContextMenu(app, labelShape, clientX, clientY) {
                 };
                 const worldPos = app.viewport.screenToWorld(screenPos);
 
-                app.drag = {
+                setSchematicDrag(app, {
                     mode: 'move',
                     objectStartPos: { x: labelShape.x, y: labelShape.y },
                     lastSnapped: { x: labelShape.x, y: labelShape.y },
                     startWorldPos: { x: worldPos.x, y: worldPos.y },
                     totalDx: 0,
                     totalDy: 0
-                };
+                });
                 app.interactionState = 'moveDrag';
-                app.didDrag = false;
+                setDidSchematicDrag(app, false);
                 if (app.viewport?.svg) app.viewport.svg.style.cursor = 'move';
 
                 app.renderShapes(true);

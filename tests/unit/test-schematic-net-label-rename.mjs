@@ -2,7 +2,8 @@ import assert from 'node:assert/strict';
 import { installFakeDom } from './helpers/fake-dom.mjs';
 
 installFakeDom();
-const { endTextEdit } = await import('../../src/schematic/modules/text-edit.js');
+const { endTextEdit, getSchematicTextEdit } = await import('../../src/schematic/modules/text-edit.js');
+const { setSchematicInteraction } = await import('../../src/schematic/modules/schematic-interactions.js');
 const { CommandHistory } = await import('../../src/core/CommandHistory.js');
 
 const wireShape = (id, net, pinConnections = new Map()) => ({ id, type: 'wire', net, wireLabel: `W_${id}`,
@@ -23,7 +24,7 @@ function editor(shapes) {
 }
 /** Simulate typing a new value into an inline text edit and committing it. */
 function renameInline(app, text, value) {
-    app.textEdit = { shape: text, originalText: text.text, caretIndex: text.text.length };
+    setSchematicInteraction(app, 'textEdit', { shape: text, originalText: text.text, caretIndex: text.text.length });
     text.text = value;
     endTextEdit(app, true);
 }
@@ -39,7 +40,7 @@ function renameInline(app, text, value) {
     assert.equal(netLabel.net, 'NEW', 'The Net label adopts its edited text');
     assert.equal(wire.net, 'NEW', 'Attached wires follow the renamed Net label');
     assert.equal(unrelated.net, 'OTHER', 'Unattached wires keep their net');
-    assert.equal(app.textEdit, null);
+    assert.equal(getSchematicTextEdit(app), null);
     assert.ok(app.panelRefreshes > 0);
     app.history.undo();
     assert.deepEqual([text.text, netLabel.net, wire.net], ['OLD', 'OLD', 'OLD'], 'Undo restores the label and its wires');

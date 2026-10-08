@@ -8,6 +8,25 @@ import {
 } from '../../core/text-edit-geometry.js';
 import { createInlineTextOverlay } from '../../shared/ui/inline-text-overlay.js';
 import { isSchematicLocked } from '../../shapes/lock-owner.js';
+import { getSchematicInteraction, setSchematicInteraction } from './schematic-interactions.js';
+
+/** @param {object} app */
+export function getSchematicTextEdit(app) {
+    return getSchematicInteraction(app, 'textEdit');
+}
+
+/** @param {object} app */
+export function hasSchematicTextEdit(app) {
+    return !!getSchematicTextEdit(app);
+}
+
+/**
+ * @param {object} app
+ * @param {any} state
+ */
+function setSchematicTextEdit(app, state) {
+    setSchematicInteraction(app, 'textEdit', state);
+}
 
 /**
  * Begins inline text editing on a text shape: initializes caret, creates
@@ -33,12 +52,13 @@ export function startTextEdit(app, shape) {
         activeEl.blur();
     }
 
-    if (app.textEdit && app.textEdit.shape === shape) {
+    const activeEdit = getSchematicTextEdit(app);
+    if (activeEdit && activeEdit.shape === shape) {
         updateTextEditOverlay(app);
         return;
     }
 
-    if (app.textEdit) {
+    if (activeEdit) {
         endTextEdit(app, true);
     }
 
@@ -49,7 +69,7 @@ export function startTextEdit(app, shape) {
         ? initialText.length
         : Math.max(0, Math.min(initialText.length, storedCaret));
 
-    app.textEdit = {
+    setSchematicTextEdit(app, {
         shape,
         originalText: initialText,
         caretIndex: initialCaret,
@@ -60,7 +80,7 @@ export function startTextEdit(app, shape) {
         overlayBlink: null,
         blinkTimeoutId: null,
         overlayOffset: null
-    };
+    });
 
     ensureOverlay(app);
     updateTextEditOverlay(app);
@@ -75,7 +95,7 @@ export function startTextEdit(app, shape) {
  * @param {boolean} [commit=true] - Whether to commit the edit.
  */
 export function endTextEdit(app, commit = true) {
-    const state = app.textEdit;
+    const state = getSchematicTextEdit(app);
     if (!state) return;
     const shape = state.shape;
 
@@ -176,7 +196,7 @@ export function endTextEdit(app, commit = true) {
         state.blinkTimeoutId = null;
     }
 
-    app.textEdit = null;
+    setSchematicTextEdit(app, null);
 
     if (shape && app.currentTool === 'select' && app.selection && !app.selection.isSelected(shape)) {
         app.selection.select(shape, false);
@@ -191,7 +211,7 @@ export function endTextEdit(app, commit = true) {
  * @returns {boolean} `true` if the key was consumed.
  */
 export function handleTextEditKey(app, e) {
-    const state = app.textEdit;
+    const state = getSchematicTextEdit(app);
     if (!state) return false;
 
     const shape = state.shape;
@@ -302,7 +322,7 @@ export function handleTextEditKey(app, e) {
  * @param {object} app - Application state.
  */
 export function updateTextEditOverlay(app) {
-    const state = app.textEdit;
+    const state = getSchematicTextEdit(app);
     if (!state || !state.shape || !state.overlayGroup) return;
     if (isSchematicLocked(state.shape)) {
         endTextEdit(app, true);
@@ -366,7 +386,7 @@ export function updateTextEditOverlay(app) {
  * @param {number} dy - Vertical offset in world units.
  */
 export function nudgeTextEditOverlay(app, dx, dy) {
-    const state = app.textEdit;
+    const state = getSchematicTextEdit(app);
     if (!state || !state.overlayGroup) return;
 
     const nextX = (state.overlayOffset?.x || 0) + dx;
@@ -388,7 +408,7 @@ export function nudgeTextEditOverlay(app, dx, dy) {
  * @param {{x: number, y: number}} screenPos - Screen-space click position.
  */
 export function setTextCaretFromScreen(app, screenPos) {
-    const state = app.textEdit;
+    const state = getSchematicTextEdit(app);
     if (!state || !state.shape) return;
 
     const shapeEl = viewElementOf(state.shape);
@@ -465,7 +485,7 @@ function findWordBoundaryRight(text, index) {
 }
 
 function ensureOverlay(app) {
-    const state = app.textEdit;
+    const state = getSchematicTextEdit(app);
     if (!state || state.overlayGroup) return;
 
     const overlay = createInlineTextOverlay(
@@ -491,7 +511,7 @@ function resetCaretBlink(state, _delay = 300) {
 }
 
 function updateText(app, nextText, caretIndex) {
-    const state = app.textEdit;
+    const state = getSchematicTextEdit(app);
     if (!state) return;
 
     state.shape.text = nextText;
@@ -593,7 +613,7 @@ function _cleanupTextEditState(state, app, shape) {
         clearTimeout(state.blinkTimeoutId);
         state.blinkTimeoutId = null;
     }
-    app.textEdit = null;
+    setSchematicTextEdit(app, null);
     if (shape && app.selection && !app.selection.isSelected(shape)) {
         app.selection.select(shape, false);
     }

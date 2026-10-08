@@ -34,6 +34,8 @@ const {
     getPendingShapeSegmentToggle,
     idleState,
     anchorDragState,
+    getDidSchematicDrag,
+    setDidSchematicDrag,
     setPendingShapeSegmentToggle,
 } = await import('../../src/schematic/modules/draw-states.js');
 const { updatePropertiesPanel } = await import('../../src/schematic/modules/properties.js');
@@ -42,7 +44,15 @@ const { Arc } = await import('../../src/shapes/arc.js');
 const { Wire } = await import('../../src/shapes/wire.js');
 const { setSchematicShapeSegmentType, showSegmentContextMenu, dismissAnchorContextMenu, splitAnchorAndDrag } = await import('../../src/schematic/modules/context-menu.js');
 const { runSchematicDeleteAction } = await import('../../src/schematic/modules/editor-actions.js');
-const { resolveAnchorDragOnMouseUp, commitShapeJoin } = await import('../../src/schematic/modules/drag.js');
+const {
+    clearPendingAnchorDrag,
+    getPendingAnchorDrag,
+    getSchematicDrag,
+    resolveAnchorDragOnMouseUp,
+    setPendingAnchorDrag,
+    setSchematicDrag,
+    commitShapeJoin,
+} = await import('../../src/schematic/modules/drag.js');
 const { SelectionManager } = await import('../../src/core/SelectionManager.js');
 const { runSchematicEscapeAction } = await import('../../src/schematic/modules/editor-actions.js');
 const { setPathSegmentType } = await import('../../src/shapes/path-operations.js');
@@ -241,8 +251,6 @@ function appFor(shape) {
         interactionState: 'idle',
         shapes: [shape],
         components: [],
-        didDrag: false,
-        pendingAnchorDrag: null,
         selection: {
             hitTest() { return shape; },
             getSelection() { return selected; },
@@ -385,13 +393,13 @@ for (const closed of [false, true]) {
             && app.shapes.every(item => !!item.toEditablePath() && !item.closed));
         expect('split preserves all original segments', app.shapes.reduce((count, item) => count + item.edges.size, 0) === (closed ? 4 : 3));
         expect('split has no history before placement', app.commands.length === 0);
-        shape.moveAnchor(app.drag.anchorId, 12, 2);
+        shape.moveAnchor(getSchematicDrag(app).anchorId, 12, 2);
         if (cancel) {
             runSchematicEscapeAction(app);
             expect('Escape removes the split preview and restores the original', app.shapes.length === 1 && app.commands.length === 0
                 && JSON.stringify(shape.captureState()) === JSON.stringify(original));
         } else {
-            resolveAnchorDragOnMouseUp(app, shape, app.drag.beforeState, app.didDrag);
+            resolveAnchorDragOnMouseUp(app, shape, getSchematicDrag(app).beforeState, getDidSchematicDrag(app));
             expect('split placement is one undo step', app.commands.length === 1 && app.shapes.length === (closed ? 1 : 2));
             const placed = app.shapes.map(item => item.captureState());
             app.commands[0].undo();
@@ -481,8 +489,8 @@ for (const mode of ['immediate', 'place', 'cancel']) {
         && arc.startPoint.x === 1 && arc.endPoint.x === 11 && arc.lineWidth === 0.8 && !arc.fill);
     expect('converted Arc is the selected object', app.selection.getSelection()[0] === arc);
     if (mode !== 'immediate') {
-        expect('conversion preview does not create history', app.commands.length === 0 && app.drag.anchorId === 'mid');
-        arc.moveAnchor(app.drag.anchorId, 6, 5);
+        expect('conversion preview does not create history', app.commands.length === 0 && getSchematicDrag(app).anchorId === 'mid');
+        arc.moveAnchor(getSchematicDrag(app).anchorId, 6, 5);
         expect('curvature placement leaves both endpoints fixed', arc.startPoint.x === 1 && arc.startPoint.y === 2
             && arc.endPoint.x === 11 && arc.endPoint.y === 2);
         if (mode === 'cancel') {
@@ -492,7 +500,7 @@ for (const mode of ['immediate', 'place', 'cancel']) {
                 && JSON.stringify(line.captureState()) === JSON.stringify(before));
             continue;
         }
-        resolveAnchorDragOnMouseUp(app, arc, app.drag.beforeState, true);
+        resolveAnchorDragOnMouseUp(app, arc, getSchematicDrag(app).beforeState, true);
     }
     const placed = arc.captureState();
     expect('single-line conversion commits once', app.commands.length === 1);
@@ -535,14 +543,14 @@ for (const kind of ['line', 'polygon', 'rectangle']) {
             && shape.closed === (kind !== 'line') && !shape.isRect);
         expect(`${kind} conversion keeps the segment selected`, getShapeSegmentFocus(app).edgeId === edgeId);
         if (floating) {
-            expect('arc conversion floats a bulge handle before committing', app.drag.anchorId === `bulge_${edgeId}` && commands.length === 0);
-            shape.moveAnchor(app.drag.anchorId, 5, 2.5);
+            expect('arc conversion floats a bulge handle before committing', getSchematicDrag(app).anchorId === `bulge_${edgeId}` && commands.length === 0);
+            shape.moveAnchor(getSchematicDrag(app).anchorId, 5, 2.5);
             runSchematicEscapeAction(app);
             expect('Escape restores the original straight shape without history',
-                JSON.stringify(shape.captureState()) === JSON.stringify(before) && commands.length === 0 && app.drag === null);
+                JSON.stringify(shape.captureState()) === JSON.stringify(before) && commands.length === 0 && getSchematicDrag(app) === null);
             setSchematicShapeSegmentType(app, shape, edgeId, 'arc', { floating: true });
-            shape.moveAnchor(app.drag.anchorId, 5, 2.5);
-            resolveAnchorDragOnMouseUp(app, shape, app.drag.beforeState, app.didDrag);
+            shape.moveAnchor(getSchematicDrag(app).anchorId, 5, 2.5);
+            resolveAnchorDragOnMouseUp(app, shape, getSchematicDrag(app).beforeState, getDidSchematicDrag(app));
         }
         expect('conversion and curvature placement create one undo step', commands.length === 1);
         const curved = shape.captureState();
@@ -634,12 +642,12 @@ for (const [name, shape] of cases) {
         !tryBeginPolylineSegmentDrag(app, shape, worldPos, false, 0.1));
     app.selection.select(shape);
     tryBeginPolylineSegmentDrag(app, shape, worldPos, true, 0.1);
-    const edgeId = app.drag?.edgeId;
+    const edgeId = getSchematicDrag(app)?.edgeId;
     const edge = shape.edges.get(edgeId);
-    expect(`${name} second click refines the hit segment`, app.drag?.mode === 'segment');
+    expect(`${name} second click refines the hit segment`, getSchematicDrag(app)?.mode === 'segment');
     expect(`${name} stores a stable edge id`, getShapeSegmentFocus(app)?.edgeId === edgeId);
 
-    app.drag = null;
+    setSchematicDrag(app, null);
     expect(`${name} selected edge can begin a later segment drag`,
         tryBeginPolylineSegmentDrag(app, shape, worldPos, true, 0.1));
     const otherEdgeId = [...shape.edges.keys()].find((candidate) => candidate !== edgeId);
@@ -648,11 +656,11 @@ for (const [name, shape] of cases) {
         const otherFrom = shape.nodes.get(otherEdge.from);
         const otherTo = shape.nodes.get(otherEdge.to);
         const otherPoint = { x: (otherFrom.x + otherTo.x) / 2, y: (otherFrom.y + otherTo.y) / 2 };
-        app.drag = null;
+        setSchematicDrag(app, null);
         expect(`${name} another edge does not inherit segment drag mode`,
             !tryBeginPolylineSegmentDrag(app, shape, otherPoint, true, 0.1));
     }
-    app.drag = null;
+    setSchematicDrag(app, null);
     tryBeginPolylineSegmentDrag(app, shape, worldPos, true, 0.1);
 
     const untouchedNodeId = [...shape.nodes.keys()].find((id) => id !== edge.from && id !== edge.to);
@@ -677,7 +685,7 @@ for (const [name, shape] of cases) {
     expect('skewing a rectangle segment converts it to a polygon', !shape.isRect);
     updatePolylineSegmentDrag(app, { x: 3, y: 2 });
     expect('returning the segment to axis alignment restores rectangle semantics', shape.isRect && shape.cornerRadius === 2);
-    shape.applyState(app.drag.beforeState);
+    shape.applyState(getSchematicDrag(app).beforeState);
     expect('cancelling restores the original rectangle', shape.isRect && shape.nodes.get('n0').y === 0);
 }
 
@@ -724,7 +732,7 @@ for (const [name, shape] of cases) {
     app.selection.select(shape);
     const nodeId = shape.nodes.keys().next().value;
     const pending = { shape, anchorId: nodeId, screenPos: { x: 0, y: 0 }, snapped: { x: 0, y: 0 } };
-    app.pendingAnchorDrag = pending;
+    setPendingAnchorDrag(app, pending);
     app.renderShapes = () => {};
     app.updatePropertiesPanel = () => {};
     let activeTab = null;
@@ -733,11 +741,11 @@ for (const [name, shape] of cases) {
     idleState.mouseup(app, { button: 0, preventDefault() {} }, { worldPos: shape.nodes.get(nodeId) });
     idleState.click(app, { preventDefault() {} }, { worldPos: shape.nodes.get(nodeId) });
     expect('schematic Node properties end pending movement on release',
-        app.pendingAnchorDrag === null
+        getPendingAnchorDrag(app) === null
         && getShapeNodeFocus(app)?.nodeId === nodeId);
     expect('node refinement activates Properties', activeTab === 'properties');
     idleState.mousemove(app, {}, { screenPos: { x: 200, y: 300 }, worldPos: { x: 2, y: 3 }, snapped: { x: 2, y: 3 } });
-    expect('a selected schematic node does not follow the released pointer', !app.drag
+    expect('a selected schematic node does not follow the released pointer', !getSchematicDrag(app)
         && JSON.stringify(shape.captureState()) === JSON.stringify(before));
 }
 
@@ -798,14 +806,14 @@ for (const position of [0, 3]) {
                     (position === 0 ? getShapeNodeFocus(app)?.nodeId === 'n0' : getShapeSegmentFocus(app)?.edgeId === 'e0')
                     && activeTab === 'properties' && updates === press + 1);
                 expect('release clears pending segment selection and preserves geometry',
-                    getPendingShapeSegmentToggle(app) == null && app.pendingAnchorDrag == null
+                    getPendingShapeSegmentToggle(app) == null && getPendingAnchorDrag(app) == null
                     && JSON.stringify(shape.captureState()) === JSON.stringify(before));
                 if (nativeClick) {
                     svgListeners.get('click')(event);
                     expect('native click does not duplicate release selection', updates === press + 1);
                 }
                 idleState.mousemove(app, {}, { screenPos: { x: 900, y: 300 }, worldPos: { x: 9, y: 3 }, snapped: { x: 9, y: 3 } });
-                expect('hover after release cannot start a node drag', !app.drag
+                expect('hover after release cannot start a node drag', !getSchematicDrag(app)
                     && JSON.stringify(shape.captureState()) === JSON.stringify(before));
             }
         } finally {
@@ -844,19 +852,19 @@ for (const kind of ['wire', 'line', 'polygon', 'rectangle']) for (const action o
         windowListeners.get('mouseup')(event);
         svgListeners.get('click')(event);
         expect(`${kind} midpoint click starts pickup without committing`, app.interactionState === 'anchorDrag'
-            && app.drag.midpointPlacement && app.commands.length === 0);
+            && getSchematicDrag(app).midpointPlacement && app.commands.length === 0);
         const target = { ...event, clientY: 300 };
         svgListeners.get('mousemove')(target);
         expect(`${kind} picked-up midpoint follows the cursor`, [...shape.nodes.values()].some(point => point.x === 5 && point.y === 3));
         if (action === 'cancel') {
             runSchematicEscapeAction(app);
-            expect(`${kind} Escape restores pre-insertion geometry`, !app.drag && app.commands.length === 0
+            expect(`${kind} Escape restores pre-insertion geometry`, !getSchematicDrag(app) && app.commands.length === 0
                 && JSON.stringify(shape.captureState()) === JSON.stringify(before));
         } else {
             svgListeners.get('mousedown')({ ...target, buttons: 1 });
             windowListeners.get('mouseup')(target);
             svgListeners.get('click')(target);
-            expect(`${kind} second click places midpoint exactly once`, !app.drag && app.interactionState === 'idle'
+            expect(`${kind} second click places midpoint exactly once`, !getSchematicDrag(app) && app.interactionState === 'idle'
                 && app.commands.length === 1);
             const after = shape.captureState();
             svgListeners.get('mousemove')({ ...target, clientY: 600 });
@@ -880,14 +888,14 @@ for (const midpoint of [false, true]) {
     app.removeBoxSelectElement = () => {};
     const before = shape.captureState();
     const start = { x: midpoint ? 5 : 0, y: 0 };
-    app.pendingAnchorDrag = { shape, anchorId: midpoint ? 'mid_e0' : 'n0',
-        screenPos: { x: start.x * 100, y: 0 }, snapped: start };
+    setPendingAnchorDrag(app, { shape, anchorId: midpoint ? 'mid_e0' : 'n0',
+        screenPos: { x: start.x * 100, y: 0 }, snapped: start });
     const target = { screenPos: { x: 500, y: 300 }, worldPos: { x: 5, y: 3 }, snapped: { x: 5, y: 3 } };
     idleState.mousemove(app, { buttons: 1 }, target);
-    expect('held movement promotes the pending node drag', app.interactionState === 'anchorDrag' && app.pendingAnchorDrag === null);
+    expect('held movement promotes the pending node drag', app.interactionState === 'anchorDrag' && getPendingAnchorDrag(app) === null);
     anchorDragState.mousemove(app, { buttons: 1 }, target);
     anchorDragState.mouseup(app, { button: 0 });
-    expect('held node/midpoint drag commits on release', !app.drag && app.interactionState === 'idle'
+    expect('held node/midpoint drag commits on release', !getSchematicDrag(app) && app.interactionState === 'idle'
         && app.commands.length === 1);
     const after = shape.captureState();
     idleState.mousemove(app, {}, { ...target, screenPos: { x: 900, y: 600 }, worldPos: { x: 9, y: 6 } });

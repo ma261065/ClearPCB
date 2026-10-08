@@ -185,14 +185,26 @@ evaluation-order cycle fails.
   editor itself hosts (its viewport, dirty state, autorouter session, component
   selection and Properties panels) only through `pcb-editor-api.js` services,
   never its private members.
-- Schematic modules follow the same pattern. `schematic-interactions.js` owns the
-  overlap-cycle press slot in an import-free WeakMap; `draw-states.js` owns its
-  pending segment-toggle and drag scratch buffers; `drawing.js` owns one-shot
-  draw snap data; `wire.js` owns wire axis-lock and junction highlight state;
-  `components.js` owns component placement-preview visibility plus the component
-  code tooltip; `mouse.js` owns right-button pan tracking; `ribbon.js` owns the
-  tab activator, height retainer, Escape cleanup and save-toast handler; `tool-ghost.js`
-  owns placement ghosts; `label-attachment.js` owns the label guide; and
+- Schematic modules follow the same pattern. In-progress schematic slots are
+  listed once in `schematic-interactions.js` with their owner module and stored
+  in its import-free WeakMap. Only the owner writes its slot with
+  `setSchematicInteraction`; other code asks owner intent APIs such as
+  `getSchematicTextEdit`, `getSchematicDrag`, `getPendingAnchorDrag`,
+  `isSchematicDrawingActive`, `isPastingClipboard` and `getPlacingComponent`.
+  `test-schematic-interactions` fails if a slot is unregistered, written outside
+  its owner or assigned back onto `SchematicApp`.
+  Slot owners are: `textEdit` → `text-edit.js`, `overlapCyclePress` →
+  `draw-states.js`, `drag` and `pendingAnchorDrag` → `drag.js`, `isDrawing` →
+  `drawing.js`, `pastingClipboard` → `clipboard.js`, and `placingComponent` →
+  `components.js`.
+- Other transient schematic state also stays with an owner module:
+  `draw-states.js` owns the pending segment-toggle, drag-click flags and reusable
+  drag scratch buffers; `drawing.js` owns one-shot draw snap data; `wire.js`
+  owns wire axis-lock and junction highlight state; `components.js` owns
+  component placement-preview visibility plus the component code tooltip;
+  `mouse.js` owns right-button pan tracking; `ribbon.js` owns the tab activator,
+  height retainer, Escape cleanup and save-toast handler; `tool-ghost.js` owns
+  placement ghosts; `label-attachment.js` owns the label guide; and
   `schematic-view.js` owns the refined segment-selection overlay. Other modules
   call exported intent APIs instead of reading `app._…`.
 - `property-editors.js`, `refresh-state.js` and `board-shape-state.js` have no imports,
@@ -317,18 +329,20 @@ Schematic editor:
 - `schematic/modules/editor-actions.js` — Undo, Redo, Delete and Escape entry points,
   like `pcb/modules/editor-actions.js`.
 - `schematic/modules/schematic-interactions.js` — the one list of in-progress
-  interactions, with PCB's categories, and the WeakMap-owned overlap-cycle press
-  slot; `schematic-interaction-routing.js` — their cancel handlers (counterparts
-  of `pcb-interactions.js` and `pcb-interaction-routing.js`).
+  interactions, with PCB's categories, owner modules and import-free WeakMap
+  store; `schematic-interaction-routing.js` — their cancel handlers
+  (counterparts of `pcb-interactions.js` and `pcb-interaction-routing.js`).
 - `schematic/modules/schematic-view.js` — entity SVG lifecycle, culling and level of
   detail; `schematic/render/` — shape and component renderers and their view state.
-- `schematic/modules/draw-states.js` — the pointer interaction state machine, pending
-  segment-toggle state and reusable drag scratch buffers;
+- `schematic/modules/draw-states.js` — the pointer interaction state machine,
+  overlap-cycle slot owner, pending segment-toggle state, drag-click flags and
+  reusable drag scratch buffers;
   `mouse.js`, `keyboard.js`, `ribbon.js`, `context-menu.js` — the input bindings
   that drive it and the editor actions.
 - `schematic/modules/drawing.js`, `wire.js`, `components.js`, `clipboard.js`,
-  `drag.js`, `text-edit.js` — drawing, wiring, placement, paste, drag commits and
-  inline text; `selection.js` — lock toggling and shape-state capture; `locks.js` —
+  `drag.js`, `text-edit.js` — drawing, wiring, component placement, paste,
+  drag/pending-anchor slots and inline text; `selection.js` — lock toggling and
+  shape-state capture; `locks.js` —
   the lock icon's unlock menu (`render/lock-placement.js` places lock icons, using
   the editors' shared `core/lock-position.js`).
 - `schematic/modules/commands.js` — undo/redo commands; `shape-management.js` — the
